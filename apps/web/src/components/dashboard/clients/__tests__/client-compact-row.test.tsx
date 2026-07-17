@@ -35,9 +35,9 @@ describe("ClientCompactRow — compact horizontal row for clients table mode", (
     expect(SRC).toContain("./client-card");
   });
 
-  it("renders projects / lifetime / owed numbers in mono bold (matches design)", () => {
+  it("renders projects plus explicit unavailable commercial totals in mono bold", () => {
     expect(SRC).toMatch(/font-mono[\s\S]*?font-bold[\s\S]*?\{projects\}/);
-    expect(SRC).toMatch(/font-mono[\s\S]*?font-bold[\s\S]*?formatMoney\(lifetime/);
+    expect(SRC).toContain("Unavailable");
   });
 
   it("mounts LinkPill for the status column", () => {

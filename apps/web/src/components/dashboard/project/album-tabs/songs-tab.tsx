@@ -27,6 +27,7 @@ import { UploadTrackModal } from "~/components/dashboard/song/upload-track-modal
 
 interface SongsTabProps {
   projectId: string;
+  purchaseId: string | null;
   tracks: TrackRowData[];
   /** Optional override — if not provided, "+ Add song" opens the modal. */
   onAddSong?: () => void;
@@ -35,6 +36,7 @@ interface SongsTabProps {
 
 export function SongsTab({
   projectId,
+  purchaseId,
   tracks,
   onAddSong,
   onReorder,
@@ -116,6 +118,7 @@ export function SongsTab({
         setUploadOpen(false);
       }}
       projectId={projectId}
+      purchaseId={purchaseId}
       mode="new-song"
       tracks={modalTracks}
     />

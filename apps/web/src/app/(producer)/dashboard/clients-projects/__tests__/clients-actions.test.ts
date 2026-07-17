@@ -43,3 +43,14 @@ describe("createClientAction", () => {
     expect(occurrences.length).toBeGreaterThanOrEqual(5);
   });
 });
+
+describe("createProjectAction", () => {
+  it("creates only the work container and optional deadline", () => {
+    const start = SRC.indexOf("export async function createProjectAction");
+    const end = SRC.indexOf("// Edit + Remove", start);
+    const section = SRC.slice(start, end);
+
+    expect(section).toContain("deadlineAt");
+    expect(section).not.toMatch(/productId|engagementTotalCents|depositCents/);
+  });
+});

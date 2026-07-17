@@ -26,8 +26,6 @@ function labelsFor(plan: PaymentPlan, charges: number[]): string[] {
       return ["Due today", "On delivery"];
     case "monthly":
       return charges.map((_, i) => (i === 0 ? "Due today" : `Month ${String(i + 1)}`));
-    case "milestones":
-      return plan.milestones.map((m) => m.label);
   }
 }
 
@@ -97,16 +95,4 @@ export function chargesProgress(
     availableToSubmitCents: availableToSubmit,
     nextDueCents: Math.min(nextCharge - coveredIntoNext, remaining),
   };
-}
-
-// The `invoices.kind` free-text role for the Nth charge of a plan.
-export function invoiceKindForCharge(
-  planKind: PaymentPlan["kind"],
-  chargeIndex: number,
-  chargeCount: number,
-): "full" | "deposit" | "milestone" | "final" {
-  if (planKind === "full" || chargeCount <= 1) return "full";
-  if (chargeIndex <= 0) return "deposit";
-  if (chargeIndex >= chargeCount - 1) return "final";
-  return "milestone";
 }

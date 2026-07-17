@@ -21,6 +21,8 @@ export async function confirmBookingAction(input: {
   projectId: string | null;
   productId: string | null;
   existingProjectId?: string;
+  purchaseId: string;
+  sessionAllowanceId: string;
 }): Promise<{ ok: true; bookingId: string } | { ok: false; error: string }> {
   const { userId } = await auth();
   if (!userId) return { ok: false, error: "Not signed in" };

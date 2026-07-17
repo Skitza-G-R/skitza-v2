@@ -11,9 +11,8 @@ import { StoreProductClient } from "./store-product-client";
 
 type PageProps = { params: Promise<{ productId: string }> };
 
-// Server Component. Loads the product + plan options, hands off to a
-// Client Component that owns the PlanPicker state + "Continue to
-// checkout" action. Ownership guards live inside the tRPC procedure
+// Server Component. Loads the product and hands request intent to the
+// Client Component. Ownership guards live inside the tRPC procedure
 // (NOT_FOUND on miss) — we just translate that into Next's notFound()
 // so routing shows a 404 page rather than a server error.
 export default async function StoreProductPage({ params }: PageProps) {
@@ -130,7 +129,6 @@ export default async function StoreProductPage({ params }: PageProps) {
           name: product.name,
           priceCents: product.priceCents,
           currency: product.currency,
-          paymentPlans: product.paymentPlans,
           pricingModel: product.pricingModel,
           volumeTiers: product.volumeTiers,
         }}

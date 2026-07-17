@@ -44,6 +44,12 @@ describe("ClientCard source — avatar / link pill / stats / whole-card link", (
     expect(SRC).toContain("Owed");
   });
 
+  it("renders unavailable commercial totals explicitly", () => {
+    expect(SRC).toMatch(/lifetime:\s*number\s*\|\s*null/);
+    expect(SRC).toMatch(/owed:\s*number\s*\|\s*null/);
+    expect(SRC).toContain("Unavailable");
+  });
+
   it("exposes drag callbacks so the parent can reorder cards", () => {
     expect(SRC).toContain("onDragStart");
     expect(SRC).toContain("onDragOver");

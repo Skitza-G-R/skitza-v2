@@ -93,17 +93,50 @@ export function formatFooterStats(args: {
 // ─── Component ───────────────────────────────────────────────────────
 
 export function PulseCard({ stats }: Props) {
+  const footer = formatFooterStats({
+    activeProjects: stats.activeProjects,
+    upcomingSessions7d: stats.upcomingSessions7d,
+    unresolvedItems: stats.unresolvedItems,
+  });
+
+  if (!stats.commercialAvailable) {
+    return (
+      <section aria-labelledby="pulse-heading" data-tour-id="pulse-section">
+        <div className="mb-4">
+          <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
+            Studio activity
+          </p>
+          <h2
+            id="pulse-heading"
+            className="mt-1 font-display text-2xl tracking-tight text-[rgb(var(--fg-primary))]"
+          >
+            Pulse
+          </h2>
+        </div>
+
+        <div
+          data-tour-id="pulse-card"
+          className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6"
+        >
+          <p className="text-sm text-[rgb(var(--fg-muted))]">
+            Commercial totals are not available yet.
+          </p>
+          <div className="mt-5 border-t border-[rgb(var(--border-subtle))] pt-3">
+            <p className="sk-num font-mono text-xs text-[rgb(var(--fg-muted))]">
+              {footer}
+            </p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   const empty = isPulseEmpty({
     thisMonthCents: stats.thisMonthCents,
     lastMonthCents: stats.lastMonthCents,
   });
   const tone = pulseDeltaTone(stats.deltaPct);
   const prevMonth = previousMonthLabel(new Date());
-  const footer = formatFooterStats({
-    activeProjects: stats.activeProjects,
-    upcomingSessions7d: stats.upcomingSessions7d,
-    unresolvedItems: stats.unresolvedItems,
-  });
 
   // Big number — em-dash for the all-zero empty state, formatted
   // currency otherwise. The em-dash glyph (—) is a deliberate

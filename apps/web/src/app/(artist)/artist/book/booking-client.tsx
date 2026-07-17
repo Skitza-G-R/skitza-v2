@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -15,6 +16,7 @@ import { Check } from "~/components/artist/funnel/funnel-icons";
 import { PrimaryCta } from "~/components/artist/funnel/funnel-ui";
 
 import { confirmBookingAction } from "./actions";
+import { findPrepaidSessionByAllowance } from "./prepaid-session-selection";
 
 type BlockShape = { startMin: number; endMin: number; available: boolean };
 type Day = {
@@ -30,14 +32,9 @@ type Studio = {
   slug: string;
   logoUrl: string | null;
 };
-type Product = {
-  id: string;
-  name: string;
-  priceCents: number;
-  currency: string;
-  sessionCount: number | null;
-};
 type ActivePackage = {
+  purchaseId: string;
+  sessionAllowanceId: string;
   projectId: string;
   title: string;
   packageName: string | null;
@@ -45,14 +42,14 @@ type ActivePackage = {
   sessionsUsed: number;
   sessionsRemaining: number;
   unlimitedSessions: boolean;
+  durationMin: number;
 };
 type Props = {
   activeStudioId: string;
   availability: Availability;
-  products: Product[];
   studios: Studio[];
   activePackages: ActivePackage[];
-  initialPackageProjectId: string | null;
+  initialSessionAllowanceId: string | null;
 };
 
 const WEEKDAY_HEADERS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
@@ -72,18 +69,6 @@ function fmtClock(minutes: number): string {
     minute: "2-digit",
     hour12: true,
   });
-}
-
-function fmtPrice(cents: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 0,
-    }).format(cents / 100);
-  } catch {
-    return `${(cents / 100).toFixed(0)} ${currency}`;
-  }
 }
 
 function fmtDateLong(iso: string): string {
@@ -139,9 +124,9 @@ function shiftIsoByDays(iso: string, delta: number): string {
 
 // Hourly start-time options inside a block, capped so the session
 // still fits before the block closes.
-function startsForBlock(block: BlockShape): number[] {
+function startsForBlock(block: BlockShape, durationMin: number): number[] {
   const out: number[] = [];
-  const latest = block.endMin - DEFAULT_DURATION_MIN;
+  const latest = block.endMin - durationMin;
   for (let t = block.startMin; t <= latest; t += SLOT_INCREMENT_MIN) {
     out.push(t);
   }
@@ -190,10 +175,9 @@ function useLiveTimeZoneLabel(): string | null {
 export function BookingClient({
   activeStudioId,
   availability,
-  products,
   studios,
   activePackages,
-  initialPackageProjectId,
+  initialSessionAllowanceId,
 }: Props) {
   const router = useRouter();
   const today = todayISO();
@@ -221,31 +205,29 @@ export function BookingClient({
   const [selectedBlock, setSelectedBlock] = useState<
     "morning" | "evening" | null
   >(null);
-  const [selectedProductId, setSelectedProductId] = useState<string | null>(
-    null,
-  );
-  const [selectedPackageProjectId, setSelectedPackageProjectId] = useState<
+  const [selectedSessionAllowanceId, setSelectedSessionAllowanceId] = useState<
     string | null
-  >(initialPackageProjectId);
+  >(initialSessionAllowanceId);
   const [isPending, startTransition] = useTransition();
   const [result, setResult] = useState<
     { ok: true } | { ok: false; error: string } | null
   >(null);
 
-  const usingCredit = selectedPackageProjectId !== null;
-  const selectedPackage =
-    activePackages.find((p) => p.projectId === selectedPackageProjectId) ??
-    null;
+  const selectedPackage = findPrepaidSessionByAllowance(
+    activePackages,
+    selectedSessionAllowanceId,
+  );
+  const usingCredit = selectedPackage !== null;
   const activeStudio = studios.find((s) => s.producerId === activeStudioId);
 
   // A successful request can consume the final prepaid session. Server
   // refreshes then remove that package from activePackages; never leave the
   // client in a stale credit mode that could hide services or resubmit it.
   useEffect(() => {
-    if (selectedPackageProjectId && !selectedPackage) {
-      setSelectedPackageProjectId(null);
+    if (selectedSessionAllowanceId && !selectedPackage) {
+      setSelectedSessionAllowanceId(null);
     }
-  }, [selectedPackage, selectedPackageProjectId]);
+  }, [selectedPackage, selectedSessionAllowanceId]);
 
   const startsForSelected: StartOption[] = useMemo(() => {
     if (!selectedDate) return [];
@@ -253,29 +235,34 @@ export function BookingClient({
     if (!day) return [];
     const out: StartOption[] = [];
     if (day.morning?.available) {
-      for (const m of startsForBlock(day.morning)) {
+      for (const m of startsForBlock(
+        day.morning,
+        selectedPackage?.durationMin ?? DEFAULT_DURATION_MIN,
+      )) {
         out.push({ minutes: m, block: "morning" });
       }
     }
     if (day.evening?.available) {
-      for (const m of startsForBlock(day.evening)) {
+      for (const m of startsForBlock(
+        day.evening,
+        selectedPackage?.durationMin ?? DEFAULT_DURATION_MIN,
+      )) {
         out.push({ minutes: m, block: "evening" });
       }
     }
     return out;
-  }, [selectedDate, daysByDate]);
+  }, [selectedDate, daysByDate, selectedPackage?.durationMin]);
 
   const resetSelection = () => {
     setSelectedDate(null);
     setChosenStart(null);
     setSelectedBlock(null);
-    setSelectedProductId(null);
     setResult(null);
   };
 
   const handleSwitchStudio = (id: string) => {
     resetSelection();
-    setSelectedPackageProjectId(null);
+    setSelectedSessionAllowanceId(null);
     router.push(`/artist/book?studio=${id}`);
   };
 
@@ -293,19 +280,19 @@ export function BookingClient({
   };
 
   const handleConfirm = () => {
-    if (!selectedDate || chosenStart == null || !selectedBlock) return;
+    if (!selectedDate || chosenStart == null || !selectedBlock || !selectedPackage) return;
     startTransition(async () => {
       const res = await confirmBookingAction({
         producerId: activeStudioId,
         date: selectedDate,
         block: selectedBlock,
         startMin: chosenStart,
-        durationMin: DEFAULT_DURATION_MIN,
+        durationMin: selectedPackage.durationMin,
         projectId: null,
-        productId: usingCredit ? null : selectedProductId,
-        ...(selectedPackageProjectId
-          ? { existingProjectId: selectedPackageProjectId }
-          : {}),
+        productId: null,
+        existingProjectId: selectedPackage.projectId,
+        purchaseId: selectedPackage.purchaseId,
+        sessionAllowanceId: selectedPackage.sessionAllowanceId,
       });
       setResult(res);
       if (res.ok) router.refresh();
@@ -317,9 +304,7 @@ export function BookingClient({
     (viewYear === initialYear && viewMonth > initialMonth);
 
   // Gating — identical booleans to the original, only the markup moved.
-  const showServices = chosenStart != null && !usingCredit;
-  const showConfirm =
-    chosenStart != null && (usingCredit || selectedProductId !== null);
+  const showConfirm = chosenStart != null && usingCredit;
 
   return (
     <div className="mx-auto w-full max-w-[480px] space-y-6">
@@ -380,35 +365,36 @@ export function BookingClient({
         />
       ) : null}
 
-      {/* ── Service picker (pay path) folds inline once a time is set ── */}
-      {showServices ? (
-        <ServiceBlock
-          products={products}
-          selectedProductId={selectedProductId}
-          activeStudio={activeStudio ?? null}
-          onPick={(id) => {
-            setSelectedProductId(id);
-            setResult(null);
-          }}
-        />
-      ) : null}
-
       {/* ── Prepaid-credits option folds inline (subtle toggle) ── */}
       {activePackages.length > 0 ? (
-        <CreditsBlock
-          packages={activePackages}
-          selectedProjectId={selectedPackageProjectId}
-          onPick={(id) => {
-            setSelectedPackageProjectId(id);
-            setSelectedProductId(null);
-            setResult(null);
-          }}
-          onClear={() => {
-            setSelectedPackageProjectId(null);
-            setResult(null);
-          }}
-        />
-      ) : null}
+        <>
+          <CreditsBlock
+            packages={activePackages}
+            selectedAllowanceId={selectedSessionAllowanceId}
+            onPick={(id) => {
+              setSelectedSessionAllowanceId(id);
+              setResult(null);
+            }}
+            onClear={() => {
+              setSelectedSessionAllowanceId(null);
+              setResult(null);
+            }}
+          />
+          <Link
+            href="/artist/store"
+            className="sk-press inline-flex min-h-11 items-center text-sm font-semibold text-[rgb(var(--brand-primary-dark))] underline underline-offset-4"
+          >
+            Request a new service instead
+          </Link>
+        </>
+      ) : (
+        <Link
+          href="/artist/store"
+          className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 py-2 text-sm font-semibold text-[rgb(var(--bg-sidebar))]"
+        >
+          Browse services to request a session
+        </Link>
+      )}
 
       {/* ── Summary footnote (time zone + reminder note) ── */}
       <TimeZoneNote />
@@ -476,7 +462,7 @@ export function BookingClient({
                   ? "Pick a time to continue"
                   : chosenStart == null
                     ? "Pick a time to continue"
-                    : "Pick a service to continue"
+                    : "Choose a purchased session to continue"
           }
         >
           {isPending
@@ -484,10 +470,10 @@ export function BookingClient({
             : result?.ok
               ? "Sent"
               : usingCredit
-                ? selectedPackage?.unlimitedSessions
+                ? selectedPackage.unlimitedSessions
                   ? "Use credit · Ongoing"
-                  : `Use credit · ${String(selectedPackage?.sessionsRemaining ?? 0)} left`
-                : "Request this slot"}
+                  : `Use credit · ${String(selectedPackage.sessionsRemaining)} left`
+                : "Choose a purchased session"}
         </PrimaryCta>
       </div>
 
@@ -1063,99 +1049,18 @@ function TimeGroup({
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Service block — pay-path product picker, folded inline (no side rail).
-// ──────────────────────────────────────────────────────────────────────
-
-function ServiceBlock({
-  products,
-  selectedProductId,
-  activeStudio,
-  onPick,
-}: {
-  products: Product[];
-  selectedProductId: string | null;
-  activeStudio: Studio | null;
-  onPick: (id: string) => void;
-}) {
-  return (
-    <section
-      aria-label="Service"
-      className="sk-rise space-y-2"
-      style={{ animationDelay: "40ms" }}
-    >
-      <p
-        className="px-1 font-mono text-[10px] font-semibold uppercase tracking-[0.18em]"
-        style={{ color: "rgb(var(--brand-primary-dark))" }}
-      >
-        Service
-      </p>
-      {products.length === 0 ? (
-        <p className="px-1 text-[12.5px] text-[rgb(var(--fg-secondary))]">
-          {activeStudio?.name ?? "This producer"} hasn&apos;t listed services
-          yet. Reach out directly to lock this slot.
-        </p>
-      ) : (
-        <ul className="space-y-2">
-          {products.map((p, i) => {
-            const sel = p.id === selectedProductId;
-            return (
-              <li key={p.id}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onPick(p.id);
-                  }}
-                  className="book-stagger sk-press flex w-full items-center justify-between gap-2 rounded-card border px-4 py-3 text-left"
-                  style={{
-                    background: sel
-                      ? "rgb(var(--brand-primary) / 0.06)"
-                      : "rgb(var(--bg-elevated))",
-                    borderColor: sel
-                      ? "rgb(var(--brand-primary))"
-                      : "rgb(var(--border-strong))",
-                    boxShadow: sel
-                      ? "0 0 0 1px rgb(var(--brand-primary)), var(--shadow-sm)"
-                      : "var(--shadow-sm)",
-                    transition: `background-color 150ms ${EASE_OUT}, border-color 150ms ${EASE_OUT}, box-shadow 220ms ${EASE_OUT}`,
-                    animationDelay: `${String(i * 35)}ms`,
-                  }}
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate text-[13.5px] font-semibold text-[rgb(var(--fg-default))]">
-                      {p.name}
-                    </span>
-                    {p.sessionCount && p.sessionCount > 1 ? (
-                      <span className="text-[11px] text-[rgb(var(--fg-muted))]">
-                        {p.sessionCount} sessions
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="shrink-0 font-amount text-[13px] font-semibold text-[rgb(var(--fg-default))]">
-                    {fmtPrice(p.priceCents, p.currency)}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </section>
-  );
-}
-
-// ──────────────────────────────────────────────────────────────────────
 // Credits block — "use a prepaid session" toggle, folded inline.
 // ──────────────────────────────────────────────────────────────────────
 
 function CreditsBlock({
   packages,
-  selectedProjectId,
+  selectedAllowanceId,
   onPick,
   onClear,
 }: {
   packages: ActivePackage[];
-  selectedProjectId: string | null;
-  onPick: (projectId: string) => void;
+  selectedAllowanceId: string | null;
+  onPick: (sessionAllowanceId: string) => void;
   onClear: () => void;
 }) {
   const hasUnlimited = packages.some((pkg) => pkg.unlimitedSessions);
@@ -1180,15 +1085,15 @@ function CreditsBlock({
       </header>
       <ul className="mt-2.5 space-y-1.5">
         {packages.map((pkg) => {
-          const sel = pkg.projectId === selectedProjectId;
+          const sel = pkg.sessionAllowanceId === selectedAllowanceId;
           const exhausted =
             !pkg.unlimitedSessions && pkg.sessionsRemaining <= 0;
           return (
-            <li key={pkg.projectId}>
+            <li key={pkg.sessionAllowanceId}>
               <button
                 type="button"
                 onClick={() => {
-                  onPick(pkg.projectId);
+                  onPick(pkg.sessionAllowanceId);
                 }}
                 disabled={exhausted}
                 className="sk-press flex w-full items-center justify-between gap-2 rounded-[var(--radius-md)] border px-2.5 py-2 text-left disabled:cursor-not-allowed disabled:opacity-60"
@@ -1234,14 +1139,14 @@ function CreditsBlock({
         className="sk-press mt-2 text-[11px] underline decoration-dotted underline-offset-2"
         style={{
           color:
-            selectedProjectId === null
+            selectedAllowanceId === null
               ? "rgb(var(--brand-primary-dark))"
               : "rgb(var(--fg-muted))",
         }}
       >
-        {selectedProjectId === null
-          ? "Paying for a new session"
-          : "Pay for a new session instead"}
+        {selectedAllowanceId === null
+          ? "No purchased session selected"
+          : "Don’t use a purchased session"}
       </button>
     </section>
   );

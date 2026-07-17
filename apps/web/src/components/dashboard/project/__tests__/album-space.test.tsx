@@ -21,11 +21,11 @@ describe("AlbumSpace — composes hero + strip + tabs + active panel", () => {
     expect(SRC).toContain("AlbumTabs");
   });
 
-  it("imports SongsTab + FilesTab + PaymentsTab + StudioLogTab", () => {
+  it("imports the creative-work panels without the removed payment panel", () => {
     expect(SRC).toContain("SongsTab");
     expect(SRC).toContain("FilesTab");
-    expect(SRC).toContain("PaymentsTab");
     expect(SRC).toContain("StudioLogTab");
+    expect(SRC).not.toContain("PaymentsTab");
   });
 
   it("uses useState for the active tab", () => {
@@ -40,15 +40,15 @@ describe("AlbumSpace — composes hero + strip + tabs + active panel", () => {
     // The body conditionally renders based on the active tab key.
     expect(SRC).toMatch(/active\s*===\s*["']songs["']/);
     expect(SRC).toMatch(/active\s*===\s*["']files["']/);
-    expect(SRC).toMatch(/active\s*===\s*["']payments["']/);
     expect(SRC).toMatch(/active\s*===\s*["']log["']/);
+    expect(SRC).not.toMatch(/active\s*===\s*["']payments["']/);
   });
 
-  it("forwards project + tracks + payments + studioLog props to the panels", () => {
+  it("forwards project + tracks + studioLog props to the panels", () => {
     expect(SRC).toContain("project");
     expect(SRC).toContain("tracks");
-    expect(SRC).toContain("payments");
     expect(SRC).toContain("studioLog");
+    expect(SRC).not.toContain("milestones");
   });
 
   it("forbids --surface-card", () => {

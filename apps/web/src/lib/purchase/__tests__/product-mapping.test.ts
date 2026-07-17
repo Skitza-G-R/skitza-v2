@@ -29,9 +29,6 @@ const ROW = {
     },
   },
   revisions: 2,
-  depositPct: 50,
-  depositModel: "flat",
-  milestones: null,
   paymentPlans: [
     { kind: "full" as const },
     { kind: "split_50_50" as const },
@@ -82,7 +79,6 @@ describe("toPurchaseProduct", () => {
       includes: ["Full mix + master", "WAV stems"],
       tagline: "Track, comp, mix & master one song.",
       sessions: 3,
-      depositPct: 50,
       revisions: 2,
       paymentPlans: [
         { kind: "full" },
@@ -91,28 +87,6 @@ describe("toPurchaseProduct", () => {
       agreementText: "Credit the producer in release metadata.",
       royaltyTerms: ROW.royaltyTerms,
     });
-  });
-
-  it("surfaces a milestones plan kind when the deposit model is milestone-based", () => {
-    const product = toPurchaseProduct({
-      ...ROW,
-      depositModel: "milestones",
-      milestones: [
-        { label: "Booking", pct: 50 },
-        { label: "Delivery", pct: 50 },
-      ],
-    });
-    expect(product.paymentPlans).toEqual([
-      { kind: "full" },
-      { kind: "split_50_50" },
-      {
-        kind: "milestones",
-        milestones: [
-          { label: "Booking", pct: 50 },
-          { label: "Delivery", pct: 50 },
-        ],
-      },
-    ]);
   });
 
   it("renders an empty includes list when deliverables are unset", () => {

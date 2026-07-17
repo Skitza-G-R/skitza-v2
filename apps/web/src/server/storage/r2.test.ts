@@ -6,6 +6,7 @@ import {
   buildProofStagingKey,
   encodeR2CopySource,
   hasValidProofFileSignature,
+  isAudioKeyForTrackVersion,
   isProofStagingKeyForPurchase,
 } from "./r2";
 
@@ -16,7 +17,37 @@ describe("r2 key builders", () => {
       trackVersionId: "tv_456",
       filename: "mix.wav",
     });
-    expect(key).toBe("producers/p_123/tracks/tv_456/mix.wav");
+    expect(key).toMatch(/^producers\/p_123\/tracks\/tv_456\/[0-9a-f]{32}-mix\.wav$/);
+  });
+
+  it("gives concurrent uploads distinct immutable object keys", () => {
+    const input = {
+      producerId: "p_123",
+      trackVersionId: "tv_456",
+      filename: "mix.wav",
+    };
+    expect(buildAudioKey(input)).not.toBe(buildAudioKey(input));
+  });
+
+  it("binds a completed audio key to one exact producer and track version", () => {
+    expect(
+      isAudioKeyForTrackVersion("producers/p_123/tracks/tv_456/mix.wav", {
+        producerId: "p_123",
+        trackVersionId: "tv_456",
+      }),
+    ).toBe(true);
+    expect(
+      isAudioKeyForTrackVersion("producers/p_123/tracks/tv_sibling/mix.wav", {
+        producerId: "p_123",
+        trackVersionId: "tv_456",
+      }),
+    ).toBe(false);
+    expect(
+      isAudioKeyForTrackVersion("producers/p_sibling/tracks/tv_456/mix.wav", {
+        producerId: "p_123",
+        trackVersionId: "tv_456",
+      }),
+    ).toBe(false);
   });
   it("namespaces doc keys by producer + contract", () => {
     const key = buildDocKey({
@@ -112,11 +143,11 @@ describe("r2 key builders", () => {
 describe("r2 sanitize non-ASCII fallback", () => {
   it("generates track-<hex> fallback for empty filename", () => {
     const key = buildAudioKey({ producerId: "p", trackVersionId: "tv", filename: "" });
-    expect(key).toMatch(/^producers\/p\/tracks\/tv\/track-[0-9a-f]{8}$/);
+    expect(key).toMatch(/^producers\/p\/tracks\/tv\/[0-9a-f]{32}-track-[0-9a-f]{8}$/);
   });
   it("generates track-<hex> fallback when filename sanitizes to all underscores", () => {
     const key = buildAudioKey({ producerId: "p", trackVersionId: "tv", filename: "///" });
-    expect(key).toMatch(/^producers\/p\/tracks\/tv\/track-[0-9a-f]{8}$/);
+    expect(key).toMatch(/^producers\/p\/tracks\/tv\/[0-9a-f]{32}-track-[0-9a-f]{8}$/);
   });
   it("preserves extension when body is all non-ASCII (Hebrew)", () => {
     const key = buildAudioKey({
@@ -124,11 +155,11 @@ describe("r2 sanitize non-ASCII fallback", () => {
       trackVersionId: "tv_1",
       filename: "הופעה חיה.mp3",
     });
-    expect(key).toMatch(/^producers\/p_1\/tracks\/tv_1\/track-[0-9a-f]{8}\.mp3$/);
+    expect(key).toMatch(/^producers\/p_1\/tracks\/tv_1\/[0-9a-f]{32}-track-[0-9a-f]{8}\.mp3$/);
   });
   it("preserves English filenames unchanged", () => {
     const key = buildAudioKey({ producerId: "p", trackVersionId: "tv", filename: "my-mix.wav" });
-    expect(key).toBe("producers/p/tracks/tv/my-mix.wav");
+    expect(key).toMatch(/^producers\/p\/tracks\/tv\/[0-9a-f]{32}-my-mix\.wav$/);
   });
   it("two non-ASCII filenames produce DIFFERENT keys (no collision)", () => {
     const k1 = buildAudioKey({ producerId: "p", trackVersionId: "tv", filename: "שיר.mp3" });

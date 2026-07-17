@@ -35,7 +35,6 @@ export type ServicePackageRow = {
   sessionCount: number;
   priceCents: number;
   currency: string;
-  depositPct: number;
   active: boolean;
   kind: string;
   locationType: string;
@@ -90,7 +89,6 @@ function toInitialValues(p: ServicePackageRow): InitialPackageValues {
     sessionCount: p.sessionCount,
     priceCents: p.priceCents,
     currency,
-    depositPct: p.depositPct,
     kind,
     locationType,
     bufferMinutes: p.bufferMinutes,
@@ -173,11 +171,6 @@ export function ServicesSection({
                 <span className="sk-num font-mono text-xs text-[rgb(var(--fg-muted))]">
                   {p.durationMin}min · {p.sessionCount} session{p.sessionCount === 1 ? "" : "s"}
                 </span>
-                {p.depositPct > 0 ? (
-                  <span className="sk-num font-mono text-xs text-[rgb(var(--fg-secondary))]">
-                    {String(p.depositPct)}% deposit
-                  </span>
-                ) : null}
               </div>
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
                 {p.bufferMinutes > 0 ? (

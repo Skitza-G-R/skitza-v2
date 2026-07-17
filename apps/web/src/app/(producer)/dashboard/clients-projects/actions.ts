@@ -19,8 +19,7 @@ function pathDetail(id: string): string {
 }
 
 async function callerOrError(): Promise<
-  | { ok: true; caller: ReturnType<typeof appRouter.createCaller> }
-  | { ok: false; error: string }
+  { ok: true; caller: ReturnType<typeof appRouter.createCaller> } | { ok: false; error: string }
 > {
   const { userId } = await auth();
   if (!userId) return { ok: false, error: "Please sign in to continue." };
@@ -53,19 +52,8 @@ function toMessage(err: unknown): string {
   return err instanceof Error ? err.message : "Something went wrong.";
 }
 
-type Stage =
-  | "lead"
-  | "booked"
-  | "in_production"
-  | "final_review"
-  | "paid"
-  | "archived";
-
-// Phase 1 G7 — the legacy `createProject` action was deleted alongside
-// the /clients-projects/new page it served. The redesigned flow uses
-// `createProjectAction` in clients-actions.ts, which accepts the four
-// new modal fields (productId / deadlineAt / engagementTotalCents /
-// depositCents) and returns just the new project id.
+// Project creation lives in clients-actions.ts and accepts only work-container
+// fields. Commercial terms begin at the accepted-purchase boundary.
 
 export async function updateProjectAction(input: {
   id: string;
@@ -79,39 +67,6 @@ export async function updateProjectAction(input: {
     await c.caller.project.update(input);
     revalidatePath(pathDetail(input.id));
     revalidatePath(PATH_LIST);
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: toMessage(err) };
-  }
-}
-
-export async function addProjectInvoice(input: {
-  projectId: string;
-  amountCents: number;
-  currency: string;
-  description: string;
-}): Promise<ActionResult> {
-  const c = await callerOrError();
-  if (!c.ok) return c;
-  try {
-    await c.caller.project.addInvoice(input);
-    revalidatePath(pathDetail(input.projectId));
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: toMessage(err) };
-  }
-}
-
-export async function addProjectTrack(input: {
-  projectId: string;
-  title: string;
-  artist?: string;
-}): Promise<ActionResult> {
-  const c = await callerOrError();
-  if (!c.ok) return c;
-  try {
-    await c.caller.project.addTrack(input);
-    revalidatePath(pathDetail(input.projectId));
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
@@ -183,9 +138,8 @@ export async function addTrackVersion(input: {
   projectId: string;
   trackId: string;
   label: string;
-  // Nullable: "create row first, upload into it" flow passes null and
-  // the AudioUploader fills audioUrl via audio.completeMultipart.
-  audioUrl: string | null;
+  // Placeholder-only; the multipart completion boundary supplies audio.
+  audioUrl: null;
 }): Promise<ActionDataResult<{ id: string }>> {
   const c = await callerOrError();
   if (!c.ok) return c;
@@ -197,26 +151,6 @@ export async function addTrackVersion(input: {
     });
     revalidatePath(pathDetail(input.projectId));
     return { ok: true, data: { id: row.id } };
-  } catch (err) {
-    return { ok: false, error: toMessage(err) };
-  }
-}
-
-export async function setProjectPaid(input: {
-  projectId: string;
-  kind: "deposit" | "final";
-  paid: boolean;
-}): Promise<ActionResult> {
-  const c = await callerOrError();
-  if (!c.ok) return c;
-  try {
-    await c.caller.project.setPaid({
-      projectId: input.projectId,
-      kind: input.kind,
-      value: input.paid,
-    });
-    revalidatePath(pathDetail(input.projectId));
-    return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
   }
@@ -272,95 +206,6 @@ export async function approveVersionAction(input: {
       approved: input.approved,
     });
     revalidatePath(pathDetail(input.projectId));
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: toMessage(err) };
-  }
-}
-
-// Task 7 — producer-triggered off-session final charge for split_50_50
-// plans. We surface Stripe's error message verbatim (e.g. "Your card
-// was declined", "Insufficient funds") so the producer knows exactly
-// what went wrong. The confirm-charge modal renders `error` inline so
-// a retry with a different card isn't a guessing game.
-export async function chargeFinalAction(input: {
-  projectId: string;
-}): Promise<ActionDataResult<{ paymentIntentId: string }>> {
-  const c = await callerOrError();
-  if (!c.ok) return c;
-  try {
-    const res = await c.caller.project.chargeFinal({
-      projectId: input.projectId,
-    });
-    revalidatePath(pathDetail(input.projectId));
-    return { ok: true, data: res };
-  } catch (err) {
-    return { ok: false, error: toMessage(err) };
-  }
-}
-
-// Task 9 — producer cancels a project mid-flight. Stops Stripe future
-// charges (monthly schedule cancel) and flips stage to 'cancelled'.
-// Server-side title match guard is enforced inside the mutation; we
-// surface its error message verbatim so the modal can render it inline.
-//
-// Unlike the generic toMessage() which collapses INTERNAL_SERVER_ERROR
-// into "Something went wrong", a Stripe failure here carries actionable
-// info ("Stripe cancel failed: <detail>") that the producer needs to
-// see. We extract the raw TRPCError message rather than rewrap it.
-export async function cancelProjectAction(input: {
-  projectId: string;
-  confirmTitle: string;
-}): Promise<ActionResult> {
-  const c = await callerOrError();
-  if (!c.ok) return c;
-  try {
-    await c.caller.project.cancel(input);
-    revalidatePath(pathDetail(input.projectId));
-    revalidatePath(PATH_LIST);
-    return { ok: true };
-  } catch (err) {
-    if (err instanceof TRPCError) {
-      // Surface message verbatim for ALL TRPCError codes — the cancel
-      // mutation crafts each one to be producer-actionable.
-      return { ok: false, error: err.message || toMessage(err) };
-    }
-    return { ok: false, error: toMessage(err) };
-  }
-}
-
-export async function setStageAction(input: {
-  id: string;
-  stage: Stage;
-}): Promise<ActionResult> {
-  const c = await callerOrError();
-  if (!c.ok) return c;
-  try {
-    await c.caller.project.setStage(input);
-    revalidatePath(pathDetail(input.id));
-    revalidatePath(PATH_LIST);
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: toMessage(err) };
-  }
-}
-
-// Bulk stage transition for the Projects-list multi-select. Dispatches
-// a single setStageBulk tRPC call — the UPDATE is scoped by
-// producer_id + id IN (…) server-side so a tampered id array can't
-// mutate someone else's projects. We revalidate /dashboard/projects
-// (where the list lives) plus the Kanban root — both surfaces render
-// the project stage.
-export async function bulkSetProjectStage(input: {
-  ids: string[];
-  stage: Stage;
-}): Promise<ActionResult> {
-  const c = await callerOrError();
-  if (!c.ok) return c;
-  try {
-    await c.caller.project.setStageBulk(input);
-    revalidatePath("/dashboard/clients-projects");
-    revalidatePath(PATH_LIST);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };

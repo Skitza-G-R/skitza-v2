@@ -4,11 +4,7 @@ import { auth } from "@clerk/nextjs/server";
 import { TRPCError } from "@trpc/server";
 import { revalidatePath } from "next/cache";
 
-import {
-  offeredPlans,
-  type PaymentPlanChoice,
-} from "~/lib/purchase/request-helpers";
-import { selectProvisionalRequestPaymentPlan } from "~/lib/payment-plans";
+import { type PaymentPlanChoice } from "~/lib/purchase/request-helpers";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 export type ProofContentType =
@@ -28,12 +24,12 @@ function errorResult(error: unknown, fallback: string): ActionError {
 }
 
 // Server action wrapping `artist.purchase.request` (BE-1, Gate 1). Fired by
-// the S4 "Send request" CTA. Locks the price server-side, creates the
-// pending request, and returns the ref shown on S5. Tagged union so the
+// the S4 "Send request" CTA. Creates intent-only pending request data and
+// returns the ref shown on S5. Tagged union so the
 // client can branch without parsing exceptions (store-checkout pattern).
 export async function requestToBookAction(input: {
   productId: string;
-  commercialTermsFingerprint: string;
+  operationKey: string;
 }): Promise<
   { ok: true; purchaseRequestId: string; refNumber: string } | { ok: false; error: string }
 > {
@@ -42,18 +38,9 @@ export async function requestToBookAction(input: {
 
   const caller = appRouter.createCaller({ userId });
   try {
-    const product = await caller.artist.store.product({
-      productId: input.productId,
-    });
-    const provisionalPlan = selectProvisionalRequestPaymentPlan(offeredPlans(product));
-    if (!provisionalPlan) {
-      return { ok: false, error: "This product has no payment option." };
-    }
     const result = await caller.artist.purchase.request({
       productId: input.productId,
-      paymentPlan: provisionalPlan,
-      agreementAccepted: true,
-      commercialTermsFingerprint: input.commercialTermsFingerprint,
+      operationKey: input.operationKey,
     });
     return {
       ok: true,

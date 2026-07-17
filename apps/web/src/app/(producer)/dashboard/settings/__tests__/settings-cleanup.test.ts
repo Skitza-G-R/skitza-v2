@@ -8,12 +8,6 @@ import { describe, expect, it } from "vitest";
 //
 // What the new page is allowed to mount (live render targets):
 //   - <SettingsClient>            (the client shell with 5 sections)
-//   - <PaymentCard> + <StripeCard> (passed THROUGH SettingsClient into
-//                                   IntegrationsSection — but the page
-//                                   itself doesn't import them anymore;
-//                                   the client component does. These
-//                                   assertions live in the client file
-//                                   instead.)
 //
 // What the new page MUST NOT mount (intentionally cut per the design
 // spec — they belong on /dashboard/public-page when that surface lands,
@@ -36,10 +30,7 @@ import { describe, expect, it } from "vitest";
 const here = dirname(fileURLToPath(import.meta.url));
 const SETTINGS_DIR = join(here, "..");
 const pageSource = readFileSync(join(SETTINGS_DIR, "page.tsx"), "utf8");
-const clientSource = readFileSync(
-  join(SETTINGS_DIR, "settings-client.tsx"),
-  "utf8",
-);
+const clientSource = readFileSync(join(SETTINGS_DIR, "settings-client.tsx"), "utf8");
 
 describe("Settings page — redesign render shape", () => {
   it("mounts <SettingsClient> as the single render target", () => {
@@ -71,30 +62,26 @@ describe("Settings page — redesign render shape", () => {
 
 describe("Settings page — legacy redirects", () => {
   it("redirects ?section=services to the Storefront's Store tab", () => {
-    expect(pageSource).toMatch(
-      /\/dashboard\/profile\?tab=store/,
-    );
+    expect(pageSource).toMatch(/\/dashboard\/profile\?tab=store/);
   });
 
   it("redirects ?section=availability to the Calendar's Availability tab", () => {
-    expect(pageSource).toMatch(
-      /\/dashboard\/calendar\?tab=availability/,
-    );
+    expect(pageSource).toMatch(/\/dashboard\/calendar\?tab=availability/);
   });
 });
 
-describe("Settings client — integrations cards", () => {
-  it("mounts <PaymentCard> inside the Integrations section", () => {
-    // Tranzila terminal request form lives in payment-card.tsx. The
-    // client component embeds it under the consolidated "Payments" row.
-    expect(clientSource).toMatch(/<PaymentCard\b/);
+describe("Settings client — removed card integrations", () => {
+  it("does not mount removed card-provider controls", () => {
+    expect(clientSource).not.toMatch(/<PaymentCard\b/);
+    expect(clientSource).not.toMatch(/<StripeCard\b/);
+    expect(clientSource).not.toMatch(/\b(?:Stripe|Tranzila)\b/);
   });
 
-  it("mounts <StripeCard> inside the Integrations section", () => {
-    // Stripe Connect onboarding lives in stripe-card.tsx. Same parent
-    // — the IntegrationsSection — so both regional payment paths are
-    // reachable from one place.
-    expect(clientSource).toMatch(/<StripeCard\b/);
+  it("does not render fake card details or card-management actions", () => {
+    expect(clientSource).not.toMatch(/No card on file/);
+    expect(clientSource).not.toMatch(/Payment method/);
+    expect(clientSource).not.toMatch(/Manage billing/);
+    expect(clientSource).not.toMatch(/••••\s*4242/);
   });
 });
 

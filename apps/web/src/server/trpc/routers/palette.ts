@@ -58,7 +58,11 @@ export const paletteRouter = router({
               .limit(5),
           ]);
         return {
-          projects: recentProjects.map((d) => ({ id: d.id, title: d.title, stage: d.stage })),
+          projects: recentProjects.map((d) => ({
+            id: d.id,
+            title: d.title,
+            stage: d.lifecycleStatus,
+          })),
           contacts: recentContacts.map((c) => ({ id: c.id, name: c.name, email: c.email })),
           tracks: recentTracks.map((t) => ({
             id: t.versionId,
@@ -129,7 +133,11 @@ export const paletteRouter = router({
           .limit(10),
       ]);
       return {
-        projects: matchProjects.map((d) => ({ id: d.id, title: d.title, stage: d.stage })),
+        projects: matchProjects.map((d) => ({
+          id: d.id,
+          title: d.title,
+          stage: d.lifecycleStatus,
+        })),
         contacts: matchContacts.map((c) => ({ id: c.id, name: c.name, email: c.email })),
         tracks: matchTracks.map((t) => ({
           id: t.versionId,

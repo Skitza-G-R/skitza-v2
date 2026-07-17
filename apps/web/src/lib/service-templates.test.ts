@@ -26,9 +26,8 @@ describe("service-templates", () => {
       expect(t.defaults.priceCents).toBeGreaterThanOrEqual(0);
       expect(t.defaults.durationMin).toBeGreaterThan(0);
       expect(t.defaults.sessionCount).toBeGreaterThan(0);
-      expect(t.defaults.depositPct).toBeGreaterThanOrEqual(0);
-      expect(t.defaults.depositPct).toBeLessThanOrEqual(100);
       expect(t.defaults.paymentPlans.length).toBeGreaterThan(0);
+      expect(t.defaults).not.toHaveProperty("depositPct");
     }
   });
 

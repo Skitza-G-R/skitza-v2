@@ -21,4 +21,9 @@ describe("dashboard/store/page.tsx", () => {
   it("mounts <StoreScreen>", () => {
     expect(SRC).toMatch(/<StoreScreen/);
   });
+
+  it("maps purchase-level plans without old deposit compatibility fields", () => {
+    expect(SRC).toMatch(/paymentPlans:\s*p\.paymentPlans/);
+    expect(SRC).not.toMatch(/depositPct|depositModel|milestones/);
+  });
 });

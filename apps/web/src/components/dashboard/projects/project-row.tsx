@@ -28,10 +28,10 @@ export interface ProjectRowData {
    *  and rendered under the title; both column placement and label have
    *  been corrected. */
   clientEmail?: string;
-  /** 0..100 progress percentage. */
-  progress: number;
-  /** Outstanding balance in cents (negative or zero = no balance). */
-  balance: number;
+  /** 0..100 progress percentage; null when lifecycle alone cannot support a percentage. */
+  progress: number | null;
+  /** Outstanding balance in cents; null while purchase payments are unavailable. */
+  balance: number | null;
   /** Human-formatted deadline string e.g. "3d" or "May 28". */
   deadline: string;
   /** Status pill label, e.g. "Overdue" / "On track". */
@@ -241,16 +241,19 @@ export function ProjectRow({
           <div
             className="h-full"
             style={{
-              width: `${String(Math.max(0, Math.min(100, progress)))}%`,
+              width:
+                progress === null
+                  ? "0%"
+                  : `${String(Math.max(0, Math.min(100, progress)))}%`,
               background: "rgb(var(--brand-primary))",
             }}
           />
         </div>
         <span
-          className="w-9 text-right text-[11px] tabular-nums"
+          className="w-16 text-right text-[11px] tabular-nums"
           style={{ color: "rgb(var(--fg-muted))" }}
         >
-          {progress}%
+          {progress === null ? "Unavailable" : `${String(progress)}%`}
         </span>
       </div>
 
@@ -258,12 +261,12 @@ export function ProjectRow({
         className="text-right text-[13px] font-medium tabular-nums"
         style={{
           color:
-            balance > 0
+            balance !== null && balance > 0
               ? "rgb(var(--fg-danger))"
               : "rgb(var(--fg-muted))",
         }}
       >
-        {balance > 0 ? formatMoney(balance, currency) : "—"}
+        {balance === null ? "Unavailable" : balance > 0 ? formatMoney(balance, currency) : "—"}
       </div>
 
       <div
@@ -316,7 +319,7 @@ export function ProjectRow({
           {/* SK-64 — meta segments are conditional: the client name is
               omitted inside that client's own space, and a missing
               deadline no longer renders a dangling em dash. */}
-          {(!hideClient || deadline !== "\u2014" || balance > 0) ? (
+          {(!hideClient || deadline !== "\u2014" || balance === null || balance > 0) ? (
             <span
               className="mt-1 flex items-center gap-1 text-[12px]"
               style={{ color: "rgb(var(--fg-muted))" }}
@@ -330,7 +333,14 @@ export function ProjectRow({
                   <span className="shrink-0">{deadline}</span>
                 </>
               ) : null}
-              {balance > 0 ? (
+              {balance === null ? (
+                <>
+                  {!hideClient || deadline !== "\u2014" ? (
+                    <span aria-hidden>&middot;</span>
+                  ) : null}
+                  <span className="shrink-0 font-semibold">Balance unavailable</span>
+                </>
+              ) : balance > 0 ? (
                 <>
                   {!hideClient || deadline !== "\u2014" ? (
                     <span aria-hidden>&middot;</span>

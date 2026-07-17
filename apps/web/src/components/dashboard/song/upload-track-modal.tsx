@@ -81,6 +81,8 @@ export interface UploadTrackModalProps {
   open: boolean;
   onClose: () => void;
   projectId: string;
+  /** Exact active purchase selected by the owned project read model. */
+  purchaseId?: string | null;
   mode: "new-song" | "new-version";
   /** Pre-selected when mode === "new-version". Required for that mode. */
   trackId?: string;
@@ -95,6 +97,7 @@ export function UploadTrackModal({
   open,
   onClose,
   projectId,
+  purchaseId,
   mode,
   trackId,
   defaultLabel,
@@ -163,6 +166,7 @@ export function UploadTrackModal({
     !file ||
     label.trim().length === 0 ||
     needsSongName ||
+    (isNewSong && !purchaseId) ||
     (mode === "new-version" && !trackId);
 
   // ─── File handlers ─────────────────────────────────────────────────
@@ -226,8 +230,12 @@ export function UploadTrackModal({
         //    producer picked "+ New song", else use the existing id.
         let resolvedTrackId = selectedTrackId;
         if (isNewSong) {
+          if (!purchaseId) {
+            throw new Error("No active purchase has an available song space.");
+          }
           const res = await addTrackAction({
             projectId,
+            purchaseId,
             title: newSongName.trim(),
           });
           if (!res.ok) throw new Error(res.error);
@@ -272,7 +280,12 @@ export function UploadTrackModal({
           const end = Math.min(start + CHUNK_SIZE, submittedFile.size);
           const chunk = submittedFile.slice(start, end);
 
-          const sres = await signPartAction({ key, uploadId, partNumber });
+          const sres = await signPartAction({
+            key,
+            uploadId,
+            partNumber,
+            trackVersionId: versionId,
+          });
           if (!sres.ok) throw new Error(sres.error);
 
           const putRes = await fetch(sres.data.url, {
@@ -602,6 +615,12 @@ export function UploadTrackModal({
                   Uploading… {progress}%
                 </p>
               </div>
+            ) : null}
+
+            {isNewSong && !purchaseId ? (
+              <p role="alert" className="text-sm text-[rgb(var(--fg-danger))]">
+                No active purchase has an available song space.
+              </p>
             ) : null}
 
             {/* ─── Action row ─────────────────────────────────── */}

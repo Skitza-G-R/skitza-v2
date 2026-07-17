@@ -9,20 +9,11 @@
 // availability which moved to their canonical homes — Storefront and
 // Calendar).
 
-export const SETTINGS_SECTION_KEYS = [
-  "profile",
-  "plan",
-  "notif",
-  "int",
-  "region",
-] as const;
+export const SETTINGS_SECTION_KEYS = ["profile", "plan", "notif", "int", "region"] as const;
 export type SettingsSectionKey = (typeof SETTINGS_SECTION_KEYS)[number];
 
 export function isSettingsSectionKey(v: unknown): v is SettingsSectionKey {
-  return (
-    typeof v === "string" &&
-    (SETTINGS_SECTION_KEYS as readonly string[]).includes(v)
-  );
+  return typeof v === "string" && (SETTINGS_SECTION_KEYS as readonly string[]).includes(v);
 }
 
 // Old `?section=<key>` keys (7-tab era) that redirect OUT of settings.
@@ -38,10 +29,7 @@ export const LEGACY_OUT_REDIRECTS = {
 export type LegacyOutSectionKey = keyof typeof LEGACY_OUT_REDIRECTS;
 
 export function isLegacyOutSectionKey(v: unknown): v is LegacyOutSectionKey {
-  return (
-    typeof v === "string" &&
-    Object.prototype.hasOwnProperty.call(LEGACY_OUT_REDIRECTS, v)
-  );
+  return typeof v === "string" && Object.prototype.hasOwnProperty.call(LEGACY_OUT_REDIRECTS, v);
 }
 
 // Old `?section=<key>` keys that map INTO one of the new five sections.
@@ -115,7 +103,7 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventMeta[] = [
   {
     key: "payment",
     name: "Payment received",
-    sub: "Tranzila payouts and invoice settlements",
+    sub: "When an external payment is confirmed",
     defaults: { email: true, app: true },
   },
   {
@@ -138,10 +126,7 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventMeta[] = [
   },
 ];
 
-export type NotificationState = Record<
-  string,
-  Record<NotificationChannel, boolean>
->;
+export type NotificationState = Record<string, Record<NotificationChannel, boolean>>;
 
 // Merge the producer's stored prefs (may be partial / empty) over the
 // design defaults so every event always has a defined on/off value

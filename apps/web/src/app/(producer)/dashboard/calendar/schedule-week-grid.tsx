@@ -27,7 +27,7 @@ export type ScheduleSession = {
   artistName: string;
   artistEmail: string;
   packageName: string | null;
-  status: "pending_approval" | "pending_payment" | "confirmed";
+  status: "pending_approval" | "confirmed";
 };
 
 // Hour row height is driven by `--hour-px` (set on the section via

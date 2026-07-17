@@ -8,19 +8,23 @@ import {
   eq,
   gte,
   inArray,
-  invoices,
+  isNotNull,
   isNull,
   lte,
+  ne,
+  or,
   producers,
   products,
   projects,
   projectTracks,
-  purchaseRequests,
+  purchases,
+  purchaseSessionAllowances,
   sql,
   trackComments,
   trackVersions,
+  versionApprovalEvents,
 } from "@skitza/db";
-import type { Db, PaymentPlan } from "@skitza/db";
+import type { Db, PaymentPlan, PurchaseCommercialSnapshot } from "@skitza/db";
 import { TRPCError } from "@trpc/server";
 import { after } from "next/server";
 import { z } from "zod";
@@ -29,25 +33,40 @@ import { artistProcedure } from "../artist-procedure";
 import { artistPurchaseRouter } from "./purchase";
 import { groupStudiosForArtist } from "~/server/artist/identity";
 import {
-  activeArtistClientPair,
+  activeArtistClientOwner,
+  assertArtistMusicProjectAvailable,
   resolveProjectOwnership,
 } from "~/server/artist/access";
-import {
-  SITE_URL,
-  sendNewCommentFromArtistEmail,
-} from "~/server/email/send";
-import { getSiteUrl } from "~/server/stripe/client";
-import { coerceTaxMode } from "~/lib/tax-mode";
-import { calendarPaymentSummary } from "~/lib/payment-plans";
+import { SITE_URL, sendNewCommentFromArtistEmail } from "~/server/email/send";
 import { decodeDescription } from "~/app/(producer)/dashboard/store/description-encoding";
+import { emitBookingRequested, emitCommentCreated } from "~/server/notifications/emit";
 import {
-  emitBookingRequested,
-  emitCommentCreated,
-} from "~/server/notifications/emit";
+  assertSessionBookingAllowed,
+  SessionBookingDomainError,
+  sessionUseConsumesAllowance,
+} from "~/server/domain/session-booking/service";
+import { assertWritableCommentTarget, CommentDomainError } from "~/server/domain/comments/service";
 
-async function productCommercialTermsColumnsAvailable(
-  db: Pick<Db, "execute">,
-): Promise<boolean> {
+function purchaseProductName(
+  snapshot: PurchaseCommercialSnapshot | null,
+  fallback: string,
+): string {
+  const name = snapshot?.productOrOfferName.trim();
+  return name ? name : fallback;
+}
+
+type PendingBookingPaymentCompatibility = {
+  id: string;
+  startsAt: Date;
+  producerName: string;
+  packageName: string;
+  amountCents: number;
+  currency: string;
+  plan: "50-50" | "monthly" | "upfront";
+  planLabel: string;
+};
+
+async function productCommercialTermsColumnsAvailable(db: Pick<Db, "execute">): Promise<boolean> {
   const result = await db.execute<{ columnCount: number }>(sql`
     select count(*)::int as "columnCount"
     from information_schema.columns
@@ -56,6 +75,14 @@ async function productCommercialTermsColumnsAvailable(
       and column_name in ('royalty_terms', 'agreement_text')
   `);
   return (result.rows[0]?.columnCount ?? 0) === 2;
+}
+
+function mapCommentDomainError(error: unknown): never {
+  if (!(error instanceof CommentDomainError)) throw error;
+  if (error.code === "INACTIVE") {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+  }
+  throw new TRPCError({ code: "NOT_FOUND" });
 }
 
 // ─── artist.music sub-router ─────────────────────────────────────────
@@ -96,11 +123,12 @@ const musicSubrouter = router({
         .innerJoin(producers, eq(producers.id, projects.producerId))
         .innerJoin(
           clientContacts,
-          activeArtistClientPair(ctx.clerkUserId, {
+          activeArtistClientOwner(ctx.clerkUserId, {
             producerId: projects.producerId,
-            email: projects.artistEmail,
+            clientContactId: projects.clientContactId,
           }),
-        ),
+        )
+        .where(ne(projects.lifecycleStatus, "waiting_for_payment")),
 
       // Pull every (project_id, track title, version label, uploaded_at)
       // tuple for tracks under projects we own. The reduce below picks
@@ -117,12 +145,20 @@ const musicSubrouter = router({
         .innerJoin(projects, eq(projects.id, projectTracks.projectId))
         .innerJoin(
           clientContacts,
-          activeArtistClientPair(ctx.clerkUserId, {
+          activeArtistClientOwner(ctx.clerkUserId, {
             producerId: projects.producerId,
-            email: projects.artistEmail,
+            clientContactId: projects.clientContactId,
           }),
         )
-        .leftJoin(trackVersions, eq(trackVersions.trackId, projectTracks.id)),
+        .leftJoin(
+          trackVersions,
+          and(
+            eq(trackVersions.trackId, projectTracks.id),
+            isNotNull(trackVersions.audioUrl),
+            isNull(trackVersions.audioDeletedAt),
+          ),
+        )
+        .where(ne(projects.lifecycleStatus, "waiting_for_payment")),
     ]);
 
     // 3. Reduce stats rows → per-project (trackCount, latest version).
@@ -153,8 +189,7 @@ const musicSubrouter = router({
       // leftJoin → uploadedAt may be null if the track has no versions.
       if (
         uploadedAt &&
-        (!s.latestUploadedAt ||
-          uploadedAt.getTime() > s.latestUploadedAt.getTime())
+        (!s.latestUploadedAt || uploadedAt.getTime() > s.latestUploadedAt.getTime())
       ) {
         s.latestUploadedAt = uploadedAt;
         s.latestTrackTitle = trackTitle;
@@ -183,10 +218,7 @@ const musicSubrouter = router({
     // 5. Sort desc by latestTrackUploadedAt with nulls last; cap at 50.
     merged.sort((a, b) => {
       if (a.latestTrackUploadedAt && b.latestTrackUploadedAt) {
-        return (
-          b.latestTrackUploadedAt.getTime() -
-          a.latestTrackUploadedAt.getTime()
-        );
+        return b.latestTrackUploadedAt.getTime() - a.latestTrackUploadedAt.getTime();
       }
       if (a.latestTrackUploadedAt) return -1; // a has date, b is null → a first
       if (b.latestTrackUploadedAt) return 1; // b has date, a is null → b first
@@ -230,12 +262,19 @@ const musicSubrouter = router({
       .innerJoin(projects, eq(projects.id, projectTracks.projectId))
       .innerJoin(
         clientContacts,
-        activeArtistClientPair(ctx.clerkUserId, {
+        activeArtistClientOwner(ctx.clerkUserId, {
           producerId: projects.producerId,
-          email: projects.artistEmail,
+          clientContactId: projects.clientContactId,
         }),
       )
       .innerJoin(producers, eq(producers.id, projects.producerId))
+      .where(
+        and(
+          ne(projects.lifecycleStatus, "waiting_for_payment"),
+          isNotNull(trackVersions.audioUrl),
+          isNull(trackVersions.audioDeletedAt),
+        ),
+      )
       .orderBy(desc(trackVersions.uploadedAt));
 
     // Collapse versions → tracks, keeping the newest per track.
@@ -304,11 +343,8 @@ const musicSubrouter = router({
       // (0) Auth gate — same NOT_FOUND-on-miss ownership resolver the
       // L3 mutations use. Returns the project row when the signed-in
       // artist is the project's client_contacts owner.
-      const { project } = await resolveProjectOwnership(
-        ctx.db,
-        ctx.clerkUserId,
-        input.projectId,
-      );
+      const { project } = await resolveProjectOwnership(ctx.db, ctx.clerkUserId, input.projectId);
+      assertArtistMusicProjectAvailable(project.lifecycleStatus);
 
       // (1) Producer display name. We surface this BOTH as the
       // overloaded `clientName` (the shared ProjectPage reads it as
@@ -338,7 +374,13 @@ const musicSubrouter = router({
         })
         .from(trackVersions)
         .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
-        .where(eq(projectTracks.projectId, project.id))
+        .where(
+          and(
+            eq(projectTracks.projectId, project.id),
+            isNotNull(trackVersions.audioUrl),
+            isNull(trackVersions.audioDeletedAt),
+          ),
+        )
         .orderBy(desc(trackVersions.uploadedAt));
 
       const byTrack = new Map<string, (typeof versionRows)[number]>();
@@ -366,10 +408,7 @@ const musicSubrouter = router({
         : [];
       const notesByVersion = new Map<string, number>();
       for (const n of noteRows) {
-        notesByVersion.set(
-          n.versionId,
-          (notesByVersion.get(n.versionId) ?? 0) + 1,
-        );
+        notesByVersion.set(n.versionId, (notesByVersion.get(n.versionId) ?? 0) + 1);
       }
 
       // (4) Producer-shape flat tracks. Matches ProjectPageTrack on
@@ -399,17 +438,22 @@ const musicSubrouter = router({
           startsAt: bookings.startsAt,
           durationMin: bookings.durationMin,
           status: bookings.status,
-          packageName: bookings.packageNameSnapshot,
+          commercialSnapshot: purchases.commercialSnapshot,
         })
         .from(bookings)
+        .innerJoin(
+          purchases,
+          and(
+            eq(purchases.id, bookings.purchaseId),
+            eq(purchases.projectId, bookings.projectId),
+            eq(purchases.producerId, bookings.producerId),
+            eq(purchases.clientContactId, project.clientContactId),
+          ),
+        )
         .where(
           and(
             eq(bookings.projectId, project.id),
-            inArray(bookings.status, [
-              "pending_approval",
-              "pending_payment",
-              "confirmed",
-            ]),
+            inArray(bookings.status, ["pending_approval", "confirmed"]),
           ),
         )
         .orderBy(asc(bookings.startsAt));
@@ -427,7 +471,6 @@ const musicSubrouter = router({
           // sessions panel + the breadcrumb topbar publisher.
           producerId: project.producerId,
           producerName,
-          finalPaid: project.finalPaid,
         },
         tracks,
         sessions: sessionRows.map((s) => ({
@@ -435,7 +478,7 @@ const musicSubrouter = router({
           startsAt: s.startsAt,
           durationMin: s.durationMin,
           status: s.status,
-          packageName: s.packageName,
+          packageName: purchaseProductName(s.commercialSnapshot, project.title),
         })),
       };
     }),
@@ -453,45 +496,124 @@ const musicSubrouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // Walk version → track → project chain.
-      const [version] = await ctx.db
-        .select({ id: trackVersions.id, trackId: trackVersions.trackId })
+      // Discover the lock key without trusting it as the write boundary.
+      // The transaction below re-reads and locks the whole chain.
+      const [discovered] = await ctx.db
+        .select({
+          versionId: trackVersions.id,
+          trackId: projectTracks.id,
+          projectId: projects.id,
+        })
         .from(trackVersions)
+        .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
+        .innerJoin(projects, eq(projects.id, projectTracks.projectId))
         .where(eq(trackVersions.id, input.trackVersionId))
         .limit(1);
-      if (!version) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!discovered) throw new TRPCError({ code: "NOT_FOUND" });
 
-      const [track] = await ctx.db
-        .select({
-          id: projectTracks.id,
-          projectId: projectTracks.projectId,
-          title: projectTracks.title,
-        })
-        .from(projectTracks)
-        .where(eq(projectTracks.id, version.trackId))
-        .limit(1);
-      if (!track) throw new TRPCError({ code: "NOT_FOUND" });
+      let saved: {
+        row: typeof trackComments.$inferSelect;
+        project: Pick<typeof projects.$inferSelect, "id" | "producerId">;
+        track: Pick<typeof projectTracks.$inferSelect, "title">;
+        contact: Pick<typeof clientContacts.$inferSelect, "name" | "email">;
+      };
+      try {
+        saved = await ctx.db.transaction(async (tx) => {
+          await tx.execute(
+            sql`select pg_advisory_xact_lock(hashtextextended(${discovered.projectId}, 0))`,
+          );
+          const [project] = await tx
+            .select({
+              id: projects.id,
+              producerId: projects.producerId,
+              clientContactId: projects.clientContactId,
+              lifecycleStatus: projects.lifecycleStatus,
+            })
+            .from(projects)
+            .where(eq(projects.id, discovered.projectId))
+            .limit(1)
+            .for("update");
+          const [track] = await tx
+            .select({
+              id: projectTracks.id,
+              projectId: projectTracks.projectId,
+              title: projectTracks.title,
+              archivedAt: projectTracks.archivedAt,
+            })
+            .from(projectTracks)
+            .where(eq(projectTracks.id, discovered.trackId))
+            .limit(1)
+            .for("update");
+          const [version] = await tx
+            .select({ id: trackVersions.id, trackId: trackVersions.trackId })
+            .from(trackVersions)
+            .where(eq(trackVersions.id, input.trackVersionId))
+            .limit(1)
+            .for("update");
 
-      // Same guard as the read query. Throws NOT_FOUND if the artist
-      // doesn't have a client_contacts row linking them to the project.
-      const { project, contact } = await resolveProjectOwnership(
-        ctx.db,
-        ctx.clerkUserId,
-        track.projectId,
-      );
+          if (!project) throw new CommentDomainError("NOT_FOUND", "Project not found");
+          const [contact] = await tx
+            .select({
+              name: clientContacts.name,
+              email: clientContacts.email,
+            })
+            .from(clientContacts)
+            .where(
+              and(
+                eq(clientContacts.clerkUserId, ctx.clerkUserId),
+                eq(clientContacts.id, project.clientContactId),
+                eq(clientContacts.producerId, project.producerId),
+                isNull(clientContacts.archivedAt),
+              ),
+            )
+            .limit(1)
+            .for("update");
+          if (!contact) throw new CommentDomainError("NOT_FOUND", "Project not found");
+          if (!track || !version) {
+            throw new CommentDomainError("NOT_FOUND", "The comment target was not found");
+          }
 
-      const [row] = await ctx.db
-        .insert(trackComments)
-        .values({
-          versionId: input.trackVersionId,
-          authorName: contact.name,
-          authorEmail: contact.email,
-          body: input.body,
-          timestampMs: input.timeMs,
-          fromProducer: false,
-        })
-        .returning();
-      if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+          assertWritableCommentTarget(
+            {
+              versionId: version.id,
+              versionTrackId: version.trackId,
+              trackId: track.id,
+              trackProjectId: track.projectId,
+              trackArchivedAt: track.archivedAt,
+              projectId: project.id,
+              projectLifecycleStatus: project.lifecycleStatus,
+            },
+            {
+              versionId: input.trackVersionId,
+              trackId: discovered.trackId,
+              projectId: discovered.projectId,
+            },
+          );
+
+          const [row] = await tx
+            .insert(trackComments)
+            .values({
+              versionId: input.trackVersionId,
+              producerId: project.producerId,
+              authorName: contact.name,
+              authorEmail: contact.email,
+              body: input.body,
+              timestampMs: input.timeMs,
+              fromProducer: false,
+            })
+            .returning();
+          if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+          return {
+            row,
+            project: { id: project.id, producerId: project.producerId },
+            track: { title: track.title },
+            contact,
+          };
+        });
+      } catch (error) {
+        mapCommentDomainError(error);
+      }
+      const { row, project, track, contact } = saved;
 
       // The bell is the producer's event-notification surface. Keep this
       // side effect outside the primary insert contract: a notification
@@ -579,14 +701,24 @@ const musicSubrouter = router({
         .from(trackVersions)
         .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
         .innerJoin(projects, eq(projects.id, projectTracks.projectId))
-        .where(eq(trackVersions.id, input.versionId))
+        .where(
+          and(
+            eq(trackVersions.id, input.versionId),
+            or(isNotNull(trackVersions.audioUrl), isNotNull(trackVersions.audioDeletedAt)),
+          ),
+        )
         .limit(1);
       if (!head) throw new TRPCError({ code: "NOT_FOUND" });
 
       // (2) Ownership check — same NOT_FOUND-on-miss helper that L2
       // and addComment use. We don't bind the helper's `project`
       // because we already have the data we need from the join above.
-      await resolveProjectOwnership(ctx.db, ctx.clerkUserId, head.projectId);
+      const { project: ownedProject } = await resolveProjectOwnership(
+        ctx.db,
+        ctx.clerkUserId,
+        head.projectId,
+      );
+      assertArtistMusicProjectAvailable(ownedProject.lifecycleStatus);
 
       // (3) Producer display name for the overloaded `clientName`
       // field. Defensive fallback (orphan FK shouldn't happen but).
@@ -601,19 +733,58 @@ const musicSubrouter = router({
       // "v3 · current" pill position in the L3 UI). Includes
       // approvedAt + peaks — peaks ride down with the page payload
       // so Waveform50 renders the real envelope on first frame.
-      const versions = await ctx.db
+      const versionRows = await ctx.db
         .select({
           id: trackVersions.id,
           label: trackVersions.label,
           audioUrl: trackVersions.audioUrl,
           durationMs: trackVersions.durationMs,
           uploadedAt: trackVersions.uploadedAt,
-          approvedAt: trackVersions.approvedAt,
           peaks: trackVersions.peaks,
         })
         .from(trackVersions)
-        .where(eq(trackVersions.trackId, head.trackId))
+        .where(
+          and(
+            eq(trackVersions.trackId, head.trackId),
+            or(isNotNull(trackVersions.audioUrl), isNotNull(trackVersions.audioDeletedAt)),
+          ),
+        )
         .orderBy(desc(trackVersions.uploadedAt));
+
+      const approvalRows =
+        versionRows.length === 0
+          ? []
+          : await ctx.db
+              .select({
+                versionId: versionApprovalEvents.versionId,
+                action: versionApprovalEvents.action,
+                createdAt: versionApprovalEvents.createdAt,
+              })
+              .from(versionApprovalEvents)
+              .where(
+                and(
+                  inArray(
+                    versionApprovalEvents.versionId,
+                    versionRows.map((version) => version.id),
+                  ),
+                  eq(versionApprovalEvents.producerId, ownedProject.producerId),
+                  eq(versionApprovalEvents.clientContactId, ownedProject.clientContactId),
+                ),
+              )
+              .orderBy(desc(versionApprovalEvents.createdAt));
+      const latestApprovalByVersion = new Map<string, (typeof approvalRows)[number]>();
+      for (const event of approvalRows) {
+        if (!latestApprovalByVersion.has(event.versionId)) {
+          latestApprovalByVersion.set(event.versionId, event);
+        }
+      }
+      const versions = versionRows.map((version) => {
+        const event = latestApprovalByVersion.get(version.id);
+        return {
+          ...version,
+          approvedAt: event?.action === "approved" ? event.createdAt : null,
+        };
+      });
 
       // (5) Comments across all versions of this track, asc by
       // timestampMs so the thread reads in track order.
@@ -740,6 +911,21 @@ async function resolveClientContacts(
   return contacts;
 }
 
+function mapSessionBookingDomainError(error: unknown): never {
+  if (!(error instanceof SessionBookingDomainError)) throw error;
+  if (error.code === "ALLOWANCE_EXHAUSTED") {
+    throw new TRPCError({ code: "CONFLICT", message: error.message });
+  }
+  if (
+    error.code === "PURCHASE_INACTIVE" ||
+    error.code === "PROJECT_INACTIVE" ||
+    error.code === "ALLOWANCE_CLOSED"
+  ) {
+    throw new TRPCError({ code: "NOT_FOUND" });
+  }
+  throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+}
+
 // ─── artist.book sub-router ──────────────────────────────────────────
 // Block-based weekly calendar for the artist's self-serve booking flow.
 //
@@ -763,11 +949,7 @@ const bookSubrouter = router({
       // 1. Access guard — the producer must be one of the artist's
       //    studios. NOT_FOUND on miss. We don't bind the result; the
       //    side-effect (throw) is the only thing we care about here.
-      await resolveClientContact(
-        ctx.db,
-        ctx.clerkUserId,
-        input.producerId,
-      );
+      await resolveClientContact(ctx.db, ctx.clerkUserId, input.producerId);
 
       // 2. Build the 14-day window. Dates are surfaced as "YYYY-MM-DD"
       //    (no TZ) — the UI renders them in the device's locale. Using
@@ -775,9 +957,7 @@ const bookSubrouter = router({
       //    timezone doesn't shift day boundaries in the strip. A
       //    follow-up would plumb `producers.timezone` through.
       const now = new Date();
-      const today = new Date(
-        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
-      );
+      const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
       const horizon = new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000);
 
       // 3. Fan out the two SELECTs we need.
@@ -805,11 +985,7 @@ const bookSubrouter = router({
           .where(
             and(
               eq(bookings.producerId, input.producerId),
-              inArray(bookings.status, [
-                "pending_approval",
-                "pending_payment",
-                "confirmed",
-              ]),
+              inArray(bookings.status, ["pending_approval", "confirmed"]),
               gte(bookings.startsAt, today),
               lte(bookings.startsAt, horizon),
             ),
@@ -857,14 +1033,10 @@ const bookSubrouter = router({
 
         const buildSlot = (b: BlockShape | null) => {
           if (!b) return null;
-          const blockStart = new Date(
-            dayUtc.getTime() + b.startMin * 60 * 1000,
-          );
+          const blockStart = new Date(dayUtc.getTime() + b.startMin * 60 * 1000);
           const blockEnd = new Date(dayUtc.getTime() + b.endMin * 60 * 1000);
           const conflict = bookingRows.some((bk) => {
-            const bkEnd = new Date(
-              bk.startsAt.getTime() + bk.durationMin * 60 * 1000,
-            );
+            const bkEnd = new Date(bk.startsAt.getTime() + bk.durationMin * 60 * 1000);
             return bk.startsAt < blockEnd && blockStart < bkEnd;
           });
           return { startMin: b.startMin, endMin: b.endMin, available: !conflict };
@@ -881,24 +1053,13 @@ const bookSubrouter = router({
       return { days };
     }),
 
-  // Multi-session credit ledger. A confirmed first payment unlocks the
-  // purchase's project before any session has been booked, so this read
-  // cannot use an existing booking as its eligibility gate. Active
-  // booking requests reserve capacity until they are rejected/cancelled;
-  // otherwise two tabs could both appear to own the final session.
-  //
-  // Auth: every projects row scoped to (producerId, artistEmail IN
-  // myEmails) — same gate as the home/music procedures.
+  // Active purchase-owned session allowances. Stable client-contact IDs,
+  // not email snapshots, own both the project and the purchase.
   activePackages: artistProcedure
     .input(z.object({ producerId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      // Resolve the artist's emails for this producer. Same auth-
-      // boundary pattern as other artist.book.* procedures: a missing
-      // clientContacts row means the artist has no relationship with
-      // this producer → empty result (NOT_FOUND would over-share the
-      // existence of unrelated producers).
       const contacts = await ctx.db
-        .select({ id: clientContacts.id, email: clientContacts.email })
+        .select({ id: clientContacts.id })
         .from(clientContacts)
         .where(
           and(
@@ -908,77 +1069,81 @@ const bookSubrouter = router({
           ),
         );
       if (contacts.length === 0) return [];
-      const myEmails = [...new Set(contacts.map((c) => c.email.toLowerCase()))];
       const myContactIds = contacts.map((contact) => contact.id);
 
-      // One project per row. Prefer a historical booking label when one
-      // exists, then fall back to the paid purchase snapshot. The latter
-      // is what makes a just-paid project usable before its first booking.
-      const projectRows = await ctx.db
+      const allowanceRows = await ctx.db
         .select({
-          id: projects.id,
+          purchaseId: purchases.id,
+          projectId: projects.id,
           title: projects.title,
-          sessionCount: projects.sessionCount,
-          packageName: sql<string | null>`coalesce(
-            max(${bookings.packageNameSnapshot}),
-            max(${purchaseRequests.productNameSnapshot})
-          )`,
+          commercialSnapshot: purchases.commercialSnapshot,
+          allowanceId: purchaseSessionAllowances.id,
+          allowanceKind: purchaseSessionAllowances.kind,
+          sessionLimit: purchaseSessionAllowances.sessionLimit,
+          durationMin: purchaseSessionAllowances.durationMin,
         })
-        .from(projects)
-        .leftJoin(
-          bookings,
-          and(eq(bookings.projectId, projects.id), eq(bookings.status, "confirmed")),
-        )
-        .leftJoin(
-          purchaseRequests,
+        .from(purchases)
+        .innerJoin(
+          projects,
           and(
-            eq(purchaseRequests.projectId, projects.id),
-            eq(purchaseRequests.producerId, input.producerId),
-            inArray(purchaseRequests.clientContactId, myContactIds),
-            eq(purchaseRequests.status, "paid"),
+            eq(projects.id, purchases.projectId),
+            eq(projects.producerId, purchases.producerId),
+            eq(projects.clientContactId, purchases.clientContactId),
+          ),
+        )
+        .innerJoin(
+          purchaseSessionAllowances,
+          and(
+            eq(purchaseSessionAllowances.purchaseId, purchases.id),
+            eq(purchaseSessionAllowances.producerId, purchases.producerId),
           ),
         )
         .where(
           and(
-            eq(projects.producerId, input.producerId),
-            inArray(sql<string>`lower(${projects.artistEmail})`, myEmails),
-            eq(projects.depositPaid, true),
+            eq(purchases.producerId, input.producerId),
+            inArray(purchases.clientContactId, myContactIds),
+            eq(purchases.lifecycleStatus, "active"),
+            eq(projects.lifecycleStatus, "active"),
+            isNull(purchaseSessionAllowances.closedAt),
           ),
-        )
-        .groupBy(projects.id, projects.title, projects.sessionCount)
-        .having(sql`count(${bookings.id}) > 0 or count(${purchaseRequests.id}) > 0`);
+        );
 
-      // Per-project session usage. Cheap N+1 — an artist typically has
-      // a handful of active packages with a single producer at any time.
-      const projectsWithUsage = await Promise.all(
-        projectRows.map(async (project) => {
+      const allowancesWithUsage = await Promise.all(
+        allowanceRows.map(async (allowance) => {
           const rows = await ctx.db
-            .select({ count: sql<number>`count(*)::int` })
+            .select({ outcome: bookings.outcome })
             .from(bookings)
             .where(
               and(
-                eq(bookings.projectId, project.id),
-                inArray(bookings.status, ["pending_approval", "pending_payment", "confirmed"]),
+                eq(bookings.purchaseId, allowance.purchaseId),
+                eq(bookings.sessionAllowanceId, allowance.allowanceId),
+                eq(bookings.producerId, input.producerId),
               ),
             );
-          const sessionsUsed = rows[0]?.count ?? 0;
-          const sessionCount = project.sessionCount ?? 1;
-          const unlimitedSessions = sessionCount === 0;
+          const sessionsUsed = rows.filter((row) =>
+            sessionUseConsumesAllowance(row.outcome),
+          ).length;
+          const unlimitedSessions = allowance.allowanceKind === "unlimited";
+          const sessionCount = unlimitedSessions ? 0 : (allowance.sessionLimit ?? 0);
           const sessionsRemaining = unlimitedSessions ? 0 : sessionCount - sessionsUsed;
           return {
-            projectId: project.id,
-            title: project.title,
-            packageName: project.packageName,
+            purchaseId: allowance.purchaseId,
+            sessionAllowanceId: allowance.allowanceId,
+            projectId: allowance.projectId,
+            title: allowance.title,
+            packageName: purchaseProductName(allowance.commercialSnapshot, allowance.title),
             sessionCount,
             sessionsUsed,
             sessionsRemaining,
             unlimitedSessions,
+            durationMin: allowance.durationMin,
           };
         }),
       );
 
-      // Only surface packages with capacity left.
-      return projectsWithUsage.filter((p) => p.unlimitedSessions || p.sessionsRemaining > 0);
+      return allowancesWithUsage.filter(
+        (row) => row.unlimitedSessions || row.sessionsRemaining > 0,
+      );
     }),
 
   confirm: artistProcedure
@@ -991,20 +1156,19 @@ const bookSubrouter = router({
         durationMin: z.number().int().min(15).max(720),
         projectId: z.string().uuid().nullable(),
         productId: z.string().uuid().nullable(),
-        // Multi-session credit path. When present, the booking is linked
-        // to an existing paid project, no productId required, and the
-        // producer's approval goes straight to `confirmed` (no
-        // pending_payment leg). Takes precedence over `projectId` when
-        // both are passed.
         existingProjectId: z.string().uuid().optional(),
+        purchaseId: z.string().uuid(),
+        sessionAllowanceId: z.string().uuid(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // 1. Access guard — same as availability. Keep every active contact so
-      // a paid package can resolve the exact email/contact that owns it.
-      const contacts = await resolveClientContacts(ctx.db, ctx.clerkUserId, input.producerId);
-      const contactIds = contacts.map((contact) => contact.id);
-      const contactEmails = [...new Set(contacts.map((contact) => contact.email.toLowerCase()))];
+      const targetProjectId = input.existingProjectId ?? input.projectId;
+      if (!targetProjectId) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "A purchased session allowance is required.",
+        });
+      }
 
       // 2. Compute startsAt from date + startMin. Treating the date as
       //    UTC midnight matches the availability query's day math so
@@ -1018,135 +1182,97 @@ const bookSubrouter = router({
       }
       const startsAt = new Date(Date.UTC(year, month - 1, day, 0, 0) + input.startMin * 60 * 1000);
 
-      // 3. Resolve and insert inside one serialized transaction. The
-      // producer lock closes the slot race between two artist tabs; the
-      // project lock independently closes the final-credit race.
       const endsAt = new Date(startsAt.getTime() + input.durationMin * 60 * 1000);
       const booking = await ctx.db.transaction(async (tx) => {
         await tx.execute(
           sql`select pg_advisory_xact_lock(hashtextextended(${input.producerId}, 0))`,
         );
 
-        const defaultContact = contacts[0];
-        if (!defaultContact) throw new TRPCError({ code: "NOT_FOUND" });
-        let bookingContact = defaultContact;
-        let creditProject: {
-          id: string;
-          title: string;
-          producerId: string;
-          artistEmail: string;
-          depositPaid: boolean;
-          sessionCount: number | null;
-          purchaseRequestId: string | null;
-          packageNameSnapshot: string;
-        } | null = null;
+        const candidates = await tx
+          .select({
+            purchase: purchases,
+            project: projects,
+            allowance: purchaseSessionAllowances,
+            contact: clientContacts,
+          })
+          .from(purchases)
+          .innerJoin(
+            projects,
+            and(
+              eq(projects.id, purchases.projectId),
+              eq(projects.producerId, purchases.producerId),
+              eq(projects.clientContactId, purchases.clientContactId),
+            ),
+          )
+          .innerJoin(
+            purchaseSessionAllowances,
+            and(
+              eq(purchaseSessionAllowances.purchaseId, purchases.id),
+              eq(purchaseSessionAllowances.producerId, purchases.producerId),
+            ),
+          )
+          .innerJoin(
+            clientContacts,
+            and(
+              eq(clientContacts.id, purchases.clientContactId),
+              eq(clientContacts.producerId, purchases.producerId),
+              eq(clientContacts.clerkUserId, ctx.clerkUserId),
+              isNull(clientContacts.archivedAt),
+            ),
+          )
+          .where(
+            and(
+              eq(purchases.projectId, targetProjectId),
+              eq(purchases.producerId, input.producerId),
+              eq(purchases.id, input.purchaseId),
+              eq(purchaseSessionAllowances.id, input.sessionAllowanceId),
+            ),
+          )
+          .for("update");
+        if (candidates.length === 0) {
+          throw new TRPCError({ code: "NOT_FOUND" });
+        }
+        if (candidates.length > 1) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Choose the exact purchased session allowance.",
+          });
+        }
+        const candidate = candidates[0];
+        if (!candidate) throw new TRPCError({ code: "NOT_FOUND" });
 
-        if (input.existingProjectId) {
-          await tx.execute(
-            sql`select pg_advisory_xact_lock(hashtextextended(${input.existingProjectId}, 0))`,
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${candidate.allowance.id}, 0))`,
+        );
+        const bookingContact = candidate.contact;
+
+        const existingUses = await tx
+          .select({ outcome: bookings.outcome })
+          .from(bookings)
+          .where(
+            and(
+              eq(bookings.purchaseId, candidate.purchase.id),
+              eq(bookings.sessionAllowanceId, candidate.allowance.id),
+              eq(bookings.producerId, input.producerId),
+            ),
           );
-          const [ownedProject] = await tx
-            .select({
-              id: projects.id,
-              title: projects.title,
-              producerId: projects.producerId,
-              artistEmail: projects.artistEmail,
-              depositPaid: projects.depositPaid,
-              sessionCount: projects.sessionCount,
-              purchaseRequestId: purchaseRequests.id,
-              purchaseRequestClientContactId: purchaseRequests.clientContactId,
-              packageNameSnapshot: purchaseRequests.productNameSnapshot,
-            })
-            .from(projects)
-            .leftJoin(
-              purchaseRequests,
-              and(
-                eq(purchaseRequests.projectId, projects.id),
-                eq(purchaseRequests.producerId, input.producerId),
-                inArray(purchaseRequests.clientContactId, contactIds),
-                eq(purchaseRequests.status, "paid"),
-              ),
-            )
-            .where(
-              and(
-                eq(projects.id, input.existingProjectId),
-                eq(projects.producerId, input.producerId),
-                eq(projects.depositPaid, true),
-                inArray(sql<string>`lower(${projects.artistEmail})`, contactEmails),
-              ),
-            )
-            .limit(1);
-
-          // Keep every ownership/payment miss indistinguishable. Explicit
-          // checks defend the boundary even if this query is refactored.
-          if (
-            !ownedProject ||
-            ownedProject.producerId !== input.producerId ||
-            !contactEmails.includes(ownedProject.artistEmail.toLowerCase()) ||
-            !ownedProject.depositPaid
-          ) {
-            throw new TRPCError({ code: "NOT_FOUND" });
-          }
-
-          const exactContact = contacts.find(
-            (contact) =>
-              contact.email.toLowerCase() === ownedProject.artistEmail.toLowerCase() &&
-              (ownedProject.purchaseRequestId === null ||
-                ownedProject.purchaseRequestClientContactId === contact.id),
-          );
-          if (!exactContact) {
-            throw new TRPCError({ code: "NOT_FOUND" });
-          }
-          bookingContact = exactContact;
-
-          let packageNameSnapshot = ownedProject.packageNameSnapshot;
-          if (!ownedProject.purchaseRequestId) {
-            // Legacy prepaid projects predate purchase_requests. Preserve
-            // their existing behavior, but require a confirmed booking as
-            // the credit source instead of trusting any depositPaid project
-            // id the client submits.
-            const [legacyCredit] = await tx
-              .select({ packageNameSnapshot: bookings.packageNameSnapshot })
-              .from(bookings)
-              .where(
-                and(
-                  eq(bookings.projectId, ownedProject.id),
-                  eq(bookings.producerId, input.producerId),
-                  eq(bookings.status, "confirmed"),
-                ),
-              )
-              .limit(1);
-            if (!legacyCredit) {
-              throw new TRPCError({ code: "NOT_FOUND" });
-            }
-            packageNameSnapshot = legacyCredit.packageNameSnapshot;
-          }
-          creditProject = {
-            ...ownedProject,
-            packageNameSnapshot: packageNameSnapshot?.trim() || ownedProject.title,
-          };
-
-          const [usage] = await tx
-            .select({ count: sql<number>`count(*)::int` })
-            .from(bookings)
-            .where(
-              and(
-                eq(bookings.projectId, ownedProject.id),
-                inArray(bookings.status, ["pending_approval", "pending_payment", "confirmed"]),
-              ),
-            );
-          const sessionCount = ownedProject.sessionCount ?? 1;
-          if (sessionCount !== 0 && (usage?.count ?? 0) >= sessionCount) {
-            throw new TRPCError({
-              code: "CONFLICT",
-              message: "No prepaid sessions remain for this package.",
-            });
-          }
+        try {
+          assertSessionBookingAllowed({
+            purchaseLifecycleStatus: candidate.purchase.lifecycleStatus,
+            projectLifecycleStatus: candidate.project.lifecycleStatus,
+            allowance: candidate.allowance,
+            existingOutcomes: existingUses.map((use) => use.outcome),
+            requestedDurationMin: input.durationMin,
+            startsAt,
+            now: new Date(),
+          });
+        } catch (error) {
+          mapSessionBookingDomainError(error);
         }
 
         // Pull every active booking in a wide (±24h) window, then do the
         // precise overlap test in JS while the producer lock is held.
-        const candidates = await tx
+        const slotCandidates = await tx
           .select({
             startsAt: bookings.startsAt,
             durationMin: bookings.durationMin,
@@ -1155,12 +1281,12 @@ const bookSubrouter = router({
           .where(
             and(
               eq(bookings.producerId, input.producerId),
-              inArray(bookings.status, ["pending_approval", "pending_payment", "confirmed"]),
+              inArray(bookings.status, ["pending_approval", "confirmed"]),
               gte(bookings.startsAt, new Date(startsAt.getTime() - 24 * 60 * 60 * 1000)),
               lte(bookings.startsAt, endsAt),
             ),
           );
-        const overlap = candidates.some((bk) => {
+        const overlap = slotCandidates.some((bk) => {
           const bkEnd = new Date(bk.startsAt.getTime() + bk.durationMin * 60 * 1000);
           return bk.startsAt < endsAt && startsAt < bkEnd;
         });
@@ -1171,8 +1297,6 @@ const bookSubrouter = router({
           });
         }
 
-        const linkedProjectId = input.existingProjectId ?? input.projectId;
-        const linkedProductId = input.existingProjectId ? null : input.productId;
         const now = new Date();
         const [row] = await tx
           .insert(bookings)
@@ -1180,34 +1304,16 @@ const bookSubrouter = router({
             producerId: input.producerId,
             artistEmail: bookingContact.email,
             artistName: bookingContact.name,
-            packageNameSnapshot: creditProject?.packageNameSnapshot ?? null,
             startsAt,
             durationMin: input.durationMin,
-            // Preserve the existing artist-booking approval gate. Producer
-            // confirmation owns the confirmed-state email and side effects.
             status: "pending_approval",
             statusChangedAt: now,
-            projectId: linkedProjectId,
-            productId: linkedProductId,
+            projectId: candidate.project.id,
+            purchaseId: candidate.purchase.id,
+            sessionAllowanceId: candidate.allowance.id,
           })
           .returning();
         if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-
-        if (creditProject?.purchaseRequestId) {
-          await tx
-            .update(purchaseRequests)
-            .set({ bookingId: row.id })
-            .where(
-              and(
-                eq(purchaseRequests.id, creditProject.purchaseRequestId),
-                eq(purchaseRequests.projectId, creditProject.id),
-                eq(purchaseRequests.producerId, input.producerId),
-                eq(purchaseRequests.clientContactId, bookingContact.id),
-                eq(purchaseRequests.status, "paid"),
-                isNull(purchaseRequests.bookingId),
-              ),
-            );
-        }
 
         return {
           id: row.id,
@@ -1234,69 +1340,22 @@ const bookSubrouter = router({
       return { id: booking.id };
     }),
 
-  // Bookings the producer has approved but the artist hasn't paid for
-  // yet. Drives the "Session approved — payment required" banner on
-  // the artist home. Joined to producers + products so the banner can
-  // render the full sentence in one round-trip.
-  //
-  // Amount + copy share the calendar flow's one explicit fallback:
-  // pay in full when offered, otherwise the first supported plan.
-  myPendingPayments: artistProcedure.query(async ({ ctx }) => {
-    const rows = await ctx.db
-      .select({
-        id: bookings.id,
-        startsAt: bookings.startsAt,
-        producerName: producers.displayName,
-        packageName: bookings.packageNameSnapshot,
-        priceCents: products.priceCents,
-        currency: products.currency,
-        paymentPlans: products.paymentPlans,
-      })
-      .from(bookings)
-      .innerJoin(producers, eq(producers.id, bookings.producerId))
-      .innerJoin(
-        clientContacts,
-        activeArtistClientPair(ctx.clerkUserId, {
-          producerId: bookings.producerId,
-          email: bookings.artistEmail,
-        }),
-      )
-      .leftJoin(
-        products,
-        and(
-          eq(products.id, bookings.productId),
-          eq(products.producerId, bookings.producerId),
-        ),
-      )
-      .where(eq(bookings.status, "pending_payment"))
-      .orderBy(asc(bookings.startsAt));
-
-    const out = rows.map((r) => {
-      const price = r.priceCents ?? 0;
-      const { amountCents, plan, planLabel } = calendarPaymentSummary(
-        price,
-        r.paymentPlans,
-      );
-      return {
-        id: r.id,
-        startsAt: r.startsAt,
-        producerName: r.producerName ?? "Producer",
-        packageName: r.packageName ?? "Session",
-        amountCents,
-        currency: r.currency ?? "ILS",
-        plan,
-        planLabel,
-      };
-    });
-    return { bookings: out };
-  }),
+  // Payment belongs to Purchase, never to Booking. Keep the old read shape
+  // empty until the purchase-installment artist surface lands.
+  myPendingPayments: artistProcedure.query(
+    (): {
+      available: false;
+      bookings: PendingBookingPaymentCompatibility[];
+    } => ({ available: false, bookings: [] }),
+  ),
 });
 
 // ─── artist.store sub-router ─────────────────────────────────────────
 // Browse + buy products from any of the artist's studios without
 // leaving the artist app. `products` is the catalog read (all or one
 // studio), `product` is the detail read, `checkout` mints a Stripe
-// Checkout Session via the shared `initiatePaidPlanCheckout` helper.
+// Direct-card checkout is intentionally unavailable; accepted purchases use
+// the off-app proof workflow.
 //
 // The helper is also used by `booking.publicRequest`, so the public
 // booking flow and the signed-in artist Store hit the same plan-aware
@@ -1318,9 +1377,7 @@ const storeSubrouter = router({
   // (`active = false`) products at the DB layer so the list is
   // always live-sellable.
   products: artistProcedure
-    .input(
-      z.object({ producerId: z.string().uuid().optional() }).optional(),
-    )
+    .input(z.object({ producerId: z.string().uuid().optional() }).optional())
     .query(async ({ ctx, input }) => {
       const producerId = input?.producerId;
 
@@ -1336,15 +1393,10 @@ const storeSubrouter = router({
         })
         .from(clientContacts)
         .where(
-          and(
-            eq(clientContacts.clerkUserId, ctx.clerkUserId),
-            isNull(clientContacts.archivedAt),
-          ),
+          and(eq(clientContacts.clerkUserId, ctx.clerkUserId), isNull(clientContacts.archivedAt)),
         );
 
-      const myProducerIds = [
-        ...new Set(myContacts.map((c) => c.producerId)),
-      ];
+      const myProducerIds = [...new Set(myContacts.map((c) => c.producerId))];
 
       // With a specific producerId filter, require an explicit
       // clientContacts row — otherwise an artist could probe a
@@ -1360,8 +1412,7 @@ const storeSubrouter = router({
         return { products: [] as StoreProductRow[] };
       }
 
-      const scopedProducerIds =
-        producerId === undefined ? myProducerIds : [producerId];
+      const scopedProducerIds = producerId === undefined ? myProducerIds : [producerId];
 
       // 2. Products ⨝ producers. scopedProducerIds is always ≥ 1 entry
       //    here because we short-circuited on empty above.
@@ -1418,11 +1469,7 @@ const storeSubrouter = router({
         durationMin: r.durationMin,
         sessionCount: r.sessionCount,
         kind: r.kind,
-        pricingModel: r.pricingModel as
-          | "flat"
-          | "per_song"
-          | "hourly"
-          | "bundle",
+        pricingModel: r.pricingModel as "flat" | "per_song" | "hourly" | "bundle",
         volumeTiers: r.volumeTiers ?? null,
         paymentPlans: r.paymentPlans,
         producerId: r.producerId,
@@ -1455,10 +1502,6 @@ const storeSubrouter = router({
           pricingModel: products.pricingModel,
           volumeTiers: products.volumeTiers,
           paymentPlans: products.paymentPlans,
-          // Handoff-4 S3 ticket card (W2.1) — deposit column + plan chips.
-          depositPct: products.depositPct,
-          depositModel: products.depositModel,
-          milestones: products.milestones,
           position: products.position,
           // Funnel S3/S4 surfaces (SK-46) — the what's-included list and
           // the producer's uploaded agreement PDF.
@@ -1510,8 +1553,7 @@ const storeSubrouter = router({
       if (contacts.length === 0) throw new TRPCError({ code: "NOT_FOUND" });
 
       const decodedDescription = decodeDescription(row.description);
-      const savedAgreementText =
-        "agreementText" in row ? (row.agreementText ?? null) : undefined;
+      const savedAgreementText = "agreementText" in row ? (row.agreementText ?? null) : undefined;
       const agreementText =
         savedAgreementText !== null && savedAgreementText !== undefined
           ? savedAgreementText.trim().length > 0
@@ -1525,19 +1567,12 @@ const storeSubrouter = router({
         // Tagline only — see SK-49 note on the list read above.
         description: decodedDescription.tagline || null,
         revisions: decodedDescription.revisions,
-        depositPct: row.depositPct,
-        depositModel: row.depositModel,
-        milestones: row.milestones,
         priceCents: row.priceCents,
         currency: row.currency,
         durationMin: row.durationMin,
         sessionCount: row.sessionCount,
         kind: row.kind,
-        pricingModel: row.pricingModel as
-          | "flat"
-          | "per_song"
-          | "hourly"
-          | "bundle",
+        pricingModel: row.pricingModel as "flat" | "per_song" | "hourly" | "bundle",
         volumeTiers: row.volumeTiers ?? null,
         paymentPlans: row.paymentPlans,
         deliverables: row.deliverables ?? null,
@@ -1552,13 +1587,9 @@ const storeSubrouter = router({
       };
     }),
 
-  // Mint a Stripe Checkout Session for this (artist, product, plan).
-  // Same as booking.publicRequest's branch (a) minus the booking row —
-  // store purchases don't create a bookings row because there's no
-  // session to book; the project row in `lead` stage (created by the
-  // shared helper) is the canonical ledger entry.
-  //
-  // Returns the Checkout URL so the server action can redirect.
+  // SK-90 removes every direct-card execution path. Keep this temporary
+  // compatibility procedure only so the existing Store caller fails closed
+  // until the unified off-app purchase UI lands in SK-95.
   checkout: artistProcedure
     .input(
       z.object({
@@ -1571,212 +1602,15 @@ const storeSubrouter = router({
             installments: z.number().int().min(2).max(12),
           }),
         ]),
-        // Per-song pricing — required when the underlying product is
-        // per_song, ignored otherwise. The artist-side SongCountStepper
-        // computes both; we re-validate the unit price against the
-        // ladder on the server so a hand-crafted payload can't lock in
-        // an unauthorised rate.
         songQty: z.number().int().min(1).max(1000).optional(),
         unitPriceCents: z.number().int().min(0).max(100_000_000).optional(),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
-      // 1. Load product. NOT_FOUND if missing or soft-deleted.
-      const [prod] = await ctx.db
-        .select()
-        .from(products)
-        .where(
-          and(
-            eq(products.id, input.productId),
-            eq(products.active, true),
-            isNull(products.archivedAt),
-          ),
-        )
-        .limit(1);
-      if (!prod) throw new TRPCError({ code: "NOT_FOUND" });
-
-      // 2. Ownership guard + surface the client identity (name + email)
-      //    for the Stripe Customer. artistProcedure guarantees
-      //    clerkUserId is set; we still have to pull the contact row
-      //    to know the raw email and display name used for the session.
-      const [contact] = await ctx.db
-        .select({
-          id: clientContacts.id,
-          email: clientContacts.email,
-          name: clientContacts.name,
-        })
-        .from(clientContacts)
-        .where(
-          and(
-            eq(clientContacts.clerkUserId, ctx.clerkUserId),
-            eq(clientContacts.producerId, prod.producerId),
-            isNull(clientContacts.archivedAt),
-          ),
-        )
-        .limit(1);
-      if (!contact) throw new TRPCError({ code: "NOT_FOUND" });
-
-      // 2b. Self-checkout guard.
-      //   * flat       → must have priceCents > 0 (DB list filters
-      //                  already, this is defense-in-depth).
-      //   * per_song   → must arrive with songQty + unitPriceCents;
-      //                  the server uses them to compute the locked-in
-      //                  total. The unit price is validated against
-      //                  the product's volumeTiers below so a
-      //                  hand-crafted payload can't lock in a price
-      //                  the producer didn't authorise.
-      //   * hourly /
-      //     bundle     → no UI for collecting qty/duration yet, so
-      //                  reject loudly. (Legacy public
-      //                  /p/[slug]/book flow was removed in Story 03
-      //                  per PRD §6.6.)
-      if (prod.pricingModel === "flat" && prod.priceCents <= 0) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            "This product isn't available for self-checkout yet — contact the producer to book it directly.",
-        });
-      }
-      if (
-        prod.pricingModel === "hourly" ||
-        prod.pricingModel === "bundle"
-      ) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            "This product isn't available for self-checkout yet — contact the producer to book it directly.",
-        });
-      }
-      if (prod.pricingModel === "per_song") {
-        if (input.songQty == null || input.unitPriceCents == null) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message:
-              "Per-song products need a song count — pick one before continuing.",
-          });
-        }
-        // Validate the locked-in unit price against the product's
-        // volumeTiers ladder. The artist's stepper computes
-        // unitPriceFor(qty, tiers) client-side; we re-run the same
-        // math server-side so a tampered payload can't lock in a
-        // cheaper-than-offered rate.
-        const tiers = prod.volumeTiers ?? [];
-        const { unitPriceFor } = await import("~/lib/pricing");
-        const serverUnit = unitPriceFor(input.songQty, tiers);
-        if (serverUnit !== input.unitPriceCents) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Pricing changed — refresh the page and try again.",
-          });
-        }
-      }
-
-      // 3. Producer's Stripe Connect fields. stripeAccountId must be
-      //    set AND charges must be enabled, otherwise we can't route
-      //    funds. Pre-flight check returns a clean BAD_REQUEST instead
-      //    of a confusing Stripe error.
-      const [producerRow] = await ctx.db
-        .select({
-          stripeAccountId: producers.stripeAccountId,
-          stripeChargesEnabled: producers.stripeChargesEnabled,
-          slug: producers.slug,
-          // Migration 0019 — needed for checkout math when the
-          // producer is on 'tax_added' mode (Stripe charge gets
-          // multiplied by 1 + ratePct/100).
-          taxMode: producers.taxMode,
-          taxRatePct: producers.taxRatePct,
-        })
-        .from(producers)
-        .where(eq(producers.id, prod.producerId))
-        .limit(1);
-
-      if (
-        !producerRow?.stripeAccountId ||
-        !producerRow.stripeChargesEnabled
-      ) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            "This studio isn't set up to accept payments yet — reach out directly.",
-        });
-      }
-
-      // 4. Delegate to the shared helper. Plan validation happens inside
-      //    (throws BAD_REQUEST on unlisted plans). Helper handles:
-      //    - client_contacts upsert (no-op here since we already have one)
-      //    - Stripe Customer lookup/create
-      //    - projects row insert (lead stage, plan snapshot)
-      //    - Stripe Checkout Session create (idempotency-keyed)
-      //    - invoices row for full/split; skipped for monthly.
-      const { initiatePaidPlanCheckout } = await import(
-        "~/server/payments/checkout-initiator"
-      );
-
-      // Idempotency scope: per (client_contact, product, plan.kind) so
-      // a signed-in artist spamming "Continue to checkout" on the same
-      // plan doesn't fan out into duplicate Stripe sessions. Switching
-      // plan variants (full → monthly) gives a distinct key.
-      const planKey =
-        input.paymentPlan.kind === "monthly"
-          ? `monthly-${String(input.paymentPlan.installments)}`
-          : input.paymentPlan.kind;
-      const idempotencyKey = `store-${contact.id}-${prod.id}-${planKey}-checkout`;
-
-      const plan: PaymentPlan = input.paymentPlan;
-      // Per-song products: the locked-in total is songQty *
-      // unitPriceCents. Flat products keep using the product's
-      // canonical priceCents. The guard above already enforced that
-      // per_song arrives with both fields present.
-      const effectivePriceCents =
-        prod.pricingModel === "per_song" &&
-        input.songQty != null &&
-        input.unitPriceCents != null
-          ? input.songQty * input.unitPriceCents
-          : prod.priceCents;
-      const result = await initiatePaidPlanCheckout({
-        db: ctx.db,
-        producer: {
-          id: prod.producerId,
-          slug: producerRow.slug,
-          stripeAccountId: producerRow.stripeAccountId,
-        },
-        product: prod,
-        paymentPlan: plan,
-        clientName: contact.name,
-        clientEmail: contact.email,
-        priceCents: effectivePriceCents,
-        // Migration 0019 — producer's tax mode + rate. When mode is
-        // 'tax_added' the helper multiplies effectivePriceCents by
-        // 1 + ratePct/100 before charging Stripe.
-        taxMode: coerceTaxMode(producerRow.taxMode),
-        taxRatePct: producerRow.taxRatePct,
-        // Per-song denormalisation — undefined on flat checkouts
-        // (the helper's args are optional with exactOptionalPropertyTypes).
-        ...(prod.pricingModel === "per_song" && input.songQty != null
-          ? { songQty: input.songQty }
-          : {}),
-        ...(prod.pricingModel === "per_song" && input.unitPriceCents != null
-          ? { unitPriceCents: input.unitPriceCents }
-          : {}),
-        idempotencyKey,
-        metadata: { source: "artist_store" },
-        // Keep artists inside the artist app after Stripe. The helper's
-        // default success/cancel URLs now point to /join/<slug> (the
-        // new artist funnel per PRD §6.6) — correct for anonymous
-        // booking initiated from /join, wrong for this signed-in
-        // store flow. On success we deep-link to /artist with a query
-        // flag so the Home tab can render a "thanks, you're set!"
-        // toast (UI hook-up is a follow-up; for now the redirect alone
-        // is enough). On cancel we return to the product detail so the
-        // artist can pick a different plan without losing context.
-        successUrl: `${getSiteUrl()}/artist?checkoutSuccess=1`,
-        cancelUrl: `${getSiteUrl()}/artist/store/${prod.id}`,
+    .mutation((): { checkoutUrl: null; projectId: string } => {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "Skitza records off-app payments and does not start card checkout.",
       });
-
-      return {
-        checkoutUrl: result.checkoutUrl,
-        projectId: result.projectId,
-      };
     }),
 });
 
@@ -1822,10 +1656,7 @@ export const artistRouter = router({
       .from(clientContacts)
       .innerJoin(producers, eq(producers.id, clientContacts.producerId))
       .where(
-        and(
-          eq(clientContacts.clerkUserId, ctx.clerkUserId),
-          isNull(clientContacts.archivedAt),
-        ),
+        and(eq(clientContacts.clerkUserId, ctx.clerkUserId), isNull(clientContacts.archivedAt)),
       );
 
     // brand is jsonb {logoUrl?: string, ...} — normalize to scalar
@@ -1833,8 +1664,7 @@ export const artistRouter = router({
       producerId: r.producerId,
       producerName: r.producerName ?? "Untitled Studio",
       producerSlug: r.producerSlug,
-      producerLogoUrl:
-        (r.producerLogoUrl as { logoUrl?: string } | null)?.logoUrl ?? null,
+      producerLogoUrl: (r.producerLogoUrl as { logoUrl?: string } | null)?.logoUrl ?? null,
       lastSeenAt: r.lastSeenAt,
     }));
 
@@ -1859,10 +1689,8 @@ export const artistRouter = router({
       nextSessionRows,
       upcomingSessionRows,
       latestMixRows,
-      outstandingRows,
       activityTrackRows,
       activityBookingRows,
-      activityInvoiceRows,
     ] = await Promise.all([
       // (2) Next confirmed session — across all my producers, where
       // the booking's artist email is mine, status=confirmed, in the
@@ -1874,23 +1702,26 @@ export const artistRouter = router({
           durationMin: bookings.durationMin,
           producerName: producers.displayName,
           producerSlug: producers.slug,
-          productName: bookings.packageNameSnapshot,
+          commercialSnapshot: purchases.commercialSnapshot,
         })
         .from(bookings)
+        .innerJoin(
+          purchases,
+          and(
+            eq(purchases.id, bookings.purchaseId),
+            eq(purchases.projectId, bookings.projectId),
+            eq(purchases.producerId, bookings.producerId),
+          ),
+        )
         .innerJoin(producers, eq(producers.id, bookings.producerId))
         .innerJoin(
           clientContacts,
-          activeArtistClientPair(ctx.clerkUserId, {
-            producerId: bookings.producerId,
-            email: bookings.artistEmail,
+          activeArtistClientOwner(ctx.clerkUserId, {
+            producerId: purchases.producerId,
+            clientContactId: purchases.clientContactId,
           }),
         )
-        .where(
-          and(
-            eq(bookings.status, "confirmed"),
-            gte(bookings.startsAt, now),
-          ),
-        )
+        .where(and(eq(bookings.status, "confirmed"), gte(bookings.startsAt, now)))
         .orderBy(asc(bookings.startsAt))
         .limit(1),
 
@@ -1903,23 +1734,26 @@ export const artistRouter = router({
           startsAt: bookings.startsAt,
           durationMin: bookings.durationMin,
           producerName: producers.displayName,
-          packageName: bookings.packageNameSnapshot,
+          commercialSnapshot: purchases.commercialSnapshot,
         })
         .from(bookings)
+        .innerJoin(
+          purchases,
+          and(
+            eq(purchases.id, bookings.purchaseId),
+            eq(purchases.projectId, bookings.projectId),
+            eq(purchases.producerId, bookings.producerId),
+          ),
+        )
         .innerJoin(producers, eq(producers.id, bookings.producerId))
         .innerJoin(
           clientContacts,
-          activeArtistClientPair(ctx.clerkUserId, {
-            producerId: bookings.producerId,
-            email: bookings.artistEmail,
+          activeArtistClientOwner(ctx.clerkUserId, {
+            producerId: purchases.producerId,
+            clientContactId: purchases.clientContactId,
           }),
         )
-        .where(
-          and(
-            eq(bookings.status, "confirmed"),
-            gte(bookings.startsAt, now),
-          ),
-        )
+        .where(and(eq(bookings.status, "confirmed"), gte(bookings.startsAt, now)))
         .orderBy(asc(bookings.startsAt))
         .limit(10),
 
@@ -1948,32 +1782,20 @@ export const artistRouter = router({
         .innerJoin(producers, eq(producers.id, projects.producerId))
         .innerJoin(
           clientContacts,
-          activeArtistClientPair(ctx.clerkUserId, {
+          activeArtistClientOwner(ctx.clerkUserId, {
             producerId: projects.producerId,
-            email: projects.artistEmail,
+            clientContactId: projects.clientContactId,
           }),
+        )
+        .where(
+          and(
+            ne(projects.lifecycleStatus, "waiting_for_payment"),
+            isNotNull(trackVersions.audioUrl),
+            isNull(trackVersions.audioDeletedAt),
+          ),
         )
         .orderBy(desc(trackVersions.uploadedAt))
         .limit(1),
-
-      // (4) Outstanding balance — sum of unpaid invoices across my
-      // studios, scoped to my customer email. Status != 'paid' covers
-      // draft + sent + uncollectible (refunded/void are excluded — a
-      // refunded invoice is not money you owe).
-      ctx.db
-        .select({
-          amountCents: invoices.amountCents,
-          currency: invoices.currency,
-        })
-        .from(invoices)
-        .innerJoin(
-          clientContacts,
-          activeArtistClientPair(ctx.clerkUserId, {
-            producerId: invoices.producerId,
-            email: invoices.customerEmail,
-          }),
-        )
-        .where(inArray(invoices.status, ["draft", "sent", "uncollectible"])),
 
       // (5a) Activity — recent track uploads (cap at 10 from this
       // source, then merge + cap at 10 across all sources below).
@@ -1993,10 +1815,17 @@ export const artistRouter = router({
         .innerJoin(producers, eq(producers.id, projects.producerId))
         .innerJoin(
           clientContacts,
-          activeArtistClientPair(ctx.clerkUserId, {
+          activeArtistClientOwner(ctx.clerkUserId, {
             producerId: projects.producerId,
-            email: projects.artistEmail,
+            clientContactId: projects.clientContactId,
           }),
+        )
+        .where(
+          and(
+            ne(projects.lifecycleStatus, "waiting_for_payment"),
+            isNotNull(trackVersions.audioUrl),
+            isNull(trackVersions.audioDeletedAt),
+          ),
         )
         .orderBy(desc(trackVersions.uploadedAt))
         .limit(10),
@@ -2011,40 +1840,24 @@ export const artistRouter = router({
           startsAt: bookings.startsAt,
         })
         .from(bookings)
+        .innerJoin(
+          purchases,
+          and(
+            eq(purchases.id, bookings.purchaseId),
+            eq(purchases.projectId, bookings.projectId),
+            eq(purchases.producerId, bookings.producerId),
+          ),
+        )
         .innerJoin(producers, eq(producers.id, bookings.producerId))
         .innerJoin(
           clientContacts,
-          activeArtistClientPair(ctx.clerkUserId, {
-            producerId: bookings.producerId,
-            email: bookings.artistEmail,
+          activeArtistClientOwner(ctx.clerkUserId, {
+            producerId: purchases.producerId,
+            clientContactId: purchases.clientContactId,
           }),
         )
         .where(eq(bookings.status, "confirmed"))
         .orderBy(desc(bookings.statusChangedAt))
-        .limit(10),
-
-      // (5c) Activity — recent invoice payments.
-      ctx.db
-        .select({
-          id: invoices.id,
-          producerName: producers.displayName,
-          producerSlug: producers.slug,
-          paidAt: invoices.paidAt,
-          amountCents: invoices.amountCents,
-          currency: invoices.currency,
-          projectId: invoices.projectId,
-        })
-        .from(invoices)
-        .innerJoin(producers, eq(producers.id, invoices.producerId))
-        .innerJoin(
-          clientContacts,
-          activeArtistClientPair(ctx.clerkUserId, {
-            producerId: invoices.producerId,
-            email: invoices.customerEmail,
-          }),
-        )
-        .where(eq(invoices.status, "paid"))
-        .orderBy(desc(invoices.paidAt))
         .limit(10),
     ]);
 
@@ -2057,7 +1870,7 @@ export const artistRouter = router({
           durationMin: nextRow.durationMin,
           producerName: nextRow.producerName ?? "Untitled Studio",
           producerSlug: nextRow.producerSlug,
-          productName: nextRow.productName,
+          productName: purchaseProductName(nextRow.commercialSnapshot, "Session"),
         }
       : null;
 
@@ -2080,28 +1893,13 @@ export const artistRouter = router({
         }
       : null;
 
-    // ── Sum outstanding balance ─────────────────────────────────────
-    let outstandingBalance: {
+    // The old single-currency invoice rollup cannot represent several
+    // purchase ledgers. Keep the compatibility field unavailable.
+    const outstandingBalance: {
       totalCents: number;
       currency: string;
       nextDueAt: Date | null;
     } | null = null;
-    if (outstandingRows.length > 0) {
-      const totalCents = outstandingRows.reduce(
-        (acc, r) => acc + r.amountCents,
-        0,
-      );
-      // Currency: first row wins (mixed-currency outstanding is rare;
-      // we don't try to convert here — the dashboard surfaces a single
-      // value in a single currency).
-      const currency = outstandingRows[0]?.currency ?? "USD";
-      // nextDueAt: when there's a monthly plan running, this is the
-      // next scheduled charge. We don't have it surfaced via invoices
-      // (the schedule lives on projects.nextChargeAt), so we leave it
-      // null for v1. Plumbing it through is a follow-up if/when the UI
-      // wants the literal date.
-      outstandingBalance = { totalCents, currency, nextDueAt: null };
-    }
 
     // ── Merge + sort + cap activity feed ────────────────────────────
     // Three streams → one normalized stream. We pre-format the message
@@ -2129,19 +1927,6 @@ export const artistRouter = router({
         deepLink: null,
       });
     }
-    for (const r of activityInvoiceRows) {
-      // paidAt is nullable in the schema but for status=paid it's
-      // always set in practice; defensively skip unset rows so a
-      // legacy row can't crash the feed.
-      if (!r.paidAt) continue;
-      activity.push({
-        kind: "invoice_paid",
-        message: `Payment of ${formatCents(r.amountCents, r.currency)} processed`,
-        occurredAt: r.paidAt,
-        producerName: r.producerName ?? "Untitled Studio",
-        deepLink: r.projectId ? `/artist/music/${r.projectId}` : null,
-      });
-    }
     activity.sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime());
     const cappedActivity = activity.slice(0, 10);
 
@@ -2152,7 +1937,7 @@ export const artistRouter = router({
         startsAt: s.startsAt,
         durationMin: s.durationMin,
         producerName: s.producerName ?? "Producer",
-        packageName: s.packageName,
+        packageName: purchaseProductName(s.commercialSnapshot, "Session"),
       })),
       latestMix,
       outstandingBalance,
@@ -2164,63 +1949,70 @@ export const artistRouter = router({
   // Sets clientContacts.archivedAt so every artist-side read filters
   // the row out (the row itself stays for the producer's CRM history).
   //
-  // Blocked when the artist has any active booking (pending_approval,
-  // pending_payment, or confirmed) with this producer. The check
-  // filters bookings.artistEmail against the artist's own contact
-  // emails — joining bookings → clientContacts on producerId alone
-  // would surface OTHER artists' bookings and falsely block the
-  // disconnect.
+  // Blocked when the artist has an active booking owned by one of their
+  // stable client-contact rows for this producer.
   disconnectProducer: artistProcedure
     .input(z.object({ producerId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const myContacts = await ctx.db
-        .select({ email: clientContacts.email })
-        .from(clientContacts)
-        .where(
-          and(
-            eq(clientContacts.clerkUserId, ctx.clerkUserId),
-            eq(clientContacts.producerId, input.producerId),
-            isNull(clientContacts.archivedAt),
-          ),
+      await ctx.db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${input.producerId}, 0))`,
         );
-      if (myContacts.length === 0) {
-        throw new TRPCError({ code: "NOT_FOUND" });
-      }
-      const myEmails = [...new Set(myContacts.map((c) => c.email.toLowerCase()))];
 
-      const activeBookings = await ctx.db
-        .select({ id: bookings.id })
-        .from(bookings)
-        .where(
-          and(
-            eq(bookings.producerId, input.producerId),
-            inArray(bookings.artistEmail, myEmails),
-            inArray(bookings.status, [
-              "pending_approval",
-              "pending_payment",
-              "confirmed",
-            ]),
-          ),
-        )
-        .limit(1);
-      if (activeBookings.length > 0) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            "Cannot disconnect — you have active bookings with this producer.",
-        });
-      }
+        const myContacts = await tx
+          .select({ id: clientContacts.id })
+          .from(clientContacts)
+          .where(
+            and(
+              eq(clientContacts.clerkUserId, ctx.clerkUserId),
+              eq(clientContacts.producerId, input.producerId),
+              isNull(clientContacts.archivedAt),
+            ),
+          )
+          .for("update");
+        if (myContacts.length === 0) {
+          throw new TRPCError({ code: "NOT_FOUND" });
+        }
+        const myContactIds = myContacts.map((contact) => contact.id);
 
-      await ctx.db
-        .update(clientContacts)
-        .set({ archivedAt: new Date() })
-        .where(
-          and(
-            eq(clientContacts.clerkUserId, ctx.clerkUserId),
-            eq(clientContacts.producerId, input.producerId),
-            isNull(clientContacts.archivedAt),
-          ),
-        );
+        const activeBookings = await tx
+          .select({ id: bookings.id })
+          .from(bookings)
+          .innerJoin(
+            purchases,
+            and(
+              eq(purchases.id, bookings.purchaseId),
+              eq(purchases.projectId, bookings.projectId),
+              eq(purchases.producerId, bookings.producerId),
+            ),
+          )
+          .where(
+            and(
+              eq(bookings.producerId, input.producerId),
+              inArray(purchases.clientContactId, myContactIds),
+              inArray(bookings.status, ["pending_approval", "confirmed"]),
+            ),
+          )
+          .limit(1);
+        if (activeBookings.length > 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Cannot disconnect — you have active bookings with this producer.",
+          });
+        }
+
+        await tx
+          .update(clientContacts)
+          .set({ archivedAt: new Date() })
+          .where(
+            and(
+              inArray(clientContacts.id, myContactIds),
+              eq(clientContacts.clerkUserId, ctx.clerkUserId),
+              eq(clientContacts.producerId, input.producerId),
+              isNull(clientContacts.archivedAt),
+            ),
+          );
+      });
 
       return { ok: true as const };
     }),
@@ -2250,27 +2042,3 @@ export type ActivityItem = {
   producerName: string;
   deepLink: string | null;
 };
-
-// Tiny formatter for the activity feed's payment messages. We avoid
-// a full Intl roundtrip per row — the activity feed renders 10 items
-// at most, but this keeps the function pure + cheap to test elsewhere.
-function formatCents(cents: number, currency: string): string {
-  const major = (cents / 100).toFixed(2);
-  const symbol = currencySymbol(currency);
-  return `${symbol}${major}`;
-}
-
-function currencySymbol(currency: string): string {
-  switch (currency.toUpperCase()) {
-    case "USD":
-      return "$";
-    case "EUR":
-      return "€";
-    case "GBP":
-      return "£";
-    case "ILS":
-      return "₪";
-    default:
-      return `${currency} `;
-  }
-}

@@ -1,21 +1,17 @@
 "use client";
 
-import { useCallback, useState, useTransition } from "react";
-import type { PaymentPlan } from "@skitza/db";
+import { useCallback, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 
-import { PlanPicker } from "~/components/checkout/plan-picker";
 import { Button } from "~/components/ui/button";
 import type { VolumeTier } from "~/lib/pricing";
 
-import { startStoreCheckoutAction } from "./actions";
+import { requestStorePurchaseAction } from "./actions";
 import { SongCountStepper } from "./song-count-stepper";
 
-// Client Component. Renders the PlanPicker (flat) or SongCountStepper
-// (per-song) above the "Continue to checkout" button, then submits to
-// a server action which calls artist.store.checkout. For per-song the
-// action receives songQty + unitPriceCents so the server can compute
-// the locked-in total and create the project/Stripe session for the
-// right amount.
+// Client Component. Captures only request intent. Per-song quantity is
+// carried forward; price and plan are derived and frozen by the server at
+// the later purchase-acceptance boundary.
 export function StoreProductClient({
   product,
 }: {
@@ -24,68 +20,45 @@ export function StoreProductClient({
     name: string;
     priceCents: number;
     currency: string;
-    paymentPlans: PaymentPlan[];
     pricingModel: "flat" | "per_song" | "hourly" | "bundle";
     volumeTiers: VolumeTier[] | null;
   };
 }) {
-  const supportedPlans = product.paymentPlans.filter(
-    (candidate): candidate is Exclude<PaymentPlan, { kind: "milestones" }> =>
-      candidate.kind !== "milestones",
-  );
-  const singlePlan = supportedPlans.length === 1 ? supportedPlans[0] ?? null : null;
-  const [plan, setPlan] = useState<Exclude<
-    PaymentPlan,
-    { kind: "milestones" }
-  > | null>(singlePlan);
+  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const operationKeyRef = useRef<string | null>(null);
 
   // Per-song state — populated by SongCountStepper's onChange. Initial
   // values match the stepper's default (qty 1 at the base tier).
   const isPerSong = product.pricingModel === "per_song";
   const tiers = product.volumeTiers ?? [];
-  const baseUnitCents = tiers[0]?.pricePerUnitCents ?? product.priceCents;
   const [songQty, setSongQty] = useState(1);
-  const [unitPriceCents, setUnitPriceCents] = useState(baseUnitCents);
 
   // Memoise the callback so the stepper's useEffect doesn't re-fire on
   // every parent render (stale-closure-safe + cheap).
   const handleStepperChange = useCallback(
     (state: { qty: number; unitPriceCents: number }) => {
       setSongQty(state.qty);
-      setUnitPriceCents(state.unitPriceCents);
     },
     [],
   );
 
-  if (supportedPlans.length === 0) {
-    // Defensive — every product's default is [{kind:"full"}], so this
-    // only fires if a row got persisted with an empty array. Surface a
-    // legible error rather than a silent dead button.
-    return (
-      <p className="rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 text-sm text-[rgb(var(--fg-secondary))]">
-        This product isn&apos;t available for direct checkout yet — reach
-        out to the studio directly.
-      </p>
-    );
-  }
-
   const handleContinue = () => {
-    if (!plan) return;
     setError(null);
     startTransition(async () => {
-      const res = await startStoreCheckoutAction({
+      const operationKey = operationKeyRef.current ?? crypto.randomUUID();
+      operationKeyRef.current = operationKey;
+      const res = await requestStorePurchaseAction({
         productId: product.id,
-        paymentPlan: plan,
-        ...(isPerSong ? { songQty, unitPriceCents } : {}),
+        operationKey,
+        ...(isPerSong ? { songQty } : {}),
       });
       if (res.ok) {
-        if (res.checkoutUrl) {
-          window.location.href = res.checkoutUrl;
-          return;
-        }
-        setError("Checkout session couldn't be created. Try again?");
+        router.push(
+          `/artist/purchase/${product.id}/sent?req=${res.purchaseRequestId}`,
+        );
+        return;
       } else {
         setError(res.error);
       }
@@ -105,24 +78,6 @@ export function StoreProductClient({
         />
       ) : null}
 
-      {/* Plan picker: only shown when >= 2 plans are offered. A
-          single-plan product auto-uses its default silently. The
-          totalCents we show reflects the *current* qty selection for
-          per-song products so the producer's split / installments
-          math reads the locked-in price. */}
-      {supportedPlans.length > 1 ? (
-        <div className="rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
-          <PlanPicker
-            plans={supportedPlans}
-            totalCents={isPerSong ? songQty * unitPriceCents : product.priceCents}
-            currency={product.currency}
-            onChoose={(p) => {
-              setPlan(p as Exclude<PaymentPlan, { kind: "milestones" }>);
-            }}
-          />
-        </div>
-      ) : null}
-
       {error ? (
         <p role="alert" className="text-sm text-[rgb(var(--fg-danger-text))]">
           {error}
@@ -132,10 +87,10 @@ export function StoreProductClient({
       <Button
         type="button"
         size="lg"
-        disabled={pending || !plan}
+        disabled={pending}
         onClick={handleContinue}
       >
-        {pending ? "Opening checkout…" : "Continue to checkout"}
+        {pending ? "Sending request…" : "Send request"}
       </Button>
     </div>
   );

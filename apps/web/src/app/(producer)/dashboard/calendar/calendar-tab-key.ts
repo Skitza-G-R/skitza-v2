@@ -39,10 +39,11 @@ export function resolveCalendarTabForBooking(
   rawTab: string | string[] | undefined,
   bookingStatus:
     | "pending_approval"
-    | "pending_payment"
     | "confirmed"
     | "rejected"
     | "cancelled"
+    | "completed"
+    | "no_show"
     | null,
 ): CalendarTabKey {
   if (rawTab !== undefined) return resolveCalendarTab(rawTab);

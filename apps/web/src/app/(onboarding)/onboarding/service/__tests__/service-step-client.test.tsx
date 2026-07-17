@@ -49,7 +49,6 @@ describe("onboarding first-service commercial terms", () => {
         split50: true,
         monthly: true,
         monthlyInstallments: 6,
-        preservedPlans: [],
       },
       includes: ["Tracking", "Mix", "Master"],
       duration: "60 min",

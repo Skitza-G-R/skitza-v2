@@ -4,15 +4,12 @@ import {
   asc,
   bookings,
   clientContacts,
-  invoices,
   producers,
-  products,
   projectTracks,
   projects,
   desc,
   eq,
   inArray,
-  or,
   sql,
   trackComments,
   trackVersions,
@@ -24,39 +21,38 @@ import { producerProcedure } from "../producer-procedure";
 import { stripUndefined } from "../strip-undefined";
 import { emailHashFor } from "~/server/artist/identity";
 import { SITE_URL, sendClientInviteEmail } from "~/server/email/send";
-import { summarizeProjectMoney, type ProjectInvoiceLedgerRow } from "~/lib/payments/project-ledger";
 
 // Producer-scoped client CRM.
 //
 // Read-only autocomplete feed grew into the full CRUD surface that
-// backs /dashboard/clients. Aggregates match against BOTH
-// projects.clientEmail AND projects.artistEmail so legacy projects
-// (when only artistEmail was set) still attach to their contact. If a
-// producer later renames a client's email, the older projects continue
-// to show up because we compare on email strings, not contact IDs.
-
-function emailMatchesProject(email: string) {
-  return or(eq(projects.clientEmail, email), eq(projects.artistEmail, email));
-}
+// backs /dashboard/clients. Project ownership is always resolved through
+// projects.clientContactId inside the authenticated producer boundary.
 
 function hashEmail(raw: string): { lower: string; hash: string } {
   const lower = raw.trim().toLowerCase();
   return { lower, hash: emailHashFor(raw) };
 }
 
-type ProjectInvoiceRow = ProjectInvoiceLedgerRow & { projectId: string | null };
+export type ClientCommercialProjection = {
+  availability: "unavailable";
+  reason: "purchase_payments_projection_pending";
+  currency: null;
+  totalCents: null;
+  outstandingCents: null;
+  lifetimeCents: null;
+  paidThisMonthCents: null;
+};
 
-function groupProjectInvoices(
-  rows: readonly ProjectInvoiceRow[],
-): Map<string, ProjectInvoiceLedgerRow[]> {
-  const grouped = new Map<string, ProjectInvoiceLedgerRow[]>();
-  for (const row of rows) {
-    if (!row.projectId) continue;
-    const current = grouped.get(row.projectId) ?? [];
-    current.push(row);
-    grouped.set(row.projectId, current);
-  }
-  return grouped;
+function unavailableCommercialProjection(): ClientCommercialProjection {
+  return {
+    availability: "unavailable",
+    reason: "purchase_payments_projection_pending",
+    currency: null,
+    totalCents: null,
+    outstandingCents: null,
+    lifetimeCents: null,
+    paidThisMonthCents: null,
+  };
 }
 
 export const clientContactsRouter = router({
@@ -86,10 +82,9 @@ export const clientContactsRouter = router({
   //   view = "by-client"     → one row per contact with aggregate stats
   //   view = "all-projects"  → one row per project, with its client
   //
-  // Both modes share the same project + invoice ledger fold so the
-  // outstanding balance, lifetime value, and current-month earnings stay
-  // consistent with the project Payments tab. Legacy projects without a
-  // ledger retain the old finalPaid/price fallback.
+  // Commercial totals are deliberately unavailable until the Payments work
+  // defines the purchase-ledger projection. Project-row flags and invoice
+  // compatibility tables are not valid commercial sources.
   listWithProjects: producerProcedure
     .input(
       z
@@ -99,35 +94,26 @@ export const clientContactsRouter = router({
     .query(async ({ ctx, input }) => {
       const view = input?.view ?? "by-client";
 
-      // One per-project row enriched with product price + last comment
-      // time. Uses `max(bookings.product_id)` + `max(products.price_cents)`
-      // to collapse the many-to-one booking→product join safely; in
-      // practice a project has ≤ 1 booking attached via bookings.project_id.
+      // One producer-scoped row per project. The clientContactId is the
+      // ownership key; email snapshots below are display-only.
       const projectRows = await ctx.db
         .select({
           id: projects.id,
           title: projects.title,
-          stage: projects.stage,
+          lifecycleStatus: projects.lifecycleStatus,
           createdAt: projects.createdAt,
           updatedAt: projects.updatedAt,
+          clientContactId: projects.clientContactId,
           clientName: projects.clientName,
-          clientEmail: sql<string | null>`lower(${projects.clientEmail})`,
+          clientEmail: projects.clientEmail,
           artistName: projects.artistName,
-          artistEmail: sql<string>`lower(${projects.artistEmail})`,
-          depositPaid: projects.depositPaid,
-          finalPaid: projects.finalPaid,
-          paidAt: projects.paidAt,
-          priceCents: sql<
-            number | null
-          >`coalesce(${projects.totalAmountCents}, ${projects.engagementTotalCents}, max(${products.priceCents}))`,
-          currency: sql<string | null>`coalesce(${projects.currency}, max(${products.currency}))`,
+          artistEmail: projects.artistEmail,
           nextSessionAt: sql<
             Date | string | null
           >`min(case when ${bookings.startsAt} > now() and ${bookings.status} = 'confirmed' then ${bookings.startsAt} end)`,
         })
         .from(projects)
         .leftJoin(bookings, eq(bookings.projectId, projects.id))
-        .leftJoin(products, eq(products.id, bookings.productId))
         .where(eq(projects.producerId, ctx.producerId))
         .groupBy(projects.id)
         // Custom drag-to-reorder takes precedence (`position` asc).
@@ -135,30 +121,8 @@ export const clientContactsRouter = router({
         // to most-recently-updated so existing behavior is preserved.
         .orderBy(asc(projects.position), desc(projects.updatedAt));
 
-      const projectIds = projectRows.map((project) => project.id);
-      const invoiceRows: ProjectInvoiceRow[] =
-        projectIds.length === 0
-          ? []
-          : await ctx.db
-              .select({
-                projectId: invoices.projectId,
-                amountCents: invoices.amountCents,
-                currency: invoices.currency,
-                status: invoices.status,
-                paidAt: invoices.paidAt,
-                createdAt: invoices.createdAt,
-              })
-              .from(invoices)
-              .where(
-                and(
-                  eq(invoices.producerId, ctx.producerId),
-                  inArray(invoices.projectId, projectIds),
-                ),
-              );
-      const invoicesByProject = groupProjectInvoices(invoiceRows);
-
       // Pre-compute last-comment timestamp + unresolved count per
-      // project email (artistEmail/clientEmail) via a single aggregate.
+      // producer-owned project via a single aggregate.
       const commentAgg = await ctx.db
         .select({
           projectId: projectTracks.projectId,
@@ -186,8 +150,9 @@ export const clientContactsRouter = router({
         commentMap.set(row.projectId, { lastComment: lc, unresolved: row.unresolved });
       }
 
-      // Shape: decorate each project with lastActivity (max of
-      // updatedAt / lastComment) + the outstandingCents for itself.
+      // Shape: decorate each project with lastActivity and an explicit
+      // commercial projection that fails closed until purchase Payments owns
+      // the ledger fold.
       const enriched = projectRows.map((p) => {
         const cm = commentMap.get(p.id) ?? { lastComment: null, unresolved: 0 };
         const updatedAt = p.updatedAt instanceof Date ? p.updatedAt : new Date(p.updatedAt);
@@ -199,34 +164,20 @@ export const clientContactsRouter = router({
             : p.nextSessionAt instanceof Date
               ? p.nextSessionAt
               : new Date(p.nextSessionAt);
-        const price = p.priceCents ?? 0;
-        const currency = p.currency ?? "USD";
-        const isActive = p.stage !== "paid" && p.stage !== "archived";
-        const money = summarizeProjectMoney({
-          currency,
-          expectedTotalCents: price,
-          finalPaid: p.finalPaid,
-          isArchived: p.stage === "archived",
-          legacyPaidAt: p.paidAt,
-          invoices: invoicesByProject.get(p.id) ?? [],
-        });
+        const isActive =
+          p.lifecycleStatus !== "completed" && p.lifecycleStatus !== "canceled";
         return {
           id: p.id,
           title: p.title,
-          stage: p.stage,
+          lifecycleStatus: p.lifecycleStatus,
           createdAt: p.createdAt,
           updatedAt: p.updatedAt,
+          clientContactId: p.clientContactId,
           clientName: p.clientName,
           clientEmail: p.clientEmail ?? p.artistEmail,
           artistName: p.artistName,
           artistEmail: p.artistEmail,
-          depositPaid: p.depositPaid,
-          finalPaid: p.finalPaid,
-          priceCents: price,
-          currency,
-          outstandingCents: money.outstandingCents,
-          lifetimeCents: money.lifetimeCents,
-          paidThisMonthCents: money.paidThisMonthCents,
+          commercial: unavailableCommercialProjection(),
           nextSessionAt,
           lastActivity,
           unresolvedComments: cm.unresolved,
@@ -235,9 +186,8 @@ export const clientContactsRouter = router({
       });
 
       if (view === "all-projects") {
-        // Flat list shape. For each project, look up the contact by
-        // lowercased email. If none found (legacy rows) return a stub
-        // so the UI still renders a row.
+        // Flat list shape. Resolve the client only through the project's
+        // stable contact id. The snapshot fallback is display-only.
         const contacts = await ctx.db
           .select({
             id: clientContacts.id,
@@ -249,7 +199,7 @@ export const clientContactsRouter = router({
           })
           .from(clientContacts)
           .where(eq(clientContacts.producerId, ctx.producerId));
-        const contactByEmail = new Map<
+        const contactById = new Map<
           string,
           {
             id: string;
@@ -261,7 +211,7 @@ export const clientContactsRouter = router({
           }
         >();
         for (const c of contacts) {
-          contactByEmail.set(c.email.toLowerCase(), {
+          contactById.set(c.id, {
             id: c.id,
             email: c.email,
             name: c.name,
@@ -273,8 +223,7 @@ export const clientContactsRouter = router({
         return {
           view: "all-projects" as const,
           projects: enriched.map((p) => {
-            const matchEmail = p.clientEmail.toLowerCase();
-            const ct = contactByEmail.get(matchEmail) ?? null;
+            const ct = contactById.get(p.clientContactId) ?? null;
             return {
               ...p,
               client: ct
@@ -325,59 +274,41 @@ export const clientContactsRouter = router({
       type Agg = {
         active: number;
         total: number;
-        outstanding: number;
-        lifetime: number;
         lastActivity: Date | null;
         unresolved: number;
-        hasActive: boolean;
-        hasOutstanding: boolean;
       };
-      const byEmail = new Map<string, Agg>();
-      function ensure(email: string): Agg {
-        const existing = byEmail.get(email);
+      const byClientContactId = new Map<string, Agg>();
+      function ensure(clientContactId: string): Agg {
+        const existing = byClientContactId.get(clientContactId);
         if (existing) return existing;
         const fresh: Agg = {
           active: 0,
           total: 0,
-          outstanding: 0,
-          lifetime: 0,
           lastActivity: null,
           unresolved: 0,
-          hasActive: false,
-          hasOutstanding: false,
         };
-        byEmail.set(email, fresh);
+        byClientContactId.set(clientContactId, fresh);
         return fresh;
       }
       for (const p of enriched) {
         const la = p.lastActivity instanceof Date ? p.lastActivity : new Date(p.lastActivity);
-        for (const em of new Set(
-          [p.clientEmail, p.artistEmail].filter((e): e is string => Boolean(e)).map((e) => e.toLowerCase()),
-        )) {
-          const a = ensure(em);
-          a.total += 1;
-          if (p.isActive) {
-            a.active += 1;
-            a.hasActive = true;
-          }
-          a.outstanding += p.outstandingCents;
-          a.lifetime += p.lifetimeCents;
-          a.unresolved += p.unresolvedComments;
-          if (p.outstandingCents > 0) a.hasOutstanding = true;
-          if (!a.lastActivity || la > a.lastActivity) a.lastActivity = la;
+        const aggregate = ensure(p.clientContactId);
+        aggregate.total += 1;
+        if (p.isActive) {
+          aggregate.active += 1;
+        }
+        aggregate.unresolved += p.unresolvedComments;
+        if (!aggregate.lastActivity || la > aggregate.lastActivity) {
+          aggregate.lastActivity = la;
         }
       }
 
       const rows = contacts.map((c) => {
-        const agg = byEmail.get(c.email.toLowerCase()) ?? {
+        const agg = byClientContactId.get(c.id) ?? {
           active: 0,
           total: 0,
-          outstanding: 0,
-          lifetime: 0,
           lastActivity: null,
           unresolved: 0,
-          hasActive: false,
-          hasOutstanding: false,
         };
         const lastActivity =
           agg.lastActivity ??
@@ -390,8 +321,7 @@ export const clientContactsRouter = router({
           agg.total === 0
             ? now - (c.lastSeenAt instanceof Date ? c.lastSeenAt : new Date(c.lastSeenAt)).getTime() > staleMs
             : false;
-        const needsAttention =
-          agg.unresolved > 0 || (agg.hasOutstanding && agg.active > 0);
+        const needsAttention = agg.unresolved > 0;
         return {
           id: c.id,
           email: c.email,
@@ -405,8 +335,7 @@ export const clientContactsRouter = router({
           clerkUserId: c.clerkUserId,
           activeProjectCount: agg.active,
           totalProjectCount: agg.total,
-          outstandingCents: agg.outstanding,
-          lifetimeCents: agg.lifetime,
+          commercial: unavailableCommercialProjection(),
           unresolvedComments: agg.unresolved,
           lastActivity,
           needsAttention,
@@ -561,7 +490,7 @@ export const clientContactsRouter = router({
 
   // Enriched list for the CRM view. One round-trip for contacts plus
   // one grouped aggregate over projects. N+1 avoided by building a map
-  // keyed on lowercased email and looking up each contact in JS.
+  // keyed on the stable client contact id.
   listWithMeta: producerProcedure.query(async ({ ctx }) => {
     const contacts = await ctx.db
       .select({
@@ -577,15 +506,14 @@ export const clientContactsRouter = router({
 
     const projectAgg = await ctx.db
       .select({
-        clientEmail: sql<string | null>`lower(${projects.clientEmail})`,
-        artistEmail: sql<string | null>`lower(${projects.artistEmail})`,
+        clientContactId: projects.clientContactId,
         totalProjects: sql<number>`count(*)::int`,
-        activeProjects: sql<number>`count(*) filter (where ${projects.stage} not in ('paid','archived'))::int`,
+        activeProjects: sql<number>`count(*) filter (where ${projects.lifecycleStatus} not in ('completed','canceled'))::int`,
         lastActivity: sql<Date | string | null>`max(${projects.updatedAt})`,
       })
       .from(projects)
       .where(eq(projects.producerId, ctx.producerId))
-      .groupBy(sql`lower(${projects.clientEmail})`, sql`lower(${projects.artistEmail})`);
+      .groupBy(projects.clientContactId);
 
     const agg = new Map<
       string,
@@ -598,28 +526,15 @@ export const clientContactsRouter = router({
           : row.lastActivity instanceof Date
             ? row.lastActivity
             : new Date(row.lastActivity);
-      for (const em of [row.clientEmail, row.artistEmail]) {
-        if (!em) continue;
-        const prev = agg.get(em);
-        if (!prev) {
-          agg.set(em, { active: row.activeProjects, total: row.totalProjects, lastActivity: lastAct });
-        } else {
-          agg.set(em, {
-            active: prev.active + row.activeProjects,
-            total: prev.total + row.totalProjects,
-            lastActivity:
-              prev.lastActivity && lastAct
-                ? prev.lastActivity > lastAct
-                  ? prev.lastActivity
-                  : lastAct
-                : (prev.lastActivity ?? lastAct),
-          });
-        }
-      }
+      agg.set(row.clientContactId, {
+        active: row.activeProjects,
+        total: row.totalProjects,
+        lastActivity: lastAct,
+      });
     }
 
     return contacts.map((c) => {
-      const meta = agg.get(c.email.toLowerCase()) ?? {
+      const meta = agg.get(c.id) ?? {
         active: 0,
         total: 0,
         lastActivity: null,
@@ -786,8 +701,8 @@ export const clientContactsRouter = router({
       };
     }),
 
-  // Delete a contact. Projects/contracts/comments linked via email
-  // stay in place — this is purely a CRM entry removal.
+  // Delete a CRM contact. Stable project ownership is protected by the
+  // database foreign key, so an in-use contact cannot be removed.
   remove: producerProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
@@ -942,49 +857,26 @@ export const clientContactsRouter = router({
         .select({
           id: projects.id,
           title: projects.title,
-          stage: projects.stage,
+          lifecycleStatus: projects.lifecycleStatus,
+          clientContactId: projects.clientContactId,
           createdAt: projects.createdAt,
           updatedAt: projects.updatedAt,
-          depositPaid: projects.depositPaid,
-          finalPaid: projects.finalPaid,
-          paidAt: projects.paidAt,
-          priceCents: sql<
-            number | null
-          >`coalesce(${projects.totalAmountCents}, ${projects.engagementTotalCents}, max(${products.priceCents}))`,
-          currency: sql<string | null>`coalesce(${projects.currency}, max(${products.currency}))`,
           nextSessionAt: sql<
             Date | string | null
           >`min(case when ${bookings.startsAt} > now() and ${bookings.status} = 'confirmed' then ${bookings.startsAt} end)`,
         })
         .from(projects)
         .leftJoin(bookings, eq(bookings.projectId, projects.id))
-        .leftJoin(products, eq(products.id, bookings.productId))
-        .where(and(eq(projects.producerId, ctx.producerId), emailMatchesProject(lower)))
+        .where(
+          and(
+            eq(projects.producerId, ctx.producerId),
+            eq(projects.clientContactId, input.id),
+          ),
+        )
         .groupBy(projects.id)
         .orderBy(desc(projects.updatedAt));
 
       const projectIds = projectRows.map((d) => d.id);
-
-      const invoiceRows: ProjectInvoiceRow[] =
-        projectIds.length === 0
-          ? []
-          : await ctx.db
-              .select({
-                projectId: invoices.projectId,
-                amountCents: invoices.amountCents,
-                currency: invoices.currency,
-                status: invoices.status,
-                paidAt: invoices.paidAt,
-                createdAt: invoices.createdAt,
-              })
-              .from(invoices)
-              .where(
-                and(
-                  eq(invoices.producerId, ctx.producerId),
-                  inArray(invoices.projectId, projectIds),
-                ),
-              );
-      const invoicesByProject = groupProjectInvoices(invoiceRows);
 
       let trackCount = 0;
       if (projectIds.length > 0) {
@@ -1023,36 +915,16 @@ export const clientContactsRouter = router({
           : [];
 
       const activeProjectCount = projectRows.filter(
-        (d) => d.stage !== "paid" && d.stage !== "archived",
+        (project) =>
+          project.lifecycleStatus !== "completed" &&
+          project.lifecycleStatus !== "canceled",
       ).length;
       const lastActivity = projectRows[0]?.updatedAt ?? contact.lastSeenAt;
 
-      // Aggregate outstanding / lifetime across this contact's projects
-      // using the same invoice-ledger rule as listWithProjects.
-      let outstandingCents = 0;
-      let lifetimeCents = 0;
-      const enrichedProjects = projectRows.map((p) => {
-        const price = p.priceCents ?? 0;
-        const currency = p.currency ?? "USD";
-        const money = summarizeProjectMoney({
-          currency,
-          expectedTotalCents: price,
-          finalPaid: p.finalPaid,
-          isArchived: p.stage === "archived",
-          legacyPaidAt: p.paidAt,
-          invoices: invoicesByProject.get(p.id) ?? [],
-        });
-        outstandingCents += money.outstandingCents;
-        lifetimeCents += money.lifetimeCents;
-        return {
-          ...p,
-          priceCents: price,
-          currency,
-          outstandingCents: money.outstandingCents,
-          lifetimeCents: money.lifetimeCents,
-          paidThisMonthCents: money.paidThisMonthCents,
-        };
-      });
+      const enrichedProjects = projectRows.map((project) => ({
+        ...project,
+        commercial: unavailableCommercialProjection(),
+      }));
 
       return {
         contact: {
@@ -1078,8 +950,7 @@ export const clientContactsRouter = router({
           totalProjectCount: projectRows.length,
           trackCount,
           lastActivity,
-          outstandingCents,
-          lifetimeCents,
+          commercial: unavailableCommercialProjection(),
         },
         projects: enrichedProjects,
         comments: commentRows,

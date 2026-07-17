@@ -29,8 +29,6 @@ interface ReviewStepProps {
   agreementMode: AgreementMode;
   contractUrl: string;
   agreementText: string;
-  depositModel?: string;
-  milestones?: { label: string; pct: number }[] | null;
   onEdit: (step: ReviewEditStep) => void;
 }
 
@@ -52,12 +50,9 @@ function paymentPlanSummary(plan: PaymentPlan, totalCents: number, currency: str
     const first = totalCents - second;
     return `50% / 50% · ${formatAmount(first, currency)} then ${formatAmount(second, currency)}`;
   }
-  if (plan.kind === "monthly") {
-    const later = Math.floor(totalCents / plan.installments);
-    const first = totalCents - later * (plan.installments - 1);
-    return `Monthly installments · ${String(plan.installments)} payments · ${formatAmount(first, currency)} first`;
-  }
-  return `Milestone schedule · ${String(plan.milestones.length)} stages`;
+  const later = Math.floor(totalCents / plan.installments);
+  const first = totalCents - later * (plan.installments - 1);
+  return `Monthly installments · ${String(plan.installments)} payments · ${formatAmount(first, currency)} first`;
 }
 
 function ReviewSection({
@@ -114,15 +109,9 @@ export function ReviewStep({
   agreementMode,
   contractUrl,
   agreementText,
-  depositModel,
-  milestones,
   onEdit,
 }: ReviewStepProps) {
   const royalty = royaltyTermsDisplay(royaltyTerms);
-  const hasVirtualMilestones =
-    depositModel === "milestones" &&
-    (milestones?.length ?? 0) > 0 &&
-    !paymentPlans.some((plan) => plan.kind === "milestones");
 
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -189,9 +178,6 @@ export function ReviewStep({
               {paymentPlanSummary(plan, artistPaysCents ?? priceCents, currency)}
             </li>
           ))}
-          {hasVirtualMilestones ? (
-            <li>{`Milestone schedule · ${String(milestones?.length ?? 0)} stages`}</li>
-          ) : null}
         </ul>
       </ReviewSection>
 

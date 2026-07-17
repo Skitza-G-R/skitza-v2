@@ -7,7 +7,7 @@
 //
 // Each entry covers the full shape the form expects:
 //   - name, description, kind, locationType
-//   - priceCents, currency, depositPct
+//   - priceCents, currency, paymentPlans
 //   - durationMin, sessionCount, bufferMinutes, minLeadHours
 //
 // The icon is a string emoji/glyph rather than a React element so this
@@ -43,7 +43,6 @@ export type ServiceTemplate = {
     locationType: PackageLocationType;
     priceCents: number;
     currency: TemplateCurrency;
-    depositPct: number;
     durationMin: number;
     sessionCount: number;
     bufferMinutes: number;
@@ -69,7 +68,6 @@ export const SERVICE_TEMPLATES: readonly ServiceTemplate[] = [
       locationType: "studio",
       priceCents: 15000,
       currency: "USD",
-      depositPct: 25,
       durationMin: 180,
       sessionCount: 1,
       bufferMinutes: 15,
@@ -90,7 +88,6 @@ export const SERVICE_TEMPLATES: readonly ServiceTemplate[] = [
       locationType: "studio",
       priceCents: 450000,
       currency: "USD",
-      depositPct: 50,
       durationMin: 240,
       sessionCount: 10,
       bufferMinutes: 30,
@@ -112,7 +109,6 @@ export const SERVICE_TEMPLATES: readonly ServiceTemplate[] = [
       locationType: "studio",
       priceCents: 60000,
       currency: "USD",
-      depositPct: 25,
       durationMin: 240,
       sessionCount: 2,
       bufferMinutes: 0,
@@ -133,7 +129,6 @@ export const SERVICE_TEMPLATES: readonly ServiceTemplate[] = [
       locationType: "remote",
       priceCents: 7500,
       currency: "USD",
-      depositPct: 0,
       durationMin: 60,
       sessionCount: 1,
       bufferMinutes: 0,
@@ -154,7 +149,6 @@ export const SERVICE_TEMPLATES: readonly ServiceTemplate[] = [
       locationType: "studio",
       priceCents: 20000,
       currency: "USD",
-      depositPct: 25,
       durationMin: 90,
       sessionCount: 1,
       bufferMinutes: 15,

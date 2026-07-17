@@ -12,10 +12,11 @@ import { KIND_COLORS, inferSessionKind } from "./session-kind";
 
 export type RawBookingStatus =
   | "pending_approval"
-  | "pending_payment"
   | "confirmed"
   | "rejected"
-  | "cancelled";
+  | "cancelled"
+  | "completed"
+  | "no_show";
 
 export type SessionListItem = {
   id: string;
@@ -30,8 +31,8 @@ export type SessionListItem = {
 type DerivedStatus =
   | "confirmed"
   | "pending"
-  | "awaiting_payment"
   | "completed"
+  | "no_show"
   | "rejected"
   | "cancelled";
 
@@ -53,11 +54,13 @@ export function SessionRow({
   const start = new Date(session.startsAt);
   const end = new Date(start.getTime() + session.durationMin * 60_000);
   const derived = deriveStatus(session.status, end, now);
-  const dimmed = derived === "cancelled" || derived === "rejected";
+  const dimmed =
+    derived === "cancelled" || derived === "rejected" || derived === "no_show";
   const cancellable =
     derived !== "cancelled" &&
     derived !== "rejected" &&
-    derived !== "completed";
+    derived !== "completed" &&
+    derived !== "no_show";
 
   const kind = inferSessionKind(session.packageName);
   const kindToken = KIND_COLORS[kind];
@@ -257,8 +260,8 @@ function StatusPill({ status }: { status: DerivedStatus }) {
   > = {
     confirmed: { label: "Confirmed", cls: "pill-success" },
     pending: { label: "Pending", cls: "pill-warning" },
-    awaiting_payment: { label: "Awaiting payment", cls: "pill-warning" },
     completed: { label: "Completed", cls: "pill-neutral" },
+    no_show: { label: "No show", cls: "pill-danger" },
     cancelled: { label: "Cancelled", cls: "pill-danger" },
   };
   const m = map[status];
@@ -273,7 +276,8 @@ function deriveStatus(
   if (raw === "rejected") return "rejected";
   if (raw === "cancelled") return "cancelled";
   if (raw === "pending_approval") return "pending";
-  if (raw === "pending_payment") return "awaiting_payment";
+  if (raw === "completed") return "completed";
+  if (raw === "no_show") return "no_show";
   // confirmed: completed if the session has already ended.
   if (endsAt.getTime() <= now.getTime()) return "completed";
   return "confirmed";

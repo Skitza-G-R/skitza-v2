@@ -42,6 +42,11 @@ describe("StoreScreen shell", () => {
     expect(SRC).toMatch(/<ProductEditor/);
   });
 
+  it("defines StoreProduct without old deposit compatibility fields", () => {
+    expect(SRC).toMatch(/paymentPlans:\s*import\("@skitza\/db"\)\.PaymentPlan\[\]/);
+    expect(SRC).not.toMatch(/depositPct|depositModel|milestones/);
+  });
+
   it("mounts the DeleteConfirmModal", () => {
     expect(SRC).toMatch(/<DeleteConfirmModal/);
   });

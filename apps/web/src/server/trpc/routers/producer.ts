@@ -7,7 +7,6 @@ import {
   eq,
   gte,
   inArray,
-  invoices,
   isNotNull,
   isNull,
   lte,
@@ -15,6 +14,7 @@ import {
   producers,
   projectTracks,
   projects,
+  purchases,
   sql,
   trackComments,
   trackVersions,
@@ -175,7 +175,7 @@ function truncate(s: string, max: number): string {
   return trimmed.length <= max ? trimmed : `${trimmed.slice(0, max - 1)}…`;
 }
 
-function formatInvoiceSubtitle(
+function formatMoneySubtitle(
   amountCents: number,
   currency: string,
   description: string | null,
@@ -195,7 +195,7 @@ function formatInvoiceSubtitle(
 // Shape returned by `producer.today`. One row per actionable thing the
 // producer should look at in the current day. KPI counts ride
 // alongside so the UI renders the strip + the inbox in a single call.
-export type TodayKind = "session" | "payment" | "comment" | "invoice";
+export type TodayKind = "session" | "payment" | "comment";
 export interface TodayItem {
   id: string;
   kind: TodayKind;
@@ -250,17 +250,33 @@ export type RecentUpload = {
 // `sparkline` is always exactly PULSE_SPARKLINE_DAYS long (zero-filled
 // missing days), so the SVG geometry is stable for the consuming
 // component regardless of producer activity.
-export type PulseStats = {
-  thisMonthCents: number;
-  lastMonthCents: number;
-  outstandingCents: number;
-  currency: string;
-  deltaPct: number | null;
-  sparkline: number[];
+type PulseCounts = {
   activeProjects: number;
   upcomingSessions7d: number;
   unresolvedItems: number;
 };
+
+export type PulseStats = PulseCounts &
+  (
+    | {
+        commercialAvailable: false;
+        thisMonthCents: null;
+        lastMonthCents: null;
+        outstandingCents: null;
+        currency: null;
+        deltaPct: null;
+        sparkline: number[];
+      }
+    | {
+        commercialAvailable: true;
+        thisMonthCents: number;
+        lastMonthCents: number;
+        outstandingCents: number;
+        currency: string;
+        deltaPct: number | null;
+        sparkline: number[];
+      }
+  );
 
 // Music library cap — Samply-style cross-project list of every track
 // version the producer has uploaded, newest first. 100 rows is enough
@@ -276,34 +292,20 @@ const MUSIC_LIST_MAX = 100;
 const TODAY_PER_SOURCE_CAP = 50;
 
 // Strict type ordering: sessions first (time-sensitive), then recent
-// payments (the producer needs to see incoming money fast), then unread
-// comments (artist is waiting), then unpaid invoices.
+// payments, then unread comments (artist is waiting).
 // Within each kind we sort by occurredAt (asc for upcoming sessions
 // — soonest first; desc for everything else — most recent first).
 const KIND_PRIORITY: Record<TodayKind, number> = {
   session: 0,
   payment: 1,
   comment: 2,
-  invoice: 3,
 };
 
 // ─── Overview · Urgent helpers ────────────────────────────────────────
-// Project-level urgency classification. The Overview's Urgent card
-// surfaces three rules in priority order:
-//
-//   1. `overdue`      — a booked project whose final invoice is unpaid
-//                       AND the last session ended >7 days ago AND
-//                       there's no future session on the calendar.
-//   2. `deposit_due`  — project is in the `booked` stage but the
-//                       producer hasn't recorded a deposit yet, and the
-//                       project has been sitting for >2 days.
-//   3. `stuck`        — project is in `in_production` but no track
-//                       version has been uploaded in >14 days.
-//
-// Sort order in the response is overdue → deposit_due → stuck. The
-// surface caps at 3 by default but accepts an optional `limit` input
-// for non-default consumers (e.g. a future "all urgent" page).
-export type UrgencyKind = "overdue" | "deposit_due" | "stuck";
+// Project activity is the only safe urgency source available here. Money
+// urgency belongs to the purchase ledger: project lifecycle, booking age,
+// and removed deposit/final flags must never be used to infer it.
+export type UrgencyKind = "stuck";
 
 export interface UrgentProjectItem {
   id: string;
@@ -317,25 +319,13 @@ export interface UrgentProjectItem {
 
 const URGENT_DEFAULT_LIMIT = 3;
 
-const URGENCY_PRIORITY: Record<UrgencyKind, number> = {
-  overdue: 0,
-  deposit_due: 1,
-  stuck: 2,
-};
-
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-const OVERDUE_DAYS = 7;
-const DEPOSIT_DUE_DAYS = 2;
 const STUCK_DAYS = 14;
 
 interface ClassifyArgs {
   stage: Stage;
-  depositPaid: boolean;
-  finalPaid: boolean;
   updatedAt: Date;
   lastUploadAt: Date | null;
-  lastBookingEndAt: Date | null;
-  hasFutureSession: boolean;
   now: Date;
 }
 
@@ -349,41 +339,12 @@ interface ClassifyArgs {
 export function classifyUrgency(args: ClassifyArgs): UrgencyKind | null {
   const {
     stage,
-    depositPaid,
-    finalPaid,
     updatedAt,
     lastUploadAt,
-    lastBookingEndAt,
-    hasFutureSession,
     now,
   } = args;
 
-  // 1. OVERDUE — final isn't paid, the last booking ended more than
-  //    OVERDUE_DAYS ago, and there's nothing on the calendar to bring
-  //    the project back into motion.
-  if (
-    !finalPaid &&
-    !hasFutureSession &&
-    lastBookingEndAt !== null &&
-    now.getTime() - lastBookingEndAt.getTime() > OVERDUE_DAYS * ONE_DAY_MS
-  ) {
-    return "overdue";
-  }
-
-  // 2. DEPOSIT DUE — the project is booked but no deposit has been
-  //    recorded, and the row has been idle for at least DEPOSIT_DUE_DAYS.
-  //    The idle check uses `updatedAt` rather than `createdAt` so a
-  //    project the producer is actively poking at doesn't immediately
-  //    light up red — we give them ~2 days to log the deposit.
-  if (
-    stage === "booked" &&
-    !depositPaid &&
-    now.getTime() - updatedAt.getTime() > DEPOSIT_DUE_DAYS * ONE_DAY_MS
-  ) {
-    return "deposit_due";
-  }
-
-  // 3. STUCK — in-production project with no uploads in >STUCK_DAYS.
+  // STUCK — in-production project with no uploads in >STUCK_DAYS.
   //    A project that has NEVER had an upload still counts as stuck if
   //    it's been in production for that long; we use the project's
   //    updatedAt as the floor so brand-new projects don't trigger.
@@ -414,8 +375,7 @@ export const producerRouter = router({
       .where(eq(producers.id, ctx.producerId))
       .limit(1);
     if (!row) throw new TRPCError({ code: "NOT_FOUND" });
-    // Don't leak Stripe/Clerk IDs to the client — the UI only needs the
-    // editable + display surface.
+    // Do not expose authentication or provider internals to the client.
     return {
       id: row.id,
       email: row.email,
@@ -424,13 +384,6 @@ export const producerRouter = router({
       defaultCurrency: row.defaultCurrency,
       timezone: row.timezone,
       brand: row.brand ?? {},
-      // Phase H.5 — surface Stripe Connect status flags so the
-      // settings page can render "not connected / pending / connected"
-      // without an extra round-trip. We don't surface the raw
-      // accountId — the dashboard link mutation hands out a one-shot
-      // signed URL when the producer asks for it.
-      stripeConnected: Boolean(row.stripeAccountId),
-      stripeChargesEnabled: row.stripeChargesEnabled,
       // Batch G — five Autopilot flags. Returned as a single nested
       // object so the client can spread `autopilot` into state without
       // pulling each field individually.
@@ -529,7 +482,7 @@ export const producerRouter = router({
 
   // Producer's "Today" dashboard — one call returns the four KPI
   // counters AND the unified inbox of actionable items (upcoming
-  // sessions, unread comments, unpaid invoices). Pattern mirrors
+  // sessions and unread comments). Pattern mirrors
   // `artist.home`: one Promise.all fan-out across the sources, each
   // WHERE-scoped to ctx.producerId, then shape + sort + cap.
   //
@@ -538,49 +491,14 @@ export const producerRouter = router({
   today: producerProcedure.query(async ({ ctx }) => {
     const now = new Date();
     const horizon7d = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-    // Calendar-month boundaries in UTC. Matches the booking.revenue
-    // pattern so producers who flip between surfaces see consistent
-    // numbers across month rollovers.
-    const monthStart = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
-    );
-    const nextMonthStart = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
-    );
-    // Last calendar-month boundary — for the Pulse "vs last month"
-    // delta. paidAt in [lastMonthStart, monthStart) is the prior
-    // month's revenue.
-    const lastMonthStart = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1),
-    );
-    // 30-day window for the Pulse sparkline. Anchored to the start of
-    // today (UTC) so the rightmost bucket consistently includes today's
-    // partial-day revenue without rolling over at noon.
-    const sparklineStart = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
-    );
-    sparklineStart.setUTCDate(
-      sparklineStart.getUTCDate() - (PULSE_SPARKLINE_DAYS - 1),
-    );
-
-    // SK-20 — payment activity-feed window. 30 days of confirmed
-    // bookings is wide enough to keep a producer's history visible past
-    // banner-dismiss without spamming the feed with stale rows.
-    const paymentsHorizonStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
     // Active stages for the KPI counter — excludes terminal states so
     // "archived" projects don't inflate the count.
-    const ACTIVE_STAGES = [
-      "lead",
-      "booked",
-      "in_production",
-      "final_review",
+    const ACTIVE_LIFECYCLES = [
+      "waiting_for_payment",
+      "active",
+      "paused",
     ] as const;
-
-    // Unpaid = anything NOT in {paid, refunded, void}. Matches the
-    // artist-home outstanding-balance heuristic — draft + sent +
-    // uncollectible all represent money the producer is still owed.
-    const UNPAID_STATUSES = ["draft", "sent", "uncollectible"] as const;
 
     // Fan out across the data sources in parallel. Each query is
     // independently producer-scoped (WHERE producer_id = ctx.producerId)
@@ -590,16 +508,11 @@ export const producerRouter = router({
     // running it sequentially would just add tail latency.
     const [
       activeProjectRows,
-      revenueRows,
-      unpaidCountRows,
       upcomingRows,
       openCommentsCountRows,
-      unpaidInvoiceRows,
       openCommentRows,
       profileRows,
       recentUploadRows,
-      lastMonthRows,
-      sparklineRows,
       recentPaymentRows,
     ] = await Promise.all([
       // (1) Active projects KPI — count by filtering stage in the
@@ -610,43 +523,7 @@ export const producerRouter = router({
         .where(
           and(
             eq(projects.producerId, ctx.producerId),
-            inArray(projects.stage, [...ACTIVE_STAGES]),
-          ),
-        ),
-
-      // (2) Revenue-this-month KPI — sum of paid invoices whose
-      // paidAt falls in the current calendar month. Fetch raw
-      // amountCents/currency so currency-mismatched rows can be
-      // filtered in JS (the producer's defaultCurrency is the anchor).
-      ctx.db
-        .select({
-          amountCents: invoices.amountCents,
-          currency: invoices.currency,
-        })
-        .from(invoices)
-        .where(
-          and(
-            eq(invoices.producerId, ctx.producerId),
-            eq(invoices.status, "paid"),
-            gte(invoices.paidAt, monthStart),
-            lte(invoices.paidAt, nextMonthStart),
-          ),
-        ),
-
-      // (3) Unpaid invoices feed both the unresolved count and the
-      // outstanding-money pulse. Mixed currencies are filtered against
-      // the producer's default currency below, just like revenue.
-      ctx.db
-        .select({
-          id: invoices.id,
-          amountCents: invoices.amountCents,
-          currency: invoices.currency,
-        })
-        .from(invoices)
-        .where(
-          and(
-            eq(invoices.producerId, ctx.producerId),
-            inArray(invoices.status, [...UNPAID_STATUSES]),
+            inArray(projects.lifecycleStatus, [...ACTIVE_LIFECYCLES]),
           ),
         ),
 
@@ -662,10 +539,18 @@ export const producerRouter = router({
           startsAt: bookings.startsAt,
           durationMin: bookings.durationMin,
           artistName: bookings.artistName,
-          packageNameSnapshot: bookings.packageNameSnapshot,
+          packageNameSnapshot: sql<string>`coalesce(nullif(trim(${purchases.commercialSnapshot}->>'productOrOfferName'), ''), 'Session')`,
           projectId: bookings.projectId,
         })
         .from(bookings)
+        .innerJoin(
+          purchases,
+          and(
+            eq(purchases.id, bookings.purchaseId),
+            eq(purchases.projectId, bookings.projectId),
+            eq(purchases.producerId, bookings.producerId),
+          ),
+        )
         .where(
           and(
             eq(bookings.producerId, ctx.producerId),
@@ -695,27 +580,6 @@ export const producerRouter = router({
             eq(trackComments.fromProducer, false),
           ),
         ),
-
-      // (6) Unpaid invoice rows (for items list).
-      ctx.db
-        .select({
-          id: invoices.id,
-          amountCents: invoices.amountCents,
-          currency: invoices.currency,
-          description: invoices.description,
-          customerName: invoices.customerName,
-          createdAt: invoices.createdAt,
-          projectId: invoices.projectId,
-        })
-        .from(invoices)
-        .where(
-          and(
-            eq(invoices.producerId, ctx.producerId),
-            inArray(invoices.status, [...UNPAID_STATUSES]),
-          ),
-        )
-        .orderBy(desc(invoices.createdAt))
-        .limit(TODAY_PER_SOURCE_CAP),
 
       // (7) Open comment rows (for items list) — same join chain as (5)
       // but now with projection the UI needs.
@@ -767,7 +631,7 @@ export const producerRouter = router({
           durationMs: trackVersions.durationMs,
           projectId: projects.id,
           projectClientName: projects.clientName,
-          projectStage: projects.stage,
+          projectLifecycleStatus: projects.lifecycleStatus,
         })
         .from(trackVersions)
         .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
@@ -775,102 +639,37 @@ export const producerRouter = router({
         .where(
           and(
             eq(projects.producerId, ctx.producerId),
-            inArray(projects.stage, [...ACTIVE_STAGES]),
+            inArray(projects.lifecycleStatus, [...ACTIVE_LIFECYCLES]),
             isNotNull(trackVersions.audioUrl),
+            isNull(trackVersions.audioDeletedAt),
           ),
         )
         .orderBy(desc(trackVersions.uploadedAt))
         .limit(RECENT_UPLOADS_MAX),
 
-      // (10) Last-month paid revenue (Pulse delta-vs-last-month).
-      // Same shape as leg 2, just shifted one calendar month back.
-      // We sum in JS so currency-mismatched legacy rows can be
-      // dropped (defaultCurrency is the anchor).
-      ctx.db
-        .select({
-          amountCents: invoices.amountCents,
-          currency: invoices.currency,
-        })
-        .from(invoices)
-        .where(
-          and(
-            eq(invoices.producerId, ctx.producerId),
-            eq(invoices.status, "paid"),
-            gte(invoices.paidAt, lastMonthStart),
-            lte(invoices.paidAt, monthStart),
-          ),
-        ),
-
-      // (11) 30-day daily sparkline (Pulse ambient chart). Aggregates
-      // paid-invoice revenue into one row per UTC day. Days with no
-      // revenue are absent from this result and zero-filled JS-side
-      // before serializing — the consumer always gets a fixed-length
-      // array so the SVG geometry is stable.
-      ctx.db
-        .select({
-          day: sql<string>`date_trunc('day', ${invoices.paidAt})::date`,
-          cents: sql<number>`COALESCE(SUM(${invoices.amountCents}), 0)::integer`,
-        })
-        .from(invoices)
-        .where(
-          and(
-            eq(invoices.producerId, ctx.producerId),
-            eq(invoices.status, "paid"),
-            gte(invoices.paidAt, sparklineStart),
-          ),
-        )
-        .groupBy(sql`date_trunc('day', ${invoices.paidAt})`),
-
-      // (12) Recent payments — SK-20. Confirmed bookings in the last
-      // 30 days project into the activity feed as `kind: "payment"`.
-      // `unread` flips on producerAcknowledgedAt so the dot stays lit
-      // until the producer dismisses the banner. Joined to projects for
-      // a human-readable display name in the feed row.
-      ctx.db
-        .select({
-          id: bookings.id,
-          artistName: bookings.artistName,
-          packageNameSnapshot: bookings.packageNameSnapshot,
-          unitPriceCents: bookings.unitPriceCents,
-          songQty: bookings.songQty,
-          statusChangedAt: bookings.statusChangedAt,
-          producerAcknowledgedAt: bookings.producerAcknowledgedAt,
-          projectId: bookings.projectId,
-          projectTitle: projects.title,
-        })
-        .from(bookings)
-        .leftJoin(projects, eq(projects.id, bookings.projectId))
-        .where(
-          and(
-            eq(bookings.producerId, ctx.producerId),
-            eq(bookings.status, "confirmed"),
-            gte(bookings.statusChangedAt, paymentsHorizonStart),
-          ),
-        )
-        .orderBy(desc(bookings.statusChangedAt))
-        .limit(TODAY_PER_SOURCE_CAP),
+      Promise.resolve([] as Array<{
+        id: string;
+        artistName: string;
+        packageNameSnapshot: string | null;
+        unitPriceCents: number | null;
+        songQty: number | null;
+        statusChangedAt: Date | null;
+        producerAcknowledgedAt: Date | null;
+        projectId: string | null;
+        projectTitle: string | null;
+      }>),
     ]);
 
     // Resolve default currency for KPI display. Fallback to USD keeps
     // the UI honest if the producer row ever has a NULL currency.
     const revenueCurrency = profileRows[0]?.defaultCurrency ?? "USD";
 
-    // Sum only the rows whose currency matches the default. Legacy
-    // mixed-currency ledgers aren't common but we don't want to add
-    // 500 EUR to 500 USD and call it 1000.
-    const revenueMonthCents = revenueRows.reduce((acc, r) => {
-      return r.currency === revenueCurrency ? acc + r.amountCents : acc;
-    }, 0);
-    const outstandingCents = unpaidCountRows.reduce((acc, row) => {
-      return row.currency === revenueCurrency ? acc + row.amountCents : acc;
-    }, 0);
-
     const kpis = {
       activeProjects: activeProjectRows.length,
-      revenueMonthCents,
-      revenueCurrency,
+      revenueMonthCents: null,
+      revenueCurrency: null,
       upcomingSessions7d: upcomingRows.length,
-      unresolvedItems: unpaidCountRows.length + openCommentsCountRows.length,
+      unresolvedItems: openCommentsCountRows.length,
     };
 
     // ── Compose the unified items list ──────────────────────────────
@@ -881,7 +680,7 @@ export const producerRouter = router({
       id: `session:${b.id}`,
       kind: "session",
       title: b.artistName,
-      subtitle: `${b.packageNameSnapshot ?? "Session"} · ${b.durationMin.toString()} min`,
+      subtitle: `${b.packageNameSnapshot} · ${b.durationMin.toString()} min`,
       occurredAt: b.startsAt,
       // "Open client room" on the Overview screen routes here. The
       // legacy `/dashboard/booking?id=...` URL was retired in v3-clean
@@ -898,9 +697,9 @@ export const producerRouter = router({
       unread: true,
     }));
 
-    const commentItems: TodayItem[] = openCommentRows.map((c) => ({
+    const commentItems = openCommentRows.map((c) => ({
       id: `comment:${c.id}`,
-      kind: "comment",
+      kind: "comment" as const,
       title: c.authorName,
       subtitle: truncate(c.body, 120),
       occurredAt: c.createdAt,
@@ -908,32 +707,10 @@ export const producerRouter = router({
       unread: true,
     }));
 
-    const invoiceItems: TodayItem[] = unpaidInvoiceRows.map((inv) => ({
-      id: `invoice:${inv.id}`,
-      kind: "invoice",
-      title: inv.customerName ?? inv.description ?? "Invoice",
-      subtitle: formatInvoiceSubtitle(
-        inv.amountCents,
-        inv.currency,
-        inv.description,
-      ),
-      occurredAt: inv.createdAt,
-      href: inv.projectId
-        ? `/dashboard/clients-projects/${inv.projectId}`
-        : "/dashboard/clients-projects",
-      unread: false,
-    }));
-
     // Keep the unresolved-work sources outside the mixed 50-row Today feed.
-    // That feed intentionally prioritizes sessions and payments, which means
-    // a very busy week could otherwise starve every comment/invoice from the
-    // dashboard's explicit View-all queue.
-    const needsYouUnresolvedItems = [...commentItems, ...invoiceItems].filter(
-      (
-        item,
-      ): item is TodayItem & { kind: "comment" | "invoice" } =>
-        item.kind === "comment" || item.kind === "invoice",
-    );
+    // A very busy week must not starve comments from the dashboard's
+    // explicit View-all queue.
+    const needsYouUnresolvedItems = commentItems;
 
     // SK-20 — confirmed bookings in the last 30 days. Amount =
     // unitPriceCents × songQty for per-song products; flat products
@@ -950,7 +727,7 @@ export const producerRouter = router({
         id: `payment:${p.id}`,
         kind: "payment" as const,
         title: `${p.artistName} paid for ${displayName}`,
-        subtitle: formatInvoiceSubtitle(amountCents, revenueCurrency, null),
+        subtitle: formatMoneySubtitle(amountCents, revenueCurrency, null),
         occurredAt: p.statusChangedAt ?? new Date(0),
         href: p.projectId
           ? `/dashboard/clients-projects/${p.projectId}`
@@ -959,9 +736,9 @@ export const producerRouter = router({
       };
     });
 
-    const items = [...sessionItems, ...paymentItems, ...commentItems, ...invoiceItems]
+    const items = [...sessionItems, ...paymentItems, ...commentItems]
       .sort((a, b) => {
-        // Primary: kind priority (session → payment → comment → invoice).
+        // Primary: kind priority (session → payment → comment).
         const kp = KIND_PRIORITY[a.kind] - KIND_PRIORITY[b.kind];
         if (kp !== 0) return kp;
         // Within kind: sessions sort asc (soonest first), others desc.
@@ -1022,70 +799,32 @@ export const producerRouter = router({
       durationMs: row.durationMs,
       projectId: row.projectId,
       projectClientName: row.projectClientName ?? "",
-      projectStage: row.projectStage,
+      projectStage:
+        row.projectLifecycleStatus === "waiting_for_payment"
+          ? "booked"
+          : row.projectLifecycleStatus === "completed"
+            ? "paid"
+            : row.projectLifecycleStatus === "canceled"
+              ? "archived"
+              : "in_production",
       unreadComments: unreadCommentCounts[i]?.length ?? 0,
     }));
 
-    // ── Pulse stats — assemble the single-card payload ──────────────
-    // Last-month revenue: same currency-matched sum as leg 2's
-    // revenueMonthCents. Mixed-currency rows are dropped (anchor =
-    // producer's default currency).
-    const lastMonthCents = lastMonthRows.reduce((acc, r) => {
-      return r.currency === revenueCurrency ? acc + r.amountCents : acc;
-    }, 0);
-
-    // deltaPct: integer % change. null when last month was 0 — a
-    // producer with no prior-month revenue has no comparison anchor,
-    // and we'd render a meaningless +∞% otherwise.
-    const deltaPct =
-      lastMonthCents === 0
-        ? null
-        : Math.round(
-            ((revenueMonthCents - lastMonthCents) / lastMonthCents) * 100,
-          );
-
-    // Sparkline: project DB rows into the fixed 30-bucket array.
-    // Index 0 = (PULSE_SPARKLINE_DAYS - 1) days ago; index 29 = today.
-    // The DB returns one row per day with revenue; days with no rows
-    // get zero-filled.
+    // Commercial pulse projections remain fail-closed until the corrected
+    // purchase ledger powers them. Preserve the stable 30-day chart shape
+    // without projecting removed invoice or booking money.
     const sparkline: number[] = Array.from(
       { length: PULSE_SPARKLINE_DAYS },
       () => 0,
     );
-    // Today (UTC midnight) — used as the zero-point for index math.
-    const todayUtcMidnight = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
-    );
-    for (const row of sparklineRows) {
-      // The driver may return `day` as a Date or as an ISO date string
-      // (`YYYY-MM-DD`) depending on the postgres connector. Handle both.
-      const dayValue: unknown = row.day;
-      let dayDate: Date | null = null;
-      if (dayValue instanceof Date) {
-        dayDate = dayValue;
-      } else if (typeof dayValue === "string") {
-        const parsed = new Date(`${dayValue.slice(0, 10)}T00:00:00Z`);
-        if (!Number.isNaN(parsed.getTime())) dayDate = parsed;
-      }
-      if (!dayDate) continue;
-      // Days-from-today (negative = past). dayDate is at UTC midnight
-      // already (date_trunc + ::date), so the diff is exact.
-      const diffDays = Math.round(
-        (dayDate.getTime() - todayUtcMidnight.getTime()) /
-          (24 * 60 * 60 * 1000),
-      );
-      const idx = PULSE_SPARKLINE_DAYS - 1 + diffDays;
-      if (idx >= 0 && idx < PULSE_SPARKLINE_DAYS) {
-        sparkline[idx] = row.cents;
-      }
-    }
 
     const pulseStats: PulseStats = {
-      thisMonthCents: revenueMonthCents,
-      lastMonthCents,
-      outstandingCents,
-      currency: revenueCurrency,
-      deltaPct,
+      commercialAvailable: false,
+      thisMonthCents: null,
+      lastMonthCents: null,
+      outstandingCents: null,
+      currency: null,
+      deltaPct: null,
       sparkline,
       // Footer counts re-project the existing kpis — same source rows,
       // no extra round-trip. Keeping them in sync with `kpis` is the
@@ -1107,17 +846,15 @@ export const producerRouter = router({
 
   // ─── Overview sub-router ────────────────────────────────────────────
   // Project-level cards for the Overview screen. The primary surface is
-  // `urgent` — the redesigned Urgent card that lists projects (not
-  // event-stream items) currently demanding the producer's attention.
+  // `urgent` — the redesigned Urgent card that lists active projects
+  // whose real upload activity has gone stale.
   //
   // Why not derive this from `today.items`? Because `today.items` is
-  // event-stream-shaped (session / comment / invoice). The Overview's
+  // event-stream-shaped (session / payment / comment). The Overview's
   // Urgent card is project-shaped — a single row PER project, with a
   // status pill ("OVERDUE" / "DEPOSIT DUE" / "STUCK") that captures
-  // what's wrong AT THE PROJECT level. Two unpaid invoices on the same
-  // project should collapse into one row, not two; a project that's
-  // stuck in `in_production` shouldn't need a synthetic comment to
-  // surface. Different shape, different query.
+  // what's wrong AT THE PROJECT level. Commercial urgency is intentionally
+  // absent until it can be projected from the purchase ledger.
   //
   // The router keeps the logic small + entirely in JS:
   // we fetch the producer's live projects + supporting last-activity
@@ -1131,33 +868,20 @@ export const producerRouter = router({
         const limit = input?.limit ?? URGENT_DEFAULT_LIMIT;
         const now = new Date();
 
-        // Live projects only — same set the Pulse + Projects list filter
-        // by. We want stages that the producer can still take action on:
-        // archived + paid are terminal, so a stuck-in-production rule
-        // would never fire on them anyway.
-        const ACTIVE_STAGES = [
-          "lead",
-          "booked",
-          "in_production",
-          "final_review",
-        ] as const;
-
         const projectRows = await ctx.db
           .select({
             id: projects.id,
             title: projects.title,
-            stage: projects.stage,
+            lifecycleStatus: projects.lifecycleStatus,
             clientName: projects.clientName,
             artistName: projects.artistName,
-            depositPaid: projects.depositPaid,
-            finalPaid: projects.finalPaid,
             updatedAt: projects.updatedAt,
           })
           .from(projects)
           .where(
             and(
               eq(projects.producerId, ctx.producerId),
-              inArray(projects.stage, [...ACTIVE_STAGES]),
+              eq(projects.lifecycleStatus, "active"),
             ),
           );
 
@@ -1167,65 +891,23 @@ export const producerRouter = router({
 
         const projectIds = projectRows.map((p) => p.id);
 
-        // Two parallel sub-queries to gather the activity signals we
-        // need for the urgency rules. Each one is producer-scoped via
-        // the inArray on projectIds (which we already filtered by
-        // producerId above).
-        const [latestUploadRows, lastBookingEndRows, futureBookingRows] =
-          await Promise.all([
-            // (a) Most-recent track upload per project. Drives the
-            // "stuck in production" rule (no upload in >14 days) and
-            // tracks general project liveness.
-            ctx.db
-              .select({
-                projectId: projectTracks.projectId,
-                uploadedAt: trackVersions.uploadedAt,
-              })
-              .from(trackVersions)
-              .innerJoin(
-                projectTracks,
-                eq(projectTracks.id, trackVersions.trackId),
-              )
-              .where(inArray(projectTracks.projectId, projectIds)),
-
-            // (b) Last booking-end timestamp per project. Drives the
-            // "overdue" rule (project's last session ended >7 days ago
-            // and final isn't paid).
-            ctx.db
-              .select({
-                projectId: bookings.projectId,
-                startsAt: bookings.startsAt,
-                durationMin: bookings.durationMin,
-                status: bookings.status,
-              })
-              .from(bookings)
-              .where(
-                and(
-                  eq(bookings.producerId, ctx.producerId),
-                  inArray(bookings.projectId, projectIds),
-                ),
-              ),
-
-            // (c) Any future-or-current confirmed sessions, used to
-            // suppress the "overdue" rule when the producer has
-            // something already on the calendar — they're not late if
-            // there's a session coming up.
-            ctx.db
-              .select({
-                projectId: bookings.projectId,
-                startsAt: bookings.startsAt,
-                status: bookings.status,
-              })
-              .from(bookings)
-              .where(
-                and(
-                  eq(bookings.producerId, ctx.producerId),
-                  inArray(bookings.projectId, projectIds),
-                  eq(bookings.status, "confirmed"),
-                  gte(bookings.startsAt, now),
-                ),
-              ),
-          ]);
+        const latestUploadRows = await ctx.db
+          .select({
+            projectId: projectTracks.projectId,
+            uploadedAt: trackVersions.uploadedAt,
+          })
+          .from(trackVersions)
+          .innerJoin(
+            projectTracks,
+            eq(projectTracks.id, trackVersions.trackId),
+          )
+          .where(
+            and(
+              inArray(projectTracks.projectId, projectIds),
+              isNotNull(trackVersions.audioUrl),
+              isNull(trackVersions.audioDeletedAt),
+            ),
+          );
 
         // Reduce activity rows down to per-project signals.
         const lastUploadAt = new Map<string, Date>();
@@ -1235,38 +917,16 @@ export const producerRouter = router({
           if (!cur || r.uploadedAt > cur) lastUploadAt.set(r.projectId, r.uploadedAt);
         }
 
-        const lastBookingEndAt = new Map<string, Date>();
-        for (const b of lastBookingEndRows) {
-          if (!b.projectId) continue;
-          // booking end ≈ startsAt + durationMin. We only count
-          // bookings that have actually happened (status confirmed +
-          // end-time in the past) — pending requests don't tell us
-          // anything about whether the project is overdue.
-          const end = new Date(b.startsAt.getTime() + b.durationMin * 60_000);
-          if (b.status !== "confirmed") continue;
-          if (end > now) continue;
-          const cur = lastBookingEndAt.get(b.projectId);
-          if (!cur || end > cur) lastBookingEndAt.set(b.projectId, end);
-        }
-
-        const hasFutureSession = new Set<string>();
-        for (const f of futureBookingRows) {
-          if (f.projectId) hasFutureSession.add(f.projectId);
-        }
-
         // Classify each project. We iterate projects in arbitrary
-        // order; sorting + slicing happens AFTER classification because
-        // we want urgency-priority order, not stage/createdAt order.
-        const classified: Array<UrgentProjectItem & { sortKey: number }> = [];
+        // order; title sorting keeps the capped response deterministic.
+        const classified: UrgentProjectItem[] = [];
         for (const p of projectRows) {
+          if (p.lifecycleStatus !== "active") continue;
+          const stage: Stage = "in_production";
           const urgency = classifyUrgency({
-            stage: p.stage,
-            depositPaid: p.depositPaid,
-            finalPaid: p.finalPaid,
+            stage,
             updatedAt: p.updatedAt,
             lastUploadAt: lastUploadAt.get(p.id) ?? null,
-            lastBookingEndAt: lastBookingEndAt.get(p.id) ?? null,
-            hasFutureSession: hasFutureSession.has(p.id),
             now,
           });
           if (urgency === null) continue;
@@ -1281,19 +941,12 @@ export const producerRouter = router({
             title: p.title,
             clientName: displayClient,
             gradient: producerGradient(displayClient || p.title),
-            stage: p.stage,
+            stage,
             urgency,
-            sortKey: URGENCY_PRIORITY[urgency],
           });
         }
 
-        // Sort by urgency priority (overdue → deposit_due → stuck).
-        // Within an urgency, fall back to title for stability so the
-        // same call returns the same order between renders.
-        classified.sort((a, b) => {
-          if (a.sortKey !== b.sortKey) return a.sortKey - b.sortKey;
-          return a.title.localeCompare(b.title);
-        });
+        classified.sort((a, b) => a.title.localeCompare(b.title));
 
         const items: UrgentProjectItem[] = classified
           .slice(0, limit)
@@ -1352,27 +1005,9 @@ export const producerRouter = router({
       .limit(1);
     const defaultCurrency = profile?.defaultCurrency ?? "USD";
 
-    // Single SELECT over the 6-month window. Cheaper than 6 parallel
-    // queries + still fits in the producer_id index. We aggregate in
-    // JS so we can apply the currency filter + forget the rows once
-    // bucketed — no additional round-trip for the SUM.
-    const windowStart = buckets[0]?.start ?? now;
-    const windowEnd = buckets[buckets.length - 1]?.end ?? now;
-    const rows = await ctx.db
-      .select({
-        paidAt: invoices.paidAt,
-        amountCents: invoices.amountCents,
-        currency: invoices.currency,
-      })
-      .from(invoices)
-      .where(
-        and(
-          eq(invoices.producerId, ctx.producerId),
-          eq(invoices.status, "paid"),
-          gte(invoices.paidAt, windowStart),
-          lte(invoices.paidAt, windowEnd),
-        ),
-      );
+    // Corrections and waivers make raw-payment aggregation unsafe. The
+    // purchase-ledger Payments projection will populate this chart later.
+    const rows: Array<{ paidAt: Date; amountCents: number; currency: string }> = [];
 
     // Bucket the rows. findIndex rather than a map keyed on YYYY-MM
     // because the bucket count is fixed at 6 — linear scan is
@@ -1381,7 +1016,6 @@ export const producerRouter = router({
     for (const r of rows) {
       if (r.currency !== defaultCurrency) continue;
       const paidAt = r.paidAt;
-      if (!paidAt) continue;
       const idx = buckets.findIndex(
         (b) => paidAt >= b.start && paidAt < b.end,
       );
@@ -1424,7 +1058,13 @@ export const producerRouter = router({
         .from(trackVersions)
         .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
         .innerJoin(projects, eq(projects.id, projectTracks.projectId))
-        .where(eq(projects.producerId, ctx.producerId))
+        .where(
+          and(
+            eq(projects.producerId, ctx.producerId),
+            isNotNull(trackVersions.audioUrl),
+            isNull(trackVersions.audioDeletedAt),
+          ),
+        )
         .orderBy(desc(trackVersions.uploadedAt));
 
       // Collapse versions → tracks, keeping the newest per track.
@@ -1524,7 +1164,13 @@ export const producerRouter = router({
           })
           .from(trackVersions)
           .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
-          .where(eq(projectTracks.projectId, input.projectId))
+          .where(
+            and(
+              eq(projectTracks.projectId, input.projectId),
+              isNotNull(trackVersions.audioUrl),
+              isNull(trackVersions.audioDeletedAt),
+            ),
+          )
           .orderBy(desc(trackVersions.uploadedAt));
 
         const byTrack = new Map<string, (typeof versionRows)[number]>();
@@ -1632,7 +1278,7 @@ export const producerRouter = router({
             audioUrl: trackVersions.audioUrl,
             durationMs: trackVersions.durationMs,
             uploadedAt: trackVersions.uploadedAt,
-            approvedAt: trackVersions.approvedAt,
+            approvedAt: trackVersions.producerMarkedFinalAt,
             peaks: trackVersions.peaks,
           })
           .from(trackVersions)
@@ -1715,48 +1361,6 @@ export const producerRouter = router({
       portfolioTracks: tracks,
     };
   }),
-
-  // ─── Payment connection (per-producer Tranzila terminal) ─────────
-  // Read the current connection status. `connected` flips true once a
-  // Skitza admin manually provisions a terminal name onto the producer
-  // row; the request itself is captured by `requestPaymentConnection`
-  // below (today: console.log; future: email Skitza admin via Resend).
-  paymentConnection: producerProcedure.query(async ({ ctx }) => {
-    const [row] = await ctx.db
-      .select({ tranzilaTerminalName: producers.tranzilaTerminalName })
-      .from(producers)
-      .where(eq(producers.id, ctx.producerId))
-      .limit(1);
-    return {
-      connected: Boolean(row?.tranzilaTerminalName),
-      terminalName: row?.tranzilaTerminalName ?? null,
-    };
-  }),
-
-  // Producer submits a "connect my Tranzila terminal" request from
-  // Settings → Integrations → Payments. We log it for now — a Skitza
-  // admin watches the logs, provisions the terminal at Tranzila, then
-  // writes the terminal name onto the producer row out-of-band. Future:
-  // wire a Resend notification to the admin inbox.
-  requestPaymentConnection: producerProcedure
-    .input(
-      z.object({
-        businessName: z.string().min(1).max(200),
-        contactEmail: z.string().email(),
-        phone: z.string().min(5).max(30),
-      }),
-    )
-    .mutation(({ ctx, input }) => {
-      console.log("[payment-connection-request]", {
-        producerId: ctx.producerId,
-        businessName: input.businessName,
-        contactEmail: input.contactEmail,
-        phone: input.phone,
-        timestamp: new Date().toISOString(),
-      });
-      // TODO: send email notification to Skitza admin.
-      return { ok: true as const };
-    }),
 
   // Edit profile. brand and notificationPrefs merge over the existing
   // JSONB (we fetch → spread → set) so a UI patch can ship only the

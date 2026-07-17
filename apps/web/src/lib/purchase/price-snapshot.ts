@@ -33,6 +33,9 @@ export interface ProductPriceInput {
 export interface PriceSnapshot {
   priceCents: number;
   unitPriceCents: number | null;
+  listUnitPriceCents: number | null;
+  listSubtotalCents: number;
+  discountCents: number;
   songQty: number | null;
 }
 
@@ -68,21 +71,50 @@ export function snapshotProductPrice(
       // first; we defensively fall back to qty=1 at the first tier so a
       // bad call never produces a negative/NaN total.
       const songQty = opts.songQty ?? 1;
-      const unit =
-        opts.unitPriceCents ?? unitPriceFor(songQty, product.volumeTiers ?? []);
+      const tiers = product.volumeTiers ?? [];
+      const unit = opts.unitPriceCents ?? unitPriceFor(songQty, tiers);
+      const listUnitPriceCents = unitPriceFor(1, tiers);
+      const priceCents = songQty * unit;
+      const listSubtotalCents = songQty * listUnitPriceCents;
+      const discountCents = listSubtotalCents - priceCents;
+      if (
+        !Number.isSafeInteger(priceCents) ||
+        !Number.isSafeInteger(listSubtotalCents) ||
+        !Number.isSafeInteger(discountCents) ||
+        discountCents < 0
+      ) {
+        throw new Error("Per-song volume discount must be a safe nonnegative cents amount");
+      }
       return {
-        priceCents: songQty * unit,
+        priceCents,
         unitPriceCents: unit,
+        listUnitPriceCents,
+        listSubtotalCents,
+        discountCents,
         songQty,
       };
     }
     case "hourly": {
       const rate = product.hourlyRateCents ?? 0;
-      return { priceCents: rate, unitPriceCents: rate, songQty: null };
+      return {
+        priceCents: rate,
+        unitPriceCents: rate,
+        listUnitPriceCents: rate,
+        listSubtotalCents: rate,
+        discountCents: 0,
+        songQty: null,
+      };
     }
     // flat, bundle, and any legacy/unknown model lock the canonical
     // flat price.
     default:
-      return { priceCents: product.priceCents, unitPriceCents: null, songQty: null };
+      return {
+        priceCents: product.priceCents,
+        unitPriceCents: null,
+        listUnitPriceCents: null,
+        listSubtotalCents: product.priceCents,
+        discountCents: 0,
+        songQty: null,
+      };
   }
 }

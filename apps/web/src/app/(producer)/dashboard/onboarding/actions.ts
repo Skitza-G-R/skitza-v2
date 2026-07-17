@@ -78,7 +78,6 @@ export async function createFirstPackage(input: {
   name: string;
   durationMin: number;
   priceCents: number;
-  depositPct?: number;
 }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
@@ -87,7 +86,6 @@ export async function createFirstPackage(input: {
       name: input.name,
       durationMin: input.durationMin,
       priceCents: input.priceCents,
-      depositPct: input.depositPct ?? 0,
       // The router applies sensible defaults for everything else
       // (kind=session, locationType=studio, etc.) so we keep the
       // wizard input surface minimal.

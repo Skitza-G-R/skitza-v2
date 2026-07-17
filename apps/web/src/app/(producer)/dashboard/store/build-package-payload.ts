@@ -45,7 +45,6 @@ export interface PackagePayload {
   durationMin: number;
   sessionCount: number;
   paymentPlans: PaymentPlan[];
-  depositPct: 0;
   deliverables: string[];
   royaltyTerms: ProductRoyaltyTerms | null;
   agreementText: string | null;
@@ -54,7 +53,7 @@ export interface PackagePayload {
   volumeTiers: VolumeTier[];
 }
 
-export type PackageUpdatePayload = Omit<PackagePayload, "depositPct">;
+export type PackageUpdatePayload = PackagePayload;
 
 function parseDurationMin(duration: string): number {
   const match = duration.match(/(\d+)\s*min/i);
@@ -111,10 +110,6 @@ export function buildPackagePayload(
       ? 0
       : Math.max(1, draft.sessions),
     paymentPlans: buildPaymentPlans(draft.payment),
-    // Keep the existing deposit behavior. The paymentPlans array controls
-    // the schedule, while the legacy flat-deposit validator still requires
-    // an explicit value when a product is created.
-    depositPct: 0,
     deliverables: draft.includes
       .map((item) => item.trim())
       .filter(Boolean),
@@ -129,19 +124,9 @@ export function buildPackagePayload(
   };
 }
 
-/**
- * Editing commercial terms must not reset a legacy flat deposit or a
- * milestone configuration. New products need the explicit zero required by
- * ProductInput; updates deliberately leave that create-only field untouched.
- */
 export function buildPackageUpdatePayload(
   draft: PackageDraft,
   existingProductKind: string,
 ): PackageUpdatePayload {
-  const { depositPct, ...payload } = buildPackagePayload(
-    draft,
-    existingProductKind,
-  );
-  void depositPct;
-  return payload;
+  return buildPackagePayload(draft, existingProductKind);
 }

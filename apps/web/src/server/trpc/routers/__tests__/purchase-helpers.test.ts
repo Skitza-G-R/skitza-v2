@@ -9,10 +9,7 @@ import {
 } from "~/lib/purchase/request-helpers";
 
 describe("planIsOffered", () => {
-  const offered: PaymentPlan[] = [
-    { kind: "full" },
-    { kind: "monthly", installments: 6 },
-  ];
+  const offered: PaymentPlan[] = [{ kind: "full" }, { kind: "monthly", installments: 6 }];
 
   it("accepts a plan the product offers (by kind)", () => {
     expect(planIsOffered({ kind: "full" }, offered)).toBe(true);
@@ -47,7 +44,9 @@ describe("generateRefNumber", () => {
 
 describe("isUniqueViolation", () => {
   it("detects postgres unique-violation shapes", () => {
-    expect(isUniqueViolation(new Error("duplicate key value violates unique constraint"))).toBe(true);
+    expect(isUniqueViolation(new Error("duplicate key value violates unique constraint"))).toBe(
+      true,
+    );
     expect(isUniqueViolation({ code: "23505" })).toBe(true);
   });
 
@@ -57,50 +56,8 @@ describe("isUniqueViolation", () => {
   });
 });
 
-describe("offeredPlans (BE-2)", () => {
+describe("offeredPlans", () => {
   it("passes through the paymentPlans array", () => {
-    expect(
-      offeredPlans({
-        paymentPlans: [{ kind: "full" }],
-        depositModel: "flat",
-        milestones: null,
-      }),
-    ).toEqual([{ kind: "full" }]);
-  });
-
-  it("appends a virtual milestones plan when the deposit model is milestone-based", () => {
-    const ms = [
-      { label: "Booking", pct: 50 },
-      { label: "Delivery", pct: 50 },
-    ];
-    const plans = offeredPlans({
-      paymentPlans: [{ kind: "full" }],
-      depositModel: "milestones",
-      milestones: ms,
-    });
-    expect(plans).toEqual([
-      { kind: "full" },
-      { kind: "milestones", milestones: ms },
-    ]);
-  });
-
-  it("ignores an empty milestone schedule", () => {
-    expect(
-      offeredPlans({
-        paymentPlans: [{ kind: "full" }],
-        depositModel: "milestones",
-        milestones: [],
-      }),
-    ).toEqual([{ kind: "full" }]);
-  });
-
-  it("a milestones CHOICE matches an offered milestones plan by kind", () => {
-    const offered = offeredPlans({
-      paymentPlans: [],
-      depositModel: "milestones",
-      milestones: [{ label: "All", pct: 100 }],
-    });
-    expect(planIsOffered({ kind: "milestones" }, offered)).toBe(true);
-    expect(planIsOffered({ kind: "full" }, offered)).toBe(false);
+    expect(offeredPlans({ paymentPlans: [{ kind: "full" }] })).toEqual([{ kind: "full" }]);
   });
 });

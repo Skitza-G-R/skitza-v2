@@ -186,6 +186,19 @@ describe("PulseCard — link target", () => {
   });
 });
 
+describe("PulseCard — unavailable commercial data", () => {
+  it("returns a non-commercial activity card before formatting any money", () => {
+    const unavailableGuard = cardSource.indexOf("if (!stats.commercialAvailable)");
+    const moneyFormatting = cardSource.indexOf(
+      "formatPulseAmount(stats.thisMonthCents, stats.currency)",
+    );
+
+    expect(unavailableGuard).toBeGreaterThan(-1);
+    expect(moneyFormatting).toBeGreaterThan(unavailableGuard);
+    expect(cardSource).toContain("Commercial totals are not available yet.");
+  });
+});
+
 describe("PulseCard — visual / animation primitives", () => {
   it("imports + uses the tabular-nums primitive on the big number", () => {
     expect(cardSource).toContain("sk-num");

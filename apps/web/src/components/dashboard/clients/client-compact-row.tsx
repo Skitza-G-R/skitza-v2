@@ -171,7 +171,7 @@ export function ClientCompactRow({
         className="relative z-10 text-right font-mono text-[13.5px] font-bold tabular-nums"
         style={{ color: "rgb(var(--fg-default))" }}
       >
-        {formatMoney(lifetime, currency)}
+        {lifetime === null ? "Unavailable" : formatMoney(lifetime, currency)}
       </span>
 
       {/* Owed (right-aligned, danger when > 0) */}
@@ -179,12 +179,12 @@ export function ClientCompactRow({
         className="relative z-10 text-right font-mono text-[13.5px] font-bold tabular-nums"
         style={{
           color:
-            owed > 0
+            owed !== null && owed > 0
               ? "rgb(var(--fg-danger))"
               : "rgb(var(--fg-muted))",
         }}
       >
-        {owed > 0 ? formatMoney(owed, currency) : "—"}
+        {owed === null ? "Unavailable" : owed > 0 ? formatMoney(owed, currency) : "—"}
       </span>
 
       {/* Joined (Mon YYYY) */}
@@ -246,7 +246,12 @@ export function ClientCompactRow({
             <span className="shrink-0 tabular-nums">
               {projects} {projects === 1 ? "project" : "projects"}
             </span>
-            {owed > 0 ? (
+            {owed === null ? (
+              <>
+                <span aria-hidden>&middot;</span>
+                <span className="shrink-0 font-semibold">Totals unavailable</span>
+              </>
+            ) : owed > 0 ? (
               <>
                 <span aria-hidden>&middot;</span>
                 <span

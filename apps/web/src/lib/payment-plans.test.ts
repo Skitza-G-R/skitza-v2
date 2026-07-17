@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import type { PaymentPlan } from "@skitza/db";
-
 import {
   calendarPaymentSummary,
   mergePreservedPaymentPlans,
@@ -11,19 +9,10 @@ import {
 } from "./payment-plans";
 
 describe("normalizeProductPaymentPlans", () => {
-  it("orders standard plans deterministically and preserves milestone data", () => {
-    const milestone: PaymentPlan = {
-      kind: "milestones",
-      milestones: [
-        { label: "Booking", pct: 40 },
-        { label: "Delivery", pct: 60 },
-      ],
-    };
-
+  it("orders plans deterministically", () => {
     expect(
       normalizeProductPaymentPlans([
         { kind: "monthly", installments: 6 },
-        milestone,
         { kind: "split_50_50" },
         { kind: "full" },
       ]),
@@ -31,22 +20,16 @@ describe("normalizeProductPaymentPlans", () => {
       { kind: "full" },
       { kind: "split_50_50" },
       { kind: "monthly", installments: 6 },
-      milestone,
     ]);
   });
 
-  it("merges an edited standard selection without losing or duplicating preserved milestones", () => {
-    const milestone: PaymentPlan = {
-      kind: "milestones",
-      milestones: [{ label: "Delivery", pct: 100 }],
-    };
-
+  it("applies an edited selection without retaining removed existing plans", () => {
     expect(
       mergePreservedPaymentPlans(
-        [{ kind: "split_50_50" }, milestone],
-        [{ kind: "full" }, milestone],
+        [{ kind: "monthly", installments: 4 }, { kind: "split_50_50" }],
+        [{ kind: "full" }],
       ),
-    ).toEqual([{ kind: "split_50_50" }, milestone]);
+    ).toEqual([{ kind: "split_50_50" }, { kind: "monthly", installments: 4 }]);
   });
 });
 
@@ -61,22 +44,16 @@ describe("selectFallbackPaymentPlan", () => {
     ).toEqual({ kind: "full" });
   });
 
-  it("otherwise chooses the first supported standard plan", () => {
+  it("otherwise chooses the first offered plan", () => {
     expect(
       selectFallbackPaymentPlan([
-        { kind: "milestones", milestones: [{ label: "Delivery", pct: 100 }] },
         { kind: "monthly", installments: 3 },
         { kind: "split_50_50" },
       ]),
     ).toEqual({ kind: "monthly", installments: 3 });
   });
 
-  it("falls back safely when no supported plan exists", () => {
-    expect(
-      selectFallbackPaymentPlan([
-        { kind: "milestones", milestones: [{ label: "Delivery", pct: 100 }] },
-      ]),
-    ).toEqual({ kind: "full" });
+  it("falls back safely when no plan exists", () => {
     expect(selectFallbackPaymentPlan([])).toEqual({ kind: "full" });
     expect(selectFallbackPaymentPlan(null)).toEqual({ kind: "full" });
   });
@@ -106,18 +83,13 @@ describe("calendarPaymentSummary", () => {
 });
 
 describe("selectProvisionalRequestPaymentPlan", () => {
-  it("keeps a milestone-only request on the offered milestone choice", () => {
-    expect(
-      selectProvisionalRequestPaymentPlan([
-        { kind: "milestones", milestones: [{ label: "Delivery", pct: 100 }] },
-      ]),
-    ).toEqual({ kind: "milestones" });
-  });
-
   it("prefers a genuinely offered full plan and returns null for no offers", () => {
     expect(
       selectProvisionalRequestPaymentPlan([{ kind: "monthly", installments: 3 }, { kind: "full" }]),
     ).toEqual({ kind: "full" });
+    expect(
+      selectProvisionalRequestPaymentPlan([{ kind: "monthly", installments: 3 }]),
+    ).toEqual({ kind: "monthly", installments: 3 });
     expect(selectProvisionalRequestPaymentPlan([])).toBeNull();
   });
 });

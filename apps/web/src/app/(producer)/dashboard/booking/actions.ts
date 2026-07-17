@@ -65,7 +65,6 @@ export async function createPackage(input: {
   sessionCount?: number;
   priceCents?: number;
   currency?: "USD" | "EUR" | "GBP" | "ILS";
-  depositPct?: number;
   kind?: PackageKind;
   locationType?: PackageLocationType;
   bufferMinutes?: number;
@@ -102,7 +101,6 @@ export async function updatePackage(input: {
   sessionCount?: number;
   priceCents?: number;
   currency?: "USD" | "EUR" | "GBP" | "ILS";
-  depositPct?: number;
   kind?: PackageKind;
   locationType?: PackageLocationType;
   bufferMinutes?: number;

@@ -60,6 +60,7 @@ export async function signAudioPart(input: {
   key: string;
   uploadId: string;
   partNumber: number;
+  trackVersionId: string;
 }): Promise<ActionData<{ url: string }>> {
   try {
     const c = await caller();

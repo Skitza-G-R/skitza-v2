@@ -71,9 +71,17 @@ describe("clients/[id]/page.tsx — Phase 1 rewrite", () => {
   });
 
   it("fetches products list for the hero's NewProjectModal picker", () => {
-    expect(SRC).toContain("booking.products.list");
-    // Hero gets the products prop wired through.
-    expect(SRC).toMatch(/products=\{products\}/);
+    expect(SRC).not.toContain("booking.products.list");
+    expect(SRC).not.toMatch(/products=\{products\}/);
+  });
+
+  it("maps lifecycle explicitly and keeps purchase commercial totals unavailable", () => {
+    expect(SRC).toContain("lifecycleStatus");
+    expect(SRC).toMatch(/commercial\.(?:lifetimeCents|outstandingCents)/);
+    expect(SRC).not.toMatch(/depositPct|\.stage\b/);
+    for (const label of ["Waiting for payment", "Active", "Paused", "Completed", "Canceled"]) {
+      expect(SRC).toContain(label);
+    }
   });
 
   it("removes the import of ClientDetailHeader", () => {

@@ -4,11 +4,9 @@ import {
   createDb,
   desc,
   eq,
-  inArray,
   isNotNull,
   isNull,
   notifications,
-  paymentProofs,
   producers,
   sql,
 } from "@skitza/db";
@@ -189,49 +187,6 @@ export const getShellState = cache(async (): Promise<ShellState> => {
 
   const recentNotifications = mergeShellNotificationRows(unreadRows, recentReadRows);
 
-  // Gate-2 notifications reuse the proof UUID as their notification UUID.
-  // Validate that identity against the producer-owned table before adding the
-  // exact proof deep link. Before migration 0023, keep the request-level link.
-  const proofNotifications = recentNotifications.filter(
-    (item) => item.kind === "proof_submitted" && item.purchaseRequestId,
-  );
-  const paymentProofIdByNotification = new Map<string, string>();
-  if (proofNotifications.length > 0) {
-    const availability = await db.execute<{ tableCount: number }>(sql`
-      select count(*)::int as "tableCount"
-      from information_schema.tables
-      where table_schema = current_schema()
-        and table_name = 'payment_proofs'
-    `);
-    if ((availability.rows[0]?.tableCount ?? 0) === 1) {
-      const proofNotificationIds = proofNotifications.map((notification) => notification.id);
-      const proofRows = await db
-        .select({
-          id: paymentProofs.id,
-          purchaseRequestId: paymentProofs.purchaseRequestId,
-          status: paymentProofs.status,
-        })
-        .from(paymentProofs)
-        .where(
-          and(
-            eq(paymentProofs.producerId, row.id),
-            inArray(paymentProofs.id, proofNotificationIds),
-          ),
-        );
-
-      const proofById = new Map(proofRows.map((proof) => [proof.id, proof]));
-      for (const notification of proofNotifications) {
-        const proof = proofById.get(notification.id);
-        if (
-          proof?.purchaseRequestId === notification.purchaseRequestId &&
-          proof.status === "pending"
-        ) {
-          paymentProofIdByNotification.set(notification.id, proof.id);
-        }
-      }
-    }
-  }
-
   return {
     slug: row.slug,
     displayName: row.displayName,
@@ -239,7 +194,10 @@ export const getShellState = cache(async (): Promise<ShellState> => {
     unreadCount: unreadCountRows[0]?.value ?? 0,
     recentNotifications: recentNotifications.map((notification) => ({
       ...notification,
-      paymentProofId: paymentProofIdByNotification.get(notification.id) ?? null,
+      // Proof review is purchase/installment-owned after SK-90. The legacy
+      // request-level deep link is intentionally unavailable until the
+      // Payments surface consumes that exact authorization boundary.
+      paymentProofId: null,
     })),
   };
 });

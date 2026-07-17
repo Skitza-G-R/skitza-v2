@@ -72,6 +72,11 @@ describe("ProductEditor orchestrator", () => {
     expect(SRC).toMatch(/showPaymentPlans=\{false\}/);
   });
 
+  it("uses purchase-level plans without deposit or milestone compatibility fields", () => {
+    expect(SRC).not.toMatch(/depositModel|milestones|preservedPlans/);
+    expect(PAYLOAD_SRC).not.toMatch(/depositPct|depositModel|milestones|preservedPlans/);
+  });
+
   it("keeps the producer on Type after choosing a preset", () => {
     const start = SRC.indexOf("function onPickPreset");
     const end = SRC.indexOf("const currentStepIndex", start);

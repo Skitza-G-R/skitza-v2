@@ -28,9 +28,9 @@ describe("clients-projects/[id]/page.tsx — Phase 2 rewrite to AlbumSpace", () 
     expect(SRC).toContain("appRouter.createCaller");
   });
 
-  it("fetches project.detail + project.money in parallel via the tRPC caller", () => {
+  it("fetches project detail without the removed project-level money projection", () => {
     expect(SRC).toContain("project.detail");
-    expect(SRC).toContain("project.money");
+    expect(SRC).not.toContain("project.money");
   });
 
   it("drops the import of the old ProjectHeader", () => {

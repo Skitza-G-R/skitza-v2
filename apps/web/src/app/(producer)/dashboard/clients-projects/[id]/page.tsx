@@ -4,17 +4,12 @@ import { auth } from "@clerk/nextjs/server";
 import {
   AlbumSpace,
   type AlbumSpaceProject,
-  type AlbumSpacePayments,
   type AlbumSpacePlayLatest,
   type AlbumSpaceStudioLog,
 } from "~/components/dashboard/project/album-space";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
 import { stageOrder, type WorkflowStage } from "~/lib/clients/workflow-stage";
 import type { TrackRowData } from "~/components/dashboard/project/track-row";
-import type {
-  MilestoneStatus,
-  PaymentMilestone,
-} from "~/components/dashboard/project/album-tabs/payments-tab";
 import type {
   StudioLogActivity,
   StudioLogSession,
@@ -33,7 +28,7 @@ type PageProps = {
 //
 // This server component:
 //   1. Verifies auth.
-//   2. Parallel-fetches project.detail + project.money + bookings.
+//   2. Fetches project detail and purchase-owned bookings.
 //   3. Reshapes the data into the AlbumSpace prop tree.
 //   4. Renders <AlbumSpace>.
 //
@@ -82,25 +77,14 @@ export default async function ProjectDetail({ params }: PageProps) {
     );
   }
 
-  // Parallel: money + sessions list (filtered to this project) + the
+  // Parallel: sessions list (filtered to this project) + the
   // contacts list (used ONLY to resolve a client_contacts.id for the
   // topbar breadcrumb client crumb — matches the song-page pattern in
   // ac4a112 so the client crumb is clickable when we can resolve it).
-  const [moneyResult, bookingsResult, clientsResult] = await Promise.allSettled([
-    caller.project.money({ projectId: id }),
+  const [bookingsResult, clientsResult] = await Promise.allSettled([
     caller.booking.list(),
     caller.clientContacts.listWithProjects({ view: "by-client" }),
   ]);
-
-  const money =
-    moneyResult.status === "fulfilled"
-      ? moneyResult.value
-      : {
-          paidCents: 0,
-          outstandingCents: 0,
-          currency: data.project.currency ?? "USD",
-          nextChargeAt: null as Date | null,
-        };
 
   const projectBookings =
     bookingsResult.status === "fulfilled"
@@ -181,28 +165,6 @@ export default async function ProjectDetail({ params }: PageProps) {
             : best;
         }, "brief");
 
-  // Build milestones from invoices for this project. The project
-  // router doesn't currently expose invoice rows directly, so we
-  // surface a slim list derived from money + invoice status counts.
-  // Phase 4 will add a dedicated `project.milestones` procedure; until
-  // then we render an empty list when there's nothing to show. We
-  // collapse this to a single "Engagement total" row when there's a
-  // paid balance so the panel renders with at least one milestone for
-  // the producer to scan.
-  const milestones: PaymentMilestone[] = [];
-  if (money.paidCents > 0 || money.outstandingCents > 0) {
-    const total = money.paidCents + money.outstandingCents;
-    const status: MilestoneStatus =
-      money.outstandingCents === 0 ? "paid" : "pending";
-    milestones.push({
-      id: `engagement-${data.project.id}`,
-      label: "Engagement total",
-      amountCents: total,
-      status,
-      date: data.project.paidAt,
-    });
-  }
-
   // Activity timeline — distilled from the project's event ledger.
   // We don't currently have a normalized activity table, so we
   // synthesize a small list from the strongest signals: project
@@ -235,50 +197,35 @@ export default async function ProjectDetail({ params }: PageProps) {
   activities.sort((a, b) => b.ts.getTime() - a.ts.getTime());
   const trimmedActivities = activities.slice(0, 10);
 
-  // Deadline + isOverdue — the project schema doesn't currently carry
-  // a deadline column. Use nextChargeAt as the closest signal we have
-  // (renders "—" when null). Phase 4 can wire a real deadline.
-  const deadline = money.nextChargeAt
+  const deadline = data.project.deadlineAt
     ? new Intl.DateTimeFormat("en-US", {
         month: "short",
         day: "numeric",
-      }).format(money.nextChargeAt)
+      }).format(data.project.deadlineAt)
     : "—";
   const isOverdue =
-    money.nextChargeAt !== null && money.nextChargeAt < new Date() && money.outstandingCents > 0;
-
-  // Per-song surfacing: append "× N songs" to the project's hero
-  // title when songQty was set at checkout. Lets the producer see
-  // exactly what the artist booked without opening the product
-  // page or doing tier math.
-  const projectName =
-    data.project.songQty != null && data.project.songQty > 1
-      ? `${data.project.title} × ${String(data.project.songQty)} songs`
-      : data.project.title;
+    data.project.deadlineAt !== null &&
+    data.project.deadlineAt < new Date() &&
+    data.project.lifecycleStatus !== "completed" &&
+    data.project.lifecycleStatus !== "canceled";
 
   const project: AlbumSpaceProject = {
     id: data.project.id,
-    name: projectName,
+    name: data.project.title,
     clientName: data.project.clientName ?? data.project.artistName,
     songsCount: data.tracks.length,
     sessionsCount: projectBookings.length,
-    totalCents: data.project.totalAmountCents ?? money.paidCents + money.outstandingCents,
-    currency: money.currency,
+    totalCents: null,
+    currency: null,
     workflowStage: headlineStage,
     progress: projectProgress,
     deadline,
     isOverdue,
-    outstandingCents: money.outstandingCents,
+    outstandingCents: null,
   };
 
-  const payments: AlbumSpacePayments = {
-    paidCents: money.paidCents,
-    outstandingCents: money.outstandingCents,
-    currency: money.currency,
-    nextChargeAt: money.nextChargeAt,
-    milestones,
-  };
-
+  // Purchase-ledger projections are intentionally unavailable in SK-90.
+  // Do not reinterpret missing commercial data as zero or paid.
   const studioLog: AlbumSpaceStudioLog = {
     sessionsCount: projectBookings.length,
     studioHours,
@@ -349,8 +296,8 @@ export default async function ProjectDetail({ params }: PageProps) {
       />
       <AlbumSpace
         project={project}
+        songSpacePurchaseId={data.songSpacePurchaseId}
         tracks={tracks}
-        payments={payments}
         studioLog={studioLog}
         playLatest={playLatest}
       />

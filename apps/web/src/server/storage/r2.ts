@@ -55,7 +55,18 @@ export function buildAudioKey(args: {
   trackVersionId: string;
   filename: string;
 }) {
-  return `producers/${args.producerId}/tracks/${args.trackVersionId}/${sanitize(args.filename)}`;
+  const objectId = randomBytes(16).toString("hex");
+  return `producers/${args.producerId}/tracks/${args.trackVersionId}/${objectId}-${sanitize(args.filename)}`;
+}
+
+export function isAudioKeyForTrackVersion(
+  key: string,
+  args: { producerId: string; trackVersionId: string },
+): boolean {
+  const prefix = `producers/${args.producerId}/tracks/${args.trackVersionId}/`;
+  if (!key.startsWith(prefix)) return false;
+  const filename = key.slice(prefix.length);
+  return filename.length > 0 && !filename.includes("/");
 }
 
 export function buildDocKey(args: { producerId: string; contractId: string; filename: string }) {

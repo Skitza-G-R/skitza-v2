@@ -3,9 +3,9 @@
 // S5 — Request sent (artist purchase funnel · Commit).
 //
 // The reassuring beat right after the artist sends their request (Gate 1).
-// A calm celebration: ripple emblem, the price-locked ticket stub with a
-// reference number, and a "what happens next" timeline. No payment details
-// yet — the producer reviews first. Quiet and confident, not a spinner.
+// A calm celebration with the request reference and a "what happens next"
+// timeline. Commercial terms are intentionally absent: this row is intent
+// only, and immutable terms begin at purchase acceptance.
 
 import { useRouter } from "next/navigation";
 
@@ -16,14 +16,12 @@ import {
   RippleEmblem,
   SecondaryCta,
 } from "~/components/artist/funnel/funnel-ui";
-import { coverGradient, formatShekels, type Producer, type PurchaseProduct } from "./purchase-data";
+import { coverGradient, type Producer } from "./purchase-data";
 
 export function RequestSentScreen({
-  product,
   producer,
   requestRef,
 }: {
-  product: PurchaseProduct;
   producer: Producer;
   requestRef: string;
 }) {
@@ -95,7 +93,7 @@ export function RequestSentScreen({
                 }}
               />
 
-              {/* booking row */}
+              {/* request identity row — no mutable commercial proposal data */}
               <div className="grid grid-cols-[46px_minmax(0,1fr)] items-center gap-x-[13px] px-[18px] pt-[17px] pb-4 min-[350px]:grid-cols-[46px_minmax(0,1fr)_auto]">
                 <span
                   aria-hidden="true"
@@ -106,18 +104,15 @@ export function RequestSentScreen({
                 </span>
                 <div className="min-w-0 text-left">
                   <div className="font-syne text-[16px] leading-tight font-extrabold tracking-[-0.025em] text-[rgb(var(--fg-default))]">
-                    {product.name}
+                    Request #{requestRef}
                   </div>
                   <div className="mt-0.5 text-[12px] text-[rgb(var(--fg-muted))]">
                     with {producer.name}
                   </div>
                 </div>
                 <div className="col-start-2 mt-2 text-left min-[350px]:col-start-3 min-[350px]:row-start-1 min-[350px]:mt-0 min-[350px]:text-right">
-                  <div className="font-amount text-[19px] font-extrabold tracking-[-0.03em] text-[rgb(var(--fg-default))]">
-                    {formatShekels(product.priceCents)}
-                  </div>
                   <div className="font-mono text-[8.5px] tracking-[0.08em] text-[rgb(var(--brand-primary-text))]">
-                    PRICE LOCKED
+                    PENDING REVIEW
                   </div>
                 </div>
               </div>

@@ -4,11 +4,10 @@ import {
   createDb,
   eq,
   gte,
-  inArray,
   isNull,
   lte,
   producers,
-  products,
+  purchases,
 } from "@skitza/db";
 import { NextResponse } from "next/server";
 
@@ -69,12 +68,11 @@ export async function GET(req: Request) {
     .select({
       id: bookings.id,
       producerId: bookings.producerId,
-      productId: bookings.productId,
+      purchaseId: bookings.purchaseId,
       artistName: bookings.artistName,
       artistEmail: bookings.artistEmail,
       startsAt: bookings.startsAt,
       durationMin: bookings.durationMin,
-      packageNameSnapshot: bookings.packageNameSnapshot,
     })
     .from(bookings)
     .where(
@@ -89,9 +87,9 @@ export async function GET(req: Request) {
   let sent24 = 0;
   for (const b of due24) {
     if (b.durationMin <= 0) continue; // pure-deliverable, no session
-    const ctx = await loadEmailContext(db, b.producerId, b.productId);
+    const ctx = await loadEmailContext(db, b.producerId, b.purchaseId);
     if (!ctx.producerEmail) continue;
-    const productName = ctx.productName ?? b.packageNameSnapshot ?? "Session";
+    const productName = ctx.purchaseName ?? "Session";
     try {
       await sendSessionReminder24h(b.artistEmail, {
         recipientName: b.artistName,
@@ -124,12 +122,11 @@ export async function GET(req: Request) {
     .select({
       id: bookings.id,
       producerId: bookings.producerId,
-      productId: bookings.productId,
+      purchaseId: bookings.purchaseId,
       artistName: bookings.artistName,
       artistEmail: bookings.artistEmail,
       startsAt: bookings.startsAt,
       durationMin: bookings.durationMin,
-      packageNameSnapshot: bookings.packageNameSnapshot,
     })
     .from(bookings)
     .where(
@@ -144,9 +141,9 @@ export async function GET(req: Request) {
   let sent1 = 0;
   for (const b of due1) {
     if (b.durationMin <= 0) continue;
-    const ctx = await loadEmailContext(db, b.producerId, b.productId);
+    const ctx = await loadEmailContext(db, b.producerId, b.purchaseId);
     if (!ctx.producerEmail) continue;
-    const productName = ctx.productName ?? b.packageNameSnapshot ?? "Session";
+    const productName = ctx.purchaseName ?? "Session";
     try {
       await sendSessionReminder1h(b.artistEmail, {
         recipientName: b.artistName,
@@ -181,18 +178,17 @@ export async function GET(req: Request) {
   });
 }
 
-// Tiny helper — pull the producer + product context needed to render
-// the reminder template. Returns nullish fields rather than throwing
-// so a missing product doesn't block other bookings in the batch.
+// Pull producer context plus the immutable accepted purchase name. A
+// later catalog edit must never rewrite what this session was bought as.
 async function loadEmailContext(
   db: ReturnType<typeof createDb>,
   producerId: string,
-  productId: string | null,
+  purchaseId: string,
 ): Promise<{
   producerEmail: string | null;
   producerDisplayName: string;
   timezone: string;
-  productName: string | null;
+  purchaseName: string | null;
 }> {
   const [producerRow] = await db
     .select({
@@ -203,19 +199,15 @@ async function loadEmailContext(
     .from(producers)
     .where(eq(producers.id, producerId))
     .limit(1);
-  let productName: string | null = null;
-  if (productId) {
-    const productRow = await db
-      .select({ name: products.name })
-      .from(products)
-      .where(inArray(products.id, [productId]))
-      .limit(1);
-    productName = productRow[0]?.name ?? null;
-  }
+  const [purchaseRow] = await db
+    .select({ snapshot: purchases.commercialSnapshot })
+    .from(purchases)
+    .where(and(eq(purchases.id, purchaseId), eq(purchases.producerId, producerId)))
+    .limit(1);
   return {
     producerEmail: producerRow?.email ?? null,
     producerDisplayName: producerRow?.displayName ?? "there",
     timezone: producerRow?.timezone ?? "UTC",
-    productName,
+    purchaseName: purchaseRow?.snapshot.productOrOfferName ?? null,
   };
 }

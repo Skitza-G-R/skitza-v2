@@ -1,152 +1,199 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Tests for the "auto-create project on booking.confirm" side effect.
-//
-// When a producer confirms a pending booking, we want a projects row
-// to pop into existence so the producer never has to fill an "add new
-// client" form in the common IG-bio → /join/<slug> → artist-app Book
-// tab flow. (The legacy public /p/<slug> self-booking flow was removed
-// in Story 03 per PRD §6.6.)
-//
-// Pattern mirrors booking-public-request.test.ts: marker objects per
-// table, a per-table FIFO select queue, insert + update spies so we
-// can assert which tables were written and with what values. Producer
-// middleware always queries producers first (to resolve ctx.producerId
-// from ctx.userId); bookings.confirm then reads the booking, checks
-// ownership, transitions status, and finally (the new piece) inserts
-// a projects row + optional client_contacts upsert, and patches
-// bookings.projectId with the new id.
+// SK-90 confirmation is a guarded status transition on an already-owned
+// booking. It must resolve one active purchase, its active project, and the
+// booking's open purchase session allowance in the same transaction. It must
+// never auto-create a project/contact or synthesize payment history.
 
 const PRODUCER_ID = "producer-uuid-confirm";
-const OTHER_PRODUCER_ID = "producer-uuid-other";
 const BOOKING_ID = "00000000-0000-0000-0000-000000000c01";
-const NEW_PROJECT_ID = "00000000-0000-0000-0000-000000000d01";
-const EXISTING_PROJECT_ID = "00000000-0000-0000-0000-000000000d02";
-const PRODUCT_ID = "00000000-0000-0000-0000-000000000b01";
-
-const producersMarker = {
-  __table: "producers",
-  id: { __column: "producers.id" },
-  clerkUserId: { __column: "producers.clerk_user_id" },
-};
-const productsMarker = {
-  __table: "products",
-  id: { __column: "products.id" },
-};
-const projectsMarker = {
-  __table: "projects",
-  id: { __column: "projects.id" },
-  producerId: { __column: "projects.producer_id" },
-  bookingId: { __column: "projects.booking_id" },
-};
-const bookingsMarker = {
-  __table: "bookings",
-  id: { __column: "bookings.id" },
-  producerId: { __column: "bookings.producer_id" },
-  projectId: { __column: "bookings.project_id" },
-  status: { __column: "bookings.status" },
-};
-const clientContactsMarker = {
-  __table: "client_contacts",
-  producerId: { __column: "client_contacts.producer_id" },
-  emailHash: { __column: "client_contacts.email_hash" },
-};
+const PURCHASE_ID = "00000000-0000-0000-0000-000000000c02";
+const PROJECT_ID = "00000000-0000-0000-0000-000000000c03";
+const ALLOWANCE_ID = "00000000-0000-0000-0000-000000000c04";
 
 type Row = Record<string, unknown>;
-const producerSelectQueue: Row[][] = [];
-const productSelectQueue: Row[][] = [];
-const projectSelectQueue: Row[][] = [];
-const bookingSelectQueue: Row[][] = [];
 
-function shift<T>(q: T[][]): T[] {
-  return q.shift() ?? [];
-}
+const {
+  producersMarker,
+  productsMarker,
+  projectsMarker,
+  bookingsMarker,
+  clientContactsMarker,
+  purchasesMarker,
+  purchaseSessionAllowancesMarker,
+  purchasePaymentsMarker,
+  selectRows,
+  updateReturningRows,
+  selectWhereCalls,
+  joinCalls,
+  insertCalls,
+  updateCalls,
+  forUpdateCalls,
+  afterCallbacks,
+  sendBookingConfirmedEmailMock,
+  transactionSpy,
+  dbMock,
+} = vi.hoisted(() => {
+  const producersMarker = {
+    __table: "producers",
+    id: { __column: "producers.id" },
+    clerkUserId: { __column: "producers.clerk_user_id" },
+    displayName: { __column: "producers.display_name" },
+    timezone: { __column: "producers.timezone" },
+  };
+  const productsMarker = { __table: "products", id: { __column: "products.id" } };
+  const projectsMarker = {
+    __table: "projects",
+    id: { __column: "projects.id" },
+    producerId: { __column: "projects.producer_id" },
+    clientContactId: { __column: "projects.client_contact_id" },
+    lifecycleStatus: { __column: "projects.lifecycle_status" },
+  };
+  const bookingsMarker = {
+    __table: "bookings",
+    id: { __column: "bookings.id" },
+    producerId: { __column: "bookings.producer_id" },
+    projectId: { __column: "bookings.project_id" },
+    purchaseId: { __column: "bookings.purchase_id" },
+    sessionAllowanceId: { __column: "bookings.session_allowance_id" },
+    status: { __column: "bookings.status" },
+  };
+  const clientContactsMarker = { __table: "client_contacts" };
+  const purchasesMarker = {
+    __table: "purchases",
+    id: { __column: "purchases.id" },
+    projectId: { __column: "purchases.project_id" },
+    producerId: { __column: "purchases.producer_id" },
+    clientContactId: { __column: "purchases.client_contact_id" },
+    lifecycleStatus: { __column: "purchases.lifecycle_status" },
+    commercialSnapshot: { __column: "purchases.commercial_snapshot" },
+  };
+  const purchaseSessionAllowancesMarker = {
+    __table: "purchase_session_allowances",
+    id: { __column: "purchase_session_allowances.id" },
+    purchaseId: { __column: "purchase_session_allowances.purchase_id" },
+    producerId: { __column: "purchase_session_allowances.producer_id" },
+    closedAt: { __column: "purchase_session_allowances.closed_at" },
+  };
+  const purchasePaymentsMarker = { __table: "purchase_payments" };
 
-// Records every insert + update so the tests can assert project
-// creation, projectId stamping, and client_contact upsert happened.
-const insertCalls: Array<{ table: unknown; values: Row; onConflict?: unknown }> = [];
-const updateCalls: Array<{ table: unknown; set: Row; where?: unknown }> = [];
+  const selectRows: Row[] = [];
+  const updateReturningRows: Row[] = [];
+  const selectWhereCalls: unknown[] = [];
+  const joinCalls: Array<{ table: unknown; on: unknown }> = [];
+  const insertCalls: Array<{ table: unknown; values: unknown }> = [];
+  const updateCalls: Array<{ table: unknown; set: Row; where?: unknown }> = [];
+  const forUpdateCalls: string[] = [];
+  const afterCallbacks: Array<() => Promise<void>> = [];
+  const sendBookingConfirmedEmailMock = vi
+    .fn<(to: string, props: Record<string, unknown>) => Promise<void>>()
+    .mockResolvedValue(undefined);
 
-const insertReturningSpy = vi.fn<() => Promise<Row[]>>(() =>
-  Promise.resolve([{ id: NEW_PROJECT_ID }]),
-);
-
-const dbMock = {
-  select: () => ({
-    from: (table: unknown) => {
-      const handler = () => {
-        if (table === producersMarker) return shift(producerSelectQueue);
-        if (table === productsMarker) return shift(productSelectQueue);
-        if (table === projectsMarker) return shift(projectSelectQueue);
-        if (table === bookingsMarker) return shift(bookingSelectQueue);
-        return [];
-      };
-      return {
-        where: () => ({
-          limit: () => Promise.resolve(handler()),
-          then: (resolve: (rows: Row[]) => void) => {
-            resolve(handler());
+  const txMock = {
+    select: () => ({
+      from: (table: unknown) => {
+        if (table !== bookingsMarker) throw new Error("unexpected transaction select");
+        type SelectLink = {
+          innerJoin: (joinTable: unknown, on: unknown) => SelectLink;
+          where: (where: unknown) => SelectLink;
+          for: (mode: string) => SelectLink;
+          limit: () => Promise<Row[]>;
+        };
+        const link: SelectLink = {
+          innerJoin: (joinTable: unknown, on: unknown) => {
+            joinCalls.push({ table: joinTable, on });
+            return link;
           },
-        }),
-      };
-    },
-  }),
-  insert: (table: unknown) => ({
-    values: (values: Row) => {
-      const record = { table, values } as {
-        table: unknown;
-        values: Row;
-        onConflict?: unknown;
-      };
-      insertCalls.push(record);
-      const chain = {
-        returning: insertReturningSpy,
-        onConflictDoUpdate: (cfg: unknown) => {
-          record.onConflict = cfg;
-          return {
-            returning: insertReturningSpy,
-            // Allow awaiting without `.returning()` (client_contacts
-            // upsert doesn't need the row back).
-            then: (resolve: (v: unknown) => void) => {
-              resolve(undefined);
-            },
-          };
-        },
-        // Direct await (insert without returning / onConflict).
-        then: (resolve: (v: unknown) => void) => {
-          resolve(undefined);
-        },
-      };
-      return chain;
-    },
-  }),
-  update: (table: unknown) => ({
-    set: (set: Row) => {
-      const record = { table, set } as {
-        table: unknown;
-        set: Row;
-        where?: unknown;
-      };
-      updateCalls.push(record);
-      return {
-        where: (whereArg: unknown) => {
-          record.where = whereArg;
-          return Promise.resolve(undefined);
-        },
-      };
-    },
-  }),
-};
+          where: (where: unknown) => {
+            selectWhereCalls.push(where);
+            return link;
+          },
+          for: (mode: string) => {
+            forUpdateCalls.push(mode);
+            return link;
+          },
+          limit: () => Promise.resolve([...selectRows]),
+        };
+        return link;
+      },
+    }),
+    insert: (table: unknown) => ({
+      values: (values: unknown) => {
+        insertCalls.push({ table, values });
+        return Promise.resolve(undefined);
+      },
+    }),
+    update: (table: unknown) => ({
+      set: (set: Row) => {
+        const record: { table: unknown; set: Row; where?: unknown } = { table, set };
+        updateCalls.push(record);
+        return {
+          where: (where: unknown) => {
+            record.where = where;
+            return {
+              returning: () => Promise.resolve([...updateReturningRows]),
+            };
+          },
+        };
+      },
+    }),
+  };
+
+  const transactionSpy = vi.fn(async (callback: (tx: typeof txMock) => Promise<unknown>) =>
+    callback(txMock),
+  );
+
+  const dbMock = {
+    select: () => ({
+      from: (table: unknown) => {
+        if (table !== producersMarker) throw new Error("unexpected outer select");
+        return {
+          where: () => ({
+            limit: () => Promise.resolve([{ id: PRODUCER_ID }]),
+          }),
+        };
+      },
+    }),
+    insert: (table: unknown) => ({
+      values: (values: unknown) => {
+        insertCalls.push({ table, values });
+        return Promise.resolve(undefined);
+      },
+    }),
+    transaction: transactionSpy,
+  };
+
+  return {
+    producersMarker,
+    productsMarker,
+    projectsMarker,
+    bookingsMarker,
+    clientContactsMarker,
+    purchasesMarker,
+    purchaseSessionAllowancesMarker,
+    purchasePaymentsMarker,
+    selectRows,
+    updateReturningRows,
+    selectWhereCalls,
+    joinCalls,
+    insertCalls,
+    updateCalls,
+    forUpdateCalls,
+    afterCallbacks,
+    sendBookingConfirmedEmailMock,
+    transactionSpy,
+    dbMock,
+  };
+});
 
 vi.mock("@clerk/nextjs/server", () => ({
   auth: () => Promise.resolve({ userId: "user_test_confirm" }),
 }));
 
-vi.mock("next/headers", () => ({
-  headers: () =>
-    Promise.resolve({
-      get: () => "127.0.0.1",
-    }),
+vi.mock("next/server", () => ({
+  after: (callback: () => Promise<void>) => {
+    afterCallbacks.push(callback);
+  },
 }));
 
 vi.mock("@skitza/db", () => ({
@@ -156,70 +203,79 @@ vi.mock("@skitza/db", () => ({
   projects: projectsMarker,
   bookings: bookingsMarker,
   clientContacts: clientContactsMarker,
+  purchases: purchasesMarker,
+  purchaseSessionAllowances: purchaseSessionAllowancesMarker,
+  purchasePayments: purchasePaymentsMarker,
   availabilityBlackouts: { __table: "availability_blackouts" },
   availabilityBlocks: { __table: "availability_blocks" },
-  invoices: { __table: "invoices" },
-  eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
-  and: (...conds: unknown[]) => ({ and: conds }),
-  or: (...conds: unknown[]) => ({ or: conds }),
-  asc: (col: unknown) => ({ asc: col }),
-  desc: (col: unknown) => ({ desc: col }),
-  isNull: (col: unknown) => ({ isNull: col }),
-  gte: (col: unknown, val: unknown) => ({ gte: [col, val] }),
-  lte: (col: unknown, val: unknown) => ({ lte: [col, val] }),
-  inArray: (col: unknown, vals: unknown[]) => ({ inArray: [col, vals] }),
+  eq: (column: unknown, value: unknown) => ({ eq: [column, value] }),
+  and: (...conditions: unknown[]) => ({ and: conditions }),
+  or: (...conditions: unknown[]) => ({ or: conditions }),
+  asc: (column: unknown) => ({ asc: column }),
+  desc: (column: unknown) => ({ desc: column }),
+  isNull: (column: unknown) => ({ isNull: column }),
+  gte: (column: unknown, value: unknown) => ({ gte: [column, value] }),
+  lte: (column: unknown, value: unknown) => ({ lte: [column, value] }),
+  inArray: (column: unknown, values: unknown[]) => ({ inArray: [column, values] }),
   sql: () => ({ sql: true }),
 }));
 
-// Side-effect mocks — the email path inside booking.confirm still
-// runs, but we don't care about it for these tests; mock to no-ops.
 vi.mock("~/server/email/send", () => ({
-  sendBookingConfirmedEmail: vi.fn(() => Promise.resolve()),
-  sendBookingRequestEmail: vi.fn(() => Promise.resolve()),
+  sendBookingCancelledOrRescheduledEmail: vi.fn(() => Promise.resolve()),
+  sendBookingConfirmedEmail: sendBookingConfirmedEmailMock,
 }));
 
-vi.mock("~/server/contacts/record", () => ({
-  recordContact: vi.fn(() => Promise.resolve()),
-}));
-
-vi.mock("~/server/notifications/emit", () => ({
-  emitBookingRequested: vi.fn(() => Promise.resolve()),
-}));
-
-vi.mock("~/lib/rate-limit/in-memory", () => ({
-  checkRateLimit: () => ({ ok: true, remaining: 10 }),
-}));
-
-// Walks an arbitrarily nested `and(...)` tree to find an (operator,
-// column) pair. Mirrors producer-today.test.ts's findPredicate.
-function findPredicate(
-  where: unknown,
-  operator: "eq" | "inArray",
-  columnMarker: unknown,
-): unknown {
+function findPredicate(where: unknown, columnMarker: unknown): unknown {
   if (!where || typeof where !== "object") return null;
   if ("and" in where && Array.isArray((where as { and: unknown[] }).and)) {
-    for (const p of (where as { and: unknown[] }).and) {
-      const found = findPredicate(p, operator, columnMarker);
+    for (const predicate of (where as { and: unknown[] }).and) {
+      const found = findPredicate(predicate, columnMarker);
       if (found) return found;
     }
     return null;
   }
-  if (operator in where) {
-    const args = (where as Record<string, unknown>)[operator];
+  if ("eq" in where) {
+    const args = (where as { eq: unknown }).eq;
     if (Array.isArray(args) && args[0] === columnMarker) return args;
   }
   return null;
 }
 
+function seedExisting(overrides: Partial<Row> = {}): void {
+  selectRows.push({
+    booking: {
+      id: BOOKING_ID,
+      producerId: PRODUCER_ID,
+      purchaseId: PURCHASE_ID,
+      projectId: PROJECT_ID,
+      sessionAllowanceId: ALLOWANCE_ID,
+      status: "pending_approval",
+      artistEmail: "artist@example.test",
+      artistName: "Artist",
+      startsAt: new Date("2035-02-03T10:00:00.000Z"),
+    },
+    commercialSnapshot: { productOrOfferName: "Purchased vocal session" },
+    purchaseLifecycleStatus: "active",
+    projectLifecycleStatus: "active",
+    allowanceClosedAt: null,
+    producerDisplayName: "Producer",
+    producerTimezone: "Asia/Jerusalem",
+    ...overrides,
+  });
+}
+
 beforeEach(() => {
-  producerSelectQueue.length = 0;
-  productSelectQueue.length = 0;
-  projectSelectQueue.length = 0;
-  bookingSelectQueue.length = 0;
+  selectRows.length = 0;
+  updateReturningRows.length = 0;
+  updateReturningRows.push({ id: BOOKING_ID });
+  selectWhereCalls.length = 0;
+  joinCalls.length = 0;
   insertCalls.length = 0;
   updateCalls.length = 0;
-  insertReturningSpy.mockReset().mockResolvedValue([{ id: NEW_PROJECT_ID }]);
+  forUpdateCalls.length = 0;
+  afterCallbacks.length = 0;
+  sendBookingConfirmedEmailMock.mockClear();
+  transactionSpy.mockClear();
   process.env.DATABASE_URL = "postgresql://test/test";
 });
 
@@ -228,209 +284,192 @@ const buildCaller = async (userId: string | null = "user_test_confirm") => {
   return appRouter.createCaller({ userId });
 };
 
-// Seeds the happy-path queues: producer middleware + booking row (no
-// existing project link) + producer row (for the email side-effect).
-//
-// `productId` is null here because booking.confirm now routes
-// (productId !== null && projectId === null) to `pending_payment` and
-// skips auto-project creation. The confirmed-branch auto-project flow
-// these tests cover only fires for product-less bookings (a producer-
-// created session with no Stripe-checkout product attached) and for
-// returning artists whose project already exists (covered by the
-// idempotency test below).
-function seedPendingBookingNoProject(overrides: { booking?: Partial<Row> } = {}) {
-  producerSelectQueue.push([{ id: PRODUCER_ID }]);
-  bookingSelectQueue.push([
+describe("booking.confirm purchase-owned boundary", () => {
+  it("confirms only the booking and creates no project, contact, or payment rows", async () => {
+    seedExisting();
+    const caller = await buildCaller();
+
+    await expect(caller.booking.confirm({ id: BOOKING_ID })).resolves.toEqual({ ok: true });
+
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
+    expect(forUpdateCalls).toEqual(["update"]);
+    expect(insertCalls).toEqual([]);
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0]?.table).toBe(bookingsMarker);
+    expect(updateCalls[0]?.set).toMatchObject({ status: "confirmed" });
+    expect(updateCalls[0]?.set["statusChangedAt"]).toBeInstanceOf(Date);
+    expect(updateCalls.some((call) => call.table === projectsMarker)).toBe(false);
+    expect(insertCalls.some((call) => call.table === clientContactsMarker)).toBe(false);
+    expect(insertCalls.some((call) => call.table === purchasePaymentsMarker)).toBe(false);
+  });
+
+  it("sends one best-effort confirmation from purchase terms only after a new transition", async () => {
+    seedExisting();
+    const caller = await buildCaller();
+
+    await caller.booking.confirm({ id: BOOKING_ID });
+    expect(afterCallbacks).toHaveLength(1);
+    await afterCallbacks[0]?.();
+
+    expect(sendBookingConfirmedEmailMock).toHaveBeenCalledTimes(1);
+    expect(sendBookingConfirmedEmailMock).toHaveBeenCalledWith(
+      "artist@example.test",
+      expect.objectContaining({
+        artistName: "Artist",
+        producerName: "Producer",
+        productName: "Purchased vocal session",
+        producerTimezone: "Asia/Jerusalem",
+      }),
+    );
+    expect(sendBookingConfirmedEmailMock.mock.calls[0]?.[1]).not.toHaveProperty(
+      "depositCents",
+    );
+    expect(sendBookingConfirmedEmailMock.mock.calls[0]?.[1]).not.toHaveProperty(
+      "priceCents",
+    );
+  });
+
+  it("joins the booking to its exact purchase, project, and session allowance", async () => {
+    seedExisting();
+    const caller = await buildCaller();
+    await caller.booking.confirm({ id: BOOKING_ID });
+
+    expect(joinCalls.map((call) => call.table)).toEqual([
+      purchasesMarker,
+      projectsMarker,
+      purchaseSessionAllowancesMarker,
+      producersMarker,
+    ]);
+
+    const purchaseJoin = joinCalls[0]?.on;
+    expect(findPredicate(purchaseJoin, purchasesMarker.id)).toEqual([
+      purchasesMarker.id,
+      bookingsMarker.purchaseId,
+    ]);
+    expect(findPredicate(purchaseJoin, purchasesMarker.projectId)).toEqual([
+      purchasesMarker.projectId,
+      bookingsMarker.projectId,
+    ]);
+    expect(findPredicate(purchaseJoin, purchasesMarker.producerId)).toEqual([
+      purchasesMarker.producerId,
+      bookingsMarker.producerId,
+    ]);
+
+    const projectJoin = joinCalls[1]?.on;
+    expect(findPredicate(projectJoin, projectsMarker.id)).toEqual([
+      projectsMarker.id,
+      purchasesMarker.projectId,
+    ]);
+    expect(findPredicate(projectJoin, projectsMarker.producerId)).toEqual([
+      projectsMarker.producerId,
+      purchasesMarker.producerId,
+    ]);
+    expect(findPredicate(projectJoin, projectsMarker.clientContactId)).toEqual([
+      projectsMarker.clientContactId,
+      purchasesMarker.clientContactId,
+    ]);
+
+    const allowanceJoin = joinCalls[2]?.on;
+    expect(findPredicate(allowanceJoin, purchaseSessionAllowancesMarker.id)).toEqual([
+      purchaseSessionAllowancesMarker.id,
+      bookingsMarker.sessionAllowanceId,
+    ]);
+    expect(findPredicate(allowanceJoin, purchaseSessionAllowancesMarker.purchaseId)).toEqual([
+      purchaseSessionAllowancesMarker.purchaseId,
+      bookingsMarker.purchaseId,
+    ]);
+    expect(findPredicate(allowanceJoin, purchaseSessionAllowancesMarker.producerId)).toEqual([
+      purchaseSessionAllowancesMarker.producerId,
+      bookingsMarker.producerId,
+    ]);
+  });
+
+  it("producer-scopes both the lookup and compare-and-set update", async () => {
+    seedExisting();
+    const caller = await buildCaller();
+    await caller.booking.confirm({ id: BOOKING_ID });
+
+    const lookupWhere = selectWhereCalls[0];
+    expect(findPredicate(lookupWhere, bookingsMarker.id)).toEqual([bookingsMarker.id, BOOKING_ID]);
+    expect(findPredicate(lookupWhere, bookingsMarker.producerId)).toEqual([
+      bookingsMarker.producerId,
+      PRODUCER_ID,
+    ]);
+
+    const updateWhere = updateCalls[0]?.where;
+    expect(findPredicate(updateWhere, bookingsMarker.id)).toEqual([bookingsMarker.id, BOOKING_ID]);
+    expect(findPredicate(updateWhere, bookingsMarker.producerId)).toEqual([
+      bookingsMarker.producerId,
+      PRODUCER_ID,
+    ]);
+    expect(findPredicate(updateWhere, bookingsMarker.status)).toEqual([
+      bookingsMarker.status,
+      "pending_approval",
+    ]);
+  });
+
+  it.each([
     {
-      id: BOOKING_ID,
-      producerId: PRODUCER_ID,
-      status: "pending_approval",
-      artistName: "Alice Artist",
-      artistEmail: "alice@example.com",
-      startsAt: new Date("2026-05-01T15:00:00Z"),
-      durationMin: 120,
-      productId: null,
-      packageNameSnapshot: "Mix — 2 hours",
-      projectId: null,
-      ...(overrides.booking ?? {}),
+      label: "purchase is not active",
+      overrides: { purchaseLifecycleStatus: "waiting_for_payment" },
     },
-  ]);
-  // Email-path producer fetch. autopilotWelcomeEmail is unset → falsy,
-  // so the email branch short-circuits before fetching products.
-  producerSelectQueue.push([
-    { displayName: "Bob Producer", timezone: "UTC", defaultCurrency: "USD" },
-  ]);
-}
-
-describe("booking.confirm auto-project creation", () => {
-  it("creates a projects row when the booking has no linked project", async () => {
-    seedPendingBookingNoProject();
+    {
+      label: "project is not active",
+      overrides: { projectLifecycleStatus: "paused" },
+    },
+    {
+      label: "allowance is closed",
+      overrides: { allowanceClosedAt: new Date("2035-01-02T03:04:05.000Z") },
+    },
+  ])("rejects confirmation when the $label", async ({ overrides }) => {
+    seedExisting(overrides);
     const caller = await buildCaller();
 
-    const result = await caller.booking.confirm({ id: BOOKING_ID });
-    expect(result).toEqual({ ok: true });
-
-    // Assert: one insert targets the projects table.
-    const projectInserts = insertCalls.filter((c) => c.table === projectsMarker);
-    expect(projectInserts).toHaveLength(1);
-    const projectValues = projectInserts[0]?.values as Row;
-    expect(projectValues["producerId"]).toBe(PRODUCER_ID);
-    expect(projectValues["bookingId"]).toBe(BOOKING_ID);
-    expect(projectValues["title"]).toBe("Mix — 2 hours");
-    expect(projectValues["artistName"]).toBe("Alice Artist");
-    expect(projectValues["artistEmail"]).toBe("alice@example.com");
-    expect(projectValues["stage"]).toBe("booked");
-    expect(projectValues["depositPaid"]).toBe(false);
-    expect(projectValues["finalPaid"]).toBe(false);
+    await expect(caller.booking.confirm({ id: BOOKING_ID })).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+    });
+    expect(updateCalls).toEqual([]);
+    expect(insertCalls).toEqual([]);
   });
 
-  it("stamps bookings.projectId with the new project's id", async () => {
-    seedPendingBookingNoProject();
-    const caller = await buildCaller();
-
-    await caller.booking.confirm({ id: BOOKING_ID });
-
-    // At least one bookings update for projectId stamping (alongside
-    // the status transition update). Find the one whose set has
-    // projectId set.
-    const bookingUpdates = updateCalls.filter((c) => c.table === bookingsMarker);
-    const projectIdStamp = bookingUpdates.find(
-      (c) => c.set["projectId"] === NEW_PROJECT_ID,
-    );
-    expect(projectIdStamp).toBeDefined();
-  });
-
-  it("upserts a client_contacts row keyed on (producerId, emailHash)", async () => {
-    seedPendingBookingNoProject();
-    const caller = await buildCaller();
-
-    await caller.booking.confirm({ id: BOOKING_ID });
-
-    // One insert targeting client_contacts with an onConflictDoUpdate.
-    const contactInserts = insertCalls.filter(
-      (c) => c.table === clientContactsMarker,
-    );
-    expect(contactInserts).toHaveLength(1);
-    const contact = contactInserts[0];
-    expect(contact).toBeDefined();
-    if (!contact) return;
-    const v = contact.values;
-    expect(v["producerId"]).toBe(PRODUCER_ID);
-    // Email hash is sha256 of trim+lowercase "alice@example.com".
-    // We don't hardcode the digest — just assert the row has an
-    // emailHash string and the lowercased raw email.
-    expect(typeof v["emailHash"]).toBe("string");
-    expect((v["emailHash"] as string).length).toBeGreaterThan(16);
-    expect(v["email"]).toBe("alice@example.com");
-    // The upsert conflict target is producerId + emailHash.
-    expect(contact.onConflict).toBeDefined();
-  });
-
-  it("is idempotent — when booking already has a linked project, no duplicate is inserted", async () => {
-    // Producer middleware + booking row that already has projectId.
-    producerSelectQueue.push([{ id: PRODUCER_ID }]);
-    bookingSelectQueue.push([
-      {
+  it("is idempotent for an already-confirmed booking", async () => {
+    seedExisting({
+      booking: {
         id: BOOKING_ID,
         producerId: PRODUCER_ID,
-        status: "pending_approval",
-        artistName: "Alice Artist",
-        artistEmail: "alice@example.com",
-        startsAt: new Date("2026-05-01T15:00:00Z"),
-        durationMin: 120,
-        productId: PRODUCT_ID,
-        packageNameSnapshot: "Mix — 2 hours",
-        projectId: EXISTING_PROJECT_ID,
+        purchaseId: PURCHASE_ID,
+        projectId: PROJECT_ID,
+        sessionAllowanceId: ALLOWANCE_ID,
+        status: "confirmed",
       },
-    ]);
-    // Email path selects still run.
-    producerSelectQueue.push([
-      { displayName: "Bob Producer", timezone: "UTC", defaultCurrency: "USD" },
-    ]);
-    productSelectQueue.push([
-      { name: "Mix — 2 hours", priceCents: 20000, currency: "USD", depositPct: 50 },
-    ]);
-
+    });
     const caller = await buildCaller();
-    await caller.booking.confirm({ id: BOOKING_ID });
 
-    const projectInserts = insertCalls.filter((c) => c.table === projectsMarker);
-    expect(projectInserts).toHaveLength(0);
+    await expect(caller.booking.confirm({ id: BOOKING_ID })).resolves.toEqual({ ok: true });
+    expect(updateCalls).toEqual([]);
+    expect(insertCalls).toEqual([]);
+    expect(afterCallbacks).toEqual([]);
+    expect(sendBookingConfirmedEmailMock).not.toHaveBeenCalled();
   });
 
-  it("scopes the booking lookup via ctx.producerId and throws FORBIDDEN for cross-producer", async () => {
-    producerSelectQueue.push([{ id: PRODUCER_ID }]);
-    // Seed a booking that belongs to a different producer.
-    bookingSelectQueue.push([
-      {
-        id: BOOKING_ID,
-        producerId: OTHER_PRODUCER_ID,
-        status: "pending_approval",
-        artistName: "Alice Artist",
-        artistEmail: "alice@example.com",
-        startsAt: new Date("2026-05-01T15:00:00Z"),
-        durationMin: 120,
-        productId: PRODUCT_ID,
-        packageNameSnapshot: "Mix — 2 hours",
-        projectId: null,
-      },
-    ]);
-
+  it("returns NOT_FOUND when the producer-scoped join resolves no booking", async () => {
     const caller = await buildCaller();
-    await expect(
-      caller.booking.confirm({ id: BOOKING_ID }),
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
 
-    // No project insert or client_contact upsert should have happened.
-    const projectInserts = insertCalls.filter((c) => c.table === projectsMarker);
-    expect(projectInserts).toHaveLength(0);
-    const contactInserts = insertCalls.filter(
-      (c) => c.table === clientContactsMarker,
-    );
-    expect(contactInserts).toHaveLength(0);
+    await expect(caller.booking.confirm({ id: BOOKING_ID })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    expect(updateCalls).toEqual([]);
+    expect(insertCalls).toEqual([]);
   });
 
-  it("derives the project title from packageNameSnapshot and falls back to artist name when missing", async () => {
-    producerSelectQueue.push([{ id: PRODUCER_ID }]);
-    bookingSelectQueue.push([
-      {
-        id: BOOKING_ID,
-        producerId: PRODUCER_ID,
-        status: "pending_approval",
-        artistName: "Zoe Artist",
-        artistEmail: "zoe@example.com",
-        startsAt: new Date("2026-05-01T15:00:00Z"),
-        durationMin: 120,
-        productId: null,
-        packageNameSnapshot: null,
-        projectId: null,
-      },
-    ]);
-    producerSelectQueue.push([
-      { displayName: "Bob Producer", timezone: "UTC", defaultCurrency: "USD" },
-    ]);
-
-    const caller = await buildCaller();
-    await caller.booking.confirm({ id: BOOKING_ID });
-
-    const projectInserts = insertCalls.filter((c) => c.table === projectsMarker);
-    expect(projectInserts).toHaveLength(1);
-    const v = projectInserts[0]?.values as Row;
-    // No packageNameSnapshot → fallback to "Session with <artistName>".
-    expect(v["title"]).toBe("Session with Zoe Artist");
-  });
-
-  it("references bookings.id on the stamping update WHERE clause", async () => {
-    seedPendingBookingNoProject();
+  it("reports a conflict when the compare-and-set update loses a race", async () => {
+    seedExisting();
+    updateReturningRows.length = 0;
     const caller = await buildCaller();
 
-    await caller.booking.confirm({ id: BOOKING_ID });
-
-    const bookingUpdates = updateCalls.filter((c) => c.table === bookingsMarker);
-    // At least one update should target bookings.id = BOOKING_ID.
-    const hasIdEq = bookingUpdates.some((c) =>
-      Boolean(findPredicate(c.where, "eq", bookingsMarker.id)),
-    );
-    expect(hasIdEq).toBe(true);
+    await expect(caller.booking.confirm({ id: BOOKING_ID })).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
+    expect(insertCalls).toEqual([]);
   });
 });

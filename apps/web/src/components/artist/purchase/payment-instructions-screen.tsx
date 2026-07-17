@@ -7,8 +7,6 @@
 // to pay it — bank transfer or Bit — then sends them to upload their proof
 // (S9). Money never moves inside the app; Skitza only keeps the record.
 //
-// Card pay is v2 (Tranzila), shown here as a greyed, inert "coming soon" row.
-//
 // Data-only props come from the locked request and the producer's real
 // payment settings. Navigation + clipboard copy live here.
 
@@ -351,25 +349,6 @@ export function PaymentInstructionsScreen({
               </div>
             </div>
           )}
-
-          {/* card pay — v2, greyed + inert. Faint text + washed row so it
-              never reads as tappable. */}
-          <div
-            className="sk-rise rounded-card mt-3 flex items-center justify-between gap-3 px-4 py-3.5"
-            role="note"
-            aria-label="Pay by card, coming soon"
-            style={{
-              animationDelay: "140ms",
-              background: "rgb(var(--bg-background))",
-              border: "1px dashed rgb(var(--border-control))",
-              opacity: 0.45,
-            }}
-          >
-            <div className="text-[14px] font-medium text-[rgb(var(--fg-muted))]">Pay by card</div>
-            <div className="font-mono text-[9.5px] tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
-              Coming soon
-            </div>
-          </div>
 
           {/* reassurance — the app is the record-keeper, not the processor */}
           <div className="mt-3.5 flex items-start gap-1.5 text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">

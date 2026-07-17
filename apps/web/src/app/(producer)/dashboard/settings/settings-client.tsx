@@ -6,8 +6,6 @@ import { useRouter } from "next/navigation";
 import { useToast } from "~/components/ui/toast";
 import { PUBLIC_BRAND_ORIGIN, buildJoinUrl } from "~/lib/share/public-url";
 import { updateProducer } from "./actions";
-import { PaymentCard } from "./payment-card";
-import { StripeCard } from "./stripe-card";
 import {
   NOTIFICATION_EVENTS,
   type NotificationChannel,
@@ -22,9 +20,8 @@ import {
 // individual sections are stateless render functions that receive
 // the slice they care about).
 //
-// Stripe + Tranzila + (future) Google Calendar have their own actions
-// and don't ride the savebar — they each commit on click. The savebar
-// only debounces edits to fields owned by `form` and `notifs`.
+// Future integrations have their own actions and don't ride the savebar.
+// The savebar only debounces edits to fields owned by `form` and `notifs`.
 
 interface InitialState {
   displayName: string;
@@ -46,14 +43,6 @@ interface IdentityState {
   slug: string;
 }
 
-interface IntegrationsState {
-  tranzilaConnected: boolean;
-  stripeConnected: boolean;
-  stripeChargesEnabled: boolean;
-  billingEmail: string;
-  defaultBusinessName: string;
-}
-
 interface FormState {
   displayName: string;
   defaultCurrency: "USD" | "EUR" | "GBP" | "ILS";
@@ -64,12 +53,10 @@ export function SettingsClient({
   initialActive,
   initial,
   identity,
-  integrations,
 }: {
   initialActive: SettingsSectionKey;
   initial: InitialState;
   identity: IdentityState;
-  integrations: IntegrationsState;
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -94,9 +81,7 @@ export function SettingsClient({
   const [savedForm, setSavedForm] = useState<FormState>(initialForm);
 
   const [notifs, setNotifs] = useState<NotificationState>(initial.notifications);
-  const [savedNotifs, setSavedNotifs] = useState<NotificationState>(
-    initial.notifications,
-  );
+  const [savedNotifs, setSavedNotifs] = useState<NotificationState>(initial.notifications);
 
   const dirty = useMemo(() => {
     return (
@@ -141,8 +126,7 @@ export function SettingsClient({
     // Shipping a smaller payload is cheap-and-friendly, and the
     // server's `update` mutation merges jsonb partials.
     const patch: Parameters<typeof updateProducer>[0] = {};
-    if (form.displayName !== savedForm.displayName)
-      patch.displayName = form.displayName;
+    if (form.displayName !== savedForm.displayName) patch.displayName = form.displayName;
     if (form.defaultCurrency !== savedForm.defaultCurrency)
       patch.defaultCurrency = form.defaultCurrency;
     if (form.weekStart !== savedForm.weekStart) patch.weekStart = form.weekStart;
@@ -201,20 +185,13 @@ export function SettingsClient({
                 // remount SettingsClient and wipe in-flight edits in
                 // `form` / `notifs`). Deep linking + browser back +
                 // sharing now reflect the active section.
-                window.history.replaceState(
-                  null,
-                  "",
-                  `/dashboard/settings?section=${item.key}`,
-                );
+                window.history.replaceState(null, "", `/dashboard/settings?section=${item.key}`);
               }}
             >
               <Icon />
               {item.label}
               {isDirty && (
-                <span
-                  className="s-nav-dirty-dot"
-                  aria-label="Unsaved changes in this section"
-                />
+                <span className="s-nav-dirty-dot" aria-label="Unsaved changes in this section" />
               )}
             </button>
           );
@@ -226,31 +203,18 @@ export function SettingsClient({
       <div className="s-content">
         <div className="s-content-inner" key={active}>
           {active === "profile" && (
-            <ProfileSection
-              form={form}
-              setForm={setForm}
-              identity={identity}
-            />
+            <ProfileSection form={form} setForm={setForm} identity={identity} />
           )}
           {active === "plan" && <PlanSection plan={initial.plan} />}
-          {active === "notif" && (
-            <NotifSection notifs={notifs} setNotifs={setNotifs} />
-          )}
-          {active === "int" && (
-            <IntegrationsSection
-              integrations={integrations}
-              defaultCurrency={form.defaultCurrency}
-            />
-          )}
-          {active === "region" && (
-            <RegionSection form={form} setForm={setForm} />
-          )}
+          {active === "notif" && <NotifSection notifs={notifs} setNotifs={setNotifs} />}
+          {active === "int" && <IntegrationsSection />}
+          {active === "region" && <RegionSection form={form} setForm={setForm} />}
         </div>
       </div>
 
       {/* Save bar — slides up only when dirty. Disabled while saving. */}
       <div
-        className={`s-savebar${dirty ? " s-show" : ""}`}
+        className={`s-savebar${dirty ? "s-show" : ""}`}
         role="region"
         aria-label="Unsaved changes"
         aria-hidden={!dirty}
@@ -299,9 +263,7 @@ function ProfileSection({
       <header className="s-section-head">
         <span className="s-section-eyebrow">Public identity</span>
         <h2 id="settings-profile-h">Profile</h2>
-        <p>
-          How you appear on your public producer page and in client invitations.
-        </p>
+        <p>How you appear on your public producer page and in client invitations.</p>
       </header>
       <div className="s-card">
         <div className="s-row">
@@ -311,10 +273,7 @@ function ProfileSection({
               Synced from your Google account. Change it where you signed in.
             </div>
           </div>
-          <div
-            className="s-row-field"
-            style={{ display: "flex", alignItems: "center", gap: 14 }}
-          >
+          <div className="s-row-field" style={{ display: "flex", alignItems: "center", gap: 14 }}>
             {identity.avatarUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -326,16 +285,13 @@ function ProfileSection({
               <div
                 className="flex h-16 w-16 items-center justify-center rounded-full text-lg font-extrabold text-[rgb(var(--fg-default))]"
                 style={{
-                  background:
-                    "linear-gradient(135deg, #fcd34d, #fb923c)",
+                  background: "linear-gradient(135deg, #fcd34d, #fb923c)",
                 }}
               >
                 {identity.initials}
               </div>
             )}
-            <span className="text-xs text-[rgb(var(--fg-muted))]">
-              {identity.email}
-            </span>
+            <span className="text-xs text-[rgb(var(--fg-muted))]">{identity.email}</span>
           </div>
         </div>
 
@@ -369,8 +325,7 @@ function ProfileSection({
           <div>
             <div className="s-row-label">Public page URL</div>
             <div className="s-row-hint">
-              Edit your slug, bio, and brand colors from the public-page
-              editor (coming soon).
+              Edit your slug, bio, and brand colors from the public-page editor (coming soon).
             </div>
           </div>
           <div className="s-row-field">
@@ -420,18 +375,12 @@ function PlanFreeView() {
       <div className="s-card">
         <div className="s-plan-hero s-plan-hero-free">
           <div className="s-plan-crown s-plan-crown-free">
-            <span
-              className="s-dot"
-              style={{ background: "rgb(255 255 255 / 0.4)" }}
-            />
-            Current plan · No card on file
+            <span className="s-dot" style={{ background: "rgb(255 255 255 / 0.4)" }} />
+            Current plan
           </div>
           <div className="flex flex-wrap items-baseline gap-3">
             <h3>Free</h3>
-            <span
-              className="s-mono"
-              style={{ fontSize: 13, color: "rgb(255 255 255 / 0.7)" }}
-            >
+            <span className="s-mono" style={{ fontSize: 13, color: "rgb(255 255 255 / 0.7)" }}>
               $0 / month
             </span>
           </div>
@@ -466,8 +415,8 @@ function PlanFreeView() {
           />
         </div>
         <p className="s-usage-soft">
-          Live usage tracking ships shortly — we&apos;ll fill these in
-          automatically once it&apos;s on.
+          Live usage tracking ships shortly — we&apos;ll fill these in automatically once it&apos;s
+          on.
         </p>
       </div>
 
@@ -477,17 +426,10 @@ function PlanFreeView() {
             <div className="s-row-label">Pro plan</div>
             <div className="s-row-hint">Lift the limits without leaving the app.</div>
           </div>
-          <div
-            className="s-row-field"
-            style={{ display: "flex", alignItems: "center", gap: 14 }}
-          >
+          <div className="s-row-field" style={{ display: "flex", alignItems: "center", gap: 14 }}>
             <div style={{ flex: 1 }}>
-              <div
-                className="s-mono"
-                style={{ fontSize: 12, color: "rgb(var(--fg-muted))" }}
-              >
-                Unlimited artists · 100 GB storage · Custom storefront ·
-                Payment automation
+              <div className="s-mono" style={{ fontSize: 12, color: "rgb(var(--fg-muted))" }}>
+                Unlimited artists · 100 GB storage · Custom storefront
               </div>
               <div
                 className="mt-1 font-extrabold"
@@ -528,24 +470,18 @@ function PlanProView() {
       <header className="s-section-head">
         <span className="s-section-eyebrow">Plan &amp; billing</span>
         <h2 id="settings-plan-h">Plan</h2>
-        <p>You&apos;re on Pro. Renewal handled by Stripe — change anytime.</p>
+        <p>You&apos;re on Pro.</p>
       </header>
 
       <div className="s-card">
         <div className="s-plan-hero s-plan-hero-pro">
           <div className="s-plan-crown s-plan-crown-pro">
-            <span
-              className="s-dot"
-              style={{ background: "rgb(var(--brand-primary))" }}
-            />
+            <span className="s-dot" style={{ background: "rgb(var(--brand-primary))" }} />
             Current plan · Renews Jun 12, 2026
           </div>
           <div className="flex flex-wrap items-baseline gap-3">
             <h3>Pro</h3>
-            <span
-              className="s-mono"
-              style={{ fontSize: 13, color: "rgb(255 255 255 / 0.7)" }}
-            >
+            <span className="s-mono" style={{ fontSize: 13, color: "rgb(255 255 255 / 0.7)" }}>
               $29 / month
             </span>
           </div>
@@ -557,23 +493,14 @@ function PlanProView() {
               maxWidth: 460,
             }}
           >
-            Unlimited artists · 100 GB storage · Custom storefront ·
-            Payment automation.
+            Unlimited artists · 100 GB storage · Custom storefront.
           </div>
           <div className="s-plan-ctas">
-            <ComingSoonButton kind="ghost">Manage billing</ComingSoonButton>
-            <ComingSoonButton kind="link-muted">
-              Switch to Free
-            </ComingSoonButton>
+            <ComingSoonButton kind="link-muted">Switch to Free</ComingSoonButton>
           </div>
         </div>
         <div className="s-usage-grid">
-          <UsageCell
-            num="—"
-            suffix="artists · no limit"
-            label="Artists"
-            barPct={0}
-          />
+          <UsageCell num="—" suffix="artists · no limit" label="Artists" barPct={0} />
           <UsageCell
             num="—"
             suffix={`of ${storageLim.toString()} GB`}
@@ -583,56 +510,9 @@ function PlanProView() {
           />
         </div>
         <p className="s-usage-soft">
-          Live usage tracking ships shortly — we&apos;ll fill these in
-          automatically once it&apos;s on.
+          Live usage tracking ships shortly — we&apos;ll fill these in automatically once it&apos;s
+          on.
         </p>
-      </div>
-
-      <div className="s-card">
-        <div className="s-row">
-          <div>
-            <div className="s-row-label">Payment method</div>
-            <div className="s-row-hint">
-              Charged via Stripe on the 12th of each month.
-            </div>
-          </div>
-          <div
-            className="s-row-field"
-            style={{ display: "flex", alignItems: "center", gap: 14 }}
-          >
-            <div
-              className="font-extrabold"
-              style={{
-                width: 40,
-                height: 28,
-                borderRadius: 6,
-                background: "#1A1F71",
-                color: "#fff",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontFamily: "var(--font-display)",
-                fontSize: 11,
-                letterSpacing: "-0.02em",
-              }}
-            >
-              VISA
-            </div>
-            <div>
-              <div className="s-mono" style={{ fontSize: 13.5, fontWeight: 700 }}>
-                •••• 4242
-              </div>
-              <div
-                style={{ fontSize: 11.5, color: "rgb(var(--fg-muted))" }}
-              >
-                Expires 09/27
-              </div>
-            </div>
-            <ComingSoonButton kind="ghost" style={{ marginLeft: "auto" }}>
-              Update
-            </ComingSoonButton>
-          </div>
-        </div>
       </div>
     </section>
   );
@@ -686,8 +566,8 @@ function ComingSoonButton({
     kind === "amber"
       ? "s-btn s-btn-amber"
       : kind === "ghost"
-      ? "s-btn s-btn-ghost"
-      : "s-plan-link-muted";
+        ? "s-btn s-btn-ghost"
+        : "s-plan-link-muted";
   return (
     <button
       type="button"
@@ -731,8 +611,8 @@ function NotifSection({
         <div className="s-notif-note" role="note">
           <span className="s-notif-note-dot" aria-hidden />
           <span>
-            <b>Heads up —</b> toggles save right away. Each channel turns on
-            as the matching feature ships.
+            <b>Heads up —</b> toggles save right away. Each channel turns on as the matching feature
+            ships.
           </span>
         </div>
         <div className="s-notif-head" role="row">
@@ -798,70 +678,16 @@ function Toggle({
 }
 
 /* ─── Integrations section ─────────────────────────────────────────── */
-function IntegrationsSection({
-  integrations,
-  defaultCurrency,
-}: {
-  integrations: IntegrationsState;
-  defaultCurrency: "USD" | "EUR" | "GBP" | "ILS";
-}) {
-  const paymentsConnected =
-    integrations.tranzilaConnected ||
-    (integrations.stripeConnected && integrations.stripeChargesEnabled);
-
-  // Region routing: ILS producers see Tranzila first, everyone else
-  // sees Stripe first. The secondary provider stays reachable behind
-  // a <details> disclosure so producers near the regional edge
-  // (Israeli producer billing in USD; expat using Tranzila) can still
-  // switch. We key off the producer's selected default currency, not
-  // a separate country field, because that field doesn't exist yet
-  // (lives on the future Studio section).
-  const tranzilaFirst = defaultCurrency === "ILS";
-
+function IntegrationsSection() {
   return (
     <section className="s-reveal" aria-labelledby="settings-int-h">
       <header className="s-section-head">
         <span className="s-section-eyebrow">External tools</span>
         <h2 id="settings-int-h">Integrations</h2>
-        <p>
-          Wire up the tools you already use. Authorized connections sync in both
-          directions.
-        </p>
+        <p>Calendar connections will appear here when they are available.</p>
       </header>
       <div className="s-card">
         <div className="s-intlist">
-          {/* Payments — one consolidated row. Tranzila (Israel) or
-              Stripe (rest of world). The detail cards below this card
-              are where the producer actually does the connecting; the
-              row is the summary status. */}
-          <div className="s-introw">
-            <div
-              className="s-introw-logo"
-              style={{ background: "#111009", color: "#fff" }}
-            >
-              ₪$
-            </div>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div className="s-introw-title">
-                Payments
-                {paymentsConnected && (
-                  <span className="s-chip s-chip-success">
-                    <span
-                      className="s-dot"
-                      style={{ background: "rgb(var(--fg-success))" }}
-                    />
-                    Connected
-                  </span>
-                )}
-              </div>
-              <div className="s-introw-sub">
-                Tranzila for Israeli producers, Stripe for the rest of the world.
-              </div>
-            </div>
-          </div>
-
-          {/* Google Calendar — coming soon. No connect button to avoid
-              promising a flow that doesn't exist yet. */}
           <div className="s-introw">
             <div
               className="s-introw-logo"
@@ -883,86 +709,12 @@ function IntegrationsSection({
           </div>
         </div>
       </div>
-
-      {/* Payment setup detail. Primary provider (matched to the
-          producer's default currency) renders expanded; the secondary
-          collapses into a <details> so the page stops shouting at the
-          wrong audience. Country auto-detection will land with the
-          future Studio section. */}
-      <div className="mt-8 space-y-6">
-        {tranzilaFirst ? (
-          <TranzilaBlock integrations={integrations} />
-        ) : (
-          <StripeBlock integrations={integrations} />
-        )}
-        <details className="s-payments-alt">
-          <summary>
-            {tranzilaFirst
-              ? "Outside Israel? Use Stripe instead →"
-              : "Israel-based? Use Tranzila instead →"}
-          </summary>
-          <div className="mt-3">
-            {tranzilaFirst ? (
-              <StripeBlock integrations={integrations} />
-            ) : (
-              <TranzilaBlock integrations={integrations} />
-            )}
-          </div>
-        </details>
-      </div>
     </section>
   );
 }
 
-function TranzilaBlock({ integrations }: { integrations: IntegrationsState }) {
-  return (
-    <div>
-      <h3 className="font-display text-base font-bold tracking-tight">
-        Payments — Israel (Tranzila)
-      </h3>
-      <p className="mt-0.5 text-xs text-[rgb(var(--fg-muted))]">
-        Direct payouts to your Tranzila terminal. Approved manually by Skitza
-        once you submit the form.
-      </p>
-      <div className="mt-3 rounded-2xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
-        <PaymentCard
-          connected={integrations.tranzilaConnected}
-          defaultBusinessName={integrations.defaultBusinessName}
-          defaultContactEmail={integrations.billingEmail}
-        />
-      </div>
-    </div>
-  );
-}
-
-function StripeBlock({ integrations }: { integrations: IntegrationsState }) {
-  return (
-    <div>
-      <h3 className="font-display text-base font-bold tracking-tight">
-        Payments — rest of world (Stripe)
-      </h3>
-      <p className="mt-0.5 text-xs text-[rgb(var(--fg-muted))]">
-        Stripe Connect onboarding. Skitza adds no platform fee — you keep
-        everything minus Stripe&apos;s standard rates.
-      </p>
-      <div className="mt-3 rounded-2xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
-        <StripeCard
-          connected={integrations.stripeConnected}
-          chargesEnabled={integrations.stripeChargesEnabled}
-        />
-      </div>
-    </div>
-  );
-}
-
 /* ─── Currency & region section ────────────────────────────────────── */
-function RegionSection({
-  form,
-  setForm,
-}: {
-  form: FormState;
-  setForm: (next: FormState) => void;
-}) {
+function RegionSection({ form, setForm }: { form: FormState; setForm: (next: FormState) => void }) {
   return (
     <section className="s-reveal" aria-labelledby="settings-region-h">
       <header className="s-section-head">
@@ -985,8 +737,7 @@ function RegionSection({
               onChange={(e) => {
                 setForm({
                   ...form,
-                  defaultCurrency: e.target
-                    .value as FormState["defaultCurrency"],
+                  defaultCurrency: e.target.value as FormState["defaultCurrency"],
                 });
               }}
               aria-label="Default currency"

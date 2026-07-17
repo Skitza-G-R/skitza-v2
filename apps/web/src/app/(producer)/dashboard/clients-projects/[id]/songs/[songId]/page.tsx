@@ -4,7 +4,6 @@ import { auth } from "@clerk/nextjs/server";
 import {
   SongSpace,
   type SongSpaceClient,
-  type SongSpacePayments,
   type SongSpaceProject,
   type SongSpaceSong,
 } from "~/components/dashboard/song/song-space";
@@ -16,10 +15,6 @@ import type { WorkflowStage } from "~/lib/clients/workflow-stage";
 import type {
   LinkPillState,
 } from "~/components/dashboard/clients/link-pill";
-import type {
-  MilestoneStatus,
-  PaymentMilestone,
-} from "~/components/dashboard/project/album-tabs/payments-tab";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 // Phase 3 — Song Space server component for
@@ -27,7 +22,7 @@ import { appRouter } from "~/server/trpc/routers/_app";
 //
 // This page:
 //   1. Verifies auth + awaits dynamic params {id, songId}
-//   2. Parallel-fetches project.detail + project.money + booking.list +
+//   2. Parallel-fetches project.detail + booking.list +
 //      clientContacts.listWithProjects (the last only to resolve the
 //      LinkPill state for the Client snippet)
 //   3. Locates the song in data.tracks → notFound() when missing
@@ -77,23 +72,12 @@ export default async function SongDetail({ params }: PageProps) {
     notFound();
   }
 
-  // Parallel: money + sessions + contacts (for the LinkPill state).
-  const [moneyResult, bookingsResult, clientsResult] =
+  // Parallel: sessions + contacts (for the LinkPill state).
+  const [bookingsResult, clientsResult] =
     await Promise.allSettled([
-      caller.project.money({ projectId: id }),
       caller.booking.list(),
       caller.clientContacts.listWithProjects({ view: "by-client" }),
     ]);
-
-  const money =
-    moneyResult.status === "fulfilled"
-      ? moneyResult.value
-      : {
-          paidCents: 0,
-          outstandingCents: 0,
-          currency: data.project.currency ?? "USD",
-          nextChargeAt: null as Date | null,
-        };
 
   const allBookings =
     bookingsResult.status === "fulfilled" ? bookingsResult.value : [];
@@ -115,7 +99,7 @@ export default async function SongDetail({ params }: PageProps) {
     id: b.id,
     startsAt: b.startsAt,
     durationMinutes: b.durationMin,
-    name: b.packageNameSnapshot ?? `Session with ${b.artistName}`,
+    name: `Session with ${b.artistName}`,
     attendees: [b.artistName],
   }));
 
@@ -154,20 +138,18 @@ export default async function SongDetail({ params }: PageProps) {
   ).length;
   const mode: "album" | "single" = isSingleProject ? "single" : "album";
 
-  // Project-level deadline + isOverdue — for v1 we don't have a per-
-  // song deadline column yet, so we surface the project-level signal.
-  // money.nextChargeAt is the closest proxy until Phase 4 wires real
-  // deadlines.
-  const deadline = money.nextChargeAt
+  // Use the project deadline only; payment due dates are purchase-owned.
+  const deadline = data.project.deadlineAt
     ? new Intl.DateTimeFormat("en-US", {
         month: "short",
         day: "numeric",
-      }).format(money.nextChargeAt)
+      }).format(data.project.deadlineAt)
     : "—";
   const isOverdue =
-    money.nextChargeAt !== null &&
-    money.nextChargeAt < new Date() &&
-    money.outstandingCents > 0;
+    data.project.deadlineAt !== null &&
+    data.project.deadlineAt < new Date() &&
+    data.project.lifecycleStatus !== "completed" &&
+    data.project.lifecycleStatus !== "canceled";
 
   const songStage: WorkflowStage = track.workflowStage;
   // Tip the progress slightly higher when the song has more versions
@@ -202,7 +184,7 @@ export default async function SongDetail({ params }: PageProps) {
   // The project carries the client identity snapshot (clientName +
   // clientEmail with legacy artistName/artistEmail fallback). LinkPill
   // state comes from clientContacts.listWithProjects view=by-client —
-  // we match on lowercased email.
+  // we match on the stable project client-contact id.
   const clientName = data.project.clientName ?? data.project.artistName;
   // artistEmail is NOT NULL at the column level — so the project
   // always has at least the legacy email. clientEmail is the modern
@@ -214,12 +196,10 @@ export default async function SongDetail({ params }: PageProps) {
   let clientContactId = "";
   if (
     clientsResult.status === "fulfilled" &&
-    clientsResult.value.view === "by-client" &&
-    clientEmail
+    clientsResult.value.view === "by-client"
   ) {
-    const lower = clientEmail.toLowerCase();
     const contact = clientsResult.value.clients.find(
-      (c) => c.email.toLowerCase() === lower,
+      (c) => c.id === data.project.clientContactId,
     );
     if (contact) {
       clientContactId = contact.id;
@@ -237,35 +217,6 @@ export default async function SongDetail({ params }: PageProps) {
     email: clientEmail,
     linkState,
   };
-
-  // ── Payments (single-mode only) ────────────────────────────────
-  let payments: SongSpacePayments | undefined;
-  if (mode === "single") {
-    // Mirror the album page's milestone synthesis: a single
-    // "Engagement total" row when there's any money flowing. Phase 4
-    // will add a dedicated procedure once per-version invoicing is
-    // wired.
-    const milestones: PaymentMilestone[] = [];
-    if (money.paidCents > 0 || money.outstandingCents > 0) {
-      const total = money.paidCents + money.outstandingCents;
-      const status: MilestoneStatus =
-        money.outstandingCents === 0 ? "paid" : "pending";
-      milestones.push({
-        id: `engagement-${data.project.id}`,
-        label: "Engagement total",
-        amountCents: total,
-        status,
-        date: data.project.paidAt,
-      });
-    }
-    payments = {
-      paidCents: money.paidCents,
-      outstandingCents: money.outstandingCents,
-      currency: money.currency,
-      nextChargeAt: money.nextChargeAt,
-      milestones,
-    };
-  }
 
   // ── Hero gradient — project-name derived for parity with the
   // album hero. Sticking with project.name (not song.title) means the
@@ -285,9 +236,8 @@ export default async function SongDetail({ params }: PageProps) {
   //   Clients & Projects › <client> › <project> › <song>   (album mode)
   //   Clients & Projects › <client> › <song>               (single mode)
   // The client crumb only links to the client page when we resolved a
-  // matching client_contacts row — for legacy projects whose email
-  // never matched a contact, we still show the label as plain text so
-  // the producer sees the artist name in context.
+  // matching client_contacts row. If the projection is unavailable,
+  // keep the label visible without inventing a link.
   const clientCrumb = clientContactId
     ? {
         label: clientName,
@@ -317,7 +267,6 @@ export default async function SongDetail({ params }: PageProps) {
         versions={versions}
         sessions={sessions}
         gradientToken={gradientToken}
-        {...(payments ? { payments } : {})}
       />
     </main>
   );

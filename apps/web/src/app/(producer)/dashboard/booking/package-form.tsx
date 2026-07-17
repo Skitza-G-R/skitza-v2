@@ -35,7 +35,6 @@ export type InitialPackageValues = {
   sessionCount: number;
   priceCents: number;
   currency: Currency;
-  depositPct: number;
   kind: PackageKind;
   locationType: PackageLocationType;
   bufferMinutes: number;
@@ -78,7 +77,6 @@ export function NewPackageForm({
   initialPlans = [{ kind: "full" }],
   initialValues,
   fromTemplate = false,
-  hideDepositField = false,
   initialCurrency,
 }: {
   onClose: () => void;
@@ -88,14 +86,6 @@ export function NewPackageForm({
   // and the initialPlans default is overridden by whatever plans the
   // product was saved with.
   initialValues?: InitialPackageValues;
-  // When true, the "Deposit percent" numeric input is hidden. The
-  // Payment plans selector lower in the form (Pay in full / 50-50 /
-  // monthly installments) already encodes the upfront-vs-deferred
-  // schedule as a structured choice, so showing both was redundant +
-  // confusing in the onboarding wizard. depositPct still flows on save
-  // (initial value 25 from useState default) — the booking flow uses
-  // the chosen payment plan as the source of truth, not depositPct.
-  hideDepositField?: boolean;
   // Default currency to seed the dropdown when CREATE mode (no
   // initialValues). Onboarding's Step 2 reads producers.default_currency
   // (which Step 1's completeStudio set from x-vercel-ip-country /
@@ -151,13 +141,8 @@ export function NewPackageForm({
   const [currency, setCurrency] = useState<Currency>(
     initialValues?.currency ?? initialCurrency ?? "USD",
   );
-  const [depositPct, setDepositPct] = useState(
-    initialValues?.depositPct ?? 25,
-  );
   // Controlled state for each payment-plan checkbox. Pre-checked from
-  // saved plans on EDIT, defaults to plan_full for CREATE. Derived
-  // `selectedPlan` (below) reads from these — not from "last clicked" —
-  // so unchecking a box and ticking multiple plans both behave sanely.
+  // saved plans on EDIT and defaults to plan_full for CREATE.
   const [planFullChecked, setPlanFullChecked] = useState(() =>
     effectiveInitialPlans.some((p) => p.kind === "full"),
   );
@@ -167,17 +152,6 @@ export function NewPackageForm({
   const [planMonthlyChecked, setPlanMonthlyChecked] = useState(() =>
     effectiveInitialPlans.some((p) => p.kind === "monthly"),
   );
-  // Active plan for deposit semantics, with priority monthly > split >
-  // full. Monthly wins when checked because it's the only plan whose
-  // depositPct is producer-configurable; split_50_50 is fixed at 50 and
-  // full has no deposit. If the user offers both monthly and split, the
-  // saved depositPct is the producer's monthly figure — split's 50% is
-  // applied at checkout independently per the booking flow's logic.
-  const selectedPlan: "full" | "split_50_50" | "monthly" = planMonthlyChecked
-    ? "monthly"
-    : planSplitChecked
-      ? "split_50_50"
-      : "full";
   const [kind, setKind] = useState<PackageKind>(
     initialValues?.kind ?? "session",
   );
@@ -225,15 +199,6 @@ export function NewPackageForm({
     const paymentPlans = parsePaymentPlansFromFormData(
       new FormData(e.currentTarget),
     );
-    // Deposit semantics are derived from the active plan, not the
-    // numeric input — full = no deposit, split_50_50 = always 50,
-    // monthly = whatever the producer typed.
-    const effectiveDepositPct =
-      selectedPlan === "full"
-        ? 0
-        : selectedPlan === "split_50_50"
-          ? 50
-          : depositPct;
     // B7 — collapse empty-string contract URL to null so producers can
     // clear an existing link, and skip the field entirely when blank on
     // CREATE so we don't send an empty string through z.string().url().
@@ -252,7 +217,6 @@ export function NewPackageForm({
       // a migration dance.
       priceCents: Math.round(priceDollars * 100),
       currency,
-      depositPct: effectiveDepositPct,
       kind,
       locationType,
       bufferMinutes,
@@ -479,27 +443,6 @@ export function NewPackageForm({
           </Select>
         </div>
 
-        {!hideDepositField && selectedPlan === "monthly" ? (
-          <div>
-            <Label htmlFor="deposit">Deposit percent (optional)</Label>
-            <Input
-              id="deposit"
-              type="number"
-              min={0}
-              max={100}
-              step={5}
-              value={depositPct}
-              onChange={(e) => {
-                setDepositPct(Number(e.target.value));
-              }}
-              className="text-base"
-            />
-            <p className="mt-1.5 text-xs text-[rgb(var(--fg-muted))]">
-              First payment collected at booking. 0% = first installment with the rest.
-            </p>
-          </div>
-        ) : null}
-
         <div>
           <Label htmlFor="buffer">Buffer between sessions (min)</Label>
           <Input
@@ -568,7 +511,7 @@ export function NewPackageForm({
               setPlanSplitChecked(e.target.checked);
             }}
           />
-          50% deposit + 50% on delivery
+          50/50 split — half now, half on delivery
         </label>
         <label className="mt-2 flex items-center gap-2 text-sm">
           <input

@@ -139,7 +139,6 @@ vi.mock("@skitza/db", () => ({
   projectTracks: projectTracksMarker,
   // Stub every other table the router module imports at load time.
   bookings: { __table: "bookings" },
-  invoices: { __table: "invoices" },
   trackComments: { __table: "track_comments" },
   trackVersions: { __table: "track_versions" },
   notifications: { __table: "notifications" },
@@ -154,19 +153,8 @@ vi.mock("@skitza/db", () => ({
 vi.mock("~/server/contacts/record", () => ({ recordContact: vi.fn() }));
 vi.mock("~/server/email/send", () => ({
   SITE_URL: "https://skitza.test",
-  sendPaymentReceivedEmail: vi.fn(),
   sendProducerRepliedToCommentEmail: vi.fn(),
   sendTrackVersionUploadedEmail: vi.fn(),
-}));
-vi.mock("~/server/payments/plan", () => ({
-  calculateCharges: () => ({}),
-}));
-vi.mock("~/server/stripe/client", () => ({
-  getStripe: () => ({
-    paymentIntents: { create: vi.fn() },
-    subscriptionSchedules: { cancel: vi.fn() },
-  }),
-  getSiteUrl: () => "https://skitza.test",
 }));
 
 function findPredicate(

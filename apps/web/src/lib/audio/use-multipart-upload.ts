@@ -96,6 +96,7 @@ export function useMultipartUpload() {
           key: init.data.key,
           uploadId: init.data.uploadId,
           partNumber: p.partNumber,
+          trackVersionId: opts.trackVersionId,
         });
         if (!signed.ok) {
           setState({ kind: "error", message: signed.error });
@@ -128,10 +129,7 @@ export function useMultipartUpload() {
           completed,
           totalBytes: opts.file.size,
         };
-        localStorage.setItem(
-          `${STORAGE_PREFIX}${init.data.uploadId}`,
-          JSON.stringify(entry),
-        );
+        localStorage.setItem(`${STORAGE_PREFIX}${init.data.uploadId}`, JSON.stringify(entry));
         setState({
           kind: "uploading",
           progress: Math.round((completed.length / parts.length) * 100),
@@ -156,13 +154,10 @@ export function useMultipartUpload() {
     [],
   );
 
-  const cancel = useCallback(
-    async (entry: { uploadId: string; key: string }) => {
-      await abortAudioUpload(entry);
-      localStorage.removeItem(`${STORAGE_PREFIX}${entry.uploadId}`);
-    },
-    [],
-  );
+  const cancel = useCallback(async (entry: { uploadId: string; key: string }) => {
+    await abortAudioUpload(entry);
+    localStorage.removeItem(`${STORAGE_PREFIX}${entry.uploadId}`);
+  }, []);
 
   return { state, upload, cancel };
 }

@@ -42,6 +42,7 @@ describe("S4 agree page (real BE-1 data)", () => {
     expect(s4Src).toMatch(/caller\.artist\.store\.product\(\{ productId \}\)/);
     expect(s4Src).toMatch(/buildAgreementTerms\(producer\.name, product\.includes\)/);
     expect(s4Src).not.toMatch(/MOCK_/);
+    expect(s4Src).not.toMatch(/commercialTermsFingerprint/);
   });
 });
 
@@ -50,11 +51,11 @@ describe("S5 sent page (real BE-1 data)", () => {
     expect(s5Src).toMatch(/if \(!req\) redirect\(`\/artist\/purchase\/\$\{productId\}`\)/);
   });
 
-  it("reads the request row and renders the server-issued ref + locked price", () => {
+  it("renders only the owned request identity, not mutable proposal details", () => {
     expect(s5Src).toMatch(/caller\.artist\.purchase\.get\(\{ purchaseRequestId: req \}\)/);
     expect(s5Src).toMatch(/requestRef=\{request\.refNumber\}/);
-    expect(s5Src).toMatch(/priceCents: request\.priceCents/);
-    expect(s5Src).toMatch(/name: request\.productNameSnapshot/);
+    expect(s5Src).toMatch(/request\.productId !== productId/);
+    expect(s5Src).not.toMatch(/request\.priceCents|request\.productNameSnapshot|toPurchaseProduct/);
     expect(s5Src).not.toMatch(/makeRequestRef/);
   });
 });
@@ -65,15 +66,9 @@ describe("artist.purchase.pending read (SK-46)", () => {
     expect(routerSrc).toMatch(/\.input\(z\.object\(\{ producerId: z\.string\(\)\.uuid\(\) \}\)\)/);
   });
 
-  it("surfaces every potentially active request, including partially-paid purchases", () => {
-    expect(routerSrc).toMatch(
-      /inArray\(purchaseRequests\.status,\s*\[\s*\.\.\.BLOCKING_CANDIDATE_STATUSES\s*,?\s*\]\)/,
-    );
-    expect(routerSrc).toMatch(
-      /const BLOCKING_CANDIDATE_STATUSES = \[\s*"pending",\s*"approved",\s*"verifying",\s*"paid",?\s*\] as const/,
-    );
-    expect(routerSrc).toMatch(/paidTotalCents/);
-    expect(routerSrc).toMatch(/paidCents < .*priceCents/);
+  it("surfaces only open pre-acceptance requests", () => {
+    expect(routerSrc).toMatch(/inArray\(purchaseRequests\.status, \["pending", "approved"\]\)/);
+    expect(routerSrc).not.toMatch(/BLOCKING_CANDIDATE_STATUSES|paidTotalCents/);
     expect(routerSrc).toMatch(/if \(!contact\) return \{ pending: null \}/);
   });
 });
@@ -84,76 +79,93 @@ describe("requestToBookAction (server action)", () => {
     expect(actionsSrc).toMatch(/caller\.artist\.purchase\.request\(\{/);
   });
 
-  it("persists the checked agreement as part of the request", () => {
-    expect(actionsSrc).toMatch(/agreementAccepted: true/);
-    expect(routerSrc).toMatch(/agreementAccepted: z\.literal\(true\)/);
-    expect(routerSrc).toMatch(/insert\(agreementAcceptances\)/);
+  it("sends only pre-acceptance intent instead of a plan, agreement, or terms fingerprint", () => {
+    const requestMutation = routerSrc.slice(
+      routerSrc.indexOf("request: artistProcedure"),
+      routerSrc.indexOf("get: artistProcedure"),
+    );
+    const requestAction = actionsSrc.slice(
+      actionsSrc.indexOf("export async function requestToBookAction"),
+      actionsSrc.indexOf("export async function choosePaymentPlanAction"),
+    );
+    expect(requestMutation).not.toMatch(
+      /agreementAccepted|commercialTermsFingerprint|paymentPlan: PAYMENT_PLAN_INPUT/,
+    );
+    expect(requestMutation).toMatch(/\.strict\(\)/);
+    expect(requestAction).not.toMatch(
+      /agreementAccepted|commercialTermsFingerprint|provisionalPlan|offeredPlans/,
+    );
+    expect(requestAction).toMatch(
+      /caller\.artist\.purchase\.request\(\{\s*productId: input\.productId,\s*operationKey: input\.operationKey,?\s*\}\)/,
+    );
   });
 
-  it("freezes all offered plan options and never re-reads live product plans", () => {
-    expect(routerSrc).toMatch(/paymentPlanOptionsSnapshot/);
+  it("keeps plan options as a live pre-acceptance proposal", () => {
     const optionsSection = routerSrc.slice(
       routerSrc.indexOf("options: artistProcedure"),
       routerSrc.indexOf("choose: artistProcedure"),
     );
-    expect(optionsSection).toMatch(/frozenPlanOptions\(request\)/);
-    expect(routerSrc).toMatch(
-      /function frozenPlanOptions[\s\S]*request\.paymentPlanOptionsSnapshot[\s\S]*request\.paymentPlanSnapshot/,
-    );
-    expect(optionsSection).not.toMatch(/from\(products\)/);
+    expect(optionsSection).toMatch(/loadArtistRequest/);
+    expect(optionsSection).toMatch(/buildPlanOptions\(product\.paymentPlans/);
+    expect(optionsSection).not.toMatch(/paymentPlanOptionsSnapshot/);
   });
 
-  it("records an explicit plan choice under the same lock used by payment", () => {
+  it("returns no paid plan or options for a true zero-price proposal", () => {
+    expect(routerSrc).toMatch(
+      /function proposalPlan[\s\S]*?return totalCents === 0 \? null : \(product\.paymentPlans\[0\] \?\? null\)/,
+    );
+    const optionsSection = routerSrc.slice(
+      routerSrc.indexOf("options: artistProcedure"),
+      routerSrc.indexOf("choose: artistProcedure"),
+    );
+    expect(optionsSection).toMatch(/price\.priceCents === 0\s*\? \[\]/);
+  });
+
+  it("fails plan-only acceptance closed until exact terms are accepted together", () => {
     const chooseSection = routerSrc.slice(
       routerSrc.indexOf("choose: artistProcedure"),
       routerSrc.indexOf("paymentInstructions: artistProcedure"),
     );
-    expect(chooseSection).toMatch(/ctx\.db\.transaction/);
-    expect(chooseSection).toMatch(/pg_advisory_xact_lock/);
-    expect(chooseSection).toMatch(/paymentPlanChosenAt/);
-    expect(routerSrc).toMatch(/if \(!request\.paymentPlanChosenAt\)/);
+    expect(chooseSection).toContain('notImplemented("artist.purchase.paymentPlan.choose")');
+    expect(chooseSection).not.toMatch(/update\(purchaseRequests\)/);
   });
 
-  it("serializes request creation per artist/studio before checking the active slot", () => {
+  it("deduplicates request creation by operation identity without an active-purchase slot", () => {
     expect(routerSrc).toMatch(/ctx\.db\.transaction/);
-    expect(routerSrc).toMatch(/pg_advisory_xact_lock/);
+    expect(routerSrc).toMatch(/preparePurchaseRequestOperation/);
+    expect(routerSrc).toMatch(/onConflictDoNothing/);
+    expect(routerSrc).not.toMatch(/pg_advisory_xact_lock|already have an active purchase/);
   });
 
-  it("stores proof records privately instead of creating sent invoices", () => {
+  it("keeps request-backed proof handling unavailable", () => {
     const proofSection = routerSrc.slice(
       routerSrc.indexOf("proofOfPayment: router({"),
-      routerSrc.indexOf("session: router({"),
+      routerSrc.indexOf("export const producerPurchaseRouter"),
     );
     expect(proofSection).not.toMatch(/storageKey: z\.string/);
-    expect(proofSection).toMatch(/const stagingKey = buildProofStagingKey/);
-    expect(proofSection).toMatch(/storageBucket: "docs"/);
-    expect(proofSection).toMatch(/insert\(paymentProofs\)/);
-    expect(proofSection).not.toMatch(/status: "sent"/);
-    expect(proofSection).not.toMatch(/fileUrl: z\.string\(\)\.url\(\)/);
+    expect(proofSection).not.toMatch(/buildProofStagingKey|insert\(paymentProofs\)/);
+    expect(proofSection).toContain('notImplemented("artist.purchase.proofOfPayment.submit")');
   });
 
-  it("serializes producer rejection against confirmation of the same proof", () => {
+  it("fails producer proof decisions closed", () => {
     const rejectSection = routerSrc.slice(
       routerSrc.indexOf("reject: producerProcedure"),
-      routerSrc.indexOf("session: router({", routerSrc.indexOf("reject: producerProcedure")),
+      routerSrc.length,
     );
-    expect(rejectSection).toMatch(/ctx\.db\.transaction/);
-    expect(rejectSection).toMatch(/pg_advisory_xact_lock/);
-    expect(rejectSection).toMatch(/lockedProof\.status/);
-    expect(rejectSection).toMatch(/didReject/);
+    expect(rejectSection).toContain('notImplemented("producer.purchase.proofOfPayment.reject")');
   });
 
-  it("sends each proof-result email only for the transaction that changed state", () => {
+  it("does not send proof-result side effects from compatibility stubs", () => {
     const confirmSection = routerSrc.slice(
-      routerSrc.indexOf("confirm: producerProcedure", routerSrc.indexOf("// Gate-2 approve")),
+      routerSrc.indexOf("confirm: producerProcedure"),
       routerSrc.indexOf("reject: producerProcedure"),
     );
-    expect(confirmSection).toMatch(/didConfirm/);
-    expect(confirmSection).toMatch(/if \(result\.didConfirm\)/);
+    expect(confirmSection).toContain('notImplemented("producer.purchase.proofOfPayment.confirm")');
+    expect(confirmSection).not.toMatch(/sendProofVerifiedEmail/);
   });
 
-  it("uses the offered-plan fallback (including milestone-only products) until BE-2 choice", () => {
-    expect(actionsSrc).toMatch(/selectProvisionalRequestPaymentPlan\(offeredPlans\(product\)\)/);
+  it("does not choose a provisional plan before acceptance", () => {
+    expect(actionsSrc).not.toMatch(/selectProvisionalRequestPaymentPlan|offeredPlans\(product\)/);
   });
 
   it("returns a tagged union instead of throwing at the client", () => {

@@ -5,7 +5,6 @@ import {
   ClientSpaceHero,
   type ClientSpaceHeroData,
 } from "~/components/dashboard/clients/client-space-hero";
-import { ClientPaymentProofs } from "~/components/dashboard/clients/client-payment-proofs";
 import { ProjectRow, type ProjectRowData } from "~/components/dashboard/projects/project-row";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
 import { appRouter } from "~/server/trpc/routers/_app";
@@ -34,8 +33,8 @@ export default async function ClientDetailPage({ params }: PageProps) {
   const { id } = await params;
   const caller = appRouter.createCaller({ userId });
 
-  // Parallel fetch — detail is the canonical client+projects payload,
-  // me() is consumed for slug (Invite modal URL) + defaultCurrency.
+  // Detail is the canonical client+projects payload; producer.me() is
+  // consumed for the invite-link slug.
   let detail;
   try {
     detail = await caller.clientContacts.detail({ id });
@@ -43,53 +42,12 @@ export default async function ClientDetailPage({ params }: PageProps) {
     notFound();
   }
 
-  let proofHistory: Awaited<ReturnType<typeof caller.producer.purchase.proofOfPayment.history>> = {
-    available: false,
-    proofs: [],
-  };
-  try {
-    proofHistory = await caller.producer.purchase.proofOfPayment.history({
-      clientContactId: id,
-    });
-  } catch (err) {
-    console.warn("[clients/detail] payment proof history failed", err);
-  }
-
   let producerSlug = "";
-  let producerCurrency = "USD";
   try {
     const me = await caller.producer.me();
     producerSlug = me.slug;
-    producerCurrency = me.defaultCurrency;
   } catch (err) {
     console.warn("[clients/detail] producer.me failed", err);
-  }
-
-  // G7 — fetch the producer's products so the hero's "+ New project"
-  // pill can drive the NewProjectModal picker. Falls back to [] on
-  // error; the modal renders an empty-state hint in that case.
-  let products: {
-    id: string;
-    name: string;
-    description: string | null;
-    deliverables: string[] | null;
-    priceCents: number;
-    currency: string;
-    depositPct: number;
-  }[] = [];
-  try {
-    const rows = await caller.booking.products.list();
-    products = rows.map((p) => ({
-      id: p.id,
-      name: p.name,
-      description: p.description,
-      deliverables: p.deliverables,
-      priceCents: p.priceCents,
-      currency: p.currency,
-      depositPct: p.depositPct,
-    }));
-  } catch (err) {
-    console.warn("[clients/detail] booking.products.list failed", err);
   }
 
   // Pre-compute the next upcoming session across this client's
@@ -115,36 +73,26 @@ export default async function ClientDetailPage({ params }: PageProps) {
     notes: detail.contact.notes,
     linkState: heroLinkState,
     joinedAtIso: toIso(detail.contact.firstSeenAt),
-    lifetime: detail.stats.lifetimeCents,
-    outstanding: detail.stats.outstandingCents,
+    lifetime: detail.stats.commercial.lifetimeCents,
+    outstanding: detail.stats.commercial.outstandingCents,
     activeProjects: detail.stats.activeProjectCount,
-    currency: producerCurrency,
   };
 
   // Map each detail project into the new ProjectRow shape. The list
   // is intentionally read-only here — drag-to-reorder is a list-view
   // affordance, not a single-client surface.
   const projectRows: ProjectRowData[] = detail.projects.map((p) => {
-    const stage = p.stage;
-    const tone: ProjectRowData["statusTone"] =
-      stage === "archived"
-        ? "neutral"
-        : stage === "paid"
-          ? "ok"
-          : p.outstandingCents > 0 && !p.nextSessionAt
-            ? "danger"
-            : "warn";
+    const lifecycle = LIFECYCLE_PRESENTATION[p.lifecycleStatus];
     return {
       id: p.id,
       title: p.title,
       client: detail.contact.name,
-      meta: detail.contact.email,
-      progress: STAGE_PROGRESS[stage],
-      balance: p.outstandingCents,
+      clientEmail: detail.contact.email,
+      progress: lifecycle.progress,
+      balance: p.commercial.outstandingCents,
       deadline: formatDeadlineShort(p.nextSessionAt),
-      status: STAGE_LABEL[stage],
-      statusTone: tone,
-      currency: p.currency,
+      status: lifecycle.label,
+      statusTone: lifecycle.tone,
     };
   });
 
@@ -152,9 +100,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
     <main className="sk-page-enter">
       <div className="mx-auto max-w-[1400px] px-4 pt-4 pb-24 sm:px-6 sm:pt-6 lg:px-8 lg:pt-7">
         <SetTopBarBreadcrumb crumbs={[{ label: detail.contact.name }]} />
-        <ClientSpaceHero client={heroData} producerSlug={producerSlug} products={products} />
-
-        {proofHistory.available ? <ClientPaymentProofs proofs={proofHistory.proofs} /> : null}
+        <ClientSpaceHero client={heroData} producerSlug={producerSlug} />
 
         <section className="mt-6" aria-labelledby="client-projects-title">
           <div className="flex items-end justify-between gap-4">
@@ -213,30 +159,22 @@ export default async function ClientDetailPage({ params }: PageProps) {
 // helpers
 // ─────────────────────────────────────────────────────────────────────
 
-type DetailProjectStage =
-  | "lead"
-  | "booked"
-  | "in_production"
-  | "final_review"
-  | "paid"
-  | "archived";
+type ProjectLifecycleStatus =
+  | "waiting_for_payment"
+  | "active"
+  | "paused"
+  | "completed"
+  | "canceled";
 
-const STAGE_PROGRESS: Record<DetailProjectStage, number> = {
-  lead: 12,
-  booked: 30,
-  in_production: 55,
-  final_review: 80,
-  paid: 100,
-  archived: 100,
-};
-
-const STAGE_LABEL: Record<DetailProjectStage, string> = {
-  lead: "Lead",
-  booked: "Booked",
-  in_production: "In production",
-  final_review: "Review",
-  paid: "Done",
-  archived: "Archived",
+const LIFECYCLE_PRESENTATION: Record<
+  ProjectLifecycleStatus,
+  { label: string; progress: number | null; tone: ProjectRowData["statusTone"] }
+> = {
+  waiting_for_payment: { label: "Waiting for payment", progress: null, tone: "warn" },
+  active: { label: "Active", progress: null, tone: "ok" },
+  paused: { label: "Paused", progress: null, tone: "warn" },
+  completed: { label: "Completed", progress: 100, tone: "neutral" },
+  canceled: { label: "Canceled", progress: null, tone: "neutral" },
 };
 
 function toIso(raw: Date | string): string {

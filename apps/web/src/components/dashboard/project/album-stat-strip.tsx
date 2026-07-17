@@ -20,8 +20,8 @@ interface AlbumStatStripProps {
   /** Formatted deadline string ("3d", "May 28", "—" if no deadline). */
   deadline: string;
   isOverdue: boolean;
-  outstandingCents: number;
-  currency: string;
+  outstandingCents: number | null;
+  currency: string | null;
 }
 
 function formatMoney(cents: number, currency: string): string {
@@ -96,7 +96,9 @@ export function AlbumStatStrip({
       ) : (
         <StatTile mobileCompact dense label="Deadline" value={deadline} />
       )}
-      {outstandingCents > 0 ? (
+      {outstandingCents === null || currency === null ? (
+        <StatTile mobileCompact dense label="Outstanding" value="Unavailable" />
+      ) : outstandingCents > 0 ? (
         <StatTile
           mobileCompact
           dense

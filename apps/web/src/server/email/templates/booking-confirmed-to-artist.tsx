@@ -9,7 +9,7 @@ import {
   Text,
 } from "@react-email/components";
 
-import { formatCurrencyForEmail, formatSessionTimeForEmail } from "../format";
+import { formatSessionTimeForEmail } from "../format";
 
 // Sent to the artist (visitor) when the producer approves their
 // booking request. The producer name + studio brand land at the top
@@ -20,9 +20,6 @@ export interface BookingConfirmedToArtistProps {
   productName: string;
   startsAt: Date | null;
   producerTimezone: string;
-  currency: string;
-  priceCents: number;
-  depositCents: number;
 }
 
 export function BookingConfirmedToArtist(props: BookingConfirmedToArtistProps) {
@@ -79,13 +76,6 @@ export function BookingConfirmedToArtist(props: BookingConfirmedToArtistProps) {
             </Text>
             <Text style={{ margin: "4px 0" }}>
               <strong>When</strong> · {formattedWhen}
-            </Text>
-            <Text style={{ margin: "4px 0" }}>
-              <strong>Total</strong> ·{" "}
-              {formatCurrencyForEmail(props.priceCents, props.currency)}
-              {props.depositCents > 0
-                ? ` (deposit ${formatCurrencyForEmail(props.depositCents, props.currency)})`
-                : ""}
             </Text>
           </Section>
           <Text>

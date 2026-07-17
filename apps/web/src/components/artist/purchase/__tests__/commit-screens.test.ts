@@ -53,14 +53,16 @@ const s5Src = readFileSync(S5_PATH, "utf8");
 const funnelUiSrc = readFileSync(FUNNEL_UI_PATH, "utf8");
 
 describe("review-agree-screen.tsx (S4) wiring", () => {
-  it("gates the primary action on the agree checkbox + sending state", () => {
-    expect(s4Src).toMatch(/disabled=\{!agreed \|\| sending\}/);
+  it("gates the primary action on proposal review + sending state", () => {
+    expect(s4Src).toMatch(/disabled=\{!reviewed \|\| sending\}/);
     expect(s4Src).toMatch(/<AgreeCheck/);
   });
 
   it("fires the real BE-1 request action, then routes to S5 with the request id", () => {
-    expect(s4Src).toMatch(/commercialTermsFingerprint/);
     expect(s4Src).toMatch(/requestToBookAction\(\{[\s\S]*?productId: product\.id/);
+    expect(s4Src).toMatch(/operationKeyRef\.current \?\? crypto\.randomUUID\(\)/);
+    expect(s4Src).toMatch(/operationKey,/);
+    expect(s4Src).not.toMatch(/commercialTermsFingerprint|paymentPlan:/);
     expect(s4Src).toMatch(
       /router\.push\(`\/artist\/purchase\/\$\{product\.id\}\/sent\?req=\$\{res\.purchaseRequestId\}`\)/,
     );
@@ -75,13 +77,15 @@ describe("review-agree-screen.tsx (S4) wiring", () => {
     expect(s4Src).toMatch(/\{producer\.agreement \? \(/);
   });
 
-  it("renders the exact royalty and inline agreement terms being accepted", () => {
+  it("renders the royalty and inline agreement terms being proposed", () => {
     expect(s4Src).toMatch(/Rights & royalties/);
     expect(s4Src).toMatch(/royaltyTermsDisplay/);
     expect(s4Src).toMatch(/formatPurchaseMoney\(product\.priceCents, product\.currency\)/);
     expect(s4Src).toMatch(/product\.royaltyTerms\?\.notes/);
     expect(s4Src).toMatch(/product\.agreementText/);
     expect(s4Src).toMatch(/whitespace-pre-wrap/);
+    expect(s4Src).toMatch(/Final terms are accepted and frozen only when a Purchase is created/);
+    expect(s4Src).not.toMatch(/LOCKS NOW|Locks your price|Saved with a timestamp once you agree/);
   });
 
   it("designs an inline error state (not a scary wall)", () => {
@@ -100,9 +104,10 @@ describe("review-agree-screen.tsx (S4) wiring", () => {
 });
 
 describe("request-sent-screen.tsx (S5) wiring", () => {
-  it("shows the booking reference and price-locked stub", () => {
+  it("shows the request reference without claiming commercial terms are frozen", () => {
     expect(s5Src).toMatch(/requestRef/);
-    expect(s5Src).toMatch(/PRICE LOCKED/);
+    expect(s5Src).toMatch(/PENDING REVIEW/);
+    expect(s5Src).not.toMatch(/PRICE LOCKED|formatShekels|product\.priceCents|product\.name/);
   });
 
   it("offers Home + back-to-store exits", () => {

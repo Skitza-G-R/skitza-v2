@@ -199,7 +199,6 @@ export async function createOnboardingPackage(input: {
   kind: string;
   priceCents: number;
   durationMin: number;
-  depositPct: number;
   locationType: string;
   currency: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -212,7 +211,6 @@ export async function createOnboardingPackage(input: {
       name: input.name,
       durationMin: input.durationMin,
       priceCents: input.priceCents,
-      depositPct: input.depositPct,
       kind: input.kind as OnboardingPackageKind,
       locationType: input.locationType as OnboardingPackageLocation,
       currency: input.currency as OnboardingPackageCurrency,

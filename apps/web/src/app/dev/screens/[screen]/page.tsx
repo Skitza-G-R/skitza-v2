@@ -10,7 +10,6 @@ import {
 } from "~/components/dashboard/clients/client-space-hero";
 import { ClientPaymentProofs } from "~/components/dashboard/clients/client-payment-proofs";
 import type { ClientCardData } from "~/components/dashboard/clients/client-card";
-import type { NewProjectModalProductOption } from "~/components/dashboard/clients/new-project-modal";
 import { ProjectRow, type ProjectRowData } from "~/components/dashboard/projects/project-row";
 import { SongSpace } from "~/components/dashboard/song/song-space";
 import {
@@ -77,19 +76,6 @@ const DEV_PLAN_OPTIONS = livePlanOptions([
   },
 ]);
 
-const DEV_PRODUCTS = [
-  {
-    id: "product-full-production",
-    name: "Full production",
-    description:
-      "---\nrevisions: 3\ncontract_text: standard\n---\nProduction from demo to final master.",
-    deliverables: ["Mixed WAV", "Master WAV"],
-    priceCents: 150_000,
-    currency: "ILS",
-    depositPct: 50,
-  },
-] satisfies NewProjectModalProductOption[];
-
 const DEV_PROJECTS = [
   {
     id: "project-lior",
@@ -130,6 +116,7 @@ const DEV_CLIENTS = [
     projects: 2,
     lifetime: 150_000,
     owed: 0,
+    needsAttention: false,
     currency: "ILS",
     lastActivityIso: "2026-07-14T07:00:00.000Z",
     joinedAtIso: "2026-05-18T07:00:00.000Z",
@@ -142,6 +129,7 @@ const DEV_CLIENTS = [
     projects: 1,
     lifetime: 0,
     owed: 120_000,
+    needsAttention: true,
     currency: "ILS",
     lastActivityIso: "2026-07-13T07:00:00.000Z",
     joinedAtIso: "2026-06-05T07:00:00.000Z",
@@ -206,13 +194,12 @@ export default async function DevScreenPage({ params }: Params) {
           product={MOCK_PRODUCT}
           producer={MOCK_PRODUCER}
           terms={buildAgreementTerms(MOCK_PRODUCER.name, MOCK_PRODUCT.includes)}
-          commercialTermsFingerprint="development-preview"
           previewSentHref="/dev/screens/s5"
         />
       );
     case "s5":
       return (
-        <RequestSentScreen product={MOCK_PRODUCT} producer={MOCK_PRODUCER} requestRef="SK-7F3QK2" />
+        <RequestSentScreen producer={MOCK_PRODUCER} requestRef="SK-7F3QK2" />
       );
     case "s7":
       return (
@@ -289,7 +276,6 @@ export default async function DevScreenPage({ params }: Params) {
             clients={DEV_CLIENTS}
             kpis={DEV_WORKSPACE_KPIS}
             producerSlug="gili"
-            products={DEV_PRODUCTS}
           />
         </main>
       );
@@ -300,7 +286,7 @@ export default async function DevScreenPage({ params }: Params) {
           tabIndex={-1}
           className="mx-auto max-w-[1400px] px-4 py-5 sm:px-6 lg:px-8"
         >
-          <ClientSpaceHero client={DEV_CLIENT_HERO} producerSlug="gili" products={DEV_PRODUCTS} />
+          <ClientSpaceHero client={DEV_CLIENT_HERO} producerSlug="gili" />
           <ClientPaymentProofs
             proofs={[
               {
@@ -362,21 +348,6 @@ export default async function DevScreenPage({ params }: Params) {
             versions={[]}
             sessions={[]}
             gradientToken={deriveGradient("Midnight Drive")}
-            payments={{
-              paidCents: 150_000,
-              outstandingCents: 0,
-              currency: "ILS",
-              nextChargeAt: null,
-              milestones: [
-                {
-                  id: "milestone-paid",
-                  label: "Engagement total",
-                  amountCents: 150_000,
-                  status: "paid",
-                  date: new Date("2026-07-14T07:00:00.000Z"),
-                },
-              ],
-            }}
           />
         </main>
       );

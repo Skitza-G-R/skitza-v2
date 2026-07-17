@@ -4,7 +4,6 @@ import {
   ONBOARDING_SERVICE_TEMPLATES,
   PAYMENT_PLANS,
   SUPPORTED_CURRENCIES,
-  depositPctForPlan,
   isServiceContinueAllowed,
   type OnboardingServiceTemplateId,
 } from "./service-templates-onboarding";
@@ -49,7 +48,7 @@ describe("PAYMENT_PLANS", () => {
   it("has 3 plans matching the redesign segmented control", () => {
     expect(PAYMENT_PLANS.map((p) => p.id)).toEqual([
       "full",
-      "deposit",
+      "split_50_50",
       "monthly",
     ]);
   });
@@ -73,13 +72,5 @@ describe("isServiceContinueAllowed", () => {
 
   it("blocks continue when sessions < 1", () => {
     expect(isServiceContinueAllowed("Mix & Master", 800, 0)).toBe(false);
-  });
-});
-
-describe("depositPctForPlan", () => {
-  it("full → 0% deposit, deposit → 50%, monthly → 25%", () => {
-    expect(depositPctForPlan("full")).toBe(0);
-    expect(depositPctForPlan("deposit")).toBe(50);
-    expect(depositPctForPlan("monthly")).toBe(25);
   });
 });

@@ -7,7 +7,6 @@ import { AlbumStatStrip } from "./album-stat-strip";
 import { AlbumTabs, type AlbumTab } from "./album-tabs";
 import { SongsTab } from "./album-tabs/songs-tab";
 import { FilesTab } from "./album-tabs/files-tab";
-import { PaymentsTab, type PaymentMilestone } from "./album-tabs/payments-tab";
 import {
   StudioLogTab,
   type StudioLogActivity,
@@ -25,18 +24,10 @@ export interface AlbumSpaceProjectExtras {
   progress: number;
   deadline: string;
   isOverdue: boolean;
-  outstandingCents: number;
+  outstandingCents: number | null;
 }
 
 export type AlbumSpaceProject = AlbumHeroProject & AlbumSpaceProjectExtras;
-
-export interface AlbumSpacePayments {
-  paidCents: number;
-  outstandingCents: number;
-  currency: string;
-  nextChargeAt: Date | null;
-  milestones: PaymentMilestone[];
-}
 
 export interface AlbumSpaceStudioLog {
   sessionsCount: number;
@@ -63,8 +54,8 @@ export interface AlbumSpacePlayLatest {
 
 interface AlbumSpaceProps {
   project: AlbumSpaceProject;
+  songSpacePurchaseId: string | null;
   tracks: TrackRowData[];
-  payments: AlbumSpacePayments;
   studioLog: AlbumSpaceStudioLog;
   /** Newest playable version. When null, hero "Play latest" stays disabled. */
   playLatest?: AlbumSpacePlayLatest | null;
@@ -72,8 +63,8 @@ interface AlbumSpaceProps {
 
 export function AlbumSpace({
   project,
+  songSpacePurchaseId,
   tracks,
-  payments,
   studioLog,
   playLatest = null,
 }: AlbumSpaceProps) {
@@ -137,21 +128,21 @@ export function AlbumSpace({
         currency={project.currency}
       />
 
-      <AlbumTabs active={active} onChange={setActive} songsCount={project.songsCount} />
+      <AlbumTabs
+        active={active}
+        onChange={setActive}
+        songsCount={project.songsCount}
+      />
 
       {active === "songs" ? (
-        <SongsTab projectId={project.id} tracks={tracks} onAddSong={handleAddSong} />
-      ) : null}
-      {active === "files" ? <FilesTab projectId={project.id} /> : null}
-      {active === "payments" ? (
-        <PaymentsTab
-          paidCents={payments.paidCents}
-          outstandingCents={payments.outstandingCents}
-          currency={payments.currency}
-          nextChargeAt={payments.nextChargeAt}
-          milestones={payments.milestones}
+        <SongsTab
+          projectId={project.id}
+          purchaseId={songSpacePurchaseId}
+          tracks={tracks}
+          onAddSong={handleAddSong}
         />
       ) : null}
+      {active === "files" ? <FilesTab projectId={project.id} /> : null}
       {active === "log" ? (
         <StudioLogTab
           sessionsCount={studioLog.sessionsCount}
@@ -169,6 +160,7 @@ export function AlbumSpace({
           setUploadOpen(false);
         }}
         projectId={project.id}
+        purchaseId={songSpacePurchaseId}
         mode="new-song"
         tracks={modalTracks}
       />

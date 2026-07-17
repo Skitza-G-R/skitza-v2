@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { products, purchaseRequests, type ProductRoyaltyTerms } from "../schema";
+import { products, purchaseAcceptances, purchases, type ProductRoyaltyTerms } from "../schema";
 
 describe("product commercial terms schema", () => {
   it("exports the structured royalty terms contract", () => {
@@ -22,14 +22,14 @@ describe("product commercial terms schema", () => {
     expect(terms.composition).toMatchObject({ bps: 1250, collectingSociety: "ACUM" });
   });
 
-  it("adds nullable product terms and immutable request snapshots", () => {
+  it("keeps editable product terms separate from immutable accepted snapshots", () => {
     expect(products.royaltyTerms.name).toBe("royalty_terms");
     expect(products.agreementText.name).toBe("agreement_text");
-    expect(purchaseRequests.royaltyTermsSnapshot.name).toBe("royalty_terms_snapshot");
-    expect(purchaseRequests.agreementTextSnapshot.name).toBe("agreement_text_snapshot");
+    expect(purchases.commercialSnapshot.name).toBe("commercial_snapshot");
+    expect(purchaseAcceptances.acceptedSnapshot.name).toBe("accepted_snapshot");
   });
 
-  it("ships the matching idempotent SQL migration", () => {
+  it("retains the historical product-terms migration", () => {
     const path = join(process.cwd(), "drizzle", "0024_product_commercial_terms.sql");
     expect(existsSync(path)).toBe(true);
 

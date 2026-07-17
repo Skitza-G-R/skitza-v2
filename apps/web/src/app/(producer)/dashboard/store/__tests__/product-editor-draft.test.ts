@@ -12,20 +12,11 @@ import {
 } from "../product-editor-draft";
 
 describe("product editor payment draft", () => {
-  const milestonePlan = {
-    kind: "milestones" as const,
-    milestones: [
-      { label: "Booking", pct: 30 },
-      { label: "Final delivery", pct: 70 },
-    ],
-  };
-
-  it("seeds every saved standard option and preserves nonstandard plans", () => {
+  it("seeds every saved payment option", () => {
     const draft = seedPaymentSelection([
       { kind: "full" },
       { kind: "split_50_50" },
       { kind: "monthly", installments: 7 },
-      milestonePlan,
     ]);
 
     expect(draft).toEqual({
@@ -33,7 +24,6 @@ describe("product editor payment draft", () => {
       split50: true,
       monthly: true,
       monthlyInstallments: 7,
-      preservedPlans: [milestonePlan],
     });
   });
 
@@ -44,7 +34,6 @@ describe("product editor payment draft", () => {
         split50: true,
         monthly: true,
         monthlyInstallments: 6,
-        preservedPlans: [],
       }),
     ).toEqual([
       { kind: "full" },
@@ -53,18 +42,16 @@ describe("product editor payment draft", () => {
     ]);
   });
 
-  it("removes only the deselected standard plan", () => {
+  it("removes a deselected plan", () => {
     const seeded = seedPaymentSelection([
       { kind: "full" },
       { kind: "split_50_50" },
       { kind: "monthly", installments: 4 },
-      milestonePlan,
     ]);
 
     expect(buildPaymentPlans({ ...seeded, split50: false })).toEqual([
       { kind: "full" },
       { kind: "monthly", installments: 4 },
-      milestonePlan,
     ]);
   });
 
@@ -73,7 +60,6 @@ describe("product editor payment draft", () => {
       full: false,
       split50: false,
       monthly: true,
-      preservedPlans: [],
     };
     expect(() =>
       buildPaymentPlans({ ...base, monthlyInstallments: 1 }),
@@ -89,49 +75,14 @@ describe("product editor payment draft", () => {
     ).toEqual([{ kind: "monthly", installments: 12 }]);
   });
 
-  it("allows a preserved or virtual milestone-only legacy product", () => {
-    expect(
-      hasPaymentOption(
-        {
-          full: false,
-          split50: false,
-          monthly: false,
-          monthlyInstallments: 4,
-          preservedPlans: [milestonePlan],
-        },
-        "flat",
-        null,
-      ),
-    ).toBe(true);
-
-    expect(
-      hasPaymentOption(
-        {
-          full: false,
-          split50: false,
-          monthly: false,
-          monthlyInstallments: 4,
-          preservedPlans: [],
-        },
-        "milestones",
-        milestonePlan.milestones,
-      ),
-    ).toBe(true);
-  });
-
   it("rejects a genuinely empty selection", () => {
     expect(
-      hasPaymentOption(
-        {
-          full: false,
-          split50: false,
-          monthly: false,
-          monthlyInstallments: 4,
-          preservedPlans: [],
-        },
-        "flat",
-        null,
-      ),
+      hasPaymentOption({
+        full: false,
+        split50: false,
+        monthly: false,
+        monthlyInstallments: 4,
+      }),
     ).toBe(false);
   });
 });

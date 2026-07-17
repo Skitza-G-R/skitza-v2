@@ -8,7 +8,6 @@ const FULL_SPLIT_MONTHLY = {
   split50: true,
   monthly: true,
   monthlyInstallments: 4,
-  preservedPlans: [],
 };
 
 describe("PaymentStep", () => {
@@ -19,8 +18,6 @@ describe("PaymentStep", () => {
         previewTotalCents={100_03}
         currency="USD"
         pricingModel="flat"
-        depositModel="flat"
-        milestones={null}
         onChange={() => undefined}
       />,
     );
@@ -38,8 +35,6 @@ describe("PaymentStep", () => {
         previewTotalCents={100_03}
         currency="USD"
         pricingModel="flat"
-        depositModel="flat"
-        milestones={null}
         onChange={() => undefined}
       />,
     );
@@ -58,8 +53,6 @@ describe("PaymentStep", () => {
         previewTotalCents={15_000}
         currency="USD"
         pricingModel="per_song"
-        depositModel="flat"
-        milestones={null}
         onChange={() => undefined}
       />,
     );
@@ -67,7 +60,7 @@ describe("PaymentStep", () => {
     expect(html).toMatch(/one song|starting rate/i);
   });
 
-  it("surfaces an inline error and a read-only legacy milestone schedule", () => {
+  it("surfaces an inline error for an empty selection", () => {
     const html = renderToStaticMarkup(
       <PaymentStep
         selection={{
@@ -75,16 +68,10 @@ describe("PaymentStep", () => {
           split50: false,
           monthly: false,
           monthlyInstallments: 4,
-          preservedPlans: [],
         }}
         previewTotalCents={20_000}
         currency="USD"
         pricingModel="flat"
-        depositModel="milestones"
-        milestones={[
-          { label: "Booking", pct: 30 },
-          { label: "Delivery", pct: 70 },
-        ]}
         error="Choose at least one payment option."
         onChange={() => undefined}
       />,
@@ -92,7 +79,5 @@ describe("PaymentStep", () => {
 
     expect(html).toContain('role="alert"');
     expect(html).toContain("Choose at least one payment option.");
-    expect(html).toContain("Booking");
-    expect(html).toContain("30%");
   });
 });

@@ -5,11 +5,6 @@ import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
 
 import { planKey, requestPlanLabel } from "~/components/checkout/plan-picker-helpers";
-import {
-  PaymentProofReview,
-  type PaymentProofReviewData,
-} from "~/components/dashboard/requests/payment-proof-review";
-import { ProofQueueRefresh } from "~/components/dashboard/requests/proof-queue-refresh";
 import { PurchaseRequestReview } from "~/components/dashboard/requests/purchase-request-review";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
 import { safeAgreementUrl } from "~/lib/agreement-url";
@@ -44,36 +39,12 @@ export default async function ProducerPurchaseRequestPage({ params, searchParams
   const requestedProofId =
     typeof query.proof === "string" && query.proof.length > 0 ? query.proof : undefined;
   if (requestedProofId && !PAYMENT_PROOF_ID.safeParse(requestedProofId).success) notFound();
+  if (requestedProofId) notFound();
   const caller = appRouter.createCaller({ userId });
 
   let detail: Awaited<ReturnType<typeof caller.producer.purchase.get>>;
-  let paymentProof: PaymentProofReviewData | null = null;
   try {
-    const [requestDetail, history] = await Promise.all([
-      caller.producer.purchase.get({ id }),
-      caller.producer.purchase.proofOfPayment.history({ purchaseRequestId: id }),
-    ]);
-    detail = requestDetail;
-
-    const selectedProof = requestedProofId
-      ? history.proofs.find((proof) => proof.proofId === requestedProofId)
-      : history.proofs.find((proof) => proof.status === "pending");
-
-    // A proof ID in the URL is trusted only after it appears in the
-    // producer-owned, request-filtered history result. Foreign and guessed
-    // IDs all become the same 404 without leaking metadata or a signed URL.
-    if (requestedProofId && !selectedProof) notFound();
-
-    if (history.available && selectedProof) {
-      const signedView = await caller.producer.purchase.proofOfPayment.view({
-        proofId: selectedProof.proofId,
-      });
-      paymentProof = {
-        ...selectedProof,
-        signedUrl: signedView.url,
-        expiresInSeconds: signedView.expiresInSeconds,
-      };
-    }
+    detail = await caller.producer.purchase.get({ id });
   } catch (error) {
     if (error instanceof TRPCError && (error.code === "FORBIDDEN" || error.code === "NOT_FOUND")) {
       notFound();
@@ -81,15 +52,13 @@ export default async function ProducerPurchaseRequestPage({ params, searchParams
     throw error;
   }
 
-  const { request, agreement } = detail;
+  const { request } = detail;
   const royalty = royaltyTermsDisplay(request.royaltyTermsSnapshot);
   const paymentPlanOptionsSnapshot = request.paymentPlanOptionsSnapshot;
-  const agreementUrlSnapshot =
-    agreement.agreementUrl ?? safeAgreementUrl(request.contractUrlSnapshot);
+  const agreementUrlSnapshot = safeAgreementUrl(request.contractUrlSnapshot);
 
   return (
     <>
-      <ProofQueueRefresh enabled={paymentProof?.status !== "pending"} />
       <SetTopBarBreadcrumb crumbs={[{ label: request.artistName }]} />
       <main className="mx-auto w-full max-w-[720px] px-4 py-6 sm:px-6 sm:py-10">
         <Link
@@ -119,12 +88,6 @@ export default async function ProducerPurchaseRequestPage({ params, searchParams
           </p>
         </header>
 
-        {paymentProof ? (
-          <div className="mt-6">
-            <PaymentProofReview proof={paymentProof} />
-          </div>
-        ) : null}
-
         <PurchaseRequestReview
           key={request.id}
           id={request.id}
@@ -138,7 +101,7 @@ export default async function ProducerPurchaseRequestPage({ params, searchParams
               id="request-payment-heading"
               className="font-display text-lg font-bold text-[rgb(var(--fg-default))]"
             >
-              Frozen payment choices
+              Proposed payment choices
             </h2>
             <ul className="mt-3 list-none space-y-2">
               {paymentPlanOptionsSnapshot.map((plan) => (
@@ -153,13 +116,15 @@ export default async function ProducerPurchaseRequestPage({ params, searchParams
               ))}
             </ul>
             <p className="mt-3 text-xs text-[rgb(var(--fg-muted))]">
-              {request.paymentPlanChosenAt
+              {request.paymentPlanChosenAt && request.paymentPlanSnapshot
                 ? `Artist selection: ${requestPlanLabel(
                     request.paymentPlanSnapshot,
                     request.priceCents,
                     (cents) => formatMoney(cents, request.currency),
                   )}`
-                : "Not chosen yet — the artist picks after approval."}
+                : request.priceCents === 0
+                  ? "No payment plan is needed for this zero-total proposal."
+                  : "Not chosen yet — final plan selection happens at acceptance."}
             </p>
           </section>
 
@@ -196,7 +161,7 @@ export default async function ProducerPurchaseRequestPage({ params, searchParams
               id="request-agreement-heading"
               className="font-display text-lg font-bold text-[rgb(var(--fg-default))]"
             >
-              Agreement snapshot
+              Proposed agreement
             </h2>
             {request.agreementTextSnapshot ? (
               <p className="mt-3 text-sm leading-relaxed [overflow-wrap:anywhere] break-words whitespace-pre-wrap text-[rgb(var(--fg-secondary))]">
@@ -212,13 +177,11 @@ export default async function ProducerPurchaseRequestPage({ params, searchParams
                 rel="noopener noreferrer"
                 className="mt-4 inline-flex min-h-11 items-center rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sidebar))] px-4 text-sm font-semibold text-[rgb(var(--brand-primary))]"
               >
-                Open accepted agreement link
+                Open proposed agreement link
               </a>
             ) : null}
             <p className="mt-4 text-xs text-[rgb(var(--fg-muted))]">
-              {agreement.acceptedAt
-                ? `Accepted ${agreement.acceptedAt.toLocaleString("en-US")}`
-                : "Acceptance timestamp unavailable"}
+              Final acceptance is recorded on the purchase, not this request.
             </p>
           </section>
         </div>

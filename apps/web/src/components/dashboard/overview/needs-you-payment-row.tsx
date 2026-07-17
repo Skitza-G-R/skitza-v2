@@ -14,7 +14,7 @@ export function NeedsYouPaymentRow({
   currency,
 }: {
   payment: PaymentSource;
-  currency: string;
+  currency: string | null;
 }) {
   const [hidden, setHidden] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -23,7 +23,7 @@ export function NeedsYouPaymentRow({
   if (hidden) return null;
 
   const cents = (payment.unitPriceCents ?? 0) * (payment.songQty ?? 1);
-  const amount = cents > 0 ? formatMoney(cents, currency) : null;
+  const amount = cents > 0 && currency ? formatMoney(cents, currency) : null;
   const href = payment.projectId
     ? `/dashboard/clients-projects/${payment.projectId}`
     : "/dashboard/clients-projects";

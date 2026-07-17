@@ -1,10 +1,9 @@
 "use client";
 
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { Info, X } from "lucide-react";
-import Link from "next/link";
+import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { type SyntheticEvent, useEffect, useMemo, useState, useTransition } from "react";
+import { type SyntheticEvent, useEffect, useState, useTransition } from "react";
 
 import { useToast } from "~/components/ui/toast";
 import {
@@ -14,44 +13,30 @@ import {
   type ValidationState,
 } from "~/components/ui/validation";
 import { createProjectAction } from "~/app/(producer)/dashboard/clients-projects/clients-actions";
-import { productDescriptionForDisplay } from "~/lib/clients/product-description";
 
 // New Project modal (Clients & Projects v3 redesign, Phase 1 G7).
 // Replaces the legacy /dashboard/clients-projects/new route. The modal
-// collects six fields:
+// collects three fields:
 //   1. Project title (required, autofocused, max 120)
 //   2. Client picker — three sub-modes:
 //      a) `lockedClient` prop set (opened from Client Space hero) → name
 //         + email read-only, no picker
 //      b) existing client picked from the dropdown
-//      c) "+ New client" inline name + email (no clientContacts row is
-//         created here — the artistName/artistEmail snapshot on the
-//         project is enough for v1; the producer can create the CRM row
-//         from the Clients tab if they want one)
-//   3. Store product picker (required) — dropdown of the producer's
-//      active products. When picked, a muted hint card below renders
-//      description + deliverables + deposit %.
-//   4. Deadline (optional, type="date")
-//   5. Total fee (auto-fills from product.priceCents / 100, editable)
-//   6. Deposit (auto-fills via priceCents * depositPct / 10_000, editable)
+//      c) "+ New client" inline name + email; project.create resolves
+//         this identity to a producer-owned stable client contact.
+//   3. Deadline (optional, type="date")
+//
+// A project is a work container, not a commercial acceptance. Product,
+// fee, and payment terms belong to immutable purchases and are not
+// collected or inferred here.
 //
 // Submit flow: createProjectAction → revalidatePath → toast + router.refresh.
 // On success the parent's onCreated() fires.
 //
 // Layout precedent: ../clients/new-client-modal.tsx — same Radix Dialog
 // fixed-center, scrim + backdrop-blur, compact gap-3 form spacing, 5px
-// padding, max-w-[460px] for the wider product-picker hint card.
+// padding, max-w-[460px].
 // DESIGN.md §6.2 / BUILD-NOTES §7.2.
-
-export interface NewProjectModalProductOption {
-  id: string;
-  name: string;
-  description: string | null;
-  deliverables: string[] | null;
-  priceCents: number;
-  currency: string;
-  depositPct: number;
-}
 
 export interface NewProjectModalClientOption {
   id: string;
@@ -64,8 +49,6 @@ export interface NewProjectModalProps {
   onClose: () => void;
   /** Existing client list for the picker dropdown. */
   clients: NewProjectModalClientOption[];
-  /** Producer's products (from booking.products.list — active only). */
-  products: NewProjectModalProductOption[];
   /**
    * When set, the client picker is locked — the modal renders the name
    * + email read-only. Used by the Client Space hero "+ New project"
@@ -78,26 +61,10 @@ export interface NewProjectModalProps {
 
 type ClientMode = "existing" | "new";
 
-// USD/EUR money formatter for the hint card's deposit string. The
-// product currency comes from products.currency; we don't try to
-// guess locale here.
-function formatMoney(cents: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 2,
-    }).format(cents / 100);
-  } catch {
-    return `${(cents / 100).toFixed(2)} ${currency}`;
-  }
-}
-
 export function NewProjectModal({
   open,
   onClose,
   clients,
-  products,
   lockedClient,
   onCreated,
 }: NewProjectModalProps) {
@@ -119,15 +86,7 @@ export function NewProjectModal({
   const [newClientNameTouched, setNewClientNameTouched] = useState(false);
   const [newClientEmailTouched, setNewClientEmailTouched] = useState(false);
 
-  // Product picker state. Default: first product so the producer can
-  // submit with one click for the common single-product case.
-  const [productId, setProductId] = useState<string>("");
   const [deadline, setDeadline] = useState<string>(""); // YYYY-MM-DD
-  // Total + deposit live as STRINGS in the input so the producer can
-  // clear them and re-type without us thrashing the value. We parse to
-  // cents at submit time.
-  const [totalUnits, setTotalUnits] = useState<string>("");
-  const [depositUnits, setDepositUnits] = useState<string>("");
 
   // Reset form state every time the modal opens. Carrying values
   // across open/close is confusing — same convention as NewClientModal.
@@ -141,37 +100,8 @@ export function NewProjectModal({
     setNewClientEmail("");
     setNewClientNameTouched(false);
     setNewClientEmailTouched(false);
-    const firstProduct = products[0];
-    setProductId(firstProduct ? firstProduct.id : "");
     setDeadline("");
-    if (firstProduct) {
-      setTotalUnits((firstProduct.priceCents / 100).toFixed(2));
-      setDepositUnits(((firstProduct.priceCents * firstProduct.depositPct) / 10000).toFixed(2));
-    } else {
-      setTotalUnits("");
-      setDepositUnits("");
-    }
-    // Only `open` is a real trigger — depending on `products` array
-    // identity (not content) caused the form to silently reset
-    // mid-edit on any parent re-render that built a new array.
-    // (react-hooks/exhaustive-deps isn't configured in this repo, so
-    // no inline override needed.)
   }, [open]);
-
-  // Whenever the producer picks a different product, repopulate the
-  // total + deposit defaults. The producer can edit afterwards.
-  const selectedProduct = useMemo<NewProjectModalProductOption | null>(
-    () => products.find((p) => p.id === productId) ?? null,
-    [products, productId],
-  );
-  const visibleProductDescription = productDescriptionForDisplay(
-    selectedProduct?.description ?? null,
-  );
-  useEffect(() => {
-    if (!selectedProduct) return;
-    setTotalUnits((selectedProduct.priceCents / 100).toFixed(2));
-    setDepositUnits(((selectedProduct.priceCents * selectedProduct.depositPct) / 10000).toFixed(2));
-  }, [selectedProduct]);
 
   const titleState: ValidationState = titleTouched ? validateDisplayName(title) : { kind: "idle" };
   const newClientNameState: ValidationState =
@@ -183,19 +113,14 @@ export function NewProjectModal({
       ? validateEmail(newClientEmail)
       : { kind: "idle" };
 
-  const productsEmpty = products.length === 0;
-
   // Submit guards. We disable if:
   // - title is blank
-  // - no product is picked (and there are products to pick)
   // - client mode is "new" but name/email aren't filled
   // - client mode is "existing" but nothing selected (and no lockedClient)
   // - pending (request in flight)
   const submitDisabled = (() => {
     if (pending) return true;
-    if (productsEmpty) return true;
     if (title.trim().length === 0) return true;
-    if (!productId) return true;
     if (!lockedClient) {
       if (clientMode === "existing" && !selectedClientId) return true;
       if (clientMode === "new") {
@@ -240,19 +165,6 @@ export function NewProjectModal({
       artistEmail = newClientEmail.trim();
     }
 
-    // Parse total + deposit. Both are display-units (dollars). We
-    // round-half-up to cents to avoid float drift on common values.
-    const parseToCents = (raw: string): number | undefined => {
-      const trimmed = raw.trim();
-      if (trimmed.length === 0) return undefined;
-      const n = Number(trimmed);
-      if (!Number.isFinite(n) || n < 0) return undefined;
-      return Math.round(n * 100);
-    };
-
-    const totalCents = parseToCents(totalUnits);
-    const depositCents = parseToCents(depositUnits);
-
     startTransition(async () => {
       // exactOptionalPropertyTypes — never pass `undefined` keys.
       const payload: Parameters<typeof createProjectAction>[0] = {
@@ -260,15 +172,11 @@ export function NewProjectModal({
         artistName,
         artistEmail,
       };
-      if (productId) payload.productId = productId;
       if (deadline) {
         // <input type="date"> → "YYYY-MM-DD". Anchor at midnight UTC
         // so the column rounds cleanly across timezones.
         payload.deadlineAt = new Date(`${deadline}T00:00:00.000Z`).toISOString();
       }
-      if (totalCents !== undefined) payload.engagementTotalCents = totalCents;
-      if (depositCents !== undefined) payload.depositCents = depositCents;
-
       const res = await createProjectAction(payload);
       if (!res.ok) {
         toast(res.error, "error");
@@ -305,7 +213,7 @@ export function NewProjectModal({
               >
                 {lockedClient
                   ? `For ${lockedClient.name}`
-                  : "Title, client, and the product they're buying."}
+                  : "Title, client, and an optional deadline."}
               </DialogPrimitive.Description>
             </div>
             <button
@@ -321,34 +229,6 @@ export function NewProjectModal({
               <X size={16} strokeWidth={2.2} />
             </button>
           </div>
-
-          {productsEmpty ? (
-            <div
-              className="mt-4 flex items-start gap-2 rounded-[10px] border px-3 py-3 text-[13px]"
-              style={{
-                borderColor: "rgb(var(--brand-primary)/0.40)",
-                background: "rgb(var(--brand-primary)/0.10)",
-                color: "rgb(var(--fg-default))",
-              }}
-            >
-              <Info
-                size={14}
-                strokeWidth={2.2}
-                className="mt-0.5 shrink-0 text-[rgb(var(--brand-primary))]"
-                aria-hidden
-              />
-              <p className="leading-snug">
-                You don&rsquo;t have any products yet. Set one up in{" "}
-                <Link
-                  href="/dashboard/store"
-                  className="font-semibold text-[rgb(var(--brand-primary))] underline-offset-2 hover:underline"
-                >
-                  Store
-                </Link>{" "}
-                first, then come back to create the project.
-              </p>
-            </div>
-          ) : null}
 
           <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3">
             {/* Project title */}
@@ -490,82 +370,9 @@ export function NewProjectModal({
               </div>
             )}
 
-            {/* Store product picker (required) */}
-            <FieldLabel htmlFor="new-project-product" required>
-              Store product
-            </FieldLabel>
-            <select
-              id="new-project-product"
-              required
-              value={productId}
-              onChange={(e) => {
-                setProductId(e.target.value);
-              }}
-              disabled={productsEmpty}
-              className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none disabled:opacity-50"
-              style={{ borderColor: "rgb(var(--border-subtle))" }}
-            >
-              {productsEmpty ? (
-                <option value="">No products yet</option>
-              ) : (
-                <>
-                  <option value="">Pick a product…</option>
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} — {formatMoney(p.priceCents, p.currency)}
-                    </option>
-                  ))}
-                </>
-              )}
-            </select>
-
-            {/* Hint card describing the picked product */}
-            {selectedProduct ? (
-              <div
-                className="flex items-start gap-2 rounded-[10px] border px-3 py-2 text-[12px]"
-                style={{
-                  borderColor: "rgb(var(--brand-primary)/0.30)",
-                  background: "rgb(var(--brand-primary)/0.08)",
-                }}
-              >
-                <Info
-                  size={13}
-                  strokeWidth={2.2}
-                  className="mt-0.5 shrink-0 text-[rgb(var(--brand-primary))]"
-                  aria-hidden
-                />
-                <div className="leading-snug text-[rgb(var(--fg-muted))]">
-                  {visibleProductDescription ? (
-                    <p className="line-clamp-2 text-[rgb(var(--fg-default))]">
-                      {visibleProductDescription}
-                    </p>
-                  ) : null}
-                  {selectedProduct.deliverables && selectedProduct.deliverables.length > 0 ? (
-                    <p className="mt-1">
-                      Deliverables:{" "}
-                      <span className="font-medium text-[rgb(var(--fg-default))]">
-                        {selectedProduct.deliverables.join(", ")}
-                      </span>
-                    </p>
-                  ) : null}
-                  <p className="mt-1">
-                    Deposit:{" "}
-                    <span className="font-medium text-[rgb(var(--fg-default))]">
-                      {selectedProduct.depositPct}% (
-                      {formatMoney(
-                        Math.round((selectedProduct.priceCents * selectedProduct.depositPct) / 100),
-                        selectedProduct.currency,
-                      )}
-                      )
-                    </span>
-                  </p>
-                </div>
-              </div>
-            ) : null}
-
             <details className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">
               <summary className="cursor-pointer px-3 py-2.5 text-[12px] font-semibold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.6)] focus-visible:outline-none focus-visible:ring-inset">
-                Edit deadline and payment amounts
+                Add deadline
               </summary>
               <div className="grid gap-3 border-t border-[rgb(var(--border-subtle))] p-3">
                 <div className="flex flex-col gap-1.5">
@@ -580,42 +387,6 @@ export function NewProjectModal({
                     className="w-full rounded-[10px] border bg-[rgb(var(--bg-background))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
                     style={{ borderColor: "rgb(var(--border-subtle))" }}
                   />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="flex min-w-0 flex-col gap-1.5">
-                    <FieldLabel htmlFor="new-project-total">Total fee</FieldLabel>
-                    <input
-                      id="new-project-total"
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      inputMode="decimal"
-                      value={totalUnits}
-                      onChange={(e) => {
-                        setTotalUnits(e.target.value);
-                      }}
-                      placeholder="0.00"
-                      className="w-full min-w-0 rounded-[10px] border bg-[rgb(var(--bg-background))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
-                      style={{ borderColor: "rgb(var(--border-subtle))" }}
-                    />
-                  </div>
-                  <div className="flex min-w-0 flex-col gap-1.5">
-                    <FieldLabel htmlFor="new-project-deposit">Deposit</FieldLabel>
-                    <input
-                      id="new-project-deposit"
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      inputMode="decimal"
-                      value={depositUnits}
-                      onChange={(e) => {
-                        setDepositUnits(e.target.value);
-                      }}
-                      placeholder="0.00"
-                      className="w-full min-w-0 rounded-[10px] border bg-[rgb(var(--bg-background))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
-                      style={{ borderColor: "rgb(var(--border-subtle))" }}
-                    />
-                  </div>
                 </div>
               </div>
             </details>

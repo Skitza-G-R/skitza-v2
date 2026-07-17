@@ -6,23 +6,16 @@ import { describe, expect, it } from "vitest";
 const purchaseSource = readFileSync(join(__dirname, "../purchase.ts"), "utf8");
 const bookingSource = readFileSync(join(__dirname, "../booking.ts"), "utf8");
 
-describe("purchase commercial-term snapshots", () => {
-  it("requires the reviewed-terms fingerprint before creating a request", () => {
-    expect(purchaseSource).toMatch(/commercialTermsFingerprint:\s*z\.string\(\)/);
-    expect(purchaseSource).toMatch(
-      /input\.commercialTermsFingerprint\s*!==\s*currentTermsFingerprint/,
+describe("purchase commercial-term ownership", () => {
+  it("keeps requests pre-acceptance and free of commercial snapshots", () => {
+    const requestMutation = purchaseSource.slice(
+      purchaseSource.indexOf("request: artistProcedure"),
+      purchaseSource.indexOf("get: artistProcedure"),
     );
-    expect(purchaseSource).toMatch(/code:\s*["']CONFLICT["']/);
-  });
-
-  it("snapshots structured royalties and effective inline text with the request", () => {
-    const transaction = purchaseSource.slice(
-      purchaseSource.indexOf("const inserted = await ctx.db.transaction"),
-      purchaseSource.indexOf("// 7. Notify the producer"),
-    );
-    expect(transaction).toMatch(/royaltyTermsSnapshot:\s*prod\.royaltyTerms \?\? null/);
-    expect(transaction).toMatch(/agreementTextSnapshot/);
-    expect(transaction).toMatch(/tx\.insert\(agreementAcceptances\)/);
+    expect(requestMutation).toMatch(/insert\(purchaseRequests\)/);
+    expect(requestMutation).not.toMatch(/agreementAcceptances/);
+    expect(requestMutation).not.toMatch(/paymentPlanSnapshot|commercialSnapshot/);
+    expect(requestMutation).not.toMatch(/priceCents/);
   });
 
   it("retains the legacy encoded agreement compatibility read", () => {
@@ -30,30 +23,18 @@ describe("purchase commercial-term snapshots", () => {
     expect(purchaseSource).toMatch(/product\.agreementText !== null/);
   });
 
-  it("fingerprints and snapshots only the safe agreement URL shown to the artist", () => {
-    expect(purchaseSource).toMatch(
-      /const contractUrlSnapshot = safeAgreementUrl\(prod\.contractUrl\)/,
-    );
-    expect(purchaseSource).toMatch(/contractUrl:\s*contractUrlSnapshot/);
-    expect(purchaseSource).toMatch(/contractUrlSnapshot,\s*\n/);
+  it("uses safe agreement URLs only in compatibility proposal reads", () => {
+    expect(purchaseSource).toMatch(/safeAgreementUrl\(product\.contractUrl\)/);
+    expect(purchaseSource).not.toMatch(/agreementUrl:\s*request\./);
   });
 
-  it("returns immutable terms to artist and tenant-scoped producer detail reads", () => {
+  it("keeps request reads tenant-scoped and labels display values as live proposals", () => {
     expect(purchaseSource).toMatch(/get:\s*producerProcedure/);
     expect(purchaseSource).toMatch(/loadProducerRequest\(ctx\.db, ctx\.producerId, input\.id\)/);
-    expect(purchaseSource).toMatch(
-      /eq\(purchaseRequests\.producerId, producerId\)/,
-    );
-    expect(purchaseSource).toMatch(/acceptedAt:\s*acceptance\?\.acceptedAt \?\? null/);
-    expect(purchaseSource).toMatch(
-      /paymentPlanChosenAt:\s*request\.paymentPlanChosenAt/,
-    );
-    expect(
-      purchaseSource.match(/royaltyTermsSnapshot:\s*request\.royaltyTermsSnapshot/g),
-    ).toHaveLength(2);
-    expect(
-      purchaseSource.match(/agreementTextSnapshot:\s*request\.agreementTextSnapshot/g),
-    ).toHaveLength(2);
+    expect(purchaseSource).toMatch(/eq\(purchaseRequests\.producerId, producerId\)/);
+    expect(purchaseSource).toContain("Compatibility display values are live proposal data");
+    expect(purchaseSource).toMatch(/acceptedAt: null as Date \| null/);
+    expect(purchaseSource).toMatch(/paymentPlanChosenAt: null as Date \| null/);
   });
 });
 

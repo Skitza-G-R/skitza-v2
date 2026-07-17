@@ -1,18 +1,17 @@
 "use client";
 
-// S4 — Review & agree (artist purchase funnel · Commit).
+// S4 — Review and send a pre-acceptance request.
 //
-// The artist reads the exact commercial terms and optional agreement link,
-// ticks a single "I've read & agree" box, and
-// sends the request. Sending fires Gate 1 (the producer reviews) and routes
-// to S5. Funnel chrome: full-screen overlay, back arrow, no tab bar, the
-// primary action pinned low and thumb-reachable.
+// The artist reads the proposed commercial terms and optional agreement link,
+// confirms they reviewed the proposal, and sends the request. Final acceptance
+// happens later at the Purchase boundary. Funnel chrome: full-screen overlay,
+// back arrow, no tab bar, the primary action pinned low and thumb-reachable.
 //
 // Data-only props (serializable from the server page). Navigation + the
 // request call live here so the mock can be swapped for the BE-1
 // `artist.purchase.request` mutation without touching the route.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
@@ -29,10 +28,7 @@ import {
   PrimaryCta,
 } from "~/components/artist/funnel/funnel-ui";
 import { requestToBookAction } from "./actions";
-import {
-  planKey,
-  requestPlanLabel,
-} from "~/components/checkout/plan-picker-helpers";
+import { planKey, requestPlanLabel } from "~/components/checkout/plan-picker-helpers";
 import { royaltyTermsDisplay } from "~/lib/purchase/royalty-terms";
 import {
   type AgreementTerm,
@@ -46,25 +42,23 @@ export function ReviewAgreeScreen({
   product,
   producer,
   terms,
-  commercialTermsFingerprint,
   previewSentHref,
 }: {
   product: PurchaseProduct;
   producer: Producer;
   terms: AgreementTerm[];
-  /** Hash of the exact commercial terms rendered by the server. */
-  commercialTermsFingerprint: string;
   /** Dev-gallery navigation only; production always creates the request first. */
   previewSentHref?: string | undefined;
 }) {
   const router = useRouter();
-  const [agreed, setAgreed] = useState(false);
+  const [reviewed, setReviewed] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const operationKeyRef = useRef<string | null>(null);
   const royalty = royaltyTermsDisplay(product.royaltyTerms);
 
   async function send() {
-    if (!agreed || sending) return;
+    if (!reviewed || sending) return;
     setSending(true);
     setError(null);
     if (previewSentHref) {
@@ -72,11 +66,12 @@ export function ReviewAgreeScreen({
       return;
     }
     try {
-      // BE-1's `artist.purchase.request` (via server action). Locks the
-      // price, creates the pending request, returns the ref shown on S5.
+      const operationKey = operationKeyRef.current ?? crypto.randomUUID();
+      operationKeyRef.current = operationKey;
+      // `artist.purchase.request` stores intent only and returns the ref shown on S5.
       const res = await requestToBookAction({
         productId: product.id,
-        commercialTermsFingerprint,
+        operationKey,
       });
       if (res.ok) {
         router.push(`/artist/purchase/${product.id}/sent?req=${res.purchaseRequestId}`);
@@ -97,7 +92,7 @@ export function ReviewAgreeScreen({
     >
       <div className="relative mx-auto flex min-h-dvh w-full max-w-[440px] flex-col">
         <FunnelTopBar
-          title="Review & agree"
+          title="Review request"
           sub="BOOKING TERMS"
           onBack={() => {
             router.push(`/artist/purchase/${product.id}`);
@@ -111,11 +106,11 @@ export function ReviewAgreeScreen({
           </h1>
           <p className="reveal-up reveal-up-delay-1 mt-2 text-[14px] leading-relaxed text-pretty text-[rgb(var(--fg-muted))]">
             {producer.agreement
-              ? `Review the exact commercial terms below, including ${producer.name}'s agreement link.`
-              : `Here's the plain-language version of your booking terms with ${producer.name}.`}
+              ? `Review the proposed commercial terms below, including ${producer.name}'s agreement link.`
+              : `Here's the current proposal for working with ${producer.name}.`}
           </p>
 
-          {/* what you're agreeing to — dark price-locked summary */}
+          {/* Current proposal summary. Final terms are accepted later. */}
           <div
             className="reveal-up reveal-up-delay-1 rounded-card mt-4 flex items-center gap-[13px] px-4 py-3.5"
             style={{ background: "rgb(var(--bg-sidebar))", color: "rgb(var(--fg-onsidebar))" }}
@@ -127,7 +122,9 @@ export function ReviewAgreeScreen({
               {producer.initials}
             </span>
             <div className="min-w-0 flex-1">
-              <div className="break-words text-[14.5px] font-semibold text-white [overflow-wrap:anywhere]">{product.name}</div>
+              <div className="text-[14.5px] font-semibold [overflow-wrap:anywhere] break-words text-white">
+                {product.name}
+              </div>
               <div className="mt-px text-[12px] text-white/70">
                 with {producer.name} · {product.durationLabel}
               </div>
@@ -136,21 +133,22 @@ export function ReviewAgreeScreen({
               <div className="font-amount text-[19px] font-extrabold tracking-[-0.03em] text-[rgb(var(--brand-primary))]">
                 {formatPurchaseMoney(product.priceCents, product.currency)}
               </div>
-              <div className="font-mono text-[8.5px] tracking-[0.08em] text-white/55">
-                LOCKS NOW
-              </div>
+              <div className="font-mono text-[8.5px] tracking-[0.08em] text-white/55">PROPOSAL</div>
             </div>
           </div>
 
-          {/* exact frozen-at-request payment and royalty terms */}
-          <section className="reveal-up reveal-up-delay-2 mt-4" aria-labelledby="commercial-terms-heading">
+          {/* Live pre-acceptance payment and royalty proposal. */}
+          <section
+            className="reveal-up reveal-up-delay-2 mt-4"
+            aria-labelledby="commercial-terms-heading"
+          >
             <h2 id="commercial-terms-heading" className="mb-[9px]">
               <Eyebrow>Rights & royalties</Eyebrow>
             </h2>
-            <dl className="rounded-card bg-[rgb(var(--bg-elevated))] px-4 py-1 shadow-[var(--shadow-sm)] ring-1 ring-[rgb(var(--border-subtle))]">
+            <dl className="rounded-card bg-[rgb(var(--bg-elevated))] px-4 py-1 ring-1 shadow-[var(--shadow-sm)] ring-[rgb(var(--border-subtle))]">
               <div className="grid min-w-0 grid-cols-[5.5rem_minmax(0,1fr)] gap-3 border-b border-[rgb(var(--border-subtle))] py-3">
                 <dt className="text-[12px] font-semibold text-[rgb(var(--fg-muted))]">Master</dt>
-                <dd className="min-w-0 break-words text-pretty text-[13px] text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+                <dd className="min-w-0 text-[13px] text-pretty [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-secondary))]">
                   {royalty.master}
                 </dd>
               </div>
@@ -158,25 +156,31 @@ export function ReviewAgreeScreen({
                 <dt className="text-[12px] font-semibold text-[rgb(var(--fg-muted))]">
                   Composition
                 </dt>
-                <dd className="min-w-0 break-words text-pretty text-[13px] text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+                <dd className="min-w-0 text-[13px] text-pretty [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-secondary))]">
                   {royalty.composition}
                 </dd>
               </div>
             </dl>
             {product.royaltyTerms?.notes ? (
-              <p className="mt-2 whitespace-pre-wrap break-words rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] px-4 py-3 text-[12.5px] leading-relaxed text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+              <p className="mt-2 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] px-4 py-3 text-[12.5px] leading-relaxed [overflow-wrap:anywhere] break-words whitespace-pre-wrap text-[rgb(var(--fg-secondary))]">
                 {product.royaltyTerms.notes}
               </p>
             ) : null}
           </section>
 
-          <section className="reveal-up reveal-up-delay-2 mt-4" aria-labelledby="payment-options-heading">
+          <section
+            className="reveal-up reveal-up-delay-2 mt-4"
+            aria-labelledby="payment-options-heading"
+          >
             <h2 id="payment-options-heading" className="mb-[9px]">
               <Eyebrow>Payment choices</Eyebrow>
             </h2>
-            <ul className="rounded-card list-none divide-y divide-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 shadow-[var(--shadow-sm)] ring-1 ring-[rgb(var(--border-subtle))]">
+            <ul className="rounded-card list-none divide-y divide-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 ring-1 shadow-[var(--shadow-sm)] ring-[rgb(var(--border-subtle))]">
               {product.paymentPlans.map((plan) => (
-                <li key={planKey(plan)} className="py-3 text-[13px] leading-snug text-[rgb(var(--fg-secondary))]">
+                <li
+                  key={planKey(plan)}
+                  className="py-3 text-[13px] leading-snug text-[rgb(var(--fg-secondary))]"
+                >
                   {requestPlanLabel(plan, product.priceCents, (cents) =>
                     formatPurchaseMoney(cents, product.currency),
                   )}
@@ -189,12 +193,15 @@ export function ReviewAgreeScreen({
           </section>
 
           {product.agreementText ? (
-            <section className="reveal-up reveal-up-delay-2 mt-4" aria-labelledby="inline-agreement-heading">
+            <section
+              className="reveal-up reveal-up-delay-2 mt-4"
+              aria-labelledby="inline-agreement-heading"
+            >
               <h2 id="inline-agreement-heading" className="mb-[9px]">
                 <Eyebrow>Producer agreement</Eyebrow>
               </h2>
-              <div className="rounded-card bg-[rgb(var(--bg-elevated))] px-4 py-3.5 shadow-[var(--shadow-sm)] ring-1 ring-[rgb(var(--border-subtle))]">
-                <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+              <div className="rounded-card bg-[rgb(var(--bg-elevated))] px-4 py-3.5 ring-1 shadow-[var(--shadow-sm)] ring-[rgb(var(--border-subtle))]">
+                <p className="text-[13px] leading-relaxed [overflow-wrap:anywhere] break-words whitespace-pre-wrap text-[rgb(var(--fg-secondary))]">
                   {product.agreementText}
                 </p>
               </div>
@@ -232,7 +239,8 @@ export function ReviewAgreeScreen({
                     {producer.agreement.filename}
                   </div>
                   <div className="mt-[3px] font-mono text-[10.5px] tracking-[0.02em] text-[rgb(var(--fg-muted))]">
-                    {producer.agreement.kind === "pdf" ? "PDF" : "LINK"} · provided by {producer.name}
+                    {producer.agreement.kind === "pdf" ? "PDF" : "LINK"} · provided by{" "}
+                    {producer.name}
                   </div>
                 </div>
                 {producer.agreement.url ? (
@@ -255,7 +263,9 @@ export function ReviewAgreeScreen({
                 <span className="mt-px">
                   <ShieldIcon />
                 </span>
-                <span>Open this reference and review it together with the exact terms on this page.</span>
+                <span>
+                  Open this reference and review it together with the exact terms on this page.
+                </span>
               </div>
             </div>
           ) : null}
@@ -321,19 +331,19 @@ export function ReviewAgreeScreen({
             </div>
             <div className="mt-[9px] flex items-center gap-1.5 text-[11.5px] text-[rgb(var(--fg-muted))]">
               <LockIcon />
-              <span>Saved with a timestamp once you agree.</span>
+              <span>Final terms are accepted and frozen only when a Purchase is created.</span>
             </div>
           </div>
 
-          {/* agree */}
+          {/* review acknowledgement; this is not final commercial acceptance */}
           <div className="reveal-up reveal-up-delay-4 mt-4">
             <AgreeCheck
-              checked={agreed}
+              checked={reviewed}
               onToggle={() => {
-                setAgreed((v) => !v);
+                setReviewed((value) => !value);
               }}
             >
-              I&apos;ve reviewed and agree to the price, payment choices, rights, and agreement terms.
+              I&apos;ve reviewed the proposed price, payment choices, rights, and agreement terms.
             </AgreeCheck>
           </div>
         </div>
@@ -362,12 +372,10 @@ export function ReviewAgreeScreen({
             onClick={() => {
               void send();
             }}
-            disabled={!agreed || sending}
-            glow={agreed && !sending}
+            disabled={!reviewed || sending}
+            glow={reviewed && !sending}
             ariaBusy={sending}
-            sub={
-              agreed ? "Locks your price · sends to " + producer.name : "Agree above to continue"
-            }
+            sub={reviewed ? "Sends request to " + producer.name : "Review above to continue"}
           >
             {sending ? (
               <>

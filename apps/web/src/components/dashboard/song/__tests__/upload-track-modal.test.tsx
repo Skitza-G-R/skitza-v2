@@ -30,6 +30,7 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     expect(SRC).toMatch(/open:\s*boolean/);
     expect(SRC).toMatch(/onClose:\s*\(\)\s*=>\s*void/);
     expect(SRC).toMatch(/projectId:\s*string/);
+    expect(SRC).toMatch(/purchaseId\?:\s*string\s*\|\s*null/);
     expect(SRC).toMatch(/mode:\s*["']new-song["']\s*\|\s*["']new-version["']/);
     expect(SRC).toMatch(/tracks:\s*UploadTrackModalTrack\[\]/);
     expect(SRC).toMatch(/onCreated\?:/);
@@ -135,6 +136,12 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     expect(SRC).toContain("setTrackStageAction");
     // I1 — orphan cleanup on upload failure.
     expect(SRC).toContain("deleteVersionAction");
+  });
+
+  it("sends the exact purchase for new-song allocation and disables when unavailable", () => {
+    expect(SRC).toMatch(/addTrackAction\(\{[\s\S]*?projectId,[\s\S]*?purchaseId,/);
+    expect(SRC).toMatch(/isNewSong && !purchaseId/);
+    expect(SRC).toMatch(/No active purchase has an available song space/);
   });
 
   // I1 — on upload failure, the modal must cleanup the orphan
