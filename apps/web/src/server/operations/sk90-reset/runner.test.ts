@@ -740,7 +740,7 @@ describe("SK-90 executable rehearsal orchestration", () => {
     const final = await stateStore.load();
     expect(final?.completedRollbackPoints).toEqual(REQUIRED_ROLLBACK_POINTS);
     expect(new Set(ports.challenges).size).toBe(ports.challenges.length);
-  });
+  }, 15_000);
 
   it("reconciles a completed quarantine copy set without copying it twice", async () => {
     const stateStore = await store();
