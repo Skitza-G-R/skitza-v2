@@ -243,7 +243,11 @@ export const projectRouter = router({
       const trackIds = tracksList.map((t) => t.id);
       const allVersions = trackIds.length
         ? (
-            await ctx.db.select().from(trackVersions).orderBy(desc(trackVersions.uploadedAt))
+            await ctx.db
+              .select()
+              .from(trackVersions)
+              .where(isNull(trackVersions.audioDeletedAt))
+              .orderBy(desc(trackVersions.uploadedAt))
           ).filter((v) => trackIds.includes(v.trackId))
         : [];
       const versionIds = allVersions.map((v) => v.id);

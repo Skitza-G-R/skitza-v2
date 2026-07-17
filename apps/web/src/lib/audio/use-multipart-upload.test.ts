@@ -5,11 +5,14 @@ import { afterEach, describe, it, expect, vi } from "vitest";
 import {
   ACTIVE_UPLOAD_STALE_MS,
   CANCELLATION_RETRY_MS,
+  cancelInitializedUploadIfRequested,
   cancellationRetryDue,
   computeParts,
+  createUploadCancellationRequest,
   markCancellationRequested,
   markVersionCleanupRequested,
   requestExactMultipartCancellation,
+  requestUploadCancellation,
   requestVersionCleanup,
   resumableUploads,
   runRequestedCancellationPass,
@@ -152,6 +155,40 @@ describe("multipart upload recovery identity", () => {
 
     expect(events).toEqual(["persist", "abort"]);
     expect([...saved.values()][0]).toContain('"cancellationRequestedAt"');
+  });
+
+  it("records Stop during deferred init, cancels the returned identity, and never continues", async () => {
+    const request = createUploadCancellationRequest();
+    const abort = vi.fn(() => Promise.resolve({ ok: true as const }));
+    const continueUpload = vi.fn();
+    const storage = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      setItem: (key: string, value: string) => storage.set(key, value),
+      removeItem: (key: string) => storage.delete(key),
+    });
+    let finishInit: ((entry: ResumableEntry) => void) | undefined;
+    const initialized = new Promise<ResumableEntry>((resolve) => {
+      finishInit = resolve;
+    });
+    const flow = initialized.then(async (entry) => {
+      const canceled = await cancelInitializedUploadIfRequested(request, entry, abort);
+      if (canceled === null) continueUpload();
+      return canceled;
+    });
+
+    requestUploadCancellation(request);
+    finishInit?.({
+      key: "private-key",
+      uploadId: "upload-id",
+      trackVersionId: "version-id",
+      completionToken: "a".repeat(64),
+      totalBytes: 123,
+      completed: [],
+    });
+
+    await expect(flow).resolves.toEqual({ ok: true });
+    expect(abort).toHaveBeenCalledOnce();
+    expect(continueUpload).not.toHaveBeenCalled();
   });
 
   it("owns a delayed second pass after the first cancellation stays pending", async () => {

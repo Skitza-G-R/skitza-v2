@@ -1553,7 +1553,8 @@ export function createDatabaseRecovery(input: Readonly<{
       if (
         error instanceof Sk90ResetSafetyError &&
         (error.code === "RESTORE_PROOF_MISMATCH" ||
-          error.code === "POST_RESET_INTEGRITY_MISMATCH")
+          error.code === "POST_RESET_INTEGRITY_MISMATCH" ||
+          error.code === "DATABASE_VERIFICATION_MISMATCH")
       ) {
         return null;
       }

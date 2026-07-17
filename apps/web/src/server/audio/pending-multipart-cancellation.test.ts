@@ -56,9 +56,24 @@ describe("durable multipart cancellation stability", () => {
         completeAttemptedAt: null,
         partUrlsExpireAt: null,
         observedRemoteActivity: false,
+        verifiedRemoteAbsence: false,
         now,
       }),
     ).toBe(false);
+  });
+
+  it("clears attempt markers after the exact upload is aborted and the object is absent", () => {
+    expect(
+      canFinalizePendingMultipartCancellation({
+        cancellationObservedAt: new Date("2026-07-17T12:19:59.999Z"),
+        createAttemptedAt: new Date("2026-07-17T12:00:00.000Z"),
+        completeAttemptedAt: new Date("2026-07-17T12:19:30.000Z"),
+        partUrlsExpireAt: new Date("2026-07-17T12:19:45.000Z"),
+        observedRemoteActivity: true,
+        verifiedRemoteAbsence: true,
+        now,
+      }),
+    ).toBe(true);
   });
 
   it("never time-clears the only owner of an issued signed-part capability", () => {

@@ -209,6 +209,24 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     expect(cleanupRemoved).toBeGreaterThan(attachConfirmed);
   });
 
+  it("records Stop uploading during multipart init and cancels before any part or completion", () => {
+    const submitStart = SRC.indexOf("const handleSubmit");
+    const submit = SRC.slice(submitStart, SRC.indexOf("// Display label", submitStart));
+    const init = submit.indexOf("await initMultipartAction");
+    const cancellationCheck = submit.indexOf("cancelInitializedUploadIfRequested", init);
+    const firstPart = submit.indexOf("await signPartAction", init);
+    const completion = submit.indexOf("await completeMultipartAction", init);
+    const close = SRC.slice(SRC.indexOf("const handleClose"), submitStart);
+
+    expect(SRC).toContain("activeCancellationRef");
+    expect(close).toContain("requestUploadCancellation(cancellation)");
+    expect(cancellationCheck).toBeGreaterThan(init);
+    expect(cancellationCheck).toBeLessThan(firstPart);
+    expect(cancellationCheck).toBeLessThan(completion);
+    expect(submit.slice(cancellationCheck, firstPart)).toContain("recoveryEntry");
+    expect(submit.slice(cancellationCheck, firstPart)).toContain("abortMultipartAction");
+  });
+
   it("imports Server Actions from the clients-projects upload-actions module", () => {
     expect(SRC).toMatch(/~\/app\/\(producer\)\/dashboard\/clients-projects\/upload-actions/);
   });

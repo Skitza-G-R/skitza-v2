@@ -27,15 +27,20 @@ import {
   signPartAction,
 } from "~/app/(producer)/dashboard/clients-projects/upload-actions";
 import {
+  cancelInitializedUploadIfRequested,
+  createUploadCancellationRequest,
   markResumableProgress,
   markVersionCleanupRequested,
   persistResumableEntry,
   removeResumableEntry,
   removeVersionCleanupEntry,
   requestExactMultipartCancellation,
+  requestUploadCancellation,
   requestVersionCleanup,
   startMultipartCancellationRecovery,
   type ResumableEntry,
+  type UploadCancellationRequest,
+  uploadCancellationRequested,
 } from "~/lib/audio/use-multipart-upload";
 
 // UploadTrackModal — single modal that serves all 3 upload entry points
@@ -146,6 +151,7 @@ export function UploadTrackModal({
   // commits a re-render. The ref also lets us detect "in flight" for
   // the Cancel button's destructive label.
   const activeUploadRef = useRef<ActiveMultipartUpload | null>(null);
+  const activeCancellationRef = useRef<UploadCancellationRequest | null>(null);
 
   useEffect(() => startMultipartCancellationRecovery(), []);
 
@@ -217,6 +223,8 @@ export function UploadTrackModal({
 
   // ─── Submit / orchestration ────────────────────────────────────────
   const handleClose = () => {
+    const cancellation = activeCancellationRef.current;
+    if (cancellation) requestUploadCancellation(cancellation);
     // Publish and reconcile an exact cancellation. Keep the identity in
     // the ref until that finishes so any upload failure can safely await
     // the same idempotent cancellation before deleting its placeholder.
@@ -241,6 +249,8 @@ export function UploadTrackModal({
     // We re-bind via const so the async closure below keeps the
     // narrowed type even after React re-renders.
     const submittedFile = file;
+    const cancellation = createUploadCancellationRequest();
+    activeCancellationRef.current = cancellation;
 
     startTransition(async () => {
       setProgress(0);
@@ -282,6 +292,7 @@ export function UploadTrackModal({
         const versionId = vres.data.id;
         createdVersionId = versionId;
         versionCleanup = markVersionCleanupRequested(versionId);
+        if (uploadCancellationRequested(cancellation)) throw new Error("Upload stopped.");
 
         // 3. Init multipart upload on R2.
         const ires = await initMultipartAction({
@@ -307,6 +318,17 @@ export function UploadTrackModal({
         };
         activeUploadRef.current = recoveryEntry;
         persistResumableEntry(recoveryEntry);
+        const initializedCancellation = await cancelInitializedUploadIfRequested(
+          cancellation,
+          recoveryEntry,
+          abortMultipartAction,
+        );
+        if (initializedCancellation) {
+          if (initializedCancellation.ok && activeUploadRef.current === recoveryEntry) {
+            activeUploadRef.current = null;
+          }
+          throw new Error("Upload stopped.");
+        }
 
         // 4. Slice + sign + PUT each chunk in series. We stay serial
         //    rather than parallel so the progress bar tracks honestly
@@ -314,6 +336,7 @@ export function UploadTrackModal({
         //    parallel signed URLs.
         const partCount = Math.max(1, Math.ceil(submittedFile.size / CHUNK_SIZE));
         for (let i = 0; i < partCount; i++) {
+          if (uploadCancellationRequested(cancellation)) throw new Error("Upload stopped.");
           const partNumber = i + 1;
           const start = i * CHUNK_SIZE;
           const end = Math.min(start + CHUNK_SIZE, submittedFile.size);
@@ -326,6 +349,7 @@ export function UploadTrackModal({
             trackVersionId: versionId,
           });
           if (!sres.ok) throw new Error(sres.error);
+          if (uploadCancellationRequested(cancellation)) throw new Error("Upload stopped.");
 
           const putRes = await fetch(sres.data.url, {
             method: "PUT",
@@ -334,6 +358,7 @@ export function UploadTrackModal({
           if (!putRes.ok) {
             throw new Error(`Part ${String(partNumber)} upload failed: ${String(putRes.status)}`);
           }
+          if (uploadCancellationRequested(cancellation)) throw new Error("Upload stopped.");
           const eTag = (putRes.headers.get("ETag") ?? "").replaceAll('"', "");
           parts.push({ partNumber, eTag });
           markResumableProgress(recoveryEntry);
@@ -349,6 +374,7 @@ export function UploadTrackModal({
         } catch {
           // Skip — completeMultipart accepts undefined durationMs.
         }
+        if (uploadCancellationRequested(cancellation)) throw new Error("Upload stopped.");
 
         // 6. Finalise the multipart on R2 + patch the trackVersion row.
         const cres = await completeMultipartAction({
@@ -406,6 +432,10 @@ export function UploadTrackModal({
         const msg = err instanceof Error ? err.message : "Upload failed. Please retry.";
         toast(msg, "error");
         setProgress(0);
+      } finally {
+        if (activeCancellationRef.current === cancellation) {
+          activeCancellationRef.current = null;
+        }
       }
     });
   };

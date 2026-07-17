@@ -29,9 +29,16 @@ export function canFinalizePendingMultipartCancellation(
     completeAttemptedAt: Date | null;
     partUrlsExpireAt: Date | null;
     observedRemoteActivity: boolean;
+    verifiedRemoteAbsence?: boolean;
     now: Date;
   }>,
 ): boolean {
+  const observedAt = input.cancellationObservedAt.getTime();
+  const now = input.now.getTime();
+  if (!Number.isFinite(observedAt) || !Number.isFinite(now) || observedAt > now) {
+    return false;
+  }
+  if (input.verifiedRemoteAbsence === true) return true;
   if (input.observedRemoteActivity) return false;
   // A signed PUT may start before URL expiry and finish later, and a lost
   // CompleteMultipart response has the same open-ended ambiguity. Without a
@@ -44,14 +51,7 @@ export function canFinalizePendingMultipartCancellation(
   ) {
     return false;
   }
-  const observedAt = input.cancellationObservedAt.getTime();
-  const now = input.now.getTime();
-  if (
-    !Number.isFinite(observedAt) ||
-    !Number.isFinite(now) ||
-    observedAt > now ||
-    now - observedAt < MULTIPART_CANCELLATION_SETTLE_MS
-  ) {
+  if (now - observedAt < MULTIPART_CANCELLATION_SETTLE_MS) {
     return false;
   }
   return true;
@@ -669,6 +669,7 @@ async function finishInitializingAudioCancellation(
     completeAttemptedAt: input.completeAttemptedAt,
     partUrlsExpireAt: input.partUrlsExpireAt,
     observedRemoteActivity: uploadIds.length > 0,
+    verifiedRemoteAbsence: false,
     now: new Date(),
   });
 
@@ -932,6 +933,7 @@ async function finishPendingAudioCancellation(
           completeAttemptedAt: input.completeAttemptedAt,
           partUrlsExpireAt: input.partUrlsExpireAt,
           observedRemoteActivity,
+          verifiedRemoteAbsence: true,
           now: new Date(),
         });
         const [cleared] = await tx

@@ -67,6 +67,20 @@ type RecoveryResult = Readonly<{ ok: boolean }>;
 type ExactAbort = (input: ReturnType<typeof toExactAbortInput>) => Promise<RecoveryResult>;
 type VersionCleanup = (input: { id: string }) => Promise<RecoveryResult>;
 
+export type UploadCancellationRequest = { requested: boolean };
+
+export function createUploadCancellationRequest(): UploadCancellationRequest {
+  return { requested: false };
+}
+
+export function requestUploadCancellation(request: UploadCancellationRequest): void {
+  request.requested = true;
+}
+
+export function uploadCancellationRequested(request: UploadCancellationRequest): boolean {
+  return request.requested;
+}
+
 export function toExactAbortInput(entry: ResumableEntry) {
   return {
     key: entry.key,
@@ -169,6 +183,15 @@ export async function requestExactMultipartCancellation(
     removeResumableEntry(entry.uploadId);
   }
   return result;
+}
+
+export async function cancelInitializedUploadIfRequested(
+  request: UploadCancellationRequest,
+  entry: ResumableEntry,
+  abort: ExactAbort,
+): Promise<RecoveryResult | null> {
+  if (!uploadCancellationRequested(request)) return null;
+  return requestExactMultipartCancellation(entry, abort);
 }
 
 async function cancelResumableEntry(entry: ResumableEntry) {

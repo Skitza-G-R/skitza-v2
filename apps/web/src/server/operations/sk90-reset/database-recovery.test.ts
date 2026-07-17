@@ -18,7 +18,13 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { approvalLedgerDirectoryFingerprint } from "./approval-consumption";
 import { canonicalJson, protectValue, sha256Digest, type ProtectedToken } from "./canonical";
-import type { DatabaseVerificationReceipt } from "./database-adapter";
+import {
+  classifyDatabaseSchemaState,
+  SK90_BASELINE_ONLY_RELATIONS,
+  SK90_POST_RESET_ONLY_RELATIONS,
+  type DatabaseVerificationReceipt,
+  type NeonPoolClientLike,
+} from "./database-adapter";
 import {
   createDatabaseRecovery,
   type DatabaseBackupPreparationAuthorization,
@@ -145,9 +151,32 @@ async function fixture() {
     },
   };
 
-  const verifyRestoredBaseline = (): Promise<DatabaseVerificationReceipt> => {
-    if (databaseState !== "baseline") {
-      throw new Sk90ResetSafetyError("RESTORE_PROOF_MISMATCH");
+  const verifyRestoredBaseline = async (): Promise<DatabaseVerificationReceipt> => {
+    const classified = await classifyDatabaseSchemaState({
+      query: (() =>
+        Promise.resolve({
+          rows: [...SK90_BASELINE_ONLY_RELATIONS, ...SK90_POST_RESET_ONLY_RELATIONS].map(
+            (relationName) => ({
+              relation_name: relationName,
+              relation:
+                databaseState === "baseline"
+                  ? SK90_BASELINE_ONLY_RELATIONS.includes(
+                      relationName as (typeof SK90_BASELINE_ONLY_RELATIONS)[number],
+                    )
+                    ? relationName
+                    : null
+                  : SK90_POST_RESET_ONLY_RELATIONS.includes(
+                        relationName as (typeof SK90_POST_RESET_ONLY_RELATIONS)[number],
+                      )
+                    ? relationName
+                    : null,
+            }),
+          ),
+        })) as NeonPoolClientLike["query"],
+      release: () => undefined,
+    });
+    if (classified !== "baseline") {
+      throw new Sk90ResetSafetyError("DATABASE_VERIFICATION_MISMATCH");
     }
     if (failNextBaselineVerification) {
       failNextBaselineVerification = false;
@@ -580,6 +609,23 @@ describe("SK-90 PostgreSQL backup preparation and restore adapter", () => {
     const entries = await readdir(test.directory);
     expect(entries.filter((name) => name.endsWith(".intent.json"))).toHaveLength(3);
     expect(entries.filter((name) => name.endsWith(".receipt.json"))).toHaveLength(3);
+  });
+
+  it("runs pg_restore when the composed catalog probe observes a valid post-0027 database", async () => {
+    const test = await fixture();
+    const { approval } = await test.prepareAndApprove();
+    test.setDatabaseState("post_reset");
+
+    await expect(
+      test.recovery.restore(
+        test.restoreAuthorization(
+          approval,
+          "after_database_commit_before_storage_delete",
+          "post-0027-catalog",
+        ),
+      ),
+    ).resolves.toMatchObject({ restoreDisposition: "executed" });
+    expect(test.restoreProcessCount()).toBe(1);
   });
 
   it("rechecks freshness after archive validation and before destructive pg_restore", async () => {
