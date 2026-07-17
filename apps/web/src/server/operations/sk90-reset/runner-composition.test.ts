@@ -377,17 +377,14 @@ describe("SK-90 concrete adapter composition", () => {
   it("binds a committed rollback crash gap to an exact fresh reconciliation receipt", () => {
     const runner = readFileSync(new URL("./runner.ts", import.meta.url), "utf8");
     const start = runner.indexOf("async reconcileRollbackInterruption(");
-    const reconciliation = runner.slice(
-      start,
-      runner.indexOf("\n  #assertFreshAtBoundary", start),
-    );
+    const reconciliation = runner.slice(start, runner.indexOf("\n  #assertFreshAtBoundary", start));
 
     expect(reconciliation).toMatch(
       /#authorization\(context\)[\s\S]*#observeDatabaseState\(\)[\s\S]*point === "before_database_commit"[\s\S]*adapterReceipt\([\s\S]*resetRowCount/,
     );
   });
 
-  it("rechecks fresh time after backup validation and immediately before every quarantine copy", () => {
+  it("passes a fresh wall-clock authorization check into every storage mutation loop", () => {
     const runner = readFileSync(new URL("./runner.ts", import.meta.url), "utf8");
     const quarantine = runner.slice(
       runner.indexOf("async quarantine("),
@@ -399,11 +396,19 @@ describe("SK-90 concrete adapter composition", () => {
     );
 
     expect(quarantine).toMatch(
-      /requireApprovedBackup[\s\S]*#assertFreshAtBoundary[\s\S]*assertNamespaceState[\s\S]*#assertFreshAtBoundary[\s\S]*quarantineResetObjects/,
+      /requireApprovedBackup[\s\S]*quarantineResetObjects\([\s\S]*assertAuthorizationFresh:\s*\(\) =>\s*\{[\s\S]*this\.#assertFreshAtBoundary\(context\);[\s\S]*\}/,
     );
     expect(reconcile).toMatch(
-      /requireApprovedBackup[\s\S]*#assertFreshAtBoundary[\s\S]*quarantineResetObjects/,
+      /requireApprovedBackup[\s\S]*quarantineResetObjects\([\s\S]*assertAuthorizationFresh:\s*\(\) =>\s*\{[\s\S]*this\.#assertFreshAtBoundary\(context\);[\s\S]*\}/,
     );
+
+    for (const method of ["deleteResetObjects", "restoreResetObjects"]) {
+      expect(runner).toMatch(
+        new RegExp(
+          `${method}\\([\\s\\S]*?assertAuthorizationFresh:\\s*\\(\\) =>\\s*\\{[\\s\\S]*?this\\.#assertFreshAtBoundary\\(context\\);[\\s\\S]*?\\}`,
+        ),
+      );
+    }
   });
 
   it("consumes the exact approval before constructing real adapter dependencies", async () => {

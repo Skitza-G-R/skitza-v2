@@ -162,6 +162,7 @@ export interface Sk90R2RehearsalAdapter {
     input: Readonly<{
       artifactDigest: Sha256Digest;
       envelope: RawStorageEnvelope;
+      assertAuthorizationFresh: () => MaybePromise<void>;
     }>,
   ): Promise<QuarantineResult>;
 
@@ -171,6 +172,7 @@ export interface Sk90R2RehearsalAdapter {
       envelope: RawStorageEnvelope;
       completedProtectedKeys: readonly ProtectedToken[];
       mutationStarted: boolean;
+      assertAuthorizationFresh: () => MaybePromise<void>;
       onProgress?: (receipt: StorageDeleteProgressReceipt) => MaybePromise<void>;
     }>,
   ): Promise<StorageDeleteResult>;
@@ -180,6 +182,7 @@ export interface Sk90R2RehearsalAdapter {
       artifactDigest: Sha256Digest;
       envelope: RawStorageEnvelope;
       forceReplay: boolean;
+      assertAuthorizationFresh: () => MaybePromise<void>;
       onProgress?: (receipt: StorageRestoreProgressReceipt) => MaybePromise<void>;
     }>,
   ): Promise<StorageRestoreResult>;

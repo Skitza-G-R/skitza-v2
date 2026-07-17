@@ -92,6 +92,9 @@ export async function completeAudioUpload(input: {
 export async function abortAudioUpload(input: {
   key: string;
   uploadId: string;
+  trackVersionId: string;
+  sizeBytes: number;
+  completionToken: string;
 }): Promise<ActionData<{ ok: true }>> {
   try {
     const c = await caller();

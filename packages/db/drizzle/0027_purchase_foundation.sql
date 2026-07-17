@@ -313,9 +313,15 @@ BEGIN
         ("audio_url" IS NOT NULL AND "audio_r2_key" IS NOT NULL AND "size_bytes" > 0
           AND "audio_object_etag" <> ''
           AND "pending_audio_r2_key" IS NULL
+          AND "pending_audio_upload_id" IS NULL
+          AND "pending_audio_initiation_digest" IS NULL
           AND "pending_audio_completion_token" IS NULL
           AND "pending_audio_size_bytes" IS NULL
           AND "pending_audio_started_at" IS NULL
+          AND "pending_audio_create_attempted_at" IS NULL
+          AND "pending_audio_complete_attempted_at" IS NULL
+          AND "pending_audio_part_urls_expire_at" IS NULL
+          AND "pending_audio_cancel_requested_at" IS NULL
           AND "pending_audio_cleanup_etag" IS NULL
           AND "audio_identity_fingerprint" = 'sha256:' || encode(sha256(convert_to(
             'skitza-track-audio-v1|'
@@ -327,18 +333,44 @@ BEGIN
       ) IS TRUE),
       ADD CONSTRAINT "track_versions_pending_audio_shape" CHECK ((
         ("pending_audio_r2_key" IS NULL
+          AND "pending_audio_upload_id" IS NULL
+          AND "pending_audio_initiation_digest" IS NULL
           AND "pending_audio_completion_token" IS NULL
           AND "pending_audio_size_bytes" IS NULL
           AND "pending_audio_started_at" IS NULL
+          AND "pending_audio_create_attempted_at" IS NULL
+          AND "pending_audio_complete_attempted_at" IS NULL
+          AND "pending_audio_part_urls_expire_at" IS NULL
+          AND "pending_audio_cancel_requested_at" IS NULL
           AND "pending_audio_cleanup_etag" IS NULL)
         OR
         (NULLIF(btrim("pending_audio_r2_key"), '') IS NOT NULL
+          AND ("pending_audio_upload_id" IS NULL
+            OR NULLIF(btrim("pending_audio_upload_id"), '') IS NOT NULL)
+          AND "pending_audio_initiation_digest" ~ '^sha256:[0-9a-f]{64}$'
           AND "pending_audio_completion_token" ~ '^[0-9a-f]{64}$'
           AND "pending_audio_size_bytes" > 0
           AND "pending_audio_started_at" IS NOT NULL
+          AND ("pending_audio_create_attempted_at" IS NULL
+            OR "pending_audio_create_attempted_at" >= "pending_audio_started_at")
+          AND ("pending_audio_upload_id" IS NULL
+            OR "pending_audio_create_attempted_at" IS NOT NULL)
+          AND ("pending_audio_complete_attempted_at" IS NULL
+            OR ("pending_audio_upload_id" IS NOT NULL
+              AND "pending_audio_part_urls_expire_at" IS NOT NULL
+              AND "pending_audio_complete_attempted_at" >= "pending_audio_create_attempted_at"))
+          AND ("pending_audio_part_urls_expire_at" IS NULL
+            OR ("pending_audio_upload_id" IS NOT NULL
+              AND "pending_audio_part_urls_expire_at" >= "pending_audio_create_attempted_at"))
+          AND ("pending_audio_cancel_requested_at" IS NULL
+            OR ("pending_audio_cancel_requested_at" >= "pending_audio_started_at"
+              AND ("pending_audio_complete_attempted_at" IS NULL
+                OR "pending_audio_cancel_requested_at" >= "pending_audio_complete_attempted_at")))
           AND ("pending_audio_cleanup_etag" IS NULL
-            OR NULLIF(btrim("pending_audio_cleanup_etag"), '') IS NOT NULL)
-          AND "audio_deleted_at" IS NULL)
+            OR ("pending_audio_complete_attempted_at" IS NOT NULL
+              AND NULLIF(btrim("pending_audio_cleanup_etag"), '') IS NOT NULL))
+          AND (("pending_audio_cancel_requested_at" IS NULL AND "audio_deleted_at" IS NULL)
+            OR ("pending_audio_cancel_requested_at" IS NOT NULL AND "audio_deleted_at" IS NOT NULL)))
       ) IS TRUE);
     -- SKITZA_0027_EXPECTED_CHECK_CONTRACTS_END
 
@@ -389,7 +421,7 @@ BEGIN
           ('purchases', 'id:pg_catalog.uuid:NO:gen_random_uuid(),producer_id:pg_catalog.uuid:NO:<none>,project_id:pg_catalog.uuid:NO:<none>,client_contact_id:pg_catalog.uuid:NO:<none>,product_id:pg_catalog.uuid:YES:<none>,private_offer_id:pg_catalog.uuid:YES:<none>,purchase_request_id:pg_catalog.uuid:YES:<none>,source_kind:public.purchase_source_kind:NO:<none>,operation_key:pg_catalog.text:NO:<none>,operation_digest:pg_catalog.text:NO:<none>,ref_number:pg_catalog.text:NO:<none>,lifecycle_status:public.purchase_lifecycle_status:NO:waiting_for_payment,payment_plan_kind:public.purchase_payment_plan_kind:YES:<none>,snapshot_version:pg_catalog.int4:NO:1,snapshot_digest:pg_catalog.text:NO:<none>,commercial_snapshot:pg_catalog.jsonb:NO:<none>,subtotal_cents:pg_catalog.int4:NO:<none>,tax_cents:pg_catalog.int4:NO:<none>,total_cents:pg_catalog.int4:NO:<none>,currency:pg_catalog.text:NO:<none>,accepted_at:pg_catalog.timestamptz:NO:<none>,activated_at:pg_catalog.timestamptz:YES:<none>,canceled_at:pg_catalog.timestamptz:YES:<none>,created_at:pg_catalog.timestamptz:NO:now(),updated_at:pg_catalog.timestamptz:NO:now()'),
           ('song_public_links', 'id:pg_catalog.uuid:NO:gen_random_uuid(),track_id:pg_catalog.uuid:NO:<none>,purchase_id:pg_catalog.uuid:NO:<none>,producer_id:pg_catalog.uuid:NO:<none>,token_hash:pg_catalog.text:NO:<none>,token_version:pg_catalog.int4:NO:1,enabled_at:pg_catalog.timestamptz:NO:<none>,disabled_at:pg_catalog.timestamptz:YES:<none>,created_at:pg_catalog.timestamptz:NO:now(),updated_at:pg_catalog.timestamptz:NO:now()'),
           ('track_comments', 'id:pg_catalog.uuid:NO:gen_random_uuid(),version_id:pg_catalog.uuid:NO:<none>,producer_id:pg_catalog.uuid:NO:<none>,author_name:pg_catalog.text:NO:<none>,author_email:pg_catalog.text:NO:<none>,body:pg_catalog.text:NO:<none>,timestamp_ms:pg_catalog.int4:NO:<none>,resolved_at:pg_catalog.timestamptz:YES:<none>,from_producer:pg_catalog.bool:NO:false,created_at:pg_catalog.timestamptz:NO:now()'),
-          ('track_versions', 'id:pg_catalog.uuid:NO:gen_random_uuid(),track_id:pg_catalog.uuid:NO:<none>,purchase_id:pg_catalog.uuid:NO:<none>,producer_id:pg_catalog.uuid:NO:<none>,label:pg_catalog.text:NO:<none>,audio_url:pg_catalog.text:YES:<none>,duration_ms:pg_catalog.int4:YES:<none>,audio_r2_key:pg_catalog.text:YES:<none>,size_bytes:pg_catalog.int8:YES:<none>,audio_object_etag:pg_catalog.text:YES:<none>,audio_identity_fingerprint:pg_catalog.text:YES:<none>,pending_audio_r2_key:pg_catalog.text:YES:<none>,pending_audio_completion_token:pg_catalog.text:YES:<none>,pending_audio_size_bytes:pg_catalog.int8:YES:<none>,pending_audio_started_at:pg_catalog.timestamptz:YES:<none>,pending_audio_cleanup_etag:pg_catalog.text:YES:<none>,peaks_r2_key:pg_catalog.text:YES:<none>,peaks:pg_catalog.jsonb:YES:<none>,description:pg_catalog.text:YES:<none>,uploaded_at:pg_catalog.timestamptz:NO:now(),producer_marked_final_at:pg_catalog.timestamptz:YES:<none>,audio_deleted_at:pg_catalog.timestamptz:YES:<none>'),
+          ('track_versions', 'id:pg_catalog.uuid:NO:gen_random_uuid(),track_id:pg_catalog.uuid:NO:<none>,purchase_id:pg_catalog.uuid:NO:<none>,producer_id:pg_catalog.uuid:NO:<none>,label:pg_catalog.text:NO:<none>,audio_url:pg_catalog.text:YES:<none>,duration_ms:pg_catalog.int4:YES:<none>,audio_r2_key:pg_catalog.text:YES:<none>,size_bytes:pg_catalog.int8:YES:<none>,audio_object_etag:pg_catalog.text:YES:<none>,audio_identity_fingerprint:pg_catalog.text:YES:<none>,pending_audio_r2_key:pg_catalog.text:YES:<none>,pending_audio_upload_id:pg_catalog.text:YES:<none>,pending_audio_initiation_digest:pg_catalog.text:YES:<none>,pending_audio_completion_token:pg_catalog.text:YES:<none>,pending_audio_size_bytes:pg_catalog.int8:YES:<none>,pending_audio_started_at:pg_catalog.timestamptz:YES:<none>,pending_audio_create_attempted_at:pg_catalog.timestamptz:YES:<none>,pending_audio_complete_attempted_at:pg_catalog.timestamptz:YES:<none>,pending_audio_part_urls_expire_at:pg_catalog.timestamptz:YES:<none>,pending_audio_cancel_requested_at:pg_catalog.timestamptz:YES:<none>,pending_audio_cleanup_etag:pg_catalog.text:YES:<none>,peaks_r2_key:pg_catalog.text:YES:<none>,peaks:pg_catalog.jsonb:YES:<none>,description:pg_catalog.text:YES:<none>,uploaded_at:pg_catalog.timestamptz:NO:now(),producer_marked_final_at:pg_catalog.timestamptz:YES:<none>,audio_deleted_at:pg_catalog.timestamptz:YES:<none>'),
           ('version_approval_events', 'id:pg_catalog.uuid:NO:gen_random_uuid(),version_id:pg_catalog.uuid:NO:<none>,purchase_id:pg_catalog.uuid:NO:<none>,producer_id:pg_catalog.uuid:NO:<none>,client_contact_id:pg_catalog.uuid:NO:<none>,audio_identity_fingerprint:pg_catalog.text:NO:<none>,action:public.version_approval_action:NO:<none>,acted_by_clerk_user_id:pg_catalog.text:NO:<none>,created_at:pg_catalog.timestamptz:NO:now()')
         ) AS expected_columns("table_name", "column_contract")
         WHERE (
@@ -851,7 +883,7 @@ BEGIN
           AND pg_constraint.contype = 'c'
           AND pg_constraint.convalidated
           AND pg_get_constraintdef(pg_constraint.oid) ~*
-            'audio_url IS NULL.*audio_r2_key IS NULL.*size_bytes IS NULL.*audio_object_etag IS NULL.*audio_identity_fingerprint IS NULL.*audio_url IS NOT NULL.*audio_r2_key IS NOT NULL.*size_bytes > 0.*audio_object_etag <>.*pending_audio_r2_key IS NULL.*pending_audio_completion_token IS NULL.*pending_audio_size_bytes IS NULL.*pending_audio_started_at IS NULL.*pending_audio_cleanup_etag IS NULL.*audio_identity_fingerprint.*=.*sha256:.*encode.*sha256.*convert_to.*octet_length.*audio_r2_key.*audio_object_etag.*size_bytes.*IS TRUE'
+            'audio_url IS NULL.*audio_r2_key IS NULL.*size_bytes IS NULL.*audio_object_etag IS NULL.*audio_identity_fingerprint IS NULL.*audio_url IS NOT NULL.*audio_r2_key IS NOT NULL.*size_bytes > 0.*audio_object_etag <>.*pending_audio_r2_key IS NULL.*pending_audio_upload_id IS NULL.*pending_audio_initiation_digest IS NULL.*pending_audio_completion_token IS NULL.*pending_audio_size_bytes IS NULL.*pending_audio_started_at IS NULL.*pending_audio_create_attempted_at IS NULL.*pending_audio_complete_attempted_at IS NULL.*pending_audio_part_urls_expire_at IS NULL.*pending_audio_cancel_requested_at IS NULL.*pending_audio_cleanup_etag IS NULL.*audio_identity_fingerprint.*=.*sha256:.*encode.*sha256.*convert_to.*octet_length.*audio_r2_key.*audio_object_etag.*size_bytes.*IS TRUE'
       )
       OR NOT EXISTS (
         SELECT 1
@@ -861,7 +893,7 @@ BEGIN
           AND pg_constraint.contype = 'c'
           AND pg_constraint.convalidated
           AND pg_get_constraintdef(pg_constraint.oid) ~*
-            'pending_audio_r2_key IS NULL.*pending_audio_completion_token IS NULL.*pending_audio_size_bytes IS NULL.*pending_audio_started_at IS NULL.*pending_audio_cleanup_etag IS NULL.*btrim.*pending_audio_r2_key.*pending_audio_completion_token.*\^\[0-9a-f\]\{64\}\$.*pending_audio_size_bytes > 0.*pending_audio_started_at IS NOT NULL.*pending_audio_cleanup_etag.*audio_deleted_at IS NULL.*IS TRUE'
+            'pending_audio_r2_key IS NULL.*pending_audio_upload_id IS NULL.*pending_audio_initiation_digest IS NULL.*pending_audio_completion_token IS NULL.*pending_audio_size_bytes IS NULL.*pending_audio_started_at IS NULL.*pending_audio_create_attempted_at IS NULL.*pending_audio_complete_attempted_at IS NULL.*pending_audio_part_urls_expire_at IS NULL.*pending_audio_cancel_requested_at IS NULL.*pending_audio_cleanup_etag IS NULL.*btrim.*pending_audio_r2_key.*pending_audio_upload_id IS NULL.*btrim.*pending_audio_upload_id.*pending_audio_initiation_digest.*\^sha256:\[0-9a-f\]\{64\}\$.*pending_audio_completion_token.*\^\[0-9a-f\]\{64\}\$.*pending_audio_size_bytes > 0.*pending_audio_started_at IS NOT NULL.*pending_audio_create_attempted_at.*pending_audio_upload_id IS NULL.*pending_audio_create_attempted_at IS NOT NULL.*pending_audio_complete_attempted_at.*pending_audio_part_urls_expire_at.*pending_audio_cancel_requested_at.*pending_audio_cleanup_etag.*audio_deleted_at IS NULL.*IS TRUE'
       )
       OR NOT EXISTS (
         SELECT 1
@@ -2709,9 +2741,15 @@ BEGIN
     "audio_object_etag" text,
     "audio_identity_fingerprint" text,
     "pending_audio_r2_key" text,
+    "pending_audio_upload_id" text,
+    "pending_audio_initiation_digest" text,
     "pending_audio_completion_token" text,
     "pending_audio_size_bytes" bigint,
     "pending_audio_started_at" timestamp with time zone,
+    "pending_audio_create_attempted_at" timestamp with time zone,
+    "pending_audio_complete_attempted_at" timestamp with time zone,
+    "pending_audio_part_urls_expire_at" timestamp with time zone,
+    "pending_audio_cancel_requested_at" timestamp with time zone,
     "pending_audio_cleanup_etag" text,
     "peaks_r2_key" text,
     "peaks" jsonb,
@@ -2730,9 +2768,15 @@ BEGIN
       ("audio_url" IS NOT NULL AND "audio_r2_key" IS NOT NULL AND "size_bytes" > 0
         AND "audio_object_etag" <> ''
         AND "pending_audio_r2_key" IS NULL
+        AND "pending_audio_upload_id" IS NULL
+        AND "pending_audio_initiation_digest" IS NULL
         AND "pending_audio_completion_token" IS NULL
         AND "pending_audio_size_bytes" IS NULL
         AND "pending_audio_started_at" IS NULL
+        AND "pending_audio_create_attempted_at" IS NULL
+        AND "pending_audio_complete_attempted_at" IS NULL
+        AND "pending_audio_part_urls_expire_at" IS NULL
+        AND "pending_audio_cancel_requested_at" IS NULL
         AND "pending_audio_cleanup_etag" IS NULL
         AND "audio_identity_fingerprint" = 'sha256:' || encode(sha256(convert_to(
           'skitza-track-audio-v1|'
@@ -2744,18 +2788,44 @@ BEGIN
     ) IS TRUE),
     CONSTRAINT "track_versions_pending_audio_shape" CHECK ((
       ("pending_audio_r2_key" IS NULL
+        AND "pending_audio_upload_id" IS NULL
+        AND "pending_audio_initiation_digest" IS NULL
         AND "pending_audio_completion_token" IS NULL
         AND "pending_audio_size_bytes" IS NULL
         AND "pending_audio_started_at" IS NULL
+        AND "pending_audio_create_attempted_at" IS NULL
+        AND "pending_audio_complete_attempted_at" IS NULL
+        AND "pending_audio_part_urls_expire_at" IS NULL
+        AND "pending_audio_cancel_requested_at" IS NULL
         AND "pending_audio_cleanup_etag" IS NULL)
       OR
       (NULLIF(btrim("pending_audio_r2_key"), '') IS NOT NULL
+        AND ("pending_audio_upload_id" IS NULL
+          OR NULLIF(btrim("pending_audio_upload_id"), '') IS NOT NULL)
+        AND "pending_audio_initiation_digest" ~ '^sha256:[0-9a-f]{64}$'
         AND "pending_audio_completion_token" ~ '^[0-9a-f]{64}$'
         AND "pending_audio_size_bytes" > 0
         AND "pending_audio_started_at" IS NOT NULL
+        AND ("pending_audio_create_attempted_at" IS NULL
+          OR "pending_audio_create_attempted_at" >= "pending_audio_started_at")
+        AND ("pending_audio_upload_id" IS NULL
+          OR "pending_audio_create_attempted_at" IS NOT NULL)
+        AND ("pending_audio_complete_attempted_at" IS NULL
+          OR ("pending_audio_upload_id" IS NOT NULL
+            AND "pending_audio_part_urls_expire_at" IS NOT NULL
+            AND "pending_audio_complete_attempted_at" >= "pending_audio_create_attempted_at"))
+        AND ("pending_audio_part_urls_expire_at" IS NULL
+          OR ("pending_audio_upload_id" IS NOT NULL
+            AND "pending_audio_part_urls_expire_at" >= "pending_audio_create_attempted_at"))
+        AND ("pending_audio_cancel_requested_at" IS NULL
+          OR ("pending_audio_cancel_requested_at" >= "pending_audio_started_at"
+            AND ("pending_audio_complete_attempted_at" IS NULL
+              OR "pending_audio_cancel_requested_at" >= "pending_audio_complete_attempted_at")))
         AND ("pending_audio_cleanup_etag" IS NULL
-          OR NULLIF(btrim("pending_audio_cleanup_etag"), '') IS NOT NULL)
-        AND "audio_deleted_at" IS NULL)
+          OR ("pending_audio_complete_attempted_at" IS NOT NULL
+            AND NULLIF(btrim("pending_audio_cleanup_etag"), '') IS NOT NULL))
+        AND (("pending_audio_cancel_requested_at" IS NULL AND "audio_deleted_at" IS NULL)
+          OR ("pending_audio_cancel_requested_at" IS NOT NULL AND "audio_deleted_at" IS NOT NULL)))
     ) IS TRUE),
     CONSTRAINT "track_versions_track_id_project_tracks_id_fk"
       FOREIGN KEY ("track_id") REFERENCES "public"."project_tracks"("id") ON DELETE RESTRICT,

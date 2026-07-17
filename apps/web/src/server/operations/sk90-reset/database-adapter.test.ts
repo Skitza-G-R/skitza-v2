@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { bindDiscoveryEvidence, prepareResetRun } from "./artifact";
-import { protectValue, sha256Digest } from "./canonical";
+import { canonicalJson, protectValue, sha256Digest } from "./canonical";
 import {
   assertConcurrentWriteStop,
   assertFreshDatabaseMutationAuthorization,
@@ -11,8 +11,10 @@ import {
   collectCatalogFingerprint,
   collectDatabaseStorageReferencesFingerprint,
   Sk90DatabaseRehearsalAdapter,
+  SK90_PRESERVED_TABLES,
   SK90_POST_RESET_EMPTY_TABLES,
   SK90_POST_RESET_LOCK_TABLES,
+  SK90_POST_RESET_ONLY_RELATIONS,
   SK90_REQUIRED_LOCK_TABLES,
   SK90_RESET_SOURCE_TABLES,
   type NeonPoolClientLike,
@@ -44,6 +46,11 @@ const AUTH_CURRENT_TIME = "2026-07-17T10:01:00.000Z";
 function secondRunAuthorizationFixture() {
   const databaseFingerprint = sha256Digest("database-adapter-noop-database");
   const storageFingerprint = sha256Digest("database-adapter-noop-storage");
+  const emptyCatalogFingerprint = sha256Digest(canonicalJson([]));
+  const emptyPreservedRowCountsFingerprint = sha256Digest(
+    canonicalJson(SK90_PRESERVED_TABLES.map((table) => ({ table, count: 0 }))),
+  );
+  const emptyPreservedBusinessFingerprint = sha256Digest(canonicalJson([]));
   const policy: RehearsalTargetPolicy = {
     targetClass: "isolated_nonproduction",
     database: {
@@ -132,9 +139,9 @@ function secondRunAuthorizationFixture() {
       artifactVersion: "sk90-reset-v1",
       targetPolicyDigest: target.policyDigest,
       preSchemaFingerprint: sha256Digest("noop-pre-schema"),
-      reviewedTargetSchemaFingerprint: sha256Digest("noop-post-schema"),
-      preservedRowCountsFingerprint: sha256Digest("noop-preserved-counts"),
-      preservedBusinessFingerprint: sha256Digest("noop-preserved-business"),
+      reviewedTargetSchemaFingerprint: emptyCatalogFingerprint,
+      preservedRowCountsFingerprint: emptyPreservedRowCountsFingerprint,
+      preservedBusinessFingerprint: emptyPreservedBusinessFingerprint,
       mockEvidenceCoverage: buildMockEvidenceCoverage({
         identityTokens,
         monetaryRowTokens: monetaryTokens,
@@ -211,6 +218,61 @@ function blockingProbePool(blocked = true): Readonly<{ pool: NeonPoolLike; state
   return { pool, statements };
 }
 
+function postResetTransactionPool(
+  migrationDigest: string,
+): Readonly<{ pool: NeonPoolLike; statements: string[] }> {
+  const statements: string[] = [];
+  const client: NeonPoolClientLike = {
+    query: ((statement: string, parameters?: readonly unknown[]) => {
+      statements.push(statement);
+      if (statement.includes('FROM unnest($1::text[]) AS candidate("relation_name")')) {
+        const names = parameters?.[0];
+        if (!Array.isArray(names)) throw new Error("expected exact relation inventory");
+        return Promise.resolve({
+          rows: names.map((relationName) => ({
+            relation_name: String(relationName),
+            relation: SK90_POST_RESET_ONLY_RELATIONS.includes(
+              String(relationName) as (typeof SK90_POST_RESET_ONLY_RELATIONS)[number],
+            )
+              ? `public.${String(relationName)}`
+              : null,
+          })),
+        });
+      }
+      if (statement.includes('SELECT "digest" FROM "skitza_migrations"."applied"')) {
+        return Promise.resolve({ rows: [{ digest: migrationDigest }] });
+      }
+      if (statement.includes("WITH catalog_entry AS")) {
+        return Promise.resolve({ rows: [] });
+      }
+      if (
+        statement.includes("SELECT child.relname AS child_table") &&
+        statement.includes("FROM pg_constraint AS constraint_entry")
+      ) {
+        return Promise.resolve({ rows: [] });
+      }
+      if (statement.includes("SELECT to_regclass('public.")) {
+        return Promise.resolve({ rows: [{ relation: null }] });
+      }
+      if (statement.includes('count(*)::text AS "count"')) {
+        return Promise.resolve({ rows: [{ count: "0" }] });
+      }
+      if (statement.includes('SELECT "id"::text AS "identity"')) {
+        return Promise.resolve({ rows: [] });
+      }
+      if (statement.startsWith('DELETE FROM "public".')) {
+        return Promise.resolve({ rows: [], rowCount: 0 });
+      }
+      return Promise.resolve({ rows: [] });
+    }) as NeonPoolClientLike["query"],
+    release: () => undefined,
+  };
+  return {
+    pool: { connect: () => Promise.resolve(client) },
+    statements,
+  };
+}
+
 describe("SK-90 executable database rehearsal adapter", () => {
   it("locks the exact source boundary and keeps reset plus migration atomic", () => {
     const adapter = source();
@@ -229,13 +291,29 @@ describe("SK-90 executable database rehearsal adapter", () => {
       /SK90_MIGRATION_ADVISORY_LOCK_KEY[\s\S]*SK90_DATABASE_ADVISORY_LOCK_KEY[\s\S]*LOCK TABLE/,
     );
     expect(adapter).toMatch(/assertArtifactLockedSnapshot/);
-    expect(adapter).toMatch(/await breakResetCycles\(client, expected\)/);
+    expect(adapter).toMatch(
+      /await breakResetCycles\(client, expected, assertMutationAuthorizationFresh\)/,
+    );
     expect(adapter).toMatch(/UPDATE[\s\S]*"id" = ANY\(\$1::uuid\[\]\)/);
     expect(adapter).toMatch(/DELETE FROM[\s\S]*RETURNING/);
-    expect(adapter).toMatch(/await input\.applyCutoverInTransaction\(client, cutoverBinding\)/);
+    expect(adapter).toMatch(
+      /await input\.applyCutoverInTransaction\([\s\S]*freshnessCheckedClient\(client, assertMutationAuthorizationFresh\)/,
+    );
     expect(adapter).toMatch(/assertPostDatabaseEvidence/);
     expect(executeSource).toMatch(
-      /assertConcurrentWriteStop[\s\S]*assertFreshDatabaseMutationAuthorization[\s\S]*stageProviderResetEvidence/,
+      /assertFreshDatabaseMutationAuthorization[\s\S]*assertConcurrentWriteStop[\s\S]*stageProviderResetEvidence\([\s\S]*assertMutationAuthorizationFresh/,
+    );
+    expect(adapter).toMatch(
+      /stageProviderResetEvidence[\s\S]*assertAuthorizationFresh\(\)[\s\S]*set_config[\s\S]*assertAuthorizationFresh\(\)[\s\S]*CREATE TEMP TABLE[\s\S]*assertAuthorizationFresh\(\)[\s\S]*INSERT INTO/,
+    );
+    expect(adapter).toMatch(
+      /breakResetCycles[\s\S]*assertAuthorizationFresh\(\)[\s\S]*client\.query\(statement/,
+    );
+    expect(adapter).toMatch(
+      /deleteExactResetRows[\s\S]*assertAuthorizationFresh\(\)[\s\S]*DELETE FROM/,
+    );
+    expect(executeSource).toMatch(
+      /assertMutationAuthorizationFresh\(\)[\s\S]*applyCutoverInTransaction[\s\S]*assertPostDatabaseEvidence[\s\S]*assertMutationAuthorizationFresh\(\)[\s\S]*client\.query\("COMMIT"\)/,
     );
     expect(adapter).toMatch(/await client\.query\("COMMIT"\)/);
     expect(adapter).not.toMatch(/collectPostEvidence\?|runConcurrentProbe\?/);
@@ -292,14 +370,16 @@ describe("SK-90 executable database rehearsal adapter", () => {
       /SK90_MIGRATION_ADVISORY_LOCK_KEY[\s\S]*SK90_DATABASE_ADVISORY_LOCK_KEY[\s\S]*SK90_POST_RESET_LOCK_TABLES/,
     );
     expect(secondRun).toMatch(
-      /assertAppliedCutoverDigest[\s\S]*collectPostResetDatabaseEvidence[\s\S]*assertConcurrentWriteStop[\s\S]*attemptEmptyPostResetDeletionPath[\s\S]*input\.applyCutoverInTransaction\(client, cutoverBinding\)[\s\S]*assertAppliedCutoverDigest[\s\S]*collectPostResetDatabaseEvidence/,
+      /assertAppliedCutoverDigest[\s\S]*collectPostResetDatabaseEvidence[\s\S]*assertConcurrentWriteStop[\s\S]*attemptEmptyPostResetDeletionPath[\s\S]*input\.applyCutoverInTransaction\([\s\S]*freshnessCheckedClient\(client, assertMutationAuthorizationFresh\)[\s\S]*assertAppliedCutoverDigest[\s\S]*collectPostResetDatabaseEvidence/,
     );
     expect(secondRun).toMatch(/assertFreshTargetAuthorization[\s\S]*executionApprovalDigest/);
     expect(adapter).toMatch(
       /attemptEmptyPostResetDeletionPath[\s\S]*SELECT count\(\*\)[\s\S]*DELETE FROM[\s\S]*ANY\(\$1::uuid\[\]\)[\s\S]*RETURNING[\s\S]*rowCount !== 0/,
     );
     expect(secondRun).toMatch(/canonicalJson\(before\) !== canonicalJson\(after\)/);
-    expect(secondRun).toMatch(/deletedRowCount[\s\S]*await client\.query\("COMMIT"\)/);
+    expect(secondRun).toMatch(
+      /attemptEmptyPostResetDeletionPath[\s\S]*assertMutationAuthorizationFresh\(\)[\s\S]*applyCutoverInTransaction[\s\S]*canonicalJson\(before\) !== canonicalJson\(after\)[\s\S]*assertMutationAuthorizationFresh\(\)[\s\S]*client\.query\("COMMIT"\)/,
+    );
   });
 
   it("accepts the runner's fresh noop authorization before opening the second-run transaction", async () => {
@@ -353,6 +433,122 @@ describe("SK-90 executable database rehearsal adapter", () => {
     expect(mutationCalled).toBe(false);
   });
 
+  it("rechecks the live clock between noop deletes and rolls back before a later mutation", async () => {
+    const fixture = secondRunAuthorizationFixture();
+    const migrationDigest = "a".repeat(64);
+    const transaction = postResetTransactionPool(migrationDigest);
+    const probe = blockingProbePool();
+    let clockReads = 0;
+    let cutoverCalled = false;
+    const adapter = new Sk90DatabaseRehearsalAdapter(transaction.pool, probe.pool, () => {
+      clockReads += 1;
+      return new Date(clockReads === 1 ? "2026-07-17T10:03:00.000Z" : AUTH_EXPIRES_AT);
+    });
+
+    await expect(
+      adapter.executeSecondRunNoOp({
+        artifact: fixture.artifact,
+        hmacKey: STORAGE_HMAC_KEY,
+        expectedRows: fixture.expectedRows,
+        migrationDigest,
+        freshAuthorization: fixture.freshAuthorization,
+        actionChallengeToken: fixture.challengeToken,
+        currentTime: AUTH_CURRENT_TIME,
+        executionApprovalDigest: sha256Digest("noop-execution-approval"),
+        applyCutoverInTransaction: () => {
+          cutoverCalled = true;
+          return Promise.resolve();
+        },
+      }),
+    ).rejects.toMatchObject({ code: "FRESHNESS_PROOF_INVALID" });
+
+    expect(
+      transaction.statements.filter((statement) => statement.startsWith('DELETE FROM "public".')),
+    ).toHaveLength(1);
+    expect(cutoverCalled).toBe(false);
+    expect(transaction.statements).toContain("ROLLBACK");
+    expect(transaction.statements).not.toContain("COMMIT");
+  });
+
+  it("rechecks the live clock before every cutover query and rolls back on mid-cutover expiry", async () => {
+    const fixture = secondRunAuthorizationFixture();
+    const migrationDigest = "a".repeat(64);
+    const transaction = postResetTransactionPool(migrationDigest);
+    const probe = blockingProbePool();
+    let clockReads = 0;
+    const checksThroughFirstCutoverQuery = SK90_POST_RESET_EMPTY_TABLES.length + 2;
+    const adapter = new Sk90DatabaseRehearsalAdapter(transaction.pool, probe.pool, () => {
+      clockReads += 1;
+      return new Date(
+        clockReads <= checksThroughFirstCutoverQuery ? "2026-07-17T10:03:00.000Z" : AUTH_EXPIRES_AT,
+      );
+    });
+
+    await expect(
+      adapter.executeSecondRunNoOp({
+        artifact: fixture.artifact,
+        hmacKey: STORAGE_HMAC_KEY,
+        expectedRows: fixture.expectedRows,
+        migrationDigest,
+        freshAuthorization: fixture.freshAuthorization,
+        actionChallengeToken: fixture.challengeToken,
+        currentTime: AUTH_CURRENT_TIME,
+        executionApprovalDigest: sha256Digest("noop-execution-approval"),
+        applyCutoverInTransaction: async (client) => {
+          await client.query("CUTOVER MUTATION ONE");
+          await client.query("CUTOVER MUTATION TWO");
+        },
+      }),
+    ).rejects.toMatchObject({ code: "FRESHNESS_PROOF_INVALID" });
+
+    expect(transaction.statements).toContain("CUTOVER MUTATION ONE");
+    expect(transaction.statements).not.toContain("CUTOVER MUTATION TWO");
+    expect(clockReads).toBe(checksThroughFirstCutoverQuery + 1);
+    expect(transaction.statements).toContain("ROLLBACK");
+    expect(transaction.statements).not.toContain("COMMIT");
+  });
+
+  it("rechecks the live clock after cutover and rolls back instead of committing stale work", async () => {
+    const fixture = secondRunAuthorizationFixture();
+    const migrationDigest = "a".repeat(64);
+    const transaction = postResetTransactionPool(migrationDigest);
+    const probe = blockingProbePool();
+    let clockReads = 0;
+    let cutoverCalled = false;
+    const checksBeforeCommit = SK90_POST_RESET_EMPTY_TABLES.length + 1;
+    const adapter = new Sk90DatabaseRehearsalAdapter(transaction.pool, probe.pool, () => {
+      clockReads += 1;
+      return new Date(
+        clockReads <= checksBeforeCommit ? "2026-07-17T10:03:00.000Z" : AUTH_EXPIRES_AT,
+      );
+    });
+
+    await expect(
+      adapter.executeSecondRunNoOp({
+        artifact: fixture.artifact,
+        hmacKey: STORAGE_HMAC_KEY,
+        expectedRows: fixture.expectedRows,
+        migrationDigest,
+        freshAuthorization: fixture.freshAuthorization,
+        actionChallengeToken: fixture.challengeToken,
+        currentTime: AUTH_CURRENT_TIME,
+        executionApprovalDigest: sha256Digest("noop-execution-approval"),
+        applyCutoverInTransaction: () => {
+          cutoverCalled = true;
+          return Promise.resolve();
+        },
+      }),
+    ).rejects.toMatchObject({ code: "FRESHNESS_PROOF_INVALID" });
+
+    expect(
+      transaction.statements.filter((statement) => statement.startsWith('DELETE FROM "public".')),
+    ).toHaveLength(SK90_POST_RESET_EMPTY_TABLES.length);
+    expect(cutoverCalled).toBe(true);
+    expect(clockReads).toBe(checksBeforeCommit + 1);
+    expect(transaction.statements).toContain("ROLLBACK");
+    expect(transaction.statements).not.toContain("COMMIT");
+  });
+
   it("proves a second session cannot insert or update during the final lock window", async () => {
     const probe = blockingProbePool();
 
@@ -388,7 +584,7 @@ describe("SK-90 executable database rehearsal adapter", () => {
     await expect(collectCatalogFingerprint(client)).resolves.toMatch(/^sha256:[0-9a-f]{64}$/);
   });
 
-  it("accepts the pre-0027 absence or an empty complete pending-upload journal", async () => {
+  it("accepts the pre-0027 absence or an empty complete eleven-column pending-upload journal", async () => {
     const preCutover: NeonPoolClientLike = {
       query: () => Promise.resolve({ rows: [] }),
       release: () => undefined,
@@ -403,11 +599,17 @@ describe("SK-90 executable database rehearsal adapter", () => {
           call === 1
             ? {
                 rows: [
+                  { column_name: "pending_audio_cancel_requested_at" },
                   { column_name: "pending_audio_cleanup_etag" },
+                  { column_name: "pending_audio_complete_attempted_at" },
                   { column_name: "pending_audio_completion_token" },
+                  { column_name: "pending_audio_create_attempted_at" },
+                  { column_name: "pending_audio_initiation_digest" },
+                  { column_name: "pending_audio_part_urls_expire_at" },
                   { column_name: "pending_audio_r2_key" },
                   { column_name: "pending_audio_size_bytes" },
                   { column_name: "pending_audio_started_at" },
+                  { column_name: "pending_audio_upload_id" },
                 ],
               }
             : { rows: [{ count: "0" }] },
@@ -430,19 +632,87 @@ describe("SK-90 executable database rehearsal adapter", () => {
       code: "STORAGE_ENUMERATION_MISMATCH",
     });
 
+    const legacyFiveColumnJournal: NeonPoolClientLike = {
+      query: (() =>
+        Promise.resolve({
+          rows: [
+            { column_name: "pending_audio_cleanup_etag" },
+            { column_name: "pending_audio_complete_attempted_at" },
+            { column_name: "pending_audio_completion_token" },
+            { column_name: "pending_audio_r2_key" },
+            { column_name: "pending_audio_size_bytes" },
+            { column_name: "pending_audio_started_at" },
+          ],
+        })) as NeonPoolClientLike["query"],
+      release: () => undefined,
+    };
+    await expect(
+      assertNoUnresolvedPendingAudioUploads(legacyFiveColumnJournal),
+    ).rejects.toMatchObject({ code: "STORAGE_ENUMERATION_MISMATCH" });
+
+    const legacySevenColumnJournal: NeonPoolClientLike = {
+      query: (() =>
+        Promise.resolve({
+          rows: [
+            { column_name: "pending_audio_cancel_requested_at" },
+            { column_name: "pending_audio_cleanup_etag" },
+            { column_name: "pending_audio_completion_token" },
+            { column_name: "pending_audio_r2_key" },
+            { column_name: "pending_audio_size_bytes" },
+            { column_name: "pending_audio_started_at" },
+            { column_name: "pending_audio_upload_id" },
+          ],
+        })) as NeonPoolClientLike["query"],
+      release: () => undefined,
+    };
+    await expect(
+      assertNoUnresolvedPendingAudioUploads(legacySevenColumnJournal),
+    ).rejects.toMatchObject({ code: "STORAGE_ENUMERATION_MISMATCH" });
+
+    const unexpectedJournalColumn: NeonPoolClientLike = {
+      query: (() =>
+        Promise.resolve({
+          rows: [
+            { column_name: "pending_audio_cancel_requested_at" },
+            { column_name: "pending_audio_cleanup_etag" },
+            { column_name: "pending_audio_completion_token" },
+            { column_name: "pending_audio_create_attempted_at" },
+            { column_name: "pending_audio_initiation_digest" },
+            { column_name: "pending_audio_part_urls_expire_at" },
+            { column_name: "pending_audio_r2_key" },
+            { column_name: "pending_audio_size_bytes" },
+            { column_name: "pending_audio_started_at" },
+            { column_name: "pending_audio_unapproved_state" },
+            { column_name: "pending_audio_upload_id" },
+          ],
+        })) as NeonPoolClientLike["query"],
+      release: () => undefined,
+    };
+    await expect(
+      assertNoUnresolvedPendingAudioUploads(unexpectedJournalColumn),
+    ).rejects.toMatchObject({ code: "STORAGE_ENUMERATION_MISMATCH" });
+
+    const statements: string[] = [];
     let call = 0;
     const unresolved: NeonPoolClientLike = {
-      query: (() => {
+      query: ((statement: string) => {
+        statements.push(statement);
         call += 1;
         return Promise.resolve(
           call === 1
             ? {
                 rows: [
+                  { column_name: "pending_audio_cancel_requested_at" },
                   { column_name: "pending_audio_cleanup_etag" },
+                  { column_name: "pending_audio_complete_attempted_at" },
                   { column_name: "pending_audio_completion_token" },
+                  { column_name: "pending_audio_create_attempted_at" },
+                  { column_name: "pending_audio_initiation_digest" },
+                  { column_name: "pending_audio_part_urls_expire_at" },
                   { column_name: "pending_audio_r2_key" },
                   { column_name: "pending_audio_size_bytes" },
                   { column_name: "pending_audio_started_at" },
+                  { column_name: "pending_audio_upload_id" },
                 ],
               }
             : { rows: [{ count: "1" }] },
@@ -453,6 +723,12 @@ describe("SK-90 executable database rehearsal adapter", () => {
     await expect(assertNoUnresolvedPendingAudioUploads(unresolved)).rejects.toMatchObject({
       code: "STORAGE_ENUMERATION_MISMATCH",
     });
+    expect(statements[1]).toContain('"pending_audio_cancel_requested_at" IS NOT NULL');
+    expect(statements[1]).toContain('"pending_audio_create_attempted_at" IS NOT NULL');
+    expect(statements[1]).toContain('"pending_audio_complete_attempted_at" IS NOT NULL');
+    expect(statements[1]).toContain('"pending_audio_initiation_digest" IS NOT NULL');
+    expect(statements[1]).toContain('"pending_audio_part_urls_expire_at" IS NOT NULL');
+    expect(statements[1]).toContain('"pending_audio_upload_id" IS NOT NULL');
   });
 
   it("collects exact reset and preserved DB storage references on the locked client", async () => {

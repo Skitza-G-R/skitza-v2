@@ -365,16 +365,18 @@ function databaseRows(envelope: PrivateExecutionEnvelope): ResetRowIdentity[] {
   });
 }
 
-function providerEvidence(
+export function bindProviderResetEvidenceToAction(
   envelope: PrivateExecutionEnvelope,
   artifact: ApprovedResetArtifact,
+  actionChallengeToken: ProtectedToken,
 ): ProviderResetEvidence[] {
+  assertProtectedToken(actionChallengeToken);
   return envelope.providerReferences.map((reference) => ({
     ...reference,
     artifactDigest: artifact.digest,
     manifestDigest: artifact.manifestDigest,
     policyDigest: artifact.target.policyDigest,
-    challengeToken: artifact.discoveryEvidence.challengeToken,
+    challengeToken: actionChallengeToken,
   }));
 }
 
@@ -439,7 +441,6 @@ class AdapterBackedRehearsalPorts implements RehearsalRunnerPorts {
   readonly #recovery: DatabaseRecoveryPort;
   readonly #storageEnvelope: RawStorageEnvelope;
   readonly #rows: readonly ResetRowIdentity[];
-  readonly #providers: readonly ProviderResetEvidence[];
   readonly #freshPolicies = new Map<DurableAction, RehearsalTargetPolicy>();
   readonly #freshAuthorizations = new Map<DurableAction, FreshTargetAuthorization>();
 
@@ -456,7 +457,6 @@ class AdapterBackedRehearsalPorts implements RehearsalRunnerPorts {
     this.#recovery = recovery;
     this.#storageEnvelope = storageEnvelope;
     this.#rows = databaseRows(input.privateEnvelope);
-    this.#providers = providerEvidence(input.privateEnvelope, input.artifact);
   }
 
   prepare(): Promise<PreparedRunnerMaterial> {
@@ -598,6 +598,9 @@ class AdapterBackedRehearsalPorts implements RehearsalRunnerPorts {
     const result = await this.#storage.quarantineResetObjects({
       artifactDigest: context.artifactDigest,
       envelope: this.#storageEnvelope,
+      assertAuthorizationFresh: () => {
+        this.#assertFreshAtBoundary(context);
+      },
     });
     if (
       !sameDigest(
@@ -730,7 +733,11 @@ class AdapterBackedRehearsalPorts implements RehearsalRunnerPorts {
       artifact: this.#input.artifact,
       hmacKey: this.#input.hmacKey,
       expectedRows: this.#rows,
-      providerEvidence: this.#providers,
+      providerEvidence: bindProviderResetEvidenceToAction(
+        this.#input.privateEnvelope,
+        this.#input.artifact,
+        context.challengeToken,
+      ),
       freshAuthorization,
       actionChallengeToken: context.challengeToken,
       currentTime: context.currentTime,
@@ -789,6 +796,9 @@ class AdapterBackedRehearsalPorts implements RehearsalRunnerPorts {
         envelope: this.#storageEnvelope,
         completedProtectedKeys: [],
         mutationStarted: true,
+        assertAuthorizationFresh: () => {
+          this.#assertFreshAtBoundary(context);
+        },
         onProgress: (progress) => {
           if (progress.reconciled) stop("PHASE_STATE_INVALID");
           throw expectedInterruption;
@@ -800,11 +810,7 @@ class AdapterBackedRehearsalPorts implements RehearsalRunnerPorts {
     }
     const mutations = counterDelta(before, this.#storage.getMutationCounters());
     if (mutations.storageDeletes !== 1) stop("PHASE_STATE_INVALID");
-    return adapterReceipt(
-      context,
-      { point },
-      mutations,
-    );
+    return adapterReceipt(context, { point }, mutations);
   }
 
   async resetDatabase(context: AuthorizedActionContext): Promise<DurableOperationReceipt> {
@@ -828,6 +834,9 @@ class AdapterBackedRehearsalPorts implements RehearsalRunnerPorts {
       envelope: this.#storageEnvelope,
       completedProtectedKeys: [],
       mutationStarted: true,
+      assertAuthorizationFresh: () => {
+        this.#assertFreshAtBoundary(context);
+      },
     });
     if (
       !sameDigest(
@@ -893,7 +902,9 @@ class AdapterBackedRehearsalPorts implements RehearsalRunnerPorts {
       canonicalJson(this.#input.artifact.reviewedBaseline),
     );
     const durableAction =
-      context.action === "manual_restore" ? "manual_restore" : (`rollback_restore:${point}` as const);
+      context.action === "manual_restore"
+        ? "manual_restore"
+        : (`rollback_restore:${point}` as const);
     if (context.action !== durableAction) stop("PHASE_STATE_INVALID");
     let database: DatabaseRestoreReceipt;
     if (observedDatabase === "baseline") {
@@ -952,6 +963,9 @@ class AdapterBackedRehearsalPorts implements RehearsalRunnerPorts {
       artifactDigest: context.artifactDigest,
       envelope: this.#storageEnvelope,
       forceReplay: true,
+      assertAuthorizationFresh: () => {
+        this.#assertFreshAtBoundary(context);
+      },
     });
     if (
       !sameDigest(
@@ -1018,8 +1032,7 @@ class AdapterBackedRehearsalPorts implements RehearsalRunnerPorts {
       foreignKeyFingerprint: zero,
       orphanFingerprint: zero,
       ownershipFingerprint: zero,
-      storageNamespaceFingerprint:
-        this.#input.executionApproval.preStorageNamespaceFingerprint,
+      storageNamespaceFingerprint: this.#input.executionApproval.preStorageNamespaceFingerprint,
     };
   }
 
@@ -1145,6 +1158,9 @@ class AdapterBackedRehearsalPorts implements RehearsalRunnerPorts {
       envelope: this.#storageEnvelope,
       completedProtectedKeys: resetTokens,
       mutationStarted: true,
+      assertAuthorizationFresh: () => {
+        this.#assertFreshAtBoundary(context);
+      },
     });
     const secondStorage = await this.#storage.captureSecondRunStorageSnapshot({
       envelope: this.#storageEnvelope,
@@ -1289,6 +1305,9 @@ class AdapterBackedRehearsalPorts implements RehearsalRunnerPorts {
       const result = await this.#storage.quarantineResetObjects({
         artifactDigest: context.artifactDigest,
         envelope: this.#storageEnvelope,
+        assertAuthorizationFresh: () => {
+          this.#assertFreshAtBoundary(context);
+        },
       });
       if (
         !sameDigest(
@@ -1448,6 +1467,9 @@ class AdapterBackedRehearsalPorts implements RehearsalRunnerPorts {
         artifactDigest: context.artifactDigest,
         envelope: this.#storageEnvelope,
         forceReplay: true,
+        assertAuthorizationFresh: () => {
+          this.#assertFreshAtBoundary(context);
+        },
       });
       const mutations = counterDelta(before, this.#storage.getMutationCounters());
       const expectedCopies = this.#input.artifact.postResetExpectations.resetStorageObjectCount;
@@ -1925,8 +1947,7 @@ function restoreWasManual(state: DurableRunState): boolean {
   const restoreNonce = [...state.nonceLedger]
     .reverse()
     .find(
-      (entry) =>
-        entry.action === "manual_restore" || entry.action.startsWith("rollback_restore:"),
+      (entry) => entry.action === "manual_restore" || entry.action.startsWith("rollback_restore:"),
     );
   return restoreNonce?.action === "manual_restore";
 }
@@ -2289,11 +2310,7 @@ export class Sk90RehearsalRunner {
     if (!restoreReceipt) stop("RESTORE_PROOF_MISMATCH");
     const action: DurableAction = manual ? "manual_restore_verify" : `rollback_verify:${point}`;
     const authorized = await this.#authorize(state, action);
-    const receipt = await this.#ports.verifyRestored(
-      authorized.context,
-      point,
-      restoreReceipt,
-    );
+    const receipt = await this.#ports.verifyRestored(authorized.context, point, restoreReceipt);
     assertReceiptForContext(receipt, authorized.context, true);
     if (!hasZeroMutations(receipt.mutations)) stop("RESTORE_PROOF_MISMATCH");
     const completedRollbackPoints = completeExercise
@@ -2309,10 +2326,7 @@ export class Sk90RehearsalRunner {
     if (state.phase === "rollback_scenario_started") {
       const point = rollbackPointForPhase(state);
       const authorized = await this.#authorize(state, "reconcile_rollback_interruption");
-      const result = await this.#ports.reconcileRollbackInterruption(
-        authorized.context,
-        point,
-      );
+      const result = await this.#ports.reconcileRollbackInterruption(authorized.context, point);
       if (result.observation === "baseline") {
         if (result.receipt !== null) stop("DATABASE_VERIFICATION_MISMATCH");
         return this.#transition(authorized.state, (current) => ({
@@ -2344,10 +2358,9 @@ export class Sk90RehearsalRunner {
       );
     }
     if (state.phase === "rollback_partial_storage_delete_started") {
-      const databaseReceipt = receiptForAction(
-        state,
-        "rollback_interrupt_database:after_partial_storage_delete",
-      ) ?? receiptForAction(state, "reconcile_rollback_interruption");
+      const databaseReceipt =
+        receiptForAction(state, "rollback_interrupt_database:after_partial_storage_delete") ??
+        receiptForAction(state, "reconcile_rollback_interruption");
       if (!databaseReceipt || databaseReceipt.mutations.databaseRows <= 0) {
         stop("DATABASE_VERIFICATION_MISMATCH");
       }
@@ -2445,10 +2458,8 @@ export class Sk90RehearsalRunner {
               state,
               "rollback_interrupt:after_database_commit_before_storage_delete",
             ) ?? receiptForAction(state, "reconcile_rollback_interruption"))
-          : (receiptForAction(
-              state,
-              "rollback_interrupt_database:after_partial_storage_delete",
-            ) ?? receiptForAction(state, "reconcile_rollback_interruption"));
+          : (receiptForAction(state, "rollback_interrupt_database:after_partial_storage_delete") ??
+            receiptForAction(state, "reconcile_rollback_interruption"));
       if (!databaseReceipt || databaseReceipt.mutations.databaseRows <= 0) {
         stop("DATABASE_VERIFICATION_MISMATCH");
       }

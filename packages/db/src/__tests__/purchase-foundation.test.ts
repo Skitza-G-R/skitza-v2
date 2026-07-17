@@ -1010,11 +1010,33 @@ describe("SK-90 purchase-level schema", () => {
     expect(schema.trackVersions.audioObjectEtag.notNull).toBe(false);
     expect(schema.trackVersions.audioIdentityFingerprint.notNull).toBe(false);
     expect(schema.trackVersions.pendingAudioR2Key.name).toBe("pending_audio_r2_key");
+    expect(schema.trackVersions.pendingAudioUploadId.name).toBe("pending_audio_upload_id");
+    expect(schema.trackVersions.pendingAudioUploadId.notNull).toBe(false);
+    expect(schema.trackVersions.pendingAudioInitiationDigest.name).toBe(
+      "pending_audio_initiation_digest",
+    );
+    expect(schema.trackVersions.pendingAudioInitiationDigest.notNull).toBe(false);
     expect(schema.trackVersions.pendingAudioCompletionToken.name).toBe(
       "pending_audio_completion_token",
     );
     expect(schema.trackVersions.pendingAudioSizeBytes.name).toBe("pending_audio_size_bytes");
     expect(schema.trackVersions.pendingAudioStartedAt.name).toBe("pending_audio_started_at");
+    expect(schema.trackVersions.pendingAudioCreateAttemptedAt.name).toBe(
+      "pending_audio_create_attempted_at",
+    );
+    expect(schema.trackVersions.pendingAudioCreateAttemptedAt.notNull).toBe(false);
+    expect(schema.trackVersions.pendingAudioCompleteAttemptedAt.name).toBe(
+      "pending_audio_complete_attempted_at",
+    );
+    expect(schema.trackVersions.pendingAudioCompleteAttemptedAt.notNull).toBe(false);
+    expect(schema.trackVersions.pendingAudioPartUrlsExpireAt.name).toBe(
+      "pending_audio_part_urls_expire_at",
+    );
+    expect(schema.trackVersions.pendingAudioPartUrlsExpireAt.notNull).toBe(false);
+    expect(schema.trackVersions.pendingAudioCancelRequestedAt.name).toBe(
+      "pending_audio_cancel_requested_at",
+    );
+    expect(schema.trackVersions.pendingAudioCancelRequestedAt.notNull).toBe(false);
     expect(schema.trackVersions.pendingAudioCleanupEtag.name).toBe("pending_audio_cleanup_etag");
     expect(schema.trackComments.producerId.notNull).toBe(true);
     expect(schema.trackVersions.producerMarkedFinalAt.name).toBe("producer_marked_final_at");
@@ -1761,10 +1783,28 @@ describe("SK-90 purchase foundation migration", () => {
     expect(sql).toMatch(/track_versions_pending_audio_r2_key_unique/);
     expect(sql).toMatch(/track_versions_pending_audio_shape/);
     expect(sql).toMatch(
-      /track_versions_audio_identity_shape[\s\S]*audio_url" IS NULL[\s\S]*audio_identity_fingerprint[\s\S]*audio_url" IS NOT NULL[\s\S]*pending_audio_r2_key" IS NULL[\s\S]*pending_audio_completion_token" IS NULL[\s\S]*pending_audio_size_bytes" IS NULL[\s\S]*pending_audio_started_at" IS NULL[\s\S]*pending_audio_cleanup_etag" IS NULL[\s\S]*encode\(sha256\(convert_to[\s\S]*octet_length\("audio_r2_key"\)[\s\S]*audio_object_etag[\s\S]*size_bytes/,
+      /track_versions_audio_identity_shape[\s\S]*audio_url" IS NULL[\s\S]*audio_identity_fingerprint[\s\S]*audio_url" IS NOT NULL[\s\S]*pending_audio_r2_key" IS NULL[\s\S]*pending_audio_upload_id" IS NULL[\s\S]*pending_audio_initiation_digest" IS NULL[\s\S]*pending_audio_completion_token" IS NULL[\s\S]*pending_audio_size_bytes" IS NULL[\s\S]*pending_audio_started_at" IS NULL[\s\S]*pending_audio_create_attempted_at" IS NULL[\s\S]*pending_audio_complete_attempted_at" IS NULL[\s\S]*pending_audio_part_urls_expire_at" IS NULL[\s\S]*pending_audio_cancel_requested_at" IS NULL[\s\S]*pending_audio_cleanup_etag" IS NULL[\s\S]*encode\(sha256\(convert_to[\s\S]*octet_length\("audio_r2_key"\)[\s\S]*audio_object_etag[\s\S]*size_bytes/,
     );
     expect(sql).toMatch(
-      /track_versions_pending_audio_shape[\s\S]*pending_audio_r2_key" IS NULL[\s\S]*pending_audio_completion_token" IS NULL[\s\S]*pending_audio_size_bytes" IS NULL[\s\S]*pending_audio_started_at" IS NULL[\s\S]*pending_audio_cleanup_etag" IS NULL[\s\S]*btrim\("pending_audio_r2_key"\)[\s\S]*\^\[0-9a-f\]\{64\}\$[\s\S]*pending_audio_size_bytes" > 0[\s\S]*pending_audio_cleanup_etag[\s\S]*audio_deleted_at" IS NULL/,
+      /track_versions_pending_audio_shape[\s\S]*pending_audio_r2_key" IS NULL[\s\S]*pending_audio_upload_id" IS NULL[\s\S]*pending_audio_initiation_digest" IS NULL[\s\S]*pending_audio_completion_token" IS NULL[\s\S]*pending_audio_size_bytes" IS NULL[\s\S]*pending_audio_started_at" IS NULL[\s\S]*pending_audio_create_attempted_at" IS NULL[\s\S]*pending_audio_complete_attempted_at" IS NULL[\s\S]*pending_audio_part_urls_expire_at" IS NULL[\s\S]*pending_audio_cancel_requested_at" IS NULL[\s\S]*pending_audio_cleanup_etag" IS NULL[\s\S]*btrim\("pending_audio_r2_key"\)[\s\S]*btrim\("pending_audio_upload_id"\)[\s\S]*pending_audio_initiation_digest" ~ '\^sha256:\[0-9a-f\]\{64\}\$'[\s\S]*pending_audio_completion_token" ~ '\^\[0-9a-f\]\{64\}\$'[\s\S]*pending_audio_size_bytes" > 0[\s\S]*pending_audio_create_attempted_at[\s\S]*pending_audio_complete_attempted_at[\s\S]*pending_audio_part_urls_expire_at[\s\S]*pending_audio_cancel_requested_at[\s\S]*pending_audio_cleanup_etag[\s\S]*audio_deleted_at" IS NULL/,
+    );
+    expect(sql).toMatch(
+      /pending_audio_upload_id" IS NULL[\s\S]*OR NULLIF\(btrim\("pending_audio_upload_id"\), ''\) IS NOT NULL/,
+    );
+    expect(sql).toMatch(
+      /pending_audio_create_attempted_at" IS NULL[\s\S]*OR "pending_audio_create_attempted_at" >= "pending_audio_started_at"/,
+    );
+    expect(sql).toMatch(
+      /pending_audio_upload_id" IS NULL[\s\S]*OR "pending_audio_create_attempted_at" IS NOT NULL/,
+    );
+    expect(sql).toMatch(
+      /pending_audio_complete_attempted_at" IS NULL[\s\S]*pending_audio_upload_id" IS NOT NULL[\s\S]*pending_audio_part_urls_expire_at" IS NOT NULL[\s\S]*pending_audio_complete_attempted_at" >= "pending_audio_create_attempted_at"/,
+    );
+    expect(sql).toMatch(
+      /pending_audio_part_urls_expire_at" IS NULL[\s\S]*pending_audio_upload_id" IS NOT NULL[\s\S]*pending_audio_part_urls_expire_at" >= "pending_audio_create_attempted_at"/,
+    );
+    expect(sql).toMatch(
+      /pending_audio_cancel_requested_at" IS NULL[\s\S]*OR \("pending_audio_cancel_requested_at" >= "pending_audio_started_at"/,
     );
     expect(sql).toMatch(
       /version_approval_events_audio_identity_fk[\s\S]*audio_identity_fingerprint/,

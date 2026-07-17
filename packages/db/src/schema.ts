@@ -565,9 +565,35 @@ export const trackVersions = pgTable(
     // while an R2 upload is in flight. Successful completion clears it in the
     // same database write that installs the immutable live-object identity.
     pendingAudioR2Key: text("pending_audio_r2_key"),
+    // Exact R2 multipart handle needed to resume an abort after a server crash.
+    pendingAudioUploadId: text("pending_audio_upload_id"),
+    // Stable hash of filename/content-type/size. A retry can resume only the
+    // same initiation request even before R2 returns its upload id.
+    pendingAudioInitiationDigest: text("pending_audio_initiation_digest"),
     pendingAudioCompletionToken: text("pending_audio_completion_token"),
     pendingAudioSizeBytes: bigint("pending_audio_size_bytes", { mode: "number" }),
     pendingAudioStartedAt: timestamp("pending_audio_started_at", { withTimezone: true }),
+    // Persisted before CreateMultipartUpload so a crash cannot immediately
+    // create a second upload or clear an upload whose remote result is late.
+    pendingAudioCreateAttemptedAt: timestamp("pending_audio_create_attempted_at", {
+      withTimezone: true,
+    }),
+    // Persisted and committed before the sole CompleteMultipartUpload call.
+    // A retry with this marker may observe/reconcile, but may never replay it.
+    pendingAudioCompleteAttemptedAt: timestamp("pending_audio_complete_attempted_at", {
+      withTimezone: true,
+    }),
+    // Latest expiry of any server-issued UploadPart capability. It is evidence
+    // that cancellation must retain the exact recovery journal; expiry alone
+    // cannot prove an already-started request has finished.
+    pendingAudioPartUrlsExpireAt: timestamp("pending_audio_part_urls_expire_at", {
+      withTimezone: true,
+    }),
+    // Durable cancel intent. It is written before AbortMultipartUpload and
+    // makes completion retries reconcile cancellation instead of replaying.
+    pendingAudioCancelRequestedAt: timestamp("pending_audio_cancel_requested_at", {
+      withTimezone: true,
+    }),
     // Durable cleanup intent for an exact completed object. It is written only
     // after authoritative key/token/size/ETag verification and before deletion,
     // so a retry can safely finish clearing a consumed multipart upload.
@@ -624,9 +650,15 @@ export const trackVersions = pgTable(
           AND ${t.sizeBytes} > 0
           AND ${t.audioObjectEtag} <> ''
           AND ${t.pendingAudioR2Key} IS NULL
+          AND ${t.pendingAudioUploadId} IS NULL
+          AND ${t.pendingAudioInitiationDigest} IS NULL
           AND ${t.pendingAudioCompletionToken} IS NULL
           AND ${t.pendingAudioSizeBytes} IS NULL
           AND ${t.pendingAudioStartedAt} IS NULL
+          AND ${t.pendingAudioCreateAttemptedAt} IS NULL
+          AND ${t.pendingAudioCompleteAttemptedAt} IS NULL
+          AND ${t.pendingAudioPartUrlsExpireAt} IS NULL
+          AND ${t.pendingAudioCancelRequestedAt} IS NULL
           AND ${t.pendingAudioCleanupEtag} IS NULL
           AND ${t.audioIdentityFingerprint} = 'sha256:' || encode(sha256(convert_to(
             'skitza-track-audio-v1|'
@@ -643,19 +675,32 @@ export const trackVersions = pgTable(
       sql`(
         (
           ${t.pendingAudioR2Key} IS NULL
+          AND ${t.pendingAudioUploadId} IS NULL
+          AND ${t.pendingAudioInitiationDigest} IS NULL
           AND ${t.pendingAudioCompletionToken} IS NULL
           AND ${t.pendingAudioSizeBytes} IS NULL
           AND ${t.pendingAudioStartedAt} IS NULL
+          AND ${t.pendingAudioCreateAttemptedAt} IS NULL
+          AND ${t.pendingAudioCompleteAttemptedAt} IS NULL
+          AND ${t.pendingAudioPartUrlsExpireAt} IS NULL
+          AND ${t.pendingAudioCancelRequestedAt} IS NULL
           AND ${t.pendingAudioCleanupEtag} IS NULL
         )
         OR
         (
           NULLIF(btrim(${t.pendingAudioR2Key}), '') IS NOT NULL
+          AND (${t.pendingAudioUploadId} IS NULL OR NULLIF(btrim(${t.pendingAudioUploadId}), '') IS NOT NULL)
+          AND ${t.pendingAudioInitiationDigest} ~ '^sha256:[0-9a-f]{64}$'
           AND ${t.pendingAudioCompletionToken} ~ '^[0-9a-f]{64}$'
           AND ${t.pendingAudioSizeBytes} > 0
           AND ${t.pendingAudioStartedAt} IS NOT NULL
-          AND (${t.pendingAudioCleanupEtag} IS NULL OR NULLIF(btrim(${t.pendingAudioCleanupEtag}), '') IS NOT NULL)
-          AND ${t.audioDeletedAt} IS NULL
+          AND (${t.pendingAudioCreateAttemptedAt} IS NULL OR ${t.pendingAudioCreateAttemptedAt} >= ${t.pendingAudioStartedAt})
+          AND (${t.pendingAudioUploadId} IS NULL OR ${t.pendingAudioCreateAttemptedAt} IS NOT NULL)
+          AND (${t.pendingAudioCompleteAttemptedAt} IS NULL OR (${t.pendingAudioUploadId} IS NOT NULL AND ${t.pendingAudioPartUrlsExpireAt} IS NOT NULL AND ${t.pendingAudioCompleteAttemptedAt} >= ${t.pendingAudioCreateAttemptedAt}))
+          AND (${t.pendingAudioPartUrlsExpireAt} IS NULL OR (${t.pendingAudioUploadId} IS NOT NULL AND ${t.pendingAudioPartUrlsExpireAt} >= ${t.pendingAudioCreateAttemptedAt}))
+          AND (${t.pendingAudioCancelRequestedAt} IS NULL OR (${t.pendingAudioCancelRequestedAt} >= ${t.pendingAudioStartedAt} AND (${t.pendingAudioCompleteAttemptedAt} IS NULL OR ${t.pendingAudioCancelRequestedAt} >= ${t.pendingAudioCompleteAttemptedAt})))
+          AND (${t.pendingAudioCleanupEtag} IS NULL OR (${t.pendingAudioCompleteAttemptedAt} IS NOT NULL AND NULLIF(btrim(${t.pendingAudioCleanupEtag}), '') IS NOT NULL))
+          AND ((${t.pendingAudioCancelRequestedAt} IS NULL AND ${t.audioDeletedAt} IS NULL) OR (${t.pendingAudioCancelRequestedAt} IS NOT NULL AND ${t.audioDeletedAt} IS NOT NULL))
         )
       ) IS TRUE`,
     ),

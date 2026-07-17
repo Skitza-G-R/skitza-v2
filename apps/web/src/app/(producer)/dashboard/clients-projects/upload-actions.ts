@@ -205,15 +205,15 @@ export async function completeMultipartAction(input: {
   }
 }
 
-// Best-effort cleanup when the modal is closed mid-upload. Also fires
-// from the chunk loop if any signed PUT fails — we don't want to
-// leave half-uploaded parts hanging in R2. Revalidates so the orphan
-// track_versions row (which we wrote before R2 init) is re-read; the
-// audio router doesn't delete the DB row on abort, so the producer
-// still sees the pending version + can retry.
+// Durable cleanup when the modal is closed mid-upload. The complete
+// persisted identity is required so the audio service can journal and
+// reconcile only this exact upload before the placeholder is removed.
 export async function abortMultipartAction(input: {
   key: string;
   uploadId: string;
+  trackVersionId: string;
+  sizeBytes: number;
+  completionToken: string;
 }): Promise<ActionDataResult<{ ok: true }>> {
   const c = await callerOrError();
   if (!c.ok) return c;

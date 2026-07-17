@@ -148,11 +148,65 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
   // track_versions row created at step 2 of the chain. R2 multipart
   // abort happens for storage cleanup, but the DB row stayed forever
   // before this fix.
-  it("calls deleteVersionAction in the catch branch (best-effort fire-and-forget)", () => {
+  it("finishes exact multipart cancellation before deleting the ghost version", () => {
     expect(SRC).toMatch(/createdVersionId/);
-    // The cleanup call is fire-and-forget (no await) so the producer
-    // only sees ONE error toast.
-    expect(SRC).toMatch(/void deleteVersionAction/);
+    expect(SRC).toMatch(
+      /await requestExactMultipartCancellation\(active, abortMultipartAction\)[\s\S]*?await requestVersionCleanup\(versionCleanup, deleteVersionAction\)/,
+    );
+    expect(SRC).not.toMatch(/void requestVersionCleanup/);
+  });
+
+  it("binds every abort to the exact persisted upload identity", () => {
+    const activeUploadType = SRC.slice(
+      SRC.indexOf("type ActiveMultipartUpload"),
+      SRC.indexOf("export function UploadTrackModal"),
+    );
+    expect(activeUploadType).toMatch(/key:\s*string/);
+    expect(activeUploadType).toMatch(/uploadId:\s*string/);
+    expect(activeUploadType).toMatch(/trackVersionId:\s*string/);
+    expect(activeUploadType).toMatch(/sizeBytes:\s*number/);
+    expect(activeUploadType).toMatch(/completionToken:\s*string/);
+    expect(SRC).toMatch(
+      /const recoveryEntry[\s\S]*?key,[\s\S]*?uploadId,[\s\S]*?trackVersionId:\s*versionId,[\s\S]*?sizeBytes:\s*submittedFile\.size,[\s\S]*?completionToken/,
+    );
+  });
+
+  it("durably owns exact cancellation and orphan cleanup across unmounts", () => {
+    expect(SRC).toContain("startMultipartCancellationRecovery");
+    expect(SRC).toMatch(/useEffect\(\(\) => startMultipartCancellationRecovery\(\), \[\]\)/);
+    const initSuccess = SRC.indexOf("if (!ires.ok)");
+    const persistExact = SRC.indexOf("persistResumableEntry(recoveryEntry)", initSuccess);
+    const firstSign = SRC.indexOf("signPartAction", initSuccess);
+    expect(persistExact).toBeGreaterThan(initSuccess);
+    expect(persistExact).toBeLessThan(firstSign);
+    expect(SRC).toContain("markVersionCleanupRequested(createdVersionId)");
+    expect(SRC).toContain("requestExactMultipartCancellation(active, abortMultipartAction)");
+    expect(SRC).toContain("await requestVersionCleanup(versionCleanup, deleteVersionAction)");
+  });
+
+  it("keeps ambiguous init cleanup durable until deleteVersion confirms success", () => {
+    const catchStart = SRC.indexOf("} catch (err) {");
+    const catchSource = SRC.slice(catchStart, SRC.indexOf("// Display label", catchStart));
+    const persistCleanup = catchSource.indexOf("markVersionCleanupRequested(createdVersionId)");
+    const cleanupAttempt = catchSource.indexOf("requestVersionCleanup(", persistCleanup);
+    expect(persistCleanup).toBeGreaterThanOrEqual(0);
+    expect(cleanupAttempt).toBeGreaterThan(persistCleanup);
+    expect(catchSource).not.toContain("createdVersionId = null");
+  });
+
+  it("persists placeholder cleanup before multipart init and clears it only after attach", () => {
+    const versionCreated = SRC.indexOf("if (!vres.ok)");
+    const cleanupPersisted = SRC.indexOf(
+      "versionCleanup = markVersionCleanupRequested(versionId)",
+      versionCreated,
+    );
+    const initStarted = SRC.indexOf("await initMultipartAction", versionCreated);
+    expect(cleanupPersisted).toBeGreaterThan(versionCreated);
+    expect(cleanupPersisted).toBeLessThan(initStarted);
+
+    const attachConfirmed = SRC.indexOf("if (!cres.ok)");
+    const cleanupRemoved = SRC.indexOf("removeVersionCleanupEntry(versionId)", attachConfirmed);
+    expect(cleanupRemoved).toBeGreaterThan(attachConfirmed);
   });
 
   it("imports Server Actions from the clients-projects upload-actions module", () => {

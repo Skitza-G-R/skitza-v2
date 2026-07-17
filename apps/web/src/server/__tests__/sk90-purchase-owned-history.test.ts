@@ -8,7 +8,7 @@ function source(path: string): string {
 }
 
 describe("SK-90 purchase-owned history callers", () => {
-  it("soft-deletes failed-upload versions instead of deleting immutable history", () => {
+  it("recovers pending upload cancellation before soft-deleting incomplete history", () => {
     const projectRouter = source("src/server/trpc/routers/project.ts");
     const deleteVersion = projectRouter.slice(
       projectRouter.indexOf("deleteVersion:"),
@@ -19,12 +19,65 @@ describe("SK-90 purchase-owned history callers", () => {
     expect(deleteVersion).toMatch(/\.set\(\{ audioDeletedAt \}\)/);
     expect(deleteVersion).toMatch(/isNull\(trackVersions\.audioUrl\)/);
     expect(deleteVersion).toMatch(/row\.pendingAudioR2Key !== null/);
+    expect(deleteVersion).toMatch(/row\.pendingAudioUploadId !== null/);
+    expect(deleteVersion).toMatch(/row\.pendingAudioCancelRequestedAt !== null/);
+    expect(deleteVersion).toContain("await cancelPendingMultipartUpload(ctx");
     expect(deleteVersion).toMatch(/isNull\(trackVersions\.pendingAudioR2Key\)/);
+    expect(deleteVersion).toMatch(/isNull\(trackVersions\.pendingAudioUploadId\)/);
+    expect(deleteVersion).toMatch(/isNull\(trackVersions\.pendingAudioInitiationDigest\)/);
     expect(deleteVersion).toMatch(/isNull\(trackVersions\.pendingAudioCompletionToken\)/);
     expect(deleteVersion).toMatch(/isNull\(trackVersions\.pendingAudioSizeBytes\)/);
     expect(deleteVersion).toMatch(/isNull\(trackVersions\.pendingAudioStartedAt\)/);
+    expect(deleteVersion).toMatch(/isNull\(trackVersions\.pendingAudioCreateAttemptedAt\)/);
+    expect(deleteVersion).toMatch(/isNull\(trackVersions\.pendingAudioCancelRequestedAt\)/);
     expect(deleteVersion).toMatch(/isNull\(trackVersions\.pendingAudioCleanupEtag\)/);
-    expect(deleteVersion).toMatch(/code: "CONFLICT"/);
+
+    const softDeleteStart = deleteVersion.indexOf(".set({ audioDeletedAt })");
+    const softDeleteCas = deleteVersion.slice(
+      softDeleteStart,
+      deleteVersion.indexOf(".returning({ id: trackVersions.id })", softDeleteStart),
+    );
+    expect(softDeleteCas).toContain("eq(trackVersions.producerId, ctx.producerId)");
+  });
+
+  it("binds a server-issued identity before cancellation can mutate storage", () => {
+    const initiationService = source("src/server/audio/pending-multipart-initiation.ts");
+    const cancellationService = source("src/server/audio/pending-multipart-cancellation.ts");
+    const journalWrite = initiationService.indexOf("pendingAudioR2Key: proposedKey");
+    const preCreateReconciliation = initiationService.indexOf(
+      "const prepared = await reconcilePendingInitiation",
+    );
+    const createAttemptJournal = initiationService.indexOf("pendingAudioCreateAttemptedAt: now");
+    const remoteCreate = initiationService.indexOf("new CreateMultipartUploadCommand");
+    const uploadIdBinding = initiationService.indexOf("pendingAudioUploadId: uploadId");
+    const postCreateReconciliation = initiationService.indexOf(
+      "const reconciled = await reconcilePendingInitiation",
+      remoteCreate,
+    );
+    const reconciliation = cancellationService.indexOf(
+      "await finishPendingAudioCancellation(ctx, prepared.scope)",
+    );
+
+    expect(journalWrite).toBeGreaterThanOrEqual(0);
+    expect(preCreateReconciliation).toBeGreaterThan(journalWrite);
+    expect(preCreateReconciliation).toBeLessThan(remoteCreate);
+    expect(createAttemptJournal).toBeGreaterThan(journalWrite);
+    expect(remoteCreate).toBeGreaterThan(journalWrite);
+    expect(postCreateReconciliation).toBeGreaterThan(remoteCreate);
+    expect(uploadIdBinding).toBeGreaterThan(remoteCreate);
+    expect(reconciliation).toBeGreaterThanOrEqual(0);
+    expect(cancellationService).toContain(
+      "No server-issued multipart identity is pending for this version",
+    );
+    expect(cancellationService).toContain("abortMultipartUploadAndObserve");
+    expect(cancellationService).toContain("pendingAudioCleanupEtag: exact.objectEtag");
+    expect(cancellationService).toMatch(
+      /pendingAudioCancelRequestedAt: cancellationRequestedAt,[\s\S]*audioDeletedAt: cancellationRequestedAt/,
+    );
+    expect(cancellationService).toContain(": { audioDeletedAt: input.audioDeletedAt }");
+    expect(cancellationService).toContain("canFinalizePendingMultipartCancellation");
+    expect(cancellationService).toContain("refreshCancellationObservation");
+    expect(cancellationService).toContain("exactObjectIsAbsent");
   });
 
   it("keeps unfinished or deleted audio out of latest-listening surfaces", () => {

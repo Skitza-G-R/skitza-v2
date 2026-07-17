@@ -21,6 +21,10 @@ import { z } from "zod";
 
 import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
+import {
+  cancelPendingMultipartUpload,
+  PendingMultipartCancellationError,
+} from "~/server/audio/pending-multipart-cancellation";
 import { recordContact } from "~/server/contacts/record";
 import {
   createPurchaseOwnedSongSpace,
@@ -67,6 +71,15 @@ function mapVersionUploadDomainError(error: unknown): never {
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
   }
   throw new TRPCError({ code: "NOT_FOUND" });
+}
+
+function mapPendingMultipartCancellationError(error: unknown): never {
+  if (!(error instanceof PendingMultipartCancellationError)) throw error;
+  if (error.code === "NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND" });
+  if (error.code === "CONFLICT") {
+    throw new TRPCError({ code: "CONFLICT", message: error.message });
+  }
+  throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message });
 }
 
 function mapCommentDomainError(error: unknown): never {
@@ -728,30 +741,49 @@ export const projectRouter = router({
           audioUrl: trackVersions.audioUrl,
           audioDeletedAt: trackVersions.audioDeletedAt,
           pendingAudioR2Key: trackVersions.pendingAudioR2Key,
+          pendingAudioUploadId: trackVersions.pendingAudioUploadId,
+          pendingAudioInitiationDigest: trackVersions.pendingAudioInitiationDigest,
           pendingAudioCompletionToken: trackVersions.pendingAudioCompletionToken,
           pendingAudioSizeBytes: trackVersions.pendingAudioSizeBytes,
           pendingAudioStartedAt: trackVersions.pendingAudioStartedAt,
+          pendingAudioCreateAttemptedAt: trackVersions.pendingAudioCreateAttemptedAt,
+          pendingAudioCompleteAttemptedAt: trackVersions.pendingAudioCompleteAttemptedAt,
+          pendingAudioPartUrlsExpireAt: trackVersions.pendingAudioPartUrlsExpireAt,
+          pendingAudioCancelRequestedAt: trackVersions.pendingAudioCancelRequestedAt,
           pendingAudioCleanupEtag: trackVersions.pendingAudioCleanupEtag,
         })
         .from(trackVersions)
         .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
-        .innerJoin(projects, eq(projects.id, projectTracks.projectId))
-        .where(eq(trackVersions.id, input.id))
+        .innerJoin(
+          projects,
+          and(eq(projects.id, projectTracks.projectId), eq(projects.producerId, ctx.producerId)),
+        )
+        .where(and(eq(trackVersions.id, input.id), eq(trackVersions.producerId, ctx.producerId)))
         .limit(1);
       if (!row || row.producerId !== ctx.producerId) {
         throw new TRPCError({ code: "NOT_FOUND" });
       }
       if (
         row.pendingAudioR2Key !== null ||
+        row.pendingAudioUploadId !== null ||
+        row.pendingAudioInitiationDigest !== null ||
         row.pendingAudioCompletionToken !== null ||
         row.pendingAudioSizeBytes !== null ||
         row.pendingAudioStartedAt !== null ||
+        row.pendingAudioCreateAttemptedAt !== null ||
+        row.pendingAudioCompleteAttemptedAt !== null ||
+        row.pendingAudioPartUrlsExpireAt !== null ||
+        row.pendingAudioCancelRequestedAt !== null ||
         row.pendingAudioCleanupEtag !== null
       ) {
-        throw new TRPCError({
-          code: "CONFLICT",
-          message: "This audio upload is still being reconciled and cannot be removed.",
-        });
+        try {
+          const cancellation = await cancelPendingMultipartUpload(ctx, {
+            trackVersionId: input.id,
+          });
+          if (cancellation.kind !== "no_pending") return { ok: true as const };
+        } catch (error) {
+          mapPendingMultipartCancellationError(error);
+        }
       }
       if (row.audioDeletedAt) return { ok: true as const };
       if (row.audioUrl !== null) {
@@ -767,12 +799,19 @@ export const projectRouter = router({
         .where(
           and(
             eq(trackVersions.id, input.id),
+            eq(trackVersions.producerId, ctx.producerId),
             isNull(trackVersions.audioUrl),
             isNull(trackVersions.audioDeletedAt),
             isNull(trackVersions.pendingAudioR2Key),
+            isNull(trackVersions.pendingAudioUploadId),
+            isNull(trackVersions.pendingAudioInitiationDigest),
             isNull(trackVersions.pendingAudioCompletionToken),
             isNull(trackVersions.pendingAudioSizeBytes),
             isNull(trackVersions.pendingAudioStartedAt),
+            isNull(trackVersions.pendingAudioCreateAttemptedAt),
+            isNull(trackVersions.pendingAudioCompleteAttemptedAt),
+            isNull(trackVersions.pendingAudioPartUrlsExpireAt),
+            isNull(trackVersions.pendingAudioCancelRequestedAt),
             isNull(trackVersions.pendingAudioCleanupEtag),
           ),
         )
@@ -786,7 +825,7 @@ export const projectRouter = router({
       await ctx.db
         .update(projects)
         .set({ updatedAt: audioDeletedAt })
-        .where(eq(projects.id, row.projectId));
+        .where(and(eq(projects.id, row.projectId), eq(projects.producerId, ctx.producerId)));
       return { ok: true as const };
     }),
 

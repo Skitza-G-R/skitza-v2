@@ -20,10 +20,7 @@ import {
 } from "./index";
 import { Sk90ResetSafetyError, stop } from "./errors";
 import { SK90_APPROVED_RESET_INVENTORY } from "./manifest";
-import {
-  assertFreshTargetAuthorization,
-  type FreshTargetAuthorization,
-} from "./policy";
+import { assertFreshTargetAuthorization, type FreshTargetAuthorization } from "./policy";
 
 export const SK90_DATABASE_ADVISORY_LOCK_KEY = "7468258445703257128";
 export const SK90_MIGRATION_ADVISORY_LOCK_KEY = "7468258445703257129";
@@ -146,12 +143,34 @@ const DELETE_ORDER = [
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PENDING_AUDIO_COLUMNS = [
+  "pending_audio_cancel_requested_at",
   "pending_audio_cleanup_etag",
+  "pending_audio_complete_attempted_at",
   "pending_audio_completion_token",
+  "pending_audio_create_attempted_at",
+  "pending_audio_initiation_digest",
+  "pending_audio_part_urls_expire_at",
   "pending_audio_r2_key",
   "pending_audio_size_bytes",
   "pending_audio_started_at",
+  "pending_audio_upload_id",
 ] as const;
+
+export const SK90_BASELINE_ONLY_RELATIONS = [
+  "agreement_acceptances",
+  "invoices",
+  "store_purchase_intents",
+  "stripe_customers",
+] as const;
+
+export const SK90_POST_RESET_ONLY_RELATIONS = [
+  "private_offers",
+  "purchases",
+  "purchase_installments",
+  "purchase_payments",
+] as const;
+
+export type DatabaseSchemaState = "baseline" | "post_reset" | "mixed";
 
 export type PgQueryResult<Row extends Record<string, unknown> = Record<string, unknown>> =
   Readonly<{
@@ -242,6 +261,8 @@ export type Sk90CutoverApprovalBinding = Readonly<{
   actionChallengeToken: ProtectedToken;
 }>;
 
+type DatabaseMutationFreshnessCheck = () => void | Promise<void>;
+
 export function assertFreshDatabaseMutationAuthorization(
   input: Readonly<{
     freshAuthorization: FreshTargetAuthorization;
@@ -261,6 +282,24 @@ export function assertFreshDatabaseMutationAuthorization(
     currentTime: observedNow.toISOString(),
   });
   return true;
+}
+
+function freshnessCheckedClient(
+  client: NeonPoolClientLike,
+  assertAuthorizationFresh: DatabaseMutationFreshnessCheck,
+): NeonPoolClientLike {
+  return {
+    query: async <Row extends Record<string, unknown> = Record<string, unknown>>(
+      statement: string,
+      parameters?: readonly unknown[],
+    ): Promise<PgQueryResult<Row>> => {
+      await assertAuthorizationFresh();
+      return client.query<Row>(statement, parameters);
+    },
+    release: () => {
+      client.release();
+    },
+  };
 }
 
 type CountRow = Readonly<{ count: number | string }>;
@@ -285,8 +324,59 @@ function exactSortedStrings(left: readonly string[], right: readonly string[]): 
 }
 
 /**
+ * Classify the cutover phase without touching a relation that may have been
+ * dropped. The exact catalog and data verifiers still run after this gate; the
+ * marker inventory only selects the safe phase-specific lock set.
+ */
+export async function classifyDatabaseSchemaState(
+  client: NeonPoolClientLike,
+): Promise<DatabaseSchemaState> {
+  const relationNames = [...SK90_BASELINE_ONLY_RELATIONS, ...SK90_POST_RESET_ONLY_RELATIONS];
+  const result = await client.query<Readonly<{ relation_name: unknown; relation: unknown }>>(
+    `SELECT candidate."relation_name",
+      to_regclass(format('public.%I', candidate."relation_name"))::text AS "relation"
+     FROM unnest($1::text[]) AS candidate("relation_name")
+     ORDER BY candidate."relation_name" COLLATE "C"`,
+    [relationNames],
+  );
+  if (result.rows.length !== relationNames.length) stop("DATABASE_VERIFICATION_MISMATCH");
+
+  const expected = new Set<string>(relationNames);
+  const presence = new Map<string, boolean>();
+  for (const row of result.rows) {
+    if (
+      typeof row.relation_name !== "string" ||
+      !expected.has(row.relation_name) ||
+      presence.has(row.relation_name) ||
+      (row.relation !== null && typeof row.relation !== "string")
+    ) {
+      stop("DATABASE_VERIFICATION_MISMATCH");
+    }
+    presence.set(row.relation_name, row.relation !== null);
+  }
+  if (presence.size !== relationNames.length) stop("DATABASE_VERIFICATION_MISMATCH");
+
+  const allBaseline = SK90_BASELINE_ONLY_RELATIONS.every((name) => presence.get(name) === true);
+  const noBaseline = SK90_BASELINE_ONLY_RELATIONS.every((name) => presence.get(name) === false);
+  const allPostReset = SK90_POST_RESET_ONLY_RELATIONS.every((name) => presence.get(name) === true);
+  const noPostReset = SK90_POST_RESET_ONLY_RELATIONS.every((name) => presence.get(name) === false);
+  if (allBaseline && noPostReset) return "baseline";
+  if (noBaseline && allPostReset) return "post_reset";
+  return "mixed";
+}
+
+async function assertDatabaseSchemaState(
+  client: NeonPoolClientLike,
+  expected: Exclude<DatabaseSchemaState, "mixed">,
+): Promise<void> {
+  if ((await classifyDatabaseSchemaState(client)) !== expected) {
+    stop("DATABASE_VERIFICATION_MISMATCH");
+  }
+}
+
+/**
  * Pre-0027 targets have none of the pending-upload columns. A completed or
- * partially applied target must have the exact five-column journal shape, and
+ * partially applied target must have the exact eleven-column journal shape, and
  * any unresolved journal entry is an unapproved storage recovery reference.
  * It cannot be folded into the reset manifest or silently deleted.
  */
@@ -298,9 +388,8 @@ export async function assertNoUnresolvedPendingAudioUploads(
      FROM "information_schema"."columns"
      WHERE "table_schema" = 'public'
        AND "table_name" = 'track_versions'
-       AND "column_name" = ANY($1::text[])
+       AND "column_name" LIKE 'pending_audio_%'
      ORDER BY "column_name" COLLATE "C"`,
-    [PENDING_AUDIO_COLUMNS],
   );
   const observedColumns = columns.rows.map((row) => row.column_name);
   if (observedColumns.length === 0) return;
@@ -311,11 +400,17 @@ export async function assertNoUnresolvedPendingAudioUploads(
   const pending = await client.query<CountRow>(`
     SELECT count(*)::text AS "count"
     FROM "public"."track_versions"
-    WHERE "pending_audio_cleanup_etag" IS NOT NULL
+    WHERE "pending_audio_cancel_requested_at" IS NOT NULL
+       OR "pending_audio_cleanup_etag" IS NOT NULL
+       OR "pending_audio_complete_attempted_at" IS NOT NULL
        OR "pending_audio_r2_key" IS NOT NULL
+       OR "pending_audio_initiation_digest" IS NOT NULL
        OR "pending_audio_completion_token" IS NOT NULL
        OR "pending_audio_size_bytes" IS NOT NULL
-       OR "pending_audio_started_at" IS NOT NULL`);
+       OR "pending_audio_started_at" IS NOT NULL
+       OR "pending_audio_create_attempted_at" IS NOT NULL
+       OR "pending_audio_part_urls_expire_at" IS NOT NULL
+       OR "pending_audio_upload_id" IS NOT NULL`);
   if (safeCount(pending.rows[0]?.count) !== 0) {
     stop("STORAGE_ENUMERATION_MISMATCH");
   }
@@ -578,6 +673,7 @@ export async function stageProviderResetEvidence(
   evidence: readonly ProviderResetEvidence[],
   hmacKey: string,
   actionChallengeToken: ProtectedToken,
+  assertAuthorizationFresh: DatabaseMutationFreshnessCheck,
 ): Promise<void> {
   assertApprovedResetArtifact(artifact);
   assertProtectedToken(actionChallengeToken);
@@ -660,10 +756,12 @@ export async function stageProviderResetEvidence(
     stop("MOCK_EVIDENCE_COVERAGE_MISMATCH");
   }
 
+  await assertAuthorizationFresh();
   await client.query(
     `SELECT set_config('skitza.sk90_artifact_digest', $1, true), set_config('skitza.sk90_manifest_digest', $2, true), set_config('skitza.sk90_policy_digest', $3, true), set_config('skitza.sk90_provider_challenge', $4, true)`,
     [artifact.digest, artifact.manifestDigest, artifact.target.policyDigest, actionChallengeToken],
   );
+  await assertAuthorizationFresh();
   await client.query(`CREATE TEMP TABLE "skitza_0027_approved_provider_values" (
     "source_kind" text NOT NULL,
     "owner_id" uuid NOT NULL,
@@ -681,6 +779,7 @@ export async function stageProviderResetEvidence(
     PRIMARY KEY ("source_kind", "owner_id", "provider_value")
   ) ON COMMIT DROP`);
   for (const row of evidence) {
+    await assertAuthorizationFresh();
     await client.query(
       `INSERT INTO pg_temp."skitza_0027_approved_provider_values" (
       "source_kind", "owner_id", "provider_value", "provider", "mode", "attested",
@@ -856,6 +955,7 @@ export async function assertConcurrentWriteStop(pool: NeonPoolLike): Promise<voi
 async function breakResetCycles(
   client: NeonPoolClientLike,
   expected: ReadonlyMap<string, readonly string[]>,
+  assertAuthorizationFresh: DatabaseMutationFreshnessCheck,
 ): Promise<void> {
   for (const [table, statement] of [
     [
@@ -879,6 +979,7 @@ async function breakResetCycles(
       `UPDATE "public"."payment_proofs" SET "project_id" = NULL WHERE "id" = ANY($1::uuid[]) AND "project_id" IS NOT NULL`,
     ],
   ] as const) {
+    await assertAuthorizationFresh();
     await client.query(statement, [expected.get(table) ?? []]);
   }
 }
@@ -886,10 +987,12 @@ async function breakResetCycles(
 async function deleteExactResetRows(
   client: NeonPoolClientLike,
   expected: Map<string, string[]>,
+  assertAuthorizationFresh: DatabaseMutationFreshnessCheck,
 ): Promise<number> {
   let deleted = 0;
   for (const table of DELETE_ORDER) {
     const ids = expected.get(table) ?? [];
+    await assertAuthorizationFresh();
     const result = await client.query<Readonly<{ identity: string }>>(
       `DELETE FROM "public"."${table}" WHERE "id" = ANY($1::uuid[]) RETURNING "id"::text AS "identity"`,
       [ids],
@@ -907,7 +1010,10 @@ async function deleteExactResetRows(
   return deleted;
 }
 
-async function attemptEmptyPostResetDeletionPath(client: NeonPoolClientLike): Promise<0> {
+async function attemptEmptyPostResetDeletionPath(
+  client: NeonPoolClientLike,
+  assertAuthorizationFresh: DatabaseMutationFreshnessCheck,
+): Promise<0> {
   for (const table of SK90_POST_RESET_EMPTY_TABLES) {
     const observed = await client.query<CountRow>(
       `SELECT count(*)::text AS "count" FROM "public"."${table}"`,
@@ -918,6 +1024,7 @@ async function attemptEmptyPostResetDeletionPath(client: NeonPoolClientLike): Pr
     // empty, so RETURNING must prove that the DELETE statement changed zero
     // rows. An unexpected row is rejected by the count gate above, never
     // opportunistically deleted.
+    await assertAuthorizationFresh();
     const result = await client.query<Readonly<{ identity: string }>>(
       `DELETE FROM "public"."${table}" WHERE "id" = ANY($1::uuid[]) RETURNING "id"::text AS "identity"`,
       [[]],
@@ -1054,6 +1161,18 @@ export class Sk90DatabaseRehearsalAdapter {
       freshAuthorizationDigest: input.freshAuthorization.authorizationDigest,
       actionChallengeToken: input.actionChallengeToken,
     };
+    const assertMutationAuthorizationFresh = (): void => {
+      assertFreshDatabaseMutationAuthorization(
+        {
+          freshAuthorization: input.freshAuthorization,
+          action: "reset_database",
+          artifactDigest: input.artifact.digest,
+          actionChallengeToken: input.actionChallengeToken,
+          targetObservationDigest: targetObservationDigest(input.artifact.target),
+        },
+        this.now(),
+      );
+    };
     const expected = expectedRowsByTable(input.expectedRows);
     const client = await connectSafely(this.transactionPool);
     let transactionOpen = false;
@@ -1068,6 +1187,7 @@ export class Sk90DatabaseRehearsalAdapter {
       await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [
         SK90_DATABASE_ADVISORY_LOCK_KEY,
       ]);
+      await assertDatabaseSchemaState(client, "baseline");
       await client.query(
         `LOCK TABLE ${SK90_REQUIRED_LOCK_TABLES.map((table) => `"public"."${table}"`).join(", ")} IN SHARE ROW EXCLUSIVE MODE`,
       );
@@ -1081,28 +1201,28 @@ export class Sk90DatabaseRehearsalAdapter {
       assertLockedBaseline(input.artifact, lockedSnapshot);
 
       await assertConcurrentWriteStop(this.concurrentProbePool);
-      assertFreshDatabaseMutationAuthorization(
-        {
-          freshAuthorization: input.freshAuthorization,
-          action: "reset_database",
-          artifactDigest: input.artifact.digest,
-          actionChallengeToken: input.actionChallengeToken,
-          targetObservationDigest: targetObservationDigest(input.artifact.target),
-        },
-        this.now(),
-      );
       await stageProviderResetEvidence(
         client,
         input.artifact,
         input.providerEvidence,
         input.hmacKey,
         input.actionChallengeToken,
+        assertMutationAuthorizationFresh,
       );
-      await breakResetCycles(client, expected);
-      const deletedRowCount = await deleteExactResetRows(client, expected);
-      await input.applyCutoverInTransaction(client, cutoverBinding);
+      await breakResetCycles(client, expected, assertMutationAuthorizationFresh);
+      const deletedRowCount = await deleteExactResetRows(
+        client,
+        expected,
+        assertMutationAuthorizationFresh,
+      );
+      assertMutationAuthorizationFresh();
+      await input.applyCutoverInTransaction(
+        freshnessCheckedClient(client, assertMutationAuthorizationFresh),
+        cutoverBinding,
+      );
       const postEvidence = await collectPostResetDatabaseEvidence(client, input.hmacKey);
       assertPostDatabaseEvidence(input.artifact, postEvidence);
+      assertMutationAuthorizationFresh();
       await client.query("COMMIT");
       transactionOpen = false;
       return {
@@ -1153,6 +1273,7 @@ export class Sk90DatabaseRehearsalAdapter {
       await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [
         SK90_DATABASE_ADVISORY_LOCK_KEY,
       ]);
+      await assertDatabaseSchemaState(client, "baseline");
       await client.query(
         `LOCK TABLE ${SK90_REQUIRED_LOCK_TABLES.map((table) => `"public"."${table}"`).join(", ")} IN SHARE ROW EXCLUSIVE MODE`,
       );
@@ -1240,6 +1361,7 @@ export class Sk90DatabaseRehearsalAdapter {
       await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [
         SK90_DATABASE_ADVISORY_LOCK_KEY,
       ]);
+      await assertDatabaseSchemaState(client, "baseline");
       await client.query(
         `LOCK TABLE ${SK90_REQUIRED_LOCK_TABLES.map((table) => `"public"."${table}"`).join(", ")} IN SHARE ROW EXCLUSIVE MODE`,
       );
@@ -1329,6 +1451,18 @@ export class Sk90DatabaseRehearsalAdapter {
       freshAuthorizationDigest: input.freshAuthorization.authorizationDigest,
       actionChallengeToken: input.actionChallengeToken,
     };
+    const assertMutationAuthorizationFresh = (): void => {
+      assertFreshDatabaseMutationAuthorization(
+        {
+          freshAuthorization: input.freshAuthorization,
+          action: "noop",
+          artifactDigest: input.artifact.digest,
+          actionChallengeToken: input.actionChallengeToken,
+          targetObservationDigest: targetObservationDigest(input.artifact.target),
+        },
+        this.now(),
+      );
+    };
     // Rebind the invocation to the originally approved private reset set. The
     // observed post-reset expected set below is intentionally empty.
     expectedRowsByTable(input.expectedRows);
@@ -1344,6 +1478,7 @@ export class Sk90DatabaseRehearsalAdapter {
       await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [
         SK90_DATABASE_ADVISORY_LOCK_KEY,
       ]);
+      await assertDatabaseSchemaState(client, "post_reset");
       await client.query('LOCK TABLE "skitza_migrations"."applied" IN SHARE ROW EXCLUSIVE MODE');
       await client.query(
         `LOCK TABLE ${SK90_POST_RESET_LOCK_TABLES.map((table) => `"public"."${table}"`).join(", ")} IN SHARE ROW EXCLUSIVE MODE`,
@@ -1354,19 +1489,15 @@ export class Sk90DatabaseRehearsalAdapter {
       assertPostDatabaseEvidence(input.artifact, before);
       await assertConcurrentWriteStop(this.concurrentProbePool);
 
-      assertFreshDatabaseMutationAuthorization(
-        {
-          freshAuthorization: input.freshAuthorization,
-          action: "noop",
-          artifactDigest: input.artifact.digest,
-          actionChallengeToken: input.actionChallengeToken,
-          targetObservationDigest: targetObservationDigest(input.artifact.target),
-        },
-        this.now(),
+      const deletedRowCount = await attemptEmptyPostResetDeletionPath(
+        client,
+        assertMutationAuthorizationFresh,
       );
-
-      const deletedRowCount = await attemptEmptyPostResetDeletionPath(client);
-      await input.applyCutoverInTransaction(client, cutoverBinding);
+      assertMutationAuthorizationFresh();
+      await input.applyCutoverInTransaction(
+        freshnessCheckedClient(client, assertMutationAuthorizationFresh),
+        cutoverBinding,
+      );
       await assertAppliedCutoverDigest(client, input.migrationDigest);
 
       const after = await collectPostResetDatabaseEvidence(client, input.hmacKey);
@@ -1375,6 +1506,7 @@ export class Sk90DatabaseRehearsalAdapter {
         stop("IDEMPOTENCY_PROOF_MISMATCH");
       }
 
+      assertMutationAuthorizationFresh();
       await client.query("COMMIT");
       transactionOpen = false;
       return {
@@ -1421,6 +1553,7 @@ export class Sk90DatabaseRehearsalAdapter {
       await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [
         SK90_DATABASE_ADVISORY_LOCK_KEY,
       ]);
+      await assertDatabaseSchemaState(client, "post_reset");
       await client.query('LOCK TABLE "skitza_migrations"."applied" IN SHARE ROW EXCLUSIVE MODE');
       await client.query(
         `LOCK TABLE ${SK90_POST_RESET_LOCK_TABLES.map((table) => `"public"."${table}"`).join(", ")} IN SHARE ROW EXCLUSIVE MODE`,

@@ -26,6 +26,17 @@ import {
   setTrackStageAction,
   signPartAction,
 } from "~/app/(producer)/dashboard/clients-projects/upload-actions";
+import {
+  markResumableProgress,
+  markVersionCleanupRequested,
+  persistResumableEntry,
+  removeResumableEntry,
+  removeVersionCleanupEntry,
+  requestExactMultipartCancellation,
+  requestVersionCleanup,
+  startMultipartCancellationRecovery,
+  type ResumableEntry,
+} from "~/lib/audio/use-multipart-upload";
 
 // UploadTrackModal — single modal that serves all 3 upload entry points
 // (Album Songs tab "+ Add song", Song Space hero "Upload new version",
@@ -56,6 +67,14 @@ import {
 
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
 const NEW_SONG_VALUE = "__new__";
+
+type ActiveMultipartUpload = ResumableEntry & {
+  key: string;
+  uploadId: string;
+  trackVersionId: string;
+  sizeBytes: number;
+  completionToken: string;
+};
 
 // M1 — some drag-and-drop scenarios (Finder, certain browsers) hand us
 // a File with an empty `type`. The audio/ prefix check rejects those
@@ -126,7 +145,9 @@ export function UploadTrackModal({
   // freshest value even if the user closes mid-upload before React
   // commits a re-render. The ref also lets us detect "in flight" for
   // the Cancel button's destructive label.
-  const activeUploadRef = useRef<{ key: string; uploadId: string } | null>(null);
+  const activeUploadRef = useRef<ActiveMultipartUpload | null>(null);
+
+  useEffect(() => startMultipartCancellationRecovery(), []);
 
   // Reset every time the modal opens. Carrying state across open/close
   // is confusing — same precedent as new-client-modal.
@@ -196,15 +217,18 @@ export function UploadTrackModal({
 
   // ─── Submit / orchestration ────────────────────────────────────────
   const handleClose = () => {
-    // If an upload is mid-flight, abort R2 to reclaim storage. Best
-    // effort — we still close the modal even if the abort fails.
+    // Publish and reconcile an exact cancellation. Keep the identity in
+    // the ref until that finishes so any upload failure can safely await
+    // the same idempotent cancellation before deleting its placeholder.
     const active = activeUploadRef.current;
     if (active) {
-      void abortMultipartAction({
-        key: active.key,
-        uploadId: active.uploadId,
+      const versionCleanup = markVersionCleanupRequested(active.trackVersionId);
+      void requestExactMultipartCancellation(active, abortMultipartAction).then(async (result) => {
+        if (result.ok) {
+          if (activeUploadRef.current === active) activeUploadRef.current = null;
+          await requestVersionCleanup(versionCleanup, deleteVersionAction);
+        }
       });
-      activeUploadRef.current = null;
     }
     onClose();
   };
@@ -225,6 +249,7 @@ export function UploadTrackModal({
       // fails. I1 — without this, a failed upload left a permanent
       // audioUrl=null row in the DB even after R2 multipart was aborted.
       let createdVersionId: string | null = null;
+      let versionCleanup: ReturnType<typeof markVersionCleanupRequested> | null = null;
       try {
         // 1. Resolve trackId — create a new project_tracks row if the
         //    producer picked "+ New song", else use the existing id.
@@ -256,6 +281,7 @@ export function UploadTrackModal({
         if (!vres.ok) throw new Error(vres.error);
         const versionId = vres.data.id;
         createdVersionId = versionId;
+        versionCleanup = markVersionCleanupRequested(versionId);
 
         // 3. Init multipart upload on R2.
         const ires = await initMultipartAction({
@@ -266,14 +292,27 @@ export function UploadTrackModal({
         });
         if (!ires.ok) throw new Error(ires.error);
         const { uploadId, key, completionToken } = ires.data;
-        activeUploadRef.current = { uploadId, key };
+        const parts: { partNumber: number; eTag: string }[] = [];
+        const recoveryStartedAt = new Date().toISOString();
+        const recoveryEntry: ActiveMultipartUpload = {
+          key,
+          uploadId,
+          trackVersionId: versionId,
+          sizeBytes: submittedFile.size,
+          totalBytes: submittedFile.size,
+          completionToken,
+          completed: parts,
+          createdAt: recoveryStartedAt,
+          lastProgressAt: recoveryStartedAt,
+        };
+        activeUploadRef.current = recoveryEntry;
+        persistResumableEntry(recoveryEntry);
 
         // 4. Slice + sign + PUT each chunk in series. We stay serial
         //    rather than parallel so the progress bar tracks honestly
         //    and a network blip aborts cleanly without orphaning N
         //    parallel signed URLs.
         const partCount = Math.max(1, Math.ceil(submittedFile.size / CHUNK_SIZE));
-        const parts: { partNumber: number; eTag: string }[] = [];
         for (let i = 0; i < partCount; i++) {
           const partNumber = i + 1;
           const start = i * CHUNK_SIZE;
@@ -293,13 +332,11 @@ export function UploadTrackModal({
             body: chunk,
           });
           if (!putRes.ok) {
-            // Cleanup before bubbling up — leaves R2 in a tidy state.
-            await abortMultipartAction({ key, uploadId });
-            activeUploadRef.current = null;
             throw new Error(`Part ${String(partNumber)} upload failed: ${String(putRes.status)}`);
           }
           const eTag = (putRes.headers.get("ETag") ?? "").replaceAll('"', "");
           parts.push({ partNumber, eTag });
+          markResumableProgress(recoveryEntry);
           setProgress(Math.round((parts.length / partCount) * 100));
         }
 
@@ -324,6 +361,8 @@ export function UploadTrackModal({
           ...(durationMs ? { durationMs } : {}),
         });
         if (!cres.ok) throw new Error(cres.error);
+        removeResumableEntry(uploadId);
+        removeVersionCleanupEntry(versionId);
         activeUploadRef.current = null;
 
         // 7. Optional stage advance. We treat a stage failure as a soft
@@ -346,18 +385,27 @@ export function UploadTrackModal({
         router.refresh();
         onClose();
       } catch (err) {
-        // I1 — if we already created a track_versions row (audioUrl=null
-        // placeholder) before failing, delete it so the producer doesn't
-        // see a ghost version in the song list. Best-effort — failures
-        // are swallowed so the producer only sees ONE error toast.
-        if (createdVersionId) {
-          void deleteVersionAction({ id: createdVersionId });
-          createdVersionId = null;
+        // A pending multipart identity must be durably cancelled and
+        // reconciled before its placeholder can be deleted. If cancel
+        // fails, leave both the row and identity available for retry.
+        if (versionCleanup === null && createdVersionId) {
+          versionCleanup = markVersionCleanupRequested(createdVersionId);
+        }
+        const active = activeUploadRef.current;
+        let cancellationFinished = active === null;
+        if (active) {
+          const aborted = await requestExactMultipartCancellation(active, abortMultipartAction);
+          cancellationFinished = aborted.ok;
+          if (aborted.ok && activeUploadRef.current === active) {
+            activeUploadRef.current = null;
+          }
+        }
+        if (versionCleanup && cancellationFinished) {
+          await requestVersionCleanup(versionCleanup, deleteVersionAction);
         }
         const msg = err instanceof Error ? err.message : "Upload failed. Please retry.";
         toast(msg, "error");
         setProgress(0);
-        activeUploadRef.current = null;
       }
     });
   };

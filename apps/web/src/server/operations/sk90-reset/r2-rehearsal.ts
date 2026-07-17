@@ -68,6 +68,8 @@ type PhysicalObservation = Readonly<{
   metadataFingerprint: Sha256Digest;
 }>;
 
+type AuthorizationFreshnessCheck = () => void | Promise<void>;
+
 type MetadataCarrier = Pick<
   HeadObjectCommandOutput | GetObjectCommandOutput,
   | "CacheControl"
@@ -977,8 +979,10 @@ class R2RehearsalAdapter implements Sk90R2RehearsalAdapter {
       sourceEtag: string;
       destinationKey: string;
       failureCode: Sk90SafetyErrorCode;
+      assertAuthorizationFresh: AuthorizationFreshnessCheck;
     }>,
   ): Promise<void> {
+    await input.assertAuthorizationFresh();
     this.copyAttempts += 1;
     await safely(
       () =>
@@ -1004,8 +1008,10 @@ class R2RehearsalAdapter implements Sk90R2RehearsalAdapter {
       sourceEtag: string;
       destinationKey: string;
       destinationEtag: string;
+      assertAuthorizationFresh: AuthorizationFreshnessCheck;
     }>,
   ): Promise<void> {
+    await input.assertAuthorizationFresh();
     this.copyAttempts += 1;
     await safely(
       () =>
@@ -1030,8 +1036,10 @@ class R2RehearsalAdapter implements Sk90R2RehearsalAdapter {
       key: string;
       etag: string;
       failureCode: Sk90SafetyErrorCode;
+      assertAuthorizationFresh: AuthorizationFreshnessCheck;
     }>,
   ): Promise<void> {
+    await input.assertAuthorizationFresh();
     this.deleteAttempts += 1;
     await safely(
       () =>
@@ -1054,6 +1062,7 @@ class R2RehearsalAdapter implements Sk90R2RehearsalAdapter {
     artifactDigest: Sha256Digest,
     entry: RawStorageEnvelopeEntry,
     source: ObservedStorageObject,
+    assertAuthorizationFresh: AuthorizationFreshnessCheck,
   ): Promise<Readonly<{ recoveryKey: string; observation: PhysicalObservation }>> {
     const recoveryKey = this.recoveryKey(artifactDigest, entry);
     if (
@@ -1065,6 +1074,7 @@ class R2RehearsalAdapter implements Sk90R2RehearsalAdapter {
         sourceEtag: source.etag,
         destinationKey: recoveryKey,
         failureCode: "QUARANTINE_PROOF_MISMATCH",
+        assertAuthorizationFresh,
       });
     }
     const observation = await this.observePhysical(
@@ -1080,6 +1090,7 @@ class R2RehearsalAdapter implements Sk90R2RehearsalAdapter {
     artifactDigest: Sha256Digest,
     entry: RawStorageEnvelopeEntry,
     recovery: Readonly<{ recoveryKey: string; observation: PhysicalObservation }>,
+    assertAuthorizationFresh: AuthorizationFreshnessCheck,
   ): Promise<void> {
     const probeKey = this.probeKey(artifactDigest, entry);
     let probe = await this.headOrNull(entry.bucketRole, probeKey, "QUARANTINE_PROOF_MISMATCH");
@@ -1090,6 +1101,7 @@ class R2RehearsalAdapter implements Sk90R2RehearsalAdapter {
         sourceEtag: recovery.observation.etag,
         destinationKey: probeKey,
         failureCode: "QUARANTINE_PROOF_MISMATCH",
+        assertAuthorizationFresh,
       });
       probe = await this.headOrNull(entry.bucketRole, probeKey, "QUARANTINE_PROOF_MISMATCH");
     }
@@ -1105,6 +1117,7 @@ class R2RehearsalAdapter implements Sk90R2RehearsalAdapter {
       key: probeKey,
       etag: verified.etag,
       failureCode: "QUARANTINE_PROOF_MISMATCH",
+      assertAuthorizationFresh,
     });
   }
 
@@ -1112,6 +1125,7 @@ class R2RehearsalAdapter implements Sk90R2RehearsalAdapter {
     input: Readonly<{
       artifactDigest: Sha256Digest;
       envelope: RawStorageEnvelope;
+      assertAuthorizationFresh: AuthorizationFreshnessCheck;
     }>,
   ): Promise<
     Readonly<{
@@ -1137,8 +1151,18 @@ class R2RehearsalAdapter implements Sk90R2RehearsalAdapter {
     for (const entry of resetEntries) {
       const source = sourceByToken.get(entry.protectedKey);
       if (!source) stop("QUARANTINE_PROOF_MISMATCH");
-      const recovery = await this.ensureRecoveryCopy(input.artifactDigest, entry, source);
-      await this.verifyRestoreProbe(input.artifactDigest, entry, recovery);
+      const recovery = await this.ensureRecoveryCopy(
+        input.artifactDigest,
+        entry,
+        source,
+        input.assertAuthorizationFresh,
+      );
+      await this.verifyRestoreProbe(
+        input.artifactDigest,
+        entry,
+        recovery,
+        input.assertAuthorizationFresh,
+      );
       const protectedCopyKey = this.token({
         scope: "recovery",
         bucketRole: entry.bucketRole,
@@ -1233,6 +1257,7 @@ class R2RehearsalAdapter implements Sk90R2RehearsalAdapter {
       envelope: RawStorageEnvelope;
       completedProtectedKeys: readonly ProtectedToken[];
       mutationStarted: boolean;
+      assertAuthorizationFresh: AuthorizationFreshnessCheck;
       onProgress?: (receipt: StorageDeleteProgressReceipt) => unknown;
     }>,
   ): Promise<StorageDeleteResult> {
@@ -1304,6 +1329,7 @@ class R2RehearsalAdapter implements Sk90R2RehearsalAdapter {
         key: this.dataKey(entry.logicalKey),
         etag: observed.etag,
         failureCode: "STORAGE_OBJECT_DRIFT",
+        assertAuthorizationFresh: input.assertAuthorizationFresh,
       });
       await this.notifyDeleteProgress(input.onProgress, {
         protectedKey: entry.protectedKey,
@@ -1331,6 +1357,7 @@ class R2RehearsalAdapter implements Sk90R2RehearsalAdapter {
       artifactDigest: Sha256Digest;
       envelope: RawStorageEnvelope;
       forceReplay: boolean;
+      assertAuthorizationFresh: AuthorizationFreshnessCheck;
       onProgress?: (
         receipt: Readonly<{
           protectedKey: ProtectedToken;
@@ -1385,10 +1412,18 @@ class R2RehearsalAdapter implements Sk90R2RehearsalAdapter {
         destinationKey: this.dataKey(entry.logicalKey),
       };
       if (alreadyPresent) {
-        await this.forceRestoreCopy({ ...copyInput, destinationEtag: present.etag });
+        await this.forceRestoreCopy({
+          ...copyInput,
+          destinationEtag: present.etag,
+          assertAuthorizationFresh: input.assertAuthorizationFresh,
+        });
         replayedCount += 1;
       } else {
-        await this.conditionalCopy({ ...copyInput, failureCode: "RESTORE_PROOF_MISMATCH" });
+        await this.conditionalCopy({
+          ...copyInput,
+          failureCode: "RESTORE_PROOF_MISMATCH",
+          assertAuthorizationFresh: input.assertAuthorizationFresh,
+        });
       }
       await this.observePhysical(
         entry.bucketRole,

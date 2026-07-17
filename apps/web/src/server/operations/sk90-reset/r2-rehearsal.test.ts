@@ -45,6 +45,8 @@ const CONFIG: Sk90R2RehearsalConfig = {
 const tokenForKey: RawKeyTokenHook = ({ scope, bucketRole, key }) =>
   protectValue(HMAC_KEY, `${scope}-key\0${bucketRole}\0${key}`);
 
+const assertAuthorizationFresh = (): void => undefined;
+
 const EMPTY_METADATA: StorageObjectMetadata = {
   cacheControl: null,
   contentDisposition: null,
@@ -581,6 +583,106 @@ describe("SK-90 dedicated R2 rehearsal boundary", () => {
 });
 
 describe("SK-90 quarantine, delete, restore, and second-run R2 execution", () => {
+  it("rechecks authorization after long reads and immediately before every storage mutation", async () => {
+    const fake = new FakeS3();
+    const envelope = exactEnvelope(fake);
+    const adapter = createSk90R2Rehearsal({
+      client: clientFor(fake),
+      config: CONFIG,
+      tokenForKey,
+    });
+    let checks = 0;
+
+    await expectSafetyError(
+      () =>
+        adapter.quarantineResetObjects({
+          artifactDigest: sha256Digest("artifact-expired-before-second-mutation"),
+          envelope,
+          assertAuthorizationFresh: () => {
+            checks += 1;
+            if (checks === 2) throw new Sk90ResetSafetyError("FRESHNESS_PROOF_INVALID");
+          },
+        }),
+      "FRESHNESS_PROOF_INVALID",
+    );
+
+    expect(checks).toBe(2);
+    expect(fake.copyInputs).toHaveLength(1);
+    expect(fake.deleteInputs).toHaveLength(0);
+  });
+
+  it("stops an expired delete authorization after verification and before R2 deletion", async () => {
+    const fake = new FakeS3();
+    const envelope = exactEnvelope(fake);
+    const adapter = createSk90R2Rehearsal({
+      client: clientFor(fake),
+      config: CONFIG,
+      tokenForKey,
+    });
+    const artifactDigest = sha256Digest("artifact-expired-before-delete");
+    await adapter.quarantineResetObjects({
+      artifactDigest,
+      envelope,
+      assertAuthorizationFresh,
+    });
+    const deletesBefore = fake.deleteInputs.length;
+
+    await expectSafetyError(
+      () =>
+        adapter.deleteResetObjects({
+          artifactDigest,
+          envelope,
+          completedProtectedKeys: [],
+          mutationStarted: false,
+          assertAuthorizationFresh: () => {
+            throw new Sk90ResetSafetyError("FRESHNESS_PROOF_INVALID");
+          },
+        }),
+      "FRESHNESS_PROOF_INVALID",
+    );
+
+    expect(fake.deleteInputs).toHaveLength(deletesBefore);
+  });
+
+  it("stops an expired restore authorization after verification and before R2 copy", async () => {
+    const fake = new FakeS3();
+    const envelope = exactEnvelope(fake);
+    const adapter = createSk90R2Rehearsal({
+      client: clientFor(fake),
+      config: CONFIG,
+      tokenForKey,
+    });
+    const artifactDigest = sha256Digest("artifact-expired-before-restore");
+    await adapter.quarantineResetObjects({
+      artifactDigest,
+      envelope,
+      assertAuthorizationFresh,
+    });
+    await adapter.deleteResetObjects({
+      artifactDigest,
+      envelope,
+      completedProtectedKeys: [],
+      mutationStarted: false,
+      assertAuthorizationFresh,
+    });
+    const copiesBefore = fake.copyInputs.length;
+
+    await expectSafetyError(
+      () =>
+        adapter.restoreResetObjects({
+          artifactDigest,
+          envelope,
+          forceReplay: false,
+          assertAuthorizationFresh: () => {
+            throw new Sk90ResetSafetyError("FRESHNESS_PROOF_INVALID");
+          },
+        }),
+      "FRESHNESS_PROOF_INVALID",
+    );
+
+    expect(fake.copyInputs).toHaveLength(copiesBefore);
+  });
+
   it("conditionally copies every reset object, fully verifies it, and proves a restore probe", async () => {
     const fake = new FakeS3();
     const envelope = exactEnvelope(fake);
@@ -593,6 +695,7 @@ describe("SK-90 quarantine, delete, restore, and second-run R2 execution", () =>
     const result = await adapter.quarantineResetObjects({
       artifactDigest: fingerprintStorageBytes(Uint8Array.from(Buffer.from("artifact"))),
       envelope,
+      assertAuthorizationFresh,
     });
 
     expect(result.copies).toHaveLength(2);
@@ -624,7 +727,11 @@ describe("SK-90 quarantine, delete, restore, and second-run R2 execution", () =>
       tokenForKey,
     });
 
-    const result = await adapter.quarantineResetObjects({ artifactDigest, envelope });
+    const result = await adapter.quarantineResetObjects({
+      artifactDigest,
+      envelope,
+      assertAuthorizationFresh,
+    });
 
     expect(result.copies).toHaveLength(2);
     expect(fake.get(CONFIG.buckets[reset.bucketRole], probeKey(artifactDigest, reset))).toBe(
@@ -644,10 +751,19 @@ describe("SK-90 quarantine, delete, restore, and second-run R2 execution", () =>
     fake.failAfterNextDelete = true;
 
     await expectSafetyError(
-      () => adapter.quarantineResetObjects({ artifactDigest, envelope }),
+      () =>
+        adapter.quarantineResetObjects({
+          artifactDigest,
+          envelope,
+          assertAuthorizationFresh,
+        }),
       "QUARANTINE_PROOF_MISMATCH",
     );
-    const resumed = await adapter.quarantineResetObjects({ artifactDigest, envelope });
+    const resumed = await adapter.quarantineResetObjects({
+      artifactDigest,
+      envelope,
+      assertAuthorizationFresh,
+    });
 
     expect(resumed.copies).toHaveLength(2);
     expect(
@@ -672,6 +788,7 @@ describe("SK-90 quarantine, delete, restore, and second-run R2 execution", () =>
         adapter.quarantineResetObjects({
           artifactDigest: fingerprintStorageBytes(Uint8Array.from(Buffer.from("artifact"))),
           envelope,
+          assertAuthorizationFresh,
         }),
       "QUARANTINE_PROOF_MISMATCH",
     );
@@ -691,7 +808,11 @@ describe("SK-90 quarantine, delete, restore, and second-run R2 execution", () =>
       tokenForKey,
     });
     const artifactDigest = fingerprintStorageBytes(Uint8Array.from(Buffer.from("artifact")));
-    await adapter.quarantineResetObjects({ artifactDigest, envelope });
+    await adapter.quarantineResetObjects({
+      artifactDigest,
+      envelope,
+      assertAuthorizationFresh,
+    });
     const progress: ProtectedToken[] = [];
 
     const result = await adapter.deleteResetObjects({
@@ -699,6 +820,7 @@ describe("SK-90 quarantine, delete, restore, and second-run R2 execution", () =>
       envelope,
       completedProtectedKeys: [],
       mutationStarted: false,
+      assertAuthorizationFresh,
       onProgress: (receipt) => {
         progress.push(receipt.protectedKey);
       },
@@ -720,12 +842,17 @@ describe("SK-90 quarantine, delete, restore, and second-run R2 execution", () =>
       tokenForKey,
     });
     const artifactDigest = fingerprintStorageBytes(Uint8Array.from(Buffer.from("artifact")));
-    await adapter.quarantineResetObjects({ artifactDigest, envelope });
+    await adapter.quarantineResetObjects({
+      artifactDigest,
+      envelope,
+      assertAuthorizationFresh,
+    });
     const first = await adapter.deleteResetObjects({
       artifactDigest,
       envelope,
       completedProtectedKeys: [],
       mutationStarted: false,
+      assertAuthorizationFresh,
     });
     const completed = envelope.entries
       .filter((entry) => entry.ownership === "reset_exclusive")
@@ -737,6 +864,7 @@ describe("SK-90 quarantine, delete, restore, and second-run R2 execution", () =>
       envelope,
       completedProtectedKeys: completed,
       mutationStarted: true,
+      assertAuthorizationFresh,
       onProgress: (receipt) => {
         progress.push(receipt.protectedKey);
       },
@@ -755,7 +883,11 @@ describe("SK-90 quarantine, delete, restore, and second-run R2 execution", () =>
       tokenForKey,
     });
     const artifactDigest = fingerprintStorageBytes(Uint8Array.from(Buffer.from("artifact")));
-    await adapter.quarantineResetObjects({ artifactDigest, envelope });
+    await adapter.quarantineResetObjects({
+      artifactDigest,
+      envelope,
+      assertAuthorizationFresh,
+    });
     const firstReset = required(
       envelope.entries.find((entry) => entry.ownership === "reset_exclusive"),
     );
@@ -775,6 +907,7 @@ describe("SK-90 quarantine, delete, restore, and second-run R2 execution", () =>
           envelope,
           completedProtectedKeys: [],
           mutationStarted: false,
+          assertAuthorizationFresh,
         }),
       "STORAGE_OBJECT_DRIFT",
     );
@@ -789,7 +922,11 @@ describe("SK-90 quarantine, delete, restore, and second-run R2 execution", () =>
       tokenForKey,
     });
     const artifactDigest = fingerprintStorageBytes(Uint8Array.from(Buffer.from("artifact")));
-    await adapter.quarantineResetObjects({ artifactDigest, envelope });
+    await adapter.quarantineResetObjects({
+      artifactDigest,
+      envelope,
+      assertAuthorizationFresh,
+    });
     const firstReset = required(
       envelope.entries.find((entry) => entry.ownership === "reset_exclusive"),
     );
@@ -801,6 +938,7 @@ describe("SK-90 quarantine, delete, restore, and second-run R2 execution", () =>
       envelope,
       completedProtectedKeys: [],
       mutationStarted: true,
+      assertAuthorizationFresh,
       onProgress: (receipt) => {
         progress.push(receipt);
       },
@@ -826,6 +964,7 @@ describe("SK-90 quarantine, delete, restore, and second-run R2 execution", () =>
       artifactDigest,
       envelope,
       forceReplay: false,
+      assertAuthorizationFresh,
     });
     expect(restored.snapshot.objects).toHaveLength(envelope.entries.length);
     expect(restored.snapshot.objects.map((entry) => entry.contentFingerprint).sort()).toEqual(
@@ -842,7 +981,11 @@ describe("SK-90 quarantine, delete, restore, and second-run R2 execution", () =>
       tokenForKey,
     });
     const artifactDigest = fingerprintStorageBytes(Uint8Array.from(Buffer.from("artifact")));
-    await adapter.quarantineResetObjects({ artifactDigest, envelope });
+    await adapter.quarantineResetObjects({
+      artifactDigest,
+      envelope,
+      assertAuthorizationFresh,
+    });
     const resetCount = envelope.entries.filter(
       (entry) => entry.ownership === "reset_exclusive",
     ).length;
@@ -857,6 +1000,7 @@ describe("SK-90 quarantine, delete, restore, and second-run R2 execution", () =>
       artifactDigest,
       envelope,
       forceReplay: true,
+      assertAuthorizationFresh,
       onProgress: (receipt) => {
         progress.push(receipt);
       },
@@ -867,9 +1011,7 @@ describe("SK-90 quarantine, delete, restore, and second-run R2 execution", () =>
       replayedCount: resetCount,
       alreadyPresentCount: 0,
     });
-    expect(adapter.getMutationCounters().copiesSucceeded - before.copiesSucceeded).toBe(
-      resetCount,
-    );
+    expect(adapter.getMutationCounters().copiesSucceeded - before.copiesSucceeded).toBe(resetCount);
     expect(progress).toHaveLength(resetCount);
     expect(progress.every((receipt) => receipt.alreadyPresent && receipt.replayed)).toBe(true);
     expect(
