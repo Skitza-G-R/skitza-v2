@@ -144,6 +144,7 @@ export function assertRehearsalTarget(
 }
 
 export const TARGET_GATED_RESET_ACTIONS = [
+  "prepare",
   "quarantine_objects",
   "reset_database",
   "delete_storage",
@@ -154,12 +155,67 @@ export const TARGET_GATED_RESET_ACTIONS = [
 
 export type TargetGatedResetAction = (typeof TARGET_GATED_RESET_ACTIONS)[number];
 
+const MAX_PHASE_FRESHNESS_MS = 5 * 60 * 1000;
+
+export type FreshProofObservation = Readonly<{
+  challengeToken: ProtectedToken;
+  targetObservationDigest: Sha256Digest;
+  issuedAt: string;
+  expiresAt: string;
+}>;
+
+export type FreshProofExpectation = FreshProofObservation &
+  Readonly<{
+    currentTime: string;
+  }>;
+
+function exactIsoTimestamp(value: string): number {
+  const milliseconds = Date.parse(value);
+  if (!Number.isFinite(milliseconds) || new Date(milliseconds).toISOString() !== value) {
+    stop("FRESHNESS_PROOF_INVALID");
+  }
+  return milliseconds;
+}
+
+export function assertFreshProofWindow(observation: FreshProofObservation): true {
+  assertProtectedToken(observation.challengeToken);
+  assertSha256Digest(observation.targetObservationDigest);
+  const issuedAt = exactIsoTimestamp(observation.issuedAt);
+  const expiresAt = exactIsoTimestamp(observation.expiresAt);
+  if (expiresAt <= issuedAt || expiresAt - issuedAt > MAX_PHASE_FRESHNESS_MS) {
+    stop("FRESHNESS_PROOF_INVALID");
+  }
+  return true;
+}
+
+export function assertFreshProofObservation(
+  observation: FreshProofObservation,
+  expected: FreshProofExpectation,
+): true {
+  assertFreshProofWindow(observation);
+  assertFreshProofWindow(expected);
+  const currentTime = exactIsoTimestamp(expected.currentTime);
+  if (
+    !sameDigest(observation.challengeToken, expected.challengeToken) ||
+    !sameDigest(observation.targetObservationDigest, expected.targetObservationDigest) ||
+    observation.issuedAt !== expected.issuedAt ||
+    observation.expiresAt !== expected.expiresAt ||
+    currentTime < Date.parse(observation.issuedAt) ||
+    currentTime >= Date.parse(observation.expiresAt)
+  ) {
+    stop("FRESHNESS_PROOF_INVALID");
+  }
+  return true;
+}
+
 type FreshTargetAuthorizationBody = Readonly<{
   contract: "sk90-fresh-target-authorization-v1";
   action: TargetGatedResetAction;
   artifactDigest: Sha256Digest;
   challengeToken: ProtectedToken;
   targetObservationDigest: Sha256Digest;
+  issuedAt: string;
+  expiresAt: string;
 }>;
 
 export type FreshTargetAuthorization = FreshTargetAuthorizationBody &
@@ -174,6 +230,8 @@ function freshTargetAuthorizationBody(
     artifactDigest: authorization.artifactDigest,
     challengeToken: authorization.challengeToken,
     targetObservationDigest: authorization.targetObservationDigest,
+    issuedAt: authorization.issuedAt,
+    expiresAt: authorization.expiresAt,
   };
 }
 
@@ -194,11 +252,19 @@ export function authorizeFreshTargetAction(
     approvedTarget: RehearsalTargetApproval;
     freshPolicy: RehearsalTargetPolicy;
     challengeToken: ProtectedToken;
+    issuedAt: string;
+    expiresAt: string;
   }>,
 ): FreshTargetAuthorization {
   assertTargetGatedAction(input.action);
   assertSha256Digest(input.artifactDigest);
   assertProtectedToken(input.challengeToken);
+  assertFreshProofWindow({
+    challengeToken: input.challengeToken,
+    targetObservationDigest: targetObservationDigest(input.approvedTarget),
+    issuedAt: input.issuedAt,
+    expiresAt: input.expiresAt,
+  });
   assertSha256Digest(input.approvedTarget.databaseFingerprint);
   assertSha256Digest(input.approvedTarget.storageFingerprint);
   assertSha256Digest(input.approvedTarget.policyDigest);
@@ -232,6 +298,8 @@ export function authorizeFreshTargetAction(
     artifactDigest: input.artifactDigest,
     challengeToken: input.challengeToken,
     targetObservationDigest: targetObservationDigest(freshTarget),
+    issuedAt: input.issuedAt,
+    expiresAt: input.expiresAt,
   };
   return { ...body, authorizationDigest: sha256Digest(canonicalJson(body)) };
 }
@@ -243,6 +311,7 @@ export function assertFreshTargetAuthorization(
     artifactDigest: Sha256Digest;
     challengeToken: ProtectedToken;
     targetObservationDigest: Sha256Digest;
+    currentTime: string;
   }>,
 ): true {
   assertTargetGatedAction(authorization.action);
@@ -254,6 +323,13 @@ export function assertFreshTargetAuthorization(
   assertProtectedToken(authorization.challengeToken);
   assertSha256Digest(authorization.targetObservationDigest);
   assertSha256Digest(authorization.authorizationDigest);
+  assertFreshProofObservation(authorization, {
+    challengeToken: expected.challengeToken,
+    targetObservationDigest: expected.targetObservationDigest,
+    issuedAt: authorization.issuedAt,
+    expiresAt: authorization.expiresAt,
+    currentTime: expected.currentTime,
+  });
   const observedContract: unknown = authorization.contract;
   if (
     observedContract !== "sk90-fresh-target-authorization-v1" ||

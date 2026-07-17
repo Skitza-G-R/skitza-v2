@@ -8,11 +8,25 @@ neonConfig.webSocketConstructor = WebSocket;
 
 export type Db = NeonHttpDatabase<typeof schema>;
 
+/**
+ * Create the single-connection interactive pool used by explicit operational
+ * adapters. Callers remain responsible for closing it. Keeping this factory
+ * in the database package avoids a second Neon driver dependency in the web
+ * package and lets the SK-90 command defer all network I/O until its safety
+ * gates have passed.
+ */
+export function createNeonPool(connectionString: string, max = 1): Pool {
+  if (!Number.isSafeInteger(max) || max !== 1) {
+    throw new Error("Interactive database pools must use exactly one connection");
+  }
+  return new Pool({ connectionString, max });
+}
+
 type TransactionFn = Db["transaction"];
 
 function createTransaction(connectionString: string): TransactionFn {
   return (async (...args: Parameters<TransactionFn>) => {
-    const pool = new Pool({ connectionString, max: 1 });
+    const pool = createNeonPool(connectionString);
 
     try {
       const transactionDb = createTransactionDb(pool, { schema });

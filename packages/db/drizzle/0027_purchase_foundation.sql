@@ -47,11 +47,11 @@ DECLARE
     'track_comments',
     'track_versions'
   ];
-  expected_constraint_inventory_md5 CONSTANT text := '9352daa8371782e6b631df6a8695e7ec';
+  expected_constraint_inventory_md5 CONSTANT text := 'a9e205f4f1b636413e899e76147a1756';
   expected_constraint_structure_md5 CONSTANT text := 'eb03a328756137e134dcc6c356694d64';
-  expected_index_inventory_md5 CONSTANT text := '7b2d0efab45b7054356672abdd7860c3';
-  expected_trigger_inventory_md5 CONSTANT text := '677dce4214de0287faf26913cca2cb69';
-  expected_function_inventory_md5 CONSTANT text := '2addb4c5aa54f215d1c7535a92404156';
+  expected_index_inventory_md5 CONSTANT text := 'ed847cb606dd766f90c2b1de0e798785';
+  expected_trigger_inventory_md5 CONSTANT text := 'd80c8a527557cd653f3838bbdda546d6';
+  expected_function_inventory_md5 CONSTANT text := '2f4f547b09747ee6481fabe09b2fd3b7';
 BEGIN
   -- A completed application is a no-op, but a partial lookalike is a hard stop.
   IF to_regclass('public.purchases') IS NOT NULL THEN
@@ -312,6 +312,11 @@ BEGIN
         OR
         ("audio_url" IS NOT NULL AND "audio_r2_key" IS NOT NULL AND "size_bytes" > 0
           AND "audio_object_etag" <> ''
+          AND "pending_audio_r2_key" IS NULL
+          AND "pending_audio_completion_token" IS NULL
+          AND "pending_audio_size_bytes" IS NULL
+          AND "pending_audio_started_at" IS NULL
+          AND "pending_audio_cleanup_etag" IS NULL
           AND "audio_identity_fingerprint" = 'sha256:' || encode(sha256(convert_to(
             'skitza-track-audio-v1|'
             || octet_length("audio_r2_key")::text || ':' || "audio_r2_key"
@@ -319,6 +324,21 @@ BEGIN
             || '|' || octet_length("size_bytes"::text)::text || ':' || "size_bytes"::text,
             'UTF8'
           )), 'hex'))
+      ) IS TRUE),
+      ADD CONSTRAINT "track_versions_pending_audio_shape" CHECK ((
+        ("pending_audio_r2_key" IS NULL
+          AND "pending_audio_completion_token" IS NULL
+          AND "pending_audio_size_bytes" IS NULL
+          AND "pending_audio_started_at" IS NULL
+          AND "pending_audio_cleanup_etag" IS NULL)
+        OR
+        (NULLIF(btrim("pending_audio_r2_key"), '') IS NOT NULL
+          AND "pending_audio_completion_token" ~ '^[0-9a-f]{64}$'
+          AND "pending_audio_size_bytes" > 0
+          AND "pending_audio_started_at" IS NOT NULL
+          AND ("pending_audio_cleanup_etag" IS NULL
+            OR NULLIF(btrim("pending_audio_cleanup_etag"), '') IS NOT NULL)
+          AND "audio_deleted_at" IS NULL)
       ) IS TRUE);
     -- SKITZA_0027_EXPECTED_CHECK_CONTRACTS_END
 
@@ -369,7 +389,7 @@ BEGIN
           ('purchases', 'id:pg_catalog.uuid:NO:gen_random_uuid(),producer_id:pg_catalog.uuid:NO:<none>,project_id:pg_catalog.uuid:NO:<none>,client_contact_id:pg_catalog.uuid:NO:<none>,product_id:pg_catalog.uuid:YES:<none>,private_offer_id:pg_catalog.uuid:YES:<none>,purchase_request_id:pg_catalog.uuid:YES:<none>,source_kind:public.purchase_source_kind:NO:<none>,operation_key:pg_catalog.text:NO:<none>,operation_digest:pg_catalog.text:NO:<none>,ref_number:pg_catalog.text:NO:<none>,lifecycle_status:public.purchase_lifecycle_status:NO:waiting_for_payment,payment_plan_kind:public.purchase_payment_plan_kind:YES:<none>,snapshot_version:pg_catalog.int4:NO:1,snapshot_digest:pg_catalog.text:NO:<none>,commercial_snapshot:pg_catalog.jsonb:NO:<none>,subtotal_cents:pg_catalog.int4:NO:<none>,tax_cents:pg_catalog.int4:NO:<none>,total_cents:pg_catalog.int4:NO:<none>,currency:pg_catalog.text:NO:<none>,accepted_at:pg_catalog.timestamptz:NO:<none>,activated_at:pg_catalog.timestamptz:YES:<none>,canceled_at:pg_catalog.timestamptz:YES:<none>,created_at:pg_catalog.timestamptz:NO:now(),updated_at:pg_catalog.timestamptz:NO:now()'),
           ('song_public_links', 'id:pg_catalog.uuid:NO:gen_random_uuid(),track_id:pg_catalog.uuid:NO:<none>,purchase_id:pg_catalog.uuid:NO:<none>,producer_id:pg_catalog.uuid:NO:<none>,token_hash:pg_catalog.text:NO:<none>,token_version:pg_catalog.int4:NO:1,enabled_at:pg_catalog.timestamptz:NO:<none>,disabled_at:pg_catalog.timestamptz:YES:<none>,created_at:pg_catalog.timestamptz:NO:now(),updated_at:pg_catalog.timestamptz:NO:now()'),
           ('track_comments', 'id:pg_catalog.uuid:NO:gen_random_uuid(),version_id:pg_catalog.uuid:NO:<none>,producer_id:pg_catalog.uuid:NO:<none>,author_name:pg_catalog.text:NO:<none>,author_email:pg_catalog.text:NO:<none>,body:pg_catalog.text:NO:<none>,timestamp_ms:pg_catalog.int4:NO:<none>,resolved_at:pg_catalog.timestamptz:YES:<none>,from_producer:pg_catalog.bool:NO:false,created_at:pg_catalog.timestamptz:NO:now()'),
-          ('track_versions', 'id:pg_catalog.uuid:NO:gen_random_uuid(),track_id:pg_catalog.uuid:NO:<none>,purchase_id:pg_catalog.uuid:NO:<none>,producer_id:pg_catalog.uuid:NO:<none>,label:pg_catalog.text:NO:<none>,audio_url:pg_catalog.text:YES:<none>,duration_ms:pg_catalog.int4:YES:<none>,audio_r2_key:pg_catalog.text:YES:<none>,size_bytes:pg_catalog.int8:YES:<none>,audio_object_etag:pg_catalog.text:YES:<none>,audio_identity_fingerprint:pg_catalog.text:YES:<none>,peaks_r2_key:pg_catalog.text:YES:<none>,peaks:pg_catalog.jsonb:YES:<none>,description:pg_catalog.text:YES:<none>,uploaded_at:pg_catalog.timestamptz:NO:now(),producer_marked_final_at:pg_catalog.timestamptz:YES:<none>,audio_deleted_at:pg_catalog.timestamptz:YES:<none>'),
+          ('track_versions', 'id:pg_catalog.uuid:NO:gen_random_uuid(),track_id:pg_catalog.uuid:NO:<none>,purchase_id:pg_catalog.uuid:NO:<none>,producer_id:pg_catalog.uuid:NO:<none>,label:pg_catalog.text:NO:<none>,audio_url:pg_catalog.text:YES:<none>,duration_ms:pg_catalog.int4:YES:<none>,audio_r2_key:pg_catalog.text:YES:<none>,size_bytes:pg_catalog.int8:YES:<none>,audio_object_etag:pg_catalog.text:YES:<none>,audio_identity_fingerprint:pg_catalog.text:YES:<none>,pending_audio_r2_key:pg_catalog.text:YES:<none>,pending_audio_completion_token:pg_catalog.text:YES:<none>,pending_audio_size_bytes:pg_catalog.int8:YES:<none>,pending_audio_started_at:pg_catalog.timestamptz:YES:<none>,pending_audio_cleanup_etag:pg_catalog.text:YES:<none>,peaks_r2_key:pg_catalog.text:YES:<none>,peaks:pg_catalog.jsonb:YES:<none>,description:pg_catalog.text:YES:<none>,uploaded_at:pg_catalog.timestamptz:NO:now(),producer_marked_final_at:pg_catalog.timestamptz:YES:<none>,audio_deleted_at:pg_catalog.timestamptz:YES:<none>'),
           ('version_approval_events', 'id:pg_catalog.uuid:NO:gen_random_uuid(),version_id:pg_catalog.uuid:NO:<none>,purchase_id:pg_catalog.uuid:NO:<none>,producer_id:pg_catalog.uuid:NO:<none>,client_contact_id:pg_catalog.uuid:NO:<none>,audio_identity_fingerprint:pg_catalog.text:NO:<none>,action:public.version_approval_action:NO:<none>,acted_by_clerk_user_id:pg_catalog.text:NO:<none>,created_at:pg_catalog.timestamptz:NO:now()')
         ) AS expected_columns("table_name", "column_contract")
         WHERE (
@@ -513,6 +533,7 @@ BEGIN
           ('track_versions', 'track_versions_id_producer_unique'),
           ('track_versions', 'track_versions_audio_identity_unique'),
           ('track_versions', 'track_versions_audio_identity_shape'),
+          ('track_versions', 'track_versions_pending_audio_shape'),
           ('track_versions', 'track_versions_track_id_project_tracks_id_fk'),
           ('track_versions', 'track_versions_purchase_id_purchases_id_fk'),
           ('track_versions', 'track_versions_track_purchase_fk'),
@@ -670,7 +691,8 @@ BEGIN
           ('purchase_waivers', 'purchase_waivers_positive_amount'),
           ('purchase_session_allowances', 'purchase_session_allowances_limit_shape'),
           ('purchase_session_allowances', 'purchase_session_allowances_close_shape'),
-          ('track_versions', 'track_versions_audio_identity_shape')
+          ('track_versions', 'track_versions_audio_identity_shape'),
+          ('track_versions', 'track_versions_pending_audio_shape')
         ) AS approved_check("table_name", "constraint_name")
         WHERE NOT EXISTS (
           SELECT 1
@@ -829,7 +851,17 @@ BEGIN
           AND pg_constraint.contype = 'c'
           AND pg_constraint.convalidated
           AND pg_get_constraintdef(pg_constraint.oid) ~*
-            'audio_url IS NULL.*audio_r2_key IS NULL.*size_bytes IS NULL.*audio_object_etag IS NULL.*audio_identity_fingerprint IS NULL.*audio_url IS NOT NULL.*audio_r2_key IS NOT NULL.*size_bytes > 0.*audio_object_etag <>.*audio_identity_fingerprint.*=.*sha256:.*encode.*sha256.*convert_to.*octet_length.*audio_r2_key.*audio_object_etag.*size_bytes.*IS TRUE'
+            'audio_url IS NULL.*audio_r2_key IS NULL.*size_bytes IS NULL.*audio_object_etag IS NULL.*audio_identity_fingerprint IS NULL.*audio_url IS NOT NULL.*audio_r2_key IS NOT NULL.*size_bytes > 0.*audio_object_etag <>.*pending_audio_r2_key IS NULL.*pending_audio_completion_token IS NULL.*pending_audio_size_bytes IS NULL.*pending_audio_started_at IS NULL.*pending_audio_cleanup_etag IS NULL.*audio_identity_fingerprint.*=.*sha256:.*encode.*sha256.*convert_to.*octet_length.*audio_r2_key.*audio_object_etag.*size_bytes.*IS TRUE'
+      )
+      OR NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE pg_constraint.conrelid = 'public.track_versions'::regclass
+          AND pg_constraint.conname = 'track_versions_pending_audio_shape'
+          AND pg_constraint.contype = 'c'
+          AND pg_constraint.convalidated
+          AND pg_get_constraintdef(pg_constraint.oid) ~*
+            'pending_audio_r2_key IS NULL.*pending_audio_completion_token IS NULL.*pending_audio_size_bytes IS NULL.*pending_audio_started_at IS NULL.*pending_audio_cleanup_etag IS NULL.*btrim.*pending_audio_r2_key.*pending_audio_completion_token.*\^\[0-9a-f\]\{64\}\$.*pending_audio_size_bytes > 0.*pending_audio_started_at IS NOT NULL.*pending_audio_cleanup_etag.*audio_deleted_at IS NULL.*IS TRUE'
       )
       OR NOT EXISTS (
         SELECT 1
@@ -951,6 +983,7 @@ BEGIN
           ('purchase_payments', 'purchase_payments_purchase_paid_idx', $index$CREATE INDEX purchase_payments_purchase_paid_idx ON public.purchase_payments USING btree (purchase_id, paid_at)$index$),
           ('project_tracks', 'project_tracks_purchase_position_idx', $index$CREATE INDEX project_tracks_purchase_position_idx ON public.project_tracks USING btree (purchase_id, "position")$index$),
           ('track_versions', 'track_versions_purchase_uploaded_idx', $index$CREATE INDEX track_versions_purchase_uploaded_idx ON public.track_versions USING btree (purchase_id, uploaded_at)$index$),
+          ('track_versions', 'track_versions_pending_audio_r2_key_unique', $index$CREATE UNIQUE INDEX track_versions_pending_audio_r2_key_unique ON public.track_versions USING btree (pending_audio_r2_key) WHERE (pending_audio_r2_key IS NOT NULL)$index$),
           ('bookings', 'bookings_producer_starts_idx', $index$CREATE INDEX bookings_producer_starts_idx ON public.bookings USING btree (producer_id, starts_at)$index$),
           ('bookings', 'bookings_purchase_starts_idx', $index$CREATE INDEX bookings_purchase_starts_idx ON public.bookings USING btree (purchase_id, starts_at)$index$),
           ('purchase_download_override_events', 'purchase_download_overrides_version_created_idx', $index$CREATE INDEX purchase_download_overrides_version_created_idx ON public.purchase_download_override_events USING btree (purchase_id, version_id, created_at)$index$),
@@ -1012,6 +1045,7 @@ BEGIN
           ('purchase_installments', 'purchase_installments_validate_schedule', 'validate_purchase_installment_schedule', 29),
           ('purchase_payment_corrections', 'purchase_payment_corrections_append_only', 'prevent_append_only_mutation', 27),
           ('purchase_payments', 'purchase_payments_append_only', 'prevent_append_only_mutation', 27),
+          ('purchase_payments', 'purchase_payments_validate_proof_source', 'validate_proof_sourced_purchase_payment', 7),
           ('purchase_requests', 'purchase_requests_protect_identity', 'protect_purchase_request_identity', 27),
           ('purchase_session_allowances', 'purchase_session_allowances_protect_terms', 'protect_session_allowance_terms', 27),
           ('purchase_waivers', 'purchase_waivers_append_only', 'prevent_append_only_mutation', 27),
@@ -1063,7 +1097,7 @@ BEGIN
         FROM (VALUES
           ('prevent_append_only_mutation', '02474ebe9014c9c5269a35b4469682f6'),
           ('protect_booking_identity', '8498d7cda4fe7a29f840345c30a8010a'),
-          ('protect_payment_proof_evidence', 'c7e286561222ef12eba553e6d7e3b116'),
+          ('protect_payment_proof_evidence', 'abda1d6e9ab55478123e69a0d596e485'),
           ('protect_private_offer_purchase_source', 'ab13bf7cbe91e5e76db73ec513814ddc'),
           ('protect_project_owner', 'c7729cbb8db585a71aa89d1f3ae3b64f'),
           ('protect_project_track_identity', '63748c02d4b51786ce82562dc10722c9'),
@@ -1075,6 +1109,7 @@ BEGIN
           ('reject_purchase_installment_after_acceptance', '6037c951f14674e68549cb1767701900'),
           ('require_paid_purchase_for_installment', '0d9c828272b00c7c84a6fbbc4529a8d7'),
           ('validate_payment_proof_replacement', '68327e8a4bcd272dced1d6f699c86906'),
+          ('validate_proof_sourced_purchase_payment', 'f1cc9a7bebe1c94e954cbb3dec9ef4ef'),
           ('validate_purchase_acceptance', '47dd9978bf907048cccf402970622fa1'),
           ('validate_purchase_installment_schedule', '5f659194a7d2eea990d5119f82d6a068'),
           ('validate_purchase_source_links', '94773cd441ff66fb4e5c3f676d0dacde')
@@ -1834,7 +1869,12 @@ BEGIN
     FROM "public"."products"
     WHERE "deposit_model" <> 'flat'
       OR "milestones" IS NOT NULL
-      OR jsonb_typeof("payment_plans") <> 'array'
+      OR jsonb_typeof("payment_plans") IS DISTINCT FROM 'array'
+      OR CASE
+        WHEN jsonb_typeof("payment_plans") = 'array'
+          THEN jsonb_array_length("payment_plans") = 0
+        ELSE false
+      END
       OR EXISTS (
         SELECT 1
         FROM jsonb_array_elements(
@@ -1843,10 +1883,101 @@ BEGIN
             ELSE '[]'::jsonb
           END
         ) AS plan
-        WHERE plan ->> 'kind' NOT IN ('full', 'split_50_50', 'monthly')
+        WHERE (
+          jsonb_typeof(plan) = 'object'
+          AND (
+            plan = '{"kind":"full"}'::jsonb
+            OR plan = '{"kind":"split_50_50"}'::jsonb
+            OR CASE
+              WHEN plan ->> 'kind' = 'monthly'
+                AND jsonb_typeof(plan -> 'installments') = 'number'
+                AND plan ->> 'installments' ~ '^[0-9]+$'
+              THEN
+                (plan ->> 'installments')::integer BETWEEN 2 AND 12
+                AND plan = jsonb_build_object(
+                  'kind', 'monthly', 'installments', (plan ->> 'installments')::integer
+                )
+              ELSE false
+            END
+          )
+        ) IS NOT TRUE
       )
   ) THEN
     RAISE EXCEPTION 'SKITZA_0027_DISALLOWED_CATALOG_STATE';
+  END IF;
+
+  -- The reset adapter stages all seven freshly attested legacy provider
+  -- values in this session before deleting mock rows. The three preserved
+  -- producer Stripe identifiers must still match in both directions; the
+  -- four booking confirmations are already represented only by the
+  -- artifact-bound temporary evidence because bookings are now empty.
+  IF to_regclass('pg_temp.skitza_0027_approved_provider_values') IS NULL THEN
+    RAISE EXCEPTION 'SKITZA_0027_PROVIDER_RESET_EVIDENCE_MISMATCH';
+  END IF;
+  IF (
+    SELECT count(*)
+    FROM pg_temp."skitza_0027_approved_provider_values"
+  ) <> 7 OR (
+    SELECT count(*)
+    FROM pg_temp."skitza_0027_approved_provider_values"
+    WHERE "source_kind" = 'producer_stripe_account'
+  ) <> 3 OR (
+    SELECT count(*)
+    FROM pg_temp."skitza_0027_approved_provider_values"
+    WHERE "source_kind" = 'booking_tranzila_confirmation'
+  ) <> 4 OR EXISTS (
+    SELECT 1
+    FROM pg_temp."skitza_0027_approved_provider_values" AS evidence
+    WHERE evidence."mode" <> 'test'
+      OR evidence."attested" IS NOT TRUE
+      OR evidence."charge_enabled" IS NOT FALSE
+      OR evidence."external_charge" IS NOT FALSE
+      OR evidence."live_schedule" IS NOT FALSE
+      OR evidence."artifact_digest" IS DISTINCT FROM
+        current_setting('skitza.sk90_artifact_digest', true)
+      OR evidence."manifest_digest" IS DISTINCT FROM
+        current_setting('skitza.sk90_manifest_digest', true)
+      OR evidence."policy_digest" IS DISTINCT FROM
+        current_setting('skitza.sk90_policy_digest', true)
+      OR evidence."challenge_token" IS DISTINCT FROM
+        current_setting('skitza.sk90_provider_challenge', true)
+      OR (
+        evidence."source_kind" = 'producer_stripe_account'
+        AND evidence."provider" <> 'stripe'
+      )
+      OR (
+        evidence."source_kind" = 'booking_tranzila_confirmation'
+        AND evidence."provider" <> 'tranzila'
+      )
+      OR evidence."source_kind" NOT IN (
+        'producer_stripe_account', 'booking_tranzila_confirmation'
+      )
+  ) OR EXISTS (
+    (
+      SELECT "id", "stripe_account_id"
+      FROM "public"."producers"
+      WHERE "stripe_account_id" IS NOT NULL
+    )
+    EXCEPT
+    (
+      SELECT "owner_id", "provider_value"
+      FROM pg_temp."skitza_0027_approved_provider_values"
+      WHERE "source_kind" = 'producer_stripe_account'
+    )
+  ) OR EXISTS (
+    (
+      SELECT "owner_id", "provider_value"
+      FROM pg_temp."skitza_0027_approved_provider_values"
+      WHERE "source_kind" = 'producer_stripe_account'
+    )
+    EXCEPT
+    (
+      SELECT "id", "stripe_account_id"
+      FROM "public"."producers"
+      WHERE "stripe_account_id" IS NOT NULL
+    )
+  ) THEN
+    RAISE EXCEPTION 'SKITZA_0027_PROVIDER_RESET_EVIDENCE_MISMATCH';
   END IF;
 
   -- Deprecated Stripe account identifiers were explicitly approved for
@@ -2577,6 +2708,11 @@ BEGIN
     "size_bytes" bigint,
     "audio_object_etag" text,
     "audio_identity_fingerprint" text,
+    "pending_audio_r2_key" text,
+    "pending_audio_completion_token" text,
+    "pending_audio_size_bytes" bigint,
+    "pending_audio_started_at" timestamp with time zone,
+    "pending_audio_cleanup_etag" text,
     "peaks_r2_key" text,
     "peaks" jsonb,
     "description" text,
@@ -2593,6 +2729,11 @@ BEGIN
       OR
       ("audio_url" IS NOT NULL AND "audio_r2_key" IS NOT NULL AND "size_bytes" > 0
         AND "audio_object_etag" <> ''
+        AND "pending_audio_r2_key" IS NULL
+        AND "pending_audio_completion_token" IS NULL
+        AND "pending_audio_size_bytes" IS NULL
+        AND "pending_audio_started_at" IS NULL
+        AND "pending_audio_cleanup_etag" IS NULL
         AND "audio_identity_fingerprint" = 'sha256:' || encode(sha256(convert_to(
           'skitza-track-audio-v1|'
           || octet_length("audio_r2_key")::text || ':' || "audio_r2_key"
@@ -2600,6 +2741,21 @@ BEGIN
           || '|' || octet_length("size_bytes"::text)::text || ':' || "size_bytes"::text,
           'UTF8'
         )), 'hex'))
+    ) IS TRUE),
+    CONSTRAINT "track_versions_pending_audio_shape" CHECK ((
+      ("pending_audio_r2_key" IS NULL
+        AND "pending_audio_completion_token" IS NULL
+        AND "pending_audio_size_bytes" IS NULL
+        AND "pending_audio_started_at" IS NULL
+        AND "pending_audio_cleanup_etag" IS NULL)
+      OR
+      (NULLIF(btrim("pending_audio_r2_key"), '') IS NOT NULL
+        AND "pending_audio_completion_token" ~ '^[0-9a-f]{64}$'
+        AND "pending_audio_size_bytes" > 0
+        AND "pending_audio_started_at" IS NOT NULL
+        AND ("pending_audio_cleanup_etag" IS NULL
+          OR NULLIF(btrim("pending_audio_cleanup_etag"), '') IS NOT NULL)
+        AND "audio_deleted_at" IS NULL)
     ) IS TRUE),
     CONSTRAINT "track_versions_track_id_project_tracks_id_fk"
       FOREIGN KEY ("track_id") REFERENCES "public"."project_tracks"("id") ON DELETE RESTRICT,
@@ -2614,6 +2770,9 @@ BEGIN
   );
   CREATE INDEX "track_versions_purchase_uploaded_idx"
     ON "public"."track_versions" ("purchase_id", "uploaded_at");
+  CREATE UNIQUE INDEX "track_versions_pending_audio_r2_key_unique"
+    ON "public"."track_versions" ("pending_audio_r2_key")
+    WHERE "pending_audio_r2_key" IS NOT NULL;
 
   CREATE TABLE "public"."track_comments" (
     "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
@@ -3305,6 +3464,20 @@ BEGIN
     IF TG_OP = 'DELETE' THEN
       RAISE EXCEPTION 'SKITZA_PAYMENT_PROOF_DELETE_FORBIDDEN';
     END IF;
+    IF EXISTS (
+      SELECT 1
+      FROM "public"."purchase_payments" AS attached_payment
+      WHERE attached_payment."proof_id" = OLD."id"
+        AND attached_payment."source" = 'proof'
+    ) AND ROW(
+      OLD."id", OLD."purchase_id", OLD."installment_id", OLD."producer_id",
+      OLD."amount_cents", OLD."currency", OLD."status"
+    ) IS DISTINCT FROM ROW(
+      NEW."id", NEW."purchase_id", NEW."installment_id", NEW."producer_id",
+      NEW."amount_cents", NEW."currency", NEW."status"
+    ) THEN
+      RAISE EXCEPTION 'SKITZA_PAYMENT_PROOF_ATTACHED_PAYMENT_IMMUTABLE';
+    END IF;
     IF ROW(
       OLD."id", OLD."purchase_id", OLD."installment_id", OLD."producer_id",
       OLD."project_id", OLD."client_contact_id", OLD."replaces_proof_id",
@@ -3333,6 +3506,34 @@ BEGIN
   CREATE TRIGGER "payment_proofs_protect_evidence"
     BEFORE UPDATE OR DELETE ON "public"."payment_proofs"
     FOR EACH ROW EXECUTE FUNCTION "public"."protect_payment_proof_evidence"();
+
+  CREATE FUNCTION "public"."validate_proof_sourced_purchase_payment"()
+  RETURNS trigger AS $function$
+  BEGIN
+    IF NEW."source" = 'proof' THEN
+      PERFORM 1
+      FROM "public"."payment_proofs" AS proof
+      WHERE proof."id" = NEW."proof_id"
+        AND proof."purchase_id" = NEW."purchase_id"
+        AND proof."installment_id" = NEW."installment_id"
+        AND proof."producer_id" = NEW."producer_id"
+        AND proof."currency" = NEW."currency"
+        AND proof."status" = 'confirmed'
+        AND proof."amount_cents" = NEW."amount_cents"
+      FOR UPDATE;
+      IF NOT FOUND THEN
+        RAISE EXCEPTION USING
+          ERRCODE = '23514',
+          MESSAGE = 'SKITZA_PROOF_SOURCED_PAYMENT_MISMATCH';
+      END IF;
+    END IF;
+    RETURN NEW;
+  END;
+  $function$ LANGUAGE plpgsql;
+
+  CREATE TRIGGER "purchase_payments_validate_proof_source"
+    BEFORE INSERT ON "public"."purchase_payments"
+    FOR EACH ROW EXECUTE FUNCTION "public"."validate_proof_sourced_purchase_payment"();
 
   CREATE FUNCTION "public"."protect_session_allowance_terms"()
   RETURNS trigger AS $function$

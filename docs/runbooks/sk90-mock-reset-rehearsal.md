@@ -1,24 +1,40 @@
 # SK-90 isolated mock-reset rehearsal
 
 - **Issue:** SK-90
-- **Scope:** Repository-only safety foundation for an isolated non-production rehearsal
-- **Status:** No external database or storage adapter; no rehearsal or reset executed
+- **Scope:** The approved purchase-foundation reset on one dedicated, isolated non-production database and storage namespace
+- **Implementation status:** Executable adapter and fail-closed contracts implemented in the repository
+- **External evidence status:** **PARTIAL — no database or storage connection, backup, rehearsal, reset, or restore has been run**
 
-This runbook turns the requirements in
-`docs/runbooks/canonical-database-gate.md` into testable, pure TypeScript
-contracts. It does not authorize or implement a production connection,
-canonical-source snapshot, migration, database reset, object deletion,
-deployment, or promotion.
+This runbook applies the gate in
+`docs/runbooks/canonical-database-gate.md`. Repository tests prove the adapter's
+local safety and orchestration behavior. They do not count as the required real
+isolated rehearsal.
 
-The contracts live in
-`apps/web/src/server/operations/sk90-reset/`. They perform no network,
-database, storage, filesystem, or process-environment access. A future
-rehearsal adapter must independently collect evidence and pass it into these
-contracts before it can mutate an approved isolated target.
+## 1. Hard boundary
 
-## 1. Dedicated environment boundary
+The command may target only a newly approved, dedicated, isolated
+non-production database and dedicated R2 buckets/namespace.
 
-A future adapter may read only these exact private names:
+It must never:
+
+- connect to, snapshot, branch, query, or mutate production;
+- connect to or mutate the frozen old project;
+- use application or generic database/R2 environment variables;
+- create a source snapshot or branch unless Gili separately approves that
+  exact source action;
+- infer legacy Completed/Canceled states, create purchases, or migrate old
+  commercial history;
+- print URLs, credentials, raw database identifiers, row IDs, personal data,
+  bucket names, object keys, or provider values; or
+- deploy, promote, repoint, merge, or change a payment terminal.
+
+Any external invocation needs Gili's separate approval. `prepare-backup` needs
+approval for that exact isolated target. `plan`, `execute`, `resume`, and
+`restore` additionally need the later, exact execution digest.
+
+## 2. Dedicated inputs
+
+Run from a clean shell containing only these SK-90 names:
 
 - `SK90_REHEARSAL_TARGET_DATABASE_URL`
 - `SK90_REHEARSAL_TARGET_DATABASE_FINGERPRINT`
@@ -26,253 +42,359 @@ A future adapter may read only these exact private names:
 - `SK90_REHEARSAL_TARGET_STORAGE_NAMESPACE`
 - `SK90_REHEARSAL_MANIFEST_HMAC_KEY`
 - `SK90_REHEARSAL_APPROVAL_POLICY_DIGEST`
+- `SK90_REHEARSAL_STORAGE_ENDPOINT`
+- `SK90_REHEARSAL_STORAGE_ACCESS_KEY_ID`
+- `SK90_REHEARSAL_STORAGE_SECRET_ACCESS_KEY`
+- `SK90_REHEARSAL_STORAGE_AUDIO_BUCKET`
+- `SK90_REHEARSAL_STORAGE_DOCS_BUCKET`
+- `SK90_REHEARSAL_STORAGE_DATA_PREFIX`
+- `SK90_REHEARSAL_STORAGE_RECOVERY_PREFIX`
+- `SK90_REHEARSAL_PRIVATE_APPROVAL_FILE`
+- `SK90_REHEARSAL_PRIVATE_APPROVAL_LEDGER_DIRECTORY`
+- `SK90_REHEARSAL_PRIVATE_STATE_DIRECTORY`
+- `SK90_REHEARSAL_PG_DUMP_BINARY`
+- `SK90_REHEARSAL_PG_RESTORE_BINARY`
+- `SK90_REHEARSAL_OPERATOR_CONFIRMATION`
+- `SK90_REHEARSAL_APPROVED_EXECUTION_DIGEST`
 
-`readRehearsalEnvironment()` accepts an injected environment map and never
-reads `process.env` itself. It hard-stops if a generic database or R2 variable
-is present. In particular, it never falls back to `DATABASE_URL`,
-`DATABASE_URL_NEON`, `POSTGRES_URL`, the application R2 credentials, or the
-application bucket defaults.
+`SK90_REHEARSAL_APPROVED_EXECUTION_DIGEST` must be absent for
+`prepare-backup`. It is required for every later mode.
 
-The storage namespace must have the form
-`sk90-rehearsal/<approved-private-name>`. Configuration values and URLs are
-never included in error reports.
+The namespace must match `sk90-rehearsal/<approved-private-name>`. The data and
+recovery prefixes must be exactly `<namespace>/data/` and
+`<namespace>/recovery/`. The endpoint must be the dedicated Cloudflare R2
+endpoint, the two buckets must differ, and the PostgreSQL tool paths and
+private paths must be absolute. The approval ledger must be a separate,
+pre-created owner-only directory; neither the approval bundle nor the state
+directory may be inside it.
 
-## 2. Target fingerprint gate
+`DATABASE_URL`, `DATABASE_URL_NEON`, `POSTGRES_URL*`, `PG*`, application R2
+names, and generic `AWS_*` selectors are rejected if inherited. Multiple
+generic database selectors are also rejected by the migration runner. The
+initial 0027 cutover cannot be minted by the generic migration command; it
+requires an in-memory approval created by the isolated adapter.
 
-An external, read-only discovery step must supply independently observed
-database-project/branch and storage account/bucket/namespace fingerprints.
-The pure target gate requires all of the following:
+The operator confirmation is the fixed non-production phrase checked by the
+adapter. Mutating and recovery modes also require the exact separately
+approved execution digest. None of these values belongs in Git, Linear, a PR,
+terminal output, or a command argument.
 
-1. The target classification is exactly `isolated_nonproduction`.
-2. The observed database fingerprint exactly matches the separately approved
-   fingerprint and does not match either of the two distinct forbidden audited
-   project digests. Omitting or duplicating either forbidden digest is a stop.
-3. The observed storage fingerprint exactly matches the separately approved
-   fingerprint and does not match at least one forbidden live namespace digest.
-4. Fresh database and storage restore points are already ready.
-5. The isolated storage namespace and writer are exclusive.
+## 3. Private approval material
 
-The module cannot convert an operator-supplied label into proof. Failure to
-independently discover any input is a hard stop for a future adapter.
-`assertRehearsalTarget()` also recomputes the complete policy digest, including
-the forbidden sets and isolation evidence, and requires it to equal the
-`SK90_REHEARSAL_APPROVAL_POLICY_DIGEST` parsed by the adapter.
+The approval file, approval-ledger directory, and state directory must be owned
+by the current user and must not be readable or writable by group/other users.
+Symbolic links are rejected. Durable writes use exclusive, atomic files and an
+HMAC-bound revision chain so two runners cannot silently share or replace
+state.
 
-## 3. Deterministic private manifest
+The private approval material binds one exact set of:
 
-`buildSanitizedManifest()` receives the reviewed row inventory and normalized
-storage references in memory. It emits only:
+- versioned sanitized manifest and approved artifact;
+- target database, storage, and policy fingerprints;
+- exact 0027 file digest and reset-plan digest;
+- the canonical fingerprint of the dedicated approval-ledger directory;
+- 102 raw reset-row identities/content and their protected manifest tokens;
+- all reset and preserved storage references;
+- the exhaustive storage object set, byte lengths, full-content hashes, and
+  metadata hashes;
+- four approved test identities, three approved mock monetary rows, and seven
+  exact test-mode provider references;
+- pre/post storage namespace fingerprints;
+- database and storage restore-point fingerprints;
+- issued approval challenge, approval time, and expiry;
+- the expected database name and a private marker stored only in
+  `skitza_rehearsal.target_identity`; and
+- one private target-attestation object for each bucket role, including its
+  exact ETag, byte length, full-content hash, and the approved endpoint origin.
 
-- HMAC-SHA-256 row-ID, row-content, and object-key tokens;
-- SHA-256 schema, policy, preserved-data, and object-content fingerprints;
-- stable table/category labels;
-- aggregate reset/preserved counts; and
-- a SHA-256 digest of canonical, key-sorted JSON.
+The two target-attestation objects use the adapter-derived
+`sk90-target-attestation/<protected-namespace>/target-identity` location. They
+sit outside the reset namespace, are never reset data, and must be provisioned
+only on the newly approved isolated target. Their raw locations and contents
+remain private.
 
-The manifest accepts only the exact SK-80 reset inventory: 102 rows across the
-ten non-empty reset tables, plus explicit zero counts for `stripe_customers`
-and `store_purchase_intents`. Each approved table/category count is embedded
-in the signed body. A missing row, extra row, preserved-table row, renamed
-category, or non-zero legacy-residue count is a hard stop.
+Raw values remain only in this private material. Public receipts contain
+protected tokens, counts, phases, and SHA-256 digests.
 
-Input order does not change the manifest or digest. Raw record IDs, personal
-data, object keys, URLs, and the HMAC key are absent. Duplicate row identities,
-invalid fingerprints, missing objects, unverified ownership, content drift,
-or an object shared by reset and preserved rows hard-stop manifest creation.
-The signed body also binds independently reviewed storage-reference coverage:
-exactly 7 distinct reset-owned references, plus the exact positive count and
-sorted-token fingerprint discovered across preserved rows. Missing, duplicate,
-extra, or substituted reset or preserved references stop before a deletion plan
-can be produced.
+The preparation bundle contains only the artifact, manifest, target policy,
+and target attestations. It must not contain a private execution envelope or
+execution approval. After `prepare-backup` returns the sanitized restore-point
+fingerprint, a new executable bundle must bind that exact prepared backup,
+private envelope, execution approval, and approval-ledger fingerprint.
 
-The signed manifest now carries the complete protected storage-reference set
-and manifest-derived fingerprints for the exact reset rows, full reset and
-preserved storage-reference enumeration, reset-only objects, preserved object
-content, and preserved row counts. `prepareResetRun()` requires those exact
-fingerprints to match both the reviewed baseline and independently collected,
-challenge-bound discovery. A substituted reset row or a discovery that reveals
-an omitted preserved reference—including a preserved reference to an apparent
-reset object—hard-stops preparation.
+Manifest and artifact discriminators and versions must be the exact supported
+versions and must match each other. A missing, extra, duplicate, substituted,
+expired, or differently bound value stops before mutation.
 
-The HMAC key is private rehearsal material. Do not commit it or any raw
-inventory. Keep all future resumable raw-ID/key envelopes outside the
-repository with restrictive permissions. Only sanitized aggregates and
-digests may be attached to an issue or PR.
+## 4. Local-first command gate
 
-`prepareResetRun()` composes the approved target fingerprints and policy,
-manifest, exact mock-evidence and storage coverage, reviewed baseline, and
-challenge-bound target, reset-row, mock-evidence, and storage-enumeration
-digests into one versioned artifact. Its initial phase journal binds both the
-artifact and manifest digests. The final locked snapshot must match that same
-artifact baseline before mutation can begin.
+The executable accepts exactly one mode: `prepare-backup`, `plan`, `execute`,
+`resume`, or `restore`. Before constructing a network client it must:
 
-## 4. Identity and payment stop checks
+1. parse the exact dedicated environment and reject ambient selectors;
+2. validate private paths, target class, endpoint, buckets, and prefixes;
+3. read owner-only private approval material; and
+4. validate its exact mode-specific contract, versions, target fingerprints,
+   and attestations.
 
-Every linked identity must be HMAC-bound, freshly attested, and classified
-`approved_test`. Every paid or confirmed monetary row must be classified
-`approved_mock_test`. Every provider reference must be attested test-mode
-evidence with all of these false:
+`prepare-backup` rejects any execution digest or execution approval. The later
+four modes additionally validate every HMAC binding, artifact/manifest/policy/
+plan/migration digest, the first-use approval window, the exact approved
+execution digest, and the prepared-backup fingerprint. They also verify the
+canonical owner-only approval-ledger directory against its immutable
+execution-approval fingerprint and bind the durable journal to those same
+target, artifact, envelope, restore, and pre/post fingerprints.
 
-- charge enabled;
-- external charge; and
-- live schedule.
+Preparation validates the observer's exact `prepare` action, challenge,
+issue/expiry times, and observation binding. Before backup I/O it exclusively
+consumes that challenge into the fixed owner-only approval ledger. A completed
+preparation cannot be replayed; an interrupted preparation may reconcile only
+with a new fresh challenge against the same state and ledger.
 
-Real, live, unknown, or unattested evidence stops. A non-null provider value is
-never permission to continue. The approval result exposes counts only.
-The reviewed manifest binds sorted-token fingerprints for the exact audited
-coverage: 4 linked identities, 3 paid/confirmed monetary rows, and 7 provider
-references. Empty, missing, duplicate, extra, or substituted classification
-evidence fails before its test/live classification is considered. The final
-locked snapshot binds this coverage through the manifest digest.
-Preparation receives the full classified evidence and calls
-`assertMockOnlyEvidence()` itself. It also derives the observation digest from
-every protected token, classification, attestation, provider mode, and payment
-safety flag. Supplying aggregate counts in place of the classified evidence is
-not accepted.
+The first accepted runner invocation exclusively consumes the execution
+approval into an owner-only HMAC-bound sidecar in the dedicated fixed ledger
+and must begin within five minutes of issuance. The sidecar location does not
+depend on where the signed bundle file is stored. The same ledger and state
+directory may later resume or restore that exact durable run; a copied bundle,
+different ledger, another state directory, replayed approval, or changed
+sidecar stops before clients are created.
 
-## 5. Final transaction and drift contract
+The same fixed ledger also anchors the run instance and every published state
+revision/digest. An empty recreated state store, substituted run marker, or
+truncated revision chain stops. Only the exact one-revision publish-before-
+anchor crash gap may be reconciled forward.
 
-Immediately before database mutation, a future adapter must open one
-serializable transaction, acquire the versioned advisory lock, and lock all 20
-confirmed pre-reset public tables in `SHARE ROW EXCLUSIVE` mode. The list is
-exported as `REQUIRED_PRE_RESET_TABLES` and includes preserved tables plus the
-zero-row live-only legacy residue.
+Invalid input produces only a stable safe error code. Unknown process, SDK,
+database, or filesystem error text is discarded.
 
-While those locks are held, recompute and exactly compare:
+## 5. Fresh target and one-time proof gate
 
-- manifest digest;
-- pre-reset schema fingerprint;
-- reset-row identity/content fingerprint;
-- preserved-row-count fingerprint;
-- preserved-business-column fingerprint; and
-- normalized storage-reference fingerprint.
+The adapter must independently re-observe the database and storage target
+immediately before every external action. The observed fingerprints must equal
+the artifact and dedicated environment, must not equal any forbidden audited
+target, and must recompute the approved policy digest.
 
-`assertFinalLockedSnapshot()` refuses an incomplete/duplicate lock set, the
-wrong isolation or lock mode, a check taken after mutation began, or any
-fingerprint drift. Storage deletion must not begin inside or before this gate.
+`prepare-backup` receives a new random challenge bound to its exact preparation
+artifact, observed target, issue time, and expiry. Every later action receives
+a new random challenge bound to:
 
-This module deliberately does not contain SQL. Any future executor must target
-each approved category explicitly, break the booking/project cycle explicitly,
-compare every `RETURNING` identity set with the manifest, and avoid using
-cascades as its inventory.
+- the exact action;
+- artifact and manifest;
+- database, storage, and policy target;
+- execution, migration, plan, and private-envelope digests;
+- restore points and pre/post namespace fingerprints; and
+- an exact issue time and expiry of at most five minutes.
 
-## 6. Quarantine proof before database reset
+The challenge is durably recorded and consumed once before the action. A
+replayed, stale, expired, substituted, or already consumed proof stops.
+Current wall time is checked again after backup/archive work and lock waits,
+immediately before each database or storage mutation. Lock waits are bounded
+by the authorization window.
 
-Before the database reset can begin, the adapter must copy every exact
-reset-exclusive object into the isolated restore area and collect protected
-evidence for each source/copy pair. `assertQuarantineProof()` requires:
+## 6. Exhaustive discovery and stop checks
 
-- exactly the artifact-bound reset-exclusive source set and count;
-- one unique, separate copy for every source object;
-- matching full-content fingerprints for source and copy; and
-- affirmative copy-exists and restore-verification evidence.
+The database discovery is taken under the approved serializable lock boundary.
+It recomputes schema, exact reset-row content, preserved row counts, preserved
+business fields, storage references, and identity/payment/provider evidence.
 
-Missing, extra, duplicate, shared, content-drifted, or unrestorable copies stop.
-Entering `objects_quarantined` records the verified stable copy-set fingerprint
-in the phase journal. Each subsequent phase requires newly observed quarantine
-evidence bound to that phase's current target challenge, while the exact source
-and copy set must still match the journaled fingerprint. Both
-`resolveNextAction()` and `advancePhase()` revalidate the artifact-bound proof
-before allowing `reset_database`/`database_committed`. Fresh target
-authorization by itself is not quarantine proof, and an older proof cannot be
-replayed under a new challenge.
+It must find exactly the SK-80 approved reset inventory: 102 rows across the
+allowlisted tables, including explicit zero-row categories. It must also match
+the exact seven legacy provider values: three producer Stripe account values
+and four booking Tranzila confirmations. Those values must be freshly attested
+test-mode with charge-enabled, external-charge, and live-schedule all false.
+A different non-live value is still an exact-inventory failure.
 
-## 7. Post-reset integrity contract
+Any pending audio-completion journal is an unresolved recovery reference and
+stops the reset. It must be reconciled by the normal upload recovery path
+before a new approval is built. Active multipart uploads also stop.
 
-The artifact contains exact post-reset expectations derived from the reviewed
-manifest. `assertPostResetIntegrityProof()` requires one digest-bound proof of:
+Audio cleanup publishes an exact durable object-identity intent before
+conditional deletion. A retry reconciles that intent before multipart work;
+an inactive purchase may use only the exact HEAD-observed cleanup path, never
+replay multipart completion. Missing, ambiguous, or replaced objects stop.
 
-- the exact before/deleted reset-row identity and content set, with no reset
-  rows remaining;
-- unchanged preserved row counts and preserved business-column fingerprint;
-- the reviewed target schema fingerprint;
-- zero foreign-key, orphan, and producer/purchase ownership violations;
-- zero prohibited legacy commercial rows and zero synthetic purchases;
-- the exact reset-only object set deleted; and
-- the exact preserved object count and full preserved-content fingerprint.
+The R2 adapter paginates the entire approved namespace, including data,
+recovery, and restore-probe areas. It rejects unknown subpaths and extra,
+missing, duplicate, or changing objects. Every data object is read completely
+and matched by protected key, byte length, full-content SHA-256, and metadata
+SHA-256 to the private envelope. Database reset/preserved references must
+reconcile exactly with this exhaustive storage set. ETags or caller-supplied
+reference lists alone are not inventory proof.
 
-`advancePhase()` cannot enter `verified`, and `resolveNextAction()` cannot
-return the verified-run `noop`, without revalidating this proof against the
-same artifact. Counts alone cannot prove row or object identity.
+## 7. Backup, quarantine, and concurrent-write stop
 
-## 8. Fresh target, restart, and idempotency contract
+`prepare-backup` first re-observes the approved isolated database and storage
+target. Under the database locks it verifies the exact baseline, exports that
+same PostgreSQL snapshot, and creates a private custom-format backup with the
+approved absolute `pg_dump` binary. The database URL is passed only through
+the child environment, never an argument or log. The completed backup is
+owner-only and hashed. A later execution approval must bind that exact hash;
+execution cannot create or substitute a backup.
 
-The versioned phase journal is:
+Immediately before every database-changing phase, including resumed rollback
+and the executable second run, the adapter re-reads the prepared backup,
+checks its HMAC receipt and archive format, and recomputes the exact approved
+fingerprint. Missing, changed, or invalid backup material stops before SQL.
 
-1. `manifest_built`
-2. `objects_quarantined`
-3. `database_committed`
-4. `storage_deleting`
-5. `storage_deleted`
-6. `verified`
+Every reset-exclusive R2 object is conditionally copied to the artifact-bound
+recovery prefix. The adapter reads each copy fully, compares bytes and metadata
+with its source, performs a real restore probe, verifies the probe, and removes
+the probe. Unexpected recovery/probe objects stop. No source object may be
+deleted until every exact recovery copy is verified.
 
-The journal binds artifact, manifest, and verified quarantine copy-set fingerprints.
-Only adjacent forward transitions are valid. `resolveNextAction()` resumes only
-when the journal and
-independently observed pre/post state agree exactly:
+The database reset opens one `SERIALIZABLE` transaction, takes the migration
+and SK-90 advisory locks, and locks every reset/preserved table in the fixed
+order. A second connection attempts approved writer probes with a short lock
+timeout; any probe that is not blocked stops the run. The adapter then
+recomputes the reviewed baseline under those locks.
 
-- database committed + storage pre-state resumes object deletion;
-- storage deleted + exact post-state proceeds to verification; and
-- verified + exact post-state is a no-op on the second run.
+## 8. Exact reset and cutover
 
-Mixed database or storage state requires restore. Missing, mismatched,
-backwards, or skipped state fails closed.
+The transaction targets every approved raw row ID explicitly, breaks only the
+reviewed legacy cycles, compares every returned deleted ID set, and verifies
+that no allowlisted reset row remains. It stages the exact seven provider
+attestations in the transaction before 0027 removes the deprecated provider
+columns.
 
-Every external phase—quarantine, database reset, storage deletion,
-verification/no-op resume, and restore—requires a newly challenge-bound target
-authorization. The adapter must independently re-observe the database and
-storage fingerprints immediately before that phase and pass the current
-challenge and current target-observation digest separately. A forbidden or
-mismatched fresh observation stops. Replaying an older authorization for the
-same action against a new current challenge also stops.
-The future adapter must call `authorizeFreshTargetAction()` and
-`assertFreshTargetGate()` immediately before invoking the external operation;
-phase advancement after an operation is not a substitute for this pre-action
-gate.
+Migration 0027 then applies through the approved in-transaction runner. Its
+SQL independently fails closed on:
 
-## 9. Required rollback exercises
+- source schema or exact reset/provider inventory drift;
+- live card/terminal state;
+- malformed or unsupported product payment-plan JSON;
+- missing/null plan kinds, unexpected object properties, and invalid monthly
+  installment shape;
+- any unexpected reset rows; and
+- any migration digest or ledger conflict.
 
-Exercise all three interruption points from the canonical gate:
+The row reset, schema cutover, migration ledger, and post-cutover verifier
+commit atomically. Post checks require the exact approved target schema,
+unchanged preserved counts/business data, zero reset or synthetic purchase
+rows, validated foreign keys, zero orphans, and zero ownership violations.
+
+Storage deletion uses the exact reset-exclusive protected set. Each source is
+re-observed, its verified backup is re-observed, and deletion uses the current
+ETag condition. Progress is journaled per object. A lost response is reconciled
+by fresh listing/HEAD evidence; the adapter never guesses whether deletion
+succeeded.
+
+## 9. Crash recovery and rollback proof
+
+The durable runner records started/completed boundaries for quarantine,
+database reset, storage deletion, verification, restore, and second run. On
+restart it observes actual database, data, recovery, and probe state before
+choosing an action. A completed remote action is journaled with a fresh proof.
+During the atomic database-reset phase, only the exact approved baseline or
+exact approved post-reset state is accepted; a mixed database stops and is
+never automatically overwritten. A positively identified partial storage
+mutation uses the approved restore path instead of replaying blindly.
+
+All three required interruption exercises run before final success:
 
 1. before database commit;
-2. after database commit but before object deletion; and
-3. after partial object deletion.
+2. after database commit and before storage deletion; and
+3. after partial storage deletion.
 
-At every point, restore both the isolated database and storage namespace from
-their pre-reset restore points. `assertRollbackProof()` binds both the before
-and restored structures to the exact approved artifact and manifest. It
-requires the exact pre-reset schema; reset-row identity/content set and count;
-preserved row-count and business fingerprints; full storage-reference
-fingerprint; and reset/preserved object counts and content fingerprints. Two
-wrong but internally equal snapshots are rejected. Counts or ETags alone are
-insufficient.
-The restore proof is accepted only with a fresh `restore` target authorization;
-a previous reset/delete authorization cannot be reused.
+At every point the runner first reconciles the exact observed database state;
+mixed or unknown drift is never overwritten. It then force-replays the exact
+private PostgreSQL backup and every exact verified R2 recovery copy, including
+the before-commit exercise. Each R2 replay is conditional on both the verified
+recovery-source ETag and current approved destination ETag. It then repeats
+schema, row, preserved-data, foreign-key, orphan, ownership, object-byte, and
+object-metadata checks. Proof compares the approved pre-reset evidence with the
+fresh restored snapshot and requires durable receipts that `pg_restore` and
+the exact number of R2 copies actually executed. The runner can durably enter
+`restored` after a crash between remote restore and journal publication.
 
-## 10. Safe error evidence
+## 10. Real second-run idempotency
 
-`toSafeErrorReport()` maps known failures to stable codes and generic messages.
-Unknown database, provider, filesystem, or SDK exception text is discarded.
-Future adapters must not log raw errors, queries, URLs, identifiers, personal
-data, bucket names, object keys, or provider responses.
+After the final post-reset proof, the runner performs a second executable
+attempt under fresh locks and a new one-time challenge. It targets all original
+row IDs again, runs the matching 0027 completed-target verifier and migration
+ledger path again, and invokes the storage delete reconciliation path with the
+original protected object set.
 
-## 11. Repository verification
+Success requires:
 
-The focused pure-contract suite is:
+- zero database rows changed;
+- zero persistent schema or ledger changes;
+- zero storage copy, delete, or restore attempts;
+- byte-for-byte identical post-reset fingerprints before and after; and
+- a durable, fresh second-run receipt that cannot be reused.
+
+Two observational snapshots without the executable attempt are not accepted
+as idempotency proof.
+
+## 11. Commands after separate external approval
+
+Repository verification does not require an external target:
 
 ```sh
-corepack pnpm --filter web test -- src/server/operations/sk90-reset/index.test.ts
+corepack pnpm --filter web test -- --run src/server/operations/sk90-reset
+corepack pnpm --filter web test -- --run src/server/trpc/routers/audio.test.ts
+corepack pnpm --filter @skitza/db test -- --run \
+  src/__tests__/migration-runner.test.ts \
+  src/__tests__/purchase-foundation.test.ts
 ```
 
-It covers dedicated environment names, exact forbidden sets and policy-digest
-binding, forbidden/mismatched fingerprints, the exact reset allowlist/counts,
-restore-point and isolation requirements, deterministic sanitized manifests,
-identity/payment/provider stops, shared preserved objects, quarantine-copy
-proof, lock/drift checks, phase idempotency, artifact-bound rollback at all
-interruption points, and error redaction.
+Only after Gili approves the exact isolated target and preparation bundle, with
+`SK90_REHEARSAL_APPROVED_EXECUTION_DIGEST` absent:
 
-The focused suite currently contains 47 contracts. These tests are not a
-database or R2 rehearsal. Until approved isolated
-resources, independently observed private fingerprints, identity/provider
-evidence, and actual database-plus-storage restore adapters exist, SK-90 reset
-rehearsal evidence must be reported as **PARTIAL — repository contracts only**.
+```sh
+corepack pnpm --filter web sk90:reset prepare-backup
+```
+
+Stop and use only its sanitized backup fingerprint to create the executable
+bundle and exact execution approval. Only after Gili separately approves that
+bundle, execution digest, and run:
+
+```sh
+corepack pnpm --filter web sk90:reset plan
+corepack pnpm --filter web sk90:reset execute
+```
+
+Use `resume` only to continue the same HMAC-bound durable run after a crash.
+Use `restore` to force verified database-plus-storage restoration for that same
+run. Do not start a new run by deleting or editing the state directory.
+
+## 12. Exact external action plan and required approval
+
+Before `prepare-backup`, provide Gili a sanitized request containing:
+
+1. the proposed isolated target class and protected database/storage
+   fingerprints;
+2. confirmation that neither production nor the frozen old project is a
+   source or target;
+3. the dedicated namespace and separate bucket roles, without raw names;
+4. confirmation that the isolated database marker row and both private bucket
+   attestation objects were provisioned and independently fingerprinted;
+5. protected manifest, artifact, policy, migration, and plan digests;
+6. the exact `prepare-backup` command and expected safe output fields; and
+7. the rollback owner and stop procedure.
+
+After preparation, provide a second sanitized request containing the prepared
+database restore-point fingerprint, protected envelope/storage restore and
+execution digests, approval issue/expiry times, exclusive-writer window, and
+the exact `plan`/`execute` commands.
+
+Gili must approve each exact external stage. After the first approval:
+
+1. provision the isolated target without creating a production/frozen-source
+   snapshot unless separately approved;
+2. populate only the dedicated environment in a clean shell;
+3. place the owner-only preparation bundle, leave the execution-digest variable
+   absent, and run `prepare-backup` once;
+4. review only its sanitized digests, create the executable bundle bound to the
+   returned backup fingerprint, then obtain Gili's second exact approval;
+5. place that executable bundle, set only the approved execution digest,
+   pre-create the separately approved empty owner-only approval ledger, and
+   create the empty owner-only state directory;
+6. run `plan`, review only its sanitized digests/counts, and stop on any error;
+7. run `execute` once and let it complete all rollback exercises, final reset,
+   post verifier, and executable second run;
+8. use `resume` after a crash or `restore` after a stop requiring rollback; and
+9. capture only safe codes, counts, phases, and protected digests as evidence.
+
+Until those approved steps complete on real isolated resources, SK-90 remains
+**PARTIAL — executable repository adapter verified, external rehearsal not
+executed**.

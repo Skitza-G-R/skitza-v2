@@ -50,6 +50,10 @@ export type SanitizedManifestRow = Readonly<{
   protectedContent: ProtectedToken;
 }>;
 
+export const SK90_RESET_ARTIFACT_VERSION = "sk90-reset-v1" as const;
+export const SK90_SANITIZED_MANIFEST_CONTRACT =
+  "sk90-sanitized-private-manifest-v1" as const;
+
 export const SK90_APPROVED_RESET_INVENTORY = [
   { category: "agreement_acceptances", table: "agreement_acceptances", count: 4 },
   { category: "bookings", table: "bookings", count: 22 },
@@ -88,7 +92,7 @@ export type SanitizedManifestObject = Readonly<{
 }>;
 
 type ManifestBody = Readonly<{
-  contract: "sk90-sanitized-private-manifest-v1";
+  contract: typeof SK90_SANITIZED_MANIFEST_CONTRACT;
   artifactVersion: string;
   targetPolicyDigest: Sha256Digest;
   preSchemaFingerprint: Sha256Digest;
@@ -414,6 +418,13 @@ function bodyOf(manifest: SanitizedResetManifest): ManifestBody {
 }
 
 function assertManifestShape(manifest: SanitizedResetManifest): void {
+  const observedContract: unknown = manifest.contract;
+  if (
+    observedContract !== SK90_SANITIZED_MANIFEST_CONTRACT ||
+    manifest.artifactVersion !== SK90_RESET_ARTIFACT_VERSION
+  ) {
+    stop("MANIFEST_DIGEST_MISMATCH");
+  }
   assertSafeLabel(manifest.artifactVersion);
   assertSha256Digest(manifest.targetPolicyDigest);
   assertSha256Digest(manifest.preSchemaFingerprint);
@@ -502,6 +513,9 @@ export function buildSanitizedManifest(
   input: SanitizedManifestInput,
   hmacKey: string,
 ): SanitizedResetManifest {
+  if (input.artifactVersion !== SK90_RESET_ARTIFACT_VERSION) {
+    stop("MANIFEST_INPUT_INVALID");
+  }
   assertSafeLabel(input.artifactVersion);
   assertSha256Digest(input.targetPolicyDigest);
   assertSha256Digest(input.preSchemaFingerprint);
@@ -530,7 +544,7 @@ export function buildSanitizedManifest(
     "preserved_only",
   );
   const body: ManifestBody = {
-    contract: "sk90-sanitized-private-manifest-v1",
+    contract: SK90_SANITIZED_MANIFEST_CONTRACT,
     artifactVersion: input.artifactVersion,
     targetPolicyDigest: input.targetPolicyDigest,
     preSchemaFingerprint: input.preSchemaFingerprint,

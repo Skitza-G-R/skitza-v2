@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 
+import * as resetContracts from "./index";
+
 import {
   REQUIRED_PRE_RESET_TABLES,
   SK90_APPROVED_RESET_INVENTORY,
   SK90_REHEARSAL_ENV,
   Sk90ResetSafetyError,
-  advancePhase,
   assertApprovedResetArtifact,
   assertArtifactLockedSnapshot,
   assertFinalLockedSnapshot,
@@ -14,15 +15,12 @@ import {
   assertPostResetIntegrityProof,
   assertQuarantineProof,
   assertRehearsalTarget,
-  assertRollbackProof,
-  authorizeFreshTargetAction,
   buildMockEvidenceCoverage,
   buildSanitizedManifest,
   buildStorageReferenceCoverage,
   bindDiscoveryEvidence,
   bindPostResetIntegrityProof,
   bindQuarantineProof,
-  bindRollbackProof,
   canonicalJson,
   deriveStorageDeletionPlan,
   fingerprintStorageReferences,
@@ -31,23 +29,33 @@ import {
   prepareResetRun,
   readRehearsalEnvironment,
   rehearsalTargetPolicyDigest,
-  resolveNextAction,
-  rollbackPlanFor,
   sha256Digest,
   targetObservationDigest,
   toSafeErrorReport,
   type ApprovedResetArtifact,
-  type FreshTargetGate,
   type MockEvidence,
   type RehearsalTargetPolicy,
-  type RollbackInterruptionPoint,
   type SanitizedResetManifest,
   type ResetFingerprintSnapshot,
   type ResetRowCandidate,
   type Sk90SafetyErrorCode,
 } from "./index";
+import { authorizeFreshTargetAction } from "./policy";
+import {
+  advancePhase,
+  assertFreshTargetGate,
+  assertRollbackProof,
+  bindRollbackProof,
+  resolveNextAction,
+  rollbackPlanFor,
+  type FreshTargetGate,
+  type RollbackInterruptionPoint,
+} from "./state";
 
 const HMAC_KEY = "test-only-manifest-key-with-at-least-32-bytes";
+const FRESH_ISSUED_AT = "2026-07-17T11:59:00.000Z";
+const FRESH_CURRENT_TIME = "2026-07-17T12:00:00.000Z";
+const FRESH_EXPIRES_AT = "2026-07-17T12:04:00.000Z";
 const IDENTITY_TOKENS = Array.from({ length: 4 }, (_, index) =>
   protectValue(HMAC_KEY, `identity-${String(index)}`),
 );
@@ -225,17 +233,23 @@ function prepareApprovedRun() {
       targetObservationDigest: targetObservationDigest(target),
       resetRowsObservationDigest: manifest.resetRowsFingerprint,
       mockEvidenceObservationDigest: mockEvidenceObservationDigest(APPROVED_MOCK_EVIDENCE),
-      storageEnumerationDigest: manifest.storageReferencesFingerprint,
+      storageReferencesObservationDigest: manifest.storageReferencesFingerprint,
+      storageEnumerationDigest: sha256Digest("full-object-storage-enumeration"),
     }),
   });
   return { manifest, policy, prepared, reviewedBaseline, target };
 }
 
-function exactPostResetProof(artifact: ApprovedResetArtifact) {
+function exactPostResetProof(artifact: ApprovedResetArtifact, freshTarget: FreshTargetGate) {
   const expected = artifact.postResetExpectations;
   return bindPostResetIntegrityProof({
+    contract: "sk90-post-reset-integrity-proof-v1",
     artifactDigest: artifact.digest,
     manifestDigest: artifact.manifestDigest,
+    challengeToken: freshTarget.currentChallengeToken,
+    targetObservationDigest: freshTarget.currentTargetObservationDigest,
+    issuedAt: freshTarget.authorization.issuedAt,
+    expiresAt: freshTarget.authorization.expiresAt,
     schemaFingerprint: expected.targetSchemaFingerprint,
     resetRows: {
       beforeCount: expected.resetRowCount,
@@ -270,12 +284,16 @@ function exactPostResetProof(artifact: ApprovedResetArtifact) {
 function exactQuarantineProof(
   artifact: ApprovedResetArtifact,
   manifest: SanitizedResetManifest,
-  observationChallengeToken = protectValue(HMAC_KEY, "quarantine-proof-observation"),
+  freshTarget: FreshTargetGate,
 ) {
   return bindQuarantineProof({
+    contract: "sk90-quarantine-proof-v1",
     artifactDigest: artifact.digest,
     manifestDigest: artifact.manifestDigest,
-    observationChallengeToken,
+    observationChallengeToken: freshTarget.currentChallengeToken,
+    targetObservationDigest: freshTarget.currentTargetObservationDigest,
+    issuedAt: freshTarget.authorization.issuedAt,
+    expiresAt: freshTarget.authorization.expiresAt,
     copies: manifest.storageObjects
       .filter((object) => object.ownership === "reset_exclusive")
       .map((object) => ({
@@ -318,11 +336,17 @@ function exactRestoreBaseline(artifact: ApprovedResetArtifact) {
 function exactRollbackProof(
   artifact: ApprovedResetArtifact,
   interruptionPoint: RollbackInterruptionPoint,
+  freshTarget: FreshTargetGate,
 ) {
   const baseline = exactRestoreBaseline(artifact);
   return bindRollbackProof({
+    contract: "sk90-rollback-proof-v1",
     artifactDigest: artifact.digest,
     manifestDigest: artifact.manifestDigest,
+    challengeToken: freshTarget.currentChallengeToken,
+    targetObservationDigest: freshTarget.currentTargetObservationDigest,
+    issuedAt: freshTarget.authorization.issuedAt,
+    expiresAt: freshTarget.authorization.expiresAt,
     interruptionPoint,
     databaseRestoreCompleted: true,
     storageRestoreCompleted: true,
@@ -345,11 +369,14 @@ function freshAuthorization(
     approvedTarget: artifact.target,
     freshPolicy,
     challengeToken,
+    issuedAt: FRESH_ISSUED_AT,
+    expiresAt: FRESH_EXPIRES_AT,
   });
   return {
     authorization,
     currentChallengeToken: challengeToken,
     currentTargetObservationDigest: targetObservationDigest(artifact.target),
+    currentTime: FRESH_CURRENT_TIME,
   };
 }
 
@@ -360,7 +387,17 @@ function quarantineGateFor(
 ) {
   return {
     artifact,
-    proof: exactQuarantineProof(artifact, manifest, freshTarget.currentChallengeToken),
+    proof: exactQuarantineProof(artifact, manifest, freshTarget),
+  };
+}
+
+function freshProofExpectation(freshTarget: FreshTargetGate) {
+  return {
+    challengeToken: freshTarget.currentChallengeToken,
+    targetObservationDigest: freshTarget.currentTargetObservationDigest,
+    issuedAt: freshTarget.authorization.issuedAt,
+    expiresAt: freshTarget.authorization.expiresAt,
+    currentTime: freshTarget.currentTime,
   };
 }
 
@@ -375,6 +412,17 @@ function exactEnvironment(): Record<string, string> {
     [SK90_REHEARSAL_ENV.approvalPolicyDigest]: sha256Digest("reviewed-policy"),
   };
 }
+
+describe("SK-90 public reset contracts", () => {
+  it.each([
+    "advancePhase",
+    "assertFreshTargetGate",
+    "authorizeFreshTargetAction",
+    "resolveNextAction",
+  ])("does not export the obsolete caller-supplied freshness API %s", (name) => {
+    expect(resetContracts).not.toHaveProperty(name);
+  });
+});
 
 describe("SK-90 fail-closed environment contract", () => {
   it("accepts only the dedicated rehearsal names", () => {
@@ -552,6 +600,51 @@ describe("SK-90 deterministic sanitized manifest", () => {
     expectSafetyError(() => assertManifestDigest(changed), "MANIFEST_DIGEST_MISMATCH");
   });
 
+  it("requires exact supported manifest and artifact contracts with one shared version", () => {
+    const { manifest, prepared, reviewedBaseline, target } = prepareApprovedRun();
+    const { digest: _manifestDigest, ...manifestBody } = manifest;
+    void _manifestDigest;
+    const wrongManifestBody = {
+      ...manifestBody,
+      contract: "sk90-sanitized-private-manifest-v0" as never,
+    };
+    const { digest: _artifactDigest, ...artifactBody } = prepared.artifact;
+    void _artifactDigest;
+    const wrongArtifactBody = {
+      ...artifactBody,
+      contract: "sk90-approved-reset-artifact-v0" as never,
+    };
+
+    expectSafetyError(
+      () =>
+        assertManifestDigest({
+          ...wrongManifestBody,
+          digest: sha256Digest(canonicalJson(wrongManifestBody)),
+        }),
+      "MANIFEST_DIGEST_MISMATCH",
+    );
+    expectSafetyError(
+      () =>
+        assertApprovedResetArtifact({
+          ...wrongArtifactBody,
+          digest: sha256Digest(canonicalJson(wrongArtifactBody)),
+        }),
+      "ARTIFACT_BINDING_MISMATCH",
+    );
+    expectSafetyError(
+      () =>
+        prepareResetRun({
+          artifactVersion: "sk90-reset-v2",
+          target,
+          manifest,
+          mockEvidence: APPROVED_MOCK_EVIDENCE,
+          reviewedBaseline,
+          discoveryEvidence: prepared.artifact.discoveryEvidence,
+        }),
+      "ARTIFACT_BINDING_MISMATCH",
+    );
+  });
+
   it("requires the exact approved row allowlist and counts", () => {
     expectSafetyError(
       () => buildSanitizedManifest({ ...baseInput, rows: baseInput.rows.slice(1) }, HMAC_KEY),
@@ -690,7 +783,8 @@ describe("SK-90 deterministic sanitized manifest", () => {
           reviewedBaseline: prepared.artifact.reviewedBaseline,
           discoveryEvidence: bindDiscoveryEvidence({
             ...prepared.artifact.discoveryEvidence,
-            storageEnumerationDigest: fingerprintStorageReferences(fullDiscoveryReferences),
+            storageReferencesObservationDigest:
+              fingerprintStorageReferences(fullDiscoveryReferences),
           }),
         }),
       "ARTIFACT_BINDING_MISMATCH",
@@ -857,11 +951,39 @@ describe("SK-90 identity, payment, and provider stops", () => {
 });
 
 describe("SK-90 artifact-bound post-reset integrity", () => {
+  it("rejects a stale or replayed integrity proof", () => {
+    const { prepared } = prepareApprovedRun();
+    const freshTarget = freshAuthorization(
+      prepared.artifact,
+      "verify",
+      undefined,
+      "integrity-freshness",
+    );
+    const proof = exactPostResetProof(prepared.artifact, freshTarget);
+    const replayed = bindPostResetIntegrityProof({
+      ...proof,
+      challengeToken: protectValue(HMAC_KEY, "previous-integrity-challenge"),
+    });
+
+    expectSafetyError(
+      () =>
+        assertPostResetIntegrityProof(
+          prepared.artifact,
+          replayed,
+          freshProofExpectation(freshTarget),
+        ),
+      "FRESHNESS_PROOF_INVALID",
+    );
+  });
+
   it("proves exact row deletion, preserved data, schema, relational checks, and storage", () => {
     const { prepared } = prepareApprovedRun();
-    const proof = exactPostResetProof(prepared.artifact);
+    const freshTarget = freshAuthorization(prepared.artifact, "verify", undefined, "proof-ok");
+    const proof = exactPostResetProof(prepared.artifact, freshTarget);
 
-    expect(assertPostResetIntegrityProof(prepared.artifact, proof)).toMatchObject({
+    expect(
+      assertPostResetIntegrityProof(prepared.artifact, proof, freshProofExpectation(freshTarget)),
+    ).toMatchObject({
       artifactDigest: prepared.artifact.digest,
       manifestDigest: prepared.artifact.manifestDigest,
       verified: true,
@@ -870,7 +992,13 @@ describe("SK-90 artifact-bound post-reset integrity", () => {
 
   it("rejects any incomplete row delta, ownership failure, prohibited row, or object drift", () => {
     const { prepared } = prepareApprovedRun();
-    const proof = exactPostResetProof(prepared.artifact);
+    const freshTarget = freshAuthorization(
+      prepared.artifact,
+      "verify",
+      undefined,
+      "proof-rejected",
+    );
+    const proof = exactPostResetProof(prepared.artifact, freshTarget);
     const rejected = [
       bindPostResetIntegrityProof({
         ...proof,
@@ -940,7 +1068,12 @@ describe("SK-90 artifact-bound post-reset integrity", () => {
 
     for (const candidate of rejected) {
       expectSafetyError(
-        () => assertPostResetIntegrityProof(prepared.artifact, candidate),
+        () =>
+          assertPostResetIntegrityProof(
+            prepared.artifact,
+            candidate,
+            freshProofExpectation(freshTarget),
+          ),
         "POST_RESET_INTEGRITY_MISMATCH",
       );
     }
@@ -950,9 +1083,17 @@ describe("SK-90 artifact-bound post-reset integrity", () => {
 describe("SK-90 artifact-bound quarantine proof", () => {
   it("proves every reset-exclusive object has one verified content-matching copy", () => {
     const { manifest, prepared } = prepareApprovedRun();
-    const proof = exactQuarantineProof(prepared.artifact, manifest);
+    const freshTarget = freshAuthorization(
+      prepared.artifact,
+      "quarantine_objects",
+      undefined,
+      "quarantine-ok",
+    );
+    const proof = exactQuarantineProof(prepared.artifact, manifest, freshTarget);
 
-    expect(assertQuarantineProof(prepared.artifact, proof)).toMatchObject({
+    expect(
+      assertQuarantineProof(prepared.artifact, proof, freshProofExpectation(freshTarget)),
+    ).toMatchObject({
       artifactDigest: prepared.artifact.digest,
       manifestDigest: prepared.artifact.manifestDigest,
       proofDigest: proof.bindingDigest,
@@ -962,7 +1103,13 @@ describe("SK-90 artifact-bound quarantine proof", () => {
 
   it("rejects missing, extra, drifted, or unrestorable quarantine copies", () => {
     const { manifest, prepared } = prepareApprovedRun();
-    const proof = exactQuarantineProof(prepared.artifact, manifest);
+    const freshTarget = freshAuthorization(
+      prepared.artifact,
+      "quarantine_objects",
+      undefined,
+      "quarantine-rejected",
+    );
+    const proof = exactQuarantineProof(prepared.artifact, manifest, freshTarget);
     const first = requiredFixture(proof.copies[0]);
     const rejected = [
       bindQuarantineProof({ ...proof, copies: proof.copies.slice(1) }),
@@ -993,7 +1140,8 @@ describe("SK-90 artifact-bound quarantine proof", () => {
 
     for (const candidate of rejected) {
       expectSafetyError(
-        () => assertQuarantineProof(prepared.artifact, candidate),
+        () =>
+          assertQuarantineProof(prepared.artifact, candidate, freshProofExpectation(freshTarget)),
         "QUARANTINE_PROOF_MISMATCH",
       );
     }
@@ -1028,6 +1176,7 @@ describe("SK-90 artifact-bound quarantine proof", () => {
     const quarantineSetFingerprint = assertQuarantineProof(
       prepared.artifact,
       proof,
+      freshProofExpectation(freshQuarantine),
     ).quarantineSetFingerprint;
     expect(quarantined.quarantineSetFingerprint).toBe(quarantineSetFingerprint);
 
@@ -1040,6 +1189,9 @@ describe("SK-90 artifact-bound quarantine proof", () => {
     const substitutedProof = bindQuarantineProof({
       ...proof,
       observationChallengeToken: substitutedFresh.currentChallengeToken,
+      targetObservationDigest: substitutedFresh.currentTargetObservationDigest,
+      issuedAt: substitutedFresh.authorization.issuedAt,
+      expiresAt: substitutedFresh.authorization.expiresAt,
       copies: proof.copies.map((copy, index) => ({
         ...copy,
         protectedCopyKey: protectValue(HMAC_KEY, `substituted-copy-${String(index)}`),
@@ -1091,7 +1243,7 @@ describe("SK-90 artifact-bound quarantine proof", () => {
           resetFresh,
           { quarantine: quarantineGate },
         ),
-      "QUARANTINE_PROOF_MISMATCH",
+      "FRESHNESS_PROOF_INVALID",
     );
     const resetQuarantineGate = quarantineGateFor(prepared.artifact, manifest, resetFresh);
     expect(
@@ -1223,7 +1375,7 @@ describe("SK-90 fresh target gate for every external phase", () => {
             currentTargetObservationDigest: current.currentTargetObservationDigest,
           },
         ),
-      "FRESH_TARGET_AUTHORIZATION_INVALID",
+      "FRESHNESS_PROOF_INVALID",
     );
 
     expectSafetyError(
@@ -1245,7 +1397,7 @@ describe("SK-90 fresh target gate for every external phase", () => {
             currentTargetObservationDigest: sha256Digest("repointed-current-target"),
           },
         ),
-      "FRESH_TARGET_AUTHORIZATION_INVALID",
+      "FRESHNESS_PROOF_INVALID",
     );
   });
 });
@@ -1345,22 +1497,40 @@ describe("SK-90 final drift and lock contract", () => {
 });
 
 describe("SK-90 idempotent phase and rollback contracts", () => {
+  it("rejects an authorization after its adapter-observed freshness window", () => {
+    const { prepared } = prepareApprovedRun();
+    const stale = {
+      ...freshAuthorization(prepared.artifact, "noop", undefined, "expired"),
+      currentTime: "2026-07-17T12:04:00.000Z",
+    };
+
+    expectSafetyError(
+      () => {
+        assertFreshTargetGate(stale, "noop", prepared.artifact.digest);
+      },
+      "FRESHNESS_PROOF_INVALID",
+    );
+  });
+
   it("resumes only from exact phase/state pairs and makes a verified second run a no-op", () => {
     const { manifest, prepared } = prepareApprovedRun();
     const artifactDigest = prepared.artifact.digest;
     const manifestDigest = prepared.artifact.manifestDigest;
+    const quarantineFresh = freshAuthorization(
+      prepared.artifact,
+      "quarantine_objects",
+      undefined,
+      "initial-quarantine-fingerprint",
+    );
     const quarantineSetFingerprint = assertQuarantineProof(
       prepared.artifact,
-      exactQuarantineProof(prepared.artifact, manifest),
+      exactQuarantineProof(prepared.artifact, manifest, quarantineFresh),
+      freshProofExpectation(quarantineFresh),
     ).quarantineSetFingerprint;
     const journalBoundary = {
       artifactDigest,
       manifestDigest,
       quarantineSetFingerprint,
-    };
-    const integrity = {
-      artifact: prepared.artifact,
-      proof: exactPostResetProof(prepared.artifact),
     };
     const missingJournalFresh = freshAuthorization(
       prepared.artifact,
@@ -1396,6 +1566,10 @@ describe("SK-90 idempotent phase and rollback contracts", () => {
     ).toBe("delete_storage");
 
     const noopFresh = freshAuthorization(prepared.artifact, "noop", undefined, "noop-resume");
+    const integrity = {
+      artifact: prepared.artifact,
+      proof: exactPostResetProof(prepared.artifact, noopFresh),
+    };
     expect(
       resolveNextAction(
         { ...journalBoundary, phase: "verified" },
@@ -1438,13 +1612,53 @@ describe("SK-90 idempotent phase and rollback contracts", () => {
     );
   });
 
+  it.each([
+    ["objects_quarantined", "before_database_commit"],
+    ["database_committed", "after_database_commit_before_storage_delete"],
+    ["storage_deleting", "after_partial_storage_delete"],
+    ["storage_deleted", "after_partial_storage_delete"],
+  ] as const)("durably records restored after recovery from %s", (phase, point) => {
+    const { prepared } = prepareApprovedRun();
+    const restoreFresh = freshAuthorization(
+      prepared.artifact,
+      "restore",
+      undefined,
+      `journal-restore-${phase}`,
+    );
+    const restored = advancePhase(
+      {
+        artifactDigest: prepared.artifact.digest,
+        manifestDigest: prepared.artifact.manifestDigest,
+        phase,
+        quarantineSetFingerprint: sha256Digest("quarantine-set"),
+      },
+      "restored",
+      restoreFresh,
+      {
+        rollback: {
+          artifact: prepared.artifact,
+          proof: exactRollbackProof(prepared.artifact, point, restoreFresh),
+        },
+      },
+    );
+
+    expect(restored.phase).toBe("restored");
+  });
+
   it("requires the artifact-bound integrity receipt before verified or noop", () => {
     const { manifest, prepared } = prepareApprovedRun();
     const artifactDigest = prepared.artifact.digest;
     const manifestDigest = prepared.artifact.manifestDigest;
+    const quarantineFresh = freshAuthorization(
+      prepared.artifact,
+      "quarantine_objects",
+      undefined,
+      "integrity-quarantine-fingerprint",
+    );
     const quarantineSetFingerprint = assertQuarantineProof(
       prepared.artifact,
-      exactQuarantineProof(prepared.artifact, manifest),
+      exactQuarantineProof(prepared.artifact, manifest, quarantineFresh),
+      freshProofExpectation(quarantineFresh),
     ).quarantineSetFingerprint;
     const journalBoundary = {
       artifactDigest,
@@ -1483,11 +1697,11 @@ describe("SK-90 idempotent phase and rollback contracts", () => {
       "POST_RESET_INTEGRITY_REQUIRED",
     );
 
+    const verifiedFresh = freshAuthorization(prepared.artifact, "verify", undefined, "verified");
     const integrity = {
       artifact: prepared.artifact,
-      proof: exactPostResetProof(prepared.artifact),
+      proof: exactPostResetProof(prepared.artifact, verifiedFresh),
     };
-    const verifiedFresh = freshAuthorization(prepared.artifact, "verify", undefined, "verified");
     expect(
       advancePhase({ ...journalBoundary, phase: "storage_deleted" }, "verified", verifiedFresh, {
         integrity,
@@ -1509,18 +1723,60 @@ describe("SK-90 idempotent phase and rollback contracts", () => {
       verifyStorageContent: true,
     });
 
+    const restoreFresh = freshAuthorization(
+      prepared.artifact,
+      "restore",
+      undefined,
+      `restore-${point}`,
+    );
     expect(
       assertRollbackProof(
-        exactRollbackProof(prepared.artifact, point),
-        freshAuthorization(prepared.artifact, "restore"),
+        exactRollbackProof(prepared.artifact, point, restoreFresh),
+        restoreFresh,
         prepared.artifact,
       ),
     ).toEqual({ interruptionPoint: point, restored: true });
   });
 
+  it("rejects replaying a rollback proof under a later restore challenge", () => {
+    const { prepared } = prepareApprovedRun();
+    const previousFresh = freshAuthorization(
+      prepared.artifact,
+      "restore",
+      undefined,
+      "previous-restore",
+    );
+    const currentFresh = freshAuthorization(
+      prepared.artifact,
+      "restore",
+      undefined,
+      "current-restore",
+    );
+    const proof = exactRollbackProof(
+      prepared.artifact,
+      "after_database_commit_before_storage_delete",
+      previousFresh,
+    );
+
+    expectSafetyError(
+      () => assertRollbackProof(proof, currentFresh, prepared.artifact),
+      "FRESHNESS_PROOF_INVALID",
+    );
+  });
+
   it("stops on incomplete or unequal restore evidence", () => {
     const { prepared } = prepareApprovedRun();
-    const exact = exactRollbackProof(prepared.artifact, "after_partial_storage_delete");
+    const restoreFresh = freshAuthorization(
+      prepared.artifact,
+      "restore",
+      undefined,
+      "restore-incomplete",
+    );
+    const exact = exactRollbackProof(
+      prepared.artifact,
+      "after_partial_storage_delete",
+      restoreFresh,
+    );
     expectSafetyError(
       () =>
         assertRollbackProof(
@@ -1534,7 +1790,7 @@ describe("SK-90 idempotent phase and rollback contracts", () => {
               },
             },
           }),
-          freshAuthorization(prepared.artifact, "restore"),
+          restoreFresh,
           prepared.artifact,
         ),
       "RESTORE_PROOF_MISMATCH",
@@ -1543,9 +1799,16 @@ describe("SK-90 idempotent phase and rollback contracts", () => {
 
   it("rejects wrong but internally equal restore fingerprints", () => {
     const { prepared } = prepareApprovedRun();
+    const restoreFresh = freshAuthorization(
+      prepared.artifact,
+      "restore",
+      undefined,
+      "restore-wrong-equal",
+    );
     const exact = exactRollbackProof(
       prepared.artifact,
       "after_database_commit_before_storage_delete",
+      restoreFresh,
     );
     const wrong = {
       ...exact.before,
@@ -1570,7 +1833,7 @@ describe("SK-90 idempotent phase and rollback contracts", () => {
       () =>
         assertRollbackProof(
           bindRollbackProof({ ...exact, before: wrong, restored: wrong }),
-          freshAuthorization(prepared.artifact, "restore"),
+          restoreFresh,
           prepared.artifact,
         ),
       "RESTORE_PROOF_MISMATCH",

@@ -46,7 +46,7 @@ export async function initAudioUpload(input: {
   filename: string;
   sizeBytes: number;
   contentType: string;
-}): Promise<ActionData<{ uploadId: string; key: string }>> {
+}): Promise<ActionData<{ uploadId: string; key: string; completionToken: string }>> {
   try {
     const c = await caller();
     const data = await c.audio.initMultipart(input);
@@ -77,6 +77,7 @@ export async function completeAudioUpload(input: {
   parts: Array<{ partNumber: number; eTag: string }>;
   trackVersionId: string;
   sizeBytes: number;
+  completionToken: string;
   durationMs?: number;
 }): Promise<ActionData<{ url: string; key: string }>> {
   try {

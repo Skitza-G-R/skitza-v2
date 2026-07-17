@@ -265,7 +265,7 @@ export function UploadTrackModal({
           contentType: submittedFile.type || "audio/mpeg",
         });
         if (!ires.ok) throw new Error(ires.error);
-        const { uploadId, key } = ires.data;
+        const { uploadId, key, completionToken } = ires.data;
         activeUploadRef.current = { uploadId, key };
 
         // 4. Slice + sign + PUT each chunk in series. We stay serial
@@ -320,6 +320,7 @@ export function UploadTrackModal({
           parts,
           trackVersionId: versionId,
           sizeBytes: submittedFile.size,
+          completionToken,
           ...(durationMs ? { durationMs } : {}),
         });
         if (!cres.ok) throw new Error(cres.error);

@@ -9,6 +9,8 @@ import {
 } from "./canonical";
 import { stop } from "./errors";
 import {
+  assertFreshProofObservation,
+  assertFreshProofWindow,
   assertFreshTargetAuthorization,
   type FreshTargetAuthorization,
   type TargetGatedResetAction,
@@ -71,6 +73,7 @@ export type FreshTargetGate = Readonly<{
   authorization: FreshTargetAuthorization;
   currentChallengeToken: ProtectedToken;
   currentTargetObservationDigest: Sha256Digest;
+  currentTime: string;
 }>;
 
 export type PostResetIntegrityGate = Readonly<{
@@ -83,9 +86,15 @@ export type QuarantineProofGate = Readonly<{
   proof: QuarantineProof;
 }>;
 
+export type RollbackProofGate = Readonly<{
+  artifact: ApprovedResetArtifact;
+  proof: RollbackProof;
+}>;
+
 export type ResetPhaseProofs = Readonly<{
   integrity?: PostResetIntegrityGate;
   quarantine?: QuarantineProofGate;
+  rollback?: RollbackProofGate;
 }>;
 
 export function assertFreshTargetGate(
@@ -100,15 +109,23 @@ export function assertFreshTargetGate(
     artifactDigest,
     challengeToken: gate.currentChallengeToken,
     targetObservationDigest: gate.currentTargetObservationDigest,
+    currentTime: gate.currentTime,
   });
 }
 
 function assertIntegrityGate(
   gate: PostResetIntegrityGate | undefined,
   expected: Readonly<{ artifactDigest: Sha256Digest; manifestDigest: Sha256Digest }>,
+  freshTarget: FreshTargetGate,
 ): void {
   if (!gate) stop("POST_RESET_INTEGRITY_REQUIRED");
-  const receipt = assertPostResetIntegrityProof(gate.artifact, gate.proof);
+  const receipt = assertPostResetIntegrityProof(gate.artifact, gate.proof, {
+    challengeToken: freshTarget.currentChallengeToken,
+    targetObservationDigest: freshTarget.currentTargetObservationDigest,
+    issuedAt: freshTarget.authorization.issuedAt,
+    expiresAt: freshTarget.authorization.expiresAt,
+    currentTime: freshTarget.currentTime,
+  });
   if (
     !sameDigest(receipt.artifactDigest, expected.artifactDigest) ||
     !sameDigest(receipt.manifestDigest, expected.manifestDigest)
@@ -123,11 +140,21 @@ function assertQuarantineGate(
     artifactDigest: Sha256Digest;
     manifestDigest: Sha256Digest;
     challengeToken: ProtectedToken;
+    targetObservationDigest: Sha256Digest;
+    issuedAt: string;
+    expiresAt: string;
+    currentTime: string;
     setFingerprint?: Sha256Digest;
   }>,
 ): Sha256Digest {
   if (!gate) stop("QUARANTINE_PROOF_REQUIRED");
-  const receipt = assertQuarantineProof(gate.artifact, gate.proof);
+  const receipt = assertQuarantineProof(gate.artifact, gate.proof, {
+    challengeToken: expected.challengeToken,
+    targetObservationDigest: expected.targetObservationDigest,
+    issuedAt: expected.issuedAt,
+    expiresAt: expected.expiresAt,
+    currentTime: expected.currentTime,
+  });
   if (
     !sameDigest(receipt.artifactDigest, expected.artifactDigest) ||
     !sameDigest(receipt.manifestDigest, expected.manifestDigest) ||
@@ -159,6 +186,23 @@ export function advancePhase(
   proofs: ResetPhaseProofs = {},
 ): ResetPhaseJournal {
   validateJournal(journal);
+  if (nextPhase === "restored") {
+    if (
+      journal.phase !== "objects_quarantined" &&
+      journal.phase !== "database_committed" &&
+      journal.phase !== "storage_deleting" &&
+      journal.phase !== "storage_deleted"
+    ) {
+      stop("PHASE_STATE_INVALID");
+    }
+    if (!proofs.rollback) stop("RESTORE_PROOF_MISMATCH");
+    assertRollbackProof(
+      proofs.rollback.proof,
+      freshTarget,
+      proofs.rollback.artifact,
+    );
+    return { ...journal, phase: "restored" };
+  }
   if (NEXT_PHASE[journal.phase] !== nextPhase) stop("PHASE_STATE_INVALID");
   const action = PHASE_ACTION[nextPhase];
   if (!action) stop("PHASE_STATE_INVALID");
@@ -167,6 +211,10 @@ export function advancePhase(
     const quarantineSetFingerprint = assertQuarantineGate(proofs.quarantine, {
       ...journal,
       challengeToken: freshTarget.currentChallengeToken,
+      targetObservationDigest: freshTarget.currentTargetObservationDigest,
+      issuedAt: freshTarget.authorization.issuedAt,
+      expiresAt: freshTarget.authorization.expiresAt,
+      currentTime: freshTarget.currentTime,
     });
     return { ...journal, phase: nextPhase, quarantineSetFingerprint };
   }
@@ -175,11 +223,15 @@ export function advancePhase(
     assertQuarantineGate(proofs.quarantine, {
       ...journal,
       challengeToken: freshTarget.currentChallengeToken,
+      targetObservationDigest: freshTarget.currentTargetObservationDigest,
+      issuedAt: freshTarget.authorization.issuedAt,
+      expiresAt: freshTarget.authorization.expiresAt,
+      currentTime: freshTarget.currentTime,
       setFingerprint: journal.quarantineSetFingerprint,
     });
   }
   if (nextPhase === "verified") {
-    assertIntegrityGate(proofs.integrity, journal);
+    assertIntegrityGate(proofs.integrity, journal, freshTarget);
   }
   return { ...journal, phase: nextPhase };
 }
@@ -252,13 +304,26 @@ export function resolveNextAction(
       assertQuarantineGate(proofs.quarantine, {
         ...expected,
         challengeToken: freshTarget.currentChallengeToken,
+        targetObservationDigest: freshTarget.currentTargetObservationDigest,
+        issuedAt: freshTarget.authorization.issuedAt,
+        expiresAt: freshTarget.authorization.expiresAt,
+        currentTime: freshTarget.currentTime,
         setFingerprint: journal.quarantineSetFingerprint,
       });
     }
-    if (action === "noop") assertIntegrityGate(proofs.integrity, expected);
+    if (action === "noop") assertIntegrityGate(proofs.integrity, expected, freshTarget);
     return action;
   }
 
+  if (
+    journal.phase === "objects_quarantined" ||
+    journal.phase === "database_committed" ||
+    journal.phase === "storage_deleting" ||
+    journal.phase === "storage_deleted" ||
+    journal.phase === "verified"
+  ) {
+    stop("RESTORE_REQUIRED");
+  }
   stop("PHASE_STATE_INVALID");
 }
 
@@ -307,8 +372,13 @@ export type RestoreBaseline = Readonly<{
 }>;
 
 type RollbackProofBody = Readonly<{
+  contract: "sk90-rollback-proof-v1";
   artifactDigest: Sha256Digest;
   manifestDigest: Sha256Digest;
+  challengeToken: ProtectedToken;
+  targetObservationDigest: Sha256Digest;
+  issuedAt: string;
+  expiresAt: string;
   interruptionPoint: RollbackInterruptionPoint;
   databaseRestoreCompleted: boolean;
   storageRestoreCompleted: boolean;
@@ -341,8 +411,11 @@ function validateRestoreBaseline(baseline: RestoreBaseline): void {
 }
 
 function rollbackProofBody(proof: RollbackProofBody): RollbackProofBody {
+  const contract: unknown = proof.contract;
+  if (contract !== "sk90-rollback-proof-v1") stop("RESTORE_PROOF_MISMATCH");
   assertSha256Digest(proof.artifactDigest);
   assertSha256Digest(proof.manifestDigest);
+  assertFreshProofWindow(proof);
   const interruptionPoint: unknown = proof.interruptionPoint;
   if (
     interruptionPoint !== "before_database_commit" &&
@@ -354,8 +427,13 @@ function rollbackProofBody(proof: RollbackProofBody): RollbackProofBody {
   validateRestoreBaseline(proof.before);
   validateRestoreBaseline(proof.restored);
   return {
+    contract: proof.contract,
     artifactDigest: proof.artifactDigest,
     manifestDigest: proof.manifestDigest,
+    challengeToken: proof.challengeToken,
+    targetObservationDigest: proof.targetObservationDigest,
+    issuedAt: proof.issuedAt,
+    expiresAt: proof.expiresAt,
     interruptionPoint: proof.interruptionPoint,
     databaseRestoreCompleted: proof.databaseRestoreCompleted,
     storageRestoreCompleted: proof.storageRestoreCompleted,
@@ -401,12 +479,20 @@ export function assertRollbackProof(
   assertFreshTargetGate(freshTarget, "restore", artifact.digest);
   const rebound = bindRollbackProof(proof);
   assertSha256Digest(proof.bindingDigest);
+  assertFreshProofObservation(proof, {
+    challengeToken: freshTarget.currentChallengeToken,
+    targetObservationDigest: freshTarget.currentTargetObservationDigest,
+    issuedAt: freshTarget.authorization.issuedAt,
+    expiresAt: freshTarget.authorization.expiresAt,
+    currentTime: freshTarget.currentTime,
+  });
   const expected = expectedRestoreBaseline(artifact);
 
   if (
     !sameDigest(proof.bindingDigest, rebound.bindingDigest) ||
     !sameDigest(proof.artifactDigest, artifact.digest) ||
     !sameDigest(proof.manifestDigest, artifact.manifestDigest) ||
+    !sameDigest(proof.targetObservationDigest, freshTarget.currentTargetObservationDigest) ||
     !isExactlyTrue(proof.databaseRestoreCompleted) ||
     !isExactlyTrue(proof.storageRestoreCompleted) ||
     !isExactlyTrue(proof.storageContentVerified) ||

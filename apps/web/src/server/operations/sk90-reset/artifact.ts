@@ -13,15 +13,19 @@ import { stop } from "./errors";
 import {
   assertManifestDigest,
   assertStorageReferenceCoverageShape,
+  SK90_RESET_ARTIFACT_VERSION,
   type SanitizedResetManifest,
 } from "./manifest";
 import {
+  assertFreshProofObservation,
+  assertFreshProofWindow,
   assertMockOnlyEvidence,
   assertMockEvidenceCoverageShape,
   mockEvidenceObservationDigest,
   targetObservationDigest,
   type MockEvidence,
   type MockEvidenceSummary,
+  type FreshProofExpectation,
   type RehearsalTargetApproval,
 } from "./policy";
 import type { ResetPhaseJournal } from "./state";
@@ -31,12 +35,15 @@ export type ChallengeBoundDiscoveryEvidence = Readonly<{
   targetObservationDigest: Sha256Digest;
   resetRowsObservationDigest: Sha256Digest;
   mockEvidenceObservationDigest: Sha256Digest;
+  storageReferencesObservationDigest: Sha256Digest;
   storageEnumerationDigest: Sha256Digest;
   bindingDigest: Sha256Digest;
 }>;
 
+export const SK90_APPROVED_RESET_ARTIFACT_CONTRACT = "sk90-approved-reset-artifact-v1" as const;
+
 type ResetArtifactBody = Readonly<{
-  contract: "sk90-approved-reset-artifact-v1";
+  contract: typeof SK90_APPROVED_RESET_ARTIFACT_CONTRACT;
   artifactVersion: string;
   target: RehearsalTargetApproval;
   manifestDigest: Sha256Digest;
@@ -80,6 +87,7 @@ function discoveryBody(
     targetObservationDigest: evidence.targetObservationDigest,
     resetRowsObservationDigest: evidence.resetRowsObservationDigest,
     mockEvidenceObservationDigest: evidence.mockEvidenceObservationDigest,
+    storageReferencesObservationDigest: evidence.storageReferencesObservationDigest,
     storageEnumerationDigest: evidence.storageEnumerationDigest,
   };
 }
@@ -91,6 +99,7 @@ export function bindDiscoveryEvidence(
   assertSha256Digest(evidence.targetObservationDigest);
   assertSha256Digest(evidence.resetRowsObservationDigest);
   assertSha256Digest(evidence.mockEvidenceObservationDigest);
+  assertSha256Digest(evidence.storageReferencesObservationDigest);
   assertSha256Digest(evidence.storageEnumerationDigest);
   const body = discoveryBody(evidence);
   return { ...body, bindingDigest: sha256Digest(canonicalJson(body)) };
@@ -140,7 +149,14 @@ function assertPostResetExpectations(expectations: PostResetExpectations): void 
 }
 
 function assertArtifactBody(body: ResetArtifactBody): void {
-  if (!SAFE_ARTIFACT_VERSION.test(body.artifactVersion)) stop("ARTIFACT_BINDING_MISMATCH");
+  const observedContract: unknown = body.contract;
+  if (
+    observedContract !== SK90_APPROVED_RESET_ARTIFACT_CONTRACT ||
+    body.artifactVersion !== SK90_RESET_ARTIFACT_VERSION ||
+    !SAFE_ARTIFACT_VERSION.test(body.artifactVersion)
+  ) {
+    stop("ARTIFACT_BINDING_MISMATCH");
+  }
   const targetClass: string = body.target.targetClass;
   if (targetClass !== "isolated_nonproduction") {
     stop("ARTIFACT_BINDING_MISMATCH");
@@ -169,7 +185,7 @@ function assertArtifactBody(body: ResetArtifactBody): void {
       body.reviewedBaseline.resetRowsFingerprint,
     ) ||
     !sameDigest(
-      body.discoveryEvidence.storageEnumerationDigest,
+      body.discoveryEvidence.storageReferencesObservationDigest,
       body.reviewedBaseline.storageReferencesFingerprint,
     ) ||
     !sameDigest(
@@ -200,6 +216,12 @@ export function prepareResetRun(
   }>,
 ): PreparedResetRun {
   assertManifestDigest(input.manifest);
+  if (
+    input.artifactVersion !== SK90_RESET_ARTIFACT_VERSION ||
+    input.artifactVersion !== input.manifest.artifactVersion
+  ) {
+    stop("ARTIFACT_BINDING_MISMATCH");
+  }
   const mockEvidenceSummary = assertMockOnlyEvidence(
     input.mockEvidence,
     input.manifest.mockEvidenceCoverage,
@@ -229,20 +251,13 @@ export function prepareResetRun(
       input.discoveryEvidence.resetRowsObservationDigest,
       input.manifest.resetRowsFingerprint,
     ) ||
-    !sameDigest(
-      input.discoveryEvidence.mockEvidenceObservationDigest,
-      observedMockEvidenceDigest,
-    ) ||
-    !sameDigest(
-      input.discoveryEvidence.storageEnumerationDigest,
-      input.manifest.storageReferencesFingerprint,
-    )
+    !sameDigest(input.discoveryEvidence.mockEvidenceObservationDigest, observedMockEvidenceDigest)
   ) {
     stop("ARTIFACT_BINDING_MISMATCH");
   }
 
   const body: ResetArtifactBody = {
-    contract: "sk90-approved-reset-artifact-v1",
+    contract: SK90_APPROVED_RESET_ARTIFACT_CONTRACT,
     artifactVersion: input.artifactVersion,
     target: input.target,
     manifestDigest: input.manifest.digest,
@@ -307,8 +322,13 @@ export function assertArtifactLockedSnapshot(
 }
 
 type PostResetIntegrityBody = Readonly<{
+  contract: "sk90-post-reset-integrity-proof-v1";
   artifactDigest: Sha256Digest;
   manifestDigest: Sha256Digest;
+  challengeToken: ProtectedToken;
+  targetObservationDigest: Sha256Digest;
+  issuedAt: string;
+  expiresAt: string;
   schemaFingerprint: Sha256Digest;
   resetRows: Readonly<{
     beforeCount: number;
@@ -351,8 +371,13 @@ export type PostResetIntegrityReceipt = Readonly<{
 
 function postResetIntegrityBody(proof: PostResetIntegrityBody): PostResetIntegrityBody {
   return {
+    contract: proof.contract,
     artifactDigest: proof.artifactDigest,
     manifestDigest: proof.manifestDigest,
+    challengeToken: proof.challengeToken,
+    targetObservationDigest: proof.targetObservationDigest,
+    issuedAt: proof.issuedAt,
+    expiresAt: proof.expiresAt,
     schemaFingerprint: proof.schemaFingerprint,
     resetRows: proof.resetRows,
     preserved: proof.preserved,
@@ -363,6 +388,11 @@ function postResetIntegrityBody(proof: PostResetIntegrityBody): PostResetIntegri
 }
 
 function assertPostResetIntegrityShape(proof: PostResetIntegrityBody): void {
+  const contract: unknown = proof.contract;
+  if (contract !== "sk90-post-reset-integrity-proof-v1") {
+    stop("POST_RESET_INTEGRITY_MISMATCH");
+  }
+  assertFreshProofWindow(proof);
   assertSha256Digest(proof.artifactDigest);
   assertSha256Digest(proof.manifestDigest);
   assertSha256Digest(proof.schemaFingerprint);
@@ -400,16 +430,19 @@ export function bindPostResetIntegrityProof(
 export function assertPostResetIntegrityProof(
   artifact: ApprovedResetArtifact,
   proof: PostResetIntegrityProof,
+  freshExpectation: FreshProofExpectation,
 ): PostResetIntegrityReceipt {
   assertApprovedResetArtifact(artifact);
   const rebound = bindPostResetIntegrityProof(proof);
   assertSha256Digest(proof.bindingDigest);
+  assertFreshProofObservation(proof, freshExpectation);
   const expected = artifact.postResetExpectations;
   const emptyRowsFingerprint = sha256Digest(canonicalJson([]));
   if (
     !sameDigest(proof.bindingDigest, rebound.bindingDigest) ||
     !sameDigest(proof.artifactDigest, artifact.digest) ||
     !sameDigest(proof.manifestDigest, artifact.manifestDigest) ||
+    !sameDigest(proof.targetObservationDigest, targetObservationDigest(artifact.target)) ||
     !sameDigest(proof.schemaFingerprint, expected.targetSchemaFingerprint) ||
     proof.resetRows.beforeCount !== expected.resetRowCount ||
     !sameDigest(proof.resetRows.beforeFingerprint, expected.resetRowsFingerprint) ||
@@ -453,9 +486,13 @@ export type QuarantineCopyEvidence = Readonly<{
 }>;
 
 type QuarantineProofBody = Readonly<{
+  contract: "sk90-quarantine-proof-v1";
   artifactDigest: Sha256Digest;
   manifestDigest: Sha256Digest;
   observationChallengeToken: ProtectedToken;
+  targetObservationDigest: Sha256Digest;
+  issuedAt: string;
+  expiresAt: string;
   copies: readonly QuarantineCopyEvidence[];
 }>;
 
@@ -518,13 +555,25 @@ function normalizeQuarantineCopies(
 }
 
 function quarantineProofBody(proof: QuarantineProofBody): QuarantineProofBody {
+  const contract: unknown = proof.contract;
+  if (contract !== "sk90-quarantine-proof-v1") stop("QUARANTINE_PROOF_MISMATCH");
   assertSha256Digest(proof.artifactDigest);
   assertSha256Digest(proof.manifestDigest);
   assertProtectedToken(proof.observationChallengeToken);
+  assertFreshProofWindow({
+    challengeToken: proof.observationChallengeToken,
+    targetObservationDigest: proof.targetObservationDigest,
+    issuedAt: proof.issuedAt,
+    expiresAt: proof.expiresAt,
+  });
   return {
+    contract: proof.contract,
     artifactDigest: proof.artifactDigest,
     manifestDigest: proof.manifestDigest,
     observationChallengeToken: proof.observationChallengeToken,
+    targetObservationDigest: proof.targetObservationDigest,
+    issuedAt: proof.issuedAt,
+    expiresAt: proof.expiresAt,
     copies: normalizeQuarantineCopies(proof.copies),
   };
 }
@@ -553,14 +602,25 @@ export function bindQuarantineProof(proof: QuarantineProofBody): QuarantineProof
 export function assertQuarantineProof(
   artifact: ApprovedResetArtifact,
   proof: QuarantineProof,
+  freshExpectation: FreshProofExpectation,
 ): QuarantineProofReceipt {
   assertApprovedResetArtifact(artifact);
   const rebound = bindQuarantineProof(proof);
   assertSha256Digest(proof.bindingDigest);
+  assertFreshProofObservation(
+    {
+      challengeToken: proof.observationChallengeToken,
+      targetObservationDigest: proof.targetObservationDigest,
+      issuedAt: proof.issuedAt,
+      expiresAt: proof.expiresAt,
+    },
+    freshExpectation,
+  );
   if (
     !sameDigest(proof.bindingDigest, rebound.bindingDigest) ||
     !sameDigest(proof.artifactDigest, artifact.digest) ||
     !sameDigest(proof.manifestDigest, artifact.manifestDigest) ||
+    !sameDigest(proof.targetObservationDigest, targetObservationDigest(artifact.target)) ||
     proof.copies.length !== artifact.postResetExpectations.resetStorageObjectCount ||
     !sameDigest(
       quarantineSourceFingerprint(rebound.copies),

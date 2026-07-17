@@ -35,6 +35,18 @@ export const SK90_SAFETY_ERROR_CODES = [
   "PHASE_STATE_INVALID",
   "RESTORE_REQUIRED",
   "RESTORE_PROOF_MISMATCH",
+  "EXECUTION_APPROVAL_MISMATCH",
+  "PRIVATE_ENVELOPE_MISMATCH",
+  "RESET_PLAN_MISMATCH",
+  "MIGRATION_DIGEST_MISMATCH",
+  "STORAGE_ENUMERATION_MISMATCH",
+  "DATABASE_VERIFICATION_MISMATCH",
+  "DURABLE_STATE_INVALID",
+  "CONCURRENT_RUN_DETECTED",
+  "FRESHNESS_PROOF_INVALID",
+  "FRESHNESS_NONCE_REUSED",
+  "IDEMPOTENCY_PROOF_MISMATCH",
+  "EXTERNAL_ADAPTER_REQUIRED",
   "UNEXPECTED_FAILURE",
 ] as const;
 
@@ -82,7 +94,22 @@ const SAFE_MESSAGES: Record<Sk90SafetyErrorCode, string> = {
     "Verified artifact-bound quarantine proof is required before database reset.",
   PHASE_STATE_INVALID: "The reset phase journal and observed state do not agree.",
   RESTORE_REQUIRED: "A partial reset state requires database and storage restore.",
-  RESTORE_PROOF_MISMATCH: "Restored database or storage evidence differs from baseline.",
+  RESTORE_PROOF_MISMATCH: "Rollback verification differs from the approved baseline.",
+  EXECUTION_APPROVAL_MISMATCH:
+    "The approved executable reset inputs do not match the current run.",
+  PRIVATE_ENVELOPE_MISMATCH: "The private reset execution envelope does not match its approval.",
+  RESET_PLAN_MISMATCH: "The executable reset plan differs from the approved plan.",
+  MIGRATION_DIGEST_MISMATCH: "The migration differs from the approved reset migration.",
+  STORAGE_ENUMERATION_MISMATCH:
+    "The isolated storage namespace differs from the approved exhaustive inventory.",
+  DATABASE_VERIFICATION_MISMATCH:
+    "The database integrity observation differs from the approved reset state.",
+  DURABLE_STATE_INVALID: "The durable reset journal is missing, invalid, or inconsistent.",
+  CONCURRENT_RUN_DETECTED: "Another reset runner or writer changed the approved state.",
+  FRESHNESS_PROOF_INVALID: "The phase proof is stale or does not match the current observation.",
+  FRESHNESS_NONCE_REUSED: "The phase proof challenge was already consumed.",
+  IDEMPOTENCY_PROOF_MISMATCH: "The second reset run was not an exact zero-change no-op.",
+  EXTERNAL_ADAPTER_REQUIRED: "The destructive reset phase requires the approved isolated adapter.",
   UNEXPECTED_FAILURE: "The reset safety check failed without exposing private details.",
 };
 

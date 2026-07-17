@@ -727,6 +727,11 @@ export const projectRouter = router({
           producerId: projects.producerId,
           audioUrl: trackVersions.audioUrl,
           audioDeletedAt: trackVersions.audioDeletedAt,
+          pendingAudioR2Key: trackVersions.pendingAudioR2Key,
+          pendingAudioCompletionToken: trackVersions.pendingAudioCompletionToken,
+          pendingAudioSizeBytes: trackVersions.pendingAudioSizeBytes,
+          pendingAudioStartedAt: trackVersions.pendingAudioStartedAt,
+          pendingAudioCleanupEtag: trackVersions.pendingAudioCleanupEtag,
         })
         .from(trackVersions)
         .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
@@ -735,6 +740,18 @@ export const projectRouter = router({
         .limit(1);
       if (!row || row.producerId !== ctx.producerId) {
         throw new TRPCError({ code: "NOT_FOUND" });
+      }
+      if (
+        row.pendingAudioR2Key !== null ||
+        row.pendingAudioCompletionToken !== null ||
+        row.pendingAudioSizeBytes !== null ||
+        row.pendingAudioStartedAt !== null ||
+        row.pendingAudioCleanupEtag !== null
+      ) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "This audio upload is still being reconciled and cannot be removed.",
+        });
       }
       if (row.audioDeletedAt) return { ok: true as const };
       if (row.audioUrl !== null) {
@@ -752,6 +769,11 @@ export const projectRouter = router({
             eq(trackVersions.id, input.id),
             isNull(trackVersions.audioUrl),
             isNull(trackVersions.audioDeletedAt),
+            isNull(trackVersions.pendingAudioR2Key),
+            isNull(trackVersions.pendingAudioCompletionToken),
+            isNull(trackVersions.pendingAudioSizeBytes),
+            isNull(trackVersions.pendingAudioStartedAt),
+            isNull(trackVersions.pendingAudioCleanupEtag),
           ),
         )
         .returning({ id: trackVersions.id });

@@ -4,9 +4,15 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
   completedAudioObjectIdentityMatches,
+  completeOrRecoverMultipart,
   createAudioIdentityFingerprint,
+  observePendingCompletedAudioObject,
+  reconcilePendingAudioCleanup,
+  resolvePendingAudioCompletion,
   validateCompletedAudioObjectIdentity,
   validateUploadInput,
+  type AudioMultipartCompletionPort,
+  type PendingAudioCleanupPort,
 } from "./audio";
 
 describe("track audio identity", () => {
@@ -66,21 +72,28 @@ describe("completed audio object identity", () => {
     expect(
       validateCompletedAudioObjectIdentity({
         claimedSizeBytes: 123_456,
+        completionToken: "a".repeat(64),
         completedEtag: '"stable-etag"',
         observedEtag: '"stable-etag"',
         observedSizeBytes: 123_456,
+        observedCompletionToken: "a".repeat(64),
       }),
     ).toEqual({ objectEtag: '"stable-etag"', sizeBytes: 123_456 });
   });
 
   it("allows orphan cleanup only for the exact completed ETag and byte size", () => {
-    const expected = { objectEtag: '"stable-etag"', sizeBytes: 123_456 };
+    const expected = {
+      objectEtag: '"stable-etag"',
+      sizeBytes: 123_456,
+      completionToken: "a".repeat(64),
+    };
 
     expect(
       completedAudioObjectIdentityMatches({
         ...expected,
         observedEtag: '"stable-etag"',
         observedSizeBytes: 123_456,
+        observedCompletionToken: "a".repeat(64),
       }),
     ).toBe(true);
     expect(
@@ -88,6 +101,7 @@ describe("completed audio object identity", () => {
         ...expected,
         observedEtag: '"replacement-etag"',
         observedSizeBytes: 123_456,
+        observedCompletionToken: "a".repeat(64),
       }),
     ).toBe(false);
     expect(
@@ -95,6 +109,15 @@ describe("completed audio object identity", () => {
         ...expected,
         observedEtag: '"stable-etag"',
         observedSizeBytes: 123_455,
+        observedCompletionToken: "a".repeat(64),
+      }),
+    ).toBe(false);
+    expect(
+      completedAudioObjectIdentityMatches({
+        ...expected,
+        observedEtag: '"stable-etag"',
+        observedSizeBytes: 123_456,
+        observedCompletionToken: "b".repeat(64),
       }),
     ).toBe(false);
   });
@@ -103,19 +126,311 @@ describe("completed audio object identity", () => {
     expect(() =>
       validateCompletedAudioObjectIdentity({
         claimedSizeBytes: 1,
+        completionToken: "a".repeat(64),
         completedEtag: '"stable-etag"',
         observedEtag: '"stable-etag"',
         observedSizeBytes: 2,
+        observedCompletionToken: "a".repeat(64),
       }),
     ).toThrow(/identity/i);
     expect(() =>
       validateCompletedAudioObjectIdentity({
         claimedSizeBytes: 501 * 1024 * 1024,
+        completionToken: "a".repeat(64),
         completedEtag: '"stable-etag"',
         observedEtag: '"stable-etag"',
         observedSizeBytes: 501 * 1024 * 1024,
+        observedCompletionToken: "a".repeat(64),
       }),
     ).toThrow(/identity/i);
+  });
+});
+
+describe("completed multipart reconciliation", () => {
+  const completionToken = "a".repeat(64);
+  const exactObservation = {
+    eTag: '"stable-etag"',
+    sizeBytes: 123_456,
+    completionToken,
+  } as const;
+  const input = {
+    key: "producer-scoped-audio-key",
+    uploadId: "private-upload",
+    parts: [{ partNumber: 1, eTag: "part-etag" }],
+    claimedSizeBytes: 123_456,
+    completionToken,
+  } as const;
+
+  it("recovers when CompleteMultipart commits and its response is lost", async () => {
+    let completed = false;
+    const port: AudioMultipartCompletionPort = {
+      head() {
+        return Promise.resolve(completed ? exactObservation : null);
+      },
+      complete() {
+        completed = true;
+        return Promise.reject(new Error("redacted transport loss"));
+      },
+    };
+
+    await expect(completeOrRecoverMultipart(input, port)).resolves.toEqual({
+      objectEtag: exactObservation.eTag,
+      sizeBytes: exactObservation.sizeBytes,
+    });
+  });
+
+  it("recovers when the first post-completion HEAD is temporarily ambiguous", async () => {
+    let headCount = 0;
+    let completed = false;
+    const port: AudioMultipartCompletionPort = {
+      head() {
+        headCount += 1;
+        if (!completed) return Promise.resolve(null);
+        if (headCount === 4) {
+          return Promise.reject(new Error("redacted transient head failure"));
+        }
+        return Promise.resolve(exactObservation);
+      },
+      complete() {
+        completed = true;
+        return Promise.resolve({ eTag: exactObservation.eTag });
+      },
+    };
+
+    await expect(completeOrRecoverMultipart(input, port)).resolves.toMatchObject({
+      objectEtag: exactObservation.eTag,
+    });
+  });
+
+  it("fails closed on identity mismatch or repeated observation ambiguity", async () => {
+    let completeCalls = 0;
+    const mismatch: AudioMultipartCompletionPort = {
+      head() {
+        return Promise.resolve({
+          ...exactObservation,
+          sizeBytes: exactObservation.sizeBytes + 1,
+        });
+      },
+      complete() {
+        completeCalls += 1;
+        return Promise.resolve({ eTag: exactObservation.eTag });
+      },
+    };
+    await expect(completeOrRecoverMultipart(input, mismatch)).rejects.toThrow(/identity/i);
+    expect(completeCalls).toBe(0);
+
+    const ambiguous: AudioMultipartCompletionPort = {
+      head() {
+        return Promise.reject(new Error("redacted repeated head failure"));
+      },
+      complete() {
+        completeCalls += 1;
+        return Promise.resolve({ eTag: exactObservation.eTag });
+      },
+    };
+    await expect(completeOrRecoverMultipart(input, ambiguous)).rejects.toThrow(/retry/i);
+    expect(completeCalls).toBe(0);
+  });
+
+  it("does not guess after a successful completion with repeatedly ambiguous HEAD", async () => {
+    let headCalls = 0;
+    let completeCalls = 0;
+    const port: AudioMultipartCompletionPort = {
+      head() {
+        headCalls += 1;
+        if (headCalls <= 3) return Promise.resolve(null);
+        return Promise.reject(new Error("redacted repeated post-completion head failure"));
+      },
+      complete() {
+        completeCalls += 1;
+        return Promise.resolve({ eTag: exactObservation.eTag });
+      },
+    };
+
+    await expect(completeOrRecoverMultipart(input, port)).rejects.toThrow(/reconciled yet/i);
+    expect(completeCalls).toBe(1);
+  });
+
+  it("observes an exact inactive retry without replaying multipart completion", async () => {
+    let headCalls = 0;
+    const headOnlyPort: Pick<AudioMultipartCompletionPort, "head"> = {
+      head() {
+        headCalls += 1;
+        return Promise.resolve(exactObservation);
+      },
+    };
+
+    await expect(
+      observePendingCompletedAudioObject(
+        {
+          key: input.key,
+          claimedSizeBytes: input.claimedSizeBytes,
+          completionToken: input.completionToken,
+        },
+        headOnlyPort,
+      ),
+    ).resolves.toEqual({
+      objectEtag: exactObservation.eTag,
+      sizeBytes: exactObservation.sizeBytes,
+    });
+    expect(headCalls).toBe(1);
+  });
+});
+
+describe("durable pending audio completion", () => {
+  const input = {
+    key: "producer-scoped-audio-key",
+    completionToken: "a".repeat(64),
+    sizeBytes: 123_456,
+  } as const;
+  const placeholder = {
+    audioUrl: null,
+    audioR2Key: null,
+    sizeBytes: null,
+    audioObjectEtag: null,
+    audioIdentityFingerprint: null,
+    pendingAudioR2Key: null,
+    pendingAudioCompletionToken: null,
+    pendingAudioSizeBytes: null,
+    pendingAudioStartedAt: null,
+    pendingAudioCleanupEtag: null,
+  } as const;
+
+  it("stages a new server-side recovery record before remote completion", () => {
+    expect(resolvePendingAudioCompletion(placeholder, input)).toBe("stage");
+  });
+
+  it("resumes only the exact pending key, token, and size after restart", () => {
+    const pending = {
+      ...placeholder,
+      pendingAudioR2Key: input.key,
+      pendingAudioCompletionToken: input.completionToken,
+      pendingAudioSizeBytes: input.sizeBytes,
+      pendingAudioStartedAt: new Date("2026-07-17T12:00:00.000Z"),
+    };
+
+    expect(resolvePendingAudioCompletion(pending, input)).toBe("resume");
+    expect(() =>
+      resolvePendingAudioCompletion(pending, {
+        ...input,
+        completionToken: "b".repeat(64),
+      }),
+    ).toThrow(/pending audio upload/i);
+    expect(() =>
+      resolvePendingAudioCompletion(pending, { ...input, sizeBytes: input.sizeBytes + 1 }),
+    ).toThrow(/pending audio upload/i);
+  });
+
+  it("recognizes an already-attached retry and rejects partial journal shapes", () => {
+    expect(
+      resolvePendingAudioCompletion(
+        {
+          ...placeholder,
+          audioUrl: "https://audio.invalid/exact",
+          audioR2Key: input.key,
+          sizeBytes: input.sizeBytes,
+          audioObjectEtag: '"stable-etag"',
+          audioIdentityFingerprint: `sha256:${"1".repeat(64)}`,
+        },
+        input,
+      ),
+    ).toBe("already_attached");
+
+    expect(() =>
+      resolvePendingAudioCompletion({ ...placeholder, pendingAudioR2Key: input.key }, input),
+    ).toThrow(/pending audio upload/i);
+  });
+
+  it("routes only an exact durable cleanup intent away from multipart replay", () => {
+    const pendingCleanup = {
+      ...placeholder,
+      pendingAudioR2Key: input.key,
+      pendingAudioCompletionToken: input.completionToken,
+      pendingAudioSizeBytes: input.sizeBytes,
+      pendingAudioStartedAt: new Date("2026-07-17T12:00:00.000Z"),
+      pendingAudioCleanupEtag: '"completed-etag"',
+    };
+
+    expect(resolvePendingAudioCompletion(pendingCleanup, input)).toBe("cleanup_pending");
+    expect(() =>
+      resolvePendingAudioCompletion(pendingCleanup, {
+        ...input,
+        completionToken: "b".repeat(64),
+      }),
+    ).toThrow(/pending audio upload/i);
+  });
+});
+
+describe("durable completed-object cleanup", () => {
+  const identity = {
+    key: "producer/version/exact.wav",
+    objectEtag: '"completed-etag"',
+    sizeBytes: 123_456,
+    completionToken: "a".repeat(64),
+  } as const;
+
+  it("recovers after delete succeeds and the database clear crashes", async () => {
+    let object: Readonly<{ eTag: string; sizeBytes: number; completionToken: string }> | null = {
+      eTag: identity.objectEtag,
+      sizeBytes: identity.sizeBytes,
+      completionToken: identity.completionToken,
+    };
+    let pending = true;
+    let crashBeforeClear = true;
+    let deleteCalls = 0;
+    const port: PendingAudioCleanupPort = {
+      head() {
+        return Promise.resolve(object);
+      },
+      deleteExact({ key, ifMatch }) {
+        expect(key).toBe(identity.key);
+        expect(ifMatch).toBe(identity.objectEtag);
+        deleteCalls += 1;
+        object = null;
+        return Promise.resolve();
+      },
+      clearExact(exact) {
+        expect(exact).toEqual(identity);
+        if (crashBeforeClear) return Promise.reject(new Error("simulated database crash"));
+        pending = false;
+        return Promise.resolve(true);
+      },
+    };
+
+    await expect(reconcilePendingAudioCleanup(identity, port)).rejects.toThrow(/database crash/i);
+    expect(object).toBeNull();
+    expect(pending).toBe(true);
+
+    crashBeforeClear = false;
+    await expect(reconcilePendingAudioCleanup(identity, port)).resolves.toBe(true);
+    expect(pending).toBe(false);
+    expect(deleteCalls).toBe(1);
+  });
+
+  it("does not clear or delete when a different object owns the key", async () => {
+    let deleteCalls = 0;
+    let clearCalls = 0;
+    const port: PendingAudioCleanupPort = {
+      head() {
+        return Promise.resolve({
+          eTag: '"replacement-etag"',
+          sizeBytes: identity.sizeBytes,
+          completionToken: "b".repeat(64),
+        });
+      },
+      deleteExact() {
+        deleteCalls += 1;
+        return Promise.resolve();
+      },
+      clearExact() {
+        clearCalls += 1;
+        return Promise.resolve(true);
+      },
+    };
+
+    await expect(reconcilePendingAudioCleanup(identity, port)).resolves.toBe(false);
+    expect(deleteCalls).toBe(0);
+    expect(clearCalls).toBe(0);
   });
 });
 
@@ -220,7 +535,9 @@ describe("approved audio identity persistence", () => {
     expect(AUDIO_SRC).toMatch(
       /function assertAvailableUploadPlaceholder[\s\S]*?version\.audioDeletedAt \|\|[\s\S]*?version\.audioUrl/,
     );
-    expect(AUDIO_SRC.match(/assertAvailableUploadPlaceholder\(/g)).toHaveLength(3);
+    expect(AUDIO_SRC).toMatch(
+      /function assertAvailableUploadPlaceholder[\s\S]*?version\.pendingAudioR2Key[\s\S]*?version\.pendingAudioCompletionToken[\s\S]*?version\.pendingAudioSizeBytes !== null[\s\S]*?version\.pendingAudioStartedAt/,
+    );
     const casStart = AUDIO_SRC.indexOf("const [updatedVersion]");
     const casEnd = AUDIO_SRC.indexOf("if (!updatedVersion)", casStart);
     expect(casStart).toBeGreaterThanOrEqual(0);
@@ -231,15 +548,25 @@ describe("approved audio identity persistence", () => {
     expect(casUpdate).toContain("isNull(trackVersions.audioUrl)");
     expect(casUpdate).toContain("isNull(trackVersions.audioR2Key)");
     expect(casUpdate).toContain("isNull(trackVersions.audioIdentityFingerprint)");
+    expect(casUpdate).toContain("eq(trackVersions.pendingAudioR2Key, input.key)");
+    expect(casUpdate).toContain(
+      "eq(trackVersions.pendingAudioCompletionToken, input.completionToken)",
+    );
+    expect(casUpdate).toContain("pendingAudioR2Key: null");
+    expect(casUpdate).toContain("pendingAudioCompletionToken: null");
+    expect(casUpdate).toContain("pendingAudioSizeBytes: null");
+    expect(casUpdate).toContain("pendingAudioStartedAt: null");
+    expect(casUpdate).toContain("pendingAudioCleanupEtag: null");
     expect(casUpdate).toContain(".returning");
     expect(AUDIO_SRC).toMatch(/if \(!updatedVersion\)[\s\S]*?code: "CONFLICT"/);
   });
 
   it("fails closed without a completed-object ETag and stores its fingerprint", () => {
     expect(AUDIO_SRC).toContain("HeadObjectCommand");
-    expect(AUDIO_SRC).toMatch(/completedUpload\.ETag/);
-    expect(AUDIO_SRC).toMatch(/completedHead\.ETag/);
-    expect(AUDIO_SRC).toMatch(/completedHead\.ContentLength/);
+    expect(AUDIO_SRC).toMatch(/completed\.ETag/);
+    expect(AUDIO_SRC).toMatch(/head\.ETag/);
+    expect(AUDIO_SRC).toMatch(/head\.ContentLength/);
+    expect(AUDIO_SRC).toContain("AUDIO_UPLOAD_COMPLETION_TOKEN_METADATA");
     expect(AUDIO_SRC).toMatch(/audioObjectEtag: objectEtag/);
     expect(AUDIO_SRC).toMatch(/sizeBytes: observedSizeBytes/);
     expect(AUDIO_SRC).toMatch(
@@ -270,7 +597,7 @@ describe("purchase-owned audio lifecycle boundary", () => {
   it("serializes project then purchase and rechecks lifecycle after R2 completion", () => {
     const completeStart = AUDIO_SRC.indexOf("completeMultipart:");
     const completeSource = AUDIO_SRC.slice(completeStart);
-    const r2Completion = completeSource.indexOf("CompleteMultipartUploadCommand");
+    const r2Completion = completeSource.indexOf("completeOrRecoverMultipart");
     const finalTransaction = completeSource.lastIndexOf("ctx.db.transaction");
     const projectLock = completeSource.indexOf(".from(projects)", finalTransaction);
     const purchaseLock = completeSource.indexOf(".from(purchases)", projectLock);
@@ -287,6 +614,50 @@ describe("purchase-owned audio lifecycle boundary", () => {
     expect(compareAndSet).toBeGreaterThan(lifecycleRecheck);
   });
 
+  it("journals the exact pending object before R2 completion and blocks new uploads", () => {
+    const completeStart = AUDIO_SRC.indexOf("completeMultipart:");
+    const completeSource = AUDIO_SRC.slice(completeStart);
+    const stage = completeSource.indexOf("pendingAudioStartedAt: new Date()");
+    const cleanupResume = completeSource.indexOf('staged.kind === "cleanup_pending"');
+    const remoteCompletion = completeSource.indexOf("completeOrRecoverMultipart");
+    const decision = completeSource.indexOf("const decision = resolvePendingAudioCompletion");
+    const stagingLifecycleCheck = completeSource.indexOf(
+      "assertActiveVersionUploadLifecycle",
+      decision,
+    );
+    const durableCleanupDecision = completeSource.indexOf(
+      'decision === "cleanup_pending"',
+      decision,
+    );
+
+    expect(stage).toBeGreaterThanOrEqual(0);
+    expect(cleanupResume).toBeGreaterThan(stage);
+    expect(cleanupResume).toBeLessThan(remoteCompletion);
+    expect(durableCleanupDecision).toBeGreaterThan(decision);
+    expect(durableCleanupDecision).toBeLessThan(stagingLifecycleCheck);
+    expect(remoteCompletion).toBeGreaterThan(stage);
+    expect(AUDIO_SRC).toMatch(
+      /function assertAvailableUploadPlaceholder[\s\S]*?pendingAudioR2Key[\s\S]*?pendingAudioCompletionToken[\s\S]*?pendingAudioSizeBytes[\s\S]*?pendingAudioStartedAt/,
+    );
+    expect(AUDIO_SRC).toContain("resolvePendingAudioCompletion(lockedVersion");
+  });
+
+  it("routes an inactive exact pending retry through head-only cleanup before multipart replay", () => {
+    const completeStart = AUDIO_SRC.indexOf("completeMultipart:");
+    const abortStart = AUDIO_SRC.indexOf("abortMultipart:", completeStart);
+    const completeSource = AUDIO_SRC.slice(completeStart, abortStart);
+    const inactiveRoute = completeSource.indexOf('kind: "inactive_pending"');
+    const headOnlyRecovery = completeSource.indexOf("observePendingCompletedAudioObject");
+    const multipartReplay = completeSource.indexOf("completeOrRecoverMultipart");
+
+    expect(inactiveRoute).toBeGreaterThanOrEqual(0);
+    expect(headOnlyRecovery).toBeGreaterThan(inactiveRoute);
+    expect(headOnlyRecovery).toBeLessThan(multipartReplay);
+    expect(completeSource.slice(inactiveRoute, multipartReplay)).toContain(
+      "cleanupCompletedAudioObjectIfIdentityMatches",
+    );
+  });
+
   it("identity-checks and conditionally deletes only the new object after any attach failure", () => {
     const completeStart = AUDIO_SRC.indexOf("completeMultipart:");
     const abortStart = AUDIO_SRC.indexOf("abortMultipart:", completeStart);
@@ -297,16 +668,32 @@ describe("purchase-owned audio lifecycle boundary", () => {
     expect(AUDIO_SRC).toContain("cleanupCompletedAudioObjectIfIdentityMatches");
     expect(AUDIO_SRC).toContain("eq(trackVersions.audioR2Key, input.key)");
     expect(AUDIO_SRC).toMatch(
-      /version\.audioUrl !== null \|\|[\s\S]*?version\.audioR2Key !== null[\s\S]*?return;/,
+      /version\.audioUrl !== null \|\|[\s\S]*?version\.audioR2Key !== null[\s\S]*?return false;/,
     );
     expect(AUDIO_SRC).toMatch(
-      /new DeleteObjectCommand\(\{[\s\S]*?Key: input\.key,[\s\S]*?IfMatch: input\.objectEtag/,
+      /new DeleteObjectCommand\(\{[\s\S]*?Key: key,[\s\S]*?IfMatch: ifMatch/,
+    );
+    expect(AUDIO_SRC).toMatch(
+      /observedCompletionToken: head\.Metadata\?\.\[AUDIO_UPLOAD_COMPLETION_TOKEN_METADATA\]/,
     );
     expect(attachCatch).toBeGreaterThanOrEqual(0);
     expect(completeSource.slice(attachCatch)).toContain(
       "cleanupCompletedAudioObjectIfIdentityMatches",
     );
     expect(completeSource.slice(attachCatch)).toContain("mapVersionUploadDomainError(error)");
+
+    const intentWrite = AUDIO_SRC.indexOf(".set({ pendingAudioCleanupEtag: cleanupEtag })");
+    const conditionalDelete = AUDIO_SRC.indexOf("new DeleteObjectCommand", intentWrite);
+    expect(intentWrite).toBeGreaterThanOrEqual(0);
+    expect(conditionalDelete).toBeGreaterThan(intentWrite);
+    const intentSource = AUDIO_SRC.slice(intentWrite, conditionalDelete);
+    expect(intentSource).toContain("eq(trackVersions.producerId, ctx.producerId)");
+    expect(intentSource).toContain("eq(trackVersions.trackId, input.trackId)");
+    expect(intentSource).toContain("eq(trackVersions.purchaseId, input.purchaseId)");
+    expect(intentSource).toContain("eq(trackVersions.pendingAudioR2Key, input.key)");
+    expect(intentSource).toContain(
+      "eq(trackVersions.pendingAudioCompletionToken, input.completionToken)",
+    );
   });
 
   it("creates version placeholders only inside the same active lifecycle boundary", () => {

@@ -43,6 +43,7 @@ const PART_SIZE = 5 * 1024 * 1024; // 5 MB per part
 export type ResumableEntry = {
   uploadId: string;
   key: string;
+  completionToken: string;
   trackVersionId: string;
   completed: Array<{ partNumber: number; eTag: string }>;
   totalBytes: number;
@@ -125,6 +126,7 @@ export function useMultipartUpload() {
         const entry: ResumableEntry = {
           uploadId: init.data.uploadId,
           key: init.data.key,
+          completionToken: init.data.completionToken,
           trackVersionId: opts.trackVersionId,
           completed,
           totalBytes: opts.file.size,
@@ -142,6 +144,7 @@ export function useMultipartUpload() {
         parts: completed,
         trackVersionId: opts.trackVersionId,
         sizeBytes: opts.file.size,
+        completionToken: init.data.completionToken,
       });
       if (!done.ok) {
         setState({ kind: "error", message: done.error });

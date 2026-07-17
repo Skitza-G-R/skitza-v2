@@ -1009,6 +1009,13 @@ describe("SK-90 purchase-level schema", () => {
     expect(schema.trackVersions.producerId.notNull).toBe(true);
     expect(schema.trackVersions.audioObjectEtag.notNull).toBe(false);
     expect(schema.trackVersions.audioIdentityFingerprint.notNull).toBe(false);
+    expect(schema.trackVersions.pendingAudioR2Key.name).toBe("pending_audio_r2_key");
+    expect(schema.trackVersions.pendingAudioCompletionToken.name).toBe(
+      "pending_audio_completion_token",
+    );
+    expect(schema.trackVersions.pendingAudioSizeBytes.name).toBe("pending_audio_size_bytes");
+    expect(schema.trackVersions.pendingAudioStartedAt.name).toBe("pending_audio_started_at");
+    expect(schema.trackVersions.pendingAudioCleanupEtag.name).toBe("pending_audio_cleanup_etag");
     expect(schema.trackComments.producerId.notNull).toBe(true);
     expect(schema.trackVersions.producerMarkedFinalAt.name).toBe("producer_marked_final_at");
     expect(schema.trackVersions.audioDeletedAt.name).toBe("audio_deleted_at");
@@ -1019,7 +1026,15 @@ describe("SK-90 purchase-level schema", () => {
     expect("songPublicLinks" in schema).toBe(true);
     expect(
       getTableConfig(schema.trackVersions).checks.map((constraint) => constraint.name),
-    ).toContain("track_versions_audio_identity_shape");
+    ).toEqual(
+      expect.arrayContaining([
+        "track_versions_audio_identity_shape",
+        "track_versions_pending_audio_shape",
+      ]),
+    );
+    expect(
+      getTableConfig(schema.trackVersions).indexes.map((index) => index.config.name),
+    ).toContain("track_versions_pending_audio_r2_key_unique");
   });
 
   it("builds every composite tenant and artifact ownership constraint", () => {
@@ -1102,6 +1117,45 @@ describe("SK-90 purchase foundation migration", () => {
     expect(catalogGuardAt).toBeGreaterThan(resetGuardAt);
     expect(cardGuardAt).toBeGreaterThan(catalogGuardAt);
     expect(firstCreateAt).toBeGreaterThan(cardGuardAt);
+  });
+
+  it("requires the exact artifact-approved legacy provider set before dropping it", () => {
+    const sql = migrationSql();
+    const evidenceGuardAt = sql.indexOf("SKITZA_0027_PROVIDER_RESET_EVIDENCE_MISMATCH");
+    const dropProviderColumnsAt = sql.indexOf('DROP COLUMN "stripe_account_id"');
+
+    expect(evidenceGuardAt).toBeGreaterThanOrEqual(0);
+    expect(evidenceGuardAt).toBeLessThan(dropProviderColumnsAt);
+    expect(sql).toMatch(/to_regclass\('pg_temp\.skitza_0027_approved_provider_values'\)/);
+    expect(sql).toMatch(
+      /SELECT count\(\*\)[\s\S]*pg_temp\."skitza_0027_approved_provider_values"[\s\S]*<> 7/,
+    );
+    expect(sql).toMatch(
+      /SELECT "id", "stripe_account_id"[\s\S]*FROM "public"\."producers"[\s\S]*EXCEPT[\s\S]*SELECT "owner_id", "provider_value"[\s\S]*pg_temp\."skitza_0027_approved_provider_values"/,
+    );
+    expect(sql).toMatch(
+      /SELECT "owner_id", "provider_value"[\s\S]*pg_temp\."skitza_0027_approved_provider_values"[\s\S]*EXCEPT[\s\S]*SELECT "id", "stripe_account_id"[\s\S]*FROM "public"\."producers"/,
+    );
+    expect(sql).toMatch(/current_setting\('skitza\.sk90_artifact_digest', true\)/);
+    expect(sql).toMatch(/"source_kind" = 'booking_tranzila_confirmation'[\s\S]*<> 4/);
+  });
+
+  it("accepts only exact paid-plan objects before preserving the product catalog", () => {
+    const sql = migrationSql();
+    const guard = sql.slice(
+      sql.indexOf('FROM "public"."products"'),
+      sql.indexOf("SKITZA_0027_DISALLOWED_CATALOG_STATE"),
+    );
+
+    expect(guard).toMatch(/jsonb_typeof\("payment_plans"\) IS DISTINCT FROM 'array'/);
+    expect(guard).toMatch(/jsonb_array_length\("payment_plans"\) = 0/);
+    expect(guard).toMatch(/jsonb_typeof\(plan\) = 'object'/);
+    expect(guard).toMatch(/plan = '\{"kind":"full"\}'::jsonb/);
+    expect(guard).toMatch(/plan = '\{"kind":"split_50_50"\}'::jsonb/);
+    expect(guard).toMatch(/plan ->> 'installments' ~ '\^\[0-9\]\+\$'/);
+    expect(guard).toMatch(/BETWEEN 2 AND 12/);
+    expect(guard).toMatch(/jsonb_build_object\([\s\S]*'kind', 'monthly', 'installments'/);
+    expect(guard).toMatch(/\) IS NOT TRUE/);
   });
 
   it("fails closed on an exact 15-table pre-reset source fingerprint", () => {
@@ -1624,6 +1678,24 @@ describe("SK-90 purchase foundation migration", () => {
     expect(sql).toMatch(/SKITZA_ACCEPTANCE_MUST_MATCH_PURCHASE_SNAPSHOT/);
   });
 
+  it("atomically binds proof-sourced payments to one confirmed proof and exact amount", () => {
+    const sql = migrationSql();
+    const completedGate = sql.slice(0, sql.indexOf("RETURN;"));
+
+    expect(sql).toMatch(
+      /validate_proof_sourced_purchase_payment[\s\S]*NEW\."source" = 'proof'[\s\S]*payment_proofs[\s\S]*FOR UPDATE/,
+    );
+    expect(sql).toMatch(
+      /proof\."status" = 'confirmed'[\s\S]*proof\."amount_cents" = NEW\."amount_cents"/,
+    );
+    expect(sql).toMatch(/SKITZA_PROOF_SOURCED_PAYMENT_MISMATCH/);
+    expect(sql).toMatch(
+      /protect_payment_proof_evidence[\s\S]*purchase_payments[\s\S]*SKITZA_PAYMENT_PROOF_ATTACHED_PAYMENT_IMMUTABLE/,
+    );
+    expect(completedTriggerContracts(completedGate)).toEqual(createdTriggerContracts(sql));
+    expect(completedFunctionContracts(completedGate)).toEqual(createdFunctionContracts(sql));
+  });
+
   it("keeps direct cancellation from inventing activation history", () => {
     const sql = migrationSql();
     const completedGate = sql.slice(0, sql.indexOf("RETURN;"));
@@ -1686,8 +1758,13 @@ describe("SK-90 purchase foundation migration", () => {
 
     expect(sql).toMatch(/track_versions_audio_identity_unique/);
     expect(sql).toMatch(/track_versions_audio_identity_shape/);
+    expect(sql).toMatch(/track_versions_pending_audio_r2_key_unique/);
+    expect(sql).toMatch(/track_versions_pending_audio_shape/);
     expect(sql).toMatch(
-      /track_versions_audio_identity_shape[\s\S]*audio_url" IS NULL[\s\S]*audio_identity_fingerprint[\s\S]*audio_url" IS NOT NULL[\s\S]*encode\(sha256\(convert_to[\s\S]*octet_length\("audio_r2_key"\)[\s\S]*audio_object_etag[\s\S]*size_bytes/,
+      /track_versions_audio_identity_shape[\s\S]*audio_url" IS NULL[\s\S]*audio_identity_fingerprint[\s\S]*audio_url" IS NOT NULL[\s\S]*pending_audio_r2_key" IS NULL[\s\S]*pending_audio_completion_token" IS NULL[\s\S]*pending_audio_size_bytes" IS NULL[\s\S]*pending_audio_started_at" IS NULL[\s\S]*pending_audio_cleanup_etag" IS NULL[\s\S]*encode\(sha256\(convert_to[\s\S]*octet_length\("audio_r2_key"\)[\s\S]*audio_object_etag[\s\S]*size_bytes/,
+    );
+    expect(sql).toMatch(
+      /track_versions_pending_audio_shape[\s\S]*pending_audio_r2_key" IS NULL[\s\S]*pending_audio_completion_token" IS NULL[\s\S]*pending_audio_size_bytes" IS NULL[\s\S]*pending_audio_started_at" IS NULL[\s\S]*pending_audio_cleanup_etag" IS NULL[\s\S]*btrim\("pending_audio_r2_key"\)[\s\S]*\^\[0-9a-f\]\{64\}\$[\s\S]*pending_audio_size_bytes" > 0[\s\S]*pending_audio_cleanup_etag[\s\S]*audio_deleted_at" IS NULL/,
     );
     expect(sql).toMatch(
       /version_approval_events_audio_identity_fk[\s\S]*audio_identity_fingerprint/,

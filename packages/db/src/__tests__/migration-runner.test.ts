@@ -9,7 +9,42 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error -- apply-migrations.mjs intentionally has no generated declarations.
 import * as migrationRunner from "../../apply-migrations.mjs";
 
-const { applyMigration, cutoverFiles, migrationDigest, splitStatements } = migrationRunner;
+const {
+  applyMigration,
+  applyMigrationInTransaction,
+  createSk90AdapterApproval,
+  cutoverFiles,
+  databaseUrl,
+  migrationDigest,
+  splitStatements,
+} = migrationRunner;
+
+const CUTOVER_MIGRATION = readFileSync(
+  join(process.cwd(), "drizzle", "0027_purchase_foundation.sql"),
+  "utf8",
+);
+
+function adapterBinding() {
+  return {
+    artifactDigest: `sha256:${"a".repeat(64)}`,
+    actionChallengeToken: `hmac-sha256:${"2".repeat(64)}`,
+    executionApprovalDigest: `sha256:${"d".repeat(64)}`,
+    freshAuthorizationDigest: `sha256:${"e".repeat(64)}`,
+    manifestDigest: `sha256:${"b".repeat(64)}`,
+    policyDigest: `sha256:${"c".repeat(64)}`,
+    targetDatabaseFingerprint: `sha256:${"f".repeat(64)}`,
+    targetObservationDigest: `sha256:${"1".repeat(64)}`,
+  };
+}
+
+function adapterApprovalFor() {
+  return createSk90AdapterApproval({
+    ...adapterBinding(),
+    filename: "0027_purchase_foundation.sql",
+    migrationDigest: migrationDigest(CUTOVER_MIGRATION),
+    targetClass: "isolated_nonproduction",
+  });
+}
 
 type Query = { params: unknown[] | undefined; statement: string };
 
@@ -165,10 +200,13 @@ describe("SK-90 migration runner cutover", () => {
   it("applies each cutover file and its ledger record in one transaction", async () => {
     const source = runnerSource();
     const client = fakeSql();
-    const migration = "DO $migration$ BEGIN PERFORM 1; END $migration$;";
+    const migration = CUTOVER_MIGRATION;
 
     await expect(
-      applyMigration(client.sql, "0027_purchase_foundation.sql", migration),
+      applyMigration(client.sql, "0027_purchase_foundation.sql", migration, {
+        adapterApproval: adapterApprovalFor(),
+        adapterBinding: adapterBinding(),
+      }),
     ).resolves.toBe("SKITZA_MIGRATION_APPLIED");
 
     expect(client.state.transactions).toHaveLength(1);
@@ -178,7 +216,7 @@ describe("SK-90 migration runner cutover", () => {
     expect(statements[1]).toContain('CREATE SCHEMA IF NOT EXISTS "skitza_migrations"');
     expect(statements[2]).toContain('CREATE TABLE IF NOT EXISTS "skitza_migrations"."applied"');
     expect(statements[4]).toContain("SKITZA_MIGRATION_POST_LOCK_GUARD");
-    expect(statements[4]).toContain(migration.slice(0, -1));
+    expect(statements[4]).toContain("SKITZA_0027_SOURCE_SCHEMA_DRIFT");
     expect(statements[5]).toContain('ON CONFLICT ("filename") DO NOTHING');
     expect(statements.at(-1)).toContain("SKITZA_MIGRATION_DIGEST_MISMATCH");
 
@@ -273,14 +311,13 @@ describe("SK-90 migration runner cutover", () => {
 
   it("never suppresses a 0027 error or leaves the ledger bootstrap committed", async () => {
     const source = runnerSource();
-    const client = fakeSql({ failStatement: "RAISE_FAILURE" });
+    const client = fakeSql({ failStatement: "SKITZA_0027_SOURCE_SCHEMA_DRIFT" });
 
     await expect(
-      applyMigration(
-        client.sql,
-        "0027_purchase_foundation.sql",
-        "DO $migration$ BEGIN RAISE_FAILURE; END $migration$;",
-      ),
+      applyMigration(client.sql, "0027_purchase_foundation.sql", CUTOVER_MIGRATION, {
+        adapterApproval: adapterApprovalFor(),
+        adapterBinding: adapterBinding(),
+      }),
     ).rejects.toThrow("SKITZA_MIGRATION_FAILED");
     expect(client.state.transactions).toHaveLength(1);
     expect(client.state.relationExists()).toBe(false);
@@ -315,5 +352,83 @@ describe("SK-90 migration runner cutover", () => {
     expect(source).not.toMatch(/node apply-migrations\.mjs/);
     expect(source).not.toMatch(/DATABASE_URL:\s*\$\{\{ secrets\.DATABASE_URL_TEST \}\}/);
     expect(source).toMatch(/CI must never infer/);
+  });
+
+  it("blocks an initial 0027 cutover unless the isolated reset adapter approves it", async () => {
+    const client = fakeSql();
+    const migration = CUTOVER_MIGRATION;
+
+    await expect(
+      applyMigration(client.sql, "0027_purchase_foundation.sql", migration),
+    ).rejects.toThrow("SKITZA_MIGRATION_ADAPTER_APPROVAL_REQUIRED");
+    expect(client.state.transactions).toHaveLength(0);
+
+    const exactApproval = adapterApprovalFor();
+    expect(() =>
+      createSk90AdapterApproval({
+        ...exactApproval,
+        migrationDigest: migrationDigest(`${migration}\n-- different`),
+      }),
+    ).toThrow("SKITZA_MIGRATION_ADAPTER_APPROVAL_INVALID");
+    await expect(
+      applyMigration(client.sql, "0027_purchase_foundation.sql", `${migration}\n-- different`, {
+        adapterApproval: exactApproval,
+        adapterBinding: adapterBinding(),
+      }),
+    ).rejects.toThrow("SKITZA_MIGRATION_ADAPTER_APPROVAL_INVALID");
+    await expect(
+      applyMigration(client.sql, "0027_purchase_foundation.sql", migration, {
+        adapterApproval: exactApproval,
+        adapterBinding: {
+          ...adapterBinding(),
+          targetDatabaseFingerprint: `sha256:${"9".repeat(64)}`,
+        },
+      }),
+    ).rejects.toThrow("SKITZA_MIGRATION_ADAPTER_APPROVAL_INVALID");
+    expect(client.state.transactions).toHaveLength(0);
+  });
+
+  it("runs an approved cutover inside the adapter's existing transaction", async () => {
+    const migration = CUTOVER_MIGRATION;
+    const client = fakeSql();
+    const statements: Query[] = [];
+    let ledgerDigest: string | null = null;
+    const transactionClient = {
+      query: async (statement: string, params?: unknown[]) => {
+        statements.push({ statement, params });
+        if (statement.includes('SELECT "digest"')) {
+          return { rows: ledgerDigest === null ? [] : [{ digest: ledgerDigest }] };
+        }
+        if (statement.includes('INSERT INTO "skitza_migrations"."applied"')) {
+          ledgerDigest = String(params?.[1]);
+        }
+        return { rows: [] };
+      },
+    };
+
+    await expect(
+      applyMigrationInTransaction(
+        transactionClient,
+        "0027_purchase_foundation.sql",
+        migration,
+        adapterApprovalFor(),
+        adapterBinding(),
+      ),
+    ).resolves.toBe("SKITZA_MIGRATION_APPLIED");
+
+    expect(client.state.transactions).toHaveLength(0);
+    expect(statements[0]?.statement).toContain("pg_advisory_xact_lock");
+    expect(
+      statements.some((entry) => entry.statement.includes("SKITZA_0027_SOURCE_SCHEMA_DRIFT")),
+    ).toBe(true);
+    expect(statements.some((entry) => entry.statement.includes("ON CONFLICT"))).toBe(true);
+  });
+
+  it("rejects ambiguous generic migration selectors", () => {
+    expect(() =>
+      databaseUrl({ DATABASE_URL: "postgres://one/db", POSTGRES_URL: "postgres://two/db" }),
+    ).toThrow("SKITZA_MIGRATION_DATABASE_URL_AMBIGUOUS");
+    expect(databaseUrl({ DATABASE_URL: "postgres://one/db" })).toBe("postgres://one/db");
+    expect(runnerSource()).toMatch(/SKITZA_MIGRATION_DATABASE_URL_AMBIGUOUS/);
   });
 });

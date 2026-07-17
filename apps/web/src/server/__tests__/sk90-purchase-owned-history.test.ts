@@ -18,6 +18,12 @@ describe("SK-90 purchase-owned history callers", () => {
     expect(deleteVersion).not.toMatch(/\.delete\(trackVersions\)/);
     expect(deleteVersion).toMatch(/\.set\(\{ audioDeletedAt \}\)/);
     expect(deleteVersion).toMatch(/isNull\(trackVersions\.audioUrl\)/);
+    expect(deleteVersion).toMatch(/row\.pendingAudioR2Key !== null/);
+    expect(deleteVersion).toMatch(/isNull\(trackVersions\.pendingAudioR2Key\)/);
+    expect(deleteVersion).toMatch(/isNull\(trackVersions\.pendingAudioCompletionToken\)/);
+    expect(deleteVersion).toMatch(/isNull\(trackVersions\.pendingAudioSizeBytes\)/);
+    expect(deleteVersion).toMatch(/isNull\(trackVersions\.pendingAudioStartedAt\)/);
+    expect(deleteVersion).toMatch(/isNull\(trackVersions\.pendingAudioCleanupEtag\)/);
     expect(deleteVersion).toMatch(/code: "CONFLICT"/);
   });
 
@@ -54,11 +60,19 @@ describe("SK-90 purchase-owned history callers", () => {
       expect(block).toContain("isNotNull(trackVersions.audioUrl)");
       expect(block).toContain("isNull(trackVersions.audioDeletedAt)");
     }
-    expect((artistHome.match(/isNotNull\(trackVersions\.audioUrl\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
-    expect((artistHome.match(/isNull\(trackVersions\.audioDeletedAt\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(
+      (artistHome.match(/isNotNull\(trackVersions\.audioUrl\)/g) ?? []).length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(
+      (artistHome.match(/isNull\(trackVersions\.audioDeletedAt\)/g) ?? []).length,
+    ).toBeGreaterThanOrEqual(2);
 
-    expect((producerMusic.match(/isNotNull\(trackVersions\.audioUrl\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
-    expect((producerMusic.match(/isNull\(trackVersions\.audioDeletedAt\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(
+      (producerMusic.match(/isNotNull\(trackVersions\.audioUrl\)/g) ?? []).length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(
+      (producerMusic.match(/isNull\(trackVersions\.audioDeletedAt\)/g) ?? []).length,
+    ).toBeGreaterThanOrEqual(2);
     expect(producerToday).toContain("isNotNull(trackVersions.audioUrl)");
     expect(producerToday).toContain("isNull(trackVersions.audioDeletedAt)");
   });

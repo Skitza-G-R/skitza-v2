@@ -1,16 +1,26 @@
-/**
- * Pure safety contracts for the SK-90 isolated mock-reset rehearsal.
- *
- * This module intentionally has no database, Neon, HTTP, filesystem, or R2
- * adapter. It can validate independently observed evidence, but it cannot
- * discover or mutate an external target.
- */
+/** Shared safety contracts for the executable SK-90 isolated reset rehearsal. */
 export * from "./canonical";
 export * from "./artifact";
 export * from "./contract";
 export * from "./environment";
 export * from "./errors";
 export * from "./manifest";
-export * from "./policy";
-export * from "./state";
+export {
+  assertMockEvidenceCoverageShape,
+  assertMockOnlyEvidence,
+  assertRehearsalTarget,
+  buildMockEvidenceCoverage,
+  mockEvidenceObservationDigest,
+  rehearsalTargetPolicyDigest,
+  SK90_APPROVED_MOCK_EVIDENCE_COUNTS,
+  targetObservationDigest,
+  type ClassifiedIdentity,
+  type ClassifiedMonetaryRow,
+  type ClassifiedProviderReference,
+  type MockEvidence,
+  type MockEvidenceCoverage,
+  type MockEvidenceSummary,
+  type RehearsalTargetApproval,
+  type RehearsalTargetPolicy,
+} from "./policy";
 export * from "./storage";

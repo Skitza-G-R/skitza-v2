@@ -561,6 +561,17 @@ export const trackVersions = pgTable(
     // one-way transition and freezes completed identity before any approval.
     audioObjectEtag: text("audio_object_etag"),
     audioIdentityFingerprint: text("audio_identity_fingerprint"),
+    // Durable multipart journal. A placeholder may carry this complete tuple
+    // while an R2 upload is in flight. Successful completion clears it in the
+    // same database write that installs the immutable live-object identity.
+    pendingAudioR2Key: text("pending_audio_r2_key"),
+    pendingAudioCompletionToken: text("pending_audio_completion_token"),
+    pendingAudioSizeBytes: bigint("pending_audio_size_bytes", { mode: "number" }),
+    pendingAudioStartedAt: timestamp("pending_audio_started_at", { withTimezone: true }),
+    // Durable cleanup intent for an exact completed object. It is written only
+    // after authoritative key/token/size/ETag verification and before deletion,
+    // so a retry can safely finish clearing a consumed multipart upload.
+    pendingAudioCleanupEtag: text("pending_audio_cleanup_etag"),
     peaksR2Key: text("peaks_r2_key"),
     // Pre-computed waveform peaks — 200 normalized RMS bars [0..1].
     // Populated by audio.completeMultipart once the multipart upload
@@ -585,6 +596,9 @@ export const trackVersions = pgTable(
       t.purchaseId,
       t.audioIdentityFingerprint,
     ),
+    pendingAudioR2KeyUnique: uniqueIndex("track_versions_pending_audio_r2_key_unique")
+      .on(t.pendingAudioR2Key)
+      .where(sql`${t.pendingAudioR2Key} IS NOT NULL`),
     trackPurchaseFk: foreignKey({
       columns: [t.trackId, t.purchaseId],
       foreignColumns: [projectTracks.id, projectTracks.purchaseId],
@@ -609,6 +623,11 @@ export const trackVersions = pgTable(
           AND ${t.audioR2Key} IS NOT NULL
           AND ${t.sizeBytes} > 0
           AND ${t.audioObjectEtag} <> ''
+          AND ${t.pendingAudioR2Key} IS NULL
+          AND ${t.pendingAudioCompletionToken} IS NULL
+          AND ${t.pendingAudioSizeBytes} IS NULL
+          AND ${t.pendingAudioStartedAt} IS NULL
+          AND ${t.pendingAudioCleanupEtag} IS NULL
           AND ${t.audioIdentityFingerprint} = 'sha256:' || encode(sha256(convert_to(
             'skitza-track-audio-v1|'
             || octet_length(${t.audioR2Key})::text || ':' || ${t.audioR2Key}
@@ -616,6 +635,27 @@ export const trackVersions = pgTable(
             || '|' || octet_length(${t.sizeBytes}::text)::text || ':' || ${t.sizeBytes}::text,
             'UTF8'
           )), 'hex')
+        )
+      ) IS TRUE`,
+    ),
+    pendingAudioShape: check(
+      "track_versions_pending_audio_shape",
+      sql`(
+        (
+          ${t.pendingAudioR2Key} IS NULL
+          AND ${t.pendingAudioCompletionToken} IS NULL
+          AND ${t.pendingAudioSizeBytes} IS NULL
+          AND ${t.pendingAudioStartedAt} IS NULL
+          AND ${t.pendingAudioCleanupEtag} IS NULL
+        )
+        OR
+        (
+          NULLIF(btrim(${t.pendingAudioR2Key}), '') IS NOT NULL
+          AND ${t.pendingAudioCompletionToken} ~ '^[0-9a-f]{64}$'
+          AND ${t.pendingAudioSizeBytes} > 0
+          AND ${t.pendingAudioStartedAt} IS NOT NULL
+          AND (${t.pendingAudioCleanupEtag} IS NULL OR NULLIF(btrim(${t.pendingAudioCleanupEtag}), '') IS NOT NULL)
+          AND ${t.audioDeletedAt} IS NULL
         )
       ) IS TRUE`,
     ),

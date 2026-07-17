@@ -144,7 +144,7 @@ export async function initMultipartAction(input: {
   filename: string;
   sizeBytes: number;
   contentType: string;
-}): Promise<ActionDataResult<{ uploadId: string; key: string }>> {
+}): Promise<ActionDataResult<{ uploadId: string; key: string; completionToken: string }>> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
@@ -182,6 +182,7 @@ export async function completeMultipartAction(input: {
   parts: { partNumber: number; eTag: string }[];
   trackVersionId: string;
   sizeBytes: number;
+  completionToken: string;
   durationMs?: number;
 }): Promise<ActionDataResult<{ url: string; key: string }>> {
   const c = await callerOrError();
@@ -193,6 +194,7 @@ export async function completeMultipartAction(input: {
       parts: input.parts,
       trackVersionId: input.trackVersionId,
       sizeBytes: input.sizeBytes,
+      completionToken: input.completionToken,
       ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
     });
     revalidatePath(CLIENTS_PROJECTS_PATH);
