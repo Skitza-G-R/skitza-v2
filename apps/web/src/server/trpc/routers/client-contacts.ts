@@ -25,6 +25,7 @@ import {
   archiveClient,
   ClientManagementDomainError,
   editClient,
+  inviteClient,
   restoreClient,
 } from "~/server/domain/client-management/service";
 import { clientMoneyRepository } from "~/server/domain/client-money/db";
@@ -834,54 +835,43 @@ export const clientContactsRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const [existing] = await ctx.db
-        .select({
-          id: clientContacts.id,
-          producerId: clientContacts.producerId,
-          email: clientContacts.email,
-          name: clientContacts.name,
-        })
-        .from(clientContacts)
-        .where(and(eq(clientContacts.id, input.id), eq(clientContacts.producerId, ctx.producerId)))
-        .limit(1);
-      if (!existing || existing.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "NOT_FOUND" });
-      }
+      const producer =
+        input.via === "email"
+          ? (
+              await ctx.db
+                .select({
+                  slug: producers.slug,
+                  displayName: producers.displayName,
+                })
+                .from(producers)
+                .where(eq(producers.id, ctx.producerId))
+                .limit(1)
+            )[0]
+          : undefined;
 
-      if (input.via === "email") {
-        // Email is sent BEFORE invited_at is stamped. If Resend
-        // rejects (sandbox / unverified domain / rate-limit) the
-        // contact's invited_at stays NULL and the LinkPill keeps
-        // showing "Invite to app" so the producer can retry. Stamping
-        // first would leave a stale "Invited" state that lies about
-        // whether the email actually went out.
-        const [producer] = await ctx.db
-          .select({
-            slug: producers.slug,
-            displayName: producers.displayName,
-          })
-          .from(producers)
-          .where(eq(producers.id, ctx.producerId))
-          .limit(1);
-        const slug = producer?.slug ?? "";
-        const producerName = producer?.displayName ?? "Your producer";
-        const inviteUrl = `${SITE_URL}/invite/${slug}-${existing.id}`;
-        // Re-throws on Resend failure — caller decides whether to
-        // retry or fall back to the copy-link path.
-        await sendClientInviteEmail(existing.email, {
-          clientName: existing.name,
-          producerName,
-          inviteUrl,
+      try {
+        return await inviteClient(clientManagementRepository(ctx.db), {
+          producerId: ctx.producerId,
+          clientId: input.id,
+          via: input.via,
+          invitedAt: new Date(),
+          // The domain commits invitedAt under the shared deletion lock before
+          // this callback runs. A failed send remains safely retryable without
+          // letting permanent deletion create a dead invite.
+          deliverEmail: async (client) => {
+            const slug = producer?.slug ?? "";
+            const producerName = producer?.displayName ?? "Your producer";
+            const inviteUrl = `${SITE_URL}/invite/${slug}-${client.id}`;
+            await sendClientInviteEmail(client.email, {
+              clientName: client.name,
+              producerName,
+              inviteUrl,
+            });
+          },
         });
+      } catch (error) {
+        mapClientManagementDomainError(error);
       }
-
-      const invitedAt = new Date();
-      await ctx.db
-        .update(clientContacts)
-        .set({ invitedAt })
-        .where(and(eq(clientContacts.id, input.id), eq(clientContacts.producerId, ctx.producerId)));
-
-      return { invitedAt, via: input.via };
     }),
 
   // Detailed view — contact + linked projects + contracts + recent

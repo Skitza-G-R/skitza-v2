@@ -13,6 +13,7 @@ describe("SK-93 client-management router wiring", () => {
     expect(routerSource).toContain("editClient");
     expect(routerSource).toContain("archiveClient");
     expect(routerSource).toContain("restoreClient");
+    expect(routerSource).toContain("inviteClient(clientManagementRepository(ctx.db)");
   });
 
   it("accepts every approved editable field and no ownership field", () => {

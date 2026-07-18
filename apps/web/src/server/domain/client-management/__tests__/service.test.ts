@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   archiveClient,
   editClient,
+  inviteClient,
   restoreClient,
   type ClientManagementRecord,
   type ClientManagementRepository,
@@ -59,6 +60,7 @@ function repository(input?: {
   clients: Map<string, ClientManagementRecord>;
   editPatches: Array<Record<string, unknown>>;
   archivePatches: Array<{ producerArchivedAt: Date | null }>;
+  invitePatches: Array<{ invitedAt: Date }>;
 } {
   const mutex = new Mutex();
   const clients = new Map(
@@ -66,11 +68,13 @@ function repository(input?: {
   );
   const editPatches: Array<Record<string, unknown>> = [];
   const archivePatches: Array<{ producerArchivedAt: Date | null }> = [];
+  const invitePatches: Array<{ invitedAt: Date }> = [];
 
   return {
     clients,
     editPatches,
     archivePatches,
+    invitePatches,
     atomically: (_scope, work) =>
       mutex.run(() =>
         work({
@@ -125,10 +129,92 @@ function repository(input?: {
             clients.set(clientId, updated);
             return Promise.resolve(updated);
           },
+          setInvitedAt: ({ producerId, clientId, invitedAt }) => {
+            const client = clients.get(clientId);
+            if (!client || client.producerId !== producerId) {
+              return Promise.resolve(null);
+            }
+            invitePatches.push({ invitedAt });
+            const updated = { ...client, invitedAt };
+            clients.set(clientId, updated);
+            return Promise.resolve(updated);
+          },
         }),
       ),
   };
 }
+
+describe("client invite", () => {
+  it("commits invite intent before delivery and does not hold the lock during network I/O", async () => {
+    const repo = repository();
+    let releaseDelivery!: () => void;
+    const deliveryReleased = new Promise<void>((resolve) => {
+      releaseDelivery = resolve;
+    });
+    let deliveryStarted!: () => void;
+    const deliveryHasStarted = new Promise<void>((resolve) => {
+      deliveryStarted = resolve;
+    });
+    const events: string[] = [];
+
+    const invite = inviteClient(repo, {
+      producerId: "producer-1",
+      clientId: "client-1",
+      via: "email",
+      invitedAt: new Date("2026-07-18T14:00:00.000Z"),
+      deliverEmail: async (client) => {
+        events.push(`send:${client.email}`);
+        deliveryStarted();
+        await deliveryReleased;
+      },
+    });
+    await deliveryHasStarted;
+    expect(repo.invitePatches).toEqual([
+      { invitedAt: new Date("2026-07-18T14:00:00.000Z") },
+    ]);
+
+    await archiveClient(repo, {
+      producerId: "producer-1",
+      clientId: "client-1",
+      archivedAt: new Date("2026-07-18T14:01:00.000Z"),
+    }).then(() => events.push("archive"));
+    expect(events).toEqual(["send:maya@example.test", "archive"]);
+    expect(repo.archivePatches).toHaveLength(1);
+
+    releaseDelivery();
+    await invite;
+    expect(events).toEqual(["send:maya@example.test", "archive"]);
+  });
+
+  it("keeps failed delivery non-deletable and never delivers for link invites", async () => {
+    const emailRepo = repository();
+    await expect(
+      inviteClient(emailRepo, {
+        producerId: "producer-1",
+        clientId: "client-1",
+        via: "email",
+        invitedAt: new Date("2026-07-18T14:00:00.000Z"),
+        deliverEmail: () => Promise.reject(new Error("delivery failed")),
+      }),
+    ).rejects.toThrow("delivery failed");
+    expect(emailRepo.invitePatches).toEqual([
+      { invitedAt: new Date("2026-07-18T14:00:00.000Z") },
+    ]);
+
+    const linkRepo = repository();
+    const deliverEmail = () => Promise.reject(new Error("must not send"));
+    await expect(
+      inviteClient(linkRepo, {
+        producerId: "producer-1",
+        clientId: "client-1",
+        via: "link",
+        invitedAt: new Date("2026-07-18T14:00:00.000Z"),
+        deliverEmail,
+      }),
+    ).resolves.toMatchObject({ via: "link" });
+    expect(linkRepo.invitePatches).toHaveLength(1);
+  });
+});
 
 describe("client edit", () => {
   it("edits every approved field and normalizes contact data", async () => {

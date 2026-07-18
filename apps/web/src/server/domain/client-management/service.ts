@@ -52,6 +52,11 @@ export type ClientManagementTransaction = Readonly<{
     clientId: string;
     producerArchivedAt: Date | null;
   }) => Promise<ClientManagementRecord | null>;
+  setInvitedAt: (input: {
+    producerId: string;
+    clientId: string;
+    invitedAt: Date;
+  }) => Promise<ClientManagementRecord | null>;
 }>;
 
 export type ClientManagementAtomicScope = Readonly<{
@@ -99,6 +104,19 @@ export type EditClientInput = Readonly<{
 export type ClientManagementMutationResult = Readonly<{
   client: ClientManagementRecord;
   changed: boolean;
+}>;
+
+export type InviteClientInput = Readonly<{
+  producerId: string;
+  clientId: string;
+  via: "email" | "link";
+  invitedAt: Date;
+  deliverEmail: (client: ClientManagementRecord) => Promise<void>;
+}>;
+
+export type InviteClientResult = Readonly<{
+  invitedAt: Date;
+  via: "email" | "link";
 }>;
 
 function requireIdentifier(value: string, label: string): void {
@@ -155,6 +173,49 @@ function duplicateEmail(): ClientManagementDomainError {
     "DUPLICATE_EMAIL",
     "A client with that email already exists.",
   );
+}
+
+/**
+ * Commit the non-deletable invite intent under the same client lock used by
+ * permanent deletion, then perform network delivery. This ordering guarantees
+ * that an accepted email can never point at a subsequently deleted draft and
+ * avoids holding a database connection during external I/O. A failed delivery
+ * remains a pending invite and can be retried by the existing resend action.
+ */
+export async function inviteClient(
+  repository: ClientManagementRepository,
+  input: InviteClientInput,
+): Promise<InviteClientResult> {
+  requireIdentifier(input.producerId, "Producer id");
+  requireIdentifier(input.clientId, "Client id");
+  if (Number.isNaN(input.invitedAt.getTime())) {
+    throw new ClientManagementDomainError("INVALID_INPUT", "Invite time must be valid");
+  }
+
+  const invitation = await repository.atomically(
+    { producerId: input.producerId, clientId: input.clientId },
+    async (transaction) => {
+      const client = await transaction.lockClient({
+        producerId: input.producerId,
+        clientId: input.clientId,
+      });
+      if (!client || client.producerId !== input.producerId) throw notFound();
+
+      const invitedAt = new Date(input.invitedAt);
+      const updated = await transaction.setInvitedAt({
+        producerId: input.producerId,
+        clientId: input.clientId,
+        invitedAt,
+      });
+      if (!updated) throw notFound();
+      return { client: updated, invitedAt };
+    },
+  );
+
+  if (input.via === "email") {
+    await input.deliverEmail(invitation.client);
+  }
+  return { invitedAt: invitation.invitedAt, via: input.via };
 }
 
 export async function editClient(

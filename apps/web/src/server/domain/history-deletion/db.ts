@@ -17,13 +17,18 @@ import {
 } from "@skitza/db";
 
 import type { HistoricalDeletionRepository } from "./service";
+import { clientAdvisoryLockKey } from "../client-management/lock";
 
 export function historicalDeletionRepository(db: Db): HistoricalDeletionRepository {
   return {
     atomically: (lockScope, work) =>
       db.transaction(async (tx) => {
         await tx.execute(
-          sql`select pg_advisory_xact_lock(hashtextextended(${`${lockScope.kind}:${lockScope.id}`}, 0))`,
+          sql`select pg_advisory_xact_lock(hashtextextended(${
+            lockScope.kind === "client"
+              ? clientAdvisoryLockKey(lockScope.id)
+              : `project:${lockScope.id}`
+          }, 0))`,
         );
 
         return work({

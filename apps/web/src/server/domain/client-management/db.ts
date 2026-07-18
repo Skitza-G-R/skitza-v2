@@ -173,6 +173,19 @@ export function clientManagementRepository(db: Db): ClientManagementRepository {
               .returning(clientSelection);
             return (client as ClientManagementRecord | undefined) ?? null;
           },
+          setInvitedAt: async (input) => {
+            const [client] = await tx
+              .update(clientContacts)
+              .set({ invitedAt: input.invitedAt })
+              .where(
+                and(
+                  eq(clientContacts.id, input.clientId),
+                  eq(clientContacts.producerId, input.producerId),
+                ),
+              )
+              .returning(clientSelection);
+            return (client as ClientManagementRecord | undefined) ?? null;
+          },
         });
       }),
   };
