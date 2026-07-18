@@ -5,11 +5,10 @@ import {
   clientContacts,
   createDb,
   eq,
-  inArray,
-  producers,
   projects,
+  sql,
 } from "@skitza/db";
-import { afterAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { emailHashFor } from "~/server/artist/identity";
 import { clientManagementRepository } from "../db";
@@ -21,51 +20,150 @@ import { createStableClientProject } from "../../project-ownership/service";
 
 const testDatabaseUrl = process.env.DATABASE_URL_TEST;
 const describeWithTestDatabase = testDatabaseUrl ? describe : describe.skip;
+const testSchema = `sk93_${randomUUID().replaceAll("-", "")}`;
+
+function scopedTestDatabaseUrl(value: string | undefined): string | null {
+  if (!value) return null;
+  if (!/^sk93_[a-f0-9]{32}$/.test(testSchema)) {
+    throw new Error("SK-93 generated test schema is invalid");
+  }
+  const url = new URL(value);
+  const existingOptions = url.searchParams.get("options")?.trim();
+  const searchPathOption = `-csearch_path=${testSchema}`;
+  url.searchParams.set(
+    "options",
+    existingOptions ? `${existingOptions} ${searchPathOption}` : searchPathOption,
+  );
+  return url.toString();
+}
 
 describeWithTestDatabase("SK-93 client management — separate CI test database", () => {
-  const db = testDatabaseUrl ? createDb(testDatabaseUrl) : null;
-  const createdProducerIds: string[] = [];
+  const adminDb = testDatabaseUrl ? createDb(testDatabaseUrl) : null;
+  const scopedUrl = scopedTestDatabaseUrl(testDatabaseUrl);
+  const db = scopedUrl ? createDb(scopedUrl) : null;
+  let schemaCreated = false;
 
   function activeDb() {
     if (!db) throw new Error("SK-93 test database is unavailable");
     return db;
   }
 
+  function activeAdminDb() {
+    if (!adminDb) throw new Error("SK-93 test database administrator is unavailable");
+    return adminDb;
+  }
+
+  beforeAll(async () => {
+    const schema = `"${testSchema}"`;
+    await activeAdminDb().execute(sql.raw(`create schema ${schema}`));
+    schemaCreated = true;
+
+    const statements = [
+      `create table ${schema}."producers" (
+        "id" uuid primary key,
+        "clerk_user_id" text not null unique,
+        "email" text not null,
+        "display_name" text,
+        "slug" text not null unique
+      )`,
+      `create table ${schema}."client_contacts" (
+        "id" uuid primary key,
+        "producer_id" uuid not null,
+        "email_hash" text not null,
+        "email" text not null,
+        "name" text not null,
+        "first_seen_at" timestamptz not null default now(),
+        "last_seen_at" timestamptz not null default now(),
+        "tags" text[] not null default '{}',
+        "notes" text,
+        "phone" text,
+        "referral_source" text,
+        "clerk_user_id" text,
+        "archived_at" timestamptz,
+        "producer_archived_at" timestamptz,
+        "invited_at" timestamptz,
+        "position" integer not null default 0,
+        constraint "client_contacts_producer_email_unique"
+          unique ("producer_id", "email_hash"),
+        constraint "client_contacts_id_producer_unique"
+          unique ("id", "producer_id")
+      )`,
+      `create table ${schema}."projects" (
+        "id" uuid primary key default gen_random_uuid(),
+        "producer_id" uuid not null,
+        "client_contact_id" uuid not null,
+        "title" text not null,
+        "lifecycle_status" text not null default 'waiting_for_payment',
+        "lifecycle_changed_at" timestamptz not null default now(),
+        "client_name" text,
+        "client_email" text,
+        "artist_name" text not null,
+        "artist_email" text not null,
+        "invite_token" text unique,
+        "created_at" timestamptz not null default now(),
+        "updated_at" timestamptz not null default now(),
+        "testimonial_requested_at" timestamptz,
+        "notes" text,
+        "position" integer not null default 0,
+        "workflow_stage" text not null default 'brief',
+        "deadline_at" timestamptz
+      )`,
+      `create table ${schema}."purchase_requests" (
+        "producer_id" uuid,
+        "client_contact_id" uuid
+      )`,
+      `create table ${schema}."private_offers" (
+        "producer_id" uuid,
+        "client_contact_id" uuid
+      )`,
+      `create table ${schema}."purchases" (
+        "producer_id" uuid,
+        "client_contact_id" uuid
+      )`,
+      `create table ${schema}."purchase_acceptances" (
+        "producer_id" uuid,
+        "client_contact_id" uuid
+      )`,
+      `create table ${schema}."payment_proofs" (
+        "producer_id" uuid,
+        "client_contact_id" uuid
+      )`,
+      `create table ${schema}."version_approval_events" (
+        "producer_id" uuid,
+        "client_contact_id" uuid
+      )`,
+    ];
+    for (const statement of statements) {
+      await activeAdminDb().execute(sql.raw(statement));
+    }
+  });
+
   async function createProducer(): Promise<string> {
     const key = `sk93_${randomUUID()}`;
-    const [producer] = await activeDb()
-      .insert(producers)
-      .values({
-        clerkUserId: key,
-        email: `${key}@example.test`,
-        slug: key,
-      })
-      .returning({ id: producers.id });
-    if (!producer) throw new Error("SK-93 test producer was not created");
-    createdProducerIds.push(producer.id);
-    return producer.id;
+    const producerId = randomUUID();
+    await activeDb().execute(sql`
+      insert into ${sql.raw('"producers"')}
+        ("id", "clerk_user_id", "email", "slug")
+      values (${producerId}, ${key}, ${`${key}@example.test`}, ${key})
+    `);
+    return producerId;
   }
 
   async function createClient(producerId: string, label: string) {
     const emailLabel = label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
     const email = `${emailLabel}-${randomUUID()}@example.test`;
-    const [client] = await activeDb()
-      .insert(clientContacts)
-      .values({
-        producerId,
-        name: label,
-        email,
-        emailHash: emailHashFor(email),
-      })
-      .returning();
-    if (!client) throw new Error("SK-93 test client was not created");
-    return client;
+    const clientId = randomUUID();
+    await activeDb().execute(sql`
+      insert into ${sql.raw('"client_contacts"')}
+        ("id", "producer_id", "email_hash", "email", "name")
+      values (${clientId}, ${producerId}, ${emailHashFor(email)}, ${email}, ${label})
+    `);
+    return { id: clientId, email, producerId };
   }
 
   afterAll(async () => {
-    if (createdProducerIds.length === 0) return;
-    await activeDb().delete(projects).where(inArray(projects.producerId, createdProducerIds));
-    await activeDb().delete(producers).where(inArray(producers.id, createdProducerIds));
+    if (!schemaCreated) return;
+    await activeAdminDb().execute(sql.raw(`drop schema "${testSchema}" cascade`));
   });
 
   it("allows exactly one concurrent winner for a producer-scoped email", async () => {
