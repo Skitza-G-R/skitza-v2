@@ -7,12 +7,12 @@ import type { SortValue } from "./sort-value";
 // Sortable column header for the Clients table mode. Mockup-match
 // against /Volumes/KINGSTON/Downloads/Clients Projects Room.html
 // table view — 7 data columns (Client / Email / Link / Projects /
-// Lifetime / Owed / Joined) plus the grip + avatar + chevron
+// Lifetime / Owed / Joined) plus the grip + avatar + actions
 // utility columns.
 //
-// Every data column is sortable. The arrow icon highlights the
-// active column. Width units mirror ClientCompactRow's grid so each
-// header cell sits over its row counterpart.
+// Only columns with truthful local semantics are sortable. Currency-
+// separated money remains display-only here until the list owns that
+// projection. Width units mirror ClientCompactRow's grid.
 
 interface ClientsTableHeaderProps {
   sort: SortValue;
@@ -28,7 +28,7 @@ interface ColumnSpec {
 // Column lineup (matches ClientCompactRow's grid exactly):
 //   24px(grip) 44px(avatar) minmax(0,1.4fr)(client name)
 //   minmax(0,1.5fr)(email) 110px(link state)
-//   90px(projects) 110px(lifetime) 100px(owed) 110px(joined) 36px(chevron)
+//   90px(projects) 110px(lifetime) 100px(owed) 110px(joined) 144px(actions)
 const COLUMNS: ColumnSpec[] = [
   { label: "" }, // grip
   { label: "" }, // avatar
@@ -36,29 +36,27 @@ const COLUMNS: ColumnSpec[] = [
   { label: "Email", align: "left" },
   { label: "Link", align: "left" },
   { label: "Projects", sortKey: "progress", align: "right" },
-  { label: "Lifetime", sortKey: "recent", align: "right" },
-  { label: "Owed", sortKey: "balance", align: "right" },
+  { label: "Lifetime", align: "right" },
+  { label: "Owed", align: "right" },
   { label: "Joined", sortKey: "joined", align: "left" },
-  { label: "" }, // chevron
+  { label: "Actions", align: "right" },
 ];
 
 const GRID_TEMPLATE =
-  "24px 44px minmax(0,1.4fr) minmax(0,1.5fr) 110px 90px 110px 100px 110px 36px";
+  "24px 44px minmax(0,1.4fr) minmax(0,1.5fr) 110px 90px 110px 100px 110px 144px";
 
 // Shared with ClientCompactRow so the header + rows align.
 export const CLIENTS_TABLE_GRID = GRID_TEMPLATE;
 
-export function ClientsTableHeader({
-  sort,
-  onSortChange,
-}: ClientsTableHeaderProps) {
+export function ClientsTableHeader({ sort, onSortChange }: ClientsTableHeaderProps) {
   return (
     <div
-      role="row"
       data-testid="clients-table-header"
-      // SK-47: hidden below md — mobile renders ClientCompactRow as a
+      // Hidden below xl — the fixed data tracks need real desktop width,
+      // especially once the expanded sidebar is taken into account.
+      // Smaller screens render ClientCompactRow as a compact card row.
       // 2-line card, so the 10-column header has nothing to align with.
-      className="hidden items-center gap-3 border-b px-3 py-2.5 md:grid"
+      className="hidden items-center gap-3 border-b px-3 py-2.5 xl:grid"
       style={{
         gridTemplateColumns: GRID_TEMPLATE,
         borderBottomColor: "rgb(var(--border-subtle))",
@@ -68,14 +66,13 @@ export function ClientsTableHeader({
       {COLUMNS.map((col, i) => {
         const isSortable = col.sortKey !== undefined;
         const isActive = isSortable && sort === col.sortKey;
+        const direction = col.sortKey === "name" ? "ascending" : "descending";
         const alignClass = col.align === "right" ? "text-right" : "text-left";
         const content = (
           <span
-            className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.12em] ${alignClass}`}
+            className={`inline-flex items-center gap-1 text-[10px] font-bold tracking-[0.12em] uppercase ${alignClass}`}
             style={{
-              color: isActive
-                ? "rgb(var(--fg-default))"
-                : "rgb(var(--fg-muted))",
+              color: isActive ? "rgb(var(--fg-default))" : "rgb(var(--fg-muted))",
             }}
           >
             {col.label}
@@ -97,11 +94,14 @@ export function ClientsTableHeader({
                 onClick={() => {
                   if (col.sortKey) onSortChange(col.sortKey);
                 }}
-                aria-sort={isActive ? "ascending" : "none"}
-                className="inline-flex w-full items-center gap-1 transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.4)]"
+                aria-label={
+                  isActive
+                    ? `${col.label}, sorted ${direction}`
+                    : `Sort by ${col.label}`
+                }
+                className="inline-flex w-full items-center gap-1 transition-opacity hover:opacity-70 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.4)] focus-visible:outline-none"
                 style={{
-                  justifyContent:
-                    col.align === "right" ? "flex-end" : "flex-start",
+                  justifyContent: col.align === "right" ? "flex-end" : "flex-start",
                 }}
               >
                 {content}

@@ -7,10 +7,7 @@ import { dirname, join } from "node:path";
 // client row used in the Clients tab's table mode.
 
 const here = dirname(fileURLToPath(import.meta.url));
-const SRC = readFileSync(
-  join(here, "..", "client-compact-row.tsx"),
-  "utf-8",
-);
+const SRC = readFileSync(join(here, "..", "client-compact-row.tsx"), "utf-8");
 
 describe("ClientCompactRow — compact horizontal row for clients table mode", () => {
   it("exports a ClientCompactRow component", () => {
@@ -24,6 +21,18 @@ describe("ClientCompactRow — compact horizontal row for clients table mode", (
     // contract.
     expect(SRC).toContain("CLIENTS_TABLE_GRID");
     expect(SRC).toMatch(/gridTemplateColumns:\s*CLIENTS_TABLE_GRID/);
+  });
+
+  it("uses the full table grid only at xl and the compact row below xl", () => {
+    expect(SRC).toMatch(/className="[^"]*hidden[^"]*xl:grid[^"]*"/);
+    expect(SRC).toContain('className="xl:hidden"');
+    expect(SRC).not.toMatch(/className="[^"]*hidden[^"]*lg:grid[^"]*"/);
+    expect(SRC).not.toContain('className="lg:hidden"');
+  });
+
+  it("uses the 36px button radius tier for desktop row actions", () => {
+    expect(SRC).toMatch(/min-h-\[36px\][^"\n]*rounded-\[var\(--radius-md\)\]/);
+    expect(SRC).not.toMatch(/min-h-\[36px\][^"\n]*rounded-\[var\(--radius-sm\)\]/);
   });
 
   it("is draggable for the parent reorder controller", () => {
@@ -43,6 +52,14 @@ describe("ClientCompactRow — compact horizontal row for clients table mode", (
   it("mounts LinkPill for the status column", () => {
     expect(SRC).toContain("LinkPill");
     expect(SRC).toContain("./link-pill");
+  });
+
+  it("renders direct Edit and Archive or Restore actions", () => {
+    expect(SRC).toMatch(/onEdit\?:\s*\(client:\s*ClientCardData\)/);
+    expect(SRC).toMatch(/onArchive\?:\s*\(client:\s*ClientCardData\)/);
+    expect(SRC).toContain("Edit");
+    expect(SRC).toContain("Archive");
+    expect(SRC).toContain("Restore");
   });
 
   it("links the client name to /dashboard/clients-projects/clients/<id>", () => {

@@ -1,12 +1,9 @@
 "use client";
 
-import { ChevronRight } from "lucide-react";
+import { Archive, ArchiveRestore, ChevronRight, Pencil } from "lucide-react";
 import Link from "next/link";
 
-import {
-  producerGradient,
-  producerInitials,
-} from "~/lib/_phase4-stubs/producer-color";
+import { producerGradient, producerInitials } from "~/lib/_phase4-stubs/producer-color";
 
 import type { ClientCardData } from "./client-card";
 import { LinkPill } from "./link-pill";
@@ -28,6 +25,8 @@ import { LinkPill } from "./link-pill";
 interface MobileClientRowProps {
   client: ClientCardData;
   onInvite?: (client: ClientCardData) => void;
+  onEdit?: (client: ClientCardData) => void;
+  onArchive?: (client: ClientCardData) => void;
   /** True for every row except the last — renders the hairline. */
   divider: boolean;
 }
@@ -47,9 +46,11 @@ function formatMoney(cents: number, currency: string): string {
 export function MobileClientRow({
   client,
   onInvite,
+  onEdit,
+  onArchive,
   divider,
 }: MobileClientRowProps) {
-  const { id, name, linkState, projects, lifetime, owed } = client;
+  const { id, name, archived, linkState, projects, lifetime, owed } = client;
   const currency = client.currency ?? "USD";
   const commercialUnavailable = lifetime === null || owed === null;
 
@@ -68,75 +69,103 @@ export function MobileClientRow({
 
   return (
     <div
-      className={[
-        "relative flex min-h-[72px] items-center gap-3 px-3.5 py-2.5",
-        divider ? "border-b border-[rgb(var(--border-subtle))]" : "",
-      ].join(" ")}
+      className={["min-w-0", divider ? "border-b border-[rgb(var(--border-subtle))]" : ""].join(
+        " ",
+      )}
     >
-      <Link
-        href={`/dashboard/clients-projects/clients/${id}`}
-        className="absolute inset-0 z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
-        aria-label={`Open ${name}`}
-      />
+      <div className="relative flex min-h-[72px] min-w-0 items-center gap-3 px-3.5 py-2.5">
+        <Link
+          href={`/dashboard/clients-projects/clients/${id}`}
+          className="absolute inset-0 z-10 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset"
+          aria-label={`Open ${name}`}
+        />
 
-      <span className="relative shrink-0" aria-hidden>
-        <span
-          className="flex h-10 w-10 items-center justify-center rounded-full text-[13px] font-bold text-white"
-          style={{ background: producerGradient(name) }}
-        >
-          {producerInitials(name)}
-        </span>
-        {linkState !== "none" ? (
+        <span className="relative shrink-0" aria-hidden>
           <span
-            className={[
-              "absolute -bottom-px -right-px h-3 w-3 rounded-full ring-2 ring-[rgb(var(--bg-elevated))]",
-              linkState === "pending" ? "animate-pulse" : "",
-            ].join(" ")}
-            style={{
-              background:
-                linkState === "active"
-                  ? "rgb(var(--fg-success))"
-                  : "rgb(var(--brand-primary))",
-            }}
-            title={linkState === "active" ? "Linked" : "Invited"}
-          />
-        ) : null}
-      </span>
+            className="flex h-10 w-10 items-center justify-center rounded-full text-[13px] font-bold text-white"
+            style={{ background: producerGradient(name) }}
+          >
+            {producerInitials(name)}
+          </span>
+          {linkState !== "none" ? (
+            <span
+              className={[
+                "absolute -right-px -bottom-px h-3 w-3 rounded-full ring-2 ring-[rgb(var(--bg-elevated))]",
+                linkState === "pending" ? "animate-pulse" : "",
+              ].join(" ")}
+              style={{
+                background:
+                  linkState === "active" ? "rgb(var(--fg-success))" : "rgb(var(--brand-primary))",
+              }}
+              title={linkState === "active" ? "Linked" : "Invited"}
+            />
+          ) : null}
+        </span>
 
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-[14.5px] font-semibold leading-tight text-[rgb(var(--fg-default))]">
-          {name}
-        </p>
-        <p className="mt-0.5 truncate text-[12px] text-[rgb(var(--fg-muted))]">
-          {secondary}
-        </p>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[14.5px] leading-tight font-semibold text-[rgb(var(--fg-default))]">
+            {name}
+          </p>
+          <p className="mt-0.5 truncate text-[12px] text-[rgb(var(--fg-muted))]">{secondary}</p>
+        </div>
+
+        {owed !== null && owed > 0 ? (
+          <div className="shrink-0 text-right">
+            <p className="font-mono text-[13px] font-bold text-[rgb(var(--fg-danger))] tabular-nums">
+              {formatMoney(owed, currency)}
+            </p>
+            <p className="mt-0.5 font-mono text-[9px] font-bold tracking-widest text-[rgb(var(--fg-muted))] uppercase">
+              Owed
+            </p>
+          </div>
+        ) : showInvite && onInvite ? (
+          <div className="relative z-20 shrink-0">
+            <LinkPill
+              state="none"
+              onInvite={() => {
+                onInvite(client);
+              }}
+            />
+          </div>
+        ) : (
+          <ChevronRight size={16} aria-hidden className="shrink-0 text-[rgb(var(--fg-muted))]" />
+        )}
       </div>
 
-      {owed !== null && owed > 0 ? (
-        <div className="shrink-0 text-right">
-          <p className="font-mono text-[13px] font-bold tabular-nums text-[rgb(var(--fg-danger))]">
-            {formatMoney(owed, currency)}
-          </p>
-          <p className="mt-0.5 font-mono text-[9px] font-bold uppercase tracking-widest text-[rgb(var(--fg-muted))]">
-            Owed
-          </p>
+      {onEdit || onArchive ? (
+        <div className="relative z-20 grid grid-cols-2 gap-2 px-3.5 pb-3">
+          {onEdit ? (
+            <button
+              type="button"
+              onClick={() => {
+                onEdit(client);
+              }}
+              className="inline-flex min-h-[44px] min-w-0 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] px-2 text-[12px] font-semibold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+            >
+              <Pencil size={13} aria-hidden />
+              Edit
+            </button>
+          ) : (
+            <span />
+          )}
+          {onArchive ? (
+            <button
+              type="button"
+              onClick={() => {
+                onArchive(client);
+              }}
+              className="inline-flex min-h-[44px] min-w-0 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] px-2 text-[12px] font-semibold text-[rgb(var(--fg-muted))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+            >
+              {archived ? (
+                <ArchiveRestore size={13} aria-hidden />
+              ) : (
+                <Archive size={13} aria-hidden />
+              )}
+              {archived ? "Restore" : "Archive"}
+            </button>
+          ) : null}
         </div>
-      ) : showInvite && onInvite ? (
-        <div className="relative z-20 shrink-0">
-          <LinkPill
-            state="none"
-            onInvite={() => {
-              onInvite(client);
-            }}
-          />
-        </div>
-      ) : (
-        <ChevronRight
-          size={16}
-          aria-hidden
-          className="shrink-0 text-[rgb(var(--fg-muted))]"
-        />
-      )}
+      ) : null}
     </div>
   );
 }

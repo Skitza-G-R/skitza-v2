@@ -38,6 +38,21 @@ describe("ClientCard source — avatar / link pill / stats / whole-card link", (
     expect(SRC).toContain("owed");
   });
 
+  it("carries the editable client fields and producer archive state", () => {
+    expect(SRC).toMatch(/phone:\s*string\s*\|\s*null/);
+    expect(SRC).toMatch(/notes:\s*string\s*\|\s*null/);
+    expect(SRC).toMatch(/tags:\s*string\[\]/);
+    expect(SRC).toMatch(/archived:\s*boolean/);
+  });
+
+  it("keeps Edit and Archive or Restore visible on every card", () => {
+    expect(SRC).toMatch(/onEdit\?:\s*\(client:\s*ClientCardData\)/);
+    expect(SRC).toMatch(/onArchive\?:\s*\(client:\s*ClientCardData\)/);
+    expect(SRC).toContain("Edit");
+    expect(SRC).toContain("Archive");
+    expect(SRC).toContain("Restore");
+  });
+
   it("renders the 3 stat labels: Projects / Lifetime / Owed", () => {
     expect(SRC).toContain("Projects");
     expect(SRC).toContain("Lifetime");

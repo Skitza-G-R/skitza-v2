@@ -3,6 +3,7 @@ export type StableClientRecord = Readonly<{
   producerId: string;
   name: string;
   email: string;
+  producerArchivedAt: Date | null;
 }>;
 
 export type StableProjectInsert = Readonly<{
@@ -49,7 +50,7 @@ export type StableProjectRepository<
 
 export class ProjectOwnershipDomainError extends Error {
   constructor(
-    readonly code: "NOT_FOUND" | "OWNER_CONFLICT",
+    readonly code: "NOT_FOUND" | "OWNER_CONFLICT" | "CLIENT_ARCHIVED",
     message: string,
   ) {
     super(message);
@@ -95,6 +96,12 @@ export async function createStableClientProject<TProject extends StableProjectRe
     });
     if (!client || client.producerId !== input.producerId) {
       throw new ProjectOwnershipDomainError("NOT_FOUND", "The client was not found");
+    }
+    if (client.producerArchivedAt !== null) {
+      throw new ProjectOwnershipDomainError(
+        "CLIENT_ARCHIVED",
+        "Restore this client before creating a project",
+      );
     }
 
     return transaction.insertProject({

@@ -81,7 +81,7 @@ describe("ClientSpaceHero source — dark gradient hero, avatar, LinkPill, stats
     expect(SRC).not.toContain("--brand-primary-on");
   });
 
-  it("declares ClientSpaceHeroData with id + name + email + phone + linkState + joinedAt + nextProjectHref + stats", () => {
+  it("declares ClientSpaceHeroData with editable fields, archive state, link state, and stats", () => {
     expect(SRC).toContain("ClientSpaceHeroData");
     expect(SRC).toContain("name");
     expect(SRC).toContain("email");
@@ -89,6 +89,8 @@ describe("ClientSpaceHero source — dark gradient hero, avatar, LinkPill, stats
     expect(SRC).toContain("lifetime");
     expect(SRC).toContain("outstanding");
     expect(SRC).toContain("activeProjects");
+    expect(SRC).toMatch(/tags:\s*string\[\]/);
+    expect(SRC).toMatch(/archived:\s*boolean/);
   });
 
   it("represents purchase commercial totals as nullable and labels them unavailable", () => {
@@ -119,7 +121,7 @@ describe("ClientSpaceHero source — dark gradient hero, avatar, LinkPill, stats
     // Producer can't create a project for a client without an email
     // address (project.create requires artistEmail). Better to block
     // the entry point than show a confusing 'Invalid input' toast.
-    expect(SRC).toMatch(/disabled=\{!email\}/);
+    expect(SRC).toMatch(/disabled=\{!email\s*\|\|\s*archived\}/);
     expect(SRC).toMatch(/Add an email to this client/);
   });
 
@@ -187,12 +189,14 @@ describe("ClientSpaceHero PR-A polish — G4+G5+G14+G23 design alignment", () =>
   });
 });
 
-describe("ClientSpaceHero — kebab menu wiring (Edit / Remove) — PR #130", () => {
-  it("imports EditClientModal + RemoveClientConfirmModal", () => {
+describe("ClientSpaceHero — visible client management actions", () => {
+  it("imports edit, archive, and permanent-delete dialogs", () => {
     expect(SRC).toContain("EditClientModal");
     expect(SRC).toContain("./edit-client-modal");
     expect(SRC).toContain("RemoveClientConfirmModal");
     expect(SRC).toContain("./remove-client-confirm-modal");
+    expect(SRC).toContain("ClientArchiveConfirmModal");
+    expect(SRC).toContain("./client-archive-confirm-modal");
   });
 
   it("imports MoreVertical / Pencil / Trash2 lucide icons", () => {
@@ -206,9 +210,12 @@ describe("ClientSpaceHero — kebab menu wiring (Edit / Remove) — PR #130", ()
     expect(SRC).toMatch(/aria-haspopup="menu"/);
   });
 
-  it("renders 'Edit details' + 'Remove client' menu items", () => {
-    expect(SRC).toContain("Edit details");
-    expect(SRC).toContain("Remove client");
+  it("renders Edit and Archive or Restore as visible text actions", () => {
+    expect(SRC).toContain("Edit");
+    expect(SRC).toContain("Archive");
+    expect(SRC).toContain("Restore");
+    expect(SRC).toMatch(/setEditOpen\(true\)/);
+    expect(SRC).toMatch(/setArchiveOpen\(true\)/);
   });
 
   it("closes the kebab menu on outside-click + Escape", () => {
@@ -226,7 +233,11 @@ describe("ClientSpaceHero — kebab menu wiring (Edit / Remove) — PR #130", ()
   });
 
   it("mounts <EditClientModal> with the current client's phone + notes", () => {
-    expect(SRC).toMatch(/<EditClientModal[\s\S]*?phone[\s\S]*?notes/);
+    expect(SRC).toMatch(/<EditClientModal[\s\S]*?phone[\s\S]*?notes[\s\S]*?tags/);
+  });
+
+  it("disables New project while the client is archived", () => {
+    expect(SRC).toMatch(/disabled=\{!email\s*\|\|\s*archived\}/);
   });
 
   it("mounts <RemoveClientConfirmModal> with id + name", () => {

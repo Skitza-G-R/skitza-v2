@@ -25,11 +25,12 @@ describe("EditClientModal", () => {
     expect(SRC).toMatch(/onSaved\?:/);
   });
 
-  it("declares the client shape with name + email + phone + notes", () => {
+  it("declares the client shape with name + email + phone + private notes + tags", () => {
     expect(SRC).toMatch(/name:\s*string/);
     expect(SRC).toMatch(/email:\s*string/);
     expect(SRC).toMatch(/phone:\s*string\s*\|\s*null/);
     expect(SRC).toMatch(/notes:\s*string\s*\|\s*null/);
+    expect(SRC).toMatch(/tags:\s*string\[\]/);
   });
 
   it("calls updateClientAction Server Action (not direct tRPC client)", () => {
@@ -37,12 +38,15 @@ describe("EditClientModal", () => {
     expect(SRC).not.toMatch(/useMutation/);
   });
 
-  it("renders Name / Email / Phone inputs + Notes textarea", () => {
+  it("renders Name / Email / Phone / Tags inputs + private notes textarea", () => {
     expect(SRC).toMatch(/id="edit-client-name"/);
     expect(SRC).toMatch(/id="edit-client-email"/);
     expect(SRC).toMatch(/id="edit-client-phone"/);
     expect(SRC).toMatch(/id="edit-client-notes"/);
+    expect(SRC).toMatch(/id="edit-client-tags"/);
     expect(SRC).toMatch(/<textarea[\s\S]*?id="edit-client-notes"/);
+    expect(SRC).toContain("Private producer notes");
+    expect(SRC).toMatch(/maxLength=\{5000\}/);
   });
 
   it("renders the 'Save changes' primary CTA + 'Cancel' secondary", () => {
@@ -70,6 +74,11 @@ describe("EditClientModal", () => {
     // the only way the producer wipes optional fields after creation.
     expect(SRC).toMatch(/phone\s*=\s*trimmedPhone\.length\s*>\s*0\s*\?\s*trimmedPhone\s*:\s*null/);
     expect(SRC).toMatch(/notes\s*=\s*trimmedNotes\.length\s*>\s*0\s*\?\s*trimmedNotes\s*:\s*null/);
+  });
+
+  it("normalizes comma-separated tags and sends them in the same update", () => {
+    expect(SRC).toContain("parseClientTags");
+    expect(SRC).toMatch(/payload\.tags\s*=\s*nextTags/);
   });
 
   it("uses useTransition for the submit pending state", () => {

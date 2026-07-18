@@ -3,12 +3,7 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import {
-  type SyntheticEvent,
-  useEffect,
-  useState,
-  useTransition,
-} from "react";
+import { type SyntheticEvent, useEffect, useState, useTransition } from "react";
 
 import { useToast } from "~/components/ui/toast";
 import {
@@ -20,8 +15,8 @@ import {
 import { updateClientAction } from "~/app/(producer)/dashboard/clients-projects/clients-actions";
 
 // Edit Client modal (PR #130). Mirrors NewClientModal's layout exactly
-// so the producer's mental model stays the same — same 4 fields
-// (Name, Email, Phone, Notes), same validation, same Radix Dialog
+// so the producer's mental model stays the same — contact details,
+// private producer notes, and tags share one focused form.
 // scrim/backdrop. The only differences:
 //   - Fields pre-fill from the passed `client` snapshot.
 //   - Submit hits updateClientAction (the existing tRPC
@@ -44,17 +39,13 @@ export interface EditClientModalProps {
     email: string;
     phone: string | null;
     notes: string | null;
+    tags: string[];
   };
   /** Fired after a successful update — parent can refresh. */
   onSaved?: () => void;
 }
 
-export function EditClientModal({
-  open,
-  onClose,
-  client,
-  onSaved,
-}: EditClientModalProps) {
+export function EditClientModal({ open, onClose, client, onSaved }: EditClientModalProps) {
   const { toast } = useToast();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -63,15 +54,12 @@ export function EditClientModal({
   const [email, setEmail] = useState(client.email);
   const [phone, setPhone] = useState(client.phone ?? "");
   const [notes, setNotes] = useState(client.notes ?? "");
+  const [tagsText, setTagsText] = useState(client.tags.join(", "));
   const [nameTouched, setNameTouched] = useState(false);
   const [emailTouched, setEmailTouched] = useState(false);
 
-  const nameState: ValidationState = nameTouched
-    ? validateDisplayName(name)
-    : { kind: "idle" };
-  const emailState: ValidationState = emailTouched
-    ? validateEmail(email)
-    : { kind: "idle" };
+  const nameState: ValidationState = nameTouched ? validateDisplayName(name) : { kind: "idle" };
+  const emailState: ValidationState = emailTouched ? validateEmail(email) : { kind: "idle" };
 
   // Re-seed every time the modal opens so an edit-cancel-reopen flow
   // always starts from the canonical server state (not stale form
@@ -84,12 +72,12 @@ export function EditClientModal({
     setEmail(client.email);
     setPhone(client.phone ?? "");
     setNotes(client.notes ?? "");
+    setTagsText(client.tags.join(", "));
     setNameTouched(false);
     setEmailTouched(false);
-  }, [open, client.id, client.name, client.email, client.phone, client.notes]);
+  }, [open, client.id, client.name, client.email, client.phone, client.notes, client.tags]);
 
-  const submitDisabled =
-    pending || name.trim().length === 0 || email.trim().length === 0;
+  const submitDisabled = pending || name.trim().length === 0 || email.trim().length === 0;
 
   const handleSubmit = (e: SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -108,12 +96,14 @@ export function EditClientModal({
       const trimmedEmail = email.trim();
       const trimmedPhone = phone.trim();
       const trimmedNotes = notes.trim();
+      const nextTags = parseClientTags(tagsText);
       const payload: {
         id: string;
         name?: string;
         email?: string;
         phone?: string | null;
         notes?: string | null;
+        tags?: string[];
       } = { id: client.id };
       if (trimmedName !== client.name) payload.name = trimmedName;
       if (trimmedEmail.toLowerCase() !== client.email.toLowerCase()) {
@@ -127,6 +117,9 @@ export function EditClientModal({
       }
       if (trimmedNotes !== currentNotes) {
         payload.notes = trimmedNotes.length > 0 ? trimmedNotes : null;
+      }
+      if (!sameTags(nextTags, client.tags)) {
+        payload.tags = nextTags;
       }
       // Nothing to do — close without a server round-trip.
       if (Object.keys(payload).length === 1) {
@@ -156,7 +149,7 @@ export function EditClientModal({
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[rgb(17_16_9/0.42)] backdrop-blur-[3px]" />
         <DialogPrimitive.Content
           aria-describedby="edit-client-modal-body"
-          className="sk-sheet-mobile fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] max-w-[440px] rounded-[18px] bg-[rgb(var(--bg-background))] p-5 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)]"
+          className="sk-sheet-mobile fixed top-1/2 left-1/2 z-50 max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[440px] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[var(--radius-lg)] bg-[rgb(var(--bg-background))] p-5 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)]"
         >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
@@ -167,14 +160,14 @@ export function EditClientModal({
                 id="edit-client-modal-body"
                 className="mt-1 text-[13px] leading-snug text-[rgb(var(--fg-muted))]"
               >
-                Update name, email, phone, or notes.
+                Update contact details, tags, and private producer notes.
               </DialogPrimitive.Description>
             </div>
             <DialogPrimitive.Close asChild>
               <button
                 type="button"
                 aria-label="Close"
-                className="sk-press -mr-2 -mt-2 inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))]"
+                className="sk-press -mt-2 -mr-2 inline-flex h-8 w-8 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))]"
               >
                 <X size={16} strokeWidth={2.2} />
               </button>
@@ -199,11 +192,9 @@ export function EditClientModal({
                 onBlur={() => {
                   setNameTouched(true);
                 }}
-                aria-invalid={
-                  nameState.kind === "invalid" || nameState.kind === "required"
-                }
+                aria-invalid={nameState.kind === "invalid" || nameState.kind === "required"}
                 placeholder="Artist or band name"
-                className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
+                className="w-full rounded-[var(--radius-md)] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
                 style={{ borderColor: "rgb(var(--border-subtle))" }}
               />
               <ValidationHint state={nameState} />
@@ -226,12 +217,9 @@ export function EditClientModal({
                     onBlur={() => {
                       setEmailTouched(true);
                     }}
-                    aria-invalid={
-                      emailState.kind === "invalid" ||
-                      emailState.kind === "required"
-                    }
+                    aria-invalid={emailState.kind === "invalid" || emailState.kind === "required"}
                     placeholder="they@example.com"
-                    className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
+                    className="w-full rounded-[var(--radius-md)] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
                     style={{ borderColor: "rgb(var(--border-subtle))" }}
                   />
                   <ValidationHint state={emailState} />
@@ -249,25 +237,50 @@ export function EditClientModal({
                     setPhone(e.target.value);
                   }}
                   placeholder="+972 50 ..."
-                  className="w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
+                  className="w-full rounded-[var(--radius-md)] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
                   style={{ borderColor: "rgb(var(--border-subtle))" }}
                 />
               </div>
             </div>
 
+            <FieldLabel htmlFor="edit-client-tags">
+              Tags <span className="text-[rgb(var(--fg-muted))]">(optional)</span>
+            </FieldLabel>
+            <div>
+              <input
+                id="edit-client-tags"
+                type="text"
+                value={tagsText}
+                maxLength={800}
+                onChange={(e) => {
+                  setTagsText(e.target.value);
+                }}
+                placeholder="Mixing, repeat client, priority"
+                aria-describedby="edit-client-tags-hint"
+                className="w-full rounded-[var(--radius-md)] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
+                style={{ borderColor: "rgb(var(--border-subtle))" }}
+              />
+              <p
+                id="edit-client-tags-hint"
+                className="mt-1 text-[11px] text-[rgb(var(--fg-muted))]"
+              >
+                Separate tags with commas. Up to 20 tags.
+              </p>
+            </div>
+
             <FieldLabel htmlFor="edit-client-notes">
-              Notes <span className="text-[rgb(var(--fg-muted))]">(optional)</span>
+              Private producer notes <span className="text-[rgb(var(--fg-muted))]">(optional)</span>
             </FieldLabel>
             <textarea
               id="edit-client-notes"
               value={notes}
               rows={3}
-              maxLength={2000}
+              maxLength={5000}
               onChange={(e) => {
                 setNotes(e.target.value);
               }}
               placeholder="Genre, references, anything to remember..."
-              className="w-full resize-none rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] leading-snug text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)]"
+              className="w-full resize-none rounded-[var(--radius-md)] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] leading-snug text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
               style={{ borderColor: "rgb(var(--border-subtle))" }}
             />
 
@@ -276,14 +289,14 @@ export function EditClientModal({
                 type="button"
                 onClick={onClose}
                 disabled={pending}
-                className="sk-press inline-flex items-center justify-center rounded-[10px] px-3 py-2 text-[13px] font-semibold text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] disabled:opacity-50"
+                className="sk-press inline-flex min-h-[44px] items-center justify-center rounded-[var(--radius-lg)] px-3 py-2 text-[13px] font-semibold text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={submitDisabled}
-                className="sk-press inline-flex items-center justify-center gap-1.5 rounded-[10px] px-4 py-2 text-[13px] font-semibold text-[rgb(17_16_9)] shadow-[0_4px_14px_-2px_rgb(var(--brand-primary)/0.5)] disabled:opacity-50 disabled:shadow-none"
+                className="sk-press inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-[var(--radius-lg)] px-4 py-2 text-[13px] font-semibold text-[rgb(17_16_9)] shadow-[0_4px_14px_-2px_rgb(var(--brand-primary)/0.5)] disabled:opacity-50 disabled:shadow-none"
                 style={{ background: "rgb(var(--brand-primary))" }}
               >
                 {pending ? "Saving…" : "Save changes"}
@@ -294,6 +307,26 @@ export function EditClientModal({
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
   );
+}
+
+export function parseClientTags(value: string): string[] {
+  const seen = new Set<string>();
+  const tags: string[] = [];
+
+  for (const rawTag of value.split(",")) {
+    const tag = rawTag.trim().slice(0, 80);
+    const key = tag.toLocaleLowerCase();
+    if (!tag || seen.has(key)) continue;
+    seen.add(key);
+    tags.push(tag);
+    if (tags.length === 20) break;
+  }
+
+  return tags;
+}
+
+function sameTags(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((tag, index) => tag === right[index]);
 }
 
 function FieldLabel({
@@ -308,7 +341,7 @@ function FieldLabel({
   return (
     <label
       htmlFor={htmlFor}
-      className="-mb-2.5 text-[10.5px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]"
+      className="-mb-2.5 text-[10.5px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase"
     >
       {children}
       {required ? (

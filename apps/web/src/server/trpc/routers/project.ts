@@ -101,6 +101,9 @@ function mapCommentDomainError(error: unknown): never {
 
 function mapProjectOwnershipDomainError(error: unknown): never {
   if (!(error instanceof ProjectOwnershipDomainError)) throw error;
+  if (error.code === "CLIENT_ARCHIVED") {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+  }
   throw new TRPCError({ code: "NOT_FOUND" });
 }
 

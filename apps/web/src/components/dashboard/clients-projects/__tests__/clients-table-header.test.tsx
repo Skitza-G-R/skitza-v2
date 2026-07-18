@@ -7,10 +7,7 @@ import { dirname, join } from "node:path";
 // sortable column behavior the parent depends on.
 
 const here = dirname(fileURLToPath(import.meta.url));
-const SRC = readFileSync(
-  join(here, "..", "clients-table-header.tsx"),
-  "utf-8",
-);
+const SRC = readFileSync(join(here, "..", "clients-table-header.tsx"), "utf-8");
 
 describe("ClientsTableHeader — sortable column headers for table mode", () => {
   it("exports a ClientsTableHeader component", () => {
@@ -23,7 +20,7 @@ describe("ClientsTableHeader — sortable column headers for table mode", () => 
     // now 10 cells wide and the constant is exported so the row can
     // reuse the same template.
     expect(SRC).toContain(
-      "24px 44px minmax(0,1.4fr) minmax(0,1.5fr) 110px 90px 110px 100px 110px 36px",
+      "24px 44px minmax(0,1.4fr) minmax(0,1.5fr) 110px 90px 110px 100px 110px 144px",
     );
     expect(SRC).toContain("export const CLIENTS_TABLE_GRID");
   });
@@ -41,10 +38,24 @@ describe("ClientsTableHeader — sortable column headers for table mode", () => 
     expect(SRC).toContain("Joined");
   });
 
-  it("makes Client sortable by 'name', Owed by 'balance', Joined by 'joined'", () => {
+  it("reserves a visible Actions column for Edit and Archive or Restore", () => {
+    expect(SRC).toMatch(/label:\s*["']Actions["']/);
+  });
+
+  it("sorts only truthful client columns while money is currency-separated", () => {
     expect(SRC).toMatch(/label:\s*["']Client["'][\s\S]*?sortKey:\s*["']name["']/);
-    expect(SRC).toMatch(/label:\s*["']Owed["'][\s\S]*?sortKey:\s*["']balance["']/);
+    expect(SRC).toMatch(/\{ label: ["']Projects["'], sortKey: ["']progress["']/);
     expect(SRC).toMatch(/label:\s*["']Joined["'][\s\S]*?sortKey:\s*["']joined["']/);
+    expect(SRC).toMatch(/\{ label: ["']Lifetime["'], align: ["']right["'] \}/);
+    expect(SRC).toMatch(/\{ label: ["']Owed["'], align: ["']right["'] \}/);
+  });
+
+  it("keeps the wide table grid for xl screens and exposes sort direction accessibly", () => {
+    expect(SRC).toMatch(/className="[^"]*hidden[^"]*xl:grid[^"]*"/);
+    expect(SRC).not.toMatch(/className="[^"]*hidden[^"]*lg:grid[^"]*"/);
+    expect(SRC).toContain("sorted ${direction}");
+    expect(SRC).not.toContain("aria-sort");
+    expect(SRC).toContain('"descending"');
   });
 
   it("forbids forbidden CSS tokens", () => {

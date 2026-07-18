@@ -5,8 +5,14 @@ import {
   ClientSpaceHero,
   type ClientSpaceHeroData,
 } from "~/components/dashboard/clients/client-space-hero";
+import {
+  ClientMoneyLedger,
+  type ClientMoneyLedgerData,
+} from "~/components/dashboard/clients/client-money-ledger";
 import { ProjectRow, type ProjectRowData } from "~/components/dashboard/projects/project-row";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
+import { CLIENT_ARCHIVE_BLOCKED_MESSAGE } from "~/server/domain/client-management/service";
+import type { ClientMoneyHistory } from "~/server/domain/client-money/service";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 // /dashboard/clients-projects/clients/[id] — Client Space.
@@ -18,9 +24,8 @@ import { appRouter } from "~/server/trpc/routers/_app";
 //     to this client.
 //
 // The old 4-tab structure (Overview / Projects / Payments / Notes) is
-// gone per the big-bang redesign. The detail tRPC payload still
-// surfaces tags / notes / referralSource for downstream consumers, but
-// no UI exposes them in Phase 1 (deferred to a future phase).
+// gone per the big-bang redesign. Client editing lives in the hero and
+// the purchase-owned money history stays visible below the project list.
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -54,9 +59,11 @@ export default async function ClientDetailPage({ params }: PageProps) {
   // projects — kept here (preserved helper) rather than inside the
   // hero so the date-comparison logic stays presentational-free.
   const nextSession = pickNextSession(detail.projects);
+  const moneyLedgerData = toClientMoneyLedgerData(detail.money);
+  const singleCurrencyTotal =
+    detail.money.totals.length === 1 ? detail.money.totals[0] : undefined;
 
-  // Build the hero payload. Phone is null in v1 (we don't store it on
-  // client_contacts yet). linkState reads invitedAt / clerkUserId off
+  // Build the hero payload. linkState reads invitedAt / clerkUserId off
   // the detail payload — clerkUserId set ⇒ "active" (signed up),
   // else invitedAt set ⇒ "pending" (amber pill), else "none".
   const heroLinkState: ClientSpaceHeroData["linkState"] = detail.contact.clerkUserId
@@ -71,12 +78,20 @@ export default async function ClientDetailPage({ params }: PageProps) {
     email: detail.contact.email,
     phone: detail.contact.phone,
     notes: detail.contact.notes,
+    tags: detail.contact.tags,
+    archived: detail.contact.producerArchivedAt !== null,
+    archiveBlockedReason:
+      detail.contact.producerArchivedAt === null &&
+      detail.stats.archiveBlockingProjectCount > 0
+        ? CLIENT_ARCHIVE_BLOCKED_MESSAGE
+        : null,
     linkState: heroLinkState,
     joinedAtIso: toIso(detail.contact.firstSeenAt),
-    lifetime: detail.stats.commercial.lifetimeCents,
-    outstanding: detail.stats.commercial.outstandingCents,
+    lifetime: singleCurrencyTotal?.purchasedCents ?? null,
+    outstanding: singleCurrencyTotal?.remainingCents ?? null,
     activeProjects: detail.stats.activeProjectCount,
   };
+  if (singleCurrencyTotal) heroData.currency = singleCurrencyTotal.currency;
 
   // Map each detail project into the new ProjectRow shape. The list
   // is intentionally read-only here — drag-to-reorder is a list-view
@@ -150,6 +165,10 @@ export default async function ClientDetailPage({ params }: PageProps) {
             </p>
           ) : null}
         </section>
+
+        <div className="mt-8">
+          <ClientMoneyLedger data={moneyLedgerData} />
+        </div>
       </div>
     </main>
   );
@@ -228,4 +247,62 @@ function formatSessionAt(at: Date): string {
   } catch {
     return at.toISOString();
   }
+}
+
+export function toClientMoneyLedgerData(
+  history: ClientMoneyHistory,
+): ClientMoneyLedgerData {
+  const currencyTotals = history.totals.map((total) => ({
+    currency: total.currency,
+    purchasedCents: total.purchasedCents,
+    paidCents: total.paidCents,
+    remainingCents: total.remainingCents,
+  }));
+
+  return {
+    currencyTotals,
+    projects: history.projects
+      .filter((project) => project.purchases.length > 0)
+      .map((project) => ({
+        id: project.id,
+        title: project.title,
+        lifecycleStatus: project.lifecycleStatus,
+        currencyTotals: project.totals.map((total) => ({
+          currency: total.currency,
+          purchasedCents: total.purchasedCents,
+          paidCents: total.paidCents,
+          remainingCents: total.remainingCents,
+        })),
+        purchases: project.purchases.map((purchase) => ({
+          id: purchase.id,
+          reference: purchase.refNumber,
+          title: purchase.productOrOfferName,
+          lifecycleStatus: purchase.lifecycleStatus,
+          acceptedAtIso: purchase.acceptedAt.toISOString(),
+          currency: purchase.currency,
+          subtotalCents: purchase.subtotalCents,
+          taxCents: purchase.taxCents,
+          totalCents: purchase.totalCents,
+          paidCents: purchase.ledger.paidCents,
+          remainingCents: purchase.ledger.remainingBalanceCents,
+          payments: purchase.payments.map((payment) => ({
+            id: payment.id,
+            amountCents: payment.effectiveAmountCents,
+            currency: payment.currency,
+            paidAtIso: payment.paidAt.toISOString(),
+            source: payment.source,
+            note: payment.note,
+          })),
+          proofs: purchase.proofs.map((proof) => ({
+            id: proof.id,
+            amountCents: proof.amountCents,
+            currency: proof.currency,
+            status: proof.status,
+            originalFileName: proof.originalFileName,
+            createdAtIso: proof.createdAt.toISOString(),
+            rejectionNote: proof.rejectionNote,
+          })),
+        })),
+      })),
+  };
 }

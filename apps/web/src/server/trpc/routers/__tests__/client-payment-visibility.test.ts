@@ -19,7 +19,7 @@ const requestPage = readFileSync(
   "utf8",
 );
 describe("producer client payment visibility", () => {
-  it("fails commercial totals closed until the purchase payment projection exists", () => {
+  it("keeps legacy list totals closed instead of reading project payment flags", () => {
     expect(clientContacts).toMatch(/ClientCommercialProjection/);
     expect(clientContacts).toMatch(/availability:\s*"unavailable"/);
     expect(clientContacts).toMatch(/purchase_payments_projection_pending/);
@@ -37,11 +37,14 @@ describe("producer client payment visibility", () => {
     expect(clientContacts).not.toMatch(/emailMatchesProject|contactByEmail|byEmail/);
   });
 
-  it("fails proof history closed until the purchase-owned projection adapter is wired", () => {
+  it("shows client proof history through the purchase-owned projection only", () => {
     expect(purchase).toMatch(
       /history: producerProcedure[\s\S]*?available: false; proofs: ProducerProofHistory\[\]/,
     );
     expect(purchase).not.toMatch(/listProducerProofHistory|paymentProofsTableAvailable/);
+    expect(clientContacts).toContain("clientMoneyRepository");
+    expect(clientContacts).toContain("getClientMoneyLedger");
+    expect(clientPage).toContain("ClientMoneyLedger");
     expect(clientPage).not.toMatch(/proofOfPayment\.history|<ClientPaymentProofs/);
   });
 

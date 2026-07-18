@@ -7,6 +7,7 @@ import {
 } from "~/components/dashboard/clients-projects/workspace-list-view";
 import type { ProjectRowData } from "~/components/dashboard/projects/project-row";
 import type { ClientCardData } from "~/components/dashboard/clients/client-card";
+import { CLIENT_ARCHIVE_BLOCKED_MESSAGE } from "~/server/domain/client-management/service";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { reorderClientsAction, reorderProjectsAction } from "./clients-actions";
@@ -66,6 +67,14 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
           id: c.id,
           name: c.name,
           email: c.email,
+          phone: c.phone,
+          notes: c.notes,
+          tags: c.tags,
+          archived: c.producerArchivedAt !== null,
+          archiveBlockedReason:
+            c.producerArchivedAt === null && c.archiveBlockingProjectCount > 0
+              ? CLIENT_ARCHIVE_BLOCKED_MESSAGE
+              : null,
           // clerkUserId set ⇒ the artist signed up via the invite link
           // ("active"). Otherwise, invitedAt set ⇒ "pending" (amber
           // pulsing pill). Otherwise ⇒ "none" (the Invite-to-app CTA).

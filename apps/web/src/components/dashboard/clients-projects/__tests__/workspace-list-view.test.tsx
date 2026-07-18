@@ -338,7 +338,7 @@ describe("WorkspaceListView — mockup-match polish (KPI subtitles, H1 sub-line,
   });
 });
 
-describe("WorkspaceListView — round-3 toolbar match (icons + 4 client filters + list header)", () => {
+describe("WorkspaceListView — client archive filters and list header", () => {
   it("tab seg buttons have lucide icons (Users + FolderKanban) before the label", () => {
     // The HTML mockup carries an icon inside each pill. Adding the
     // icons immediately tightens the at-a-glance read of the tab.
@@ -352,20 +352,15 @@ describe("WorkspaceListView — round-3 toolbar match (icons + 4 client filters 
     expect(SRC).toMatch(/<FolderKanban\s+size=\{12\}/);
   });
 
-  it("Clients filter chips match the Projects tab vocabulary (All / Needs attention / Active / Done)", () => {
-    // Mockup-match: same 4 filters across both tabs. 'balance' is
-    // gone — superseded by 'needs-attention' (which surfaces
-    // outstanding balances on the project rows beneath the client).
-    expect(SRC).toMatch(/value:\s*["']needs-attention["'],\s*label:\s*["']Needs attention["']/);
-    expect(SRC).toMatch(/value:\s*["']done["'],\s*label:\s*["']Done["']/);
+  it("Clients filter chips expose the approved Active and Archived views", () => {
+    expect(SRC).toMatch(/value:\s*["']active["'],\s*label:\s*["']Active["']/);
+    expect(SRC).toMatch(/value:\s*["']archived["'],\s*label:\s*["']Archived["']/);
     expect(SRC).not.toMatch(/value:\s*["']balance["'],\s*label:\s*["']Balance["']/);
   });
 
-  it("Clients 'Needs attention' chip carries the pulsing red dot like the Projects tab", () => {
-    // Source-grep that the pulse-glow keyframe is wired in BOTH
-    // filter-chip render branches. Easiest way: count occurrences.
+  it("keeps the pulsing urgency cue on the Projects Needs attention chip", () => {
     const pulses = (SRC.match(/skitza-pulse-glow_2s_ease-in-out_infinite/g) ?? []).length;
-    expect(pulses).toBeGreaterThanOrEqual(2);
+    expect(pulses).toBeGreaterThanOrEqual(1);
   });
 
   it("list-header eyebrow ('Clients · N' / 'Projects · N') renders above the rows", () => {
@@ -392,10 +387,8 @@ describe("WorkspaceListView — round-3 toolbar match (icons + 4 client filters 
     );
   });
 
-  it("Clients filter predicates branch on 'needs-attention' AND 'done'", () => {
-    expect(SRC).toMatch(/clientFilter === ["']needs-attention["']/);
-    expect(SRC).toContain("c.needsAttention");
-    expect(SRC).not.toMatch(/return\s+c\.owed\s*>\s*0/);
-    expect(SRC).toMatch(/c\.projects === 0/);
+  it("Clients filter predicates use the producer archive state", () => {
+    expect(SRC).toMatch(/clientFilter === ["']archived["']/);
+    expect(SRC).toMatch(/c\.archived\s*:\s*!c\.archived/);
   });
 });

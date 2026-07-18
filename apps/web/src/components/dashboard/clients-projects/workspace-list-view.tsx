@@ -1,8 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import type { DragEvent } from "react";
-import { ChevronDown, FolderKanban, LayoutGrid, List, Plus, Users } from "lucide-react";
+import {
+  ChevronDown,
+  FolderKanban,
+  LayoutGrid,
+  List,
+  Plus,
+  Search,
+  Users,
+  X,
+} from "lucide-react";
 
 import { ProjectRow, type ProjectRowData } from "~/components/dashboard/projects/project-row";
 import { ClientCard, type ClientCardData } from "~/components/dashboard/clients/client-card";
@@ -10,6 +19,8 @@ import { InviteToAppModal } from "~/components/dashboard/clients/invite-modal";
 import { MobileClientRow } from "~/components/dashboard/clients/mobile-client-row";
 import { NewClientModal } from "~/components/dashboard/clients/new-client-modal";
 import { NewProjectModal } from "~/components/dashboard/clients/new-project-modal";
+import { EditClientModal } from "~/components/dashboard/clients/edit-client-modal";
+import { ClientArchiveConfirmModal } from "~/components/dashboard/clients/client-archive-confirm-modal";
 import { StatTile } from "~/components/dashboard/common/stat-tile";
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 import { ClientCompactRow } from "~/components/dashboard/clients/client-compact-row";
@@ -32,17 +43,11 @@ const PROJECT_FILTERS = [
 
 type ProjectFilter = (typeof PROJECT_FILTERS)[number]["value"];
 
-// Client filter chips — mockup-match: same 4 filters as Projects so
-// the toolbar stays consistent across tabs (the locked HTML mockup
-// shows All / Needs attention / Active / Done on both Clients and
-// Projects). 'needs-attention' for clients = at least one of their
-// projects has an unresolved artist comment.
-// 'done' = client has no active projects.
+// Client archive state is a relationship-level list placement. It is
+// intentionally independent from project lifecycle and artist access.
 const CLIENT_FILTERS = [
-  { value: "all", label: "All" },
-  { value: "needs-attention", label: "Needs attention" },
   { value: "active", label: "Active" },
-  { value: "done", label: "Done" },
+  { value: "archived", label: "Archived" },
 ] as const;
 
 // Returns the row's ISO timestamp as ms, or 0 if missing/invalid. Used
@@ -151,8 +156,10 @@ export function WorkspaceListView({
   const [tab, setTab] = useState<Tab>(initialNewProjectOpen ? "projects" : "clients");
   const [sort, setSort] = useState<SortValue>("custom");
   const [projectFilter, setProjectFilter] = useState<ProjectFilter>("all");
-  const [clientFilter, setClientFilter] = useState<ClientFilter>("all");
+  const [clientFilter, setClientFilter] = useState<ClientFilter>("active");
   const [layout, setLayout] = useState<Layout>("cards");
+  const [clientSearch, setClientSearch] = useState("");
+  const deferredClientSearch = useDeferredValue(clientSearch.trim().toLowerCase());
 
   // Locally-mutable order — drag flushes back to the parent via the
   // reorder callback, but the visual update is optimistic.
@@ -160,10 +167,22 @@ export function WorkspaceListView({
   const [orderedClients, setOrderedClients] = useState(clients);
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
+  // Server actions revalidate this route. Mirror new server props into
+  // the optimistic lists so edits and archive moves appear immediately
+  // after router.refresh() instead of leaving stale initial useState data.
+  useEffect(() => {
+    setOrderedProjects(projects);
+  }, [projects]);
+  useEffect(() => {
+    setOrderedClients(clients);
+  }, [clients]);
+
   // Invite-to-App modal state. The modal mounts once at the bottom of
   // the view and opens whenever a LinkPill "Invite to app" button is
   // clicked on any ClientCard. inviteTarget = null hides the modal.
   const [inviteTarget, setInviteTarget] = useState<ClientCardData | null>(null);
+  const [editTarget, setEditTarget] = useState<ClientCardData | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<ClientCardData | null>(null);
   const handleInviteClient = (client: ClientCardData) => {
     setInviteTarget(client);
   };
@@ -234,20 +253,20 @@ export function WorkspaceListView({
   }, [orderedProjects, projectFilter, sort]);
 
   const filteredClients = useMemo(() => {
-    const base =
-      clientFilter === "all"
-        ? orderedClients
-        : orderedClients.filter((c) => {
-            if (clientFilter === "needs-attention") {
-              return c.needsAttention;
-            }
-            if (clientFilter === "active") return c.projects > 0;
-            // done — no active projects on the books
-            return c.projects === 0;
-          });
+    const base = orderedClients.filter((c) =>
+      clientFilter === "archived" ? c.archived : !c.archived,
+    );
+    const searched = deferredClientSearch
+      ? base.filter((c) => {
+          const haystack = [c.name, c.email ?? "", c.phone ?? "", ...c.tags]
+            .join("\n")
+            .toLowerCase();
+          return haystack.includes(deferredClientSearch);
+        })
+      : base;
 
-    if (sort === "custom") return base;
-    const sorted = base.slice();
+    if (sort === "custom") return searched;
+    const sorted = searched.slice();
     switch (sort) {
       case "name":
         sorted.sort((a, b) => a.name.localeCompare(b.name));
@@ -275,7 +294,7 @@ export function WorkspaceListView({
         break;
     }
     return sorted;
-  }, [orderedClients, clientFilter, sort]);
+  }, [orderedClients, clientFilter, deferredClientSearch, sort]);
 
   const handleProjectDragStart = (_e: DragEvent<HTMLDivElement>, id: string) => {
     setDraggingId(id);
@@ -495,6 +514,39 @@ export function WorkspaceListView({
         />
       </div>
 
+      {tab === "clients" ? (
+        <label className="relative block w-full max-w-[560px]">
+          <span className="sr-only">Find client</span>
+          <Search
+            size={17}
+            aria-hidden
+            className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-[rgb(var(--fg-muted))]"
+          />
+          <input
+            type="search"
+            value={clientSearch}
+            onChange={(event) => {
+              setClientSearch(event.target.value);
+            }}
+            placeholder="Find client"
+            className="min-h-11 w-full rounded-[var(--radius-lg)] border bg-[rgb(var(--bg-elevated))] py-2.5 pr-11 pl-10 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:border-[rgb(var(--brand-primary))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.22)] focus:outline-none"
+            style={{ borderColor: "rgb(var(--border-subtle))" }}
+          />
+          {clientSearch.length > 0 ? (
+            <button
+              type="button"
+              aria-label="Clear client search"
+              onClick={() => {
+                setClientSearch("");
+              }}
+              className="absolute top-1/2 right-1.5 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+            >
+              <X size={15} aria-hidden />
+            </button>
+          ) : null}
+        </label>
+      ) : null}
+
       {/* Toolbar — single row, mockup-match alignment.
           Layout: [tab seg] [filter chips] (flex-1 spacer) [layout] [sort]
           All controls live on ONE row in the HTML mockup, separated
@@ -613,13 +665,6 @@ export function WorkspaceListView({
                       color: active ? "rgb(var(--bg-elevated))" : "rgb(var(--fg-muted))",
                     }}
                   >
-                    {f.value === "needs-attention" ? (
-                      <span
-                        aria-hidden
-                        className="inline-block h-1.5 w-1.5 rounded-full motion-safe:animate-[skitza-pulse-glow_2s_ease-in-out_infinite]"
-                        style={{ background: "rgb(var(--fg-danger))" }}
-                      />
-                    ) : null}
                     {f.label}
                   </button>
                 );
@@ -741,6 +786,22 @@ export function WorkspaceListView({
             />
           ))}
         </div>
+      ) : filteredClients.length === 0 ? (
+        <ClientEmptyState
+          kind={
+            deferredClientSearch.length > 0
+              ? "search"
+              : clientFilter === "archived"
+                ? "archived"
+                : "active"
+          }
+          onClearSearch={() => {
+            setClientSearch("");
+          }}
+          onAddClient={() => {
+            setNewClientOpen(true);
+          }}
+        />
       ) : layout === "table" ? (
         // Unified table container — mockup-match. Header + rows live
         // inside ONE rounded card with no inter-row margins. Hairlines
@@ -761,6 +822,8 @@ export function WorkspaceListView({
                 key={c.id}
                 client={c}
                 onInvite={handleInviteClient}
+                onEdit={setEditTarget}
+                onArchive={setArchiveTarget}
                 onDragStart={handleClientDragStart}
                 onDragOver={handleClientDragOver}
                 onDrop={handleClientDrop}
@@ -786,6 +849,8 @@ export function WorkspaceListView({
                 key={c.id}
                 client={c}
                 onInvite={handleInviteClient}
+                onEdit={setEditTarget}
+                onArchive={setArchiveTarget}
                 divider={i < filteredClients.length - 1}
               />
             ))}
@@ -796,6 +861,8 @@ export function WorkspaceListView({
                 key={c.id}
                 client={c}
                 onInvite={handleInviteClient}
+                onEdit={setEditTarget}
+                onArchive={setArchiveTarget}
                 onDragStart={handleClientDragStart}
                 onDragOver={handleClientDragOver}
                 onDrop={handleClientDrop}
@@ -819,6 +886,38 @@ export function WorkspaceListView({
         />
       ) : null}
 
+      {editTarget ? (
+        <EditClientModal
+          open={true}
+          onClose={() => {
+            setEditTarget(null);
+          }}
+          client={{
+            id: editTarget.id,
+            name: editTarget.name,
+            email: editTarget.email ?? "",
+            phone: editTarget.phone,
+            notes: editTarget.notes,
+            tags: editTarget.tags,
+          }}
+        />
+      ) : null}
+
+      {archiveTarget ? (
+        <ClientArchiveConfirmModal
+          open={true}
+          onClose={() => {
+            setArchiveTarget(null);
+          }}
+          client={{
+            id: archiveTarget.id,
+            name: archiveTarget.name,
+            archived: archiveTarget.archived,
+          }}
+          blockedReason={archiveTarget.archiveBlockedReason ?? null}
+        />
+      ) : null}
+
       <NewClientModal
         open={newClientOpen}
         onClose={() => {
@@ -839,7 +938,7 @@ export function WorkspaceListView({
           setNewProjectOpen(false);
         }}
         clients={clients
-          .filter((c) => c.email !== null && c.email !== "")
+          .filter((c) => !c.archived && c.email !== null && c.email !== "")
           .map((c) => ({
             id: c.id,
             name: c.name,
@@ -890,6 +989,70 @@ function MobileKpiTile({
       >
         {value}
       </span>
+    </div>
+  );
+}
+
+function ClientEmptyState({
+  kind,
+  onClearSearch,
+  onAddClient,
+}: {
+  kind: "active" | "archived" | "search";
+  onClearSearch: () => void;
+  onAddClient: () => void;
+}) {
+  const title =
+    kind === "search"
+      ? "No clients match your search"
+      : kind === "archived"
+        ? "No archived clients"
+        : "No active clients yet";
+  const body =
+    kind === "search"
+      ? "Try a name, email, phone number, or tag."
+      : kind === "archived"
+        ? "Clients you archive will appear here and can be restored."
+        : "Add your first client to keep their work and history together.";
+
+  return (
+    <div
+      role="status"
+      className="rounded-[var(--radius-lg)] border border-dashed px-5 py-10 text-center"
+      style={{
+        borderColor: "rgb(var(--border-subtle))",
+        background: "rgb(var(--bg-elevated))",
+      }}
+    >
+      <Users
+        size={24}
+        aria-hidden
+        className="mx-auto text-[rgb(var(--fg-muted))]"
+      />
+      <h2 className="font-syne mt-3 text-[18px] font-bold text-[rgb(var(--fg-default))]">
+        {title}
+      </h2>
+      <p className="mx-auto mt-1 max-w-md text-[13px] text-[rgb(var(--fg-muted))]">{body}</p>
+      {kind === "search" ? (
+        <button
+          type="button"
+          onClick={onClearSearch}
+          className="mt-5 inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border px-4 py-2.5 text-[13px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--bg-overlay))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+          style={{ borderColor: "rgb(var(--border-subtle))" }}
+        >
+          Clear search
+        </button>
+      ) : kind === "active" ? (
+        <button
+          type="button"
+          onClick={onAddClient}
+          className="mt-5 inline-flex min-h-11 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] px-4 py-2.5 text-[13px] font-semibold text-[rgb(var(--bg-sidebar))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:outline-none"
+          style={{ background: "rgb(var(--brand-primary))" }}
+        >
+          <Plus size={14} aria-hidden />
+          New client
+        </button>
+      ) : null}
     </div>
   );
 }

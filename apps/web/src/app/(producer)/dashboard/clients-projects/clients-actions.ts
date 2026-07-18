@@ -225,7 +225,7 @@ export async function createProjectAction(input: {
 // pre-Phase-1 actions, now wired to the Client Space hero menu.
 //
 // updateClientAction: thin wrapper over clientContacts.update. Accepts
-// any subset of name/email/phone/notes — only changed fields are sent.
+// any subset of name/email/phone/notes/tags — only changed fields are sent.
 // Null for phone/notes explicitly clears the column (the modal sends
 // the empty-string form normalised to null).
 //
@@ -239,6 +239,7 @@ export async function updateClientAction(input: {
   email?: string;
   phone?: string | null;
   notes?: string | null;
+  tags?: string[];
 }): Promise<
   ActionDataResult<{
     id: string;
@@ -246,6 +247,7 @@ export async function updateClientAction(input: {
     email: string;
     phone: string | null;
     notes: string | null;
+    tags: string[];
   }>
 > {
   const c = await callerOrError();
@@ -258,11 +260,13 @@ export async function updateClientAction(input: {
       email?: string;
       phone?: string | null;
       notes?: string | null;
+      tags?: string[];
     } = { id: input.id };
     if (input.name !== undefined) payload.name = input.name;
     if (input.email !== undefined) payload.email = input.email;
     if (input.phone !== undefined) payload.phone = input.phone;
     if (input.notes !== undefined) payload.notes = input.notes;
+    if (input.tags !== undefined) payload.tags = input.tags;
     const res = await c.caller.clientContacts.update(payload);
     revalidatePath(CLIENTS_PATH);
     revalidatePath(`${CLIENTS_PATH}/clients/${input.id}`);
@@ -274,10 +278,39 @@ export async function updateClientAction(input: {
         email: res.email,
         phone: res.phone ?? null,
         notes: res.notes ?? null,
+        tags: res.tags,
       },
     };
   } catch (err) {
     console.error("[clients-actions:updateClient]", err);
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function archiveClientAction(input: { id: string }): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.clientContacts.archive(input);
+    revalidatePath(CLIENTS_PATH);
+    revalidatePath(`${CLIENTS_PATH}/clients/${input.id}`);
+    return { ok: true };
+  } catch (err) {
+    console.error("[clients-actions:archiveClient]", err);
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function restoreClientAction(input: { id: string }): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.clientContacts.restore(input);
+    revalidatePath(CLIENTS_PATH);
+    revalidatePath(`${CLIENTS_PATH}/clients/${input.id}`);
+    return { ok: true };
+  } catch (err) {
+    console.error("[clients-actions:restoreClient]", err);
     return { ok: false, error: toMessage(err) };
   }
 }

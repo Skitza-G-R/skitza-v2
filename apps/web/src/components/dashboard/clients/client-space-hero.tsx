@@ -10,6 +10,8 @@ import {
   MoreVertical,
   Pencil,
   Trash2,
+  Archive,
+  ArchiveRestore,
 } from "lucide-react";
 
 import { producerGradient, producerInitials } from "~/lib/_phase4-stubs/producer-color";
@@ -21,6 +23,7 @@ import { useToast } from "~/components/ui/toast";
 import { sendClientInviteAction } from "~/app/(producer)/dashboard/clients-projects/clients-actions";
 
 import { EditClientModal } from "./edit-client-modal";
+import { ClientArchiveConfirmModal } from "./client-archive-confirm-modal";
 import { InviteToAppModal } from "./invite-modal";
 import { LinkPill, type LinkPillState } from "./link-pill";
 import { NewProjectModal } from "./new-project-modal";
@@ -45,6 +48,12 @@ export interface ClientSpaceHeroData {
   phone: string | null;
   /** Free-text producer notes — surfaced in the Edit Client modal. */
   notes: string | null;
+  /** Producer-only labels used to organize the roster. */
+  tags: string[];
+  /** Producer archive state; artist access and history are unaffected. */
+  archived: boolean;
+  /** Why archive is currently unavailable; restore never uses this. */
+  archiveBlockedReason?: string | null;
   linkState: LinkPillState;
   /** ISO date string the client was added to the producer's roster. */
   joinedAtIso: string;
@@ -72,10 +81,12 @@ interface ClientSpaceHeroProps {
 
 function formatMoney(cents: number, currency: string): string {
   try {
+    const withCents = Math.abs(cents) % 100 !== 0;
     return new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
-      maximumFractionDigits: 0,
+      minimumFractionDigits: withCents ? 2 : 0,
+      maximumFractionDigits: withCents ? 2 : 0,
     }).format(cents / 100);
   } catch {
     return `${(cents / 100).toFixed(0)} ${currency}`;
@@ -93,17 +104,16 @@ function formatJoinedFallback(iso: string): string {
   }
 }
 
-export function ClientSpaceHero({
-  client,
-  producerSlug,
-  onInvite,
-}: ClientSpaceHeroProps) {
+export function ClientSpaceHero({ client, producerSlug, onInvite }: ClientSpaceHeroProps) {
   const {
     id,
     name,
     email,
     phone,
     notes,
+    tags,
+    archived,
+    archiveBlockedReason,
     linkState,
     joinedAtIso,
     joinedLabel,
@@ -161,6 +171,7 @@ export function ClientSpaceHero({
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
   useEffect(() => {
     if (!menuOpen) return;
@@ -234,6 +245,11 @@ export function ClientSpaceHero({
               ) : (
                 <LinkPill state={linkState} />
               )}
+              {archived ? (
+                <span className="rounded-[var(--radius-sm)] border border-white/20 bg-white/10 px-2 py-1 text-[10px] font-bold tracking-[0.12em] text-white/85 uppercase">
+                  Archived
+                </span>
+              ) : null}
             </div>
 
             <ul className="mt-2 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[13px] text-white/92">
@@ -246,9 +262,9 @@ export function ClientSpaceHero({
                 </li>
               ) : null}
               {phone ? (
-                <li className="inline-flex items-center gap-1.5">
-                  <Phone size={12} aria-hidden />
-                  <span>{phone}</span>
+                <li className="inline-flex min-w-0 max-w-full items-center gap-1.5">
+                  <Phone size={12} className="shrink-0" aria-hidden />
+                  <span className="truncate">{phone}</span>
                 </li>
               ) : null}
               {/* SK-64 — both items are duplicated by the stat strip
@@ -305,28 +321,58 @@ export function ClientSpaceHero({
           </div>
         </div>
 
-        <div className="flex w-full items-center gap-2 md:w-auto md:shrink-0 md:self-end">
+        <div className="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)_44px] items-center gap-2 md:flex md:w-auto md:shrink-0 md:self-end">
           <button
             type="button"
             onClick={() => {
               setNewProjectOpen(true);
             }}
-            disabled={!email}
+            disabled={!email || archived}
             title={
-              email ? undefined : "Add an email to this client before creating a project for them."
+              !email
+                ? "Add an email to this client before creating a project for them."
+                : archived
+                  ? "Restore this client before creating a new project."
+                  : undefined
             }
             // Solid-white primary pill — G14: the client hero's only
             // primary CTA should match the design's `btn-light`
             // (background:#fff; color:#111009) for max prominence.
             // <md it stretches full-width at a 44px touch height.
-            className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-full bg-white px-4 py-2 text-[13px] font-semibold transition-colors hover:bg-white/90 focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white md:min-h-0 md:flex-none md:justify-start"
+            className="col-span-3 inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-[var(--radius-lg)] bg-white px-4 py-2 text-[13px] font-semibold transition-colors hover:bg-white/90 focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white md:min-h-[36px] md:flex-none md:justify-start md:rounded-[var(--radius-md)]"
             style={{ color: "rgb(var(--bg-sidebar))" }}
           >
             <Plus size={14} />
             New project
           </button>
 
-          {/* PR #130 — kebab menu with Edit / Remove. Frosted-glass
+          <button
+            type="button"
+            onClick={() => {
+              setEditOpen(true);
+            }}
+            className="inline-flex min-h-[44px] min-w-0 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border border-white/20 bg-white/10 px-3 text-[13px] font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none md:min-h-[36px] md:rounded-[var(--radius-md)]"
+          >
+            <Pencil size={14} strokeWidth={2.2} aria-hidden />
+            Edit
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setArchiveOpen(true);
+            }}
+            className="inline-flex min-h-[44px] min-w-0 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border border-white/20 bg-white/10 px-3 text-[13px] font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none md:min-h-[36px] md:rounded-[var(--radius-md)]"
+          >
+            {archived ? (
+              <ArchiveRestore size={14} strokeWidth={2.2} aria-hidden />
+            ) : (
+              <Archive size={14} strokeWidth={2.2} aria-hidden />
+            )}
+            {archived ? "Restore" : "Archive"}
+          </button>
+
+          {/* Permanent deletion stays in a secondary menu. Frosted-glass
               icon-only trigger so it reads as a secondary action next
               to the solid "+ New project" primary. */}
           <div ref={menuRef} className="relative">
@@ -346,21 +392,9 @@ export function ClientSpaceHero({
               <div
                 role="menu"
                 aria-label="Client actions menu"
-                className="absolute top-[calc(100%+6px)] right-0 z-30 min-w-[180px] overflow-hidden rounded-[10px] border bg-[rgb(var(--bg-background))] py-1 text-[13px] shadow-[0_18px_40px_-12px_rgba(17,16,9,0.32)]"
+                className="absolute top-[calc(100%+6px)] right-0 z-30 min-w-[220px] overflow-hidden rounded-[var(--radius-md)] border bg-[rgb(var(--bg-background))] py-1 text-[13px] shadow-[0_18px_40px_-12px_rgba(17,16,9,0.32)]"
                 style={{ borderColor: "rgb(var(--border-subtle))" }}
               >
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setEditOpen(true);
-                    setMenuOpen(false);
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-[rgb(var(--fg-default))] hover:bg-[rgb(17_16_9/0.06)] focus-visible:bg-[rgb(17_16_9/0.06)] focus-visible:outline-none"
-                >
-                  <Pencil size={14} strokeWidth={2.2} aria-hidden />
-                  Edit details
-                </button>
                 <button
                   type="button"
                   role="menuitem"
@@ -371,7 +405,7 @@ export function ClientSpaceHero({
                   className="flex w-full items-center gap-2 px-3 py-2 text-left text-[rgb(var(--fg-danger))] hover:bg-[rgb(var(--fg-danger)/0.08)] focus-visible:bg-[rgb(var(--fg-danger)/0.08)] focus-visible:outline-none"
                 >
                   <Trash2 size={14} strokeWidth={2.2} aria-hidden />
-                  Remove client
+                  Permanently delete empty draft
                 </button>
               </div>
             ) : null}
@@ -446,7 +480,17 @@ export function ClientSpaceHero({
           email: email ?? "",
           phone,
           notes,
+          tags,
         }}
+      />
+
+      <ClientArchiveConfirmModal
+        open={archiveOpen}
+        onClose={() => {
+          setArchiveOpen(false);
+        }}
+        client={{ id, name, archived }}
+        blockedReason={archiveBlockedReason ?? null}
       />
 
       <RemoveClientConfirmModal

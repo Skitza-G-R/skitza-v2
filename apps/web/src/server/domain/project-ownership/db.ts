@@ -1,6 +1,7 @@
 import { and, clientContacts, eq, projects, sql, type Db } from "@skitza/db";
 
 import type { StableProjectRepository } from "./service";
+import { clientAdvisoryLockKey } from "../client-management/lock";
 
 export function stableProjectRepository(
   db: Db,
@@ -9,7 +10,7 @@ export function stableProjectRepository(
     atomically: (scope, work) =>
       db.transaction(async (tx) => {
         await tx.execute(
-          sql`select pg_advisory_xact_lock(hashtextextended(${`client:${scope.clientContactId}`}, 0))`,
+          sql`select pg_advisory_xact_lock(hashtextextended(${clientAdvisoryLockKey(scope.clientContactId)}, 0))`,
         );
         return work({
           lockClient: async (clientScope) => {
@@ -19,6 +20,7 @@ export function stableProjectRepository(
                 producerId: clientContacts.producerId,
                 name: clientContacts.name,
                 email: clientContacts.email,
+                producerArchivedAt: clientContacts.producerArchivedAt,
               })
               .from(clientContacts)
               .where(
