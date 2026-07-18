@@ -12,6 +12,7 @@ import * as migrationRunner from "../../apply-migrations.mjs";
 const {
   applyMigration,
   applyMigrationInTransaction,
+  chat3StructureVerificationStatement,
   createSk90AdapterApproval,
   cutoverFiles,
   databaseUrl,
@@ -21,6 +22,10 @@ const {
 
 const CUTOVER_MIGRATION = readFileSync(
   join(process.cwd(), "drizzle", "0027_purchase_foundation.sql"),
+  "utf8",
+);
+const STABLE_OWNERSHIP_MIGRATION = readFileSync(
+  join(process.cwd(), "drizzle", "0028_stable_client_ownership.sql"),
   "utf8",
 );
 
@@ -48,7 +53,9 @@ function adapterApprovalFor() {
 
 type Query = { params: unknown[] | undefined; statement: string };
 
-function fakeSql(options: { failStatement?: string; initialDigest?: string } = {}) {
+function fakeSql(
+  options: { failStatement?: string; initialDigest?: string; laterMigration?: boolean } = {},
+) {
   let relationExists = options.initialDigest !== undefined;
   let digest = options.initialDigest ?? null;
   const transactions: Array<{ options: unknown; queries: Query[] }> = [];
@@ -59,6 +66,9 @@ function fakeSql(options: { failStatement?: string; initialDigest?: string } = {
     }
     if (statement.includes('SELECT "digest"')) {
       return digest === null ? [] : [{ digest }];
+    }
+    if (statement.includes('AS "later_migration"')) {
+      return options.laterMigration ? [{ later_migration: 1 }] : [];
     }
     throw new Error("unexpected read query");
   }) as ((statement: string, params?: unknown[]) => Promise<unknown[]>) & {
@@ -180,6 +190,14 @@ function ciSource(): string {
 }
 
 describe("SK-90 migration runner cutover", () => {
+  it("keeps SK-91 trigger bodies intact when splitting the migration", () => {
+    const statements = splitStatements(STABLE_OWNERSHIP_MIGRATION);
+    expect(statements).toHaveLength(9);
+    expect(
+      statements.filter((statement: string) => statement.includes("CREATE TRIGGER")),
+    ).toHaveLength(4);
+  });
+
   it("starts at 0027 instead of replaying the legacy 0000-0026 chain", () => {
     const source = runnerSource();
 
@@ -195,6 +213,7 @@ describe("SK-90 migration runner cutover", () => {
     expect(source).toMatch(/filename >= CUTOVER_FLOOR/);
     expect(source).not.toMatch(/localeCompare/);
     expect(source).toMatch(/SKITZA_MIGRATION_CUTOVER_FLOOR_MISSING/);
+    expect(source).not.toMatch(/laterMigrationPending/);
   });
 
   it("applies each cutover file and its ledger record in one transaction", async () => {
@@ -258,7 +277,7 @@ describe("SK-90 migration runner cutover", () => {
 
   it("re-runs the matching 0027 completed-target verifier under the lock", async () => {
     const filename = "0027_purchase_foundation.sql";
-    const migration = "SELECT 'COMPLETED_TARGET_DRIFT';";
+    const migration = CUTOVER_MIGRATION;
     const matching = fakeSql({ initialDigest: migrationDigest(migration) });
 
     await expect(applyMigration(matching.sql, filename, migration)).resolves.toBe(
@@ -266,11 +285,13 @@ describe("SK-90 migration runner cutover", () => {
     );
     expect(matching.state.transactions).toHaveLength(1);
     expect(matching.state.transactions[0]?.queries[0]?.statement).toMatch(/pg_advisory_xact_lock/);
-    expect(matching.state.transactions[0]?.queries[4]?.statement).toContain(migration.slice(0, -1));
+    expect(matching.state.transactions[0]?.queries[4]?.statement).toContain(
+      "SKITZA_CHAT3_STRUCTURE_REQUIRED",
+    );
 
     const drifted = fakeSql({
       initialDigest: migrationDigest(migration),
-      failStatement: "COMPLETED_TARGET_DRIFT",
+      failStatement: "SKITZA_0027_TARGET_SCHEMA_DRIFT",
     });
 
     await expect(applyMigration(drifted.sql, filename, migration)).rejects.toThrow(
@@ -284,6 +305,72 @@ describe("SK-90 migration runner cutover", () => {
       "SKITZA_MIGRATION_DIGEST_MISMATCH",
     );
     expect(changed.state.transactions).toHaveLength(0);
+  });
+
+  it("does not replay the exact 0027 baseline verifier after a later migration", async () => {
+    const filename = "0027_purchase_foundation.sql";
+    const migration = "SELECT 'BASELINE_ONLY';";
+    const client = fakeSql({
+      initialDigest: migrationDigest(migration),
+      laterMigration: true,
+    });
+
+    await expect(applyMigration(client.sql, filename, migration)).resolves.toBe(
+      "SKITZA_MIGRATION_ALREADY_APPLIED",
+    );
+    expect(client.state.transactions).toHaveLength(0);
+  });
+
+  it("derives a fail-closed Chat 3 verifier from the immutable 0027 migration", () => {
+    const verifier = chat3StructureVerificationStatement(CUTOVER_MIGRATION);
+
+    expect(verifier).toContain("SKITZA_CHAT3_STRUCTURE_REQUIRED");
+    expect(verifier).toContain("SKITZA_0027_TARGET_SCHEMA_DRIFT");
+    expect(verifier).not.toContain("SKITZA_0027_SOURCE_SCHEMA_DRIFT");
+    expect(verifier).toContain("pg_constraint.contype <> 't'");
+    expect(verifier).toContain("5d6d90e934209fdc0cad9740a75464c0");
+    expect(verifier).not.toContain("expected_constraint_structure_md5 CONSTANT text := 'eb03a328");
+    expect(verifier).toContain('AS approved_check("table_name", "constraint_name")');
+    expect(verifier).not.toContain("ratePct.*BETWEEN 0 AND 100");
+    expect(() =>
+      chat3StructureVerificationStatement(`${CUTOVER_MIGRATION}\n-- changed`),
+    ).toThrow("SKITZA_CHAT3_VERIFIER_SOURCE_INVALID");
+  });
+
+  it("checks the real Chat 3 structure under the lock before 0028 can run", async () => {
+    const client = fakeSql();
+
+    await expect(
+      applyMigration(
+        client.sql,
+        "0028_stable_client_ownership.sql",
+        STABLE_OWNERSHIP_MIGRATION,
+      ),
+    ).resolves.toBe("SKITZA_MIGRATION_APPLIED");
+
+    const statements = client.state.transactions[0]?.queries.map((query) => query.statement) ?? [];
+    expect(statements[0]).toContain("pg_advisory_xact_lock");
+    expect(statements[4]).toContain("SKITZA_CHAT3_STRUCTURE_GUARD");
+    expect(statements[4]).toContain("0027_purchase_foundation.sql");
+    expect(statements[4]).toContain("SKITZA_CHAT3_STRUCTURE_REQUIRED");
+    expect(statements[4]).toContain("SKITZA_0027_TARGET_SCHEMA_DRIFT");
+    expect(statements[5]).toContain("SKITZA_MIGRATION_POST_LOCK_GUARD");
+    expect(statements[5]).toContain("SKITZA_CLIENT_OWNER_IMMUTABLE");
+  });
+
+  it("aborts 0028 and its ledger entry when the Chat 3 structure check fails", async () => {
+    const client = fakeSql({ failStatement: "SKITZA_CHAT3_STRUCTURE_GUARD" });
+
+    await expect(
+      applyMigration(
+        client.sql,
+        "0028_stable_client_ownership.sql",
+        STABLE_OWNERSHIP_MIGRATION,
+      ),
+    ).rejects.toThrow("SKITZA_MIGRATION_FAILED");
+    expect(client.state.transactions).toHaveLength(1);
+    expect(client.state.relationExists()).toBe(false);
+    expect(client.state.digest()).toBeNull();
   });
 
   it("serializes first-run bootstrap before DDL and executes a concurrent digest once", async () => {

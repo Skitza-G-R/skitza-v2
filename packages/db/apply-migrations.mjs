@@ -9,7 +9,11 @@
 // therefore cannot leave a ledger table or partially committed statements
 // behind. A matching ledger row makes later migrations a no-op; 0027 still
 // runs its completed-target verifier so post-apply drift fails closed. A
-// changed file fails before any migration SQL runs.
+// changed file fails before any migration SQL runs. Before 0028 runs, a
+// read-only verifier derived from immutable 0027 checks the real Chat 3
+// catalog under the same lock and transaction as 0028. Once a later immutable
+// ledger entry exists, replaying the exact Chat 3 baseline would reject valid
+// extensions, so only the matching later ledger entry is treated as a no-op.
 //
 // The generic CLI can verify an already-applied 0027 and apply later files.
 // Only the isolated reset adapter may perform the initial 0027 cutover.
@@ -21,6 +25,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { neon } from "@neondatabase/serverless";
 
 const CUTOVER_FLOOR = "0027_purchase_foundation.sql";
+const STABLE_OWNERSHIP_MIGRATION = "0028_stable_client_ownership.sql";
 const LEDGER_RELATION = "skitza_migrations.applied";
 const RUNNER_LOCK_SQL = "SELECT pg_advisory_xact_lock(7468258445703257129::bigint)";
 const LEDGER_SCHEMA_SQL = 'CREATE SCHEMA IF NOT EXISTS "skitza_migrations"';
@@ -77,9 +82,140 @@ function migrationDigest(content) {
   return createHash("sha256").update(content, "utf8").digest("hex");
 }
 
-const APPROVED_CUTOVER_DIGEST = migrationDigest(
-  readFileSync(new URL(`./drizzle/${CUTOVER_FLOOR}`, import.meta.url), "utf8"),
+const APPROVED_CUTOVER_CONTENT = readFileSync(
+  new URL(`./drizzle/${CUTOVER_FLOOR}`, import.meta.url),
+  "utf8",
 );
+const APPROVED_CUTOVER_DIGEST = migrationDigest(APPROVED_CUTOVER_CONTENT);
+
+function replaceExactlyOnce(source, expected, replacement) {
+  const start = source.indexOf(expected);
+  if (start === -1 || source.indexOf(expected, start + expected.length) !== -1) {
+    throw fail("SKITZA_CHAT3_VERIFIER_SOURCE_INVALID");
+  }
+  return `${source.slice(0, start)}${replacement}${source.slice(start + expected.length)}`;
+}
+
+function removeExactlyOneRange(source, startMarker, endMarker) {
+  const start = source.indexOf(startMarker);
+  const end = source.indexOf(endMarker, start + startMarker.length);
+  if (
+    start === -1 ||
+    end === -1 ||
+    source.indexOf(startMarker, start + startMarker.length) !== -1 ||
+    source.indexOf(endMarker, end + endMarker.length) !== -1
+  ) {
+    throw fail("SKITZA_CHAT3_VERIFIER_SOURCE_INVALID");
+  }
+  return `${source.slice(0, start)}${source.slice(end)}`;
+}
+
+/**
+ * Keep 0027 immutable while turning its completed-target branch into a
+ * read-only Chat 3 verifier. The original catalog fingerprint has two
+ * PostgreSQL 17 mismatches: constraint triggers belong to the trigger
+ * inventory, the key-constraint fingerprint was generated from DDL rather
+ * than the real catalog representation, and redundant regex checks disagree
+ * with PostgreSQL's deparser. Exact CHECK-definition equality remains in the
+ * verifier. The catalog corrections were measured on the isolated Chat 3
+ * rehearsal branch.
+ */
+function chat3StructureVerificationStatement(cutoverContent) {
+  if (migrationDigest(cutoverContent) !== APPROVED_CUTOVER_DIGEST) {
+    throw fail("SKITZA_CHAT3_VERIFIER_SOURCE_INVALID");
+  }
+
+  let verifier = replaceExactlyOnce(
+    cutoverContent,
+    "IF to_regclass('public.purchases') IS NOT NULL THEN",
+    `IF to_regclass('public.purchases') IS NULL THEN
+    RAISE EXCEPTION 'SKITZA_CHAT3_STRUCTURE_REQUIRED';
+  END IF;
+  IF to_regclass('public.purchases') IS NOT NULL THEN`,
+  );
+  verifier = replaceExactlyOnce(
+    verifier,
+    "expected_constraint_structure_md5 CONSTANT text := 'eb03a328756137e134dcc6c356694d64';",
+    "expected_constraint_structure_md5 CONSTANT text := '5d6d90e934209fdc0cad9740a75464c0';",
+  );
+  verifier = replaceExactlyOnce(
+    verifier,
+    `WHERE table_namespace.nspname = 'public'
+          AND table_relation.relname = ANY(completed_target_tables)
+      ) IS DISTINCT FROM expected_constraint_inventory_md5`,
+    `WHERE table_namespace.nspname = 'public'
+          AND pg_constraint.contype <> 't'
+          AND table_relation.relname = ANY(completed_target_tables)
+      ) IS DISTINCT FROM expected_constraint_inventory_md5`,
+  );
+  verifier = removeExactlyOneRange(
+    verifier,
+    `
+      OR NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE pg_constraint.conrelid = 'public.purchases'::regclass
+          AND pg_constraint.conname = 'purchases_payment_plan_shape'`,
+    `
+      OR EXISTS (
+        SELECT 1
+        FROM (VALUES
+          ('projects', 'projects_producer_lifecycle_idx'`,
+  );
+
+  const completedTargetEnd = "    RETURN;\n  END IF;";
+  const completedTargetEndAt = verifier.indexOf(completedTargetEnd);
+  if (
+    completedTargetEndAt === -1 ||
+    verifier.indexOf(completedTargetEnd, completedTargetEndAt + completedTargetEnd.length) !== -1
+  ) {
+    throw fail("SKITZA_CHAT3_VERIFIER_SOURCE_INVALID");
+  }
+  verifier = `${verifier.slice(
+    0,
+    completedTargetEndAt + completedTargetEnd.length,
+  )}\nEND\n$migration$;`;
+
+  const statements = splitStatements(verifier);
+  if (statements.length !== 1) throw fail("SKITZA_CHAT3_VERIFIER_SOURCE_INVALID");
+  return statements[0];
+}
+
+function postLockChat3StructureStatement(filename, digest) {
+  const verifier = chat3StructureVerificationStatement(APPROVED_CUTOVER_CONTENT);
+  const outerTag = `$skitza_chat3_${digest}$`;
+  const statementTag = `$skitza_chat3_statement_${digest}$`;
+  if (verifier.includes(outerTag) || verifier.includes(statementTag)) {
+    throw fail("SKITZA_MIGRATION_SQL_TAG_COLLISION");
+  }
+
+  return `-- SKITZA_CHAT3_STRUCTURE_GUARD
+DO ${outerTag}
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM "skitza_migrations"."applied"
+    WHERE "filename" = '${filename}' AND "digest" <> '${digest}'
+  ) THEN
+    RAISE EXCEPTION 'SKITZA_MIGRATION_DIGEST_MISMATCH';
+  ELSIF NOT EXISTS (
+    SELECT 1
+    FROM "skitza_migrations"."applied"
+    WHERE "filename" = '${filename}'
+  ) THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM "skitza_migrations"."applied"
+      WHERE "filename" = '${CUTOVER_FLOOR}'
+        AND "digest" = '${APPROVED_CUTOVER_DIGEST}'
+    ) THEN
+      RAISE EXCEPTION 'SKITZA_CHAT3_LEDGER_REQUIRED';
+    END IF;
+    EXECUTE ${statementTag}${verifier}${statementTag};
+  END IF;
+END
+${outerTag}`;
+}
 
 function assertAdapterBindingShape(binding) {
   if (
@@ -336,6 +472,21 @@ async function appliedDigest(sql, filename) {
   return digest;
 }
 
+async function hasAppliedLaterMigration(sql, filename) {
+  const rows = await sql(
+    `SELECT 1 AS "later_migration"
+     FROM "skitza_migrations"."applied"
+     WHERE "filename" > $1
+     ORDER BY "filename"
+     LIMIT 1`,
+    [filename],
+  );
+  if (!Array.isArray(rows) || rows.length > 1) {
+    throw fail("SKITZA_MIGRATION_LEDGER_STATE_INVALID");
+  }
+  return rows.length === 1 && rows[0]?.later_migration === 1;
+}
+
 async function applyMigration(sql, filename, content, options = {}) {
   const digest = migrationDigest(content);
   const recordedDigest = await appliedDigest(sql, filename);
@@ -344,6 +495,9 @@ async function applyMigration(sql, filename, content, options = {}) {
       throw fail("SKITZA_MIGRATION_DIGEST_MISMATCH");
     }
     if (filename !== CUTOVER_FLOOR) return "SKITZA_MIGRATION_ALREADY_APPLIED";
+    if (await hasAppliedLaterMigration(sql, filename)) {
+      return "SKITZA_MIGRATION_ALREADY_APPLIED";
+    }
   }
   if (filename === CUTOVER_FLOOR && recordedDigest === null) {
     assertSk90AdapterApproval(
@@ -354,8 +508,15 @@ async function applyMigration(sql, filename, content, options = {}) {
     );
   }
 
-  const statements = splitStatements(content);
+  const statements =
+    filename === CUTOVER_FLOOR && recordedDigest === digest
+      ? [chat3StructureVerificationStatement(content)]
+      : splitStatements(content);
   const guardedMigration = postLockMigrationStatement(filename, digest, statements);
+  const chat3StructureGuard =
+    filename === STABLE_OWNERSHIP_MIGRATION && recordedDigest === null
+      ? postLockChat3StructureStatement(filename, digest)
+      : null;
   try {
     await sql.transaction(
       (transactionSql) => [
@@ -366,6 +527,7 @@ async function applyMigration(sql, filename, content, options = {}) {
         transactionSql(LEDGER_SCHEMA_SQL),
         transactionSql(LEDGER_TABLE_SQL),
         transactionSql(LEDGER_LOCK_SQL),
+        ...(chat3StructureGuard === null ? [] : [transactionSql(chat3StructureGuard)]),
         transactionSql(guardedMigration),
         transactionSql(LEDGER_INSERT_SQL, [filename, digest]),
         // A concurrent invocation may have passed the read-only preflight
@@ -451,7 +613,10 @@ async function applyCutoverMigrations(sql, directory) {
   const results = [];
   for (const filename of files) {
     const content = readFileSync(new URL(filename, pathToFileURL(`${directory}/`)), "utf8");
-    results.push({ filename, status: await applyMigration(sql, filename, content) });
+    results.push({
+      filename,
+      status: await applyMigration(sql, filename, content),
+    });
   }
   return results;
 }
@@ -494,10 +659,12 @@ export {
   applyCutoverMigrations,
   applyMigration,
   applyMigrationInTransaction,
+  chat3StructureVerificationStatement,
   createSk90AdapterApproval,
   cutoverFiles,
   databaseUrl,
   migrationDigest,
+  hasAppliedLaterMigration,
   postLockMigrationStatement,
   splitStatements,
 };

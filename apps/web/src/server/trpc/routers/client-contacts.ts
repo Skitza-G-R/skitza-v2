@@ -20,6 +20,11 @@ import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { stripUndefined } from "../strip-undefined";
 import { emailHashFor } from "~/server/artist/identity";
+import { historicalDeletionRepository } from "~/server/domain/history-deletion/db";
+import {
+  HistoricalDeletionDomainError,
+  permanentlyDeleteEmptyDraftClient,
+} from "~/server/domain/history-deletion/service";
 import { SITE_URL, sendClientInviteEmail } from "~/server/email/send";
 
 // Producer-scoped client CRM.
@@ -53,6 +58,12 @@ function unavailableCommercialProjection(): ClientCommercialProjection {
     lifetimeCents: null,
     paidThisMonthCents: null,
   };
+}
+
+function mapHistoricalDeletionDomainError(error: unknown): never {
+  if (!(error instanceof HistoricalDeletionDomainError)) throw error;
+  if (error.code === "NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND" });
+  throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
 }
 
 export const clientContactsRouter = router({
@@ -365,11 +376,15 @@ export const clientContactsRouter = router({
       const [existing] = await ctx.db
         .select({ producerId: clientContacts.producerId })
         .from(clientContacts)
-        .where(eq(clientContacts.id, input.id))
+        .where(
+          and(
+            eq(clientContacts.id, input.id),
+            eq(clientContacts.producerId, ctx.producerId),
+          ),
+        )
         .limit(1);
-      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
-      if (existing.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "FORBIDDEN" });
+      if (!existing || existing.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "NOT_FOUND" });
       }
       // Case-insensitive dedupe, first-casing-wins. Matches the
       // updateClientMeta normalizer so a producer doesn't end up with
@@ -385,7 +400,12 @@ export const clientContactsRouter = router({
       await ctx.db
         .update(clientContacts)
         .set({ tags: cleaned })
-        .where(eq(clientContacts.id, input.id));
+        .where(
+          and(
+            eq(clientContacts.id, input.id),
+            eq(clientContacts.producerId, ctx.producerId),
+          ),
+        );
       return { ok: true as const, tags: cleaned };
     }),
 
@@ -444,11 +464,15 @@ export const clientContactsRouter = router({
       const [existing] = await ctx.db
         .select({ producerId: clientContacts.producerId })
         .from(clientContacts)
-        .where(eq(clientContacts.id, input.id))
+        .where(
+          and(
+            eq(clientContacts.id, input.id),
+            eq(clientContacts.producerId, ctx.producerId),
+          ),
+        )
         .limit(1);
-      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
-      if (existing.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "FORBIDDEN" });
+      if (!existing || existing.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "NOT_FOUND" });
       }
       const patch: {
         tags?: string[];
@@ -484,7 +508,12 @@ export const clientContactsRouter = router({
       await ctx.db
         .update(clientContacts)
         .set(patch)
-        .where(eq(clientContacts.id, input.id));
+        .where(
+          and(
+            eq(clientContacts.id, input.id),
+            eq(clientContacts.producerId, ctx.producerId),
+          ),
+        );
       return { ok: true as const, changed: true };
     }),
 
@@ -632,7 +661,12 @@ export const clientContactsRouter = router({
       const [existing] = await ctx.db
         .select()
         .from(clientContacts)
-        .where(eq(clientContacts.id, input.id))
+        .where(
+          and(
+            eq(clientContacts.id, input.id),
+            eq(clientContacts.producerId, ctx.producerId),
+          ),
+        )
         .limit(1);
       if (!existing || existing.producerId !== ctx.producerId) {
         throw new TRPCError({ code: "NOT_FOUND" });
@@ -689,7 +723,12 @@ export const clientContactsRouter = router({
       const [row] = await ctx.db
         .update(clientContacts)
         .set(stripUndefined(patch))
-        .where(eq(clientContacts.id, input.id))
+        .where(
+          and(
+            eq(clientContacts.id, input.id),
+            eq(clientContacts.producerId, ctx.producerId),
+          ),
+        )
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       return {
@@ -701,22 +740,19 @@ export const clientContactsRouter = router({
       };
     }),
 
-  // Delete a CRM contact. Stable project ownership is protected by the
-  // database foreign key, so an in-use contact cannot be removed.
+  // Permanent deletion is a domain operation: only a never-invited,
+  // unowned draft with no project or commercial history may be removed.
   remove: producerProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const [existing] = await ctx.db
-        .select({ producerId: clientContacts.producerId })
-        .from(clientContacts)
-        .where(eq(clientContacts.id, input.id))
-        .limit(1);
-      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
-      if (existing.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "FORBIDDEN" });
+      try {
+        return await permanentlyDeleteEmptyDraftClient(
+          historicalDeletionRepository(ctx.db),
+          { producerId: ctx.producerId, clientId: input.id },
+        );
+      } catch (error) {
+        mapHistoricalDeletionDomainError(error);
       }
-      await ctx.db.delete(clientContacts).where(eq(clientContacts.id, input.id));
-      return { ok: true as const };
     }),
 
   // Clients & Projects v3 redesign — Phase 1 Task 14. Drag-to-reorder
@@ -747,19 +783,26 @@ export const clientContactsRouter = router({
           producerId: clientContacts.producerId,
         })
         .from(clientContacts)
-        .where(inArray(clientContacts.id, input.orderedIds));
-      if (rows.length !== input.orderedIds.length) {
+        .where(
+          and(
+            inArray(clientContacts.id, input.orderedIds),
+            eq(clientContacts.producerId, ctx.producerId),
+          ),
+        );
+      if (
+        rows.length !== input.orderedIds.length ||
+        rows.some((row) => row.producerId !== ctx.producerId)
+      ) {
         throw new TRPCError({ code: "NOT_FOUND" });
-      }
-      if (rows.some((r) => r.producerId !== ctx.producerId)) {
-        throw new TRPCError({ code: "FORBIDDEN" });
       }
       await ctx.db.transaction(async (tx) => {
         for (const [idx, id] of input.orderedIds.entries()) {
           await tx
             .update(clientContacts)
             .set({ position: idx })
-            .where(eq(clientContacts.id, id));
+            .where(
+              and(eq(clientContacts.id, id), eq(clientContacts.producerId, ctx.producerId)),
+            );
         }
       });
       return { count: input.orderedIds.length };
@@ -795,11 +838,15 @@ export const clientContactsRouter = router({
           name: clientContacts.name,
         })
         .from(clientContacts)
-        .where(eq(clientContacts.id, input.id))
+        .where(
+          and(
+            eq(clientContacts.id, input.id),
+            eq(clientContacts.producerId, ctx.producerId),
+          ),
+        )
         .limit(1);
-      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
-      if (existing.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "FORBIDDEN" });
+      if (!existing || existing.producerId !== ctx.producerId) {
+        throw new TRPCError({ code: "NOT_FOUND" });
       }
 
       if (input.via === "email") {
@@ -833,7 +880,12 @@ export const clientContactsRouter = router({
       await ctx.db
         .update(clientContacts)
         .set({ invitedAt })
-        .where(eq(clientContacts.id, input.id));
+        .where(
+          and(
+            eq(clientContacts.id, input.id),
+            eq(clientContacts.producerId, ctx.producerId),
+          ),
+        );
 
       return { invitedAt, via: input.via };
     }),
@@ -846,13 +898,16 @@ export const clientContactsRouter = router({
       const [contact] = await ctx.db
         .select()
         .from(clientContacts)
-        .where(eq(clientContacts.id, input.id))
+        .where(
+          and(
+            eq(clientContacts.id, input.id),
+            eq(clientContacts.producerId, ctx.producerId),
+          ),
+        )
         .limit(1);
       if (!contact || contact.producerId !== ctx.producerId) {
         throw new TRPCError({ code: "NOT_FOUND" });
       }
-      const lower = contact.email.toLowerCase();
-
       const projectRows = await ctx.db
         .select({
           id: projects.id,
@@ -907,7 +962,7 @@ export const clientContactsRouter = router({
               .where(
                 and(
                   inArray(projectTracks.projectId, projectIds),
-                  sql`lower(${trackComments.authorEmail}) = ${lower}`,
+                  eq(trackComments.fromProducer, false),
                 ),
               )
               .orderBy(desc(trackComments.createdAt))

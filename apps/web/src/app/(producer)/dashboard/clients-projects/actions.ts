@@ -58,8 +58,6 @@ function toMessage(err: unknown): string {
 export async function updateProjectAction(input: {
   id: string;
   title?: string;
-  artistName?: string;
-  artistEmail?: string;
 }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
