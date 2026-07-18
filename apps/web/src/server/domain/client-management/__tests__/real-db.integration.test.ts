@@ -1,14 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import {
-  and,
-  clientContacts,
-  createDb,
-  eq,
-  projects,
-  sql,
-  type Db,
-} from "@skitza/db";
+import { createDb, sql, type Db } from "@skitza/db";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { emailHashFor } from "~/server/artist/identity";
@@ -23,19 +15,11 @@ const testDatabaseUrl = process.env.DATABASE_URL_TEST;
 const describeWithTestDatabase = testDatabaseUrl ? describe : describe.skip;
 const testSchema = `sk93_${randomUUID().replaceAll("-", "")}`;
 
-function scopedTestDatabaseUrl(value: string | undefined): string | null {
-  if (!value) return null;
+function qualifiedTestTable(table: "producers" | "client_contacts" | "projects"): string {
   if (!/^sk93_[a-f0-9]{32}$/.test(testSchema)) {
     throw new Error("SK-93 generated test schema is invalid");
   }
-  const url = new URL(value);
-  const existingOptions = url.searchParams.get("options")?.trim();
-  const searchPathOption = `-csearch_path=${testSchema}`;
-  url.searchParams.set(
-    "options",
-    existingOptions ? `${existingOptions} ${searchPathOption}` : searchPathOption,
-  );
-  return url.toString();
+  return `"${testSchema}"."${table}"`;
 }
 
 type TransactionFn = Db["transaction"];
@@ -54,16 +38,14 @@ function withIsolatedTransactionSchema(database: Db): Db {
 
 describeWithTestDatabase("SK-93 client management — separate CI test database", () => {
   const adminDb = testDatabaseUrl ? createDb(testDatabaseUrl) : null;
-  const scopedUrl = scopedTestDatabaseUrl(testDatabaseUrl);
-  const db = scopedUrl ? createDb(scopedUrl) : null;
   const transactionDb = testDatabaseUrl
     ? withIsolatedTransactionSchema(createDb(testDatabaseUrl))
     : null;
   let schemaCreated = false;
 
   function activeDb() {
-    if (!db) throw new Error("SK-93 test database is unavailable");
-    return db;
+    if (!adminDb) throw new Error("SK-93 test database is unavailable");
+    return adminDb;
   }
 
   function activeAdminDb() {
@@ -165,7 +147,7 @@ describeWithTestDatabase("SK-93 client management — separate CI test database"
     const key = `sk93_${randomUUID()}`;
     const producerId = randomUUID();
     await activeDb().execute(sql`
-      insert into ${sql.raw('"producers"')}
+      insert into ${sql.raw(qualifiedTestTable("producers"))}
         ("id", "clerk_user_id", "email", "slug")
       values (${producerId}, ${key}, ${`${key}@example.test`}, ${key})
     `);
@@ -177,7 +159,7 @@ describeWithTestDatabase("SK-93 client management — separate CI test database"
     const email = `${emailLabel}-${randomUUID()}@example.test`;
     const clientId = randomUUID();
     await activeDb().execute(sql`
-      insert into ${sql.raw('"client_contacts"')}
+      insert into ${sql.raw(qualifiedTestTable("client_contacts"))}
         ("id", "producer_id", "email_hash", "email", "name")
       values (${clientId}, ${producerId}, ${emailHashFor(email)}, ${email}, ${label})
     `);
@@ -213,16 +195,13 @@ describeWithTestDatabase("SK-93 client management — separate CI test database"
 
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
-    const matching = await activeDb()
-      .select({ id: clientContacts.id })
-      .from(clientContacts)
-      .where(
-        and(
-          eq(clientContacts.producerId, producerId),
-          eq(clientContacts.emailHash, emailHashFor(targetEmail)),
-        ),
-      );
-    expect(matching).toHaveLength(1);
+    const matching = await activeDb().execute<{ id: string }>(sql`
+      select "id"
+      from ${sql.raw(qualifiedTestTable("client_contacts"))}
+      where "producer_id" = ${producerId}
+        and "email_hash" = ${emailHashFor(targetEmail)}
+    `);
+    expect(matching.rows).toHaveLength(1);
   }, 30_000);
 
   it("serializes project creation with archive so only one state transition wins", async () => {
@@ -247,17 +226,24 @@ describeWithTestDatabase("SK-93 client management — separate CI test database"
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
 
-    const [storedClient] = await activeDb()
-      .select({ producerArchivedAt: clientContacts.producerArchivedAt })
-      .from(clientContacts)
-      .where(eq(clientContacts.id, client.id));
-    const storedProjects = await activeDb()
-      .select({ id: projects.id })
-      .from(projects)
-      .where(eq(projects.clientContactId, client.id));
+    const storedClient = await activeDb().execute<{
+      producer_archived_at: Date | string | null;
+    }>(sql`
+      select "producer_archived_at"
+      from ${sql.raw(qualifiedTestTable("client_contacts"))}
+      where "id" = ${client.id}
+    `);
+    const storedProjects = await activeDb().execute<{ id: string }>(sql`
+      select "id"
+      from ${sql.raw(qualifiedTestTable("projects"))}
+      where "client_contact_id" = ${client.id}
+    `);
+    const producerArchivedAt = storedClient.rows[0]?.producer_archived_at;
     expect(
-      (storedClient?.producerArchivedAt === null && storedProjects.length === 1) ||
-        (storedClient?.producerArchivedAt instanceof Date && storedProjects.length === 0),
+      (producerArchivedAt === null && storedProjects.rows.length === 1) ||
+        (producerArchivedAt !== null &&
+          producerArchivedAt !== undefined &&
+          storedProjects.rows.length === 0),
     ).toBe(true);
   }, 30_000);
 
@@ -283,17 +269,20 @@ describeWithTestDatabase("SK-93 client management — separate CI test database"
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
 
-    const remaining = await activeDb()
-      .select({ invitedAt: clientContacts.invitedAt })
-      .from(clientContacts)
-      .where(eq(clientContacts.id, client.id));
+    const remaining = await activeDb().execute<{ invited_at: Date | string | null }>(sql`
+      select "invited_at"
+      from ${sql.raw(qualifiedTestTable("client_contacts"))}
+      where "id" = ${client.id}
+    `);
     if (results[0].status === "fulfilled") {
       expect(deliverEmail).toHaveBeenCalledTimes(1);
-      expect(remaining).toHaveLength(1);
-      expect(remaining[0]?.invitedAt).toBeInstanceOf(Date);
+      expect(remaining.rows).toHaveLength(1);
+      expect(new Date(remaining.rows[0]!.invited_at!).getTime()).toBe(
+        new Date("2036-07-18T12:00:00.000Z").getTime(),
+      );
     } else {
       expect(deliverEmail).not.toHaveBeenCalled();
-      expect(remaining).toHaveLength(0);
+      expect(remaining.rows).toHaveLength(0);
     }
   }, 30_000);
 
@@ -308,10 +297,11 @@ describeWithTestDatabase("SK-93 client management — separate CI test database"
       }),
     ).resolves.toEqual({ deleted: true });
 
-    const remaining = await activeDb()
-      .select({ id: clientContacts.id })
-      .from(clientContacts)
-      .where(eq(clientContacts.id, client.id));
-    expect(remaining).toHaveLength(0);
+    const remaining = await activeDb().execute<{ id: string }>(sql`
+      select "id"
+      from ${sql.raw(qualifiedTestTable("client_contacts"))}
+      where "id" = ${client.id}
+    `);
+    expect(remaining.rows).toHaveLength(0);
   }, 30_000);
 });
