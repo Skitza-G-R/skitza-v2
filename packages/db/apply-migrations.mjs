@@ -10,9 +10,11 @@
 // behind. A matching ledger row makes later migrations a no-op; 0027 still
 // runs its completed-target verifier so post-apply drift fails closed. A
 // changed file fails before any migration SQL runs. Once a later immutable
-// ledger entry exists, the 0027 exact baseline verifier is superseded: replaying
-// that baseline against an intentionally extended schema would reject every
-// valid later migration.
+// migration is pending or recorded, the 0027 exact baseline verifier is
+// superseded: its catalog inventory rejects constraint triggers that the exact
+// cutover creates, and replaying it after an extension rejects valid later
+// schema. The immutable 0027 ledger digest still has to match before it can be
+// skipped, and every later migration remains atomic.
 //
 // The generic CLI can verify an already-applied 0027 and apply later files.
 // Only the isolated reset adapter may perform the initial 0027 cutover.
@@ -362,6 +364,9 @@ async function applyMigration(sql, filename, content, options = {}) {
       throw fail("SKITZA_MIGRATION_DIGEST_MISMATCH");
     }
     if (filename !== CUTOVER_FLOOR) return "SKITZA_MIGRATION_ALREADY_APPLIED";
+    if (options.laterMigrationPending === true) {
+      return "SKITZA_MIGRATION_ALREADY_APPLIED";
+    }
     if (await hasAppliedLaterMigration(sql, filename)) {
       return "SKITZA_MIGRATION_ALREADY_APPLIED";
     }
@@ -470,9 +475,14 @@ async function applyMigrationInTransaction(
 async function applyCutoverMigrations(sql, directory) {
   const files = cutoverFiles(readdirSync(directory));
   const results = [];
-  for (const filename of files) {
+  for (const [index, filename] of files.entries()) {
     const content = readFileSync(new URL(filename, pathToFileURL(`${directory}/`)), "utf8");
-    results.push({ filename, status: await applyMigration(sql, filename, content) });
+    results.push({
+      filename,
+      status: await applyMigration(sql, filename, content, {
+        laterMigrationPending: filename === CUTOVER_FLOOR && index < files.length - 1,
+      }),
+    });
   }
   return results;
 }

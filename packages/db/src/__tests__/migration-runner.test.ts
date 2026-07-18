@@ -212,6 +212,9 @@ describe("SK-90 migration runner cutover", () => {
     expect(source).toMatch(/filename >= CUTOVER_FLOOR/);
     expect(source).not.toMatch(/localeCompare/);
     expect(source).toMatch(/SKITZA_MIGRATION_CUTOVER_FLOOR_MISSING/);
+    expect(source).toMatch(
+      /laterMigrationPending: filename === CUTOVER_FLOOR && index < files\.length - 1/,
+    );
   });
 
   it("applies each cutover file and its ledger record in one transaction", async () => {
@@ -314,6 +317,17 @@ describe("SK-90 migration runner cutover", () => {
     await expect(applyMigration(client.sql, filename, migration)).resolves.toBe(
       "SKITZA_MIGRATION_ALREADY_APPLIED",
     );
+    expect(client.state.transactions).toHaveLength(0);
+  });
+
+  it("does not replay the self-inconsistent 0027 verifier before a pending later migration", async () => {
+    const filename = "0027_purchase_foundation.sql";
+    const migration = "SELECT 'BASELINE_ONLY';";
+    const client = fakeSql({ initialDigest: migrationDigest(migration) });
+
+    await expect(
+      applyMigration(client.sql, filename, migration, { laterMigrationPending: true }),
+    ).resolves.toBe("SKITZA_MIGRATION_ALREADY_APPLIED");
     expect(client.state.transactions).toHaveLength(0);
   });
 
