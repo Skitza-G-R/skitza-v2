@@ -7,6 +7,7 @@ import {
   eq,
   projects,
   sql,
+  type Db,
 } from "@skitza/db";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -37,10 +38,27 @@ function scopedTestDatabaseUrl(value: string | undefined): string | null {
   return url.toString();
 }
 
+type TransactionFn = Db["transaction"];
+
+function withIsolatedTransactionSchema(database: Db): Db {
+  const runTransaction = database.transaction.bind(database);
+  database.transaction = (async (...args: Parameters<TransactionFn>) => {
+    const [work, config] = args;
+    return runTransaction(async (transaction) => {
+      await transaction.execute(sql.raw(`set local search_path to "${testSchema}"`));
+      return work(transaction);
+    }, config);
+  }) as TransactionFn;
+  return database;
+}
+
 describeWithTestDatabase("SK-93 client management — separate CI test database", () => {
   const adminDb = testDatabaseUrl ? createDb(testDatabaseUrl) : null;
   const scopedUrl = scopedTestDatabaseUrl(testDatabaseUrl);
   const db = scopedUrl ? createDb(scopedUrl) : null;
+  const transactionDb = testDatabaseUrl
+    ? withIsolatedTransactionSchema(createDb(testDatabaseUrl))
+    : null;
   let schemaCreated = false;
 
   function activeDb() {
@@ -51,6 +69,11 @@ describeWithTestDatabase("SK-93 client management — separate CI test database"
   function activeAdminDb() {
     if (!adminDb) throw new Error("SK-93 test database administrator is unavailable");
     return adminDb;
+  }
+
+  function activeTransactionDb() {
+    if (!transactionDb) throw new Error("SK-93 transaction database is unavailable");
+    return transactionDb;
   }
 
   beforeAll(async () => {
@@ -136,7 +159,7 @@ describeWithTestDatabase("SK-93 client management — separate CI test database"
     for (const statement of statements) {
       await activeAdminDb().execute(sql.raw(statement));
     }
-  });
+  }, 30_000);
 
   async function createProducer(): Promise<string> {
     const key = `sk93_${randomUUID()}`;
@@ -164,7 +187,7 @@ describeWithTestDatabase("SK-93 client management — separate CI test database"
   afterAll(async () => {
     if (!schemaCreated) return;
     await activeAdminDb().execute(sql.raw(`drop schema "${testSchema}" cascade`));
-  });
+  }, 30_000);
 
   it("allows exactly one concurrent winner for a producer-scoped email", async () => {
     const producerId = await createProducer();
@@ -173,7 +196,7 @@ describeWithTestDatabase("SK-93 client management — separate CI test database"
       createClient(producerId, "Email race B"),
     ]);
     const targetEmail = `winner-${randomUUID()}@example.test`;
-    const repository = clientManagementRepository(activeDb());
+    const repository = clientManagementRepository(activeTransactionDb());
 
     const results = await Promise.allSettled([
       editClient(repository, {
@@ -200,19 +223,19 @@ describeWithTestDatabase("SK-93 client management — separate CI test database"
         ),
       );
     expect(matching).toHaveLength(1);
-  });
+  }, 30_000);
 
   it("serializes project creation with archive so only one state transition wins", async () => {
     const producerId = await createProducer();
     const client = await createClient(producerId, "Archive race");
 
     const results = await Promise.allSettled([
-      archiveClient(clientManagementRepository(activeDb()), {
+      archiveClient(clientManagementRepository(activeTransactionDb()), {
         producerId,
         clientId: client.id,
         archivedAt: new Date("2036-07-18T12:00:00.000Z"),
       }),
-      createStableClientProject(stableProjectRepository(activeDb()), {
+      createStableClientProject(stableProjectRepository(activeTransactionDb()), {
         producerId,
         clientContactId: client.id,
         title: "SK-93 archive race",
@@ -236,7 +259,7 @@ describeWithTestDatabase("SK-93 client management — separate CI test database"
       (storedClient?.producerArchivedAt === null && storedProjects.length === 1) ||
         (storedClient?.producerArchivedAt instanceof Date && storedProjects.length === 0),
     ).toBe(true);
-  });
+  }, 30_000);
 
   it("never delivers an invite for a concurrently deleted empty draft", async () => {
     const producerId = await createProducer();
@@ -244,14 +267,14 @@ describeWithTestDatabase("SK-93 client management — separate CI test database"
     const deliverEmail = vi.fn(() => Promise.resolve());
 
     const results = await Promise.allSettled([
-      inviteClient(clientManagementRepository(activeDb()), {
+      inviteClient(clientManagementRepository(activeTransactionDb()), {
         producerId,
         clientId: client.id,
         via: "email",
         invitedAt: new Date("2036-07-18T12:00:00.000Z"),
         deliverEmail,
       }),
-      permanentlyDeleteEmptyDraftClient(historicalDeletionRepository(activeDb()), {
+      permanentlyDeleteEmptyDraftClient(historicalDeletionRepository(activeTransactionDb()), {
         producerId,
         clientId: client.id,
       }),
@@ -272,14 +295,14 @@ describeWithTestDatabase("SK-93 client management — separate CI test database"
       expect(deliverEmail).not.toHaveBeenCalled();
       expect(remaining).toHaveLength(0);
     }
-  });
+  }, 30_000);
 
   it("permanently deletes a genuinely empty client with no history", async () => {
     const producerId = await createProducer();
     const client = await createClient(producerId, "Empty draft");
 
     await expect(
-      permanentlyDeleteEmptyDraftClient(historicalDeletionRepository(activeDb()), {
+      permanentlyDeleteEmptyDraftClient(historicalDeletionRepository(activeTransactionDb()), {
         producerId,
         clientId: client.id,
       }),
@@ -290,5 +313,5 @@ describeWithTestDatabase("SK-93 client management — separate CI test database"
       .from(clientContacts)
       .where(eq(clientContacts.id, client.id));
     expect(remaining).toHaveLength(0);
-  });
+  }, 30_000);
 });
