@@ -60,8 +60,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
   // hero so the date-comparison logic stays presentational-free.
   const nextSession = pickNextSession(detail.projects);
   const moneyLedgerData = toClientMoneyLedgerData(detail.money);
-  const singleCurrencyTotal =
-    detail.money.totals.length === 1 ? detail.money.totals[0] : undefined;
+  const singleCurrencyTotal = detail.money.totals.length === 1 ? detail.money.totals[0] : undefined;
 
   // Build the hero payload. linkState reads invitedAt / clerkUserId off
   // the detail payload — clerkUserId set ⇒ "active" (signed up),
@@ -81,15 +80,17 @@ export default async function ClientDetailPage({ params }: PageProps) {
     tags: detail.contact.tags,
     archived: detail.contact.producerArchivedAt !== null,
     archiveBlockedReason:
-      detail.contact.producerArchivedAt === null &&
-      detail.stats.archiveBlockingProjectCount > 0
+      detail.contact.producerArchivedAt === null && detail.stats.archiveBlockingProjectCount > 0
         ? CLIENT_ARCHIVE_BLOCKED_MESSAGE
         : null,
+    canPermanentlyDelete: detail.contact.canPermanentlyDelete,
     linkState: heroLinkState,
     joinedAtIso: toIso(detail.contact.firstSeenAt),
     lifetime: singleCurrencyTotal?.purchasedCents ?? null,
     outstanding: singleCurrencyTotal?.remainingCents ?? null,
     activeProjects: detail.stats.activeProjectCount,
+    moneyHasMultipleCurrencies: detail.money.totals.length > 1,
+    moneyHasNoPurchases: detail.money.projects.every((project) => project.purchases.length === 0),
   };
   if (singleCurrencyTotal) heroData.currency = singleCurrencyTotal.currency;
 
@@ -249,9 +250,7 @@ function formatSessionAt(at: Date): string {
   }
 }
 
-export function toClientMoneyLedgerData(
-  history: ClientMoneyHistory,
-): ClientMoneyLedgerData {
+export function toClientMoneyLedgerData(history: ClientMoneyHistory): ClientMoneyLedgerData {
   const currencyTotals = history.totals.map((total) => ({
     currency: total.currency,
     purchasedCents: total.purchasedCents,

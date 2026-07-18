@@ -6,6 +6,10 @@ import { describe, expect, it } from "vitest";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, "..", "workspace-list-view.tsx"), "utf8");
+const clientsDir = join(here, "..", "..", "clients");
+const compactRow = readFileSync(join(clientsDir, "client-compact-row.tsx"), "utf8");
+const mobileRow = readFileSync(join(clientsDir, "mobile-client-row.tsx"), "utf8");
+const actionsMenu = readFileSync(join(clientsDir, "client-actions-menu.tsx"), "utf8");
 
 describe("SK-93 client workspace", () => {
   it("makes Find client obvious and searches stable client fields", () => {
@@ -18,11 +22,17 @@ describe("SK-93 client workspace", () => {
     expect(source).toMatch(/value:\s*["']active["'],\s*label:\s*["']Active["']/);
     expect(source).toMatch(/value:\s*["']archived["'],\s*label:\s*["']Archived["']/);
     expect(source).toMatch(/c\.archived/);
+    expect(source).toContain("activeClientCount");
+    expect(source).toContain("archivedClientCount");
   });
 
-  it("wires visible edit and archive/restore row actions in every client layout", () => {
+  it("wires one Edit / Archive-or-Restore disclosure in both responsive rows", () => {
     expect(source).toMatch(/onEdit=/g);
     expect(source).toMatch(/onArchive=/g);
+    expect(compactRow).toContain("<ClientActionsMenu");
+    expect(mobileRow).toContain("<ClientActionsMenu");
+    expect(actionsMenu).toContain("Edit details");
+    expect(actionsMenu).toContain('archived ? "Restore client" : "Archive client"');
     expect(source).toContain("EditClientModal");
     expect(source).toContain("ClientArchiveConfirmModal");
     expect(source).toMatch(/blockedReason=\{archiveTarget\.archiveBlockedReason/);
@@ -35,6 +45,14 @@ describe("SK-93 client workspace", () => {
   });
 
   it("never offers archived clients when creating a project", () => {
-    expect(source).toMatch(/clients[\s\S]*?filter\(\(c\)\s*=>\s*!c\.archived/);
+    expect(source).toMatch(
+      /clients[\s\S]*?filter\(\(c\)\s*=>\s*!c\.archived\s*&&\s*c\.email\s*!==\s*null/,
+    );
+  });
+
+  it("chooses a recent-first client order with no client layout or sort decision", () => {
+    expect(source).toMatch(/isoMs\(b\.lastActivityIso\)\s*-\s*isoMs\(a\.lastActivityIso\)/);
+    expect(source.match(/aria-label=["']Layout["']/g)).toHaveLength(1);
+    expect(source.match(/aria-label=["']Sort["']/g)).toHaveLength(1);
   });
 });

@@ -8,15 +8,12 @@ import { auth } from "@clerk/nextjs/server";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
-export type ActionDataResult<T> =
-  | { ok: true; data: T }
-  | { ok: false; error: string };
+export type ActionDataResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
 const CLIENTS_PATH = "/dashboard/clients-projects";
 
 async function callerOrError(): Promise<
-  | { ok: true; caller: ReturnType<typeof appRouter.createCaller> }
-  | { ok: false; error: string }
+  { ok: true; caller: ReturnType<typeof appRouter.createCaller> } | { ok: false; error: string }
 > {
   const { userId } = await auth();
   if (!userId) return { ok: false, error: "Please sign in to continue." };
@@ -287,7 +284,9 @@ export async function updateClientAction(input: {
   }
 }
 
-export async function archiveClientAction(input: { id: string }): Promise<ActionResult> {
+export async function archiveClientAction(input: {
+  id: string;
+}): Promise<{ ok: true } | { ok: false; error: string; code?: "BLOCKING_PROJECT" }> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
@@ -297,7 +296,11 @@ export async function archiveClientAction(input: { id: string }): Promise<Action
     return { ok: true };
   } catch (err) {
     console.error("[clients-actions:archiveClient]", err);
-    return { ok: false, error: toMessage(err) };
+    const error = toMessage(err);
+    if (err instanceof TRPCError && err.code === "PRECONDITION_FAILED") {
+      return { ok: false, error, code: "BLOCKING_PROJECT" };
+    }
+    return { ok: false, error };
   }
 }
 
@@ -315,9 +318,7 @@ export async function restoreClientAction(input: { id: string }): Promise<Action
   }
 }
 
-export async function removeClientAction(input: {
-  id: string;
-}): Promise<ActionResult> {
+export async function removeClientAction(input: { id: string }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
@@ -337,9 +338,7 @@ export async function removeClientAction(input: {
 // the new order. Ownership re-check lives inside the tRPC procedures
 // — do not remove it there.
 
-export async function reorderClientsAction(
-  orderedIds: string[],
-): Promise<ActionResult> {
+export async function reorderClientsAction(orderedIds: string[]): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
@@ -352,9 +351,7 @@ export async function reorderClientsAction(
   }
 }
 
-export async function reorderProjectsAction(
-  orderedIds: string[],
-): Promise<ActionResult> {
+export async function reorderProjectsAction(orderedIds: string[]): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {

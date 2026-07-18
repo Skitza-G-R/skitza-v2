@@ -82,8 +82,21 @@ describe("ClientMoneyLedger", () => {
     expect(html).toContain("SK-1001");
     expect(html).toContain("Confirmed payment");
     expect(html).toContain("bank-transfer-july.pdf");
+    expect(html).toContain("Purchased");
+    expect(html).toContain("Paid");
+    expect(html).toContain("Remaining");
+    expect(html).toContain("Subtotal");
+    expect(html).toContain("Tax");
     expect(html).not.toContain("Due now");
     expect(html).not.toContain("href=");
+  });
+
+  it("uses one stable three-column Total / Paid / Remaining purchase summary", () => {
+    const html = renderToStaticMarkup(<ClientMoneyLedger data={data} />);
+
+    expect(html).toContain("grid-cols-3");
+    expect(html).not.toContain("grid-cols-5");
+    expect(html).toMatch(/Total[\s\S]*Paid[\s\S]*Remaining/);
   });
 
   it("renders an explicit empty state", () => {

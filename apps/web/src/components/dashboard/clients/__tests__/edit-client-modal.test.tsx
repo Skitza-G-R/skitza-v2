@@ -4,10 +4,9 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 // Source-grep tests for the EditClientModal (PR #130). Mirrors the
-// NewClientModal test pattern — same 4 fields, same Radix Dialog
-// scrim. Differences are pre-fill from `client` prop + the action it
-// calls (updateClientAction instead of createClientAction) + the
-// primary CTA label ("Save changes" instead of "Add client").
+// NewClientModal test pattern — same Radix Dialog foundation, with
+// a compact default view and optional producer-only fields disclosed
+// under "More details".
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "edit-client-modal.tsx"), "utf-8");
@@ -38,7 +37,7 @@ describe("EditClientModal", () => {
     expect(SRC).not.toMatch(/useMutation/);
   });
 
-  it("renders Name / Email / Phone / Tags inputs + private notes textarea", () => {
+  it("renders all editable fields and groups optional details in one disclosure", () => {
     expect(SRC).toMatch(/id="edit-client-name"/);
     expect(SRC).toMatch(/id="edit-client-email"/);
     expect(SRC).toMatch(/id="edit-client-phone"/);
@@ -47,6 +46,16 @@ describe("EditClientModal", () => {
     expect(SRC).toMatch(/<textarea[\s\S]*?id="edit-client-notes"/);
     expect(SRC).toContain("Private producer notes");
     expect(SRC).toMatch(/maxLength=\{5000\}/);
+    const disclosureIndex = SRC.indexOf("<details");
+    const moreDetailsIndex = SRC.indexOf("More details", disclosureIndex);
+    const phoneIndex = SRC.indexOf('id="edit-client-phone"', moreDetailsIndex);
+    const tagsIndex = SRC.indexOf('id="edit-client-tags"', phoneIndex);
+    const notesIndex = SRC.indexOf('id="edit-client-notes"', tagsIndex);
+    expect(disclosureIndex).toBeGreaterThan(-1);
+    expect(moreDetailsIndex).toBeGreaterThan(disclosureIndex);
+    expect(phoneIndex).toBeGreaterThan(moreDetailsIndex);
+    expect(tagsIndex).toBeGreaterThan(phoneIndex);
+    expect(notesIndex).toBeGreaterThan(tagsIndex);
   });
 
   it("renders the 'Save changes' primary CTA + 'Cancel' secondary", () => {
@@ -67,6 +76,9 @@ describe("EditClientModal", () => {
     // emailHash recompute when they only edited their phone.
     expect(SRC).toMatch(/trimmedName\s*!==\s*client\.name/);
     expect(SRC).toMatch(/toLowerCase\(\)\s*!==\s*client\.email\.toLowerCase\(\)/);
+    expect(SRC).toMatch(/const hasChanges\s*=/);
+    expect(SRC).toMatch(/pending\s*\|\|\s*!hasChanges/);
+    expect(SRC).toContain("disabled={submitDisabled}");
   });
 
   it("clears phone/notes column when input is emptied (sends null)", () => {
@@ -89,6 +101,19 @@ describe("EditClientModal", () => {
     expect(SRC).toMatch(/useToast/);
     expect(SRC).toMatch(/toast\(.+success.+\)/s);
     expect(SRC).toMatch(/toast\(.+error.+\)/s);
+  });
+
+  it("shows a duplicate email inline and focuses Email for recovery", () => {
+    expect(SRC).toContain("A client with that email already exists.");
+    expect(SRC).toMatch(/role=["']alert["']/);
+    expect(SRC).toMatch(/aria-describedby=\{serverEmailError/);
+    expect(SRC).toMatch(/emailRef\.current\?\.focus\(\)/);
+    expect(SRC).toMatch(/setServerEmailError\(null\)/);
+  });
+
+  it("personalizes the title and keeps the explanation short", () => {
+    expect(SRC).toContain("Edit {client.name}");
+    expect(SRC).toContain("Update contact details.");
   });
 
   it("calls router.refresh after a successful save", () => {

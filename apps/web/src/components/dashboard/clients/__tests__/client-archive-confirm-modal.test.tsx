@@ -13,9 +13,14 @@ describe("ClientArchiveConfirmModal", () => {
     expect(SRC).toMatch(/client\.archived\s*\?\s*restoreClientAction/);
   });
 
-  it("states that archive changes list placement only and preserves access and history", () => {
+  it("uses compact archive copy while keeping the full preservation details available", () => {
+    expect(SRC).toContain(
+      "Moves ${client.name} to Archived. Artist access and complete history stay unchanged.",
+    );
+    expect(SRC).toContain("What stays unchanged?");
+
+    const lowerSource = SRC.toLowerCase();
     for (const text of [
-      "Clients list",
       "artist access",
       "projects",
       "songs",
@@ -29,7 +34,7 @@ describe("ClientArchiveConfirmModal", () => {
       "versions",
       "comments",
     ]) {
-      expect(SRC).toContain(text);
+      expect(lowerSource).toContain(text);
     }
   });
 
@@ -38,11 +43,12 @@ describe("ClientArchiveConfirmModal", () => {
     expect(SRC).toContain("blockedReason");
   });
 
-  it("blocks archive submission but never lets a stale reason block restore", () => {
-    expect(SRC).toMatch(
-      /const archiveIsBlocked = !isRestore && Boolean\(blockedReason\)/,
-    );
+  it("removes the dead archive action when blocked but never lets a stale reason block restore", () => {
+    expect(SRC).toMatch(/const archiveIsBlocked = !isRestore && Boolean\(effectiveBlockedReason\)/);
     expect(SRC).toContain("if (archiveIsBlocked) return;");
-    expect(SRC).toMatch(/disabled=\{pending \|\| archiveIsBlocked\}/);
+    expect(SRC).toContain("Can’t archive");
+    expect(SRC).toContain("Got it");
+    expect(SRC).toMatch(/!archiveIsBlocked\s*\?\s*\(/);
+    expect(SRC).not.toMatch(/disabled=\{pending\s*\|\|\s*archiveIsBlocked\}/);
   });
 });

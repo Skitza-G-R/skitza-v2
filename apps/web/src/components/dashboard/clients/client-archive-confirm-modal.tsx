@@ -1,9 +1,9 @@
 "use client";
 
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { Archive, ArchiveRestore, X } from "lucide-react";
+import { Archive, ArchiveRestore, ChevronDown, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useTransition } from "react";
+import { type RefObject, useEffect, useState, useTransition } from "react";
 
 import {
   archiveClientAction,
@@ -21,6 +21,7 @@ export interface ClientArchiveConfirmModalProps {
   };
   blockedReason?: string | null;
   onChanged?: (archived: boolean) => void;
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }
 
 export function ClientArchiveConfirmModal({
@@ -29,12 +30,19 @@ export function ClientArchiveConfirmModal({
   client,
   blockedReason,
   onChanged,
+  returnFocusRef,
 }: ClientArchiveConfirmModalProps) {
   const router = useRouter();
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
+  const [runtimeBlockedReason, setRuntimeBlockedReason] = useState<string | null>(null);
   const isRestore = client.archived;
-  const archiveIsBlocked = !isRestore && Boolean(blockedReason);
+  const effectiveBlockedReason = blockedReason ?? runtimeBlockedReason;
+  const archiveIsBlocked = !isRestore && Boolean(effectiveBlockedReason);
+
+  useEffect(() => {
+    if (open) setRuntimeBlockedReason(null);
+  }, [open, client.id]);
 
   const handleChange = () => {
     if (archiveIsBlocked) return;
@@ -43,6 +51,11 @@ export function ClientArchiveConfirmModal({
       const action = client.archived ? restoreClientAction : archiveClientAction;
       const result = await action({ id: client.id });
       if (!result.ok) {
+        if (!isRestore && "code" in result && result.code === "BLOCKING_PROJECT") {
+          setRuntimeBlockedReason(result.error);
+          router.refresh();
+          return;
+        }
         toast(result.error, "error");
         return;
       }
@@ -65,7 +78,12 @@ export function ClientArchiveConfirmModal({
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[rgb(17_16_9/0.42)] backdrop-blur-[3px]" />
         <DialogPrimitive.Content
-          aria-describedby="archive-client-modal-body"
+          onCloseAutoFocus={(event) => {
+            const target = returnFocusRef?.current;
+            if (!target?.isConnected) return;
+            event.preventDefault();
+            target.focus();
+          }}
           className="sk-sheet-mobile fixed top-1/2 left-1/2 z-50 w-[calc(100vw-2rem)] max-w-[480px] -translate-x-1/2 -translate-y-1/2 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-background))] p-5 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)]"
         >
           <div className="flex items-start gap-3">
@@ -80,16 +98,19 @@ export function ClientArchiveConfirmModal({
               )}
             </span>
             <div className="min-w-0 flex-1">
-              <DialogPrimitive.Title className="font-display break-words text-[17px] font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
-                {isRestore ? `Restore ${client.name}?` : `Archive ${client.name}?`}
-              </DialogPrimitive.Title>
-              <DialogPrimitive.Description
-                id="archive-client-modal-body"
-                className="mt-1 text-[13px] leading-snug text-[rgb(var(--fg-muted))]"
-              >
+              <DialogPrimitive.Title className="font-display text-[17px] font-extrabold tracking-[-0.02em] break-words text-[rgb(var(--fg-default))]">
                 {isRestore
-                  ? "This returns the client to your Active Clients list."
-                  : "This only changes where the client appears in your Clients list."}
+                  ? `Restore ${client.name}?`
+                  : archiveIsBlocked
+                    ? `Can’t archive ${client.name}`
+                    : `Archive ${client.name}?`}
+              </DialogPrimitive.Title>
+              <DialogPrimitive.Description className="mt-1 text-[13px] leading-snug text-[rgb(var(--fg-muted))]">
+                {isRestore
+                  ? `Returns ${client.name} to Active clients.`
+                  : archiveIsBlocked
+                    ? effectiveBlockedReason
+                    : `Moves ${client.name} to Archived. Artist access and complete history stay unchanged.`}
               </DialogPrimitive.Description>
             </div>
             <DialogPrimitive.Close asChild>
@@ -97,65 +118,76 @@ export function ClientArchiveConfirmModal({
                 type="button"
                 aria-label="Close"
                 disabled={pending}
-                className="sk-press -mt-2 -mr-2 inline-flex h-8 w-8 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] disabled:opacity-50"
+                className="sk-press -mt-2 -mr-2 inline-flex h-11 w-11 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] disabled:opacity-50"
               >
                 <X size={16} strokeWidth={2.2} />
               </button>
             </DialogPrimitive.Close>
           </div>
 
-          {!isRestore ? (
-            <div className="mt-4 space-y-3 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3 text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
-              <p>
-                Archive preserves artist access, projects, songs, public links, purchases, offers,
-                agreements, payments, proofs, sessions, versions, and comments. It does not edit or
-                remove that history.
-              </p>
-              <p>
-                A client with an Active or Waiting for payment project cannot be archived until that
-                project leaves those states.
-              </p>
-            </div>
+          {!isRestore && !archiveIsBlocked ? (
+            <details className="group mt-4 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[12.5px] text-[rgb(var(--fg-muted))]">
+              <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 px-3 font-semibold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset [&::-webkit-details-marker]:hidden">
+                What stays unchanged?
+                <ChevronDown
+                  size={15}
+                  aria-hidden
+                  className="text-[rgb(var(--fg-muted))] transition-transform group-open:rotate-180"
+                />
+              </summary>
+              <div className="space-y-2 border-t border-[rgb(var(--border-subtle))] px-3 py-2.5 leading-relaxed">
+                <p>
+                  Artist access, projects, songs, public links, purchases, offers, agreements,
+                  payments, proofs, sessions, versions, and comments stay exactly as they are.
+                </p>
+                <p>Clients with an Active or Waiting for payment project cannot be archived yet.</p>
+              </div>
+            </details>
           ) : null}
 
           {archiveIsBlocked ? (
-            <p
-              role="alert"
-              className="mt-3 rounded-[var(--radius-md)] border border-[rgb(var(--fg-danger)/0.25)] bg-[rgb(var(--fg-danger)/0.08)] px-3 py-2.5 text-[12.5px] font-semibold text-[rgb(var(--fg-danger))]"
-            >
-              {blockedReason}
-            </p>
+            <div className="mt-5 flex justify-end">
+              <button
+                type="button"
+                onClick={onClose}
+                className="sk-press inline-flex min-h-[44px] items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-background))]"
+              >
+                Got it
+              </button>
+            </div>
           ) : null}
 
-          <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={pending}
-              className="sk-press inline-flex min-h-[44px] items-center justify-center rounded-[var(--radius-lg)] px-4 text-[13px] font-semibold text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleChange}
-              disabled={pending || archiveIsBlocked}
-              className="sk-press inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-background))] disabled:cursor-not-allowed disabled:opacity-45"
-            >
-              {isRestore ? (
-                <ArchiveRestore size={15} aria-hidden />
-              ) : (
-                <Archive size={15} aria-hidden />
-              )}
-              {pending
-                ? isRestore
-                  ? "Restoring…"
-                  : "Archiving…"
-                : isRestore
-                  ? "Restore client"
-                  : "Archive client"}
-            </button>
-          </div>
+          {!archiveIsBlocked ? (
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={pending}
+                className="sk-press inline-flex min-h-[44px] items-center justify-center rounded-[var(--radius-lg)] px-4 text-[13px] font-semibold text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] disabled:opacity-50"
+              >
+                {isRestore ? "Cancel" : "Keep active"}
+              </button>
+              <button
+                type="button"
+                onClick={handleChange}
+                disabled={pending}
+                className="sk-press inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-background))] disabled:opacity-45"
+              >
+                {isRestore ? (
+                  <ArchiveRestore size={15} aria-hidden />
+                ) : (
+                  <Archive size={15} aria-hidden />
+                )}
+                {pending
+                  ? isRestore
+                    ? "Restoring…"
+                    : "Archiving…"
+                  : isRestore
+                    ? "Restore client"
+                    : "Archive client"}
+              </button>
+            </div>
+          ) : null}
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

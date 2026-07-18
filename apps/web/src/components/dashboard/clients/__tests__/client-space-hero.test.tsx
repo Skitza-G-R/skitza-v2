@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "client-space-hero.tsx"), "utf-8");
+const ACTIONS_SRC = readFileSync(join(here, "..", "client-actions-menu.tsx"), "utf-8");
 
 describe("ClientSpaceHero source — dark gradient hero, avatar, LinkPill, stats", () => {
   it("exports a ClientSpaceHero component (function)", () => {
@@ -117,12 +118,11 @@ describe("ClientSpaceHero source — dark gradient hero, avatar, LinkPill, stats
     expect(SRC).not.toMatch(/<Link[\s\S]{0,200}newProjectHref/);
   });
 
-  it("disables the '+ New project' pill when the client has no email", () => {
-    // Producer can't create a project for a client without an email
-    // address (project.create requires artistEmail). Better to block
-    // the entry point than show a confusing 'Invalid input' toast.
-    expect(SRC).toMatch(/disabled=\{!email\s*\|\|\s*archived\}/);
-    expect(SRC).toMatch(/Add an email to this client/);
+  it("turns the primary action into Add email when the client has no email", () => {
+    // Project creation still requires an artist email, but the producer
+    // now gets a useful next action instead of a disabled button.
+    expect(SRC).toMatch(/else if\s*\(!email\)\s*\{\s*setEditOpen\(true\)/);
+    expect(SRC).toContain('!email ? "Add email" : "New project"');
   });
 
   it("manages NewProjectModal open state via local useState (setNewProjectOpen)", () => {
@@ -172,18 +172,14 @@ describe("ClientSpaceHero PR-A polish — G4+G5+G14+G23 design alignment", () =>
   });
 
   it("G14: '+ New project' CTA is solid white (not frosted glass)", () => {
-    // Design uses btn-light (white solid pill, dark text) for the
-    // hero's primary action. PR #130 introduced a sibling kebab menu
-    // that DOES use the frosted bg-white/10 backdrop-blur treatment,
-    // so we anchor on the New Project button's unique title attribute
-    // to slice out JUST that button and assert against it.
-    const titleAnchor = SRC.indexOf("Add an email to this client");
-    expect(titleAnchor).toBeGreaterThan(0);
-    const buttonStart = SRC.lastIndexOf("<button", titleAnchor);
+    // The same solid button adapts to Restore, Add email, or New project.
+    const decisionAnchor = SRC.indexOf("if (archived)");
+    expect(decisionAnchor).toBeGreaterThan(0);
+    const buttonStart = SRC.lastIndexOf("<button", decisionAnchor);
     expect(buttonStart).toBeGreaterThan(-1);
-    const labelIdx = SRC.indexOf("New project", titleAnchor);
-    expect(labelIdx).toBeGreaterThan(buttonStart);
-    const buttonSlice = SRC.slice(buttonStart, labelIdx);
+    const buttonEnd = SRC.indexOf("</button>", decisionAnchor);
+    expect(buttonEnd).toBeGreaterThan(buttonStart);
+    const buttonSlice = SRC.slice(buttonStart, buttonEnd);
     expect(buttonSlice).toMatch(/bg-white\s+px/);
     expect(buttonSlice).not.toMatch(/bg-white\/10/);
   });
@@ -199,15 +195,17 @@ describe("ClientSpaceHero — visible client management actions", () => {
     expect(SRC).toContain("./client-archive-confirm-modal");
   });
 
-  it("imports MoreVertical / Pencil / Trash2 lucide icons", () => {
-    expect(SRC).toMatch(/MoreVertical/);
+  it("imports the icons for the three contextual primary states", () => {
+    expect(SRC).toMatch(/\bPlus\b/);
     expect(SRC).toMatch(/Pencil/);
-    expect(SRC).toMatch(/Trash2/);
+    expect(SRC).toMatch(/ArchiveRestore/);
   });
 
-  it("renders a kebab trigger with aria-label='Client actions'", () => {
-    expect(SRC).toMatch(/aria-label="Client actions"/);
-    expect(SRC).toMatch(/aria-haspopup="menu"/);
+  it("uses the shared accessible action disclosure", () => {
+    expect(SRC).toContain("<ClientActionsMenu");
+    expect(ACTIONS_SRC).toMatch(/aria-expanded=\{open\}/);
+    expect(ACTIONS_SRC).toMatch(/aria-controls=\{disclosureId\}/);
+    expect(ACTIONS_SRC).toMatch(/aria-label=\{label\s*\?\?/);
   });
 
   it("renders Edit and Archive or Restore as visible text actions", () => {
@@ -218,12 +216,11 @@ describe("ClientSpaceHero — visible client management actions", () => {
     expect(SRC).toMatch(/setArchiveOpen\(true\)/);
   });
 
-  it("closes the kebab menu on outside-click + Escape", () => {
-    // Hand-rolled accessibility — the menu uses a single useEffect that
-    // attaches a mousedown listener (for outside-click) and a keydown
-    // listener (for Escape). Both fire only while the menu is open.
-    expect(SRC).toMatch(/addEventListener\(\s*["']mousedown["']/);
-    expect(SRC).toMatch(/Escape/);
+  it("focuses the disclosure and closes it on outside-click + Escape", () => {
+    expect(ACTIONS_SRC).toMatch(/firstActionRef\.current\?\.focus\(\)/);
+    expect(ACTIONS_SRC).toMatch(/addEventListener\(\s*["']mousedown["']/);
+    expect(ACTIONS_SRC).toMatch(/event\.key\s*!==\s*["']Escape["']/);
+    expect(ACTIONS_SRC).toMatch(/triggerRef\.current\?\.focus\(\)/);
   });
 
   it("uses notes on ClientSpaceHeroData (so the Edit modal can prefill)", () => {
@@ -236,12 +233,14 @@ describe("ClientSpaceHero — visible client management actions", () => {
     expect(SRC).toMatch(/<EditClientModal[\s\S]*?phone[\s\S]*?notes[\s\S]*?tags/);
   });
 
-  it("disables New project while the client is archived", () => {
-    expect(SRC).toMatch(/disabled=\{!email\s*\|\|\s*archived\}/);
+  it("turns the archived client's primary action into Restore client", () => {
+    expect(SRC).toMatch(/if\s*\(archived\)\s*\{\s*setArchiveOpen\(true\)/);
+    expect(SRC).toContain('archived ? "Restore client"');
   });
 
-  it("mounts <RemoveClientConfirmModal> with id + name", () => {
-    expect(SRC).toMatch(/<RemoveClientConfirmModal/);
+  it("mounts permanent delete only when the shared domain rule says the draft is empty", () => {
+    expect(SRC).toMatch(/canPermanentlyDelete\s*\?\s*\([\s\S]{0,300}<RemoveClientConfirmModal/);
+    expect(SRC).toMatch(/onDelete=\{[\s\S]{0,100}canPermanentlyDelete/);
   });
 });
 

@@ -32,6 +32,14 @@ describe("SK-93 client-management router wiring", () => {
     expect(routerSource).toContain("archiveBlockingProjectCount");
   });
 
+  it("exposes permanent-delete visibility through the shared protected domain rule", () => {
+    expect(routerSource).toContain("canPermanentlyDeleteEmptyDraftClient");
+    expect(routerSource).toContain("historicalDeletionRepository(ctx.db)");
+    expect(routerSource).toMatch(/producerId:\s*ctx\.producerId/);
+    expect(routerSource).toMatch(/clientId:\s*input\.id/);
+    expect(routerSource).toContain("canPermanentlyDelete,");
+  });
+
   it("loads purchase-owned client money through the stable producer/client scope", () => {
     expect(routerSource).toContain("clientMoneyRepository");
     expect(routerSource).toContain("getClientMoneyLedger");

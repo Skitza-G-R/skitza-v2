@@ -10,7 +10,7 @@ import type { ClientCardData } from "~/components/dashboard/clients/client-card"
 import { CLIENT_ARCHIVE_BLOCKED_MESSAGE } from "~/server/domain/client-management/service";
 import { appRouter } from "~/server/trpc/routers/_app";
 
-import { reorderClientsAction, reorderProjectsAction } from "./clients-actions";
+import { reorderProjectsAction } from "./clients-actions";
 
 // /dashboard/clients-projects — producer's "Clients & Projects"
 // workspace. Phase 1 redesign (Task 16) — the page now renders a single
@@ -150,7 +150,6 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
           producerSlug={producerSlug}
           initialNewProjectOpen={autoOpenNewProject}
           onReorderProjects={reorderProjectsAction}
-          onReorderClients={reorderClientsAction}
         />
       </div>
     </div>

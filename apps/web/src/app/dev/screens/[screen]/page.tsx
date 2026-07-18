@@ -183,12 +183,45 @@ const DEV_CLIENT_HERO = {
   tags: ["Production"],
   archived: false,
   archiveBlockedReason: CLIENT_ARCHIVE_BLOCKED_MESSAGE,
+  canPermanentlyDelete: false,
   linkState: "active",
   joinedAtIso: "2026-05-18T07:00:00.000Z",
   lifetime: 150_000,
   outstanding: 0,
   activeProjects: 2,
+  moneyHasMultipleCurrencies: true,
+  moneyHasNoPurchases: false,
   currency: "ILS",
+} satisfies ClientSpaceHeroData;
+
+const DEV_EMPTY_CLIENT_HERO = {
+  ...DEV_CLIENT_HERO,
+  id: "client-empty-draft",
+  name: "New Client Draft",
+  email: null,
+  phone: null,
+  notes: null,
+  tags: [],
+  archived: false,
+  archiveBlockedReason: null,
+  canPermanentlyDelete: true,
+  linkState: "none",
+  lifetime: 0,
+  outstanding: 0,
+  activeProjects: 0,
+  moneyHasMultipleCurrencies: false,
+  moneyHasNoPurchases: true,
+} satisfies ClientSpaceHeroData;
+
+const DEV_ARCHIVED_CLIENT_HERO = {
+  ...DEV_CLIENT_HERO,
+  id: "client-archived",
+  name: "Archived Artist",
+  archived: true,
+  archiveBlockedReason: null,
+  canPermanentlyDelete: false,
+  activeProjects: 0,
+  moneyHasMultipleCurrencies: false,
 } satisfies ClientSpaceHeroData;
 
 // Dev-only screen gallery for the handoff-4 wave (2026-07-05). Renders the
@@ -230,9 +263,7 @@ export default async function DevScreenPage({ params }: Params) {
         />
       );
     case "s5":
-      return (
-        <RequestSentScreen producer={MOCK_PRODUCER} requestRef="SK-7F3QK2" />
-      );
+      return <RequestSentScreen producer={MOCK_PRODUCER} requestRef="SK-7F3QK2" />;
     case "s7":
       return (
         <ChoosePlanScreen
@@ -455,6 +486,26 @@ export default async function DevScreenPage({ params }: Params) {
               }}
             />
           </div>
+        </main>
+      );
+    case "client-space-empty":
+      return (
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="mx-auto max-w-[1400px] px-4 py-5 sm:px-6 lg:px-8"
+        >
+          <ClientSpaceHero client={DEV_EMPTY_CLIENT_HERO} producerSlug="gili" />
+        </main>
+      );
+    case "client-space-archived":
+      return (
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="mx-auto max-w-[1400px] px-4 py-5 sm:px-6 lg:px-8"
+        >
+          <ClientSpaceHero client={DEV_ARCHIVED_CLIENT_HERO} producerSlug="gili" />
         </main>
       );
     case "project-space":

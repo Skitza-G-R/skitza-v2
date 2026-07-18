@@ -6,28 +6,31 @@ import { dirname, join } from "node:path";
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "workspace-list-view.tsx"), "utf-8");
 
-describe("WorkspaceListView source — composition + tabs + filters + drag", () => {
+describe("WorkspaceListView source — compact clients + configurable projects", () => {
   it("exports a WorkspaceListView component (function)", () => {
     expect(SRC).toMatch(/export function WorkspaceListView/);
   });
 
-  it("imports ProjectRow + ClientCard for composing the list", () => {
+  it("uses ProjectRow plus automatic mobile and desktop client rows", () => {
     expect(SRC).toContain("ProjectRow");
-    expect(SRC).toContain("ClientCard");
+    expect(SRC).toContain("ClientCardData");
+    expect(SRC).toContain("MobileClientRow");
+    expect(SRC).toContain("ClientCompactRow");
     expect(SRC).toContain("~/components/dashboard/projects/project-row");
-    expect(SRC).toContain("~/components/dashboard/clients/client-card");
+    expect(SRC).not.toMatch(/<ClientCard(?:\s|\/)/);
   });
 
-  it("imports StatTile for the KPI strip", () => {
+  it("imports StatTile for the project-only KPI strip", () => {
     expect(SRC).toContain("StatTile");
     expect(SRC).toContain("~/components/dashboard/common/stat-tile");
   });
 
-  it("renders all four KPI labels: Earnings / Outstanding / Needs attention / Next deadline", () => {
+  it("renders all four project KPI labels: Earnings / Outstanding / Needs attention / Next deadline", () => {
     expect(SRC).toContain("Earnings");
     expect(SRC).toContain("Outstanding");
     expect(SRC).toContain("Needs attention");
     expect(SRC).toContain("Next deadline");
+    expect(SRC).toMatch(/tab\s*===\s*["']projects["']\s*\?\s*\([\s\S]{0,150}project-kpi-strips/);
   });
 
   it("supports the Projects / Clients tab segmented control", () => {
@@ -35,13 +38,14 @@ describe("WorkspaceListView source — composition + tabs + filters + drag", () 
     expect(SRC).toContain("Clients");
   });
 
-  it("declares all six sort options: custom / recent / deadline / balance / progress / name", () => {
+  it("keeps all six sort options for Projects", () => {
     expect(SRC).toContain('"custom"');
     expect(SRC).toContain('"recent"');
     expect(SRC).toContain('"deadline"');
     expect(SRC).toContain('"balance"');
     expect(SRC).toContain('"progress"');
     expect(SRC).toContain('"name"');
+    expect(SRC.match(/aria-label=["']Sort["']/g)).toHaveLength(1);
   });
 
   it("renders the project filter chips: all / urgent / active / done", () => {
@@ -50,25 +54,34 @@ describe("WorkspaceListView source — composition + tabs + filters + drag", () 
     expect(SRC).toContain('"done"');
   });
 
-  it("renders the client filter chips: all / active / balance", () => {
-    expect(SRC).toContain('"balance"');
+  it("renders only Active / Archived client filters with counts", () => {
+    expect(SRC).toMatch(/value:\s*["']active["'],\s*label:\s*["']Active["']/);
+    expect(SRC).toMatch(/value:\s*["']archived["'],\s*label:\s*["']Archived["']/);
+    expect(SRC).toContain("activeClientCount");
+    expect(SRC).toContain("archivedClientCount");
   });
 
-  it("supports drag-and-drop handlers via native HTML5 events", () => {
-    expect(SRC).toContain("onDragStart");
-    expect(SRC).toContain("onDragOver");
-    expect(SRC).toContain("onDrop");
+  it("keeps native drag-and-drop for Projects only", () => {
+    expect(SRC).toContain("handleProjectDragStart");
+    expect(SRC).toContain("handleProjectDragOver");
+    expect(SRC).toContain("handleProjectDrop");
+    expect(SRC).not.toContain("handleClientDragStart");
+    expect(SRC).not.toContain("handleClientDrop");
   });
 
-  it("on drop flips sort to 'custom' (URL anchor for the user's manual order)", () => {
+  it("a project drop flips sort to 'custom'", () => {
     // The reorder UX collapses the user's last-set drag order into the
     // custom sort — the dropdown should snap back to "custom" on drop.
     expect(SRC).toMatch(/setSort\(["']custom["']\)|sort.*=.*["']custom["']/);
   });
 
-  it("supports both card and table layouts (layout switcher)", () => {
+  it("supports both card and table layouts for Projects", () => {
     expect(SRC).toMatch(/layout/);
     expect(SRC).toMatch(/cards|table/);
+    expect(SRC.match(/aria-label=["']Layout["']/g)).toHaveLength(1);
+    expect(SRC).toMatch(
+      /\{tab\s*===\s*["']projects["']\s*\?\s*\(\s*<div className=["']order-2 ml-auto[\s\S]*?aria-label=["']Layout["'][\s\S]*?aria-label=["']Sort["'][\s\S]*?\)\s*:\s*null\}/,
+    );
   });
 
   it("uses bg-elevated for the KPI / filter container backgrounds", () => {
@@ -162,21 +175,13 @@ describe("WorkspaceListView source — composition + tabs + filters + drag", () 
     expect(projectsIdx).toBeGreaterThan(clientsIdx);
   });
 
-  it("renders the layout switcher on BOTH tabs (G18 — no tab gate)", () => {
-    // Pre-G18 the layout switcher only appeared on the Clients tab.
-    // G18 removes the gate so the producer can flip cards/table on
-    // Projects too. Locking the new behaviour: the switcher's
-    // aria-label="Layout" group must not sit inside a tab-=='clients'
-    // ternary anymore.
+  it("renders the layout switcher only on Projects", () => {
     expect(SRC).toMatch(/aria-label=["']Layout["']/);
-    // Negative: the layout switcher block must NOT be wrapped by a
-    // `{tab === "clients" ? (...) : null}` ternary. We pinpoint by
-    // checking that the 600 chars BEFORE `aria-label="Layout"` don't
-    // contain that conditional.
     const layoutIdx = SRC.indexOf('aria-label="Layout"');
     expect(layoutIdx).toBeGreaterThan(-1);
-    const window = SRC.slice(Math.max(0, layoutIdx - 600), layoutIdx);
-    expect(window).not.toMatch(/tab\s*===\s*["']clients["']\s*\?\s*\(/);
+    expect(SRC).toMatch(
+      /\{tab\s*===\s*["']projects["']\s*\?\s*\(\s*<div className=["']order-2 ml-auto[\s\S]*?aria-label=["']Layout["'][\s\S]*?\)\s*:\s*null\}/,
+    );
   });
 
   it("imports ProjectsTableHeader + ClientsTableHeader + ClientCompactRow for table mode", () => {
@@ -189,9 +194,13 @@ describe("WorkspaceListView source — composition + tabs + filters + drag", () 
     expect(SRC).toMatch(/layout\s*===\s*["']table["'][\s\S]{0,200}<ProjectsTableHeader/);
   });
 
-  it("renders ClientsTableHeader + ClientCompactRow when clients tab is in table layout", () => {
+  it("renders ClientsTableHeader + ClientCompactRow as the desktop client default", () => {
     expect(SRC).toMatch(/<ClientsTableHeader/);
     expect(SRC).toMatch(/<ClientCompactRow/);
+    expect(SRC).toMatch(
+      /className=["']hidden rounded-\[var\(--radius-md\)\] border md:block["'][\s\S]{0,400}<ClientsTableHeader[\s\S]{0,250}role=["']list["']/,
+    );
+    expect(SRC).not.toMatch(/layout\s*===\s*["']table["'][\s\S]{0,100}<ClientsTableHeader/);
   });
 
   it("renders a header with the 'Clients & Projects' title", () => {
@@ -306,10 +315,10 @@ describe("WorkspaceListView — mockup-match polish (KPI subtitles, H1 sub-line,
     expect(SRC).toMatch(/nextDeadlineLabel/);
   });
 
-  it("renders the H1 sub-line with project / active / client counts", () => {
-    // Mirrors the HTML mockup's '6 projects · 4 active · 5 clients · …' bar.
+  it("renders a contextual H1 sub-line for the selected tab", () => {
     expect(SRC).toMatch(/orderedProjects\.length/);
-    expect(SRC).toMatch(/orderedClients\.length/);
+    expect(SRC).toContain("activeClientCount");
+    expect(SRC).toContain("archivedClientCount");
     expect(SRC).toContain("active");
   });
 
@@ -328,8 +337,7 @@ describe("WorkspaceListView — mockup-match polish (KPI subtitles, H1 sub-line,
     // The same Emil-style motion utilities are applied to every
     // interactive chip / toggle in the toolbar.
     const activeScaleCount = (SRC.match(/active:scale-\[/g) ?? []).length;
-    // Header CTA + filter chips (×2) + tab seg (×2) + layout switcher (×2)
-    // = at least 7 distinct active:scale call sites in the file.
+    // Header CTA + filter chips + tab seg + project layout switcher.
     expect(activeScaleCount).toBeGreaterThanOrEqual(7);
   });
 
@@ -369,19 +377,10 @@ describe("WorkspaceListView — client archive filters and list header", () => {
     expect(SRC).toMatch(/Clients\s+·\s+\$\{String\(filteredClients\.length\)\}/);
   });
 
-  it("toolbar is a single flex row on md+ and re-flows on phones (SK-54/58)", () => {
-    // Desktop (md+) keeps the round-3 mockup composition: tab seg +
-    // filter chips + layout switcher + sort all inline in ONE flex
-    // row (md:order-none everywhere, right cluster ml-auto).
-    // Phones (SK-58, Gili's preview round) re-flow the SAME DOM via
-    // CSS order into TWO tidy rows: seg + sort share row 1 (cluster
-    // order-2 ml-auto), chips scroll on row 2 (order-3 w-full); the
-    // layout toggle is hidden <md (both layouts render the same
-    // compact rows there).
+  it("toolbar re-flows on phones and keeps project controls in a gated right cluster", () => {
     expect(SRC).toMatch(/flex flex-wrap items-center gap-2\.5/);
-    expect(SRC).toMatch(/order-2 ml-auto flex items-center gap-2 md:order-none/);
+    expect(SRC).toMatch(/tab\s*===\s*["']projects["']\s*\?\s*\([\s\S]{0,150}order-2 ml-auto/);
     expect(SRC).toMatch(/order-3[\s\S]{0,120}overflow-x-auto[\s\S]{0,200}md:flex-wrap/);
-    // Layout toggle group: display branches per element (hidden <md).
     expect(SRC).toMatch(
       /hidden items-center gap-0\.5 rounded-\[var\(--radius-lg\)\] border p-0\.5 md:inline-flex/,
     );

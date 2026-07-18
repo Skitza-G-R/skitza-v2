@@ -1,18 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
-import {
-  Plus,
-  Mail,
-  Phone,
-  FolderOpen,
-  Calendar,
-  MoreVertical,
-  Pencil,
-  Trash2,
-  Archive,
-  ArchiveRestore,
-} from "lucide-react";
+import { useRef, useState, useTransition } from "react";
+import { Plus, Mail, Phone, FolderOpen, Calendar, Pencil, ArchiveRestore } from "lucide-react";
 
 import { producerGradient, producerInitials } from "~/lib/_phase4-stubs/producer-color";
 import { deriveGradient } from "~/lib/clients/derive-gradient";
@@ -23,6 +12,7 @@ import { useToast } from "~/components/ui/toast";
 import { sendClientInviteAction } from "~/app/(producer)/dashboard/clients-projects/clients-actions";
 
 import { EditClientModal } from "./edit-client-modal";
+import { ClientActionsMenu } from "./client-actions-menu";
 import { ClientArchiveConfirmModal } from "./client-archive-confirm-modal";
 import { InviteToAppModal } from "./invite-modal";
 import { LinkPill, type LinkPillState } from "./link-pill";
@@ -54,6 +44,8 @@ export interface ClientSpaceHeroData {
   archived: boolean;
   /** Why archive is currently unavailable; restore never uses this. */
   archiveBlockedReason?: string | null;
+  /** Exact shared-domain eligibility for permanently deleting an empty draft. */
+  canPermanentlyDelete: boolean;
   linkState: LinkPillState;
   /** ISO date string the client was added to the producer's roster. */
   joinedAtIso: string;
@@ -65,6 +57,10 @@ export interface ClientSpaceHeroData {
   outstanding: number | null;
   /** Count of active projects. */
   activeProjects: number;
+  /** True when commercial totals exist in more than one currency and must not be combined. */
+  moneyHasMultipleCurrencies: boolean;
+  /** True when the canonical ledger is available but contains no purchases. */
+  moneyHasNoPurchases: boolean;
   /** Currency code — defaults to USD. */
   currency?: string;
 }
@@ -114,12 +110,15 @@ export function ClientSpaceHero({ client, producerSlug, onInvite }: ClientSpaceH
     tags,
     archived,
     archiveBlockedReason,
+    canPermanentlyDelete,
     linkState,
     joinedAtIso,
     joinedLabel,
     lifetime,
     outstanding,
     activeProjects,
+    moneyHasMultipleCurrencies,
+    moneyHasNoPurchases,
     currency = "USD",
   } = client;
 
@@ -163,33 +162,11 @@ export function ClientSpaceHero({ client, producerSlug, onInvite }: ClientSpaceH
     });
   };
 
-  // PR #130 — kebab menu wiring (Edit details / Remove client). Hand-
-  // rolled rather than reaching for Radix DropdownMenu so we can keep
-  // the wrapper count low and match the in-house ChangeStageMenu pattern
-  // (Status stat tile). The menu closes on outside-click and Escape;
-  // the trigger is `aria-expanded`-aware.
-  const menuRef = useRef<HTMLDivElement>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
-  useEffect(() => {
-    if (!menuOpen) return;
-    function onClickOutside(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    }
-    function onEsc(e: KeyboardEvent) {
-      if (e.key === "Escape") setMenuOpen(false);
-    }
-    document.addEventListener("mousedown", onClickOutside);
-    document.addEventListener("keydown", onEsc);
-    return () => {
-      document.removeEventListener("mousedown", onClickOutside);
-      document.removeEventListener("keydown", onEsc);
-    };
-  }, [menuOpen]);
+  const primaryActionRef = useRef<HTMLButtonElement>(null);
+  const actionReturnFocusRef = useRef<HTMLElement | null>(null);
 
   const initials = producerInitials(name);
   const avatarBg = producerGradient(name);
@@ -205,14 +182,16 @@ export function ClientSpaceHero({ client, producerSlug, onInvite }: ClientSpaceH
       // hairline bottom border separates it from the projects list.
       // <md: tighter band padding + stacked layout (the desktop row
       // crushed "Noa Kirel" to "No…" at 390px). md+: original values.
-      className="relative -mx-4 overflow-hidden border-b px-5 py-5 text-white sm:-mx-6 md:px-8 md:py-7"
+      className="relative -mx-4 border-b px-5 py-5 text-white sm:-mx-6 md:px-8 md:py-7"
       style={{
         background: heroBg(token),
         borderBottomColor: "rgb(var(--border-strong))",
       }}
       aria-label={`Client space for ${name}`}
     >
-      <HeroGlowOrbs />
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        <HeroGlowOrbs />
+      </div>
 
       <div className="relative mx-auto flex max-w-[1100px] flex-wrap items-center justify-between gap-4 md:gap-5">
         <div className="flex min-w-0 items-center gap-3.5 md:gap-5">
@@ -241,9 +220,9 @@ export function ClientSpaceHero({ client, producerSlug, onInvite }: ClientSpaceH
                 {name}
               </h1>
               {onInvite || canMountInvite ? (
-                <LinkPill state={linkState} onInvite={handlePillInvite} />
+                <LinkPill state={linkState} appearance="hero" onInvite={handlePillInvite} />
               ) : (
-                <LinkPill state={linkState} />
+                <LinkPill state={linkState} appearance="hero" />
               )}
               {archived ? (
                 <span className="rounded-[var(--radius-sm)] border border-white/20 bg-white/10 px-2 py-1 text-[10px] font-bold tracking-[0.12em] text-white/85 uppercase">
@@ -262,7 +241,7 @@ export function ClientSpaceHero({ client, producerSlug, onInvite }: ClientSpaceH
                 </li>
               ) : null}
               {phone ? (
-                <li className="inline-flex min-w-0 max-w-full items-center gap-1.5">
+                <li className="inline-flex max-w-full min-w-0 items-center gap-1.5">
                   <Phone size={12} className="shrink-0" aria-hidden />
                   <span className="truncate">{phone}</span>
                 </li>
@@ -321,95 +300,63 @@ export function ClientSpaceHero({ client, producerSlug, onInvite }: ClientSpaceH
           </div>
         </div>
 
-        <div className="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)_44px] items-center gap-2 md:flex md:w-auto md:shrink-0 md:self-end">
+        <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:flex md:w-auto md:shrink-0 md:self-end">
           <button
+            ref={primaryActionRef}
             type="button"
             onClick={() => {
-              setNewProjectOpen(true);
+              actionReturnFocusRef.current = primaryActionRef.current;
+              if (archived) {
+                setArchiveOpen(true);
+              } else if (!email) {
+                setEditOpen(true);
+              } else {
+                setNewProjectOpen(true);
+              }
             }}
-            disabled={!email || archived}
-            title={
-              !email
-                ? "Add an email to this client before creating a project for them."
-                : archived
-                  ? "Restore this client before creating a new project."
-                  : undefined
-            }
             // Solid-white primary pill — G14: the client hero's only
             // primary CTA should match the design's `btn-light`
             // (background:#fff; color:#111009) for max prominence.
             // <md it stretches full-width at a 44px touch height.
-            className="col-span-3 inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-[var(--radius-lg)] bg-white px-4 py-2 text-[13px] font-semibold transition-colors hover:bg-white/90 focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white md:min-h-[36px] md:flex-none md:justify-start md:rounded-[var(--radius-md)]"
+            className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-[var(--radius-lg)] bg-white px-4 py-2 text-[13px] font-semibold transition-colors hover:bg-white/90 focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none md:min-h-[36px] md:flex-none md:justify-start md:rounded-[var(--radius-md)]"
             style={{ color: "rgb(var(--bg-sidebar))" }}
           >
-            <Plus size={14} />
-            New project
+            {archived ? (
+              <ArchiveRestore size={14} aria-hidden />
+            ) : !email ? (
+              <Pencil size={14} aria-hidden />
+            ) : (
+              <Plus size={14} aria-hidden />
+            )}
+            {archived ? "Restore client" : !email ? "Add email" : "New project"}
           </button>
 
-          <button
-            type="button"
-            onClick={() => {
+          <ClientActionsMenu
+            name={name}
+            archived={archived}
+            appearance="hero"
+            showLabel
+            onEdit={() => {
               setEditOpen(true);
             }}
-            className="inline-flex min-h-[44px] min-w-0 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border border-white/20 bg-white/10 px-3 text-[13px] font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none md:min-h-[36px] md:rounded-[var(--radius-md)]"
-          >
-            <Pencil size={14} strokeWidth={2.2} aria-hidden />
-            Edit
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setArchiveOpen(true);
-            }}
-            className="inline-flex min-h-[44px] min-w-0 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border border-white/20 bg-white/10 px-3 text-[13px] font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none md:min-h-[36px] md:rounded-[var(--radius-md)]"
-          >
-            {archived ? (
-              <ArchiveRestore size={14} strokeWidth={2.2} aria-hidden />
-            ) : (
-              <Archive size={14} strokeWidth={2.2} aria-hidden />
-            )}
-            {archived ? "Restore" : "Archive"}
-          </button>
-
-          {/* Permanent deletion stays in a secondary menu. Frosted-glass
-              icon-only trigger so it reads as a secondary action next
-              to the solid "+ New project" primary. */}
-          <div ref={menuRef} className="relative">
-            <button
-              type="button"
-              onClick={() => {
-                setMenuOpen((v) => !v);
-              }}
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-              aria-label="Client actions"
-              className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none md:h-9 md:w-9"
-            >
-              <MoreVertical size={16} strokeWidth={2.2} />
-            </button>
-            {menuOpen ? (
-              <div
-                role="menu"
-                aria-label="Client actions menu"
-                className="absolute top-[calc(100%+6px)] right-0 z-30 min-w-[220px] overflow-hidden rounded-[var(--radius-md)] border bg-[rgb(var(--bg-background))] py-1 text-[13px] shadow-[0_18px_40px_-12px_rgba(17,16,9,0.32)]"
-                style={{ borderColor: "rgb(var(--border-subtle))" }}
-              >
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
+            onArchive={
+              archived
+                ? undefined
+                : () => {
+                    setArchiveOpen(true);
+                  }
+            }
+            onDelete={
+              canPermanentlyDelete
+                ? () => {
                     setRemoveOpen(true);
-                    setMenuOpen(false);
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-[rgb(var(--fg-danger))] hover:bg-[rgb(var(--fg-danger)/0.08)] focus-visible:bg-[rgb(var(--fg-danger)/0.08)] focus-visible:outline-none"
-                >
-                  <Trash2 size={14} strokeWidth={2.2} aria-hidden />
-                  Permanently delete empty draft
-                </button>
-              </div>
-            ) : null}
-          </div>
+                  }
+                : undefined
+            }
+            onActionStart={(trigger) => {
+              actionReturnFocusRef.current = trigger;
+            }}
+          />
         </div>
       </div>
 
@@ -417,17 +364,29 @@ export function ClientSpaceHero({ client, producerSlug, onInvite }: ClientSpaceH
         <StatTile
           mobileCompact
           label="Lifetime"
-          value={lifetime === null ? "Unavailable" : formatMoney(lifetime, currency)}
+          value={
+            moneyHasMultipleCurrencies
+              ? "See below"
+              : moneyHasNoPurchases
+                ? "No purchases"
+                : lifetime === null
+                  ? "Unavailable"
+                  : formatMoney(lifetime, currency)
+          }
         />
         <StatTile
           mobileCompact
           label="Outstanding"
           value={
-            outstanding === null
-              ? "Unavailable"
-              : outstanding > 0
-                ? formatMoney(outstanding, currency)
-                : "—"
+            moneyHasMultipleCurrencies
+              ? "See below"
+              : moneyHasNoPurchases
+                ? "—"
+                : outstanding === null
+                  ? "Unavailable"
+                  : outstanding > 0
+                    ? formatMoney(outstanding, currency)
+                    : "—"
           }
           variant={outstanding !== null && outstanding > 0 ? "danger" : "default"}
         />
@@ -482,6 +441,7 @@ export function ClientSpaceHero({ client, producerSlug, onInvite }: ClientSpaceH
           notes,
           tags,
         }}
+        returnFocusRef={actionReturnFocusRef}
       />
 
       <ClientArchiveConfirmModal
@@ -491,15 +451,19 @@ export function ClientSpaceHero({ client, producerSlug, onInvite }: ClientSpaceH
         }}
         client={{ id, name, archived }}
         blockedReason={archiveBlockedReason ?? null}
+        returnFocusRef={actionReturnFocusRef}
       />
 
-      <RemoveClientConfirmModal
-        open={removeOpen}
-        onClose={() => {
-          setRemoveOpen(false);
-        }}
-        client={{ id, name }}
-      />
+      {canPermanentlyDelete ? (
+        <RemoveClientConfirmModal
+          open={removeOpen}
+          onClose={() => {
+            setRemoveOpen(false);
+          }}
+          client={{ id, name }}
+          returnFocusRef={actionReturnFocusRef}
+        />
+      ) : null}
     </section>
   );
 }
