@@ -71,10 +71,17 @@ describe("AlbumSpace — composes hero + strip + tabs + active panel", () => {
     expect(SRC).not.toContain("--brand-primary-on");
   });
 
-  it("wires AlbumHero's onAddSong CTA (G1 design match — must not ship disabled)", () => {
-    // Polish PR A G1: hero's "+ Add song" must receive a callback so
-    // it renders as a primary pill instead of disabled "Coming soon".
-    expect(SRC).toMatch(/<AlbumHero[\s\S]*?onAddSong=/);
+  it("wires AlbumHero's onAddSong CTA only with active purchase capacity", () => {
+    expect(SRC).toContain("canCreatePurchaseOwnedProjectWork");
+    expect(SRC).toContain("purchaseId: songSpacePurchaseId");
+    expect(SRC).toMatch(/canUpload[\s\S]*?onAddSong:\s*handleAddSong/);
+    expect(SRC).toContain("canAddSong={canUpload}");
+  });
+
+  it("explains why reopened work with only canceled purchases cannot add songs", () => {
+    expect(SRC).toContain("New work requires an active purchase or accepted offer.");
+    expect(SRC).toContain("uploadDisabledReason={newWorkBlockedReason}");
+    expect(SRC).toContain("blockedReason={newWorkBlockedReason}");
   });
 
   it("opens UploadTrackModal for the hero's '+ Add song' action", () => {

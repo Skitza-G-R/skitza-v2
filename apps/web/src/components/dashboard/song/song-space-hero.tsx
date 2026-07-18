@@ -51,6 +51,7 @@ interface SongSpaceHeroProps {
   onPlayLatest?: () => void;
   /** Phase 4 — opens the UploadTrackModal (mode="new-version"). Disabled when undefined. */
   onUploadNewVersion?: () => void;
+  uploadDisabledReason?: string;
 }
 
 export function SongSpaceHero({
@@ -61,6 +62,7 @@ export function SongSpaceHero({
   gradientToken,
   onPlayLatest,
   onUploadNewVersion,
+  uploadDisabledReason,
 }: SongSpaceHeroProps) {
   const stageEyebrow = stageLabel(song.workflowStage).toUpperCase();
   const modeEyebrow = mode === "single" ? "SINGLE" : "SONG";
@@ -151,7 +153,7 @@ export function SongSpaceHero({
               Play latest
             </HeroCTA>
           ) : (
-            <HeroCTA variant="play" disabled>
+            <HeroCTA variant="play" disabled disabledReason="No playable audio yet.">
               Play latest
             </HeroCTA>
           )}
@@ -164,7 +166,11 @@ export function SongSpaceHero({
               Upload new version
             </HeroCTA>
           ) : (
-            <HeroCTA variant="upload" disabled>
+            <HeroCTA
+              variant="upload"
+              disabled
+              disabledReason={uploadDisabledReason ?? "New work is unavailable."}
+            >
               Upload new version
             </HeroCTA>
           )}

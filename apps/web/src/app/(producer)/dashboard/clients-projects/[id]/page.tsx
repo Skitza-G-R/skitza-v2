@@ -8,8 +8,10 @@ import {
   type AlbumSpaceStudioLog,
 } from "~/components/dashboard/project/album-space";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
-import { stageOrder, type WorkflowStage } from "~/lib/clients/workflow-stage";
+import type { WorkflowStage } from "~/lib/clients/workflow-stage";
 import type { TrackRowData } from "~/components/dashboard/project/track-row";
+import type { ProjectActionProject } from "~/components/dashboard/projects/project-action-controls";
+import type { ProjectPurchaseSummary } from "~/components/dashboard/projects/project-purchases-panel";
 import type {
   StudioLogActivity,
   StudioLogSession,
@@ -39,11 +41,11 @@ type PageProps = {
 // with a real per-song aggregation.
 
 const STAGE_PROGRESS: Record<WorkflowStage, number> = {
-  brief:      5,
+  brief: 5,
   production: 30,
-  mixing:     60,
-  mastering:  85,
-  done:       100,
+  mixing: 60,
+  mastering: 85,
+  done: 100,
 };
 
 function progressForStage(stage: WorkflowStage): number {
@@ -72,9 +74,7 @@ export default async function ProjectDetail({ params }: PageProps) {
   // rendering so the AlbumSpace shell never lights up for single-song
   // projects.
   if (data.tracks.length === 1 && data.tracks[0]) {
-    redirect(
-      `/dashboard/clients-projects/${id}/songs/${data.tracks[0].id}`,
-    );
+    redirect(`/dashboard/clients-projects/${id}/songs/${data.tracks[0].id}`);
   }
 
   // Parallel: sessions list (filtered to this project) + the
@@ -98,8 +98,7 @@ export default async function ProjectDetail({ params }: PageProps) {
     durationMinutes: b.durationMin,
     attendees: [b.artistName],
   }));
-  const studioHours =
-    projectBookings.reduce((sum, b) => sum + b.durationMin, 0) / 60;
+  const studioHours = projectBookings.reduce((sum, b) => sum + b.durationMin, 0) / 60;
   const now = new Date();
   const thisMonthCount = projectBookings.filter((b) => {
     const d = b.startsAt;
@@ -144,26 +143,11 @@ export default async function ProjectDetail({ params }: PageProps) {
     return base;
   });
 
-  // Project-wide progress: prefer the max stage among tracks (a project
-  // with 1 mastered track + 2 in mixing is further along than the worst).
-  // Falls back to project-level workflowStage when there are no tracks.
+  // Project workflow is deliberately separate from per-song stages. The
+  // producer edits this exact value from the project lifecycle controls;
+  // individual song stages remain visible inside each Song Space.
   const projectStage: WorkflowStage = data.project.workflowStage;
-  const projectProgress =
-    tracks.length === 0
-      ? progressForStage(projectStage)
-      : Math.max(
-          ...tracks.map((t) => progressForStage(t.workflowStage)),
-        );
-
-  // Highest-order stage across tracks — drives the hero eyebrow.
-  const headlineStage: WorkflowStage =
-    tracks.length === 0
-      ? projectStage
-      : tracks.reduce<WorkflowStage>((best, t) => {
-          return stageOrder(t.workflowStage) > stageOrder(best)
-            ? t.workflowStage
-            : best;
-        }, "brief");
+  const projectProgress = progressForStage(projectStage);
 
   // Activity timeline — distilled from the project's event ledger.
   // We don't currently have a normalized activity table, so we
@@ -217,12 +201,38 @@ export default async function ProjectDetail({ params }: PageProps) {
     sessionsCount: projectBookings.length,
     totalCents: null,
     currency: null,
-    workflowStage: headlineStage,
+    workflowStage: projectStage,
     progress: projectProgress,
     deadline,
     isOverdue,
     outstandingCents: null,
   };
+  const actionProject: ProjectActionProject = {
+    id: data.project.id,
+    title: data.project.title,
+    clientName: data.project.clientName ?? data.project.artistName,
+    lifecycleStatus: data.project.lifecycleStatus,
+    workflowStage: data.project.workflowStage,
+    deadlineAtIso: data.project.deadlineAt?.toISOString() ?? null,
+    canDeleteEmptyDraft: data.canPermanentlyDelete,
+  };
+  const purchaseSummaries: ProjectPurchaseSummary[] = data.purchases.map((purchase) => ({
+    id: purchase.id,
+    sourceKind: purchase.sourceKind,
+    sourceLabel: purchase.commercialSnapshot.productOrOfferName,
+    lifecycleStatus: purchase.lifecycleStatus,
+    totalCents: purchase.totalCents,
+    currency: purchase.currency,
+    reference: purchase.refNumber,
+    installments: purchase.installments.map((installment) => ({
+      id: installment.id,
+      position: installment.position,
+      amountCents: installment.amountCents,
+      currency: installment.currency,
+      dueAtIso: installment.dueAt?.toISOString() ?? null,
+      status: installment.status,
+    })),
+  }));
 
   // Purchase-ledger projections are intentionally unavailable in SK-90.
   // Do not reinterpret missing commercial data as zero or paid.
@@ -238,8 +248,8 @@ export default async function ProjectDetail({ params }: PageProps) {
   // Newest playable version across the project — feeds the AlbumHero
   // "Play latest" CTA. data.versions arrives newest-first, so the
   // first row with a non-null audioUrl is the freshest playable one.
-  // The hero stays in its disabled "Coming soon" state when this is
-  // null (the album has no uploaded audio yet).
+  // The hero stays disabled with a no-playable-audio reason when this
+  // is null (the album has no uploaded audio yet).
   const playableVersion = data.versions.find((v) => v.audioUrl !== null);
   const playLatest: AlbumSpacePlayLatest | null = playableVersion
     ? (() => {
@@ -266,8 +276,7 @@ export default async function ProjectDetail({ params }: PageProps) {
   // legacy projects whose email never matched a contact still render
   // the label as plain text so the producer sees the artist in context.
   const breadcrumbClientName = data.project.clientName ?? data.project.artistName;
-  const breadcrumbClientEmail: string =
-    data.project.clientEmail ?? data.project.artistEmail;
+  const breadcrumbClientEmail: string = data.project.clientEmail ?? data.project.artistEmail;
   let breadcrumbClientContactId = "";
   if (
     clientsResult.status === "fulfilled" &&
@@ -275,9 +284,7 @@ export default async function ProjectDetail({ params }: PageProps) {
     breadcrumbClientEmail
   ) {
     const lower = breadcrumbClientEmail.toLowerCase();
-    const contact = clientsResult.value.clients.find(
-      (c) => c.email.toLowerCase() === lower,
-    );
+    const contact = clientsResult.value.clients.find((c) => c.email.toLowerCase() === lower);
     if (contact) {
       breadcrumbClientContactId = contact.id;
     }
@@ -291,11 +298,11 @@ export default async function ProjectDetail({ params }: PageProps) {
 
   return (
     <main className="sk-page-enter mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
-      <SetTopBarBreadcrumb
-        crumbs={[breadcrumbClientCrumb, { label: data.project.title }]}
-      />
+      <SetTopBarBreadcrumb crumbs={[breadcrumbClientCrumb, { label: data.project.title }]} />
       <AlbumSpace
         project={project}
+        actionProject={actionProject}
+        purchases={purchaseSummaries}
         songSpacePurchaseId={data.songSpacePurchaseId}
         tracks={tracks}
         studioLog={studioLog}

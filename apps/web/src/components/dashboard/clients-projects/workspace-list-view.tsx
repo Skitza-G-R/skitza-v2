@@ -29,7 +29,7 @@ const PROJECT_FILTERS = [
   { value: "all", label: "All" },
   { value: "urgent", label: "Needs attention" },
   { value: "active", label: "Active" },
-  { value: "done", label: "Done" },
+  { value: "archived", label: "Archived" },
 ] as const;
 
 type ProjectFilter = (typeof PROJECT_FILTERS)[number]["value"];
@@ -204,12 +204,13 @@ export function WorkspaceListView({
       projectFilter === "all"
         ? orderedProjects
         : orderedProjects.filter((p) => {
-            if (projectFilter === "urgent") return p.statusTone === "danger";
+            const isArchived =
+              p.lifecycleStatus === "completed" || p.lifecycleStatus === "canceled";
+            if (projectFilter === "urgent") return !isArchived && p.statusTone === "danger";
             if (projectFilter === "active") {
-              return p.statusTone === "warn" || p.statusTone === "ok";
+              return !isArchived;
             }
-            // done
-            return p.statusTone === "neutral";
+            return isArchived;
           });
 
     if (sort === "custom") return base;

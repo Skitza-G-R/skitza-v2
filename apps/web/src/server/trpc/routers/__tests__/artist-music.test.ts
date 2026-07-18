@@ -49,6 +49,7 @@ const {
     producerId: { __column: "projects.producer_id" },
     clientContactId: { __column: "projects.client_contact_id" },
     title: { __column: "projects.title" },
+    lifecycleStatus: { __column: "projects.lifecycle_status" },
   };
   const projectTracksMarker = {
     __table: "project_tracks",
@@ -243,6 +244,7 @@ describe("artist.music.projects", () => {
       {
         projectId: "proj1",
         title: "Summer EP",
+        projectLifecycleStatus: "active",
         producerId: "p1",
         producerName: "Gili Asraf Studio",
         producerSlug: "giasraf",
@@ -250,6 +252,7 @@ describe("artist.music.projects", () => {
       {
         projectId: "proj2",
         title: "Winter Single",
+        projectLifecycleStatus: "completed",
         producerId: "p1",
         producerName: "Gili Asraf Studio",
         producerSlug: "giasraf",
@@ -300,6 +303,7 @@ describe("artist.music.projects", () => {
         expect.objectContaining({
           projectId: "proj1",
           title: "Summer EP",
+          projectLifecycleStatus: "active",
           producerId: "p1",
           producerName: "Gili Asraf Studio",
           producerSlug: "giasraf",
@@ -312,6 +316,7 @@ describe("artist.music.projects", () => {
         expect.objectContaining({
           projectId: "proj2",
           title: "Winter Single",
+          projectLifecycleStatus: "completed",
           producerId: "p1",
           producerName: "Gili Asraf Studio",
           producerSlug: "giasraf",
@@ -379,6 +384,7 @@ describe("artist.music.projects", () => {
       {
         projectId: "no_tracks",
         title: "Just kicked off",
+        projectLifecycleStatus: "canceled",
         producerId: "p1",
         producerName: "Studio A",
         producerSlug: "a",
@@ -386,6 +392,7 @@ describe("artist.music.projects", () => {
       {
         projectId: "has_track",
         title: "Old Project",
+        projectLifecycleStatus: "completed",
         producerId: "p1",
         producerName: "Studio A",
         producerSlug: "a",
@@ -393,6 +400,7 @@ describe("artist.music.projects", () => {
       {
         projectId: "another_no_tracks",
         title: "Also brand new",
+        projectLifecycleStatus: "active",
         producerId: "p1",
         producerName: "Studio A",
         producerSlug: "a",
@@ -426,6 +434,13 @@ describe("artist.music.projects", () => {
     expect(result.projects[2]?.trackCount).toBe(0);
     expect(result.projects[1]?.latestTrackTitle).toBeNull();
     expect(result.projects[2]?.latestTrackTitle).toBeNull();
+    expect(result.projects).toContainEqual(
+      expect.objectContaining({
+        projectId: "no_tracks",
+        projectLifecycleStatus: "canceled",
+        trackCount: 0,
+      }),
+    );
   });
 
   it("correlates each project query to one exact active relationship", async () => {

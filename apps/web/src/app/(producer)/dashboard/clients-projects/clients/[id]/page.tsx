@@ -94,21 +94,25 @@ export default async function ClientDetailPage({ params }: PageProps) {
   };
   if (singleCurrencyTotal) heroData.currency = singleCurrencyTotal.currency;
 
-  // Map each detail project into the new ProjectRow shape. The list
-  // is intentionally read-only here — drag-to-reorder is a list-view
-  // affordance, not a single-client surface.
+  // Map each detail project into the shared row shape. Lifecycle/edit
+  // actions remain available here; only drag-to-reorder is a list-view
+  // affordance rather than a single-client surface.
   const projectRows: ProjectRowData[] = detail.projects.map((p) => {
     const lifecycle = LIFECYCLE_PRESENTATION[p.lifecycleStatus];
     return {
       id: p.id,
       title: p.title,
+      lifecycleStatus: p.lifecycleStatus,
+      workflowStage: p.workflowStage,
       client: detail.contact.name,
       clientEmail: detail.contact.email,
       progress: lifecycle.progress,
       balance: p.commercial.outstandingCents,
-      deadline: formatDeadlineShort(p.nextSessionAt),
+      deadline: formatDeadlineShort(p.deadlineAt),
       status: lifecycle.label,
       statusTone: lifecycle.tone,
+      deadlineAtIso: p.deadlineAt ? toIso(p.deadlineAt) : null,
+      canPermanentlyDelete: p.canPermanentlyDelete,
     };
   });
 
@@ -193,8 +197,8 @@ const LIFECYCLE_PRESENTATION: Record<
   waiting_for_payment: { label: "Waiting for payment", progress: null, tone: "warn" },
   active: { label: "Active", progress: null, tone: "ok" },
   paused: { label: "Paused", progress: null, tone: "warn" },
-  completed: { label: "Completed", progress: 100, tone: "neutral" },
-  canceled: { label: "Canceled", progress: null, tone: "neutral" },
+  completed: { label: "Archived · Completed", progress: 100, tone: "neutral" },
+  canceled: { label: "Archived · Canceled", progress: null, tone: "neutral" },
 };
 
 function toIso(raw: Date | string): string {

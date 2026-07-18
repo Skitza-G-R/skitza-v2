@@ -29,6 +29,7 @@ interface AlbumHeroProps {
   project: AlbumHeroProject;
   onPlayLatest?: () => void;
   onAddSong?: () => void;
+  uploadDisabledReason?: string;
 }
 
 function formatMoney(cents: number, currency: string): string {
@@ -43,7 +44,12 @@ function formatMoney(cents: number, currency: string): string {
   }
 }
 
-export function AlbumHero({ project, onPlayLatest, onAddSong }: AlbumHeroProps) {
+export function AlbumHero({
+  project,
+  onPlayLatest,
+  onAddSong,
+  uploadDisabledReason,
+}: AlbumHeroProps) {
   const { name, clientName, songsCount, sessionsCount, totalCents, currency, workflowStage } =
     project;
 
@@ -132,7 +138,7 @@ export function AlbumHero({ project, onPlayLatest, onAddSong }: AlbumHeroProps) 
               Play latest
             </HeroCTA>
           ) : (
-            <HeroCTA variant="play" disabled>
+            <HeroCTA variant="play" disabled disabledReason="No playable audio yet.">
               Play latest
             </HeroCTA>
           )}
@@ -141,7 +147,11 @@ export function AlbumHero({ project, onPlayLatest, onAddSong }: AlbumHeroProps) 
               Add song
             </HeroCTA>
           ) : (
-            <HeroCTA variant="upload" disabled>
+            <HeroCTA
+              variant="upload"
+              disabled
+              disabledReason={uploadDisabledReason ?? "New work is unavailable."}
+            >
               Add song
             </HeroCTA>
           )}

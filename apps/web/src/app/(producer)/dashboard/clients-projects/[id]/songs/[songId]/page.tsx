@@ -10,11 +10,11 @@ import {
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
 import type { SessionsTabSession } from "~/components/dashboard/song/song-tabs/sessions-tab";
 import type { VersionRowVersionData } from "~/components/dashboard/song/version-row";
+import type { ProjectActionProject } from "~/components/dashboard/projects/project-action-controls";
+import type { ProjectPurchaseSummary } from "~/components/dashboard/projects/project-purchases-panel";
 import { deriveGradient } from "~/lib/clients/derive-gradient";
 import type { WorkflowStage } from "~/lib/clients/workflow-stage";
-import type {
-  LinkPillState,
-} from "~/components/dashboard/clients/link-pill";
+import type { LinkPillState } from "~/components/dashboard/clients/link-pill";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 // Phase 3 — Song Space server component for
@@ -39,11 +39,11 @@ type PageProps = {
 };
 
 const STAGE_PROGRESS: Record<WorkflowStage, number> = {
-  brief:      5,
+  brief: 5,
   production: 30,
-  mixing:     60,
-  mastering:  85,
-  done:       100,
+  mixing: 60,
+  mastering: 85,
+  done: 100,
 };
 
 function progressForStage(stage: WorkflowStage): number {
@@ -73,14 +73,12 @@ export default async function SongDetail({ params }: PageProps) {
   }
 
   // Parallel: sessions + contacts (for the LinkPill state).
-  const [bookingsResult, clientsResult] =
-    await Promise.allSettled([
-      caller.booking.list(),
-      caller.clientContacts.listWithProjects({ view: "by-client" }),
-    ]);
+  const [bookingsResult, clientsResult] = await Promise.allSettled([
+    caller.booking.list(),
+    caller.clientContacts.listWithProjects({ view: "by-client" }),
+  ]);
 
-  const allBookings =
-    bookingsResult.status === "fulfilled" ? bookingsResult.value : [];
+  const allBookings = bookingsResult.status === "fulfilled" ? bookingsResult.value : [];
 
   // Per-song bookings: same project AND same song. The song-link came
   // in via Phase 0 (bookings.song_id). When a booking isn't tagged to
@@ -88,9 +86,7 @@ export default async function SongDetail({ params }: PageProps) {
   // has exactly one track — the Single-Space rule means the project
   // IS the song.
   const isSingleProject = data.tracks.length === 1;
-  const projectBookings = allBookings.filter(
-    (b) => b.projectId === data.project.id,
-  );
+  const projectBookings = allBookings.filter((b) => b.projectId === data.project.id);
   const songBookings = projectBookings.filter(
     (b) => b.songId === songId || (isSingleProject && b.songId === null),
   );
@@ -133,9 +129,7 @@ export default async function SongDetail({ params }: PageProps) {
 
   // ── Shape: song meta ────────────────────────────────────────────
   const latestVersion = songVersions[0];
-  const totalNoteCount = songComments.filter(
-    (c) => c.resolvedAt === null,
-  ).length;
+  const totalNoteCount = songComments.filter((c) => c.resolvedAt === null).length;
   const mode: "album" | "single" = isSingleProject ? "single" : "album";
 
   // Use the project deadline only; payment due dates are purchase-owned.
@@ -156,14 +150,12 @@ export default async function SongDetail({ params }: PageProps) {
   // — keeps the bar reactive while we wait for a real per-song
   // progress column (Phase 4).
   const baseProgress = progressForStage(songStage);
-  const versionBoost = Math.min(
-    10,
-    songVersions.length > 0 ? songVersions.length * 2 : 0,
-  );
+  const versionBoost = Math.min(10, songVersions.length > 0 ? songVersions.length * 2 : 0);
   const songProgress = Math.min(100, baseProgress + versionBoost);
 
   const song: SongSpaceSong = {
     id: track.id,
+    purchaseId: track.purchaseId,
     title: track.title,
     currentVersion: latestVersion?.label ?? "v0",
     noteCount: totalNoteCount,
@@ -179,6 +171,32 @@ export default async function SongDetail({ params }: PageProps) {
     id: data.project.id,
     name: data.project.title,
   };
+  const actionProject: ProjectActionProject = {
+    id: data.project.id,
+    title: data.project.title,
+    clientName: data.project.clientName ?? data.project.artistName,
+    lifecycleStatus: data.project.lifecycleStatus,
+    workflowStage: data.project.workflowStage,
+    deadlineAtIso: data.project.deadlineAt?.toISOString() ?? null,
+    canDeleteEmptyDraft: data.canPermanentlyDelete,
+  };
+  const purchaseSummaries: ProjectPurchaseSummary[] = data.purchases.map((purchase) => ({
+    id: purchase.id,
+    sourceKind: purchase.sourceKind,
+    sourceLabel: purchase.commercialSnapshot.productOrOfferName,
+    lifecycleStatus: purchase.lifecycleStatus,
+    totalCents: purchase.totalCents,
+    currency: purchase.currency,
+    reference: purchase.refNumber,
+    installments: purchase.installments.map((installment) => ({
+      id: installment.id,
+      position: installment.position,
+      amountCents: installment.amountCents,
+      currency: installment.currency,
+      dueAtIso: installment.dueAt?.toISOString() ?? null,
+      status: installment.status,
+    })),
+  }));
 
   // ── Client snippet ──────────────────────────────────────────────
   // The project carries the client identity snapshot (clientName +
@@ -189,25 +207,15 @@ export default async function SongDetail({ params }: PageProps) {
   // artistEmail is NOT NULL at the column level — so the project
   // always has at least the legacy email. clientEmail is the modern
   // optional override.
-  const clientEmail: string =
-    data.project.clientEmail ?? data.project.artistEmail;
+  const clientEmail: string = data.project.clientEmail ?? data.project.artistEmail;
 
   let linkState: LinkPillState = "none";
   let clientContactId = "";
-  if (
-    clientsResult.status === "fulfilled" &&
-    clientsResult.value.view === "by-client"
-  ) {
-    const contact = clientsResult.value.clients.find(
-      (c) => c.id === data.project.clientContactId,
-    );
+  if (clientsResult.status === "fulfilled" && clientsResult.value.view === "by-client") {
+    const contact = clientsResult.value.clients.find((c) => c.id === data.project.clientContactId);
     if (contact) {
       clientContactId = contact.id;
-      linkState = contact.clerkUserId
-        ? "active"
-        : contact.invitedAt
-          ? "pending"
-          : "none";
+      linkState = contact.clerkUserId ? "active" : contact.invitedAt ? "pending" : "none";
     }
   }
 
@@ -263,6 +271,8 @@ export default async function SongDetail({ params }: PageProps) {
         mode={mode}
         song={song}
         project={project}
+        actionProject={actionProject}
+        purchases={purchaseSummaries}
         client={client}
         versions={versions}
         sessions={sessions}

@@ -69,9 +69,19 @@ describe("SongSpace — composes hero + strip + tabs + active panel", () => {
     expect(SRC).not.toMatch(/from\s+["']\.\/change-stage-menu["']/);
   });
 
-  it("threads openUpload into both SongSpaceHero.onUploadNewVersion and VersionsTab.onAddVersion", () => {
-    expect(SRC).toMatch(/onUploadNewVersion=\{openUpload\}/);
-    expect(SRC).toMatch(/onAddVersion=\{openUpload\}/);
+  it("threads openUpload into both upload controls only with active purchase authority", () => {
+    expect(SRC).toContain("canCreatePurchaseOwnedProjectWork");
+    expect(SRC).toContain("purchaseId: song.purchaseId");
+    expect(SRC).toMatch(/canUpload[\s\S]*?onUploadNewVersion:\s*openUpload/);
+    expect(SRC).toMatch(/canUpload[\s\S]*?onAddVersion:\s*openUpload/);
+  });
+
+  it("explains why reopened work with a canceled purchase cannot upload versions", () => {
+    expect(SRC).toContain("New work requires an active purchase or accepted offer.");
+    expect(SRC).toContain("uploadDisabledReason={newWorkBlockedReason}");
+    expect(SRC).toContain("blockedReason={newWorkBlockedReason}");
+    expect(SRC).toContain("emptyVersionsMessage={");
+    expect(SRC).toContain(": newWorkBlockedReason");
   });
 
   it("derives the default version label from song.revisionCount + 1", () => {

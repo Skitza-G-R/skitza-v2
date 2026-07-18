@@ -3,10 +3,7 @@
 import { Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import {
-  TrackRow,
-  type TrackRowData,
-} from "~/components/dashboard/project/track-row";
+import { TrackRow, type TrackRowData } from "~/components/dashboard/project/track-row";
 import { UploadTrackModal } from "~/components/dashboard/song/upload-track-modal";
 
 // SongsTab — Songs panel for the new Album Page (DESIGN.md §4.3,
@@ -29,6 +26,8 @@ interface SongsTabProps {
   projectId: string;
   purchaseId: string | null;
   tracks: TrackRowData[];
+  canAddSong?: boolean;
+  blockedReason?: string;
   /** Optional override — if not provided, "+ Add song" opens the modal. */
   onAddSong?: () => void;
   onReorder?: (orderedIds: string[]) => unknown;
@@ -38,6 +37,8 @@ export function SongsTab({
   projectId,
   purchaseId,
   tracks,
+  canAddSong = true,
+  blockedReason = "New work requires an active project and an active purchase or accepted offer.",
   onAddSong,
   onReorder,
 }: SongsTabProps) {
@@ -52,6 +53,7 @@ export function SongsTab({
     versionCount: t.versionCount ?? 0,
   }));
   const handleAddSong = () => {
+    if (!canAddSong) return;
     if (onAddSong) {
       onAddSong();
       return;
@@ -67,27 +69,18 @@ export function SongsTab({
 
   const [dragId, setDragId] = useState<string | null>(null);
 
-  const handleDragStart = (
-    e: React.DragEvent<HTMLDivElement>,
-    id: string,
-  ) => {
+  const handleDragStart = (e: React.DragEvent<HTMLDivElement>, id: string) => {
     void e;
     setDragId(id);
   };
 
-  const handleDragOver = (
-    e: React.DragEvent<HTMLDivElement>,
-    id: string,
-  ) => {
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>, id: string) => {
     // Allow drop — without this, the drop event never fires.
     void id;
     e.preventDefault();
   };
 
-  const handleDrop = (
-    e: React.DragEvent<HTMLDivElement>,
-    targetId: string,
-  ) => {
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>, targetId: string) => {
     e.preventDefault();
     if (!dragId || dragId === targetId) {
       setDragId(null);
@@ -111,7 +104,7 @@ export function SongsTab({
 
   // Shared modal mount used by both render branches — colocated with
   // the SongsTab so the open state lives where the trigger lives.
-  const modal = (
+  const modal = canAddSong ? (
     <UploadTrackModal
       open={uploadOpen}
       onClose={() => {
@@ -122,7 +115,7 @@ export function SongsTab({
       mode="new-song"
       tracks={modalTracks}
     />
-  );
+  ) : null;
 
   if (ordered.length === 0) {
     return (
@@ -136,62 +129,54 @@ export function SongsTab({
           borderColor: "rgb(var(--border-subtle))",
         }}
       >
-        <p
-          className="font-syne text-[18px] font-bold"
-          style={{ color: "rgb(var(--fg-default))" }}
-        >
-          No songs yet — upload the first one to get started.
+        <p className="font-syne text-[18px] font-bold" style={{ color: "rgb(var(--fg-default))" }}>
+          {canAddSong ? "No songs yet — upload the first one to get started." : blockedReason}
         </p>
-        <p
-          className="mt-2 text-[13px]"
-          style={{ color: "rgb(var(--fg-muted))" }}
-        >
-          Tracks you upload here show up in the artist&apos;s music library.
-        </p>
-        <button
-          type="button"
-          onClick={handleAddSong}
-          className="mt-5 inline-flex items-center gap-1.5 rounded-[var(--radius-md)] px-4 py-2 text-[13px] font-semibold shadow-[var(--shadow-sm)] transition-colors"
-          style={{
-            background: "rgb(var(--brand-primary))",
-            color: "rgb(var(--bg-sidebar))",
-          }}
-        >
-          <Plus size={14} />
-          Add song
-        </button>
+        {canAddSong ? (
+          <p className="mt-2 text-[13px]" style={{ color: "rgb(var(--fg-muted))" }}>
+            Tracks you upload here show up in the artist&apos;s music library.
+          </p>
+        ) : null}
+        {canAddSong ? (
+          <button
+            type="button"
+            onClick={handleAddSong}
+            className="mt-5 inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-md)] px-4 py-2 text-[13px] font-semibold shadow-[var(--shadow-sm)] transition-colors"
+            style={{
+              background: "rgb(var(--brand-primary))",
+              color: "rgb(var(--bg-sidebar))",
+            }}
+          >
+            <Plus size={14} />
+            Add song
+          </button>
+        ) : null}
         {modal}
       </section>
     );
   }
 
   return (
-    <section
-      role="tabpanel"
-      id="panel-songs"
-      aria-labelledby="tab-songs"
-      className="space-y-4"
-    >
+    <section role="tabpanel" id="panel-songs" aria-labelledby="tab-songs" className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3
-          className="font-syne text-[18px] font-bold"
-          style={{ color: "rgb(var(--fg-default))" }}
-        >
+        <h3 className="font-syne text-[18px] font-bold" style={{ color: "rgb(var(--fg-default))" }}>
           Tracklist
         </h3>
-        <button
-          type="button"
-          onClick={handleAddSong}
-          className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border px-3 py-1.5 text-[12px] font-semibold transition-colors"
-          style={{
-            background: "transparent",
-            borderColor: "rgb(var(--border-subtle))",
-            color: "rgb(var(--fg-default))",
-          }}
-        >
-          <Plus size={12} />
-          Add song
-        </button>
+        {canAddSong ? (
+          <button
+            type="button"
+            onClick={handleAddSong}
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] border px-3 py-1.5 text-[12px] font-semibold transition-colors"
+            style={{
+              background: "transparent",
+              borderColor: "rgb(var(--border-subtle))",
+              color: "rgb(var(--fg-default))",
+            }}
+          >
+            <Plus size={12} />
+            Add song
+          </button>
+        ) : null}
       </div>
 
       <div className="space-y-1.5">

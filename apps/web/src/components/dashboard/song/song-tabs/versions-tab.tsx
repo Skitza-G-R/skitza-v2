@@ -1,10 +1,7 @@
 "use client";
 
 import { AddVersionDropZone } from "~/components/dashboard/song/add-version-drop-zone";
-import {
-  VersionRow,
-  type VersionRowVersionData,
-} from "~/components/dashboard/song/version-row";
+import { VersionRow, type VersionRowVersionData } from "~/components/dashboard/song/version-row";
 
 // VersionsTab — full version history for the Song Space (DESIGN.md
 // §4.4, BUILD-NOTES §5.4.2). First row is the slim AddVersionDropZone
@@ -18,6 +15,7 @@ interface VersionsTabProps {
   versions: VersionRowVersionData[];
   /** Phase 4 — opens the UploadTrackModal from the parent SongSpace. */
   onAddVersion?: () => void;
+  blockedReason?: string;
 }
 
 export function VersionsTab({
@@ -25,6 +23,7 @@ export function VersionsTab({
   project,
   versions,
   onAddVersion,
+  blockedReason = "New work requires an active project and an active purchase or accepted offer.",
 }: VersionsTabProps) {
   return (
     <section
@@ -35,9 +34,18 @@ export function VersionsTab({
     >
       {/* Add-version drop zone — always rendered as the first row. The
           parent's `onAddVersion` opens the UploadTrackModal (Phase 4). */}
-      <AddVersionDropZone {...(onAddVersion ? { onClick: onAddVersion } : {})} />
+      {onAddVersion ? (
+        <AddVersionDropZone onClick={onAddVersion} />
+      ) : (
+        <p
+          role="status"
+          className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-3 text-[12.5px] text-[rgb(var(--fg-muted))]"
+        >
+          {blockedReason}
+        </p>
+      )}
 
-      {versions.length === 0 ? (
+      {versions.length === 0 && onAddVersion ? (
         <p
           className="rounded-[var(--radius-md)] border border-dashed px-4 py-6 text-center text-[13px]"
           style={{
@@ -47,16 +55,11 @@ export function VersionsTab({
         >
           No versions yet — upload the first one to get started.
         </p>
-      ) : (
+      ) : versions.length > 0 ? (
         versions.map((v) => (
-          <VersionRow
-            key={v.id}
-            version={v}
-            songTitle={song.title}
-            projectName={project.name}
-          />
+          <VersionRow key={v.id} version={v} songTitle={song.title} projectName={project.name} />
         ))
-      )}
+      ) : null}
     </section>
   );
 }

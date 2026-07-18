@@ -91,6 +91,12 @@ export type SongPageData = {
     projectId: string;
     projectTitle: string;
     clientName: string | null;
+    projectLifecycleStatus?:
+      | "waiting_for_payment"
+      | "active"
+      | "paused"
+      | "completed"
+      | "canceled";
   };
   versions: SongPageVersion[];
   comments: SongPageComment[];
@@ -321,9 +327,16 @@ export function SongPage({
 
   const clientLabel = data.track.clientName ?? data.track.artist ?? data.track.projectTitle;
   const heroBg = producerGradient(clientLabel);
+  const archivedLabel =
+    data.track.projectLifecycleStatus === "completed"
+      ? "Archived · Completed"
+      : data.track.projectLifecycleStatus === "canceled"
+        ? "Archived · Canceled"
+        : null;
+  const commentsClosed = archivedLabel !== null;
 
   function handleAddComment() {
-    if (!activeVersion) return;
+    if (!activeVersion || commentsClosed) return;
     const body = draftRef.current?.value.trim();
     if (!body) return;
     setError(null);
@@ -475,6 +488,7 @@ export function SongPage({
   // mention isn't parsed server-side yet, but it's a familiar
   // interaction and survives any future mention-renderer wiring.
   function handleReplyToComment(authorName: string) {
+    if (commentsClosed) return;
     const input = draftRef.current;
     if (!input) return;
     const prefix = `@${authorName} `;
@@ -678,9 +692,16 @@ export function SongPage({
 
             {/* Title block + meta */}
             <div className="reveal-up reveal-up-delay-1 min-w-0 flex-1">
-              <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-white/65">
-                Song · {data.track.projectTitle}
-              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-white/65">
+                  Song · {data.track.projectTitle}
+                </span>
+                {archivedLabel ? (
+                  <span className="inline-flex rounded-[var(--radius-sm)] border border-white/25 bg-white/12 px-2 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.08em] text-white/90 backdrop-blur-sm">
+                    {archivedLabel}
+                  </span>
+                ) : null}
+              </div>
               <h1
                 className="font-display mt-1 line-clamp-2 text-[clamp(24px,3.4vw,38px)] font-extrabold leading-[1.05] tracking-[-0.03em] [overflow-wrap:anywhere]"
                 style={{ textShadow: "0 2px 14px rgba(0,0,0,0.2)" }}
@@ -1016,48 +1037,60 @@ export function SongPage({
             </p>
           ) : null}
 
-          {/* Composer — premium pill, focus-state with amber ring. */}
-          <div
-            className={[
-              "group/composer mb-2.5 flex items-center gap-2 rounded-[var(--radius-sm)] border bg-[rgb(var(--bg-elevated))] py-1 pl-2 pr-1",
-              "border-[rgb(var(--border-subtle))]",
-              "transition-[border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)]",
-              "focus-within:border-[rgb(var(--brand-primary)/0.5)] focus-within:shadow-[0_0_0_4px_rgb(var(--brand-primary)/0.12)]",
-            ].join(" ")}
-          >
-            <span className="shrink-0 rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary)/0.14)] px-2.5 py-1 font-mono text-[10.5px] font-bold tabular-nums text-[rgb(var(--brand-primary-dark))]">
-              @{fmtMs(currentMs)}
-            </span>
-            <input
-              ref={draftRef}
-              type="text"
-              maxLength={2000}
-              placeholder="Add a note at this timestamp…"
-              className="flex-1 bg-transparent text-[13.5px] outline-none placeholder:text-[rgb(var(--fg-muted))]"
-              onFocus={handleComposerFocus}
-              onBlur={handleComposerBlur}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  handleAddComment();
-                }
-              }}
-            />
-            <button
-              type="button"
-              onClick={handleAddComment}
-              disabled={isPending}
-              className="sk-press rounded-[var(--radius-sm)] bg-[rgb(var(--fg-default))] px-4 py-1.5 text-[11.5px] font-bold tracking-wide text-[rgb(var(--bg-elevated))] transition-[transform,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:-translate-y-px hover:shadow-[0_8px_20px_-6px_rgb(var(--fg-default)/0.35)] disabled:opacity-60"
+          {commentsClosed ? (
+            <div
+              role="status"
+              className="mb-2.5 rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-3 py-2.5 text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))]"
             >
-              Post
-            </button>
-          </div>
+              This project is archived. New comments are closed, but listening and
+              comment history remain available.
+            </div>
+          ) : (
+            /* Composer — premium pill, focus-state with amber ring. */
+            <div
+              className={[
+                "group/composer mb-2.5 flex items-center gap-2 rounded-[var(--radius-sm)] border bg-[rgb(var(--bg-elevated))] py-1 pl-2 pr-1",
+                "border-[rgb(var(--border-subtle))]",
+                "transition-[border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)]",
+                "focus-within:border-[rgb(var(--brand-primary)/0.5)] focus-within:shadow-[0_0_0_4px_rgb(var(--brand-primary)/0.12)]",
+              ].join(" ")}
+            >
+              <span className="shrink-0 rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary)/0.14)] px-2.5 py-1 font-mono text-[10.5px] font-bold tabular-nums text-[rgb(var(--brand-primary-dark))]">
+                @{fmtMs(currentMs)}
+              </span>
+              <input
+                ref={draftRef}
+                type="text"
+                maxLength={2000}
+                placeholder="Add a note at this timestamp…"
+                className="flex-1 bg-transparent text-[13.5px] outline-none placeholder:text-[rgb(var(--fg-muted))]"
+                onFocus={handleComposerFocus}
+                onBlur={handleComposerBlur}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleAddComment();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={handleAddComment}
+                disabled={isPending}
+                className="sk-press rounded-[var(--radius-sm)] bg-[rgb(var(--fg-default))] px-4 py-1.5 text-[11.5px] font-bold tracking-wide text-[rgb(var(--bg-elevated))] transition-[transform,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:-translate-y-px hover:shadow-[0_8px_20px_-6px_rgb(var(--fg-default)/0.35)] disabled:opacity-60"
+              >
+                Post
+              </button>
+            </div>
+          )}
 
           {visibleComments.length === 0 ? (
             <div className="rounded-[14px] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-7 text-center text-[12.5px] text-[rgb(var(--fg-muted))]">
               <ArrowUpHint />
               <p className="mt-2">
-                No notes yet. Type one above to drop it at the current playhead.
+                {commentsClosed
+                  ? "No notes were added before this project was archived."
+                  : "No notes yet. Type one above to drop it at the current playhead."}
               </p>
             </div>
           ) : (
@@ -1127,16 +1160,18 @@ export function SongPage({
                       >
                         Jump
                       </button>
-                      <button
-                        type="button"
-                        data-test="comment-reply"
-                        onClick={() => {
-                          handleReplyToComment(c.authorName);
-                        }}
-                        className="relative hidden text-[10px] font-bold uppercase tracking-wide text-[rgb(var(--fg-muted))] before:absolute before:-inset-y-[15px] before:-inset-x-1 before:content-[''] hover:text-[rgb(var(--fg-default))] group-hover/note:inline [@media(hover:none)]:inline"
-                      >
-                        Reply
-                      </button>
+                      {!commentsClosed ? (
+                        <button
+                          type="button"
+                          data-test="comment-reply"
+                          onClick={() => {
+                            handleReplyToComment(c.authorName);
+                          }}
+                          className="relative hidden text-[10px] font-bold uppercase tracking-wide text-[rgb(var(--fg-muted))] before:absolute before:-inset-y-[15px] before:-inset-x-1 before:content-[''] hover:text-[rgb(var(--fg-default))] group-hover/note:inline [@media(hover:none)]:inline"
+                        >
+                          Reply
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => {
@@ -1217,16 +1252,18 @@ export function SongPage({
                         >
                           Jump to
                         </button>
-                        <button
-                          type="button"
-                          data-test="comment-reply"
-                          onClick={() => {
-                            handleReplyToComment(c.authorName);
-                          }}
-                          className="relative text-[rgb(var(--fg-muted))] before:absolute before:-inset-y-[15px] before:-inset-x-1 before:content-[''] hover:text-[rgb(var(--fg-default))]"
-                        >
-                          Reply
-                        </button>
+                        {!commentsClosed ? (
+                          <button
+                            type="button"
+                            data-test="comment-reply"
+                            onClick={() => {
+                              handleReplyToComment(c.authorName);
+                            }}
+                            className="relative text-[rgb(var(--fg-muted))] before:absolute before:-inset-y-[15px] before:-inset-x-1 before:content-[''] hover:text-[rgb(var(--fg-default))]"
+                          >
+                            Reply
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           onClick={() => {
@@ -1389,4 +1426,3 @@ function ArrowUpHint() {
     </svg>
   );
 }
-

@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 
 import { playerPlay } from "~/components/audio/persistent-player";
@@ -15,6 +16,15 @@ import { VersionsTab } from "./song-tabs/versions-tab";
 import { SessionsTab, type SessionsTabSession } from "./song-tabs/sessions-tab";
 import { UploadTrackModal } from "./upload-track-modal";
 import type { VersionRowVersionData } from "./version-row";
+import {
+  ProjectActionControls,
+  type ProjectActionProject,
+} from "~/components/dashboard/projects/project-action-controls";
+import {
+  ProjectPurchasesPanel,
+  type ProjectPurchaseSummary,
+} from "~/components/dashboard/projects/project-purchases-panel";
+import { canCreatePurchaseOwnedProjectWork } from "~/components/dashboard/projects/project-upload-access";
 
 // SongSpace — top-level shell for the new Song Space (and Single
 // Space). Owns the active-tab state, composes SongSpaceHero +
@@ -28,6 +38,7 @@ import type { VersionRowVersionData } from "./version-row";
 
 export interface SongSpaceSong {
   id: string;
+  purchaseId: string;
   title: string;
   currentVersion: string;
   noteCount: number;
@@ -56,6 +67,8 @@ interface SongSpaceProps {
   mode: "album" | "single";
   song: SongSpaceSong;
   project: SongSpaceProject;
+  actionProject: ProjectActionProject;
+  purchases: readonly ProjectPurchaseSummary[];
   client: SongSpaceClient;
   versions: VersionRowVersionData[];
   sessions: SessionsTabSession[];
@@ -66,12 +79,35 @@ export function SongSpace({
   mode,
   song,
   project,
+  actionProject,
+  purchases,
   client,
   versions,
   sessions,
   gradientToken,
 }: SongSpaceProps) {
+  const router = useRouter();
   const [active, setActive] = useState<SongTab>("overview");
+  const projectActive = actionProject.lifecycleStatus === "active";
+  const canUpload = canCreatePurchaseOwnedProjectWork({
+    projectLifecycleStatus: actionProject.lifecycleStatus,
+    purchaseId: song.purchaseId,
+    purchases,
+  });
+  const archived =
+    actionProject.lifecycleStatus === "completed" || actionProject.lifecycleStatus === "canceled";
+  const newWorkBlockedReason = archived
+    ? "New work is closed because this project is archived."
+    : projectActive
+      ? "New work requires an active purchase or accepted offer."
+      : "New work requires an active project.";
+  const lifecycleLabel = archived
+    ? `Archived · ${actionProject.lifecycleStatus === "completed" ? "Completed" : "Canceled"}`
+    : actionProject.lifecycleStatus === "waiting_for_payment"
+      ? "Waiting for payment"
+      : actionProject.lifecycleStatus === "paused"
+        ? "Paused project"
+        : "Active project";
   // Phase 4: the Upload Track modal lives at the SongSpace level so both
   // the SongSpaceHero CTA and the VersionsTab drop zone open the same
   // instance. mode="new-version" + a locked trackId means the modal's
@@ -117,9 +153,37 @@ export function SongSpace({
         project={project}
         client={client}
         gradientToken={gradientToken}
+        uploadDisabledReason={newWorkBlockedReason}
         {...(hasPlayable ? { onPlayLatest: handlePlayLatest } : {})}
-        onUploadNewVersion={openUpload}
+        {...(canUpload ? { onUploadNewVersion: openUpload } : {})}
       />
+
+      <section
+        className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3.5 sm:flex-row sm:items-center sm:justify-between sm:p-4"
+        aria-label="Project lifecycle"
+      >
+        <div className="min-w-0">
+          <p className="text-[10.5px] font-bold tracking-[0.11em] text-[rgb(var(--fg-muted))] uppercase">
+            {lifecycleLabel}
+          </p>
+          <p className="mt-1 text-[12.5px] leading-snug text-[rgb(var(--fg-muted))]">
+            {archived
+              ? "Listening, payments, comments, history, and public links remain available. New uploads and comments are closed."
+              : projectActive && canUpload
+                ? "Edit project details or archive the work when it is finished."
+                : projectActive
+                  ? `Comments are open. ${newWorkBlockedReason}`
+                  : "Uploads remain closed until this project returns to active work."}
+          </p>
+        </div>
+        <ProjectActionControls
+          project={actionProject}
+          className="sm:justify-end"
+          onDeleted={() => {
+            router.push("/dashboard/clients-projects");
+          }}
+        />
+      </section>
 
       {/* I5 — ChangeStageMenu now lives INSIDE the Status tile of the
           stat strip (via the trackId prop). Pre-fix this section was a
@@ -133,7 +197,7 @@ export function SongSpace({
         isOverdue={song.isOverdue}
         currentVersion={song.currentVersion}
         revisionCount={song.revisionCount}
-        trackId={song.id}
+        {...(projectActive ? { trackId: song.id } : {})}
       />
 
       <SongTabs active={active} onChange={setActive} versionsCount={versions.length} />
@@ -145,6 +209,11 @@ export function SongSpace({
           latestVersions={versions}
           client={client}
           mode={mode}
+          emptyVersionsMessage={
+            canUpload
+              ? "No versions yet — upload the first one to get started."
+              : newWorkBlockedReason
+          }
           onShowAllVersions={() => {
             setActive("versions");
           }}
@@ -155,23 +224,27 @@ export function SongSpace({
           song={{ title: song.title }}
           project={{ name: project.name }}
           versions={versions}
-          onAddVersion={openUpload}
+          blockedReason={newWorkBlockedReason}
+          {...(canUpload ? { onAddVersion: openUpload } : {})}
         />
       ) : null}
       {active === "sessions" ? <SessionsTab sessions={sessions} /> : null}
+      <ProjectPurchasesPanel projectId={project.id} purchases={purchases} />
       {/* Phase 4: shared Upload Track modal — fired from SongSpaceHero's
           "Upload new version" CTA AND from the VersionsTab drop zone.
           The song picker is locked (mode="new-version" + trackId), so
           the producer can't accidentally upload into a different track. */}
-      <UploadTrackModal
-        open={uploadOpen}
-        onClose={closeUpload}
-        projectId={project.id}
-        mode="new-version"
-        trackId={song.id}
-        defaultLabel={defaultLabel}
-        tracks={[{ id: song.id, title: song.title, versionCount: versions.length }]}
-      />
+      {canUpload ? (
+        <UploadTrackModal
+          open={uploadOpen}
+          onClose={closeUpload}
+          projectId={project.id}
+          mode="new-version"
+          trackId={song.id}
+          defaultLabel={defaultLabel}
+          tracks={[{ id: song.id, title: song.title, versionCount: versions.length }]}
+        />
+      ) : null}
     </div>
   );
 }

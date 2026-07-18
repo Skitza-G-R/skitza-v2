@@ -102,6 +102,28 @@ export async function permanentlyDeleteEmptyDraftClient(
   });
 }
 
+/**
+ * Advisory visibility check for the empty-project delete control. The delete
+ * mutation repeats the same locked checks, so this result is never treated as
+ * authorization and may safely become stale between render and click.
+ */
+export async function canPermanentlyDeleteEmptyDraftProject(
+  repository: HistoricalDeletionRepository,
+  scope: Readonly<{ producerId: string; projectId: string }>,
+): Promise<boolean> {
+  return repository.atomically({ kind: "project", id: scope.projectId }, async (transaction) => {
+    const project = await transaction.lockProject(scope);
+    if (
+      !project ||
+      project.producerId !== scope.producerId ||
+      project.lifecycleStatus !== "waiting_for_payment"
+    ) {
+      return false;
+    }
+    return !(await transaction.projectHasHistory(scope));
+  });
+}
+
 export async function permanentlyDeleteEmptyDraftProject(
   repository: HistoricalDeletionRepository,
   scope: Readonly<{ producerId: string; projectId: string }>,

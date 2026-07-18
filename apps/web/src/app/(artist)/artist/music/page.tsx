@@ -2,6 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 
 import {
   MusicLibraryScreen,
+  type MusicLibraryProjectRow,
   type MusicLibraryRow,
 } from "~/components/music/library-screen";
 import { appRouter } from "~/server/trpc/routers/_app";
@@ -22,7 +23,10 @@ export default async function MusicPage() {
   if (!userId) return null;
 
   const caller = appRouter.createCaller({ userId });
-  const data = await caller.artist.music.list();
+  const [data, projectData] = await Promise.all([
+    caller.artist.music.list(),
+    caller.artist.music.projects(),
+  ]);
 
   const rows: MusicLibraryRow[] = data.tracks.map((t) => ({
     id: t.id,
@@ -32,6 +36,7 @@ export default async function MusicPage() {
     label: t.label,
     projectId: t.projectId,
     projectTitle: t.projectTitle,
+    projectLifecycleStatus: t.projectLifecycleStatus,
     // On the wire from artist.music.list, `clientName` is overloaded
     // with the producer's display name (see the procedure header in
     // routers/artist.ts) so this shared component renders identically.
@@ -41,6 +46,15 @@ export default async function MusicPage() {
     durationMs: t.durationMs,
     unreadComments: t.unreadComments,
     plays: t.plays,
+  }));
+
+  const projectRows: MusicLibraryProjectRow[] = projectData.projects.map((project) => ({
+    id: project.projectId,
+    title: project.title,
+    artistLabel: project.producerName,
+    trackCount: project.trackCount,
+    projectLifecycleStatus: project.projectLifecycleStatus,
+    latestTrackUploadedAtIso: project.latestTrackUploadedAt?.toISOString() ?? null,
   }));
 
   // Negative margins break the page out of the artist shell's
@@ -75,7 +89,7 @@ export default async function MusicPage() {
         className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[360px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.10)] to-transparent"
       />
       <div className="mx-auto mt-10 max-w-[1180px] px-4 pt-6 pb-24 sm:px-7 sm:pt-8 lg:mt-0">
-        <MusicLibraryScreen tracks={rows} role="artist" />
+        <MusicLibraryScreen tracks={rows} projectRows={projectRows} role="artist" />
       </div>
     </div>
   );
