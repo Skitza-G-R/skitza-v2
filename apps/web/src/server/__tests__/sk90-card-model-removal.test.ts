@@ -105,13 +105,13 @@ describe("SK-90 removed card-processing paths", () => {
     expect(producer).not.toMatch(/invoiceItems|unpaidInvoiceRows|kind:\s*"invoice"/);
   });
 
-  it("does not expose dead project commercial or legacy-lifecycle commands", () => {
+  it("does not expose dead project commercial or legacy-stage commands", () => {
     const project = source("src/server/trpc/routers/project.ts");
     const actions = source("src/app/(producer)/dashboard/clients-projects/actions.ts");
 
-    expect(project).not.toMatch(/\b(money|setPaid|chargeFinal|cancel|setStage|setStageBulk):/);
+    expect(project).not.toMatch(/\b(money|setPaid|chargeFinal|setStage|setStageBulk):/);
     expect(actions).not.toMatch(
-      /\b(setProjectPaid|chargeFinalAction|cancelProjectAction|setStageAction|bulkSetProjectStage)\b/,
+      /\b(setProjectPaid|chargeFinalAction|setStageAction|bulkSetProjectStage)\b/,
     );
     expect(existsSync(join(webRoot, "src/components/project/confirm-charge-modal.tsx"))).toBe(
       false,

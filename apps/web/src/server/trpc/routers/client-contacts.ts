@@ -4,9 +4,13 @@ import {
   asc,
   bookings,
   clientContacts,
+  notifications,
+  privateOffers,
   producers,
   projectTracks,
   projects,
+  purchaseRequests,
+  purchases,
   desc,
   eq,
   inArray,
@@ -142,6 +146,8 @@ export const clientContactsRouter = router({
           id: projects.id,
           title: projects.title,
           lifecycleStatus: projects.lifecycleStatus,
+          workflowStage: projects.workflowStage,
+          deadlineAt: projects.deadlineAt,
           createdAt: projects.createdAt,
           updatedAt: projects.updatedAt,
           clientContactId: projects.clientContactId,
@@ -152,6 +158,26 @@ export const clientContactsRouter = router({
           nextSessionAt: sql<
             Date | string | null
           >`min(case when ${bookings.startsAt} > now() and ${bookings.status} = 'confirmed' then ${bookings.startsAt} end)`,
+          canPermanentlyDelete: sql<boolean>`(
+            ${projects.lifecycleStatus} = 'waiting_for_payment'
+            and not exists(select 1 from ${projectTracks}
+              where ${projectTracks.projectId} = ${projects.id})
+            and not exists(select 1 from ${purchases}
+              where ${purchases.producerId} = ${projects.producerId}
+                and ${purchases.projectId} = ${projects.id})
+            and not exists(select 1 from ${purchaseRequests}
+              where ${purchaseRequests.producerId} = ${projects.producerId}
+                and ${purchaseRequests.projectId} = ${projects.id})
+            and not exists(select 1 from ${privateOffers}
+              where ${privateOffers.producerId} = ${projects.producerId}
+                and ${privateOffers.targetProjectId} = ${projects.id})
+            and not exists(select 1 from ${bookings}
+              where ${bookings.producerId} = ${projects.producerId}
+                and ${bookings.projectId} = ${projects.id})
+            and not exists(select 1 from ${notifications}
+              where ${notifications.producerId} = ${projects.producerId}
+                and ${notifications.projectId} = ${projects.id})
+          )`,
         })
         .from(projects)
         .leftJoin(bookings, eq(bookings.projectId, projects.id))
@@ -207,6 +233,8 @@ export const clientContactsRouter = router({
           id: p.id,
           title: p.title,
           lifecycleStatus: p.lifecycleStatus,
+          workflowStage: p.workflowStage,
+          deadlineAt: p.deadlineAt,
           createdAt: p.createdAt,
           updatedAt: p.updatedAt,
           clientContactId: p.clientContactId,
@@ -219,6 +247,7 @@ export const clientContactsRouter = router({
           lastActivity,
           unresolvedComments: cm.unresolved,
           isActive,
+          canPermanentlyDelete: p.canPermanentlyDelete,
         };
       });
 
@@ -896,12 +925,34 @@ export const clientContactsRouter = router({
           id: projects.id,
           title: projects.title,
           lifecycleStatus: projects.lifecycleStatus,
+          workflowStage: projects.workflowStage,
+          deadlineAt: projects.deadlineAt,
           clientContactId: projects.clientContactId,
           createdAt: projects.createdAt,
           updatedAt: projects.updatedAt,
           nextSessionAt: sql<
             Date | string | null
           >`min(case when ${bookings.startsAt} > now() and ${bookings.status} = 'confirmed' then ${bookings.startsAt} end)`,
+          canPermanentlyDelete: sql<boolean>`(
+            ${projects.lifecycleStatus} = 'waiting_for_payment'
+            and not exists(select 1 from ${projectTracks}
+              where ${projectTracks.projectId} = ${projects.id})
+            and not exists(select 1 from ${purchases}
+              where ${purchases.producerId} = ${projects.producerId}
+                and ${purchases.projectId} = ${projects.id})
+            and not exists(select 1 from ${purchaseRequests}
+              where ${purchaseRequests.producerId} = ${projects.producerId}
+                and ${purchaseRequests.projectId} = ${projects.id})
+            and not exists(select 1 from ${privateOffers}
+              where ${privateOffers.producerId} = ${projects.producerId}
+                and ${privateOffers.targetProjectId} = ${projects.id})
+            and not exists(select 1 from ${bookings}
+              where ${bookings.producerId} = ${projects.producerId}
+                and ${bookings.projectId} = ${projects.id})
+            and not exists(select 1 from ${notifications}
+              where ${notifications.producerId} = ${projects.producerId}
+                and ${notifications.projectId} = ${projects.id})
+          )`,
         })
         .from(projects)
         .leftJoin(bookings, eq(bookings.projectId, projects.id))

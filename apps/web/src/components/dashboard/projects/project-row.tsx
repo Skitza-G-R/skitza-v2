@@ -4,10 +4,9 @@ import Link from "next/link";
 import type { DragEvent } from "react";
 import { ChevronRight, GripVertical } from "lucide-react";
 
-import {
-  producerGradient,
-  producerInitials,
-} from "~/lib/_phase4-stubs/producer-color";
+import { ProjectActionControls } from "~/components/dashboard/projects/project-action-controls";
+import { producerGradient, producerInitials } from "~/lib/_phase4-stubs/producer-color";
+import type { WorkflowStage } from "~/lib/clients/workflow-stage";
 
 // Status pill tone — drives a small uppercase pill on each row that
 // reads "Overdue" / "Awaiting reply" / "On track" / "Done" etc.
@@ -22,6 +21,8 @@ export type ProjectRowStatusTone = "danger" | "warn" | "ok" | "neutral";
 export interface ProjectRowData {
   id: string;
   title: string;
+  lifecycleStatus: "waiting_for_payment" | "active" | "paused" | "completed" | "canceled";
+  workflowStage: WorkflowStage;
   client: string;
   /** Client email — rendered muted UNDER the client name in the client
    *  column (G7 design alignment). Previously this was passed as `meta`
@@ -44,6 +45,8 @@ export interface ProjectRowData {
   updatedAtIso?: string;
   /** Deadline timestamp (ISO, null when no upcoming session) — drives "deadline" sort. */
   deadlineAtIso?: string | null;
+  /** Exact advisory result; the server rechecks under lock before deleting. */
+  canPermanentlyDelete: boolean;
 }
 
 interface ProjectRowProps {
@@ -112,13 +115,7 @@ function formatMoney(cents: number, currency: string): string {
   }
 }
 
-export function ProjectRow({
-  row,
-  hideClient,
-  onDragStart,
-  onDragOver,
-  onDrop,
-}: ProjectRowProps) {
+export function ProjectRow({ row, hideClient, onDragStart, onDragOver, onDrop }: ProjectRowProps) {
   const {
     id,
     title,
@@ -136,6 +133,15 @@ export function ProjectRow({
 
   const tone = toneStyle(statusTone);
   const toneCls = toneClass(statusTone);
+  const actionProject = {
+    id: row.id,
+    title: row.title,
+    clientName: row.client,
+    lifecycleStatus: row.lifecycleStatus,
+    workflowStage: row.workflowStage,
+    deadlineAtIso: row.deadlineAtIso ?? null,
+    canDeleteEmptyDraft: row.canPermanentlyDelete,
+  };
   // G9 — 3px left accent bar (design HTML 170–172): paints a vertical
   // attention strip on danger/warn rows so "needs attention" reads at
   // a glance, not only via the small pill. Neutral/ok rows get no bar.
@@ -150,9 +156,27 @@ export function ProjectRow({
     <div
       draggable="true"
       data-id={id}
-      onDragStart={onDragStart ? (e) => { onDragStart(e, id); } : undefined}
-      onDragOver={onDragOver ? (e) => { onDragOver(e, id); } : undefined}
-      onDrop={onDrop ? (e) => { onDrop(e, id); } : undefined}
+      onDragStart={
+        onDragStart
+          ? (e) => {
+              onDragStart(e, id);
+            }
+          : undefined
+      }
+      onDragOver={
+        onDragOver
+          ? (e) => {
+              onDragOver(e, id);
+            }
+          : undefined
+      }
+      onDrop={
+        onDrop
+          ? (e) => {
+              onDrop(e, id);
+            }
+          : undefined
+      }
       className="group relative overflow-hidden rounded-[var(--radius-md)] border transition-colors hover:border-[rgb(var(--border-strong))]"
       style={{
         background: "rgb(var(--bg-elevated))",
@@ -173,116 +197,102 @@ export function ProjectRow({
       <div
         className="hidden items-center gap-3 px-3 py-2.5 md:grid"
         style={{
-          gridTemplateColumns:
-            "24px 44px minmax(0,1.6fr) minmax(0,1fr) 120px 100px 110px 36px",
+          gridTemplateColumns: "24px 44px minmax(0,1.6fr) minmax(0,1fr) 120px 100px 110px 36px",
         }}
       >
-      <span
-        // G8 — grip is permanently visible at muted opacity so the user
-        // sees at-a-glance that rows are reorderable. Brightens on row
-        // hover for affordance.
-        className="flex h-6 w-6 cursor-grab items-center justify-center opacity-60 transition-opacity group-hover:opacity-100"
-        style={{ color: "rgb(var(--fg-muted))" }}
-        aria-hidden
-      >
-        <GripVertical size={14} />
-      </span>
-
-      <span
-        className="flex h-11 w-11 items-center justify-center rounded-[var(--radius-sm)] text-[12px] font-bold text-white"
-        style={{ background: badgeBg }}
-        aria-hidden
-      >
-        {initials}
-      </span>
-
-      <div className="min-w-0">
-        <Link
-          href={`/dashboard/clients-projects/${id}`}
-          className="block truncate text-[14px] font-semibold focus-visible:outline-none focus-visible:underline"
-          style={{ color: "rgb(var(--fg-default))" }}
-        >
-          {title}
-        </Link>
-        {/* G10 — solid tinted status pill matching design HTML 131–135:
-            6px radius, 9.5px uppercase with wide tracking, tinted fill +
-            22% border. toneStyle already gives the tinted colors. */}
         <span
-          className={`mt-1 inline-flex items-center rounded-[6px] border px-1.5 py-[2px] text-[9.5px] font-semibold uppercase tracking-[0.1em] ${toneCls}`}
-          style={tone}
-        >
-          {status}
-        </span>
-      </div>
-
-      <div className="min-w-0">
-        <p
-          className="truncate text-[13px] font-medium"
-          style={{ color: "rgb(var(--fg-default))" }}
-        >
-          {client}
-        </p>
-        {clientEmail ? (
-          <p
-            className="truncate text-[11px]"
-            style={{ color: "rgb(var(--fg-muted))" }}
-          >
-            {clientEmail}
-          </p>
-        ) : null}
-      </div>
-
-      <div className="flex items-center gap-2">
-        <div
-          className="h-1.5 flex-1 overflow-hidden rounded-full"
-          style={{ background: "rgb(var(--border-subtle))" }}
+          // G8 — grip is permanently visible at muted opacity so the user
+          // sees at-a-glance that rows are reorderable. Brightens on row
+          // hover for affordance.
+          className="flex h-6 w-6 cursor-grab items-center justify-center opacity-60 transition-opacity group-hover:opacity-100"
+          style={{ color: "rgb(var(--fg-muted))" }}
           aria-hidden
         >
-          <div
-            className="h-full"
-            style={{
-              width:
-                progress === null
-                  ? "0%"
-                  : `${String(Math.max(0, Math.min(100, progress)))}%`,
-              background: "rgb(var(--brand-primary))",
-            }}
-          />
-        </div>
-        <span
-          className="w-16 text-right text-[11px] tabular-nums"
-          style={{ color: "rgb(var(--fg-muted))" }}
-        >
-          {progress === null ? "Unavailable" : `${String(progress)}%`}
+          <GripVertical size={14} />
         </span>
-      </div>
 
-      <div
-        className="text-right text-[13px] font-medium tabular-nums"
-        style={{
-          color:
-            balance !== null && balance > 0
-              ? "rgb(var(--fg-danger))"
-              : "rgb(var(--fg-muted))",
-        }}
-      >
-        {balance === null ? "Unavailable" : balance > 0 ? formatMoney(balance, currency) : "—"}
-      </div>
+        <span
+          className="flex h-11 w-11 items-center justify-center rounded-[var(--radius-sm)] text-[12px] font-bold text-white"
+          style={{ background: badgeBg }}
+          aria-hidden
+        >
+          {initials}
+        </span>
 
-      <div
-        className="text-right text-[12px]"
-        style={{ color: "rgb(var(--fg-muted))" }}
-      >
-        {deadline}
-      </div>
+        <div className="min-w-0">
+          <Link
+            href={`/dashboard/clients-projects/${id}`}
+            className="block truncate text-[14px] font-semibold focus-visible:underline focus-visible:outline-none"
+            style={{ color: "rgb(var(--fg-default))" }}
+          >
+            {title}
+          </Link>
+          {/* G10 — solid tinted status pill matching design HTML 131–135:
+            6px radius, 9.5px uppercase with wide tracking, tinted fill +
+            22% border. toneStyle already gives the tinted colors. */}
+          <span
+            className={`mt-1 inline-flex items-center rounded-[6px] border px-1.5 py-[2px] text-[9.5px] font-semibold tracking-[0.1em] uppercase ${toneCls}`}
+            style={tone}
+          >
+            {status}
+          </span>
+        </div>
 
-      {/* Decorative — lucide-react auto-marks the SVG aria-hidden when
+        <div className="min-w-0">
+          <p
+            className="truncate text-[13px] font-medium"
+            style={{ color: "rgb(var(--fg-default))" }}
+          >
+            {client}
+          </p>
+          {clientEmail ? (
+            <p className="truncate text-[11px]" style={{ color: "rgb(var(--fg-muted))" }}>
+              {clientEmail}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div
+            className="h-1.5 flex-1 overflow-hidden rounded-full"
+            style={{ background: "rgb(var(--border-subtle))" }}
+            aria-hidden
+          >
+            <div
+              className="h-full"
+              style={{
+                width:
+                  progress === null ? "0%" : `${String(Math.max(0, Math.min(100, progress)))}%`,
+                background: "rgb(var(--brand-primary))",
+              }}
+            />
+          </div>
+          <span
+            className="w-16 text-right text-[11px] tabular-nums"
+            style={{ color: "rgb(var(--fg-muted))" }}
+          >
+            {progress === null ? "Unavailable" : `${String(progress)}%`}
+          </span>
+        </div>
+
+        <div
+          className="text-right text-[13px] font-medium tabular-nums"
+          style={{
+            color:
+              balance !== null && balance > 0 ? "rgb(var(--fg-danger))" : "rgb(var(--fg-muted))",
+          }}
+        >
+          {balance === null ? "Unavailable" : balance > 0 ? formatMoney(balance, currency) : "—"}
+        </div>
+
+        <div className="text-right text-[12px]" style={{ color: "rgb(var(--fg-muted))" }}>
+          {deadline}
+        </div>
+
+        {/* Decorative — lucide-react auto-marks the SVG aria-hidden when
           no aria-* / role / title prop is set. The visible pill above
           already conveys status text to screen readers. */}
-      <ChevronRight
-        size={14}
-        style={{ color: "rgb(var(--fg-muted))" }}
-      />
+        <ChevronRight size={14} style={{ color: "rgb(var(--fg-muted))" }} />
       </div>
 
       {/* Mobile (<md) — SK-47: 2-line card-style row. Line 1 = avatar +
@@ -291,7 +301,7 @@ export function ProjectRow({
           is desktop-only (touch drag conflicts with scroll). */}
       <Link
         href={`/dashboard/clients-projects/${id}`}
-        className="flex min-h-[44px] items-center gap-3 px-3.5 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary)/0.4)] md:hidden"
+        className="flex min-h-[44px] items-center gap-3 px-3.5 py-3 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.4)] focus-visible:outline-none focus-visible:ring-inset md:hidden"
         draggable={false}
       >
         <span
@@ -310,7 +320,7 @@ export function ProjectRow({
               {title}
             </span>
             <span
-              className={`inline-flex shrink-0 items-center rounded-[6px] border px-1.5 py-[2px] text-[9.5px] font-semibold uppercase tracking-[0.1em] ${toneCls}`}
+              className={`inline-flex shrink-0 items-center rounded-[6px] border px-1.5 py-[2px] text-[9.5px] font-semibold tracking-[0.1em] uppercase ${toneCls}`}
               style={tone}
             >
               {status}
@@ -319,14 +329,12 @@ export function ProjectRow({
           {/* SK-64 — meta segments are conditional: the client name is
               omitted inside that client's own space, and a missing
               deadline no longer renders a dangling em dash. */}
-          {(!hideClient || deadline !== "\u2014" || balance === null || balance > 0) ? (
+          {!hideClient || deadline !== "\u2014" || balance === null || balance > 0 ? (
             <span
               className="mt-1 flex items-center gap-1 text-[12px]"
               style={{ color: "rgb(var(--fg-muted))" }}
             >
-              {!hideClient ? (
-                <span className="min-w-0 truncate">{client}</span>
-              ) : null}
+              {!hideClient ? <span className="min-w-0 truncate">{client}</span> : null}
               {deadline !== "\u2014" ? (
                 <>
                   {!hideClient ? <span aria-hidden>&middot;</span> : null}
@@ -335,16 +343,12 @@ export function ProjectRow({
               ) : null}
               {balance === null ? (
                 <>
-                  {!hideClient || deadline !== "\u2014" ? (
-                    <span aria-hidden>&middot;</span>
-                  ) : null}
+                  {!hideClient || deadline !== "\u2014" ? <span aria-hidden>&middot;</span> : null}
                   <span className="shrink-0 font-semibold">Balance unavailable</span>
                 </>
               ) : balance > 0 ? (
                 <>
-                  {!hideClient || deadline !== "\u2014" ? (
-                    <span aria-hidden>&middot;</span>
-                  ) : null}
+                  {!hideClient || deadline !== "\u2014" ? <span aria-hidden>&middot;</span> : null}
                   <span
                     className="shrink-0 font-semibold tabular-nums"
                     style={{ color: "rgb(var(--fg-danger))" }}
@@ -356,12 +360,20 @@ export function ProjectRow({
             </span>
           ) : null}
         </span>
-        <ChevronRight
-          size={16}
-          className="shrink-0"
-          style={{ color: "rgb(var(--fg-muted))" }}
-        />
+        <ChevronRight size={16} className="shrink-0" style={{ color: "rgb(var(--fg-muted))" }} />
       </Link>
+
+      <div
+        className="border-t px-3 py-2.5"
+        style={{ borderColor: "rgb(var(--border-subtle))" }}
+        draggable={false}
+        onDragStart={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+      >
+        <ProjectActionControls project={actionProject} />
+      </div>
     </div>
   );
 }

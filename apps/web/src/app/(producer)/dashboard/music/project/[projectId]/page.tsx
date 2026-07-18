@@ -47,6 +47,7 @@ export default async function ProducerProjectPage({ params }: PageProps) {
       title: data.project.title,
       clientName: data.project.clientName,
       createdAtIso: data.project.createdAt.toISOString(),
+      lifecycleStatus: data.project.lifecycleStatus,
     },
     tracks: data.tracks.map((t) => ({
       id: t.id,

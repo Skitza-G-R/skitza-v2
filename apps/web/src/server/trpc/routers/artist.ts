@@ -24,7 +24,7 @@ import {
   trackVersions,
   versionApprovalEvents,
 } from "@skitza/db";
-import type { Db, PaymentPlan, PurchaseCommercialSnapshot } from "@skitza/db";
+import type { Db, PaymentPlan, Project, PurchaseCommercialSnapshot } from "@skitza/db";
 import { TRPCError } from "@trpc/server";
 import { after } from "next/server";
 import { z } from "zod";
@@ -115,6 +115,7 @@ const musicSubrouter = router({
         .select({
           projectId: projects.id,
           title: projects.title,
+          projectLifecycleStatus: projects.lifecycleStatus,
           producerId: projects.producerId,
           producerName: producers.displayName,
           producerSlug: producers.slug,
@@ -203,6 +204,7 @@ const musicSubrouter = router({
       return {
         projectId: p.projectId,
         title: p.title,
+        projectLifecycleStatus: p.projectLifecycleStatus,
         producerId: p.producerId,
         producerName: p.producerName ?? "Untitled Studio",
         producerSlug: p.producerSlug,
@@ -255,6 +257,7 @@ const musicSubrouter = router({
         trackArtist: projectTracks.artist,
         projectId: projects.id,
         projectTitle: projects.title,
+        projectLifecycleStatus: projects.lifecycleStatus,
         producerName: producers.displayName,
       })
       .from(trackVersions)
@@ -313,6 +316,7 @@ const musicSubrouter = router({
       label: r.versionLabel,
       projectId: r.projectId,
       projectTitle: r.projectTitle,
+      projectLifecycleStatus: r.projectLifecycleStatus,
       // See the procedure header: this is the producer's display name
       // surfaced under the producer's `clientName` field on the wire,
       // so the shared component can render it without conditional logic.
@@ -467,6 +471,7 @@ const musicSubrouter = router({
           // ProjectPage renders without conditional logic.
           clientName: producerName,
           createdAt: project.createdAt,
+          lifecycleStatus: project.lifecycleStatus,
           // Artist-specific extras kept on the wire — used by the
           // sessions panel + the breadcrumb topbar publisher.
           producerId: project.producerId,
@@ -814,6 +819,7 @@ const musicSubrouter = router({
           projectId: head.projectId,
           projectTitle: head.projectTitle,
           clientName: producerName,
+          projectLifecycleStatus: ownedProject.lifecycleStatus,
         },
         versions,
         comments,
@@ -864,6 +870,7 @@ const musicSubrouter = router({
 export type MusicProjectRow = {
   projectId: string;
   title: string;
+  projectLifecycleStatus: Project["lifecycleStatus"];
   producerId: string;
   producerName: string;
   producerSlug: string;

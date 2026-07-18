@@ -12,6 +12,12 @@ import { ClientMoneyLedger } from "~/components/dashboard/clients/client-money-l
 import type { ClientCardData } from "~/components/dashboard/clients/client-card";
 import { ProjectRow, type ProjectRowData } from "~/components/dashboard/projects/project-row";
 import { SongSpace } from "~/components/dashboard/song/song-space";
+import { ProjectPage } from "~/components/music/project-page";
+import {
+  MusicLibraryScreen,
+  type MusicLibraryProjectRow,
+  type MusicLibraryRow,
+} from "~/components/music/library-screen";
 import {
   PurchaseStatusCard,
   type PurchaseStage,
@@ -82,6 +88,8 @@ const DEV_PROJECTS = [
   {
     id: "project-lior",
     title: "Full production",
+    lifecycleStatus: "active",
+    workflowStage: "production",
     client: "Lior Tansky",
     clientEmail: "lior@example.com",
     progress: 62,
@@ -92,10 +100,13 @@ const DEV_PROJECTS = [
     currency: "ILS",
     updatedAtIso: "2026-07-14T07:00:00.000Z",
     deadlineAtIso: "2026-07-28T12:00:00.000Z",
+    canPermanentlyDelete: false,
   },
   {
     id: "project-maya",
     title: "Debut single",
+    lifecycleStatus: "waiting_for_payment",
+    workflowStage: "brief",
     client: "Maya Cohen",
     clientEmail: "maya@example.com",
     progress: 30,
@@ -106,6 +117,7 @@ const DEV_PROJECTS = [
     currency: "ILS",
     updatedAtIso: "2026-07-13T07:00:00.000Z",
     deadlineAtIso: "2026-07-17T12:00:00.000Z",
+    canPermanentlyDelete: false,
   },
 ] satisfies ProjectRowData[];
 
@@ -223,6 +235,177 @@ const DEV_ARCHIVED_CLIENT_HERO = {
   activeProjects: 0,
   moneyHasMultipleCurrencies: false,
 } satisfies ClientSpaceHeroData;
+
+function ProjectSpaceDevPreview({
+  lifecycleStatus,
+  purchaseLifecycleStatus,
+}: {
+  lifecycleStatus: "active" | "completed" | "canceled";
+  purchaseLifecycleStatus?: "active" | "canceled";
+}) {
+  return (
+    <main id="main-content" tabIndex={-1} className="mx-auto max-w-[1400px] px-4 py-5 sm:px-6">
+      <SongSpace
+        mode="single"
+        song={{
+          id: "song-lior",
+          purchaseId: "purchase-lior",
+          title: "Midnight Drive",
+          currentVersion: "v3",
+          noteCount: 2,
+          durationMs: 193_000,
+          workflowStage: "mixing",
+          progress: 62,
+          deadline: "Jul 28",
+          isOverdue: false,
+          revisionCount: 2,
+        }}
+        project={{ id: "project-lior", name: "Full production" }}
+        actionProject={{
+          id: "project-lior",
+          title: "Full production",
+          clientName: "Lior Tansky",
+          lifecycleStatus,
+          workflowStage: "production",
+          deadlineAtIso: "2026-07-28T12:00:00.000Z",
+          canDeleteEmptyDraft: false,
+        }}
+        purchases={[
+          {
+            id: "purchase-lior",
+            sourceKind: "store_product",
+            sourceLabel: "Full production",
+            lifecycleStatus:
+              purchaseLifecycleStatus ?? (lifecycleStatus === "canceled" ? "canceled" : "active"),
+            totalCents: 150_000,
+            currency: "ILS",
+            installments: [],
+          },
+        ]}
+        client={{
+          id: "client-lior",
+          name: "Lior Tansky",
+          email: "lior@example.com",
+          linkState: "active",
+        }}
+        versions={[]}
+        sessions={[]}
+        gradientToken={deriveGradient("Midnight Drive")}
+      />
+    </main>
+  );
+}
+
+function ArtistArchivedProjectDevPreview({
+  lifecycleStatus,
+}: {
+  lifecycleStatus: "completed" | "canceled";
+}) {
+  return (
+    <main id="main-content" tabIndex={-1} className="mx-auto max-w-[1180px] px-4 py-5 sm:px-7">
+      <ProjectPage
+        role="artist"
+        data={{
+          project: {
+            id: "project-lior",
+            title: "Full production",
+            clientName: "Lior Tansky",
+            createdAtIso: "2026-05-18T07:00:00.000Z",
+            lifecycleStatus,
+          },
+          tracks: [
+            {
+              id: "version-midnight-drive-v3",
+              trackId: "song-lior",
+              title: "Midnight Drive",
+              artist: "Lior Tansky",
+              versionLabel: "v3",
+              audioUrl: "/icon",
+              durationMs: 193_000,
+              uploadedAtIso: "2026-07-14T07:00:00.000Z",
+              unreadComments: 2,
+              plays: 0,
+            },
+          ],
+        }}
+      />
+    </main>
+  );
+}
+
+const DEV_ARTIST_LIBRARY_TRACKS = [
+  {
+    id: "version-active-v2",
+    trackId: "track-active",
+    trackTitle: "Neon Morning",
+    trackArtist: "Maya Cohen",
+    label: "v2",
+    projectId: "project-active",
+    projectTitle: "Active single",
+    projectLifecycleStatus: "active",
+    clientName: "Skitza Studio",
+    uploadedAtIso: "2026-07-16T07:00:00.000Z",
+    audioUrl: "/icon",
+    durationMs: 188_000,
+    unreadComments: 1,
+    plays: 6,
+  },
+  {
+    id: "version-completed-v4",
+    trackId: "track-completed",
+    trackTitle: "Afterlight",
+    trackArtist: "Maya Cohen",
+    label: "v4",
+    projectId: "project-completed",
+    projectTitle: "Completed EP",
+    projectLifecycleStatus: "completed",
+    clientName: "Skitza Studio",
+    uploadedAtIso: "2026-06-12T07:00:00.000Z",
+    audioUrl: "/icon",
+    durationMs: 214_000,
+    unreadComments: 0,
+    plays: 19,
+  },
+] satisfies MusicLibraryRow[];
+
+const DEV_ARTIST_LIBRARY_PROJECTS = [
+  {
+    id: "project-active",
+    title: "Active single",
+    artistLabel: "Skitza Studio",
+    trackCount: 1,
+    projectLifecycleStatus: "active",
+    latestTrackUploadedAtIso: "2026-07-16T07:00:00.000Z",
+  },
+  {
+    id: "project-completed",
+    title: "Completed EP",
+    artistLabel: "Skitza Studio",
+    trackCount: 1,
+    projectLifecycleStatus: "completed",
+    latestTrackUploadedAtIso: "2026-06-12T07:00:00.000Z",
+  },
+  {
+    id: "project-canceled-empty",
+    title: "Canceled album draft",
+    artistLabel: "Skitza Studio",
+    trackCount: 0,
+    projectLifecycleStatus: "canceled",
+    latestTrackUploadedAtIso: null,
+  },
+] satisfies MusicLibraryProjectRow[];
+
+function ArtistLibraryLifecycleDevPreview() {
+  return (
+    <main id="main-content" tabIndex={-1} className="mx-auto max-w-[1180px] px-4 py-5 sm:px-7">
+      <MusicLibraryScreen
+        tracks={DEV_ARTIST_LIBRARY_TRACKS}
+        projectRows={DEV_ARTIST_LIBRARY_PROJECTS}
+        role="artist"
+      />
+    </main>
+  );
+}
 
 // Dev-only screen gallery for the handoff-4 wave (2026-07-05). Renders the
 // funnel screens with mock props at /dev/screens/<name> so visual QA can
@@ -509,35 +692,19 @@ export default async function DevScreenPage({ params }: Params) {
         </main>
       );
     case "project-space":
-      return (
-        <main id="main-content" tabIndex={-1} className="mx-auto max-w-[1400px] px-4 py-5 sm:px-6">
-          <SongSpace
-            mode="single"
-            song={{
-              id: "song-lior",
-              title: "Midnight Drive",
-              currentVersion: "v3",
-              noteCount: 2,
-              durationMs: 193_000,
-              workflowStage: "mixing",
-              progress: 62,
-              deadline: "Jul 28",
-              isOverdue: false,
-              revisionCount: 2,
-            }}
-            project={{ id: "project-lior", name: "Full production" }}
-            client={{
-              id: "client-lior",
-              name: "Lior Tansky",
-              email: "lior@example.com",
-              linkState: "active",
-            }}
-            versions={[]}
-            sessions={[]}
-            gradientToken={deriveGradient("Midnight Drive")}
-          />
-        </main>
-      );
+      return <ProjectSpaceDevPreview lifecycleStatus="active" />;
+    case "project-space-completed":
+      return <ProjectSpaceDevPreview lifecycleStatus="completed" />;
+    case "project-space-canceled":
+      return <ProjectSpaceDevPreview lifecycleStatus="canceled" />;
+    case "project-space-reopened-canceled-purchase":
+      return <ProjectSpaceDevPreview lifecycleStatus="active" purchaseLifecycleStatus="canceled" />;
+    case "artist-project-completed":
+      return <ArtistArchivedProjectDevPreview lifecycleStatus="completed" />;
+    case "artist-project-canceled":
+      return <ArtistArchivedProjectDevPreview lifecycleStatus="canceled" />;
+    case "artist-library-lifecycle":
+      return <ArtistLibraryLifecycleDevPreview />;
     case "add-song":
       return <UploadModalDevScreen />;
     case "gate2-queue":

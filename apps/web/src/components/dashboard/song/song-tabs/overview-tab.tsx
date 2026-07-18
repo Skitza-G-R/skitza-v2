@@ -3,16 +3,10 @@
 import Link from "next/link";
 import { ChevronRight, MessageCircle, User } from "lucide-react";
 
-import {
-  producerGradient,
-  producerInitials,
-} from "~/lib/_phase4-stubs/producer-color";
+import { producerGradient, producerInitials } from "~/lib/_phase4-stubs/producer-color";
 import type { WorkflowStage } from "~/lib/clients/workflow-stage";
 import { LinkPill, type LinkPillState } from "~/components/dashboard/clients/link-pill";
-import {
-  VersionRow,
-  type VersionRowVersionData,
-} from "~/components/dashboard/song/version-row";
+import { VersionRow, type VersionRowVersionData } from "~/components/dashboard/song/version-row";
 import { WorkflowStepper } from "~/components/dashboard/song/workflow-stepper";
 
 // OverviewTab — first tab in the Song Space (DESIGN.md §4.4):
@@ -50,6 +44,7 @@ interface OverviewTabProps {
   latestVersions: VersionRowVersionData[];
   client: OverviewTabClient;
   mode: "album" | "single";
+  emptyVersionsMessage: string;
   onShowAllVersions: () => void;
 }
 
@@ -59,6 +54,7 @@ export function OverviewTab({
   latestVersions,
   client,
   mode,
+  emptyVersionsMessage,
   onShowAllVersions,
 }: OverviewTabProps) {
   const topThree = latestVersions.slice(0, 3);
@@ -80,10 +76,7 @@ export function OverviewTab({
           borderColor: "rgb(var(--border-subtle))",
         }}
       >
-        <h3
-          className="font-syne text-[16px] font-bold"
-          style={{ color: "rgb(var(--fg-default))" }}
-        >
+        <h3 className="font-syne text-[16px] font-bold" style={{ color: "rgb(var(--fg-default))" }}>
           Workflow
         </h3>
         <div className="mt-4">
@@ -127,7 +120,7 @@ export function OverviewTab({
                 color: "rgb(var(--fg-muted))",
               }}
             >
-              No versions yet — upload the first one to get started.
+              {emptyVersionsMessage}
             </p>
           ) : (
             <div className="mt-4 space-y-1.5">

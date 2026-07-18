@@ -18,6 +18,7 @@ import {
 
 import type { HistoricalDeletionRepository } from "./service";
 import { clientAdvisoryLockKey } from "../client-management/lock";
+import { projectAdvisoryLockKey } from "../project-lifecycle/lock";
 
 export function historicalDeletionRepository(db: Db): HistoricalDeletionRepository {
   return {
@@ -27,7 +28,7 @@ export function historicalDeletionRepository(db: Db): HistoricalDeletionReposito
           sql`select pg_advisory_xact_lock(hashtextextended(${
             lockScope.kind === "client"
               ? clientAdvisoryLockKey(lockScope.id)
-              : `project:${lockScope.id}`
+              : projectAdvisoryLockKey(lockScope.id)
           }, 0))`,
         );
 
@@ -62,10 +63,7 @@ export function historicalDeletionRepository(db: Db): HistoricalDeletionReposito
               })
               .from(projects)
               .where(
-                and(
-                  eq(projects.id, scope.projectId),
-                  eq(projects.producerId, scope.producerId),
-                ),
+                and(eq(projects.id, scope.projectId), eq(projects.producerId, scope.producerId)),
               )
               .limit(1)
               .for("update");
@@ -133,10 +131,7 @@ export function historicalDeletionRepository(db: Db): HistoricalDeletionReposito
               })
               .from(projects)
               .where(
-                and(
-                  eq(projects.id, scope.projectId),
-                  eq(projects.producerId, scope.producerId),
-                ),
+                and(eq(projects.id, scope.projectId), eq(projects.producerId, scope.producerId)),
               )
               .limit(1);
             return row?.present === true;
@@ -157,10 +152,7 @@ export function historicalDeletionRepository(db: Db): HistoricalDeletionReposito
             const rows = await tx
               .delete(projects)
               .where(
-                and(
-                  eq(projects.id, scope.projectId),
-                  eq(projects.producerId, scope.producerId),
-                ),
+                and(eq(projects.id, scope.projectId), eq(projects.producerId, scope.producerId)),
               )
               .returning({ id: projects.id });
             return rows.length === 1;

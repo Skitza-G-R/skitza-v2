@@ -1054,6 +1054,7 @@ export const producerRouter = router({
           projectId: projects.id,
           projectTitle: projects.title,
           clientName: projects.clientName,
+          projectLifecycleStatus: projects.lifecycleStatus,
         })
         .from(trackVersions)
         .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
@@ -1111,6 +1112,7 @@ export const producerRouter = router({
         projectId: r.projectId,
         projectTitle: r.projectTitle,
         clientName: r.clientName,
+        projectLifecycleStatus: r.projectLifecycleStatus,
         uploadedAt: r.uploadedAt,
         audioUrl: r.audioUrl,
         durationMs: r.durationMs,
@@ -1138,6 +1140,7 @@ export const producerRouter = router({
             title: projects.title,
             clientName: projects.clientName,
             createdAt: projects.createdAt,
+            lifecycleStatus: projects.lifecycleStatus,
           })
           .from(projects)
           .where(
@@ -1223,6 +1226,7 @@ export const producerRouter = router({
             title: head.title,
             clientName: head.clientName,
             createdAt: head.createdAt,
+            lifecycleStatus: head.lifecycleStatus,
           },
           tracks,
         };
@@ -1252,6 +1256,7 @@ export const producerRouter = router({
             projectId: projects.id,
             projectTitle: projects.title,
             clientName: projects.clientName,
+            projectLifecycleStatus: projects.lifecycleStatus,
           })
           .from(trackVersions)
           .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
@@ -1314,6 +1319,7 @@ export const producerRouter = router({
             projectId: head.projectId,
             projectTitle: head.projectTitle,
             clientName: head.clientName,
+            projectLifecycleStatus: head.projectLifecycleStatus,
           },
           versions,
           comments,

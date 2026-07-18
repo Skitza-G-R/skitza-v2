@@ -30,6 +30,7 @@ export default async function MusicPage() {
     projectId: t.projectId,
     projectTitle: t.projectTitle,
     clientName: t.clientName,
+    projectLifecycleStatus: t.projectLifecycleStatus,
     uploadedAtIso: t.uploadedAt.toISOString(),
     audioUrl: t.audioUrl,
     durationMs: t.durationMs,

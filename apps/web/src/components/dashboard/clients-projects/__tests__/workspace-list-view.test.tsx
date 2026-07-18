@@ -48,10 +48,15 @@ describe("WorkspaceListView source — compact clients + configurable projects",
     expect(SRC.match(/aria-label=["']Sort["']/g)).toHaveLength(1);
   });
 
-  it("renders the project filter chips: all / urgent / active / done", () => {
+  it("renders the project filter chips: all / urgent / active / archived", () => {
     expect(SRC).toContain('"urgent"');
     expect(SRC).toContain('"active"');
-    expect(SRC).toContain('"done"');
+    expect(SRC).toContain('"archived"');
+  });
+
+  it("uses lifecycle status, not presentation tone, to separate active and archived projects", () => {
+    expect(SRC).toContain('p.lifecycleStatus === "completed"');
+    expect(SRC).toContain('p.lifecycleStatus === "canceled"');
   });
 
   it("renders only Active / Archived client filters with counts", () => {

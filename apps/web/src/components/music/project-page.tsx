@@ -51,6 +51,12 @@ export interface ProjectPageData {
     title: string;
     clientName: string | null;
     createdAtIso: string;
+    lifecycleStatus?:
+      | "waiting_for_payment"
+      | "active"
+      | "paused"
+      | "completed"
+      | "canceled";
   };
   tracks: ProjectPageTrack[];
 }
@@ -111,6 +117,12 @@ export function ProjectPage({
     return iso;
   }, [data.tracks]);
   const artistLabel = (data.project.clientName ?? "").trim() || "Unknown artist";
+  const archivedLabel =
+    data.project.lifecycleStatus === "completed"
+      ? "Archived · Completed"
+      : data.project.lifecycleStatus === "canceled"
+        ? "Archived · Canceled"
+        : null;
 
   // Auto-dismiss the share confirmation after a short window.
   useEffect(() => {
@@ -288,15 +300,22 @@ export function ProjectPage({
               />
             </div>
             <div className="min-w-0 flex-1">
-              <span
-                className="reveal-up reveal-up-delay-2 inline-block font-mono text-[10.5px] font-bold uppercase"
-                style={{
-                  letterSpacing: "0.1em",
-                  color: "rgba(255,255,255,0.78)",
-                }}
-              >
-                {kind}
-              </span>
+              <div className="reveal-up reveal-up-delay-2 flex flex-wrap items-center gap-2">
+                <span
+                  className="font-mono text-[10.5px] font-bold uppercase"
+                  style={{
+                    letterSpacing: "0.1em",
+                    color: "rgba(255,255,255,0.78)",
+                  }}
+                >
+                  {kind}
+                </span>
+                {archivedLabel ? (
+                  <span className="inline-flex rounded-[var(--radius-sm)] border border-white/25 bg-white/12 px-2 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.08em] text-white/90 backdrop-blur-sm">
+                    {archivedLabel}
+                  </span>
+                ) : null}
+              </div>
               {/* Font size moved from the inline style into classes so
                   it can shrink below sm: 32px fits a phone column and
                   long titles wrap to 2 lines instead of clipping. The

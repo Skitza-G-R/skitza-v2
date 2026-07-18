@@ -72,8 +72,10 @@ describe("HeroCTA", () => {
     expect(SRC).toMatch(/disabled=\{disabled\}|<button[^>]*\bdisabled\b/);
   });
 
-  it("renders a 'Coming soon' title hint when disabled is set", () => {
-    expect(SRC).toContain("Coming soon");
+  it("uses the caller's truthful disabled reason instead of a hard-coded placeholder", () => {
+    expect(SRC).toMatch(/disabledReason\?:\s*string/);
+    expect(SRC).toContain('disabledReason ?? "Unavailable"');
+    expect(SRC).not.toContain("Coming soon");
   });
 
   it("applies disabled:opacity-50 to visually mute the button", () => {
