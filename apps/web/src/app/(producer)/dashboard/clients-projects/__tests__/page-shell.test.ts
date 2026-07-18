@@ -33,8 +33,18 @@ describe("clients-projects/page.tsx — Phase 1 rewrite", () => {
   // "+ New project" CTA inside WorkspaceListView can drive the modal's
   // product picker without an extra client-side fetch.
   it("passes products to the view (NewProjectModal picker source)", () => {
-    expect(SRC).toMatch(/products=\{/);
-    expect(SRC).toContain("booking.products.list");
+    expect(SRC).not.toMatch(/products=\{/);
+    expect(SRC).not.toContain("booking.products.list");
+  });
+
+  it("uses lifecycle status and the fail-closed commercial projection", () => {
+    expect(SRC).toContain("lifecycleStatus");
+    expect(SRC).toMatch(/commercial\.(?:lifetimeCents|outstandingCents)/);
+    expect(SRC).not.toMatch(/paidThisMonthCents|depositPct/);
+    for (const label of ["Waiting for payment", "Active", "Paused", "Completed", "Canceled"]) {
+      expect(SRC).toContain(label);
+    }
+    expect(SRC).not.toMatch(/\.stage\b/);
   });
 
   it("preserves the auth + caller scaffolding", () => {

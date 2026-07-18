@@ -21,4 +21,21 @@ export * from "./client";
 // - `ilike`: case-insensitive LIKE for the same
 // - `isNull`/`isNotNull`: nullness predicates for the inbox router —
 //   active = archivedAt IS NULL, archived = archivedAt IS NOT NULL.
-export { eq, and, or, desc, asc, sql, gt, gte, lt, lte, inArray, notInArray, ilike, isNull, isNotNull } from "drizzle-orm";
+export {
+  eq,
+  ne,
+  and,
+  or,
+  desc,
+  asc,
+  sql,
+  gt,
+  gte,
+  lt,
+  lte,
+  inArray,
+  notInArray,
+  ilike,
+  isNull,
+  isNotNull,
+} from "drizzle-orm";

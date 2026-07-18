@@ -118,7 +118,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           slug={me.slug}
           timezone={producerTimezone}
           pulseStats={today.pulseStats}
-          paymentProofs={pendingPaymentProofs.available ? pendingPaymentProofs.proofs : []}
+          paymentProofs={pendingPaymentProofs.proofs}
           purchaseRequests={pendingPurchaseRequests.requests}
           pendingApprovals={pendingApprovals}
           followUps={followUpRaw.map((session) => ({

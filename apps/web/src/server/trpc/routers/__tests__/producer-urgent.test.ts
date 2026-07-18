@@ -6,8 +6,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 //   1. projects        — live-stage rows for the producer
 //   2. trackVersions   — joined to projectTracks → most-recent upload
 //                        per project (drives the "stuck" rule)
-//   3. bookings        — last booking-end per project (drives "overdue")
-//                        + future-confirmed sessions (suppresses overdue)
+// Commercial urgency is deliberately absent: purchase-ledger projections,
+// not project or booking heuristics, are the only valid money source.
 //
 // Pattern mirrors producer-today.test.ts: marker objects per table,
 // dbMock dispatches by table to per-call mocks, where-spies capture
@@ -52,11 +52,9 @@ const {
     id: { __column: "projects.id" },
     producerId: { __column: "projects.producer_id" },
     title: { __column: "projects.title" },
-    stage: { __column: "projects.stage" },
+    lifecycleStatus: { __column: "projects.lifecycle_status" },
     clientName: { __column: "projects.client_name" },
     artistName: { __column: "projects.artist_name" },
-    depositPaid: { __column: "projects.deposit_paid" },
-    finalPaid: { __column: "projects.final_paid" },
     updatedAt: { __column: "projects.updated_at" },
   };
   const bookingsMarker = {
@@ -264,73 +262,11 @@ const NOW = new Date("2026-05-06T12:00:00.000Z");
 const days = (n: number) => n * 24 * 60 * 60 * 1000;
 
 describe("classifyUrgency (pure helper)", () => {
-  it("returns 'overdue' when final unpaid + last session >7d ago + no future session", () => {
-    const result = classifyUrgency({
-      stage: "in_production",
-      depositPaid: true,
-      finalPaid: false,
-      updatedAt: new Date(NOW.getTime() - days(20)),
-      lastUploadAt: new Date(NOW.getTime() - days(2)),
-      lastBookingEndAt: new Date(NOW.getTime() - days(10)),
-      hasFutureSession: false,
-      now: NOW,
-    });
-    expect(result).toBe("overdue");
-  });
-
-  it("does NOT return 'overdue' when a future session is on the calendar", () => {
-    const result = classifyUrgency({
-      stage: "in_production",
-      depositPaid: true,
-      finalPaid: false,
-      updatedAt: new Date(NOW.getTime() - days(20)),
-      lastUploadAt: new Date(NOW.getTime() - days(2)),
-      lastBookingEndAt: new Date(NOW.getTime() - days(10)),
-      hasFutureSession: true,
-      now: NOW,
-    });
-    // future session suppresses overdue; nothing else applies →
-    // in_production but recent uploads → null
-    expect(result).toBeNull();
-  });
-
-  it("returns 'deposit_due' when booked + no deposit + idle >2d", () => {
-    const result = classifyUrgency({
-      stage: "booked",
-      depositPaid: false,
-      finalPaid: false,
-      updatedAt: new Date(NOW.getTime() - days(5)),
-      lastUploadAt: null,
-      lastBookingEndAt: null,
-      hasFutureSession: true,
-      now: NOW,
-    });
-    expect(result).toBe("deposit_due");
-  });
-
-  it("does NOT return 'deposit_due' when deposit was paid", () => {
-    const result = classifyUrgency({
-      stage: "booked",
-      depositPaid: true,
-      finalPaid: false,
-      updatedAt: new Date(NOW.getTime() - days(5)),
-      lastUploadAt: null,
-      lastBookingEndAt: null,
-      hasFutureSession: true,
-      now: NOW,
-    });
-    expect(result).toBeNull();
-  });
-
   it("returns 'stuck' when in_production + no upload in >14d", () => {
     const result = classifyUrgency({
       stage: "in_production",
-      depositPaid: true,
-      finalPaid: false,
       updatedAt: new Date(NOW.getTime() - days(30)),
       lastUploadAt: new Date(NOW.getTime() - days(20)),
-      lastBookingEndAt: null,
-      hasFutureSession: true,
       now: NOW,
     });
     expect(result).toBe("stuck");
@@ -339,12 +275,8 @@ describe("classifyUrgency (pure helper)", () => {
   it("returns null when in_production + recent upload", () => {
     const result = classifyUrgency({
       stage: "in_production",
-      depositPaid: true,
-      finalPaid: false,
       updatedAt: new Date(NOW.getTime() - days(30)),
       lastUploadAt: new Date(NOW.getTime() - days(3)),
-      lastBookingEndAt: null,
-      hasFutureSession: true,
       now: NOW,
     });
     expect(result).toBeNull();
@@ -353,12 +285,8 @@ describe("classifyUrgency (pure helper)", () => {
   it("returns null for healthy lead-stage projects", () => {
     const result = classifyUrgency({
       stage: "lead",
-      depositPaid: false,
-      finalPaid: false,
       updatedAt: NOW,
       lastUploadAt: null,
-      lastBookingEndAt: null,
-      hasFutureSession: false,
       now: NOW,
     });
     expect(result).toBeNull();
@@ -372,23 +300,20 @@ describe("producer.overview.urgent", () => {
     expect(result.items).toEqual([]);
   });
 
-  it("surfaces an overdue project (final unpaid + booking >7d ago + no future session)", async () => {
+  it("does not infer commercial urgency from waiting lifecycle or booking history", async () => {
     projectsListMock.mockResolvedValue([
       {
-        id: "proj-overdue",
+        id: "proj-waiting",
         title: "Late Mix",
-        stage: "in_production",
+        lifecycleStatus: "waiting_for_payment",
         clientName: "Maya",
         artistName: "Maya",
-        depositPaid: true,
-        finalPaid: false,
         updatedAt: new Date(Date.now() - days(60)),
       },
     ]);
     bookingsAllMock.mockResolvedValue([
       {
-        projectId: "proj-overdue",
-        // 9 days ago, 60 minutes — ends ~9 days ago, > OVERDUE_DAYS=7.
+        projectId: "proj-waiting",
         startsAt: new Date(Date.now() - days(9)),
         durationMin: 60,
         status: "confirmed",
@@ -398,36 +323,9 @@ describe("producer.overview.urgent", () => {
     const caller = await buildCaller();
     const result = await caller.producer.overview.urgent();
 
-    expect(result.items).toHaveLength(1);
-    expect(result.items[0]).toMatchObject({
-      id: "proj-overdue",
-      title: "Late Mix",
-      clientName: "Maya",
-      stage: "in_production",
-      urgency: "overdue",
-    });
-    expect(typeof result.items[0]?.gradient).toBe("string");
-  });
-
-  it("surfaces a deposit-due project (booked + depositPaid=false + idle >2d)", async () => {
-    projectsListMock.mockResolvedValue([
-      {
-        id: "proj-dd",
-        title: "Single",
-        stage: "booked",
-        clientName: "Yossi",
-        artistName: "Yossi",
-        depositPaid: false,
-        finalPaid: false,
-        updatedAt: new Date(Date.now() - days(5)),
-      },
-    ]);
-
-    const caller = await buildCaller();
-    const result = await caller.producer.overview.urgent();
-
-    expect(result.items).toHaveLength(1);
-    expect(result.items[0]?.urgency).toBe("deposit_due");
+    expect(result.items).toEqual([]);
+    expect(bookingsAllMock).not.toHaveBeenCalled();
+    expect(bookingsFutureMock).not.toHaveBeenCalled();
   });
 
   it("surfaces a stuck-in-production project (no upload >14d)", async () => {
@@ -435,11 +333,9 @@ describe("producer.overview.urgent", () => {
       {
         id: "proj-stuck",
         title: "EP Track 4",
-        stage: "in_production",
+        lifecycleStatus: "active",
         clientName: "Noa",
         artistName: "Noa",
-        depositPaid: true,
-        finalPaid: false,
         updatedAt: new Date(Date.now() - days(30)),
       },
     ]);
@@ -457,76 +353,47 @@ describe("producer.overview.urgent", () => {
     expect(result.items[0]?.urgency).toBe("stuck");
   });
 
-  it("sorts overdue → deposit_due → stuck and honors the default limit of 3", async () => {
-    // Five urgent projects covering all three buckets so we can verify
-    // both sort order AND that the default cap of 3 is respected.
+  it("sorts activity urgency deterministically and honors the default limit of 3", async () => {
     projectsListMock.mockResolvedValue([
-      // stuck × 2
       {
-        id: "p-stuck-a",
-        title: "Aaa Stuck",
-        stage: "in_production",
-        clientName: "A",
-        artistName: "A",
-        depositPaid: true,
-        finalPaid: false,
+        id: "p-stuck-e",
+        title: "Eee Stuck",
+        lifecycleStatus: "active",
+        clientName: "E",
+        artistName: "E",
         updatedAt: new Date(Date.now() - days(30)),
       },
       {
         id: "p-stuck-b",
         title: "Bbb Stuck",
-        stage: "in_production",
+        lifecycleStatus: "active",
         clientName: "B",
         artistName: "B",
-        depositPaid: true,
-        finalPaid: false,
         updatedAt: new Date(Date.now() - days(30)),
       },
-      // deposit_due × 1
       {
-        id: "p-dd",
-        title: "Ccc DepDue",
-        stage: "booked",
+        id: "p-stuck-c",
+        title: "Ccc Stuck",
+        lifecycleStatus: "active",
         clientName: "C",
         artistName: "C",
-        depositPaid: false,
-        finalPaid: false,
-        updatedAt: new Date(Date.now() - days(5)),
+        updatedAt: new Date(Date.now() - days(30)),
       },
-      // overdue × 2
       {
-        id: "p-overdue-a",
-        title: "Ddd Overdue",
-        stage: "in_production",
+        id: "p-stuck-d",
+        title: "Ddd Stuck",
+        lifecycleStatus: "active",
         clientName: "D",
         artistName: "D",
-        depositPaid: true,
-        finalPaid: false,
-        updatedAt: new Date(Date.now() - days(60)),
+        updatedAt: new Date(Date.now() - days(30)),
       },
       {
-        id: "p-overdue-b",
-        title: "Eee Overdue",
-        stage: "in_production",
-        clientName: "E",
-        artistName: "E",
-        depositPaid: true,
-        finalPaid: false,
-        updatedAt: new Date(Date.now() - days(60)),
-      },
-    ]);
-    bookingsAllMock.mockResolvedValue([
-      {
-        projectId: "p-overdue-a",
-        startsAt: new Date(Date.now() - days(10)),
-        durationMin: 60,
-        status: "confirmed",
-      },
-      {
-        projectId: "p-overdue-b",
-        startsAt: new Date(Date.now() - days(10)),
-        durationMin: 60,
-        status: "confirmed",
+        id: "p-stuck-a",
+        title: "Aaa Stuck",
+        lifecycleStatus: "active",
+        clientName: "A",
+        artistName: "A",
+        updatedAt: new Date(Date.now() - days(30)),
       },
     ]);
 
@@ -534,14 +401,19 @@ describe("producer.overview.urgent", () => {
     const result = await caller.producer.overview.urgent();
 
     expect(result.items).toHaveLength(3);
-    // Both overdue rows lead, deposit_due third, stuck rows are dropped
-    // because the limit is 3.
-    expect(result.items[0]?.urgency).toBe("overdue");
-    expect(result.items[1]?.urgency).toBe("overdue");
-    expect(result.items[2]?.urgency).toBe("deposit_due");
+    expect(result.items.map((item) => item.title)).toEqual([
+      "Aaa Stuck",
+      "Bbb Stuck",
+      "Ccc Stuck",
+    ]);
+    expect(result.items.map((item) => item.urgency)).toEqual([
+      "stuck",
+      "stuck",
+      "stuck",
+    ]);
   });
 
-  it("scopes the projects query to ctx.producerId (auth boundary)", async () => {
+  it("scopes the projects query to the producer's active projects", async () => {
     const caller = await buildCaller();
     await caller.producer.overview.urgent();
 
@@ -554,5 +426,11 @@ describe("producer.overview.urgent", () => {
     if (Array.isArray(projectsPred)) {
       expect(projectsPred[1]).toBe(PRODUCER_ID);
     }
+    const lifecyclePred = findPredicate(
+      projectsArg,
+      "eq",
+      projects.lifecycleStatus,
+    );
+    expect(lifecyclePred).toEqual([projects.lifecycleStatus, "active"]);
   });
 });

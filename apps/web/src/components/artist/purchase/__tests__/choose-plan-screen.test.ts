@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { formatShekels, planOptions } from "../pay-data";
+import { formatShekels, livePlanOptions } from "../pay-data";
 
 // Source-grep on S7 (Choose a payment plan) for the wiring that matters —
 // matching the repo's existing test style (see commit-screens.test.ts). The
@@ -13,7 +13,27 @@ import { formatShekels, planOptions } from "../pay-data";
 
 describe("pay-data plan helpers (used by S7)", () => {
   it("builds one option per allowed plan, summing to the total", () => {
-    const opts = planOptions(240000, ["full", "split", "milestones"]);
+    const opts = livePlanOptions([
+      {
+        kind: "full",
+        charges: [240000],
+        dueNowCents: 240000,
+        labels: ["Due today"],
+      },
+      {
+        kind: "split_50_50",
+        charges: [120000, 120000],
+        dueNowCents: 120000,
+        labels: ["Due today", "On artist approval"],
+      },
+      {
+        kind: "monthly",
+        installments: 3,
+        charges: [80000, 80000, 80000],
+        dueNowCents: 80000,
+        labels: ["Due today", "Month 2", "Month 3"],
+      },
+    ]);
     expect(opts).toHaveLength(3);
     for (const opt of opts) {
       const sum = opt.schedule.reduce((n, row) => n + row.amountCents, 0);

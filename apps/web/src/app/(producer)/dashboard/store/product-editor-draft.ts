@@ -7,18 +7,6 @@ export interface PaymentSelectionDraft {
   split50: boolean;
   monthly: boolean;
   monthlyInstallments: number;
-  /** Plans the Store editor does not author, retained byte-for-byte on save. */
-  preservedPlans: PaymentPlan[];
-}
-
-function isStandardPlan(
-  plan: PaymentPlan,
-): plan is Exclude<PaymentPlan, { kind: "milestones" }> {
-  return (
-    plan.kind === "full" ||
-    plan.kind === "split_50_50" ||
-    plan.kind === "monthly"
-  );
 }
 
 export function seedPaymentSelection(
@@ -33,7 +21,6 @@ export function seedPaymentSelection(
     monthly: monthly !== undefined,
     monthlyInstallments:
       monthly?.kind === "monthly" ? monthly.installments : 4,
-    preservedPlans: saved.filter((plan) => !isStandardPlan(plan)),
   };
 }
 
@@ -59,21 +46,11 @@ export function buildPaymentPlans(
     });
   }
 
-  return [...plans, ...selection.preservedPlans];
+  return plans;
 }
 
-export function hasPaymentOption(
-  selection: PaymentSelectionDraft,
-  depositModel: string,
-  milestones: readonly { label: string; pct: number }[] | null | undefined,
-): boolean {
-  return (
-    selection.full ||
-    selection.split50 ||
-    selection.monthly ||
-    selection.preservedPlans.length > 0 ||
-    (depositModel === "milestones" && (milestones?.length ?? 0) > 0)
-  );
+export function hasPaymentOption(selection: PaymentSelectionDraft): boolean {
+  return selection.full || selection.split50 || selection.monthly;
 }
 
 export type RoyaltyMode = "none" | "percentage" | "agreement";

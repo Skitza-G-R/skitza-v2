@@ -4,9 +4,8 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-// Source-grep on the client wrapper that owns the booking flow. For
-// per-song products it must mount <SongCountStepper> and feed the
-// qty + locked-in unit price into the checkout action.
+// Source-grep on the live request caller. Per-song quantity is request
+// intent; commercial price and plan must not be trusted or frozen here.
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CLIENT_PATH = join(here, "..", "store-product-client.tsx");
@@ -33,36 +32,37 @@ describe("store-product-client.tsx wiring", () => {
     expect(clientSrc).toMatch(/<SongCountStepper/);
   });
 
-  it("tracks songQty and unitPriceCents in local state for the booking action", () => {
+  it("tracks song quantity without treating the client unit price as commercial input", () => {
     expect(clientSrc).toMatch(/songQty/);
-    expect(clientSrc).toMatch(/unitPriceCents/);
+    expect(clientSrc).not.toMatch(/setUnitPriceCents|songQty \* unitPriceCents/);
   });
 
-  it("passes songQty + unitPriceCents to startStoreCheckoutAction", () => {
-    expect(clientSrc).toMatch(/startStoreCheckoutAction\(\s*\{[\s\S]{0,200}songQty/);
-    expect(clientSrc).toMatch(/startStoreCheckoutAction\(\s*\{[\s\S]{0,200}unitPriceCents/);
+  it("passes quantity and a stable operation key to the intent-only request action", () => {
+    expect(clientSrc).toMatch(/requestStorePurchaseAction\(\s*\{[\s\S]{0,200}songQty/);
+    expect(clientSrc).toMatch(/operationKeyRef\.current \?\? crypto\.randomUUID\(\)/);
+    expect(clientSrc).not.toMatch(/startStoreCheckoutAction|Continue to checkout/);
   });
 
-  it("passes every offered plan to the picker for per-song products", () => {
-    expect(clientSrc).toMatch(/plans=\{supportedPlans\}/);
-    expect(clientSrc).toMatch(/product\.paymentPlans\.filter/);
-    expect(clientSrc).not.toMatch(/const first = product\.paymentPlans\[0\]/);
+  it("does not choose a payment plan before purchase acceptance", () => {
+    expect(clientSrc).not.toMatch(/PlanPicker|supportedPlans|paymentPlan/);
   });
 
-  it("requires an explicit choice when multiple plans are offered", () => {
-    expect(clientSrc).toMatch(/supportedPlans\.length === 1/);
-    expect(clientSrc).toMatch(/\| null>\(singlePlan\)/);
+  it("routes a created request to the request-sent page", () => {
+    expect(clientSrc).toMatch(/purchaseRequestId/);
+    expect(clientSrc).toMatch(/\/artist\/purchase\/\$\{product\.id\}\/sent/);
   });
 });
 
 describe("store/[productId]/actions.ts wiring", () => {
-  it("startStoreCheckoutAction accepts optional songQty + unitPriceCents", () => {
-    expect(actionsSrc).toMatch(/songQty\?:\s*number/);
-    expect(actionsSrc).toMatch(/unitPriceCents\?:\s*number/);
+  it("calls the intent-only purchase request boundary", () => {
+    expect(actionsSrc).toMatch(/caller\.artist\.purchase\.request\(input\)/);
+    expect(actionsSrc).not.toMatch(/artist\.store\.checkout|checkoutUrl/);
   });
 
-  it("threads the new fields through to caller.artist.store.checkout", () => {
-    expect(actionsSrc).toMatch(/caller\.artist\.store\.checkout\(\s*input\s*\)/);
+  it("accepts quantity and operation identity without a client unit price", () => {
+    expect(actionsSrc).toMatch(/songQty\?:\s*number/);
+    expect(actionsSrc).toMatch(/operationKey:\s*string/);
+    expect(actionsSrc).not.toMatch(/unitPriceCents|paymentPlan/);
   });
 });
 

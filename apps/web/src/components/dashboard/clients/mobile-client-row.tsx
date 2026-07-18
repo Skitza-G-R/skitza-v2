@@ -23,7 +23,7 @@ import { LinkPill } from "./link-pill";
 // Link state moves onto the avatar as a status dot (green = linked,
 // amber pulse = invited). The "Invite to app" action stays available
 // as the row's right-side pill when the client isn't linked yet and
-// nothing is owed — money beats invite when both compete.
+// no known balance needs the right-side slot.
 
 interface MobileClientRowProps {
   client: ClientCardData;
@@ -51,18 +51,20 @@ export function MobileClientRow({
 }: MobileClientRowProps) {
   const { id, name, linkState, projects, lifetime, owed } = client;
   const currency = client.currency ?? "USD";
+  const commercialUnavailable = lifetime === null || owed === null;
 
   // Never surface the email in the list (Gili, round 2) — it's noise
   // at a glance and quietly leaks contact data in over-the-shoulder
   // situations. It lives inside the client page.
-  const secondary =
+  const projectSummary =
     projects > 0
-      ? `${String(projects)} ${projects === 1 ? "project" : "projects"}${
-          lifetime > 0 ? ` · ${formatMoney(lifetime, currency)} lifetime` : ""
-        }`
+      ? `${String(projects)} ${projects === 1 ? "project" : "projects"}`
       : "No projects yet";
+  const secondary = commercialUnavailable
+    ? `${projectSummary} · Totals unavailable`
+    : `${projectSummary}${lifetime > 0 ? ` · ${formatMoney(lifetime, currency)} lifetime` : ""}`;
 
-  const showInvite = linkState === "none" && owed <= 0;
+  const showInvite = linkState === "none" && (owed === null || owed <= 0);
 
   return (
     <div
@@ -110,7 +112,7 @@ export function MobileClientRow({
         </p>
       </div>
 
-      {owed > 0 ? (
+      {owed !== null && owed > 0 ? (
         <div className="shrink-0 text-right">
           <p className="font-mono text-[13px] font-bold tabular-nums text-[rgb(var(--fg-danger))]">
             {formatMoney(owed, currency)}

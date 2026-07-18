@@ -177,7 +177,7 @@ export function ServiceStepClient({
   const isLastInner = currentIdx === STEPS.length - 1;
 
   const paymentError = (() => {
-    if (!hasPaymentOption(draft.payment, "flat", null)) {
+    if (!hasPaymentOption(draft.payment)) {
       return "Choose at least one payment option.";
     }
     try {
@@ -380,8 +380,6 @@ export function ServiceStepClient({
               previewTotalCents={Math.round(draft.price * 100)}
               currency={draft.currency}
               pricingModel="flat"
-              depositModel="flat"
-              milestones={null}
               {...(paymentError ? { error: paymentError } : {})}
               onChange={(payment) => {
                 setDraft((current) => ({ ...current, payment }));

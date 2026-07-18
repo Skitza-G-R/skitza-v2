@@ -42,10 +42,6 @@ const PLAN_CHIP_LABELS: Record<
     `50/50 · ${formatPurchaseMoney(Math.ceil(price / 2), currency)} first`,
   monthly: (plan) =>
     plan.kind === "monthly" ? `${String(plan.installments)} monthly payments` : "Monthly",
-  milestones: (plan) =>
-    plan.kind === "milestones"
-      ? `${String(plan.milestones.length)} milestones`
-      : "Milestones",
 };
 
 function PlanChip({ children }: { children: React.ReactNode }) {
@@ -169,11 +165,7 @@ export function ProductDetailScreen({
               <div>
                 {product.sessions > 1 ? `${String(product.sessions)} sessions` : "1 project"}
               </div>
-              {product.depositPct > 0 ? (
-                <div>{String(product.depositPct)}% deposit</div>
-              ) : (
-                <div>{product.durationLabel}</div>
-              )}
+              <div>{product.durationLabel}</div>
             </div>
           </div>
         </div>

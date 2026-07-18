@@ -8,18 +8,30 @@ function requireEnv(name: string): string {
 }
 
 let _r2: S3Client | null = null;
+let _r2SingleAttempt: S3Client | null = null;
 
-export function getR2(): S3Client {
-  if (_r2) return _r2;
-  _r2 = new S3Client({
-    region: "auto",
+function r2Config() {
+  return {
+    region: "auto" as const,
     endpoint: `https://${requireEnv("R2_ACCOUNT_ID")}.r2.cloudflarestorage.com`,
     credentials: {
       accessKeyId: requireEnv("R2_ACCESS_KEY_ID"),
       secretAccessKey: requireEnv("R2_SECRET_ACCESS_KEY"),
     },
-  });
+  };
+}
+
+export function getR2(): S3Client {
+  if (_r2) return _r2;
+  _r2 = new S3Client(r2Config());
   return _r2;
+}
+
+/** Non-idempotent multipart create/complete calls must never be retried by the SDK. */
+export function getR2SingleAttempt(): S3Client {
+  if (_r2SingleAttempt) return _r2SingleAttempt;
+  _r2SingleAttempt = new S3Client({ ...r2Config(), maxAttempts: 1 });
+  return _r2SingleAttempt;
 }
 
 export const BUCKETS = {
@@ -55,7 +67,18 @@ export function buildAudioKey(args: {
   trackVersionId: string;
   filename: string;
 }) {
-  return `producers/${args.producerId}/tracks/${args.trackVersionId}/${sanitize(args.filename)}`;
+  const objectId = randomBytes(16).toString("hex");
+  return `producers/${args.producerId}/tracks/${args.trackVersionId}/${objectId}-${sanitize(args.filename)}`;
+}
+
+export function isAudioKeyForTrackVersion(
+  key: string,
+  args: { producerId: string; trackVersionId: string },
+): boolean {
+  const prefix = `producers/${args.producerId}/tracks/${args.trackVersionId}/`;
+  if (!key.startsWith(prefix)) return false;
+  const filename = key.slice(prefix.length);
+  return filename.length > 0 && !filename.includes("/");
 }
 
 export function buildDocKey(args: { producerId: string; contractId: string; filename: string }) {

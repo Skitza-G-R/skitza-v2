@@ -9,10 +9,7 @@ import { ClientCard, type ClientCardData } from "~/components/dashboard/clients/
 import { InviteToAppModal } from "~/components/dashboard/clients/invite-modal";
 import { MobileClientRow } from "~/components/dashboard/clients/mobile-client-row";
 import { NewClientModal } from "~/components/dashboard/clients/new-client-modal";
-import {
-  NewProjectModal,
-  type NewProjectModalProductOption,
-} from "~/components/dashboard/clients/new-project-modal";
+import { NewProjectModal } from "~/components/dashboard/clients/new-project-modal";
 import { StatTile } from "~/components/dashboard/common/stat-tile";
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 import { ClientCompactRow } from "~/components/dashboard/clients/client-compact-row";
@@ -39,7 +36,7 @@ type ProjectFilter = (typeof PROJECT_FILTERS)[number]["value"];
 // the toolbar stays consistent across tabs (the locked HTML mockup
 // shows All / Needs attention / Active / Done on both Clients and
 // Projects). 'needs-attention' for clients = at least one of their
-// projects has an outstanding balance OR an unresolved comment.
+// projects has an unresolved artist comment.
 // 'done' = client has no active projects.
 const CLIENT_FILTERS = [
   { value: "all", label: "All" },
@@ -70,10 +67,10 @@ type Tab = "projects" | "clients";
 type Layout = "cards" | "table";
 
 export interface WorkspaceKPIs {
-  /** Total earnings in cents (lifetime or rolling window — caller's call). */
-  earnings: number;
-  /** Outstanding balance in cents across all active projects. */
-  outstanding: number;
+  /** Total earnings in cents; null while purchase payments are unavailable. */
+  earnings: number | null;
+  /** Outstanding balance in cents; null while purchase payments are unavailable. */
+  outstanding: number | null;
   /** Count of projects currently flagged as "needs attention". */
   needsAttention: number;
   /** Human-formatted next deadline string e.g. "3d" or "May 28". */
@@ -92,11 +89,6 @@ export interface WorkspaceListViewProps {
   kpis: WorkspaceKPIs;
   /** Producer slug — used to build the invite URL inside the modal. */
   producerSlug: string;
-  /** Producer's active store products. Passed through to NewProjectModal
-   *  so the "+ New project" CTA can drive the product picker. Pass an
-   *  empty array if the producer hasn't created any products yet — the
-   *  modal renders an empty-state hint linking to /dashboard/store. */
-  products: NewProjectModalProductOption[];
   /** When true, opens the NewProjectModal on mount. Set by the page
    *  when `?newProject=1` is present in the URL — the legacy /new
    *  route redirects here with that flag (G7). */
@@ -138,12 +130,17 @@ function formatMoney(cents: number, currency: string): string {
   }
 }
 
+function compareNullableNumbersDesc(a: number | null, b: number | null): number {
+  if (a === null) return b === null ? 0 : 1;
+  if (b === null) return -1;
+  return b - a;
+}
+
 export function WorkspaceListView({
   projects,
   clients,
   kpis,
   producerSlug,
-  products,
   initialNewProjectOpen,
   onReorderProjects,
   onReorderClients,
@@ -214,12 +211,13 @@ export function WorkspaceListView({
         sorted.sort((a, b) => a.title.localeCompare(b.title));
         break;
       case "balance":
-        // Highest owed first.
-        sorted.sort((a, b) => b.balance - a.balance);
+        // Highest known balance first; unavailable projections retain
+        // their upstream order at the bottom.
+        sorted.sort((a, b) => compareNullableNumbersDesc(a.balance, b.balance));
         break;
       case "progress":
         // Most progressed first.
-        sorted.sort((a, b) => b.progress - a.progress);
+        sorted.sort((a, b) => compareNullableNumbersDesc(a.progress, b.progress));
         break;
       case "recent":
         // Most recently updated first. Rows without a timestamp sink
@@ -241,11 +239,7 @@ export function WorkspaceListView({
         ? orderedClients
         : orderedClients.filter((c) => {
             if (clientFilter === "needs-attention") {
-              // A client "needs attention" when they have a non-zero
-              // outstanding balance — the same urgency signal as the
-              // Projects tab. Pulsing red dot in the chip + matching
-              // semantics keeps the toolbar consistent.
-              return c.owed > 0;
+              return c.needsAttention;
             }
             if (clientFilter === "active") return c.projects > 0;
             // done — no active projects on the books
@@ -259,8 +253,7 @@ export function WorkspaceListView({
         sorted.sort((a, b) => a.name.localeCompare(b.name));
         break;
       case "balance":
-        // Highest owed first.
-        sorted.sort((a, b) => b.owed - a.owed);
+        sorted.sort((a, b) => compareNullableNumbersDesc(a.owed, b.owed));
         break;
       case "progress":
         // No per-client progress signal; fall back to "most active
@@ -380,7 +373,12 @@ export function WorkspaceListView({
             <span>
               {orderedClients.length} {orderedClients.length === 1 ? "client" : "clients"}
             </span>
-            {kpis.outstanding > 0 ? (
+            {kpis.outstanding === null ? (
+              <>
+                <span aria-hidden> &middot; </span>
+                <span className="font-semibold">Commercial totals unavailable</span>
+              </>
+            ) : kpis.outstanding > 0 ? (
               <>
                 <span aria-hidden> &middot; </span>
                 <span
@@ -426,11 +424,20 @@ export function WorkspaceListView({
           2-up on a phone. Compact tiles: label + value only, tight
           padding; the sub-line context lives on desktop. */}
       <div className="grid grid-cols-2 gap-2 md:hidden">
-        <MobileKpiTile label="Earnings" value={formatMoney(kpis.earnings, currency)} />
+        <MobileKpiTile
+          label="Earnings"
+          value={kpis.earnings === null ? "Unavailable" : formatMoney(kpis.earnings, currency)}
+        />
         <MobileKpiTile
           label="Outstanding"
-          value={kpis.outstanding > 0 ? formatMoney(kpis.outstanding, currency) : "—"}
-          tone={kpis.outstanding > 0 ? "danger" : "default"}
+          value={
+            kpis.outstanding === null
+              ? "Unavailable"
+              : kpis.outstanding > 0
+                ? formatMoney(kpis.outstanding, currency)
+                : "—"
+          }
+          tone={kpis.outstanding !== null && kpis.outstanding > 0 ? "danger" : "default"}
         />
         <MobileKpiTile
           label="Needs attention"
@@ -449,19 +456,27 @@ export function WorkspaceListView({
         <StatTile
           dense
           label="Earnings · this month"
-          value={formatMoney(kpis.earnings, currency)}
-          sub="Across active projects"
+          value={kpis.earnings === null ? "Unavailable" : formatMoney(kpis.earnings, currency)}
+          sub={kpis.earnings === null ? "Purchase payment projection pending" : "Across purchases"}
         />
         <StatTile
           dense
           label="Outstanding"
-          value={kpis.outstanding > 0 ? formatMoney(kpis.outstanding, currency) : "—"}
-          variant={kpis.outstanding > 0 ? "danger" : "default"}
-          glow={kpis.outstanding > 0 ? "danger" : "none"}
+          value={
+            kpis.outstanding === null
+              ? "Unavailable"
+              : kpis.outstanding > 0
+                ? formatMoney(kpis.outstanding, currency)
+                : "—"
+          }
+          variant={kpis.outstanding !== null && kpis.outstanding > 0 ? "danger" : "default"}
+          glow={kpis.outstanding !== null && kpis.outstanding > 0 ? "danger" : "none"}
           sub={
-            kpis.outstanding > 0
-              ? `${String(kpis.needsAttention)} ${kpis.needsAttention === 1 ? "project needs" : "projects need"} a nudge`
-              : "All settled"
+            kpis.outstanding === null
+              ? "Purchase payment projection pending"
+              : kpis.outstanding > 0
+                ? `${String(kpis.needsAttention)} ${kpis.needsAttention === 1 ? "project needs" : "projects need"} a nudge`
+                : "All settled"
           }
         />
         <StatTile
@@ -830,7 +845,6 @@ export function WorkspaceListView({
             name: c.name,
             email: c.email ?? "",
           }))}
-        products={products}
         onCreated={() => {
           // Same pattern as the new-client wiring above — the Server
           // Action revalidates + the modal calls router.refresh.

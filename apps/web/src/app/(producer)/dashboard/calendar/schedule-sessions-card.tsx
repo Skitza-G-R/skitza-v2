@@ -10,8 +10,8 @@ type Filter = "upcoming" | "past" | "all";
 type DisplayStatus =
   | "confirmed"
   | "pending"
-  | "awaiting_payment"
   | "completed"
+  | "no_show"
   | "rejected"
   | "cancelled";
 
@@ -142,7 +142,8 @@ function CompactSessionRow({
   const start = new Date(session.startsAt);
   const end = new Date(start.getTime() + session.durationMin * 60_000);
   const status = deriveDisplayStatus(session.status, end, now);
-  const dimmed = status === "cancelled" || status === "rejected";
+  const dimmed =
+    status === "cancelled" || status === "rejected" || status === "no_show";
   const serviceLabel = session.packageName ?? "Session";
   const kindToken = KIND_COLORS[inferSessionKind(session.packageName)];
 
@@ -230,11 +231,8 @@ function CompactStatus({ status }: { status: DisplayStatus }) {
   const map: Record<Exclude<DisplayStatus, "rejected">, { label: string; className: string }> = {
     confirmed: { label: "Confirmed", className: "pill-success" },
     pending: { label: "Pending", className: "pill-warning" },
-    awaiting_payment: {
-      label: "Awaiting payment",
-      className: "pill-warning",
-    },
     completed: { label: "Completed", className: "pill-neutral" },
+    no_show: { label: "No show", className: "pill-danger" },
     cancelled: { label: "Cancelled", className: "pill-danger" },
   };
   const item = map[status];
@@ -247,7 +245,8 @@ function deriveDisplayStatus(raw: RawBookingStatus, endsAt: Date, now: Date): Di
   if (raw === "rejected") return "rejected";
   if (raw === "cancelled") return "cancelled";
   if (raw === "pending_approval") return "pending";
-  if (raw === "pending_payment") return "awaiting_payment";
+  if (raw === "completed") return "completed";
+  if (raw === "no_show") return "no_show";
   return endsAt.getTime() <= now.getTime() ? "completed" : "confirmed";
 }
 
@@ -260,7 +259,11 @@ function bucketSessions(
   const nowMs = now.getTime();
   for (const session of sessions) {
     const endMs = new Date(session.startsAt).getTime() + session.durationMin * 60_000;
-    const closed = session.status === "cancelled" || session.status === "rejected";
+    const closed =
+      session.status === "cancelled" ||
+      session.status === "rejected" ||
+      session.status === "completed" ||
+      session.status === "no_show";
     (closed || endMs <= nowMs ? past : upcoming).push(session);
   }
   upcoming.sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());

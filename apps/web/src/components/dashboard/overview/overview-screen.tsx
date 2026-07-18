@@ -36,9 +36,10 @@ export interface OverviewScreenProps {
   slug: string | null;
   timezone: string;
   pulseStats: {
-    thisMonthCents: number;
-    outstandingCents: number;
-    currency: string;
+    commercialAvailable: boolean;
+    thisMonthCents: number | null;
+    outstandingCents: number | null;
+    currency: string | null;
     activeProjects: number;
   };
   paymentProofs: PaymentProofSource[];
@@ -176,7 +177,7 @@ function NeedsYouPanel({
 }: {
   items: readonly NeedsYouItem[];
   showAll: boolean;
-  currency: string;
+  currency: string | null;
 }) {
   const { visible, hiddenCount } = capNeedsYouQueue(items, showAll);
   return (
@@ -466,17 +467,24 @@ function StudioPulse({
   return (
     <section
       aria-label="Studio pulse"
-      className="reveal-up reveal-up-delay-3 grid grid-cols-2 overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-[var(--shadow-sm)] lg:grid-cols-3"
+      className={`reveal-up reveal-up-delay-3 grid overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-[var(--shadow-sm)] ${pulseStats.commercialAvailable ? "grid-cols-2 lg:grid-cols-3" : "grid-cols-1"}`}
     >
-      <PulseStat
-        label="Earned this month"
-        value={formatMoney(pulseStats.thisMonthCents, pulseStats.currency)}
-        className="hidden lg:block"
-      />
-      <PulseStat
-        label="Outstanding"
-        value={formatMoney(pulseStats.outstandingCents, pulseStats.currency)}
-      />
+      {pulseStats.commercialAvailable &&
+      pulseStats.thisMonthCents !== null &&
+      pulseStats.outstandingCents !== null &&
+      pulseStats.currency !== null ? (
+        <>
+          <PulseStat
+            label="Earned this month"
+            value={formatMoney(pulseStats.thisMonthCents, pulseStats.currency)}
+            className="hidden lg:block"
+          />
+          <PulseStat
+            label="Outstanding"
+            value={formatMoney(pulseStats.outstandingCents, pulseStats.currency)}
+          />
+        </>
+      ) : null}
       <PulseStat
         label="Active projects"
         value={String(pulseStats.activeProjects)}

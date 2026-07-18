@@ -8,9 +8,9 @@ import { emailHashFor } from "~/server/artist/identity";
 // - contract recipient add (contract.ts — will wire on merge of that branch)
 // - project create / publicComment (project.ts)
 //
-// Fire-and-forget in spirit: the caller awaits, but a failure here
-// should NEVER break the main flow. Wrap the call in try/catch at the
-// call site and log+continue.
+// Returns the stable contact id. Notification-style callers may still treat
+// this as best-effort, while project creation must require the returned id so
+// authorization never falls back to an editable email snapshot.
 //
 // Email is normalized (trim + lowercase) before hashing so a returning
 // artist hits the same row no matter how they cased/spaced their
@@ -19,12 +19,12 @@ import { emailHashFor } from "~/server/artist/identity";
 export async function recordContact(
   db: Db,
   input: { producerId: string; email: string; name: string },
-): Promise<void> {
+): Promise<string | null> {
   const lowerEmail = input.email.trim().toLowerCase();
   // Silent skip on empty/invalid — don't bubble validation up into
   // the main flow. Server-side input schemas already enforce email
   // shape at the call sites; this is defense-in-depth.
-  if (!lowerEmail || !lowerEmail.includes("@")) return;
+  if (!lowerEmail || !lowerEmail.includes("@")) return null;
   const emailHash = emailHashFor(input.email);
   const now = new Date();
   const trimmedName = input.name.trim();
@@ -32,7 +32,7 @@ export async function recordContact(
   // Upsert: insert new, or update lastSeenAt + name on conflict. Name
   // is refreshed on re-contact because artists sometimes correct a
   // mistyped name on a second booking — we want the latest spelling.
-  await db
+  const [contact] = await db
     .insert(clientContacts)
     .values({
       producerId: input.producerId,
@@ -45,5 +45,8 @@ export async function recordContact(
     .onConflictDoUpdate({
       target: [clientContacts.producerId, clientContacts.emailHash],
       set: { name: trimmedName, lastSeenAt: now },
-    });
+    })
+    .returning({ id: clientContacts.id });
+
+  return contact?.id ?? null;
 }

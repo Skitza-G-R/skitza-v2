@@ -32,7 +32,6 @@ export default async function StorePage() {
     currency: p.currency,
     active: p.active,
     kind: p.kind,
-    depositPct: p.depositPct,
     durationMin: p.durationMin,
     sessionCount: p.sessionCount,
     paymentPlans: p.paymentPlans,
@@ -43,8 +42,6 @@ export default async function StorePage() {
     royaltyTerms: p.royaltyTerms,
     agreementText: p.agreementText,
     deliverables: p.deliverables ?? [],
-    depositModel: p.depositModel,
-    milestones: p.milestones,
     pricingModel: p.pricingModel,
     volumeTiers: p.volumeTiers,
   }));

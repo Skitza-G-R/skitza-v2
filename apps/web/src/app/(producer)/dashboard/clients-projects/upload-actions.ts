@@ -12,15 +12,12 @@ import type { WorkflowStage } from "~/lib/clients/workflow-stage";
 // Mirrors the convention in clients-actions.ts so the Upload Track
 // modal can `if (!res.ok) throw new Error(res.error)` on any failure.
 export type ActionResult = { ok: true } | { ok: false; error: string };
-export type ActionDataResult<T> =
-  | { ok: true; data: T }
-  | { ok: false; error: string };
+export type ActionDataResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
 const CLIENTS_PROJECTS_PATH = "/dashboard/clients-projects";
 
 async function callerOrError(): Promise<
-  | { ok: true; caller: ReturnType<typeof appRouter.createCaller> }
-  | { ok: false; error: string }
+  { ok: true; caller: ReturnType<typeof appRouter.createCaller> } | { ok: false; error: string }
 > {
   const { userId } = await auth();
   if (!userId) return { ok: false, error: "Please sign in to continue." };
@@ -60,11 +57,10 @@ function toMessage(err: unknown): string {
 // appears once the rest of the chain finishes.
 export async function addTrackAction(input: {
   projectId: string;
+  purchaseId: string;
   title: string;
   artist?: string;
-}): Promise<
-  ActionDataResult<{ id: string; projectId: string; title: string }>
-> {
+}): Promise<ActionDataResult<{ id: string; projectId: string; title: string }>> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
@@ -93,12 +89,10 @@ export async function addTrackAction(input: {
 export async function addVersionAction(input: {
   trackId: string;
   label: string;
-  audioUrl: string | null;
+  audioUrl: null;
   durationMs?: number;
   description?: string;
-}): Promise<
-  ActionDataResult<{ id: string; trackId: string; label: string }>
-> {
+}): Promise<ActionDataResult<{ id: string; trackId: string; label: string }>> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
@@ -125,9 +119,7 @@ export async function addVersionAction(input: {
 // aborted. Best-effort — failures are silently swallowed by the
 // caller, so the producer can still retry without seeing two error
 // toasts in a row.
-export async function deleteVersionAction(input: {
-  id: string;
-}): Promise<ActionResult> {
+export async function deleteVersionAction(input: { id: string }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
@@ -152,7 +144,7 @@ export async function initMultipartAction(input: {
   filename: string;
   sizeBytes: number;
   contentType: string;
-}): Promise<ActionDataResult<{ uploadId: string; key: string }>> {
+}): Promise<ActionDataResult<{ uploadId: string; key: string; completionToken: string }>> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
@@ -168,6 +160,7 @@ export async function signPartAction(input: {
   key: string;
   uploadId: string;
   partNumber: number;
+  trackVersionId: string;
 }): Promise<ActionDataResult<{ url: string }>> {
   const c = await callerOrError();
   if (!c.ok) return c;
@@ -189,6 +182,7 @@ export async function completeMultipartAction(input: {
   parts: { partNumber: number; eTag: string }[];
   trackVersionId: string;
   sizeBytes: number;
+  completionToken: string;
   durationMs?: number;
 }): Promise<ActionDataResult<{ url: string; key: string }>> {
   const c = await callerOrError();
@@ -200,6 +194,7 @@ export async function completeMultipartAction(input: {
       parts: input.parts,
       trackVersionId: input.trackVersionId,
       sizeBytes: input.sizeBytes,
+      completionToken: input.completionToken,
       ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
     });
     revalidatePath(CLIENTS_PROJECTS_PATH);
@@ -210,15 +205,15 @@ export async function completeMultipartAction(input: {
   }
 }
 
-// Best-effort cleanup when the modal is closed mid-upload. Also fires
-// from the chunk loop if any signed PUT fails — we don't want to
-// leave half-uploaded parts hanging in R2. Revalidates so the orphan
-// track_versions row (which we wrote before R2 init) is re-read; the
-// audio router doesn't delete the DB row on abort, so the producer
-// still sees the pending version + can retry.
+// Durable cleanup when the modal is closed mid-upload. The complete
+// persisted identity is required so the audio service can journal and
+// reconcile only this exact upload before the placeholder is removed.
 export async function abortMultipartAction(input: {
   key: string;
   uploadId: string;
+  trackVersionId: string;
+  sizeBytes: number;
+  completionToken: string;
 }): Promise<ActionDataResult<{ ok: true }>> {
   const c = await callerOrError();
   if (!c.ok) return c;
@@ -242,9 +237,7 @@ export async function abortMultipartAction(input: {
 export async function setTrackStageAction(input: {
   trackId: string;
   workflowStage: WorkflowStage;
-}): Promise<
-  ActionDataResult<{ ok: true; workflowStage: WorkflowStage }>
-> {
+}): Promise<ActionDataResult<{ ok: true; workflowStage: WorkflowStage }>> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {

@@ -16,9 +16,7 @@ const producerRouter = readFileSync(
 
 describe("dashboard signal sources", () => {
   it("groups follow-ups by project before applying a bounded cap", () => {
-    const procedure = bookingRouter.match(
-      /needsFollowUp:[\s\S]*?recentPaidUnacknowledged:/,
-    )?.[0];
+    const procedure = bookingRouter.match(/needsFollowUp:[\s\S]*?recentPaidUnacknowledged:/)?.[0];
 
     expect(procedure).toBeDefined();
     expect(procedure).toContain("count(${bookings.id})::int");
@@ -27,17 +25,19 @@ describe("dashboard signal sources", () => {
     expect(procedure).not.toContain(".orderBy(desc(bookings.startsAt))");
   });
 
-  it("retains the same 30-day unacknowledged-payment window as the retired Activity feed", () => {
-    expect(bookingRouter).toContain("const PAYMENT_SIGNAL_RETENTION_DAYS = 30");
-    expect(bookingRouter).toContain(
-      "Date.now() - PAYMENT_SIGNAL_RETENTION_DAYS * 24 * 60 * 60 * 1000",
-    );
+  it("does not infer payment signals from legacy booking history", () => {
+    const procedure = bookingRouter.match(
+      /recentPaidUnacknowledged:[\s\S]*?acknowledgePayment:/,
+    )?.[0];
+
+    expect(procedure).toBeDefined();
+    expect(procedure).toContain("query((): RecentPaymentCompatibility[] => [])");
+    expect(procedure).not.toMatch(/PAYMENT_SIGNAL_RETENTION_DAYS|statusChangedAt.*gte/);
   });
 
-  it("returns comments and invoices independently of the mixed Today cap", () => {
+  it("returns comments independently and leaves removed invoices out of Today", () => {
     expect(producerRouter).toContain("const needsYouUnresolvedItems =");
-    expect(producerRouter).toMatch(
-      /return \{[\s\S]*?items,[\s\S]*?needsYouUnresolvedItems,/,
-    );
+    expect(producerRouter).toMatch(/return \{[\s\S]*?items,[\s\S]*?needsYouUnresolvedItems,/);
+    expect(producerRouter).not.toMatch(/invoiceItems|unpaidInvoiceRows|kind:\s*"invoice"/);
   });
 });

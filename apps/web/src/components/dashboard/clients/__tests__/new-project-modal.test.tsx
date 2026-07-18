@@ -17,13 +17,12 @@ describe("NewProjectModal", () => {
     expect(SRC).toMatch(/Portal/);
   });
 
-  it("declares the NewProjectModalProps shape with open / onClose / clients / products / lockedClient / onCreated", () => {
+  it("declares the NewProjectModalProps shape with open / onClose / clients / lockedClient / onCreated", () => {
     expect(SRC).toMatch(/open:\s*boolean/);
     expect(SRC).toMatch(/onClose:\s*\(\)\s*=>\s*void/);
     // clients: list for the picker dropdown
     expect(SRC).toMatch(/clients:/);
-    // products: producer's active store products
-    expect(SRC).toMatch(/products:/);
+    expect(SRC).not.toMatch(/products:/);
     // lockedClient: optional, locks the picker when opened from Client Space
     expect(SRC).toMatch(/lockedClient\?:/);
     expect(SRC).toMatch(/onCreated\?:/);
@@ -44,40 +43,17 @@ describe("NewProjectModal", () => {
     expect(SRC).toContain("New client");
   });
 
-  it("has a Store product picker (required) — select dropdown", () => {
-    // The product picker is required. Look for a <select> with the
-    // product id binding.
-    expect(SRC).toMatch(/new-project-product/);
-    // The "required" intent shows up either as a `required` attribute
-    // on the select, or as the submit-disabled guard. Either is fine;
-    // assert at least one is present.
-    expect(SRC).toMatch(/required|selectedProduct/);
-  });
-
-  it("renders a hint box referencing product description / deliverables / deposit", () => {
-    // The hint box is rendered when a product is selected. The render
-    // pulls description, deliverables, and depositPct off the product.
-    expect(SRC).toMatch(/description/);
-    expect(SRC).toMatch(/deliverables/);
-    expect(SRC).toMatch(/depositPct|deposit/);
+  it("does not collect or infer purchase terms", () => {
+    expect(SRC).not.toMatch(/new-project-product/);
+    expect(SRC).not.toMatch(/new-project-total/);
+    expect(SRC).not.toMatch(/new-project-deposit/);
+    expect(SRC).not.toMatch(/depositPct|depositCents|engagementTotalCents|productId/);
   });
 
   it("has a Deadline date input (optional)", () => {
     expect(SRC).toMatch(/id="new-project-deadline"/);
     // type="date" — browser date picker.
     expect(SRC).toMatch(/<input[\s\S]*?id="new-project-deadline"[\s\S]*?type="date"/);
-  });
-
-  it("has a Total fee numeric input (auto-fills from product priceCents)", () => {
-    expect(SRC).toMatch(/id="new-project-total"/);
-    expect(SRC).toMatch(/priceCents/);
-  });
-
-  it("has a Deposit numeric input (auto-fills via depositPct)", () => {
-    expect(SRC).toMatch(/id="new-project-deposit"/);
-    // Math involving depositPct must be present somewhere — either
-    // priceCents * depositPct or product.depositPct used as a divisor.
-    expect(SRC).toMatch(/depositPct/);
   });
 
   it("calls createProjectAction Server Action (not direct tRPC client)", () => {
@@ -129,20 +105,13 @@ describe("NewProjectModal", () => {
     expect(SRC).toMatch(/backdrop-blur/);
   });
 
-  it("shows an empty-state hint when products.length === 0", () => {
-    // The producer hasn't created any store products yet. The modal
-    // must surface that gracefully — submit disabled + a hint pointing
-    // at /dashboard/store.
-    expect(SRC).toMatch(/\/dashboard\/store/);
-    expect(SRC).toMatch(/products\.length|productsEmpty/);
-  });
-
   it("closes via onClose after a successful create", () => {
     expect(SRC).toMatch(/onClose\(\)/);
   });
 
-  it("keeps deadline and payment fields in optional details", () => {
-    expect(SRC).toMatch(/<details[\s\S]*?Edit deadline and payment amounts/);
+  it("keeps the optional deadline without payment fields", () => {
+    expect(SRC).toMatch(/<details[\s\S]*?Add deadline/);
+    expect(SRC).not.toMatch(/payment amounts/i);
   });
 
   it("keeps the close button usable when the focused field blurs", () => {

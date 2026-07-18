@@ -78,8 +78,6 @@ const STEP_SUBTITLES: Record<StepId, string> = {
 
 interface Draft extends PackageDraft {
   _picked: PresetId | null;
-  depositModel: string;
-  milestones: { label: string; pct: number }[] | null;
 }
 
 interface ProductEditorProps {
@@ -121,8 +119,6 @@ function emptyDraft(currency: Currency): Draft {
     royalty: royaltyTermsToDraft(null),
     pricingModel: "flat",
     volumeTiers: [],
-    depositModel: "flat",
-    milestones: null,
   };
 }
 
@@ -166,8 +162,6 @@ function seedDraftFromProduct(product: StoreProduct, defaultCurrency: Currency):
     royalty: royaltyTermsToDraft(product.royaltyTerms),
     pricingModel,
     volumeTiers: product.volumeTiers ?? [],
-    depositModel: product.depositModel,
-    milestones: product.milestones,
   };
 }
 
@@ -287,9 +281,8 @@ export function ProductEditor({
     (Number.isInteger(draft.payment.monthlyInstallments) &&
       draft.payment.monthlyInstallments >= 2 &&
       draft.payment.monthlyInstallments <= 12);
-  const validPayment =
-    validMonthly && hasPaymentOption(draft.payment, draft.depositModel, draft.milestones);
-  const paymentError = !hasPaymentOption(draft.payment, draft.depositModel, draft.milestones)
+  const validPayment = validMonthly && hasPaymentOption(draft.payment);
+  const paymentError = !hasPaymentOption(draft.payment)
     ? "Choose at least one payment option."
     : !validMonthly
       ? "Monthly payments must be between 2 and 12."
@@ -388,7 +381,7 @@ export function ProductEditor({
   const previewPriceCents = applyTaxToCents(basePriceCents, taxModeLocal, taxRateLocal);
   const reviewPlans = validMonthly
     ? buildPaymentPlans(draft.payment)
-    : draft.payment.preservedPlans;
+    : [];
   const reviewRoyaltyTerms = royaltyDraftToTerms(draft.royalty);
 
   return (
@@ -451,8 +444,6 @@ export function ProductEditor({
             previewTotalCents={previewPriceCents}
             currency={draft.currency}
             pricingModel={draft.pricingModel}
-            depositModel={draft.depositModel}
-            milestones={draft.milestones}
             {...(paymentError ? { error: paymentError } : {})}
             onChange={(payment) => {
               setDraft((current) => ({ ...current, payment }));
@@ -529,8 +520,6 @@ export function ProductEditor({
             agreementMode={draft.agreementMode}
             contractUrl={draft.contractUrl}
             agreementText={draft.agreementText}
-            depositModel={draft.depositModel}
-            milestones={draft.milestones}
             onEdit={editFromReview}
           />
         ) : null}

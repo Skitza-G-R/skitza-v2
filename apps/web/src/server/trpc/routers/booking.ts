@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { after } from "next/server";
 import { TRPCError } from "@trpc/server";
 import {
@@ -7,7 +6,6 @@ import {
   availabilityBlackouts,
   availabilityBlocks,
   bookings,
-  clientContacts,
   desc,
   eq,
   gte,
@@ -17,9 +15,12 @@ import {
   products,
   producers,
   projects,
+  purchases,
+  purchaseSessionAllowances,
   sql,
   type PaymentPlan,
   type Product,
+  type PurchaseCommercialSnapshot,
   type ProductRoyaltyTerms,
 } from "@skitza/db";
 import { z } from "zod";
@@ -27,16 +28,28 @@ import { z } from "zod";
 import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { stripUndefined } from "../strip-undefined";
-import { normalizePersistedBookingStatus } from "./booking-status-compat";
 import {
   sendBookingCancelledOrRescheduledEmail,
   sendBookingConfirmedEmail,
 } from "~/server/email/send";
-import {
-  mergePreservedPaymentPlans,
-  normalizeProductPaymentPlans,
-} from "~/lib/payment-plans";
+import { mergePreservedPaymentPlans, normalizeProductPaymentPlans } from "~/lib/payment-plans";
 import { isSafeAgreementUrl } from "~/lib/agreement-url";
+
+function purchaseProductName(snapshot: PurchaseCommercialSnapshot, fallback: string): string {
+  const name = snapshot.productOrOfferName.trim();
+  return name || fallback;
+}
+
+type RecentPaymentCompatibility = {
+  id: string;
+  artistName: string;
+  packageNameSnapshot: string | null;
+  unitPriceCents: number | null;
+  songQty: number | null;
+  statusChangedAt: Date | null;
+  projectId: string;
+  projectName: string;
+};
 
 // ─── Product schemas ─────────────────────────────────────────────────
 // Phase H.3 rebuild — producers don't sell time, they sell deliverables.
@@ -60,15 +73,10 @@ const ProductKind = z.enum([
 ]);
 const ProductLocationType = z.enum(["studio", "remote", "client_space"]);
 const PricingModel = z.enum(["flat", "per_song", "hourly", "bundle"]);
-const DepositModel = z.enum(["flat", "milestones", "paid_in_full"]);
 
 const VolumeTier = z.object({
   minQty: z.number().int().positive(),
   pricePerUnitCents: z.number().int().nonnegative(),
-});
-const Milestone = z.object({
-  label: z.string().min(1).max(80),
-  pct: z.number().int().min(0).max(100),
 });
 
 // Payment plans the producer opts this product into. Mirrors the
@@ -76,36 +84,18 @@ const Milestone = z.object({
 // callers (onboarding wizard, tests) don't have to thread a value; when
 // absent, the DB default of `[{kind:"full"}]` applies.
 const PaymentPlanValue = z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("full") }),
-    z.object({ kind: z.literal("split_50_50") }),
-    z.object({
-      kind: z.literal("monthly"),
-      installments: z.number().int().min(2).max(12),
-    }),
-    // BE-2 widened the PaymentPlan union with a milestones kind. The
-    // product editor never authors it here (it's derived from
-    // depositModel='milestones'), but accepting it keeps the tRPC input
-    // type aligned with PaymentPlan[]; offeredPlans() ignores in-array
-    // milestones entries on the artist side.
-    z.object({
-      kind: z.literal("milestones"),
-      milestones: z
-        .array(
-          z.object({
-            label: z.string().min(1).max(80),
-            pct: z.number().int().min(1).max(100),
-          }),
-        )
-        .min(1),
-    }),
-  ]);
+  z.object({ kind: z.literal("full") }),
+  z.object({ kind: z.literal("split_50_50") }),
+  z.object({
+    kind: z.literal("monthly"),
+    installments: z.number().int().min(2).max(12),
+  }),
+]);
 
 const PaymentPlanInput = z
   .array(PaymentPlanValue)
   .superRefine((plans, ctx) => {
-    const standardKinds = plans
-      .filter((plan) => plan.kind !== "milestones")
-      .map((plan) => plan.kind);
+    const standardKinds = plans.map((plan) => plan.kind);
     for (const kind of ["full", "split_50_50", "monthly"] as const) {
       const count = standardKinds.filter((candidate) => candidate === kind).length;
       if (count > 1) {
@@ -126,26 +116,26 @@ const PercentageRoyalty = z.object({
   bps: z.number().int().min(1).max(10_000),
 });
 
-const ProductRoyaltyTermsInput = z.object({
-  master: z.discriminatedUnion("mode", [
-    z.object({ mode: z.literal("none") }),
-    PercentageRoyalty,
-    z.object({ mode: z.literal("agreement") }),
-  ]),
-  composition: z.discriminatedUnion("mode", [
-    z.object({ mode: z.literal("none") }),
-    z.object({
-      mode: z.literal("percentage"),
-      bps: z.number().int().min(1).max(10_000),
-      role: z
-        .enum(["composer", "lyricist", "arranger", "publisher", "other"])
-        .optional(),
-      collectingSociety: z.string().max(200).optional(),
-    }),
-    z.object({ mode: z.literal("agreement") }),
-  ]),
-  notes: z.string().max(4_000).optional(),
-}).transform((terms) => terms as ProductRoyaltyTerms);
+const ProductRoyaltyTermsInput = z
+  .object({
+    master: z.discriminatedUnion("mode", [
+      z.object({ mode: z.literal("none") }),
+      PercentageRoyalty,
+      z.object({ mode: z.literal("agreement") }),
+    ]),
+    composition: z.discriminatedUnion("mode", [
+      z.object({ mode: z.literal("none") }),
+      z.object({
+        mode: z.literal("percentage"),
+        bps: z.number().int().min(1).max(10_000),
+        role: z.enum(["composer", "lyricist", "arranger", "publisher", "other"]).optional(),
+        collectingSociety: z.string().max(200).optional(),
+      }),
+      z.object({ mode: z.literal("agreement") }),
+    ]),
+    notes: z.string().max(4_000).optional(),
+  })
+  .transform((terms) => terms as ProductRoyaltyTerms);
 
 const AgreementUrlInput = z
   .string()
@@ -153,10 +143,8 @@ const AgreementUrlInput = z
   .max(2048)
   .refine(isSafeAgreementUrl, "Agreement links must use http:// or https://");
 
-// Input for create/update. Several fields are conditional on the
-// pricing/deposit model — we validate the cross-field rules in a
-// superRefine after the zod object so the messages point at the
-// right field.
+// Product template input. Commercial payment plans are Full, 50/50, or
+// Monthly; deposits and Milestone plans are not part of the model.
 const ProductInputShape = {
   name: z.string().min(1).max(200),
   description: z.string().max(500).optional(),
@@ -170,7 +158,12 @@ const ProductInputShape = {
   // products (buy a mix, no calendar slot) don't need one. The DB
   // column is NOT NULL for legacy reasons; we store 0 when the
   // producer leaves it blank.
-  durationMin: z.number().int().min(0).max(24 * 60).optional(),
+  durationMin: z
+    .number()
+    .int()
+    .min(0)
+    .max(24 * 60)
+    .optional(),
   // 0 is the canonical "unlimited sessions" marker — see
   // storefront-screen.tsx's read-side: `unlimitedSessions: p.sessionCount === 0`.
   // The wizard's Unlimited toggle saves 0; the prior min(1) made that
@@ -178,12 +171,14 @@ const ProductInputShape = {
   // product the producer marked as unlimited.
   sessionCount: z.number().int().min(0).max(100).optional(),
   deliverables: z.array(z.string().min(1).max(100)).max(10).optional(),
-  depositModel: DepositModel.default("flat"),
-  depositPct: z.number().int().min(0).max(100).optional(),
-  milestones: z.array(Milestone).max(5).optional(),
   locationType: ProductLocationType.default("studio"),
   bufferMinutes: z.number().int().min(0).max(240).default(0),
-  minLeadHours: z.number().int().min(0).max(30 * 24).default(12),
+  minLeadHours: z
+    .number()
+    .int()
+    .min(0)
+    .max(30 * 24)
+    .default(12),
   paymentPlans: PaymentPlanInput.optional(),
   royaltyTerms: ProductRoyaltyTermsInput.nullable().optional(),
   // B7 — optional URL to a contract PDF the producer hosts elsewhere
@@ -233,78 +228,63 @@ const ProductInput = z.object(ProductInputShape).superRefine((val, ctx) => {
       message: "Hourly rate is required for hourly products",
     });
   }
-  // Deposit rules.
-  if (val.depositModel === "flat" && val.depositPct == null) {
-    ctx.addIssue({
-      code: "custom",
-      path: ["depositPct"],
-      message: "Deposit percent is required for flat deposit",
-    });
-  }
-  if (val.depositModel === "milestones") {
-    const ms = val.milestones ?? [];
-    if (ms.length === 0) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["milestones"],
-        message: "At least one milestone is required",
-      });
-    } else {
-      const sum = ms.reduce((acc, m) => acc + m.pct, 0);
-      if (sum !== 100) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["milestones"],
-          message: `Milestones must sum to 100% (got ${String(sum)}%)`,
-        });
-      }
-    }
-  }
 });
 
 // Partial update — allow same shape but everything optional.
-const ProductUpdateInput = z
-  .object({
-    id: z.string().uuid(),
-    name: z.string().min(1).max(200).optional(),
-    description: z.string().max(500).optional(),
-    kind: ProductKind.optional(),
-    pricingModel: PricingModel.optional(),
-    priceCents: z.number().int().min(0).max(100_000_000).optional(),
-    currency: z.enum(["USD", "EUR", "GBP", "ILS"]).optional(),
-    volumeTiers: z.array(VolumeTier).max(10).optional(),
-    hourlyRateCents: z.number().int().min(0).max(100_000_000).optional(),
-    durationMin: z.number().int().min(0).max(24 * 60).optional(),
-    // 0 = unlimited sessions (see create-input comment above).
-    sessionCount: z.number().int().min(0).max(100).optional(),
-    deliverables: z.array(z.string().min(1).max(100)).max(10).optional(),
-    depositModel: DepositModel.optional(),
-    depositPct: z.number().int().min(0).max(100).optional(),
-    milestones: z.array(Milestone).max(5).optional(),
-    locationType: ProductLocationType.optional(),
-    bufferMinutes: z.number().int().min(0).max(240).optional(),
-    minLeadHours: z.number().int().min(0).max(30 * 24).optional(),
-    paymentPlans: PaymentPlanInput.optional(),
-    royaltyTerms: ProductRoyaltyTermsInput.nullable().optional(),
-    // B7 — see ProductInputShape comment.
-    contractUrl: AgreementUrlInput.nullable().optional(),
-    agreementText: z.string().max(20_000).nullable().optional(),
-  });
+const ProductUpdateInput = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1).max(200).optional(),
+  description: z.string().max(500).optional(),
+  kind: ProductKind.optional(),
+  pricingModel: PricingModel.optional(),
+  priceCents: z.number().int().min(0).max(100_000_000).optional(),
+  currency: z.enum(["USD", "EUR", "GBP", "ILS"]).optional(),
+  volumeTiers: z.array(VolumeTier).max(10).optional(),
+  hourlyRateCents: z.number().int().min(0).max(100_000_000).optional(),
+  durationMin: z
+    .number()
+    .int()
+    .min(0)
+    .max(24 * 60)
+    .optional(),
+  // 0 = unlimited sessions (see create-input comment above).
+  sessionCount: z.number().int().min(0).max(100).optional(),
+  deliverables: z.array(z.string().min(1).max(100)).max(10).optional(),
+  locationType: ProductLocationType.optional(),
+  bufferMinutes: z.number().int().min(0).max(240).optional(),
+  minLeadHours: z
+    .number()
+    .int()
+    .min(0)
+    .max(30 * 24)
+    .optional(),
+  paymentPlans: PaymentPlanInput.optional(),
+  royaltyTerms: ProductRoyaltyTermsInput.nullable().optional(),
+  // B7 — see ProductInputShape comment.
+  contractUrl: AgreementUrlInput.nullable().optional(),
+  agreementText: z.string().max(20_000).nullable().optional(),
+});
 
-// Dashboard safety bounds. Follow-ups are grouped in SQL before the cap, so
+// Dashboard safety bound. Follow-ups are grouped in SQL before the cap, so
 // one project with many old sessions cannot starve other projects. Payment
-// signals match producer.today's existing 30-day history window so removing
-// the old Activity card does not make an unacknowledged payment disappear.
+// signals remain fail-closed until they are sourced from purchase history.
 const FOLLOW_UP_PROJECT_CAP = 50;
-const PAYMENT_SIGNAL_RETENTION_DAYS = 30;
 
 // Weekly availability replaces the entire week atomically — easier UX
 // than per-row editing + means we don't need to expose internal block
 // IDs to the producer's form.
 const Block = z.object({
   weekday: z.number().int().min(0).max(6),
-  startMin: z.number().int().min(0).max(24 * 60),
-  endMin: z.number().int().min(0).max(24 * 60),
+  startMin: z
+    .number()
+    .int()
+    .min(0)
+    .max(24 * 60),
+  endMin: z
+    .number()
+    .int()
+    .min(0)
+    .max(24 * 60),
 });
 // Pure helper extracted for test coverage (H.4a). Returns true if ANY
 // two blocks share a weekday AND overlap in time. Back-to-back blocks
@@ -363,10 +343,7 @@ const DEFAULT_MIN_LEAD_HOURS = 12;
 // show a real-time price preview, by the admin dashboard to render
 // example prices, and unit-tested without hitting the DB.
 export function calculatePriceCents(
-  product: Pick<
-    Product,
-    "pricingModel" | "priceCents" | "volumeTiers" | "hourlyRateCents"
-  >,
+  product: Pick<Product, "pricingModel" | "priceCents" | "volumeTiers" | "hourlyRateCents">,
   opts: { quantity?: number; hours?: number } = {},
 ): number {
   if (product.pricingModel === "flat" || product.pricingModel === "bundle") {
@@ -443,7 +420,13 @@ function calendarDayInTz(
   const lookup: Record<string, string> = {};
   for (const p of parts) lookup[p.type] = p.value;
   const weekdayMap: Record<string, number> = {
-    Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+    Sun: 0,
+    Mon: 1,
+    Tue: 2,
+    Wed: 3,
+    Thu: 4,
+    Fri: 5,
+    Sat: 6,
   };
   return {
     year: Number(lookup.year),
@@ -536,100 +519,72 @@ const productsRouter = router({
     return ctx.db
       .select()
       .from(products)
-      .where(
-        and(
-          eq(products.producerId, ctx.producerId),
-          isNull(products.archivedAt),
-        ),
-      )
+      .where(and(eq(products.producerId, ctx.producerId), isNull(products.archivedAt)))
       .orderBy(asc(products.position), asc(products.createdAt));
   }),
 
-  create: producerProcedure
-    .input(ProductInput)
-    .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.db
-        .select({ position: products.position })
-        .from(products)
-        .where(eq(products.producerId, ctx.producerId))
-        .orderBy(asc(products.position));
-      const nextPos = existing.length === 0
-        ? 0
-        : (existing[existing.length - 1]?.position ?? 0) + 1;
-      // Pre-H.3 callers (onboarding wizard) pass in only a minimal set
-      // of fields. The DB expects durationMin NOT NULL, so default it
-      // to 0 when the caller doesn't pass one.
-      const {
-        durationMin = 0,
-        priceCents = 0,
-        sessionCount = 1,
-        ...rest
-      } = input;
-      const [row] = await ctx.db
-        .insert(products)
-        .values({
-          ...stripUndefined(rest),
-          durationMin,
-          priceCents,
-          sessionCount,
-          producerId: ctx.producerId,
-          position: nextPos,
-        })
-        .returning();
-      if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      return row;
-    }),
+  create: producerProcedure.input(ProductInput).mutation(async ({ ctx, input }) => {
+    const existing = await ctx.db
+      .select({ position: products.position })
+      .from(products)
+      .where(eq(products.producerId, ctx.producerId))
+      .orderBy(asc(products.position));
+    const nextPos = existing.length === 0 ? 0 : (existing[existing.length - 1]?.position ?? 0) + 1;
+    // Pre-H.3 callers (onboarding wizard) pass in only a minimal set
+    // of fields. The DB expects durationMin NOT NULL, so default it
+    // to 0 when the caller doesn't pass one.
+    const { durationMin = 0, priceCents = 0, sessionCount = 1, ...rest } = input;
+    const [row] = await ctx.db
+      .insert(products)
+      .values({
+        ...stripUndefined(rest),
+        durationMin,
+        priceCents,
+        sessionCount,
+        producerId: ctx.producerId,
+        position: nextPos,
+      })
+      .returning();
+    if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+    return row;
+  }),
 
-  update: producerProcedure
-    .input(ProductUpdateInput)
-    .mutation(async ({ ctx, input }) => {
-      const { id, ...patch } = input;
-      const [existing] = await ctx.db
-        .select({
-          producerId: products.producerId,
-          paymentPlans: products.paymentPlans,
-          depositModel: products.depositModel,
-          milestones: products.milestones,
-        })
-        .from(products)
-        .where(eq(products.id, id))
-        .limit(1);
-      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
-      if (existing.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "FORBIDDEN" });
-      }
-      if (patch.paymentPlans?.length === 0) {
-        const effectiveDepositModel = patch.depositModel ?? existing.depositModel;
-        const effectiveMilestones = patch.milestones ?? existing.milestones;
-        if (
-          effectiveDepositModel !== "milestones" ||
-          !effectiveMilestones?.length
-        ) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Choose at least one payment option",
-          });
-        }
-      }
-      const persistedPatch = {
-        ...stripUndefined(patch),
-        ...(patch.paymentPlans
-          ? {
-              paymentPlans: mergePreservedPaymentPlans(
-                patch.paymentPlans,
-                existing.paymentPlans,
-              ),
-            }
-          : {}),
-      };
-      const [row] = await ctx.db
-        .update(products)
-        .set(persistedPatch)
-        .where(eq(products.id, id))
-        .returning();
-      if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      return row;
-    }),
+  update: producerProcedure.input(ProductUpdateInput).mutation(async ({ ctx, input }) => {
+    const { id, ...patch } = input;
+    const [existing] = await ctx.db
+      .select({
+        producerId: products.producerId,
+        paymentPlans: products.paymentPlans,
+      })
+      .from(products)
+      .where(eq(products.id, id))
+      .limit(1);
+    if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+    if (existing.producerId !== ctx.producerId) {
+      throw new TRPCError({ code: "FORBIDDEN" });
+    }
+    if (patch.paymentPlans?.length === 0) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Choose at least one payment option",
+      });
+    }
+    const persistedPatch = {
+      ...stripUndefined(patch),
+      ...(patch.paymentPlans
+        ? {
+            paymentPlans: mergePreservedPaymentPlans(patch.paymentPlans, existing.paymentPlans),
+          }
+        : {}),
+    };
+    const [row] = await ctx.db
+      .update(products)
+      .set(persistedPatch)
+      .where(eq(products.id, id))
+      .returning();
+    if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+    return row;
+  }),
 
   // Phase H.3 — soft-delete via `archived_at` timestamp. Keeps the row
   // for historical bookings to resolve. Also flips `active = false`
@@ -708,10 +663,7 @@ const productsRouter = router({
       }
       await ctx.db.transaction(async (tx) => {
         for (const [idx, id] of input.orderedIds.entries()) {
-          await tx
-            .update(products)
-            .set({ position: idx })
-            .where(eq(products.id, id));
+          await tx.update(products).set({ position: idx }).where(eq(products.id, id));
         }
       });
       return { ok: true as const };
@@ -755,10 +707,7 @@ const productsRouter = router({
       if (existing.producerId !== ctx.producerId) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
-      await ctx.db
-        .update(products)
-        .set({ active: input.active })
-        .where(eq(products.id, input.id));
+      await ctx.db.update(products).set({ active: input.active }).where(eq(products.id, input.id));
       return { ok: true as const };
     }),
 
@@ -784,9 +733,7 @@ const productsRouter = router({
         .from(products)
         .where(eq(products.producerId, ctx.producerId))
         .orderBy(asc(products.position));
-      const nextPos = all.length === 0
-        ? 0
-        : (all[all.length - 1]?.position ?? 0) + 1;
+      const nextPos = all.length === 0 ? 0 : (all[all.length - 1]?.position ?? 0) + 1;
       const [row] = await ctx.db
         .insert(products)
         .values({
@@ -797,7 +744,6 @@ const productsRouter = router({
           sessionCount: existing.sessionCount,
           priceCents: existing.priceCents,
           currency: existing.currency,
-          depositPct: existing.depositPct,
           active: false,
           position: nextPos,
           kind: existing.kind,
@@ -808,8 +754,6 @@ const productsRouter = router({
           volumeTiers: existing.volumeTiers,
           hourlyRateCents: existing.hourlyRateCents,
           deliverables: existing.deliverables,
-          depositModel: existing.depositModel,
-          milestones: existing.milestones,
           paymentPlans: existing.paymentPlans,
           royaltyTerms: existing.royaltyTerms,
           contractUrl: existing.contractUrl,
@@ -842,14 +786,16 @@ export const bookingRouter = router({
 
     create: producerProcedure
       .input(
-        z.object({
-          startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD"),
-          endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD"),
-          reason: z.string().max(200).optional(),
-        }).refine((v) => v.endDate >= v.startDate, {
-          message: "end date must be on or after start date",
-          path: ["endDate"],
-        }),
+        z
+          .object({
+            startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD"),
+            endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD"),
+            reason: z.string().max(200).optional(),
+          })
+          .refine((v) => v.endDate >= v.startDate, {
+            message: "end date must be on or after start date",
+            path: ["endDate"],
+          }),
       )
       .mutation(async ({ ctx, input }) => {
         const [row] = await ctx.db
@@ -877,9 +823,7 @@ export const bookingRouter = router({
         if (existing.producerId !== ctx.producerId) {
           throw new TRPCError({ code: "FORBIDDEN" });
         }
-        await ctx.db
-          .delete(availabilityBlackouts)
-          .where(eq(availabilityBlackouts.id, input.id));
+        await ctx.db.delete(availabilityBlackouts).where(eq(availabilityBlackouts.id, input.id));
         return { ok: true as const };
       }),
   }),
@@ -894,23 +838,21 @@ export const bookingRouter = router({
         .orderBy(asc(availabilityBlocks.weekday), asc(availabilityBlocks.startMin));
     }),
 
-    setWeek: producerProcedure
-      .input(AvailabilityWeekInput)
-      .mutation(async ({ ctx, input }) => {
-        await ctx.db
-          .delete(availabilityBlocks)
-          .where(eq(availabilityBlocks.producerId, ctx.producerId));
-        if (input.blocks.length === 0) return { ok: true as const };
-        await ctx.db.insert(availabilityBlocks).values(
-          input.blocks.map((b) => ({
-            producerId: ctx.producerId,
-            weekday: b.weekday,
-            startMin: b.startMin,
-            endMin: b.endMin,
-          })),
-        );
-        return { ok: true as const };
-      }),
+    setWeek: producerProcedure.input(AvailabilityWeekInput).mutation(async ({ ctx, input }) => {
+      await ctx.db
+        .delete(availabilityBlocks)
+        .where(eq(availabilityBlocks.producerId, ctx.producerId));
+      if (input.blocks.length === 0) return { ok: true as const };
+      await ctx.db.insert(availabilityBlocks).values(
+        input.blocks.map((b) => ({
+          producerId: ctx.producerId,
+          weekday: b.weekday,
+          startMin: b.startMin,
+          endMin: b.endMin,
+        })),
+      );
+      return { ok: true as const };
+    }),
 
     // Producer-level booking settings surfaced on the availability
     // editor: default session length, auto-confirm toggle, cancellation
@@ -939,11 +881,21 @@ export const bookingRouter = router({
           // 15-min min (so the slot-grid `SLOT_INCREMENT_MIN` works),
           // 8h max (a full workday). Custom values outside presets are
           // fine — the picker just shows "Custom".
-          defaultSessionMin: z.number().int().min(15).max(8 * 60).optional(),
+          defaultSessionMin: z
+            .number()
+            .int()
+            .min(15)
+            .max(8 * 60)
+            .optional(),
           autoConfirmBookings: z.boolean().optional(),
           // 0 = no policy, up to 30 days advance notice. The UI caps
           // at 168h (7d) for the spinner but any value is accepted.
-          cancellationPolicyHours: z.number().int().min(0).max(30 * 24).optional(),
+          cancellationPolicyHours: z
+            .number()
+            .int()
+            .min(0)
+            .max(30 * 24)
+            .optional(),
         }),
       )
       .mutation(async ({ ctx, input }) => {
@@ -971,8 +923,16 @@ export const bookingRouter = router({
       const now = new Date();
       const horizon = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
       const rows = await ctx.db
-        .select()
+        .select({ booking: bookings, commercialSnapshot: purchases.commercialSnapshot })
         .from(bookings)
+        .innerJoin(
+          purchases,
+          and(
+            eq(purchases.id, bookings.purchaseId),
+            eq(purchases.projectId, bookings.projectId),
+            eq(purchases.producerId, bookings.producerId),
+          ),
+        )
         .where(
           and(
             eq(bookings.producerId, ctx.producerId),
@@ -982,95 +942,33 @@ export const bookingRouter = router({
           ),
         )
         .orderBy(asc(bookings.startsAt));
-      return rows.map((b) => ({
-        id: b.id,
-        artistName: b.artistName,
-        artistEmail: b.artistEmail,
-        startsAt: b.startsAt,
-        durationMin: b.durationMin,
-        packageName: b.packageNameSnapshot,
+      return rows.map(({ booking, commercialSnapshot }) => ({
+        id: booking.id,
+        artistName: booking.artistName,
+        artistEmail: booking.artistEmail,
+        startsAt: booking.startsAt,
+        durationMin: booking.durationMin,
+        packageName: purchaseProductName(commercialSnapshot, "Session"),
       }));
     }),
 
+  // Revenue is purchase-ledger data, not a booking-price projection. Keep
+  // the compatibility numbers explicitly unavailable until that grouped
+  // read model is wired.
   revenue: producerProcedure.query(async ({ ctx }) => {
-    const now = new Date();
-    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-    const nextMonthStart = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
-    );
-    const in7 = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-
     const [producer] = await ctx.db
       .select({ defaultCurrency: producers.defaultCurrency })
       .from(producers)
       .where(eq(producers.id, ctx.producerId))
       .limit(1);
     const currency = producer?.defaultCurrency ?? "USD";
-
-    const bookingRows = await ctx.db
-      .select({
-        id: bookings.id,
-        status: bookings.status,
-        startsAt: bookings.startsAt,
-        productId: bookings.productId,
-      })
-      .from(bookings)
-      .where(
-        and(
-          eq(bookings.producerId, ctx.producerId),
-          inArray(bookings.status, ["pending_approval", "pending_payment", "confirmed"]),
-        ),
-      );
-    if (bookingRows.length === 0) {
-      return {
-        mtdCents: 0,
-        outstandingCents: 0,
-        next7DaysCents: 0,
-        currency,
-      };
-    }
-
-    const productIds = Array.from(
-      new Set(
-        bookingRows
-          .map((b) => b.productId)
-          .filter((id): id is string => id !== null),
-      ),
-    );
-    const productRows = productIds.length === 0
-      ? []
-      : await ctx.db
-          .select({
-            id: products.id,
-            priceCents: products.priceCents,
-            depositPct: products.depositPct,
-            currency: products.currency,
-          })
-          .from(products)
-          .where(inArray(products.id, productIds));
-    const productById = new Map(productRows.map((p) => [p.id, p]));
-
-    let mtdCents = 0;
-    let outstandingCents = 0;
-    let next7DaysCents = 0;
-    for (const b of bookingRows) {
-      if (b.productId === null) continue;
-      const prod = productById.get(b.productId);
-      if (!prod) continue;
-      if (prod.currency !== currency) continue;
-      if (b.status === "confirmed") {
-        if (b.startsAt >= monthStart && b.startsAt < nextMonthStart) {
-          mtdCents += prod.priceCents;
-        }
-        if (b.startsAt >= now && b.startsAt <= in7) {
-          next7DaysCents += prod.priceCents;
-        }
-      }
-      if (prod.depositPct > 0) {
-        outstandingCents += Math.round((prod.priceCents * prod.depositPct) / 100);
-      }
-    }
-    return { mtdCents, outstandingCents, next7DaysCents, currency };
+    return {
+      available: false as const,
+      mtdCents: 0,
+      outstandingCents: 0,
+      next7DaysCents: 0,
+      currency,
+    };
   }),
 
   // Producer dashboard follow-ups — confirmed sessions whose end time has
@@ -1093,11 +991,8 @@ export const bookingRouter = router({
         and(
           eq(bookings.producerId, ctx.producerId),
           eq(bookings.status, "confirmed"),
-          lte(
-            sql`${bookings.startsAt} + ${bookings.durationMin} * interval '1 minute'`,
-            now,
-          ),
-          inArray(projects.stage, ["booked", "in_production"]),
+          lte(sql`${bookings.startsAt} + ${bookings.durationMin} * interval '1 minute'`, now),
+          eq(projects.lifecycleStatus, "active"),
         ),
       )
       .groupBy(projects.id)
@@ -1112,46 +1007,7 @@ export const bookingRouter = router({
     }));
   }),
 
-  // SK-20 — payments the producer hasn't dismissed yet. The old Activity
-  // feed retained 30 days; Needs You keeps the same verified window so the
-  // redesign cannot silently drop an 8–30 day unacknowledged payment.
-  recentPaidUnacknowledged: producerProcedure.query(async ({ ctx }) => {
-    const retentionStart = new Date(
-      Date.now() - PAYMENT_SIGNAL_RETENTION_DAYS * 24 * 60 * 60 * 1000,
-    );
-    const rows = await ctx.db
-      .select({
-        id: bookings.id,
-        artistName: bookings.artistName,
-        packageNameSnapshot: bookings.packageNameSnapshot,
-        unitPriceCents: bookings.unitPriceCents,
-        songQty: bookings.songQty,
-        statusChangedAt: bookings.statusChangedAt,
-        projectId: bookings.projectId,
-        projectTitle: projects.title,
-      })
-      .from(bookings)
-      .leftJoin(projects, eq(projects.id, bookings.projectId))
-      .where(
-        and(
-          eq(bookings.producerId, ctx.producerId),
-          eq(bookings.status, "confirmed"),
-          isNull(bookings.producerAcknowledgedAt),
-          gte(bookings.statusChangedAt, retentionStart),
-        ),
-      )
-      .orderBy(desc(bookings.statusChangedAt));
-    return rows.map((r) => ({
-      id: r.id,
-      artistName: r.artistName,
-      packageNameSnapshot: r.packageNameSnapshot,
-      unitPriceCents: r.unitPriceCents,
-      songQty: r.songQty,
-      statusChangedAt: r.statusChangedAt,
-      projectId: r.projectId,
-      projectName: r.projectTitle ?? r.packageNameSnapshot ?? r.artistName,
-    }));
-  }),
+  recentPaidUnacknowledged: producerProcedure.query((): RecentPaymentCompatibility[] => []),
 
   // SK-20 — producer dismisses the payment-received banner for one
   // booking. Scoped to the caller's own bookings via the producerId
@@ -1159,18 +1015,16 @@ export const bookingRouter = router({
   acknowledgePayment: producerProcedure
     .input(z.object({ bookingId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const [row] = await ctx.db
-        .update(bookings)
-        .set({ producerAcknowledgedAt: new Date() })
-        .where(
-          and(
-            eq(bookings.id, input.bookingId),
-            eq(bookings.producerId, ctx.producerId),
-          ),
-        )
-        .returning();
-      if (!row) throw new TRPCError({ code: "NOT_FOUND" });
-      return row;
+      const [owned] = await ctx.db
+        .select({ id: bookings.id })
+        .from(bookings)
+        .where(and(eq(bookings.id, input.bookingId), eq(bookings.producerId, ctx.producerId)))
+        .limit(1);
+      if (!owned) throw new TRPCError({ code: "NOT_FOUND" });
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "Payment acknowledgement belongs to purchase payment history.",
+      });
     }),
 
   list: producerProcedure
@@ -1180,233 +1034,151 @@ export const bookingRouter = router({
           status: z
             .enum([
               "pending_approval",
-              "pending_payment",
               "confirmed",
               "rejected",
               "cancelled",
+              "completed",
+              "no_show",
             ])
             .optional(),
         })
         .optional(),
     )
     .query(async ({ ctx, input }) => {
-      // Compare as text until SK-79 is applied. Binding `pending_approval`
-      // directly as the old enum type makes PostgreSQL reject the whole
-      // dashboard request before it can return any data.
-      const statusFilter =
-        input?.status === "pending_approval"
-          ? sql`${bookings.status}::text IN ('pending', 'pending_approval')`
-          : input?.status
-            ? sql`${bookings.status}::text = ${input.status}`
-            : null;
-      const filter = statusFilter
-        ? and(eq(bookings.producerId, ctx.producerId), statusFilter)
+      const filter = input?.status
+        ? and(eq(bookings.producerId, ctx.producerId), eq(bookings.status, input.status))
         : eq(bookings.producerId, ctx.producerId);
       const rows = await ctx.db
-        .select()
+        .select({ booking: bookings, commercialSnapshot: purchases.commercialSnapshot })
         .from(bookings)
+        .innerJoin(
+          purchases,
+          and(
+            eq(purchases.id, bookings.purchaseId),
+            eq(purchases.projectId, bookings.projectId),
+            eq(purchases.producerId, bookings.producerId),
+          ),
+        )
         .where(filter)
         .orderBy(asc(bookings.startsAt));
-      return rows.map((row) => ({
-        ...row,
-        status: normalizePersistedBookingStatus(row.status),
+      return rows.map(({ booking, commercialSnapshot }) => ({
+        ...booking,
+        packageNameSnapshot: purchaseProductName(commercialSnapshot, "Session"),
+        unitPriceCents: commercialSnapshot.lineItems[0]?.unitPriceCents ?? null,
+        songQty:
+          commercialSnapshot.lineItems.reduce((total, item) => total + item.quantity, 0) || null,
       }));
     }),
 
   confirm: producerProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const [existing] = await ctx.db
-        .select({
-          producerId: bookings.producerId,
-          status: bookings.status,
-          artistName: bookings.artistName,
-          artistEmail: bookings.artistEmail,
-          startsAt: bookings.startsAt,
-          durationMin: bookings.durationMin,
-          productId: bookings.productId,
-          packageNameSnapshot: bookings.packageNameSnapshot,
-          // New: needed for the auto-project-creation idempotency check
-          // (Today Cockpit). Skip the insert when the booking already
-          // has a linked project — the producer may have manually
-          // provisioned one first via project.createFromBooking.
-          projectId: bookings.projectId,
-          stripeCheckoutSessionId: bookings.stripeCheckoutSessionId,
-        })
-        .from(bookings)
-        .where(eq(bookings.id, input.id))
-        .limit(1);
-      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
-      if (existing.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "FORBIDDEN" });
-      }
-      if (existing.status !== "pending_approval") {
-        if (existing.status === "confirmed") return { ok: true as const };
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: `Cannot confirm a ${existing.status} booking`,
-        });
-      }
-
-      // Producer "Approve" branches on whether the booking still owes
-      // money. A booking with a productId AND no project yet is a fresh,
-      // unpaid engagement — approval moves it to `pending_payment` and we
-      // skip auto-project creation + the confirmation email until the
-      // artist actually pays. A booking that already has a linked project
-      // is a returning-artist follow-up (already paid for the engagement),
-      // so we go straight to `confirmed` and run the auto-project +
-      // welcome-email side effects as before.
-      const needsPayment =
-        existing.productId !== null && existing.projectId === null;
-      if (needsPayment) {
-        await ctx.db
-          .update(bookings)
-          .set({ status: "pending_payment", statusChangedAt: new Date() })
-          .where(eq(bookings.id, input.id));
-        return { ok: true as const };
-      }
-
-      await ctx.db
-        .update(bookings)
-        .set({ status: "confirmed", statusChangedAt: new Date() })
-        .where(eq(bookings.id, input.id));
-
-      // ── Today Cockpit ── Auto-provision a Project row on confirm.
-      // Landing a confirmed booking in the producer's dashboard WITHOUT
-      // an associated project would force them to click "create
-      // project" as a second step — exactly the friction this flow is
-      // trying to kill. We insert a projects row here, stamp the
-      // bookings.projectId FK, and upsert the client_contacts cache so
-      // a later Clerk sign-in by the artist picks up a pre-existing
-      // row (the webhook stamps clerk_user_id by (producerId, emailHash)).
-      //
-      // Idempotent: if the booking already links to a project (the
-      // producer called project.createFromBooking or the webhook got
-      // there first), skip the insert entirely.
-      //
-      // All three writes are best-effort but we DO propagate failures
-      // on the project insert itself — the producer would otherwise
-      // silently lose the auto-project benefit with no way to retry.
-      // The status transition already committed above, so a failure
-      // here lands them in the same state as pre-cockpit: a confirmed
-      // booking with no project yet, recoverable via
-      // project.createFromBooking.
-      if (!existing.projectId) {
-        const title =
-          existing.packageNameSnapshot && existing.packageNameSnapshot.length > 0
-            ? existing.packageNameSnapshot
-            : `Session with ${existing.artistName}`;
-        const lowerEmail = existing.artistEmail.trim().toLowerCase();
-
-        try {
-          const [projectRow] = await ctx.db
-            .insert(projects)
-            .values({
-              producerId: ctx.producerId,
-              bookingId: input.id,
-              title,
-              artistName: existing.artistName,
-              artistEmail: lowerEmail,
-              clientName: existing.artistName,
-              clientEmail: lowerEmail,
-              stage: "booked",
-              depositPaid: false,
-              finalPaid: false,
-            })
-            .returning();
-          if (projectRow) {
-            await ctx.db
-              .update(bookings)
-              .set({ projectId: projectRow.id })
-              .where(eq(bookings.id, input.id));
-          }
-        } catch (err) {
-          // Rare — a DB error or share-token collision. Logged so ops
-          // can spot it; the producer can still hit "Create project"
-          // on the booking detail page as a manual fallback.
-          console.warn("[today-cockpit] auto-project insert failed in booking.confirm", err);
-        }
-
-        // Upsert client_contacts keyed on (producerId, emailHash).
-        // Separate write from recordContact() because recordContact
-        // swallows errors via console.warn; we want the same semantics
-        // here but with the insert parameters the Today Cockpit guard
-        // expects (name snapshot from the booking row, not the artist's
-        // later Clerk display name).
-        try {
-          const emailHash = createHash("sha256").update(lowerEmail).digest("hex");
-          const now = new Date();
-          await ctx.db
-            .insert(clientContacts)
-            .values({
-              producerId: ctx.producerId,
-              emailHash,
-              email: lowerEmail,
-              name: existing.artistName,
-              firstSeenAt: now,
-              lastSeenAt: now,
-            })
-            .onConflictDoUpdate({
-              target: [clientContacts.producerId, clientContacts.emailHash],
-              set: { name: existing.artistName, lastSeenAt: now },
-            });
-        } catch (err) {
-          console.warn("[today-cockpit] client_contacts upsert failed in booking.confirm", err);
-        }
-      }
-
-      // Email the artist that their session is confirmed. Fully
-      // best-effort: catch + warn so a Resend hiccup doesn't unwind
-      // the status transition the producer just performed.
-      //
-      // Batch G — Autopilot gate. Reads `autopilotWelcomeEmail` off
-      // the producer row; skips the send when the switch is off. We
-      // still fetch the producer row below (it feeds the email copy
-      // when on), so gating is a single extra column in the SELECT.
-      try {
-        const [producer] = await ctx.db
+      const result = await ctx.db.transaction(async (tx) => {
+        const [existing] = await tx
           .select({
-            displayName: producers.displayName,
-            timezone: producers.timezone,
-            defaultCurrency: producers.defaultCurrency,
-            autopilotWelcomeEmail: producers.autopilotWelcomeEmail,
+            booking: bookings,
+            commercialSnapshot: purchases.commercialSnapshot,
+            purchaseLifecycleStatus: purchases.lifecycleStatus,
+            projectLifecycleStatus: projects.lifecycleStatus,
+            allowanceClosedAt: purchaseSessionAllowances.closedAt,
+            producerDisplayName: producers.displayName,
+            producerTimezone: producers.timezone,
           })
-          .from(producers)
-          .where(eq(producers.id, existing.producerId))
+          .from(bookings)
+          .innerJoin(
+            purchases,
+            and(
+              eq(purchases.id, bookings.purchaseId),
+              eq(purchases.projectId, bookings.projectId),
+              eq(purchases.producerId, bookings.producerId),
+            ),
+          )
+          .innerJoin(
+            projects,
+            and(
+              eq(projects.id, purchases.projectId),
+              eq(projects.producerId, purchases.producerId),
+              eq(projects.clientContactId, purchases.clientContactId),
+            ),
+          )
+          .innerJoin(
+            purchaseSessionAllowances,
+            and(
+              eq(purchaseSessionAllowances.id, bookings.sessionAllowanceId),
+              eq(purchaseSessionAllowances.purchaseId, bookings.purchaseId),
+              eq(purchaseSessionAllowances.producerId, bookings.producerId),
+            ),
+          )
+          .innerJoin(producers, eq(producers.id, bookings.producerId))
+          .where(and(eq(bookings.id, input.id), eq(bookings.producerId, ctx.producerId)))
+          .for("update")
           .limit(1);
-        if (producer && producer.autopilotWelcomeEmail) {
-          const product = existing.productId
-            ? (
-                await ctx.db
-                  .select({
-                    name: products.name,
-                    priceCents: products.priceCents,
-                    currency: products.currency,
-                    depositPct: products.depositPct,
-                  })
-                  .from(products)
-                  .where(eq(products.id, existing.productId))
-                  .limit(1)
-              )[0]
-            : undefined;
-          const priceCents = product?.priceCents ?? 0;
-          const depositPct = product?.depositPct ?? 0;
-          const depositCents = Math.round((priceCents * depositPct) / 100);
-          await sendBookingConfirmedEmail(existing.artistEmail, {
-            artistName: existing.artistName,
-            producerName: producer.displayName ?? "Your producer",
-            productName: product?.name ?? existing.packageNameSnapshot ?? "Session",
-            startsAt: existing.durationMin > 0 ? existing.startsAt : null,
-            producerTimezone: producer.timezone,
-            currency: product?.currency ?? producer.defaultCurrency,
-            priceCents,
-            depositCents,
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+        if (existing.booking.status === "confirmed") {
+          return { newlyConfirmed: false as const, email: null };
+        }
+        if (existing.booking.status !== "pending_approval") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Cannot confirm a ${existing.booking.status} booking`,
           });
         }
-      } catch (err) {
-        console.warn("[email] sendBookingConfirmedEmail failed in booking.confirm", err);
-      }
+        if (
+          existing.purchaseLifecycleStatus !== "active" ||
+          existing.projectLifecycleStatus !== "active" ||
+          existing.allowanceClosedAt !== null
+        ) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "The purchase session allowance is no longer active.",
+          });
+        }
 
+        const now = new Date();
+        const [updated] = await tx
+          .update(bookings)
+          .set({ status: "confirmed", statusChangedAt: now })
+          .where(
+            and(
+              eq(bookings.id, input.id),
+              eq(bookings.producerId, ctx.producerId),
+              eq(bookings.status, "pending_approval"),
+            ),
+          )
+          .returning({ id: bookings.id });
+        if (!updated) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "This booking changed in another tab. Refresh and try again.",
+          });
+        }
+        return {
+          newlyConfirmed: true as const,
+          email: {
+            to: existing.booking.artistEmail,
+            artistName: existing.booking.artistName,
+            producerName: existing.producerDisplayName ?? "Your producer",
+            productName: purchaseProductName(existing.commercialSnapshot, "Session"),
+            startsAt: existing.booking.startsAt,
+            producerTimezone: existing.producerTimezone,
+          },
+        };
+      });
+      if (result.newlyConfirmed) {
+        after(async () => {
+          try {
+            await sendBookingConfirmedEmail(result.email.to, {
+              artistName: result.email.artistName,
+              producerName: result.email.producerName,
+              productName: result.email.productName,
+              startsAt: result.email.startsAt,
+              producerTimezone: result.email.producerTimezone,
+            });
+          } catch {
+            console.error("[email] booking confirmation failed");
+          }
+        });
+      }
       return { ok: true as const };
     }),
 
@@ -1420,18 +1192,23 @@ export const bookingRouter = router({
           artistEmail: bookings.artistEmail,
           artistName: bookings.artistName,
           startsAt: bookings.startsAt,
-          packageNameSnapshot: bookings.packageNameSnapshot,
+          commercialSnapshot: purchases.commercialSnapshot,
           producerDisplayName: producers.displayName,
           producerTimezone: producers.timezone,
         })
         .from(bookings)
+        .innerJoin(
+          purchases,
+          and(
+            eq(purchases.id, bookings.purchaseId),
+            eq(purchases.projectId, bookings.projectId),
+            eq(purchases.producerId, bookings.producerId),
+          ),
+        )
         .innerJoin(producers, eq(producers.id, bookings.producerId))
-        .where(eq(bookings.id, input.id))
+        .where(and(eq(bookings.id, input.id), eq(bookings.producerId, ctx.producerId)))
         .limit(1);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
-      if (existing.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "FORBIDDEN" });
-      }
       if (existing.status !== "pending_approval") {
         if (existing.status === "rejected") return { ok: true as const };
         throw new TRPCError({
@@ -1439,17 +1216,33 @@ export const bookingRouter = router({
           message: `Cannot reject a ${existing.status} booking`,
         });
       }
-      await ctx.db
+      const now = new Date();
+      const [updated] = await ctx.db
         .update(bookings)
-        .set({ status: "rejected", statusChangedAt: new Date() })
-        .where(eq(bookings.id, input.id));
+        .set({
+          status: "rejected",
+          statusChangedAt: now,
+          outcome: "cancelled_by_producer",
+          outcomeChangedAt: now,
+        })
+        .where(
+          and(
+            eq(bookings.id, input.id),
+            eq(bookings.producerId, ctx.producerId),
+            eq(bookings.status, "pending_approval"),
+          ),
+        )
+        .returning({ id: bookings.id });
+      if (!updated) {
+        throw new TRPCError({ code: "CONFLICT" });
+      }
 
       after(async () => {
         try {
           await sendBookingCancelledOrRescheduledEmail(existing.artistEmail, {
             recipientName: existing.artistName,
             counterpartName: existing.producerDisplayName ?? "Your producer",
-            productName: existing.packageNameSnapshot ?? "Session",
+            productName: purchaseProductName(existing.commercialSnapshot, "Session"),
             status: "cancelled",
             oldStartsAt: existing.startsAt,
             newStartsAt: null,

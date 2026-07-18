@@ -6,17 +6,16 @@ import type { OnboardingStep } from "../decide-redirect";
 // May 2026 redesign — was Step 5 of 6 in the legacy flow; now Step 5
 // of 5 (rail position unchanged). Routing changed: Back goes to
 // /onboarding/portfolio (was /availability), Continue goes to
-// /onboarding/complete (was /portfolio). Payment is still a v1
-// placeholder — the cards + buttons are inert until Stripe Connect
-// ships per PRD.
+// /onboarding/complete (was /portfolio). The step is informational:
+// Skitza records external payments and does not connect a provider.
 
 /** 1-indexed rail position. Pinned by tests. */
 export const PAYMENT_STEP_INDEX: 1 | 2 | 3 | 4 | 5 = 5;
 
-export const PAYMENT_STEP_TITLE = "Get paid directly.";
+export const PAYMENT_STEP_TITLE = "Payments stay external.";
 
 export const PAYMENT_STEP_SUBTITLE =
-  "Pick a payout method. Skip and connect later from Settings.";
+  "Artists pay you directly; Skitza does not process or route money.";
 
 /** OnboardingStep tag for this page — used by decideOnboardingRedirect. */
 export const ONBOARDING_STEP_NAME: OnboardingStep = "payment";

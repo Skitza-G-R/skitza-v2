@@ -20,8 +20,8 @@ export interface AlbumHeroProject {
   clientName: string;
   songsCount: number;
   sessionsCount: number;
-  totalCents: number;
-  currency: string;
+  totalCents: number | null;
+  currency: string | null;
   workflowStage: WorkflowStage;
 }
 
@@ -116,7 +116,11 @@ export function AlbumHero({ project, onPlayLatest, onAddSong }: AlbumHeroProps) 
               </li>
               <li className="inline-flex items-center gap-1.5">
                 <DollarSign size={12} className="hidden md:block" aria-hidden />
-                <span>{formatMoney(totalCents, currency)}</span>
+                <span>
+                  {totalCents === null || currency === null
+                    ? "Payments unavailable"
+                    : formatMoney(totalCents, currency)}
+                </span>
               </li>
             </ul>
           </div>

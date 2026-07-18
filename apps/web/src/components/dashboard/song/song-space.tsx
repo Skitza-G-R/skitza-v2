@@ -13,7 +13,6 @@ import { SongTabs, type SongTab } from "./song-tabs";
 import { OverviewTab } from "./song-tabs/overview-tab";
 import { VersionsTab } from "./song-tabs/versions-tab";
 import { SessionsTab, type SessionsTabSession } from "./song-tabs/sessions-tab";
-import { PaymentsTab, type PaymentMilestone } from "./song-tabs/payments-tab";
 import { UploadTrackModal } from "./upload-track-modal";
 import type { VersionRowVersionData } from "./version-row";
 
@@ -24,9 +23,8 @@ import type { VersionRowVersionData } from "./version-row";
 //
 // The `mode` prop discriminates album vs single. It threads into:
 //   - SongSpaceHero (eyebrow + meta line shape)
-//   - SongTabs (3 vs 4 tabs)
+//   - SongTabs
 //   - OverviewTab (hides Client snippet in single mode)
-//   - PaymentsTab (only rendered in single mode)
 
 export interface SongSpaceSong {
   id: string;
@@ -54,14 +52,6 @@ export interface SongSpaceClient {
   linkState: LinkPillState;
 }
 
-export interface SongSpacePayments {
-  paidCents: number;
-  outstandingCents: number;
-  currency: string;
-  nextChargeAt: Date | null;
-  milestones: PaymentMilestone[];
-}
-
 interface SongSpaceProps {
   mode: "album" | "single";
   song: SongSpaceSong;
@@ -70,8 +60,6 @@ interface SongSpaceProps {
   versions: VersionRowVersionData[];
   sessions: SessionsTabSession[];
   gradientToken: GradientToken;
-  /** Only required when mode === "single". */
-  payments?: SongSpacePayments;
 }
 
 export function SongSpace({
@@ -82,7 +70,6 @@ export function SongSpace({
   versions,
   sessions,
   gradientToken,
-  payments,
 }: SongSpaceProps) {
   const [active, setActive] = useState<SongTab>("overview");
   // Phase 4: the Upload Track modal lives at the SongSpace level so both
@@ -149,7 +136,7 @@ export function SongSpace({
         trackId={song.id}
       />
 
-      <SongTabs mode={mode} active={active} onChange={setActive} versionsCount={versions.length} />
+      <SongTabs active={active} onChange={setActive} versionsCount={versions.length} />
 
       {active === "overview" ? (
         <OverviewTab
@@ -172,16 +159,6 @@ export function SongSpace({
         />
       ) : null}
       {active === "sessions" ? <SessionsTab sessions={sessions} /> : null}
-      {active === "payments" && mode === "single" && payments ? (
-        <PaymentsTab
-          paidCents={payments.paidCents}
-          outstandingCents={payments.outstandingCents}
-          currency={payments.currency}
-          nextChargeAt={payments.nextChargeAt}
-          milestones={payments.milestones}
-        />
-      ) : null}
-
       {/* Phase 4: shared Upload Track modal — fired from SongSpaceHero's
           "Upload new version" CTA AND from the VersionsTab drop zone.
           The song picker is locked (mode="new-version" + trackId), so

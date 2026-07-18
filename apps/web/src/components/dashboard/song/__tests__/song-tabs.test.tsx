@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "song-tabs.tsx"), "utf-8");
 
-describe("SongTabs — mode-aware tab control (3 vs 4 tabs)", () => {
+describe("SongTabs — purchase-safe tab control", () => {
   it("exports a SongTabs component (function)", () => {
     expect(SRC).toMatch(/export function SongTabs/);
   });
@@ -15,11 +15,11 @@ describe("SongTabs — mode-aware tab control (3 vs 4 tabs)", () => {
     expect(SRC).toMatch(/export type SongTab/);
   });
 
-  it("supports all 4 tab keys: overview / versions / sessions / payments", () => {
+  it("supports overview / versions / sessions only", () => {
     expect(SRC).toContain('"overview"');
     expect(SRC).toContain('"versions"');
     expect(SRC).toContain('"sessions"');
-    expect(SRC).toContain('"payments"');
+    expect(SRC).not.toContain('"payments"');
   });
 
   it("renders the 3 album-mode tab labels: Overview / Versions / Sessions", () => {
@@ -28,10 +28,9 @@ describe("SongTabs — mode-aware tab control (3 vs 4 tabs)", () => {
     expect(SRC).toContain("Sessions");
   });
 
-  it("only renders the Payments tab in single mode (mode === 'single')", () => {
-    expect(SRC).toContain("Payments");
-    // The payments tab is gated on mode === "single"
-    expect(SRC).toMatch(/mode\s*===\s*["']single["']/);
+  it("does not expose the removed project payment model", () => {
+    expect(SRC).not.toContain("Payments");
+    expect(SRC).not.toContain("DollarSign");
   });
 
   it("uses role=tablist + role=tab + aria-selected for accessibility", () => {
@@ -66,7 +65,7 @@ describe("SongTabs — mode-aware tab control (3 vs 4 tabs)", () => {
   });
 
   it("sets id + aria-controls on each tab button (matches aria-labelledby on panels)", () => {
-    for (const key of ["overview", "versions", "sessions", "payments"]) {
+    for (const key of ["overview", "versions", "sessions"]) {
       const idStatic = new RegExp(`id=["']tab-${key}["']`);
       const idDynamic = /id=\{`tab-\$\{[^}]+\}`\}/;
       const ctrlStatic = new RegExp(`aria-controls=["']panel-${key}["']`);

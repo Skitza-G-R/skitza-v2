@@ -35,67 +35,9 @@ export function calculateCharges(plan: PaymentPlan, totalCents: number): number[
       );
     }
 
-    case "milestones": {
-      if (plan.milestones.length === 0) {
-        throw new Error("milestones plan needs at least one milestone");
-      }
-      const raw = plan.milestones.map((m) =>
-        Math.floor((totalCents * m.pct) / 100),
-      );
-      // Any cent (or mis-summed pct) remainder goes on the FIRST charge —
-      // same convention as split/monthly above.
-      const sum = raw.reduce((a, b) => a + b, 0);
-      raw[0] = (raw[0] ?? 0) + (totalCents - sum);
-      return raw;
-    }
-
     default: {
       const _exhaustive: never = plan;
       throw new Error(`unhandled payment plan: ${JSON.stringify(_exhaustive)}`);
     }
   }
-}
-
-// ─── advancePlanState ─────────────────────────────────────────────
-// Pure state transition used by webhook handlers + cancel mutation.
-// Keeps the invariant chargesCompleted ≤ chargesTotal and maps stage
-// transitions for: happy path (charge → active → paid), failure path
-// (retries_exhausted → payment_paused → resume → active), cancel.
-export type PlanEvent =
-  | { type: "charge_succeeded" }
-  | { type: "retries_exhausted" }
-  | { type: "cancelled" };
-
-export type PlanProjectState = {
-  chargesCompleted: number;
-  chargesTotal: number;
-  stage:
-    | "lead"
-    | "active"
-    | "paid"
-    | "payment_paused"
-    | "cancelled";
-};
-
-export function advancePlanState(
-  state: PlanProjectState,
-  event: PlanEvent,
-): PlanProjectState {
-  if (event.type === "cancelled") {
-    return { ...state, stage: "cancelled" };
-  }
-
-  if (event.type === "retries_exhausted") {
-    return { ...state, stage: "payment_paused" };
-  }
-
-  // charge_succeeded — increment, but guard the invariant
-  if (state.chargesCompleted >= state.chargesTotal) {
-    return state; // duplicate webhook, already at terminal count
-  }
-
-  const nextCompleted = state.chargesCompleted + 1;
-  const nextStage =
-    nextCompleted >= state.chargesTotal ? "paid" : "active";
-  return { ...state, chargesCompleted: nextCompleted, stage: nextStage };
 }

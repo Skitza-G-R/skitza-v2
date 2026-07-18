@@ -17,9 +17,7 @@ describe("Settings polish — reveal animation duration", () => {
     // The cubic-bezier curve stays; only the duration shrinks. We
     // pin the duration string so a future tweak that drifts back to
     // the slow value fails this test loudly.
-    expect(css).toMatch(
-      /\.s-reveal\s*{[^}]*animation:\s*s-reveal 0\.22s cubic-bezier/,
-    );
+    expect(css).toMatch(/\.s-reveal\s*{[^}]*animation:\s*s-reveal 0\.22s cubic-bezier/);
   });
 });
 
@@ -61,22 +59,15 @@ describe("Settings polish — per-section dirty dot in sub-nav", () => {
   });
 });
 
-describe("Settings polish — payment cards region-gated by currency", () => {
-  it("IntegrationsSection accepts the producer's defaultCurrency", () => {
-    // The signal we use to decide which payment provider belongs at
-    // the top vs behind a disclosure. ILS producers see Tranzila first;
-    // everyone else sees Stripe first. Pure source check — we don't
-    // need a render, just the prop being threaded.
-    const block =
-      client.match(/function IntegrationsSection[\s\S]*?\n}\s*\n/)?.[0] ?? "";
+describe("Settings polish — card integrations removed", () => {
+  it("does not couple IntegrationsSection to currency", () => {
+    const block = client.match(/function IntegrationsSection[\s\S]*?\n}\s*\n/)?.[0] ?? "";
     expect(block, "IntegrationsSection block not found").not.toBe("");
-    expect(block).toMatch(/defaultCurrency/);
+    expect(block).not.toMatch(/defaultCurrency/);
   });
 
-  it("renders the secondary provider inside a <details> disclosure", () => {
-    // Native <details> keeps both providers reachable but visually
-    // collapses the irrelevant one. No new component, no a11y costs.
-    expect(client).toMatch(/<details\b/);
+  it("does not hide a removed secondary payment provider in a disclosure", () => {
+    expect(client).not.toMatch(/<details\b/);
   });
 });
 
@@ -88,8 +79,7 @@ describe("Settings polish — Profile shows public-page slug preview", () => {
     // a route that hasn't shipped yet (the future /dashboard/public-page).
     // Until that lands, we surface the producer's slug here so they can
     // see / copy their public-page URL without leaving Settings.
-    const profile =
-      client.match(/function ProfileSection[\s\S]*?\n}\s*\n/)?.[0] ?? "";
+    const profile = client.match(/function ProfileSection[\s\S]*?\n}\s*\n/)?.[0] ?? "";
     expect(profile, "ProfileSection block not found").not.toBe("");
     expect(profile).toMatch(/\/join\//);
   });
@@ -109,8 +99,7 @@ describe("Settings polish — Profile shows public-page slug preview", () => {
 
 describe("Settings polish — notif 'saves now, fires later' callout", () => {
   it("the heads-up callout appears BEFORE the matrix head, not buried below the card", () => {
-    const notif =
-      client.match(/function NotifSection[\s\S]*?\n}\s*\n/)?.[0] ?? "";
+    const notif = client.match(/function NotifSection[\s\S]*?\n}\s*\n/)?.[0] ?? "";
     expect(notif, "NotifSection block not found").not.toBe("");
     // Look for a "Heads up" prefix on the explainer — that's the new
     // pattern that puts the disclaimer up front. We then assert its
@@ -131,9 +120,7 @@ describe("Settings polish — sub-nav click updates URL", () => {
     // server page and remount SettingsClient, wiping unsaved form
     // edits. The history API updates the URL bar silently — deep
     // links / browser back still work, in-flight edits survive.
-    expect(client).toMatch(
-      /window\.history\.replaceState[\s\S]{0,120}section=/,
-    );
+    expect(client).toMatch(/window\.history\.replaceState[\s\S]{0,120}section=/);
   });
 });
 
@@ -144,8 +131,7 @@ describe("Settings polish — Plan CTAs collapsed (Free view)", () => {
     // hero, Upgrade in the pricing card) — all toasting 'Coming soon'.
     // Producer hits the same toast three times. Consolidate to ONE
     // upgrade CTA (in the pricing card where the price is shown).
-    const block =
-      client.match(/function PlanFreeView[\s\S]*?\n}\s*\n/)?.[0] ?? "";
+    const block = client.match(/function PlanFreeView[\s\S]*?\n}\s*\n/)?.[0] ?? "";
     expect(block, "PlanFreeView block not found").not.toBe("");
     const ctas = block.match(/<ComingSoonButton\b/g) ?? [];
     expect(ctas.length).toBeLessThanOrEqual(1);
@@ -158,9 +144,7 @@ describe("Settings polish — page title hierarchy", () => {
     // Pinning a specific size would be too rigid — the rule is
     // 'H1 > H2', not 'H1 == 34'. (Today: H2 is 30; H1 must exceed.)
     const h1Match = css.match(/\.s-nav\s+h1\s*{[^}]*font-size:\s*(\d+)px/);
-    const h2Match = css.match(
-      /\.s-section-head\s+h2\s*{[^}]*font-size:\s*(\d+)px/,
-    );
+    const h2Match = css.match(/\.s-section-head\s+h2\s*{[^}]*font-size:\s*(\d+)px/);
     expect(h1Match, "rail H1 font-size not found").not.toBeNull();
     expect(h2Match, "section H2 font-size not found").not.toBeNull();
     const h1px = Number.parseInt(h1Match?.[1] ?? "0", 10);

@@ -25,8 +25,8 @@ import { reorderClientsAction, reorderProjectsAction } from "./clients-actions";
 //     deadline).
 //   • listWithProjects({ view: "by-client" }) — per-client aggregates
 //     for the Clients tab cards.
-//   • producer.me() — only consumed for `slug` (so the Invite modal can
-//     build skitza.app/invite/<slug>-<id>) and `defaultCurrency`.
+//   • producer.me() — consumed for `slug` (so the Invite modal can
+//     build skitza.app/invite/<slug>-<id>) and the display currency.
 
 // WorkspaceListView owns ?tab= / ?sort= / ?filter= as local state in
 // Phase 1; URL hydration is a fast-follow. The one searchParam we DO
@@ -45,15 +45,11 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
 
   const caller = appRouter.createCaller({ userId });
 
-  // Two parallel calls — one fold per view. Cheap (Neon HTTP, both
-  // producer-scoped, both indexed lookups). `productsList` is included
-  // for the NewProjectModal product picker; the modal handles the
-  // empty-state gracefully if the producer hasn't created any yet.
-  const [projectsResult, clientsResult, me, productsList] = await Promise.all([
+  // Two producer-scoped folds plus the producer display settings.
+  const [projectsResult, clientsResult, me] = await Promise.all([
     caller.clientContacts.listWithProjects({ view: "all-projects" }),
     caller.clientContacts.listWithProjects({ view: "by-client" }),
     safeMe(caller),
-    safeProducts(caller),
   ]);
 
   const producerSlug = me.slug ?? "";
@@ -79,10 +75,9 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
               ? ("pending" as const)
               : ("none" as const),
           projects: c.activeProjectCount,
-          lifetime: c.lifetimeCents,
-          owed: c.outstandingCents,
-          // Per-client currency isn't tracked in v1; the project rows'
-          // dominant currency is the anchor (see header below).
+          lifetime: c.commercial.lifetimeCents,
+          owed: c.commercial.outstandingCents,
+          needsAttention: c.needsAttention,
           currency: producerCurrency,
           lastActivityIso:
             c.lastActivity instanceof Date
@@ -96,22 +91,16 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
       : [];
 
   // ── KPIs ────────────────────────────────────────────────────────
-  // Earnings: paid invoice amounts whose paid timestamp is in the current
-  // month. Outstanding: sum across active projects. Needs attention: unresolved comments OR
-  // non-zero balance on an active project. Next deadline: earliest
-  // upcoming nextSessionAt across active projects. The project's
-  // title is captured alongside the deadline so the KPI tile can
-  // surface "Oct 15 / Debut Album" mockup-style.
-  let earnings = 0;
-  let outstanding = 0;
+  // Commercial totals fail closed until purchase payments provides the
+  // canonical ledger projection. Needs attention is based only on
+  // unresolved artist comments. Next deadline remains the earliest
+  // upcoming session across active projects.
   let needsAttention = 0;
   let nextDeadlineAt: Date | null = null;
   let nextDeadlineProjectTitle: string | null = null;
   if (projectsResult.view === "all-projects") {
     for (const p of projectsResult.projects) {
-      earnings += p.paidThisMonthCents;
-      outstanding += p.outstandingCents;
-      if (p.unresolvedComments > 0 || (p.outstandingCents > 0 && p.isActive)) {
+      if (p.unresolvedComments > 0) {
         needsAttention += 1;
       }
       if (p.nextSessionAt && p.isActive) {
@@ -126,14 +115,12 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
     }
   }
 
-  const displayCurrency = pickDominantCurrency(projectRows, producerCurrency);
-
   const kpis: WorkspaceKPIs = {
-    earnings,
-    outstanding,
+    earnings: null,
+    outstanding: null,
     needsAttention,
     nextDeadline: formatDeadlineShort(nextDeadlineAt),
-    currency: displayCurrency,
+    currency: producerCurrency,
     // Surface the project title on the Next deadline tile's sub line.
     // Spread-conditional keeps exactOptionalPropertyTypes happy when
     // there's no upcoming deadline at all.
@@ -152,7 +139,6 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
           clients={clientRows}
           kpis={kpis}
           producerSlug={producerSlug}
-          products={productsList}
           initialNewProjectOpen={autoOpenNewProject}
           onReorderProjects={reorderProjectsAction}
           onReorderClients={reorderClientsAction}
@@ -180,96 +166,50 @@ async function safeMe(
   }
 }
 
-// Producer's active products for the NewProjectModal picker. Falls
-// back to an empty list on any error — the modal renders an empty
-// state hint pointing at /dashboard/store in that case. The mapping
-// trims the wire shape down to exactly what the modal consumes.
-async function safeProducts(caller: ReturnType<typeof appRouter.createCaller>): Promise<
-  {
-    id: string;
-    name: string;
-    description: string | null;
-    deliverables: string[] | null;
-    priceCents: number;
-    currency: string;
-    depositPct: number;
-  }[]
-> {
-  try {
-    const rows = await caller.booking.products.list();
-    return rows.map((p) => ({
-      id: p.id,
-      name: p.name,
-      description: p.description,
-      deliverables: p.deliverables,
-      priceCents: p.priceCents,
-      currency: p.currency,
-      depositPct: p.depositPct,
-    }));
-  } catch (err) {
-    console.warn("[clients-projects] booking.products.list failed", err);
-    return [];
-  }
-}
-
 type EnrichedProject = {
   id: string;
   title: string;
-  stage: "lead" | "booked" | "in_production" | "final_review" | "paid" | "archived";
+  lifecycleStatus: ProjectLifecycleStatus;
   client: { id: string | null; email: string; name: string };
-  outstandingCents: number;
-  currency: string;
+  commercial: { outstandingCents: null };
   nextSessionAt: Date | null;
   unresolvedComments: number;
   isActive: boolean;
   updatedAt: Date | string;
 };
 
-// stage → progress %. Same heuristic the previous list view used so
-// the scan rhythm doesn't shift when producers cross over.
-const STAGE_PROGRESS: Record<EnrichedProject["stage"], number> = {
-  lead: 12,
-  booked: 30,
-  in_production: 55,
-  final_review: 80,
-  paid: 100,
-  archived: 100,
-};
+type ProjectLifecycleStatus =
+  | "waiting_for_payment"
+  | "active"
+  | "paused"
+  | "completed"
+  | "canceled";
 
-const STAGE_LABEL: Record<EnrichedProject["stage"], string> = {
-  lead: "Lead",
-  booked: "Booked",
-  in_production: "In production",
-  final_review: "Review",
-  paid: "Done",
-  archived: "Archived",
+const LIFECYCLE_PRESENTATION: Record<
+  ProjectLifecycleStatus,
+  { label: string; progress: number | null; tone: ProjectRowData["statusTone"] }
+> = {
+  waiting_for_payment: { label: "Waiting for payment", progress: null, tone: "warn" },
+  active: { label: "Active", progress: null, tone: "ok" },
+  paused: { label: "Paused", progress: null, tone: "warn" },
+  completed: { label: "Completed", progress: 100, tone: "neutral" },
+  canceled: { label: "Canceled", progress: null, tone: "neutral" },
 };
 
 function toProjectRowData(p: EnrichedProject): ProjectRowData {
-  // Tone: danger when there's a balance + active and no scheduled
-  // session, warn when active w/ scheduled session, ok when paid,
-  // neutral when archived. (Filter chips depend on this triage —
-  // "urgent"=danger, "active"=warn|ok, "done"=neutral.)
-  const tone: ProjectRowData["statusTone"] =
-    p.stage === "archived"
-      ? "neutral"
-      : p.stage === "paid"
-        ? "ok"
-        : p.outstandingCents > 0 && !p.nextSessionAt
-          ? "danger"
-          : "warn";
+  const lifecycle = LIFECYCLE_PRESENTATION[p.lifecycleStatus];
+  const tone: ProjectRowData["statusTone"] = p.unresolvedComments > 0 ? "danger" : lifecycle.tone;
 
   return {
     id: p.id,
     title: p.title,
     client: p.client.name,
     clientEmail: p.client.email,
-    progress: STAGE_PROGRESS[p.stage],
-    balance: p.outstandingCents,
+    progress: lifecycle.progress,
+    balance: p.commercial.outstandingCents,
     deadline: formatDeadlineShort(p.nextSessionAt),
-    status: STAGE_LABEL[p.stage],
+    status: lifecycle.label,
     statusTone: tone,
-    currency: p.currency,
     updatedAtIso:
       p.updatedAt instanceof Date ? p.updatedAt.toISOString() : new Date(p.updatedAt).toISOString(),
     deadlineAtIso: p.nextSessionAt ? p.nextSessionAt.toISOString() : null,
@@ -292,24 +232,4 @@ function formatDeadlineShort(at: Date | null): string {
   } catch {
     return "—";
   }
-}
-
-function pickDominantCurrency(
-  rows: ReadonlyArray<{ currency?: string }>,
-  fallback: string,
-): string {
-  const counts = new Map<string, number>();
-  for (const r of rows) {
-    const c = r.currency ?? fallback;
-    counts.set(c, (counts.get(c) ?? 0) + 1);
-  }
-  let best = fallback;
-  let bestN = 0;
-  for (const [c, n] of counts) {
-    if (n > bestN) {
-      best = c;
-      bestN = n;
-    }
-  }
-  return best;
 }

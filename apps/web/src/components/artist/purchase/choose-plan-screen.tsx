@@ -3,7 +3,7 @@
 // S7 — Choose a payment plan (artist purchase funnel · Pay).
 //
 // After Gate 1 (the producer approves the request), the artist picks how to
-// pay from the plans THIS product allows — pay in full, 50/50, or milestones.
+// pay from the plans THIS purchase allows — full, 50/50, or monthly.
 // Each card shows what's due today and the full schedule with amounts. One
 // plan is selected at a time (amber ring); Continue carries it to the payment
 // instructions (S8). Funnel chrome: full-screen overlay, back arrow, no tab

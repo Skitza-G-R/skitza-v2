@@ -101,15 +101,12 @@ const {
   const bookingsMarker = { __table: "bookings" };
   const stripeCustomersMarker = { __table: "stripe_customers" };
 
-  const shift = <T,>(q: T[][]): T[] => q.shift() ?? [];
+  const shift = <T>(q: T[][]): T[] => q.shift() ?? [];
 
   // Chain helper mirrors artist-book.test.ts — supports the mixed
   // chain terminals (.where().limit(1) | .where().orderBy() |
   // .where() alone | direct await).
-  const chain = (
-    terminal: () => Promise<Row[]>,
-    whereSpy?: (arg: unknown) => void,
-  ) => {
+  const chain = (terminal: () => Promise<Row[]>, whereSpy?: (arg: unknown) => void) => {
     let resolved: Promise<Row[]> | null = null;
     const get = () => {
       resolved ??= terminal();
@@ -145,16 +142,10 @@ const {
     select: () => ({
       from: (table: unknown) => {
         if (table === clientContactsMarker) {
-          return chain(
-            () => Promise.resolve(shift(contactsSelectQueue)),
-            contactsWhereSpy,
-          );
+          return chain(() => Promise.resolve(shift(contactsSelectQueue)), contactsWhereSpy);
         }
         if (table === productsMarker) {
-          return chain(
-            () => Promise.resolve(shift(productsSelectQueue)),
-            productsWhereSpy,
-          );
+          return chain(() => Promise.resolve(shift(productsSelectQueue)), productsWhereSpy);
         }
         if (table === producersMarker) {
           return chain(() => Promise.resolve(shift(producersSelectQueue)));
@@ -270,9 +261,8 @@ vi.mock("~/server/payments/checkout", () => ({
   buildCheckoutSessionParams: vi.fn(() => ({ mode: "payment" })),
 }));
 vi.mock("~/server/payments/plan", async () => {
-  const actual = await vi.importActual<
-    typeof import("~/server/payments/plan")
-  >("~/server/payments/plan");
+  const actual =
+    await vi.importActual<typeof import("~/server/payments/plan")>("~/server/payments/plan");
   return {
     ...actual,
     calculateCharges: vi.fn(actual.calculateCharges),
@@ -705,9 +695,9 @@ describe("artist.store.product (query)", () => {
     productsSelectQueue.push([]); // no product row
 
     const caller = await buildCaller();
-    await expect(
-      caller.artist.store.product({ productId: PRODUCT_ID }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(caller.artist.store.product({ productId: PRODUCT_ID })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
   });
 
   // Test 9
@@ -734,9 +724,9 @@ describe("artist.store.product (query)", () => {
     contactsSelectQueue.push([]);
 
     const caller = await buildCaller();
-    await expect(
-      caller.artist.store.product({ productId: PRODUCT_ID }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(caller.artist.store.product({ productId: PRODUCT_ID })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
   });
 
   // Test 10
@@ -774,16 +764,8 @@ describe("artist.store.product (query)", () => {
     // Second contacts SELECT is the ownership check. Ensure it scopes
     // by both clerkUserId AND producerId.
     const where = contactsWhereSpy.mock.calls[0]?.[0];
-    const clerkPred = findPredicate(
-      where,
-      "eq",
-      clientContacts.clerkUserId,
-    );
-    const producerPred = findPredicate(
-      where,
-      "eq",
-      clientContacts.producerId,
-    );
+    const clerkPred = findPredicate(where, "eq", clientContacts.clerkUserId);
+    const producerPred = findPredicate(where, "eq", clientContacts.producerId);
     expect(clerkPred).not.toBeNull();
     expect(clerkPred?.[1]).toBe("user_alice");
     expect(producerPred).not.toBeNull();
@@ -830,13 +812,11 @@ describe("artist.store.checkout (mutation)", () => {
     ]);
     // When the router INSERTs projects → returns id; when invoices →
     // no returning (fine — tests don't assert on invoice insert id).
-    insertReturningSpy.mockImplementation(() =>
-      Promise.resolve([{ id: "project-new-1" }]),
-    );
+    insertReturningSpy.mockImplementation(() => Promise.resolve([{ id: "project-new-1" }]));
   }
 
   // Test 11
-  it("throws NOT_FOUND when product doesn't exist", async () => {
+  it("fails closed before loading a product", async () => {
     productsSelectQueue.push([]); // no product
 
     const caller = await buildCaller();
@@ -845,11 +825,14 @@ describe("artist.store.checkout (mutation)", () => {
         productId: PRODUCT_ID,
         paymentPlan: { kind: "full" },
       }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    ).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+      message: expect.stringContaining("off-app payments") as unknown,
+    });
   });
 
   // Test 11b
-  it("throws NOT_FOUND when artist isn't linked to product's producer", async () => {
+  it("fails closed before looking up the artist's producer link", async () => {
     productsSelectQueue.push([
       {
         id: PRODUCT_ID,
@@ -879,11 +862,11 @@ describe("artist.store.checkout (mutation)", () => {
         productId: PRODUCT_ID,
         paymentPlan: { kind: "full" },
       }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
   });
 
   // Test 12
-  it("throws BAD_REQUEST when selected plan isn't in product.paymentPlans", async () => {
+  it("fails closed even when the submitted plan was not offered", async () => {
     seedCheckoutReady({
       paymentPlans: [{ kind: "full" }], // only "full" offered
     });
@@ -894,27 +877,27 @@ describe("artist.store.checkout (mutation)", () => {
         productId: PRODUCT_ID,
         paymentPlan: { kind: "split_50_50" }, // not offered
       }),
-    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    // No Stripe session created — we rejected before calling Stripe.
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     expect(stripeSessionCreateMock).not.toHaveBeenCalled();
   });
 
   // Test 13
-  it("happy path: creates Stripe Checkout session and returns URL", async () => {
+  it("never creates a card checkout session", async () => {
     seedCheckoutReady();
 
     const caller = await buildCaller();
-    const result = await caller.artist.store.checkout({
-      productId: PRODUCT_ID,
-      paymentPlan: { kind: "full" },
-    });
+    await expect(
+      caller.artist.store.checkout({
+        productId: PRODUCT_ID,
+        paymentPlan: { kind: "full" },
+      }),
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
 
-    expect(result.checkoutUrl).toBe("https://stripe.test/cs_test_123");
-    expect(stripeSessionCreateMock).toHaveBeenCalled();
+    expect(stripeSessionCreateMock).not.toHaveBeenCalled();
   });
 
   // Test 14
-  it("scopes ownership check by clerkUserId + producerId (auth boundary)", async () => {
+  it("does not perform ownership or database writes on the removed card path", async () => {
     productsSelectQueue.push([
       {
         id: PRODUCT_ID,
@@ -952,23 +935,18 @@ describe("artist.store.checkout (mutation)", () => {
         slug: "alpha",
       },
     ]);
-    insertReturningSpy.mockImplementation(() =>
-      Promise.resolve([{ id: "project-new-1" }]),
-    );
+    insertReturningSpy.mockImplementation(() => Promise.resolve([{ id: "project-new-1" }]));
 
     const caller = await buildCaller("user_bob");
-    await caller.artist.store.checkout({
-      productId: PRODUCT_ID,
-      paymentPlan: { kind: "full" },
-    });
+    await expect(
+      caller.artist.store.checkout({
+        productId: PRODUCT_ID,
+        paymentPlan: { kind: "full" },
+      }),
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
 
-    // The ownership-check contacts SELECT must scope by clerkUserId=user_bob
-    // and producerId=PRODUCER_ID (the product's producer).
-    const where = contactsWhereSpy.mock.calls[0]?.[0];
-    const clerkPred = findPredicate(where, "eq", clientContacts.clerkUserId);
-    const producerPred = findPredicate(where, "eq", clientContacts.producerId);
-    expect(clerkPred?.[1]).toBe("user_bob");
-    expect(producerPred?.[1]).toBe(PRODUCER_ID);
+    expect(contactsWhereSpy).not.toHaveBeenCalled();
+    expect(insertValuesSpy).not.toHaveBeenCalled();
   });
 
   // Test 15 — defense-in-depth at the mutation layer.
@@ -980,7 +958,7 @@ describe("artist.store.checkout (mutation)", () => {
   // integer" since hourly/bundle products have priceCents=0.
   // Per-song products are valid here when songQty + unitPriceCents
   // are provided (Test 15c covers the happy path).
-  it("store.checkout rejects hourly + bundle pricing with BAD_REQUEST", async () => {
+  it("fails the removed checkout path closed for hourly products too", async () => {
     productsSelectQueue.push([
       {
         id: PRODUCT_ID,
@@ -1012,11 +990,7 @@ describe("artist.store.checkout (mutation)", () => {
         productId: PRODUCT_ID,
         paymentPlan: { kind: "full" },
       }),
-    ).rejects.toMatchObject({
-      code: "BAD_REQUEST",
-      message: expect.stringContaining("self-checkout") as unknown,
-    });
-    // No Stripe session minted — we short-circuited before the helper.
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     expect(stripeSessionCreateMock).not.toHaveBeenCalled();
   });
 
@@ -1025,7 +999,7 @@ describe("artist.store.checkout (mutation)", () => {
   // (75000 cents) and passes it to the shared helper, which in turn
   // inserts a project row with the right total and mints a Stripe
   // Checkout session.
-  it("store.checkout accepts per_song with songQty + unitPriceCents and uses the locked-in total", async () => {
+  it("fails the removed checkout path closed for per-song products too", async () => {
     productsSelectQueue.push([
       {
         id: PRODUCT_ID,
@@ -1059,28 +1033,19 @@ describe("artist.store.checkout (mutation)", () => {
         slug: "alpha",
       },
     ]);
-    insertReturningSpy.mockImplementation(() =>
-      Promise.resolve([{ id: "project-new-1" }]),
-    );
+    insertReturningSpy.mockImplementation(() => Promise.resolve([{ id: "project-new-1" }]));
 
     const caller = await buildCaller();
-    const result = await caller.artist.store.checkout({
-      productId: PRODUCT_ID,
-      paymentPlan: { kind: "full" },
-      songQty: 5,
-      unitPriceCents: 15000,
-    });
+    await expect(
+      caller.artist.store.checkout({
+        productId: PRODUCT_ID,
+        paymentPlan: { kind: "full" },
+        songQty: 5,
+        unitPriceCents: 15000,
+      }),
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
 
-    expect(result.checkoutUrl).toBe("https://stripe.test/cs_test_123");
-    expect(stripeSessionCreateMock).toHaveBeenCalled();
-
-    // The project row insert was called with totalAmountCents = 75000
-    // (= songQty × unitPriceCents), not the product's base
-    // priceCents (20000). Find the projects insert in the spy log.
-    const projectInsert = insertValuesSpy.mock.calls.find(
-      (c) => "totalAmountCents" in c[0],
-    );
-    expect(projectInsert).toBeDefined();
-    expect(projectInsert?.[0]?.totalAmountCents).toBe(75000);
+    expect(stripeSessionCreateMock).not.toHaveBeenCalled();
+    expect(insertValuesSpy).not.toHaveBeenCalled();
   });
 });

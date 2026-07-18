@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "album-tabs.tsx"), "utf-8");
 
-describe("AlbumTabs — pill-shaped 4-tab segmented control", () => {
+describe("AlbumTabs — purchase-safe segmented control", () => {
   it("exports an AlbumTabs component (function)", () => {
     expect(SRC).toMatch(/export function AlbumTabs/);
   });
@@ -15,20 +15,18 @@ describe("AlbumTabs — pill-shaped 4-tab segmented control", () => {
     expect(SRC).toMatch(/export type AlbumTab/);
   });
 
-  it("supports all 4 tabs: songs / files / payments / log", () => {
-    // The active tab type literal — all 4 must appear in the source.
+  it("supports songs / files / log without the removed project payment model", () => {
     expect(SRC).toContain('"songs"');
     expect(SRC).toContain('"files"');
-    expect(SRC).toContain('"payments"');
     expect(SRC).toContain('"log"');
+    expect(SRC).not.toContain('"payments"');
   });
 
-  it("renders all 4 tab labels: Songs / Files / Payments / Studio Log", () => {
-    // Labels live in the TabEntry array as string literals.
+  it("renders Songs / Files / Studio Log only", () => {
     expect(SRC).toContain("Songs");
     expect(SRC).toContain('"Files"');
-    expect(SRC).toContain('"Payments"');
     expect(SRC).toContain('"Studio Log"');
+    expect(SRC).not.toContain('"Payments"');
   });
 
   it("uses role=tablist + role=tab + aria-selected for accessibility", () => {
@@ -52,8 +50,7 @@ describe("AlbumTabs — pill-shaped 4-tab segmented control", () => {
   });
 
   it("renders a leading icon on every tab (PR C — design polish)", () => {
-    // Each tab carries an Icon (Music / FolderOpen / DollarSign /
-    // Notebook) — design HTML 1023 shows these in every tab.
+    // Each remaining tab carries an icon.
     expect(SRC).toMatch(/from\s*["']lucide-react["']/);
     expect(SRC).toMatch(/<Icon\s*size=/);
   });
@@ -97,8 +94,8 @@ describe("AlbumTabs — pill-shaped 4-tab segmented control", () => {
     //   id={`tab-${t.key}`} aria-controls={`panel-${t.key}`}
     // or a static string form
     //   id="tab-songs" aria-controls="panel-songs"
-    // for each of the 4 tab keys.
-    for (const key of ["songs", "files", "payments", "log"]) {
+    // for each remaining tab key.
+    for (const key of ["songs", "files", "log"]) {
       const idStatic = new RegExp(`id=["']tab-${key}["']`);
       const idDynamic = /id=\{`tab-\$\{[^}]+\}`\}/;
       const ctrlStatic = new RegExp(`aria-controls=["']panel-${key}["']`);

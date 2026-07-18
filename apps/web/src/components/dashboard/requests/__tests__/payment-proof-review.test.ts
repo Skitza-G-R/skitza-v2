@@ -6,8 +6,8 @@ import { describe, expect, it } from "vitest";
 
 // Source-level coverage follows the existing producer Requests tests. The
 // real-database suite owns mutation races and tenant isolation; this file pins
-// the user-facing Gate-2 wiring so a working API can never regress back to an
-// artist getting stuck in "verifying" with no producer controls.
+// the retired request-owned Gate-2 wiring so purchase proofs cannot regress
+// into the Requests queue while the purchase-owned Payments surface is built.
 
 const here = dirname(fileURLToPath(import.meta.url));
 const requestsDir = join(here, "..");
@@ -32,16 +32,14 @@ const dashboardPage = readFileSync(join(appRequestsDir, "..", "page.tsx"), "utf8
 const requestsPage = readFileSync(join(appRequestsDir, "page.tsx"), "utf8");
 const detailPage = readFileSync(join(appRequestsDir, "[id]", "page.tsx"), "utf8");
 const detailComponent = readFileSync(join(requestsDir, "purchase-request-detail.tsx"), "utf8");
-describe("producer Gate-2 proof review wiring", () => {
-  it("puts proofs in the dashboard Needs You queue and keeps the detailed Requests queue", () => {
+describe("producer Gate-2 proof review containment", () => {
+  it("keeps proof reads fail-closed and out of the Requests queue", () => {
     expect(existsSync(queuePath)).toBe(true);
     expect(dashboardPage).toMatch(/proofOfPayment\.pending\(\)/);
-    expect(requestsPage).toMatch(/proofOfPayment\.pending\(\)/);
-    expect(dashboardPage).toMatch(
-      /paymentProofs=\{pendingPaymentProofs\.available \? pendingPaymentProofs\.proofs : \[\]\}/,
-    );
+    expect(requestsPage).not.toMatch(/proofOfPayment\.pending\(\)/);
+    expect(dashboardPage).toMatch(/paymentProofs=\{pendingPaymentProofs\.proofs\}/);
     expect(dashboardPage).not.toMatch(/<PendingPaymentProofs/);
-    expect(requestsPage).toMatch(/<PendingPaymentProofs/);
+    expect(requestsPage).not.toMatch(/<PendingPaymentProofs/);
   });
 
   it("shows all decision-critical metadata and links the exact owned proof", () => {
@@ -58,12 +56,10 @@ describe("producer Gate-2 proof review wiring", () => {
     expect(queue).toMatch(/\?proof=\$\{proof\.proofId\}#payment-proof/);
   });
 
-  it("validates the proof against owned request history before signing a five-minute view", () => {
-    expect(detailPage).toMatch(/proofOfPayment\.history\(\{\s*purchaseRequestId:\s*id\s*\}\)/);
-    expect(detailPage).toMatch(/proof\.proofId === requestedProofId/);
-    expect(detailPage).toMatch(/proofOfPayment\.view\(\{\s*proofId:/);
-    expect(detailPage).toMatch(/notFound\(\)/);
-    expect(detailPage).toMatch(/expiresInSeconds/);
+  it("keeps legacy request proof links fail-closed until purchase proof reads are wired", () => {
+    expect(detailPage).toMatch(/if \(requestedProofId\) notFound\(\)/);
+    expect(detailPage).not.toMatch(/proofOfPayment\.history|proofOfPayment\.view/);
+    expect(detailPage).not.toMatch(/<PaymentProofReview/);
     expect(detailComponent).toMatch(/<PaymentProofReview/);
   });
 
@@ -115,7 +111,7 @@ describe("producer Gate-2 proof review wiring", () => {
     expect(actions).toMatch(/revalidateProofSurfaces\(result\.purchaseRequestId\)/);
   });
 
-  it("refreshes already-open dashboard and Requests surfaces while proofs can arrive", () => {
+  it("refreshes the dashboard without polling the Requests surface for proofs", () => {
     expect(existsSync(refreshPath)).toBe(true);
     if (!existsSync(refreshPath)) return;
     const refresh = readFileSync(refreshPath, "utf8");
@@ -125,9 +121,7 @@ describe("producer Gate-2 proof review wiring", () => {
     expect(refresh).toMatch(/visibilityState/);
     expect(refresh).toMatch(/setInterval/);
     expect(dashboardPage).toMatch(/<ProofQueueRefresh/);
-    expect(requestsPage).toMatch(/<ProofQueueRefresh/);
-    expect(detailPage).toMatch(
-      /<ProofQueueRefresh enabled=\{paymentProof\?\.status !== "pending"\}/,
-    );
+    expect(requestsPage).not.toMatch(/<ProofQueueRefresh/);
+    expect(detailPage).not.toMatch(/<ProofQueueRefresh/);
   });
 });

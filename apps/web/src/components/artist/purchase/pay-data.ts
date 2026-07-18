@@ -2,7 +2,6 @@
 //
 // Payment in v1 is OFF-APP: after a producer approves the booking, the artist
 // pays by bank transfer or Bit, then uploads a proof-of-payment screenshot.
-// Card pay (Tranzila) is v2 — shown greyed as "coming soon", not wired here.
 //
 // The live Pay routes read frozen request data. The two MOCK identity exports
 // below remain only for the development gallery and later session prototypes.
@@ -36,7 +35,6 @@ export const MOCK_PRODUCT: PurchaseProduct = {
   durationLabel: "Multi-session · 3–4 weeks",
   tagline: "Track, comp, mix & master one song.",
   sessions: 3,
-  depositPct: 50,
   revisions: 2,
   paymentPlans: [{ kind: "full" }, { kind: "split_50_50" }],
   royaltyTerms: {
@@ -61,23 +59,10 @@ export const MOCK_PRODUCT: PurchaseProduct = {
 
 // ── Payment plans ─────────────────────────────────────────────────────────
 
-export type PaymentPlan = "full" | "split" | "milestones";
-
-export type PlanOption = {
-  plan: PaymentPlan;
-  title: string;
-  blurb: string;
-  /** What the artist pays today to secure the slot. */
-  dueNowCents: number;
-  /** Each row is one payment; amounts always sum to the total exactly. */
-  schedule: { label: string; amountCents: number }[];
-};
-
 export type LivePaymentPlanChoice =
   | { kind: "full" }
   | { kind: "split_50_50" }
-  | { kind: "monthly"; installments: number }
-  | { kind: "milestones" };
+  | { kind: "monthly"; installments: number };
 
 export type LivePlanOption = {
   id: string;
@@ -130,8 +115,6 @@ export function paymentPlanLabel(
       return "Split 50 / 50";
     case "monthly":
       return `${String(installments ?? 2)} monthly payments`;
-    case "milestones":
-      return "Milestone payments";
   }
 }
 
@@ -147,9 +130,7 @@ export function livePlanOptions(options: ServerPlanOption[]): LivePlanOption[] {
         ? "One payment now. Simplest, with nothing left to track."
         : option.kind === "split_50_50"
           ? "Half secures your slot, and the rest is due on delivery."
-          : option.kind === "monthly"
-            ? `Spread the total across ${String(installments)} clear monthly payments.`
-            : "Pay as the agreed project milestones are reached.";
+          : `Spread the total across ${String(installments)} clear monthly payments.`;
     return {
       id: option.kind === "monthly" ? `monthly-${String(installments)}` : option.kind,
       choice,
@@ -162,76 +143,6 @@ export function livePlanOptions(options: ServerPlanOption[]): LivePlanOption[] {
       })),
     };
   });
-}
-
-// Static copy per plan — the amounts are computed from the total below.
-const PLAN_COPY: Record<PaymentPlan, { title: string; blurb: string }> = {
-  full: {
-    title: "Pay in full",
-    blurb: "One payment now. Simplest, nothing left to track.",
-  },
-  split: {
-    title: "Split 50 / 50",
-    blurb: "Half to secure your slot, the rest on delivery.",
-  },
-  milestones: {
-    title: "Three milestones",
-    blurb: "Spread across the project — start, mid, and delivery.",
-  },
-};
-
-// Build one PlanOption. Amounts are derived so the schedule sums to totalCents
-// exactly (no agorot lost to rounding); any remainder lands on the first row.
-function buildOption(plan: PaymentPlan, totalCents: number): PlanOption {
-  const { title, blurb } = PLAN_COPY[plan];
-
-  if (plan === "full") {
-    return {
-      plan,
-      title,
-      blurb,
-      dueNowCents: totalCents,
-      schedule: [{ label: "Today", amountCents: totalCents }],
-    };
-  }
-
-  if (plan === "split") {
-    const first = Math.ceil(totalCents / 2);
-    const second = totalCents - first;
-    return {
-      plan,
-      title,
-      blurb,
-      dueNowCents: first,
-      schedule: [
-        { label: "Today", amountCents: first },
-        { label: "On delivery", amountCents: second },
-      ],
-    };
-  }
-
-  // milestones — thirds, remainder to the first row
-  const base = Math.floor(totalCents / 3);
-  const first = totalCents - base * 2; // base + remainder
-  return {
-    plan,
-    title,
-    blurb,
-    dueNowCents: first,
-    schedule: [
-      { label: "Today", amountCents: first },
-      { label: "Mid-project", amountCents: base },
-      { label: "On delivery", amountCents: base },
-    ],
-  };
-}
-
-export function planOptions(totalCents: number, allowed: PaymentPlan[]): PlanOption[] {
-  return allowed.map((plan) => buildOption(plan, totalCents));
-}
-
-export function amountDueNowCents(opt: PlanOption): number {
-  return opt.dueNowCents;
 }
 
 // ── Running total (Gate 2 progress) ─────────────────────────────────────────

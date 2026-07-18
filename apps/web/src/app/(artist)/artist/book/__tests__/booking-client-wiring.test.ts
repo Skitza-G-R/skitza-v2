@@ -20,29 +20,25 @@ const pageSrc = readFileSync(PAGE_PATH, "utf8");
 const clientSrc = readFileSync(CLIENT_PATH, "utf8");
 
 describe("book/page.tsx server wiring", () => {
-  it("resolves the four tRPC reads it depends on", () => {
+  it("resolves availability and exact active allowances without a fail-only product path", () => {
     expect(pageSrc).toMatch(/caller\.artist\.studios\(\)/);
     expect(pageSrc).toMatch(
       /caller\.artist\.book\.availability\(\{\s*producerId/,
     );
     expect(pageSrc).toMatch(
-      /caller\.artist\.store\.products\(\{\s*producerId/,
-    );
-    expect(pageSrc).toMatch(
       /caller\.artist\.book\.activePackages\(\{\s*producerId/,
     );
+    expect(pageSrc).not.toMatch(/caller\.artist\.store\.products/);
   });
 
   it("picks the active studio from ?studio= or the first studio", () => {
     expect(pageSrc).toMatch(/sp\.studio \?\? studios\[0\]\?\.producerId/);
   });
 
-  it("passes a requested project only when it is an owned active package", () => {
+  it("accepts a project-only deep link only when it resolves to one allowance", () => {
     expect(pageSrc).toMatch(/sp\.project/);
-    expect(pageSrc).toMatch(
-      /activePackages\.some\(\(pkg\) => pkg\.projectId === sp\.project\)/,
-    );
-    expect(pageSrc).toMatch(/initialPackageProjectId=\{initialPackageProjectId\}/);
+    expect(pageSrc).toMatch(/uniquePrepaidSessionForProject/);
+    expect(pageSrc).toMatch(/initialSessionAllowanceId=\{initialSessionAllowanceId\}/);
   });
 
   it("renders the BookingClient", () => {
@@ -51,18 +47,20 @@ describe("book/page.tsx server wiring", () => {
 });
 
 describe("booking-client.tsx — confirm action wiring", () => {
-  it("submits the canonical session duration", () => {
-    expect(clientSrc).toMatch(/durationMin: DEFAULT_DURATION_MIN/);
+  it("submits the exact purchased allowance duration", () => {
+    expect(clientSrc).toMatch(/durationMin: selectedPackage\.durationMin/);
   });
 
-  it("sends productId only when not paying with a credit", () => {
-    expect(clientSrc).toMatch(
-      /productId: usingCredit \? null : selectedProductId/,
-    );
+  it("does not expose a direct product-booking path", () => {
+    expect(clientSrc).toMatch(/productId: null/);
+    expect(clientSrc).not.toMatch(/selectedProductId|ServiceBlock/);
+    expect(clientSrc).toMatch(/href="\/artist\/store"/);
   });
 
-  it("threads the existing package project id for credit redemption", () => {
-    expect(clientSrc).toMatch(/existingProjectId: selectedPackageProjectId/);
+  it("threads the exact project, purchase, and allowance identity", () => {
+    expect(clientSrc).toMatch(/existingProjectId: selectedPackage\.projectId/);
+    expect(clientSrc).toMatch(/purchaseId: selectedPackage\.purchaseId/);
+    expect(clientSrc).toMatch(/sessionAllowanceId: selectedPackage\.sessionAllowanceId/);
   });
 
   it("refreshes the route after a successful request", () => {
@@ -73,7 +71,7 @@ describe("booking-client.tsx — confirm action wiring", () => {
 
 describe("booking-client.tsx — request/pending language (not instant-book)", () => {
   it("keeps a request-flavoured primary label", () => {
-    expect(clientSrc).toMatch(/Send booking request|Request this slot/i);
+    expect(clientSrc).toMatch(/Holding this time|Use credit/i);
   });
 
   it("never claims an instant 'Book this slot'", () => {
@@ -108,16 +106,8 @@ describe("booking-client.tsx — accessibility + keyboard nav", () => {
 });
 
 describe("booking-client.tsx — progressive gating", () => {
-  it("reveals services only after a start time, when not on a credit", () => {
-    expect(clientSrc).toMatch(
-      /const showServices = chosenStart != null && !usingCredit/,
-    );
-  });
-
-  it("reveals confirm once a start + (credit or product) is chosen", () => {
-    expect(clientSrc).toMatch(
-      /const showConfirm =\s*chosenStart != null && \(usingCredit \|\| selectedProductId !== null\)/,
-    );
+  it("reveals confirm only for an exact purchased allowance", () => {
+    expect(clientSrc).toMatch(/const showConfirm = chosenStart != null && usingCredit/);
   });
 });
 
@@ -128,16 +118,16 @@ describe("booking-client.tsx — prepaid credits path", () => {
     );
   });
 
-  it("preselects the server-validated project from the payment flow", () => {
-    expect(clientSrc).toMatch(/initialPackageProjectId: string \| null/);
+  it("preselects the server-validated allowance identity", () => {
+    expect(clientSrc).toMatch(/initialSessionAllowanceId: string \| null/);
     expect(clientSrc).toMatch(
-      /setSelectedPackageProjectId\] = useState<[\s\S]*?>\(initialPackageProjectId\)/,
+      /setSelectedSessionAllowanceId\] = useState<[\s\S]*?>\(initialSessionAllowanceId\)/,
     );
   });
 
   it("clears a selected credit when a refresh removes the exhausted package", () => {
     expect(clientSrc).toMatch(
-      /if \(selectedPackageProjectId && !selectedPackage\) \{\s*setSelectedPackageProjectId\(null\)/,
+      /if \(selectedSessionAllowanceId && !selectedPackage\) \{\s*setSelectedSessionAllowanceId\(null\)/,
     );
   });
 
@@ -145,12 +135,13 @@ describe("booking-client.tsx — prepaid credits path", () => {
     expect(clientSrc).toMatch(/unlimitedSessions: boolean/);
     expect(clientSrc).toMatch(/pkg\.unlimitedSessions\s*\?\s*"Ongoing"/);
     expect(clientSrc).toMatch(
-      /selectedPackage\?\.unlimitedSessions\s*\?\s*"Use credit · Ongoing"/,
+      /selectedPackage\.unlimitedSessions\s*\?\s*"Use credit · Ongoing"/,
     );
   });
 
-  it("offers the 'pay for a new session instead' toggle", () => {
-    expect(clientSrc).toMatch(/Pay for a new session instead/);
+  it("redirects new commercial intent to the Store request flow", () => {
+    expect(clientSrc).toMatch(/Request a new service instead/);
+    expect(clientSrc).toMatch(/Browse services to request a session/);
   });
 });
 

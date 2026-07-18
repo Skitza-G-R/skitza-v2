@@ -1,59 +1,37 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// ─── Test doubles ────────────────────────────────────────────────────
-// Tests producer.today's pulseStats fan-out leg, the second of the two
-// new legs landing as part of the Today redesign:
-//
-//   leg 11 — pulseStats
-//     A. lastMonthRevenue   — paid invoices with paidAt in [lastMonthStart, monthStart)
-//     B. sparkline          — daily-bucket revenue rows over the last 30 days
-//   plus reuse of the existing leg-2 thisMonthRevenue rows for the
-//   "this-month" big number, and the producer's defaultCurrency from
-//   the existing leg-9 profile lookup.
-//
-// pulseStats's footer counts (activeProjects, upcomingSessions7d,
-// unresolvedItems) are re-projections of the existing kpis fields —
-// no new round-trips. Tests below assert this re-projection.
-//
-// Invoice queries dispatched by call-order: the existing producer.today
-// hits `invoices` 3 times (revenue, unpaidCount, unpaidRows). The new
-// pulse leg adds 2 more hits (lastMonthRevenue, sparkline) for a total
-// of 5 — the dispatch table below routes call 4 → lastMonthMock and
-// call 5 → sparklineMock.
+// SK-90 removes the invoice table and makes corrected purchase-ledger totals
+// a later Payments projection. `producer.today` must therefore return a
+// fail-closed commercial shape (zero totals, null delta, zero sparkline) while
+// continuing to expose producer-scoped project/session/comment counts.
 
 const PRODUCER_ID = "producer-uuid-1";
 
 const {
   producersMarker,
   projectsMarker,
-  invoicesMarker,
+  purchasesMarker,
   bookingsMarker,
   trackCommentsMarker,
   trackVersionsMarker,
   projectTracksMarker,
-  thisMonthMock,
-  unpaidCountMock,
-  unpaidRowsMock,
-  lastMonthMock,
-  sparklineMock,
-  lastMonthWhereSpy,
-  sparklineWhereSpy,
   activeProjectsMock,
   upcomingSessionsMock,
   openCommentsCountMock,
+  profileMock,
+  activeProjectsWhereSpy,
+  upcomingSessionsWhereSpy,
+  openCommentsWhereSpy,
   resetCallCounts,
   dbMock,
 } = vi.hoisted(() => {
-  const thisMonthMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
-  const unpaidCountMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
-  const unpaidRowsMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
-  const lastMonthMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
-  const sparklineMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
-  const lastMonthWhereSpy = vi.fn<(arg: unknown) => void>();
-  const sparklineWhereSpy = vi.fn<(arg: unknown) => void>();
   const activeProjectsMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
   const upcomingSessionsMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
   const openCommentsCountMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
+  const profileMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
+  const activeProjectsWhereSpy = vi.fn<(arg: unknown) => void>();
+  const upcomingSessionsWhereSpy = vi.fn<(arg: unknown) => void>();
+  const openCommentsWhereSpy = vi.fn<(arg: unknown) => void>();
 
   const producersMarker = {
     __table: "producers",
@@ -65,24 +43,13 @@ const {
     __table: "projects",
     id: { __column: "projects.id" },
     producerId: { __column: "projects.producer_id" },
-    title: { __column: "projects.title" },
-    stage: { __column: "projects.stage" },
+    lifecycleStatus: { __column: "projects.lifecycle_status" },
     clientName: { __column: "projects.client_name" },
-    artistName: { __column: "projects.artist_name" },
-    updatedAt: { __column: "projects.updated_at" },
   };
-  const invoicesMarker = {
-    __table: "invoices",
-    id: { __column: "invoices.id" },
-    producerId: { __column: "invoices.producer_id" },
-    status: { __column: "invoices.status" },
-    amountCents: { __column: "invoices.amount_cents" },
-    currency: { __column: "invoices.currency" },
-    paidAt: { __column: "invoices.paid_at" },
-    createdAt: { __column: "invoices.created_at" },
-    description: { __column: "invoices.description" },
-    projectId: { __column: "invoices.project_id" },
-    customerName: { __column: "invoices.customer_name" },
+  const purchasesMarker = {
+    __table: "purchases",
+    id: { __column: "purchases.id" },
+    commercialSnapshot: { __column: "purchases.commercial_snapshot" },
   };
   const bookingsMarker = {
     __table: "bookings",
@@ -92,7 +59,7 @@ const {
     status: { __column: "bookings.status" },
     artistName: { __column: "bookings.artist_name" },
     durationMin: { __column: "bookings.duration_min" },
-    packageNameSnapshot: { __column: "bookings.package_name_snapshot" },
+    projectId: { __column: "bookings.project_id" },
   };
   const trackCommentsMarker = {
     __table: "track_comments",
@@ -120,21 +87,10 @@ const {
     title: { __column: "project_tracks.title" },
   };
 
-  const callCounts = {
-    projects: 0,
-    invoices: 0,
-    bookings: 0,
-    track_comments: 0,
-    track_versions: 0,
-    producers: 0,
-  };
+  const callCounts = { producers: 0, trackComments: 0 };
   const resetCallCounts = () => {
-    callCounts.projects = 0;
-    callCounts.invoices = 0;
-    callCounts.bookings = 0;
-    callCounts.track_comments = 0;
-    callCounts.track_versions = 0;
     callCounts.producers = 0;
+    callCounts.trackComments = 0;
   };
 
   const chain = (
@@ -166,8 +122,8 @@ const {
       leftJoin: () => link,
       groupBy: () => link,
       get then() {
-        const p = get();
-        return p.then.bind(p);
+        const promise = get();
+        return promise.then.bind(promise);
       },
     };
     return link;
@@ -180,53 +136,28 @@ const {
       from: (table: unknown) => {
         if (table === producersMarker) {
           callCounts.producers += 1;
-          const n = callCounts.producers;
-          if (n === 1) {
+          if (callCounts.producers === 1) {
             return {
               where: () => ({
                 limit: () => Promise.resolve([{ id: PRODUCER_ID }]),
               }),
             };
           }
-          // 2nd hit on producers: defaultCurrency lookup (existing leg 9).
-          return chain(() => Promise.resolve([{ defaultCurrency: "USD" }]));
+          return chain(profileMock);
         }
         if (table === projectsMarker) {
-          callCounts.projects += 1;
-          // 1st hit: active-projects KPI.
-          return chain(activeProjectsMock);
-        }
-        if (table === invoicesMarker) {
-          callCounts.invoices += 1;
-          const n = callCounts.invoices;
-          // 1st: this-month revenue (existing leg 2)
-          // 2nd: unpaid count (KPI piece, existing leg 3)
-          // 3rd: unpaid rows (items list, existing leg 6)
-          // 4th: NEW — lastMonthRevenue
-          // 5th: NEW — sparkline (30-day buckets)
-          if (n === 1) return chain(thisMonthMock);
-          if (n === 2) return chain(unpaidCountMock);
-          if (n === 3) return chain(unpaidRowsMock);
-          if (n === 4) return chain(lastMonthMock, lastMonthWhereSpy);
-          return chain(sparklineMock, sparklineWhereSpy);
+          return chain(activeProjectsMock, activeProjectsWhereSpy);
         }
         if (table === bookingsMarker) {
-          callCounts.bookings += 1;
-          return chain(upcomingSessionsMock);
+          return chain(upcomingSessionsMock, upcomingSessionsWhereSpy);
         }
         if (table === trackCommentsMarker) {
-          callCounts.track_comments += 1;
-          const n = callCounts.track_comments;
-          if (n === 1) return chain(openCommentsCountMock);
-          // 2nd: open-comments rows (items list).
-          // 3rd+: per-row unread-comments follow-ups (recentUploads leg).
-          return chain(empty);
+          callCounts.trackComments += 1;
+          return callCounts.trackComments === 1
+            ? chain(openCommentsCountMock, openCommentsWhereSpy)
+            : chain(empty);
         }
-        if (table === trackVersionsMarker) {
-          callCounts.track_versions += 1;
-          // recentUploads leg (no rows seeded — pulse tests don't care).
-          return chain(empty);
-        }
+        if (table === trackVersionsMarker) return chain(empty);
         throw new Error(`unexpected from(${String(table)})`);
       },
     }),
@@ -235,21 +166,18 @@ const {
   return {
     producersMarker,
     projectsMarker,
-    invoicesMarker,
+    purchasesMarker,
     bookingsMarker,
     trackCommentsMarker,
     trackVersionsMarker,
     projectTracksMarker,
-    thisMonthMock,
-    unpaidCountMock,
-    unpaidRowsMock,
-    lastMonthMock,
-    sparklineMock,
-    lastMonthWhereSpy,
-    sparklineWhereSpy,
     activeProjectsMock,
     upcomingSessionsMock,
     openCommentsCountMock,
+    profileMock,
+    activeProjectsWhereSpy,
+    upcomingSessionsWhereSpy,
+    openCommentsWhereSpy,
     resetCallCounts,
     dbMock,
   };
@@ -258,11 +186,12 @@ const {
 vi.mock("@clerk/nextjs/server", () => ({
   auth: () => Promise.resolve({ userId: "user_test_producer_1" }),
 }));
+
 vi.mock("@skitza/db", () => ({
   createDb: () => dbMock,
   producers: producersMarker,
   projects: projectsMarker,
-  invoices: invoicesMarker,
+  purchases: purchasesMarker,
   bookings: bookingsMarker,
   trackComments: trackCommentsMarker,
   trackVersions: trackVersionsMarker,
@@ -270,40 +199,36 @@ vi.mock("@skitza/db", () => ({
   portfolioTracks: { __table: "portfolio_tracks" },
   clientContacts: { __table: "client_contacts" },
   notifications: { __table: "notifications" },
-  stripeCustomers: { __table: "stripe_customers" },
   availabilityBlackouts: { __table: "availability_blackouts" },
   availabilityBlocks: { __table: "availability_blocks" },
   products: { __table: "products" },
-  eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
-  and: (...conds: unknown[]) => ({ and: conds }),
-  or: (...conds: unknown[]) => ({ or: conds }),
-  not: (cond: unknown) => ({ not: cond }),
-  ne: (col: unknown, val: unknown) => ({ ne: [col, val] }),
-  desc: (col: unknown) => ({ desc: col }),
-  asc: (col: unknown) => ({ asc: col }),
-  gte: (col: unknown, val: unknown) => ({ gte: [col, val] }),
-  lte: (col: unknown, val: unknown) => ({ lte: [col, val] }),
-  inArray: (col: unknown, vals: unknown[]) => ({ inArray: [col, vals] }),
-  notInArray: (col: unknown, vals: unknown[]) => ({ notInArray: [col, vals] }),
-  isNull: (col: unknown) => ({ isNull: col }),
-  isNotNull: (col: unknown) => ({ isNotNull: col }),
-  ilike: (col: unknown, val: unknown) => ({ ilike: [col, val] }),
+  eq: (column: unknown, value: unknown) => ({ eq: [column, value] }),
+  and: (...conditions: unknown[]) => ({ and: conditions }),
+  or: (...conditions: unknown[]) => ({ or: conditions }),
+  not: (condition: unknown) => ({ not: condition }),
+  ne: (column: unknown, value: unknown) => ({ ne: [column, value] }),
+  desc: (column: unknown) => ({ desc: column }),
+  asc: (column: unknown) => ({ asc: column }),
+  gte: (column: unknown, value: unknown) => ({ gte: [column, value] }),
+  lte: (column: unknown, value: unknown) => ({ lte: [column, value] }),
+  inArray: (column: unknown, values: unknown[]) => ({ inArray: [column, values] }),
+  notInArray: (column: unknown, values: unknown[]) => ({ notInArray: [column, values] }),
+  isNull: (column: unknown) => ({ isNull: column }),
+  isNotNull: (column: unknown) => ({ isNotNull: column }),
+  ilike: (column: unknown, value: unknown) => ({ ilike: [column, value] }),
   sql: () => ({ sql: true }),
 }));
 
-import { invoices } from "@skitza/db";
+import { bookings, projects, trackComments } from "@skitza/db";
 
 beforeEach(() => {
-  thisMonthMock.mockReset().mockResolvedValue([]);
-  unpaidCountMock.mockReset().mockResolvedValue([]);
-  unpaidRowsMock.mockReset().mockResolvedValue([]);
-  lastMonthMock.mockReset().mockResolvedValue([]);
-  sparklineMock.mockReset().mockResolvedValue([]);
-  lastMonthWhereSpy.mockReset();
-  sparklineWhereSpy.mockReset();
   activeProjectsMock.mockReset().mockResolvedValue([]);
   upcomingSessionsMock.mockReset().mockResolvedValue([]);
   openCommentsCountMock.mockReset().mockResolvedValue([]);
+  profileMock.mockReset().mockResolvedValue([{ defaultCurrency: "USD" }]);
+  activeProjectsWhereSpy.mockReset();
+  upcomingSessionsWhereSpy.mockReset();
+  openCommentsWhereSpy.mockReset();
   resetCallCounts();
   process.env.DATABASE_URL = "postgresql://test/test";
 });
@@ -320,8 +245,8 @@ function findPredicate(
 ): unknown {
   if (!where || typeof where !== "object") return null;
   if ("and" in where && Array.isArray((where as { and: unknown[] }).and)) {
-    for (const p of (where as { and: unknown[] }).and) {
-      const found = findPredicate(p, operator, columnMarker);
+    for (const predicate of (where as { and: unknown[] }).and) {
+      const found = findPredicate(predicate, operator, columnMarker);
       if (found) return found;
     }
     return null;
@@ -334,222 +259,117 @@ function findPredicate(
   return null;
 }
 
-describe("producer.today pulseStats", () => {
-  it("returns a fully zero-filled PulseStats when the producer has no data", async () => {
+describe("producer.today fail-closed pulseStats", () => {
+  it("returns unavailable commercial values as null instead of fake zeroes", async () => {
     const caller = await buildCaller();
     const result = await caller.producer.today();
 
-    expect(result.pulseStats).toBeDefined();
-    expect(result.pulseStats.thisMonthCents).toBe(0);
-    expect(result.pulseStats.lastMonthCents).toBe(0);
-    expect(result.pulseStats.outstandingCents).toBe(0);
-    expect(result.pulseStats.deltaPct).toBeNull();
-    expect(result.pulseStats.sparkline).toHaveLength(30);
-    expect(result.pulseStats.sparkline.every((v) => v === 0)).toBe(true);
-    expect(result.pulseStats.activeProjects).toBe(0);
-    expect(result.pulseStats.upcomingSessions7d).toBe(0);
-    expect(result.pulseStats.unresolvedItems).toBe(0);
-    expect(typeof result.pulseStats.currency).toBe("string");
+    expect(result.pulseStats).toEqual({
+      commercialAvailable: false,
+      thisMonthCents: null,
+      lastMonthCents: null,
+      outstandingCents: null,
+      currency: null,
+      deltaPct: null,
+      sparkline: Array.from({ length: 30 }, () => 0),
+      activeProjects: 0,
+      upcomingSessions7d: 0,
+      unresolvedItems: 0,
+    });
   });
 
-  it("computes deltaPct = round((this - last) / last * 100) when lastMonth > 0", async () => {
-    // This month: $5,000 (one paid invoice, USD).
-    thisMonthMock.mockResolvedValueOnce([
-      { amountCents: 500_000, currency: "USD" },
-    ]);
-    // Last month: $4,000 — delta = (5000-4000)/4000*100 = 25%.
-    lastMonthMock.mockResolvedValueOnce([
-      { amountCents: 400_000, currency: "USD" },
-    ]);
-
-    const caller = await buildCaller();
-    const result = await caller.producer.today();
-
-    expect(result.pulseStats.thisMonthCents).toBe(500_000);
-    expect(result.pulseStats.lastMonthCents).toBe(400_000);
-    expect(result.pulseStats.deltaPct).toBe(25);
-  });
-
-  it("returns deltaPct === null when lastMonthCents is 0 (avoid +∞%)", async () => {
-    thisMonthMock.mockResolvedValueOnce([
-      { amountCents: 100_000, currency: "USD" },
-    ]);
-    // Last month: empty rows (no paid invoices).
-    lastMonthMock.mockResolvedValueOnce([]);
-
-    const caller = await buildCaller();
-    const result = await caller.producer.today();
-
-    expect(result.pulseStats.lastMonthCents).toBe(0);
-    expect(result.pulseStats.deltaPct).toBeNull();
-  });
-
-  it("rounds a negative delta correctly when revenue dropped", async () => {
-    thisMonthMock.mockResolvedValueOnce([
-      { amountCents: 200_000, currency: "USD" },
-    ]);
-    lastMonthMock.mockResolvedValueOnce([
-      { amountCents: 400_000, currency: "USD" },
-    ]);
-
-    const caller = await buildCaller();
-    const result = await caller.producer.today();
-
-    // (200000-400000)/400000*100 = -50.
-    expect(result.pulseStats.deltaPct).toBe(-50);
-  });
-
-  it("zero-fills missing days in the 30-day sparkline (length always 30)", async () => {
-    // Seed 3 sparse daily buckets — rest must be zero-filled, length 30.
-    const today = new Date();
-    const dayAtNoon = (offset: number) => {
-      const d = new Date(today);
-      d.setUTCHours(12, 0, 0, 0);
-      d.setUTCDate(d.getUTCDate() - offset);
-      return d;
-    };
-    sparklineMock.mockResolvedValueOnce([
-      // 25 days ago → small revenue
-      { day: dayAtNoon(25).toISOString().slice(0, 10), cents: 10_000 },
-      // 10 days ago → larger revenue
-      { day: dayAtNoon(10).toISOString().slice(0, 10), cents: 50_000 },
-      // 0 days ago (today) → revenue
-      { day: dayAtNoon(0).toISOString().slice(0, 10), cents: 25_000 },
-    ]);
-
-    const caller = await buildCaller();
-    const result = await caller.producer.today();
-
-    expect(result.pulseStats.sparkline).toHaveLength(30);
-    // Index 29 = today; index 0 = 30 days ago. So today's revenue lands
-    // at index 29.
-    expect(result.pulseStats.sparkline[29]).toBe(25_000);
-    // 10 days ago = index 19 (29 - 10).
-    expect(result.pulseStats.sparkline[19]).toBe(50_000);
-    // Days with no buckets are zero-filled.
-    const nonZeros = result.pulseStats.sparkline.filter((v) => v > 0);
-    expect(nonZeros).toHaveLength(3);
-  });
-
-  it("re-projects footer counts (activeProjects, upcomingSessions7d, unresolvedItems) from existing kpis", async () => {
-    activeProjectsMock.mockResolvedValueOnce([
-      { id: "p1" },
-      { id: "p2" },
-      { id: "p3" },
-    ]);
+  it("does not infer commercial totals from noncommercial activity", async () => {
+    activeProjectsMock.mockResolvedValueOnce([{ id: "p1" }, { id: "p2" }, { id: "p3" }]);
     upcomingSessionsMock.mockResolvedValueOnce([
       {
         id: "b1",
         startsAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
         durationMin: 120,
         artistName: "Alice",
-        packageNameSnapshot: "2h Mix",
+        projectId: "p1",
       },
       {
         id: "b2",
         startsAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
         durationMin: 60,
         artistName: "Bob",
-        packageNameSnapshot: "1h Jam",
+        projectId: "p2",
       },
     ]);
-    unpaidCountMock.mockResolvedValueOnce([{ id: "i1" }]);
-    openCommentsCountMock.mockResolvedValueOnce([
-      { id: "c1" },
-      { id: "c2" },
-    ]);
+    openCommentsCountMock.mockResolvedValueOnce([{ id: "c1" }, { id: "c2" }]);
 
     const caller = await buildCaller();
     const result = await caller.producer.today();
 
-    // Footer counts MUST match the existing kpis exactly — same source
-    // rows, no second round-trip.
+    expect(result.pulseStats.thisMonthCents).toBeNull();
+    expect(result.pulseStats.lastMonthCents).toBeNull();
+    expect(result.pulseStats.outstandingCents).toBeNull();
+    expect(result.pulseStats.deltaPct).toBeNull();
+    expect(result.pulseStats.sparkline.every((value) => value === 0)).toBe(true);
     expect(result.pulseStats.activeProjects).toBe(result.kpis.activeProjects);
-    expect(result.pulseStats.upcomingSessions7d).toBe(
-      result.kpis.upcomingSessions7d,
-    );
-    expect(result.pulseStats.unresolvedItems).toBe(
-      result.kpis.unresolvedItems,
-    );
-    // And concrete values for sanity.
-    expect(result.pulseStats.activeProjects).toBe(3);
-    expect(result.pulseStats.upcomingSessions7d).toBe(2);
-    expect(result.pulseStats.unresolvedItems).toBe(3); // 1 unpaid + 2 comments
+    expect(result.pulseStats.upcomingSessions7d).toBe(result.kpis.upcomingSessions7d);
+    expect(result.pulseStats.unresolvedItems).toBe(result.kpis.unresolvedItems);
+    expect(result.pulseStats).toMatchObject({
+      activeProjects: 3,
+      upcomingSessions7d: 2,
+      unresolvedItems: 2,
+    });
   });
 
-  it("filters out non-default-currency rows from thisMonthCents and lastMonthCents", async () => {
-    // Mix USD + EUR. The producer's defaultCurrency is USD (seeded by
-    // the test mock), so EUR rows are dropped.
-    thisMonthMock.mockResolvedValueOnce([
-      { amountCents: 100_000, currency: "USD" },
-      { amountCents: 999_999, currency: "EUR" }, // dropped
-    ]);
-    lastMonthMock.mockResolvedValueOnce([
-      { amountCents: 200_000, currency: "USD" },
-      { amountCents: 999_999, currency: "EUR" }, // dropped
-    ]);
+  it("does not present even the producer currency as an available money projection", async () => {
+    profileMock.mockResolvedValueOnce([{ defaultCurrency: "EUR" }]);
 
     const caller = await buildCaller();
     const result = await caller.producer.today();
 
-    expect(result.pulseStats.thisMonthCents).toBe(100_000);
-    expect(result.pulseStats.lastMonthCents).toBe(200_000);
-    expect(result.pulseStats.currency).toBe("USD");
-  });
-
-  it("sums outstanding invoices in the producer's default currency", async () => {
-    unpaidCountMock.mockResolvedValueOnce([
-      { id: "i1", amountCents: 150_000, currency: "USD" },
-      { id: "i2", amountCents: 50_000, currency: "USD" },
-      { id: "i3", amountCents: 999_999, currency: "EUR" },
-    ]);
-
-    const caller = await buildCaller();
-    const result = await caller.producer.today();
-
-    expect(result.pulseStats.outstandingCents).toBe(200_000);
-    expect(result.pulseStats.unresolvedItems).toBe(3);
+    expect(result.pulseStats.commercialAvailable).toBe(false);
+    expect(result.pulseStats.currency).toBeNull();
+    expect(result.pulseStats.thisMonthCents).toBeNull();
+    expect(result.pulseStats.lastMonthCents).toBeNull();
+    expect(result.pulseStats.outstandingCents).toBeNull();
   });
 });
 
-describe("producer.today pulseStats auth boundary", () => {
-  it("scopes the lastMonthRevenue query by producerId + status=paid", async () => {
+describe("producer.today pulseStats authorization and lifecycle boundary", () => {
+  it("scopes active projects to the producer and approved live lifecycles", async () => {
     const caller = await buildCaller();
     await caller.producer.today();
 
-    const whereArg = lastMonthWhereSpy.mock.calls[0]?.[0];
-    expect(whereArg).not.toBeUndefined();
+    const whereArg = activeProjectsWhereSpy.mock.calls[0]?.[0];
+    const producerPredicate = findPredicate(whereArg, "eq", projects.producerId);
+    const lifecyclePredicate = findPredicate(whereArg, "inArray", projects.lifecycleStatus);
 
-    const producerPred = findPredicate(whereArg, "eq", invoices.producerId);
-    expect(producerPred).not.toBeNull();
-    if (Array.isArray(producerPred)) {
-      expect(producerPred[1]).toBe(PRODUCER_ID);
-    }
-
-    const statusPred = findPredicate(whereArg, "eq", invoices.status);
-    expect(statusPred).not.toBeNull();
-    if (Array.isArray(statusPred)) {
-      expect(statusPred[1]).toBe("paid");
-    }
+    expect(producerPredicate).toEqual([projects.producerId, PRODUCER_ID]);
+    expect(lifecyclePredicate).toEqual([
+      projects.lifecycleStatus,
+      ["waiting_for_payment", "active", "paused"],
+    ]);
   });
 
-  it("scopes the sparkline query by producerId + status=paid", async () => {
+  it("keeps upcoming sessions producer-scoped", async () => {
     const caller = await buildCaller();
     await caller.producer.today();
 
-    const whereArg = sparklineWhereSpy.mock.calls[0]?.[0];
-    expect(whereArg).not.toBeUndefined();
+    const whereArg = upcomingSessionsWhereSpy.mock.calls[0]?.[0];
+    expect(findPredicate(whereArg, "eq", bookings.producerId)).toEqual([
+      bookings.producerId,
+      PRODUCER_ID,
+    ]);
+  });
 
-    const producerPred = findPredicate(whereArg, "eq", invoices.producerId);
-    expect(producerPred).not.toBeNull();
-    if (Array.isArray(producerPred)) {
-      expect(producerPred[1]).toBe(PRODUCER_ID);
-    }
+  it("keeps open artist comments producer-scoped through projects", async () => {
+    const caller = await buildCaller();
+    await caller.producer.today();
 
-    const statusPred = findPredicate(whereArg, "eq", invoices.status);
-    expect(statusPred).not.toBeNull();
-    if (Array.isArray(statusPred)) {
-      expect(statusPred[1]).toBe("paid");
-    }
+    const whereArg = openCommentsWhereSpy.mock.calls[0]?.[0];
+    expect(findPredicate(whereArg, "eq", projects.producerId)).toEqual([
+      projects.producerId,
+      PRODUCER_ID,
+    ]);
+    expect(findPredicate(whereArg, "eq", trackComments.fromProducer)).toEqual([
+      trackComments.fromProducer,
+      false,
+    ]);
+    expect(findPredicate(whereArg, "isNull", trackComments.resolvedAt)).not.toBeNull();
   });
 });

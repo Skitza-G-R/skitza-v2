@@ -15,8 +15,7 @@ export type ActionResult = { ok: true } | { ok: false; error: string };
 const SETTINGS_PATH = "/dashboard/settings";
 
 async function callerOrError(): Promise<
-  | { ok: true; caller: ReturnType<typeof appRouter.createCaller> }
-  | { ok: false; error: string }
+  { ok: true; caller: ReturnType<typeof appRouter.createCaller> } | { ok: false; error: string }
 > {
   const { userId } = await auth();
   if (!userId) return { ok: false, error: "Please sign in to continue." };
@@ -65,8 +64,8 @@ export async function updateProducer(input: {
   // map: keys not in the patch keep their existing values server-side.
   notificationPrefs?: Record<string, { email: boolean; app: boolean }>;
   // Migration 0019 — business-level tax disclosure mode + rate.
-  // 'tax_added' multiplies the Stripe charge by 1 + ratePct/100; the
-  // other two modes are display-only. See ~/lib/tax-mode for helpers.
+  // 'tax_added' adds the configured rate to a commercial total; the other
+  // two modes are display-only. See ~/lib/tax-mode for helpers.
   taxMode?: "tax_free" | "tax_included" | "tax_added";
   taxRatePct?: number;
 }): Promise<ActionResult> {
@@ -150,28 +149,6 @@ export async function updateMarketing(input: {
     // rendered so a producer save → next visitor read sees fresh copy
     // within the standard ISR window.
     revalidatePath("/join", "layout");
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: toMessage(err) };
-  }
-}
-
-// Producer requests a Tranzila terminal connection. The mutation logs
-// the request server-side; a Skitza admin watches the logs, provisions
-// a terminal at Tranzila, and writes the terminal name onto the
-// producer row out-of-band. The page revalidates so the next render
-// reflects the connected state without a manual refresh once admin
-// has provisioned.
-export async function requestPaymentConnection(input: {
-  businessName: string;
-  contactEmail: string;
-  phone: string;
-}): Promise<ActionResult> {
-  const c = await callerOrError();
-  if (!c.ok) return c;
-  try {
-    await c.caller.producer.requestPaymentConnection(input);
-    revalidatePath(SETTINGS_PATH);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };

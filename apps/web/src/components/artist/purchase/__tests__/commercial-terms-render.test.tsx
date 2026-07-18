@@ -18,13 +18,8 @@ const product: PurchaseProduct = {
   includes: ["Production", "Mix", "Master"],
   tagline: "From demo to release.",
   sessions: 3,
-  depositPct: 0,
   revisions: 2,
-  paymentPlans: [
-    { kind: "full" },
-    { kind: "split_50_50" },
-    { kind: "monthly", installments: 6 },
-  ],
+  paymentPlans: [{ kind: "full" }, { kind: "split_50_50" }, { kind: "monthly", installments: 6 }],
   royaltyTerms: {
     master: { mode: "percentage", bps: 250 },
     composition: {
@@ -35,7 +30,7 @@ const product: PurchaseProduct = {
     },
     notes: "Producer credit must appear in release metadata.",
   },
-  agreementText: "These exact inline terms are accepted with the request.",
+  agreementText: "These inline terms are proposed with the request.",
 };
 
 const producer: Producer = {
@@ -52,11 +47,7 @@ const producer: Producer = {
 describe("artist commercial-term rendering", () => {
   it("shows every offered plan and concise rights before the request", () => {
     const html = renderToStaticMarkup(
-      <ProductDetailScreen
-        product={product}
-        producer={producer}
-        productId={product.id}
-      />,
+      <ProductDetailScreen product={product} producer={producer} productId={product.id} />,
     );
 
     expect(html).toContain("$2,400.50");
@@ -68,21 +59,16 @@ describe("artist commercial-term rendering", () => {
     expect(html).toContain("Producer credit must appear in release metadata.");
   });
 
-  it("renders the exact royalty notes and inline/link agreement being accepted", () => {
+  it("renders the royalty notes and inline/link agreement being proposed", () => {
     const html = renderToStaticMarkup(
-      <ReviewAgreeScreen
-        product={product}
-        producer={producer}
-        terms={[]}
-        commercialTermsFingerprint={"0".repeat(64)}
-      />,
+      <ReviewAgreeScreen product={product} producer={producer} terms={[]} />,
     );
 
     expect(html).toContain("$2,400.50");
     expect(html.match(/<li/g)).toHaveLength(3);
     expect(html).toContain("Producer credit must appear in release metadata.");
-    expect(html).toContain("These exact inline terms are accepted with the request.");
+    expect(html).toContain("These inline terms are proposed with the request.");
     expect(html).toContain("commercial-terms.pdf");
-    expect(html).toContain("I&#x27;ve reviewed and agree");
+    expect(html).toContain("I&#x27;ve reviewed the proposed price");
   });
 });

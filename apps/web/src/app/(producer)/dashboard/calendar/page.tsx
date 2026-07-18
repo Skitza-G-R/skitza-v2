@@ -204,7 +204,10 @@ export default async function CalendarPage({
       const start = new Date(s.startsAt);
       const endMs = start.getTime() + s.durationMin * 60_000;
       const isCancelled =
-        s.status === "cancelled" || s.status === "rejected";
+        s.status === "cancelled" ||
+        s.status === "rejected" ||
+        s.status === "completed" ||
+        s.status === "no_show";
       return !isCancelled && endMs > initialNow.getTime();
     }).length;
     eyebrow =

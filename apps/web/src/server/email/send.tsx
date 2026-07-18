@@ -13,22 +13,11 @@ import {
   BookingRequestReceived,
   type BookingRequestReceivedProps,
 } from "./templates/booking-request-received";
-import {
-  ClientInvite,
-  type ClientInviteProps,
-} from "./templates/client-invite";
-import {
-  FinalPaymentDue,
-  type FinalPaymentDueProps,
-} from "./templates/final-payment-due";
+import { ClientInvite, type ClientInviteProps } from "./templates/client-invite";
 import {
   NewCommentFromArtist,
   type NewCommentFromArtistProps,
 } from "./templates/new-comment-from-artist";
-import {
-  PaymentReceived,
-  type PaymentReceivedProps,
-} from "./templates/payment-received";
 import {
   ProducerRepliedToComment,
   type ProducerRepliedToCommentProps,
@@ -49,14 +38,8 @@ import {
   PurchaseDeclinedToArtist,
   type PurchaseDeclinedToArtistProps,
 } from "./templates/purchase-declined-to-artist";
-import {
-  SessionReminder1h,
-  type SessionReminder1hProps,
-} from "./templates/session-reminder-1h";
-import {
-  SessionReminder24h,
-  type SessionReminder24hProps,
-} from "./templates/session-reminder-24h";
+import { SessionReminder1h, type SessionReminder1hProps } from "./templates/session-reminder-1h";
+import { SessionReminder24h, type SessionReminder24hProps } from "./templates/session-reminder-24h";
 import {
   TrackVersionUploaded,
   type TrackVersionUploadedProps,
@@ -76,11 +59,8 @@ export async function sendBookingRequestEmail(
     reviewUrl?: string;
   },
 ): Promise<void> {
-  const reviewUrl =
-    props.reviewUrl ?? `${SITE_URL}/dashboard/booking?tab=upcoming`;
-  const html = await render(
-    <BookingRequestReceived {...props} reviewUrl={reviewUrl} />,
-  );
+  const reviewUrl = props.reviewUrl ?? `${SITE_URL}/dashboard/booking?tab=upcoming`;
+  const html = await render(<BookingRequestReceived {...props} reviewUrl={reviewUrl} />);
   await getResend().emails.send({
     from: FROM_ADDRESS,
     to,
@@ -137,19 +117,6 @@ export async function sendSessionReminder1h(
 // src/server/email/SITE_URL — used as the base for deep-link URLs
 // when the caller doesn't pass its own.
 
-export async function sendFinalPaymentDueEmail(
-  to: string,
-  props: FinalPaymentDueProps,
-): Promise<void> {
-  const html = await render(<FinalPaymentDue {...props} />);
-  await getResend().emails.send({
-    from: FROM_ADDRESS,
-    to,
-    subject: `Final payment due · ${props.projectName}`,
-    html,
-  });
-}
-
 export async function sendTrackVersionUploadedEmail(
   to: string,
   props: TrackVersionUploadedProps,
@@ -172,19 +139,6 @@ export async function sendProducerRepliedToCommentEmail(
     from: FROM_ADDRESS,
     to,
     subject: `${props.producerName} replied · ${props.trackTitle}`,
-    html,
-  });
-}
-
-export async function sendPaymentReceivedEmail(
-  to: string,
-  props: PaymentReceivedProps,
-): Promise<void> {
-  const html = await render(<PaymentReceived {...props} />);
-  await getResend().emails.send({
-    from: FROM_ADDRESS,
-    to,
-    subject: `You received a payment from ${props.artistName}`,
     html,
   });
 }
@@ -222,10 +176,7 @@ export async function sendBookingCancelledOrRescheduledEmail(
 // inbox stays consistent. Caller MUST wrap in try/catch + console.warn
 // so a transient Resend failure doesn't break the primary write
 // (invited_at stamp).
-export async function sendClientInviteEmail(
-  to: string,
-  props: ClientInviteProps,
-): Promise<void> {
+export async function sendClientInviteEmail(to: string, props: ClientInviteProps): Promise<void> {
   const html = await render(<ClientInvite {...props} />);
   await getResend().emails.send({
     from: FROM_ADDRESS,

@@ -41,23 +41,22 @@ const purchaseRouterSource = readFileSync(
 );
 
 describe("producer purchase request flow", () => {
-  it("loads both decision and private-proof queues through tenant-scoped queries", () => {
+  it("loads the decision queue without putting payment proofs in Requests", () => {
     expect(hubPageSource).toMatch(/auth\(\)/);
     expect(hubPageSource).toMatch(/redirect\("\/sign-in"\)/);
     expect(hubPageSource).toMatch(/producer\.purchase\.list\(\{\s*status:\s*"pending"\s*\}\)/);
-    expect(hubPageSource).toMatch(/proofOfPayment\.pending\(\)/);
-    expect(hubPageSource).toMatch(/<PendingPaymentProofs/);
+    expect(hubPageSource).not.toMatch(/proofOfPayment\.pending\(\)/);
+    expect(hubPageSource).not.toMatch(/<PendingPaymentProofs/);
+    expect(hubPageSource).not.toMatch(/<ProofQueueRefresh/);
     expect(hubPageSource).toMatch(/<PurchaseRequestsList requests=\{requests\}/);
     expect(listSource).toMatch(/\/dashboard\/requests\/\$\{request\.id\}/);
     expect(purchaseRouterSource).toMatch(/list:\s*producerProcedure/);
     expect(purchaseRouterSource).toMatch(/eq\(purchaseRequests\.producerId, ctx\.producerId\)/);
   });
 
-  it("keeps proof review visible on the redesigned dashboard", () => {
+  it("threads the fail-closed purchase proof projection into the dashboard", () => {
     expect(dashboardPageSource).toMatch(/proofOfPayment\.pending\(\)/);
-    expect(dashboardPageSource).toMatch(
-      /paymentProofs=\{pendingPaymentProofs\.available \? pendingPaymentProofs\.proofs : \[\]\}/,
-    );
+    expect(dashboardPageSource).toMatch(/paymentProofs=\{pendingPaymentProofs\.proofs\}/);
     expect(dashboardPageSource).not.toMatch(/<PendingPaymentProofs/);
     expect(dashboardPageSource).toMatch(/<ProofQueueRefresh/);
     expect(dashboardPageSource).toMatch(/<OverviewScreen/);
@@ -84,23 +83,23 @@ describe("producer purchase request flow", () => {
     expect(actionsSource).not.toMatch(/error instanceof Error\s*\?\s*error\.message/);
   });
 
-  it("adds review actions and exact proof review without replacing frozen terms", () => {
+  it("adds request review actions without presenting proposal data as accepted history", () => {
     expect(detailPageSource).toMatch(/producer\.purchase\.get\(\{ id \}\)/);
-    expect(detailPageSource).toMatch(/proofOfPayment\.history\(\{ purchaseRequestId: id \}\)/);
-    expect(detailPageSource).toMatch(/proofOfPayment\.view/);
     expect(detailPageSource).toMatch(/requestedProofId/);
-    expect(detailPageSource).toMatch(/<PaymentProofReview/);
+    expect(detailPageSource).not.toMatch(/proofOfPayment\.history|proofOfPayment\.view/);
+    expect(detailPageSource).not.toMatch(/<PaymentProofReview/);
     expect(detailPageSource).toMatch(/<PurchaseRequestReview/);
     expect(detailPageSource).toMatch(/paymentPlanOptionsSnapshot/);
     expect(detailPageSource).toMatch(/royaltyTermsSnapshot/);
     expect(detailPageSource).toMatch(/agreementTextSnapshot/);
     expect(detailPageSource).toMatch(/contractUrlSnapshot/);
-    expect(detailPageSource).toMatch(/acceptedAt/);
+    expect(detailPageSource).toContain("Proposed agreement");
+    expect(detailPageSource).toContain("Final acceptance is recorded on the purchase");
     expect(detailPageSource).toMatch(
       /initialUndoableUntilIso=\{request\.undoableUntil\?\.toISOString\(\) \?\? null\}/,
     );
     expect(purchaseRouterSource).toMatch(
-      /undoableUntil:[\s\S]*purchaseApprovalUndoDeadline\(approvedAt\)/,
+      /undoableUntil:[\s\S]*purchaseRequestApprovalUndoDeadline\(approvedAt\)/,
     );
     expect(detailPageSource).not.toMatch(/booking\.packages|from\(products\)/);
   });
@@ -109,7 +108,7 @@ describe("producer purchase request flow", () => {
     expect(detailPageSource).toMatch(/error\.code === "FORBIDDEN"/);
     expect(detailPageSource).toMatch(/error\.code === "NOT_FOUND"/);
     expect(detailPageSource).toMatch(/PURCHASE_REQUEST_ID\.safeParse\(id\)/);
-    expect(detailPageSource).toMatch(/requestedProofId && !selectedProof/);
+    expect(detailPageSource).toMatch(/if \(requestedProofId\) notFound\(\)/);
     expect(detailPageSource).toMatch(/notFound\(\)/);
   });
 

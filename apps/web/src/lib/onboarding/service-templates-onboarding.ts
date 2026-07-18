@@ -5,10 +5,8 @@
  * editor) — the redesign collapses choice to four big buckets so the
  * producer can pick + advance in one click.
  *
- * Each entry maps to the existing `createOnboardingPackage` action
- * input: name, kind, priceCents, durationMin, depositPct,
- * locationType, currency. The producer can edit name + price inline
- * in the form before continuing.
+ * Each entry supplies the initial service name, kind, price, duration,
+ * location, and currency. The producer can edit name + price inline.
  *
  * Tested in service-templates-onboarding.test.ts.
  */
@@ -93,7 +91,7 @@ export type SupportedCurrency = (typeof SUPPORTED_CURRENCIES)[number];
 
 export const PAYMENT_PLANS = [
   { id: "full", label: "Full" },
-  { id: "deposit", label: "50% upfront" },
+  { id: "split_50_50", label: "50/50 split" },
   { id: "monthly", label: "Monthly" },
 ] as const;
 
@@ -109,23 +107,4 @@ export function isServiceContinueAllowed(
   sessions: number,
 ): boolean {
   return name.trim().length >= 2 && price > 0 && sessions >= 1;
-}
-
-/**
- * Map the redesign's payment plan id to the deposit percentage that
- * the existing `createOnboardingPackage` action expects:
- *   - "full" → 0% deposit
- *   - "deposit" → 50%
- *   - "monthly" → 25% (placeholder; real monthly billing requires
- *     Stripe Connect milestones, which Phase H owns)
- */
-export function depositPctForPlan(plan: PaymentPlanId): number {
-  switch (plan) {
-    case "full":
-      return 0;
-    case "deposit":
-      return 50;
-    case "monthly":
-      return 25;
-  }
 }

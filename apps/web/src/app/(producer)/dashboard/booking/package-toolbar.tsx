@@ -49,7 +49,6 @@ function templateToInitial(t: ServiceTemplate): InitialPackageValues {
     sessionCount: t.defaults.sessionCount,
     priceCents: t.defaults.priceCents,
     currency: t.defaults.currency,
-    depositPct: t.defaults.depositPct,
     kind: t.defaults.kind,
     locationType: t.defaults.locationType,
     bufferMinutes: t.defaults.bufferMinutes,

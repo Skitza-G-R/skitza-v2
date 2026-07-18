@@ -11,8 +11,6 @@ interface PaymentStepProps {
   previewTotalCents: number;
   currency: string;
   pricingModel: PricingModel;
-  depositModel: string;
-  milestones: { label: string; pct: number }[] | null;
   error?: string;
   onChange: (next: PaymentSelectionDraft) => void;
 }
@@ -49,18 +47,9 @@ export function PaymentStep({
   previewTotalCents,
   currency,
   pricingModel,
-  depositModel,
-  milestones,
   error,
   onChange,
 }: PaymentStepProps) {
-  const preservedMilestones = selection.preservedPlans.find((plan) => plan.kind === "milestones");
-  const milestoneRows =
-    depositModel === "milestones" && milestones?.length
-      ? milestones
-      : preservedMilestones?.kind === "milestones"
-        ? preservedMilestones.milestones
-        : [];
   const describedBy = error
     ? "payment-step-error"
     : pricingModel === "per_song"
@@ -220,33 +209,6 @@ export function PaymentStep({
           </div>
         </div>
       </fieldset>
-
-      {milestoneRows.length > 0 ? (
-        <section
-          aria-label="Existing milestone schedule"
-          className="border-t border-[rgb(var(--border-subtle))] pt-4"
-        >
-          <div className="text-[10.5px] font-bold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase">
-            Existing milestone schedule
-          </div>
-          <p className="mt-1 text-[12px] leading-relaxed text-[rgb(var(--fg-faint))]">
-            Kept unchanged alongside the options above.
-          </p>
-          <ul className="mt-2 divide-y divide-[rgb(var(--border-subtle))] text-[12.5px]">
-            {milestoneRows.map((milestone) => (
-              <li
-                key={`${milestone.label}-${String(milestone.pct)}`}
-                className="flex min-h-10 items-center justify-between gap-3"
-              >
-                <span className="text-[rgb(var(--fg-default))]">{milestone.label}</span>
-                <span className="font-semibold text-[rgb(var(--fg-muted))] tabular-nums">
-                  {milestone.pct}%
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
 
       {error ? (
         <p

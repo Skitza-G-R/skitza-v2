@@ -34,7 +34,6 @@ type Currency = "USD" | "EUR" | "GBP" | "ILS";
 export interface StoreProduct extends ProductCardData {
   // The Phase-2 ProductEditor seeds its draft directly from these
   // form-typed columns when the editor opens in edit mode.
-  depositPct: number;
   durationMin: number;
   sessionCount: number;
   paymentPlans: import("@skitza/db").PaymentPlan[];
@@ -45,8 +44,6 @@ export interface StoreProduct extends ProductCardData {
   royaltyTerms: import("@skitza/db").ProductRoyaltyTerms | null;
   agreementText: string | null;
   deliverables: string[];
-  depositModel: string;
-  milestones: { label: string; pct: number }[] | null;
   // Per-song pricing — pricingModel='per_song' opens the calculator
   // panel in the wizard's Pricing step and the song-count stepper on
   // the artist's product page. volumeTiers is the ascending ladder

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calculateCharges, advancePlanState } from "./plan";
+import { calculateCharges } from "./plan";
 
 describe("calculateCharges", () => {
   it("returns a single charge for 'full'", () => {
@@ -68,99 +68,5 @@ describe("calculateCharges", () => {
   it("throws on non-integer total", () => {
     expect(() => calculateCharges({ kind: "full" }, 100.5))
       .toThrow(/positive integer/);
-  });
-});
-
-describe("advancePlanState", () => {
-  const baseProject = {
-    chargesCompleted: 0,
-    chargesTotal: 2,
-    stage: "lead" as const,
-  };
-
-  it("first successful charge → active + completed=1", () => {
-    const next = advancePlanState(baseProject, { type: "charge_succeeded" });
-    expect(next.chargesCompleted).toBe(1);
-    expect(next.stage).toBe("active");
-  });
-
-  it("final successful charge → paid", () => {
-    const next = advancePlanState(
-      { ...baseProject, chargesCompleted: 1, stage: "active" },
-      { type: "charge_succeeded" },
-    );
-    expect(next.chargesCompleted).toBe(2);
-    expect(next.stage).toBe("paid");
-  });
-
-  it("exhausted retries → payment_paused", () => {
-    const next = advancePlanState(
-      { ...baseProject, chargesCompleted: 1, chargesTotal: 4, stage: "active" },
-      { type: "retries_exhausted" },
-    );
-    expect(next.stage).toBe("payment_paused");
-    // Counter not incremented — charge didn't succeed
-    expect(next.chargesCompleted).toBe(1);
-  });
-
-  it("resume from paused on next successful charge", () => {
-    const next = advancePlanState(
-      { ...baseProject, chargesCompleted: 1, chargesTotal: 4, stage: "payment_paused" },
-      { type: "charge_succeeded" },
-    );
-    expect(next.stage).toBe("active");
-    expect(next.chargesCompleted).toBe(2);
-  });
-
-  it("cancel event → cancelled, stops charges", () => {
-    const next = advancePlanState(
-      { ...baseProject, chargesCompleted: 1, chargesTotal: 4, stage: "active" },
-      { type: "cancelled" },
-    );
-    expect(next.stage).toBe("cancelled");
-    expect(next.chargesCompleted).toBe(1);
-  });
-
-  it("never exceeds chargesTotal (idempotency invariant)", () => {
-    const next = advancePlanState(
-      { ...baseProject, chargesCompleted: 2, chargesTotal: 2, stage: "paid" },
-      { type: "charge_succeeded" },
-    );
-    // Already paid — duplicate webhook must not over-count
-    expect(next.chargesCompleted).toBe(2);
-    expect(next.stage).toBe("paid");
-  });
-
-  it("retries_exhausted is idempotent when already paused", () => {
-    const already = { chargesCompleted: 1, chargesTotal: 4, stage: "payment_paused" as const };
-    const next = advancePlanState(already, { type: "retries_exhausted" });
-    expect(next.stage).toBe("payment_paused");
-    expect(next.chargesCompleted).toBe(1);
-  });
-});
-
-describe("calculateCharges — milestones (BE-2)", () => {
-  it("splits by pct and sums exactly to the total", () => {
-    const charges = calculateCharges(
-      {
-        kind: "milestones",
-        milestones: [
-          { label: "Booking", pct: 30 },
-          { label: "Mix", pct: 40 },
-          { label: "Delivery", pct: 30 },
-        ],
-      },
-      100_001,
-    );
-    expect(charges).toHaveLength(3);
-    expect(charges.reduce((a, b) => a + b, 0)).toBe(100_001);
-    // remainder lands on the FIRST charge (file convention)
-    expect(charges[0]).toBeGreaterThanOrEqual(30_000);
-  });
-
-  it("throws on an empty milestone schedule", () => {
-    expect(() =>
-      calculateCharges({ kind: "milestones", milestones: [] }, 1000),
-    ).toThrow(/at least one milestone/);
   });
 });

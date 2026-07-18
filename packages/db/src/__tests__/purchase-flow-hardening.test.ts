@@ -62,10 +62,12 @@ describe("purchase flow hardening schema", () => {
     expect("paymentProofs" in schema).toBe(true);
   });
 
-  it("snapshots every offered payment plan on the purchase request", () => {
-    const table = schema.purchaseRequests as unknown as Record<string, unknown>;
-    expect("paymentPlanOptionsSnapshot" in table).toBe(true);
-    expect("paymentPlanChosenAt" in table).toBe(true);
+  it("snapshots every offered plan only when work becomes a purchase", () => {
+    const request = schema.purchaseRequests as unknown as Record<string, unknown>;
+    const purchase = schema.purchases as unknown as Record<string, unknown>;
+    expect("paymentPlanOptionsSnapshot" in request).toBe(false);
+    expect("commercialSnapshot" in purchase).toBe(true);
+    expect("acceptedSnapshot" in schema.purchaseAcceptances).toBe(true);
   });
 
   it("records the real bucket that owns each proof object", () => {
@@ -74,9 +76,11 @@ describe("purchase flow hardening schema", () => {
     expect("objectEtag" in table).toBe(true);
   });
 
-  it("links a confirmed invoice to exactly one proof for idempotency", () => {
-    const table = schema.invoices as unknown as Record<string, unknown>;
-    expect("paymentProofId" in table).toBe(true);
+  it("links a confirmed ledger payment to one proof and one operation key", () => {
+    const table = schema.purchasePayments as unknown as Record<string, unknown>;
+    expect("proofId" in table).toBe(true);
+    expect("operationKey" in table).toBe(true);
+    expect("operationDigest" in table).toBe(true);
   });
 
   it("ships the matching idempotent database migration", () => {
@@ -128,16 +132,14 @@ describe("purchase flow hardening schema", () => {
 
   it("does not let the migration runner ignore data-integrity failures", () => {
     const runner = readFileSync(join(process.cwd(), "apply-migrations.mjs"), "utf8");
-    const benignPattern = runner.match(/const benign = (\/[^\n]+\/i)\.test/)?.[1];
-    const errorHandler = runner.slice(
-      runner.indexOf("const benign ="),
-      runner.indexOf('console.log("\\nAll migrations applied successfully.")'),
-    );
 
-    expect(benignPattern).toBe("/already exists|duplicate_object/i");
-    expect(benignPattern).not.toMatch(/duplicate key|foreign key|does not exist/);
-    expect(errorHandler).toMatch(/if \(!benign\) \{[\s\S]*process\.exit\(1\)/);
-    expect(runner).not.toMatch(/hadError/);
+    expect(runner).not.toMatch(/already exists\|duplicate_object/);
+    expect(runner).not.toMatch(/const benign|hadError/);
+    expect(runner).toMatch(/throw fail\("SKITZA_MIGRATION_FAILED", cause\)/);
+    expect(runner).toMatch(/const RUNNER_LOCK_SQL = "SELECT pg_advisory_xact_lock/);
+    expect(runner).toMatch(
+      /sql\.transaction\([\s\S]*transactionSql\(RUNNER_LOCK_SQL\)[\s\S]*isolationLevel: "ReadCommitted"/,
+    );
   });
 
   it("freezes booking credit and removes the obsolete share-token requirement", () => {

@@ -9,11 +9,7 @@ import type { PaymentPlan } from "@skitza/db";
 // A chosen plan is valid only if the product actually offers it (same
 // kind; for monthly, same installment count). Mirrors the "unlisted
 // plan" guard inside initiatePaidPlanCheckout.
-export type PaymentPlanChoice =
-  | { kind: "full" }
-  | { kind: "split_50_50" }
-  | { kind: "monthly"; installments: number }
-  | { kind: "milestones" };
+export type PaymentPlanChoice = PaymentPlan;
 
 // Gate 1 approvals can be reversed for five minutes, provided the
 // artist has not selected a plan. Keep the boundary calculation shared
@@ -30,24 +26,12 @@ export function purchaseApprovalUndoableUntil(
   return undoableUntil.getTime() > now ? undoableUntil : null;
 }
 
-// The full set of plans a product offers: its paymentPlans array, plus a
-// virtual milestones plan when the product's deposit model is milestone-
-// based (the schedule lives in products.milestones, not paymentPlans).
-// The milestones CHOICE carries no schedule — the server embeds the
-// product's own rows at snapshot time so a tampered payload can't
-// invent one (see PaymentPlanChoice above).
+// The full set of plans a product offers. Return a copy so callers cannot
+// mutate the persisted product value while selecting or validating a plan.
 export function offeredPlans(product: {
   paymentPlans: PaymentPlan[] | null;
-  depositModel: string;
-  milestones: { label: string; pct: number }[] | null;
 }): PaymentPlan[] {
-  const plans: PaymentPlan[] = [...(product.paymentPlans ?? [])].filter(
-    (p) => p.kind !== "milestones",
-  );
-  if (product.depositModel === "milestones" && product.milestones?.length) {
-    plans.push({ kind: "milestones", milestones: product.milestones });
-  }
-  return plans;
+  return [...(product.paymentPlans ?? [])];
 }
 
 export function planIsOffered(

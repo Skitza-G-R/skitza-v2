@@ -9,14 +9,15 @@ describe("booking status lifecycle migration", () => {
   it("exports the current booking lifecycle", () => {
     expect(bookingStatus.enumValues).toEqual([
       "pending_approval",
-      "pending_payment",
       "confirmed",
       "rejected",
       "cancelled",
+      "completed",
+      "no_show",
     ]);
   });
 
-  it("ships an idempotent, lossless legacy-status migration", () => {
+  it("retains the historical idempotent legacy-status migration", () => {
     const path = join(process.cwd(), "drizzle", "0025_booking_status_lifecycle.sql");
     expect(existsSync(path)).toBe(true);
 
@@ -31,16 +32,12 @@ describe("booking status lifecycle migration", () => {
     expect(statements).toHaveLength(4);
     expect(statements[0]).toMatch(/ADD VALUE IF NOT EXISTS 'pending_approval'/);
     expect(statements[1]).toMatch(/ADD VALUE IF NOT EXISTS 'pending_payment'/);
-    expect(statements[2]).toMatch(
-      /ALTER COLUMN "status" SET DEFAULT 'pending_approval'/,
-    );
+    expect(statements[2]).toMatch(/ALTER COLUMN "status" SET DEFAULT 'pending_approval'/);
     expect(statements[3]).toMatch(
       /SET "status" = 'pending_approval'\s+WHERE "status"::text = 'pending'/,
     );
     expect(sql).not.toMatch(/\b(?:BEGIN|COMMIT)\b/);
 
-    expect(sql).not.toMatch(
-      /SET "status" = 'pending_payment'\s+WHERE "status" = 'pending'/,
-    );
+    expect(sql).not.toMatch(/SET "status" = 'pending_payment'\s+WHERE "status" = 'pending'/);
   });
 });

@@ -41,8 +41,8 @@ import "./settings.css";
 // can't edit them from Settings.
 //
 // Server-rendered so legacy ?section=services / ?branch=* redirects fire
-// before any client work, and so the producer.me + paymentConnection +
-// Clerk user fetches happen in one render pass (Promise.all under the
+// before any client work, and so the producer.me + Clerk user fetches happen
+// in one render pass (Promise.all under the
 // hood inside the SettingsClient mount).
 export default async function SettingsPage({
   searchParams,
@@ -90,14 +90,12 @@ export default async function SettingsPage({
     ? params.section
     : "profile";
 
-  // Parallel fetches: profile from tRPC, Clerk user (for the Google
-  // avatar + email), payment connection status. The Stripe Connect
-  // flags ride along on profile.
+  // Parallel fetches: profile from tRPC and Clerk user (for the Google
+  // avatar + email).
   const caller = appRouter.createCaller({ userId });
-  const [user, profile, paymentConnection] = await Promise.all([
+  const [user, profile] = await Promise.all([
     currentUser(),
     caller.producer.me(),
-    caller.producer.paymentConnection(),
   ]);
 
   // Derive initials for the avatar fallback (when the Clerk user has no
@@ -131,13 +129,6 @@ export default async function SettingsPage({
         initials,
         email: profile.email,
         slug: profile.slug,
-      }}
-      integrations={{
-        tranzilaConnected: paymentConnection.connected,
-        stripeConnected: profile.stripeConnected,
-        stripeChargesEnabled: profile.stripeChargesEnabled,
-        billingEmail: profile.email,
-        defaultBusinessName: profile.displayName ?? "",
       }}
     />
   );

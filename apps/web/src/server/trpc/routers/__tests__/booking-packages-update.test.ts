@@ -74,7 +74,8 @@ vi.mock("@skitza/db", () => ({
   bookings: { __table: "bookings" },
   availabilityBlackouts: { __table: "availability_blackouts" },
   availabilityBlocks: { __table: "availability_blocks" },
-  invoices: { __table: "invoices" },
+  purchases: { __table: "purchases" },
+  purchaseSessionAllowances: { __table: "purchase_session_allowances" },
   eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
   and: (...conds: unknown[]) => ({ and: conds }),
   asc: (col: unknown) => ({ asc: col }),
@@ -88,9 +89,7 @@ vi.mock("@skitza/db", () => ({
 beforeEach(() => {
   producerSelectQueue.length = 0;
   productSelectQueue.length = 0;
-  updateReturningSpy
-    .mockReset()
-    .mockResolvedValue([{ id: PRODUCT_ID, name: "Renamed" }]);
+  updateReturningSpy.mockReset().mockResolvedValue([{ id: PRODUCT_ID, name: "Renamed" }]);
   updateSetSpy.mockReset().mockReturnValue({
     where: () => ({ returning: updateReturningSpy }),
   });
@@ -114,15 +113,11 @@ function fullEditInput() {
     sessionCount: 2,
     priceCents: 25000,
     currency: "USD" as const,
-    depositPct: 50,
     kind: "mixing" as const,
     locationType: "remote" as const,
     bufferMinutes: 15,
     minLeadHours: 24,
-    paymentPlans: [
-      { kind: "full" as const },
-      { kind: "split_50_50" as const },
-    ],
+    paymentPlans: [{ kind: "full" as const }, { kind: "split_50_50" as const }],
   };
 }
 
@@ -148,9 +143,9 @@ describe("booking.packages.update", () => {
     producerSelectQueue.push([{ id: PRODUCER_ID }]);
     productSelectQueue.push([{ producerId: OTHER_PRODUCER_ID }]);
     const caller = await buildCaller();
-    await expect(
-      caller.booking.packages.update(fullEditInput()),
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.booking.packages.update(fullEditInput())).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
     expect(updateReturningSpy).not.toHaveBeenCalled();
   });
 
@@ -158,9 +153,9 @@ describe("booking.packages.update", () => {
     producerSelectQueue.push([{ id: PRODUCER_ID }]);
     productSelectQueue.push([]);
     const caller = await buildCaller();
-    await expect(
-      caller.booking.packages.update(fullEditInput()),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(caller.booking.packages.update(fullEditInput())).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
     expect(updateReturningSpy).not.toHaveBeenCalled();
   });
 
@@ -181,8 +176,6 @@ describe("booking.packages.update", () => {
       {
         producerId: PRODUCER_ID,
         paymentPlans: [{ kind: "full" }],
-        depositModel: "flat",
-        milestones: null,
       },
     ]);
     const caller = await buildCaller();
@@ -202,7 +195,6 @@ describe("booking.packages.update", () => {
       caller.booking.packages.create({
         name: "No payment options",
         priceCents: 20_000,
-        depositPct: 0,
         paymentPlans: [],
       }),
     ).rejects.toThrow(/at least one payment option/i);
@@ -225,13 +217,9 @@ describe("booking.packages.update", () => {
     expect(updateReturningSpy).not.toHaveBeenCalled();
   });
 
-  it("orders standards and preserves an existing milestone compatibility value", async () => {
-    const milestone = {
-      kind: "milestones" as const,
-      milestones: [{ label: "Delivery", pct: 100 }],
-    };
+  it("orders the three approved payment plans without preserving removed variants", async () => {
     producerSelectQueue.push([{ id: PRODUCER_ID }]);
-    productSelectQueue.push([{ producerId: PRODUCER_ID, paymentPlans: [milestone] }]);
+    productSelectQueue.push([{ producerId: PRODUCER_ID, paymentPlans: [{ kind: "full" }] }]);
     const caller = await buildCaller();
     await caller.booking.packages.update({
       id: PRODUCT_ID,
@@ -247,45 +235,25 @@ describe("booking.packages.update", () => {
         { kind: "full" },
         { kind: "split_50_50" },
         { kind: "monthly", installments: 4 },
-        milestone,
       ],
     });
   });
 
-  it("accepts a legacy milestone-only configuration without inventing a standard plan", async () => {
-    const milestone = {
-      kind: "milestones" as const,
-      milestones: [{ label: "Delivery", pct: 100 }],
-    };
+  it("rejects the removed milestone plan at the runtime boundary", async () => {
     producerSelectQueue.push([{ id: PRODUCER_ID }]);
-    productSelectQueue.push([{ producerId: PRODUCER_ID, paymentPlans: [milestone] }]);
     const caller = await buildCaller();
-    await caller.booking.packages.update({
-      id: PRODUCT_ID,
-      paymentPlans: [milestone],
-    });
-
-    expect(updateSetSpy).toHaveBeenCalledWith({ paymentPlans: [milestone] });
-  });
-
-  it("allows a virtual milestone-only edit to remove the last standard plan", async () => {
-    const milestones = [{ label: "Delivery", pct: 100 }];
-    producerSelectQueue.push([{ id: PRODUCER_ID }]);
-    productSelectQueue.push([
-      {
-        producerId: PRODUCER_ID,
-        paymentPlans: [{ kind: "full" }],
-        depositModel: "milestones",
-        milestones,
-      },
-    ]);
-    const caller = await buildCaller();
-    await caller.booking.packages.update({
-      id: PRODUCT_ID,
-      paymentPlans: [],
-    });
-
-    expect(updateSetSpy).toHaveBeenCalledWith({ paymentPlans: [] });
+    await expect(
+      caller.booking.packages.update({
+        id: PRODUCT_ID,
+        paymentPlans: [
+          {
+            kind: "milestones",
+            milestones: [{ label: "Delivery", pct: 100 }],
+          },
+        ],
+      } as never),
+    ).rejects.toThrow();
+    expect(updateSetSpy).not.toHaveBeenCalled();
   });
 
   it("validates royalty basis points at the router boundary", async () => {

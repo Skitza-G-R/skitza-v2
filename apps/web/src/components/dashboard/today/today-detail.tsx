@@ -71,10 +71,10 @@ export function TodayDetail({
     // either would read as "card in a card."
     <article className="flex flex-col gap-6 p-2 md:pl-8">
       <header>
-        <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
+        <p className="font-mono text-[0.66rem] tracking-[0.2em] text-[rgb(var(--fg-muted))] uppercase">
           {KIND_LABEL[item.kind]}
         </p>
-        <h2 className="mt-2 font-display text-2xl tracking-tight text-[rgb(var(--fg-primary))] sm:text-3xl">
+        <h2 className="font-display mt-2 text-2xl tracking-tight text-[rgb(var(--fg-primary))] sm:text-3xl">
           {item.title}
         </h2>
         <p className="mt-3 text-[0.95rem] leading-7 text-[rgb(var(--fg-secondary))]">
@@ -108,15 +108,6 @@ export function TodayDetail({
           </Link>
         ) : null}
 
-        {item.kind === "invoice" ? (
-          <Link
-            href={item.href}
-            className="inline-flex h-9 items-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] px-4 text-sm text-[rgb(var(--fg-primary))] hover:border-[rgb(var(--border-strong))]"
-          >
-            Open Stripe
-          </Link>
-        ) : null}
-
         {item.kind === "lead" ? (
           <>
             <Link
@@ -143,7 +134,7 @@ export function TodayDetail({
         <button
           type="button"
           onClick={clearSelection}
-          className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-primary))]"
+          className="font-mono text-[0.66rem] tracking-wider text-[rgb(var(--fg-muted))] uppercase hover:text-[rgb(var(--fg-primary))]"
         >
           Close
         </button>
@@ -155,6 +146,5 @@ export function TodayDetail({
 const KIND_LABEL: Record<TodayListItem["kind"], string> = {
   session: "Session",
   comment: "Comment",
-  invoice: "Invoice",
   lead: "Lead",
 };

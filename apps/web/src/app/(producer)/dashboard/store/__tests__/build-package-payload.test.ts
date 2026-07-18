@@ -21,7 +21,6 @@ function flatDraft(overrides: Partial<PackageDraft> = {}): PackageDraft {
       split50: false,
       monthly: false,
       monthlyInstallments: 4,
-      preservedPlans: [],
     },
     includes: ["Mix", "Instrumental", "Stems"],
     duration: "60 min",
@@ -42,7 +41,7 @@ function flatDraft(overrides: Partial<PackageDraft> = {}): PackageDraft {
 }
 
 describe("buildPackagePayload", () => {
-  it("maps a complete product with the existing no-deposit default", () => {
+  it("maps a complete product", () => {
     const payload = buildPackagePayload(flatDraft());
 
     expect(payload).toMatchObject({
@@ -52,7 +51,6 @@ describe("buildPackagePayload", () => {
       durationMin: 60,
       sessionCount: 1,
       paymentPlans: [{ kind: "full" }],
-      depositPct: 0,
       deliverables: ["Mix", "Instrumental", "Stems"],
       royaltyTerms: {
         master: { mode: "none" },
@@ -65,14 +63,7 @@ describe("buildPackagePayload", () => {
     });
   });
 
-  it("builds all selected plans in deterministic order and preserves milestones", () => {
-    const milestonePlan = {
-      kind: "milestones" as const,
-      milestones: [
-        { label: "Booking", pct: 30 },
-        { label: "Delivery", pct: 70 },
-      ],
-    };
+  it("builds all selected plans in deterministic order", () => {
     const payload = buildPackagePayload(
       flatDraft({
         payment: {
@@ -80,7 +71,6 @@ describe("buildPackagePayload", () => {
           split50: true,
           monthly: true,
           monthlyInstallments: 6,
-          preservedPlans: [milestonePlan],
         },
       }),
     );
@@ -89,7 +79,6 @@ describe("buildPackagePayload", () => {
       { kind: "full" },
       { kind: "split_50_50" },
       { kind: "monthly", installments: 6 },
-      milestonePlan,
     ]);
   });
 
@@ -107,7 +96,6 @@ describe("buildPackagePayload", () => {
           split50: true,
           monthly: false,
           monthlyInstallments: 4,
-          preservedPlans: [],
         },
       }),
     );

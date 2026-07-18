@@ -103,10 +103,9 @@ describe("producer shell notification queries", () => {
     expect(SRC).toContain("readAtIso: row.readAt?.toISOString() ?? null");
   });
 
-  it("only gives pending proofs an exact review deep link", () => {
-    expect(SRC).toContain("status: paymentProofs.status");
-    expect(SRC).toMatch(
-      /proof\?\.purchaseRequestId === notification\.purchaseRequestId &&[\s\S]*?proof\.status === "pending"/,
-    );
+  it("does not cross the purchase-owned proof boundary through a legacy request link", () => {
+    expect(SRC).not.toContain("paymentProofs.purchaseRequestId");
+    expect(SRC).toContain("paymentProofId: null");
+    expect(SRC).toContain("Proof review is purchase/installment-owned after SK-90");
   });
 });

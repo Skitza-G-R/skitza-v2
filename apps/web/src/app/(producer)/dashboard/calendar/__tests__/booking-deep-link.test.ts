@@ -20,7 +20,7 @@ describe("Calendar booking deep link", () => {
     );
   });
 
-  it.each(["pending_payment", "confirmed", "rejected", "cancelled"] as const)(
+  it.each(["confirmed", "rejected", "cancelled", "completed", "no_show"] as const)(
     "opens %s bookings on the selectable Sessions surface",
     (status) => {
       expect(resolveCalendarTabForBooking(undefined, status)).toBe("sessions");

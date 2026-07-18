@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   workflowStage,
+  projectLifecycleStatus,
   clientContacts,
   projects,
   projectTracks,
@@ -103,20 +104,6 @@ describe("Phase 4 — track_versions.description", () => {
   });
 });
 
-// Phase 1 (G7) — New Project modal fields. The producer picks a store
-// product, sets a deadline, and confirms total + deposit at create
-// time. All four columns are nullable so legacy rows and old callers
-// (e.g. project.create without these inputs) continue to work.
-// Migration 0014; DESIGN.md §6.2.
-describe("Phase 1 — projects.product_id", () => {
-  it("exists as a nullable uuid FK to products", () => {
-    const col = projects.productId;
-    expect(col).toBeDefined();
-    expect(col.name).toBe("product_id");
-    expect(col.notNull).toBe(false);
-  });
-});
-
 describe("Phase 1 — projects.deadline_at", () => {
   it("exists as a nullable timestamp column on projects", () => {
     const col = projects.deadlineAt;
@@ -126,22 +113,24 @@ describe("Phase 1 — projects.deadline_at", () => {
   });
 });
 
-describe("Phase 1 — projects.engagement_total_cents", () => {
-  it("exists as a nullable integer column on projects", () => {
-    const col = projects.engagementTotalCents;
-    expect(col).toBeDefined();
-    expect(col.name).toBe("engagement_total_cents");
-    expect(col.dataType).toBe("number");
-    expect(col.notNull).toBe(false);
+describe("SK-90 — project ownership and lifecycle", () => {
+  it("owns one immutable producer-scoped client and no commercial totals", () => {
+    expect(projects.clientContactId.name).toBe("client_contact_id");
+    expect(projects.clientContactId.notNull).toBe(true);
+    expect("productId" in projects).toBe(false);
+    expect("engagementTotalCents" in projects).toBe(false);
+    expect("depositCents" in projects).toBe(false);
   });
-});
 
-describe("Phase 1 — projects.deposit_cents", () => {
-  it("exists as a nullable integer column on projects", () => {
-    const col = projects.depositCents;
-    expect(col).toBeDefined();
-    expect(col.name).toBe("deposit_cents");
-    expect(col.dataType).toBe("number");
-    expect(col.notNull).toBe(false);
+  it("exports the durable lifecycle independent from creative workflow", () => {
+    expect(projectLifecycleStatus.enumValues).toEqual([
+      "waiting_for_payment",
+      "active",
+      "paused",
+      "completed",
+      "canceled",
+    ]);
+    expect(projects.lifecycleStatus.notNull).toBe(true);
+    expect(projects.lifecycleChangedAt.notNull).toBe(true);
   });
 });

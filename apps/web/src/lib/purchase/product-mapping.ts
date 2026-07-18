@@ -62,9 +62,6 @@ type StoreProductRow = {
   royaltyTerms: ProductRoyaltyTerms | null;
   description: string | null;
   revisions: number;
-  depositPct: number;
-  depositModel: string;
-  milestones: { label: string; pct: number }[] | null;
   paymentPlans: PaymentPlan[];
 };
 
@@ -79,7 +76,6 @@ export function toPurchaseProduct(row: StoreProductRow): PurchaseProduct {
     includes: row.deliverables ?? [],
     tagline: row.description,
     sessions: row.sessionCount,
-    depositPct: row.depositPct,
     revisions: row.revisions,
     paymentPlans: offeredPlans(row),
     royaltyTerms: row.royaltyTerms ?? null,

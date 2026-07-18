@@ -6,11 +6,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // per-table WHERE-spy captures the predicate tree so auth-scoping
 // tests can inspect which columns were filtered.
 //
-// `producer.today` fans out via Promise.all across 4 sources:
-//   1. projects      — active count + project row joins for item list
-//   2. invoices      — revenue-this-month sum + unpaid count + rows
-//   3. bookings      — upcoming-7d count + upcoming session rows
-//   4. trackComments — open-comments count + open comment rows
+// `producer.today` fans out across projects, bookings, comments, uploads,
+// and the producer profile. Purchase-ledger dashboard totals intentionally
+// remain unavailable until the Payments projection exists; this test must
+// not recreate removed invoice-table behavior in its mocks.
 // The producers table is hit once by producer-procedure to resolve
 // ctx.producerId from ctx.userId.
 
@@ -19,24 +18,16 @@ const PRODUCER_ID = "producer-uuid-1";
 const {
   producersMarker,
   projectsMarker,
-  invoicesMarker,
+  purchasesMarker,
   bookingsMarker,
   trackCommentsMarker,
   trackVersionsMarker,
   projectTracksMarker,
   projectsCountMock,
-  projectsListMock,
-  revenueMock,
-  unpaidMock,
-  unpaidRowsMock,
   upcomingSessionsMock,
   openCommentsMock,
   openCommentsRowsMock,
   projectsCountWhereSpy,
-  projectsListWhereSpy,
-  revenueWhereSpy,
-  unpaidWhereSpy,
-  unpaidRowsWhereSpy,
   upcomingSessionsWhereSpy,
   openCommentsWhereSpy,
   openCommentsRowsWhereSpy,
@@ -44,19 +35,11 @@ const {
   dbMock,
 } = vi.hoisted(() => {
   const projectsCountMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
-  const projectsListMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
-  const revenueMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
-  const unpaidMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
-  const unpaidRowsMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
   const upcomingSessionsMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
   const openCommentsMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
   const openCommentsRowsMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
 
   const projectsCountWhereSpy = vi.fn<(arg: unknown) => void>();
-  const projectsListWhereSpy = vi.fn<(arg: unknown) => void>();
-  const revenueWhereSpy = vi.fn<(arg: unknown) => void>();
-  const unpaidWhereSpy = vi.fn<(arg: unknown) => void>();
-  const unpaidRowsWhereSpy = vi.fn<(arg: unknown) => void>();
   const upcomingSessionsWhereSpy = vi.fn<(arg: unknown) => void>();
   const openCommentsWhereSpy = vi.fn<(arg: unknown) => void>();
   const openCommentsRowsWhereSpy = vi.fn<(arg: unknown) => void>();
@@ -71,24 +54,15 @@ const {
     id: { __column: "projects.id" },
     producerId: { __column: "projects.producer_id" },
     title: { __column: "projects.title" },
-    stage: { __column: "projects.stage" },
+    lifecycleStatus: { __column: "projects.lifecycle_status" },
     clientName: { __column: "projects.client_name" },
     artistName: { __column: "projects.artist_name" },
     updatedAt: { __column: "projects.updated_at" },
   };
-  const invoicesMarker = {
-    __table: "invoices",
-    id: { __column: "invoices.id" },
-    producerId: { __column: "invoices.producer_id" },
-    status: { __column: "invoices.status" },
-    amountCents: { __column: "invoices.amount_cents" },
-    currency: { __column: "invoices.currency" },
-    paidAt: { __column: "invoices.paid_at" },
-    createdAt: { __column: "invoices.created_at" },
-    description: { __column: "invoices.description" },
-    projectId: { __column: "invoices.project_id" },
-    stripeCheckoutSessionId: { __column: "invoices.stripe_checkout_session_id" },
-    customerName: { __column: "invoices.customer_name" },
+  const purchasesMarker = {
+    __table: "purchases",
+    id: { __column: "purchases.id" },
+    commercialSnapshot: { __column: "purchases.commercial_snapshot" },
   };
   const bookingsMarker = {
     __table: "bookings",
@@ -123,22 +97,12 @@ const {
     title: { __column: "project_tracks.title" },
   };
 
-  // Per-table + per-projection counters so the first hit on a table
-  // goes to the "primary" mock (count/sum) and subsequent hits route
-  // to the "rows" equivalents for the items-list queries. We also
-  // distinguish invoices/projects/bookings/trackComments by their
-  // projection keys where feasible — but for speed, we dispatch by
-  // call order. The router's Promise.all order is deterministic and
-  // documented in the implementation comments.
+  // Per-table counters distinguish the two track-comment projections.
   const callCounts = {
-    projects: 0,
-    invoices: 0,
     bookings: 0,
     track_comments: 0,
   };
   const resetCallCounts = () => {
-    callCounts.projects = 0;
-    callCounts.invoices = 0;
     callCounts.bookings = 0;
     callCounts.track_comments = 0;
   };
@@ -195,34 +159,7 @@ const {
           };
         }
         if (table === projectsMarker) {
-          callCounts.projects += 1;
-          const n = callCounts.projects;
-          // 1st: active-projects count (KPI)
-          // 2nd: projects list for items (if router fetches it)
-          return chain(
-            () => (n === 1 ? projectsCountMock() : projectsListMock()),
-            n === 1 ? projectsCountWhereSpy : projectsListWhereSpy,
-          );
-        }
-        if (table === invoicesMarker) {
-          callCounts.invoices += 1;
-          const n = callCounts.invoices;
-          // 1st: revenue-this-month (paid, sum)
-          // 2nd: unpaid count (KPI piece)
-          // 3rd: unpaid rows (items list)
-          return chain(
-            () =>
-              n === 1
-                ? revenueMock()
-                : n === 2
-                  ? unpaidMock()
-                  : unpaidRowsMock(),
-            n === 1
-              ? revenueWhereSpy
-              : n === 2
-                ? unpaidWhereSpy
-                : unpaidRowsWhereSpy,
-          );
+          return chain(projectsCountMock, projectsCountWhereSpy);
         }
         if (table === bookingsMarker) {
           callCounts.bookings += 1;
@@ -249,9 +186,7 @@ const {
           // Added 2026-04-25 (today-redesign Story 1): the new
           // recentUploads leg SELECTs from track_versions. These
           // legacy tests don't care about its rows — return [].
-          return chain(() =>
-            Promise.resolve<Record<string, unknown>[]>([]),
-          );
+          return chain(() => Promise.resolve<Record<string, unknown>[]>([]));
         }
         throw new Error(`unexpected from(${String(table)})`);
       },
@@ -261,24 +196,16 @@ const {
   return {
     producersMarker,
     projectsMarker,
-    invoicesMarker,
+    purchasesMarker,
     bookingsMarker,
     trackCommentsMarker,
     trackVersionsMarker,
     projectTracksMarker,
     projectsCountMock,
-    projectsListMock,
-    revenueMock,
-    unpaidMock,
-    unpaidRowsMock,
     upcomingSessionsMock,
     openCommentsMock,
     openCommentsRowsMock,
     projectsCountWhereSpy,
-    projectsListWhereSpy,
-    revenueWhereSpy,
-    unpaidWhereSpy,
-    unpaidRowsWhereSpy,
     upcomingSessionsWhereSpy,
     openCommentsWhereSpy,
     openCommentsRowsWhereSpy,
@@ -294,7 +221,7 @@ vi.mock("@skitza/db", () => ({
   createDb: () => dbMock,
   producers: producersMarker,
   projects: projectsMarker,
-  invoices: invoicesMarker,
+  purchases: purchasesMarker,
   bookings: bookingsMarker,
   trackComments: trackCommentsMarker,
   trackVersions: trackVersionsMarker,
@@ -328,27 +255,14 @@ vi.mock("@skitza/db", () => ({
 // Re-import the mocked symbols so the auth-boundary tests assert the
 // router's WHERE clauses reference the same column markers the rest
 // of the codebase imports.
-import {
-  bookings,
-  invoices,
-  projects,
-  trackComments,
-} from "@skitza/db";
+import { bookings, projects, trackComments } from "@skitza/db";
 
 beforeEach(() => {
   projectsCountMock.mockReset().mockResolvedValue([]);
-  projectsListMock.mockReset().mockResolvedValue([]);
-  revenueMock.mockReset().mockResolvedValue([]);
-  unpaidMock.mockReset().mockResolvedValue([]);
-  unpaidRowsMock.mockReset().mockResolvedValue([]);
   upcomingSessionsMock.mockReset().mockResolvedValue([]);
   openCommentsMock.mockReset().mockResolvedValue([]);
   openCommentsRowsMock.mockReset().mockResolvedValue([]);
   projectsCountWhereSpy.mockReset();
-  projectsListWhereSpy.mockReset();
-  revenueWhereSpy.mockReset();
-  unpaidWhereSpy.mockReset();
-  unpaidRowsWhereSpy.mockReset();
   upcomingSessionsWhereSpy.mockReset();
   openCommentsWhereSpy.mockReset();
   openCommentsRowsWhereSpy.mockReset();
@@ -385,7 +299,7 @@ function findPredicate(
 }
 
 describe("producer.today", () => {
-  it("returns zeroed KPIs + empty items when producer has no activity", async () => {
+  it("returns unavailable money KPIs + empty items when producer has no activity", async () => {
     // All sub-mocks default to [] via beforeEach. Revenue currency
     // default is whatever the router picks — "USD" or the producer's
     // defaultCurrency. Just verify the zero shape.
@@ -394,8 +308,8 @@ describe("producer.today", () => {
 
     expect(result.kpis).toEqual({
       activeProjects: 0,
-      revenueMonthCents: 0,
-      revenueCurrency: expect.any(String) as unknown,
+      revenueMonthCents: null,
+      revenueCurrency: null,
       upcomingSessions7d: 0,
       unresolvedItems: 0,
     });
@@ -476,27 +390,25 @@ describe("producer.today", () => {
     expect(orphan?.href).toBe("/dashboard/calendar");
   });
 
-  it("sums unpaid invoices + open comments into unresolvedItems", async () => {
-    // 3 unpaid invoices.
-    unpaidMock.mockResolvedValueOnce([
-      { id: "i1" },
-      { id: "i2" },
-      { id: "i3" },
-    ]);
-    // 2 open comments.
+  it("keeps purchase projections unavailable and counts only open comments", async () => {
     openCommentsMock.mockResolvedValueOnce([{ id: "c1" }, { id: "c2" }]);
 
     const caller = await buildCaller();
     const result = await caller.producer.today();
 
-    expect(result.kpis.unresolvedItems).toBe(5);
+    expect(result.kpis.revenueMonthCents).toBeNull();
+    expect(result.kpis.unresolvedItems).toBe(2);
+    expect(result.pulseStats.commercialAvailable).toBe(false);
+    expect(result.pulseStats.thisMonthCents).toBeNull();
+    expect(result.pulseStats.lastMonthCents).toBeNull();
+    expect(result.pulseStats.outstandingCents).toBeNull();
+    expect(result.items).toEqual([]);
   });
 
-  it("sorts items by urgency: session > unread comment > invoice", async () => {
+  it("sorts available items by urgency: session before unread comment", async () => {
     const now = new Date();
     const in1hour = new Date(now.getTime() + 60 * 60 * 1000);
     const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
 
     upcomingSessionsMock.mockResolvedValueOnce([
       {
@@ -516,27 +428,12 @@ describe("producer.today", () => {
         projectId: "p1",
       },
     ]);
-    unpaidRowsMock.mockResolvedValueOnce([
-      {
-        id: "i1",
-        amountCents: 50000,
-        currency: "USD",
-        description: "Mix session",
-        customerName: "Alice",
-        createdAt: twoDaysAgo,
-        projectId: "p1",
-        stripeCheckoutSessionId: null,
-      },
-    ]);
-
     const caller = await buildCaller();
     const result = await caller.producer.today();
 
-    // Strict type ordering across the 3 kinds.
-    expect(result.items).toHaveLength(3);
+    expect(result.items).toHaveLength(2);
     expect(result.items[0]?.kind).toBe("session");
     expect(result.items[1]?.kind).toBe("comment");
-    expect(result.items[2]?.kind).toBe("invoice");
   });
 
   it("caps items at 50", async () => {
@@ -572,11 +469,10 @@ describe("producer.today", () => {
       expect(projectsPred[1]).toBe(PRODUCER_ID);
     }
 
-    const revenueArg = revenueWhereSpy.mock.calls[0]?.[0];
-    const revenuePred = findPredicate(revenueArg, "eq", invoices.producerId);
-    expect(revenuePred).not.toBeNull();
-    if (Array.isArray(revenuePred)) {
-      expect(revenuePred[1]).toBe(PRODUCER_ID);
+    const lifecyclePred = findPredicate(projectsCountArg, "inArray", projects.lifecycleStatus);
+    expect(lifecyclePred).not.toBeNull();
+    if (Array.isArray(lifecyclePred)) {
+      expect(lifecyclePred[1]).toEqual(["waiting_for_payment", "active", "paused"]);
     }
 
     const upcomingArg = upcomingSessionsWhereSpy.mock.calls[0]?.[0];
@@ -586,18 +482,13 @@ describe("producer.today", () => {
       expect(upcomingPred[1]).toBe(PRODUCER_ID);
     }
 
-    const unpaidArg = unpaidWhereSpy.mock.calls[0]?.[0];
-    const unpaidPred = findPredicate(unpaidArg, "eq", invoices.producerId);
-    expect(unpaidPred).not.toBeNull();
-    if (Array.isArray(unpaidPred)) {
-      expect(unpaidPred[1]).toBe(PRODUCER_ID);
+    // Comment rows join through projects, where the tenant boundary lives.
+    const openCommentsArg = openCommentsWhereSpy.mock.calls[0]?.[0];
+    const commentsProducerPred = findPredicate(openCommentsArg, "eq", projects.producerId);
+    expect(commentsProducerPred).not.toBeNull();
+    if (Array.isArray(commentsProducerPred)) {
+      expect(commentsProducerPred[1]).toBe(PRODUCER_ID);
     }
-
-    // Open comments route through trackComments but the auth scope
-    // comes from the join chain. We only assert that the WHERE spy
-    // was called — the precise predicate lives below in the
-    // trackComments implementation notes.
-    expect(openCommentsWhereSpy).toHaveBeenCalled();
 
     // Touch the `trackComments` marker so the import survives the
     // test scope pruning in the type-checker.

@@ -2,6 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 
 import { appRouter } from "~/server/trpc/routers/_app";
 import { BookingClient } from "./booking-client";
+import { uniquePrepaidSessionForProject } from "./prepaid-session-selection";
 
 type PageProps = {
   searchParams: Promise<{ studio?: string; project?: string }>;
@@ -37,16 +38,14 @@ export default async function BookPage({ searchParams }: PageProps) {
     );
   }
 
-  const [availability, { products }, activePackages] = await Promise.all([
+  const [availability, activePackages] = await Promise.all([
     caller.artist.book.availability({ producerId: activeStudioId }),
-    caller.artist.store.products({ producerId: activeStudioId }),
     caller.artist.book.activePackages({ producerId: activeStudioId }),
   ]);
-  const initialPackageProjectId =
-    sp.project &&
-    activePackages.some((pkg) => pkg.projectId === sp.project)
-      ? sp.project
-      : null;
+  const initialSessionAllowanceId = uniquePrepaidSessionForProject(
+    activePackages,
+    sp.project ?? null,
+  )?.sessionAllowanceId ?? null;
 
   return (
     <div className="reveal-up mx-auto w-full max-w-[480px] space-y-5">
@@ -54,10 +53,9 @@ export default async function BookPage({ searchParams }: PageProps) {
       <BookingClient
         activeStudioId={activeStudioId}
         availability={availability}
-        products={products}
         studios={studios}
         activePackages={activePackages}
-        initialPackageProjectId={initialPackageProjectId}
+        initialSessionAllowanceId={initialSessionAllowanceId}
       />
     </div>
   );

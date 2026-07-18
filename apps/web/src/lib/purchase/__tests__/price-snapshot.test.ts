@@ -19,7 +19,14 @@ describe("snapshotProductPrice", () => {
       hourlyRateCents: null,
       volumeTiers: null,
     });
-    expect(snap).toEqual({ priceCents: 250_000, unitPriceCents: null, songQty: null });
+    expect(snap).toEqual({
+      priceCents: 250_000,
+      unitPriceCents: null,
+      listUnitPriceCents: null,
+      listSubtotalCents: 250_000,
+      discountCents: 0,
+      songQty: null,
+    });
   });
 
   it("bundle → canonical priceCents (same as flat)", () => {
@@ -29,7 +36,14 @@ describe("snapshotProductPrice", () => {
       hourlyRateCents: null,
       volumeTiers: null,
     });
-    expect(snap).toEqual({ priceCents: 990_000, unitPriceCents: null, songQty: null });
+    expect(snap).toEqual({
+      priceCents: 990_000,
+      unitPriceCents: null,
+      listUnitPriceCents: null,
+      listSubtotalCents: 990_000,
+      discountCents: 0,
+      songQty: null,
+    });
   });
 
   it("hourly → locks the hourly rate as both price and unit", () => {
@@ -39,7 +53,14 @@ describe("snapshotProductPrice", () => {
       hourlyRateCents: 15_000,
       volumeTiers: null,
     });
-    expect(snap).toEqual({ priceCents: 15_000, unitPriceCents: 15_000, songQty: null });
+    expect(snap).toEqual({
+      priceCents: 15_000,
+      unitPriceCents: 15_000,
+      listUnitPriceCents: 15_000,
+      listSubtotalCents: 15_000,
+      discountCents: 0,
+      songQty: null,
+    });
   });
 
   it("hourly with no rate set → 0 (caller rejects on priceCents<=0)", () => {
@@ -57,7 +78,28 @@ describe("snapshotProductPrice", () => {
       { pricingModel: "per_song", priceCents: 0, hourlyRateCents: null, volumeTiers: TIERS },
       { songQty: 5, unitPriceCents: 8_000 },
     );
-    expect(snap).toEqual({ priceCents: 40_000, unitPriceCents: 8_000, songQty: 5 });
+    expect(snap).toEqual({
+      priceCents: 40_000,
+      unitPriceCents: 8_000,
+      listUnitPriceCents: 10_000,
+      listSubtotalCents: 50_000,
+      discountCents: 10_000,
+      songQty: 5,
+    });
+  });
+
+  it("freezes the base list price and exact volume discount", () => {
+    const snap = snapshotProductPrice(
+      { pricingModel: "per_song", priceCents: 0, hourlyRateCents: null, volumeTiers: TIERS },
+      { songQty: 5, unitPriceCents: 8_000 },
+    );
+
+    expect(snap).toMatchObject({
+      listUnitPriceCents: 10_000,
+      listSubtotalCents: 50_000,
+      discountCents: 10_000,
+      priceCents: 40_000,
+    });
   });
 
   it("per_song with no opts → falls back to qty 1 at first tier (never NaN)", () => {
@@ -67,7 +109,14 @@ describe("snapshotProductPrice", () => {
       hourlyRateCents: null,
       volumeTiers: TIERS,
     });
-    expect(snap).toEqual({ priceCents: 10_000, unitPriceCents: 10_000, songQty: 1 });
+    expect(snap).toEqual({
+      priceCents: 10_000,
+      unitPriceCents: 10_000,
+      listUnitPriceCents: 10_000,
+      listSubtotalCents: 10_000,
+      discountCents: 0,
+      songQty: 1,
+    });
   });
 
   it("unknown/legacy model → treated as flat", () => {
@@ -77,7 +126,14 @@ describe("snapshotProductPrice", () => {
       hourlyRateCents: null,
       volumeTiers: null,
     });
-    expect(snap).toEqual({ priceCents: 12_345, unitPriceCents: null, songQty: null });
+    expect(snap).toEqual({
+      priceCents: 12_345,
+      unitPriceCents: null,
+      listUnitPriceCents: null,
+      listSubtotalCents: 12_345,
+      discountCents: 0,
+      songQty: null,
+    });
   });
 });
 

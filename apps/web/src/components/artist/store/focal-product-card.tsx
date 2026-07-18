@@ -11,9 +11,8 @@ import { type TaxMode, taxModeFootnote } from "~/lib/tax-mode";
 // each storefront. A slim producer-hued cover band tops the card
 // (same coverGradient the S3 funnel hero uses, so tapping through
 // feels continuous), then title block left, price block right,
-// description underneath, full-width "View details" CTA, "Stripe ·
-// soon" as a quiet centered footnote below the CTA so it reads as a
-// coming-soon disclosure, not a competing sibling action.
+// description underneath, full-width "View details" CTA, and a quiet
+// external-payment truth below the CTA.
 export function FocalProductCard({
   product,
   producerName,
@@ -73,66 +72,64 @@ export function FocalProductCard({
         className="flex h-[76px] items-end px-6 pb-2.5 sm:h-[84px] sm:px-8"
         style={{ background: coverGradient(producerHue(producerName)) }}
       >
-        <span className="font-mono text-[9px] font-bold uppercase tracking-[0.22em] text-white/85">
+        <span className="font-mono text-[9px] font-bold tracking-[0.22em] text-white/85 uppercase">
           Signature
         </span>
       </div>
       <div className="p-6 sm:p-8">
-      {/* SK-49: below sm the title/meta take the full width and the price
+        {/* SK-49: below sm the title/meta take the full width and the price
           drops to its own line — side-by-side squeezed the meta into a
           one-word-per-line column on phones. sm+ is the original layout. */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-        <div className="min-w-0 sm:flex-1">
-          <h3 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-[rgb(var(--fg-default))] sm:text-[24px]">
-            {product.name}
-          </h3>
-          {meta.length > 0 ? (
-            <p className="mt-1.5 font-mono text-[10.5px] font-semibold uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
-              {meta.join(" · ")}
-            </p>
-          ) : null}
-        </div>
-        <div className="flex flex-row items-baseline gap-2 sm:flex-col sm:items-end sm:gap-1">
-          <span
-            className="shrink-0 font-mono text-[22px] font-extrabold tabular-nums text-[rgb(var(--fg-default))]"
-            style={{ letterSpacing: "-0.02em" }}
-          >
-            {priceLabel}
-          </span>
-          {taxFootnote ? (
-            <span className="flex items-center gap-1 font-mono text-[10px] font-medium uppercase tracking-[0.06em] tabular-nums text-[rgb(var(--fg-muted))]">
-              <span
-                aria-hidden
-                className="inline-block h-1 w-1 rounded-full bg-[rgb(var(--fg-faint))]"
-              />
-              {taxFootnote}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+          <div className="min-w-0 sm:flex-1">
+            <h3 className="font-display text-[22px] leading-tight font-extrabold tracking-tight text-[rgb(var(--fg-default))] sm:text-[24px]">
+              {product.name}
+            </h3>
+            {meta.length > 0 ? (
+              <p className="mt-1.5 font-mono text-[10.5px] font-semibold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase">
+                {meta.join(" · ")}
+              </p>
+            ) : null}
+          </div>
+          <div className="flex flex-row items-baseline gap-2 sm:flex-col sm:items-end sm:gap-1">
+            <span
+              className="shrink-0 font-mono text-[22px] font-extrabold text-[rgb(var(--fg-default))] tabular-nums"
+              style={{ letterSpacing: "-0.02em" }}
+            >
+              {priceLabel}
             </span>
-          ) : null}
+            {taxFootnote ? (
+              <span className="flex items-center gap-1 font-mono text-[10px] font-medium tracking-[0.06em] text-[rgb(var(--fg-muted))] uppercase tabular-nums">
+                <span
+                  aria-hidden
+                  className="inline-block h-1 w-1 rounded-full bg-[rgb(var(--fg-faint))]"
+                />
+                {taxFootnote}
+              </span>
+            ) : null}
+          </div>
         </div>
-      </div>
 
-      {product.description ? (
-        <p className="mt-3 line-clamp-2 text-[13.5px] leading-relaxed text-[rgb(var(--fg-secondary))]">
-          {product.description}
+        {product.description ? (
+          <p className="mt-3 line-clamp-2 text-[13.5px] leading-relaxed text-[rgb(var(--fg-secondary))]">
+            {product.description}
+          </p>
+        ) : null}
+
+        <Link
+          href={productHref(product)}
+          className="sk-press mt-5 flex w-full items-center justify-center rounded-[var(--radius-lg)] py-3 text-[14px] font-bold"
+          style={{
+            background: "rgb(var(--bg-sidebar))",
+            color: "rgb(var(--fg-onsidebar))",
+          }}
+        >
+          View details
+        </Link>
+
+        <p className="mt-3 text-center font-mono text-[10px] font-medium tracking-[0.18em] text-[rgb(var(--fg-faint))] uppercase">
+          Request details · payments stay external
         </p>
-      ) : null}
-
-      <Link
-        href={productHref(product)}
-        className="sk-press mt-5 flex w-full items-center justify-center rounded-[var(--radius-lg)] py-3 text-[14px] font-bold"
-        style={{
-          background: "rgb(var(--bg-sidebar))",
-          color: "rgb(var(--fg-onsidebar))",
-        }}
-      >
-        View details
-      </Link>
-
-      <p className="mt-3 text-center font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-[rgb(var(--fg-faint))]">
-        {product.pricingModel === "per_song"
-          ? "Stripe · payments soon"
-          : "Request to book · no payment yet"}
-      </p>
       </div>
     </article>
   );

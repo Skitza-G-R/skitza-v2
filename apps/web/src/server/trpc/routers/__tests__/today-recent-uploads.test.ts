@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 //   leg 10 — recentUploads
 //     joins track_versions ⨝ project_tracks ⨝ projects
 //     WHERE projects.producer_id = ctx.producerId
-//       AND projects.stage IN active stages
+//       AND projects.lifecycle_status IN active lifecycles
 //       AND track_versions.audio_url IS NOT NULL
 //     ORDER BY track_versions.uploaded_at DESC LIMIT 7.
 //   plus N follow-up unread-comment counts (one SELECT FROM trackComments
@@ -29,8 +29,8 @@ const PRODUCER_ID = "producer-uuid-1";
 const {
   producersMarker,
   projectsMarker,
-  invoicesMarker,
   bookingsMarker,
+  purchasesMarker,
   trackCommentsMarker,
   trackVersionsMarker,
   projectTracksMarker,
@@ -60,23 +60,10 @@ const {
     id: { __column: "projects.id" },
     producerId: { __column: "projects.producer_id" },
     title: { __column: "projects.title" },
-    stage: { __column: "projects.stage" },
+    lifecycleStatus: { __column: "projects.lifecycle_status" },
     clientName: { __column: "projects.client_name" },
     artistName: { __column: "projects.artist_name" },
     updatedAt: { __column: "projects.updated_at" },
-  };
-  const invoicesMarker = {
-    __table: "invoices",
-    id: { __column: "invoices.id" },
-    producerId: { __column: "invoices.producer_id" },
-    status: { __column: "invoices.status" },
-    amountCents: { __column: "invoices.amount_cents" },
-    currency: { __column: "invoices.currency" },
-    paidAt: { __column: "invoices.paid_at" },
-    createdAt: { __column: "invoices.created_at" },
-    description: { __column: "invoices.description" },
-    projectId: { __column: "invoices.project_id" },
-    customerName: { __column: "invoices.customer_name" },
   };
   const bookingsMarker = {
     __table: "bookings",
@@ -87,6 +74,13 @@ const {
     artistName: { __column: "bookings.artist_name" },
     durationMin: { __column: "bookings.duration_min" },
     packageNameSnapshot: { __column: "bookings.package_name_snapshot" },
+  };
+  const purchasesMarker = {
+    __table: "purchases",
+    id: { __column: "purchases.id" },
+    projectId: { __column: "purchases.project_id" },
+    producerId: { __column: "purchases.producer_id" },
+    commercialSnapshot: { __column: "purchases.commercial_snapshot" },
   };
   const trackCommentsMarker = {
     __table: "track_comments",
@@ -116,7 +110,6 @@ const {
 
   const callCounts = {
     projects: 0,
-    invoices: 0,
     bookings: 0,
     track_comments: 0,
     track_versions: 0,
@@ -124,7 +117,6 @@ const {
   };
   const resetCallCounts = () => {
     callCounts.projects = 0;
-    callCounts.invoices = 0;
     callCounts.bookings = 0;
     callCounts.track_comments = 0;
     callCounts.track_versions = 0;
@@ -196,10 +188,6 @@ const {
           callCounts.projects += 1;
           return chain(empty);
         }
-        if (table === invoicesMarker) {
-          callCounts.invoices += 1;
-          return chain(empty);
-        }
         if (table === bookingsMarker) {
           callCounts.bookings += 1;
           return chain(empty);
@@ -227,8 +215,8 @@ const {
   return {
     producersMarker,
     projectsMarker,
-    invoicesMarker,
     bookingsMarker,
+    purchasesMarker,
     trackCommentsMarker,
     trackVersionsMarker,
     projectTracksMarker,
@@ -248,8 +236,8 @@ vi.mock("@skitza/db", () => ({
   createDb: () => dbMock,
   producers: producersMarker,
   projects: projectsMarker,
-  invoices: invoicesMarker,
   bookings: bookingsMarker,
+  purchases: purchasesMarker,
   trackComments: trackCommentsMarker,
   trackVersions: trackVersionsMarker,
   projectTracks: projectTracksMarker,
@@ -278,11 +266,7 @@ vi.mock("@skitza/db", () => ({
   sql: () => ({ sql: true }),
 }));
 
-import {
-  projects,
-  trackComments,
-  trackVersions,
-} from "@skitza/db";
+import { projects, trackComments, trackVersions } from "@skitza/db";
 
 beforeEach(() => {
   recentUploadsMock.mockReset().mockResolvedValue([]);
@@ -342,7 +326,7 @@ describe("producer.today recentUploads", () => {
         durationMs: 180_000,
         projectId: "p1",
         projectClientName: "Bob's EP",
-        projectStage: "in_production",
+        projectLifecycleStatus: "active",
       },
     ]);
 
@@ -381,7 +365,7 @@ describe("producer.today recentUploads", () => {
         durationMs: 200_000,
         projectId: "p1",
         projectClientName: "Client",
-        projectStage: "in_production",
+        projectLifecycleStatus: "active",
       })),
     );
 
@@ -406,7 +390,7 @@ describe("producer.today recentUploads", () => {
         durationMs: 180_000,
         projectId: "p1",
         projectClientName: "Client",
-        projectStage: "in_production",
+        projectLifecycleStatus: "active",
       },
       {
         versionId: "v2",
@@ -418,7 +402,7 @@ describe("producer.today recentUploads", () => {
         durationMs: 180_000,
         projectId: "p1",
         projectClientName: "Client",
-        projectStage: "in_production",
+        projectLifecycleStatus: "active",
       },
     ]);
     // Per-row follow-ups, in row order: 3 unread → 0 unread.
@@ -450,24 +434,15 @@ describe("producer.today recentUploads auth boundary", () => {
     }
   });
 
-  it("filters out archived/cancelled projects via inArray(projects.stage)", async () => {
+  it("includes only live project lifecycles", async () => {
     const caller = await buildCaller();
     await caller.producer.today();
 
     const whereArg = recentUploadsWhereSpy.mock.calls[0]?.[0];
-    const stagePred = findPredicate(whereArg, "inArray", projects.stage);
-    expect(stagePred).not.toBeNull();
-    if (Array.isArray(stagePred)) {
-      const allowed = stagePred[1] as string[];
-      // Active stages only — terminal/paused stages must NOT be in the
-      // inArray list.
-      expect(allowed).not.toContain("archived");
-      expect(allowed).not.toContain("cancelled");
-      expect(allowed).not.toContain("paid");
-      expect(allowed).not.toContain("payment_paused");
-      // And the active set IS present.
-      expect(allowed).toContain("in_production");
-      expect(allowed).toContain("final_review");
+    const lifecyclePred = findPredicate(whereArg, "inArray", projects.lifecycleStatus);
+    expect(lifecyclePred).not.toBeNull();
+    if (Array.isArray(lifecyclePred)) {
+      expect(lifecyclePred[1]).toEqual(["waiting_for_payment", "active", "paused"]);
     }
   });
 
@@ -476,11 +451,7 @@ describe("producer.today recentUploads auth boundary", () => {
     await caller.producer.today();
 
     const whereArg = recentUploadsWhereSpy.mock.calls[0]?.[0];
-    const audioUrlPred = findPredicate(
-      whereArg,
-      "isNotNull",
-      trackVersions.audioUrl,
-    );
+    const audioUrlPred = findPredicate(whereArg, "isNotNull", trackVersions.audioUrl);
     expect(audioUrlPred).not.toBeNull();
   });
 
@@ -497,7 +468,7 @@ describe("producer.today recentUploads auth boundary", () => {
         durationMs: 180_000,
         projectId: "p1",
         projectClientName: "Client",
-        projectStage: "in_production",
+        projectLifecycleStatus: "active",
       },
     ]);
 
@@ -508,42 +479,26 @@ describe("producer.today recentUploads auth boundary", () => {
     expect(whereArg).not.toBeUndefined();
 
     // versionId predicate — pins the count to this specific row.
-    const versionPred = findPredicate(
-      whereArg,
-      "eq",
-      trackComments.versionId,
-    );
+    const versionPred = findPredicate(whereArg, "eq", trackComments.versionId);
     expect(versionPred).not.toBeNull();
     if (Array.isArray(versionPred)) {
       expect(versionPred[1]).toBe("v-the-target");
     }
 
     // fromProducer=false — only count artist-side comments.
-    const fromProducerPred = findPredicate(
-      whereArg,
-      "eq",
-      trackComments.fromProducer,
-    );
+    const fromProducerPred = findPredicate(whereArg, "eq", trackComments.fromProducer);
     expect(fromProducerPred).not.toBeNull();
     if (Array.isArray(fromProducerPred)) {
       expect(fromProducerPred[1]).toBe(false);
     }
 
     // resolvedAt IS NULL — only unresolved.
-    const resolvedAtPred = findPredicate(
-      whereArg,
-      "isNull",
-      trackComments.resolvedAt,
-    );
+    const resolvedAtPred = findPredicate(whereArg, "isNull", trackComments.resolvedAt);
     expect(resolvedAtPred).not.toBeNull();
 
     // createdAt >= uploadedAt — only comments posted after the version
     // landed (excludes carried-over comments from earlier versions).
-    const createdAtPred = findPredicate(
-      whereArg,
-      "gte",
-      trackComments.createdAt,
-    );
+    const createdAtPred = findPredicate(whereArg, "gte", trackComments.createdAt);
     expect(createdAtPred).not.toBeNull();
     if (Array.isArray(createdAtPred)) {
       expect(createdAtPred[1]).toEqual(uploadedAt);

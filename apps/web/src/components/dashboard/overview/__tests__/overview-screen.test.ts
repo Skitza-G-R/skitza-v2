@@ -18,13 +18,16 @@ describe("Calm Control overview", () => {
     expect(OVERVIEW).toContain('/dashboard?view=all#needs-you');
   });
 
-  it("keeps the desktop urgent/uploads pair and compact studio pulse", () => {
+  it("keeps the desktop urgent/uploads pair and hides unavailable money", () => {
     expect(OVERVIEW).toContain("<UrgentProjectsCard");
     expect(OVERVIEW).toContain("<LatestUploadsCard");
     expect(OVERVIEW).toContain("<StudioPulse");
     expect(OVERVIEW).toContain("Earned this month");
     expect(OVERVIEW).toContain("Outstanding");
     expect(OVERVIEW).toContain("Active projects");
+    expect(OVERVIEW).toMatch(/pulseStats\.commercialAvailable/);
+    expect(OVERVIEW).toMatch(/thisMonthCents !== null/);
+    expect(OVERVIEW).toMatch(/outstandingCents !== null/);
   });
 
   it("renders the phone-first Today, two-cell pulse, and latest-upload stack", () => {
@@ -79,7 +82,8 @@ describe("payment signal preservation", () => {
     expect(PAYMENT_ROW).toContain('role="alert"');
   });
 
-  it("formats the real producer currency and exposes contextual control names", () => {
+  it("formats only a known producer currency and exposes contextual control names", () => {
+    expect(PAYMENT_ROW).toContain("cents > 0 && currency");
     expect(PAYMENT_ROW).toContain("formatMoney(cents, currency)");
     expect(PAYMENT_ROW).toContain("Open project: ${payment.projectName}");
     expect(PAYMENT_ROW).toContain("Dismiss payment received from ${payment.artistName}");

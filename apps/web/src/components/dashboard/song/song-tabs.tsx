@@ -1,26 +1,20 @@
 "use client";
 
-import { Calendar, DollarSign, LayoutGrid, Music } from "lucide-react";
+import { Calendar, LayoutGrid, Music } from "lucide-react";
 import type { ComponentType, SVGProps } from "react";
 
 // SongTabs — pill-shaped segmented control for the Song Space.
-// Mirrors AlbumTabs but switches the tab count by mode:
+// Mirrors AlbumTabs with Overview · Versions (n) · Sessions. Purchase-grouped
+// payment UI lands separately from this creative-work shell.
 //
-//   - album mode  → 3 tabs: Overview · Versions (n) · Sessions
-//   - single mode → 4 tabs: Overview · Versions (n) · Sessions · Payments
-//
-// Default tab = `overview`. The Payments tab only renders in single
-// mode because the album already has a project-scope Payments tab —
-// per-song payments make sense only when the project IS one song.
-//
+// Default tab = `overview`.
 // Active tab paints `bg-sidebar` (near-black) + white text to match
 // the design prototype's dark-fill "you are here" treatment. Each
 // tab carries a leading icon for visual scan.
 
-export type SongTab = "overview" | "versions" | "sessions" | "payments";
+export type SongTab = "overview" | "versions" | "sessions";
 
 interface SongTabsProps {
-  mode: "album" | "single";
   active: SongTab;
   onChange: (tab: SongTab) => void;
   versionsCount: number;
@@ -34,8 +28,8 @@ interface TabEntry {
   icon: IconComponent;
 }
 
-export function SongTabs({ mode, active, onChange, versionsCount }: SongTabsProps) {
-  const baseEntries: TabEntry[] = [
+export function SongTabs({ active, onChange, versionsCount }: SongTabsProps) {
+  const entries: TabEntry[] = [
     { key: "overview", label: "Overview", icon: LayoutGrid },
     {
       key: "versions",
@@ -44,16 +38,10 @@ export function SongTabs({ mode, active, onChange, versionsCount }: SongTabsProp
     },
     { key: "sessions", label: "Sessions", icon: Calendar },
   ];
-  const entries: TabEntry[] =
-    mode === "single"
-      ? [...baseEntries, { key: "payments", label: "Payments", icon: DollarSign }]
-      : baseEntries;
 
   return (
     <div
-      // <md: pills scroll sideways inside the rail (the 4-tab single
-      // mode measured 444px and panned the page to 461px). md+:
-      // original inline-flex.
+      // <md: pills scroll sideways inside the rail. md+: inline-flex.
       className="flex w-full max-w-full snap-x snap-mandatory scroll-px-1 items-center gap-1 overflow-x-auto rounded-[var(--radius-lg)] border p-1 shadow-[var(--shadow-sm)] [scrollbar-width:none] md:inline-flex md:w-auto md:snap-none md:overflow-visible [&::-webkit-scrollbar]:hidden"
       style={{
         background: "rgb(var(--bg-elevated))",

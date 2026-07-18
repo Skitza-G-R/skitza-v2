@@ -48,11 +48,9 @@ describe("FocalProductCard", () => {
     expect(source).toMatch(/rounded-\[var\(--radius-lg\)\]/);
   });
 
-  it("renders an honest payment footnote per pricing model (mono uppercase)", () => {
-    // per-song keeps the legacy Stripe-soon line; funnel products promise
-    // request-to-book with no payment yet.
-    expect(source).toMatch(/Stripe · payments soon/);
-    expect(source).toMatch(/Request to book · no payment yet/);
+  it("renders a provider-neutral external-payment footnote", () => {
+    expect(source).toMatch(/Request details · payments stay external/);
+    expect(source).not.toMatch(/Stripe|Tranzila|Pay by card|payments soon/i);
     expect(source).toMatch(/uppercase/);
     expect(source).toMatch(/font-mono/);
   });

@@ -263,20 +263,20 @@ describe("WorkspaceListView source — composition + tabs + filters + drag", () 
     expect(SRC).toContain("newProjectOpen");
   });
 
-  it("mounts <NewProjectModal> with open + onClose + clients + products", () => {
+  it("mounts <NewProjectModal> with open + onClose + stable clients", () => {
     expect(SRC).toMatch(/<NewProjectModal/);
     expect(SRC).toMatch(/open=\{newProjectOpen\}/);
     expect(SRC).toMatch(/onClose=\{/);
     expect(SRC).toMatch(/clients=\{/);
-    expect(SRC).toMatch(/products=\{/);
+    expect(SRC).not.toMatch(/products=\{/);
   });
 
   it("wires the 'New project' CTA onClick to open the modal", () => {
     expect(SRC).toMatch(/onClick=\{\(\)\s*=>\s*\{\s*setNewProjectOpen\(true\)/);
   });
 
-  it("declares products as a required prop on WorkspaceListViewProps", () => {
-    expect(SRC).toMatch(/products:\s*/);
+  it("does not accept commercial product terms in WorkspaceListViewProps", () => {
+    expect(SRC).not.toMatch(/products:\s*/);
   });
 });
 
@@ -292,13 +292,10 @@ describe("WorkspaceListView — mockup-match polish (KPI subtitles, H1 sub-line,
     expect(SRC).toContain("Needs your attention");
   });
 
-  it("Outstanding KPI carries a sub line that pluralises projects-need-a-nudge", () => {
-    // The ternary splits the noun-verb pair from the trailing 'a
-    // nudge' across two source literals, so we assert on the
-    // fragments separately instead of trying to match the rendered
-    // combined string.
-    expect(SRC).toMatch(/"project[s]?\s+need[s]?"/);
-    expect(SRC).toContain("a nudge");
+  it("commercial KPIs render the pending purchase projection as unavailable", () => {
+    expect(SRC).toMatch(/earnings:\s*number\s*\|\s*null/);
+    expect(SRC).toMatch(/outstanding:\s*number\s*\|\s*null/);
+    expect(SRC).toContain("Commercial totals unavailable");
   });
 
   it("Needs your attention KPI carries the 'Overdue or awaiting reply' sub", () => {
@@ -316,9 +313,8 @@ describe("WorkspaceListView — mockup-match polish (KPI subtitles, H1 sub-line,
     expect(SRC).toContain("active");
   });
 
-  it("H1 sub-line surfaces a danger-tinted outstanding total when > 0", () => {
-    expect(SRC).toMatch(/kpis\.outstanding\s*>\s*0/);
-    expect(SRC).toMatch(/outstanding/);
+  it("H1 sub-line surfaces unavailable commercial totals without fabricating zero", () => {
+    expect(SRC).toContain("Commercial totals unavailable");
   });
 
   it("header CTA uses layered shadow + ease-out cubic-bezier (premium pill)", () => {
@@ -398,6 +394,8 @@ describe("WorkspaceListView — round-3 toolbar match (icons + 4 client filters 
 
   it("Clients filter predicates branch on 'needs-attention' AND 'done'", () => {
     expect(SRC).toMatch(/clientFilter === ["']needs-attention["']/);
+    expect(SRC).toContain("c.needsAttention");
+    expect(SRC).not.toMatch(/return\s+c\.owed\s*>\s*0/);
     expect(SRC).toMatch(/c\.projects === 0/);
   });
 });

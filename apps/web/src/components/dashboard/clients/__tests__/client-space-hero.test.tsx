@@ -91,6 +91,12 @@ describe("ClientSpaceHero source — dark gradient hero, avatar, LinkPill, stats
     expect(SRC).toContain("activeProjects");
   });
 
+  it("represents purchase commercial totals as nullable and labels them unavailable", () => {
+    expect(SRC).toMatch(/lifetime:\s*number\s*\|\s*null/);
+    expect(SRC).toMatch(/outstanding:\s*number\s*\|\s*null/);
+    expect(SRC).toContain("Unavailable");
+  });
+
   // ── Phase 1 G7 — NewProjectModal wiring ─────────────────────────
   // The "+ New project" pill used to be a <Link> to the legacy /new
   // page. It now opens NewProjectModal in lockedClient mode so the
@@ -127,8 +133,9 @@ describe("ClientSpaceHero source — dark gradient hero, avatar, LinkPill, stats
     expect(SRC).toMatch(/lockedClient=\{/);
   });
 
-  it("accepts a products prop the hero forwards to NewProjectModal", () => {
-    expect(SRC).toMatch(/products:\s*/);
+  it("does not pass commercial product terms into NewProjectModal", () => {
+    expect(SRC).not.toMatch(/products:\s*NewProjectModalProductOption/);
+    expect(SRC).not.toMatch(/products=\{products\}/);
   });
 });
 

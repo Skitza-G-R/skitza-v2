@@ -21,11 +21,11 @@ describe("SongSpace — composes hero + strip + tabs + active panel", () => {
     expect(SRC).toContain("SongTabs");
   });
 
-  it("imports OverviewTab + VersionsTab + SessionsTab + PaymentsTab", () => {
+  it("imports creative-work panels without the removed payment panel", () => {
     expect(SRC).toContain("OverviewTab");
     expect(SRC).toContain("VersionsTab");
     expect(SRC).toContain("SessionsTab");
-    expect(SRC).toContain("PaymentsTab");
+    expect(SRC).not.toContain("PaymentsTab");
   });
 
   it("uses useState for the active tab", () => {
@@ -40,16 +40,12 @@ describe("SongSpace — composes hero + strip + tabs + active panel", () => {
     expect(SRC).toMatch(/active\s*===\s*["']overview["']/);
     expect(SRC).toMatch(/active\s*===\s*["']versions["']/);
     expect(SRC).toMatch(/active\s*===\s*["']sessions["']/);
-    expect(SRC).toMatch(/active\s*===\s*["']payments["']/);
+    expect(SRC).not.toMatch(/active\s*===\s*["']payments["']/);
   });
 
-  it("only renders the Payments panel in single mode", () => {
-    expect(SRC).toMatch(/mode\s*===\s*["']single["']/);
-  });
-
-  it("forwards mode through to the SongSpaceHero + SongTabs", () => {
+  it("forwards mode to SongSpaceHero without coupling tabs to commercial state", () => {
     expect(SRC).toMatch(/SongSpaceHero[^>]*mode/);
-    expect(SRC).toMatch(/SongTabs[^>]*mode/);
+    expect(SRC).not.toMatch(/<SongTabs[^>]*\bmode=/);
   });
 
   it("owns the UploadTrackModal state for both hero + drop-zone triggers (Phase 4)", () => {

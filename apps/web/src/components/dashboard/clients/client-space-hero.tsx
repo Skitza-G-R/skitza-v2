@@ -23,7 +23,7 @@ import { sendClientInviteAction } from "~/app/(producer)/dashboard/clients-proje
 import { EditClientModal } from "./edit-client-modal";
 import { InviteToAppModal } from "./invite-modal";
 import { LinkPill, type LinkPillState } from "./link-pill";
-import { NewProjectModal, type NewProjectModalProductOption } from "./new-project-modal";
+import { NewProjectModal } from "./new-project-modal";
 import { RemoveClientConfirmModal } from "./remove-client-confirm-modal";
 
 // The Client Space hero replaces the old 4-tab header. One big dark
@@ -50,10 +50,10 @@ export interface ClientSpaceHeroData {
   joinedAtIso: string;
   /** Optional human-formatted joined label e.g. "Joined Apr 2026". */
   joinedLabel?: string;
-  /** Lifetime spend in cents. */
-  lifetime: number;
-  /** Outstanding balance in cents. */
-  outstanding: number;
+  /** Lifetime spend in cents; null while the purchase payment projection is unavailable. */
+  lifetime: number | null;
+  /** Outstanding balance in cents; null while the purchase payment projection is unavailable. */
+  outstanding: number | null;
   /** Count of active projects. */
   activeProjects: number;
   /** Currency code — defaults to USD. */
@@ -67,11 +67,6 @@ interface ClientSpaceHeroProps {
    *  opens the modal automatically; an explicit onInvite override still
    *  takes precedence for callers that want to handle the click. */
   producerSlug?: string;
-  /** Producer's active store products. Forwarded to NewProjectModal so
-   *  the "+ New project" pill can drive the product picker. Pass `[]`
-   *  if the producer hasn't set up products yet — the modal renders an
-   *  empty-state hint linking to /dashboard/store in that case. */
-  products: NewProjectModalProductOption[];
   onInvite?: (client: ClientSpaceHeroData) => void;
 }
 
@@ -101,7 +96,6 @@ function formatJoinedFallback(iso: string): string {
 export function ClientSpaceHero({
   client,
   producerSlug,
-  products,
   onInvite,
 }: ClientSpaceHeroProps) {
   const {
@@ -386,12 +380,22 @@ export function ClientSpaceHero({
       </div>
 
       <div className="relative mx-auto mt-5 grid max-w-[1100px] grid-cols-2 gap-px overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--border-subtle))] md:mt-6 md:grid-cols-4 md:gap-3 md:overflow-visible md:rounded-none md:border-0 md:bg-transparent">
-        <StatTile mobileCompact label="Lifetime" value={formatMoney(lifetime, currency)} />
+        <StatTile
+          mobileCompact
+          label="Lifetime"
+          value={lifetime === null ? "Unavailable" : formatMoney(lifetime, currency)}
+        />
         <StatTile
           mobileCompact
           label="Outstanding"
-          value={outstanding > 0 ? formatMoney(outstanding, currency) : "—"}
-          variant={outstanding > 0 ? "danger" : "default"}
+          value={
+            outstanding === null
+              ? "Unavailable"
+              : outstanding > 0
+                ? formatMoney(outstanding, currency)
+                : "—"
+          }
+          variant={outstanding !== null && outstanding > 0 ? "danger" : "default"}
         />
         <StatTile mobileCompact label="Active projects" value={activeProjects} />
         <StatTile mobileCompact label="Joined" value={joined} />
@@ -417,7 +421,6 @@ export function ClientSpaceHero({
           setNewProjectOpen(false);
         }}
         clients={[]}
-        products={products}
         lockedClient={{
           id,
           name,

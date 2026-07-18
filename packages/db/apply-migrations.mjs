@@ -1,120 +1,503 @@
-// Applies all *.sql files in ./drizzle/ directly via the neon HTTP client.
-// Exists because _journal.json is out of sync with migrations 0019+, which
-// makes `drizzle-kit migrate` silently skip them. See CLAUDE.md + /skitza-migrate
-// for the full context.
+// Applies the SK-90 schema cutover and later migrations through the approved
+// migration path. The historical 0000-0026 files describe schemas that the
+// isolated reset deliberately replaces; replaying them can recreate removed
+// commercial/card objects before 0027 gets a chance to reject the target.
 //
-// Idempotent: every migration uses `ADD COLUMN IF NOT EXISTS` / similar,
-// so re-running is a no-op on already-migrated DBs.
+// Every cutover migration and its immutable digest-ledger record are submitted
+// as one Neon HTTP transaction. A transaction-level advisory lock serializes
+// even the first ledger bootstrap before catalog DDL. A failed migration
+// therefore cannot leave a ledger table or partially committed statements
+// behind. A matching ledger row makes later migrations a no-op; 0027 still
+// runs its completed-target verifier so post-apply drift fails closed. A
+// changed file fails before any migration SQL runs.
 //
-// Usage: DATABASE_URL=postgres://... node apply-migrations.mjs
+// The generic CLI can verify an already-applied 0027 and apply later files.
+// Only the isolated reset adapter may perform the initial 0027 cutover.
+
+import { createHash } from "node:crypto";
+import { readFileSync, readdirSync } from "node:fs";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { neon } from "@neondatabase/serverless";
-import { readFileSync, readdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 
-// Accept any of the common env-var names Skitza has seen in the wild.
-// Vercel's Neon integration sets DATABASE_URL_NEON / POSTGRES_URL on
-// project pull; older `.env.local` files use plain DATABASE_URL.
-const dbUrl =
-  process.env.DATABASE_URL ||
-  process.env.DATABASE_URL_NEON ||
-  process.env.POSTGRES_URL_NON_POOLING ||
-  process.env.POSTGRES_URL;
-if (!dbUrl) {
-  console.error(
-    "No DB URL found. Expected one of: DATABASE_URL, DATABASE_URL_NEON, POSTGRES_URL_NON_POOLING, POSTGRES_URL",
-  );
-  process.exit(1);
+const CUTOVER_FLOOR = "0027_purchase_foundation.sql";
+const LEDGER_RELATION = "skitza_migrations.applied";
+const RUNNER_LOCK_SQL = "SELECT pg_advisory_xact_lock(7468258445703257129::bigint)";
+const LEDGER_SCHEMA_SQL = 'CREATE SCHEMA IF NOT EXISTS "skitza_migrations"';
+const LEDGER_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS "skitza_migrations"."applied" (
+  "filename" text PRIMARY KEY,
+  "digest" text NOT NULL,
+  "applied_at" timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT "skitza_migrations_filename_shape"
+    CHECK ("filename" ~ '^[0-9]{4}_[a-z0-9_]+[.]sql$'),
+  CONSTRAINT "skitza_migrations_digest_sha256"
+    CHECK ("digest" ~ '^[0-9a-f]{64}$')
+)`;
+const LEDGER_LOCK_SQL = 'LOCK TABLE "skitza_migrations"."applied" IN SHARE ROW EXCLUSIVE MODE';
+const LEDGER_INSERT_SQL = `
+INSERT INTO "skitza_migrations"."applied" ("filename", "digest")
+VALUES ($1, $2)
+ON CONFLICT ("filename") DO NOTHING`;
+const LEDGER_VERIFY_SQL = `
+INSERT INTO "skitza_migrations"."applied" ("filename", "digest")
+SELECT 'SKITZA_MIGRATION_DIGEST_MISMATCH.sql', 'SKITZA_MIGRATION_DIGEST_MISMATCH'
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM "skitza_migrations"."applied"
+  WHERE "filename" = $1 AND "digest" = $2
+)`;
+const SHA256_DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
+const RAW_SHA256_PATTERN = /^[0-9a-f]{64}$/;
+const PROTECTED_TOKEN_PATTERN = /^hmac-sha256:[0-9a-f]{64}$/;
+const adapterApprovals = new WeakSet();
+const ADAPTER_BINDING_DIGEST_FIELDS = [
+  "artifactDigest",
+  "manifestDigest",
+  "policyDigest",
+  "targetDatabaseFingerprint",
+  "targetObservationDigest",
+  "executionApprovalDigest",
+  "freshAuthorizationDigest",
+];
+
+function fail(code, cause) {
+  return new Error(code, cause === undefined ? undefined : { cause });
 }
 
-const sql = neon(dbUrl);
-// Use fileURLToPath instead of .pathname — the latter keeps percent-encoding
-// (e.g. "%20" for spaces), which Node's fs APIs don't decode.
-const dir = fileURLToPath(new URL("./drizzle/", import.meta.url));
-const files = readdirSync(dir)
-  .filter((f) => f.endsWith(".sql"))
-  .sort();
+function cutoverFiles(filenames) {
+  const sqlFiles = filenames.filter((filename) => filename.endsWith(".sql")).sort();
+  if (!sqlFiles.includes(CUTOVER_FLOOR)) {
+    throw fail("SKITZA_MIGRATION_CUTOVER_FLOOR_MISSING");
+  }
+  return sqlFiles.filter((filename) => filename >= CUTOVER_FLOOR);
+}
 
-// Dollar-quote-aware SQL splitter. Migrations can contain DO $$ ... $$
-// blocks (idempotent constraint adds with EXCEPTION handlers) whose bodies
-// contain internal semicolons that must NOT be treated as statement boundaries.
-// We track `$tag$` quote state while walking the string.
-function splitStatements(sql) {
-  const out = [];
-  let buf = "";
-  let dollarTag = null; // when non-null, we're inside a $tag$...$tag$ block
-  let i = 0;
-  while (i < sql.length) {
-    const ch = sql[i];
-    if (dollarTag === null) {
-      // Detect opening $tag$ (including empty tag $$)
-      if (ch === "$") {
-        const m = sql.slice(i).match(/^\$([A-Za-z0-9_]*)\$/);
-        if (m) {
-          dollarTag = m[0];
-          buf += dollarTag;
-          i += dollarTag.length;
-          continue;
-        }
+function migrationDigest(content) {
+  return createHash("sha256").update(content, "utf8").digest("hex");
+}
+
+const APPROVED_CUTOVER_DIGEST = migrationDigest(
+  readFileSync(new URL(`./drizzle/${CUTOVER_FLOOR}`, import.meta.url), "utf8"),
+);
+
+function assertAdapterBindingShape(binding) {
+  if (
+    !binding ||
+    typeof binding !== "object" ||
+    ADAPTER_BINDING_DIGEST_FIELDS.some(
+      (field) => !SHA256_DIGEST_PATTERN.test(binding[field] ?? ""),
+    ) ||
+    !PROTECTED_TOKEN_PATTERN.test(binding.actionChallengeToken ?? "")
+  ) {
+    throw fail("SKITZA_MIGRATION_ADAPTER_APPROVAL_INVALID");
+  }
+}
+
+/**
+ * Brand the exact 0027 file and reset artifact that the isolated rehearsal
+ * adapter already approved. The generic migration CLI cannot mint or infer
+ * this approval from a database URL.
+ */
+function createSk90AdapterApproval(input) {
+  assertAdapterBindingShape(input);
+  if (
+    input?.targetClass !== "isolated_nonproduction" ||
+    input.filename !== CUTOVER_FLOOR ||
+    !SHA256_DIGEST_PATTERN.test(input.artifactDigest ?? "") ||
+    !SHA256_DIGEST_PATTERN.test(input.manifestDigest ?? "") ||
+    !SHA256_DIGEST_PATTERN.test(input.policyDigest ?? "") ||
+    !RAW_SHA256_PATTERN.test(input.migrationDigest ?? "") ||
+    input.migrationDigest !== APPROVED_CUTOVER_DIGEST
+  ) {
+    throw fail("SKITZA_MIGRATION_ADAPTER_APPROVAL_INVALID");
+  }
+  const approval = Object.freeze({ ...input });
+  adapterApprovals.add(approval);
+  return approval;
+}
+
+function assertSk90AdapterApproval(approval, filename, digest, expectedBinding) {
+  if (!approval) throw fail("SKITZA_MIGRATION_ADAPTER_APPROVAL_REQUIRED");
+  assertAdapterBindingShape(expectedBinding);
+  if (
+    typeof approval !== "object" ||
+    !adapterApprovals.has(approval) ||
+    approval.targetClass !== "isolated_nonproduction" ||
+    approval.filename !== filename ||
+    approval.migrationDigest !== digest ||
+    ADAPTER_BINDING_DIGEST_FIELDS.some(
+      (field) => approval[field] !== expectedBinding[field],
+    ) ||
+    approval.actionChallengeToken !== expectedBinding.actionChallengeToken
+  ) {
+    throw fail("SKITZA_MIGRATION_ADAPTER_APPROVAL_INVALID");
+  }
+}
+
+function postLockMigrationStatement(filename, digest, statements) {
+  if (!/^[0-9]{4}_[a-z0-9_]+[.]sql$/.test(filename)) {
+    throw fail("SKITZA_MIGRATION_FILENAME_INVALID");
+  }
+  if (!/^[0-9a-f]{64}$/.test(digest)) {
+    throw fail("SKITZA_MIGRATION_DIGEST_INVALID");
+  }
+
+  const outerTag = `$skitza_runner_${digest}$`;
+  const source = statements.join("\n");
+  if (source.includes(outerTag)) throw fail("SKITZA_MIGRATION_SQL_TAG_COLLISION");
+  const executions = statements.map((statement, index) => {
+    const statementTag = `$skitza_statement_${digest}_${index}$`;
+    if (statement.includes(statementTag)) throw fail("SKITZA_MIGRATION_SQL_TAG_COLLISION");
+    return `      EXECUTE ${statementTag}${statement}${statementTag};`;
+  });
+  const matchingCutoverVerification =
+    filename === CUTOVER_FLOOR
+      ? `
+    OR EXISTS (
+      SELECT 1
+      FROM "skitza_migrations"."applied"
+      WHERE "filename" = '${filename}' AND "digest" = '${digest}'
+    )`
+      : "";
+
+  return `-- SKITZA_MIGRATION_POST_LOCK_GUARD
+DO ${outerTag}
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM "skitza_migrations"."applied"
+    WHERE "filename" = '${filename}' AND "digest" <> '${digest}'
+  ) THEN
+    RAISE EXCEPTION 'SKITZA_MIGRATION_DIGEST_MISMATCH';
+  ELSIF NOT EXISTS (
+    SELECT 1
+    FROM "skitza_migrations"."applied"
+    WHERE "filename" = '${filename}'
+  )${matchingCutoverVerification} THEN
+${executions.join("\n")}
+  END IF;
+END
+${outerTag}`;
+}
+
+function splitStatements(source) {
+  const statements = [];
+  let buffer = "";
+  let dollarTag = null;
+  let singleQuoted = false;
+  let doubleQuoted = false;
+  let lineComment = false;
+  let blockCommentDepth = 0;
+
+  for (let index = 0; index < source.length; ) {
+    const current = source[index];
+    const next = source[index + 1];
+
+    if (lineComment) {
+      buffer += current;
+      index += 1;
+      if (current === "\n") lineComment = false;
+      continue;
+    }
+
+    if (blockCommentDepth > 0) {
+      if (current === "/" && next === "*") {
+        buffer += "/*";
+        blockCommentDepth += 1;
+        index += 2;
+      } else if (current === "*" && next === "/") {
+        buffer += "*/";
+        blockCommentDepth -= 1;
+        index += 2;
+      } else {
+        buffer += current;
+        index += 1;
       }
-      if (ch === ";") {
-        if (buf.trim()) out.push(buf.trim());
-        buf = "";
-        i++;
-        continue;
-      }
-      buf += ch;
-      i++;
-    } else {
-      // Inside dollar-quoted region; look for the closing tag
-      if (sql.slice(i, i + dollarTag.length) === dollarTag) {
-        buf += dollarTag;
-        i += dollarTag.length;
+      continue;
+    }
+
+    if (dollarTag !== null) {
+      if (source.startsWith(dollarTag, index)) {
+        buffer += dollarTag;
+        index += dollarTag.length;
         dollarTag = null;
+      } else {
+        buffer += current;
+        index += 1;
+      }
+      continue;
+    }
+
+    if (singleQuoted) {
+      buffer += current;
+      index += 1;
+      if (current !== "'") continue;
+      if (source[index] === "'") {
+        buffer += "'";
+        index += 1;
+      } else {
+        singleQuoted = false;
+      }
+      continue;
+    }
+
+    if (doubleQuoted) {
+      buffer += current;
+      index += 1;
+      if (current !== '"') continue;
+      if (source[index] === '"') {
+        buffer += '"';
+        index += 1;
+      } else {
+        doubleQuoted = false;
+      }
+      continue;
+    }
+
+    if (current === "-" && next === "-") {
+      buffer += "--";
+      lineComment = true;
+      index += 2;
+      continue;
+    }
+    if (current === "/" && next === "*") {
+      buffer += "/*";
+      blockCommentDepth = 1;
+      index += 2;
+      continue;
+    }
+    if (current === "'") {
+      buffer += current;
+      singleQuoted = true;
+      index += 1;
+      continue;
+    }
+    if (current === '"') {
+      buffer += current;
+      doubleQuoted = true;
+      index += 1;
+      continue;
+    }
+    if (current === "$") {
+      const match = source.slice(index).match(/^\$([A-Za-z0-9_]*)\$/);
+      if (match) {
+        dollarTag = match[0];
+        buffer += dollarTag;
+        index += dollarTag.length;
         continue;
       }
-      buf += ch;
-      i++;
     }
+    if (current === ";") {
+      if (buffer.trim()) statements.push(buffer.trim());
+      buffer = "";
+      index += 1;
+      continue;
+    }
+
+    buffer += current;
+    index += 1;
   }
-  if (buf.trim()) out.push(buf.trim());
-  return out;
+
+  if (dollarTag !== null || singleQuoted || doubleQuoted || blockCommentDepth > 0) {
+    throw fail("SKITZA_MIGRATION_SQL_UNTERMINATED");
+  }
+  if (buffer.trim()) statements.push(buffer.trim());
+  if (statements.length === 0) throw fail("SKITZA_MIGRATION_SQL_EMPTY");
+  if (statements.some((statement) => /^(?:BEGIN|COMMIT|ROLLBACK)\b/i.test(statement))) {
+    throw fail("SKITZA_MIGRATION_TRANSACTION_WRAPPER_FORBIDDEN");
+  }
+  return statements;
 }
 
-for (const f of files) {
-  console.log(`--- ${f} ---`);
-  const content = readFileSync(dir + f, "utf8");
-  // Strip comment lines (but keep content on lines with mixed code + --).
-  // Strip BEGIN/COMMIT wrappers — neon HTTP auto-commits per statement.
-  const cleaned = content
-    .split("\n")
-    .filter((l) => !l.trim().startsWith("--"))
-    .join("\n")
-    .replace(/\bBEGIN;/g, "")
-    .replace(/\bCOMMIT;/g, "");
-  const statements = splitStatements(cleaned).filter((s) => s.length > 0);
+async function appliedDigest(sql, filename) {
+  const relationRows = await sql("SELECT to_regclass($1) AS ledger_relation", [LEDGER_RELATION]);
+  if (!Array.isArray(relationRows) || relationRows.length !== 1) {
+    throw fail("SKITZA_MIGRATION_LEDGER_DISCOVERY_INVALID");
+  }
+  const relation = relationRows[0]?.ledger_relation;
+  if (relation === null) return null;
+  if (typeof relation !== "string" || relation.length === 0) {
+    throw fail("SKITZA_MIGRATION_LEDGER_DISCOVERY_INVALID");
+  }
 
-  for (const stmt of statements) {
-    try {
-      // neon HTTP is a tagged template; for raw SQL with no placeholders,
-      // pass a fake TemplateStringsArray (single-element array + raw prop).
-      const raw = Object.assign([stmt], { raw: [stmt] });
-      await sql(raw);
-      console.log("  ✓", stmt.replace(/\s+/g, " ").slice(0, 90));
-    } catch (e) {
-      // Tolerate only errors that unambiguously mean an idempotent DDL object
-      // already exists. Data uniqueness, missing-object, and foreign-key
-      // failures must stop the migration; continuing can turn a failed copy
-      // into silent data loss in a later statement.
-      const benign = /already exists|duplicate_object/i.test(e.message);
-      const tag = benign ? "•" : "✗";
-      console.log("  " + tag, stmt.replace(/\s+/g, " ").slice(0, 70), "→", e.message);
-      if (!benign) {
-        console.error("\nMigration stopped at the first non-idempotent error.");
-        process.exit(1);
-      }
+  const rows = await sql(
+    'SELECT "digest" FROM "skitza_migrations"."applied" WHERE "filename" = $1',
+    [filename],
+  );
+  if (!Array.isArray(rows) || rows.length > 1) {
+    throw fail("SKITZA_MIGRATION_LEDGER_STATE_INVALID");
+  }
+  if (rows.length === 0) return null;
+  const digest = rows[0]?.digest;
+  if (typeof digest !== "string" || !/^[0-9a-f]{64}$/.test(digest)) {
+    throw fail("SKITZA_MIGRATION_LEDGER_STATE_INVALID");
+  }
+  return digest;
+}
+
+async function applyMigration(sql, filename, content, options = {}) {
+  const digest = migrationDigest(content);
+  const recordedDigest = await appliedDigest(sql, filename);
+  if (recordedDigest !== null) {
+    if (recordedDigest !== digest) {
+      throw fail("SKITZA_MIGRATION_DIGEST_MISMATCH");
     }
+    if (filename !== CUTOVER_FLOOR) return "SKITZA_MIGRATION_ALREADY_APPLIED";
+  }
+  if (filename === CUTOVER_FLOOR && recordedDigest === null) {
+    assertSk90AdapterApproval(
+      options.adapterApproval,
+      filename,
+      digest,
+      options.adapterBinding,
+    );
+  }
+
+  const statements = splitStatements(content);
+  const guardedMigration = postLockMigrationStatement(filename, digest, statements);
+  try {
+    await sql.transaction(
+      (transactionSql) => [
+        // This must be the first statement: concurrent first runs cannot race
+        // CREATE SCHEMA/TABLE before the ledger exists. Read Committed gives
+        // every post-wait statement a fresh view of the winning transaction.
+        transactionSql(RUNNER_LOCK_SQL),
+        transactionSql(LEDGER_SCHEMA_SQL),
+        transactionSql(LEDGER_TABLE_SQL),
+        transactionSql(LEDGER_LOCK_SQL),
+        transactionSql(guardedMigration),
+        transactionSql(LEDGER_INSERT_SQL, [filename, digest]),
+        // A concurrent invocation may have passed the read-only preflight
+        // before this transaction acquired the advisory lock. The impossible
+        // sentinel violates both ledger shape checks on a digest conflict,
+        // rolling the migration and ledger bootstrap back together.
+        transactionSql(LEDGER_VERIFY_SQL, [filename, digest]),
+      ],
+      { isolationLevel: "ReadCommitted" },
+    );
+  } catch (cause) {
+    throw fail("SKITZA_MIGRATION_FAILED", cause);
+  }
+
+  const committedDigest = await appliedDigest(sql, filename);
+  if (committedDigest !== digest) {
+    throw fail("SKITZA_MIGRATION_LEDGER_COMMIT_INVALID");
+  }
+  return recordedDigest === digest ? "SKITZA_MIGRATION_VERIFIED" : "SKITZA_MIGRATION_APPLIED";
+}
+
+async function transactionRows(client, statement, parameters) {
+  const result = await client.query(statement, parameters);
+  if (!result || !Array.isArray(result.rows)) {
+    throw fail("SKITZA_MIGRATION_LEDGER_STATE_INVALID");
+  }
+  return result.rows;
+}
+
+/**
+ * Apply 0027 and its immutable ledger entry inside an already-open adapter
+ * transaction. This keeps row reset, schema cutover, ledger, and post-checks
+ * in one atomic boundary on one interactive Neon Pool session.
+ */
+async function applyMigrationInTransaction(
+  client,
+  filename,
+  content,
+  adapterApproval,
+  adapterBinding,
+) {
+  const digest = migrationDigest(content);
+  assertSk90AdapterApproval(adapterApproval, filename, digest, adapterBinding);
+  const statements = splitStatements(content);
+  const guardedMigration = postLockMigrationStatement(filename, digest, statements);
+
+  await client.query(RUNNER_LOCK_SQL);
+  await client.query(LEDGER_SCHEMA_SQL);
+  await client.query(LEDGER_TABLE_SQL);
+  await client.query(LEDGER_LOCK_SQL);
+  const existing = await transactionRows(
+    client,
+    'SELECT "digest" FROM "skitza_migrations"."applied" WHERE "filename" = $1',
+    [filename],
+  );
+  if (existing.length > 1) throw fail("SKITZA_MIGRATION_LEDGER_STATE_INVALID");
+  const recordedDigest = existing[0]?.digest ?? null;
+  if (recordedDigest !== null && recordedDigest !== digest) {
+    throw fail("SKITZA_MIGRATION_DIGEST_MISMATCH");
+  }
+
+  try {
+    await client.query(guardedMigration);
+    await client.query(LEDGER_INSERT_SQL, [filename, digest]);
+    await client.query(LEDGER_VERIFY_SQL, [filename, digest]);
+  } catch (cause) {
+    throw fail("SKITZA_MIGRATION_FAILED", cause);
+  }
+
+  const committed = await transactionRows(
+    client,
+    'SELECT "digest" FROM "skitza_migrations"."applied" WHERE "filename" = $1',
+    [filename],
+  );
+  if (committed.length !== 1 || committed[0]?.digest !== digest) {
+    throw fail("SKITZA_MIGRATION_LEDGER_COMMIT_INVALID");
+  }
+  return recordedDigest === digest ? "SKITZA_MIGRATION_VERIFIED" : "SKITZA_MIGRATION_APPLIED";
+}
+
+async function applyCutoverMigrations(sql, directory) {
+  const files = cutoverFiles(readdirSync(directory));
+  const results = [];
+  for (const filename of files) {
+    const content = readFileSync(new URL(filename, pathToFileURL(`${directory}/`)), "utf8");
+    results.push({ filename, status: await applyMigration(sql, filename, content) });
+  }
+  return results;
+}
+
+function databaseUrl(environment) {
+  const configured = [
+    environment.DATABASE_URL,
+    environment.DATABASE_URL_NEON,
+    environment.POSTGRES_URL_NON_POOLING,
+    environment.POSTGRES_URL,
+  ].filter((value) => typeof value === "string" && value.trim().length > 0);
+  if (configured.length > 1) throw fail("SKITZA_MIGRATION_DATABASE_URL_AMBIGUOUS");
+  return configured[0] ?? null;
+}
+
+async function main() {
+  const dbUrl = databaseUrl(process.env);
+  if (!dbUrl) throw fail("SKITZA_MIGRATION_DATABASE_URL_MISSING");
+
+  const sql = neon(dbUrl);
+  const directory = fileURLToPath(new URL("./drizzle/", import.meta.url));
+  const results = await applyCutoverMigrations(sql, directory);
+  for (const result of results) {
+    console.log(`${result.filename}: ${result.status}`);
   }
 }
 
-console.log("\nAll migrations applied successfully.");
+const isMain =
+  typeof process.argv[1] === "string" && pathToFileURL(process.argv[1]).href === import.meta.url;
+if (isMain) {
+  main().catch((error) => {
+    const code = error instanceof Error ? error.message : "SKITZA_MIGRATION_FAILED";
+    console.error(code.startsWith("SKITZA_MIGRATION_") ? code : "SKITZA_MIGRATION_FAILED");
+    process.exitCode = 1;
+  });
+}
+
+export {
+  CUTOVER_FLOOR,
+  applyCutoverMigrations,
+  applyMigration,
+  applyMigrationInTransaction,
+  createSk90AdapterApproval,
+  cutoverFiles,
+  databaseUrl,
+  migrationDigest,
+  postLockMigrationStatement,
+  splitStatements,
+};

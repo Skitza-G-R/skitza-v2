@@ -8,9 +8,8 @@ import { decideOnboardingRedirect } from "../decide-redirect";
 import { PaymentStepClient } from "./payment-step-client";
 import { ONBOARDING_STEP_NAME } from "./constants";
 
-// Step 5 (payment / "Get paid"). May 2026 redesign — payout method
-// picker. All three options (Stripe Connect / PayPal / Bank transfer)
-// remain v1 placeholders per PRD.
+// Step 5 explains the external-payments-only boundary. It does not connect
+// or select a payment provider.
 
 export {
   PAYMENT_STEP_INDEX,

@@ -6,12 +6,13 @@ import {
   asc,
   bookings,
   inArray,
-  invoices,
+  isNull,
   projectTracks,
   projects,
+  purchases,
+  sql,
   desc,
   eq,
-  notifications,
   producers,
   trackComments,
   trackVersions,
@@ -20,14 +21,21 @@ import { z } from "zod";
 
 import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
+import {
+  cancelPendingMultipartUpload,
+  PendingMultipartCancellationError,
+} from "~/server/audio/pending-multipart-cancellation";
 import { recordContact } from "~/server/contacts/record";
 import {
-  SITE_URL,
-  sendPaymentReceivedEmail,
-  sendProducerRepliedToCommentEmail,
-} from "~/server/email/send";
-import { calculateCharges } from "~/server/payments/plan";
-import { getStripe } from "~/server/stripe/client";
+  createPurchaseOwnedSongSpace,
+  SongSpaceDomainError,
+} from "~/server/domain/song-spaces/service";
+import {
+  assertActiveVersionUploadLifecycle,
+  VersionUploadDomainError,
+} from "~/server/domain/version-uploads/service";
+import { assertWritableCommentTarget, CommentDomainError } from "~/server/domain/comments/service";
+import { SITE_URL, sendProducerRepliedToCommentEmail } from "~/server/email/send";
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -45,36 +53,57 @@ function stripHash(row: typeof projects.$inferSelect): ProjectPublic {
   return row;
 }
 
-// Project stages mirror the project_stage pg enum. Kept here as a
-// const so the Zod input and listByStage grouped init stay in sync.
-const ALL_STAGES = [
-  "lead",
-  "booked",
-  "in_production",
-  "final_review",
-  "paid",
-  "archived",
-] as const;
-type Stage = (typeof ALL_STAGES)[number];
+function mapSongSpaceDomainError(error: unknown): never {
+  if (!(error instanceof SongSpaceDomainError)) throw error;
+  if (error.code === "NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND" });
+  if (error.code === "CAPACITY_EXCEEDED") {
+    throw new TRPCError({ code: "CONFLICT", message: error.message });
+  }
+  if (error.code === "INTEGRITY_ERROR") {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message });
+  }
+  throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+}
+
+function mapVersionUploadDomainError(error: unknown): never {
+  if (!(error instanceof VersionUploadDomainError)) throw error;
+  if (error.code === "INACTIVE") {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+  }
+  throw new TRPCError({ code: "NOT_FOUND" });
+}
+
+function mapPendingMultipartCancellationError(error: unknown): never {
+  if (!(error instanceof PendingMultipartCancellationError)) throw error;
+  if (error.code === "NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND" });
+  if (error.code === "CONFLICT") {
+    throw new TRPCError({ code: "CONFLICT", message: error.message });
+  }
+  throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message });
+}
+
+function mapCommentDomainError(error: unknown): never {
+  if (!(error instanceof CommentDomainError)) throw error;
+  if (error.code === "INACTIVE") {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+  }
+  throw new TRPCError({ code: "NOT_FOUND" });
+}
+
+type Stage = "lead" | "booked" | "in_production" | "final_review" | "paid" | "archived";
 
 // ─── Inputs ──────────────────────────────────────────────────────────
-// Phase 1 G7 — the redesigned New Project modal sends the four
-// product/deadline/total/deposit fields below alongside the legacy
-// title/artistName/artistEmail. All four are optional so the old
-// onboarding-wizard / booking-conversion call paths that still post
-// only the legacy fields continue to work untouched.
-const CreateProjectInput = z.object({
-  title: z.string().min(1).max(120),
-  artistName: z.string().min(1).max(80),
-  artistEmail: z.string().email(),
-  bookingId: z.string().uuid().optional(),
-  productId: z.string().uuid().optional(),
-  // ISO 8601 — parsed into a Date for the timestamptz column.
-  deadlineAt: z.string().datetime().optional(),
-  // Minor units. Stored verbatim — no currency conversion here.
-  engagementTotalCents: z.number().int().min(0).optional(),
-  depositCents: z.number().int().min(0).optional(),
-});
+// A manually created project is only a work container for a stable client.
+// Commercial work begins at the accepted-purchase boundary.
+const CreateProjectInput = z
+  .object({
+    title: z.string().min(1).max(120),
+    artistName: z.string().min(1).max(80),
+    artistEmail: z.string().email(),
+    // ISO 8601 — parsed into a Date for the timestamptz column.
+    deadlineAt: z.string().datetime().optional(),
+  })
+  .strict();
 
 // Edit-project modal payload. All fields optional so the modal can
 // PATCH only what the producer changed; at least one must be present
@@ -86,18 +115,9 @@ const UpdateProjectInput = z.object({
   artistEmail: z.string().email().optional(),
 });
 
-// Manual line-item charge inserted from the Money sub-tab. Skips
-// Stripe entirely — the row exists for record-keeping; producer
-// reconciles payment outside the app and flips status later.
-const AddInvoiceInput = z.object({
-  projectId: z.string().uuid(),
-  amountCents: z.number().int().positive().max(100_000_000),
-  currency: z.string().length(3),
-  description: z.string().min(1).max(280),
-});
-
 const AddTrackInput = z.object({
   projectId: z.string().uuid(),
+  purchaseId: z.string().uuid(),
   title: z.string().min(1).max(120),
   artist: z.string().max(120).optional(),
 });
@@ -105,37 +125,19 @@ const AddTrackInput = z.object({
 const AddVersionInput = z.object({
   trackId: z.string().uuid(),
   label: z.string().min(1).max(40),
-  // Nullable: when creating a row for "upload pending" the audioUrl is
-  // filled later by audio.completeMultipart patching the same row.
-  audioUrl: z.string().url().nullable(),
-  durationMs: z.number().int().min(1).max(1000 * 60 * 60 * 3).optional(), // cap 3h
+  // addVersion creates only an upload placeholder. The authoritative R2
+  // completion boundary supplies the URL and exact object identity together.
+  audioUrl: z.null(),
+  durationMs: z
+    .number()
+    .int()
+    .min(1)
+    .max(1000 * 60 * 60 * 3)
+    .optional(), // cap 3h
   // Phase 4 (C2) — optional producer notes typed in the Upload Track
   // modal. Trimmed + capped to keep the textarea honest. Stored on
   // track_versions.description.
   description: z.string().trim().max(2000).optional(),
-});
-
-const SetPaidInput = z.object({
-  projectId: z.string().uuid(),
-  kind: z.enum(["deposit", "final"]),
-  value: z.boolean(),
-});
-
-const ChargeFinalInput = z.object({
-  projectId: z.string().uuid(),
-});
-
-const CancelProjectInput = z.object({
-  projectId: z.string().uuid(),
-  // Type-to-confirm guard. The UI requires the producer to type the
-  // project's title verbatim before the cancel button enables; we
-  // re-check server-side because client guards aren't security.
-  confirmTitle: z.string().min(1),
-});
-
-const SetStageInput = z.object({
-  id: z.string().uuid(),
-  stage: z.enum(ALL_STAGES),
 });
 
 const ResolveCommentInput = z.object({
@@ -178,87 +180,24 @@ export const projectRouter = router({
       archived: [],
     };
     for (const r of rows) {
-      const stage: Stage = r.stage;
+      const stage: Stage =
+        r.lifecycleStatus === "waiting_for_payment"
+          ? "lead"
+          : r.lifecycleStatus === "completed"
+            ? "paid"
+            : r.lifecycleStatus === "canceled"
+              ? "archived"
+              : "in_production";
       grouped[stage].push({ ...r, stage });
     }
     return grouped;
   }),
 
-  // Batch G — money summary for the Project Room's Money sub-tab.
-  // Returns Paid / Outstanding totals plus the next scheduled charge
-  // date. Keeps the payload tiny (3 numbers + 1 timestamp) and the
-  // query lean — one producer-scoped SELECT over invoices filtered by
-  // projectId. We intentionally don't return the full invoice list
-  // here: the Money sub-tab no longer pretends to reproduce Stripe's
-  // ledger (see Task 4 commit); producers who want the full row-by-row
-  // view click "Open in Stripe" to land in the Connect dashboard.
-  money: producerProcedure
-    .input(z.object({ projectId: z.string().uuid() }))
-    .query(async ({ ctx, input }) => {
-      // Auth-scoping — same pattern as detail: load the project row
-      // first and assert producer ownership before we read invoices.
-      const [row] = await ctx.db
-        .select({
-          producerId: projects.producerId,
-          currency: projects.currency,
-          nextChargeAt: projects.nextChargeAt,
-        })
-        .from(projects)
-        .where(eq(projects.id, input.projectId))
-        .limit(1);
-      if (!row || row.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "NOT_FOUND" });
-      }
-
-      const rows = await ctx.db
-        .select({
-          amountCents: invoices.amountCents,
-          currency: invoices.currency,
-          status: invoices.status,
-        })
-        .from(invoices)
-        .where(eq(invoices.projectId, input.projectId));
-
-      // Paid = status 'paid' AND 'refunded' excluded. Outstanding =
-      // draft + sent + uncollectible (matches the today.KPI rollup so
-      // counts align between Today and the per-project surface).
-      let paidCents = 0;
-      let outstandingCents = 0;
-      // Resolve display currency from the project row (set at booking
-      // time); fall back to the first invoice's currency for legacy
-      // rows without a persisted `currency`. Mixed-currency ledgers
-      // are excluded from the sums to avoid adding USD + EUR.
-      const currency = row.currency ?? rows[0]?.currency ?? "USD";
-      for (const inv of rows) {
-        if (inv.currency !== currency) continue;
-        if (inv.status === "paid") {
-          paidCents += inv.amountCents;
-        } else if (
-          inv.status === "draft" ||
-          inv.status === "sent" ||
-          inv.status === "uncollectible"
-        ) {
-          outstandingCents += inv.amountCents;
-        }
-      }
-
-      return {
-        paidCents,
-        outstandingCents,
-        currency,
-        nextChargeAt: row.nextChargeAt,
-      };
-    }),
-
   // Returns the project + its full tracks/versions/comments tree.
   detail: producerProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const [row] = await ctx.db
-        .select()
-        .from(projects)
-        .where(eq(projects.id, input.id))
-        .limit(1);
+      const [row] = await ctx.db.select().from(projects).where(eq(projects.id, input.id)).limit(1);
       if (!row || row.producerId !== ctx.producerId) {
         throw new TRPCError({ code: "NOT_FOUND" });
       }
@@ -267,6 +206,36 @@ export const projectRouter = router({
         .from(projectTracks)
         .where(eq(projectTracks.projectId, row.id))
         .orderBy(asc(projectTracks.position), asc(projectTracks.createdAt));
+      // Advisory UI allocation only. The mutation locks and re-checks the
+      // exact purchase capacity, so a concurrent upload still fails closed.
+      const activePurchases =
+        row.lifecycleStatus === "active"
+          ? await ctx.db
+              .select({
+                id: purchases.id,
+                acceptedAt: purchases.acceptedAt,
+                commercialSnapshot: purchases.commercialSnapshot,
+              })
+              .from(purchases)
+              .where(
+                and(
+                  eq(purchases.producerId, ctx.producerId),
+                  eq(purchases.projectId, row.id),
+                  eq(purchases.lifecycleStatus, "active"),
+                ),
+              )
+              .orderBy(asc(purchases.acceptedAt), asc(purchases.id))
+          : [];
+      const songSpaceCounts = new Map<string, number>();
+      for (const track of tracksList) {
+        if (track.purchaseId) {
+          songSpaceCounts.set(track.purchaseId, (songSpaceCounts.get(track.purchaseId) ?? 0) + 1);
+        }
+      }
+      const eligibleSongSpacePurchase = activePurchases.find((purchase) => {
+        const capacity = purchase.commercialSnapshot.includedSongSpaces;
+        return Number.isSafeInteger(capacity) && capacity > (songSpaceCounts.get(purchase.id) ?? 0);
+      });
       // Fetch all versions + comments with JS-side filter. Producers
       // with dozens of projects wouldn't win from a SQL inArray here
       // because the set of trackIds is already small (typically 1-5
@@ -277,16 +246,14 @@ export const projectRouter = router({
             await ctx.db
               .select()
               .from(trackVersions)
+              .where(isNull(trackVersions.audioDeletedAt))
               .orderBy(desc(trackVersions.uploadedAt))
           ).filter((v) => trackIds.includes(v.trackId))
         : [];
       const versionIds = allVersions.map((v) => v.id);
       const allComments = versionIds.length
         ? (
-            await ctx.db
-              .select()
-              .from(trackComments)
-              .orderBy(asc(trackComments.timestampMs))
+            await ctx.db.select().from(trackComments).orderBy(asc(trackComments.timestampMs))
           ).filter((c) => versionIds.includes(c.versionId))
         : [];
       return {
@@ -294,16 +261,28 @@ export const projectRouter = router({
         tracks: tracksList,
         versions: allVersions,
         comments: allComments,
+        songSpacePurchaseId: eligibleSongSpacePurchase?.id ?? null,
       };
     }),
 
   create: producerProcedure.input(CreateProjectInput).mutation(async ({ ctx, input }) => {
+    const clientContactId = await recordContact(ctx.db, {
+      producerId: ctx.producerId,
+      email: input.artistEmail,
+      name: input.artistName,
+    });
+    if (!clientContactId) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "A stable client is required for every project.",
+      });
+    }
     const token = mintShareToken();
     const [row] = await ctx.db
       .insert(projects)
       .values({
         producerId: ctx.producerId,
-        ...(input.bookingId ? { bookingId: input.bookingId } : {}),
+        clientContactId,
         title: input.title,
         artistName: input.artistName,
         artistEmail: input.artistEmail.toLowerCase(),
@@ -311,33 +290,10 @@ export const projectRouter = router({
         // verify the URL the artist clicked. Unique constraint at the
         // schema level guards against guess collisions.
         inviteToken: token.raw,
-        // Phase 1 G7 — write the new modal fields only when present
-        // so legacy callers don't accidentally null these columns.
-        // `exactOptionalPropertyTypes` requires the conditional-spread
-        // shape; passing `undefined` would be a type error.
-        ...(input.productId ? { productId: input.productId } : {}),
-        ...(input.deadlineAt
-          ? { deadlineAt: new Date(input.deadlineAt) }
-          : {}),
-        ...(input.engagementTotalCents !== undefined
-          ? { engagementTotalCents: input.engagementTotalCents }
-          : {}),
-        ...(input.depositCents !== undefined
-          ? { depositCents: input.depositCents }
-          : {}),
+        ...(input.deadlineAt ? { deadlineAt: new Date(input.deadlineAt) } : {}),
       })
       .returning();
     if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-
-    try {
-      await recordContact(ctx.db, {
-        producerId: ctx.producerId,
-        email: input.artistEmail,
-        name: input.artistName,
-      });
-    } catch (err) {
-      console.warn("[contacts] recordContact failed in project.create", err);
-    }
 
     return { project: stripHash(row), inviteToken: token.raw };
   }),
@@ -402,142 +358,139 @@ export const projectRouter = router({
     return { ok: true as const };
   }),
 
-  // Manual charge inserted from the Money sub-tab. Status defaults to
-  // 'sent' so the row counts toward Outstanding in the money strip
-  // until the producer marks it paid out-of-band.
-  addInvoice: producerProcedure.input(AddInvoiceInput).mutation(async ({ ctx, input }) => {
-    const [row] = await ctx.db
-      .select({ producerId: projects.producerId })
-      .from(projects)
-      .where(eq(projects.id, input.projectId))
-      .limit(1);
-    if (!row) throw new TRPCError({ code: "NOT_FOUND" });
-    if (row.producerId !== ctx.producerId) throw new TRPCError({ code: "FORBIDDEN" });
-
-    const [inserted] = await ctx.db
-      .insert(invoices)
-      .values({
-        producerId: ctx.producerId,
-        projectId: input.projectId,
-        amountCents: input.amountCents,
-        currency: input.currency.toUpperCase(),
-        description: input.description,
-        // Free-text role: 'manual' for entries the producer punches in
-        // by hand from the Money sub-tab. Distinct from 'deposit' /
-        // 'final' / 'milestone' which are wired to Stripe lifecycle
-        // events.
-        kind: "manual",
-        status: "sent",
-      })
-      .returning();
-    if (!inserted) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-    return { ok: true as const, id: inserted.id };
-  }),
-
-  // Moves a project between kanban columns. Ownership-checked; bumps
-  // updatedAt so the column re-sorts to float the dragged card.
-  //
-  // BLOCKED stages: `cancelled` + `payment_paused`. Both have Stripe
-  // side-effects that this mutation does NOT handle.
-  //   - cancelled: must call subscriptionSchedules.cancel BEFORE the DB
-  //     write to stop future installment charges. Producer-driven cancel
-  //     belongs in the dedicated `cancel` mutation (Cancel project button)
-  //     which orchestrates Stripe + DB together.
-  //   - payment_paused: set automatically by `customer.subscription.paused`
-  //     after Smart Retries exhaust. Letting the producer flip this
-  //     manually detaches Skitza state from Stripe state.
-  // The stage column accepts both values (a project CAN be in those
-  // stages — just not via this dropdown), so the dropdown UI also drops
-  // them as selectable options.
-  setStage: producerProcedure.input(SetStageInput).mutation(async ({ ctx, input }) => {
-    const [row] = await ctx.db
-      .select({
-        producerId: projects.producerId,
-        paidAt: projects.paidAt,
-      })
-      .from(projects)
-      .where(eq(projects.id, input.id))
-      .limit(1);
-    if (!row) throw new TRPCError({ code: "NOT_FOUND" });
-    if (row.producerId !== ctx.producerId) throw new TRPCError({ code: "FORBIDDEN" });
-    const now = new Date();
-    // Stamp paid_at on FIRST transition into stage='paid'. Idempotent:
-    // re-calling setStage with stage='paid' on a row that already has
-    // paid_at set leaves the original timestamp untouched. This keeps
-    // the "first time the producer marked this paid" signal stable for
-    // the Overview timeline. Stripe-webhook auto-flip is intentionally
-    // not wired here — that's Phase H's surface.
-    // Loose nullish check covers both `null` (canonical never-paid) and
-    // `undefined` (column missing from a partial select projection).
-    const setPaidAt = input.stage === "paid" && row.paidAt == null;
-    await ctx.db
-      .update(projects)
-      .set({
-        stage: input.stage,
-        updatedAt: now,
-        ...(setPaidAt ? { paidAt: now } : {}),
-      })
-      .where(eq(projects.id, input.id));
-    return { ok: true as const };
-  }),
-
-  // Bulk variant of setStage for the Projects-list multi-select.
-  // UPDATE is scoped to producer_id so a tampered id array can't mutate
-  // another producer's projects — the WHERE clause on the UPDATE itself
-  // is the auth boundary, cheaper than N round-trips to verify each id
-  // first.
-  setStageBulk: producerProcedure
-    .input(
-      z.object({
-        ids: z.array(z.string().uuid()).min(1).max(200),
-        stage: SetStageInput.shape.stage,
-      }),
-    )
-    .mutation(async ({ ctx, input }) => {
-      const now = new Date();
-      await ctx.db
-        .update(projects)
-        .set({ stage: input.stage, updatedAt: now })
-        .where(
-          and(
-            eq(projects.producerId, ctx.producerId),
-            inArray(projects.id, input.ids),
-          ),
-        );
-      return { ok: true as const, count: input.ids.length };
-    }),
-
   addTrack: producerProcedure.input(AddTrackInput).mutation(async ({ ctx, input }) => {
-    const [project] = await ctx.db
-      .select()
-      .from(projects)
-      .where(eq(projects.id, input.projectId))
-      .limit(1);
-    if (!project || project.producerId !== ctx.producerId) {
-      throw new TRPCError({ code: "NOT_FOUND" });
+    let insertedRow: typeof projectTracks.$inferSelect | undefined;
+    try {
+      await createPurchaseOwnedSongSpace(
+        {
+          atomically: (_scope, work) =>
+            ctx.db.transaction(async (tx) => {
+              // Stable project -> purchase lock order prevents position races
+              // and serializes the exact commercial allowance independently.
+              await tx.execute(
+                sql`select pg_advisory_xact_lock(hashtextextended(${input.projectId}, 0))`,
+              );
+              await tx.execute(
+                sql`select pg_advisory_xact_lock(hashtextextended(${input.purchaseId}, 0))`,
+              );
+              return work({
+                getActivePurchaseForUpdate: async (scope) => {
+                  const [purchase] = await tx
+                    .select({
+                      id: purchases.id,
+                      producerId: purchases.producerId,
+                      projectId: purchases.projectId,
+                      lifecycleStatus: purchases.lifecycleStatus,
+                      projectLifecycleStatus: projects.lifecycleStatus,
+                      commercialSnapshot: purchases.commercialSnapshot,
+                    })
+                    .from(purchases)
+                    .innerJoin(
+                      projects,
+                      and(
+                        eq(projects.id, purchases.projectId),
+                        eq(projects.producerId, purchases.producerId),
+                      ),
+                    )
+                    .where(
+                      and(
+                        eq(purchases.id, scope.purchaseId),
+                        eq(purchases.projectId, scope.projectId),
+                        eq(purchases.producerId, scope.producerId),
+                        eq(purchases.lifecycleStatus, "active"),
+                        eq(projects.lifecycleStatus, "active"),
+                      ),
+                    )
+                    .limit(1)
+                    .for("update");
+                  return purchase
+                    ? {
+                        purchaseId: purchase.id,
+                        producerId: purchase.producerId,
+                        projectId: purchase.projectId,
+                        lifecycleStatus: "active" as const,
+                        projectLifecycleStatus: "active" as const,
+                        includedSongSpaces: purchase.commercialSnapshot.includedSongSpaces,
+                      }
+                    : null;
+                },
+                countPurchaseOwnedSongSpaces: async (scope) => {
+                  const rows = await tx
+                    .select({ id: projectTracks.id })
+                    .from(projectTracks)
+                    .where(
+                      and(
+                        eq(projectTracks.projectId, scope.projectId),
+                        eq(projectTracks.purchaseId, scope.purchaseId),
+                      ),
+                    );
+                  return rows.length;
+                },
+                nextProjectPositionForUpdate: async (scope) => {
+                  const [last] = await tx
+                    .select({ position: projectTracks.position })
+                    .from(projectTracks)
+                    .where(eq(projectTracks.projectId, scope.projectId))
+                    .orderBy(desc(projectTracks.position))
+                    .limit(1);
+                  return (last?.position ?? -1) + 1;
+                },
+                insertSongSpace: async (songSpace) => {
+                  const [row] = await tx
+                    .insert(projectTracks)
+                    .values({
+                      projectId: songSpace.projectId,
+                      purchaseId: songSpace.purchaseId,
+                      title: songSpace.title,
+                      ...(songSpace.artist ? { artist: songSpace.artist } : {}),
+                      position: songSpace.position,
+                    })
+                    .returning();
+                  if (!row) {
+                    throw new SongSpaceDomainError(
+                      "INTEGRITY_ERROR",
+                      "Song-space insert returned no row",
+                    );
+                  }
+                  insertedRow = row;
+                  return {
+                    id: row.id,
+                    producerId: songSpace.producerId,
+                    projectId: row.projectId,
+                    purchaseId: row.purchaseId,
+                    title: row.title,
+                    artist: row.artist,
+                    position: row.position,
+                  };
+                },
+                touchProject: async (scope, changedAt) => {
+                  await tx
+                    .update(projects)
+                    .set({ updatedAt: changedAt })
+                    .where(
+                      and(
+                        eq(projects.id, scope.projectId),
+                        eq(projects.producerId, scope.producerId),
+                      ),
+                    );
+                },
+              });
+            }),
+        },
+        {
+          producerId: ctx.producerId,
+          projectId: input.projectId,
+          purchaseId: input.purchaseId,
+          title: input.title,
+          ...(input.artist === undefined ? {} : { artist: input.artist }),
+          createdAt: new Date(),
+        },
+      );
+    } catch (error) {
+      mapSongSpaceDomainError(error);
     }
-    const existing = await ctx.db
-      .select({ position: projectTracks.position })
-      .from(projectTracks)
-      .where(eq(projectTracks.projectId, input.projectId))
-      .orderBy(asc(projectTracks.position));
-    const nextPos =
-      existing.length === 0 ? 0 : (existing[existing.length - 1]?.position ?? 0) + 1;
-    const [row] = await ctx.db
-      .insert(projectTracks)
-      .values({
-        projectId: input.projectId,
-        title: input.title,
-        ...(input.artist ? { artist: input.artist } : {}),
-        position: nextPos,
-      })
-      .returning();
-    if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-    await ctx.db
-      .update(projects)
-      .set({ updatedAt: new Date() })
-      .where(eq(projects.id, input.projectId));
-    return row;
+    if (!insertedRow) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+    return insertedRow;
   }),
 
   // Manual stage advance for a single track. Used by both the Upload
@@ -549,13 +502,7 @@ export const projectRouter = router({
     .input(
       z.object({
         trackId: z.string().uuid(),
-        workflowStage: z.enum([
-          "brief",
-          "production",
-          "mixing",
-          "mastering",
-          "done",
-        ]),
+        workflowStage: z.enum(["brief", "production", "mixing", "mastering", "done"]),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -607,22 +554,14 @@ export const projectRouter = router({
       const [proj] = await ctx.db
         .select({ id: projects.id })
         .from(projects)
-        .where(
-          and(
-            eq(projects.id, input.projectId),
-            eq(projects.producerId, ctx.producerId),
-          ),
-        )
+        .where(and(eq(projects.id, input.projectId), eq(projects.producerId, ctx.producerId)))
         .limit(1);
       if (!proj) throw new TRPCError({ code: "NOT_FOUND" });
       await ctx.db
         .update(projectTracks)
         .set({ title: input.title })
         .where(
-          and(
-            eq(projectTracks.id, input.trackId),
-            eq(projectTracks.projectId, input.projectId),
-          ),
+          and(eq(projectTracks.id, input.trackId), eq(projectTracks.projectId, input.projectId)),
         );
       await ctx.db
         .update(projects)
@@ -649,18 +588,11 @@ export const projectRouter = router({
           producerId: projects.producerId,
         })
         .from(trackVersions)
-        .innerJoin(
-          projectTracks,
-          eq(projectTracks.id, trackVersions.trackId),
-        )
+        .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
         .innerJoin(projects, eq(projects.id, projectTracks.projectId))
         .where(eq(trackVersions.id, input.versionId))
         .limit(1);
-      if (
-        !row ||
-        row.producerId !== ctx.producerId ||
-        row.projectId !== input.projectId
-      ) {
+      if (!row || row.producerId !== ctx.producerId || row.projectId !== input.projectId) {
         throw new TRPCError({ code: "NOT_FOUND" });
       }
       await ctx.db
@@ -675,38 +607,118 @@ export const projectRouter = router({
     }),
 
   addVersion: producerProcedure.input(AddVersionInput).mutation(async ({ ctx, input }) => {
-    const [track] = await ctx.db
-      .select({ id: projectTracks.id, projectId: projectTracks.projectId })
+    const [discoveredTrack] = await ctx.db
+      .select({
+        id: projectTracks.id,
+        projectId: projectTracks.projectId,
+        purchaseId: projectTracks.purchaseId,
+      })
       .from(projectTracks)
       .where(eq(projectTracks.id, input.trackId))
       .limit(1);
-    if (!track) throw new TRPCError({ code: "NOT_FOUND" });
-    const [project] = await ctx.db
-      .select({ producerId: projects.producerId })
-      .from(projects)
-      .where(eq(projects.id, track.projectId))
-      .limit(1);
-    if (!project || project.producerId !== ctx.producerId) {
-      throw new TRPCError({ code: "FORBIDDEN" });
-    }
-    const [row] = await ctx.db
-      .insert(trackVersions)
-      .values({
-        trackId: input.trackId,
-        label: input.label,
-        audioUrl: input.audioUrl,
-        ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
-        ...(input.description && input.description.length > 0
-          ? { description: input.description }
-          : {}),
-      })
-      .returning();
-    if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-    await ctx.db
-      .update(projects)
-      .set({ updatedAt: new Date() })
-      .where(eq(projects.id, track.projectId));
+    if (!discoveredTrack?.purchaseId) throw new TRPCError({ code: "NOT_FOUND" });
 
+    let row: typeof trackVersions.$inferSelect | undefined;
+    try {
+      row = await ctx.db.transaction(async (tx) => {
+        // Match the song-space lock order. The following row locks make
+        // lifecycle changes serialize even when their caller does not use
+        // these advisory locks.
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${discoveredTrack.projectId}, 0))`,
+        );
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${discoveredTrack.purchaseId}, 0))`,
+        );
+        const [project] = await tx
+          .select({
+            id: projects.id,
+            producerId: projects.producerId,
+            lifecycleStatus: projects.lifecycleStatus,
+          })
+          .from(projects)
+          .where(eq(projects.id, discoveredTrack.projectId))
+          .limit(1)
+          .for("update");
+        const [purchase] = await tx
+          .select({
+            id: purchases.id,
+            producerId: purchases.producerId,
+            projectId: purchases.projectId,
+            lifecycleStatus: purchases.lifecycleStatus,
+          })
+          .from(purchases)
+          .where(eq(purchases.id, discoveredTrack.purchaseId))
+          .limit(1)
+          .for("update");
+        const [track] = await tx
+          .select({
+            id: projectTracks.id,
+            projectId: projectTracks.projectId,
+            purchaseId: projectTracks.purchaseId,
+          })
+          .from(projectTracks)
+          .where(eq(projectTracks.id, input.trackId))
+          .limit(1)
+          .for("update");
+
+        assertActiveVersionUploadLifecycle(
+          project && purchase && track
+            ? {
+                producerId: project.producerId,
+                projectId: track.projectId,
+                purchaseId: track.purchaseId,
+                projectLifecycleStatus: project.lifecycleStatus,
+                purchaseLifecycleStatus: purchase.lifecycleStatus,
+              }
+            : null,
+          {
+            producerId: ctx.producerId,
+            projectId: discoveredTrack.projectId,
+            purchaseId: discoveredTrack.purchaseId,
+          },
+        );
+        if (
+          purchase?.producerId !== ctx.producerId ||
+          purchase.projectId !== discoveredTrack.projectId ||
+          track?.projectId !== discoveredTrack.projectId ||
+          track.purchaseId !== discoveredTrack.purchaseId
+        ) {
+          throw new VersionUploadDomainError(
+            "NOT_FOUND",
+            "The purchase-owned track binding was not found",
+          );
+        }
+
+        const [inserted] = await tx
+          .insert(trackVersions)
+          .values({
+            trackId: input.trackId,
+            purchaseId: discoveredTrack.purchaseId,
+            producerId: ctx.producerId,
+            label: input.label,
+            audioUrl: null,
+            ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
+            ...(input.description && input.description.length > 0
+              ? { description: input.description }
+              : {}),
+          })
+          .returning();
+        if (!inserted) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        await tx
+          .update(projects)
+          .set({ updatedAt: new Date() })
+          .where(
+            and(
+              eq(projects.id, discoveredTrack.projectId),
+              eq(projects.producerId, ctx.producerId),
+            ),
+          );
+        return inserted;
+      });
+    } catch (error) {
+      mapVersionUploadDomainError(error);
+    }
     // NOTE: artist email moved to audio.completeMultipart (C1). When the
     // modal creates this row with audioUrl=null and patches the URL after
     // R2 completion, sending the email here would point the artist at a
@@ -715,12 +727,10 @@ export const projectRouter = router({
     return row;
   }),
 
-  // Phase 4 (I1) — delete an orphan track_versions row created by the
-  // Upload Track modal when its multipart upload fails. The modal
-  // creates the row at step 2 of the chain (audioUrl=null) and patches
-  // it later in completeMultipart; if any chunk PUT or the finalise
-  // step throws, the row stayed around forever. This mutation lets the
-  // modal's catch-branch fire a best-effort cleanup.
+  // Mark an incomplete track_versions upload as deleted when multipart
+  // upload fails. Purchase-owned version history is immutable, so this
+  // compatibility mutation never removes the row and refuses completed
+  // audio. The modal's catch branch can still fire it best-effort.
   //
   // Ownership chain: version -> track -> project -> producer. Same shape
   // as updateVersionLabel. NOT_FOUND for both missing and foreign rows
@@ -732,337 +742,142 @@ export const projectRouter = router({
         .select({
           projectId: projectTracks.projectId,
           producerId: projects.producerId,
+          audioUrl: trackVersions.audioUrl,
+          audioDeletedAt: trackVersions.audioDeletedAt,
+          pendingAudioR2Key: trackVersions.pendingAudioR2Key,
+          pendingAudioUploadId: trackVersions.pendingAudioUploadId,
+          pendingAudioInitiationDigest: trackVersions.pendingAudioInitiationDigest,
+          pendingAudioCompletionToken: trackVersions.pendingAudioCompletionToken,
+          pendingAudioSizeBytes: trackVersions.pendingAudioSizeBytes,
+          pendingAudioStartedAt: trackVersions.pendingAudioStartedAt,
+          pendingAudioCreateAttemptedAt: trackVersions.pendingAudioCreateAttemptedAt,
+          pendingAudioCompleteAttemptedAt: trackVersions.pendingAudioCompleteAttemptedAt,
+          pendingAudioPartUrlsExpireAt: trackVersions.pendingAudioPartUrlsExpireAt,
+          pendingAudioCancelRequestedAt: trackVersions.pendingAudioCancelRequestedAt,
+          pendingAudioCleanupEtag: trackVersions.pendingAudioCleanupEtag,
         })
         .from(trackVersions)
+        .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
         .innerJoin(
-          projectTracks,
-          eq(projectTracks.id, trackVersions.trackId),
+          projects,
+          and(eq(projects.id, projectTracks.projectId), eq(projects.producerId, ctx.producerId)),
         )
-        .innerJoin(projects, eq(projects.id, projectTracks.projectId))
-        .where(eq(trackVersions.id, input.id))
+        .where(and(eq(trackVersions.id, input.id), eq(trackVersions.producerId, ctx.producerId)))
         .limit(1);
       if (!row || row.producerId !== ctx.producerId) {
         throw new TRPCError({ code: "NOT_FOUND" });
       }
-      await ctx.db
-        .delete(trackVersions)
-        .where(eq(trackVersions.id, input.id));
+      if (
+        row.pendingAudioR2Key !== null ||
+        row.pendingAudioUploadId !== null ||
+        row.pendingAudioInitiationDigest !== null ||
+        row.pendingAudioCompletionToken !== null ||
+        row.pendingAudioSizeBytes !== null ||
+        row.pendingAudioStartedAt !== null ||
+        row.pendingAudioCreateAttemptedAt !== null ||
+        row.pendingAudioCompleteAttemptedAt !== null ||
+        row.pendingAudioPartUrlsExpireAt !== null ||
+        row.pendingAudioCancelRequestedAt !== null ||
+        row.pendingAudioCleanupEtag !== null
+      ) {
+        try {
+          const cancellation = await cancelPendingMultipartUpload(ctx, {
+            trackVersionId: input.id,
+          });
+          if (cancellation.kind !== "no_pending") return { ok: true as const };
+        } catch (error) {
+          mapPendingMultipartCancellationError(error);
+        }
+      }
+      if (row.audioDeletedAt) return { ok: true as const };
+      if (row.audioUrl !== null) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Only an incomplete upload can be cleaned up from this path.",
+        });
+      }
+      const audioDeletedAt = new Date();
+      const [softDeleted] = await ctx.db
+        .update(trackVersions)
+        .set({ audioDeletedAt })
+        .where(
+          and(
+            eq(trackVersions.id, input.id),
+            eq(trackVersions.producerId, ctx.producerId),
+            isNull(trackVersions.audioUrl),
+            isNull(trackVersions.audioDeletedAt),
+            isNull(trackVersions.pendingAudioR2Key),
+            isNull(trackVersions.pendingAudioUploadId),
+            isNull(trackVersions.pendingAudioInitiationDigest),
+            isNull(trackVersions.pendingAudioCompletionToken),
+            isNull(trackVersions.pendingAudioSizeBytes),
+            isNull(trackVersions.pendingAudioStartedAt),
+            isNull(trackVersions.pendingAudioCreateAttemptedAt),
+            isNull(trackVersions.pendingAudioCompleteAttemptedAt),
+            isNull(trackVersions.pendingAudioPartUrlsExpireAt),
+            isNull(trackVersions.pendingAudioCancelRequestedAt),
+            isNull(trackVersions.pendingAudioCleanupEtag),
+          ),
+        )
+        .returning({ id: trackVersions.id });
+      if (!softDeleted) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "The upload changed while cleanup was in progress.",
+        });
+      }
       await ctx.db
         .update(projects)
-        .set({ updatedAt: new Date() })
-        .where(eq(projects.id, row.projectId));
+        .set({ updatedAt: audioDeletedAt })
+        .where(and(eq(projects.id, row.projectId), eq(projects.producerId, ctx.producerId)));
       return { ok: true as const };
     }),
 
-  setPaid: producerProcedure.input(SetPaidInput).mutation(async ({ ctx, input }) => {
-    const [project] = await ctx.db
-      .select({
-        producerId: projects.producerId,
-        title: projects.title,
-        artistName: projects.artistName,
-        artistEmail: projects.artistEmail,
-        totalAmountCents: projects.totalAmountCents,
-        currency: projects.currency,
-      })
-      .from(projects)
-      .where(eq(projects.id, input.projectId))
+  resolveComment: producerProcedure.input(ResolveCommentInput).mutation(async ({ ctx, input }) => {
+    const [c] = await ctx.db
+      .select({ id: trackComments.id, versionId: trackComments.versionId })
+      .from(trackComments)
+      .where(eq(trackComments.id, input.id))
       .limit(1);
-    if (!project || project.producerId !== ctx.producerId) {
-      throw new TRPCError({ code: "NOT_FOUND" });
+    if (!c) throw new TRPCError({ code: "NOT_FOUND" });
+    const [v] = await ctx.db
+      .select({ trackId: trackVersions.trackId })
+      .from(trackVersions)
+      .where(eq(trackVersions.id, c.versionId))
+      .limit(1);
+    if (!v) throw new TRPCError({ code: "NOT_FOUND" });
+    const [t] = await ctx.db
+      .select({ projectId: projectTracks.projectId })
+      .from(projectTracks)
+      .where(eq(projectTracks.id, v.trackId))
+      .limit(1);
+    if (!t) throw new TRPCError({ code: "NOT_FOUND" });
+    const [p] = await ctx.db
+      .select({ producerId: projects.producerId })
+      .from(projects)
+      .where(eq(projects.id, t.projectId))
+      .limit(1);
+    if (!p || p.producerId !== ctx.producerId) {
+      throw new TRPCError({ code: "FORBIDDEN" });
     }
     await ctx.db
-      .update(projects)
-      .set(
-        input.kind === "deposit"
-          ? { depositPaid: input.value, updatedAt: new Date() }
-          : { finalPaid: input.value, updatedAt: new Date() },
-      )
-      .where(eq(projects.id, input.projectId));
-
-    if (input.value) {
-      const [producerRow] = await ctx.db
-        .select({ email: producers.email, displayName: producers.displayName })
-        .from(producers)
-        .where(eq(producers.id, ctx.producerId))
-        .limit(1);
-      const total = project.totalAmountCents ?? 0;
-      const amountCents =
-        input.kind === "deposit" ? Math.floor(total / 2) : total - Math.floor(total / 2);
-      if (producerRow) {
-        after(async () => {
-          try {
-            await sendPaymentReceivedEmail(producerRow.email, {
-              producerName: producerRow.displayName ?? producerRow.email,
-              artistName: project.artistName,
-              projectName: project.title,
-              amountCents,
-              platformFeeCents: 0,
-              currency: project.currency ?? "USD",
-              viewUrl: `${SITE_URL}/dashboard/clients-projects/${input.projectId}`,
-            });
-          } catch (err) {
-            console.error("[email] payment-received failed", err);
-          }
-        });
-      }
-    }
-
+      .update(trackComments)
+      .set({ resolvedAt: input.resolved ? new Date() : null })
+      .where(eq(trackComments.id, input.id));
     return { ok: true as const };
   }),
 
-  // ── Task 7 ─────────────────────────────────────────────────────────
-  // Fire the off-session final charge for a split_50_50 plan. The
-  // deposit has already landed (chargesCompleted === 1) and the card
-  // was saved via setup_future_usage at checkout, so we create a
-  // PaymentIntent that reuses the customer + payment method and
-  // confirms immediately.
-  //
-  // CRITICAL: this mutation does NOT insert an invoice row. The
-  // payment_intent.succeeded webhook (handlers.ts) reconciles state
-  // and writes the ledger entry — keeping invoice insertion in one
-  // place makes duplicate-protection tractable (the partial unique
-  // index on invoices.stripe_payment_intent_id enforces at-most-one).
-  //
-  // Idempotency: `proj_<id>_charge_2` scopes the key to this project
-  // + this charge number. Double-click or replay returns the same PI
-  // instead of charging twice.
-  chargeFinal: producerProcedure
-    .input(ChargeFinalInput)
+  // Compatibility name: producer action records only producer-marked-final
+  // state. Artist approval is a separate immutable versionApprovalEvents row.
+  approveVersion: producerProcedure
+    .input(z.object({ versionId: z.string().uuid(), approved: z.boolean().default(true) }))
     .mutation(async ({ ctx, input }) => {
-      // 1. Project exists + belongs to caller.
-      const [project] = await ctx.db
-        .select()
-        .from(projects)
-        .where(eq(projects.id, input.projectId))
-        .limit(1);
-      if (!project || project.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "NOT_FOUND" });
-      }
-
-      // 2. Plan must be split_50_50 — the only shape with a producer-
-      //    triggered second charge. Monthly is Stripe-driven; full is
-      //    single-charge at checkout.
-      if (project.paymentPlanKind !== "split_50_50") {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Final charge only applies to 50/50 plans.",
-        });
-      }
-
-      // 3. Deposit paid, final not yet fired (chargesCompleted === 1).
-      if (project.chargesCompleted !== 1) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message:
-            "Final charge already processed or deposit not yet paid.",
-        });
-      }
-
-      // 4. Saved customer + payment method must exist — populated by
-      //    the checkout.session.completed webhook when the deposit
-      //    landed. Absence means something went wrong upstream.
-      if (!project.stripeCustomerId || !project.stripePaymentMethodId) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: "Missing saved payment method — re-run checkout.",
-        });
-      }
-
-      if (project.totalAmountCents === null) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: "Project total not recorded — re-run checkout.",
-        });
-      }
-
-      // 5. Producer's Connect account must be live + charges-enabled.
-      //    destination-charges require a healthy account.
-      const [producer] = await ctx.db
-        .select({
-          stripeAccountId: producers.stripeAccountId,
-          stripeChargesEnabled: producers.stripeChargesEnabled,
-        })
-        .from(producers)
-        .where(eq(producers.id, ctx.producerId))
-        .limit(1);
-      if (
-        !producer ||
-        !producer.stripeAccountId ||
-        !producer.stripeChargesEnabled
-      ) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: "Stripe account not ready — finish onboarding first.",
-        });
-      }
-
-      // Derive the second-half amount via calculateCharges so the
-      // cents math stays in one place (handles odd-total remainders).
-      const charges = calculateCharges(
-        { kind: "split_50_50" },
-        project.totalAmountCents,
-      );
-      const finalAmountCents = charges[1];
-      if (finalAmountCents === undefined || finalAmountCents <= 0) {
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Invalid final charge amount.",
-        });
-      }
-
-      // Currency: read from the project row directly (Important 3 —
-      // single source of truth). Snapshotted at publicRequest time so
-      // a mid-engagement product currency change can't desync the modal
-      // from the actual charge. Falls back to deposit-invoice currency
-      // for legacy rows that pre-date migration 0023.
-      let currency = (project.currency ?? "").toLowerCase();
-      if (!currency) {
-        const [depositInvoice] = await ctx.db
-          .select({ currency: invoices.currency })
-          .from(invoices)
-          .where(
-            and(
-              eq(invoices.projectId, project.id),
-              eq(invoices.kind, "deposit"),
-            ),
-          )
-          .orderBy(desc(invoices.createdAt))
-          .limit(1);
-        currency = (depositInvoice?.currency ?? "USD").toLowerCase();
-      }
-
-      const stripe = getStripe();
-      const pi = await stripe.paymentIntents.create(
-        {
-          amount: finalAmountCents,
-          currency,
-          customer: project.stripeCustomerId,
-          payment_method: project.stripePaymentMethodId,
-          off_session: true,
-          confirm: true,
-          transfer_data: { destination: producer.stripeAccountId },
-          metadata: {
-            projectId: project.id,
-            kind: "final",
-            producerId: ctx.producerId,
-          },
-        },
-        {
-          idempotencyKey: `proj_${project.id}_charge_2`,
-        },
-      );
-
-      return { paymentIntentId: pi.id };
-    }),
-
-  // ── Task 9 ─────────────────────────────────────────────────────────
-  // Producer cancels a project mid-flight. Money-handling — we MUST
-  // stop future Stripe charges before the next billing cycle hits.
-  //
-  // Behaviour by plan kind:
-  //   - monthly: cancel the Subscription Schedule on the platform
-  //     account (destination charges, so no `{ stripeAccount }` header).
-  //     Stripe fires `customer.subscription.deleted`, which Task 6's
-  //     handler also coerces to stage='cancelled' — idempotent with the
-  //     direct DB write we do here.
-  //   - full / split_50_50 / never-paid: no schedule to cancel; just
-  //     update the stage. Full was charged at checkout; split's second
-  //     half is producer-triggered (chargeFinal), so neither has any
-  //     auto-future-charge to stop.
-  //
-  // Idempotency:
-  //   - If project.stage is already 'cancelled', return success without
-  //     re-calling Stripe (avoid noisy logs + unnecessary API calls).
-  //   - Stripe's subscriptionSchedules.cancel is itself idempotent on
-  //     their side, but if the schedule was already released/ended we
-  //     get a thrown error — caught + treated as success below.
-  //
-  // No refund action. Refund policy lives in the contract; producers
-  // refund via Stripe Dashboard manually if they want to.
-  cancel: producerProcedure
-    .input(CancelProjectInput)
-    .mutation(async ({ ctx, input }) => {
-      // 1. Project exists + ownership check.
-      const [project] = await ctx.db
-        .select()
-        .from(projects)
-        .where(
-          and(
-            eq(projects.id, input.projectId),
-            eq(projects.producerId, ctx.producerId),
-          ),
-        )
-        .limit(1);
-      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-
-      // 2. Type-to-confirm guard. Exact, case-sensitive match — no
-      //    trim, no fuzz. The producer typed it; we honor it.
-      if (project.title !== input.confirmTitle) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Confirmation title mismatch",
-        });
-      }
-
-      // 3. Already-finalized projects can't be cancelled; the engagement
-      //    is over. Refund flows through Stripe Dashboard.
-      if (project.stage === "paid" || project.stage === "archived") {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Project is already finished; cannot cancel.",
-        });
-      }
-
-      // 4. If a monthly schedule is in flight, stop it. Schedule lives
-      //    on the platform account (we use destination charges for the
-      //    Connect split), so the call is a plain platform API call —
-      //    no `{ stripeAccount }` header.
-      if (project.stripeSubscriptionScheduleId) {
-        const stripe = getStripe();
-        try {
-          await stripe.subscriptionSchedules.cancel(
-            project.stripeSubscriptionScheduleId,
-          );
-        } catch (err) {
-          // Stripe returns an InvalidRequestError if the schedule has
-          // already been released/cancelled/ended. Treat as success so
-          // a webhook race doesn't surface a false failure to the UI.
-          const message = err instanceof Error ? err.message : String(err);
-          if (/already.*(cancel|release|ended|completed)/i.test(message)) {
-            // fall through — the schedule is already in a terminal state
-          } else {
-            throw new TRPCError({
-              code: "INTERNAL_SERVER_ERROR",
-              message: `Stripe cancel failed: ${message}`,
-              cause: err,
-            });
-          }
-        }
-      }
-
-      // 5. Set stage to archived so the producer sees the result without
-      //    waiting for the webhook roundtrip.
-      await ctx.db
-        .update(projects)
-        .set({ stage: "archived", updatedAt: new Date() })
-        .where(eq(projects.id, project.id));
-
-      return { ok: true as const };
-    }),
-
-  resolveComment: producerProcedure
-    .input(ResolveCommentInput)
-    .mutation(async ({ ctx, input }) => {
-      const [c] = await ctx.db
-        .select({ id: trackComments.id, versionId: trackComments.versionId })
-        .from(trackComments)
-        .where(eq(trackComments.id, input.id))
-        .limit(1);
-      if (!c) throw new TRPCError({ code: "NOT_FOUND" });
       const [v] = await ctx.db
-        .select({ trackId: trackVersions.trackId })
+        .select({
+          trackId: trackVersions.trackId,
+        })
         .from(trackVersions)
-        .where(eq(trackVersions.id, c.versionId))
+        .where(eq(trackVersions.id, input.versionId))
         .limit(1);
       if (!v) throw new TRPCError({ code: "NOT_FOUND" });
       const [t] = await ctx.db
@@ -1071,50 +886,8 @@ export const projectRouter = router({
         .where(eq(projectTracks.id, v.trackId))
         .limit(1);
       if (!t) throw new TRPCError({ code: "NOT_FOUND" });
-      const [p] = await ctx.db
-        .select({ producerId: projects.producerId })
-        .from(projects)
-        .where(eq(projects.id, t.projectId))
-        .limit(1);
-      if (!p || p.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "FORBIDDEN" });
-      }
-      await ctx.db
-        .update(trackComments)
-        .set({ resolvedAt: input.resolved ? new Date() : null })
-        .where(eq(trackComments.id, input.id));
-      return { ok: true as const };
-    }),
-
-  // G.11 — mark a track version approved. Approving emits a
-  // `track_approved` notification for the producer ("don't forget to
-  // send the stems"). Fire-and-forget; a failure there must never roll
-  // back the approval.
-  approveVersion: producerProcedure
-    .input(z.object({ versionId: z.string().uuid(), approved: z.boolean().default(true) }))
-    .mutation(async ({ ctx, input }) => {
-      const [v] = await ctx.db
-        .select({
-          id: trackVersions.id,
-          label: trackVersions.label,
-          trackId: trackVersions.trackId,
-        })
-        .from(trackVersions)
-        .where(eq(trackVersions.id, input.versionId))
-        .limit(1);
-      if (!v) throw new TRPCError({ code: "NOT_FOUND" });
-      const [t] = await ctx.db
-        .select({ title: projectTracks.title, projectId: projectTracks.projectId })
-        .from(projectTracks)
-        .where(eq(projectTracks.id, v.trackId))
-        .limit(1);
-      if (!t) throw new TRPCError({ code: "NOT_FOUND" });
       const [d] = await ctx.db
-        .select({
-          producerId: projects.producerId,
-          title: projects.title,
-          artistName: projects.artistName,
-        })
+        .select({ producerId: projects.producerId })
         .from(projects)
         .where(eq(projects.id, t.projectId))
         .limit(1);
@@ -1125,28 +898,13 @@ export const projectRouter = router({
       const nowOrNull = input.approved ? new Date() : null;
       await ctx.db
         .update(trackVersions)
-        .set({ approvedAt: nowOrNull })
+        .set({ producerMarkedFinalAt: nowOrNull })
         .where(eq(trackVersions.id, input.versionId));
 
       await ctx.db
         .update(projects)
         .set({ updatedAt: new Date() })
         .where(eq(projects.id, t.projectId));
-
-      if (input.approved) {
-        try {
-          await ctx.db.insert(notifications).values({
-            producerId: ctx.producerId,
-            kind: "track_approved",
-            title: "Version approved — send stems?",
-            body: `${d.artistName} · ${t.title} (${v.label}). Click to open the project and upload stems.`,
-            projectId: t.projectId,
-            trackVersionId: v.id,
-          });
-        } catch (err) {
-          console.warn("[notify] emitTrackApproved failed in project.approveVersion", err);
-        }
-      }
 
       return { ok: true as const, approvedAt: nowOrNull };
     }),
@@ -1157,54 +915,128 @@ export const projectRouter = router({
       z.object({
         versionId: z.string().uuid(),
         body: z.string().min(1).max(2000),
-        timestampMs: z.number().int().min(0).max(1000 * 60 * 60 * 3),
+        timestampMs: z
+          .number()
+          .int()
+          .min(0)
+          .max(1000 * 60 * 60 * 3),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const [v] = await ctx.db
-        .select({ trackId: trackVersions.trackId })
+      const [discovered] = await ctx.db
+        .select({
+          versionId: trackVersions.id,
+          trackId: projectTracks.id,
+          projectId: projects.id,
+        })
         .from(trackVersions)
+        .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
+        .innerJoin(projects, eq(projects.id, projectTracks.projectId))
         .where(eq(trackVersions.id, input.versionId))
         .limit(1);
-      if (!v) throw new TRPCError({ code: "NOT_FOUND" });
-      const [t] = await ctx.db
-        .select({ projectId: projectTracks.projectId, title: projectTracks.title })
-        .from(projectTracks)
-        .where(eq(projectTracks.id, v.trackId))
-        .limit(1);
-      if (!t) throw new TRPCError({ code: "NOT_FOUND" });
-      const [p] = await ctx.db
-        .select({ producerId: projects.producerId, artistName: projects.artistName, artistEmail: projects.artistEmail })
-        .from(projects)
-        .where(eq(projects.id, t.projectId))
-        .limit(1);
-      if (!p || p.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "FORBIDDEN" });
+      if (!discovered) throw new TRPCError({ code: "NOT_FOUND" });
+
+      let saved: {
+        row: typeof trackComments.$inferSelect;
+        project: Pick<typeof projects.$inferSelect, "artistName" | "artistEmail">;
+        track: Pick<typeof projectTracks.$inferSelect, "title">;
+        producerName: string;
+      };
+      try {
+        saved = await ctx.db.transaction(async (tx) => {
+          await tx.execute(
+            sql`select pg_advisory_xact_lock(hashtextextended(${discovered.projectId}, 0))`,
+          );
+          const [project] = await tx
+            .select({
+              id: projects.id,
+              producerId: projects.producerId,
+              lifecycleStatus: projects.lifecycleStatus,
+              artistName: projects.artistName,
+              artistEmail: projects.artistEmail,
+            })
+            .from(projects)
+            .where(eq(projects.id, discovered.projectId))
+            .limit(1)
+            .for("update");
+          const [track] = await tx
+            .select({
+              id: projectTracks.id,
+              projectId: projectTracks.projectId,
+              title: projectTracks.title,
+              archivedAt: projectTracks.archivedAt,
+            })
+            .from(projectTracks)
+            .where(eq(projectTracks.id, discovered.trackId))
+            .limit(1)
+            .for("update");
+          const [version] = await tx
+            .select({ id: trackVersions.id, trackId: trackVersions.trackId })
+            .from(trackVersions)
+            .where(eq(trackVersions.id, input.versionId))
+            .limit(1)
+            .for("update");
+
+          if (!project || project.producerId !== ctx.producerId) {
+            throw new TRPCError({ code: "FORBIDDEN" });
+          }
+          if (!track || !version) {
+            throw new CommentDomainError("NOT_FOUND", "The comment target was not found");
+          }
+          assertWritableCommentTarget(
+            {
+              versionId: version.id,
+              versionTrackId: version.trackId,
+              trackId: track.id,
+              trackProjectId: track.projectId,
+              trackArchivedAt: track.archivedAt,
+              projectId: project.id,
+              projectLifecycleStatus: project.lifecycleStatus,
+            },
+            {
+              versionId: input.versionId,
+              trackId: discovered.trackId,
+              projectId: discovered.projectId,
+            },
+          );
+
+          const [producerRow] = await tx
+            .select({ displayName: producers.displayName })
+            .from(producers)
+            .where(eq(producers.id, ctx.producerId))
+            .limit(1);
+          const producerName = producerRow?.displayName ?? "Producer";
+          const [row] = await tx
+            .insert(trackComments)
+            .values({
+              versionId: input.versionId,
+              producerId: ctx.producerId,
+              authorName: producerName,
+              authorEmail: project.artistEmail,
+              body: input.body,
+              timestampMs: input.timestampMs,
+              fromProducer: true,
+            })
+            .returning();
+          if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+          return {
+            row,
+            project: { artistName: project.artistName, artistEmail: project.artistEmail },
+            track: { title: track.title },
+            producerName,
+          };
+        });
+      } catch (error) {
+        mapCommentDomainError(error);
       }
-      const [producerRow] = await ctx.db
-        .select({ displayName: producers.displayName })
-        .from(producers)
-        .where(eq(producers.id, ctx.producerId))
-        .limit(1);
-      const [row] = await ctx.db
-        .insert(trackComments)
-        .values({
-          versionId: input.versionId,
-          authorName: producerRow?.displayName ?? "Producer",
-          authorEmail: p.artistEmail,
-          body: input.body,
-          timestampMs: input.timestampMs,
-          fromProducer: true,
-        })
-        .returning();
-      if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const { row, project, track, producerName } = saved;
 
       after(async () => {
         try {
-          await sendProducerRepliedToCommentEmail(p.artistEmail, {
-            artistName: p.artistName,
-            producerName: producerRow?.displayName ?? "Your producer",
-            trackTitle: t.title,
+          await sendProducerRepliedToCommentEmail(project.artistEmail, {
+            artistName: project.artistName,
+            producerName,
+            trackTitle: track.title,
             replyBody: input.body,
             threadUrl: `${SITE_URL}/artist/music`,
           });
@@ -1216,7 +1048,8 @@ export const projectRouter = router({
       return row;
     }),
 
-  // Auto-provisioned when a booking is confirmed.
+  // Sessions now point at an existing purchase-owned project. This legacy
+  // helper only resolves that project and never forks a second row.
   createFromBooking: producerProcedure
     .input(z.object({ bookingId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
@@ -1231,30 +1064,12 @@ export const projectRouter = router({
       const [existing] = await ctx.db
         .select()
         .from(projects)
-        .where(
-          and(
-            eq(projects.producerId, ctx.producerId),
-            eq(projects.bookingId, booking.id),
-          ),
-        )
+        .where(and(eq(projects.producerId, ctx.producerId), eq(projects.id, booking.projectId)))
         .limit(1);
       if (existing) {
         return { project: stripHash(existing), shareToken: null, existing: true };
       }
-      const token = mintShareToken();
-      const title = booking.packageNameSnapshot ?? "Project";
-      const [row] = await ctx.db
-        .insert(projects)
-        .values({
-          producerId: ctx.producerId,
-          bookingId: booking.id,
-          title,
-          artistName: booking.artistName,
-          artistEmail: booking.artistEmail,
-        })
-        .returning();
-      if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      return { project: stripHash(row), shareToken: token.raw, existing: false };
+      throw new TRPCError({ code: "NOT_FOUND" });
     }),
 
   // Clients & Projects v3 redesign — Phase 1 Task 15. Drag-to-reorder
@@ -1271,10 +1086,7 @@ export const projectRouter = router({
         orderedIds: z
           .array(z.string().uuid())
           .min(1)
-          .refine(
-            (arr) => new Set(arr).size === arr.length,
-            "duplicate ids are not allowed",
-          ),
+          .refine((arr) => new Set(arr).size === arr.length, "duplicate ids are not allowed"),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -1290,13 +1102,9 @@ export const projectRouter = router({
       }
       await ctx.db.transaction(async (tx) => {
         for (const [idx, id] of input.orderedIds.entries()) {
-          await tx
-            .update(projects)
-            .set({ position: idx })
-            .where(eq(projects.id, id));
+          await tx.update(projects).set({ position: idx }).where(eq(projects.id, id));
         }
       });
       return { count: input.orderedIds.length };
     }),
-
 });

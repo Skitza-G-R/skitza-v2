@@ -28,8 +28,7 @@ const {
 } = vi.hoisted(() => {
   const contactsSelectMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
   const projectsSelectMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
-  const trackStatsSelectMock =
-    vi.fn<() => Promise<Record<string, unknown>[]>>();
+  const trackStatsSelectMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
   const contactsWhereSpy = vi.fn<(arg: unknown) => void>();
   const projectsWhereSpy = vi.fn<(arg: unknown) => void>();
   const trackStatsWhereSpy = vi.fn<(arg: unknown) => void>();
@@ -48,7 +47,7 @@ const {
     __table: "projects",
     id: { __column: "projects.id" },
     producerId: { __column: "projects.producer_id" },
-    artistEmail: { __column: "projects.artist_email" },
+    clientContactId: { __column: "projects.client_contact_id" },
     title: { __column: "projects.title" },
   };
   const projectTracksMarker = {
@@ -176,12 +175,15 @@ vi.mock("@skitza/db", () => ({
   // Other tables imported elsewhere in the router module — opaque
   // markers so the router file loads inside the test.
   bookings: { __table: "bookings" },
-  invoices: { __table: "invoices" },
+  purchases: { __table: "purchases" },
+  purchaseRequests: { __table: "purchase_requests" },
+  purchaseSessionAllowances: { __table: "purchase_session_allowances" },
   availabilityBlackouts: { __table: "availability_blackouts" },
   availabilityBlocks: { __table: "availability_blocks" },
   products: { __table: "products" },
   notifications: { __table: "notifications" },
   trackComments: { __table: "track_comments" },
+  versionApprovalEvents: { __table: "version_approval_events" },
   stripeCustomers: { __table: "stripe_customers" },
   eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
   and: (...conds: unknown[]) => ({ and: conds }),
@@ -236,9 +238,7 @@ describe("artist.music.projects", () => {
   });
 
   it("returns one entry per project owned by my client_contacts", async () => {
-    contactsSelectMock.mockResolvedValueOnce([
-      { id: "c1", producerId: "p1", email: "dan@x.com" },
-    ]);
+    contactsSelectMock.mockResolvedValueOnce([{ id: "c1", producerId: "p1", email: "dan@x.com" }]);
     projectsSelectMock.mockResolvedValueOnce([
       {
         projectId: "proj1",
@@ -324,9 +324,7 @@ describe("artist.music.projects", () => {
   });
 
   it("sorts by most-recent-track-upload desc", async () => {
-    contactsSelectMock.mockResolvedValueOnce([
-      { id: "c1", producerId: "p1", email: "dan@x.com" },
-    ]);
+    contactsSelectMock.mockResolvedValueOnce([{ id: "c1", producerId: "p1", email: "dan@x.com" }]);
     projectsSelectMock.mockResolvedValueOnce([
       {
         projectId: "older",
@@ -376,9 +374,7 @@ describe("artist.music.projects", () => {
   });
 
   it("sorts null latestTrackUploadedAt last", async () => {
-    contactsSelectMock.mockResolvedValueOnce([
-      { id: "c1", producerId: "p1", email: "dan@x.com" },
-    ]);
+    contactsSelectMock.mockResolvedValueOnce([{ id: "c1", producerId: "p1", email: "dan@x.com" }]);
     projectsSelectMock.mockResolvedValueOnce([
       {
         projectId: "no_tracks",
@@ -423,9 +419,7 @@ describe("artist.music.projects", () => {
     // The project with a track sorts first; the two with no tracks
     // come after, both with null upload date and zero tracks.
     expect(result.projects[0]?.projectId).toBe("has_track");
-    expect(result.projects[0]?.latestTrackUploadedAt).toEqual(
-      new Date("2026-04-01T00:00:00Z"),
-    );
+    expect(result.projects[0]?.latestTrackUploadedAt).toEqual(new Date("2026-04-01T00:00:00Z"));
     expect(result.projects[1]?.latestTrackUploadedAt).toBeNull();
     expect(result.projects[2]?.latestTrackUploadedAt).toBeNull();
     expect(result.projects[1]?.trackCount).toBe(0);
@@ -445,13 +439,8 @@ describe("artist.music.projects", () => {
     const exactRelationship = {
       and: [
         { eq: [clientContacts.clerkUserId, "user_alice"] },
+        { eq: [clientContacts.id, projects.clientContactId] },
         { eq: [clientContacts.producerId, projects.producerId] },
-        {
-          eq: [
-            { sqlValues: [clientContacts.email] },
-            { sqlValues: [projects.artistEmail] },
-          ],
-        },
         { isNull: clientContacts.archivedAt },
       ],
     };

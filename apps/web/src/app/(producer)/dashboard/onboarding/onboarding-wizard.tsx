@@ -64,7 +64,6 @@ export function OnboardingWizard({ initial }: { initial: OnboardingInitial }) {
   const [pkgName, setPkgName] = useState("Mixing session");
   const [pkgDurationMin, setPkgDurationMin] = useState(120);
   const [pkgPriceDollars, setPkgPriceDollars] = useState("250");
-  const [pkgDepositPct, setPkgDepositPct] = useState("25");
 
   // Step 3 state — weekly hours. Preset = Mon-Fri 10-18. Custom can
   // flip individual days on/off. startMin/endMin stored in minutes.
@@ -103,7 +102,6 @@ export function OnboardingWizard({ initial }: { initial: OnboardingInitial }) {
     if (step === 1) {
       const duration = pkgDurationMin;
       const priceDollars = Number(pkgPriceDollars);
-      const depositPct = Number(pkgDepositPct || "0");
       if (!pkgName.trim()) {
         setError("Give your service a name.");
         return;
@@ -116,16 +114,11 @@ export function OnboardingWizard({ initial }: { initial: OnboardingInitial }) {
         setError("Price can't be negative.");
         return;
       }
-      if (!Number.isFinite(depositPct) || depositPct < 0 || depositPct > 100) {
-        setError("Deposit must be 0–100%.");
-        return;
-      }
       startTransition(() => {
         void createFirstPackage({
           name: pkgName.trim(),
           durationMin: Math.round(duration),
           priceCents: Math.round(priceDollars * 100),
-          depositPct: Math.round(depositPct),
         }).then(
           onActionResult(() => {
             setStep(2);
@@ -259,8 +252,6 @@ export function OnboardingWizard({ initial }: { initial: OnboardingInitial }) {
             setPkgDurationMin={setPkgDurationMin}
             pkgPriceDollars={pkgPriceDollars}
             setPkgPriceDollars={setPkgPriceDollars}
-            pkgDepositPct={pkgDepositPct}
-            setPkgDepositPct={setPkgDepositPct}
             currency={initial.defaultCurrency}
           />
         ) : null}
@@ -420,8 +411,6 @@ function PackageStep({
   setPkgDurationMin,
   pkgPriceDollars,
   setPkgPriceDollars,
-  pkgDepositPct,
-  setPkgDepositPct,
   currency,
 }: {
   pkgName: string;
@@ -430,8 +419,6 @@ function PackageStep({
   setPkgDurationMin: (v: number) => void;
   pkgPriceDollars: string;
   setPkgPriceDollars: (v: string) => void;
-  pkgDepositPct: string;
-  setPkgDepositPct: (v: string) => void;
   currency: string;
 }) {
   const currencySymbol: Record<string, string> = {
@@ -490,20 +477,6 @@ function PackageStep({
             />
           </label>
         </div>
-        <label className="reveal-up reveal-up-delay-3 block">
-          <span className={FIELD_LABEL}>Deposit % (optional)</span>
-          <input
-            type="number"
-            min={0}
-            max={100}
-            step={5}
-            value={pkgDepositPct}
-            onChange={(e) => {
-              setPkgDepositPct(e.target.value);
-            }}
-            className={`sk-num font-mono ${FIELD_INPUT}`}
-          />
-        </label>
       </div>
     </div>
   );

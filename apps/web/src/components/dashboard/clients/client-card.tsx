@@ -13,10 +13,12 @@ export interface ClientCardData {
   linkState: LinkPillState;
   /** Number of active projects with this client. */
   projects: number;
-  /** Total lifetime spend in cents. */
-  lifetime: number;
-  /** Outstanding balance in cents (0 if all settled). */
-  owed: number;
+  /** Total lifetime spend in cents; null while purchase payments are unavailable. */
+  lifetime: number | null;
+  /** Outstanding balance in cents; null while purchase payments are unavailable. */
+  owed: number | null;
+  /** True when a linked project has an unresolved artist comment. */
+  needsAttention: boolean;
   /** Optional currency code — defaults to USD. */
   currency?: string;
   /** Last activity timestamp (ISO) — drives "recent" sort. */
@@ -163,7 +165,7 @@ export function ClientCard({ client, onInvite, onDragStart, onDragOver, onDrop }
             className="font-mono text-[14px] font-bold tabular-nums"
             style={{ color: "rgb(var(--fg-default))" }}
           >
-            {formatMoney(lifetime, currency)}
+            {lifetime === null ? "Unavailable" : formatMoney(lifetime, currency)}
           </span>
         </div>
         <div className="flex flex-col gap-0.5">
@@ -176,10 +178,10 @@ export function ClientCard({ client, onInvite, onDragStart, onDragOver, onDrop }
           <span
             className="font-mono text-[14px] font-bold tabular-nums"
             style={{
-              color: owed > 0 ? "rgb(var(--fg-danger))" : "rgb(var(--fg-muted))",
+              color: owed !== null && owed > 0 ? "rgb(var(--fg-danger))" : "rgb(var(--fg-muted))",
             }}
           >
-            {owed > 0 ? formatMoney(owed, currency) : "—"}
+            {owed === null ? "Unavailable" : owed > 0 ? formatMoney(owed, currency) : "—"}
           </span>
         </div>
       </div>

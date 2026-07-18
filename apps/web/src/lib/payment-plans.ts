@@ -2,77 +2,53 @@ import type { PaymentPlan } from "@skitza/db";
 
 import { calculateCharges } from "~/server/payments/plan";
 
-export type SupportedStandardPaymentPlan = Exclude<PaymentPlan, { kind: "milestones" }>;
-
-export function isSupportedStandardPaymentPlan(
-  plan: PaymentPlan,
-): plan is SupportedStandardPaymentPlan {
-  return plan.kind === "full" || plan.kind === "split_50_50" || plan.kind === "monthly";
-}
+export type SupportedStandardPaymentPlan = PaymentPlan;
 
 /**
- * Canonical product storage order for authored standard plans. Milestone
- * values are compatibility data: keep their relative order after the three
- * standard slots, while `offeredPlans()` continues deriving the one virtual
- * milestone choice from products.milestones.
+ * Canonical product storage order for authored plans.
  */
 export function normalizeProductPaymentPlans(plans: PaymentPlan[]): PaymentPlan[] {
   const full = plans.find((plan) => plan.kind === "full");
   const split = plans.find((plan) => plan.kind === "split_50_50");
   const monthly = plans.find((plan) => plan.kind === "monthly");
-  const preserved = plans.filter((plan) => !isSupportedStandardPaymentPlan(plan));
 
   return [
     ...(full ? [full] : []),
     ...(split ? [split] : []),
     ...(monthly ? [monthly] : []),
-    ...preserved,
   ];
 }
 
 /**
- * Product-editor updates own only the standard choices. Preserve legacy or
- * virtual-plan-shaped values already on the row, and de-duplicate an editor
- * round-trip that included the same compatibility value.
+ * Apply the product editor's complete authored selection. The existing
+ * argument remains part of the current caller contract but no longer carries
+ * plan variants forward after they are removed from the editor.
  */
 export function mergePreservedPaymentPlans(
   incoming: PaymentPlan[],
   existing: PaymentPlan[] | null | undefined,
 ): PaymentPlan[] {
-  const standards = normalizeProductPaymentPlans(incoming).filter(isSupportedStandardPaymentPlan);
-  const compatibility = [
-    ...(existing ?? []).filter((plan) => !isSupportedStandardPaymentPlan(plan)),
-    ...incoming.filter((plan) => !isSupportedStandardPaymentPlan(plan)),
-  ];
-  const seen = new Set<string>();
-  const preserved = compatibility.filter((plan) => {
-    const key = JSON.stringify(plan);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-  return [...standards, ...preserved];
+  void existing;
+  return normalizeProductPaymentPlans(incoming);
 }
 
 /**
  * Explicit fallback for calendar flows that have no plan picker: pay in full
- * when offered, otherwise the first supported standard plan. Malformed or
- * milestone-only legacy rows fail safe to pay in full.
+ * when offered, otherwise the first offered plan. Empty rows fail safe to pay
+ * in full.
  */
 export function selectFallbackPaymentPlan(
   plans: PaymentPlan[] | null | undefined,
 ): SupportedStandardPaymentPlan {
-  const supported = (plans ?? []).filter(isSupportedStandardPaymentPlan);
-  return supported.find((plan) => plan.kind === "full") ?? supported[0] ?? { kind: "full" };
+  const offered = plans ?? [];
+  return offered.find((plan) => plan.kind === "full") ?? offered[0] ?? { kind: "full" };
 }
 
-export type ProvisionalRequestPaymentPlan = SupportedStandardPaymentPlan | { kind: "milestones" };
+export type ProvisionalRequestPaymentPlan = PaymentPlan;
 
 /**
  * Purchase requests make their real choice after approval, but need a valid
- * provisional offered value at request time. Unlike the calendar fallback,
- * milestone plans are supported here and must never be replaced by a
- * synthetic, unoffered full plan.
+ * provisional offered value at request time.
  */
 export function selectProvisionalRequestPaymentPlan(
   offered: PaymentPlan[],
@@ -81,7 +57,7 @@ export function selectProvisionalRequestPaymentPlan(
   const [firstOffered] = offered;
   const selected = full ?? firstOffered;
   if (!selected) return null;
-  return selected.kind === "milestones" ? { kind: "milestones" } : selected;
+  return selected;
 }
 
 export type CalendarPaymentSummary = {

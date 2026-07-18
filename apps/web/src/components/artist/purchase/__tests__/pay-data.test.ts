@@ -1,74 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  amountDueNowCents,
   formatShekels,
   livePlanOptions,
   nextPlanIndex,
   paidProgress,
   paymentPlanLabel,
-  planOptions,
   proofStatusCopy,
-  type PlanOption,
 } from "../pay-data";
 
 // Pure money-math unit tests (no clock, no randomness) for the Pay section.
 // Every schedule MUST sum to the total exactly — agorot can't go missing.
-
-describe("planOptions", () => {
-  it("'full' is one row that equals the total, due now = total", () => {
-    const opts = planOptions(240000, ["full"]);
-    expect(opts).toHaveLength(1);
-    const full = opts[0] as PlanOption;
-    expect(full.plan).toBe("full");
-    expect(full.schedule).toHaveLength(1);
-    expect(full.schedule[0]?.label).toBe("Today");
-    expect(full.schedule[0]?.amountCents).toBe(240000);
-    expect(sum(full)).toBe(240000);
-    expect(full.dueNowCents).toBe(240000);
-  });
-
-  it("'split' is 50/50 two rows summing to total; due now = ceil(half) on odd cents", () => {
-    const opts = planOptions(240001, ["split"]);
-    expect(opts).toHaveLength(1);
-    const split = opts[0] as PlanOption;
-    expect(split.plan).toBe("split");
-    expect(split.schedule).toHaveLength(2);
-    expect(split.schedule[0]?.label).toBe("Today");
-    expect(split.schedule[1]?.label).toBe("On delivery");
-    // first row = ceil(total/2) = 120001, second = 120000
-    expect(split.schedule[0]?.amountCents).toBe(120001);
-    expect(split.schedule[1]?.amountCents).toBe(120000);
-    expect(sum(split)).toBe(240001);
-    expect(split.dueNowCents).toBe(120001);
-  });
-
-  it("'milestones' is three rows summing to total exactly with remainder on the first", () => {
-    // 240001 / 3 = 80000.333… → remainder 1 goes to the first row
-    const opts = planOptions(240001, ["milestones"]);
-    const m = opts[0] as PlanOption;
-    expect(m.plan).toBe("milestones");
-    expect(m.schedule).toHaveLength(3);
-    expect(m.schedule.map((s) => s.label)).toEqual(["Today", "Mid-project", "On delivery"]);
-    expect(m.schedule[0]?.amountCents).toBe(80001);
-    expect(m.schedule[1]?.amountCents).toBe(80000);
-    expect(m.schedule[2]?.amountCents).toBe(80000);
-    expect(sum(m)).toBe(240001);
-    expect(m.dueNowCents).toBe(80001);
-  });
-
-  it("returns options in the requested order", () => {
-    const opts = planOptions(240000, ["full", "split", "milestones"]);
-    expect(opts.map((o) => o.plan)).toEqual(["full", "split", "milestones"]);
-  });
-});
-
-describe("amountDueNowCents", () => {
-  it("returns the option's dueNowCents", () => {
-    const [split] = planOptions(240000, ["split"]);
-    expect(amountDueNowCents(split as PlanOption)).toBe(120000);
-  });
-});
 
 describe("livePlanOptions", () => {
   it("maps frozen server plans, including monthly, without changing amounts", () => {
@@ -93,7 +35,7 @@ describe("livePlanOptions", () => {
   it("uses clear labels for every server plan kind", () => {
     expect(paymentPlanLabel("full")).toBe("Pay in full");
     expect(paymentPlanLabel("split_50_50")).toBe("Split 50 / 50");
-    expect(paymentPlanLabel("milestones")).toBe("Milestone payments");
+    expect(paymentPlanLabel("monthly", 4)).toBe("4 monthly payments");
   });
 });
 
@@ -165,7 +107,3 @@ describe("formatShekels re-export", () => {
     expect(formatShekels(240000)).toBe("₪2,400");
   });
 });
-
-function sum(opt: PlanOption): number {
-  return opt.schedule.reduce((acc, row) => acc + row.amountCents, 0);
-}

@@ -4,7 +4,10 @@ import { notFound, redirect } from "next/navigation";
 import { TRPCError } from "@trpc/server";
 
 import { RequestSentScreen } from "~/components/artist/purchase/request-sent-screen";
-import { toProducer, toPurchaseProduct } from "~/lib/purchase/product-mapping";
+import {
+  producerHue,
+  producerInitials,
+} from "~/lib/_phase4-stubs/producer-color";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = {
@@ -16,9 +19,8 @@ export const metadata: Metadata = { title: "Request sent" };
 
 // S5 — Request sent (Commit). Real BE-1 data (SK-46): the request id comes
 // back from `requestToBookAction` as `?req=`; we read the row with
-// `artist.purchase.get` and show the server-issued ref + the price that
-// locked at request time. No `?req=` (deep link / stale refresh) falls back
-// to the S3 entry screen.
+// `artist.purchase.get` and show the server-issued reference. Requests carry
+// intent only; no commercial proposal is presented as frozen here.
 export default async function PurchaseSentPage({ params, searchParams }: PageProps) {
   const { userId } = await auth();
   if (!userId) return null;
@@ -30,12 +32,8 @@ export default async function PurchaseSentPage({ params, searchParams }: PagePro
   const caller = appRouter.createCaller({ userId });
 
   let request: Awaited<ReturnType<typeof caller.artist.purchase.get>>;
-  let row: Awaited<ReturnType<typeof caller.artist.store.product>>;
   try {
-    [request, row] = await Promise.all([
-      caller.artist.purchase.get({ purchaseRequestId: req }),
-      caller.artist.store.product({ productId }),
-    ]);
+    request = await caller.artist.purchase.get({ purchaseRequestId: req });
   } catch (e) {
     if (
       e instanceof TRPCError &&
@@ -46,18 +44,17 @@ export default async function PurchaseSentPage({ params, searchParams }: PagePro
     throw e;
   }
 
-  // Name + price come from the REQUEST snapshot — that's the locked truth
-  // even if the producer edits the product a minute later.
-  const product = {
-    ...toPurchaseProduct(row),
-    name: request.productNameSnapshot,
-    priceCents: request.priceCents,
+  if (request.productId !== productId) notFound();
+  const producer = {
+    name: request.producerName,
+    initials: producerInitials(request.producerName),
+    hue: producerHue(request.producerName),
+    agreement: null,
   };
 
   return (
     <RequestSentScreen
-      product={product}
-      producer={toProducer(row)}
+      producer={producer}
       requestRef={request.refNumber}
     />
   );

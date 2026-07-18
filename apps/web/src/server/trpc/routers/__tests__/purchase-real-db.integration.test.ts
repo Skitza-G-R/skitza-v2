@@ -1,1155 +1,1339 @@
 import { randomUUID } from "node:crypto";
 
 import {
-  agreementAcceptances,
-  and,
   bookings,
   clientContacts,
   createDb,
   eq,
-  inArray,
-  invoices,
   notifications,
   paymentProofs,
   producers,
   products,
+  projectTracks,
   projects,
+  purchaseAcceptances,
+  purchaseInstallments,
   purchaseRequests,
+  purchaseSessionAllowances,
+  purchases,
+  sql,
+  trackComments,
+  trackVersions,
+  versionApprovalEvents,
+  type Db,
+  type NewPaymentProof,
+  type NewPurchase,
+  type PurchaseCommercialSnapshot,
 } from "@skitza/db";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { commercialTermsFingerprint } from "~/lib/purchase/commercial-terms-fingerprint";
+import { beforeAll, describe, expect, it } from "vitest";
 
-const { r2SendMock, proofVerifiedEmailMock, purchaseApprovedEmailMock, purchaseDeclinedEmailMock } =
-  vi.hoisted(() => ({
-    r2SendMock: vi.fn((command: { constructor: { name: string } }) => {
-      if (command.constructor.name === "HeadObjectCommand") {
-        return Promise.resolve({
-          ContentLength: 2_048,
-          ContentType: "image/png",
-          ETag: '"proof-etag"',
-        });
-      }
-      if (command.constructor.name === "CopyObjectCommand") {
-        return Promise.resolve({ CopyObjectResult: { ETag: '"proof-etag"' } });
-      }
-      if (command.constructor.name === "GetObjectCommand") {
-        return Promise.resolve({
-          Body: {
-            transformToByteArray: () =>
-              Promise.resolve(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
-          },
-        });
-      }
-      return Promise.resolve({});
-    }),
-    proofVerifiedEmailMock: vi.fn(() => Promise.resolve(undefined)),
-    purchaseApprovedEmailMock: vi.fn(() => Promise.resolve(undefined)),
-    purchaseDeclinedEmailMock: vi.fn(() => Promise.resolve(undefined)),
-  }));
+import { createAudioIdentityFingerprint } from "../audio";
+import { approvedPurchaseRealDbTarget } from "./purchase-real-db-target-gate";
 
-// `after()` needs a Next request scope in production. The integration test
-// executes its callback immediately so email dispatch is observable without
-// creating external side effects.
-vi.mock("next/server", () => ({
-  after: (callback: () => unknown) => {
-    void callback();
-  },
-}));
+type PaymentPlanKind = Exclude<NewPurchase["paymentPlanKind"], undefined>;
+type PaidPaymentPlanKind = Exclude<PaymentPlanKind, null>;
 
-// Keep the key-ownership and bucket code real. Only the remote object HEAD is
-// replaced: CI has a disposable Neon branch, not disposable R2 credentials.
-vi.mock("~/server/storage/r2", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("~/server/storage/r2")>();
-  return {
-    ...actual,
-    getR2: () => ({ send: r2SendMock }),
-  };
-});
+const approvedTarget = approvedPurchaseRealDbTarget(process.env);
 
-vi.mock("~/server/email/send", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("~/server/email/send")>();
-  return {
-    ...actual,
-    sendProofVerifiedEmail: proofVerifiedEmailMock,
-    sendProofRejectedEmail: vi.fn(() => Promise.resolve(undefined)),
-    sendPurchaseApprovedEmail: purchaseApprovedEmailMock,
-    sendPurchaseDeclinedEmail: purchaseDeclinedEmailMock,
-  };
-});
+/**
+ * This suite writes immutable purchase history, so it may run only against an
+ * explicitly approved disposable database. Missing or incomplete opt-in data
+ * skips the suite before createDb is called. The forbidden list must include
+ * separate sanitized fingerprints for both audited Neon projects.
+ */
+const describeWithSafeDatabase = approvedTarget ? describe : describe.skip;
 
-import { appRouter } from "../_app";
+function postgresErrorCode(error: unknown): string | null {
+  let current = error;
 
-const databaseUrl = process.env.DATABASE_URL_TEST;
-const describeWithDatabase = databaseUrl ? describe : describe.skip;
+  for (let depth = 0; depth < 3; depth += 1) {
+    if (!current || typeof current !== "object") return null;
+    const record = current as Record<string, unknown>;
+    const code = record.code;
+    if (typeof code === "string") return code;
+    current = record.cause;
+  }
 
-describeWithDatabase("artist purchase flow — real Postgres integration", () => {
-  const initialPaymentPlans = [{ kind: "full" as const }, { kind: "split_50_50" as const }];
-  const initialRoyaltyTerms = {
-    master: { mode: "percentage" as const, bps: 250 },
-    composition: {
-      mode: "percentage" as const,
-      bps: 1250,
-      role: "composer" as const,
-      collectingSociety: "ACUM",
-    },
-  };
-  const initialAgreementText = "Producer keeps 2.5% master and 12.5% composition.";
-  const initialContractUrl = "https://example.com/e2e-agreement.pdf";
-  const previousDatabaseUrl = process.env.DATABASE_URL;
-  const suffix = randomUUID();
-  const artistUserId = `artist_e2e_${suffix}`;
-  const strangerArtistUserId = `artist_stranger_${suffix}`;
-  const producerUserId = `producer_e2e_${suffix}`;
-  const attackerProducerUserId = `producer_attacker_${suffix}`;
-  // Vitest still evaluates a skipped suite's registration callback. Use a
-  // syntactically valid, never-contacted fallback URL when local CI secrets
-  // are absent; every query remains inside the skipped hooks/test.
-  const db = createDb(databaseUrl ?? "postgresql://unused:unused@localhost/unused");
+  return null;
+}
 
+async function rejectedPostgresCode(operation: () => Promise<unknown>): Promise<string | null> {
+  try {
+    await operation();
+    return null;
+  } catch (error) {
+    return postgresErrorCode(error);
+  }
+}
+
+async function safely<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch {
+    // Do not allow driver failures to expose connection details, row IDs, or
+    // synthetic storage keys in test output.
+    throw new Error("SK-90 isolated database operation failed");
+  }
+}
+
+describeWithSafeDatabase("SK-90 purchase constraints — isolated disposable Postgres", () => {
+  const fixtureSuffix = randomUUID();
+  const acceptedAt = new Date("2035-01-02T03:04:05.000Z");
+  let db: Db | undefined;
   let producerId = "";
-  let attackerProducerId = "";
+  let clientContactId = "";
+  let projectId = "";
   let productId = "";
+  const installmentIdsByPurchase = new Map<string, Map<number, string>>();
 
-  function requestFingerprint(): string {
-    return commercialTermsFingerprint({
-      productName: "E2E Premium Single",
-      priceCents: 240_000,
-      currency: "ILS",
-      paymentPlans: initialPaymentPlans,
-      royaltyTerms: initialRoyaltyTerms,
-      agreementText: initialAgreementText,
-      contractUrl: initialContractUrl,
+  function activeDb(): Db {
+    if (!db) throw new Error("SK-90 isolated database was not initialized");
+    return db;
+  }
+
+  function commercialSnapshot(
+    totalCents: number,
+    selectedPaymentPlan: PurchaseCommercialSnapshot["selectedPaymentPlan"],
+  ): PurchaseCommercialSnapshot {
+    return {
+      version: 1,
+      productOrOfferName: "SK-90 constraint fixture",
+      deliverables: [],
+      lineItems: [
+        {
+          label: "SK-90 fixture",
+          quantity: 1,
+          listUnitPriceCents: totalCents,
+          unitPriceCents: totalCents,
+          totalCents,
+        },
+      ],
+      listSubtotalCents: totalCents,
+      discountCents: 0,
+      subtotalCents: totalCents,
+      tax: { mode: "tax_free", ratePct: 0, amountCents: 0 },
+      totalCents,
+      currency: "USD",
+      includedSongSpaces: 0,
+      session: null,
+      revisionRule: null,
+      royaltyTerms: null,
+      rights: [],
+      selectedPaymentPlan,
+      offeredPaymentPlans: selectedPaymentPlan ? [selectedPaymentPlan] : [],
+      agreementText: "SK-90 isolated integration fixture",
+    };
+  }
+
+  function purchaseValues(input: {
+    totalCents: number;
+    paymentPlanKind: PaymentPlanKind;
+    operationKey?: string;
+  }): NewPurchase {
+    const operationKey = input.operationKey ?? `purchase-${randomUUID()}`;
+    const selectedPaymentPlan: PurchaseCommercialSnapshot["selectedPaymentPlan"] =
+      input.paymentPlanKind === "monthly"
+        ? { kind: "monthly", installments: 2 }
+        : input.paymentPlanKind
+          ? { kind: input.paymentPlanKind }
+          : null;
+    const snapshot = commercialSnapshot(input.totalCents, selectedPaymentPlan);
+
+    return {
+      producerId,
+      projectId,
+      clientContactId,
+      productId,
+      sourceKind: input.totalCents === 0 ? "no_charge_add_on" : "paid_add_on",
+      operationKey,
+      operationDigest: `digest-${operationKey}`,
+      refNumber: `SK90-${randomUUID()}`,
+      paymentPlanKind: input.paymentPlanKind,
+      snapshotDigest: `snapshot-${randomUUID()}`,
+      commercialSnapshot: snapshot,
+      subtotalCents: input.totalCents,
+      taxCents: 0,
+      totalCents: input.totalCents,
+      currency: "USD",
+      acceptedAt,
+      ...(input.totalCents === 0
+        ? { lifecycleStatus: "active" as const, activatedAt: acceptedAt }
+        : {}),
+    };
+  }
+
+  function proofValues(input: {
+    purchaseId: string;
+    installmentId: string;
+    replacesProofId?: string;
+    id?: string;
+    status?: NewPaymentProof["status"];
+  }): NewPaymentProof {
+    const status = input.status ?? "rejected";
+
+    return {
+      ...(input.id ? { id: input.id } : {}),
+      purchaseId: input.purchaseId,
+      installmentId: input.installmentId,
+      producerId,
+      projectId,
+      clientContactId,
+      ...(input.replacesProofId ? { replacesProofId: input.replacesProofId } : {}),
+      amountCents: 100,
+      currency: "USD",
+      storageKey: `sk90-isolated/${fixtureSuffix}/${randomUUID()}`,
+      objectEtag: `etag-${randomUUID()}`,
+      contentType: "image/png",
+      sizeBytes: 1,
+      status,
+      ...(status === "rejected"
+        ? { rejectedAt: acceptedAt, rejectionNote: "Superseded test evidence" }
+        : {}),
+    };
+  }
+
+  async function createPaidPurchase(): Promise<string> {
+    const result = await safely(() =>
+      insertPaidPurchaseWithSchedule({
+        totalCents: 200,
+        paymentPlanKind: "split_50_50",
+      }),
+    );
+    installmentIdsByPurchase.set(
+      result.purchase.id,
+      new Map(result.installments.map((installment) => [installment.position, installment.id])),
+    );
+    return result.purchase.id;
+  }
+
+  function createInstallment(purchaseId: string, position: number): Promise<string> {
+    const installmentId = installmentIdsByPurchase.get(purchaseId)?.get(position);
+    if (!installmentId) throw new Error("SK-90 installment fixture was not created");
+    return Promise.resolve(installmentId);
+  }
+
+  async function insertPaidPurchaseWithSchedule(input: {
+    totalCents: number;
+    paymentPlanKind: PaidPaymentPlanKind;
+    operationKey?: string;
+    overrides?: Partial<NewPurchase>;
+    amounts?: number[];
+  }) {
+    return activeDb().transaction(async (tx) => {
+      const [purchase] = await tx
+        .insert(purchases)
+        .values({
+          ...purchaseValues({
+            totalCents: input.totalCents,
+            paymentPlanKind: input.paymentPlanKind,
+            ...(input.operationKey ? { operationKey: input.operationKey } : {}),
+          }),
+          ...input.overrides,
+        })
+        .returning();
+      if (!purchase) throw new Error("SK-90 purchase fixture was not created");
+
+      const installmentCount = input.paymentPlanKind === "full" ? 1 : 2;
+      const baseAmount = Math.floor(input.totalCents / installmentCount);
+      const remainder = input.totalCents - baseAmount * installmentCount;
+      const amounts =
+        input.amounts ??
+        Array.from({ length: installmentCount }, (_, index) =>
+          index === 0 ? baseAmount + remainder : baseAmount,
+        );
+      const insertedInstallments = await tx
+        .insert(purchaseInstallments)
+        .values(
+          amounts.map((amountCents, index) => ({
+            purchaseId: purchase.id,
+            producerId,
+            position: index + 1,
+            amountCents,
+            currency: "USD",
+            dueTrigger:
+              index === 0
+                ? ("acceptance" as const)
+                : input.paymentPlanKind === "monthly"
+                  ? ("monthly_anniversary" as const)
+                  : ("artist_approval" as const),
+            requiredForActivation: index === 0,
+          })),
+        )
+        .returning({ id: purchaseInstallments.id, position: purchaseInstallments.position });
+
+      return { purchase, installments: insertedInstallments };
     });
   }
 
-  async function createArtist(label: string) {
-    const userId = `artist_${label}_${suffix}`;
-    await db.insert(clientContacts).values({
-      producerId,
-      emailHash: `e2e-hash-${label}-${suffix}`,
-      email: `${userId}@example.com`,
-      name: `E2E ${label} Artist`,
-      clerkUserId: userId,
-    });
-    return {
-      userId,
-      caller: appRouter.createCaller({ userId }),
-    };
+  async function createProduct(): Promise<string> {
+    const [product] = await safely(() =>
+      activeDb()
+        .insert(products)
+        .values({
+          producerId,
+          name: "SK-90 request fixture",
+          durationMin: 60,
+          priceCents: 100,
+        })
+        .returning({ id: products.id }),
+    );
+    if (!product) throw new Error("SK-90 product fixture was not created");
+    return product.id;
+  }
+
+  async function createPurchaseRequest(productId: string, boundProjectId: string): Promise<string> {
+    const operationKey = `request-${randomUUID()}`;
+    const [request] = await safely(() =>
+      activeDb()
+        .insert(purchaseRequests)
+        .values({
+          producerId,
+          clientContactId,
+          productId,
+          projectId: boundProjectId,
+          operationKey,
+          operationDigest: `digest-${operationKey}`,
+          refNumber: `SK90-REQ-${randomUUID()}`,
+          artistName: "SK-90 Artist Fixture",
+          artistEmail: `artist-${fixtureSuffix}@example.invalid`,
+        })
+        .returning({ id: purchaseRequests.id }),
+    );
+    if (!request) throw new Error("SK-90 purchase request fixture was not created");
+    return request.id;
   }
 
   beforeAll(async () => {
-    process.env.DATABASE_URL = databaseUrl;
+    const target = approvedTarget;
+    if (!target) {
+      throw new Error("SK-90 isolated database opt-in was not complete");
+    }
 
-    const [producer] = await db
-      .insert(producers)
-      .values({
-        clerkUserId: producerUserId,
-        email: `${producerUserId}@example.com`,
-        displayName: "E2E Studio",
-        slug: `e2e-studio-${suffix}`,
-        defaultCurrency: "ILS",
-        paymentDetails: {
-          bankTransfer: "Test Bank · Branch 123 · Account 456",
-          bitPhone: "050-000-0000",
-        },
-      })
-      .returning();
-    if (!producer) throw new Error("Failed to seed E2E producer");
+    db = createDb(target.targetDatabaseUrl);
+
+    const marker = await safely(() =>
+      activeDb().execute<{
+        databaseName: string;
+        markerCount: number;
+        triggerMarkerCount: number;
+      }>(sql`
+        select
+          current_database()::text as "databaseName",
+          (
+            select count(*)::int
+            from pg_constraint
+            where connamespace = 'public'::regnamespace
+              and conname in (
+                'purchases_payment_plan_shape',
+                'purchases_zero_total_activation_shape',
+                'purchases_lifecycle_timestamp_shape',
+                'purchases_snapshot_scalar_consistency',
+                'purchases_agreement_text_shape',
+                'purchases_source_link_shape',
+                'purchases_source_amount_shape',
+                'purchases_operation_key_unique',
+                'purchase_requests_status_timestamp_shape',
+                'purchase_installments_positive_amount',
+                'payment_proofs_replacement_identity_fk',
+                'payment_proofs_does_not_replace_self',
+                'payment_proofs_status_shape',
+                'purchase_session_allowances_close_shape',
+                'track_versions_audio_identity_shape',
+                'version_approval_events_audio_identity_fk',
+                'notifications_project_producer_fk'
+              )
+          ) as "markerCount",
+          (
+            select count(*)::int
+            from pg_trigger
+            where tgname in (
+                'purchase_acceptances_validate_purchase',
+                'purchase_acceptances_validate_schedule',
+                'purchase_installments_require_paid_purchase',
+                'purchase_installments_reject_accepted_append',
+                'purchase_installments_validate_schedule',
+                'payment_proofs_validate_replacement',
+                'private_offers_protect_purchase_source',
+                'purchase_requests_protect_identity',
+                'purchases_validate_installment_schedule',
+                'purchases_validate_source_links',
+                'track_versions_protect_identity'
+              )
+              and tgenabled = 'O'
+              and not tgisinternal
+          ) as "triggerMarkerCount"
+      `),
+    );
+    const markerRow = marker.rows[0];
+    if (
+      markerRow?.databaseName !== target.databaseName ||
+      markerRow.markerCount !== 17 ||
+      markerRow.triggerMarkerCount !== 11
+    ) {
+      throw new Error("SK-90 isolated database identity or schema marker mismatch");
+    }
+
+    const [producer] = await safely(() =>
+      activeDb()
+        .insert(producers)
+        .values({
+          clerkUserId: `sk90-test-${fixtureSuffix}`,
+          email: `sk90-${fixtureSuffix}@example.invalid`,
+          slug: `sk90-test-${fixtureSuffix}`,
+        })
+        .returning({ id: producers.id }),
+    );
+    if (!producer) throw new Error("SK-90 producer fixture was not created");
     producerId = producer.id;
 
-    const [attacker] = await db
-      .insert(producers)
-      .values({
-        clerkUserId: attackerProducerUserId,
-        email: `${attackerProducerUserId}@example.com`,
-        displayName: "Other Studio",
-        slug: `e2e-other-studio-${suffix}`,
-      })
-      .returning();
-    if (!attacker) throw new Error("Failed to seed E2E attacker producer");
-    attackerProducerId = attacker.id;
-
-    await db.insert(clientContacts).values({
-      producerId,
-      emailHash: `e2e-hash-${suffix}`,
-      email: `${artistUserId}@example.com`,
-      name: "E2E Artist",
-      clerkUserId: artistUserId,
-    });
-    await db.insert(clientContacts).values({
-      producerId,
-      emailHash: `e2e-stranger-hash-${suffix}`,
-      email: `${strangerArtistUserId}@example.com`,
-      name: "E2E Stranger Artist",
-      clerkUserId: strangerArtistUserId,
-    });
-
-    const [product] = await db
-      .insert(products)
-      .values({
-        producerId,
-        name: "E2E Premium Single",
-        description: "Disposable integration-test product",
-        durationMin: 120,
-        sessionCount: 1,
-        priceCents: 240_000,
-        currency: "ILS",
-        depositModel: "flat",
-        paymentPlans: initialPaymentPlans,
-        royaltyTerms: initialRoyaltyTerms,
-        agreementText: initialAgreementText,
-        contractUrl: initialContractUrl,
-      })
-      .returning();
-    if (!product) throw new Error("Failed to seed E2E product");
-    productId = product.id;
-  });
-
-  afterAll(async () => {
-    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = previousDatabaseUrl;
-
-    const seededProducerIds = [producerId, attackerProducerId].filter(Boolean);
-    if (seededProducerIds.length > 0) {
-      await db.delete(producers).where(inArray(producers.id, seededProducerIds));
-    }
-  });
-
-  it("rolls back a failed interactive transaction", async () => {
-    const rollbackUserId = `producer_rollback_${suffix}`;
-
-    try {
-      await expect(
-        db.transaction(async (tx) => {
-          await tx.insert(producers).values({
-            clerkUserId: rollbackUserId,
-            email: `${rollbackUserId}@example.com`,
-            displayName: "Rollback Studio",
-            slug: `rollback-studio-${suffix}`,
-          });
-          throw new Error("force transaction rollback");
-        }),
-      ).rejects.toThrow("force transaction rollback");
-
-      const rolledBackRows = await db
-        .select()
-        .from(producers)
-        .where(eq(producers.clerkUserId, rollbackUserId));
-      expect(rolledBackRows).toHaveLength(0);
-    } finally {
-      // Keep the disposable test branch clean even if a future adapter
-      // regression accidentally commits before this assertion runs.
-      await db.delete(producers).where(eq(producers.clerkUserId, rollbackUserId));
-    }
-  });
-
-  it("keeps royalty and inline-agreement snapshots unchanged after product edits", async () => {
-    const { caller: artist } = await createArtist("commercial-snapshot");
-    const producer = appRouter.createCaller({ userId: producerUserId });
-    const created = await artist.artist.purchase.request({
-      productId,
-      paymentPlan: { kind: "full" },
-      agreementAccepted: true,
-      commercialTermsFingerprint: requestFingerprint(),
-    });
-
-    const editedRoyaltyTerms = {
-      master: { mode: "none" as const },
-      composition: { mode: "agreement" as const },
-    };
-    await db
-      .update(products)
-      .set({
-        paymentPlans: [{ kind: "monthly", installments: 4 }],
-        royaltyTerms: editedRoyaltyTerms,
-        agreementText: "New terms for future requests only.",
-        contractUrl: "https://example.com/new-agreement.pdf",
-      })
-      .where(eq(products.id, productId));
-
-    try {
-      const [persisted] = await db
-        .select()
-        .from(purchaseRequests)
-        .where(eq(purchaseRequests.id, created.purchaseRequestId));
-      expect(persisted?.paymentPlanOptionsSnapshot).toEqual(initialPaymentPlans);
-      expect(persisted?.royaltyTermsSnapshot).toEqual(initialRoyaltyTerms);
-      expect(persisted?.agreementTextSnapshot).toBe(initialAgreementText);
-      expect(persisted?.contractUrlSnapshot).toBe(initialContractUrl);
-
-      const detail = await producer.producer.purchase.get({ id: created.purchaseRequestId });
-      expect(detail.request.paymentPlanOptionsSnapshot).toEqual(initialPaymentPlans);
-      expect(detail.request.royaltyTermsSnapshot).toEqual(initialRoyaltyTerms);
-      expect(detail.request.agreementTextSnapshot).toBe(initialAgreementText);
-      expect(detail.request.contractUrlSnapshot).toBe(initialContractUrl);
-      expect(detail.agreement.acceptedAt).toBeInstanceOf(Date);
-    } finally {
-      await db
-        .update(products)
-        .set({
-          paymentPlans: initialPaymentPlans,
-          royaltyTerms: initialRoyaltyTerms,
-          agreementText: initialAgreementText,
-          contractUrl: initialContractUrl,
+    const [contact] = await safely(() =>
+      activeDb()
+        .insert(clientContacts)
+        .values({
+          producerId,
+          emailHash: `hash-${fixtureSuffix}`,
+          email: `artist-${fixtureSuffix}@example.invalid`,
+          name: "SK-90 Artist Fixture",
         })
-        .where(eq(products.id, productId));
-    }
+        .returning({ id: clientContacts.id }),
+    );
+    if (!contact) throw new Error("SK-90 client fixture was not created");
+    clientContactId = contact.id;
+
+    const [project] = await safely(() =>
+      activeDb()
+        .insert(projects)
+        .values({
+          producerId,
+          clientContactId,
+          title: "SK-90 constraint project",
+          artistName: "SK-90 Artist Fixture",
+          artistEmail: `artist-${fixtureSuffix}@example.invalid`,
+        })
+        .returning({ id: projects.id }),
+    );
+    if (!project) throw new Error("SK-90 project fixture was not created");
+    projectId = project.id;
+    productId = await createProduct();
   });
 
-  it("rejects a request when the reviewed commercial terms changed", async () => {
-    const { caller: artist } = await createArtist("commercial-drift");
-    await expect(
-      artist.artist.purchase.request({
-        productId,
-        paymentPlan: { kind: "full" },
-        agreementAccepted: true,
-        commercialTermsFingerprint: "0".repeat(64),
-      }),
-    ).rejects.toMatchObject({ code: "CONFLICT" });
-  });
+  it("activates a zero-total purchase immediately without installments or proofs", async () => {
+    const [purchase] = await safely(() =>
+      activeDb()
+        .insert(purchases)
+        .values(purchaseValues({ totalCents: 0, paymentPlanKind: null }))
+        .returning({
+          id: purchases.id,
+          totalCents: purchases.totalCents,
+          paymentPlanKind: purchases.paymentPlanKind,
+          lifecycleStatus: purchases.lifecycleStatus,
+          activatedAt: purchases.activatedAt,
+        }),
+    );
 
-  it("allows exactly one concurrent approve-or-decline transition and one email", async () => {
-    const { caller: artist } = await createArtist("gate-race");
-    const producer = appRouter.createCaller({ userId: producerUserId });
-    const created = await artist.artist.purchase.request({
-      productId,
-      paymentPlan: { kind: "full" },
-      agreementAccepted: true,
-      commercialTermsFingerprint: requestFingerprint(),
+    if (!purchase) throw new Error("SK-90 zero-total purchase fixture was not created");
+    expect(typeof purchase.id).toBe("string");
+    expect(purchase).toMatchObject({
+      totalCents: 0,
+      paymentPlanKind: null,
+      lifecycleStatus: "active",
+      activatedAt: acceptedAt,
     });
-
-    purchaseApprovedEmailMock.mockClear();
-    purchaseDeclinedEmailMock.mockClear();
-    const outcomes = await Promise.allSettled([
-      producer.producer.purchase.approve({ id: created.purchaseRequestId }),
-      producer.producer.purchase.decline({
-        id: created.purchaseRequestId,
-        reason: "Concurrent decision test",
-      }),
-    ]);
-
-    expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
-    expect(outcomes.filter((outcome) => outcome.status === "rejected")).toHaveLength(1);
     expect(
-      purchaseApprovedEmailMock.mock.calls.length + purchaseDeclinedEmailMock.mock.calls.length,
-    ).toBe(1);
-
-    const [persisted] = await db
-      .select()
-      .from(purchaseRequests)
-      .where(eq(purchaseRequests.id, created.purchaseRequestId));
-    expect(["approved", "declined"]).toContain(persisted?.status);
-  }, 30_000);
-
-  it("keeps a declined request visible to its artist as a generic terminal state", async () => {
-    const { caller: artist } = await createArtist("declined-gate-one");
-    const producer = appRouter.createCaller({ userId: producerUserId });
-    const created = await artist.artist.purchase.request({
-      productId,
-      paymentPlan: { kind: "full" },
-      agreementAccepted: true,
-      commercialTermsFingerprint: requestFingerprint(),
-    });
-
-    await producer.producer.purchase.decline({
-      id: created.purchaseRequestId,
-      reason: "Private producer note",
-    });
-
-    const current = await artist.artist.purchase.current({ producerId });
-    expect(current.current).toMatchObject({
-      id: created.purchaseRequestId,
-      status: "declined",
-    });
-    await expect(
-      artist.artist.purchase.paymentPlan.choose({
-        purchaseRequestId: created.purchaseRequestId,
-        paymentPlan: { kind: "full" },
-      }),
-    ).rejects.toMatchObject({
-      code: "BAD_REQUEST",
-      message: "A plan can be chosen once the request is approved and before the first payment.",
-    });
-  }, 30_000);
-
-  it("does not offer or accept an expired approval undo", async () => {
-    const { caller: artist } = await createArtist("expired-undo");
-    const producer = appRouter.createCaller({ userId: producerUserId });
-    const created = await artist.artist.purchase.request({
-      productId,
-      paymentPlan: { kind: "full" },
-      agreementAccepted: true,
-      commercialTermsFingerprint: requestFingerprint(),
-    });
-    await producer.producer.purchase.approve({ id: created.purchaseRequestId });
-
-    const freshDetail = await producer.producer.purchase.get({ id: created.purchaseRequestId });
-    expect(freshDetail.request.undoableUntil).toBeInstanceOf(Date);
-
-    await db
-      .update(purchaseRequests)
-      .set({ approvedAt: new Date(Date.now() - 6 * 60_000) })
-      .where(eq(purchaseRequests.id, created.purchaseRequestId));
-
-    const expiredDetail = await producer.producer.purchase.get({ id: created.purchaseRequestId });
-    expect(expiredDetail.request.undoableUntil).toBeNull();
-    await expect(
-      producer.producer.purchase.undoApproval({ id: created.purchaseRequestId }),
-    ).rejects.toMatchObject({
-      code: "BAD_REQUEST",
-      message: "The undo window has elapsed.",
-    });
-  }, 30_000);
-
-  it("keeps approval undo and plan choice coherent under a real database race", async () => {
-    const { caller: artist } = await createArtist("undo-race");
-    const producer = appRouter.createCaller({ userId: producerUserId });
-    const created = await artist.artist.purchase.request({
-      productId,
-      paymentPlan: { kind: "full" },
-      agreementAccepted: true,
-      commercialTermsFingerprint: requestFingerprint(),
-    });
-    await producer.producer.purchase.approve({ id: created.purchaseRequestId });
-
-    const outcomes = await Promise.allSettled([
-      artist.artist.purchase.paymentPlan.choose({
-        purchaseRequestId: created.purchaseRequestId,
-        paymentPlan: { kind: "full" },
-      }),
-      producer.producer.purchase.undoApproval({ id: created.purchaseRequestId }),
-    ]);
-    expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
-    expect(outcomes.filter((outcome) => outcome.status === "rejected")).toHaveLength(1);
-
-    const [persisted] = await db
-      .select()
-      .from(purchaseRequests)
-      .where(eq(purchaseRequests.id, created.purchaseRequestId));
-    if (!persisted) throw new Error("Race-test purchase disappeared");
-    if (persisted.status === "pending") {
-      expect(persisted.approvedAt).toBeNull();
-      expect(persisted.paymentPlanChosenAt).toBeNull();
-    } else {
-      expect(persisted.status).toBe("approved");
-      expect(persisted.approvedAt).toBeInstanceOf(Date);
-      expect(persisted.paymentPlanChosenAt).toBeInstanceOf(Date);
-    }
-  }, 30_000);
-
-  it("lets exactly one of confirm or reject win for the same immutable proof", async () => {
-    const { caller: artist } = await createArtist("proof-race");
-    const producer = appRouter.createCaller({ userId: producerUserId });
-    const created = await artist.artist.purchase.request({
-      productId,
-      paymentPlan: { kind: "full" },
-      agreementAccepted: true,
-      commercialTermsFingerprint: requestFingerprint(),
-    });
-    await producer.producer.purchase.approve({ id: created.purchaseRequestId });
-    await artist.artist.purchase.paymentPlan.choose({
-      purchaseRequestId: created.purchaseRequestId,
-      paymentPlan: { kind: "full" },
-    });
-    const proof = await artist.artist.purchase.proofOfPayment.submit({
-      purchaseRequestId: created.purchaseRequestId,
-      amountCents: 240_000,
-      originalFileName: "race-proof.png",
-    });
-
-    r2SendMock.mockRejectedValueOnce(new Error("simulated ETag mismatch"));
-    await expect(
-      producer.producer.purchase.proofOfPayment.confirm({ proofId: proof.proofId }),
-    ).rejects.toMatchObject({
-      code: "BAD_REQUEST",
-      message: "This proof file changed or is unavailable. Ask the artist to upload it again.",
-    });
-    const invoicesAfterTamper = await db
-      .select()
-      .from(invoices)
-      .where(eq(invoices.paymentProofId, proof.proofId));
-    expect(invoicesAfterTamper).toHaveLength(0);
-
-    const outcomes = await Promise.allSettled([
-      producer.producer.purchase.proofOfPayment.confirm({ proofId: proof.proofId }),
-      producer.producer.purchase.proofOfPayment.reject({
-        proofId: proof.proofId,
-        note: "Race rejection",
-      }),
-    ]);
-    expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
-    expect(outcomes.filter((outcome) => outcome.status === "rejected")).toHaveLength(1);
-
-    const [persistedProof] = await db
-      .select()
-      .from(paymentProofs)
-      .where(eq(paymentProofs.id, proof.proofId));
-    const proofInvoices = await db
-      .select()
-      .from(invoices)
-      .where(eq(invoices.paymentProofId, proof.proofId));
-    const [persistedRequest] = await db
-      .select()
-      .from(purchaseRequests)
-      .where(eq(purchaseRequests.id, created.purchaseRequestId));
-    expect(["confirmed", "rejected"]).toContain(persistedProof?.status);
-    if (persistedProof?.status === "confirmed") {
-      expect(proofInvoices).toHaveLength(1);
-      expect(persistedRequest?.status).toBe("paid");
-    } else {
-      expect(proofInvoices).toHaveLength(0);
-      expect(persistedRequest?.status).toBe("approved");
-    }
-  }, 45_000);
-
-  it("persists request → approval → split proofs → paid-in-full and enforces tenant boundaries", async () => {
-    r2SendMock.mockClear();
-    proofVerifiedEmailMock.mockClear();
-
-    const anonymous = appRouter.createCaller({ userId: null });
-    const artist = appRouter.createCaller({ userId: artistUserId });
-    const strangerArtist = appRouter.createCaller({ userId: strangerArtistUserId });
-    const producer = appRouter.createCaller({ userId: producerUserId });
-    const attackerProducer = appRouter.createCaller({ userId: attackerProducerUserId });
-
-    await expect(
-      anonymous.artist.purchase.request({
-        productId,
-        paymentPlan: { kind: "full" },
-        agreementAccepted: true,
-        commercialTermsFingerprint: requestFingerprint(),
-      }),
-    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
-
-    const created = await artist.artist.purchase.request({
-      productId,
-      paymentPlan: { kind: "full" },
-      agreementAccepted: true,
-      commercialTermsFingerprint: requestFingerprint(),
-    });
-    expect(created.status).toBe("pending");
-    expect(created.priceCents).toBe(240_000);
-
-    const acceptances = await db
-      .select()
-      .from(agreementAcceptances)
-      .where(eq(agreementAcceptances.purchaseRequestId, created.purchaseRequestId));
-    expect(acceptances).toHaveLength(1);
-    const acceptance = acceptances[0];
-    if (!acceptance) throw new Error("Purchase acceptance was not persisted");
-    expect(acceptance.acceptedByClerkUserId).toBe(artistUserId);
-
-    // Gate 1 producer hub: the owner sees the newly-created pending row
-    // with its locked snapshot and agreement; another producer sees
-    // neither the list item nor the private detail.
-    const ownerPending = await producer.producer.purchase.list({ status: "pending" });
-    expect(ownerPending.requests).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: created.purchaseRequestId,
-          status: "pending",
-          artistName: "E2E Artist",
-          productNameSnapshot: "E2E Premium Single",
-          priceCents: 240_000,
-        }),
-      ]),
-    );
-    const detail = await producer.producer.purchase.get({ id: created.purchaseRequestId });
-    expect(detail.request).toMatchObject({
-      id: created.purchaseRequestId,
-      status: "pending",
-      artistName: "E2E Artist",
-      productNameSnapshot: "E2E Premium Single",
-      priceCents: 240_000,
-      sessionCountSnapshot: 1,
-      paymentPlanOptionsSnapshot: [{ kind: "full" }, { kind: "split_50_50" }],
-      contractUrlSnapshot: "https://example.com/e2e-agreement.pdf",
-    });
-    expect(detail.agreement).toMatchObject({
-      agreementUrl: "https://example.com/e2e-agreement.pdf",
-    });
-    expect(detail.agreement.acceptedAt).toBeInstanceOf(Date);
-
-    const attackerPending = await attackerProducer.producer.purchase.list({ status: "pending" });
-    expect(attackerPending.requests).not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: created.purchaseRequestId })]),
-    );
-    await expect(
-      attackerProducer.producer.purchase.get({ id: created.purchaseRequestId }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-
-    await expect(
-      strangerArtist.artist.purchase.proofOfPayment.state({
-        purchaseRequestId: created.purchaseRequestId,
-      }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-    await expect(
-      attackerProducer.producer.purchase.approve({ id: created.purchaseRequestId }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-    await expect(
-      attackerProducer.producer.purchase.get({ id: created.purchaseRequestId }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-
-    const approved = await producer.producer.purchase.approve({ id: created.purchaseRequestId });
-    expect(approved.status).toBe("approved");
-
-    const options = await artist.artist.purchase.paymentPlan.options({
-      purchaseRequestId: created.purchaseRequestId,
-    });
-    expect(options.options.map((option) => option.kind)).toEqual(["full", "split_50_50"]);
-
-    await artist.artist.purchase.paymentPlan.choose({
-      purchaseRequestId: created.purchaseRequestId,
-      paymentPlan: { kind: "split_50_50" },
-    });
-    // The credit belongs to the purchase snapshot, not a later product edit.
-    await db.update(products).set({ sessionCount: 9 }).where(eq(products.id, productId));
-    await expect(
-      artist.artist.purchase.paymentPlan.choose({
-        purchaseRequestId: created.purchaseRequestId,
-        paymentPlan: { kind: "full" },
-      }),
-    ).rejects.toMatchObject({ code: "CONFLICT" });
-
-    const instructions = await artist.artist.purchase.paymentInstructions({
-      purchaseRequestId: created.purchaseRequestId,
-    });
-    expect(instructions.amountDueNowCents).toBe(120_000);
-    expect(instructions.bankTransfer).toContain("Test Bank");
-
-    const callsBeforeInvalidAmount = r2SendMock.mock.calls.length;
-    await expect(
-      artist.artist.purchase.proofOfPayment.submit({
-        purchaseRequestId: created.purchaseRequestId,
-        amountCents: 1,
-        originalFileName: "one-cent.png",
-      }),
-    ).rejects.toMatchObject({
-      code: "BAD_REQUEST",
-      message: "The proof amount must match the payment currently due.",
-    });
-    expect(r2SendMock).toHaveBeenCalledTimes(callsBeforeInvalidAmount);
-
-    const firstProof = await artist.artist.purchase.proofOfPayment.submit({
-      purchaseRequestId: created.purchaseRequestId,
-      amountCents: 120_000,
-      originalFileName: "first-proof.png",
-      note: "E2E deposit",
-    });
-    expect(firstProof.ok).toBe(true);
-    expect(firstProof.proofId).toMatch(/^[0-9a-f-]{36}$/);
-
-    const invoicesBeforeConfirmation = await db
-      .select()
-      .from(invoices)
-      .where(eq(invoices.purchaseRequestId, created.purchaseRequestId));
-    expect(invoicesBeforeConfirmation).toHaveLength(0);
-
-    const ownerProofQueue = await producer.producer.purchase.proofOfPayment.pending();
-    expect(ownerProofQueue.available).toBe(true);
-    expect(ownerProofQueue.proofs).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          proofId: firstProof.proofId,
-          purchaseRequestId: created.purchaseRequestId,
-          artistName: "E2E Artist",
-        }),
-      ]),
-    );
-    const exactRequestQueue = await producer.producer.purchase.proofOfPayment.pending({
-      purchaseRequestId: created.purchaseRequestId,
-    });
-    expect(exactRequestQueue.available).toBe(true);
-    expect(exactRequestQueue.proofs).toHaveLength(1);
-    expect(exactRequestQueue.proofs[0]?.proofId).toBe(firstProof.proofId);
-    await expect(
-      producer.producer.purchase.proofOfPayment.pending({
-        purchaseRequestId: randomUUID(),
-      }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-    await expect(
-      attackerProducer.producer.purchase.proofOfPayment.pending({
-        purchaseRequestId: created.purchaseRequestId,
-      }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-
-    const callsBeforeForeignProofReads = r2SendMock.mock.calls.length;
-    await expect(
-      strangerArtist.artist.purchase.proofOfPayment.state({
-        purchaseRequestId: created.purchaseRequestId,
-      }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-    await expect(
-      strangerArtist.artist.purchase.proofOfPayment.presign({
-        purchaseRequestId: created.purchaseRequestId,
-        fileName: "foreign.png",
-        contentType: "image/png",
-        sizeBytes: 128,
-      }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-    await expect(
-      strangerArtist.artist.purchase.proofOfPayment.submit({
-        purchaseRequestId: created.purchaseRequestId,
-        amountCents: 120_000,
-        originalFileName: "foreign.png",
-      }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-    await expect(
-      attackerProducer.producer.purchase.proofOfPayment.view({ proofId: firstProof.proofId }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-    await expect(
-      attackerProducer.producer.purchase.proofOfPayment.confirm({ proofId: firstProof.proofId }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-    await expect(
-      attackerProducer.producer.purchase.proofOfPayment.reject({
-        proofId: firstProof.proofId,
-        note: "Should never be visible",
-      }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-    expect(r2SendMock).toHaveBeenCalledTimes(callsBeforeForeignProofReads);
-
-    await producer.producer.purchase.proofOfPayment.reject({
-      proofId: firstProof.proofId,
-      note: "The account number is cropped. Please upload the full receipt.",
-    });
-    const rejectedState = await artist.artist.purchase.proofOfPayment.state({
-      purchaseRequestId: created.purchaseRequestId,
-    });
-    expect(rejectedState.requestStatus).toBe("approved");
-    expect(rejectedState.amountDueNowCents).toBe(120_000);
-    expect(rejectedState.availableToSubmitCents).toBe(240_000);
-    expect(rejectedState.proofs).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: firstProof.proofId,
-          status: "rejected",
-          rejectionNote: "The account number is cropped. Please upload the full receipt.",
-        }),
-      ]),
-    );
-
-    const acceptedFirstProof = await artist.artist.purchase.proofOfPayment.submit({
-      purchaseRequestId: created.purchaseRequestId,
-      amountCents: 120_000,
-      originalFileName: "first-proof-reupload.png",
-      note: "E2E deposit re-upload",
-    });
-
-    await expect(
-      artist.artist.purchase.proofOfPayment.submit({
-        purchaseRequestId: created.purchaseRequestId,
-        amountCents: 120_000,
-        originalFileName: "duplicate.png",
-      }),
-    ).rejects.toMatchObject({ code: "CONFLICT" });
-
-    const confirmations = await Promise.all([
-      producer.producer.purchase.proofOfPayment.confirm({ proofId: acceptedFirstProof.proofId }),
-      producer.producer.purchase.proofOfPayment.confirm({ proofId: acceptedFirstProof.proofId }),
-    ]);
-    expect(confirmations.every((result) => result.depositPaid)).toBe(true);
-    expect(confirmations.every((result) => !result.finalPaid)).toBe(true);
-    expect(new Set(confirmations.map((result) => result.projectId)).size).toBe(1);
-
-    const firstProofInvoices = await db
-      .select()
-      .from(invoices)
-      .where(eq(invoices.paymentProofId, acceptedFirstProof.proofId));
-    expect(firstProofInvoices).toHaveLength(1);
-    expect(firstProofInvoices[0]?.status).toBe("paid");
-
-    const [depositRequest] = await db
-      .select()
-      .from(purchaseRequests)
-      .where(eq(purchaseRequests.id, created.purchaseRequestId));
-    expect(depositRequest?.projectId).toEqual(expect.any(String));
-    if (!depositRequest?.projectId) throw new Error("Deposit did not create a project");
-    expect(depositRequest.projectId).toMatch(/^[0-9a-f-]{36}$/);
-
-    const purchaseProjects = await db
-      .select({ id: projects.id })
-      .from(projects)
-      .where(
-        and(
-          eq(projects.producerId, producerId),
-          eq(projects.artistEmail, `${artistUserId}@example.com`),
-        ),
-      );
-    expect(purchaseProjects).toEqual([{ id: depositRequest.projectId }]);
-
-    const [depositProject] = await db
-      .select()
-      .from(projects)
-      .where(eq(projects.id, depositRequest.projectId));
-    expect(depositProject).toMatchObject({
-      producerId,
-      title: "E2E Premium Single",
-      artistEmail: `${artistUserId}@example.com`,
-      depositPaid: true,
-      finalPaid: false,
-      sessionCount: 1,
-      totalAmountCents: 240_000,
-      currency: "ILS",
-    });
-    await db.update(products).set({ sessionCount: 1 }).where(eq(products.id, productId));
-    expect(firstProofInvoices[0]?.projectId).toBe(depositRequest.projectId);
-
-    const availablePackages = await artist.artist.book.activePackages({ producerId });
-    expect(availablePackages).toEqual([
-      expect.objectContaining({
-        projectId: depositRequest.projectId,
-        packageName: "E2E Premium Single",
-        sessionCount: 1,
-        sessionsUsed: 0,
-        sessionsRemaining: 1,
-        unlimitedSessions: false,
-      }),
-    ]);
-
-    await expect(
-      strangerArtist.artist.book.confirm({
-        producerId,
-        date: "2035-01-08",
-        block: "morning",
-        startMin: 540,
-        durationMin: 120,
-        projectId: null,
-        productId: null,
-        existingProjectId: depositRequest.projectId,
-      }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-
-    const creditAttempts = await Promise.allSettled([
-      artist.artist.book.confirm({
-        producerId,
-        date: "2035-01-08",
-        block: "morning",
-        startMin: 540,
-        durationMin: 120,
-        projectId: null,
-        productId: null,
-        existingProjectId: depositRequest.projectId,
-      }),
-      artist.artist.book.confirm({
-        producerId,
-        date: "2035-01-09",
-        block: "morning",
-        startMin: 540,
-        durationMin: 120,
-        projectId: null,
-        productId: null,
-        existingProjectId: depositRequest.projectId,
-      }),
-    ]);
-    expect(creditAttempts.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-    expect(creditAttempts.filter((result) => result.status === "rejected")).toHaveLength(1);
-    expect(creditAttempts.find((result) => result.status === "rejected")).toMatchObject({
-      reason: { code: "CONFLICT" },
-    });
-
-    const reservedBookings = await db
-      .select()
-      .from(bookings)
-      .where(eq(bookings.projectId, depositRequest.projectId));
-    expect(reservedBookings).toHaveLength(1);
-    expect(reservedBookings[0]?.status).toBe("pending_approval");
-
-    const [scheduledRequest] = await db
-      .select()
-      .from(purchaseRequests)
-      .where(eq(purchaseRequests.id, created.purchaseRequestId));
-    expect(scheduledRequest?.bookingId).toBe(reservedBookings[0]?.id);
-    await expect(artist.artist.book.activePackages({ producerId })).resolves.toEqual([]);
-
-    const halfway = await artist.artist.purchase.proofOfPayment.state({
-      purchaseRequestId: created.purchaseRequestId,
-    });
-    expect(halfway.requestStatus).toBe("paid");
-    expect(halfway.paidCents).toBe(120_000);
-    expect(halfway.remainingCents).toBe(120_000);
-    expect(halfway.paidInFull).toBe(false);
-
-    const secondProof = await artist.artist.purchase.proofOfPayment.submit({
-      purchaseRequestId: created.purchaseRequestId,
-      amountCents: 120_000,
-      originalFileName: "final-proof.png",
-      note: "E2E final payment",
-    });
-    await producer.producer.purchase.proofOfPayment.reject({
-      proofId: firstProof.proofId,
-      note: "Idempotent retry for the already rejected proof",
-    });
-    const [secondProofNotification] = await db
-      .select({ id: notifications.id, readAt: notifications.readAt })
-      .from(notifications)
-      .where(eq(notifications.id, secondProof.proofId))
-      .limit(1);
-    expect(secondProofNotification).toEqual({ id: secondProof.proofId, readAt: null });
-
-    const [finalConfirmation, earlierProofRetry] = await Promise.all([
-      producer.producer.purchase.proofOfPayment.confirm({
-        proofId: secondProof.proofId,
-      }),
-      producer.producer.purchase.proofOfPayment.confirm({
-        proofId: acceptedFirstProof.proofId,
-      }),
-    ]);
-    expect(finalConfirmation.finalPaid).toBe(true);
-    expect(earlierProofRetry.finalPaid).toBe(true);
-
-    const complete = await artist.artist.purchase.proofOfPayment.state({
-      purchaseRequestId: created.purchaseRequestId,
-    });
-    expect(complete.paidCents).toBe(240_000);
-    expect(complete.remainingCents).toBe(0);
-    expect(complete.paidInFull).toBe(true);
-
-    const [completeProject] = await db
-      .select()
-      .from(projects)
-      .where(eq(projects.id, depositRequest.projectId));
-    expect(completeProject?.finalPaid).toBe(true);
-
-    const persistedProofs = await db
-      .select()
-      .from(paymentProofs)
-      .where(eq(paymentProofs.purchaseRequestId, created.purchaseRequestId));
-    const persistedInvoices = await db
-      .select()
-      .from(invoices)
-      .where(eq(invoices.purchaseRequestId, created.purchaseRequestId));
-    expect(persistedProofs).toHaveLength(3);
-    expect(persistedProofs.filter((proof) => proof.status === "confirmed")).toHaveLength(2);
-    expect(persistedProofs.filter((proof) => proof.status === "rejected")).toHaveLength(1);
-    expect(persistedProofs.every((proof) => proof.projectId === depositRequest.projectId)).toBe(
-      true,
-    );
-    expect(persistedProofs.every((proof) => proof.objectEtag === '"proof-etag"')).toBe(true);
-    expect(
-      persistedProofs.every((proof) =>
-        new RegExp(
-          `^producers/${producerId}/proofs/${created.purchaseRequestId}/final/[0-9a-f]{32}-`,
-        ).test(proof.storageKey),
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .insert(purchases)
+          .values(purchaseValues({ totalCents: 0, paymentPlanKind: "full" })),
       ),
-    ).toBe(true);
-    expect(persistedInvoices).toHaveLength(2);
+    ).toBe("23514");
+
     expect(
-      persistedInvoices.every((invoice) => invoice.projectId === depositRequest.projectId),
-    ).toBe(true);
-    expect(persistedInvoices.reduce((sum, invoice) => sum + invoice.amountCents, 0)).toBe(240_000);
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .insert(purchases)
+          .values({
+            ...purchaseValues({ totalCents: 0, paymentPlanKind: null }),
+            lifecycleStatus: "active",
+            activatedAt: null,
+          }),
+      ),
+    ).toBe("23514");
 
-    // A fully-paid request releases the single-active-purchase slot.
-    const nextPurchase = await artist.artist.purchase.request({
-      productId,
-      paymentPlan: { kind: "full" },
-      agreementAccepted: true,
-      commercialTermsFingerprint: requestFingerprint(),
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .insert(purchases)
+          .values({
+            ...purchaseValues({ totalCents: 0, paymentPlanKind: null }),
+            lifecycleStatus: "waiting_for_payment",
+            activatedAt: null,
+          }),
+      ),
+    ).toBe("23514");
+
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb().insert(purchaseInstallments).values({
+          purchaseId: purchase.id,
+          producerId,
+          position: 1,
+          amountCents: 1,
+          currency: "USD",
+          dueTrigger: "acceptance",
+          requiredForActivation: true,
+        }),
+      ),
+    ).toBe("23514");
+
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .insert(paymentProofs)
+          .values(proofValues({ purchaseId: purchase.id, installmentId: randomUUID() })),
+      ),
+    ).toBe("23503");
+  });
+
+  it("accepts a paid purchase only with a non-null payment plan", async () => {
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .insert(purchases)
+          .values(purchaseValues({ totalCents: 100, paymentPlanKind: null })),
+      ),
+    ).toBe("23514");
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .insert(purchases)
+          .values(purchaseValues({ totalCents: 100, paymentPlanKind: "full" })),
+      ),
+    ).toBe("23514");
+
+    const { purchase } = await safely(() =>
+      insertPaidPurchaseWithSchedule({ totalCents: 100, paymentPlanKind: "full" }),
+    );
+    expect(typeof purchase.id).toBe("string");
+    expect(purchase).toMatchObject({
+      totalCents: 100,
+      paymentPlanKind: "full",
     });
-    expect(nextPurchase.purchaseRequestId).not.toBe(created.purchaseRequestId);
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb().insert(purchaseInstallments).values({
+          purchaseId: purchase.id,
+          producerId,
+          position: 1,
+          amountCents: 0,
+          currency: "USD",
+          dueTrigger: "acceptance",
+          requiredForActivation: true,
+        }),
+      ),
+    ).toBe("23514");
 
-    const rows = await db
-      .select()
-      .from(purchaseRequests)
-      .where(eq(purchaseRequests.clientContactId, acceptance.clientContactId));
-    expect(rows).toHaveLength(2);
-    const commandNames = r2SendMock.mock.calls.map(([command]) => command.constructor.name);
-    expect(commandNames.filter((name) => name === "CopyObjectCommand")).toHaveLength(3);
-    expect(commandNames.filter((name) => name === "DeleteObjectCommand")).toHaveLength(3);
-    expect(proofVerifiedEmailMock).toHaveBeenCalledTimes(2);
-  }, 90_000);
+    expect(
+      await rejectedPostgresCode(() =>
+        insertPaidPurchaseWithSchedule({
+          totalCents: 101,
+          paymentPlanKind: "split_50_50",
+          amounts: [50, 51],
+        }),
+      ),
+    ).toBe("23514");
+  });
 
-  it("attaches payment to one existing project, applies frozen credit, and keeps paid time stable", async () => {
-    const { userId } = await createArtist("attached-project");
-    const [contact] = await db
-      .select()
-      .from(clientContacts)
-      .where(eq(clientContacts.clerkUserId, userId));
-    if (!contact) throw new Error("Attached-project contact was not seeded");
+  it("binds acceptance history to the exact purchase and keeps purchase lifecycle monotonic", async () => {
+    const { purchase } = await safely(() =>
+      insertPaidPurchaseWithSchedule({ totalCents: 100, paymentPlanKind: "full" }),
+    );
 
-    const [existingProject] = await db
-      .insert(projects)
-      .values({
-        producerId,
-        title: "Existing attached project",
-        artistName: contact.name,
-        artistEmail: contact.email,
-        clientName: contact.name,
-        clientEmail: contact.email,
-        stage: "booked",
-        sessionCount: 1,
-      })
-      .returning();
-    if (!existingProject) throw new Error("Attached project was not seeded");
+    const exactAcceptance = {
+      purchaseId: purchase.id,
+      producerId,
+      clientContactId,
+      acceptedByClerkUserId: `sk90-artist-${fixtureSuffix}`,
+      acceptedSnapshot: purchase.commercialSnapshot,
+      snapshotDigest: purchase.snapshotDigest,
+      acceptedAt: purchase.acceptedAt,
+    };
 
-    const now = new Date();
-    const [request] = await db
-      .insert(purchaseRequests)
-      .values({
-        producerId,
-        clientContactId: contact.id,
-        productId,
-        projectId: existingProject.id,
-        refNumber: `SK-ATTACHED-${suffix}`,
-        status: "verifying",
-        statusChangedAt: now,
-        approvedAt: now,
-        artistName: contact.name,
-        artistEmail: contact.email,
-        productNameSnapshot: "Four-session attached package",
-        priceCents: 240_000,
-        currency: "ILS",
-        sessionCountSnapshot: 4,
-        paymentPlanSnapshot: { kind: "full" },
-        paymentPlanOptionsSnapshot: [{ kind: "full" }],
-        paymentPlanChosenAt: now,
-      })
-      .returning();
-    if (!request) throw new Error("Attached purchase request was not seeded");
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .insert(purchaseAcceptances)
+          .values({
+            ...exactAcceptance,
+            acceptedSnapshot: {
+              ...purchase.commercialSnapshot,
+              agreementText: "Tampered acceptance fixture",
+            },
+          }),
+      ),
+    ).toBe("23514");
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .insert(purchaseAcceptances)
+          .values({
+            ...exactAcceptance,
+            acceptedAt: new Date(purchase.acceptedAt.getTime() + 1),
+          }),
+      ),
+    ).toBe("23514");
+    await safely(() => activeDb().insert(purchaseAcceptances).values(exactAcceptance));
 
-    const [proof] = await db
-      .insert(paymentProofs)
-      .values({
-        purchaseRequestId: request.id,
-        producerId,
-        projectId: existingProject.id,
-        amountCents: 240_000,
-        currency: "ILS",
-        kind: "full",
-        storageBucket: "docs",
-        storageKey: `producers/${producerId}/proofs/${request.id}/final/attached.png`,
-        objectEtag: '"proof-etag"',
-        originalFileName: "attached.png",
-        contentType: "image/png",
-        sizeBytes: 2_048,
-        status: "pending",
-      })
-      .returning();
-    if (!proof) throw new Error("Attached proof was not seeded");
+    await safely(() =>
+      activeDb()
+        .update(purchases)
+        .set({ lifecycleStatus: "active", activatedAt: purchase.acceptedAt })
+        .where(eq(purchases.id, purchase.id)),
+    );
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .update(purchases)
+          .set({ lifecycleStatus: "waiting_for_payment", activatedAt: null })
+          .where(eq(purchases.id, purchase.id)),
+      ),
+    ).toBe("P0001");
 
-    const producer = appRouter.createCaller({ userId: producerUserId });
-    const confirmed = await producer.producer.purchase.proofOfPayment.confirm({
-      proofId: proof.id,
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb().insert(purchaseInstallments).values({
+          purchaseId: purchase.id,
+          producerId,
+          position: 2,
+          amountCents: 1,
+          currency: "USD",
+          dueTrigger: "artist_approval",
+          requiredForActivation: false,
+        }),
+      ),
+    ).toBe("23514");
+  });
+
+  it("freezes installment dates and terminal status plus session closure", async () => {
+    const purchaseId = await createPaidPurchase();
+    const installmentId = await createInstallment(purchaseId, 1);
+    const firstDueAt = new Date("2035-02-01T00:00:00.000Z");
+
+    await safely(() =>
+      activeDb()
+        .update(purchaseInstallments)
+        .set({ dueAt: firstDueAt, triggeredAt: acceptedAt })
+        .where(eq(purchaseInstallments.id, installmentId)),
+    );
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .update(purchaseInstallments)
+          .set({ dueAt: new Date("2035-02-02T00:00:00.000Z") })
+          .where(eq(purchaseInstallments.id, installmentId)),
+      ),
+    ).toBe("P0001");
+    await safely(() =>
+      activeDb()
+        .update(purchaseInstallments)
+        .set({ status: "confirmed" })
+        .where(eq(purchaseInstallments.id, installmentId)),
+    );
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .update(purchaseInstallments)
+          .set({ status: "not_paid" })
+          .where(eq(purchaseInstallments.id, installmentId)),
+      ),
+    ).toBe("P0001");
+
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb().insert(purchaseSessionAllowances).values({
+          purchaseId,
+          producerId,
+          kind: "fixed",
+          sessionLimit: null,
+          durationMin: 60,
+          locationType: "studio",
+          bufferMinutes: 15,
+          minLeadHours: 24,
+        }),
+      ),
+    ).toBe("23514");
+
+    const [allowance] = await safely(() =>
+      activeDb()
+        .insert(purchaseSessionAllowances)
+        .values({
+          purchaseId,
+          producerId,
+          kind: "fixed",
+          sessionLimit: 1,
+          durationMin: 60,
+          locationType: "studio",
+          bufferMinutes: 15,
+          minLeadHours: 24,
+        })
+        .returning({ id: purchaseSessionAllowances.id }),
+    );
+    if (!allowance) throw new Error("SK-90 session allowance fixture was not created");
+    await safely(() =>
+      activeDb()
+        .update(purchaseSessionAllowances)
+        .set({ closedAt: acceptedAt, closeReason: "project_completed" })
+        .where(eq(purchaseSessionAllowances.id, allowance.id)),
+    );
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .update(purchaseSessionAllowances)
+          .set({ closedAt: null, closeReason: null })
+          .where(eq(purchaseSessionAllowances.id, allowance.id)),
+      ),
+    ).toBe("P0001");
+  });
+
+  it("allows only a same-owner project correction before request conversion", async () => {
+    const productId = await createProduct();
+    const requestId = await createPurchaseRequest(productId, projectId);
+    const [sameOwnerProject] = await safely(() =>
+      activeDb()
+        .insert(projects)
+        .values({
+          producerId,
+          clientContactId,
+          title: "SK-90 corrected request project",
+          artistName: "SK-90 Artist Fixture",
+          artistEmail: `artist-${fixtureSuffix}@example.invalid`,
+        })
+        .returning({ id: projects.id }),
+    );
+    if (!sameOwnerProject) throw new Error("SK-90 correction project fixture was not created");
+
+    await safely(() =>
+      activeDb()
+        .update(purchaseRequests)
+        .set({ projectId: sameOwnerProject.id })
+        .where(eq(purchaseRequests.id, requestId)),
+    );
+
+    const [otherContact] = await safely(() =>
+      activeDb()
+        .insert(clientContacts)
+        .values({
+          producerId,
+          emailHash: `other-hash-${fixtureSuffix}`,
+          email: `other-${fixtureSuffix}@example.invalid`,
+          name: "Other SK-90 Artist",
+        })
+        .returning({ id: clientContacts.id }),
+    );
+    if (!otherContact) throw new Error("SK-90 other-client fixture was not created");
+    const [foreignClientProject] = await safely(() =>
+      activeDb()
+        .insert(projects)
+        .values({
+          producerId,
+          clientContactId: otherContact.id,
+          title: "SK-90 foreign-client project",
+          artistName: "Other SK-90 Artist",
+          artistEmail: `other-${fixtureSuffix}@example.invalid`,
+        })
+        .returning({ id: projects.id }),
+    );
+    if (!foreignClientProject) throw new Error("SK-90 foreign-client project was not created");
+
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .update(purchaseRequests)
+          .set({ projectId: foreignClientProject.id })
+          .where(eq(purchaseRequests.id, requestId)),
+      ),
+    ).toBe("23514");
+
+    await safely(() =>
+      insertPaidPurchaseWithSchedule({
+        totalCents: 100,
+        paymentPlanKind: "full",
+        overrides: {
+          productId,
+          projectId: sameOwnerProject.id,
+          purchaseRequestId: requestId,
+        },
+      }),
+    );
+    const convertedAt = new Date(acceptedAt.getTime() + 1_000);
+    await safely(() =>
+      activeDb()
+        .update(purchaseRequests)
+        .set({ status: "converted", statusChangedAt: convertedAt, convertedAt })
+        .where(eq(purchaseRequests.id, requestId)),
+    );
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .update(purchaseRequests)
+          .set({ status: "pending", statusChangedAt: acceptedAt, convertedAt: null })
+          .where(eq(purchaseRequests.id, requestId)),
+      ),
+    ).toBe("23514");
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .update(purchaseRequests)
+          .set({ convertedAt: null })
+          .where(eq(purchaseRequests.id, requestId)),
+      ),
+    ).toBe("23514");
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .update(purchaseRequests)
+          .set({ projectId })
+          .where(eq(purchaseRequests.id, requestId)),
+      ),
+    ).toBe("23514");
+  });
+
+  it("binds approval to exact audio identity and freezes that identity afterward", async () => {
+    const purchaseId = await createPaidPurchase();
+    const [track] = await safely(() =>
+      activeDb()
+        .insert(projectTracks)
+        .values({ projectId, purchaseId, title: "SK-90 approval track" })
+        .returning({ id: projectTracks.id }),
+    );
+    if (!track) throw new Error("SK-90 approval track fixture was not created");
+
+    const audioR2Key = `sk90-isolated/${fixtureSuffix}/${randomUUID()}`;
+    const audioUrl = `/api/audio/sk90/${randomUUID()}`;
+    const sizeBytes = 123;
+    const audioObjectEtag = `etag-${randomUUID()}`;
+    const audioIdentityFingerprint = createAudioIdentityFingerprint({
+      key: audioR2Key,
+      objectEtag: audioObjectEtag,
+      sizeBytes,
     });
-    expect(confirmed.projectId).toBe(existingProject.id);
+    const [version] = await safely(() =>
+      activeDb()
+        .insert(trackVersions)
+        .values({
+          trackId: track.id,
+          purchaseId,
+          producerId,
+          label: "Approval V1",
+          audioUrl,
+          audioR2Key,
+          sizeBytes,
+          audioObjectEtag,
+          audioIdentityFingerprint,
+        })
+        .returning({ id: trackVersions.id }),
+    );
+    if (!version) throw new Error("SK-90 approval version fixture was not created");
 
-    const attachedProjects = await db
-      .select()
-      .from(projects)
-      .where(and(eq(projects.producerId, producerId), eq(projects.artistEmail, contact.email)));
-    expect(attachedProjects).toHaveLength(1);
-    expect(attachedProjects[0]).toMatchObject({
-      id: existingProject.id,
-      sessionCount: 4,
-      depositPaid: true,
-      finalPaid: true,
+    const changedAudioR2Key = `sk90-isolated/${fixtureSuffix}/${randomUUID()}`;
+    const changedAudioObjectEtag = `etag-${randomUUID()}`;
+    const changedSizeBytes = sizeBytes + 1;
+    const changedAudioIdentityFingerprint = createAudioIdentityFingerprint({
+      key: changedAudioR2Key,
+      objectEtag: changedAudioObjectEtag,
+      sizeBytes: changedSizeBytes,
     });
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .update(trackVersions)
+          .set({
+            audioUrl: `/api/audio/sk90/${randomUUID()}`,
+            audioR2Key: changedAudioR2Key,
+            sizeBytes: changedSizeBytes,
+            audioObjectEtag: changedAudioObjectEtag,
+            audioIdentityFingerprint: changedAudioIdentityFingerprint,
+          })
+          .where(eq(trackVersions.id, version.id)),
+      ),
+    ).toBe("P0001");
 
-    const stablePaidAt = new Date("2030-01-02T03:04:05.000Z");
-    await db
-      .update(purchaseRequests)
-      .set({ statusChangedAt: stablePaidAt })
-      .where(eq(purchaseRequests.id, request.id));
-    await producer.producer.purchase.proofOfPayment.confirm({ proofId: proof.id });
-    const [retriedRequest] = await db
-      .select()
-      .from(purchaseRequests)
-      .where(eq(purchaseRequests.id, request.id));
-    expect(retriedRequest?.status).toBe("paid");
-    expect(retriedRequest?.statusChangedAt).toEqual(stablePaidAt);
-  }, 45_000);
+    const approval = {
+      versionId: version.id,
+      purchaseId,
+      producerId,
+      clientContactId,
+      action: "approved" as const,
+      actedByClerkUserId: `sk90-artist-${fixtureSuffix}`,
+    };
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .insert(versionApprovalEvents)
+          .values({ ...approval, audioIdentityFingerprint: `sha256:${"b".repeat(64)}` }),
+      ),
+    ).toBe("23503");
+    await safely(() =>
+      activeDb()
+        .insert(versionApprovalEvents)
+        .values({ ...approval, audioIdentityFingerprint }),
+    );
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .update(trackVersions)
+          .set({ audioObjectEtag: `changed-${randomUUID()}` })
+          .where(eq(trackVersions.id, version.id)),
+      ),
+    ).toBe("P0001");
+  });
 
-  it("preserves attached legacy project credit when the snapshotted product was deleted", async () => {
-    const { userId } = await createArtist("legacy-attached-project");
-    const [contact] = await db
-      .select()
-      .from(clientContacts)
-      .where(eq(clientContacts.clerkUserId, userId));
-    if (!contact) throw new Error("Legacy attached-project contact was not seeded");
+  it("allows one live placeholder completion and keeps placeholder/completed tombstones monotonic", async () => {
+    const purchaseId = await createPaidPurchase();
+    const [track] = await safely(() =>
+      activeDb()
+        .insert(projectTracks)
+        .values({ projectId, purchaseId, title: "SK-90 audio state track" })
+        .returning({ id: projectTracks.id }),
+    );
+    if (!track) throw new Error("SK-90 audio state track fixture was not created");
 
-    const [legacyProduct] = await db
-      .insert(products)
-      .values({
+    const [failedPlaceholder] = await safely(() =>
+      activeDb()
+        .insert(trackVersions)
+        .values({ trackId: track.id, purchaseId, producerId, label: "Failed placeholder" })
+        .returning({ id: trackVersions.id }),
+    );
+    if (!failedPlaceholder) throw new Error("SK-90 failed placeholder was not created");
+    const failedAt = new Date("2035-01-03T03:04:05.000Z");
+    await safely(() =>
+      activeDb()
+        .update(trackVersions)
+        .set({ audioDeletedAt: failedAt })
+        .where(eq(trackVersions.id, failedPlaceholder.id)),
+    );
+
+    const rejectedAttachmentKey = `sk90-isolated/${fixtureSuffix}/${randomUUID()}`;
+    const rejectedAttachmentEtag = `etag-${randomUUID()}`;
+    const rejectedAttachmentSize = 321;
+    const rejectedAttachmentFingerprint = createAudioIdentityFingerprint({
+      key: rejectedAttachmentKey,
+      objectEtag: rejectedAttachmentEtag,
+      sizeBytes: rejectedAttachmentSize,
+    });
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .update(trackVersions)
+          .set({
+            audioUrl: `/api/audio/sk90/${randomUUID()}`,
+            audioR2Key: rejectedAttachmentKey,
+            sizeBytes: rejectedAttachmentSize,
+            audioObjectEtag: rejectedAttachmentEtag,
+            audioIdentityFingerprint: rejectedAttachmentFingerprint,
+          })
+          .where(eq(trackVersions.id, failedPlaceholder.id)),
+      ),
+    ).toBe("P0001");
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .update(trackVersions)
+          .set({ audioDeletedAt: null })
+          .where(eq(trackVersions.id, failedPlaceholder.id)),
+      ),
+    ).toBe("P0001");
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .update(trackVersions)
+          .set({ audioDeletedAt: new Date(failedAt.getTime() + 1_000) })
+          .where(eq(trackVersions.id, failedPlaceholder.id)),
+      ),
+    ).toBe("P0001");
+    await safely(() =>
+      activeDb()
+        .update(trackVersions)
+        .set({ label: "Preserved failed placeholder" })
+        .where(eq(trackVersions.id, failedPlaceholder.id)),
+    );
+
+    const [livePlaceholder] = await safely(() =>
+      activeDb()
+        .insert(trackVersions)
+        .values({ trackId: track.id, purchaseId, producerId, label: "Live placeholder" })
+        .returning({ id: trackVersions.id }),
+    );
+    if (!livePlaceholder) throw new Error("SK-90 live placeholder was not created");
+    const completedKey = `sk90-isolated/${fixtureSuffix}/${randomUUID()}`;
+    const completedEtag = `etag-${randomUUID()}`;
+    const completedSize = 456;
+    const completedFingerprint = createAudioIdentityFingerprint({
+      key: completedKey,
+      objectEtag: completedEtag,
+      sizeBytes: completedSize,
+    });
+    await safely(() =>
+      activeDb()
+        .update(trackVersions)
+        .set({
+          audioUrl: `/api/audio/sk90/${randomUUID()}`,
+          audioR2Key: completedKey,
+          sizeBytes: completedSize,
+          audioObjectEtag: completedEtag,
+          audioIdentityFingerprint: completedFingerprint,
+        })
+        .where(eq(trackVersions.id, livePlaceholder.id)),
+    );
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .update(trackVersions)
+          .set({ audioR2Key: `${completedKey}-changed` })
+          .where(eq(trackVersions.id, livePlaceholder.id)),
+      ),
+    ).toBe("P0001");
+
+    const completedDeletedAt = new Date("2035-01-04T03:04:05.000Z");
+    await safely(() =>
+      activeDb()
+        .update(trackVersions)
+        .set({ audioDeletedAt: completedDeletedAt })
+        .where(eq(trackVersions.id, livePlaceholder.id)),
+    );
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .update(trackVersions)
+          .set({ audioDeletedAt: null })
+          .where(eq(trackVersions.id, livePlaceholder.id)),
+      ),
+    ).toBe("P0001");
+
+    const [simultaneousPlaceholder] = await safely(() =>
+      activeDb()
+        .insert(trackVersions)
+        .values({ trackId: track.id, purchaseId, producerId, label: "Simultaneous placeholder" })
+        .returning({ id: trackVersions.id }),
+    );
+    if (!simultaneousPlaceholder) {
+      throw new Error("SK-90 simultaneous placeholder was not created");
+    }
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .update(trackVersions)
+          .set({
+            audioUrl: `/api/audio/sk90/${randomUUID()}`,
+            audioR2Key: completedKey,
+            sizeBytes: completedSize,
+            audioObjectEtag: completedEtag,
+            audioIdentityFingerprint: completedFingerprint,
+            audioDeletedAt: completedDeletedAt,
+          })
+          .where(eq(trackVersions.id, simultaneousPlaceholder.id)),
+      ),
+    ).toBe("P0001");
+  });
+
+  it("rejects every cross-producer notification reference", async () => {
+    const purchaseId = await createPaidPurchase();
+    const productId = await createProduct();
+    const requestId = await createPurchaseRequest(productId, projectId);
+    const [track] = await safely(() =>
+      activeDb()
+        .insert(projectTracks)
+        .values({ projectId, purchaseId, title: "SK-90 notification track" })
+        .returning({ id: projectTracks.id }),
+    );
+    if (!track) throw new Error("SK-90 notification track fixture was not created");
+    const [version] = await safely(() =>
+      activeDb()
+        .insert(trackVersions)
+        .values({ trackId: track.id, purchaseId, producerId, label: "Notification V1" })
+        .returning({ id: trackVersions.id }),
+    );
+    if (!version) throw new Error("SK-90 notification version fixture was not created");
+    const [comment] = await safely(() =>
+      activeDb()
+        .insert(trackComments)
+        .values({
+          versionId: version.id,
+          producerId,
+          authorName: "SK-90 Artist Fixture",
+          authorEmail: `artist-${fixtureSuffix}@example.invalid`,
+          body: "SK-90 notification fixture",
+          timestampMs: 0,
+        })
+        .returning({ id: trackComments.id }),
+    );
+    if (!comment) throw new Error("SK-90 notification comment fixture was not created");
+    const [allowance] = await safely(() =>
+      activeDb()
+        .insert(purchaseSessionAllowances)
+        .values({
+          purchaseId,
+          producerId,
+          kind: "fixed",
+          sessionLimit: 1,
+          durationMin: 60,
+          locationType: "studio",
+          bufferMinutes: 0,
+          minLeadHours: 0,
+        })
+        .returning({ id: purchaseSessionAllowances.id }),
+    );
+    if (!allowance) throw new Error("SK-90 notification allowance fixture was not created");
+    const [booking] = await safely(() =>
+      activeDb()
+        .insert(bookings)
+        .values({
+          producerId,
+          projectId,
+          purchaseId,
+          sessionAllowanceId: allowance.id,
+          artistName: "SK-90 Artist Fixture",
+          artistEmail: `artist-${fixtureSuffix}@example.invalid`,
+          startsAt: new Date("2035-03-01T10:00:00.000Z"),
+          durationMin: 60,
+        })
+        .returning({ id: bookings.id }),
+    );
+    if (!booking) throw new Error("SK-90 notification booking fixture was not created");
+    const [otherProducer] = await safely(() =>
+      activeDb()
+        .insert(producers)
+        .values({
+          clerkUserId: `sk90-other-${fixtureSuffix}`,
+          email: `sk90-other-${fixtureSuffix}@example.invalid`,
+          slug: `sk90-other-${fixtureSuffix}`,
+        })
+        .returning({ id: producers.id }),
+    );
+    if (!otherProducer) throw new Error("SK-90 other-producer fixture was not created");
+
+    for (const reference of [
+      { projectId },
+      { trackVersionId: version.id },
+      { commentId: comment.id },
+      { bookingId: booking.id },
+      { purchaseRequestId: requestId },
+      { purchaseId },
+    ]) {
+      expect(
+        await rejectedPostgresCode(() =>
+          activeDb()
+            .insert(notifications)
+            .values({
+              producerId: otherProducer.id,
+              kind: "comment_created",
+              title: "SK-90 cross-producer fixture",
+              ...reference,
+            }),
+        ),
+      ).toBe("23503");
+    }
+
+    await safely(() =>
+      activeDb().insert(notifications).values({
         producerId,
-        name: "Deleted legacy package",
-        description: "Disposable legacy package",
-        durationMin: 120,
-        sessionCount: 7,
-        priceCents: 70_000,
-        currency: "ILS",
-        depositModel: "flat",
-        paymentPlans: [{ kind: "full" }],
-      })
-      .returning();
-    if (!legacyProduct) throw new Error("Legacy product was not seeded");
+        kind: "comment_created",
+        title: "SK-90 same-producer fixture",
+        commentId: comment.id,
+      }),
+    );
+  });
 
-    const [existingProject] = await db
-      .insert(projects)
-      .values({
-        producerId,
-        title: "Legacy seven-session project",
-        artistName: contact.name,
-        artistEmail: contact.email,
-        clientName: contact.name,
-        clientEmail: contact.email,
-        stage: "booked",
-        sessionCount: 7,
-      })
-      .returning();
-    if (!existingProject) throw new Error("Legacy attached project was not seeded");
+  it("allows one winner for concurrent duplicate purchase operation keys", async () => {
+    const operationKey = `concurrent-${randomUUID()}`;
+    const results = await Promise.allSettled([
+      insertPaidPurchaseWithSchedule({
+        totalCents: 100,
+        paymentPlanKind: "full",
+        operationKey,
+      }),
+      insertPaidPurchaseWithSchedule({
+        totalCents: 100,
+        paymentPlanKind: "full",
+        operationKey,
+      }),
+    ]);
 
-    const now = new Date();
-    const [request] = await db
-      .insert(purchaseRequests)
-      .values({
-        producerId,
-        clientContactId: contact.id,
-        productId: legacyProduct.id,
-        projectId: existingProject.id,
-        refNumber: `SK-LEGACY-ATTACHED-${suffix}`,
-        status: "verifying",
-        statusChangedAt: now,
-        approvedAt: now,
-        artistName: contact.name,
-        artistEmail: contact.email,
-        productNameSnapshot: "Deleted legacy package",
-        priceCents: 70_000,
-        currency: "ILS",
-        sessionCountSnapshot: null,
-        paymentPlanSnapshot: { kind: "full" },
-        paymentPlanOptionsSnapshot: [{ kind: "full" }],
-        paymentPlanChosenAt: now,
-      })
-      .returning();
-    if (!request) throw new Error("Legacy attached purchase request was not seeded");
+    const statuses = results.map((result) => result.status);
+    const rejectedCodes = results
+      .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+      .map((result) => postgresErrorCode(result.reason));
+    expect(statuses.filter((status) => status === "fulfilled")).toHaveLength(1);
+    expect(rejectedCodes).toEqual(["23505"]);
+  });
 
-    const [proof] = await db
-      .insert(paymentProofs)
-      .values({
-        purchaseRequestId: request.id,
-        producerId,
-        projectId: existingProject.id,
-        amountCents: 70_000,
-        currency: "ILS",
-        kind: "full",
-        storageBucket: "docs",
-        storageKey: `producers/${producerId}/proofs/${request.id}/final/legacy-attached.png`,
-        objectEtag: '"proof-etag"',
-        originalFileName: "legacy-attached.png",
-        contentType: "image/png",
-        sizeBytes: 2_048,
-        status: "pending",
-      })
-      .returning();
-    if (!proof) throw new Error("Legacy attached proof was not seeded");
+  it("rejects cross-purchase and cross-installment proof replacements", async () => {
+    const firstPurchaseId = await createPaidPurchase();
+    const secondPurchaseId = await createPaidPurchase();
+    const firstInstallmentId = await createInstallment(firstPurchaseId, 1);
+    const secondInstallmentId = await createInstallment(firstPurchaseId, 2);
+    const otherPurchaseInstallmentId = await createInstallment(secondPurchaseId, 1);
 
-    await db.delete(products).where(eq(products.id, legacyProduct.id));
-    const producer = appRouter.createCaller({ userId: producerUserId });
-    await producer.producer.purchase.proofOfPayment.confirm({ proofId: proof.id });
+    const [originalProof] = await safely(() =>
+      activeDb()
+        .insert(paymentProofs)
+        .values(proofValues({ purchaseId: firstPurchaseId, installmentId: firstInstallmentId }))
+        .returning({ id: paymentProofs.id }),
+    );
+    if (!originalProof) throw new Error("SK-90 proof fixture was not created");
 
-    const [preservedProject] = await db
-      .select({ sessionCount: projects.sessionCount, depositPaid: projects.depositPaid })
-      .from(projects)
-      .where(eq(projects.id, existingProject.id));
-    expect(preservedProject).toEqual({ sessionCount: 7, depositPaid: true });
-  }, 45_000);
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .insert(paymentProofs)
+          .values(
+            proofValues({
+              purchaseId: secondPurchaseId,
+              installmentId: otherPurchaseInstallmentId,
+              replacesProofId: originalProof.id,
+            }),
+          ),
+      ),
+    ).toBe("23503");
+
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .insert(paymentProofs)
+          .values(
+            proofValues({
+              purchaseId: firstPurchaseId,
+              installmentId: secondInstallmentId,
+              replacesProofId: originalProof.id,
+            }),
+          ),
+      ),
+    ).toBe("23503");
+
+    const [replacement] = await safely(() =>
+      activeDb()
+        .insert(paymentProofs)
+        .values(
+          proofValues({
+            purchaseId: firstPurchaseId,
+            installmentId: firstInstallmentId,
+            replacesProofId: originalProof.id,
+            status: "pending",
+          }),
+        )
+        .returning({ id: paymentProofs.id }),
+    );
+    expect(replacement).toBeDefined();
+  });
+
+  it("rejects a payment proof that replaces itself", async () => {
+    const purchaseId = await createPaidPurchase();
+    const installmentId = await createInstallment(purchaseId, 1);
+    const proofId = randomUUID();
+
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .insert(paymentProofs)
+          .values(
+            proofValues({
+              id: proofId,
+              purchaseId,
+              installmentId,
+              replacesProofId: proofId,
+            }),
+          ),
+      ),
+    ).toBe("23514");
+  });
+
+  it("enforces proof status shape, terminal history, and rejected-only replacement", async () => {
+    const purchaseId = await createPaidPurchase();
+    const installmentId = await createInstallment(purchaseId, 1);
+
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .insert(paymentProofs)
+          .values({
+            ...proofValues({ purchaseId, installmentId }),
+            rejectionNote: " ",
+          }),
+      ),
+    ).toBe("23514");
+
+    const [confirmedProof] = await safely(() =>
+      activeDb()
+        .insert(paymentProofs)
+        .values(proofValues({ purchaseId, installmentId, status: "pending" }))
+        .returning({ id: paymentProofs.id }),
+    );
+    if (!confirmedProof) throw new Error("SK-90 pending proof fixture was not created");
+    await safely(() =>
+      activeDb()
+        .update(paymentProofs)
+        .set({ status: "confirmed", confirmedAt: acceptedAt })
+        .where(eq(paymentProofs.id, confirmedProof.id)),
+    );
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .update(paymentProofs)
+          .set({
+            status: "rejected",
+            confirmedAt: null,
+            rejectedAt: acceptedAt,
+            rejectionNote: "x",
+          })
+          .where(eq(paymentProofs.id, confirmedProof.id)),
+      ),
+    ).toBe("P0001");
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .insert(paymentProofs)
+          .values(
+            proofValues({
+              purchaseId,
+              installmentId,
+              replacesProofId: confirmedProof.id,
+              status: "pending",
+            }),
+          ),
+      ),
+    ).toBe("23514");
+
+    const [rejectedProof] = await safely(() =>
+      activeDb()
+        .insert(paymentProofs)
+        .values(proofValues({ purchaseId, installmentId }))
+        .returning({ id: paymentProofs.id }),
+    );
+    if (!rejectedProof) throw new Error("SK-90 rejected proof fixture was not created");
+    await safely(() =>
+      activeDb()
+        .insert(paymentProofs)
+        .values(
+          proofValues({
+            purchaseId,
+            installmentId,
+            replacesProofId: rejectedProof.id,
+            status: "pending",
+          }),
+        ),
+    );
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .insert(paymentProofs)
+          .values(
+            proofValues({
+              purchaseId,
+              installmentId,
+              replacesProofId: rejectedProof.id,
+              status: "pending",
+            }),
+          ),
+      ),
+    ).toBe("23505");
+  });
 });

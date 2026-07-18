@@ -7,8 +7,8 @@ import { describe, expect, it } from "vitest";
 // Source-grep wiring tests for S8 — Payment instructions (off-app pay).
 // Matches the repo's screen-test style (see commit-screens.test.ts): the
 // money math lives in pay-data and is unit-tested there; here we assert the
-// screen wires up the bits that matter — copy controls, the greyed
-// "coming soon" card, the primary route, and the no-details fallback.
+// screen wires up the bits that matter — copy controls, the primary route,
+// the no-details fallback, and the external-payments-only boundary.
 
 const here = dirname(fileURLToPath(import.meta.url));
 const S8_PATH = join(here, "..", "payment-instructions-screen.tsx");
@@ -54,11 +54,10 @@ describe("payment-instructions-screen.tsx (S8) wiring", () => {
     expect(s8Src).toMatch(/Copy manually/);
   });
 
-  it("shows a greyed 'Pay by card — coming soon' row that is NOT a link/button action", () => {
-    expect(s8Src).toMatch(/coming soon/i);
-    // the coming-soon card must be inert: no onClick / href / <a> / role=button on it
-    expect(s8Src).toMatch(/role="note"/);
-    expect(s8Src).toMatch(/aria-label="Pay by card, coming soon"/);
+  it("does not advertise a card processor or future in-app card path", () => {
+    expect(s8Src).not.toMatch(/Pay by card|coming soon|Stripe|Tranzila/i);
+    expect(s8Src).toContain("Money is paid directly to {producerName}");
+    expect(s8Src).toContain("we never hold or");
   });
 
   it("routes the primary action to the proof-upload screen", () => {

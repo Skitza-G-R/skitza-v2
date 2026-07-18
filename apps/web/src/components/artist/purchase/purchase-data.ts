@@ -21,11 +21,9 @@ export type PurchaseProduct = {
   tagline: string | null;
   /** Session count — the ticket card's right column. */
   sessions: number;
-  /** Upfront deposit % (0 = none) — ticket card's right column. */
-  depositPct: number;
   /** Revision rounds from the wizard encoding (0 = not specified). */
   revisions: number;
-  /** Every offered plan, including its exact monthly/milestone schedule. */
+  /** Every offered approved paid plan and its exact schedule. */
   paymentPlans: PaymentPlan[];
   /** Product-level headline master/composition terms. Null for legacy products. */
   royaltyTerms: ProductRoyaltyTerms | null;

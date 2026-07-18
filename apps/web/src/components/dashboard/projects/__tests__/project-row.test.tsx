@@ -107,6 +107,16 @@ describe("ProjectRow source — grid + drag + gradient + status pills", () => {
     expect(SRC).toContain("deadline");
     expect(SRC).toContain("status");
   });
+
+  it("represents a pending purchase projection as an unavailable balance", () => {
+    expect(SRC).toMatch(/balance:\s*number\s*\|\s*null/);
+    expect(SRC).toContain("Unavailable");
+  });
+
+  it("does not invent progress from lifecycle alone", () => {
+    expect(SRC).toMatch(/progress:\s*number\s*\|\s*null/);
+    expect(SRC).toMatch(/progress\s*===\s*null[\s\S]*?Unavailable/);
+  });
 });
 
 describe("ProjectRow G5 — status pill + plain chevron", () => {
