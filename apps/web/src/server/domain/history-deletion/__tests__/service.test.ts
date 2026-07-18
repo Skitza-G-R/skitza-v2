@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canPermanentlyDeleteEmptyDraftClient,
   permanentlyDeleteEmptyDraftClient,
   permanentlyDeleteEmptyDraftProject,
   type ClientDeletionSnapshot,
@@ -104,6 +105,58 @@ const emptyProject = {
 };
 
 describe("historical client deletion", () => {
+  it("reports delete eligibility from the exact protected domain rule", async () => {
+    await expect(
+      canPermanentlyDeleteEmptyDraftClient(repository({ client: emptyClient }), {
+        producerId: "producer-1",
+        clientId: "client-1",
+      }),
+    ).resolves.toBe(true);
+
+    await expect(
+      canPermanentlyDeleteEmptyDraftClient(
+        repository({ client: emptyClient, clientHistory: true }),
+        { producerId: "producer-1", clientId: "client-1" },
+      ),
+    ).resolves.toBe(false);
+
+    await expect(
+      canPermanentlyDeleteEmptyDraftClient(
+        repository({ client: { ...emptyClient, invitedAt: new Date() } }),
+        { producerId: "producer-1", clientId: "client-1" },
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it.each([
+    ["connected", { clerkUserId: "user-1" }],
+    ["invited", { invitedAt: new Date() }],
+    ["artist-disconnected", { artistArchivedAt: new Date() }],
+    ["producer-archived", { producerArchivedAt: new Date() }],
+  ])("hides delete eligibility for a %s client", async (_label, patch) => {
+    await expect(
+      canPermanentlyDeleteEmptyDraftClient(repository({ client: { ...emptyClient, ...patch } }), {
+        producerId: "producer-1",
+        clientId: "client-1",
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it("returns false without exposing foreign or missing client ids", async () => {
+    await expect(
+      canPermanentlyDeleteEmptyDraftClient(
+        repository({ client: { ...emptyClient, producerId: "producer-2" } }),
+        { producerId: "producer-1", clientId: "client-1" },
+      ),
+    ).resolves.toBe(false);
+    await expect(
+      canPermanentlyDeleteEmptyDraftClient(repository(), {
+        producerId: "producer-1",
+        clientId: "client-1",
+      }),
+    ).resolves.toBe(false);
+  });
+
   it("permanently deletes only a truly empty unowned draft", async () => {
     const repo = repository({ client: emptyClient });
     await expect(

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { DragEvent } from "react";
+import { Archive, ArchiveRestore, Pencil } from "lucide-react";
 
 import { producerGradient, producerInitials } from "~/lib/_phase4-stubs/producer-color";
 import { LinkPill, type LinkPillState } from "./link-pill";
@@ -10,6 +11,11 @@ export interface ClientCardData {
   id: string;
   name: string;
   email: string | null;
+  phone: string | null;
+  notes: string | null;
+  tags: string[];
+  archived: boolean;
+  archiveBlockedReason?: string | null;
   linkState: LinkPillState;
   /** Number of active projects with this client. */
   projects: number;
@@ -32,6 +38,8 @@ export interface ClientCardData {
 interface ClientCardProps {
   client: ClientCardData;
   onInvite?: (client: ClientCardData) => void;
+  onEdit?: (client: ClientCardData) => void;
+  onArchive?: (client: ClientCardData) => void;
   onDragStart?: (e: DragEvent<HTMLDivElement>, id: string) => void;
   onDragOver?: (e: DragEvent<HTMLDivElement>, id: string) => void;
   onDrop?: (e: DragEvent<HTMLDivElement>, id: string) => void;
@@ -49,8 +57,26 @@ function formatMoney(cents: number, currency: string): string {
   }
 }
 
-export function ClientCard({ client, onInvite, onDragStart, onDragOver, onDrop }: ClientCardProps) {
-  const { id, name, email, linkState, projects, lifetime, owed, currency = "USD" } = client;
+export function ClientCard({
+  client,
+  onInvite,
+  onEdit,
+  onArchive,
+  onDragStart,
+  onDragOver,
+  onDrop,
+}: ClientCardProps) {
+  const {
+    id,
+    name,
+    email,
+    archived,
+    linkState,
+    projects,
+    lifetime,
+    owed,
+    currency = "USD",
+  } = client;
   const initials = producerInitials(name);
   const avatarBg = producerGradient(name);
 
@@ -112,6 +138,11 @@ export function ClientCard({ client, onInvite, onDragStart, onDragOver, onDrop }
             >
               {name}
             </p>
+            {archived ? (
+              <span className="shrink-0 rounded-[var(--radius-sm)] bg-[rgb(var(--bg-background))] px-1.5 py-0.5 text-[9px] font-bold tracking-wider text-[rgb(var(--fg-muted))] uppercase">
+                Archived
+              </span>
+            ) : null}
           </div>
           {email ? (
             <p className="truncate text-[12px]" style={{ color: "rgb(var(--fg-muted))" }}>
@@ -185,6 +216,49 @@ export function ClientCard({ client, onInvite, onDragStart, onDragOver, onDrop }
           </span>
         </div>
       </div>
+
+      {onEdit || onArchive ? (
+        <div className="pointer-events-auto relative z-20 grid grid-cols-2 gap-2">
+          {onEdit ? (
+            <button
+              type="button"
+              onClick={() => {
+                onEdit(client);
+              }}
+              className="inline-flex min-h-[40px] items-center justify-center gap-1.5 rounded-[var(--radius-md)] border px-3 text-[12px] font-semibold transition-colors hover:bg-[rgb(var(--bg-background))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+              style={{
+                borderColor: "rgb(var(--border-subtle))",
+                color: "rgb(var(--fg-default))",
+              }}
+            >
+              <Pencil size={13} aria-hidden />
+              Edit
+            </button>
+          ) : (
+            <span />
+          )}
+          {onArchive ? (
+            <button
+              type="button"
+              onClick={() => {
+                onArchive(client);
+              }}
+              className="inline-flex min-h-[40px] items-center justify-center gap-1.5 rounded-[var(--radius-md)] border px-3 text-[12px] font-semibold transition-colors hover:bg-[rgb(var(--bg-background))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+              style={{
+                borderColor: "rgb(var(--border-subtle))",
+                color: "rgb(var(--fg-muted))",
+              }}
+            >
+              {archived ? (
+                <ArchiveRestore size={13} aria-hidden />
+              ) : (
+                <Archive size={13} aria-hidden />
+              )}
+              {archived ? "Restore" : "Archive"}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

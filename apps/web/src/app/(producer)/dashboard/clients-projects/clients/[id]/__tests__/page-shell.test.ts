@@ -75,9 +75,11 @@ describe("clients/[id]/page.tsx — Phase 1 rewrite", () => {
     expect(SRC).not.toMatch(/products=\{products\}/);
   });
 
-  it("maps lifecycle explicitly and keeps purchase commercial totals unavailable", () => {
+  it("maps lifecycle explicitly and renders the currency-separated purchase ledger", () => {
     expect(SRC).toContain("lifecycleStatus");
-    expect(SRC).toMatch(/commercial\.(?:lifetimeCents|outstandingCents)/);
+    expect(SRC).toContain("ClientMoneyLedger");
+    expect(SRC).toContain("detail.money");
+    expect(SRC).toContain("currencyTotals");
     expect(SRC).not.toMatch(/depositPct|\.stage\b/);
     for (const label of ["Waiting for payment", "Active", "Paused", "Completed", "Canceled"]) {
       expect(SRC).toContain(label);

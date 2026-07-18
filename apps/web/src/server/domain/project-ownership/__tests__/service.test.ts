@@ -13,6 +13,7 @@ function repository(
         producerId: string;
         name: string;
         email: string;
+        producerArchivedAt: Date | null;
       }
     | null,
 ): StableProjectRepository & { inserts: Array<Record<string, unknown>> } {
@@ -37,6 +38,7 @@ describe("stable project ownership", () => {
       producerId: "producer-1",
       name: "Maya",
       email: "maya@example.test",
+      producerArchivedAt: null,
     });
 
     const project = await createStableClientProject(repo, {
@@ -70,6 +72,27 @@ describe("stable project ownership", () => {
         deadlineAt: null,
       }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(repo.inserts).toHaveLength(0);
+  });
+
+  it("rejects project creation for a producer-archived client", async () => {
+    const repo = repository({
+      id: "client-1",
+      producerId: "producer-1",
+      name: "Maya",
+      email: "maya@example.test",
+      producerArchivedAt: new Date("2026-07-18T12:00:00.000Z"),
+    });
+
+    await expect(
+      createStableClientProject(repo, {
+        producerId: "producer-1",
+        clientContactId: "client-1",
+        title: "Hidden project",
+        inviteToken: "invite-token",
+        deadlineAt: null,
+      }),
+    ).rejects.toMatchObject({ code: "CLIENT_ARCHIVED" });
     expect(repo.inserts).toHaveLength(0);
   });
 });

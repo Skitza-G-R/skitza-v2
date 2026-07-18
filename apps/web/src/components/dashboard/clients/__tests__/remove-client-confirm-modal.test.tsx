@@ -4,10 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const SRC = readFileSync(
-  join(here, "..", "remove-client-confirm-modal.tsx"),
-  "utf-8",
-);
+const SRC = readFileSync(join(here, "..", "remove-client-confirm-modal.tsx"), "utf-8");
 
 describe("RemoveClientConfirmModal", () => {
   it("uses Radix Dialog Portal", () => {
@@ -24,20 +21,18 @@ describe("RemoveClientConfirmModal", () => {
     expect(SRC).toMatch(/onRemoved\?:/);
   });
 
-  it("renders the 'Remove [name]?' title (interpolates client.name)", () => {
-    expect(SRC).toMatch(/Remove\s*\{client\.name\}\?/);
+  it("renders the permanent-delete title (interpolates client.name)", () => {
+    expect(SRC).toMatch(/Permanently delete\s*\{client\.name\}\?/);
   });
 
   it("warns that the action can't be undone", () => {
     expect(SRC).toMatch(/can'?t be undone|can\\u2019t be undone|can&rsquo;t be undone/i);
   });
 
-  it("spells out what stays vs what goes", () => {
-    // Producer must be reassured that projects/contracts/comments aren't
-    // nuked along with the CRM entry — the procedure only deletes the
-    // contact row.
-    expect(SRC).toContain("Stays:");
-    expect(SRC).toContain("Goes:");
+  it("truthfully limits permanent deletion to a truly empty draft", () => {
+    expect(SRC).toMatch(/truly empty draft/i);
+    expect(SRC).toMatch(/never deletes history/i);
+    expect(SRC).not.toContain("projects, contracts, comments, payments");
   });
 
   it("calls removeClientAction Server Action (not direct tRPC client)", () => {
@@ -51,8 +46,8 @@ describe("RemoveClientConfirmModal", () => {
     expect(SRC).toMatch(/--fg-danger/);
   });
 
-  it("renders 'Remove client' on the primary CTA", () => {
-    expect(SRC).toContain("Remove client");
+  it("renders 'Permanently delete' on the primary CTA", () => {
+    expect(SRC).toContain("Permanently delete");
   });
 
   it("renders 'Cancel' on the secondary action", () => {
@@ -70,9 +65,7 @@ describe("RemoveClientConfirmModal", () => {
   it("routes back to /dashboard/clients-projects on success", () => {
     // The component uses a CLIENTS_PATH constant, so accept either an
     // inline literal OR the constant name in router.push().
-    expect(SRC).toMatch(
-      /router\.push\(\s*(CLIENTS_PATH|["'`]\/dashboard\/clients-projects["'`])/,
-    );
+    expect(SRC).toMatch(/router\.push\(\s*(CLIENTS_PATH|["'`]\/dashboard\/clients-projects["'`])/);
     // And the constant itself points at the right path.
     expect(SRC).toMatch(/CLIENTS_PATH\s*=\s*["']\/dashboard\/clients-projects["']/);
   });

@@ -45,6 +45,35 @@ export class HistoricalDeletionDomainError extends Error {
   }
 }
 
+function isTrulyEmptyDraftClient(client: ClientDeletionSnapshot): boolean {
+  return (
+    client.clerkUserId === null &&
+    client.invitedAt === null &&
+    client.artistArchivedAt === null &&
+    client.producerArchivedAt === null
+  );
+}
+
+/**
+ * Advisory visibility check for the permanent-delete control. It uses
+ * the same lock, ownership boundary, empty-draft predicate, and history
+ * lookup as deletion itself. The mutation still rechecks everything in
+ * its own transaction, so a concurrent history write can never turn
+ * this advisory result into deletion authority.
+ */
+export async function canPermanentlyDeleteEmptyDraftClient(
+  repository: HistoricalDeletionRepository,
+  scope: Readonly<{ producerId: string; clientId: string }>,
+): Promise<boolean> {
+  return repository.atomically({ kind: "client", id: scope.clientId }, async (transaction) => {
+    const client = await transaction.lockClient(scope);
+    if (!client || client.producerId !== scope.producerId || !isTrulyEmptyDraftClient(client)) {
+      return false;
+    }
+    return !(await transaction.clientHasHistory(scope));
+  });
+}
+
 export async function permanentlyDeleteEmptyDraftClient(
   repository: HistoricalDeletionRepository,
   scope: Readonly<{ producerId: string; clientId: string }>,
@@ -54,12 +83,7 @@ export async function permanentlyDeleteEmptyDraftClient(
     if (!client || client.producerId !== scope.producerId) {
       throw new HistoricalDeletionDomainError("NOT_FOUND", "The client was not found");
     }
-    if (
-      client.clerkUserId !== null ||
-      client.invitedAt !== null ||
-      client.artistArchivedAt !== null ||
-      client.producerArchivedAt !== null
-    ) {
+    if (!isTrulyEmptyDraftClient(client)) {
       throw new HistoricalDeletionDomainError(
         "NOT_EMPTY_DRAFT",
         "Only a truly empty draft client can be permanently deleted",
@@ -82,29 +106,26 @@ export async function permanentlyDeleteEmptyDraftProject(
   repository: HistoricalDeletionRepository,
   scope: Readonly<{ producerId: string; projectId: string }>,
 ): Promise<{ deleted: true }> {
-  return repository.atomically(
-    { kind: "project", id: scope.projectId },
-    async (transaction) => {
-      const project = await transaction.lockProject(scope);
-      if (!project || project.producerId !== scope.producerId) {
-        throw new HistoricalDeletionDomainError("NOT_FOUND", "The project was not found");
-      }
-      if (project.lifecycleStatus !== "waiting_for_payment") {
-        throw new HistoricalDeletionDomainError(
-          "NOT_EMPTY_DRAFT",
-          "Only a truly empty draft project can be permanently deleted",
-        );
-      }
-      if (await transaction.projectHasHistory(scope)) {
-        throw new HistoricalDeletionDomainError(
-          "HISTORY_EXISTS",
-          "This project has history and cannot be permanently deleted",
-        );
-      }
-      if (!(await transaction.deleteProject(scope))) {
-        throw new HistoricalDeletionDomainError("NOT_FOUND", "The project was not found");
-      }
-      return { deleted: true };
-    },
-  );
+  return repository.atomically({ kind: "project", id: scope.projectId }, async (transaction) => {
+    const project = await transaction.lockProject(scope);
+    if (!project || project.producerId !== scope.producerId) {
+      throw new HistoricalDeletionDomainError("NOT_FOUND", "The project was not found");
+    }
+    if (project.lifecycleStatus !== "waiting_for_payment") {
+      throw new HistoricalDeletionDomainError(
+        "NOT_EMPTY_DRAFT",
+        "Only a truly empty draft project can be permanently deleted",
+      );
+    }
+    if (await transaction.projectHasHistory(scope)) {
+      throw new HistoricalDeletionDomainError(
+        "HISTORY_EXISTS",
+        "This project has history and cannot be permanently deleted",
+      );
+    }
+    if (!(await transaction.deleteProject(scope))) {
+      throw new HistoricalDeletionDomainError("NOT_FOUND", "The project was not found");
+    }
+    return { deleted: true };
+  });
 }

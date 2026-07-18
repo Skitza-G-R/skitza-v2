@@ -10,6 +10,7 @@ import {
   desc,
   eq,
   inArray,
+  isNull,
   sql,
   trackComments,
   trackVersions,
@@ -18,10 +19,20 @@ import { z } from "zod";
 
 import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
-import { stripUndefined } from "../strip-undefined";
 import { emailHashFor } from "~/server/artist/identity";
+import { clientManagementRepository } from "~/server/domain/client-management/db";
+import {
+  archiveClient,
+  ClientManagementDomainError,
+  editClient,
+  inviteClient,
+  restoreClient,
+} from "~/server/domain/client-management/service";
+import { clientMoneyRepository } from "~/server/domain/client-money/db";
+import { ClientMoneyDomainError, getClientMoneyLedger } from "~/server/domain/client-money/service";
 import { historicalDeletionRepository } from "~/server/domain/history-deletion/db";
 import {
+  canPermanentlyDeleteEmptyDraftClient,
   HistoricalDeletionDomainError,
   permanentlyDeleteEmptyDraftClient,
 } from "~/server/domain/history-deletion/service";
@@ -66,6 +77,24 @@ function mapHistoricalDeletionDomainError(error: unknown): never {
   throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
 }
 
+function mapClientManagementDomainError(error: unknown): never {
+  if (!(error instanceof ClientManagementDomainError)) throw error;
+  if (error.code === "NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND" });
+  if (error.code === "DUPLICATE_EMAIL") {
+    throw new TRPCError({ code: "CONFLICT", message: error.message });
+  }
+  if (error.code === "BLOCKING_PROJECT") {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+  }
+  throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+}
+
+function mapClientMoneyDomainError(error: unknown): never {
+  if (!(error instanceof ClientMoneyDomainError)) throw error;
+  if (error.code === "NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND" });
+  throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message });
+}
+
 export const clientContactsRouter = router({
   // Read: autocomplete + simple listing.
   list: producerProcedure
@@ -79,7 +108,12 @@ export const clientContactsRouter = router({
           lastSeenAt: clientContacts.lastSeenAt,
         })
         .from(clientContacts)
-        .where(eq(clientContacts.producerId, ctx.producerId))
+        .where(
+          and(
+            eq(clientContacts.producerId, ctx.producerId),
+            isNull(clientContacts.producerArchivedAt),
+          ),
+        )
         .orderBy(desc(clientContacts.lastSeenAt));
 
       const q = input?.q?.trim().toLowerCase();
@@ -97,11 +131,7 @@ export const clientContactsRouter = router({
   // defines the purchase-ledger projection. Project-row flags and invoice
   // compatibility tables are not valid commercial sources.
   listWithProjects: producerProcedure
-    .input(
-      z
-        .object({ view: z.enum(["by-client", "all-projects"]).optional() })
-        .optional(),
-    )
+    .input(z.object({ view: z.enum(["by-client", "all-projects"]).optional() }).optional())
     .query(async ({ ctx, input }) => {
       const view = input?.view ?? "by-client";
 
@@ -147,10 +177,7 @@ export const clientContactsRouter = router({
         .where(eq(projects.producerId, ctx.producerId))
         .groupBy(projectTracks.projectId);
 
-      const commentMap = new Map<
-        string,
-        { lastComment: Date | null; unresolved: number }
-      >();
+      const commentMap = new Map<string, { lastComment: Date | null; unresolved: number }>();
       for (const row of commentAgg) {
         const lc =
           row.lastComment == null
@@ -175,8 +202,7 @@ export const clientContactsRouter = router({
             : p.nextSessionAt instanceof Date
               ? p.nextSessionAt
               : new Date(p.nextSessionAt);
-        const isActive =
-          p.lifecycleStatus !== "completed" && p.lifecycleStatus !== "canceled";
+        const isActive = p.lifecycleStatus !== "completed" && p.lifecycleStatus !== "canceled";
         return {
           id: p.id,
           title: p.title,
@@ -204,7 +230,10 @@ export const clientContactsRouter = router({
             id: clientContacts.id,
             email: clientContacts.email,
             name: clientContacts.name,
+            phone: clientContacts.phone,
             tags: clientContacts.tags,
+            notes: clientContacts.notes,
+            producerArchivedAt: clientContacts.producerArchivedAt,
             invitedAt: clientContacts.invitedAt,
             clerkUserId: clientContacts.clerkUserId,
           })
@@ -216,7 +245,10 @@ export const clientContactsRouter = router({
             id: string;
             email: string;
             name: string;
+            phone: string | null;
             tags: string[] | null;
+            notes: string | null;
+            producerArchivedAt: Date | null;
             invitedAt: Date | null;
             clerkUserId: string | null;
           }
@@ -226,7 +258,10 @@ export const clientContactsRouter = router({
             id: c.id,
             email: c.email,
             name: c.name,
+            phone: c.phone,
             tags: c.tags,
+            notes: c.notes,
+            producerArchivedAt: c.producerArchivedAt,
             invitedAt: c.invitedAt,
             clerkUserId: c.clerkUserId,
           });
@@ -242,7 +277,10 @@ export const clientContactsRouter = router({
                     id: ct.id,
                     email: ct.email,
                     name: ct.name,
+                    phone: ct.phone,
                     tags: ct.tags,
+                    notes: ct.notes,
+                    producerArchivedAt: ct.producerArchivedAt,
                     invitedAt: ct.invitedAt,
                     clerkUserId: ct.clerkUserId,
                   }
@@ -250,7 +288,10 @@ export const clientContactsRouter = router({
                     id: null,
                     email: p.clientEmail,
                     name: p.clientName ?? p.artistName,
+                    phone: null as string | null,
                     tags: null as string[] | null,
+                    notes: null as string | null,
+                    producerArchivedAt: null as Date | null,
                     invitedAt: null as Date | null,
                     clerkUserId: null as string | null,
                   },
@@ -265,10 +306,12 @@ export const clientContactsRouter = router({
           id: clientContacts.id,
           email: clientContacts.email,
           name: clientContacts.name,
+          phone: clientContacts.phone,
           firstSeenAt: clientContacts.firstSeenAt,
           lastSeenAt: clientContacts.lastSeenAt,
           tags: clientContacts.tags,
           notes: clientContacts.notes,
+          producerArchivedAt: clientContacts.producerArchivedAt,
           referralSource: clientContacts.referralSource,
           // Phase 1 (clients-projects redesign) — drives LinkPill state.
           // `clerkUserId` set ⇒ "active" (artist signed up), else
@@ -284,6 +327,7 @@ export const clientContactsRouter = router({
 
       type Agg = {
         active: number;
+        archiveBlocking: number;
         total: number;
         lastActivity: Date | null;
         unresolved: number;
@@ -294,6 +338,7 @@ export const clientContactsRouter = router({
         if (existing) return existing;
         const fresh: Agg = {
           active: 0,
+          archiveBlocking: 0,
           total: 0,
           lastActivity: null,
           unresolved: 0,
@@ -308,6 +353,9 @@ export const clientContactsRouter = router({
         if (p.isActive) {
           aggregate.active += 1;
         }
+        if (p.lifecycleStatus === "active" || p.lifecycleStatus === "waiting_for_payment") {
+          aggregate.archiveBlocking += 1;
+        }
         aggregate.unresolved += p.unresolvedComments;
         if (!aggregate.lastActivity || la > aggregate.lastActivity) {
           aggregate.lastActivity = la;
@@ -317,6 +365,7 @@ export const clientContactsRouter = router({
       const rows = contacts.map((c) => {
         const agg = byClientContactId.get(c.id) ?? {
           active: 0,
+          archiveBlocking: 0,
           total: 0,
           lastActivity: null,
           unresolved: 0,
@@ -330,7 +379,9 @@ export const clientContactsRouter = router({
         const staleMs = 90 * 24 * 60 * 60 * 1000; // 90 days
         const isStale =
           agg.total === 0
-            ? now - (c.lastSeenAt instanceof Date ? c.lastSeenAt : new Date(c.lastSeenAt)).getTime() > staleMs
+            ? now -
+                (c.lastSeenAt instanceof Date ? c.lastSeenAt : new Date(c.lastSeenAt)).getTime() >
+              staleMs
             : false;
         const needsAttention = agg.unresolved > 0;
         return {
@@ -341,10 +392,13 @@ export const clientContactsRouter = router({
           lastSeenAt: c.lastSeenAt,
           tags: c.tags,
           notes: c.notes,
+          phone: c.phone,
           referralSource: c.referralSource,
+          producerArchivedAt: c.producerArchivedAt,
           invitedAt: c.invitedAt,
           clerkUserId: c.clerkUserId,
           activeProjectCount: agg.active,
+          archiveBlockingProjectCount: agg.archiveBlocking,
           totalProjectCount: agg.total,
           commercial: unavailableCommercialProjection(),
           unresolvedComments: agg.unresolved,
@@ -376,12 +430,7 @@ export const clientContactsRouter = router({
       const [existing] = await ctx.db
         .select({ producerId: clientContacts.producerId })
         .from(clientContacts)
-        .where(
-          and(
-            eq(clientContacts.id, input.id),
-            eq(clientContacts.producerId, ctx.producerId),
-          ),
-        )
+        .where(and(eq(clientContacts.id, input.id), eq(clientContacts.producerId, ctx.producerId)))
         .limit(1);
       if (!existing || existing.producerId !== ctx.producerId) {
         throw new TRPCError({ code: "NOT_FOUND" });
@@ -400,12 +449,7 @@ export const clientContactsRouter = router({
       await ctx.db
         .update(clientContacts)
         .set({ tags: cleaned })
-        .where(
-          and(
-            eq(clientContacts.id, input.id),
-            eq(clientContacts.producerId, ctx.producerId),
-          ),
-        );
+        .where(and(eq(clientContacts.id, input.id), eq(clientContacts.producerId, ctx.producerId)));
       return { ok: true as const, tags: cleaned };
     }),
 
@@ -440,7 +484,7 @@ export const clientContactsRouter = router({
       }
     }
     const sorted = Array.from(counts.values())
-      .sort((a, b) => (b.n - a.n) || a.canonical.localeCompare(b.canonical))
+      .sort((a, b) => b.n - a.n || a.canonical.localeCompare(b.canonical))
       .slice(0, 40)
       .map((e) => e.canonical);
     return sorted;
@@ -464,12 +508,7 @@ export const clientContactsRouter = router({
       const [existing] = await ctx.db
         .select({ producerId: clientContacts.producerId })
         .from(clientContacts)
-        .where(
-          and(
-            eq(clientContacts.id, input.id),
-            eq(clientContacts.producerId, ctx.producerId),
-          ),
-        )
+        .where(and(eq(clientContacts.id, input.id), eq(clientContacts.producerId, ctx.producerId)))
         .limit(1);
       if (!existing || existing.producerId !== ctx.producerId) {
         throw new TRPCError({ code: "NOT_FOUND" });
@@ -508,12 +547,7 @@ export const clientContactsRouter = router({
       await ctx.db
         .update(clientContacts)
         .set(patch)
-        .where(
-          and(
-            eq(clientContacts.id, input.id),
-            eq(clientContacts.producerId, ctx.producerId),
-          ),
-        );
+        .where(and(eq(clientContacts.id, input.id), eq(clientContacts.producerId, ctx.producerId)));
       return { ok: true as const, changed: true };
     }),
 
@@ -544,10 +578,7 @@ export const clientContactsRouter = router({
       .where(eq(projects.producerId, ctx.producerId))
       .groupBy(projects.clientContactId);
 
-    const agg = new Map<
-      string,
-      { active: number; total: number; lastActivity: Date | null }
-    >();
+    const agg = new Map<string, { active: number; total: number; lastActivity: Date | null }>();
     for (const row of projectAgg) {
       const lastAct =
         row.lastActivity == null
@@ -600,10 +631,7 @@ export const clientContactsRouter = router({
         .select()
         .from(clientContacts)
         .where(
-          and(
-            eq(clientContacts.producerId, ctx.producerId),
-            eq(clientContacts.emailHash, hash),
-          ),
+          and(eq(clientContacts.producerId, ctx.producerId), eq(clientContacts.emailHash, hash)),
         )
         .limit(1);
       if (existing) {
@@ -649,95 +677,77 @@ export const clientContactsRouter = router({
         id: z.string().uuid(),
         name: z.string().trim().min(1).max(200).optional(),
         email: z.string().email().optional(),
-        // PR #130 — phone + notes editable from the Client Space hero.
-        // `null` explicitly clears the column; an empty string is also
-        // treated as clear so producers wiping a field don't need a
-        // distinct UI affordance for null vs ""
         phone: z.string().trim().max(40).nullable().optional(),
-        notes: z.string().trim().max(2000).nullable().optional(),
+        notes: z.string().trim().max(5000).nullable().optional(),
+        tags: z.array(z.string().trim().min(1).max(80)).max(20).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const [existing] = await ctx.db
-        .select()
-        .from(clientContacts)
-        .where(
-          and(
-            eq(clientContacts.id, input.id),
-            eq(clientContacts.producerId, ctx.producerId),
-          ),
-        )
-        .limit(1);
-      if (!existing || existing.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "NOT_FOUND" });
-      }
-
-      const patch: {
+      const editInput: {
+        producerId: string;
+        clientId: string;
         name?: string;
         email?: string;
-        emailHash?: string;
         phone?: string | null;
         notes?: string | null;
-      } = {};
-      if (input.name !== undefined) patch.name = input.name.trim();
-      if (input.email !== undefined) {
-        const { lower, hash } = hashEmail(input.email);
-        if (hash !== existing.emailHash) {
-          const [clash] = await ctx.db
-            .select({ id: clientContacts.id })
-            .from(clientContacts)
-            .where(
-              and(
-                eq(clientContacts.producerId, ctx.producerId),
-                eq(clientContacts.emailHash, hash),
-              ),
-            )
-            .limit(1);
-          if (clash) {
-            throw new TRPCError({
-              code: "CONFLICT",
-              message: "A client with that email already exists.",
-            });
-          }
-          patch.email = lower;
-          patch.emailHash = hash;
-        }
-      }
-      if (input.phone !== undefined) {
-        const trimmed = input.phone === null ? "" : input.phone.trim();
-        patch.phone = trimmed.length > 0 ? trimmed : null;
-      }
-      if (input.notes !== undefined) {
-        const trimmed = input.notes === null ? "" : input.notes.trim();
-        patch.notes = trimmed.length > 0 ? trimmed : null;
-      }
-      if (Object.keys(patch).length === 0) {
+        tags?: string[];
+      } = { producerId: ctx.producerId, clientId: input.id };
+      if (input.name !== undefined) editInput.name = input.name;
+      if (input.email !== undefined) editInput.email = input.email;
+      if (input.phone !== undefined) editInput.phone = input.phone;
+      if (input.notes !== undefined) editInput.notes = input.notes;
+      if (input.tags !== undefined) editInput.tags = input.tags;
+
+      try {
+        const { client } = await editClient(clientManagementRepository(ctx.db), editInput);
         return {
-          id: existing.id,
-          email: existing.email,
-          name: existing.name,
-          phone: existing.phone,
-          notes: existing.notes,
+          id: client.id,
+          email: client.email,
+          name: client.name,
+          phone: client.phone,
+          notes: client.notes,
+          tags: [...client.tags],
         };
+      } catch (error) {
+        mapClientManagementDomainError(error);
       }
-      const [row] = await ctx.db
-        .update(clientContacts)
-        .set(stripUndefined(patch))
-        .where(
-          and(
-            eq(clientContacts.id, input.id),
-            eq(clientContacts.producerId, ctx.producerId),
-          ),
-        )
-        .returning();
-      if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      return {
-        id: row.id,
-        email: row.email,
-        name: row.name,
-        phone: row.phone,
-        notes: row.notes,
-      };
+    }),
+
+  archive: producerProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await archiveClient(clientManagementRepository(ctx.db), {
+          producerId: ctx.producerId,
+          clientId: input.id,
+          archivedAt: new Date(),
+        });
+        return {
+          id: result.client.id,
+          producerArchivedAt: result.client.producerArchivedAt,
+          changed: result.changed,
+        };
+      } catch (error) {
+        mapClientManagementDomainError(error);
+      }
+    }),
+
+  restore: producerProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await restoreClient(clientManagementRepository(ctx.db), {
+          producerId: ctx.producerId,
+          clientId: input.id,
+        });
+        return {
+          id: result.client.id,
+          producerArchivedAt: result.client.producerArchivedAt,
+          changed: result.changed,
+        };
+      } catch (error) {
+        mapClientManagementDomainError(error);
+      }
     }),
 
   // Permanent deletion is a domain operation: only a never-invited,
@@ -746,10 +756,10 @@ export const clientContactsRouter = router({
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       try {
-        return await permanentlyDeleteEmptyDraftClient(
-          historicalDeletionRepository(ctx.db),
-          { producerId: ctx.producerId, clientId: input.id },
-        );
+        return await permanentlyDeleteEmptyDraftClient(historicalDeletionRepository(ctx.db), {
+          producerId: ctx.producerId,
+          clientId: input.id,
+        });
       } catch (error) {
         mapHistoricalDeletionDomainError(error);
       }
@@ -770,10 +780,7 @@ export const clientContactsRouter = router({
         orderedIds: z
           .array(z.string().uuid())
           .min(1)
-          .refine(
-            (arr) => new Set(arr).size === arr.length,
-            "duplicate ids are not allowed",
-          ),
+          .refine((arr) => new Set(arr).size === arr.length, "duplicate ids are not allowed"),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -800,9 +807,7 @@ export const clientContactsRouter = router({
           await tx
             .update(clientContacts)
             .set({ position: idx })
-            .where(
-              and(eq(clientContacts.id, id), eq(clientContacts.producerId, ctx.producerId)),
-            );
+            .where(and(eq(clientContacts.id, id), eq(clientContacts.producerId, ctx.producerId)));
         }
       });
       return { count: input.orderedIds.length };
@@ -830,64 +835,43 @@ export const clientContactsRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const [existing] = await ctx.db
-        .select({
-          id: clientContacts.id,
-          producerId: clientContacts.producerId,
-          email: clientContacts.email,
-          name: clientContacts.name,
-        })
-        .from(clientContacts)
-        .where(
-          and(
-            eq(clientContacts.id, input.id),
-            eq(clientContacts.producerId, ctx.producerId),
-          ),
-        )
-        .limit(1);
-      if (!existing || existing.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "NOT_FOUND" });
-      }
+      const producer =
+        input.via === "email"
+          ? (
+              await ctx.db
+                .select({
+                  slug: producers.slug,
+                  displayName: producers.displayName,
+                })
+                .from(producers)
+                .where(eq(producers.id, ctx.producerId))
+                .limit(1)
+            )[0]
+          : undefined;
 
-      if (input.via === "email") {
-        // Email is sent BEFORE invited_at is stamped. If Resend
-        // rejects (sandbox / unverified domain / rate-limit) the
-        // contact's invited_at stays NULL and the LinkPill keeps
-        // showing "Invite to app" so the producer can retry. Stamping
-        // first would leave a stale "Invited" state that lies about
-        // whether the email actually went out.
-        const [producer] = await ctx.db
-          .select({
-            slug: producers.slug,
-            displayName: producers.displayName,
-          })
-          .from(producers)
-          .where(eq(producers.id, ctx.producerId))
-          .limit(1);
-        const slug = producer?.slug ?? "";
-        const producerName = producer?.displayName ?? "Your producer";
-        const inviteUrl = `${SITE_URL}/invite/${slug}-${existing.id}`;
-        // Re-throws on Resend failure — caller decides whether to
-        // retry or fall back to the copy-link path.
-        await sendClientInviteEmail(existing.email, {
-          clientName: existing.name,
-          producerName,
-          inviteUrl,
+      try {
+        return await inviteClient(clientManagementRepository(ctx.db), {
+          producerId: ctx.producerId,
+          clientId: input.id,
+          via: input.via,
+          invitedAt: new Date(),
+          // The domain commits invitedAt under the shared deletion lock before
+          // this callback runs. A failed send remains safely retryable without
+          // letting permanent deletion create a dead invite.
+          deliverEmail: async (client) => {
+            const slug = producer?.slug ?? "";
+            const producerName = producer?.displayName ?? "Your producer";
+            const inviteUrl = `${SITE_URL}/invite/${slug}-${client.id}`;
+            await sendClientInviteEmail(client.email, {
+              clientName: client.name,
+              producerName,
+              inviteUrl,
+            });
+          },
         });
+      } catch (error) {
+        mapClientManagementDomainError(error);
       }
-
-      const invitedAt = new Date();
-      await ctx.db
-        .update(clientContacts)
-        .set({ invitedAt })
-        .where(
-          and(
-            eq(clientContacts.id, input.id),
-            eq(clientContacts.producerId, ctx.producerId),
-          ),
-        );
-
-      return { invitedAt, via: input.via };
     }),
 
   // Detailed view — contact + linked projects + contracts + recent
@@ -898,16 +882,15 @@ export const clientContactsRouter = router({
       const [contact] = await ctx.db
         .select()
         .from(clientContacts)
-        .where(
-          and(
-            eq(clientContacts.id, input.id),
-            eq(clientContacts.producerId, ctx.producerId),
-          ),
-        )
+        .where(and(eq(clientContacts.id, input.id), eq(clientContacts.producerId, ctx.producerId)))
         .limit(1);
       if (!contact || contact.producerId !== ctx.producerId) {
         throw new TRPCError({ code: "NOT_FOUND" });
       }
+      const canPermanentlyDelete = await canPermanentlyDeleteEmptyDraftClient(
+        historicalDeletionRepository(ctx.db),
+        { producerId: ctx.producerId, clientId: input.id },
+      );
       const projectRows = await ctx.db
         .select({
           id: projects.id,
@@ -922,12 +905,7 @@ export const clientContactsRouter = router({
         })
         .from(projects)
         .leftJoin(bookings, eq(bookings.projectId, projects.id))
-        .where(
-          and(
-            eq(projects.producerId, ctx.producerId),
-            eq(projects.clientContactId, input.id),
-          ),
-        )
+        .where(and(eq(projects.producerId, ctx.producerId), eq(projects.clientContactId, input.id)))
         .groupBy(projects.id)
         .orderBy(desc(projects.updatedAt));
 
@@ -971,8 +949,11 @@ export const clientContactsRouter = router({
 
       const activeProjectCount = projectRows.filter(
         (project) =>
-          project.lifecycleStatus !== "completed" &&
-          project.lifecycleStatus !== "canceled",
+          project.lifecycleStatus !== "completed" && project.lifecycleStatus !== "canceled",
+      ).length;
+      const archiveBlockingProjectCount = projectRows.filter(
+        (project) =>
+          project.lifecycleStatus === "active" || project.lifecycleStatus === "waiting_for_payment",
       ).length;
       const lastActivity = projectRows[0]?.updatedAt ?? contact.lastSeenAt;
 
@@ -980,6 +961,16 @@ export const clientContactsRouter = router({
         ...project,
         commercial: unavailableCommercialProjection(),
       }));
+
+      let money;
+      try {
+        money = await getClientMoneyLedger(clientMoneyRepository(ctx.db), {
+          producerId: ctx.producerId,
+          clientContactId: input.id,
+        });
+      } catch (error) {
+        mapClientMoneyDomainError(error);
+      }
 
       return {
         contact: {
@@ -994,20 +985,24 @@ export const clientContactsRouter = router({
           lastSeenAt: contact.lastSeenAt,
           tags: contact.tags,
           notes: contact.notes,
+          producerArchivedAt: contact.producerArchivedAt,
           referralSource: contact.referralSource,
           // Phase 1 (clients-projects redesign) — drives LinkPill state
           // on the Client Space hero.
           invitedAt: contact.invitedAt,
           clerkUserId: contact.clerkUserId,
+          canPermanentlyDelete,
         },
         stats: {
           activeProjectCount,
+          archiveBlockingProjectCount,
           totalProjectCount: projectRows.length,
           trackCount,
           lastActivity,
           commercial: unavailableCommercialProjection(),
         },
         projects: enrichedProjects,
+        money,
         comments: commentRows,
       };
     }),

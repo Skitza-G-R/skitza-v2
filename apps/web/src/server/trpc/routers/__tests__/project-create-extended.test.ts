@@ -31,6 +31,7 @@ Object.assign(dbMock, {
                   producerId: "producer-1",
                   name: "Test Artist",
                   email: "artist@example.com",
+                  producerArchivedAt: null,
                 },
               ])
             : limitResult([{ id: "producer-1" }]),

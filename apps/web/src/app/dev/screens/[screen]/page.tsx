@@ -8,7 +8,7 @@ import {
   ClientSpaceHero,
   type ClientSpaceHeroData,
 } from "~/components/dashboard/clients/client-space-hero";
-import { ClientPaymentProofs } from "~/components/dashboard/clients/client-payment-proofs";
+import { ClientMoneyLedger } from "~/components/dashboard/clients/client-money-ledger";
 import type { ClientCardData } from "~/components/dashboard/clients/client-card";
 import { ProjectRow, type ProjectRowData } from "~/components/dashboard/projects/project-row";
 import { SongSpace } from "~/components/dashboard/song/song-space";
@@ -36,9 +36,11 @@ import {
 } from "~/components/artist/purchase/pay-data";
 import { deriveGradient } from "~/lib/clients/derive-gradient";
 import { UploadModalDevScreen } from "~/components/dev/upload-modal-dev-screen";
+import { CLIENT_ARCHIVE_BLOCKED_MESSAGE } from "~/server/domain/client-management/service";
 
 const DEV_REQUEST_ID = "00000000-0000-4000-8000-000000000001";
 const DEV_PROOF_ID = "00000000-0000-4000-8000-000000000002";
+const DEV_USD_PROOF_ID = "00000000-0000-4000-8000-000000000003";
 const DEV_PENDING_PROOF: PendingPaymentProof = {
   proofId: DEV_PROOF_ID,
   purchaseRequestId: DEV_REQUEST_ID,
@@ -112,6 +114,11 @@ const DEV_CLIENTS = [
     id: "client-lior",
     name: "Lior Tansky",
     email: "lior@example.com",
+    phone: "+972 50 123 4567",
+    notes: "Prefers afternoon sessions.",
+    tags: ["Production"],
+    archived: false,
+    archiveBlockedReason: CLIENT_ARCHIVE_BLOCKED_MESSAGE,
     linkState: "active",
     projects: 2,
     lifetime: 150_000,
@@ -125,6 +132,11 @@ const DEV_CLIENTS = [
     id: "client-maya",
     name: "Maya Cohen",
     email: "maya@example.com",
+    phone: null,
+    notes: null,
+    tags: ["Single"],
+    archived: false,
+    archiveBlockedReason: CLIENT_ARCHIVE_BLOCKED_MESSAGE,
     linkState: "pending",
     projects: 1,
     lifetime: 0,
@@ -133,6 +145,23 @@ const DEV_CLIENTS = [
     currency: "ILS",
     lastActivityIso: "2026-07-13T07:00:00.000Z",
     joinedAtIso: "2026-06-05T07:00:00.000Z",
+  },
+  {
+    id: "client-dana",
+    name: "Dana Archived",
+    email: "dana@example.com",
+    phone: null,
+    notes: "Paused indefinitely.",
+    tags: ["Archived"],
+    archived: true,
+    linkState: "none",
+    projects: 0,
+    lifetime: 0,
+    owed: 0,
+    needsAttention: false,
+    currency: "ILS",
+    lastActivityIso: "2026-05-30T07:00:00.000Z",
+    joinedAtIso: "2026-04-12T07:00:00.000Z",
   },
 ] satisfies ClientCardData[];
 
@@ -151,12 +180,48 @@ const DEV_CLIENT_HERO = {
   email: "lior@example.com",
   phone: "+972 50 123 4567",
   notes: null,
+  tags: ["Production"],
+  archived: false,
+  archiveBlockedReason: CLIENT_ARCHIVE_BLOCKED_MESSAGE,
+  canPermanentlyDelete: false,
   linkState: "active",
   joinedAtIso: "2026-05-18T07:00:00.000Z",
   lifetime: 150_000,
   outstanding: 0,
   activeProjects: 2,
+  moneyHasMultipleCurrencies: true,
+  moneyHasNoPurchases: false,
   currency: "ILS",
+} satisfies ClientSpaceHeroData;
+
+const DEV_EMPTY_CLIENT_HERO = {
+  ...DEV_CLIENT_HERO,
+  id: "client-empty-draft",
+  name: "New Client Draft",
+  email: null,
+  phone: null,
+  notes: null,
+  tags: [],
+  archived: false,
+  archiveBlockedReason: null,
+  canPermanentlyDelete: true,
+  linkState: "none",
+  lifetime: 0,
+  outstanding: 0,
+  activeProjects: 0,
+  moneyHasMultipleCurrencies: false,
+  moneyHasNoPurchases: true,
+} satisfies ClientSpaceHeroData;
+
+const DEV_ARCHIVED_CLIENT_HERO = {
+  ...DEV_CLIENT_HERO,
+  id: "client-archived",
+  name: "Archived Artist",
+  archived: true,
+  archiveBlockedReason: null,
+  canPermanentlyDelete: false,
+  activeProjects: 0,
+  moneyHasMultipleCurrencies: false,
 } satisfies ClientSpaceHeroData;
 
 // Dev-only screen gallery for the handoff-4 wave (2026-07-05). Renders the
@@ -198,9 +263,7 @@ export default async function DevScreenPage({ params }: Params) {
         />
       );
     case "s5":
-      return (
-        <RequestSentScreen producer={MOCK_PRODUCER} requestRef="SK-7F3QK2" />
-      );
+      return <RequestSentScreen producer={MOCK_PRODUCER} requestRef="SK-7F3QK2" />;
     case "s7":
       return (
         <ChoosePlanScreen
@@ -287,22 +350,6 @@ export default async function DevScreenPage({ params }: Params) {
           className="mx-auto max-w-[1400px] px-4 py-5 sm:px-6 lg:px-8"
         >
           <ClientSpaceHero client={DEV_CLIENT_HERO} producerSlug="gili" />
-          <ClientPaymentProofs
-            proofs={[
-              {
-                proofId: DEV_PROOF_ID,
-                purchaseRequestId: DEV_REQUEST_ID,
-                refNumber: "SK-7F3QK2",
-                productNameSnapshot: "Full production",
-                amountCents: 150_000,
-                currency: "ILS",
-                originalFileName: "bit-payment-lior.png",
-                status: "confirmed",
-                rejectionNote: null,
-                createdAt: new Date("2026-07-14T07:00:00.000Z"),
-              },
-            ]}
-          />
           <section className="mt-6" aria-labelledby="dev-client-projects-title">
             <p className="text-[10px] font-bold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase">
               Work
@@ -319,6 +366,146 @@ export default async function DevScreenPage({ params }: Params) {
               ))}
             </div>
           </section>
+          <div className="mt-8">
+            <ClientMoneyLedger
+              data={{
+                currencyTotals: [
+                  {
+                    currency: "ILS",
+                    purchasedCents: 240_003,
+                    paidCents: 120_001,
+                    remainingCents: 120_002,
+                  },
+                  {
+                    currency: "USD",
+                    purchasedCents: 80_000,
+                    paidCents: 50_000,
+                    remainingCents: 30_000,
+                  },
+                ],
+                projects: [
+                  {
+                    id: "project-lior",
+                    title: "Full production",
+                    lifecycleStatus: "active",
+                    currencyTotals: [
+                      {
+                        currency: "ILS",
+                        purchasedCents: 240_003,
+                        paidCents: 120_001,
+                        remainingCents: 120_002,
+                      },
+                    ],
+                    purchases: [
+                      {
+                        id: "purchase-lior",
+                        reference: "SK-7F3QK2",
+                        title: "Full production",
+                        lifecycleStatus: "active",
+                        acceptedAtIso: "2026-07-12T07:00:00.000Z",
+                        currency: "ILS",
+                        subtotalCents: 240_003,
+                        taxCents: 0,
+                        totalCents: 240_003,
+                        paidCents: 120_001,
+                        remainingCents: 120_002,
+                        payments: [
+                          {
+                            id: "payment-lior",
+                            amountCents: 120_001,
+                            currency: "ILS",
+                            paidAtIso: "2026-07-14T07:00:00.000Z",
+                            source: "proof",
+                            note: null,
+                          },
+                        ],
+                        proofs: [
+                          {
+                            id: DEV_PROOF_ID,
+                            amountCents: 120_001,
+                            currency: "ILS",
+                            status: "confirmed",
+                            originalFileName: "bit-payment-lior.png",
+                            createdAtIso: "2026-07-14T06:45:00.000Z",
+                            rejectionNote: null,
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                  {
+                    id: "project-lior-usd",
+                    title: "Mix consultation",
+                    lifecycleStatus: "completed",
+                    currencyTotals: [
+                      {
+                        currency: "USD",
+                        purchasedCents: 80_000,
+                        paidCents: 50_000,
+                        remainingCents: 30_000,
+                      },
+                    ],
+                    purchases: [
+                      {
+                        id: "purchase-lior-usd",
+                        reference: "SK-USD123",
+                        title: "Mix consultation",
+                        lifecycleStatus: "completed",
+                        acceptedAtIso: "2026-05-20T07:00:00.000Z",
+                        currency: "USD",
+                        subtotalCents: 80_000,
+                        taxCents: 0,
+                        totalCents: 80_000,
+                        paidCents: 50_000,
+                        remainingCents: 30_000,
+                        payments: [
+                          {
+                            id: "payment-lior-usd",
+                            amountCents: 50_000,
+                            currency: "USD",
+                            paidAtIso: "2026-05-21T07:00:00.000Z",
+                            source: "manual",
+                            note: "Wire transfer confirmed by the producer.",
+                          },
+                        ],
+                        proofs: [
+                          {
+                            id: DEV_USD_PROOF_ID,
+                            amountCents: 30_000,
+                            currency: "USD",
+                            status: "pending",
+                            originalFileName: "usd-balance-transfer.pdf",
+                            createdAtIso: "2026-07-16T06:45:00.000Z",
+                            rejectionNote: null,
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              }}
+            />
+          </div>
+        </main>
+      );
+    case "client-space-empty":
+      return (
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="mx-auto max-w-[1400px] px-4 py-5 sm:px-6 lg:px-8"
+        >
+          <ClientSpaceHero client={DEV_EMPTY_CLIENT_HERO} producerSlug="gili" />
+        </main>
+      );
+    case "client-space-archived":
+      return (
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="mx-auto max-w-[1400px] px-4 py-5 sm:px-6 lg:px-8"
+        >
+          <ClientSpaceHero client={DEV_ARCHIVED_CLIENT_HERO} producerSlug="gili" />
         </main>
       );
     case "project-space":
