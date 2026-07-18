@@ -277,7 +277,11 @@ describeWithTestDatabase("SK-93 client management — separate CI test database"
     if (results[0].status === "fulfilled") {
       expect(deliverEmail).toHaveBeenCalledTimes(1);
       expect(remaining.rows).toHaveLength(1);
-      expect(new Date(remaining.rows[0]!.invited_at!).getTime()).toBe(
+      const deliveredInvite = remaining.rows[0];
+      if (!deliveredInvite?.invited_at) {
+        throw new Error("The committed invite timestamp was not persisted");
+      }
+      expect(new Date(deliveredInvite.invited_at).getTime()).toBe(
         new Date("2036-07-18T12:00:00.000Z").getTime(),
       );
     } else {
