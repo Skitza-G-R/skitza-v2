@@ -147,30 +147,30 @@ export function NewProjectModal({
     // hero), then a selected existing client, then the inline new
     // form. If none of those resolved, we bail (this is also covered
     // by submitDisabled but defending the call here is cheap).
-    let artistName = "";
-    let artistEmail = "";
+    let clientContactId: string | undefined;
+    let newClient: { name: string; email: string } | undefined;
     if (lockedClient) {
-      artistName = lockedClient.name;
-      artistEmail = lockedClient.email;
+      clientContactId = lockedClient.id;
     } else if (clientMode === "existing") {
       const picked = clients.find((c) => c.id === selectedClientId);
       if (!picked) return;
-      artistName = picked.name;
-      artistEmail = picked.email;
+      clientContactId = picked.id;
     } else {
       const finalName = validateDisplayName(newClientName);
       const finalEmail = validateEmail(newClientEmail);
       if (finalName.kind !== "valid" || finalEmail.kind !== "valid") return;
-      artistName = newClientName.trim();
-      artistEmail = newClientEmail.trim();
+      newClient = {
+        name: newClientName.trim(),
+        email: newClientEmail.trim(),
+      };
     }
 
     startTransition(async () => {
       // exactOptionalPropertyTypes — never pass `undefined` keys.
       const payload: Parameters<typeof createProjectAction>[0] = {
         title: title.trim(),
-        artistName,
-        artistEmail,
+        ...(clientContactId ? { clientContactId } : {}),
+        ...(newClient ? { newClient } : {}),
       };
       if (deadline) {
         // <input type="date"> → "YYYY-MM-DD". Anchor at midnight UTC

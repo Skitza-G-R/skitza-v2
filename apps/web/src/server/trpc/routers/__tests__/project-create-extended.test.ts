@@ -5,11 +5,36 @@ const CLIENT_ID = "00000000-0000-4000-8000-000000000c02";
 
 type Row = Record<string, unknown>;
 const insertValuesSpy = vi.fn<(payload: Row) => void>();
+const clientContactsMarker = { __table: "client_contacts" };
+const producersMarker = { __table: "producers" };
+const projectsMarker = { __table: "projects" };
 
-const dbMock = {
+function limitResult(rows: Row[]) {
+  const promise = Promise.resolve(rows);
+  return {
+    for: () => promise,
+    then: promise.then.bind(promise),
+  };
+}
+
+const dbMock: Record<string, unknown> = {};
+const transaction = (work: (tx: Record<string, unknown>) => Promise<unknown>) => work(dbMock);
+Object.assign(dbMock, {
   select: () => ({
-    from: () => ({
-      where: () => ({ limit: () => Promise.resolve([{ id: "producer-1" }]) }),
+    from: (table: unknown) => ({
+      where: () => ({
+        limit: () =>
+          table === clientContactsMarker
+            ? limitResult([
+                {
+                  id: CLIENT_ID,
+                  producerId: "producer-1",
+                  name: "Test Artist",
+                  email: "artist@example.com",
+                },
+              ])
+            : limitResult([{ id: "producer-1" }]),
+      }),
     }),
   }),
   insert: () => ({
@@ -18,14 +43,17 @@ const dbMock = {
       return { returning: () => Promise.resolve([{ id: PROJECT_ID, ...payload }]) };
     },
   }),
-};
+  execute: () => Promise.resolve([]),
+  transaction,
+});
 
 vi.mock("@skitza/db", () => ({
   bookings: { __table: "bookings" },
   projectTracks: { __table: "project_tracks" },
-  projects: { __table: "projects" },
+  clientContacts: clientContactsMarker,
+  projects: projectsMarker,
   purchases: { __table: "purchases" },
-  producers: { __table: "producers" },
+  producers: producersMarker,
   trackComments: { __table: "track_comments" },
   trackVersions: { __table: "track_versions" },
   createDb: () => dbMock,
@@ -36,10 +64,6 @@ vi.mock("@skitza/db", () => ({
   inArray: (left: unknown, right: unknown) => ({ left, right }),
   isNull: (value: unknown) => value,
   sql: Object.assign(() => ({ sql: true }), { raw: () => ({ sql: true }) }),
-}));
-
-vi.mock("~/server/contacts/record", () => ({
-  recordContact: vi.fn(() => Promise.resolve(CLIENT_ID)),
 }));
 
 beforeEach(() => {
@@ -59,8 +83,7 @@ describe("project.create purchase boundary", () => {
     const project = await caller();
     const result = await project.create({
       title: "Album mixing",
-      artistName: "Test Artist",
-      artistEmail: "ARTIST@example.com",
+      clientContactId: CLIENT_ID,
     });
 
     expect(result.project.id).toBe(PROJECT_ID);
@@ -80,8 +103,7 @@ describe("project.create purchase boundary", () => {
     const project = await caller();
     await project.create({
       title: "Album mixing",
-      artistName: "Test Artist",
-      artistEmail: "artist@example.com",
+      clientContactId: CLIENT_ID,
       deadlineAt: "2026-06-15T00:00:00.000Z",
     });
 
@@ -95,8 +117,7 @@ describe("project.create purchase boundary", () => {
     await expect(
       project.create({
         title: "Album mixing",
-        artistName: "Test Artist",
-        artistEmail: "artist@example.com",
+        clientContactId: CLIENT_ID,
         deadlineAt: "not-a-date",
       }),
     ).rejects.toBeDefined();
@@ -110,8 +131,7 @@ describe("project.create purchase boundary", () => {
       await expect(
         project.create({
           title: "Album mixing",
-          artistName: "Test Artist",
-          artistEmail: "artist@example.com",
+          clientContactId: CLIENT_ID,
           [field]: field.endsWith("Cents") ? 100 : "00000000-0000-4000-8000-000000000099",
         } as never),
       ).rejects.toBeDefined();

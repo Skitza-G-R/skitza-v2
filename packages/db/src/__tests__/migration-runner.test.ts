@@ -23,6 +23,10 @@ const CUTOVER_MIGRATION = readFileSync(
   join(process.cwd(), "drizzle", "0027_purchase_foundation.sql"),
   "utf8",
 );
+const STABLE_OWNERSHIP_MIGRATION = readFileSync(
+  join(process.cwd(), "drizzle", "0028_stable_client_ownership.sql"),
+  "utf8",
+);
 
 function adapterBinding() {
   return {
@@ -48,7 +52,9 @@ function adapterApprovalFor() {
 
 type Query = { params: unknown[] | undefined; statement: string };
 
-function fakeSql(options: { failStatement?: string; initialDigest?: string } = {}) {
+function fakeSql(
+  options: { failStatement?: string; initialDigest?: string; laterMigration?: boolean } = {},
+) {
   let relationExists = options.initialDigest !== undefined;
   let digest = options.initialDigest ?? null;
   const transactions: Array<{ options: unknown; queries: Query[] }> = [];
@@ -59,6 +65,9 @@ function fakeSql(options: { failStatement?: string; initialDigest?: string } = {
     }
     if (statement.includes('SELECT "digest"')) {
       return digest === null ? [] : [{ digest }];
+    }
+    if (statement.includes('AS "later_migration"')) {
+      return options.laterMigration ? [{ later_migration: 1 }] : [];
     }
     throw new Error("unexpected read query");
   }) as ((statement: string, params?: unknown[]) => Promise<unknown[]>) & {
@@ -180,6 +189,14 @@ function ciSource(): string {
 }
 
 describe("SK-90 migration runner cutover", () => {
+  it("keeps SK-91 trigger bodies intact when splitting the migration", () => {
+    const statements = splitStatements(STABLE_OWNERSHIP_MIGRATION);
+    expect(statements).toHaveLength(9);
+    expect(
+      statements.filter((statement: string) => statement.includes("CREATE TRIGGER")),
+    ).toHaveLength(4);
+  });
+
   it("starts at 0027 instead of replaying the legacy 0000-0026 chain", () => {
     const source = runnerSource();
 
@@ -284,6 +301,20 @@ describe("SK-90 migration runner cutover", () => {
       "SKITZA_MIGRATION_DIGEST_MISMATCH",
     );
     expect(changed.state.transactions).toHaveLength(0);
+  });
+
+  it("does not replay the exact 0027 baseline verifier after a later migration", async () => {
+    const filename = "0027_purchase_foundation.sql";
+    const migration = "SELECT 'BASELINE_ONLY';";
+    const client = fakeSql({
+      initialDigest: migrationDigest(migration),
+      laterMigration: true,
+    });
+
+    await expect(applyMigration(client.sql, filename, migration)).resolves.toBe(
+      "SKITZA_MIGRATION_ALREADY_APPLIED",
+    );
+    expect(client.state.transactions).toHaveLength(0);
   });
 
   it("serializes first-run bootstrap before DDL and executes a concurrent digest once", async () => {

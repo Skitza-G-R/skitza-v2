@@ -186,7 +186,7 @@ describe("clientContacts.sendInvite", () => {
     expect(updateMock).toHaveBeenCalledTimes(1);
   });
 
-  it("throws FORBIDDEN when the contact belongs to another producer", async () => {
+  it("returns NOT_FOUND when the contact belongs to another producer", async () => {
     ownerSelectMock.mockResolvedValueOnce([
       {
         id: CONTACT_ID,
@@ -198,7 +198,7 @@ describe("clientContacts.sendInvite", () => {
     const caller = await buildCaller();
     await expect(
       caller.clientContacts.sendInvite({ id: CONTACT_ID, via: "link" }),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(updateMock).not.toHaveBeenCalled();
     expect(sendEmailSpy).not.toHaveBeenCalled();
   });

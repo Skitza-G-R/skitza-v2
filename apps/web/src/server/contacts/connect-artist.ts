@@ -1,5 +1,9 @@
 import { clientContacts, sql, type Db } from "@skitza/db";
 import { emailHashFor } from "~/server/artist/identity";
+import {
+  assertStableArtistOwnerAssignment,
+  ProjectOwnershipDomainError,
+} from "~/server/domain/project-ownership/service";
 
 // Connect a signed-in Clerk user to a producer as that producer's
 // artist. Idempotent UPSERT against client_contacts.(producer_id,
@@ -50,7 +54,7 @@ export async function connectArtistToProducer(
   const trimmedName = input.name.trim() || "Artist";
   const now = new Date();
 
-  await db
+  const [contact] = await db
     .insert(clientContacts)
     .values({
       producerId: input.producerId,
@@ -64,6 +68,7 @@ export async function connectArtistToProducer(
     })
     .onConflictDoUpdate({
       target: [clientContacts.producerId, clientContacts.emailHash],
+      setWhere: sql`${clientContacts.clerkUserId} IS NULL OR ${clientContacts.clerkUserId} = ${input.clerkUserId}`,
       set: {
         clerkUserId: input.clerkUserId,
         archivedAt: null,
@@ -72,5 +77,13 @@ export async function connectArtistToProducer(
         // has one; only backfill if the stored name was empty.
         name: sql`COALESCE(NULLIF(${clientContacts.name}, ''), EXCLUDED.name)`,
       },
-    });
+    })
+    .returning({ clerkUserId: clientContacts.clerkUserId });
+  if (!contact) {
+    throw new ProjectOwnershipDomainError(
+      "OWNER_CONFLICT",
+      "This client already belongs to another verified account",
+    );
+  }
+  assertStableArtistOwnerAssignment(contact.clerkUserId, input.clerkUserId);
 }

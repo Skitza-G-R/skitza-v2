@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // Ownership chain:
 //   1. SELECT projectTracks WHERE id = trackId  -> NOT_FOUND if missing
 //   2. SELECT projects.producerId WHERE id = projectId
-//      -> FORBIDDEN if producerId !== ctx.producerId
+//      -> NOT_FOUND if producerId !== ctx.producerId (no metadata leak)
 //   3. UPDATE projectTracks.workflowStage WHERE id = trackId
 //   4. UPDATE projects.updatedAt WHERE id = projectId  (bookkeeping)
 
@@ -266,7 +266,7 @@ describe("project.setTrackStage", () => {
     expect(trackUpdateSetSpy).not.toHaveBeenCalled();
   });
 
-  it("throws FORBIDDEN when the producer doesn't own the parent project", async () => {
+  it("returns NOT_FOUND when the producer doesn't own the parent project", async () => {
     trackSelectMock.mockResolvedValueOnce([
       { id: TRACK_ID, projectId: PROJECT_ID },
     ]);
@@ -280,7 +280,7 @@ describe("project.setTrackStage", () => {
         trackId: TRACK_ID,
         workflowStage: "mixing",
       }),
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
 
     expect(trackUpdateSetSpy).not.toHaveBeenCalled();
   });

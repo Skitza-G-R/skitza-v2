@@ -9,7 +9,10 @@
 // therefore cannot leave a ledger table or partially committed statements
 // behind. A matching ledger row makes later migrations a no-op; 0027 still
 // runs its completed-target verifier so post-apply drift fails closed. A
-// changed file fails before any migration SQL runs.
+// changed file fails before any migration SQL runs. Once a later immutable
+// ledger entry exists, the 0027 exact baseline verifier is superseded: replaying
+// that baseline against an intentionally extended schema would reject every
+// valid later migration.
 //
 // The generic CLI can verify an already-applied 0027 and apply later files.
 // Only the isolated reset adapter may perform the initial 0027 cutover.
@@ -336,6 +339,21 @@ async function appliedDigest(sql, filename) {
   return digest;
 }
 
+async function hasAppliedLaterMigration(sql, filename) {
+  const rows = await sql(
+    `SELECT 1 AS "later_migration"
+     FROM "skitza_migrations"."applied"
+     WHERE "filename" > $1
+     ORDER BY "filename"
+     LIMIT 1`,
+    [filename],
+  );
+  if (!Array.isArray(rows) || rows.length > 1) {
+    throw fail("SKITZA_MIGRATION_LEDGER_STATE_INVALID");
+  }
+  return rows.length === 1 && rows[0]?.later_migration === 1;
+}
+
 async function applyMigration(sql, filename, content, options = {}) {
   const digest = migrationDigest(content);
   const recordedDigest = await appliedDigest(sql, filename);
@@ -344,6 +362,9 @@ async function applyMigration(sql, filename, content, options = {}) {
       throw fail("SKITZA_MIGRATION_DIGEST_MISMATCH");
     }
     if (filename !== CUTOVER_FLOOR) return "SKITZA_MIGRATION_ALREADY_APPLIED";
+    if (await hasAppliedLaterMigration(sql, filename)) {
+      return "SKITZA_MIGRATION_ALREADY_APPLIED";
+    }
   }
   if (filename === CUTOVER_FLOOR && recordedDigest === null) {
     assertSk90AdapterApproval(
@@ -498,6 +519,7 @@ export {
   cutoverFiles,
   databaseUrl,
   migrationDigest,
+  hasAppliedLaterMigration,
   postLockMigrationStatement,
   splitStatements,
 };

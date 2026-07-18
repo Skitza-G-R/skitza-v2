@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Narrow tests for `clientContacts.setTags`. Covers:
 //   - happy path (tags write through + dedupe applied)
-//   - auth boundary (FORBIDDEN when the row belongs to another producer)
+//   - auth boundary (NOT_FOUND for missing and foreign rows)
 //   - NOT_FOUND on unknown id
 // Plus a smoke test for `listTags` returning the producer's distinct
 // vocabulary sorted by frequency.

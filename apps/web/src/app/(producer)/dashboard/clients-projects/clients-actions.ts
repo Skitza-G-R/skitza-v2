@@ -44,6 +44,8 @@ function toMessage(err: unknown): string {
         return err.message || "A client with that email already exists.";
       case "BAD_REQUEST":
         return err.message || "Invalid input.";
+      case "PRECONDITION_FAILED":
+        return err.message || "Only an empty draft can be permanently deleted.";
       default:
         return "Something went wrong. Please try again.";
     }
@@ -180,25 +182,34 @@ export async function createClientAction(input: {
 // surface "field: message" hints directly.
 export async function createProjectAction(input: {
   title: string;
-  artistName: string;
-  artistEmail: string;
+  clientContactId?: string;
+  newClient?: { name: string; email: string };
   deadlineAt?: string;
 }): Promise<ActionDataResult<{ id: string }>> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
+    let clientContactId = input.clientContactId;
+    if (!clientContactId && input.newClient) {
+      const client = await c.caller.clientContacts.create({
+        name: input.newClient.name,
+        email: input.newClient.email,
+      });
+      clientContactId = client.id;
+    }
+    if (!clientContactId) {
+      return { ok: false, error: "Choose a client before creating the project." };
+    }
     // Conditional-spread to satisfy exactOptionalPropertyTypes — never
     // pass `undefined` as a property value. Deadline is forwarded only
     // when the caller actually filled it in.
     const payload: {
       title: string;
-      artistName: string;
-      artistEmail: string;
+      clientContactId: string;
       deadlineAt?: string;
     } = {
       title: input.title,
-      artistName: input.artistName,
-      artistEmail: input.artistEmail,
+      clientContactId,
     };
     if (input.deadlineAt) payload.deadlineAt = input.deadlineAt;
     const res = await c.caller.project.create(payload);
@@ -218,10 +229,9 @@ export async function createProjectAction(input: {
 // Null for phone/notes explicitly clears the column (the modal sends
 // the empty-string form normalised to null).
 //
-// removeClientAction: thin wrapper over clientContacts.remove. The
-// server keeps any projects/contracts/comments linked via the email
-// snapshot — this is purely a CRM-card removal, not a cascade. The
-// UI surfaces that copy on the confirmation modal.
+// removeClientAction: thin wrapper over the empty-draft deletion boundary.
+// Historical, invited, connected, disconnected, or archived clients fail
+// closed; the server never removes a CRM row while keeping detached history.
 
 export async function updateClientAction(input: {
   id: string;
