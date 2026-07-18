@@ -14,9 +14,9 @@ type PageProps = {
 
 export const metadata: Metadata = { title: "Payment instructions" };
 
-// S8 — real off-app instructions for the owned, price-locked request.
-// A proof already under review (or a completed balance) goes straight to S9,
-// where the artist sees its current state instead of another payment prompt.
+// S8 — current off-app instructions for the owned, accepted purchase.
+// The server returns only a due, still-payable installment; terminal,
+// proof-under-review, and future installments never render instructions.
 export default async function PaymentInstructionsPage({ params, searchParams }: PageProps) {
   const { userId } = await auth();
   if (!userId) return null;
@@ -37,10 +37,7 @@ export default async function PaymentInstructionsPage({ params, searchParams }: 
       }
       redirect("/artist");
     }
-    if (
-      data.proofUploadsAvailable &&
-      (data.pendingProofCents > 0 || data.remainingCents <= 0)
-    ) {
+    if (data.proofUploadsAvailable && (data.pendingProofCents > 0 || data.remainingCents <= 0)) {
       redirect(`/artist/purchase/${productId}/pay/proof?req=${req}`);
     }
 
@@ -58,6 +55,7 @@ export default async function PaymentInstructionsPage({ params, searchParams }: 
         purchaseRequestId={req}
         producerName={data.producerName ?? "Your producer"}
         amountDueNowCents={data.amountDueNowCents}
+        currency={data.currency}
         paymentDetails={paymentDetails}
         productName={data.productName}
         planLabel={paymentPlanLabel(data.planKind, data.planInstallments)}

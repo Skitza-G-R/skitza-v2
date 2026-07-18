@@ -12,10 +12,14 @@ describe("accepted-purchase API containment", () => {
     expect(purchaseSource).not.toMatch(/buildProofStagingKey|buildFinalProofKey/);
   });
 
-  it("fails closed for every artist payment/proof mutation still needed by callers", () => {
+  it("implements instruction reads while keeping unfinished proof mutations closed", () => {
+    expect(purchaseSource).toMatch(
+      /paymentInstructions:[\s\S]*loadArtistInstallmentPaymentInstructions/,
+    );
+    expect(purchaseSource).not.toContain('notImplemented("artist.purchase.paymentInstructions")');
+
     for (const procedure of [
       "artist.purchase.paymentPlan.choose",
-      "artist.purchase.paymentInstructions",
       "artist.purchase.proofOfPayment.state",
       "artist.purchase.proofOfPayment.presign",
       "artist.purchase.proofOfPayment.submit",

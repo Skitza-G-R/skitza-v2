@@ -90,12 +90,13 @@ export default async function SettingsPage({
     ? params.section
     : "profile";
 
-  // Parallel fetches: profile from tRPC and Clerk user (for the Google
-  // avatar + email).
+  // Parallel fetches: profile + current payment instructions from tRPC,
+  // and Clerk user (for the Google avatar + email).
   const caller = appRouter.createCaller({ userId });
-  const [user, profile] = await Promise.all([
+  const [user, profile, paymentInstructions] = await Promise.all([
     currentUser(),
     caller.producer.me(),
+    caller.producer.purchase.paymentInstructions.get(),
   ]);
 
   // Derive initials for the avatar fallback (when the Clerk user has no
@@ -123,6 +124,11 @@ export default async function SettingsPage({
         weekStart: profile.weekStart === "monday" ? "monday" : "sunday",
         plan: profile.plan === "pro" ? "pro" : "free",
         notifications: resolveNotifications(profile.notificationPrefs),
+        paymentInstructions: {
+          bankTransfer: paymentInstructions.bankTransfer ?? "",
+          bitPhone: paymentInstructions.bitPhone ?? "",
+          note: paymentInstructions.note ?? "",
+        },
       }}
       identity={{
         avatarUrl: user?.imageUrl ?? null,

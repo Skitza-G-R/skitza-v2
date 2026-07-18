@@ -36,8 +36,9 @@ describe("payment-instructions-screen.tsx (S8) wiring", () => {
   });
 
   it("formats money through the shared pay-data helper", () => {
-    expect(s8Src).toMatch(/formatShekels/);
+    expect(s8Src).toMatch(/formatPurchaseMoney\(amountDueNowCents, currency\)/);
     expect(s8Src).toMatch(/from "\.\/pay-data"/);
+    expect(pageSrc).toMatch(/currency=\{data\.currency\}/);
   });
 
   it("exposes one clear page heading to assistive technology", () => {

@@ -91,7 +91,7 @@ describe("ReviewStep", () => {
         pricingModel="flat"
         priceCents={10_000}
         artistPaysCents={11_800}
-        taxNote="+ 18% tax at checkout"
+        taxNote="+ 18% tax"
         currency="USD"
         sessions={1}
         unlimitedSessions={false}
@@ -108,8 +108,8 @@ describe("ReviewStep", () => {
     );
 
     expect(html).toContain("$100");
-    expect(html).toContain("+ 18% tax at checkout");
-    expect(html).toContain("Artist pays $118 at checkout");
+    expect(html).toContain("+ 18% tax");
+    expect(html).toContain("Artist total: $118");
     expect(html).toContain("Pay in full · $118");
   });
 

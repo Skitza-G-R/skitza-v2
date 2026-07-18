@@ -1358,17 +1358,10 @@ const bookSubrouter = router({
 });
 
 // ─── artist.store sub-router ─────────────────────────────────────────
-// Browse + buy products from any of the artist's studios without
-// leaving the artist app. `products` is the catalog read (all or one
-// studio), `product` is the detail read, `checkout` mints a Stripe
-// Direct-card checkout is intentionally unavailable; accepted purchases use
-// the off-app proof workflow.
-//
-// The helper is also used by `booking.publicRequest`, so the public
-// booking flow and the signed-in artist Store hit the same plan-aware
-// Stripe Connect + invoice-ledger code. Both paths get the same
-// plan-validation guard (BAD_REQUEST on unlisted plans) and the same
-// project row shape in `lead` stage.
+// Browse products from any of the artist's studios without leaving the
+// artist app. `products` is the catalog read (all or one studio), and
+// `product` is the detail read. Accepted purchases use the off-app proof
+// workflow exposed by the purchase router.
 const storeSubrouter = router({
   // List products the artist can buy. `producerId` optional: when
   // undefined, returns the union of products across all the artist's
@@ -1441,8 +1434,7 @@ const storeSubrouter = router({
           producerName: producers.displayName,
           producerSlug: producers.slug,
           // Migration 0019 — business-level tax disclosure mode + rate.
-          // Surfaced on every product card next to the price; the rate
-          // also powers checkout math for 'tax_added' products.
+          // Surfaced on every product card next to the price.
           producerTaxMode: producers.taxMode,
           producerTaxRatePct: producers.taxRatePct,
         })
@@ -1453,13 +1445,6 @@ const storeSubrouter = router({
             inArray(products.producerId, scopedProducerIds),
             eq(products.active, true),
             isNull(products.archivedAt),
-            // Per-song and flat products both list. hourly/bundle stay
-            // hidden until their flows ship — keep the guard narrow so
-            // the artist Store doesn't surface a product its detail
-            // page can't checkout. store.checkout enforces the same
-            // gate server-side so a hand-crafted productId can't
-            // bypass the flat-only Stripe self-checkout path.
-            inArray(products.pricingModel, ["flat", "per_song"]),
           ),
         )
         .orderBy(asc(producers.displayName), asc(products.position));
@@ -1524,8 +1509,7 @@ const storeSubrouter = router({
           producerName: producers.displayName,
           producerSlug: producers.slug,
           // Migration 0019 — tax mode + rate for the detail page's
-          // footnote AND checkout math (tax_added multiplies the
-          // Stripe charge).
+          // price disclosure.
           producerTaxMode: producers.taxMode,
           producerTaxRatePct: producers.taxRatePct,
         })
@@ -1592,32 +1576,6 @@ const storeSubrouter = router({
         producerTaxMode: row.producerTaxMode,
         producerTaxRatePct: row.producerTaxRatePct,
       };
-    }),
-
-  // SK-90 removes every direct-card execution path. Keep this temporary
-  // compatibility procedure only so the existing Store caller fails closed
-  // until the unified off-app purchase UI lands in SK-95.
-  checkout: artistProcedure
-    .input(
-      z.object({
-        productId: z.string().uuid(),
-        paymentPlan: z.discriminatedUnion("kind", [
-          z.object({ kind: z.literal("full") }),
-          z.object({ kind: z.literal("split_50_50") }),
-          z.object({
-            kind: z.literal("monthly"),
-            installments: z.number().int().min(2).max(12),
-          }),
-        ]),
-        songQty: z.number().int().min(1).max(1000).optional(),
-        unitPriceCents: z.number().int().min(0).max(100_000_000).optional(),
-      }),
-    )
-    .mutation((): { checkoutUrl: null; projectId: string } => {
-      throw new TRPCError({
-        code: "PRECONDITION_FAILED",
-        message: "Skitza records off-app payments and does not start card checkout.",
-      });
     }),
 });
 
@@ -2032,7 +1990,7 @@ export const artistRouter = router({
   // self-serve booking flow. See bookSubrouter for per-procedure docs.
   book: bookSubrouter,
 
-  // Catalog + checkout. See storeSubrouter for per-procedure docs.
+  // Catalog reads. See storeSubrouter for per-procedure docs.
   store: storeSubrouter,
 
   // Purchase flow (SK-37 / BE-1). request / acceptAgreement / get plus

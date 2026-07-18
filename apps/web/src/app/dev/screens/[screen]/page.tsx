@@ -465,6 +465,7 @@ export default async function DevScreenPage({ params }: Params) {
           purchaseRequestId={DEV_REQUEST_ID}
           producerName={MOCK_PRODUCER.name}
           amountDueNowCents={120000}
+          currency={MOCK_PRODUCT.currency}
           paymentDetails={{
             bankTransfer: "Bank Hapoalim\nBranch 613\nAccount 12-345678",
             bitPhone: "052-000-0000",

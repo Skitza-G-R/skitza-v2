@@ -114,16 +114,6 @@ const UpdateInput = z.object({
   taxMode: z.enum(["tax_free", "tax_included", "tax_added"]).optional(),
   // Whole-number percent (UI input is integer-only). Clamped [0, 100].
   taxRatePct: z.number().int().min(0).max(100).optional(),
-  // BE-2 off-app payments — bank-transfer text + Bit number shown to a
-  // paying artist on the payment-instructions screen. Whole-object
-  // replace (the settings form submits the complete value).
-  paymentDetails: z
-    .object({
-      bankTransfer: z.string().trim().max(500).optional(),
-      bitPhone: z.string().trim().max(32).optional(),
-      note: z.string().trim().max(500).optional(),
-    })
-    .optional(),
 });
 
 // Marketing-grade meta the producer surfaces on their public /join page.
@@ -1372,12 +1362,7 @@ export const producerRouter = router({
   // JSONB (we fetch → spread → set) so a UI patch can ship only the
   // keys that changed without wiping the rest of the object.
   update: producerProcedure.input(UpdateInput).mutation(async ({ ctx, input }) => {
-    const {
-      brand: brandPatch,
-      notificationPrefs: notifPatch,
-      paymentDetails: paymentDetailsPatch,
-      ...fields
-    } = input;
+    const { brand: brandPatch, notificationPrefs: notifPatch, ...fields } = input;
 
     // Merge brand + notificationPrefs JSONB with existing. Drizzle's
     // jsonb helpers do NOT support a built-in partial-update, so we
@@ -1415,9 +1400,6 @@ export const producerRouter = router({
             ...fields,
             ...(brand === undefined ? {} : { brand }),
             ...(notificationPrefs === undefined ? {} : { notificationPrefs }),
-            ...(paymentDetailsPatch === undefined
-              ? {}
-              : { paymentDetails: stripUndefined(paymentDetailsPatch) }),
             updatedAt: new Date(),
           }),
         )
