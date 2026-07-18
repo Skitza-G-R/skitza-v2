@@ -33,7 +33,9 @@ export function RequestSentScreen({
   const steps = [
     { title: "Request sent", when: "Just now", done: true },
     { title: `${producer.name} reviews your request`, when: "Within 24 hours", done: false },
-    { title: "Payment details arrive", when: "After approval", done: false },
+    { title: "Choose an enabled payment plan", when: "After approval", done: false },
+    { title: "Review and accept the exact agreement", when: "Before payment", done: false },
+    { title: "Receive external payment instructions", when: "After acceptance", done: false },
   ];
 
   return (
@@ -69,9 +71,8 @@ export function RequestSentScreen({
               Your request is with {producer.name}
             </h1>
             <p className="reveal-up reveal-up-delay-2 mt-3.5 max-w-[290px] text-[14.5px] leading-relaxed text-pretty text-[rgb(var(--fg-secondary))]">
-              {
-                "They'll look it over and reach out about payment. We'll ping you the moment they do."
-              }
+              If they approve it, we&apos;ll let you know. You will choose a payment plan and accept
+              the exact agreement before receiving external payment instructions.
             </p>
           </div>
 

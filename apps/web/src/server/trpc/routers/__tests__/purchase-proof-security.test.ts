@@ -4,6 +4,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const purchaseSource = readFileSync(join(__dirname, "../purchase.ts"), "utf8");
+const storeAcceptanceSource = readFileSync(
+  join(__dirname, "../../../domain/purchases/store-acceptance.ts"),
+  "utf8",
+);
 
 describe("accepted-purchase API containment", () => {
   it("removes request-owned proof, invoice, and storage implementations", () => {
@@ -18,8 +22,9 @@ describe("accepted-purchase API containment", () => {
     );
     expect(purchaseSource).not.toContain('notImplemented("artist.purchase.paymentInstructions")');
 
+    expect(purchaseSource).not.toContain('notImplemented("artist.purchase.paymentPlan.choose")');
+
     for (const procedure of [
-      "artist.purchase.paymentPlan.choose",
       "artist.purchase.proofOfPayment.state",
       "artist.purchase.proofOfPayment.presign",
       "artist.purchase.proofOfPayment.submit",
@@ -44,5 +49,18 @@ describe("accepted-purchase API containment", () => {
     expect(purchaseSource).not.toMatch(/schedule: artistProcedure/);
     expect(purchaseSource).not.toMatch(/canDownload: artistProcedure/);
     expect(purchaseSource).not.toMatch(/session: router/);
+  });
+
+  it("keeps final Store acceptance artist-owned with no producer acceptance route", () => {
+    const producerRouterStart = purchaseSource.indexOf("export const producerPurchaseRouter");
+    const artistRouter = purchaseSource.slice(0, producerRouterStart);
+    const producerRouter = purchaseSource.slice(producerRouterStart);
+
+    expect(artistRouter).toMatch(/acceptance:\s*router\(\{[\s\S]*accept:\s*artistProcedure/);
+    expect(artistRouter).toMatch(/acceptStorePurchase\(ctx\.db,[\s\S]*clerkUserId: ctx\.clerkUserId/);
+    expect(producerRouter).not.toMatch(/acceptStorePurchase|acceptedByClerkUserId/);
+    expect(
+      storeAcceptanceSource.match(/isNull\(clientContacts\.archivedAt\)/g),
+    ).toHaveLength(2);
   });
 });

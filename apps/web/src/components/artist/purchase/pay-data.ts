@@ -21,11 +21,6 @@ export const MOCK_PRODUCER: Producer = {
   name: "Gili Studio",
   initials: "GS",
   hue: 30,
-  agreement: {
-    filename: "Booking_Agreement.pdf",
-    url: "https://example.com/Booking_Agreement.pdf",
-    kind: "pdf",
-  },
 };
 
 export const MOCK_PRODUCT: PurchaseProduct = {
@@ -36,7 +31,9 @@ export const MOCK_PRODUCT: PurchaseProduct = {
   durationLabel: "Multi-session · 3–4 weeks",
   tagline: "Track, comp, mix & master one song.",
   sessions: 3,
+  unlimitedSessions: false,
   revisions: 2,
+  unlimitedRevisions: false,
   paymentPlans: [{ kind: "full" }, { kind: "split_50_50" }],
   royaltyTerms: {
     master: { mode: "percentage", bps: 250 },
@@ -49,6 +46,8 @@ export const MOCK_PRODUCT: PurchaseProduct = {
   },
   agreementText:
     "Producer credit must appear in release metadata. Final files unlock after full payment.",
+  pricingModel: "flat",
+  volumeTiers: [],
   includes: [
     "Up to 4 song parts tracked",
     "Comped & tuned lead vocal",
@@ -73,6 +72,44 @@ export type LivePlanOption = {
   dueNowCents: number;
   schedule: { label: string; amountCents: number }[];
 };
+
+type PlanSearchParams = {
+  plan?: string | undefined;
+  installments?: string | undefined;
+};
+
+export function paymentPlanSearch(choice: LivePaymentPlanChoice): string {
+  const params = new URLSearchParams({ plan: choice.kind });
+  if (choice.kind === "monthly") {
+    params.set("installments", String(choice.installments));
+  }
+  return params.toString();
+}
+
+export function parsePaymentPlanSearch(
+  params: PlanSearchParams,
+): LivePaymentPlanChoice | null {
+  if (params.plan === "full") return { kind: "full" };
+  if (params.plan === "split_50_50") return { kind: "split_50_50" };
+  if (params.plan !== "monthly") return null;
+
+  const installments = Number(params.installments);
+  if (!Number.isInteger(installments) || installments < 2 || installments > 12) {
+    return null;
+  }
+  return { kind: "monthly", installments };
+}
+
+export function paymentPlanAgreementHref(input: {
+  productId: string;
+  purchaseRequestId: string;
+  choice: LivePaymentPlanChoice;
+}): string {
+  const query = new URLSearchParams({ req: input.purchaseRequestId });
+  const plan = new URLSearchParams(paymentPlanSearch(input.choice));
+  for (const [key, value] of plan) query.set(key, value);
+  return `/artist/purchase/${encodeURIComponent(input.productId)}/agree?${query.toString()}`;
+}
 
 export function nextPlanIndex(
   currentIndex: number,
@@ -105,6 +142,21 @@ type ServerPlanOption = {
   labels: string[];
 };
 
+function canonicalScheduleLabel(
+  kind: LivePaymentPlanChoice["kind"],
+  index: number,
+): string {
+  if (kind === "full") return "Due at acceptance";
+  if (kind === "split_50_50") {
+    return index === 0
+      ? "50% due at acceptance"
+      : "50% due when the artist approves the final version";
+  }
+  return index === 0
+    ? "First payment due at acceptance"
+    : `Monthly payment ${String(index + 1)}`;
+}
+
 export function paymentPlanLabel(
   kind: LivePaymentPlanChoice["kind"],
   installments?: number | null,
@@ -128,10 +180,10 @@ export function livePlanOptions(options: ServerPlanOption[]): LivePlanOption[] {
         : { kind: option.kind };
     const blurb =
       option.kind === "full"
-        ? "One payment now. Simplest, with nothing left to track."
+        ? "One payment is due when you accept the exact agreement."
         : option.kind === "split_50_50"
-          ? "Half secures your slot, and the rest is due on delivery."
-          : `Spread the total across ${String(installments)} clear monthly payments.`;
+          ? "Half is due at acceptance. The rest is due when you approve the final version."
+          : `The first of ${String(installments)} payments is due at acceptance, then the rest follow monthly.`;
     return {
       id: option.kind === "monthly" ? `monthly-${String(installments)}` : option.kind,
       choice,
@@ -139,7 +191,9 @@ export function livePlanOptions(options: ServerPlanOption[]): LivePlanOption[] {
       blurb,
       dueNowCents: option.dueNowCents,
       schedule: option.charges.map((amountCents, index) => ({
-        label: option.labels[index] ?? `Payment ${String(index + 1)}`,
+        // Render from the immutable plan trigger contract, rather than
+        // trusting presentation labels supplied by stale callers.
+        label: canonicalScheduleLabel(option.kind, index),
         amountCents,
       })),
     };

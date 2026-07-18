@@ -14,9 +14,8 @@ type PageProps = {
 
 export const metadata: Metadata = { title: "Choose a payment plan" };
 
-// S7 — the approved artist chooses from the plans frozen when the request
-// was sent. The live product is deliberately not read here: producer edits
-// must never change an agreement already in progress.
+// The approved artist chooses only from the server-enabled plan options.
+// Selection is carried to the exact agreement preview; nothing persists here.
 export default async function ChoosePlanPage({ params, searchParams }: PageProps) {
   const { userId } = await auth();
   if (!userId) return null;
@@ -45,9 +44,6 @@ export default async function ChoosePlanPage({ params, searchParams }: PageProps
       }
       redirect("/artist");
     }
-    if (data.chosenAt) {
-      redirect(`/artist/purchase/${productId}/pay/instructions?req=${req}`);
-    }
     return (
       <ChoosePlanScreen
         productId={productId}
@@ -55,6 +51,7 @@ export default async function ChoosePlanPage({ params, searchParams }: PageProps
         producerName={data.producerName}
         purchaseRequestId={req}
         options={livePlanOptions(data.options)}
+        currency={data.currency}
       />
     );
   } catch (error) {

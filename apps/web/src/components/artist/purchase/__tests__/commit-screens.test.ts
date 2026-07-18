@@ -11,123 +11,108 @@ import {
   includesOrFallback,
 } from "../purchase-data";
 
-// Real unit tests for the pure data helpers (no rendering needed), plus
-// source-grep on the screens for the wiring that matters — matching the
-// repo's existing test style (see store-product-client.test.ts).
-
 describe("purchase-data helpers", () => {
-  it("formats agorot as whole grouped shekels", () => {
+  it("formats exact currencies", () => {
     expect(formatShekels(240000)).toBe("₪2,400");
-    expect(formatShekels(90000)).toBe("₪900");
-  });
-
-  it("formats the exact product currency for agreement surfaces", () => {
     expect(formatPurchaseMoney(240000, "USD")).toBe("$2,400");
     expect(formatPurchaseMoney(90050, "EUR")).toBe("€900.50");
   });
 
-  it("builds the agreement summary with the producer name woven in", () => {
+  it("keeps the pre-request summary truthful about final acceptance", () => {
     const terms = buildAgreementTerms("Gili Studio", ["Mix", "Master"]);
-    expect(terms).toHaveLength(7);
-    expect(terms[0]?.body).toContain("Gili Studio");
-    const included = terms.find((t) => t.heading === "What's included");
-    expect(included?.points).toEqual(["Mix", "Master"]);
-  });
-
-  it("falls back to a generic covers-line when deliverables are empty", () => {
+    expect(terms[0]?.body).toContain("Only that final acceptance freezes");
+    expect(terms.find((term) => term.heading === "What's included")?.points).toEqual([
+      "Mix",
+      "Master",
+    ]);
     expect(includesOrFallback([], "Gili Studio")).toEqual([
       "Everything agreed with Gili Studio for this offer",
     ]);
-    const terms = buildAgreementTerms("Gili Studio", []);
-    const included = terms.find((t) => t.heading === "What's included");
-    expect(included?.points?.length).toBe(1);
   });
 });
 
 const here = dirname(fileURLToPath(import.meta.url));
-const S4_PATH = join(here, "..", "review-agree-screen.tsx");
-const S5_PATH = join(here, "..", "request-sent-screen.tsx");
-const FUNNEL_UI_PATH = join(here, "..", "..", "funnel", "funnel-ui.tsx");
-const s4Src = readFileSync(S4_PATH, "utf8");
-const s5Src = readFileSync(S5_PATH, "utf8");
-const funnelUiSrc = readFileSync(FUNNEL_UI_PATH, "utf8");
+const review = readFileSync(join(here, "..", "review-agree-screen.tsx"), "utf8");
+const actions = readFileSync(join(here, "..", "actions.ts"), "utf8");
+const sent = readFileSync(join(here, "..", "request-sent-screen.tsx"), "utf8");
 
-describe("review-agree-screen.tsx (S4) wiring", () => {
-  it("gates the primary action on proposal review + sending state", () => {
-    expect(s4Src).toMatch(/disabled=\{!reviewed \|\| sending\}/);
-    expect(s4Src).toMatch(/<AgreeCheck/);
+describe("exact agreement acceptance", () => {
+  it("renders the immutable commercial snapshot instead of the live product", () => {
+    expect(review).toMatch(/snapshot\.lineItems\.map/);
+    expect(review).toMatch(/snapshot\.discountCents/);
+    expect(review).toMatch(/snapshot\.tax\.amountCents/);
+    expect(review).toMatch(/snapshot\.totalCents/);
+    expect(review).toMatch(/snapshot\.deliverables\.map/);
+    expect(review).toMatch(/snapshot\.rights\.map/);
+    expect(review).toMatch(/snapshot\.agreementText/);
+    expect(review).toMatch(/snapshot\.includedSongSpaces/);
+    expect(review).toMatch(/sessionLines\(snapshot\)/);
+    expect(review).toMatch(/revisionLabel\(snapshot\)/);
   });
 
-  it("fires the real BE-1 request action, then routes to S5 with the request id", () => {
-    expect(s4Src).toMatch(/requestToBookAction\(\{[\s\S]*?productId: product\.id/);
-    expect(s4Src).toMatch(/operationKeyRef\.current \?\? crypto\.randomUUID\(\)/);
-    expect(s4Src).toMatch(/operationKey,/);
-    expect(s4Src).not.toMatch(/commercialTermsFingerprint|paymentPlan:/);
-    expect(s4Src).toMatch(
-      /router\.push\(`\/artist\/purchase\/\$\{product\.id\}\/sent\?req=\$\{res\.purchaseRequestId\}`\)/,
-    );
-    expect(s4Src).toMatch(/from "\.\/actions"/);
+  it("shows the exact target, selected plan, and installment schedule", () => {
+    expect(review).toMatch(/preview\.target\.kind === "new"/);
+    expect(review).toMatch(/preview\.target\.projectTitle/);
+    expect(review).toMatch(/target\.lifecycleStatus/);
+    expect(review).toMatch(/target\.workflowStage/);
+    expect(review).toMatch(/target\.updatedAtIso/);
+    expect(review).toMatch(/snapshot\.selectedPaymentPlan/);
+    expect(review).toMatch(/preview\.schedule\.map/);
   });
 
-  it("backs out to the S3 entry screen (not the legacy store detail)", () => {
-    expect(s4Src).toMatch(/router\.push\(`\/artist\/purchase\/\$\{product\.id\}`\)/);
+  it("requires explicit acceptance of the exact agreement and plan", () => {
+    expect(review).toMatch(/I accept this exact agreement and payment plan/);
+    expect(review).toMatch(/disabled=\{!accepted \|\| sending\}/);
+    expect(review).toMatch(/agreementAccepted: true/);
+    expect(actions).toMatch(/agreementAccepted: true/);
   });
 
-  it("hides the PDF card when the producer has no uploaded agreement", () => {
-    expect(s4Src).toMatch(/\{producer\.agreement \? \(/);
+  it("accepts digest + plan atomically with a stable operation key", () => {
+    expect(review).toMatch(/acceptPurchaseAction\(\{/);
+    expect(review).toMatch(/expectedSnapshotDigest: preview\.snapshotDigest/);
+    expect(review).toMatch(/operationKeyRef\.current \?\? crypto\.randomUUID\(\)/);
+    expect(actions).toMatch(/caller\.artist\.purchase\.acceptance\.accept\(input\)/);
   });
 
-  it("renders the royalty and inline agreement terms being proposed", () => {
-    expect(s4Src).toMatch(/Rights & royalties/);
-    expect(s4Src).toMatch(/royaltyTermsDisplay/);
-    expect(s4Src).toMatch(/formatPurchaseMoney\(product\.priceCents, product\.currency\)/);
-    expect(s4Src).toMatch(/product\.royaltyTerms\?\.notes/);
-    expect(s4Src).toMatch(/product\.agreementText/);
-    expect(s4Src).toMatch(/whitespace-pre-wrap/);
-    expect(s4Src).toMatch(/Final terms are accepted and frozen only when a Purchase is created/);
-    expect(s4Src).not.toMatch(/LOCKS NOW|Locks your price|Saved with a timestamp once you agree/);
+  it("routes the created purchase to purchase-backed payment instructions", () => {
+    expect(review).toMatch(/purchase: result\.purchaseId/);
+    expect(review).toMatch(/req: props\.purchaseRequestId/);
+    expect(review).toMatch(/\/pay\/instructions\?/);
   });
 
-  it("designs an inline error state (not a scary wall)", () => {
-    expect(s4Src).toMatch(/role="alert"/);
-    expect(s4Src).toMatch(/setError/);
+  it("never sends a request or fakes acceptance on the live exact path", () => {
+    expect(review).not.toMatch(/requestToBookAction/);
+    expect(review).toMatch(/Development-gallery compatibility only/);
+    expect(review).toMatch(/if \(!isExactReview\(props\)\)/);
   });
 
-  it("uses one natural page scroll so the agreement cannot trap mobile users", () => {
-    expect(s4Src).not.toMatch(/max-h-\[256px\] overflow-y-auto/);
-    expect(s4Src.match(/overflow-y-auto/g)?.length ?? 0).toBe(1);
-  });
-
-  it("keeps back and document actions at least 44px tall", () => {
-    expect(s4Src).toMatch(/min-h-11/);
-  });
-});
-
-describe("request-sent-screen.tsx (S5) wiring", () => {
-  it("shows the request reference without claiming commercial terms are frozen", () => {
-    expect(s5Src).toMatch(/requestRef/);
-    expect(s5Src).toMatch(/PENDING REVIEW/);
-    expect(s5Src).not.toMatch(/PRICE LOCKED|formatShekels|product\.priceCents|product\.name/);
-  });
-
-  it("offers Home + back-to-store exits", () => {
-    expect(s5Src).toMatch(/router\.push\("\/artist"\)/);
-    expect(s5Src).toMatch(/router\.push\("\/artist\/store"\)/);
-  });
-
-  it("keeps the close control aligned to the centered 440px app panel", () => {
-    expect(s5Src).toMatch(/mx-auto w-full max-w-\[440px\]/);
-    expect(s5Src).not.toMatch(/absolute left-4 top-0/);
+  it("keeps one natural mobile page scroll and reduced-motion loading", () => {
+    expect(review.match(/overflow-y-auto/g)?.length).toBe(1);
+    expect(review).toMatch(/animate-spin[^"]*motion-reduce:animate-none/);
   });
 });
 
-describe("funnel mobile chrome", () => {
-  it("uses a solid top bar that stays stable in narrow embedded browsers", () => {
-    const topBar = funnelUiSrc.slice(
-      funnelUiSrc.indexOf("export function FunnelTopBar"),
-      funnelUiSrc.indexOf("export function GlassRound"),
+describe("request sent screen", () => {
+  it("shows intent-only identity without claiming terms are frozen", () => {
+    expect(sent).toMatch(/requestRef/);
+    expect(sent).toMatch(/PENDING REVIEW/);
+    expect(sent).not.toMatch(/PRICE LOCKED|product\.priceCents/);
+  });
+
+  it("offers Home and Store exits", () => {
+    expect(sent).toMatch(/router\.push\("\/artist"\)/);
+    expect(sent).toMatch(/router\.push\("\/artist\/store"\)/);
+  });
+
+  it("shows approval, plan choice, exact acceptance, then external payment", () => {
+    expect(sent).toContain("Choose an enabled payment plan");
+    expect(sent).toContain("Review and accept the exact agreement");
+    expect(sent).toContain("Receive external payment instructions");
+    expect(sent.indexOf("Choose an enabled payment plan")).toBeLessThan(
+      sent.indexOf("Review and accept the exact agreement"),
     );
-    expect(topBar).toMatch(/background: "rgb\(var\(--bg-background\)\)"/);
-    expect(topBar).not.toMatch(/backdropFilter/);
+    expect(sent.indexOf("Review and accept the exact agreement")).toBeLessThan(
+      sent.indexOf("Receive external payment instructions"),
+    );
   });
 });

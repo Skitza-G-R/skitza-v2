@@ -10,7 +10,6 @@ describe("RightsAgreementStep", () => {
       <RightsAgreementStep
         royalty={royaltyTermsToDraft(null)}
         agreementMode="none"
-        contractUrl=""
         agreementText=""
         errors={{}}
         legacyUnspecified={true}
@@ -37,7 +36,6 @@ describe("RightsAgreementStep", () => {
           compositionPercentage: "2.5",
         }}
         agreementMode="text"
-        contractUrl=""
         agreementText="Credit and payment terms."
         errors={{}}
         legacyUnspecified={false}
@@ -59,7 +57,6 @@ describe("RightsAgreementStep", () => {
       <RightsAgreementStep
         royalty={royaltyTermsToDraft(null)}
         agreementMode="none"
-        contractUrl=""
         agreementText=""
         errors={{
           master: "Choose a master-rights option.",
@@ -76,7 +73,7 @@ describe("RightsAgreementStep", () => {
     expect(html.match(/role="alert"/g)).toHaveLength(2);
   });
 
-  it("renders an inline agreement error and bounded input", () => {
+  it("renders an inline agreement error and bounded exact-terms input", () => {
     const html = renderToStaticMarkup(
       <RightsAgreementStep
         royalty={{
@@ -84,19 +81,21 @@ describe("RightsAgreementStep", () => {
           masterMode: "none",
           compositionMode: "none",
         }}
-        agreementMode="link"
-        contractUrl="javascript:alert(1)"
+        agreementMode="text"
         agreementText=""
         errors={{}}
-        agreementError="Use a valid http:// or https:// agreement link."
+        agreementError="Write the agreement terms or choose no attachment."
         onRoyaltyChange={() => undefined}
         onAgreementChange={() => undefined}
       />,
     );
 
-    expect(html).toContain("Use a valid http:// or https:// agreement link.");
+    expect(html).toContain("Write the agreement terms or choose no attachment.");
     expect(html).toContain('aria-invalid="true"');
-    expect(html).toContain('maxLength="2048"');
+    expect(html).toContain('maxLength="20000"');
+    expect(html).toContain("Write exact terms");
+    expect(html).not.toContain("Add a link");
+    expect(html).not.toContain("Public agreement link");
   });
 
   it("bounds free-form royalty metadata to the save contract", () => {
@@ -109,7 +108,6 @@ describe("RightsAgreementStep", () => {
           compositionPercentage: "1",
         }}
         agreementMode="none"
-        contractUrl=""
         agreementText=""
         errors={{ notes: "Rights notes must be 4,000 characters or fewer." }}
         onRoyaltyChange={() => undefined}

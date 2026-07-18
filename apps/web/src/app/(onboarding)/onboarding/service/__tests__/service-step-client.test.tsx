@@ -19,7 +19,7 @@ describe("onboarding first-service commercial terms", () => {
     expect(source).toMatch(/<RightsAgreementStep/);
     expect(source).toMatch(/<ReviewStep/);
     expect(source).toMatch(/if \(currentStep !== "review"\) return/);
-    expect(source).toMatch(/showPaymentPlans=\{false\}/);
+    expect(source).not.toMatch(/showPaymentPlans/);
     expect(source).toMatch(/allowPerSong=\{false\}/);
     expect(source).toMatch(/showTypeEdit=\{true\}/);
     expect(source).toMatch(/setReturnToReview\(true\)/);
@@ -33,6 +33,14 @@ describe("onboarding first-service commercial terms", () => {
     expect(source).toMatch(/hasPaymentOption/);
     expect(source).toMatch(/validateRoyaltyDraft\(draft\.royalty, true\)/);
     expect(source).toMatch(/royaltyDraftToTerms/);
+  });
+
+  it("keeps tagline and positive cash validation in parity with Store authoring", () => {
+    expect(source).toMatch(/productTaglineError\(draft\.tagline\)/);
+    expect(source).toMatch(/productCashPriceError\(draft\)/);
+    expect(source).toMatch(/paymentPlanFeasibilityError\(draft\)/);
+    expect(source).toMatch(/tagline=\{draft\.tagline\}/);
+    expect(source).toMatch(/priceError=\{priceError\}/);
   });
 
   it("builds the onboarding payload with dedicated agreement and deliverables", () => {
@@ -55,7 +63,6 @@ describe("onboarding first-service commercial terms", () => {
       revisions: 3,
       unlimitedRevisions: false,
       agreementMode: "text",
-      contractUrl: "",
       agreementText: "Credit and delivery terms.",
       royalty: {
         masterMode: "percentage",

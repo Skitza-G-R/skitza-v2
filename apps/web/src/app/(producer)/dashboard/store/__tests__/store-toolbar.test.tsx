@@ -8,18 +8,16 @@ const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "store-toolbar.tsx"), "utf8");
 
 describe("StoreToolbar shell", () => {
-  it("composes SegmentedTabs, ViewToggle, SearchInput", () => {
+  it("composes SegmentedTabs and SearchInput", () => {
     expect(SRC).toMatch(/SegmentedTabs/);
-    expect(SRC).toMatch(/ViewToggle/);
     expect(SRC).toMatch(/SearchInput/);
   });
 
-  it("uses the FilterTab and ViewMode types from the helpers", () => {
+  it("uses the FilterTab type from the helper", () => {
     expect(SRC).toMatch(/FilterTab/);
-    expect(SRC).toMatch(/ViewMode/);
   });
 
-  it("accepts an enableTable prop and forwards it to ViewToggle", () => {
-    expect(SRC).toMatch(/enableTable/);
+  it("does not expose the removed Store table control", () => {
+    expect(SRC).not.toMatch(/ViewToggle|ViewMode|enableTable|Table/);
   });
 });

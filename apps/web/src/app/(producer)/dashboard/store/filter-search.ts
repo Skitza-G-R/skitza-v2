@@ -1,8 +1,7 @@
 // filter-search.ts
 //
 // Pure helpers driving the toolbar's filter tabs and the search input.
-// Decoupled from React so they're testable without rendering and reused
-// in Phase 3's table view.
+// Decoupled from React so filtering remains easy to test without rendering.
 
 export type FilterTab = "all" | "live" | "hidden";
 

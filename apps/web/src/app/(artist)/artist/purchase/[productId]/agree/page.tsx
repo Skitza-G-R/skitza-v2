@@ -1,40 +1,59 @@
 import { auth } from "@clerk/nextjs/server";
-import type { Metadata } from "next";
-import { notFound } from "next/navigation";
 import { TRPCError } from "@trpc/server";
+import type { Metadata } from "next";
+import { notFound, redirect } from "next/navigation";
 
-import { buildAgreementTerms } from "~/components/artist/purchase/purchase-data";
+import { parsePaymentPlanSearch } from "~/components/artist/purchase/pay-data";
 import { ReviewAgreeScreen } from "~/components/artist/purchase/review-agree-screen";
-import { toProducer, toPurchaseProduct } from "~/lib/purchase/product-mapping";
 import { appRouter } from "~/server/trpc/routers/_app";
 
-type PageProps = { params: Promise<{ productId: string }> };
+type PageProps = {
+  params: Promise<{ productId: string }>;
+  searchParams: Promise<{
+    req?: string;
+    plan?: string;
+    installments?: string;
+  }>;
+};
 
-export const metadata: Metadata = { title: "Review request" };
+export const metadata: Metadata = { title: "Review and accept" };
 
-// S4 — Review a live proposal and send a pre-acceptance request. Product,
-// producer, and uploaded agreement data come from
-// `artist.store.product`; the screen's "Send request" fires the real
-// `artist.purchase.request` via the requestToBookAction server action.
-export default async function PurchaseAgreePage({ params }: PageProps) {
+// Final acceptance boundary. The preview is calculated server-side from the
+// approved request, current product terms, selected enabled plan, and exact
+// target. The mutation receives the preview digest so a concurrent change
+// fails closed instead of accepting terms the artist did not see.
+export default async function PurchaseAgreePage({ params, searchParams }: PageProps) {
   const { userId } = await auth();
   if (!userId) return null;
 
   const { productId } = await params;
-  const caller = appRouter.createCaller({ userId });
+  const query = await searchParams;
+  if (!query.req) redirect(`/artist/purchase/${encodeURIComponent(productId)}`);
 
-  let row: Awaited<ReturnType<typeof caller.artist.store.product>>;
-  try {
-    row = await caller.artist.store.product({ productId });
-  } catch (e) {
-    if (e instanceof TRPCError && (e.code === "NOT_FOUND" || e.code === "BAD_REQUEST")) {
-      notFound();
-    }
-    throw e;
+  const paymentPlan = parsePaymentPlanSearch(query);
+  if (!paymentPlan) {
+    redirect(
+      `/artist/purchase/${encodeURIComponent(productId)}/pay?req=${encodeURIComponent(query.req)}`,
+    );
   }
 
-  const product = toPurchaseProduct(row);
-  const producer = toProducer(row);
-  const terms = buildAgreementTerms(producer.name, product.includes);
-  return <ReviewAgreeScreen product={product} producer={producer} terms={terms} />;
+  const caller = appRouter.createCaller({ userId });
+  try {
+    const preview = await caller.artist.purchase.acceptance.preview({
+      purchaseRequestId: query.req,
+      paymentPlan,
+    });
+    if (preview.productId !== productId) notFound();
+
+    return (
+      <ReviewAgreeScreen
+        preview={preview}
+        purchaseRequestId={query.req}
+        paymentPlan={paymentPlan}
+      />
+    );
+  } catch (error) {
+    if (error instanceof TRPCError && error.code === "NOT_FOUND") notFound();
+    throw error;
+  }
 }

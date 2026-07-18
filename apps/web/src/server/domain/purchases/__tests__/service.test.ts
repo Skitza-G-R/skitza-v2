@@ -46,6 +46,7 @@ class MemoryPurchaseRepository implements PurchaseAtomicRepository, PurchaseAtom
       id: string;
       producerId: string;
       clientContactId: string;
+      clientClerkUserId: string | null;
       lifecycleStatus: "waiting_for_payment" | "active" | "paused" | "completed" | "canceled";
     }
   >([
@@ -55,6 +56,7 @@ class MemoryPurchaseRepository implements PurchaseAtomicRepository, PurchaseAtom
         id: "project-1",
         producerId: "producer-1",
         clientContactId: "client-1",
+        clientClerkUserId: "clerk-artist-1",
         lifecycleStatus: "waiting_for_payment" as const,
       },
     ],
@@ -1021,6 +1023,68 @@ describe("acceptPurchase", () => {
         commercialSnapshot: commercialSnapshot(12_000, { kind: "full" }),
       }),
     ).rejects.toMatchObject({ code: "OPERATION_KEY_CONFLICT" });
+  });
+
+  it("never lets a producer actor replay an artist's no-charge acceptance", async () => {
+    const repository = new MemoryPurchaseRepository();
+    await acceptPurchase(repository, {
+      ...baseAcceptance,
+      source: noChargeSource,
+      totalCents: 0,
+      plan: null,
+      commercialSnapshot: commercialSnapshot(0, null),
+      operationKey: "artist-owned-no-charge-acceptance",
+    });
+
+    await expect(
+      acceptPurchase(repository, {
+        ...baseAcceptance,
+        source: noChargeSource,
+        totalCents: 0,
+        plan: null,
+        commercialSnapshot: commercialSnapshot(0, null),
+        acceptedByClerkUserId: "clerk-producer-impersonation",
+        operationKey: "artist-owned-no-charge-acceptance",
+      }),
+    ).rejects.toMatchObject({ code: "NOT_OWNER" });
+  });
+
+  it.each([
+    {
+      label: "paid",
+      source: {
+        kind: "paid_add_on" as const,
+        productId: "product-1",
+        privateOfferId: null,
+        purchaseRequestId: null,
+      },
+      totalCents: 10_000,
+      plan: { kind: "full" as const },
+      snapshot: commercialSnapshot(10_000, { kind: "full" }),
+    },
+    {
+      label: "no-charge",
+      source: noChargeSource,
+      totalCents: 0,
+      plan: null,
+      snapshot: commercialSnapshot(0, null),
+    },
+  ])("rejects a producer actor's first $label add-on acceptance", async (fixture) => {
+    const repository = new MemoryPurchaseRepository();
+
+    await expect(
+      acceptPurchase(repository, {
+        ...baseAcceptance,
+        source: fixture.source,
+        totalCents: fixture.totalCents,
+        plan: fixture.plan,
+        commercialSnapshot: fixture.snapshot,
+        acceptedByClerkUserId: "clerk-producer-impersonation",
+        operationKey: `producer-${fixture.label}-add-on`,
+      }),
+    ).rejects.toMatchObject({ code: "NOT_OWNER" });
+    expect(repository.acceptanceEvents).toEqual(["project-lock:project-1"]);
+    expect(repository.purchases.size).toBe(0);
   });
 
   it("rejects a commercial snapshot whose total differs from the accepted total", async () => {

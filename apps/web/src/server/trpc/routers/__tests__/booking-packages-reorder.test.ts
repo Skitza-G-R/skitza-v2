@@ -8,7 +8,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // write.
 
 const PRODUCER_ID = "producer-uuid-1";
-const OTHER_PRODUCER_ID = "producer-uuid-2";
 const ID_A = "00000000-0000-0000-0000-000000000a01";
 const ID_B = "00000000-0000-0000-0000-000000000a02";
 const ID_C = "00000000-0000-0000-0000-000000000a03";
@@ -170,11 +169,10 @@ describe("booking.packages.reorder", () => {
     expect(updateSetSpy).not.toHaveBeenCalled();
   });
 
-  it("throws FORBIDDEN if any returned row belongs to another producer", async () => {
+  it("returns NOT_FOUND without revealing that one id belongs to another producer", async () => {
     producerSelectQueue.push([{ id: PRODUCER_ID }]);
     productSelectQueue.push([
       { id: ID_A, producerId: PRODUCER_ID },
-      { id: ID_B, producerId: OTHER_PRODUCER_ID },
       { id: ID_C, producerId: PRODUCER_ID },
     ]);
     const caller = await buildCaller();
@@ -182,7 +180,7 @@ describe("booking.packages.reorder", () => {
       caller.booking.packages.reorder({
         orderedIds: [ID_A, ID_B, ID_C],
       }),
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(updateSetSpy).not.toHaveBeenCalled();
   });
 

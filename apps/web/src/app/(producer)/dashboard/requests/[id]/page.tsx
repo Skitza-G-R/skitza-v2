@@ -7,7 +7,6 @@ import { z } from "zod";
 import { planKey, requestPlanLabel } from "~/components/checkout/plan-picker-helpers";
 import { PurchaseRequestReview } from "~/components/dashboard/requests/purchase-request-review";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
-import { safeAgreementUrl } from "~/lib/agreement-url";
 import { royaltyTermsDisplay } from "~/lib/purchase/royalty-terms";
 import { appRouter } from "~/server/trpc/routers/_app";
 
@@ -26,6 +25,20 @@ function formatMoney(cents: number, currency: string): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   }).format(cents / 100);
+}
+
+function proposalTaxDisclosure(
+  proposal: {
+    subtotalCents: number;
+    tax: { mode: "tax_free" | "tax_included" | "tax_added"; ratePct: number; amountCents: number };
+  },
+  currency: string,
+): string {
+  if (proposal.tax.mode === "tax_free") return "Tax-free";
+  if (proposal.tax.mode === "tax_included") {
+    return `Includes ${formatMoney(proposal.tax.amountCents, currency)} tax (${String(proposal.tax.ratePct)}%).`;
+  }
+  return `${formatMoney(proposal.subtotalCents, currency)} before tax · ${formatMoney(proposal.tax.amountCents, currency)} tax (${String(proposal.tax.ratePct)}% added).`;
 }
 
 export default async function ProducerPurchaseRequestPage({ params, searchParams }: PageProps) {
@@ -55,7 +68,7 @@ export default async function ProducerPurchaseRequestPage({ params, searchParams
   const { request } = detail;
   const royalty = royaltyTermsDisplay(request.royaltyTermsSnapshot);
   const paymentPlanOptionsSnapshot = request.paymentPlanOptionsSnapshot;
-  const agreementUrlSnapshot = safeAgreementUrl(request.contractUrlSnapshot);
+  const commercialProposal = request.commercialProposal;
 
   return (
     <>
@@ -84,7 +97,10 @@ export default async function ProducerPurchaseRequestPage({ params, searchParams
             Requested by {request.artistName} · {request.artistEmail}
           </p>
           <p className="font-display mt-4 text-2xl font-extrabold text-[rgb(var(--fg-default))] tabular-nums">
-            {formatMoney(request.priceCents, request.currency)}
+            {formatMoney(commercialProposal.totalCents, request.currency)}
+          </p>
+          <p className="mt-1 text-xs text-[rgb(var(--fg-muted))]">
+            {proposalTaxDisclosure(commercialProposal, request.currency)}
           </p>
         </header>
 
@@ -93,6 +109,11 @@ export default async function ProducerPurchaseRequestPage({ params, searchParams
           id={request.id}
           initialStatus={request.status}
           initialUndoableUntilIso={request.undoableUntil?.toISOString() ?? null}
+          initialProjectId={request.projectId}
+          targetProjects={request.targetProjects.map((project) => ({
+            ...project,
+            updatedAtIso: project.updatedAt.toISOString(),
+          }))}
         />
 
         <div className="divide-y divide-[rgb(var(--border-subtle))]">
@@ -109,7 +130,7 @@ export default async function ProducerPurchaseRequestPage({ params, searchParams
                   key={planKey(plan)}
                   className="text-sm leading-relaxed text-[rgb(var(--fg-secondary))]"
                 >
-                  {requestPlanLabel(plan, request.priceCents, (cents) =>
+                  {requestPlanLabel(plan, commercialProposal.totalCents, (cents) =>
                     formatMoney(cents, request.currency),
                   )}
                 </li>
@@ -119,10 +140,10 @@ export default async function ProducerPurchaseRequestPage({ params, searchParams
               {request.paymentPlanChosenAt && request.paymentPlanSnapshot
                 ? `Artist selection: ${requestPlanLabel(
                     request.paymentPlanSnapshot,
-                    request.priceCents,
+                    commercialProposal.totalCents,
                     (cents) => formatMoney(cents, request.currency),
                   )}`
-                : request.priceCents === 0
+                : commercialProposal.totalCents === 0
                   ? "No payment plan is needed for this zero-total proposal."
                   : "Not chosen yet — final plan selection happens at acceptance."}
             </p>
@@ -170,16 +191,6 @@ export default async function ProducerPurchaseRequestPage({ params, searchParams
             ) : (
               <p className="mt-3 text-sm text-[rgb(var(--fg-muted))]">No inline agreement text.</p>
             )}
-            {agreementUrlSnapshot ? (
-              <a
-                href={agreementUrlSnapshot}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-4 inline-flex min-h-11 items-center rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sidebar))] px-4 text-sm font-semibold text-[rgb(var(--brand-primary))]"
-              >
-                Open proposed agreement link
-              </a>
-            ) : null}
             <p className="mt-4 text-xs text-[rgb(var(--fg-muted))]">
               Final acceptance is recorded on the purchase, not this request.
             </p>

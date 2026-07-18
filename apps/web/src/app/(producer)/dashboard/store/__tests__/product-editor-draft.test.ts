@@ -4,12 +4,104 @@ import {
   bpsToPercentageString,
   buildPaymentPlans,
   hasPaymentOption,
+  MAX_PRODUCT_TAGLINE_LENGTH,
+  paymentPlanFeasibilityError,
   percentageStringToBps,
+  productCashPriceError,
+  productTaglineError,
   royaltyTermsToDraft,
   seedPaymentSelection,
+  seedStoreAgreementDraft,
   validateAgreementDraft,
   validateRoyaltyDraft,
 } from "../product-editor-draft";
+
+describe("product authoring commercial validation", () => {
+  it("requires a short, single-line artist-facing tagline", () => {
+    expect(productTaglineError(" ")).toMatch(/tagline artists will see/i);
+    expect(productTaglineError("Line one\nLine two")).toMatch(/one line/i);
+    expect(productTaglineError("x".repeat(MAX_PRODUCT_TAGLINE_LENGTH + 1))).toMatch(
+      /characters or fewer/i,
+    );
+    expect(productTaglineError("Release-ready clarity.")).toBeNull();
+  });
+
+  it("rejects zero flat prices and every zero per-song tier", () => {
+    expect(productCashPriceError({ price: 0, pricingModel: "flat", volumeTiers: [] })).toMatch(
+      /cash price above 0/i,
+    );
+    expect(
+      productCashPriceError({
+        price: 100,
+        pricingModel: "per_song",
+        volumeTiers: [
+          { minQty: 1, pricePerUnitCents: 10_000 },
+          { minQty: 5, pricePerUnitCents: 0 },
+        ],
+      }),
+    ).toMatch(/Every per-song tier/i);
+  });
+
+  it("accepts positive flat and per-song cash prices", () => {
+    expect(
+      productCashPriceError({ price: 0.01, pricingModel: "flat", volumeTiers: [] }),
+    ).toBeNull();
+    expect(
+      productCashPriceError({
+        price: 100,
+        pricingModel: "per_song",
+        volumeTiers: [
+          { minQty: 1, pricePerUnitCents: 10_000 },
+          { minQty: 5, pricePerUnitCents: 8_500 },
+        ],
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects duplicate thresholds and rates that increase with volume", () => {
+    expect(
+      productCashPriceError({
+        price: 100,
+        pricingModel: "per_song",
+        volumeTiers: [
+          { minQty: 1, pricePerUnitCents: 10_000 },
+          { minQty: 5, pricePerUnitCents: 9_000 },
+          { minQty: 5, pricePerUnitCents: 8_000 },
+        ],
+      }),
+    ).toMatch(/threshold.*unique/i);
+    expect(
+      productCashPriceError({
+        price: 100,
+        pricingModel: "per_song",
+        volumeTiers: [
+          { minQty: 1, pricePerUnitCents: 10_000 },
+          { minQty: 5, pricePerUnitCents: 11_000 },
+        ],
+      }),
+    ).toMatch(/higher-volume tier cannot cost more/i);
+  });
+
+  it("allows equal or decreasing rates and validates the sorted one-song base", () => {
+    expect(
+      productCashPriceError({
+        price: 100,
+        pricingModel: "per_song",
+        volumeTiers: [
+          { minQty: 5, pricePerUnitCents: 10_000 },
+          { minQty: 1, pricePerUnitCents: 10_000 },
+        ],
+      }),
+    ).toBeNull();
+    expect(
+      productCashPriceError({
+        price: 99,
+        pricingModel: "per_song",
+        volumeTiers: [{ minQty: 1, pricePerUnitCents: 10_000 }],
+      }),
+    ).toMatch(/starting price/i);
+  });
+});
 
 describe("product editor payment draft", () => {
   it("seeds every saved payment option", () => {
@@ -85,6 +177,54 @@ describe("product editor payment draft", () => {
       }),
     ).toBe(false);
   });
+
+  it("rejects a plan whose cheapest subtotal cannot fund one cent per installment", () => {
+    expect(
+      paymentPlanFeasibilityError({
+        price: 0.03,
+        pricingModel: "flat",
+        volumeTiers: [],
+        payment: {
+          full: false,
+          split50: false,
+          monthly: true,
+          monthlyInstallments: 4,
+        },
+      }),
+    ).toMatch(/every payment is at least 1 cent/i);
+    expect(
+      paymentPlanFeasibilityError({
+        price: 0.04,
+        pricingModel: "flat",
+        volumeTiers: [],
+        payment: {
+          full: true,
+          split50: true,
+          monthly: true,
+          monthlyInstallments: 4,
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it("checks every discounted per-song tier opening subtotal", () => {
+    expect(
+      paymentPlanFeasibilityError({
+        price: 1,
+        pricingModel: "per_song",
+        volumeTiers: [
+          { minQty: 1, pricePerUnitCents: 100 },
+          { minQty: 2, pricePerUnitCents: 1 },
+        ],
+        payment: {
+          full: false,
+          split50: false,
+          monthly: true,
+          monthlyInstallments: 4,
+        },
+      }),
+    ).toMatch(/every payment is at least 1 cent/i);
+  });
 });
 
 describe("royalty percentage conversions", () => {
@@ -146,18 +286,30 @@ describe("royalty percentage conversions", () => {
 });
 
 describe("agreement validation", () => {
-  it("allows an omitted agreement and valid HTTP(S) links", () => {
-    expect(validateAgreementDraft("none", "", "")).toBeNull();
-    expect(
-      validateAgreementDraft("link", "https://example.com/terms", ""),
-    ).toBeNull();
+  it("allows an omitted agreement", () => {
+    expect(validateAgreementDraft("none", "")).toBeNull();
   });
 
-  it("blocks empty, invalid-scheme, and empty-text selections before Review", () => {
-    expect(validateAgreementDraft("link", "", "")).toMatch(/Enter a public/);
+  it("requires bounded exact inline terms when selected", () => {
+    expect(validateAgreementDraft("text", "   ")).toMatch(/Write the agreement/);
+    expect(validateAgreementDraft("text", "x".repeat(20_001))).toMatch(/20,000/);
+    expect(validateAgreementDraft("text", "Exact terms.")).toBeNull();
+  });
+
+  it("forces a legacy external link into inline replacement mode", () => {
     expect(
-      validateAgreementDraft("link", "javascript:alert(1)", ""),
-    ).toMatch(/http:\/\//);
-    expect(validateAgreementDraft("text", "", "   ")).toMatch(/Write the agreement/);
+      seedStoreAgreementDraft("", "https://example.com/changeable-terms"),
+    ).toEqual({
+      agreementMode: "text",
+      agreementText: "",
+      requiresLegacyLinkReplacement: true,
+    });
+    expect(
+      seedStoreAgreementDraft("Exact saved terms.", "https://example.com/old"),
+    ).toEqual({
+      agreementMode: "text",
+      agreementText: "Exact saved terms.",
+      requiresLegacyLinkReplacement: false,
+    });
   });
 });

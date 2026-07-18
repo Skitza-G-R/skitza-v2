@@ -18,6 +18,9 @@ import { TypeStep } from "~/app/(producer)/dashboard/store/editor-steps/type-ste
 import {
   buildPaymentPlans,
   hasPaymentOption,
+  paymentPlanFeasibilityError,
+  productCashPriceError,
+  productTaglineError,
   royaltyDraftToTerms,
   royaltyTermsToDraft,
   seedPaymentSelection,
@@ -84,7 +87,7 @@ const STEP_TITLES: Record<StepId, string> = {
 
 const STEP_SUBTITLES: Record<StepId, string> = {
   type: "Pick the closest match. We'll prefill the rest.",
-  details: "Name the offer and choose what's included.",
+  details: "Add the exact name, tagline, and deliverables artists will see.",
   price: "Set the price and session scope.",
   payment: "Choose one or more. The artist picks after approval.",
   delivery: "Set the session length and included revisions.",
@@ -107,7 +110,6 @@ interface Draft {
   revisions: number;
   unlimitedRevisions: boolean;
   agreementMode: AgreementMode;
-  contractUrl: string;
   agreementText: string;
   royalty: ProductRoyaltyDraft;
   pricingModel: "flat" | "per_song";
@@ -142,7 +144,6 @@ function emptyDraft(currency: Currency): Draft {
     revisions: 0,
     unlimitedRevisions: false,
     agreementMode: "none",
-    contractUrl: "",
     agreementText: "",
     royalty: royaltyTermsToDraft(null),
     pricingModel: "flat",
@@ -182,7 +183,7 @@ export function ServiceStepClient({
     }
     try {
       buildPaymentPlans(draft.payment);
-      return null;
+      return paymentPlanFeasibilityError(draft);
     } catch (error) {
       return error instanceof Error
         ? error.message
@@ -192,7 +193,6 @@ export function ServiceStepClient({
   const royaltyErrors = validateRoyaltyDraft(draft.royalty, true);
   const agreementError = validateAgreementDraft(
     draft.agreementMode,
-    draft.contractUrl,
     draft.agreementText,
   );
   const royaltyIsValid =
@@ -203,6 +203,20 @@ export function ServiceStepClient({
     ? []
     : buildPaymentPlans(draft.payment);
   const reviewRoyaltyTerms = royaltyDraftToTerms(draft.royalty);
+  const detailsAreValid =
+    draft.name.trim().length > 0 &&
+    draft.name.trim().length <= 200 &&
+    productTaglineError(draft.tagline) === null &&
+    draft.includes.length <= 10 &&
+    draft.includes.every((item) => item.trim().length > 0 && item.trim().length <= 100);
+  const priceError = productCashPriceError(draft);
+  const allValid =
+    draft._picked !== null &&
+    detailsAreValid &&
+    priceError === null &&
+    paymentError === null &&
+    /^\d+\s*min$/i.test(draft.duration) &&
+    royaltyIsValid;
   const pickedPreset = draft._picked ? getPreset(draft._picked) : undefined;
   const typeLabel =
     draft._picked === "blank" ? "Custom" : (pickedPreset?.label ?? "Custom");
@@ -236,23 +250,14 @@ export function ServiceStepClient({
 
   const canContinue: boolean = (() => {
     if (currentStep === "type") return draft._picked !== null;
-    if (currentStep === "details") {
-      return (
-        draft.name.trim().length > 0 &&
-        draft.name.trim().length <= 200 &&
-        draft.includes.length <= 10 &&
-        draft.includes.every(
-          (item) => item.trim().length > 0 && item.trim().length <= 100,
-        )
-      );
-    }
-    if (currentStep === "price") return draft.price >= 0;
+    if (currentStep === "details") return detailsAreValid;
+    if (currentStep === "price") return priceError === null;
     if (currentStep === "payment") return paymentError === null;
     if (currentStep === "delivery") {
       return /^\d+\s*min$/i.test(draft.duration);
     }
     if (currentStep === "rights") return royaltyIsValid;
-    return paymentError === null && royaltyIsValid;
+    return allValid;
   })();
 
   function goBack() {
@@ -282,7 +287,7 @@ export function ServiceStepClient({
 
   function save() {
     if (currentStep !== "review") return;
-    if (paymentError || !royaltyIsValid) return;
+    if (!allValid) return;
 
     // The shared pure mapper keeps onboarding and Store persistence in
     // lockstep. It writes inclusions to deliverables, structures rights,
@@ -346,6 +351,10 @@ export function ServiceStepClient({
               onNameChange={(name) => {
                 setDraft((current) => ({ ...current, name }));
               }}
+              tagline={draft.tagline}
+              onTaglineChange={(tagline) => {
+                setDraft((current) => ({ ...current, tagline }));
+              }}
               includes={draft.includes}
               onIncludesChange={(includes) => {
                 setDraft((current) => ({ ...current, includes }));
@@ -359,10 +368,10 @@ export function ServiceStepClient({
               currency={draft.currency}
               sessions={draft.sessions}
               unlimitedSessions={draft.unlimitedSessions}
-              showPaymentPlans={false}
               pricingModel="flat"
               volumeTiers={[]}
               allowPerSong={false}
+              priceError={priceError}
               onChange={(patch) => {
                 setDraft((current) => ({
                   ...current,
@@ -402,7 +411,6 @@ export function ServiceStepClient({
             <RightsAgreementStep
               royalty={draft.royalty}
               agreementMode={draft.agreementMode}
-              contractUrl={draft.contractUrl}
               agreementText={draft.agreementText}
               errors={royaltyErrors}
               {...(agreementError ? { agreementError } : {})}
@@ -418,6 +426,7 @@ export function ServiceStepClient({
           {currentStep === "review" ? (
             <ReviewStep
               name={draft.name.trim()}
+              tagline={draft.tagline.trim()}
               typeLabel={typeLabel}
               showTypeEdit={true}
               includes={draft.includes}
@@ -432,7 +441,6 @@ export function ServiceStepClient({
               unlimitedRevisions={draft.unlimitedRevisions}
               royaltyTerms={reviewRoyaltyTerms}
               agreementMode={draft.agreementMode}
-              contractUrl={draft.contractUrl}
               agreementText={draft.agreementText}
               onEdit={(step: ReviewEditStep) => {
                 setReturnToReview(true);

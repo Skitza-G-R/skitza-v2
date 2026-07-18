@@ -10,7 +10,6 @@ import type {
 interface RightsAgreementStepProps {
   royalty: ProductRoyaltyDraft;
   agreementMode: AgreementMode;
-  contractUrl: string;
   agreementText: string;
   errors: RoyaltyDraftErrors;
   agreementError?: string;
@@ -19,7 +18,6 @@ interface RightsAgreementStepProps {
   onAgreementChange: (
     patch: Partial<{
       agreementMode: AgreementMode;
-      contractUrl: string;
       agreementText: string;
     }>,
   ) => void;
@@ -33,8 +31,7 @@ const ROYALTY_MODES: readonly { id: RoyaltyMode; label: string }[] = [
 
 const AGREEMENT_MODES: readonly { id: AgreementMode; label: string }[] = [
   { id: "none", label: "No attachment" },
-  { id: "link", label: "Add a link" },
-  { id: "text", label: "Write terms" },
+  { id: "text", label: "Write exact terms" },
 ];
 
 function RoyaltyModePicker({
@@ -123,7 +120,6 @@ function PercentageInput({
 export function RightsAgreementStep({
   royalty,
   agreementMode,
-  contractUrl,
   agreementText,
   errors,
   agreementError,
@@ -307,7 +303,10 @@ export function RightsAgreementStep({
         <legend className="font-display text-[16px] font-bold tracking-[-0.01em] text-[rgb(var(--fg-default))]">
           Agreement <span className="font-normal text-[rgb(var(--fg-faint))]">(optional)</span>
         </legend>
-        <div className="divide-y divide-[rgb(var(--border-subtle))] border-y border-[rgb(var(--border-subtle))] sm:grid sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+        <p className="text-[12px] leading-relaxed text-[rgb(var(--fg-muted))]">
+          Write terms here so the artist accepts an exact, unchangeable copy with the purchase.
+        </p>
+        <div className="divide-y divide-[rgb(var(--border-subtle))] border-y border-[rgb(var(--border-subtle))] sm:grid sm:grid-cols-2 sm:divide-x sm:divide-y-0">
           {AGREEMENT_MODES.map((option) => (
             <label
               key={option.id}
@@ -330,31 +329,6 @@ export function RightsAgreementStep({
             </label>
           ))}
         </div>
-
-        {agreementMode === "link" ? (
-          <div className="flex flex-col gap-2">
-            <label
-              htmlFor="agreement-link"
-              className="text-[10.5px] font-bold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase"
-            >
-              Public agreement link
-            </label>
-            <input
-              id="agreement-link"
-              type="url"
-              inputMode="url"
-              value={contractUrl}
-              maxLength={2048}
-              aria-invalid={agreementError ? true : undefined}
-              aria-describedby={agreementError ? "agreement-error" : undefined}
-              placeholder="https://…"
-              onChange={(event) => {
-                onAgreementChange({ contractUrl: event.target.value });
-              }}
-              className="h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-base text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-faint))] focus:border-[rgb(var(--brand-primary))] focus:outline-none sm:rounded-[var(--radius-md)] sm:text-[13px]"
-            />
-          </div>
-        ) : null}
 
         {agreementMode === "text" ? (
           <div className="flex flex-col gap-2">

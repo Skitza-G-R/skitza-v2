@@ -4,149 +4,90 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { formatShekels, livePlanOptions } from "../pay-data";
+import { livePlanOptions } from "../pay-data";
 
-// Source-grep on S7 (Choose a payment plan) for the wiring that matters —
-// matching the repo's existing test style (see commit-screens.test.ts). The
-// money math itself is already unit-tested in pay-data.test.ts; here we lock
-// the imports, the per-option rendering, the selection gate, and the route.
+const here = dirname(fileURLToPath(import.meta.url));
+const screen = readFileSync(join(here, "..", "choose-plan-screen.tsx"), "utf8");
+const page = readFileSync(
+  join(
+    here,
+    "..",
+    "..",
+    "..",
+    "..",
+    "app",
+    "(artist)",
+    "artist",
+    "purchase",
+    "[productId]",
+    "pay",
+    "page.tsx",
+  ),
+  "utf8",
+);
 
-describe("pay-data plan helpers (used by S7)", () => {
-  it("builds one option per allowed plan, summing to the total", () => {
-    const opts = livePlanOptions([
-      {
-        kind: "full",
-        charges: [240000],
-        dueNowCents: 240000,
-        labels: ["Due today"],
-      },
-      {
-        kind: "split_50_50",
-        charges: [120000, 120000],
-        dueNowCents: 120000,
-        labels: ["Due today", "On artist approval"],
-      },
+describe("enabled payment-plan mapping", () => {
+  it("preserves exact server schedule amounts", () => {
+    const options = livePlanOptions([
       {
         kind: "monthly",
         installments: 3,
-        charges: [80000, 80000, 80000],
-        dueNowCents: 80000,
-        labels: ["Due today", "Month 2", "Month 3"],
+        charges: [80001, 80000, 80000],
+        dueNowCents: 80001,
+        labels: ["Due at acceptance", "Month 2", "Month 3"],
       },
     ]);
-    expect(opts).toHaveLength(3);
-    for (const opt of opts) {
-      const sum = opt.schedule.reduce((n, row) => n + row.amountCents, 0);
-      expect(sum).toBe(240000);
-    }
-  });
-
-  it("formats a schedule amount as whole grouped shekels", () => {
-    expect(formatShekels(120000)).toBe("₪1,200");
+    expect(options[0]?.choice).toEqual({ kind: "monthly", installments: 3 });
+    expect(options[0]?.schedule.reduce((sum, row) => sum + row.amountCents, 0)).toBe(
+      240001,
+    );
   });
 });
 
-const here = dirname(fileURLToPath(import.meta.url));
-const S7_PATH = join(here, "..", "choose-plan-screen.tsx");
-const PAGE_PATH = join(
-  here,
-  "..",
-  "..",
-  "..",
-  "..",
-  "app",
-  "(artist)",
-  "artist",
-  "purchase",
-  "[productId]",
-  "pay",
-  "page.tsx",
-);
-const s7Src = readFileSync(S7_PATH, "utf8");
-const pageSrc = readFileSync(PAGE_PATH, "utf8");
-const ACTIONS_PATH = join(here, "..", "actions.ts");
-const actionsSrc = readFileSync(ACTIONS_PATH, "utf8");
-
-describe("choose-plan-screen.tsx (S7) wiring", () => {
-  it("is a client component", () => {
-    expect(s7Src).toMatch(/^"use client";/);
+describe("choose-plan screen", () => {
+  it("reads only server-enabled Full, 50/50, or Monthly options", () => {
+    expect(page).toMatch(/caller\.artist\.purchase\.paymentPlan\.options/);
+    expect(screen).toMatch(/type LivePlanOption/);
+    expect(screen).toMatch(/option\.choice\.kind !== "monthly"/);
+    expect(screen).toMatch(/option\.choice\.installments >= 2/);
+    expect(screen).toMatch(/option\.choice\.installments <= 12/);
+    expect(screen).not.toMatch(/milestone|card checkout/i);
   });
 
-  it("imports formatShekels from pay-data", () => {
-    expect(s7Src).toMatch(/from "\.\/pay-data"/);
-    expect(s7Src).toMatch(/formatShekels/);
+  it("renders each exact schedule in the request currency", () => {
+    expect(screen).toMatch(/enabledOptions\.map/);
+    expect(screen).toMatch(/opt\.schedule\.map/);
+    expect(screen).toMatch(/formatPurchaseMoney\(row\.amountCents, currency\)/);
+    expect(page).toMatch(/currency=\{data\.currency\}/);
   });
 
-  it("page requires the request id and reads the frozen server options", () => {
-    expect(pageSrc).toMatch(/searchParams: Promise<\{ req\?: string \}>/);
-    expect(pageSrc).toMatch(/caller\.artist\.purchase\.paymentPlan\.options/);
-    expect(pageSrc).toMatch(/purchaseRequestId: req/);
-    expect(pageSrc).toMatch(/data\.productId && data\.productId !== productId/);
-    expect(pageSrc).not.toMatch(/MOCK_/);
+  it("requires an explicit selection unless only one plan is enabled", () => {
+    expect(screen).toMatch(/enabledOptions\.length === 1/);
+    expect(screen).toMatch(/disabled=\{!selected\}/);
   });
 
-  it("persists the plan choice before moving to payment instructions", () => {
-    expect(s7Src).toMatch(/choosePaymentPlanAction/);
-    expect(actionsSrc).toMatch(/artist\.purchase\.paymentPlan\.choose/);
-    expect(s7Src).toMatch(/purchaseRequestId/);
+  it("uses an accessible keyboard radio pattern with one tab stop", () => {
+    expect(screen).toMatch(/role="radiogroup"/);
+    expect(screen).toMatch(/role="radio"/);
+    expect(screen).toMatch(/nextPlanIndex/);
+    expect(screen).toMatch(/tabIndex=\{tabStopIndex === i \? 0 : -1\}/);
+    expect(screen).toMatch(/event\.key === " " \|\| event\.key === "Enter"/);
   });
 
-  it("does not bounce a pending or declined request between pay screens", () => {
-    expect(pageSrc).toMatch(/data\.status === "verifying" \|\| data\.status === "paid"/);
-    expect(pageSrc).toMatch(/redirect\("\/artist"\)/);
+  it("carries the choice to exact review without persisting it", () => {
+    expect(screen).toMatch(/paymentPlanAgreementHref/);
+    expect(screen).toMatch(/Continue to agreement/);
+    expect(screen).not.toMatch(/choosePaymentPlanAction|paymentPlan\.choose/);
   });
 
-  it("renders a card per option and its schedule rows + amounts", () => {
-    expect(s7Src).toMatch(/options\.map/);
-    expect(s7Src).toMatch(/\.schedule\.map/);
-    expect(s7Src).toMatch(/formatShekels\(/);
+  it("describes the exact installment boundary without generic deposit promises", () => {
+    expect(screen).toMatch(/first installment follows/);
+    expect(screen).toMatch(/complete installment is confirmed/);
+    expect(screen).not.toMatch(/deposit secures|sessions can run on a deposit/i);
   });
 
-  it("shows the due-now amount per option", () => {
-    expect(s7Src).toMatch(/dueNowCents/);
-  });
-
-  it("gates the primary action on a plan being selected", () => {
-    expect(s7Src).toMatch(/useState/);
-    expect(s7Src).toMatch(/disabled=\{!selected \|\| isSaving\}/);
-  });
-
-  it("implements the radio-group keyboard pattern with one tab stop", () => {
-    expect(s7Src).toMatch(/handlePlanKeyDown/);
-    expect(s7Src).toMatch(/nextPlanIndex/);
-    expect(s7Src).toMatch(/onKeyDown=\{\(event\) =>/);
-    expect(s7Src).toMatch(/tabIndex=\{tabStopIndex === i \? 0 : -1\}/);
-    expect(s7Src).toMatch(/event\.key === " " \|\| event\.key === "Enter"/);
-  });
-
-  it("gives the selected card an amber ring (brand-primary)", () => {
-    expect(s7Src).toMatch(/brand-primary/);
-    expect(s7Src).toMatch(/brand-primary\) \/ 0\.06/);
-  });
-
-  it("routes Continue to the instructions step with the chosen plan", () => {
-    expect(s7Src).toMatch(
-      /router\.push\(\s*`\/artist\/purchase\/\$\{productId\}\/pay\/instructions\?req=\$\{purchaseRequestId\}`,?\s*\)/,
-    );
-  });
-
-  it("renders the screen title in Syne", () => {
-    expect(s7Src).toMatch(/How would you like to pay\?/);
-    expect(s7Src).toMatch(/font-syne/);
-  });
-
-  it("uses funnel chrome (back arrow + pinned primary CTA)", () => {
-    expect(s7Src).toMatch(/FunnelTopBar/);
-    expect(s7Src).toMatch(/PrimaryCta/);
-    expect(s7Src).toMatch(/sk-safe-bottom/);
-  });
-
-  it("lets the long off-app note wrap instead of widening the mobile viewport", () => {
-    expect(s7Src).not.toMatch(/<Eyebrow>Money is handled off-app/);
-    expect(s7Src).toMatch(/Money is handled off-app — Skitza keeps the record/);
-  });
-
-  it("back arrow returns to the artist home heartbeat", () => {
-    expect(s7Src).toMatch(/router\.push\("\/artist"\)/);
+  it("keeps pending/declined requests out of the payment funnel", () => {
+    expect(page).toMatch(/if \(data\.status !== "approved"\)/);
+    expect(page).toMatch(/redirect\("\/artist"\)/);
   });
 });

@@ -1,12 +1,129 @@
 import type { PaymentPlan, ProductRoyaltyTerms } from "@skitza/db";
 
-import { isSafeAgreementUrl } from "~/lib/agreement-url";
+import type { VolumeTier } from "~/lib/pricing";
+
+export const MAX_PRODUCT_TAGLINE_LENGTH = 160;
+
+export function productTaglineError(tagline: string): string | null {
+  const trimmed = tagline.trim();
+  if (!trimmed) return "Write the short tagline artists will see.";
+  if (trimmed.length > MAX_PRODUCT_TAGLINE_LENGTH) {
+    return `Tagline must be ${String(MAX_PRODUCT_TAGLINE_LENGTH)} characters or fewer.`;
+  }
+  if (/\r|\n/.test(trimmed)) return "Keep the tagline to one line.";
+  return null;
+}
+
+export function productCashPriceError(input: {
+  price: number;
+  pricingModel: "flat" | "per_song";
+  volumeTiers: readonly VolumeTier[];
+}): string | null {
+  const priceCents = Math.round(input.price * 100);
+  if (
+    !Number.isFinite(input.price) ||
+    !Number.isSafeInteger(priceCents) ||
+    priceCents <= 0
+  ) {
+    return "Enter a cash price above 0. Zero-price and royalty-only deals belong in private offers.";
+  }
+  if (input.pricingModel === "flat") return null;
+  if (input.volumeTiers.length === 0 || input.volumeTiers.length > 10) {
+    return "Per-song pricing needs between 1 and 10 price tiers.";
+  }
+  if (!input.volumeTiers.some((tier) => tier.minQty === 1)) {
+    return "Add a starting price for one song.";
+  }
+  if (
+    input.volumeTiers.some(
+      (tier) =>
+        !Number.isSafeInteger(tier.minQty) || tier.minQty < 1 || tier.minQty > 1_000,
+    )
+  ) {
+    return "Every per-song threshold must be a whole number from 1 to 1,000.";
+  }
+  if (
+    input.volumeTiers.some(
+      (tier) => !Number.isSafeInteger(tier.pricePerUnitCents) || tier.pricePerUnitCents <= 0,
+    )
+  ) {
+    return "Every per-song tier needs a cash price above 0.";
+  }
+
+  const sorted = [...input.volumeTiers].sort((left, right) => left.minQty - right.minQty);
+  if (sorted[0]?.pricePerUnitCents !== priceCents) {
+    return "The one-song tier must match the product's starting price.";
+  }
+  for (let index = 1; index < sorted.length; index += 1) {
+    const previous = sorted[index - 1];
+    const current = sorted[index];
+    if (!previous || !current) continue;
+    if (current.minQty === previous.minQty) {
+      return "Every per-song threshold must be unique.";
+    }
+    if (current.pricePerUnitCents > previous.pricePerUnitCents) {
+      return "A higher-volume tier cannot cost more per song than the tier before it.";
+    }
+  }
+  return null;
+}
 
 export interface PaymentSelectionDraft {
   full: boolean;
   split50: boolean;
   monthly: boolean;
   monthlyInstallments: number;
+}
+
+/**
+ * Mirrors the published-product feasibility rule in the Store domain: even
+ * the cheapest valid purchase subtotal must leave at least one cent in every
+ * installment of every enabled plan. Tax is intentionally excluded because
+ * the immutable commercial service validates the pre-tax subtotal.
+ */
+export function paymentPlanFeasibilityError(input: {
+  price: number;
+  pricingModel: "flat" | "per_song";
+  volumeTiers: readonly VolumeTier[];
+  payment: PaymentSelectionDraft;
+}): string | null {
+  const maximumInstallments = Math.max(
+    1,
+    input.payment.split50 ? 2 : 1,
+    input.payment.monthly &&
+      Number.isSafeInteger(input.payment.monthlyInstallments) &&
+      input.payment.monthlyInstallments >= 2 &&
+      input.payment.monthlyInstallments <= 12
+      ? input.payment.monthlyInstallments
+      : 1,
+  );
+
+  let minimumSubtotalCents: bigint;
+  if (input.pricingModel === "per_song") {
+    const validOpenings = input.volumeTiers.flatMap((tier) =>
+      Number.isSafeInteger(tier.minQty) &&
+      tier.minQty >= 1 &&
+      Number.isSafeInteger(tier.pricePerUnitCents) &&
+      tier.pricePerUnitCents > 0
+        ? [BigInt(tier.minQty) * BigInt(tier.pricePerUnitCents)]
+        : [],
+    );
+    if (validOpenings.length !== input.volumeTiers.length || validOpenings.length === 0) {
+      return null;
+    }
+    minimumSubtotalCents = validOpenings.reduce((minimum, opening) =>
+      opening < minimum ? opening : minimum,
+    );
+  } else {
+    const priceCents = Math.round(input.price * 100);
+    if (!Number.isSafeInteger(priceCents) || priceCents <= 0) return null;
+    minimumSubtotalCents = BigInt(priceCents);
+  }
+
+  if (minimumSubtotalCents < BigInt(maximumInstallments)) {
+    return "Increase the minimum purchase price or reduce the enabled installments so every payment is at least 1 cent.";
+  }
+  return null;
 }
 
 export function seedPaymentSelection(
@@ -54,7 +171,7 @@ export function hasPaymentOption(selection: PaymentSelectionDraft): boolean {
 }
 
 export type RoyaltyMode = "none" | "percentage" | "agreement";
-export type AgreementMode = "none" | "link" | "text";
+export type AgreementMode = "none" | "text";
 export type CompositionRole =
   | "composer"
   | "lyricist"
@@ -80,16 +197,8 @@ export type RoyaltyDraftErrors = {
 
 export function validateAgreementDraft(
   mode: AgreementMode,
-  contractUrl: string,
   agreementText: string,
 ): string | null {
-  if (mode === "link") {
-    const trimmed = contractUrl.trim();
-    if (!trimmed) return "Enter a public agreement link or choose no attachment.";
-    if (trimmed.length > 2048 || !isSafeAgreementUrl(trimmed)) {
-      return "Use a valid http:// or https:// agreement link.";
-    }
-  }
   if (mode === "text") {
     if (!agreementText.trim()) {
       return "Write the agreement terms or choose no attachment.";
@@ -99,6 +208,26 @@ export function validateAgreementDraft(
     }
   }
   return null;
+}
+
+export function seedStoreAgreementDraft(
+  agreementText: string,
+  legacyContractUrl: string | null | undefined,
+): {
+  agreementMode: AgreementMode;
+  agreementText: string;
+  requiresLegacyLinkReplacement: boolean;
+} {
+  const hasInlineTerms = Boolean(agreementText.trim());
+  const requiresLegacyLinkReplacement =
+    !hasInlineTerms && Boolean(legacyContractUrl?.trim());
+
+  return {
+    agreementMode:
+      hasInlineTerms || requiresLegacyLinkReplacement ? "text" : "none",
+    agreementText,
+    requiresLegacyLinkReplacement,
+  };
 }
 
 /**

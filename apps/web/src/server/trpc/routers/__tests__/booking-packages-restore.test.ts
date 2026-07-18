@@ -7,7 +7,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // the storefront until the producer re-publishes it explicitly.
 
 const PRODUCER_ID = "producer-uuid-1";
-const OTHER_PRODUCER_ID = "producer-uuid-2";
 const PRODUCT_ID = "00000000-0000-0000-0000-000000000c01";
 
 const producersMarker = { __table: "producers" };
@@ -109,11 +108,11 @@ describe("booking.packages.restore", () => {
 
   it("throws NOT_FOUND when the product belongs to a different producer", async () => {
     producerSelectQueue.push([{ id: PRODUCER_ID }]);
-    productSelectQueue.push([{ producerId: OTHER_PRODUCER_ID }]);
+    productSelectQueue.push([]); // scoped SQL hides the foreign row
     const caller = await buildCaller();
     await expect(
       caller.booking.packages.restore({ id: PRODUCT_ID }),
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(updateSetSpy).not.toHaveBeenCalled();
   });
 

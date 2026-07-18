@@ -147,7 +147,12 @@ describe("pricing-step.tsx source", () => {
     expect(source).toContain("[&>button]:min-h-11");
   });
 
-  it("supports hiding the legacy payment block for the Store Payment step", () => {
-    expect(source).toMatch(/showPaymentPlans/);
+  it("does not carry the removed duplicate payment controls", () => {
+    expect(source).not.toMatch(/showPaymentPlans|PLAN_OPTIONS|paymentPlan/);
+  });
+
+  it("marks the flat, base, and discount cash inputs as positive-only", () => {
+    expect(source.match(/min=\{0\.01\}/g)).toHaveLength(3);
+    expect(source).toMatch(/pricing-step-error/);
   });
 });

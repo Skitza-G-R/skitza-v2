@@ -17,9 +17,9 @@ describe("TypeTile component shell", () => {
     expect(SRC).toMatch(/from\s+["']lucide-react["']/);
   });
 
-  it("renders 60 and 32 sizes", () => {
-    expect(SRC).toContain('size === 60');
-    expect(SRC).toContain('size === 32');
+  it("renders the single 60px card tile without the removed table size", () => {
+    expect(SRC).toMatch(/const size = 60/);
+    expect(SRC).not.toMatch(/size\?:\s*32|size === 32|table view/);
   });
 
   it("applies the eye-off overlay when hidden prop is set", () => {

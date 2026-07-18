@@ -15,7 +15,9 @@ import {
   products,
   producers,
   projects,
+  privateOffers,
   purchases,
+  purchaseRequests,
   purchaseSessionAllowances,
   sql,
   type PaymentPlan,
@@ -33,7 +35,19 @@ import {
   sendBookingConfirmedEmail,
 } from "~/server/email/send";
 import { mergePreservedPaymentPlans, normalizeProductPaymentPlans } from "~/lib/payment-plans";
-import { isSafeAgreementUrl } from "~/lib/agreement-url";
+import {
+  mergeAndValidateStoreProduct,
+  StoreProductCommercialError,
+  validateStoreProductCommercialState,
+  type StoreProductCommercialInput,
+} from "~/server/domain/store-products/service";
+
+function mapStoreProductCommercialError(error: unknown): never {
+  if (error instanceof StoreProductCommercialError) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+  }
+  throw error;
+}
 
 function purchaseProductName(snapshot: PurchaseCommercialSnapshot, fallback: string): string {
   const name = snapshot.productOrOfferName.trim();
@@ -137,12 +151,6 @@ const ProductRoyaltyTermsInput = z
   })
   .transform((terms) => terms as ProductRoyaltyTerms);
 
-const AgreementUrlInput = z
-  .string()
-  .url()
-  .max(2048)
-  .refine(isSafeAgreementUrl, "Agreement links must use http:// or https://");
-
 // Product template input. Commercial payment plans are Full, 50/50, or
 // Monthly; deposits and Milestone plans are not part of the model.
 const ProductInputShape = {
@@ -181,10 +189,9 @@ const ProductInputShape = {
     .default(12),
   paymentPlans: PaymentPlanInput.optional(),
   royaltyTerms: ProductRoyaltyTermsInput.nullable().optional(),
-  // B7 — optional URL to a contract PDF the producer hosts elsewhere
-  // (Dropbox, Drive, their own site). Same paste-a-link pattern as
-  // brand.logoUrl. Nullable so producers can clear an existing link.
-  contractUrl: AgreementUrlInput.nullable().optional(),
+  // Mutable external agreements are not valid Store terms. Null remains
+  // accepted so an editor can clear the legacy column without a migration.
+  contractUrl: z.null().optional(),
   agreementText: z.string().max(20_000).nullable().optional(),
 };
 
@@ -260,8 +267,8 @@ const ProductUpdateInput = z.object({
     .optional(),
   paymentPlans: PaymentPlanInput.optional(),
   royaltyTerms: ProductRoyaltyTermsInput.nullable().optional(),
-  // B7 — see ProductInputShape comment.
-  contractUrl: AgreementUrlInput.nullable().optional(),
+  // Clear-only compatibility for the legacy external-agreement column.
+  contractUrl: z.null().optional(),
   agreementText: z.string().max(20_000).nullable().optional(),
 });
 
@@ -516,96 +523,201 @@ export const __wallClockInTzToUtcForTests = wallClockInTzToUtc;
 // while we migrate.
 const productsRouter = router({
   list: producerProcedure.query(async ({ ctx }) => {
-    return ctx.db
+    const rows = await ctx.db
       .select()
       .from(products)
       .where(and(eq(products.producerId, ctx.producerId), isNull(products.archivedAt)))
       .orderBy(asc(products.position), asc(products.createdAt));
+    if (rows.length === 0) return [];
+
+    const ids = rows.map((row) => row.id);
+    const [requestHistory, purchaseHistory, offerHistory] = await Promise.all([
+      ctx.db
+        .select({ productId: purchaseRequests.productId })
+        .from(purchaseRequests)
+        .where(
+          and(
+            eq(purchaseRequests.producerId, ctx.producerId),
+            inArray(purchaseRequests.productId, ids),
+          ),
+        ),
+      ctx.db
+        .select({ productId: purchases.productId })
+        .from(purchases)
+        .where(and(eq(purchases.producerId, ctx.producerId), inArray(purchases.productId, ids))),
+      ctx.db
+        .select({ productId: privateOffers.productId })
+        .from(privateOffers)
+        .where(
+          and(eq(privateOffers.producerId, ctx.producerId), inArray(privateOffers.productId, ids)),
+        ),
+    ]);
+    const historyIds = new Set(
+      [...requestHistory, ...purchaseHistory, ...offerHistory]
+        .map((row) => row.productId)
+        .filter((id): id is string => id !== null),
+    );
+    return rows.map((row) => ({
+      ...row,
+      removalAction: historyIds.has(row.id) ? ("archive" as const) : ("delete" as const),
+    }));
   }),
 
   create: producerProcedure.input(ProductInput).mutation(async ({ ctx, input }) => {
-    const existing = await ctx.db
-      .select({ position: products.position })
-      .from(products)
-      .where(eq(products.producerId, ctx.producerId))
-      .orderBy(asc(products.position));
-    const nextPos = existing.length === 0 ? 0 : (existing[existing.length - 1]?.position ?? 0) + 1;
     // Pre-H.3 callers (onboarding wizard) pass in only a minimal set
     // of fields. The DB expects durationMin NOT NULL, so default it
     // to 0 when the caller doesn't pass one.
     const { durationMin = 0, priceCents = 0, sessionCount = 1, ...rest } = input;
-    const [row] = await ctx.db
-      .insert(products)
-      .values({
-        ...stripUndefined(rest),
-        durationMin,
-        priceCents,
-        sessionCount,
-        producerId: ctx.producerId,
-        position: nextPos,
-      })
-      .returning();
-    if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-    return row;
+    const values = {
+      ...stripUndefined(rest),
+      durationMin,
+      priceCents,
+      sessionCount,
+      producerId: ctx.producerId,
+    };
+    try {
+      validateStoreProductCommercialState({
+        name: values.name,
+        description: values.description ?? null,
+        kind: values.kind,
+        pricingModel: values.pricingModel,
+        priceCents: values.priceCents,
+        currency: values.currency,
+        volumeTiers: values.volumeTiers ?? null,
+        hourlyRateCents: values.hourlyRateCents ?? null,
+        durationMin: values.durationMin,
+        sessionCount: values.sessionCount,
+        deliverables: values.deliverables ?? null,
+        locationType: values.locationType,
+        bufferMinutes: values.bufferMinutes,
+        minLeadHours: values.minLeadHours,
+        paymentPlans: values.paymentPlans ?? [{ kind: "full" }],
+        royaltyTerms: values.royaltyTerms ?? null,
+        agreementText: values.agreementText ?? null,
+        active: true,
+        archivedAt: null,
+      });
+    } catch (error) {
+      mapStoreProductCommercialError(error);
+    }
+
+    return ctx.db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`store-products:${ctx.producerId}`}, 0))`,
+      );
+      const existing = await tx
+        .select({ position: products.position })
+        .from(products)
+        .where(eq(products.producerId, ctx.producerId))
+        .orderBy(asc(products.position));
+      const nextPos =
+        existing.length === 0 ? 0 : (existing[existing.length - 1]?.position ?? 0) + 1;
+      const [row] = await tx
+        .insert(products)
+        .values({ ...values, position: nextPos })
+        .returning();
+      if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      return row;
+    });
   }),
 
   update: producerProcedure.input(ProductUpdateInput).mutation(async ({ ctx, input }) => {
     const { id, ...patch } = input;
-    const [existing] = await ctx.db
-      .select({
-        producerId: products.producerId,
-        paymentPlans: products.paymentPlans,
-      })
-      .from(products)
-      .where(eq(products.id, id))
-      .limit(1);
-    if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
-    if (existing.producerId !== ctx.producerId) {
-      throw new TRPCError({ code: "FORBIDDEN" });
-    }
-    if (patch.paymentPlans?.length === 0) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "Choose at least one payment option",
-      });
-    }
-    const persistedPatch = {
-      ...stripUndefined(patch),
-      ...(patch.paymentPlans
-        ? {
-            paymentPlans: mergePreservedPaymentPlans(patch.paymentPlans, existing.paymentPlans),
-          }
-        : {}),
-    };
-    const [row] = await ctx.db
-      .update(products)
-      .set(persistedPatch)
-      .where(eq(products.id, id))
-      .returning();
-    if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-    return row;
+    return ctx.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(products)
+        .where(and(eq(products.id, id), eq(products.producerId, ctx.producerId)))
+        .limit(1)
+        .for("update");
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+      const persistedPatch = {
+        ...stripUndefined(patch),
+        ...(patch.paymentPlans
+          ? {
+              paymentPlans: mergePreservedPaymentPlans(patch.paymentPlans, existing.paymentPlans),
+            }
+          : {}),
+      };
+      try {
+        mergeAndValidateStoreProduct(
+          existing as StoreProductCommercialInput,
+          persistedPatch as Partial<StoreProductCommercialInput>,
+        );
+      } catch (error) {
+        mapStoreProductCommercialError(error);
+      }
+      const [row] = await tx
+        .update(products)
+        .set(persistedPatch)
+        .where(and(eq(products.id, id), eq(products.producerId, ctx.producerId)))
+        .returning();
+      if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+      return row;
+    });
   }),
 
-  // Phase H.3 — soft-delete via `archived_at` timestamp. Keeps the row
-  // for historical bookings to resolve. Also flips `active = false`
-  // for back-compat with code that still filters on that column.
+  // The user-facing remove action is decided under a product row lock:
+  // unused drafts/products are deleted; anything with commercial history is
+  // archived so every request, offer, and accepted snapshot remains resolvable.
   archive: producerProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const [existing] = await ctx.db
-        .select({ producerId: products.producerId })
-        .from(products)
-        .where(eq(products.id, input.id))
-        .limit(1);
-      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
-      if (existing.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "FORBIDDEN" });
-      }
-      await ctx.db
-        .update(products)
-        .set({ archivedAt: new Date(), active: false })
-        .where(eq(products.id, input.id));
-      return { ok: true as const };
+      return ctx.db.transaction(async (tx) => {
+        const [existing] = await tx
+          .select({ id: products.id })
+          .from(products)
+          .where(and(eq(products.id, input.id), eq(products.producerId, ctx.producerId)))
+          .limit(1)
+          .for("update");
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+
+        const [requestHistory] = await tx
+          .select({ id: purchaseRequests.id })
+          .from(purchaseRequests)
+          .where(
+            and(
+              eq(purchaseRequests.productId, existing.id),
+              eq(purchaseRequests.producerId, ctx.producerId),
+            ),
+          )
+          .limit(1);
+        const [purchaseHistory] = await tx
+          .select({ id: purchases.id })
+          .from(purchases)
+          .where(
+            and(
+              eq(purchases.productId, existing.id),
+              eq(purchases.producerId, ctx.producerId),
+            ),
+          )
+          .limit(1);
+        const [offerHistory] = await tx
+          .select({ id: privateOffers.id })
+          .from(privateOffers)
+          .where(
+            and(
+              eq(privateOffers.productId, existing.id),
+              eq(privateOffers.producerId, ctx.producerId),
+            ),
+          )
+          .limit(1);
+
+        if (requestHistory || purchaseHistory || offerHistory) {
+          await tx
+            .update(products)
+            .set({ archivedAt: new Date(), active: false })
+            .where(and(eq(products.id, existing.id), eq(products.producerId, ctx.producerId)));
+          return { ok: true as const, outcome: "archived" as const };
+        }
+
+        const [deleted] = await tx
+          .delete(products)
+          .where(and(eq(products.id, existing.id), eq(products.producerId, ctx.producerId)))
+          .returning({ id: products.id });
+        if (!deleted) throw new TRPCError({ code: "CONFLICT" });
+        return { ok: true as const, outcome: "deleted" as const };
+      });
     }),
 
   // Phase 2 store redesign — Undo counterpart to `archive`. Surfaces
@@ -617,18 +729,15 @@ const productsRouter = router({
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const [existing] = await ctx.db
-        .select({ producerId: products.producerId })
+        .select({ id: products.id })
         .from(products)
-        .where(eq(products.id, input.id))
+        .where(and(eq(products.id, input.id), eq(products.producerId, ctx.producerId)))
         .limit(1);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
-      if (existing.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "FORBIDDEN" });
-      }
       await ctx.db
         .update(products)
         .set({ archivedAt: null, active: false })
-        .where(eq(products.id, input.id));
+        .where(and(eq(products.id, input.id), eq(products.producerId, ctx.producerId)));
       return { ok: true as const };
     }),
 
@@ -652,18 +761,23 @@ const productsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const rows = await ctx.db
-        .select({ id: products.id, producerId: products.producerId })
+        .select({ id: products.id })
         .from(products)
-        .where(inArray(products.id, input.orderedIds));
+        .where(
+          and(
+            eq(products.producerId, ctx.producerId),
+            inArray(products.id, input.orderedIds),
+          ),
+        );
       if (rows.length !== input.orderedIds.length) {
         throw new TRPCError({ code: "NOT_FOUND" });
       }
-      if (rows.some((r) => r.producerId !== ctx.producerId)) {
-        throw new TRPCError({ code: "FORBIDDEN" });
-      }
       await ctx.db.transaction(async (tx) => {
         for (const [idx, id] of input.orderedIds.entries()) {
-          await tx.update(products).set({ position: idx }).where(eq(products.id, id));
+          await tx
+            .update(products)
+            .set({ position: idx })
+            .where(and(eq(products.id, id), eq(products.producerId, ctx.producerId)));
         }
       });
       return { ok: true as const };
@@ -675,40 +789,49 @@ const productsRouter = router({
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const [existing] = await ctx.db
-        .select({ producerId: products.producerId })
+        .select({ id: products.id })
         .from(products)
-        .where(eq(products.id, input.id))
+        .where(and(eq(products.id, input.id), eq(products.producerId, ctx.producerId)))
         .limit(1);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
-      if (existing.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "FORBIDDEN" });
-      }
       await ctx.db
         .update(products)
         .set({ archivedAt: new Date(), active: false })
-        .where(eq(products.id, input.id));
+        .where(and(eq(products.id, input.id), eq(products.producerId, ctx.producerId)));
       return { ok: true as const };
     }),
 
-  // Storefront visibility toggle. Flips `active` without archiving the
-  // row, so the producer can hide a product from their public page
-  // (publicPackages query filters on active=true) and still show it in
-  // the dashboard list. Distinct from `archive`, which moves the row
+  // Signed-in Store visibility toggle. Flips `active` without archiving
+  // the row, so the producer can hide a product from artists while still
+  // seeing it in the dashboard list. The anonymous portfolio never reads
+  // products. Distinct from `archive`, which moves the row
   // to a soft-deleted state and removes it from the dashboard list.
   setActive: producerProcedure
     .input(z.object({ id: z.string().uuid(), active: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
-      const [existing] = await ctx.db
-        .select({ producerId: products.producerId })
-        .from(products)
-        .where(eq(products.id, input.id))
-        .limit(1);
-      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
-      if (existing.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "FORBIDDEN" });
-      }
-      await ctx.db.update(products).set({ active: input.active }).where(eq(products.id, input.id));
-      return { ok: true as const };
+      return ctx.db.transaction(async (tx) => {
+        const [existing] = await tx
+          .select()
+          .from(products)
+          .where(and(eq(products.id, input.id), eq(products.producerId, ctx.producerId)))
+          .limit(1)
+          .for("update");
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+        try {
+          mergeAndValidateStoreProduct(existing as StoreProductCommercialInput, {
+            active: input.active,
+          });
+        } catch (error) {
+          mapStoreProductCommercialError(error);
+        }
+        const [updated] = await tx
+          .update(products)
+          .set({ active: input.active })
+          .where(and(eq(products.id, input.id), eq(products.producerId, ctx.producerId)))
+          .returning({ id: products.id });
+        if (!updated) throw new TRPCError({ code: "NOT_FOUND" });
+        return { ok: true as const };
+      });
     }),
 
   // Duplicate — clone an existing product into a new row. The copy
@@ -718,25 +841,27 @@ const productsRouter = router({
   duplicate: producerProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const [existing] = await ctx.db
-        .select()
-        .from(products)
-        .where(eq(products.id, input.id))
-        .limit(1);
-      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
-      if (existing.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "FORBIDDEN" });
-      }
-      // Compute next position at the tail of this producer's list.
-      const all = await ctx.db
-        .select({ position: products.position })
-        .from(products)
-        .where(eq(products.producerId, ctx.producerId))
-        .orderBy(asc(products.position));
-      const nextPos = all.length === 0 ? 0 : (all[all.length - 1]?.position ?? 0) + 1;
-      const [row] = await ctx.db
-        .insert(products)
-        .values({
+      return ctx.db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${`store-products:${ctx.producerId}`}, 0))`,
+        );
+        const [existing] = await tx
+          .select()
+          .from(products)
+          .where(and(eq(products.id, input.id), eq(products.producerId, ctx.producerId)))
+          .limit(1)
+          .for("share");
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+        // Compute next position at the tail of this producer's list.
+        const all = await tx
+          .select({ position: products.position })
+          .from(products)
+          .where(eq(products.producerId, ctx.producerId))
+          .orderBy(asc(products.position));
+        const nextPos = all.length === 0 ? 0 : (all[all.length - 1]?.position ?? 0) + 1;
+        const [row] = await tx
+          .insert(products)
+          .values({
           producerId: existing.producerId,
           name: `${existing.name} (copy)`,
           description: existing.description,
@@ -756,12 +881,14 @@ const productsRouter = router({
           deliverables: existing.deliverables,
           paymentPlans: existing.paymentPlans,
           royaltyTerms: existing.royaltyTerms,
-          contractUrl: existing.contractUrl,
+          // A duplicate is a future product and must not inherit mutable terms.
+          contractUrl: null,
           agreementText: existing.agreementText,
-        })
-        .returning();
-      if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      return row;
+          })
+          .returning();
+        if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        return row;
+      });
     }),
 });
 

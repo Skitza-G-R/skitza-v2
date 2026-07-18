@@ -146,7 +146,7 @@ describe("artist purchase accessibility contract", () => {
   it("gives every purchase stage a unique document title", () => {
     const pages = [
       ["[productId]", "Product details"],
-      ["[productId]/agree", "Review request"],
+      ["[productId]/agree", "Review and accept"],
       ["[productId]/sent", "Request sent"],
       ["[productId]/pay", "Choose a payment plan"],
       ["[productId]/pay/instructions", "Payment instructions"],

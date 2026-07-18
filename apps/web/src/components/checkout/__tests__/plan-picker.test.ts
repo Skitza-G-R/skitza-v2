@@ -32,15 +32,15 @@ describe("planKey", () => {
 });
 
 describe("requestPlanLabel", () => {
-  it("uses after-approval timing instead of checkout timing", () => {
+  it("uses the immutable acceptance and artist-approval triggers", () => {
     expect(requestPlanLabel({ kind: "full" }, 10_000, fmt)).toBe(
-      "Pay in full — $100 after approval",
+      "Pay in full — $100 at acceptance",
     );
     expect(requestPlanLabel({ kind: "split_50_50" }, 10_001, fmt)).toBe(
-      "50/50 — $50.01 first after approval, $50 on delivery",
+      "50/50 — $50.01 at acceptance, $50 when the artist approves the final version",
     );
     expect(requestPlanLabel({ kind: "monthly", installments: 3 }, 10_003, fmt)).toBe(
-      "Monthly — 3 payments; $33.35 first after approval, then $33.34 monthly",
+      "Monthly — 3 payments; $33.35 at acceptance, then $33.34 monthly",
     );
   });
 });

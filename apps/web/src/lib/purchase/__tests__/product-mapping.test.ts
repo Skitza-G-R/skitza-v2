@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  agreementFor,
   durationLabel,
   toProducer,
   toPurchaseProduct,
@@ -16,9 +15,9 @@ const ROW = {
   durationMin: 120,
   deliverables: ["Full mix + master", "WAV stems"],
   producerName: "Gili Studio",
-  contractUrl: "https://r2.example.com/contracts/Booking%20Agreement.pdf",
   description: "Track, comp, mix & master one song.",
   agreementText: "Credit the producer in release metadata.",
+  unlimitedRevisions: false,
   royaltyTerms: {
     master: { mode: "percentage" as const, bps: 250 },
     composition: {
@@ -33,6 +32,11 @@ const ROW = {
     { kind: "full" as const },
     { kind: "split_50_50" as const },
   ],
+  pricingModel: "per_song" as const,
+  volumeTiers: [
+    { minQty: 1, pricePerUnitCents: 240000 },
+    { minQty: 3, pricePerUnitCents: 210000 },
+  ],
 };
 
 describe("durationLabel", () => {
@@ -44,26 +48,9 @@ describe("durationLabel", () => {
   it("renders multi-session products with a per-session length", () => {
     expect(durationLabel(3, 120)).toBe("3 sessions · 2h each");
   });
-});
 
-describe("agreementFor", () => {
-  it("derives the filename from the contract URL (decoded) and keeps the url", () => {
-    expect(agreementFor(ROW.contractUrl)).toEqual({
-      filename: "Booking Agreement.pdf",
-      url: ROW.contractUrl,
-      kind: "pdf",
-    });
-  });
-
-  it("returns null when the producer has no uploaded agreement", () => {
-    expect(agreementFor(null)).toBeNull();
-    expect(agreementFor(undefined)).toBeNull();
-    expect(agreementFor("")).toBeNull();
-  });
-
-  it("does not expose an unparseable URL as a clickable agreement", () => {
-    expect(agreementFor("not-a-url")).toBeNull();
-    expect(agreementFor("javascript:alert(1)")).toBeNull();
+  it("does not turn an unlimited session allowance into a single session", () => {
+    expect(durationLabel(0, 90)).toBe("Unlimited sessions · 1h 30m each");
   });
 });
 
@@ -79,13 +66,17 @@ describe("toPurchaseProduct", () => {
       includes: ["Full mix + master", "WAV stems"],
       tagline: "Track, comp, mix & master one song.",
       sessions: 3,
+      unlimitedSessions: false,
       revisions: 2,
+      unlimitedRevisions: false,
       paymentPlans: [
         { kind: "full" },
         { kind: "split_50_50" },
       ],
       agreementText: "Credit the producer in release metadata.",
       royaltyTerms: ROW.royaltyTerms,
+      pricingModel: "per_song",
+      volumeTiers: ROW.volumeTiers,
     });
   });
 
@@ -102,6 +93,18 @@ describe("toPurchaseProduct", () => {
     expect(product.royaltyTerms).toBeNull();
     expect(product.agreementText).toBeNull();
   });
+
+  it("maps explicit unlimited session and revision rules without losing them", () => {
+    const product = toPurchaseProduct({
+      ...ROW,
+      sessionCount: 0,
+      revisions: 0,
+      unlimitedRevisions: true,
+    });
+    expect(product.durationLabel).toBe("Unlimited sessions · 2h each");
+    expect(product.unlimitedSessions).toBe(true);
+    expect(product.unlimitedRevisions).toBe(true);
+  });
 });
 
 describe("toProducer", () => {
@@ -113,12 +116,10 @@ describe("toProducer", () => {
     expect(producer.hue).toBeLessThan(360);
     // deterministic — same name, same hue (matches the store avatars)
     expect(toProducer(ROW).hue).toBe(producer.hue);
-    expect(producer.agreement?.filename).toBe("Booking Agreement.pdf");
   });
 
-  it("survives a null producer name and missing contract", () => {
-    const producer = toProducer({ ...ROW, producerName: null, contractUrl: null });
+  it("survives a null producer name", () => {
+    const producer = toProducer({ ...ROW, producerName: null });
     expect(producer.name).toBe("Your producer");
-    expect(producer.agreement).toBeNull();
   });
 });

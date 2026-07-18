@@ -29,7 +29,6 @@ export interface PackageDraft {
   revisions: number;
   unlimitedRevisions: boolean;
   agreementMode: AgreementMode;
-  contractUrl: string;
   agreementText: string;
   royalty: ProductRoyaltyDraft;
   pricingModel: "flat" | "per_song";
@@ -48,7 +47,7 @@ export interface PackagePayload {
   deliverables: string[];
   royaltyTerms: ProductRoyaltyTerms | null;
   agreementText: string | null;
-  contractUrl: string | null;
+  contractUrl: null;
   pricingModel: "flat" | "per_song";
   volumeTiers: VolumeTier[];
 }
@@ -58,15 +57,6 @@ export type PackageUpdatePayload = PackagePayload;
 function parseDurationMin(duration: string): number {
   const match = duration.match(/(\d+)\s*min/i);
   return match ? Number.parseInt(match[1] ?? "0", 10) : 0;
-}
-
-function resolveContractUrl(
-  mode: AgreementMode,
-  url: string,
-): string | null {
-  if (mode !== "link") return null;
-  const trimmed = url.trim();
-  return trimmed || null;
 }
 
 function resolveAgreementText(
@@ -86,7 +76,7 @@ export function buildPackagePayload(
   // Inline agreement text is deliberately excluded and written to its own
   // column below, so editing a legacy product migrates the terms safely.
   const description = encodeDescription({
-    tagline: draft.tagline,
+    tagline: draft.tagline.trim(),
     revisions: draft.revisions,
     unlimitedRevisions: draft.unlimitedRevisions,
     contractText: "",
@@ -118,7 +108,10 @@ export function buildPackagePayload(
       draft.agreementMode,
       draft.agreementText,
     ),
-    contractUrl: resolveContractUrl(draft.agreementMode, draft.contractUrl),
+    // Store purchases must freeze the exact terms the artist accepted. External
+    // links can change after acceptance, so every create/edit clears any legacy
+    // URL and persists only the inline agreement text above.
+    contractUrl: null,
     pricingModel: draft.pricingModel,
     volumeTiers: draft.volumeTiers,
   };

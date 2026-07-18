@@ -38,6 +38,23 @@ describe("QuietProductList", () => {
     expect(source).toMatch(/sk-press/);
   });
 
+  it("discloses tax next to every secondary-row price", () => {
+    expect(source).toMatch(/taxModeFootnote/);
+    expect(source).toMatch(/taxMode\?: TaxMode/);
+    expect(source).toMatch(/taxRatePct\?: number/);
+  });
+
+  it("uses the same row as an inert preview button when requested", () => {
+    expect(source).toMatch(/onPreviewDetails\?: \(trigger: HTMLButtonElement\) => void/);
+    expect(source).toMatch(/onPreviewDetails\(event\.currentTarget\)/);
+    expect(source).toMatch(/type="button"/);
+  });
+
+  it("allows long product names to wrap safely", () => {
+    expect(source).toMatch(/line-clamp-2/);
+    expect(source).toMatch(/\[overflow-wrap:anywhere\]/);
+  });
+
   it("entrance animation uses reveal-up", () => {
     expect(source).toMatch(/reveal-up/);
   });

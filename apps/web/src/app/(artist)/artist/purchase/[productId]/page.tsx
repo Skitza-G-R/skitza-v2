@@ -5,21 +5,16 @@ import { TRPCError } from "@trpc/server";
 
 import { ProductDetailScreen } from "~/components/artist/purchase/product-detail-screen";
 import { toProducer, toPurchaseProduct } from "~/lib/purchase/product-mapping";
+import { coerceTaxMode } from "~/lib/tax-mode";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = { params: Promise<{ productId: string }> };
 
 export const metadata: Metadata = { title: "Product details" };
 
-// S3 — Product detail + "Request to book" (Commit · ENTRY). The funnel's
-// front door: the artist reads the offer, sees the price (which locks at
-// request time), and starts the purchase. The "Request to book" CTA routes
-// to S4 (Review & agree), where the request actually fires Gate 1.
-//
-// Real BE-1 data (SK-46): the product + producer come from
-// `artist.store.product` (ownership-guarded), and `pendingRequest` from
-// `artist.purchase.pending` — one open request per studio while Gate 1
-// is in review.
+// Unified signed-in Store detail. The artist chooses quantity (when relevant)
+// and a same-client target here, then sends intent only. Commercial terms are
+// frozen later at explicit acceptance.
 export default async function PurchaseEntryPage({ params }: PageProps) {
   const { userId } = await auth();
   if (!userId) return null;
@@ -40,16 +35,20 @@ export default async function PurchaseEntryPage({ params }: PageProps) {
     throw e;
   }
 
-  const { pending } = await caller.artist.purchase.pending({
-    producerId: row.producerId,
-  });
-
   return (
     <ProductDetailScreen
       product={toPurchaseProduct(row)}
       producer={toProducer(row)}
       productId={productId}
-      pendingRequest={Boolean(pending)}
+      taxMode={coerceTaxMode(row.producerTaxMode)}
+      taxRatePct={Math.max(0, Math.min(100, Math.round(row.producerTaxRatePct)))}
+      targetProjects={row.targetProjects.map((project) => ({
+        id: project.id,
+        title: project.title,
+        lifecycleStatus: project.lifecycleStatus,
+        workflowStage: project.workflowStage,
+        updatedAtIso: project.updatedAt.toISOString(),
+      }))}
     />
   );
 }

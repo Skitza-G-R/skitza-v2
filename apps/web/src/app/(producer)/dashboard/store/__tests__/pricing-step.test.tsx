@@ -15,17 +15,15 @@ describe("PricingStep shell", () => {
     expect(SRC).toContain("ILS");
   });
 
-  it("renders the three payment-plan options", () => {
-    expect(SRC).toMatch(/full|Pay in full/);
-    expect(SRC).toMatch(/split|50%/);
-    expect(SRC).toMatch(/installments|Payment plan/);
+  it("does not render the removed duplicate payment-plan controls", () => {
+    expect(SRC).not.toMatch(/PLAN_OPTIONS|showPaymentPlans/);
   });
 
-  it("reads/writes price, currency, sessions, and payment plan", () => {
+  it("reads/writes price, currency, and sessions", () => {
     expect(SRC).toMatch(/price/);
     expect(SRC).toMatch(/currency/);
     expect(SRC).toMatch(/sessions/);
-    expect(SRC).toMatch(/paymentPlan/);
+    expect(SRC).not.toMatch(/paymentPlan/);
   });
 
   it("renders an 'Unlimited' pill toggle for the sessions count", () => {
@@ -50,5 +48,12 @@ describe("PricingStep shell", () => {
 
   it("uses Syne for the price input (font-display)", () => {
     expect(SRC).toMatch(/font-display|font-syne/);
+  });
+
+  it("requires positive cash amounts for the flat price and every tier", () => {
+    const minimums = SRC.match(/min=\{0\.01\}/g) ?? [];
+    expect(minimums).toHaveLength(3);
+    expect(SRC).toMatch(/pricing-step-error/);
+    expect(SRC).toMatch(/aria-invalid/);
   });
 });

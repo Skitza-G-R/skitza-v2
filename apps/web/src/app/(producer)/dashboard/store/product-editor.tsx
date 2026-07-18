@@ -26,9 +26,13 @@ import { kindToTile } from "./kind-to-tile";
 import {
   buildPaymentPlans,
   hasPaymentOption,
+  productCashPriceError,
+  paymentPlanFeasibilityError,
+  productTaglineError,
   royaltyDraftToTerms,
   royaltyTermsToDraft,
   seedPaymentSelection,
+  seedStoreAgreementDraft,
   validateAgreementDraft,
   validateRoyaltyDraft,
 } from "./product-editor-draft";
@@ -68,7 +72,7 @@ const STEP_TITLES: Record<StepId, string> = {
 
 const STEP_SUBTITLES: Record<StepId, string> = {
   type: "Pick the closest match. We'll prefill the practical details.",
-  details: "Name the product and list exactly what the artist receives.",
+  details: "Add the exact name, tagline, and deliverables artists will see.",
   price: "Set the pricing model, rate, sessions, and global tax disclosure.",
   payment: "Choose one or more. The artist picks after approval.",
   delivery: "Set the session duration and included revision rounds.",
@@ -78,6 +82,7 @@ const STEP_SUBTITLES: Record<StepId, string> = {
 
 interface Draft extends PackageDraft {
   _picked: PresetId | null;
+  _legacyAgreementLink: boolean;
 }
 
 interface ProductEditorProps {
@@ -87,6 +92,8 @@ interface ProductEditorProps {
   defaultCurrency: Currency;
   taxMode: import("~/lib/tax-mode").TaxMode;
   taxRatePct: number;
+  producerName?: string;
+  previewPlacement?: "focal" | "secondary";
   onCreated?: (id: string) => void;
 }
 
@@ -101,6 +108,7 @@ function plansForPreset(choice: PaymentPlanChoice): PaymentPlan[] {
 function emptyDraft(currency: Currency): Draft {
   return {
     _picked: null,
+    _legacyAgreementLink: false,
     name: "",
     tagline: "",
     type: "consult",
@@ -114,7 +122,6 @@ function emptyDraft(currency: Currency): Draft {
     revisions: 0,
     unlimitedRevisions: false,
     agreementMode: "none",
-    contractUrl: "",
     agreementText: "",
     royalty: royaltyTermsToDraft(null),
     pricingModel: "flat",
@@ -132,12 +139,13 @@ function seedDraftFromProduct(product: StoreProduct, defaultCurrency: Currency):
     ? (product.currency as Currency)
     : defaultCurrency;
   const dedicatedAgreement = product.agreementText ?? decoded.contractText;
-  const agreementMode = dedicatedAgreement.trim() ? "text" : product.contractUrl ? "link" : "none";
+  const agreement = seedStoreAgreementDraft(dedicatedAgreement, product.contractUrl);
   const pricingModel = product.pricingModel === "per_song" ? "per_song" : "flat";
   const firstTier = product.volumeTiers?.[0];
 
   return {
     _picked: null,
+    _legacyAgreementLink: agreement.requiresLegacyLinkReplacement,
     name: product.name,
     tagline: decoded.tagline,
     type: kindToPresetType(product.kind),
@@ -156,9 +164,8 @@ function seedDraftFromProduct(product: StoreProduct, defaultCurrency: Currency):
         : "",
     revisions: decoded.revisions,
     unlimitedRevisions: decoded.unlimitedRevisions,
-    agreementMode,
-    contractUrl: product.contractUrl ?? "",
-    agreementText: dedicatedAgreement,
+    agreementMode: agreement.agreementMode,
+    agreementText: agreement.agreementText,
     royalty: royaltyTermsToDraft(product.royaltyTerms),
     pricingModel,
     volumeTiers: product.volumeTiers ?? [],
@@ -179,6 +186,8 @@ export function ProductEditor({
   defaultCurrency,
   taxMode,
   taxRatePct,
+  producerName = "Your studio",
+  previewPlacement = "focal",
   onCreated,
 }: ProductEditorProps) {
   const router = useRouter();
@@ -272,10 +281,8 @@ export function ProductEditor({
   const currentStepIndex = Math.max(0, steps.indexOf(currentStep));
   const isFirstStep = currentStepIndex === 0;
   const isLastStep = currentStepIndex === steps.length - 1;
-  const validPrice =
-    draft.price >= 0 &&
-    (draft.pricingModel !== "per_song" ||
-      (draft.volumeTiers.length > 0 && draft.volumeTiers.some((tier) => tier.minQty === 1)));
+  const priceError = productCashPriceError(draft);
+  const validPrice = priceError === null;
   const validMonthly =
     !draft.payment.monthly ||
     (Number.isInteger(draft.payment.monthlyInstallments) &&
@@ -286,13 +293,12 @@ export function ProductEditor({
     ? "Choose at least one payment option."
     : !validMonthly
       ? "Monthly payments must be between 2 and 12."
-      : null;
+      : paymentPlanFeasibilityError(draft);
   const royaltyErrors = validateRoyaltyDraft(draft.royalty, mode === "new");
-  const agreementError = validateAgreementDraft(
-    draft.agreementMode,
-    draft.contractUrl,
-    draft.agreementText,
-  );
+  const agreementError =
+    draft._legacyAgreementLink && (draft.agreementMode !== "text" || !draft.agreementText.trim())
+      ? "Replace the old agreement link with the exact terms before saving."
+      : validateAgreementDraft(draft.agreementMode, draft.agreementText);
   const visibleRoyaltyErrors = {
     ...(rightsTouched.master && royaltyErrors.master ? { master: royaltyErrors.master } : {}),
     ...(rightsTouched.composition && royaltyErrors.composition
@@ -300,12 +306,14 @@ export function ProductEditor({
       : {}),
     ...(rightsTouched.notes && royaltyErrors.notes ? { notes: royaltyErrors.notes } : {}),
   };
-  const visibleAgreementError = rightsTouched.agreement ? agreementError : null;
+  const visibleAgreementError =
+    rightsTouched.agreement || draft._legacyAgreementLink ? agreementError : null;
   const validRights = Object.keys(royaltyErrors).length === 0 && agreementError === null;
   const validDelivery = /^\d+\s*min$/i.test(draft.duration);
   const validDetails =
     draft.name.trim().length > 0 &&
     draft.name.trim().length <= 200 &&
+    productTaglineError(draft.tagline) === null &&
     draft.includes.length <= 10 &&
     draft.includes.every((item) => item.trim().length > 0 && item.trim().length <= 100);
   const validType = mode === "edit" || draft._picked !== null;
@@ -379,9 +387,7 @@ export function ProductEditor({
 
   const basePriceCents = Math.round(draft.price * 100);
   const previewPriceCents = applyTaxToCents(basePriceCents, taxModeLocal, taxRateLocal);
-  const reviewPlans = validMonthly
-    ? buildPaymentPlans(draft.payment)
-    : [];
+  const reviewPlans = validMonthly ? buildPaymentPlans(draft.payment) : [];
   const reviewRoyaltyTerms = royaltyDraftToTerms(draft.royalty);
 
   return (
@@ -412,6 +418,10 @@ export function ProductEditor({
             onNameChange={(name) => {
               setDraft((current) => ({ ...current, name }));
             }}
+            tagline={draft.tagline}
+            onTaglineChange={(tagline) => {
+              setDraft((current) => ({ ...current, tagline }));
+            }}
             includes={draft.includes}
             onIncludesChange={(includes) => {
               setDraft((current) => ({ ...current, includes }));
@@ -431,7 +441,7 @@ export function ProductEditor({
             taxRatePct={taxRateLocal}
             onTaxChange={onTaxChange}
             taxError={taxError}
-            showPaymentPlans={false}
+            priceError={priceError}
             onChange={(patch) => {
               setDraft((current) => ({ ...current, ...patch }));
             }}
@@ -466,7 +476,6 @@ export function ProductEditor({
           <RightsAgreementStep
             royalty={draft.royalty}
             agreementMode={draft.agreementMode}
-            contractUrl={draft.contractUrl}
             agreementText={draft.agreementText}
             errors={visibleRoyaltyErrors}
             {...(visibleAgreementError ? { agreementError: visibleAgreementError } : {})}
@@ -501,6 +510,7 @@ export function ProductEditor({
         {currentStep === "review" ? (
           <ReviewStep
             name={draft.name.trim()}
+            tagline={draft.tagline.trim()}
             typeLabel={typeLabel(draft.type)}
             showTypeEdit={mode === "new"}
             includes={draft.includes}
@@ -518,8 +528,11 @@ export function ProductEditor({
             unlimitedRevisions={draft.unlimitedRevisions}
             royaltyTerms={reviewRoyaltyTerms}
             agreementMode={draft.agreementMode}
-            contractUrl={draft.contractUrl}
             agreementText={draft.agreementText}
+            producerName={producerName}
+            taxMode={taxModeLocal}
+            taxRatePct={taxRateLocal}
+            previewPlacement={previewPlacement}
             onEdit={editFromReview}
           />
         ) : null}

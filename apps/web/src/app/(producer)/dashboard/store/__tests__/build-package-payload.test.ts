@@ -27,7 +27,6 @@ function flatDraft(overrides: Partial<PackageDraft> = {}): PackageDraft {
     revisions: 2,
     unlimitedRevisions: false,
     agreementMode: "none",
-    contractUrl: "",
     agreementText: "",
     royalty: {
       ...royaltyTermsToDraft(null),
@@ -61,6 +60,13 @@ describe("buildPackagePayload", () => {
       pricingModel: "flat",
       volumeTiers: [],
     });
+  });
+
+  it("stores the exact trimmed artist-facing tagline", () => {
+    const payload = buildPackagePayload(flatDraft({ tagline: "  Release-ready clarity.  " }));
+
+    expect(payload.description.startsWith("Release-ready clarity.\n")).toBe(true);
+    expect(payload.description).not.toContain("  Release-ready clarity.");
   });
 
   it("builds all selected plans in deterministic order", () => {
@@ -102,10 +108,7 @@ describe("buildPackagePayload", () => {
 
     expect(payload.pricingModel).toBe("per_song");
     expect(payload.volumeTiers).toEqual(tiers);
-    expect(payload.paymentPlans).toEqual([
-      { kind: "full" },
-      { kind: "split_50_50" },
-    ]);
+    expect(payload.paymentPlans).toEqual([{ kind: "full" }, { kind: "split_50_50" }]);
   });
 
   it("moves legacy inline terms to agreementText without losing tagline or revisions", () => {
@@ -153,22 +156,23 @@ describe("buildPackagePayload", () => {
 
   it("keeps a legacy null royalty compatibility state", () => {
     expect(
-      buildPackagePayload(
-        flatDraft({ royalty: royaltyTermsToDraft(null) }),
-      ).royaltyTerms,
+      buildPackagePayload(flatDraft({ royalty: royaltyTermsToDraft(null) })).royaltyTerms,
     ).toBeNull();
   });
 
-  it("trims agreement links and nulls the dedicated text in link mode", () => {
-    const payload = buildPackagePayload(
-      flatDraft({
-        agreementMode: "link",
-        contractUrl: "  https://example.com/terms  ",
-        agreementText: "Old text must not leak",
+  it("clears a legacy external link and persists only exact inline terms", () => {
+    const legacyShapedDraft = {
+      ...flatDraft({
+        agreementMode: "text",
+        agreementText: "  The exact terms the artist accepts.  ",
       }),
-    );
-    expect(payload.contractUrl).toBe("https://example.com/terms");
-    expect(payload.agreementText).toBeNull();
+      contractUrl: "https://example.com/changeable-terms",
+    };
+
+    const payload = buildPackagePayload(legacyShapedDraft);
+
+    expect(payload.contractUrl).toBeNull();
+    expect(payload.agreementText).toBe("The exact terms the artist accepts.");
   });
 
   it("preserves unlimited sessions and the existing product kind", () => {

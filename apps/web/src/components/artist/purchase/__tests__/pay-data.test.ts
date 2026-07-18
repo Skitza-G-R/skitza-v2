@@ -5,7 +5,10 @@ import {
   livePlanOptions,
   nextPlanIndex,
   paidProgress,
+  parsePaymentPlanSearch,
+  paymentPlanAgreementHref,
   paymentPlanLabel,
+  paymentPlanSearch,
   proofStatusCopy,
 } from "../pay-data";
 
@@ -20,7 +23,7 @@ describe("livePlanOptions", () => {
         installments: 3,
         charges: [80001, 80000, 80000],
         dueNowCents: 80001,
-        labels: ["Due today", "Month 2", "Month 3"],
+        labels: ["stale first label", "stale second label", "stale third label"],
       },
     ]);
     expect(options[0]).toMatchObject({
@@ -29,6 +32,11 @@ describe("livePlanOptions", () => {
       title: "3 monthly payments",
       dueNowCents: 80001,
     });
+    expect(options[0]?.schedule.map((row) => row.label)).toEqual([
+      "First payment due at acceptance",
+      "Monthly payment 2",
+      "Monthly payment 3",
+    ]);
     expect(options[0]?.schedule.reduce((sum, row) => sum + row.amountCents, 0)).toBe(240001);
   });
 
@@ -48,6 +56,34 @@ describe("nextPlanIndex", () => {
     expect(nextPlanIndex(2, 3, "Home")).toBe(0);
     expect(nextPlanIndex(0, 3, "End")).toBe(2);
     expect(nextPlanIndex(1, 3, "Enter")).toBeNull();
+  });
+});
+
+describe("payment plan agreement route", () => {
+  it("round-trips every enabled paid plan without persisting a choice", () => {
+    expect(paymentPlanSearch({ kind: "full" })).toBe("plan=full");
+    expect(paymentPlanSearch({ kind: "split_50_50" })).toBe("plan=split_50_50");
+    expect(paymentPlanSearch({ kind: "monthly", installments: 4 })).toBe(
+      "plan=monthly&installments=4",
+    );
+    expect(parsePaymentPlanSearch({ plan: "monthly", installments: "4" })).toEqual({
+      kind: "monthly",
+      installments: 4,
+    });
+    expect(
+      paymentPlanAgreementHref({
+        productId: "product-1",
+        purchaseRequestId: "request-1",
+        choice: { kind: "split_50_50" },
+      }),
+    ).toBe("/artist/purchase/product-1/agree?req=request-1&plan=split_50_50");
+  });
+
+  it("rejects disabled or malformed query choices", () => {
+    expect(parsePaymentPlanSearch({ plan: "milestones" })).toBeNull();
+    expect(parsePaymentPlanSearch({ plan: "monthly", installments: "1" })).toBeNull();
+    expect(parsePaymentPlanSearch({ plan: "monthly", installments: "13" })).toBeNull();
+    expect(parsePaymentPlanSearch({ plan: "monthly", installments: "3.5" })).toBeNull();
   });
 });
 

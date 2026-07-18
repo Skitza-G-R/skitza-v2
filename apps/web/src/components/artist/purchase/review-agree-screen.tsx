@@ -1,23 +1,12 @@
 "use client";
 
-// S4 — Review and send a pre-acceptance request.
-//
-// The artist reads the proposed commercial terms and optional agreement link,
-// confirms they reviewed the proposal, and sends the request. Final acceptance
-// happens later at the Purchase boundary. Funnel chrome: full-screen overlay,
-// back arrow, no tab bar, the primary action pinned low and thumb-reachable.
-//
-// Data-only props (serializable from the server page). Navigation + the
-// request call live here so the mock can be swapped for the BE-1
-// `artist.purchase.request` mutation without touching the route.
-
+import type { PaymentPlan, PurchaseCommercialSnapshot } from "@skitza/db";
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
   ArrowRight,
   Check,
-  DocIcon,
   LockIcon,
   ShieldIcon,
 } from "~/components/artist/funnel/funnel-icons";
@@ -27,372 +16,425 @@ import {
   FunnelTopBar,
   PrimaryCta,
 } from "~/components/artist/funnel/funnel-ui";
-import { requestToBookAction } from "./actions";
-import { planKey, requestPlanLabel } from "~/components/checkout/plan-picker-helpers";
+import type { PaymentPlanChoice } from "~/lib/purchase/request-helpers";
 import { royaltyTermsDisplay } from "~/lib/purchase/royalty-terms";
+import { acceptPurchaseAction } from "./actions";
+import { paymentPlanLabel } from "./pay-data";
 import {
-  type AgreementTerm,
   formatPurchaseMoney,
+  type AgreementTerm,
   type Producer,
+  type PurchaseAcceptancePreview,
   type PurchaseProduct,
-  swatchGradient,
 } from "./purchase-data";
 
-export function ReviewAgreeScreen({
-  product,
-  producer,
-  terms,
-  previewSentHref,
-}: {
+type ExactReviewProps = {
+  preview: PurchaseAcceptancePreview;
+  purchaseRequestId: string;
+  paymentPlan: PaymentPlanChoice;
+  product?: never;
+  producer?: never;
+  terms?: never;
+  previewSentHref?: never;
+};
+
+type GalleryReviewProps = {
   product: PurchaseProduct;
   producer: Producer;
   terms: AgreementTerm[];
-  /** Dev-gallery navigation only; production always creates the request first. */
-  previewSentHref?: string | undefined;
-}) {
+  previewSentHref: string;
+  preview?: never;
+  purchaseRequestId?: never;
+  paymentPlan?: never;
+};
+
+type ReviewAgreeScreenProps = ExactReviewProps | GalleryReviewProps;
+type ExistingPurchaseTarget = Extract<
+  PurchaseAcceptancePreview["target"],
+  { kind: "existing" }
+>;
+
+function isExactReview(props: ReviewAgreeScreenProps): props is ExactReviewProps {
+  return props.preview !== undefined;
+}
+
+function projectTargetContext(target: ExistingPurchaseTarget): string {
+  const lifecycle =
+    target.lifecycleStatus === "active" ? "Active" : "Waiting for payment";
+  const stage =
+    target.workflowStage.charAt(0).toUpperCase() + target.workflowStage.slice(1);
+  const updated = new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(target.updatedAtIso));
+  return `${lifecycle} · ${stage} · Updated ${updated}`;
+}
+
+function splitSchedule(totalCents: number, plan: PaymentPlan): number[] {
+  const count =
+    plan.kind === "full" ? 1 : plan.kind === "split_50_50" ? 2 : plan.installments;
+  const base = Math.floor(totalCents / count);
+  const remainder = totalCents - base * count;
+  return Array.from({ length: count }, (_, index) => base + (index < remainder ? 1 : 0));
+}
+
+// Development-gallery compatibility only. Live routes always receive the
+// server-authored preview and cannot use this local representation to accept.
+function galleryPreview(props: GalleryReviewProps): PurchaseAcceptancePreview {
+  const selectedPaymentPlan = props.product.paymentPlans[0] ?? null;
+  const amounts = selectedPaymentPlan
+    ? splitSchedule(props.product.priceCents, selectedPaymentPlan)
+    : [];
+  const snapshot: PurchaseCommercialSnapshot = {
+    version: 1,
+    productOrOfferName: props.product.name,
+    ...(props.product.tagline ? { tagline: props.product.tagline } : {}),
+    deliverables: props.product.includes,
+    lineItems: [
+      {
+        label: props.product.name,
+        quantity: 1,
+        listUnitPriceCents: props.product.priceCents,
+        unitPriceCents: props.product.priceCents,
+        totalCents: props.product.priceCents,
+      },
+    ],
+    listSubtotalCents: props.product.priceCents,
+    discountCents: 0,
+    subtotalCents: props.product.priceCents,
+    tax: { mode: "tax_free", ratePct: 0, amountCents: 0 },
+    totalCents: props.product.priceCents,
+    currency: props.product.currency,
+    includedSongSpaces: props.product.pricingModel === "per_song" ? 1 : 0,
+    session: {
+      limit: props.product.unlimitedSessions
+        ? { kind: "unlimited" }
+        : { kind: "fixed", count: props.product.sessions },
+      durationMin: 0,
+      locationType: "As agreed",
+      bufferMinutes: 0,
+      minLeadHours: 0,
+    },
+    revisionRule:
+      props.product.unlimitedRevisions
+        ? { kind: "unlimited" }
+        : props.product.revisions > 0
+        ? { kind: "fixed", count: props.product.revisions }
+        : null,
+    royaltyTerms: props.product.royaltyTerms,
+    rights: [],
+    selectedPaymentPlan,
+    offeredPaymentPlans: props.product.paymentPlans,
+    agreementText: [
+      props.product.agreementText,
+      ...props.terms.map((term) => `${term.heading}: ${term.body}`),
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+  };
+  return {
+    productId: props.product.id,
+    productName: props.product.name,
+    producerName: props.producer.name,
+    status: "approved",
+    target: { kind: "new" },
+    snapshot,
+    snapshotDigest: "development-gallery-preview",
+    schedule: amounts.map((amountCents, index) => ({
+      label: index === 0 ? "Due at acceptance" : `Payment ${String(index + 1)}`,
+      amountCents,
+    })),
+  };
+}
+
+function sessionLines(snapshot: PurchaseCommercialSnapshot): string[] {
+  if (!snapshot.session) return ["No sessions included"];
+  const session = snapshot.session;
+  const limit =
+    session.limit.kind === "unlimited"
+      ? "Unlimited sessions"
+      : `${String(session.limit.count)} ${session.limit.count === 1 ? "session" : "sessions"}`;
+  return [
+    `${limit} · ${String(session.durationMin)} min each`,
+    `Location: ${session.locationType}`,
+    `Buffer: ${String(session.bufferMinutes)} min · Minimum notice: ${String(session.minLeadHours)} hours`,
+  ];
+}
+
+function revisionLabel(snapshot: PurchaseCommercialSnapshot): string {
+  if (!snapshot.revisionRule) return "No revision rule listed";
+  if (snapshot.revisionRule.kind === "unlimited") return "Unlimited revisions";
+  return `${String(snapshot.revisionRule.count)} ${snapshot.revisionRule.count === 1 ? "revision" : "revisions"}`;
+}
+
+function taxLabel(snapshot: PurchaseCommercialSnapshot): string {
+  if (snapshot.tax.mode === "tax_free") return "Tax free";
+  const rate = `${String(snapshot.tax.ratePct)}% tax`;
+  return snapshot.tax.mode === "tax_included" ? `${rate} included` : `${rate} added`;
+}
+
+export function ReviewAgreeScreen(props: ReviewAgreeScreenProps) {
   const router = useRouter();
-  const [reviewed, setReviewed] = useState(false);
+  const preview: PurchaseAcceptancePreview = isExactReview(props)
+    ? props.preview
+    : galleryPreview(props);
+  const { snapshot } = preview;
+  const [accepted, setAccepted] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const operationKeyRef = useRef<string | null>(null);
-  const royalty = royaltyTermsDisplay(product.royaltyTerms);
+  const royalty = royaltyTermsDisplay(snapshot.royaltyTerms);
+  const selectedPlan = snapshot.selectedPaymentPlan;
 
-  async function send() {
-    if (!reviewed || sending) return;
-    setSending(true);
-    setError(null);
-    if (previewSentHref) {
-      router.push(previewSentHref);
+  async function acceptExactAgreement() {
+    if (!accepted || sending) return;
+    if (!isExactReview(props)) {
+      router.push(props.previewSentHref);
       return;
     }
+
+    setSending(true);
+    setError(null);
     try {
       const operationKey = operationKeyRef.current ?? crypto.randomUUID();
       operationKeyRef.current = operationKey;
-      // `artist.purchase.request` stores intent only and returns the ref shown on S5.
-      const res = await requestToBookAction({
-        productId: product.id,
+      const result = await acceptPurchaseAction({
+        purchaseRequestId: props.purchaseRequestId,
+        paymentPlan: props.paymentPlan,
+        expectedSnapshotDigest: preview.snapshotDigest,
         operationKey,
+        agreementAccepted: true,
       });
-      if (res.ok) {
-        router.push(`/artist/purchase/${product.id}/sent?req=${res.purchaseRequestId}`);
+      if (!result.ok) {
+        setSending(false);
+        setError(result.error);
         return;
       }
-      setSending(false);
-      setError(res.error);
+      operationKeyRef.current = null;
+      const query = new URLSearchParams({
+        purchase: result.purchaseId,
+        req: props.purchaseRequestId,
+      });
+      router.push(
+        `/artist/purchase/${encodeURIComponent(result.productId)}/pay/instructions?${query.toString()}`,
+      );
     } catch {
       setSending(false);
-      setError("Couldn't send your request. Check your connection and try again.");
+      setError("Couldn't accept this agreement. Refresh and try again.");
     }
   }
 
+  const backHref = isExactReview(props)
+    ? `/artist/purchase/${preview.productId}/pay?req=${props.purchaseRequestId}`
+    : `/artist/purchase/${preview.productId}`;
+
   return (
-    <div
-      className="fixed inset-0 z-[60] overflow-y-auto"
-      style={{ background: "rgb(var(--bg-background))" }}
-    >
+    <div className="fixed inset-0 z-[60] overflow-y-auto" style={{ background: "rgb(var(--bg-background))" }}>
       <div className="relative mx-auto flex min-h-dvh w-full max-w-[440px] flex-col">
         <FunnelTopBar
-          title="Review request"
-          sub="BOOKING TERMS"
+          title="Review exact agreement"
+          sub="FINAL ACCEPTANCE"
           onBack={() => {
-            router.push(`/artist/purchase/${product.id}`);
+            router.push(backHref);
           }}
         />
 
-        <div className="flex-1 px-5 pt-3.5 pb-[184px]">
-          {/* heading */}
+        <main className="flex-1 px-5 pt-3.5 pb-[190px]">
           <h1 className="reveal-up font-syne text-[26px] leading-[1.1] font-extrabold tracking-[-0.035em] text-[rgb(var(--fg-default))]">
-            Before we send&nbsp;it
+            Accept these exact terms
           </h1>
-          <p className="reveal-up reveal-up-delay-1 mt-2 text-[14px] leading-relaxed text-pretty text-[rgb(var(--fg-muted))]">
-            {producer.agreement
-              ? `Review the proposed commercial terms below, including ${producer.name}'s agreement link.`
-              : `Here's the current proposal for working with ${producer.name}.`}
+          <p className="reveal-up reveal-up-delay-1 mt-2 text-[14px] leading-relaxed text-[rgb(var(--fg-muted))]">
+            This is the final agreement for {preview.productName} with {preview.producerName}.
+            Acceptance freezes every value shown below.
           </p>
 
-          {/* Current proposal summary. Final terms are accepted later. */}
-          <div
-            className="reveal-up reveal-up-delay-1 rounded-card mt-4 flex items-center gap-[13px] px-4 py-3.5"
-            style={{ background: "rgb(var(--bg-sidebar))", color: "rgb(var(--fg-onsidebar))" }}
-          >
-            <span
-              className="font-syne flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-[12px] text-[14px] font-extrabold text-white"
-              style={{ background: swatchGradient(producer.hue) }}
-            >
-              {producer.initials}
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="text-[14.5px] font-semibold [overflow-wrap:anywhere] break-words text-white">
-                {product.name}
-              </div>
-              <div className="mt-px text-[12px] text-white/70">
-                with {producer.name} · {product.durationLabel}
-              </div>
+          <section className="reveal-up reveal-up-delay-1 mt-4 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sidebar))] px-4 py-4 text-[rgb(var(--fg-onsidebar))]" aria-labelledby="purchase-summary-heading">
+            <div id="purchase-summary-heading" className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-[rgb(var(--brand-primary))]">
+              Exact purchase
             </div>
-            <div className="text-right">
-              <div className="font-amount text-[19px] font-extrabold tracking-[-0.03em] text-[rgb(var(--brand-primary))]">
-                {formatPurchaseMoney(product.priceCents, product.currency)}
-              </div>
-              <div className="font-mono text-[8.5px] tracking-[0.08em] text-white/55">PROPOSAL</div>
+            <div className="mt-1.5 break-words font-syne text-[18px] font-extrabold text-white [overflow-wrap:anywhere]">
+              {snapshot.productOrOfferName}
             </div>
-          </div>
-
-          {/* Live pre-acceptance payment and royalty proposal. */}
-          <section
-            className="reveal-up reveal-up-delay-2 mt-4"
-            aria-labelledby="commercial-terms-heading"
-          >
-            <h2 id="commercial-terms-heading" className="mb-[9px]">
-              <Eyebrow>Rights & royalties</Eyebrow>
-            </h2>
-            <dl className="rounded-card bg-[rgb(var(--bg-elevated))] px-4 py-1 ring-1 shadow-[var(--shadow-sm)] ring-[rgb(var(--border-subtle))]">
-              <div className="grid min-w-0 grid-cols-[5.5rem_minmax(0,1fr)] gap-3 border-b border-[rgb(var(--border-subtle))] py-3">
-                <dt className="text-[12px] font-semibold text-[rgb(var(--fg-muted))]">Master</dt>
-                <dd className="min-w-0 text-[13px] text-pretty [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-secondary))]">
-                  {royalty.master}
-                </dd>
-              </div>
-              <div className="grid min-w-0 grid-cols-[5.5rem_minmax(0,1fr)] gap-3 py-3">
-                <dt className="text-[12px] font-semibold text-[rgb(var(--fg-muted))]">
-                  Composition
-                </dt>
-                <dd className="min-w-0 text-[13px] text-pretty [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-secondary))]">
-                  {royalty.composition}
-                </dd>
-              </div>
-            </dl>
-            {product.royaltyTerms?.notes ? (
-              <p className="mt-2 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] px-4 py-3 text-[12.5px] leading-relaxed [overflow-wrap:anywhere] break-words whitespace-pre-wrap text-[rgb(var(--fg-secondary))]">
-                {product.royaltyTerms.notes}
-              </p>
+            {snapshot.tagline ? (
+              <p className="mt-1 text-[12.5px] leading-snug text-white/65">{snapshot.tagline}</p>
             ) : null}
-          </section>
-
-          <section
-            className="reveal-up reveal-up-delay-2 mt-4"
-            aria-labelledby="payment-options-heading"
-          >
-            <h2 id="payment-options-heading" className="mb-[9px]">
-              <Eyebrow>Payment choices</Eyebrow>
-            </h2>
-            <ul className="rounded-card list-none divide-y divide-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 ring-1 shadow-[var(--shadow-sm)] ring-[rgb(var(--border-subtle))]">
-              {product.paymentPlans.map((plan) => (
-                <li
-                  key={planKey(plan)}
-                  className="py-3 text-[13px] leading-snug text-[rgb(var(--fg-secondary))]"
-                >
-                  {requestPlanLabel(plan, product.priceCents, (cents) =>
-                    formatPurchaseMoney(cents, product.currency),
-                  )}
-                </li>
-              ))}
-            </ul>
-            <p className="mt-2 text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
-              You choose one after the producer approves this request.
-            </p>
-          </section>
-
-          {product.agreementText ? (
-            <section
-              className="reveal-up reveal-up-delay-2 mt-4"
-              aria-labelledby="inline-agreement-heading"
-            >
-              <h2 id="inline-agreement-heading" className="mb-[9px]">
-                <Eyebrow>Producer agreement</Eyebrow>
-              </h2>
-              <div className="rounded-card bg-[rgb(var(--bg-elevated))] px-4 py-3.5 ring-1 shadow-[var(--shadow-sm)] ring-[rgb(var(--border-subtle))]">
-                <p className="text-[13px] leading-relaxed [overflow-wrap:anywhere] break-words whitespace-pre-wrap text-[rgb(var(--fg-secondary))]">
-                  {product.agreementText}
-                </p>
-              </div>
-            </section>
-          ) : null}
-
-          {/* Producer-authored agreement link — may be a PDF or web page. */}
-          {producer.agreement ? (
-            <div className="reveal-up reveal-up-delay-2 mt-4">
-              <h2 className="mb-[9px]">
-                <Eyebrow>
-                  <DocIcon aria-hidden="true" />
-                  {producer.name}&apos;s agreement link
-                </Eyebrow>
-              </h2>
-              <div
-                className="rounded-card flex w-full items-center gap-3.5 px-4 py-3.5"
-                style={{
-                  background: "rgb(var(--bg-elevated))",
-                  border: "1px solid rgb(var(--border-subtle))",
-                  boxShadow: "var(--shadow-sm)",
-                }}
-              >
-                <span
-                  className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-[12px]"
-                  style={{
-                    background: "rgb(var(--brand-primary) / 0.14)",
-                    color: "rgb(var(--brand-primary-text))",
-                  }}
-                >
-                  <DocIcon width={22} height={22} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="text-[14px] font-semibold text-[rgb(var(--fg-default))]">
-                    {producer.agreement.filename}
-                  </div>
-                  <div className="mt-[3px] font-mono text-[10.5px] tracking-[0.02em] text-[rgb(var(--fg-muted))]">
-                    {producer.agreement.kind === "pdf" ? "PDF" : "LINK"} · provided by{" "}
-                    {producer.name}
-                  </div>
-                </div>
-                {producer.agreement.url ? (
-                  /* open affordance — near-black pill, amber "View" (proto-s4) */
-                  <a
-                    href={producer.agreement.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="sk-press inline-flex min-h-11 shrink-0 items-center rounded-[var(--radius-lg)] px-[18px] py-2 text-[13.5px] font-bold"
-                    style={{
-                      background: "rgb(var(--bg-sidebar))",
-                      color: "rgb(var(--brand-primary))",
-                    }}
-                  >
-                    View
-                  </a>
-                ) : null}
-              </div>
-              <div className="mt-[9px] flex items-start gap-1.5 text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
-                <span className="mt-px">
-                  <ShieldIcon />
-                </span>
-                <span>
-                  Open this reference and review it together with the exact terms on this page.
-                </span>
-              </div>
+            <div className="font-amount mt-3 text-[34px] font-bold tracking-[-0.04em] text-white">
+              {formatPurchaseMoney(snapshot.totalCents, snapshot.currency)}
             </div>
-          ) : null}
+            <div className="mt-2 font-mono text-[9px] text-white/50">
+              AGREEMENT REF · {preview.snapshotDigest.slice(0, 16)}
+            </div>
+          </section>
 
-          {/* plain-language terms — one natural page scroll on mobile */}
-          <div className="reveal-up reveal-up-delay-3 mt-[18px]">
-            <h2 className="mb-[9px]">
-              <Eyebrow>Plain-language summary</Eyebrow>
-            </h2>
-            <div
-              className="rounded-card relative"
-              style={{
-                background: "rgb(var(--bg-elevated))",
-                border: "1px solid rgb(var(--border-subtle))",
-                boxShadow: "var(--shadow-sm)",
-              }}
-            >
-              <ol className="list-none px-[18px] pt-1 pb-2">
-                {terms.map((term, i) => (
-                  <li
-                    key={term.heading}
-                    className="sk-rise py-3.5"
-                    style={{
-                      animationDelay: `${String(40 + i * 45)}ms`,
-                      borderBottom:
-                        i === terms.length - 1 ? "none" : "1px solid rgb(var(--border-subtle))",
-                    }}
-                  >
-                    <div className="flex items-center gap-[9px]">
-                      <span className="font-mono text-[10px] font-bold text-[rgb(var(--brand-primary-text))]">
-                        {String(i + 1).padStart(2, "0")}
-                      </span>
-                      <h3 className="font-syne text-[14.5px] font-bold tracking-[-0.01em] text-[rgb(var(--fg-default))]">
-                        {term.heading}
-                      </h3>
+          <section className="reveal-up reveal-up-delay-2 mt-4" aria-labelledby="target-heading">
+            <h2 id="target-heading" className="mb-2.5"><Eyebrow>Project target</Eyebrow></h2>
+            <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3.5">
+              <div className="text-[14px] font-bold text-[rgb(var(--fg-default))]">
+                {preview.target.kind === "new" ? "Start a new project" : preview.target.projectTitle}
+              </div>
+              {preview.target.kind === "new" ? (
+                <p className="mt-1 text-[12px] leading-snug text-[rgb(var(--fg-muted))]">
+                  A new project will be created for this accepted purchase.
+                </p>
+              ) : (
+                <>
+                  <p className="mt-1 font-mono text-[10px] leading-relaxed text-[rgb(var(--fg-muted))]">
+                    {projectTargetContext(preview.target)}
+                  </p>
+                  <p className="mt-1.5 text-[12px] leading-snug text-[rgb(var(--fg-muted))]">
+                    This purchase will be added to this exact existing project.
+                  </p>
+                </>
+              )}
+            </div>
+          </section>
+
+          <section className="reveal-up reveal-up-delay-2 mt-4" aria-labelledby="price-heading">
+            <h2 id="price-heading" className="mb-2.5"><Eyebrow>Quantity & price</Eyebrow></h2>
+            <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4">
+              <ol className="list-none divide-y divide-[rgb(var(--border-subtle))]">
+                {snapshot.lineItems.map((item, index) => (
+                  <li key={`${item.label}-${String(index)}`} className="py-3.5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="break-words text-[13.5px] font-semibold text-[rgb(var(--fg-default))] [overflow-wrap:anywhere]">{item.label}</div>
+                        <div className="mt-1 text-[11.5px] text-[rgb(var(--fg-muted))]">
+                          {String(item.quantity)} × {formatPurchaseMoney(item.unitPriceCents, snapshot.currency)}
+                          {item.listUnitPriceCents !== item.unitPriceCents ? (
+                            <span> · list {formatPurchaseMoney(item.listUnitPriceCents, snapshot.currency)} each</span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="shrink-0 font-amount text-[13.5px] font-semibold text-[rgb(var(--fg-default))]">
+                        {formatPurchaseMoney(item.totalCents, snapshot.currency)}
+                      </div>
                     </div>
-                    <p className="mt-[7px] text-[13px] leading-relaxed text-pretty text-[rgb(var(--fg-secondary))]">
-                      {term.body}
-                    </p>
-                    {term.points ? (
-                      <ul className="mt-[9px] flex list-none flex-col gap-1.5">
-                        {term.points.map((point) => (
-                          <li key={point} className="flex items-start gap-2">
-                            <span
-                              className="mt-px flex h-4 w-4 shrink-0 items-center justify-center rounded-full"
-                              style={{
-                                background: "rgb(var(--brand-primary) / 0.14)",
-                                color: "rgb(var(--brand-primary-text))",
-                              }}
-                            >
-                              <Check width={11} height={11} />
-                            </span>
-                            <span className="text-[12.5px] leading-snug text-[rgb(var(--fg-secondary))]">
-                              {point}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
+                  </li>
+                ))}
+              </ol>
+              <dl className="border-t border-[rgb(var(--border-subtle))] py-3 text-[12.5px]">
+                {snapshot.listSubtotalCents !== snapshot.subtotalCents ? (
+                  <div className="flex justify-between gap-3 py-1 text-[rgb(var(--fg-muted))]">
+                    <dt>List subtotal</dt><dd>{formatPurchaseMoney(snapshot.listSubtotalCents, snapshot.currency)}</dd>
+                  </div>
+                ) : null}
+                {snapshot.discountCents > 0 ? (
+                  <div className="flex justify-between gap-3 py-1 text-[rgb(var(--fg-success-text))]">
+                    <dt>Volume discount</dt><dd>−{formatPurchaseMoney(snapshot.discountCents, snapshot.currency)}</dd>
+                  </div>
+                ) : null}
+                <div className="flex justify-between gap-3 py-1 text-[rgb(var(--fg-secondary))]">
+                  <dt>Subtotal</dt><dd>{formatPurchaseMoney(snapshot.subtotalCents, snapshot.currency)}</dd>
+                </div>
+                <div className="flex justify-between gap-3 py-1 text-[rgb(var(--fg-secondary))]">
+                  <dt>{taxLabel(snapshot)}</dt><dd>{formatPurchaseMoney(snapshot.tax.amountCents, snapshot.currency)}</dd>
+                </div>
+                <div className="mt-1 flex justify-between gap-3 border-t border-[rgb(var(--border-subtle))] pt-2.5 text-[14px] font-bold text-[rgb(var(--fg-default))]">
+                  <dt>Total</dt><dd>{formatPurchaseMoney(snapshot.totalCents, snapshot.currency)}</dd>
+                </div>
+              </dl>
+            </div>
+          </section>
+
+          <section className="reveal-up reveal-up-delay-2 mt-4" aria-labelledby="plan-heading">
+            <h2 id="plan-heading" className="mb-2.5"><Eyebrow>Selected payment plan</Eyebrow></h2>
+            <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--focus-ring))] bg-[rgb(var(--brand-primary)/0.07)] px-4 py-3.5">
+              <div className="text-[14px] font-bold text-[rgb(var(--fg-default))]">
+                {selectedPlan ? paymentPlanLabel(selectedPlan.kind, selectedPlan.kind === "monthly" ? selectedPlan.installments : null) : "No payment plan"}
+              </div>
+              <ol className="mt-2 list-none divide-y divide-[rgb(var(--border-subtle))]">
+                {preview.schedule.map((row) => (
+                  <li key={row.label} className="flex items-center justify-between gap-3 py-2 text-[12.5px]">
+                    <span className="text-[rgb(var(--fg-secondary))]">{row.label}</span>
+                    <span className="font-amount font-semibold text-[rgb(var(--fg-default))]">{formatPurchaseMoney(row.amountCents, snapshot.currency)}</span>
                   </li>
                 ))}
               </ol>
             </div>
-            <div className="mt-[9px] flex items-center gap-1.5 text-[11.5px] text-[rgb(var(--fg-muted))]">
-              <LockIcon />
-              <span>Final terms are accepted and frozen only when a Purchase is created.</span>
-            </div>
-          </div>
+          </section>
 
-          {/* review acknowledgement; this is not final commercial acceptance */}
+          <section className="reveal-up reveal-up-delay-3 mt-4" aria-labelledby="scope-heading">
+            <h2 id="scope-heading" className="mb-2.5"><Eyebrow>Scope & rules</Eyebrow></h2>
+            <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-1">
+              <div className="border-b border-[rgb(var(--border-subtle))] py-3">
+                <h3 className="text-[12px] font-bold text-[rgb(var(--fg-default))]">Deliverables</h3>
+                {snapshot.deliverables.length > 0 ? (
+                  <ul className="mt-2 list-none space-y-1.5">
+                    {snapshot.deliverables.map((item) => (
+                      <li key={item} className="flex items-start gap-2 text-[12.5px] text-[rgb(var(--fg-secondary))]"><Check width={12} height={12} /> <span>{item}</span></li>
+                    ))}
+                  </ul>
+                ) : <p className="mt-1 text-[12.5px] text-[rgb(var(--fg-muted))]">No deliverables listed</p>}
+              </div>
+              <div className="border-b border-[rgb(var(--border-subtle))] py-3">
+                <h3 className="text-[12px] font-bold text-[rgb(var(--fg-default))]">Song spaces & revisions</h3>
+                <p className="mt-1 text-[12.5px] text-[rgb(var(--fg-secondary))]">{String(snapshot.includedSongSpaces)} included song {snapshot.includedSongSpaces === 1 ? "space" : "spaces"} · {revisionLabel(snapshot)}</p>
+              </div>
+              <div className="py-3">
+                <h3 className="text-[12px] font-bold text-[rgb(var(--fg-default))]">Session rules</h3>
+                <ul className="mt-1 list-none space-y-1 text-[12.5px] text-[rgb(var(--fg-secondary))]">
+                  {sessionLines(snapshot).map((line) => <li key={line}>{line}</li>)}
+                </ul>
+              </div>
+            </div>
+          </section>
+
+          <section className="reveal-up reveal-up-delay-3 mt-4" aria-labelledby="rights-heading">
+            <h2 id="rights-heading" className="mb-2.5"><Eyebrow>Rights & royalties</Eyebrow></h2>
+            <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3.5">
+              <dl className="grid gap-2 text-[12.5px]">
+                <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-3"><dt className="font-semibold text-[rgb(var(--fg-muted))]">Master</dt><dd className="break-words text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">{royalty.master}</dd></div>
+                <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-3"><dt className="font-semibold text-[rgb(var(--fg-muted))]">Composition</dt><dd className="break-words text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">{royalty.composition}</dd></div>
+              </dl>
+              {snapshot.rights.length > 0 ? (
+                <ul className="mt-3 list-none space-y-1.5 border-t border-[rgb(var(--border-subtle))] pt-3">
+                  {snapshot.rights.map((right) => <li key={right} className="text-[12.5px] leading-relaxed text-[rgb(var(--fg-secondary))]">{right}</li>)}
+                </ul>
+              ) : null}
+              {snapshot.royaltyTerms?.notes ? <p className="mt-3 whitespace-pre-wrap break-words border-t border-[rgb(var(--border-subtle))] pt-3 text-[12.5px] leading-relaxed text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">{snapshot.royaltyTerms.notes}</p> : null}
+            </div>
+          </section>
+
+          <section className="reveal-up reveal-up-delay-3 mt-4" aria-labelledby="agreement-heading">
+            <h2 id="agreement-heading" className="mb-2.5"><Eyebrow>Exact agreement text</Eyebrow></h2>
+            <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-control))] bg-[rgb(var(--bg-elevated))] px-4 py-4">
+              <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+                {snapshot.agreementText || "No additional agreement text."}
+              </p>
+            </div>
+            <div className="mt-2.5 flex items-start gap-1.5 text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
+              <LockIcon />
+              <span>Product edits after acceptance cannot change this purchase snapshot.</span>
+            </div>
+          </section>
+
           <div className="reveal-up reveal-up-delay-4 mt-4">
-            <AgreeCheck
-              checked={reviewed}
-              onToggle={() => {
-                setReviewed((value) => !value);
-              }}
-            >
-              I&apos;ve reviewed the proposed price, payment choices, rights, and agreement terms.
+            <AgreeCheck checked={accepted} onToggle={() => { setAccepted((value) => !value); setError(null); }}>
+              I accept this exact agreement and payment plan.
             </AgreeCheck>
           </div>
-        </div>
+          <div className="mt-2 flex items-start gap-1.5 text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
+            <ShieldIcon /><span>Acceptance creates the immutable purchase and installment schedule.</span>
+          </div>
 
-        {/* pinned action — fades the scrolling content beneath it */}
-        <div
-          className="sk-safe-bottom sticky bottom-0 z-10 px-[18px] pt-3.5 pb-3.5"
-          style={{
-            background:
-              "linear-gradient(180deg, rgb(var(--bg-background) / 0) 0%, rgb(var(--bg-background) / 0.96) 22%)",
-          }}
-        >
           {error ? (
-            <p
-              className="mb-2.5 rounded-[12px] px-3.5 py-2.5 text-center text-[12.5px] font-medium"
-              style={{
-                background: "rgb(var(--fg-danger) / 0.1)",
-                color: "rgb(var(--fg-danger-text))",
-              }}
-              role="alert"
-            >
-              {error}
-            </p>
+            <p role="alert" className="mt-3 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-danger)/0.1)] px-3.5 py-3 text-center text-[12.5px] font-medium text-[rgb(var(--fg-danger-text))]">{error}</p>
           ) : null}
+        </main>
+
+        <div className="sk-safe-bottom sticky bottom-0 z-10 px-[18px] pt-3.5 pb-3.5" style={{ background: "linear-gradient(180deg, rgb(var(--bg-background) / 0) 0%, rgb(var(--bg-background) / 0.96) 22%)" }}>
           <PrimaryCta
-            onClick={() => {
-              void send();
-            }}
-            disabled={!reviewed || sending}
-            glow={reviewed && !sending}
+            onClick={() => { void acceptExactAgreement(); }}
+            disabled={!accepted || sending}
+            glow={accepted && !sending}
             ariaBusy={sending}
-            sub={reviewed ? "Sends request to " + producer.name : "Review above to continue"}
+            sub={accepted ? "Creates the purchase with these frozen terms" : "Accept the exact agreement to continue"}
           >
             {sending ? (
-              <>
-                <span
-                  aria-hidden="true"
-                  className="inline-block h-4 w-4 animate-spin rounded-full border-2 motion-reduce:animate-none"
-                  style={{
-                    borderColor: "rgb(var(--bg-sidebar) / 0.3)",
-                    borderTopColor: "rgb(var(--bg-sidebar))",
-                  }}
-                />
-                Sending…
-              </>
+              <><span aria-hidden className="inline-block h-4 w-4 animate-spin rounded-full border-2 motion-reduce:animate-none" style={{ borderColor: "rgb(var(--bg-sidebar) / 0.3)", borderTopColor: "rgb(var(--bg-sidebar))" }} /> Accepting…</>
             ) : (
-              <>
-                Send request <ArrowRight />
-              </>
+              <>Accept exact agreement <ArrowRight /></>
             )}
           </PrimaryCta>
         </div>

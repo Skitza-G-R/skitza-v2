@@ -15,6 +15,7 @@
 import { Plus, X } from "lucide-react";
 import { useState } from "react";
 
+import { MAX_PRODUCT_TAGLINE_LENGTH } from "../product-editor-draft";
 import type { PresetId } from "../type-presets";
 import { TYPE_PRESETS } from "../type-presets";
 
@@ -22,6 +23,8 @@ interface IncludesStepProps {
   pickedId: PresetId | null;
   name: string;
   onNameChange: (next: string) => void;
+  tagline: string;
+  onTaglineChange: (next: string) => void;
   includes: string[];
   onIncludesChange: (next: string[]) => void;
 }
@@ -46,6 +49,8 @@ export function IncludesStep({
   pickedId,
   name,
   onNameChange,
+  tagline,
+  onTaglineChange,
   includes,
   onIncludesChange,
 }: IncludesStepProps) {
@@ -103,6 +108,39 @@ export function IncludesStep({
           placeholder={picked?.defaultName || "Name your product"}
           className="h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-base text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-faint))] focus:border-[rgb(var(--brand-primary))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.25)] focus:outline-none sm:h-10 sm:rounded-[var(--radius-md)] sm:text-[14px]"
         />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <div className="flex items-baseline justify-between gap-3">
+          <label
+            htmlFor="includes-step-tagline"
+            className="text-[10px] font-[var(--font-outfit)] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase"
+          >
+            Tagline <span className="text-[rgb(var(--brand-primary))]">*</span>
+          </label>
+          <span className="text-[10.5px] text-[rgb(var(--fg-faint))] tabular-nums">
+            {tagline.length}/{MAX_PRODUCT_TAGLINE_LENGTH}
+          </span>
+        </div>
+        <input
+          id="includes-step-tagline"
+          type="text"
+          required
+          maxLength={MAX_PRODUCT_TAGLINE_LENGTH}
+          value={tagline}
+          onChange={(event) => {
+            onTaglineChange(event.target.value);
+          }}
+          aria-describedby="includes-step-tagline-help"
+          placeholder="e.g. A focused mix, ready for release"
+          className="h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-base text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-faint))] focus:border-[rgb(var(--brand-primary))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.25)] focus:outline-none sm:h-10 sm:rounded-[var(--radius-md)] sm:text-[14px]"
+        />
+        <p
+          id="includes-step-tagline-help"
+          className="text-[11.5px] leading-snug text-[rgb(var(--fg-faint))]"
+        >
+          This exact line appears on the artist&apos;s Store card and product details.
+        </p>
       </div>
 
       {/* What's included — dropzone */}

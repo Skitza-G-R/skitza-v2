@@ -130,6 +130,12 @@ describe("applyTaxToCents", () => {
   it("multiplies by 1 + rate/100 and rounds to nearest cent for tax_added", () => {
     expect(applyTaxToCents(10_000, "tax_added", 18)).toBe(11_800);
     expect(applyTaxToCents(9_999, "tax_added", 18)).toBe(11_799); // 11798.82 → 11799
+    expect(applyTaxToCents(3, "tax_added", 50)).toBe(5); // 1.5 cents tax → 2
     expect(applyTaxToCents(0, "tax_added", 18)).toBe(0);
+  });
+
+  it("fails closed for non-integer preview inputs instead of floating-point drift", () => {
+    expect(applyTaxToCents(10_000.5, "tax_added", 18)).toBe(0);
+    expect(applyTaxToCents(10_000, "tax_added", 18.5)).toBe(10_000);
   });
 });

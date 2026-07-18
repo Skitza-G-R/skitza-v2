@@ -7,25 +7,32 @@ import {
 } from "./plan-preview";
 
 describe("planOption / buildPlanOptions", () => {
-  it("full plan is a single due-today charge", () => {
+  it("full plan is a single acceptance charge", () => {
     const opt = planOption({ kind: "full" }, 240_000);
     expect(opt.charges).toEqual([240_000]);
     expect(opt.dueNowCents).toBe(240_000);
-    expect(opt.labels).toEqual(["Due today"]);
+    expect(opt.labels).toEqual(["Due at acceptance"]);
   });
 
   it("split plan halves with the odd cent up front", () => {
     const opt = planOption({ kind: "split_50_50" }, 90_001);
     expect(opt.charges).toEqual([45_001, 45_000]);
     expect(opt.dueNowCents).toBe(45_001);
-    expect(opt.labels).toEqual(["Due today", "On delivery"]);
+    expect(opt.labels).toEqual([
+      "50% due at acceptance",
+      "50% due when the artist approves the final version",
+    ]);
   });
 
   it("monthly plan carries installments and month labels", () => {
     const opt = planOption({ kind: "monthly", installments: 3 }, 90_000);
     expect(opt.installments).toBe(3);
     expect(opt.charges).toEqual([30_000, 30_000, 30_000]);
-    expect(opt.labels).toEqual(["Due today", "Month 2", "Month 3"]);
+    expect(opt.labels).toEqual([
+      "First payment due at acceptance",
+      "Monthly payment 2",
+      "Monthly payment 3",
+    ]);
   });
 
   it("buildPlanOptions maps every offered plan", () => {
