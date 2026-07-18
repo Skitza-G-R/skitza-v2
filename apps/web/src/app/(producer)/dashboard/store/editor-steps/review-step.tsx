@@ -145,7 +145,7 @@ export function ReviewStep({
         {taxNote ? <div className="mt-1 text-[rgb(var(--fg-faint))]">{taxNote}</div> : null}
         {artistPaysCents !== undefined && artistPaysCents !== priceCents ? (
           <div className="mt-1 font-medium text-[rgb(var(--fg-secondary))] tabular-nums">
-            Artist pays {formatAmount(artistPaysCents, currency)} at checkout
+            Artist total: {formatAmount(artistPaysCents, currency)}
             {pricingModel === "per_song" ? " for one song" : ""}.
           </div>
         ) : null}

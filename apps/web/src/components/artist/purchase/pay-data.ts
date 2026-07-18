@@ -7,6 +7,7 @@
 // below remain only for the development gallery and later session prototypes.
 
 import {
+  formatPurchaseMoney,
   formatShekels,
   swatchGradient,
   type Producer,
@@ -198,4 +199,4 @@ export function proofStatusCopy(
 
 // ── Re-exports so screens import everything from one place ──────────────────
 
-export { formatShekels, swatchGradient, type Producer, type PurchaseProduct };
+export { formatPurchaseMoney, formatShekels, swatchGradient, type Producer, type PurchaseProduct };

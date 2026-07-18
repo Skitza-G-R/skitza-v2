@@ -4,12 +4,12 @@
 //
 //   * 'tax_free'     — no tax line, no math change.
 //   * 'tax_included' — listed prices include `taxRatePct%`. Footnote
-//                      reads "Includes {rate}% tax." No math change at
-//                      checkout — the displayed number IS the total.
-//   * 'tax_added'    — listed prices are PRE-TAX. Stripe is charged
+//                      reads "Includes {rate}% tax." No math change;
+//                      the displayed number IS the total.
+//   * 'tax_added'    — listed prices are PRE-TAX. The total is
 //                      `price × (1 + rate/100)`. Footnote reads
-//                      "+ {rate}% tax at checkout." The Pricing step's
-//                      live preview shows the post-tax amount.
+//                      "+ {rate}% tax." The Pricing step's live preview
+//                      shows the post-tax amount.
 //
 // `taxRatePct` is a whole-number integer (e.g. 18 for Israeli VAT,
 // 20 for UK VAT). Fractional rates aren't supported in v2 — the UI
@@ -62,7 +62,7 @@ export function taxModeHint(mode: TaxMode, ratePct: number): string {
     case "tax_included":
       return `Your listed price already includes ${String(ratePct)}% tax. Artists pay exactly the number you typed.`;
     case "tax_added":
-      return `Your listed price is pre-tax. ${String(ratePct)}% is added at checkout, so artists pay more than the number you typed.`;
+      return `Your listed price is pre-tax. ${String(ratePct)}% is added to the total, so artists owe more than the number you typed.`;
   }
 }
 
@@ -78,7 +78,7 @@ export function taxModeFootnote(
     case "tax_included":
       return `Includes ${String(ratePct)}% tax`;
     case "tax_added":
-      return `+ ${String(ratePct)}% tax at checkout`;
+      return `+ ${String(ratePct)}% tax`;
   }
 }
 
@@ -103,15 +103,14 @@ export function taxModePricingNote(
     case "tax_included":
       return `Includes ${String(ratePct)}% tax. Artists pay ${displayPrice}.`;
     case "tax_added":
-      return `Plus ${String(ratePct)}% tax. Artists pay ${displayPostTax} at checkout.`;
+      return `Plus ${String(ratePct)}% tax. Artist total: ${displayPostTax}.`;
   }
 }
 
-// Compute the checkout-time multiplier for the producer's tax mode.
+// Compute the total multiplier for the producer's tax mode.
 // 1.0 for everything except `tax_added`, which returns 1 + rate/100.
-// Used by checkout-initiator to scale the Stripe charge for per-song
-// AND flat products in one place.
-export function taxCheckoutMultiplier(
+// Used for both per-song and flat products in one place.
+export function taxTotalMultiplier(
   mode: TaxMode,
   ratePct: number,
 ): number {
@@ -123,12 +122,12 @@ export function taxCheckoutMultiplier(
 }
 
 // Apply the tax multiplier to a cents amount and round to the nearest
-// integer cent. Use this anywhere the checkout total or invoice line
-// needs the after-tax number.
+// integer cent. Use this anywhere a displayed or recorded total needs
+// the after-tax number.
 export function applyTaxToCents(
   cents: number,
   mode: TaxMode,
   ratePct: number,
 ): number {
-  return Math.round(cents * taxCheckoutMultiplier(mode, ratePct));
+  return Math.round(cents * taxTotalMultiplier(mode, ratePct));
 }

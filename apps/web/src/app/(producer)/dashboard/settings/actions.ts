@@ -7,7 +7,16 @@ import { auth } from "@clerk/nextjs/server";
 
 import { appRouter } from "~/server/trpc/routers/_app";
 
-export type ActionResult = { ok: true } | { ok: false; error: string };
+export type ActionResult =
+  | { ok: true }
+  | {
+      ok: false;
+      error: string;
+      saved?: {
+        producer: boolean;
+        paymentInstructions: boolean;
+      };
+    };
 
 // Revalidate both the settings page (so the form rehydrates with the
 // new values) and every page that reads the producer's slug/display
@@ -68,37 +77,85 @@ export async function updateProducer(input: {
   // two modes are display-only. See ~/lib/tax-mode for helpers.
   taxMode?: "tax_free" | "tax_included" | "tax_added";
   taxRatePct?: number;
+  paymentInstructions?: {
+    bankTransfer?: string;
+    bitPhone?: string;
+    note?: string;
+  };
 }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    await c.caller.producer.update(input);
+    const { paymentInstructions, ...producerInput } = input;
+    const producerRequested = Object.keys(producerInput).length > 0;
+    const paymentInstructionsRequested = paymentInstructions !== undefined;
+    const [producerResult, paymentInstructionsResult] = await Promise.allSettled([
+      producerRequested ? c.caller.producer.update(producerInput) : Promise.resolve(),
+      paymentInstructionsRequested
+        ? c.caller.producer.purchase.paymentInstructions.update(paymentInstructions)
+        : Promise.resolve(),
+    ]);
+    const producerSaved = producerRequested && producerResult.status === "fulfilled";
+    const paymentInstructionsSaved =
+      paymentInstructionsRequested && paymentInstructionsResult.status === "fulfilled";
+
     // Revalidate every surface that might display the producer's
     // display name, slug, or brand — these are scattered across
     // dashboard, portfolio, leads, and the public page.
-    revalidatePath(SETTINGS_PATH);
-    revalidatePath("/dashboard");
-    revalidatePath("/dashboard/portfolio");
-    revalidatePath("/dashboard/leads");
+    if (producerSaved || paymentInstructionsSaved) {
+      revalidatePath(SETTINGS_PATH);
+    }
+    if (producerSaved) {
+      revalidatePath("/dashboard");
+      revalidatePath("/dashboard/portfolio");
+      revalidatePath("/dashboard/leads");
+    }
     // weekStart is read server-side by the Calendar (availability tab)
     // and the onboarding availability step; both need to see the new
     // value on next visit. Bust both even when only weekStart changes.
-    if (input.weekStart) {
+    if (producerSaved && input.weekStart) {
       revalidatePath("/dashboard/calendar");
       revalidatePath("/onboarding/availability");
     }
     // Post-Story-03: slug changes invalidate the /join/<slug> teaser.
-    if (input.slug) revalidatePath(`/join/${input.slug}`);
+    if (producerSaved && input.slug) revalidatePath(`/join/${input.slug}`);
     // Migration 0019 — tax mode + rate changes invalidate every
     // artist surface that renders prices AND the producer's own
     // storefront view (which shows the inline picker chip).
-    if (input.taxMode !== undefined || input.taxRatePct !== undefined) {
+    if (producerSaved && (input.taxMode !== undefined || input.taxRatePct !== undefined)) {
       revalidatePath("/dashboard/profile");
       revalidatePath("/dashboard/store");
       revalidatePath("/artist/store", "layout");
       revalidatePath("/join", "layout");
     }
-    return { ok: true };
+    if (paymentInstructionsSaved) {
+      revalidatePath("/artist", "layout");
+    }
+
+    const producerSucceeded = !producerRequested || producerResult.status === "fulfilled";
+    const paymentInstructionsSucceeded =
+      !paymentInstructionsRequested || paymentInstructionsResult.status === "fulfilled";
+    if (producerSucceeded && paymentInstructionsSucceeded) return { ok: true };
+
+    const failureReason: unknown =
+      producerResult.status === "rejected"
+        ? producerResult.reason
+        : paymentInstructionsResult.status === "rejected"
+          ? paymentInstructionsResult.reason
+          : new Error("Settings were not saved");
+    const savedMessage = paymentInstructionsSaved
+      ? "Payment instructions were saved; your other changes were not."
+      : producerSaved
+        ? "Your other settings were saved; payment instructions were not."
+        : "";
+    return {
+      ok: false,
+      error: [toMessage(failureReason), savedMessage].filter(Boolean).join(" "),
+      saved: {
+        producer: producerSaved,
+        paymentInstructions: paymentInstructionsSaved,
+      },
+    };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
   }

@@ -15,7 +15,7 @@ import { useRouter } from "next/navigation";
 
 import { ArrowRight, Check, ShieldIcon } from "~/components/artist/funnel/funnel-icons";
 import { Eyebrow, FunnelTopBar, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
-import { formatShekels } from "./pay-data";
+import { formatPurchaseMoney } from "./pay-data";
 
 // The producer's off-app payment details. Absent → "will send details".
 export type PaymentDetails = {
@@ -183,6 +183,7 @@ export function PaymentInstructionsScreen({
   purchaseRequestId,
   producerName,
   amountDueNowCents,
+  currency,
   paymentDetails,
   productName,
   planLabel,
@@ -193,6 +194,7 @@ export function PaymentInstructionsScreen({
   purchaseRequestId: string;
   producerName: string;
   amountDueNowCents: number;
+  currency: string;
   /** The producer's details, or null → they'll send them directly. */
   paymentDetails: PaymentDetails | null;
   /** Recap row in the dark amount card: "{productName} · {planLabel}". */
@@ -206,7 +208,9 @@ export function PaymentInstructionsScreen({
 }) {
   const router = useRouter();
   const hasPaymentDetails = Boolean(
-    paymentDetails?.bankTransfer?.trim() || paymentDetails?.bitPhone?.trim(),
+    paymentDetails?.bankTransfer?.trim() ||
+    paymentDetails?.bitPhone?.trim() ||
+    paymentDetails?.note?.trim(),
   );
 
   const goToProof = () => {
@@ -247,7 +251,7 @@ export function PaymentInstructionsScreen({
               Amount due now
             </div>
             <div className="font-amount mt-1.5 text-[42px] leading-none font-bold tracking-[-0.04em] text-white">
-              {formatShekels(amountDueNowCents)}
+              {formatPurchaseMoney(amountDueNowCents, currency)}
             </div>
             {/* chosen-plan recap (proto-s8): "{product} · {plan}" */}
             {(productName ?? planLabel) ? (
@@ -263,35 +267,35 @@ export function PaymentInstructionsScreen({
           </div>
 
           {hasPaymentDetails && paymentDetails ? (
-            /* method — bank transfer + Bit, each value copyable */
+            /* Current external methods and note, each configured independently. */
             <div className="sk-rise mt-[18px]" style={{ animationDelay: "80ms" }}>
-              <h2 className="mb-[9px]">
-                <Eyebrow>Bank transfer</Eyebrow>
-              </h2>
-              <div
-                className="rounded-card px-[18px]"
-                style={{
-                  background: "rgb(var(--bg-elevated))",
-                  border: "1px solid rgb(var(--border-subtle))",
-                  boxShadow: "var(--shadow-sm)",
-                }}
-              >
-                {paymentDetails.bankTransfer ? (
-                  <PaymentDetailBlock
-                    label="Transfer details"
-                    value={paymentDetails.bankTransfer}
-                    copyLabel="bank transfer details"
-                  />
-                ) : (
-                  <div className="py-4 text-[13px] text-[rgb(var(--fg-muted))]">
-                    Ask {producerName} for their bank transfer details.
+              {paymentDetails.bankTransfer ? (
+                <>
+                  <h2 className="mb-[9px]">
+                    <Eyebrow>Bank transfer</Eyebrow>
+                  </h2>
+                  <div
+                    className="rounded-card px-[18px]"
+                    style={{
+                      background: "rgb(var(--bg-elevated))",
+                      border: "1px solid rgb(var(--border-subtle))",
+                      boxShadow: "var(--shadow-sm)",
+                    }}
+                  >
+                    <PaymentDetailBlock
+                      label="Transfer details"
+                      value={paymentDetails.bankTransfer}
+                      copyLabel="bank transfer details"
+                    />
                   </div>
-                )}
-              </div>
+                </>
+              ) : null}
 
               {paymentDetails.bitPhone ? (
                 <>
-                  <h2 className="mt-[18px] mb-[9px]">
+                  <h2
+                    className={paymentDetails.bankTransfer ? "mt-[18px] mb-[9px]" : "mb-[9px]"}
+                  >
                     <Eyebrow>Bit</Eyebrow>
                   </h2>
                   <div
@@ -312,9 +316,27 @@ export function PaymentInstructionsScreen({
               ) : null}
 
               {paymentDetails.note ? (
-                <p className="mt-3 text-[12.5px] leading-relaxed whitespace-pre-wrap text-[rgb(var(--fg-muted))]">
-                  {paymentDetails.note}
-                </p>
+                <>
+                  <h2
+                    className={
+                      paymentDetails.bankTransfer || paymentDetails.bitPhone
+                        ? "mt-[18px] mb-[9px]"
+                        : "mb-[9px]"
+                    }
+                  >
+                    <Eyebrow>Payment note</Eyebrow>
+                  </h2>
+                  <div
+                    className="rounded-card px-[18px] py-4 text-[13px] leading-relaxed whitespace-pre-wrap text-[rgb(var(--fg-default))]"
+                    style={{
+                      background: "rgb(var(--bg-elevated))",
+                      border: "1px solid rgb(var(--border-subtle))",
+                      boxShadow: "var(--shadow-sm)",
+                    }}
+                  >
+                    {paymentDetails.note}
+                  </div>
+                </>
               ) : null}
             </div>
           ) : (

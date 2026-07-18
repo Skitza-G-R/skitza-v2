@@ -5,7 +5,7 @@ import {
   applyTaxToCents,
   coerceTaxMode,
   isTaxMode,
-  taxCheckoutMultiplier,
+  taxTotalMultiplier,
   taxModeFootnote,
   taxModeHint,
   taxModeOptionLabel,
@@ -90,7 +90,7 @@ describe("taxModeFootnote", () => {
     expect(taxModeFootnote("tax_included", 20)).toBe("Includes 20% tax");
   });
   it("interpolates the rate for tax_added", () => {
-    expect(taxModeFootnote("tax_added", 18)).toBe("+ 18% tax at checkout");
+    expect(taxModeFootnote("tax_added", 18)).toBe("+ 18% tax");
   });
 });
 
@@ -106,19 +106,19 @@ describe("taxModePricingNote", () => {
   });
 });
 
-describe("taxCheckoutMultiplier", () => {
+describe("taxTotalMultiplier", () => {
   it("returns 1 for tax_free + tax_included (no math change)", () => {
-    expect(taxCheckoutMultiplier("tax_free", 18)).toBe(1);
-    expect(taxCheckoutMultiplier("tax_included", 18)).toBe(1);
+    expect(taxTotalMultiplier("tax_free", 18)).toBe(1);
+    expect(taxTotalMultiplier("tax_included", 18)).toBe(1);
   });
   it("returns 1 + rate/100 for tax_added", () => {
-    expect(taxCheckoutMultiplier("tax_added", 0)).toBe(1);
-    expect(taxCheckoutMultiplier("tax_added", 18)).toBe(1.18);
-    expect(taxCheckoutMultiplier("tax_added", 20)).toBe(1.2);
+    expect(taxTotalMultiplier("tax_added", 0)).toBe(1);
+    expect(taxTotalMultiplier("tax_added", 18)).toBe(1.18);
+    expect(taxTotalMultiplier("tax_added", 20)).toBe(1.2);
   });
   it("clamps negative + > 100 rates defensively", () => {
-    expect(taxCheckoutMultiplier("tax_added", -5)).toBe(1);
-    expect(taxCheckoutMultiplier("tax_added", 200)).toBe(2);
+    expect(taxTotalMultiplier("tax_added", -5)).toBe(1);
+    expect(taxTotalMultiplier("tax_added", 200)).toBe(2);
   });
 });
 

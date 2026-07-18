@@ -213,8 +213,7 @@ export function NewPackageForm({
       ...(description.trim() ? { description: description.trim() } : {}),
       durationMin,
       sessionCount,
-      // Store as cents so Stripe integration later doesn't need
-      // a migration dance.
+      // Store as integer cents so price snapshots stay exact.
       priceCents: Math.round(priceDollars * 100),
       currency,
       kind,
@@ -489,7 +488,7 @@ export function NewPackageForm({
           Payment plans offered
         </legend>
         <p className="mt-2 text-xs text-[rgb(var(--fg-secondary))]">
-          Client picks one at checkout.
+          The artist chooses one after approval.
         </p>
         <label className="mt-3 flex items-center gap-2 text-sm">
           <input

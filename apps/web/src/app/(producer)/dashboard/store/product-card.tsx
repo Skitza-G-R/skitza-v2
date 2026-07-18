@@ -35,7 +35,7 @@ interface ProductCardProps {
   recentlyAdded?: boolean;
   // Producer's business-level tax mode + rate (migration 0019). The
   // card displays the price WITH tax applied for `tax_added` so the
-  // producer sees the same number the artist will see at checkout,
+  // producer sees the same total the artist will see,
   // not the pre-tax base. A small caption underneath the price spells
   // out which mode is active: "Tax-free", "Tax inc", or "Tax inc" with
   // the +rate amount baked into the headline number for tax_added.

@@ -21,7 +21,14 @@ import {
 // the slice they care about).
 //
 // Future integrations have their own actions and don't ride the savebar.
-// The savebar only debounces edits to fields owned by `form` and `notifs`.
+// Producer-owned settings, including payment instructions, use the same
+// savebar so edits survive section switches.
+
+interface PaymentInstructionsState {
+  bankTransfer: string;
+  bitPhone: string;
+  note: string;
+}
 
 interface InitialState {
   displayName: string;
@@ -29,6 +36,7 @@ interface InitialState {
   weekStart: "sunday" | "monday";
   plan: "free" | "pro";
   notifications: NotificationState;
+  paymentInstructions: PaymentInstructionsState;
 }
 
 interface IdentityState {
@@ -47,6 +55,7 @@ interface FormState {
   displayName: string;
   defaultCurrency: "USD" | "EUR" | "GBP" | "ILS";
   weekStart: "sunday" | "monday";
+  paymentInstructions: PaymentInstructionsState;
 }
 
 export function SettingsClient({
@@ -72,11 +81,12 @@ export function SettingsClient({
     displayName: initial.displayName,
     defaultCurrency: initial.defaultCurrency,
     weekStart: initial.weekStart,
+    paymentInstructions: initial.paymentInstructions,
   };
 
   // `form` holds in-progress edits; `savedForm` is the last persisted
   // snapshot. Dirty = JSON-different from saved. (Stringify-compare is
-  // fine here — primitive fields only, no Date objects to worry about.)
+  // fine here — strings and one string-only nested object, no Dates.)
   const [form, setForm] = useState<FormState>(initialForm);
   const [savedForm, setSavedForm] = useState<FormState>(initialForm);
 
@@ -97,8 +107,8 @@ export function SettingsClient({
   //   displayName              → profile
   //   defaultCurrency, weekStart → region
   //   notifications matrix     → notif
-  // Plan + Integrations don't own savebar-managed fields, so they
-  // never appear in this set.
+  //   payment instructions     → int
+  // Plan doesn't own savebar-managed fields, so it never appears here.
   const dirtySections = useMemo<Set<SettingsSectionKey>>(() => {
     const out = new Set<SettingsSectionKey>();
     if (form.displayName !== savedForm.displayName) out.add("profile");
@@ -110,6 +120,11 @@ export function SettingsClient({
     }
     if (JSON.stringify(notifs) !== JSON.stringify(savedNotifs)) {
       out.add("notif");
+    }
+    if (
+      JSON.stringify(form.paymentInstructions) !== JSON.stringify(savedForm.paymentInstructions)
+    ) {
+      out.add("int");
     }
     return out;
   }, [form, savedForm, notifs, savedNotifs]);
@@ -130,6 +145,11 @@ export function SettingsClient({
     if (form.defaultCurrency !== savedForm.defaultCurrency)
       patch.defaultCurrency = form.defaultCurrency;
     if (form.weekStart !== savedForm.weekStart) patch.weekStart = form.weekStart;
+    if (
+      JSON.stringify(form.paymentInstructions) !== JSON.stringify(savedForm.paymentInstructions)
+    ) {
+      patch.paymentInstructions = form.paymentInstructions;
+    }
     if (JSON.stringify(notifs) !== JSON.stringify(savedNotifs)) {
       // Send only the event keys whose value diverges from saved.
       // The server's NotificationPrefsInput is a partial map; missing
@@ -156,6 +176,20 @@ export function SettingsClient({
         toast("Settings saved.", "success");
         router.refresh();
       } else {
+        if (res.saved?.producer || res.saved?.paymentInstructions) {
+          setSavedForm((current) => ({
+            displayName: res.saved?.producer ? form.displayName : current.displayName,
+            defaultCurrency: res.saved?.producer
+              ? form.defaultCurrency
+              : current.defaultCurrency,
+            weekStart: res.saved?.producer ? form.weekStart : current.weekStart,
+            paymentInstructions: res.saved?.paymentInstructions
+              ? form.paymentInstructions
+              : current.paymentInstructions,
+          }));
+          if (res.saved.producer) setSavedNotifs(notifs);
+          router.refresh();
+        }
         toast(res.error, "error");
       }
     });
@@ -207,7 +241,14 @@ export function SettingsClient({
           )}
           {active === "plan" && <PlanSection plan={initial.plan} />}
           {active === "notif" && <NotifSection notifs={notifs} setNotifs={setNotifs} />}
-          {active === "int" && <IntegrationsSection />}
+          {active === "int" && (
+            <IntegrationsSection
+              paymentInstructions={form.paymentInstructions}
+              onChange={(paymentInstructions) => {
+                setForm({ ...form, paymentInstructions });
+              }}
+            />
+          )}
           {active === "region" && <RegionSection form={form} setForm={setForm} />}
         </div>
       </div>
@@ -678,14 +719,111 @@ function Toggle({
 }
 
 /* ─── Integrations section ─────────────────────────────────────────── */
-function IntegrationsSection() {
+function IntegrationsSection({
+  paymentInstructions,
+  onChange,
+}: {
+  paymentInstructions: PaymentInstructionsState;
+  onChange: (next: PaymentInstructionsState) => void;
+}) {
   return (
     <section className="s-reveal" aria-labelledby="settings-int-h">
       <header className="s-section-head">
-        <span className="s-section-eyebrow">External tools</span>
+        <span className="s-section-eyebrow">Payments &amp; tools</span>
         <h2 id="settings-int-h">Integrations</h2>
-        <p>Calendar connections will appear here when they are available.</p>
+        <p>Tell artists how to pay you directly and manage external tools.</p>
       </header>
+
+      <div className="s-card">
+        <div className="s-payment-boundary" role="note">
+          <span className="s-payment-boundary-dot" aria-hidden="true" />
+          <div>
+            <div className="s-payment-boundary-title">Payment instructions</div>
+            <div className="s-payment-boundary-copy">
+              Artists pay you directly. Skitza only keeps the record—it never holds, routes, splits,
+              refunds, or credits money.
+            </div>
+          </div>
+        </div>
+
+        <div className="s-row">
+          <div>
+            <label className="s-row-label" htmlFor="settings-bank-transfer">
+              Bank transfer
+            </label>
+            <div className="s-row-hint">Account name, bank, branch, and account number.</div>
+          </div>
+          <div className="s-row-field">
+            <textarea
+              id="settings-bank-transfer"
+              className="s-input s-textarea"
+              rows={4}
+              maxLength={500}
+              value={paymentInstructions.bankTransfer}
+              placeholder={"Account name\nBank · branch · account number"}
+              onChange={(event) => {
+                onChange({
+                  ...paymentInstructions,
+                  bankTransfer: event.target.value,
+                });
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="s-row">
+          <div>
+            <label className="s-row-label" htmlFor="settings-bit-phone">
+              Bit
+            </label>
+            <div className="s-row-hint">The phone number linked to your Bit account.</div>
+          </div>
+          <div className="s-row-field">
+            <input
+              id="settings-bit-phone"
+              className="s-input"
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
+              maxLength={32}
+              value={paymentInstructions.bitPhone}
+              placeholder="+972 50 123 4567"
+              onChange={(event) => {
+                onChange({
+                  ...paymentInstructions,
+                  bitPhone: event.target.value,
+                });
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="s-row">
+          <div>
+            <label className="s-row-label" htmlFor="settings-payment-note">
+              Payment note
+            </label>
+            <div className="s-row-hint">Optional note shown with your payment details.</div>
+          </div>
+          <div className="s-row-field">
+            <textarea
+              id="settings-payment-note"
+              className="s-input s-textarea s-textarea-compact"
+              rows={3}
+              maxLength={500}
+              value={paymentInstructions.note}
+              placeholder="Add a reference, timing note, or other instruction"
+              onChange={(event) => {
+                onChange({
+                  ...paymentInstructions,
+                  note: event.target.value,
+                });
+              }}
+            />
+          </div>
+        </div>
+      </div>
+
       <div className="s-card">
         <div className="s-intlist">
           <div className="s-introw">
