@@ -71,11 +71,10 @@ describe("AlbumSpace — composes hero + strip + tabs + active panel", () => {
     expect(SRC).not.toContain("--brand-primary-on");
   });
 
-  it("wires AlbumHero's onAddSong CTA only with active purchase capacity", () => {
-    expect(SRC).toContain("canCreatePurchaseOwnedProjectWork");
-    expect(SRC).toContain("purchaseId: songSpacePurchaseId");
-    expect(SRC).toMatch(/canUpload[\s\S]*?onAddSong:\s*handleAddSong/);
-    expect(SRC).toContain("canAddSong={canUpload}");
+  it("wires AlbumHero's Add Song CTA for active projects", () => {
+    expect(SRC).toContain("const canAddSong = projectActive");
+    expect(SRC).toMatch(/canAddSong[\s\S]*?onAddSong:\s*handleAddSong/);
+    expect(SRC).toContain("canAddSong={canAddSong}");
   });
 
   it("explains why reopened work with only canceled purchases cannot add songs", () => {
@@ -84,11 +83,13 @@ describe("AlbumSpace — composes hero + strip + tabs + active panel", () => {
     expect(SRC).toContain("blockedReason={newWorkBlockedReason}");
   });
 
-  it("opens UploadTrackModal for the hero's '+ Add song' action", () => {
-    // The hero callback drives an UploadTrackModal mount; without
-    // this the producer can never upload from the hero.
-    expect(SRC).toMatch(/UploadTrackModal/);
-    expect(SRC).toMatch(/mode=["']new-song["']/);
+  it("routes Add Song through the purchased-space flow without opening upload", () => {
+    expect(SRC).toContain("router.push(addSongHref)");
+    expect(SRC).toContain("purchaseId=${encodeURIComponent(slot.purchaseId)}");
+    expect(SRC).toContain("&lockProject=1");
+    expect(SRC).not.toContain("UploadTrackModal");
+    expect(SRC).not.toMatch(/mode=["']new-song["']/);
+    expect(SRC).toContain("emptySlots={emptySlots}");
   });
 
   it("accepts a playLatest prop and threads onPlayLatest to AlbumHero when present", () => {

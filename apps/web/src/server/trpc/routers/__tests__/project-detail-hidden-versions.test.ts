@@ -6,13 +6,16 @@ const {
   projects,
   projectTracks,
   purchases,
+  purchaseInstallments,
   trackVersions,
   trackComments,
+  transactionMock,
   dbMock,
 } = vi.hoisted(() => {
   const PRODUCER_ID = "00000000-0000-4000-8000-000000000901";
   const PROJECT_ID = "00000000-0000-4000-8000-000000000902";
   const TRACK_ID = "00000000-0000-4000-8000-000000000903";
+  const PURCHASE_ID = "00000000-0000-4000-8000-000000000904";
   const producers = {
     __table: "producers",
     id: { __column: "producers.id" },
@@ -41,6 +44,17 @@ const {
     acceptedAt: { __column: "purchases.accepted_at" },
     commercialSnapshot: { __column: "purchases.commercial_snapshot" },
   };
+  const purchaseInstallments = {
+    __table: "purchase_installments",
+    id: { __column: "purchase_installments.id" },
+    purchaseId: { __column: "purchase_installments.purchase_id" },
+    producerId: { __column: "purchase_installments.producer_id" },
+    position: { __column: "purchase_installments.position" },
+    amountCents: { __column: "purchase_installments.amount_cents" },
+    currency: { __column: "purchase_installments.currency" },
+    dueAt: { __column: "purchase_installments.due_at" },
+    status: { __column: "purchase_installments.status" },
+  };
   const trackVersions = {
     __table: "track_versions",
     id: { __column: "track_versions.id" },
@@ -64,8 +78,33 @@ const {
         },
       ],
     ],
-    [projectTracks, [{ id: TRACK_ID, projectId: PROJECT_ID, purchaseId: null }]],
-    [purchases, []],
+    [purchaseInstallments, []],
+    [
+      projectTracks,
+      [
+        {
+          id: TRACK_ID,
+          projectId: PROJECT_ID,
+          purchaseId: PURCHASE_ID,
+          title: "Owned song",
+          artist: null,
+          position: 0,
+        },
+      ],
+    ],
+    [
+      purchases,
+      [
+        {
+          id: PURCHASE_ID,
+          producerId: PRODUCER_ID,
+          projectId: PROJECT_ID,
+          lifecycleStatus: "active",
+          acceptedAt: new Date("2026-07-17T10:00:00.000Z"),
+          commercialSnapshot: { includedSongSpaces: 1 },
+        },
+      ],
+    ],
     [
       trackVersions,
       [
@@ -92,14 +131,9 @@ const {
     ],
   ]);
 
-  const dbMock = {
+  const snapshotDbMock = {
     select: () => ({
       from: (table: unknown) => {
-        if (table === producers) {
-          return {
-            where: () => ({ limit: () => Promise.resolve([{ id: PRODUCER_ID }]) }),
-          };
-        }
         const rows = rowsByTable.get(table) ?? [];
         return {
           where: (condition: unknown) => {
@@ -118,6 +152,28 @@ const {
       },
     }),
   };
+  const transactionMock = vi.fn(
+    async (
+      work: (transaction: typeof snapshotDbMock) => Promise<unknown>,
+      config?: unknown,
+    ) => {
+      void config;
+      return work(snapshotDbMock);
+    },
+  );
+  const dbMock = {
+    select: () => ({
+      from: (table: unknown) => {
+        if (table !== producers) {
+          throw new Error("Project-detail reads must use the snapshot transaction");
+        }
+        return {
+          where: () => ({ limit: () => Promise.resolve([{ id: PRODUCER_ID }]) }),
+        };
+      },
+    }),
+    transaction: transactionMock,
+  };
 
   return {
     PROJECT_ID,
@@ -125,8 +181,10 @@ const {
     projects,
     projectTracks,
     purchases,
+    purchaseInstallments,
     trackVersions,
     trackComments,
+    transactionMock,
     dbMock,
   };
 });
@@ -137,6 +195,7 @@ vi.mock("@skitza/db", () => ({
   projects,
   projectTracks,
   purchases,
+  purchaseInstallments,
   trackVersions,
   trackComments,
   bookings: { __table: "bookings" },
@@ -157,6 +216,7 @@ vi.mock("~/server/email/send", () => ({
 
 beforeEach(() => {
   process.env.DATABASE_URL = "postgresql://test.invalid/sk90";
+  transactionMock.mockClear();
 });
 
 describe("project.detail canceled upload placeholders", () => {
@@ -168,5 +228,10 @@ describe("project.detail canceled upload placeholders", () => {
 
     expect(result.versions.map((version) => version.id)).toEqual(["visible-older"]);
     expect(result.comments.map((comment) => comment.id)).toEqual(["visible-comment"]);
+    expect(transactionMock).toHaveBeenCalledOnce();
+    expect(transactionMock.mock.calls[0]?.[1]).toEqual({
+      isolationLevel: "repeatable read",
+      accessMode: "read only",
+    });
   });
 });

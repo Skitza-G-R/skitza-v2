@@ -21,6 +21,7 @@ import {
 import { z } from "zod";
 
 import { router } from "../init";
+import { artistProcedure } from "../artist-procedure";
 import { producerProcedure } from "../producer-procedure";
 import {
   cancelPendingMultipartUpload,
@@ -48,8 +49,17 @@ import {
 } from "~/server/domain/project-ownership/service";
 import {
   createPurchaseOwnedSongSpace,
+  summarizeProjectSongSpaces,
   SongSpaceDomainError,
 } from "~/server/domain/song-spaces/service";
+import { songSpaceRepository } from "~/server/domain/song-spaces/db";
+import { noChargeProposalRepository } from "~/server/domain/song-spaces/no-charge-db";
+import {
+  acceptNoChargeSongSpaceProposal,
+  createNoChargeSongSpaceProposal,
+  previewNoChargeSongSpaceProposal,
+} from "~/server/domain/song-spaces/no-charge";
+import { configuredNoChargeProposalSecret } from "~/server/domain/song-spaces/no-charge-token";
 import {
   assertActiveVersionUploadLifecycle,
   VersionUploadDomainError,
@@ -77,6 +87,9 @@ function mapSongSpaceDomainError(error: unknown): never {
   if (!(error instanceof SongSpaceDomainError)) throw error;
   if (error.code === "NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND" });
   if (error.code === "CAPACITY_EXCEEDED") {
+    throw new TRPCError({ code: "CONFLICT", message: error.message });
+  }
+  if (error.code === "OPERATION_KEY_CONFLICT") {
     throw new TRPCError({ code: "CONFLICT", message: error.message });
   }
   if (error.code === "INTEGRITY_ERROR") {
@@ -170,9 +183,30 @@ const UpdateProjectInput = z
 const AddTrackInput = z.object({
   projectId: z.string().uuid(),
   purchaseId: z.string().uuid(),
+  operationKey: z.string().trim().min(1).max(200),
   title: z.string().min(1).max(120),
   artist: z.string().max(120).optional(),
 });
+
+const CreateNoChargeProposalInput = z
+  .object({
+    projectId: z.string().uuid(),
+    operationKey: z.string().trim().min(1).max(200),
+    songTitle: z.string().trim().min(1).max(120),
+  })
+  .strict();
+
+const PreviewNoChargeProposalInput = z
+  .object({ proposalToken: z.string().min(1).max(4096) })
+  .strict();
+
+const AcceptNoChargeProposalInput = z
+  .object({
+    proposalToken: z.string().min(1).max(4096),
+    expectedSnapshotDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    agreementAccepted: z.literal(true),
+  })
+  .strict();
 
 const AddVersionInput = z.object({
   trackId: z.string().uuid(),
@@ -247,126 +281,128 @@ export const projectRouter = router({
   detail: producerProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const [row] = await ctx.db
-        .select()
-        .from(projects)
-        .where(and(eq(projects.id, input.id), eq(projects.producerId, ctx.producerId)))
-        .limit(1);
-      if (!row || row.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "NOT_FOUND" });
-      }
-      const canPermanentlyDelete =
-        row.lifecycleStatus === "waiting_for_payment"
-          ? await canPermanentlyDeleteEmptyDraftProject(historicalDeletionRepository(ctx.db), {
+      const detail = await ctx.db.transaction(
+        async (tx) => {
+          const [row] = await tx
+            .select()
+            .from(projects)
+            .where(and(eq(projects.id, input.id), eq(projects.producerId, ctx.producerId)))
+            .limit(1);
+          if (!row || row.producerId !== ctx.producerId) {
+            throw new TRPCError({ code: "NOT_FOUND" });
+          }
+          const tracksList = await tx
+            .select()
+            .from(projectTracks)
+            .where(eq(projectTracks.projectId, row.id))
+            .orderBy(asc(projectTracks.position), asc(projectTracks.createdAt));
+          const purchaseRows = await tx
+            .select({
+              id: purchases.id,
+              sourceKind: purchases.sourceKind,
+              refNumber: purchases.refNumber,
+              lifecycleStatus: purchases.lifecycleStatus,
+              totalCents: purchases.totalCents,
+              currency: purchases.currency,
+              acceptedAt: purchases.acceptedAt,
+              canceledAt: purchases.canceledAt,
+              commercialSnapshot: purchases.commercialSnapshot,
+            })
+            .from(purchases)
+            .where(and(eq(purchases.producerId, ctx.producerId), eq(purchases.projectId, row.id)))
+            .orderBy(asc(purchases.acceptedAt), asc(purchases.id));
+          const songSpaces = summarizeProjectSongSpaces({
+            producerId: ctx.producerId,
+            projectId: row.id,
+            purchases: purchaseRows.map((purchase) => ({
               producerId: ctx.producerId,
               projectId: row.id,
+              purchaseId: purchase.id,
+              lifecycleStatus: purchase.lifecycleStatus,
+              includedSongSpaces: purchase.commercialSnapshot.includedSongSpaces,
+              acceptedAt: purchase.acceptedAt,
+            })),
+            tracks: tracksList.map((track) => ({
+              id: track.id,
+              producerId: ctx.producerId,
+              projectId: track.projectId,
+              purchaseId: track.purchaseId,
+              title: track.title,
+              artist: track.artist,
+              position: track.position,
+            })),
+          });
+          const purchaseIds = purchaseRows.map((purchase) => purchase.id);
+          const installmentRows =
+            purchaseIds.length > 0
+              ? await tx
+                  .select({
+                    id: purchaseInstallments.id,
+                    purchaseId: purchaseInstallments.purchaseId,
+                    position: purchaseInstallments.position,
+                    amountCents: purchaseInstallments.amountCents,
+                    currency: purchaseInstallments.currency,
+                    dueAt: purchaseInstallments.dueAt,
+                    status: purchaseInstallments.status,
+                  })
+                  .from(purchaseInstallments)
+                  .where(
+                    and(
+                      eq(purchaseInstallments.producerId, ctx.producerId),
+                      inArray(purchaseInstallments.purchaseId, purchaseIds),
+                    ),
+                  )
+                  .orderBy(asc(purchaseInstallments.position), asc(purchaseInstallments.id))
+              : [];
+          // Fetch all versions + comments with JS-side filter. Producers
+          // with dozens of projects wouldn't win from a SQL inArray here
+          // because the set of trackIds is already small (typically 1-5
+          // tracks per project).
+          const trackIds = tracksList.map((track) => track.id);
+          const allVersions = trackIds.length
+            ? (
+                await tx
+                  .select()
+                  .from(trackVersions)
+                  .where(isNull(trackVersions.audioDeletedAt))
+                  .orderBy(desc(trackVersions.uploadedAt))
+              ).filter((version) => trackIds.includes(version.trackId))
+            : [];
+          const versionIds = allVersions.map((version) => version.id);
+          const allComments = versionIds.length
+            ? (
+                await tx.select().from(trackComments).orderBy(asc(trackComments.timestampMs))
+              ).filter((comment) => versionIds.includes(comment.versionId))
+            : [];
+          return {
+            project: stripHash(row),
+            tracks: tracksList,
+            versions: allVersions,
+            comments: allComments,
+            // Compatibility for the upload modal while callers move to the full
+            // projection. The exact virtual slot purchase remains authoritative.
+            songSpacePurchaseId: songSpaces.emptySlots[0]?.purchaseId ?? null,
+            songSpaces,
+            purchases: purchaseRows.map((purchase) => ({
+              ...purchase,
+              installments: installmentRows.filter(
+                (installment) => installment.purchaseId === purchase.id,
+              ),
+            })),
+          };
+        },
+        { isolationLevel: "repeatable read", accessMode: "read only" },
+      );
+      const canPermanentlyDelete =
+        detail.project.lifecycleStatus === "waiting_for_payment"
+          ? await canPermanentlyDeleteEmptyDraftProject(historicalDeletionRepository(ctx.db), {
+              producerId: ctx.producerId,
+              projectId: detail.project.id,
             })
           : false;
-      const tracksList = await ctx.db
-        .select()
-        .from(projectTracks)
-        .where(eq(projectTracks.projectId, row.id))
-        .orderBy(asc(projectTracks.position), asc(projectTracks.createdAt));
-      // Advisory UI allocation only. The mutation locks and re-checks the
-      // exact purchase capacity, so a concurrent upload still fails closed.
-      const activePurchases =
-        row.lifecycleStatus === "active"
-          ? await ctx.db
-              .select({
-                id: purchases.id,
-                acceptedAt: purchases.acceptedAt,
-                commercialSnapshot: purchases.commercialSnapshot,
-              })
-              .from(purchases)
-              .where(
-                and(
-                  eq(purchases.producerId, ctx.producerId),
-                  eq(purchases.projectId, row.id),
-                  eq(purchases.lifecycleStatus, "active"),
-                ),
-              )
-              .orderBy(asc(purchases.acceptedAt), asc(purchases.id))
-          : [];
-      const songSpaceCounts = new Map<string, number>();
-      for (const track of tracksList) {
-        if (track.purchaseId) {
-          songSpaceCounts.set(track.purchaseId, (songSpaceCounts.get(track.purchaseId) ?? 0) + 1);
-        }
-      }
-      const eligibleSongSpacePurchase = activePurchases.find((purchase) => {
-        const capacity = purchase.commercialSnapshot.includedSongSpaces;
-        return Number.isSafeInteger(capacity) && capacity > (songSpaceCounts.get(purchase.id) ?? 0);
-      });
-      const purchaseRows = await ctx.db
-        .select({
-          id: purchases.id,
-          sourceKind: purchases.sourceKind,
-          refNumber: purchases.refNumber,
-          lifecycleStatus: purchases.lifecycleStatus,
-          totalCents: purchases.totalCents,
-          currency: purchases.currency,
-          acceptedAt: purchases.acceptedAt,
-          canceledAt: purchases.canceledAt,
-          commercialSnapshot: purchases.commercialSnapshot,
-        })
-        .from(purchases)
-        .where(and(eq(purchases.producerId, ctx.producerId), eq(purchases.projectId, row.id)))
-        .orderBy(asc(purchases.acceptedAt), asc(purchases.id));
-      const purchaseIds = purchaseRows.map((purchase) => purchase.id);
-      const installmentRows =
-        purchaseIds.length > 0
-          ? await ctx.db
-              .select({
-                id: purchaseInstallments.id,
-                purchaseId: purchaseInstallments.purchaseId,
-                position: purchaseInstallments.position,
-                amountCents: purchaseInstallments.amountCents,
-                currency: purchaseInstallments.currency,
-                dueAt: purchaseInstallments.dueAt,
-                status: purchaseInstallments.status,
-              })
-              .from(purchaseInstallments)
-              .where(
-                and(
-                  eq(purchaseInstallments.producerId, ctx.producerId),
-                  inArray(purchaseInstallments.purchaseId, purchaseIds),
-                ),
-              )
-              .orderBy(asc(purchaseInstallments.position), asc(purchaseInstallments.id))
-          : [];
-      // Fetch all versions + comments with JS-side filter. Producers
-      // with dozens of projects wouldn't win from a SQL inArray here
-      // because the set of trackIds is already small (typically 1-5
-      // tracks per project).
-      const trackIds = tracksList.map((t) => t.id);
-      const allVersions = trackIds.length
-        ? (
-            await ctx.db
-              .select()
-              .from(trackVersions)
-              .where(isNull(trackVersions.audioDeletedAt))
-              .orderBy(desc(trackVersions.uploadedAt))
-          ).filter((v) => trackIds.includes(v.trackId))
-        : [];
-      const versionIds = allVersions.map((v) => v.id);
-      const allComments = versionIds.length
-        ? (
-            await ctx.db.select().from(trackComments).orderBy(asc(trackComments.timestampMs))
-          ).filter((c) => versionIds.includes(c.versionId))
-        : [];
       return {
-        project: stripHash(row),
-        tracks: tracksList,
-        versions: allVersions,
-        comments: allComments,
-        songSpacePurchaseId: eligibleSongSpacePurchase?.id ?? null,
+        ...detail,
         canPermanentlyDelete,
-        purchases: purchaseRows.map((purchase) => ({
-          ...purchase,
-          installments: installmentRows.filter(
-            (installment) => installment.purchaseId === purchase.id,
-          ),
-        })),
       };
     }),
 
@@ -524,138 +560,64 @@ export const projectRouter = router({
     }),
 
   addTrack: producerProcedure.input(AddTrackInput).mutation(async ({ ctx, input }) => {
-    let insertedRow: typeof projectTracks.$inferSelect | undefined;
     try {
-      await createPurchaseOwnedSongSpace(
-        {
-          atomically: (_scope, work) =>
-            ctx.db.transaction(async (tx) => {
-              // Stable project -> purchase lock order prevents position races
-              // and serializes the exact commercial allowance independently.
-              await tx.execute(
-                sql`select pg_advisory_xact_lock(hashtextextended(${input.projectId}, 0))`,
-              );
-              await tx.execute(
-                sql`select pg_advisory_xact_lock(hashtextextended(${input.purchaseId}, 0))`,
-              );
-              return work({
-                getActivePurchaseForUpdate: async (scope) => {
-                  const [purchase] = await tx
-                    .select({
-                      id: purchases.id,
-                      producerId: purchases.producerId,
-                      projectId: purchases.projectId,
-                      lifecycleStatus: purchases.lifecycleStatus,
-                      projectLifecycleStatus: projects.lifecycleStatus,
-                      commercialSnapshot: purchases.commercialSnapshot,
-                    })
-                    .from(purchases)
-                    .innerJoin(
-                      projects,
-                      and(
-                        eq(projects.id, purchases.projectId),
-                        eq(projects.producerId, purchases.producerId),
-                      ),
-                    )
-                    .where(
-                      and(
-                        eq(purchases.id, scope.purchaseId),
-                        eq(purchases.projectId, scope.projectId),
-                        eq(purchases.producerId, scope.producerId),
-                        eq(purchases.lifecycleStatus, "active"),
-                        eq(projects.lifecycleStatus, "active"),
-                      ),
-                    )
-                    .limit(1)
-                    .for("update");
-                  return purchase
-                    ? {
-                        purchaseId: purchase.id,
-                        producerId: purchase.producerId,
-                        projectId: purchase.projectId,
-                        lifecycleStatus: "active" as const,
-                        projectLifecycleStatus: "active" as const,
-                        includedSongSpaces: purchase.commercialSnapshot.includedSongSpaces,
-                      }
-                    : null;
-                },
-                countPurchaseOwnedSongSpaces: async (scope) => {
-                  const rows = await tx
-                    .select({ id: projectTracks.id })
-                    .from(projectTracks)
-                    .where(
-                      and(
-                        eq(projectTracks.projectId, scope.projectId),
-                        eq(projectTracks.purchaseId, scope.purchaseId),
-                      ),
-                    );
-                  return rows.length;
-                },
-                nextProjectPositionForUpdate: async (scope) => {
-                  const [last] = await tx
-                    .select({ position: projectTracks.position })
-                    .from(projectTracks)
-                    .where(eq(projectTracks.projectId, scope.projectId))
-                    .orderBy(desc(projectTracks.position))
-                    .limit(1);
-                  return (last?.position ?? -1) + 1;
-                },
-                insertSongSpace: async (songSpace) => {
-                  const [row] = await tx
-                    .insert(projectTracks)
-                    .values({
-                      projectId: songSpace.projectId,
-                      purchaseId: songSpace.purchaseId,
-                      title: songSpace.title,
-                      ...(songSpace.artist ? { artist: songSpace.artist } : {}),
-                      position: songSpace.position,
-                    })
-                    .returning();
-                  if (!row) {
-                    throw new SongSpaceDomainError(
-                      "INTEGRITY_ERROR",
-                      "Song-space insert returned no row",
-                    );
-                  }
-                  insertedRow = row;
-                  return {
-                    id: row.id,
-                    producerId: songSpace.producerId,
-                    projectId: row.projectId,
-                    purchaseId: row.purchaseId,
-                    title: row.title,
-                    artist: row.artist,
-                    position: row.position,
-                  };
-                },
-                touchProject: async (scope, changedAt) => {
-                  await tx
-                    .update(projects)
-                    .set({ updatedAt: changedAt })
-                    .where(
-                      and(
-                        eq(projects.id, scope.projectId),
-                        eq(projects.producerId, scope.producerId),
-                      ),
-                    );
-                },
-              });
-            }),
-        },
-        {
-          producerId: ctx.producerId,
-          projectId: input.projectId,
-          purchaseId: input.purchaseId,
-          title: input.title,
-          ...(input.artist === undefined ? {} : { artist: input.artist }),
-          createdAt: new Date(),
-        },
-      );
+      return await createPurchaseOwnedSongSpace(songSpaceRepository(ctx.db), {
+        producerId: ctx.producerId,
+        projectId: input.projectId,
+        purchaseId: input.purchaseId,
+        operationKey: input.operationKey,
+        title: input.title,
+        ...(input.artist === undefined ? {} : { artist: input.artist }),
+        createdAt: new Date(),
+      });
     } catch (error) {
       mapSongSpaceDomainError(error);
     }
-    if (!insertedRow) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-    return insertedRow;
+  }),
+
+  noChargeProposal: router({
+    create: producerProcedure
+      .input(CreateNoChargeProposalInput)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await createNoChargeSongSpaceProposal(noChargeProposalRepository(ctx.db), {
+            producerId: ctx.producerId,
+            projectId: input.projectId,
+            operationKey: input.operationKey,
+            songTitle: input.songTitle,
+            signingSecret: configuredNoChargeProposalSecret(),
+          });
+        } catch (error) {
+          mapSongSpaceDomainError(error);
+        }
+      }),
+
+    preview: artistProcedure.input(PreviewNoChargeProposalInput).query(async ({ ctx, input }) => {
+      try {
+        return await previewNoChargeSongSpaceProposal(noChargeProposalRepository(ctx.db), {
+          proposalToken: input.proposalToken,
+          clerkUserId: ctx.clerkUserId,
+          signingSecret: configuredNoChargeProposalSecret(),
+        });
+      } catch (error) {
+        mapSongSpaceDomainError(error);
+      }
+    }),
+
+    accept: artistProcedure.input(AcceptNoChargeProposalInput).mutation(async ({ ctx, input }) => {
+      try {
+        return await acceptNoChargeSongSpaceProposal(noChargeProposalRepository(ctx.db), {
+          proposalToken: input.proposalToken,
+          clerkUserId: ctx.clerkUserId,
+          signingSecret: configuredNoChargeProposalSecret(),
+          expectedSnapshotDigest: input.expectedSnapshotDigest,
+          agreementAccepted: input.agreementAccepted,
+          acceptedAt: new Date(),
+        });
+      } catch (error) {
+        mapSongSpaceDomainError(error);
+      }
+    }),
   }),
 
   // Manual stage advance for a single track. Used by both the Upload
@@ -779,9 +741,27 @@ export const projectRouter = router({
         purchaseId: projectTracks.purchaseId,
       })
       .from(projectTracks)
-      .where(eq(projectTracks.id, input.trackId))
+      .innerJoin(
+        projects,
+        and(eq(projects.id, projectTracks.projectId), eq(projects.producerId, ctx.producerId)),
+      )
+      .innerJoin(
+        purchases,
+        and(
+          eq(purchases.id, projectTracks.purchaseId),
+          eq(purchases.projectId, projectTracks.projectId),
+          eq(purchases.producerId, ctx.producerId),
+        ),
+      )
+      .where(
+        and(
+          eq(projectTracks.id, input.trackId),
+          eq(projects.producerId, ctx.producerId),
+          eq(purchases.producerId, ctx.producerId),
+        ),
+      )
       .limit(1);
-    if (!discoveredTrack?.purchaseId) throw new TRPCError({ code: "NOT_FOUND" });
+    if (!discoveredTrack) throw new TRPCError({ code: "NOT_FOUND" });
 
     let row: typeof trackVersions.$inferSelect | undefined;
     try {

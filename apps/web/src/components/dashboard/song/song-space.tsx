@@ -1,6 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Plus } from "lucide-react";
 import { useCallback, useState } from "react";
 
 import { playerPlay } from "~/components/audio/persistent-player";
@@ -73,6 +75,8 @@ interface SongSpaceProps {
   versions: VersionRowVersionData[];
   sessions: SessionsTabSession[];
   gradientToken: GradientToken;
+  initialUploadOpen?: boolean;
+  addAnotherSongHref?: string;
 }
 
 export function SongSpace({
@@ -85,6 +89,8 @@ export function SongSpace({
   versions,
   sessions,
   gradientToken,
+  initialUploadOpen = false,
+  addAnotherSongHref,
 }: SongSpaceProps) {
   const router = useRouter();
   const [active, setActive] = useState<SongTab>("overview");
@@ -112,7 +118,7 @@ export function SongSpace({
   // the SongSpaceHero CTA and the VersionsTab drop zone open the same
   // instance. mode="new-version" + a locked trackId means the modal's
   // song picker renders as plain text (no "+ New song" option).
-  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(initialUploadOpen && canUpload);
   const openUpload = useCallback(() => {
     setUploadOpen(true);
   }, []);
@@ -184,6 +190,26 @@ export function SongSpace({
           }}
         />
       </section>
+
+      {mode === "single" && projectActive && addAnotherSongHref ? (
+        <section className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-[13.5px] font-semibold text-[rgb(var(--fg-default))]">
+              Turn this single into an album
+            </p>
+            <p className="mt-1 text-[12px] text-[rgb(var(--fg-muted))]">
+              Use a purchased song space, or start a separate extra-song purchase.
+            </p>
+          </div>
+          <Link
+            href={addAnotherSongHref}
+            className="inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-[12.5px] font-semibold text-[rgb(var(--bg-sidebar))]"
+          >
+            <Plus size={14} aria-hidden />
+            Add another song
+          </Link>
+        </section>
+      ) : null}
 
       {/* I5 — ChangeStageMenu now lives INSIDE the Status tile of the
           stat strip (via the trackId prop). Pre-fix this section was a

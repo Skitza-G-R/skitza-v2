@@ -231,6 +231,74 @@ export async function addTrackVersion(input: {
   }
 }
 
+// Claims one exact purchased song space without requiring an audio file.
+// Audio/version creation is a separate action from the resulting Song Space.
+export async function claimSongSpaceAction(input: {
+  projectId: string;
+  purchaseId: string;
+  operationKey: string;
+  title: string;
+  artist?: string;
+}): Promise<
+  ActionDataResult<{ id: string; projectId: string; purchaseId: string; title: string }>
+> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const row = await c.caller.project.addTrack(input);
+    revalidateProjectSurfaces(input.projectId);
+    return {
+      ok: true,
+      data: {
+        id: row.id,
+        projectId: row.projectId,
+        purchaseId: row.purchaseId,
+        title: row.title,
+      },
+    };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+// Creates only a producer proposal. The matching signed-in artist is the
+// sole actor allowed to accept the exact ₪0 agreement and create its purchase.
+export async function createNoChargeSongProposalAction(input: {
+  projectId: string;
+  operationKey: string;
+  title: string;
+}): Promise<
+  ActionDataResult<{
+    proposalToken: string;
+    projectId: string;
+    projectTitle: string;
+    title: string;
+    created: boolean;
+  }>
+> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const result = await c.caller.project.noChargeProposal.create({
+      projectId: input.projectId,
+      operationKey: input.operationKey,
+      songTitle: input.title,
+    });
+    return {
+      ok: true,
+      data: {
+        proposalToken: result.proposalToken,
+        projectId: result.projectId,
+        projectTitle: result.projectTitle,
+        title: result.songTitle,
+        created: result.created,
+      },
+    };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
 export async function resolveVersionComment(input: {
   projectId: string;
   id: string;

@@ -15,7 +15,12 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import { router } from "../init";
+import { artistProcedure } from "../artist-procedure";
 import { producerProcedure } from "../producer-procedure";
+import {
+  getMusicProjectSongSpaces,
+  listMusicSongSpaces,
+} from "~/server/domain/song-spaces/music-read-model";
 
 // Audio library — every uploaded track version across every project
 // the producer owns, Samply-style unified feed. The library is a
@@ -39,6 +44,37 @@ export type LibraryRow = {
 };
 
 export const libraryRouter = router({
+  music: router({
+    producerList: producerProcedure.query(({ ctx }) =>
+      listMusicSongSpaces(ctx.db, { kind: "producer", producerId: ctx.producerId }),
+    ),
+    producerProject: producerProcedure
+      .input(z.object({ projectId: z.string().uuid() }).strict())
+      .query(async ({ ctx, input }) => {
+        const project = await getMusicProjectSongSpaces(
+          ctx.db,
+          { kind: "producer", producerId: ctx.producerId },
+          input.projectId,
+        );
+        if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+        return project;
+      }),
+    artistList: artistProcedure.query(({ ctx }) =>
+      listMusicSongSpaces(ctx.db, { kind: "artist", clerkUserId: ctx.clerkUserId }),
+    ),
+    artistProject: artistProcedure
+      .input(z.object({ projectId: z.string().uuid() }).strict())
+      .query(async ({ ctx, input }) => {
+        const project = await getMusicProjectSongSpaces(
+          ctx.db,
+          { kind: "artist", clerkUserId: ctx.clerkUserId },
+          input.projectId,
+        );
+        if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+        return project;
+      }),
+  }),
+
   list: producerProcedure
     .input(
       z

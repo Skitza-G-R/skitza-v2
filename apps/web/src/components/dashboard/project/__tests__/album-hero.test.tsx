@@ -35,10 +35,8 @@ describe("AlbumHero — dark gradient band for the album page", () => {
     expect(SRC).toMatch(/md:h-24\b.*md:w-24|md:w-24\b.*md:h-24/);
   });
 
-  it("renders the eyebrow PROJECT in uppercase", () => {
-    // The eyebrow line is `PROJECT · <STAGE>` — assert PROJECT appears
-    // inside the rendered string content (not just a comment).
-    expect(SRC).toMatch(/>\s*PROJECT\b/);
+  it("renders a mode-aware SINGLE or PROJECT eyebrow", () => {
+    expect(SRC).toContain('mode === "single" ? "SINGLE" : "PROJECT"');
   });
 
   it("renders the stage label uppercased in the eyebrow row", () => {

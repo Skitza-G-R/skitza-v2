@@ -58,6 +58,7 @@ function toMessage(err: unknown): string {
 export async function addTrackAction(input: {
   projectId: string;
   purchaseId: string;
+  operationKey: string;
   title: string;
   artist?: string;
 }): Promise<ActionDataResult<{ id: string; projectId: string; title: string }>> {

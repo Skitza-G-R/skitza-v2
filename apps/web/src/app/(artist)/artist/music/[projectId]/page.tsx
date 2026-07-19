@@ -45,8 +45,12 @@ export default async function ArtistProjectPage({ params }: PageProps) {
 
   const caller = appRouter.createCaller({ userId });
   let data;
+  let sessionData;
   try {
-    data = await caller.artist.music.project({ projectId });
+    [data, sessionData] = await Promise.all([
+      caller.library.music.artistProject({ projectId }),
+      caller.artist.music.project({ projectId }),
+    ]);
   } catch (e) {
     if (e instanceof TRPCError && e.code === "NOT_FOUND") notFound();
     throw e;
@@ -57,30 +61,41 @@ export default async function ArtistProjectPage({ params }: PageProps) {
   // (see procedure header on artist.music.project).
   const wire: ProjectPageData = {
     project: {
-      id: data.project.id,
-      title: data.project.title,
-      clientName: data.project.clientName,
-      createdAtIso: data.project.createdAt.toISOString(),
-      lifecycleStatus: data.project.lifecycleStatus,
+      id: data.id,
+      title: data.title,
+      clientName: data.partnerName,
+      createdAtIso: data.createdAt.toISOString(),
+      lifecycleStatus: data.lifecycleStatus,
     },
-    tracks: data.tracks.map((t) => ({
-      id: t.id,
-      trackId: t.trackId,
-      title: t.title,
-      artist: t.artist,
-      versionLabel: t.versionLabel,
-      audioUrl: t.audioUrl,
-      durationMs: t.durationMs,
-      uploadedAtIso: t.uploadedAt.toISOString(),
-      unreadComments: t.unreadComments,
-      plays: t.plays,
-    })),
+    tracks: [
+      ...data.songs.map((song) => ({
+        kind: "track" as const,
+        id: song.id,
+        trackId: song.trackId,
+        title: song.title,
+        artist: song.artist,
+        versionLabel: song.latestVersion?.label ?? null,
+        latestVersionId: song.latestVersion?.id ?? null,
+        audioUrl: song.latestVersion?.audioUrl ?? null,
+        durationMs: song.latestVersion?.durationMs ?? null,
+        uploadedAtIso: song.latestVersion?.uploadedAt.toISOString() ?? null,
+        unreadComments: song.unreadComments,
+        plays: song.plays,
+      })),
+      ...data.emptySlots.map((slot) => ({
+        kind: "empty-slot" as const,
+        id: slot.id,
+        purchaseId: slot.purchaseId,
+        slotIndex: slot.slotNumber,
+        title: slot.title,
+      })),
+    ],
   };
 
   // Sessions on the artist L2 — same data the prior NowPlaying screen
   // surfaced. Dates flip to ISO so the SessionsPanel client component
   // can render them with the device locale.
-  const sessions: SessionRow[] = data.sessions.map((s) => ({
+  const sessions: SessionRow[] = sessionData.sessions.map((s) => ({
     id: s.id,
     startsAtIso: s.startsAt.toISOString(),
     durationMin: s.durationMin,

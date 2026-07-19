@@ -46,16 +46,19 @@ describe("SongsTab — Songs panel for the album page", () => {
     expect(SRC).toContain("onDrop");
   });
 
-  it("imports + mounts UploadTrackModal so '+ Add song' opens the modal (Phase 4)", () => {
-    expect(SRC).toContain("UploadTrackModal");
-    expect(SRC).toContain("~/components/dashboard/song/upload-track-modal");
-    // Modal mode is locked to "new-song" — the picker defaults to "+ New song"
-    expect(SRC).toMatch(/mode=["']new-song["']/);
+  it("delegates Add Song to the purchased-space flow without opening upload", () => {
+    expect(SRC).toContain("onAddSong?.(slot)");
+    expect(SRC).not.toContain("UploadTrackModal");
+    expect(SRC).not.toContain("~/components/dashboard/song/upload-track-modal");
+    expect(SRC).not.toMatch(/mode=["']new-song["']/);
   });
 
-  it("owns uploadOpen state locally so the modal lives next to the trigger", () => {
-    expect(SRC).toMatch(/uploadOpen/);
-    expect(SRC).toMatch(/setUploadOpen/);
+  it("renders purchased empty song spaces before audio exists", () => {
+    expect(SRC).toContain("emptySlots.map");
+    expect(SRC).toContain("Purchased song space · ready to name");
+    expect(SRC).toContain("slot.label");
+    expect(SRC).toContain("handleAddSong(slot)");
+    expect(SRC).toContain("purchaseId: string");
   });
 
   it("sets role=tabpanel on the wrapping section", () => {

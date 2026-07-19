@@ -1,21 +1,11 @@
 "use client";
 
-import {
-  Clock3,
-  MoreHorizontal,
-  Play,
-  Share2,
-  Shuffle,
-} from "lucide-react";
+import { AudioLines, Clock3, Play, Plus, Share2, Shuffle } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { EqBars } from "~/components/audio/eq-bars";
-import {
-  playerPlay,
-  playerToggle,
-  useNowPlaying,
-} from "~/components/audio/persistent-player";
+import { playerPlay, playerToggle, useNowPlaying } from "~/components/audio/persistent-player";
 
 import { ProjectCover } from "~/components/music/project-cover";
 import {
@@ -24,26 +14,44 @@ import {
   formatProjectFooter,
   gradientForSeed,
   GRADIENT_CSS,
-  kindFromTrackCount,
   padIndex,
   sumDurations,
+  type ProjectKind,
 } from "~/components/music/lib";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
 
 // ─── Wire types ──────────────────────────────────────────────────────
 
 export interface ProjectPageTrack {
-  id: string; // latest version id
+  kind?: "track";
+  /** Stable row id. Older callers may continue passing latest-version id. */
+  id: string;
   trackId: string;
   title: string;
   artist: string | null;
-  versionLabel: string;
+  versionLabel: string | null;
+  /** Undefined preserves the legacy `id is version id` contract. */
+  latestVersionId?: string | null;
   audioUrl: string | null;
   durationMs: number | null;
-  uploadedAtIso: string;
+  uploadedAtIso: string | null;
   unreadComments: number;
   plays: number;
+  /** Real upload/add-version destination for an allocated no-audio song. */
+  actionHref?: string | null;
 }
+
+export interface ProjectPageEmptySlot {
+  kind: "empty-slot";
+  id: string;
+  purchaseId: string;
+  slotIndex: number;
+  title?: string;
+  /** Real Add Song destination that claims this exact purchase space. */
+  actionHref?: string | null;
+}
+
+export type ProjectPageMusicItem = ProjectPageTrack | ProjectPageEmptySlot;
 
 export interface ProjectPageData {
   project: {
@@ -51,14 +59,61 @@ export interface ProjectPageData {
     title: string;
     clientName: string | null;
     createdAtIso: string;
-    lifecycleStatus?:
-      | "waiting_for_payment"
-      | "active"
-      | "paused"
-      | "completed"
-      | "canceled";
+    lifecycleStatus?: "waiting_for_payment" | "active" | "paused" | "completed" | "canceled";
   };
-  tracks: ProjectPageTrack[];
+  /** Allocated tracks and synthesized, unallocated purchase spaces. */
+  tracks: ProjectPageMusicItem[];
+}
+
+export function isProjectPageEmptySlot(item: ProjectPageMusicItem): item is ProjectPageEmptySlot {
+  return item.kind === "empty-slot";
+}
+
+export function isProjectPageTrack(item: ProjectPageMusicItem): item is ProjectPageTrack {
+  return !isProjectPageEmptySlot(item);
+}
+
+export function latestVersionIdForProjectTrack(track: ProjectPageTrack): string | null {
+  return track.latestVersionId === undefined ? track.id : track.latestVersionId;
+}
+
+function projectItemActionHref(
+  actionHref: string | null | undefined,
+  fallbackHref: string | undefined,
+): string | undefined {
+  // Explicit null is a fail-closed eligibility decision. Only callers that
+  // omit the field inherit the project-level fallback.
+  return actionHref === undefined ? fallbackHref : (actionHref ?? undefined);
+}
+
+export function projectKindFromVisibleSpaces(count: number): ProjectKind {
+  return count <= 1 ? "SINGLE" : "ALBUM";
+}
+
+export function summarizeProjectMusic(items: ProjectPageMusicItem[]) {
+  const tracks = items.filter(isProjectPageTrack);
+  const playableTracks = tracks.filter(
+    (track) => Boolean(track.audioUrl) && latestVersionIdForProjectTrack(track) !== null,
+  );
+  let lastUploadIso: string | null = null;
+  let lastUploadMs = 0;
+  for (const track of tracks) {
+    if (!track.uploadedAtIso) continue;
+    const uploadedAtMs = Date.parse(track.uploadedAtIso);
+    if (Number.isFinite(uploadedAtMs) && uploadedAtMs > lastUploadMs) {
+      lastUploadMs = uploadedAtMs;
+      lastUploadIso = track.uploadedAtIso;
+    }
+  }
+  return {
+    kind: projectKindFromVisibleSpaces(items.length),
+    visibleSpaceCount: items.length,
+    allocatedSongCount: tracks.length,
+    emptySpaceCount: items.length - tracks.length,
+    playableTrackCount: playableTracks.length,
+    totalDurationMs: sumDurations(tracks.map((track) => track.durationMs)),
+    lastUploadIso,
+  };
 }
 
 // Which side of the app is rendering this screen. Default = "producer"
@@ -80,42 +135,29 @@ export type ProjectPageRole = "producer" | "artist";
 export function ProjectPage({
   data,
   role = "producer",
+  producerActionHref,
   extraBelow,
 }: {
   data: ProjectPageData;
   role?: ProjectPageRole;
+  /** Fallback for producer Add Song/upload actions; omitted means no fake CTA. */
+  producerActionHref?: string;
   extraBelow?: React.ReactNode;
 }) {
   const nowPlaying = useNowPlaying();
-  // Inline "Link copied" confirmation. Auto-dismisses 2.4s after the
-  // share action triggers a clipboard fallback. Inline (not a modal /
-  // toast) per the impeccable rule "modals are usually laziness."
   const [shareConfirm, setShareConfirm] = useState<null | "copied" | "shared">(null);
 
-  const gradient = useMemo(
-    () => gradientForSeed(data.project.id),
-    [data.project.id],
+  const gradient = useMemo(() => gradientForSeed(data.project.id), [data.project.id]);
+  const summary = useMemo(() => summarizeProjectMusic(data.tracks), [data.tracks]);
+  const { kind, totalDurationMs, lastUploadIso, visibleSpaceCount, allocatedSongCount } = summary;
+  const allocatedTracks = useMemo(() => data.tracks.filter(isProjectPageTrack), [data.tracks]);
+  const playableTracks = useMemo(
+    () =>
+      allocatedTracks.filter(
+        (track) => Boolean(track.audioUrl) && latestVersionIdForProjectTrack(track) !== null,
+      ),
+    [allocatedTracks],
   );
-  const kind = useMemo(
-    () => kindFromTrackCount(data.tracks.length),
-    [data.tracks.length],
-  );
-  const totalDurationMs = useMemo(
-    () => sumDurations(data.tracks.map((t) => t.durationMs)),
-    [data.tracks],
-  );
-  const lastUploadIso = useMemo(() => {
-    let max = 0;
-    let iso: string | null = null;
-    for (const t of data.tracks) {
-      const ts = Date.parse(t.uploadedAtIso);
-      if (Number.isFinite(ts) && ts > max) {
-        max = ts;
-        iso = t.uploadedAtIso;
-      }
-    }
-    return iso;
-  }, [data.tracks]);
   const artistLabel = (data.project.clientName ?? "").trim() || "Unknown artist";
   const archivedLabel =
     data.project.lifecycleStatus === "completed"
@@ -124,43 +166,47 @@ export function ProjectPage({
         ? "Archived · Canceled"
         : null;
 
-  // Auto-dismiss the share confirmation after a short window.
   useEffect(() => {
     if (shareConfirm === null) return;
-    const t = window.setTimeout(() => {
+    const timeout = window.setTimeout(() => {
       setShareConfirm(null);
     }, 2400);
     return () => {
-      window.clearTimeout(t);
+      window.clearTimeout(timeout);
     };
   }, [shareConfirm]);
 
   // Build a PlayerTrack payload for a given row.
   function toPlayerTrack(t: ProjectPageTrack) {
+    const versionId = latestVersionIdForProjectTrack(t);
+    if (!versionId) return null;
     return {
-      id: t.id,
+      id: versionId,
       audioUrl: t.audioUrl,
       title: t.title,
-      subtitle: `${artistLabel} · ${t.versionLabel}`,
+      subtitle: `${artistLabel} · ${t.versionLabel ?? "No version"}`,
       durationMs: t.durationMs,
     };
   }
 
   function handlePlayTrack(t: ProjectPageTrack) {
-    if (!t.audioUrl) return;
-    if (nowPlaying.trackId === t.id) {
+    const playerTrack = toPlayerTrack(t);
+    if (!t.audioUrl || !playerTrack) return;
+    if (nowPlaying.trackId === playerTrack.id) {
       playerToggle();
       return;
     }
-    playerPlay(toPlayerTrack(t));
+    playerPlay(playerTrack);
   }
 
   function handlePlayProject() {
     // "Play current track if it's in this project, else the first."
-    const currentInProject = data.tracks.find((t) => t.id === nowPlaying.trackId);
-    const target = currentInProject ?? data.tracks[0];
+    const currentInProject = playableTracks.find(
+      (track) => latestVersionIdForProjectTrack(track) === nowPlaying.trackId,
+    );
+    const target = currentInProject ?? playableTracks[0];
     if (!target) return;
-    if (nowPlaying.trackId === target.id) {
+    if (nowPlaying.trackId === latestVersionIdForProjectTrack(target)) {
       playerToggle();
       return;
     }
@@ -168,12 +214,8 @@ export function ProjectPage({
   }
 
   function handleShuffle() {
-    // Pick a random track and start it. No shuffle queue persistence
-    // for v1 — single-shot randomization is good enough for the action
-    // rail's "Shuffle" affordance.
-    if (data.tracks.length === 0) return;
-    const idx = Math.floor(Math.random() * data.tracks.length);
-    const target = data.tracks[idx];
+    if (playableTracks.length === 0) return;
+    const target = playableTracks[Math.floor(Math.random() * playableTracks.length)];
     if (target) handlePlayTrack(target);
   }
 
@@ -188,7 +230,7 @@ export function ProjectPage({
         await navigator.clipboard.writeText(url);
         setShareConfirm("copied");
       } catch {
-        // Neither API available — the affordance is non-destructive.
+        // Neither API is available; sharing remains non-destructive.
       }
     }
   }
@@ -196,12 +238,16 @@ export function ProjectPage({
   // Whole project-play playing state (true when ANY track in the
   // project is currently playing — drives the hero play button glyph).
   const projectTrackIds = useMemo(
-    () => new Set(data.tracks.map((t) => t.id)),
-    [data.tracks],
+    () =>
+      new Set(
+        playableTracks
+          .map(latestVersionIdForProjectTrack)
+          .filter((id): id is string => id !== null),
+      ),
+    [playableTracks],
   );
   const projectIsPlaying =
-    nowPlaying.playing && nowPlaying.trackId !== null &&
-    projectTrackIds.has(nowPlaying.trackId);
+    nowPlaying.playing && nowPlaying.trackId !== null && projectTrackIds.has(nowPlaying.trackId);
 
   return (
     <main className="sk-page-enter">
@@ -242,28 +288,10 @@ export function ProjectPage({
           <SetTopBarBreadcrumb
             crumbs={
               data.project.clientName
-                ? [
-                    { label: data.project.clientName },
-                    { label: data.project.title },
-                  ]
+                ? [{ label: data.project.clientName }, { label: data.project.title }]
                 : [{ label: data.project.title }]
             }
           />
-
-          {/* Top row: just the ellipsis (More actions) now. The back-
-              arrow that used to sit on the left was redundant with the
-              topbar's "Music" link — same destination, two affordances
-              — so design-critique flagged it for removal. */}
-          <div className="reveal-up mb-6 flex items-center justify-end gap-3 text-white">
-            <button
-              type="button"
-              aria-label="More actions"
-              title="More actions"
-              className="sk-press sk-trans inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/22 bg-white/14 text-white backdrop-blur-sm hover:bg-white/22"
-            >
-              <MoreHorizontal size={14} />
-            </button>
-          </div>
 
           {/* Cover + meta — flex row from sm up, ends at bottom so the
               title baseline aligns with the cover's bottom edge. Below
@@ -311,7 +339,7 @@ export function ProjectPage({
                   {kind}
                 </span>
                 {archivedLabel ? (
-                  <span className="inline-flex rounded-[var(--radius-sm)] border border-white/25 bg-white/12 px-2 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.08em] text-white/90 backdrop-blur-sm">
+                  <span className="inline-flex rounded-[var(--radius-sm)] border border-white/25 bg-white/12 px-2 py-0.5 font-mono text-[9.5px] font-bold tracking-[0.08em] text-white/90 uppercase backdrop-blur-sm">
                     {archivedLabel}
                   </span>
                 ) : null}
@@ -324,7 +352,7 @@ export function ProjectPage({
                   reads as bold without becoming a billboard. Apple
                   Music's album hero caps around 56–60px. */}
               <h1
-                className="reveal-up reveal-up-delay-2 mt-3 font-display text-[32px] font-extrabold text-white sm:text-[length:clamp(36px,4.4vw,60px)]"
+                className="reveal-up reveal-up-delay-2 font-display mt-3 text-[32px] font-extrabold text-white sm:text-[length:clamp(36px,4.4vw,60px)]"
                 style={{
                   lineHeight: 0.96,
                   letterSpacing: "-0.035em",
@@ -338,36 +366,45 @@ export function ProjectPage({
                 className="reveal-up reveal-up-delay-3 mt-4 text-[13px]"
                 style={{ color: "rgba(255,255,255,0.92)" }}
               >
-                {artistLabel} · {String(data.tracks.length)} track
-                {data.tracks.length === 1 ? "" : "s"} ·{" "}
-                <span className="font-mono tabular-nums">
-                  {fmtDuration(totalDurationMs)}
-                </span>
+                {artistLabel} · {String(visibleSpaceCount)} song space
+                {visibleSpaceCount === 1 ? "" : "s"} ·{" "}
+                <span className="font-mono tabular-nums">{fmtDuration(totalDurationMs)}</span>
               </p>
             </div>
           </div>
 
           {/* Action row */}
           <div className="reveal-up reveal-up-delay-4 mt-6 flex flex-wrap items-center gap-3.5">
-            <button
-              type="button"
-              aria-label={projectIsPlaying ? "Pause project" : "Play project"}
-              title={projectIsPlaying ? "Pause (Space)" : "Play (Space)"}
-              onClick={handlePlayProject}
-              className={[
-                "sk-press inline-flex h-[60px] w-[60px] items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))] shadow-[0_8px_22px_rgba(17,16,9,0.28)]",
-                projectIsPlaying ? "skitza-playing-glow" : "",
-              ].join(" ")}
-            >
-              {projectIsPlaying ? (
-                <EqBars playing size={20} />
-              ) : (
-                <Play size={20} strokeWidth={2.6} fill="currentColor" />
-              )}
-            </button>
-            <CircleIconButton ariaLabel="Shuffle" title="Shuffle play" onClick={handleShuffle}>
-              <Shuffle size={16} strokeWidth={2.2} />
-            </CircleIconButton>
+            {playableTracks.length > 0 ? (
+              <button
+                type="button"
+                aria-label={projectIsPlaying ? "Pause project" : "Play project"}
+                title={projectIsPlaying ? "Pause (Space)" : "Play (Space)"}
+                onClick={handlePlayProject}
+                className={[
+                  "sk-press inline-flex h-[60px] w-[60px] items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))] shadow-[0_8px_22px_rgba(17,16,9,0.28)]",
+                  projectIsPlaying ? "skitza-playing-glow" : "",
+                ].join(" ")}
+              >
+                {projectIsPlaying ? (
+                  <EqBars playing size={20} />
+                ) : (
+                  <Play size={20} strokeWidth={2.6} fill="currentColor" />
+                )}
+              </button>
+            ) : (
+              <span
+                role="status"
+                className="inline-flex min-h-10 items-center rounded-[var(--radius-lg)] border border-white/30 bg-white/12 px-3 text-[11.5px] font-bold text-white backdrop-blur-sm"
+              >
+                Audio has not been uploaded yet
+              </span>
+            )}
+            {playableTracks.length > 0 ? (
+              <CircleIconButton ariaLabel="Shuffle" title="Shuffle play" onClick={handleShuffle}>
+                <Shuffle size={16} strokeWidth={2.2} />
+              </CircleIconButton>
+            ) : null}
             <CircleIconButton
               ariaLabel="Share"
               title="Share project link"
@@ -375,12 +412,15 @@ export function ProjectPage({
             >
               <Share2 size={16} strokeWidth={2.2} />
             </CircleIconButton>
-            <CircleIconButton ariaLabel="More" title="More actions">
-              <MoreHorizontal size={16} strokeWidth={2.2} />
-            </CircleIconButton>
-            {/* Inline share confirmation. Mounts only briefly; CSS
-                fade-in via reveal-up. role="status" so screen readers
-                announce the result. */}
+            {role === "producer" && producerActionHref ? (
+              <Link
+                href={producerActionHref}
+                className="sk-press inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] border border-white/30 bg-white/12 px-4 text-[12px] font-bold text-white backdrop-blur-sm"
+              >
+                <Plus size={14} strokeWidth={2.4} />
+                {kind === "SINGLE" && allocatedSongCount === 1 ? "Add another song" : "Add Song"}
+              </Link>
+            ) : null}
             {shareConfirm ? (
               <span
                 role="status"
@@ -402,16 +442,17 @@ export function ProjectPage({
         }}
       >
         {data.tracks.length === 0 ? (
-          <EmptyTracklist projectId={data.project.id} role={role} />
+          <EmptyTracklist role={role} producerActionHref={producerActionHref} />
         ) : (
           <>
             <Tracklist
-              tracks={data.tracks}
+              items={data.tracks}
               projectId={data.project.id}
               nowPlayingId={nowPlaying.trackId}
               isPlaying={nowPlaying.playing}
               onPlay={handlePlayTrack}
               role={role}
+              producerActionHref={producerActionHref}
             />
             <footer
               className="mt-7 flex flex-col gap-1 pt-4 font-mono text-[11.5px] text-[rgb(var(--fg-muted))]"
@@ -419,13 +460,11 @@ export function ProjectPage({
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span>
-                  <span className="font-bold tabular-nums text-[rgb(var(--fg-default))]">
-                    {String(data.tracks.length)}
+                  <span className="font-bold text-[rgb(var(--fg-default))] tabular-nums">
+                    {String(visibleSpaceCount)}
                   </span>{" "}
-                  track{data.tracks.length === 1 ? "" : "s"} ·{" "}
-                  <span className="tabular-nums">
-                    {fmtDuration(totalDurationMs)}
-                  </span>
+                  song space{visibleSpaceCount === 1 ? "" : "s"} ·{" "}
+                  <span className="tabular-nums">{fmtDuration(totalDurationMs)}</span>
                 </span>
                 <span className="truncate">{artistLabel}</span>
               </div>
@@ -435,9 +474,7 @@ export function ProjectPage({
                   lastUploadIso,
                 });
                 return meta ? (
-                  <div className="text-[10.5px] text-[rgb(var(--fg-faint))]">
-                    {meta}
-                  </div>
+                  <div className="text-[10.5px] text-[rgb(var(--fg-faint))]">{meta}</div>
                 ) : null;
               })()}
             </footer>
@@ -452,19 +489,15 @@ export function ProjectPage({
   );
 }
 
-// ─── Local primitives ────────────────────────────────────────────────
-
 function CircleIconButton({
   ariaLabel,
   title,
   onClick,
-  active,
   children,
 }: {
   ariaLabel: string;
   title?: string;
   onClick?: () => void;
-  active?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -473,12 +506,7 @@ function CircleIconButton({
       aria-label={ariaLabel}
       title={title ?? ariaLabel}
       onClick={onClick}
-      className={[
-        "sk-press sk-trans inline-flex h-10 w-10 items-center justify-center rounded-full",
-        active
-          ? "bg-white text-[rgb(17_16_9)]"
-          : "bg-transparent text-white hover:bg-white/12",
-      ].join(" ")}
+      className="sk-press sk-trans inline-flex h-11 w-11 items-center justify-center rounded-full bg-transparent text-white hover:bg-white/12"
       style={{ border: "1px solid rgba(255,255,255,0.92)" }}
     >
       {children}
@@ -487,21 +515,23 @@ function CircleIconButton({
 }
 
 function Tracklist({
-  tracks,
+  items,
   projectId,
   nowPlayingId,
   isPlaying,
   onPlay,
   role,
+  producerActionHref,
 }: {
-  tracks: ProjectPageTrack[];
+  items: ProjectPageMusicItem[];
   projectId: string;
   nowPlayingId: string | null;
   isPlaying: boolean;
   onPlay: (t: ProjectPageTrack) => void;
   role: ProjectPageRole;
+  producerActionHref: string | undefined;
 }) {
-  const cols = "36px minmax(0,1fr) 86px 80px 60px 44px";
+  const cols = "44px minmax(0,1fr) 86px 80px 60px 72px 44px";
   return (
     <>
       {/* Header eyebrow row — desktop only. Below lg the fixed px
@@ -509,7 +539,7 @@ function Tracklist({
           + grid rows) is lg+ and phones get the compact list rows
           rendered at the end. */}
       <div
-        className="grid items-center gap-3 px-4 pb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))] max-lg:hidden"
+        className="grid items-center gap-3 px-4 pb-2 text-[10px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase max-lg:hidden"
         style={{
           gridTemplateColumns: cols,
           borderBottom: "1px solid rgb(var(--border-subtle))",
@@ -523,134 +553,23 @@ function Tracklist({
         <span className="flex justify-end">
           <Clock3 size={11} strokeWidth={2} />
         </span>
+        <span aria-hidden />
       </div>
       <ul role="list" className="max-lg:hidden">
-        {tracks.map((t, idx) => {
-          const isCurrent = nowPlayingId === t.id;
-          const playingHere = isCurrent && isPlaying;
-          // Whole row is a <Link> → L3 song page on both sides
-          // (Spotify + Apple Music both use this pattern: clickable
-          // row, dedicated play affordance). The inner play button
-          // calls preventDefault + stopPropagation so clicking it
-          // plays without navigating. Only the URL differs by role.
-          const rowHref =
-            role === "producer"
-              ? `/dashboard/music/${t.id}?from=${projectId}`
-              : `/artist/music/song/${t.id}`;
-          const rowClassName = [
-            "group relative grid items-center gap-3 px-4 py-2.5",
-            isCurrent
-              ? "bg-[rgb(var(--brand-primary)/0.06)]"
-              : "hover:bg-[rgb(var(--bg-overlay))]",
-          ].join(" ");
-          const rowStyle: React.CSSProperties = {
-            gridTemplateColumns: cols,
-            borderRadius: 12,
-            transition: "background-color 140ms ease-out",
-          };
-          return (
-            <li
-              key={t.id}
-              className="sk-stagger-item"
-              style={{ "--i": String(idx) } as React.CSSProperties}
-            >
-              <Link
-                href={rowHref}
-                aria-label={`Open ${t.title} song page`}
-                className={rowClassName}
-                style={rowStyle}
-              >
-                {/* Index → play swap */}
-                <span className="relative flex justify-end">
-                  <button
-                    type="button"
-                    aria-label={playingHere ? "Pause" : "Play"}
-                    title={playingHere ? "Pause (Space)" : "Play (Space)"}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      onPlay(t);
-                    }}
-                    disabled={!t.audioUrl}
-                    className={[
-                      "sk-press sk-trans inline-flex h-[26px] w-[26px] items-center justify-center rounded-full disabled:opacity-40",
-                      isCurrent
-                        ? "skitza-playing-glow bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))]"
-                        : "bg-[rgb(var(--fg-default))] text-white opacity-0 group-hover:opacity-100",
-                    ].join(" ")}
-                  >
-                    {playingHere ? (
-                      <EqBars playing size={11} />
-                    ) : (
-                      <Play size={11} strokeWidth={2.6} fill="currentColor" />
-                    )}
-                  </button>
-                  <span
-                    aria-hidden
-                    className={[
-                      "pointer-events-none absolute font-mono text-[11px] tabular-nums text-[rgb(var(--fg-faint))]",
-                      isCurrent ? "opacity-0" : "group-hover:opacity-0",
-                    ].join(" ")}
-                    style={{
-                      width: 28,
-                      textAlign: "right",
-                      lineHeight: "26px",
-                    }}
-                  >
-                    {padIndex(idx)}
-                  </span>
-                </span>
-
-                {/* Title cell — bare divs since the whole row is the link */}
-                <span className="min-w-0 block">
-                  <p className="truncate text-[14px] font-bold leading-tight text-[rgb(var(--fg-default))]">
-                    {t.title}
-                  </p>
-                  {t.artist ? (
-                    <p className="mt-0.5 truncate font-mono text-[11px] text-[rgb(var(--fg-muted))]">
-                      {t.artist}
-                    </p>
-                  ) : null}
-                </span>
-
-                <span>
-                  <span
-                    className="inline-flex items-center rounded-[6px] px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase text-[rgb(var(--fg-default))]"
-                    style={{
-                      background: "rgb(var(--bg-elevated))",
-                      border: "1px solid rgb(var(--border-subtle))",
-                    }}
-                  >
-                    {t.versionLabel}
-                  </span>
-                </span>
-
-                <span
-                  className="text-right font-mono text-[11px] tabular-nums text-[rgb(var(--fg-muted))]"
-                  style={{ minWidth: 24 }}
-                >
-                  {fmtCount(t.plays)}
-                </span>
-
-                <span
-                  className={[
-                    "text-right font-mono text-[11px] tabular-nums",
-                    t.unreadComments > 0
-                      ? "font-bold text-[rgb(var(--brand-primary-dark))]"
-                      : "text-[rgb(var(--fg-faint))]",
-                  ].join(" ")}
-                  style={{ minWidth: 24 }}
-                >
-                  {fmtCount(t.unreadComments)}
-                </span>
-
-                <span className="text-right font-mono text-[12px] tabular-nums text-[rgb(var(--fg-muted))]">
-                  {fmtDuration(t.durationMs)}
-                </span>
-              </Link>
-            </li>
-          );
-        })}
+        {items.map((item, index) => (
+          <ProjectMusicDesktopRow
+            key={item.id}
+            item={item}
+            index={index}
+            cols={cols}
+            projectId={projectId}
+            nowPlayingId={nowPlayingId}
+            isPlaying={isPlaying}
+            onPlay={onPlay}
+            role={role}
+            producerActionHref={producerActionHref}
+          />
+        ))}
       </ul>
 
       {/* Mobile/tablet (below lg): compact list rows. Same Link target
@@ -658,97 +577,385 @@ function Tracklist({
           44px play circle replaces the hover-reveal index swap (no
           hover on touch). Title + version chip + duration (mono). */}
       <ul role="list" className="lg:hidden">
-        {tracks.map((t, idx) => {
-          const isCurrent = nowPlayingId === t.id;
-          const playingHere = isCurrent && isPlaying;
-          const rowHref =
-            role === "producer"
-              ? `/dashboard/music/${t.id}?from=${projectId}`
-              : `/artist/music/song/${t.id}`;
-          return (
-            <li
-              key={t.id}
-              className="sk-stagger-item"
-              style={{ "--i": String(idx) } as React.CSSProperties}
-            >
-              <Link
-                href={rowHref}
-                aria-label={`Open ${t.title} song page`}
-                className={[
-                  "flex items-center gap-3 px-2 py-2",
-                  isCurrent
-                    ? "bg-[rgb(var(--brand-primary)/0.06)]"
-                    : "active:bg-[rgb(var(--bg-overlay))]",
-                ].join(" ")}
-                style={{
-                  borderRadius: 12,
-                  transition: "background-color 140ms ease-out",
-                }}
-              >
-                <button
-                  type="button"
-                  aria-label={playingHere ? "Pause" : "Play"}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onPlay(t);
-                  }}
-                  disabled={!t.audioUrl}
-                  className={[
-                    "sk-press inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full disabled:opacity-40",
-                    isCurrent
-                      ? "skitza-playing-glow bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))]"
-                      : "bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))]",
-                  ].join(" ")}
-                  style={
-                    isCurrent
-                      ? undefined
-                      : { border: "1px solid rgb(var(--border-subtle))" }
-                  }
-                >
-                  {playingHere ? (
-                    <EqBars playing size={13} />
-                  ) : (
-                    <Play size={14} strokeWidth={2.6} fill="currentColor" />
-                  )}
-                </button>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[14px] font-bold leading-tight text-[rgb(var(--fg-default))]">
-                    {t.title}
-                  </span>
-                  {t.artist ? (
-                    <span className="mt-0.5 block truncate font-mono text-[11px] text-[rgb(var(--fg-muted))]">
-                      {t.artist}
-                    </span>
-                  ) : null}
-                </span>
-                <span
-                  className="inline-flex shrink-0 items-center rounded-[6px] px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase text-[rgb(var(--fg-default))]"
-                  style={{
-                    background: "rgb(var(--bg-elevated))",
-                    border: "1px solid rgb(var(--border-subtle))",
-                  }}
-                >
-                  {t.versionLabel}
-                </span>
-                <span className="shrink-0 font-mono text-[12px] tabular-nums text-[rgb(var(--fg-muted))]">
-                  {fmtDuration(t.durationMs)}
-                </span>
-              </Link>
-            </li>
-          );
-        })}
+        {items.map((item, index) => (
+          <ProjectMusicMobileRow
+            key={item.id}
+            item={item}
+            index={index}
+            projectId={projectId}
+            nowPlayingId={nowPlayingId}
+            isPlaying={isPlaying}
+            onPlay={onPlay}
+            role={role}
+            producerActionHref={producerActionHref}
+          />
+        ))}
       </ul>
     </>
   );
 }
 
-function EmptyTracklist({
+function projectSongHref(role: ProjectPageRole, versionId: string, projectId: string): string {
+  return role === "producer"
+    ? `/dashboard/music/${versionId}?from=${projectId}`
+    : `/artist/music/song/${versionId}`;
+}
+
+function ProjectMusicDesktopRow({
+  item,
+  index,
+  cols,
   projectId,
+  nowPlayingId,
+  isPlaying,
+  onPlay,
   role,
+  producerActionHref,
 }: {
+  item: ProjectPageMusicItem;
+  index: number;
+  cols: string;
   projectId: string;
+  nowPlayingId: string | null;
+  isPlaying: boolean;
+  onPlay: (track: ProjectPageTrack) => void;
   role: ProjectPageRole;
+  producerActionHref: string | undefined;
+}) {
+  const rowStyle: React.CSSProperties = {
+    gridTemplateColumns: cols,
+    borderRadius: 12,
+    transition: "background-color 140ms ease-out",
+  };
+
+  if (isProjectPageEmptySlot(item)) {
+    const actionHref = projectItemActionHref(item.actionHref, producerActionHref);
+    return (
+      <li
+        className="sk-stagger-item"
+        data-project-music-row="empty-slot"
+        style={{ "--i": String(index) } as React.CSSProperties}
+      >
+        <div
+          role="group"
+          aria-label={`${item.title?.trim() || `Song space ${String(item.slotIndex)}`}, empty purchased song space`}
+          className="grid items-center gap-3 px-4 py-2.5"
+          style={rowStyle}
+        >
+          <span className="flex justify-end font-mono text-[11px] text-[rgb(var(--fg-faint))] tabular-nums">
+            {padIndex(index)}
+          </span>
+          <span className="min-w-0">
+            <span className="flex items-center gap-2">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[6px] border border-dashed border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-sunken))] text-[rgb(var(--fg-faint))]">
+                <AudioLines size={14} strokeWidth={1.8} />
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-[14px] leading-tight font-bold text-[rgb(var(--fg-default))]">
+                  {item.title?.trim() || `Song space ${String(item.slotIndex)}`}
+                </span>
+                <span className="block truncate text-[10.5px] text-[rgb(var(--fg-muted))]">
+                  {role === "producer"
+                    ? "Purchased space ready for a song"
+                    : "Waiting for your producer"}
+                </span>
+              </span>
+            </span>
+          </span>
+          <span className="font-mono text-[9.5px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
+            Empty
+          </span>
+          <span />
+          <span />
+          <span className="flex justify-end font-mono text-[9px] text-[rgb(var(--fg-faint))] uppercase">
+            No audio
+          </span>
+          <span className="flex justify-end">
+            {role === "producer" && actionHref ? (
+              <Link
+                href={actionHref}
+                aria-label="Add song to this purchased space"
+                className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))]"
+              >
+                <Plus size={14} strokeWidth={2.4} />
+              </Link>
+            ) : null}
+          </span>
+        </div>
+      </li>
+    );
+  }
+
+  const versionId = latestVersionIdForProjectTrack(item);
+  const canPlay = Boolean(item.audioUrl) && versionId !== null;
+  const current = canPlay && nowPlayingId === versionId;
+  const playingHere = current && isPlaying;
+  const rowHref = canPlay && versionId ? projectSongHref(role, versionId, projectId) : null;
+  const actionHref = projectItemActionHref(item.actionHref, producerActionHref);
+  return (
+    <li
+      className="sk-stagger-item"
+      data-project-music-row={canPlay ? "allocated-playable" : "allocated-no-audio"}
+      style={{ "--i": String(index) } as React.CSSProperties}
+    >
+      <div
+        role="group"
+        aria-label={canPlay ? `${item.title}, playable song` : `${item.title}, awaiting audio`}
+        className={[
+          "group relative grid items-center gap-3 px-4 py-2.5",
+          current ? "bg-[rgb(var(--brand-primary)/0.06)]" : "",
+        ].join(" ")}
+        style={rowStyle}
+      >
+        {rowHref ? (
+          <Link
+            href={rowHref}
+            aria-label={`Open ${item.title} song page`}
+            className="absolute inset-0 z-0 rounded-[12px] transition-colors hover:bg-[rgb(var(--bg-overlay))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset"
+          />
+        ) : null}
+        <span className="relative z-10 flex justify-end">
+          {canPlay ? (
+            <button
+              type="button"
+              aria-label={playingHere ? "Pause" : "Play"}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onPlay(item);
+              }}
+              className={[
+                "sk-press sk-trans inline-flex h-11 w-11 items-center justify-center rounded-full focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-background))]",
+                current
+                  ? "skitza-playing-glow bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))]"
+                  : "bg-[rgb(var(--fg-default))] text-white opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
+              ].join(" ")}
+            >
+              {playingHere ? (
+                <EqBars playing size={11} />
+              ) : (
+                <Play size={11} strokeWidth={2.6} fill="currentColor" />
+              )}
+            </button>
+          ) : null}
+          <span
+            aria-hidden
+            className={[
+              "pointer-events-none absolute font-mono text-[11px] text-[rgb(var(--fg-faint))] tabular-nums",
+              canPlay && current ? "opacity-0" : "",
+              canPlay ? "group-hover:opacity-0 group-focus-within:opacity-0" : "",
+            ].join(" ")}
+            style={{ width: 44, textAlign: "right", lineHeight: "44px" }}
+          >
+            {padIndex(index)}
+          </span>
+        </span>
+        <span className="pointer-events-none relative z-10 block min-w-0">
+          <span className="block truncate text-[14px] leading-tight font-bold text-[rgb(var(--fg-default))]">
+            {item.title}
+          </span>
+          <span className="truncate text-[10.5px] text-[rgb(var(--fg-muted))]">
+            {canPlay
+              ? (item.artist ?? "")
+              : role === "producer"
+                ? "Allocated song, ready for the first upload"
+                : "Waiting for your producer"}
+          </span>
+        </span>
+        <span className="pointer-events-none relative z-10 font-mono text-[9.5px] font-bold text-[rgb(var(--fg-default))] uppercase">
+          {item.versionLabel ?? "No version"}
+        </span>
+        <span className="pointer-events-none relative z-10 text-right font-mono text-[11px] text-[rgb(var(--fg-muted))] tabular-nums">
+          {canPlay ? fmtCount(item.plays) : ""}
+        </span>
+        <span
+          className={[
+            "pointer-events-none relative z-10 text-right font-mono text-[11px] tabular-nums",
+            item.unreadComments > 0
+              ? "font-bold text-[rgb(var(--brand-primary-dark))]"
+              : "text-[rgb(var(--fg-faint))]",
+          ].join(" ")}
+        >
+          {fmtCount(item.unreadComments)}
+        </span>
+        <span className="relative z-20 flex justify-end">
+          {!canPlay && role === "producer" && actionHref ? (
+            <Link
+              href={actionHref}
+              aria-label={`Upload audio for ${item.title}`}
+              className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))]"
+            >
+              <Plus size={14} strokeWidth={2.4} />
+            </Link>
+          ) : (
+            <span className="font-mono text-[10px] text-[rgb(var(--fg-muted))] tabular-nums">
+              {canPlay ? fmtDuration(item.durationMs) : "No audio"}
+            </span>
+          )}
+        </span>
+      </div>
+    </li>
+  );
+}
+
+function ProjectMusicMobileRow({
+  item,
+  index,
+  projectId,
+  nowPlayingId,
+  isPlaying,
+  onPlay,
+  role,
+  producerActionHref,
+}: {
+  item: ProjectPageMusicItem;
+  index: number;
+  projectId: string;
+  nowPlayingId: string | null;
+  isPlaying: boolean;
+  onPlay: (track: ProjectPageTrack) => void;
+  role: ProjectPageRole;
+  producerActionHref: string | undefined;
+}) {
+  const rowStyle: React.CSSProperties = {
+    borderRadius: 12,
+    transition: "background-color 140ms ease-out",
+  };
+
+  if (isProjectPageEmptySlot(item)) {
+    const actionHref = projectItemActionHref(item.actionHref, producerActionHref);
+    return (
+      <li
+        className="sk-stagger-item"
+        data-project-music-row="empty-slot"
+        style={{ "--i": String(index) } as React.CSSProperties}
+      >
+        <div
+          role="group"
+          aria-label={`${item.title?.trim() || `Song space ${String(item.slotIndex)}`}, empty purchased song space`}
+          className="flex min-h-[64px] items-center gap-3 px-2 py-2"
+          style={rowStyle}
+        >
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[8px] border border-dashed border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-sunken))] text-[rgb(var(--fg-faint))]">
+            <AudioLines size={17} strokeWidth={1.8} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[14px] leading-tight font-bold text-[rgb(var(--fg-default))]">
+              {item.title?.trim() || `Song space ${String(item.slotIndex)}`}
+            </span>
+            <span className="block truncate text-[10.5px] text-[rgb(var(--fg-muted))]">
+              {role === "producer" ? "Purchased space" : "Waiting for your producer"}
+            </span>
+          </span>
+          {role === "producer" && actionHref ? (
+            <Link
+              href={actionHref}
+              className="sk-press inline-flex min-h-11 shrink-0 items-center gap-1 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-3 text-[11px] font-bold text-[rgb(var(--fg-default))]"
+            >
+              <Plus size={12} strokeWidth={2.4} />
+              Add Song
+            </Link>
+          ) : null}
+        </div>
+      </li>
+    );
+  }
+
+  const versionId = latestVersionIdForProjectTrack(item);
+  const canPlay = Boolean(item.audioUrl) && versionId !== null;
+  const current = canPlay && nowPlayingId === versionId;
+  const playingHere = current && isPlaying;
+  const rowHref = canPlay && versionId ? projectSongHref(role, versionId, projectId) : null;
+  const actionHref = projectItemActionHref(item.actionHref, producerActionHref);
+  return (
+    <li
+      className="sk-stagger-item"
+      data-project-music-row={canPlay ? "allocated-playable" : "allocated-no-audio"}
+      style={{ "--i": String(index) } as React.CSSProperties}
+    >
+      <div
+        role="group"
+        aria-label={canPlay ? `${item.title}, playable song` : `${item.title}, awaiting audio`}
+        className={[
+          "group relative flex min-h-[64px] items-center gap-3 px-2 py-2",
+          current ? "bg-[rgb(var(--brand-primary)/0.06)]" : "",
+        ].join(" ")}
+        style={rowStyle}
+      >
+        {rowHref ? (
+          <Link
+            href={rowHref}
+            aria-label={`Open ${item.title} song page`}
+            className="absolute inset-0 z-0 rounded-[12px] transition-colors active:bg-[rgb(var(--bg-overlay))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset"
+          />
+        ) : null}
+        {canPlay ? (
+          <button
+            type="button"
+            aria-label={playingHere ? "Pause" : "Play"}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onPlay(item);
+            }}
+            className={[
+              "sk-press relative z-20 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full",
+              current
+                ? "skitza-playing-glow bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))]"
+                : "border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))]",
+            ].join(" ")}
+          >
+            {playingHere ? (
+              <EqBars playing size={13} />
+            ) : (
+              <Play size={14} strokeWidth={2.6} fill="currentColor" />
+            )}
+          </button>
+        ) : (
+          <span className="pointer-events-none relative z-10 flex h-11 w-11 shrink-0 items-center justify-center rounded-[8px] border border-dashed border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-sunken))] text-[rgb(var(--fg-faint))]">
+            <AudioLines size={17} strokeWidth={1.8} />
+          </span>
+        )}
+        <span className="pointer-events-none relative z-10 min-w-0 flex-1">
+          <span className="block truncate text-[14px] leading-tight font-bold text-[rgb(var(--fg-default))]">
+            {item.title}
+          </span>
+          <span className="truncate text-[10.5px] text-[rgb(var(--fg-muted))]">
+            {canPlay
+              ? (item.artist ?? "")
+              : role === "producer"
+                ? "Ready for the first upload"
+                : "Waiting for your producer"}
+          </span>
+        </span>
+        {canPlay ? (
+          <>
+            <span className="pointer-events-none relative z-10 hidden shrink-0 rounded-[6px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-1.5 py-0.5 font-mono text-[9px] font-bold text-[rgb(var(--fg-default))] uppercase min-[480px]:inline-flex">
+              {item.versionLabel ?? "Mix"}
+            </span>
+            <span className="pointer-events-none relative z-10 hidden shrink-0 font-mono text-[11px] text-[rgb(var(--fg-muted))] tabular-nums min-[480px]:inline">
+              {fmtDuration(item.durationMs)}
+            </span>
+          </>
+        ) : role === "producer" && actionHref ? (
+          <Link
+            href={actionHref}
+            className="sk-press relative z-20 inline-flex min-h-11 shrink-0 items-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-3 text-[11px] font-bold text-[rgb(var(--fg-default))]"
+          >
+            Upload
+          </Link>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
+function EmptyTracklist({
+  role,
+  producerActionHref,
+}: {
+  role: ProjectPageRole;
+  producerActionHref: string | undefined;
 }) {
   return (
     <div
@@ -765,15 +972,16 @@ function EmptyTracklist({
       </h3>
       <p className="mt-1 text-[12.5px] text-[rgb(var(--fg-muted))]">
         {role === "producer"
-          ? "Drop a WAV into this project to kick it off."
-          : "Once your producer uploads a mix here, it'll show up below."}
+          ? "Add a purchased song space before uploading its first version."
+          : "Once your producer adds a song, it will show up here."}
       </p>
-      {role === "producer" ? (
+      {role === "producer" && producerActionHref ? (
         <Link
-          href={`/dashboard/clients-projects/${projectId}?tab=music&action=upload`}
-          className="mt-4 inline-flex items-center gap-1.5 rounded-[9px] bg-[rgb(var(--brand-primary))] px-3.5 py-2 text-[12.5px] font-bold text-[rgb(var(--fg-default))]"
+          href={producerActionHref}
+          className="sk-press mt-4 inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-3.5 py-2 text-[12.5px] font-bold text-[rgb(var(--fg-default))]"
         >
-          Upload track
+          <Plus size={13} strokeWidth={2.4} />
+          Add Song
         </Link>
       ) : null}
     </div>

@@ -27,6 +27,7 @@ export interface AlbumHeroProject {
 
 interface AlbumHeroProps {
   project: AlbumHeroProject;
+  mode?: "single" | "album";
   onPlayLatest?: () => void;
   onAddSong?: () => void;
   uploadDisabledReason?: string;
@@ -46,6 +47,7 @@ function formatMoney(cents: number, currency: string): string {
 
 export function AlbumHero({
   project,
+  mode = "album",
   onPlayLatest,
   onAddSong,
   uploadDisabledReason,
@@ -73,7 +75,7 @@ export function AlbumHero({
         background: heroBg(token),
         borderBottomColor: "rgb(var(--border-strong))",
       }}
-      aria-label={`Album page for ${name}`}
+      aria-label={`${mode === "single" ? "Single" : "Album"} page for ${name}`}
     >
       <HeroGlowOrbs />
 
@@ -92,7 +94,7 @@ export function AlbumHero({
 
           <div className="min-w-0 flex-1">
             <p className="text-[10.5px] font-bold tracking-[0.18em] text-white/78 uppercase">
-              PROJECT · {stageEyebrow}
+              {mode === "single" ? "SINGLE" : "PROJECT"} · {stageEyebrow}
             </p>
             <h1
               // <md the title wraps up to 2 lines instead of

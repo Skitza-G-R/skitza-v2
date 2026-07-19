@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 
 // Source-grep test for the new Song Space page. Phase 3 adds this
 // route — it locates the song inside the project payload, decides
-// album vs single mode by track count, and renders <SongSpace />.
+// album vs single mode by purchased visible-space count, and renders <SongSpace />.
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "page.tsx"), "utf-8");
@@ -34,6 +34,11 @@ describe("songs/[songId]/page.tsx — Phase 3 Song Space page", () => {
     expect(SRC).toContain("songId");
   });
 
+  it("reads the upload query and asks SongSpace to open its eligible upload flow", () => {
+    expect(SRC).toMatch(/searchParams\?:\s*Promise<\{[\s\S]*?upload\?:\s*string/);
+    expect(SRC).toMatch(/initialUploadOpen=\{[^}]*upload\s*===\s*["']1["']/);
+  });
+
   it("calls project.detail with the project id", () => {
     expect(SRC).toContain("project.detail");
   });
@@ -46,9 +51,8 @@ describe("songs/[songId]/page.tsx — Phase 3 Song Space page", () => {
     expect(SRC).toMatch(/notFound\(\s*\)/);
   });
 
-  it("computes the album-vs-single mode from data.tracks.length", () => {
-    // tracks.length === 1 ⇒ "single", else "album"
-    expect(SRC).toMatch(/tracks\.length\s*===\s*1/);
+  it("computes album-vs-single mode from the purchased song-space projection", () => {
+    expect(SRC).toContain('data.songSpaces.mode === "single"');
     expect(SRC).toMatch(/["']album["'][\s\S]{0,40}["']single["']|["']single["'][\s\S]{0,40}["']album["']/);
   });
 
