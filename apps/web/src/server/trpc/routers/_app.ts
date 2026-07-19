@@ -12,6 +12,7 @@ import { producerRouter } from "./producer";
 import { producerExternalLinksRouter } from "./producer-external-links";
 import { producerNotesRouter } from "./producer-notes";
 import { projectRouter } from "./project";
+import { privateOffersRouter } from "./private-offers";
 import { publicProfileRouter } from "./public-profile";
 import { waitlistRouter } from "./waitlist";
 
@@ -29,6 +30,7 @@ export const appRouter = router({
   producerExternalLinks: producerExternalLinksRouter,
   producerNotes: producerNotesRouter,
   project: projectRouter,
+  privateOffers: privateOffersRouter,
   publicProfile: publicProfileRouter,
   waitlist: waitlistRouter,
 });

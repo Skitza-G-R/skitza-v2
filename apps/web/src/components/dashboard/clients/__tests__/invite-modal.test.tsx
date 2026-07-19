@@ -46,11 +46,11 @@ describe("InviteToAppModal", () => {
     expect(SRC).toMatch(/via:\s*["']link["']/);
   });
 
-  it("copies skitza.app/invite/<slug>-<id> via navigator.clipboard.writeText", () => {
+  it("copies the shared normal client signup URL without a client or offer id", () => {
     expect(SRC).toMatch(/navigator\.clipboard\.writeText/);
-    expect(SRC).toMatch(/skitza\.app\/invite\//);
-    expect(SRC).toMatch(/producerSlug/);
-    expect(SRC).toMatch(/client\.id/);
+    expect(SRC).toMatch(/buildClientInviteUrl\(producerSlug\)/);
+    expect(SRC).not.toMatch(/const inviteUrl\s*=.*client\.id/);
+    expect(SRC).not.toMatch(/skitza\.app\/invite\//);
   });
 
   it("uses the useToast hook for success + error feedback", () => {

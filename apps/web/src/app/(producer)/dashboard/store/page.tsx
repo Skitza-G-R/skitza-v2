@@ -9,6 +9,7 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
 import { coerceTaxMode } from "~/lib/tax-mode";
+import { PrivateOfferManager } from "~/components/dashboard/offers/private-offer-manager";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { StoreScreen, type StoreProduct } from "./store-screen";
@@ -20,9 +21,11 @@ export default async function StorePage() {
   if (!userId) redirect("/sign-in");
 
   const caller = appRouter.createCaller({ userId });
-  const [packages, profile] = await Promise.all([
+  const [packages, profile, offerRecipients, offerHistory] = await Promise.all([
     caller.booking.packages.list(),
     caller.producer.me(),
+    caller.privateOffers.recipients(),
+    caller.privateOffers.producerList(),
   ]);
 
   const products: StoreProduct[] = packages.map((p) => ({
@@ -62,12 +65,23 @@ export default async function StorePage() {
       : 18;
 
   return (
-    <StoreScreen
-      products={products}
-      defaultCurrency={defaultCurrency}
-      taxMode={taxMode}
-      taxRatePct={taxRatePct}
-      producerName={profile.displayName ?? "Your studio"}
-    />
+    <>
+      <div className="mx-auto w-full max-w-[1100px] px-4 pt-6 sm:px-6 sm:pt-10">
+        <PrivateOfferManager
+          recipients={offerRecipients}
+          offers={offerHistory.offers}
+          defaultCurrency={defaultCurrency}
+          taxMode={taxMode}
+          taxRatePct={taxRatePct}
+        />
+      </div>
+      <StoreScreen
+        products={products}
+        defaultCurrency={defaultCurrency}
+        taxMode={taxMode}
+        taxRatePct={taxRatePct}
+        producerName={profile.displayName ?? "Your studio"}
+      />
+    </>
   );
 }

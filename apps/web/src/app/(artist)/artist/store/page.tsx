@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { FocalProductCard } from "~/components/artist/store/focal-product-card";
 import { ProducerHero } from "~/components/artist/store/producer-hero";
 import { QuietProductList } from "~/components/artist/store/quiet-product-list";
+import { PrivateOffersList } from "~/components/artist/offers/private-offers-list";
 import { coerceTaxMode } from "~/lib/tax-mode";
 import { appRouter } from "~/server/trpc/routers/_app";
 
@@ -44,9 +45,10 @@ export default async function StorePage({ searchParams }: PageProps) {
   const activeStudio = studios.find((s) => s.producerId === sp.studio) ?? studios[0];
   if (!activeStudio) return null;
 
-  const { products } = await caller.artist.store.products({
-    producerId: activeStudio.producerId,
-  });
+  const [{ products }, privateOffers] = await Promise.all([
+    caller.artist.store.products({ producerId: activeStudio.producerId }),
+    caller.privateOffers.artistList({ producerId: activeStudio.producerId }),
+  ]);
 
   const [focal, ...rest] = products;
 
@@ -60,6 +62,7 @@ export default async function StorePage({ searchParams }: PageProps) {
   return (
     <div className="mx-auto w-full max-w-[600px] space-y-6 lg:max-w-[760px]">
       <StoreEyebrow />
+      <PrivateOffersList offers={privateOffers.offers} />
       <ProducerHero producerName={activeStudio.name} producerLogoUrl={activeStudio.logoUrl} />
       {focal ? (
         <FocalProductCard
