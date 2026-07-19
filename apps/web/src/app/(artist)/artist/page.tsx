@@ -6,6 +6,7 @@ import { LastUploadCard } from "~/components/artist/home/last-upload-card";
 import { NextSessionCard } from "~/components/artist/home/next-session-card";
 import { PaymentRequestsSection } from "~/components/artist/home/payment-requests-section";
 import { PurchaseStatusCard } from "~/components/artist/home/purchase-status-card";
+import { PrivateOffersList } from "~/components/artist/offers/private-offers-list";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { WelcomeModal } from "./welcome-modal";
@@ -110,13 +111,15 @@ export default async function ArtistHomePage() {
 
   const caller = appRouter.createCaller({ userId });
   const studiosPromise = caller.artist.studios();
-  const [user, data, pendingPayments, studiosResp, pendingPurchase] = await Promise.all([
-    currentUser(),
-    caller.artist.home(),
-    caller.artist.book.myPendingPayments(),
-    studiosPromise,
-    studiosPromise.then((resp) => loadPendingPurchase(caller, resp.studios)),
-  ]);
+  const [user, data, pendingPayments, studiosResp, pendingPurchase, privateOffers] =
+    await Promise.all([
+      currentUser(),
+      caller.artist.home(),
+      caller.artist.book.myPendingPayments(),
+      studiosPromise,
+      studiosPromise.then((resp) => loadPendingPurchase(caller, resp.studios)),
+      caller.privateOffers.artistList(),
+    ]);
 
   const firstName = user?.firstName?.trim() || "there";
 
@@ -138,6 +141,7 @@ export default async function ArtistHomePage() {
     <>
       <div className="mx-auto flex w-full max-w-[760px] flex-col gap-4 px-7 py-6">
         <GreetingStrip firstName={firstName} />
+        <PrivateOffersList offers={privateOffers.offers} />
         {pendingPurchase ? <PurchaseStatusCard {...pendingPurchase} /> : null}
         <LastUploadCard latestMix={latestMixForCard} />
         <NextSessionCard nextSession={data.nextSession} />

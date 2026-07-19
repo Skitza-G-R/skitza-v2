@@ -4,6 +4,8 @@ import {
   createDebtWaiver,
   createInstallmentSchedule,
   createPaymentCorrection,
+  purchaseInstallmentDueLabel,
+  purchaseInstallmentTriggerLabel,
   summarizePurchaseLedger,
   type ConfirmedPayment,
 } from "../ledger";
@@ -56,6 +58,20 @@ describe("purchase installment schedules", () => {
       // @ts-expect-error Zero-total purchases use null, never a pseudo-plan.
       createInstallmentSchedule({ kind: "none" }, 0),
     ).toThrow(/Unsupported payment plan/);
+  });
+
+  it("describes the same due triggers that are materialized in the schedule", () => {
+    expect(purchaseInstallmentDueLabel({ kind: "full" }, 1)).toBe("Due at acceptance");
+    expect(purchaseInstallmentDueLabel({ kind: "split_50_50" }, 2)).toBe(
+      "50% due when the artist approves the final version",
+    );
+    expect(purchaseInstallmentDueLabel({ kind: "monthly", installments: 3 }, 2)).toBe(
+      "Monthly payment 2",
+    );
+    expect(purchaseInstallmentTriggerLabel("acceptance")).toBe("Triggered by offer acceptance");
+    expect(purchaseInstallmentTriggerLabel("monthly_anniversary")).toBe(
+      "Triggered on a monthly anniversary after acceptance",
+    );
   });
 });
 

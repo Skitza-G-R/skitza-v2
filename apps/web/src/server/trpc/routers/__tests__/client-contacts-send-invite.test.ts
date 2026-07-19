@@ -195,10 +195,12 @@ describe("clientContacts.sendInvite", () => {
     const [to, props] = sendEmailSpy.mock.calls[0] ?? [];
     expect(to).toBe("noa@example.com");
     expect(props?.clientName).toBe("Noa Kirel");
-    // The invite URL must include the producer slug + contact id.
+    // Normal client invites enter the verified artist signup flow. The URL is
+    // deliberately independent from both the CRM contact and private offers.
     const inviteUrl = props?.inviteUrl;
-    expect(typeof inviteUrl).toBe("string");
-    expect(inviteUrl as string).toContain("test-slug");
+    expect(inviteUrl).toBe("https://skitza.app/sign-up/join/test-slug");
+    expect(inviteUrl).not.toContain(CONTACT_ID);
+    expect(inviteUrl).not.toMatch(/offer/i);
     expect(updateMock).toHaveBeenCalledTimes(1);
   });
 

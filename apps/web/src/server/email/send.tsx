@@ -23,6 +23,10 @@ import {
   type ProducerRepliedToCommentProps,
 } from "./templates/producer-replied-to-comment";
 import {
+  PrivateOfferNotification,
+  type PrivateOfferNotificationProps,
+} from "./templates/private-offer-notification";
+import {
   ProofRejectedToArtist,
   type ProofRejectedToArtistProps,
 } from "./templates/proof-rejected-to-artist";
@@ -178,12 +182,49 @@ export async function sendBookingCancelledOrRescheduledEmail(
 // (invited_at stamp).
 export async function sendClientInviteEmail(to: string, props: ClientInviteProps): Promise<void> {
   const html = await render(<ClientInvite {...props} />);
-  await getResend().emails.send({
+  const result = await getResend().emails.send({
     from: FROM_ADDRESS,
     to,
     subject: `${props.producerName} invited you to Skitza`,
     html,
   });
+
+  if (result.error) {
+    throw new Error("Email delivery failed");
+  }
+}
+
+export type PrivateOfferNotificationSendProps = Omit<PrivateOfferNotificationProps, "openUrl"> & {
+  producerSlug: string;
+};
+
+/**
+ * Notify an invited recipient without putting offer terms or a public offer
+ * token in email. The producer join route handles new and existing artists;
+ * the offer itself remains visible only after verified-email account binding.
+ */
+export async function sendPrivateOfferNotificationEmail(
+  to: string,
+  props: PrivateOfferNotificationSendProps,
+): Promise<void> {
+  const openUrl = `${SITE_URL}/sign-up/join/${encodeURIComponent(props.producerSlug)}`;
+  const html = await render(
+    <PrivateOfferNotification
+      recipientName={props.recipientName}
+      producerName={props.producerName}
+      openUrl={openUrl}
+    />,
+  );
+  const result = await getResend().emails.send({
+    from: FROM_ADDRESS,
+    to,
+    subject: `${props.producerName} sent you a private offer`,
+    html,
+  });
+
+  if (result.error) {
+    throw new Error("Email delivery failed");
+  }
 }
 
 // ─── Purchase flow (SK-37 / BE-1) ───────────────────────────────────

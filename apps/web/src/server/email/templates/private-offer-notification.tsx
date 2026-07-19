@@ -1,29 +1,16 @@
-import {
-  Body,
-  Button,
-  Container,
-  Head,
-  Heading,
-  Hr,
-  Html,
-  Text,
-} from "@react-email/components";
+import { Body, Button, Container, Head, Heading, Hr, Html, Text } from "@react-email/components";
 
-// Sent to a contact when their producer triggers "Send invite email"
-// from the Invite-to-App modal (Clients & Projects v3 redesign,
-// Phase 1, Task 13). Mirrors the booking-request-received palette
-// (#F4EFE7 cream / #C98A0A amber / #A25A28 copper) so the invite
-// reads as a Skitza artefact and not a generic system mail.
-//
-// Inline styles only — every email client strips <style> tags
-// differently.
-export interface ClientInviteProps {
-  clientName: string;
+/**
+ * A private-offer email is deliberately only a notification. Commercial
+ * terms stay behind Skitza's signed-in, verified-email authorization gate.
+ */
+export interface PrivateOfferNotificationProps {
+  recipientName: string;
   producerName: string;
-  inviteUrl: string;
+  openUrl: string;
 }
 
-export function ClientInvite(props: ClientInviteProps) {
+export function PrivateOfferNotification(props: PrivateOfferNotificationProps) {
   return (
     <Html>
       <Head />
@@ -54,16 +41,19 @@ export function ClientInvite(props: ClientInviteProps) {
               color: "#A25A28",
             }}
           >
-            You&apos;re invited to Skitza
+            A private offer is waiting
           </Heading>
-          <Text>Hi {props.clientName},</Text>
+          <Text>Hi {props.recipientName},</Text>
           <Text>
-            <strong>{props.producerName}</strong> invited you to their Skitza
-            studio. Tap below to open your space — see your projects, hear
-            your mixes, and book new sessions in one place.
+            <strong>{props.producerName}</strong> sent you a private offer in Skitza. Open Skitza to
+            review it privately and choose what to do next.
+          </Text>
+          <Text>
+            Sign in or create your account with the same email address that received this message.
+            Only that verified account can open the offer.
           </Text>
           <Button
-            href={props.inviteUrl}
+            href={props.openUrl}
             style={{
               backgroundColor: "#C98A0A",
               color: "#1A1407",
@@ -74,12 +64,11 @@ export function ClientInvite(props: ClientInviteProps) {
               marginTop: 16,
             }}
           >
-            Open your studio
+            Open Skitza
           </Button>
           <Hr style={{ margin: "24px 0", borderColor: "#E8E2D9" }} />
           <Text style={{ fontSize: 12, color: "#6B6158" }}>
-            Sent from Skitza on behalf of {props.producerName}. Reply to this
-            email to reach them directly.
+            This email is a notification only. Review and respond inside Skitza.
           </Text>
         </Container>
       </Body>

@@ -31,6 +31,22 @@ export type PurchaseInstallment = Readonly<{
   status: PurchaseInstallmentStatus;
 }>;
 
+export function purchaseInstallmentDueLabel(plan: PurchasePaymentPlan, sequence: number): string {
+  if (plan.kind === "full") return "Due at acceptance";
+  if (plan.kind === "split_50_50") {
+    return sequence === 1
+      ? "50% due at acceptance"
+      : "50% due when the artist approves the final version";
+  }
+  return sequence === 1 ? "First payment due at acceptance" : `Monthly payment ${String(sequence)}`;
+}
+
+export function purchaseInstallmentTriggerLabel(trigger: InstallmentTrigger): string {
+  if (trigger === "acceptance") return "Triggered by offer acceptance";
+  if (trigger === "artist_approval") return "Triggered when you approve the final version";
+  return "Triggered on a monthly anniversary after acceptance";
+}
+
 export type ConfirmedPayment = Readonly<{
   id: string;
   installmentSequence: number;

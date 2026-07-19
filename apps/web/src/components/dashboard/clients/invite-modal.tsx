@@ -7,12 +7,13 @@ import { useTransition } from "react";
 import { useToast } from "~/components/ui/toast";
 import { producerInitials } from "~/lib/_phase4-stubs/producer-color";
 import { sendClientInviteAction } from "~/app/(producer)/dashboard/clients-projects/clients-actions";
+import { buildClientInviteUrl } from "~/lib/clients/invite-url";
 
 // Invite-to-App modal (Clients & Projects v3 redesign, Phase 1 Task 11).
 // Two CTAs:
 //   1. "Send invite email" — fires sendClientInviteAction with via='email'.
 //      Disabled + dimmed when client.email is null (no address on file).
-//   2. "Copy invite link"  — writes skitza.app/invite/<slug>-<id> to
+//   2. "Copy invite link" — writes the verified artist signup URL to the
 //      clipboard via navigator.clipboard.writeText, then fires the same
 //      action with via='link' so the server stamps invited_at and the
 //      LinkPill flips to "Invited" either way.
@@ -47,7 +48,7 @@ export function InviteToAppModal({
 }: InviteToAppModalProps) {
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
-  const inviteUrl = `https://skitza.app/invite/${producerSlug}-${client.id}`;
+  const inviteUrl = buildClientInviteUrl(producerSlug);
   const initials = producerInitials(client.name);
   const hasEmail = client.email !== null && client.email.length > 0;
 
