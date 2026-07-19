@@ -23,6 +23,7 @@ import { z } from "zod";
 
 import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
+import { buildClientInviteUrl } from "~/lib/clients/invite-url";
 import { emailHashFor } from "~/server/artist/identity";
 import { clientManagementRepository } from "~/server/domain/client-management/db";
 import {
@@ -890,7 +891,7 @@ export const clientContactsRouter = router({
           deliverEmail: async (client) => {
             const slug = producer?.slug ?? "";
             const producerName = producer?.displayName ?? "Your producer";
-            const inviteUrl = `${SITE_URL}/invite/${slug}-${client.id}`;
+            const inviteUrl = buildClientInviteUrl(slug, SITE_URL);
             await sendClientInviteEmail(client.email, {
               clientName: client.name,
               producerName,

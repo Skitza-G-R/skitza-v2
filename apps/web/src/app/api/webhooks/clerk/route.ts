@@ -4,11 +4,10 @@ import {
   producers,
   clientContacts,
   eq,
-  and,
-  isNull,
 } from "@skitza/db";
 import { emailToSlug } from "~/lib/slug";
 import { emailHashFor } from "~/server/artist/identity";
+import { stampUnownedArtistContactsForCreatedUser } from "~/server/contacts/connect-artist";
 
 // Clerk user.created webhook — the single place where Skitza decides
 // whether a brand-new Clerk user should become a Producer or an
@@ -151,19 +150,14 @@ export async function POST(req: Request) {
   // row sharing this email's hash gets the new Clerk user id. The IS
   // NULL guard makes this idempotent — re-fires (or a different Clerk
   // user adopting the same email later) leave already-owned rows
-  // untouched. Single SQL UPDATE; matches across producers because
-  // email_hash alone is the lookup key here, not (producerId,
-  // email_hash).
-  const emailHash = emailHashFor(email);
-  await db
-    .update(clientContacts)
-    .set({ clerkUserId: id })
-    .where(
-      and(
-        eq(clientContacts.emailHash, emailHash),
-        isNull(clientContacts.clerkUserId),
-      ),
-    );
+  // untouched. A pending private offer's frozen recipient hash also
+  // prevents a later mutable client-email edit from transferring its
+  // stable client ownership. The single UPDATE still matches across
+  // producers because email_hash is not producer-partitioned.
+  await stampUnownedArtistContactsForCreatedUser(db, {
+    email,
+    clerkUserId: id,
+  });
 
   return new Response("ok", { status: 200 });
 }

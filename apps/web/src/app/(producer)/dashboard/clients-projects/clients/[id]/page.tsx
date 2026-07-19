@@ -11,6 +11,8 @@ import {
 } from "~/components/dashboard/clients/client-money-ledger";
 import { ProjectRow, type ProjectRowData } from "~/components/dashboard/projects/project-row";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
+import { PrivateOfferManager } from "~/components/dashboard/offers/private-offer-manager";
+import { coerceTaxMode } from "~/lib/tax-mode";
 import { CLIENT_ARCHIVE_BLOCKED_MESSAGE } from "~/server/domain/client-management/service";
 import type { ClientMoneyHistory } from "~/server/domain/client-money/service";
 import { appRouter } from "~/server/trpc/routers/_app";
@@ -47,13 +49,13 @@ export default async function ClientDetailPage({ params }: PageProps) {
     notFound();
   }
 
-  let producerSlug = "";
+  let producerProfile: Awaited<ReturnType<typeof caller.producer.me>> | null = null;
   try {
-    const me = await caller.producer.me();
-    producerSlug = me.slug;
+    producerProfile = await caller.producer.me();
   } catch (err) {
     console.warn("[clients/detail] producer.me failed", err);
   }
+  const producerSlug = producerProfile?.slug ?? "";
 
   // Pre-compute the next upcoming session across this client's
   // projects — kept here (preserved helper) rather than inside the
@@ -122,6 +124,33 @@ export default async function ClientDetailPage({ params }: PageProps) {
         <SetTopBarBreadcrumb crumbs={[{ label: detail.contact.name }]} />
         <ClientSpaceHero client={heroData} producerSlug={producerSlug} />
 
+        {producerProfile ? (
+          <div className="mt-6">
+            <PrivateOfferManager
+              recipients={[
+                {
+                  id: detail.contact.id,
+                  name: detail.contact.name,
+                  email: detail.contact.email,
+                  projects: detail.projects
+                    .filter(
+                      (project) =>
+                        project.lifecycleStatus === "waiting_for_payment" ||
+                        project.lifecycleStatus === "active",
+                    )
+                    .map((project) => ({ id: project.id, title: project.title })),
+                },
+              ]}
+              offers={[]}
+              lockedClientId={detail.contact.id}
+              showHistory={false}
+              defaultCurrency={clientOfferCurrency(producerProfile.defaultCurrency)}
+              taxMode={coerceTaxMode(producerProfile.taxMode)}
+              taxRatePct={producerProfile.taxRatePct}
+            />
+          </div>
+        ) : null}
+
         <section className="mt-6" aria-labelledby="client-projects-title">
           <div className="flex items-end justify-between gap-4">
             <div>
@@ -177,6 +206,10 @@ export default async function ClientDetailPage({ params }: PageProps) {
       </div>
     </main>
   );
+}
+
+function clientOfferCurrency(value: string): "USD" | "EUR" | "GBP" | "ILS" {
+  return value === "EUR" || value === "GBP" || value === "ILS" ? value : "USD";
 }
 
 // ─────────────────────────────────────────────────────────────────────

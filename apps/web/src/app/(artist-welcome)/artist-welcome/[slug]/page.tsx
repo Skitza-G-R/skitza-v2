@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { createDb, producers, eq } from "@skitza/db";
 
-import { connectArtistToProducer } from "~/server/contacts/connect-artist";
+import { verifiedEmailHashesFromUser } from "~/server/auth/verified-email";
+import { connectVerifiedArtistToProducer } from "~/server/contacts/connect-artist";
 
 // `/artist-welcome/<slug>` — the post-signup splash shown to users
 // who just signed up (or signed in) via the /join/<slug> funnel.
@@ -72,21 +73,23 @@ export default async function JoinedArtistWelcomePage({ params }: Props) {
     const user = await currentUser();
     const email = user?.primaryEmailAddress?.emailAddress ?? null;
     if (email) {
+      const verifiedEmailHashes = verifiedEmailHashesFromUser(user, userId);
       const name =
         [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
         user?.username ||
         email.split("@")[0] ||
         "Artist";
       try {
-        await connectArtistToProducer(db, {
+        await connectVerifiedArtistToProducer(db, {
           producerId: producer.id,
-          email,
+          primaryEmail: email,
+          verifiedEmailHashes,
           name,
           clerkUserId: userId,
         });
       } catch (err) {
         console.error(
-          "[artist-welcome] connectArtistToProducer failed",
+          "[artist-welcome] connectVerifiedArtistToProducer failed",
           { producerSlug: slug },
           err,
         );

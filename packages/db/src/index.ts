@@ -21,6 +21,7 @@ export * from "./client";
 // - `ilike`: case-insensitive LIKE for the same
 // - `isNull`/`isNotNull`: nullness predicates for the inbox router —
 //   active = archivedAt IS NULL, archived = archivedAt IS NOT NULL.
+// - `notExists`: correlated ownership guard for frozen private-offer identity.
 export {
   eq,
   ne,
@@ -38,4 +39,5 @@ export {
   ilike,
   isNull,
   isNotNull,
+  notExists,
 } from "drizzle-orm";

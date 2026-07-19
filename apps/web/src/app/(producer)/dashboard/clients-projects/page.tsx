@@ -27,7 +27,7 @@ import { reorderProjectsAction } from "./clients-actions";
 //   • listWithProjects({ view: "by-client" }) — per-client aggregates
 //     for the Clients tab cards.
 //   • producer.me() — consumed for `slug` (so the Invite modal can
-//     build skitza.app/invite/<slug>-<id>) and the display currency.
+//     build the verified artist signup URL) and the display currency.
 
 // WorkspaceListView owns ?tab= / ?sort= / ?filter= as local state in
 // Phase 1; URL hydration is a fast-follow. The one searchParam we DO

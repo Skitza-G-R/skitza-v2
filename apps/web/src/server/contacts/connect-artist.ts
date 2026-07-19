@@ -1,4 +1,17 @@
-import { clientContacts, sql, type Db } from "@skitza/db";
+import {
+  and,
+  clientContacts,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  ne,
+  notExists,
+  or,
+  privateOffers,
+  sql,
+  type Db,
+} from "@skitza/db";
 import { emailHashFor } from "~/server/artist/identity";
 import {
   assertStableArtistOwnerAssignment,
@@ -86,4 +99,200 @@ export async function connectArtistToProducer(
     );
   }
   assertStableArtistOwnerAssignment(contact.clerkUserId, input.clerkUserId);
+}
+
+/**
+ * Claims pre-existing contacts during Clerk's user.created webhook without
+ * letting a mutable email edit bypass a pending offer's frozen recipient.
+ */
+export async function stampUnownedArtistContactsForCreatedUser(
+  db: Db,
+  input: { email: string; clerkUserId: string; now?: Date },
+): Promise<void> {
+  const emailHash = emailHashFor(input.email);
+  const now = input.now ?? new Date();
+  await db
+    .update(clientContacts)
+    .set({ clerkUserId: input.clerkUserId })
+    .where(
+      and(
+        eq(clientContacts.emailHash, emailHash),
+        isNull(clientContacts.clerkUserId),
+        notExists(
+          db
+            .select({ id: privateOffers.id })
+            .from(privateOffers)
+            .where(
+              and(
+                eq(privateOffers.clientContactId, clientContacts.id),
+                eq(privateOffers.producerId, clientContacts.producerId),
+                eq(privateOffers.status, "sent"),
+                gt(privateOffers.expiresAt, now),
+                ne(privateOffers.recipientEmailHash, emailHash),
+              ),
+            ),
+        ),
+      ),
+    );
+}
+
+/**
+ * Connects every producer contact that the signed-in Clerk account can prove
+ * it owns. A pending private offer uses its frozen recipient hash, so editing
+ * mutable contact email cannot transfer that offer or its target project.
+ */
+export async function connectVerifiedArtistToProducer(
+  db: Db,
+  input: {
+    producerId: string;
+    primaryEmail: string;
+    verifiedEmailHashes: readonly string[];
+    name: string;
+    clerkUserId: string;
+    now?: Date;
+  },
+): Promise<void> {
+  const verifiedEmailHashes = [
+    ...new Set(input.verifiedEmailHashes.filter((hash) => /^[0-9a-f]{64}$/.test(hash))),
+  ];
+  if (verifiedEmailHashes.length === 0) return;
+
+  const verifiedSet = new Set(verifiedEmailHashes);
+  const now = input.now ?? new Date();
+  const normalizedPrimaryEmail = input.primaryEmail.trim().toLowerCase();
+
+  await db.transaction(async (tx) => {
+    const matchingOffers = await tx
+      .select({ clientContactId: privateOffers.clientContactId })
+      .from(privateOffers)
+      .where(
+        and(
+          eq(privateOffers.producerId, input.producerId),
+          eq(privateOffers.status, "sent"),
+          gt(privateOffers.expiresAt, now),
+          inArray(privateOffers.recipientEmailHash, verifiedEmailHashes),
+        ),
+      );
+    const offerContactIds = [...new Set(matchingOffers.map((row) => row.clientContactId))];
+    const candidateIdentity =
+      offerContactIds.length === 0
+        ? inArray(clientContacts.emailHash, verifiedEmailHashes)
+        : or(
+            inArray(clientContacts.emailHash, verifiedEmailHashes),
+            inArray(clientContacts.id, offerContactIds),
+          );
+    const candidates = await tx
+      .select({
+        id: clientContacts.id,
+        emailHash: clientContacts.emailHash,
+        clerkUserId: clientContacts.clerkUserId,
+      })
+      .from(clientContacts)
+      .where(and(eq(clientContacts.producerId, input.producerId), candidateIdentity))
+      .for("update");
+
+    if (candidates.length === 0) {
+      if (!normalizedPrimaryEmail || !verifiedSet.has(emailHashFor(normalizedPrimaryEmail))) {
+        return;
+      }
+      const [contact] = await tx
+        .insert(clientContacts)
+        .values({
+          producerId: input.producerId,
+          email: normalizedPrimaryEmail,
+          emailHash: emailHashFor(normalizedPrimaryEmail),
+          name: input.name.trim() || "Artist",
+          clerkUserId: input.clerkUserId,
+          firstSeenAt: now,
+          lastSeenAt: now,
+          archivedAt: null,
+        })
+        .onConflictDoUpdate({
+          target: [clientContacts.producerId, clientContacts.emailHash],
+          setWhere: sql`${clientContacts.clerkUserId} IS NULL OR ${clientContacts.clerkUserId} = ${input.clerkUserId}`,
+          set: {
+            clerkUserId: input.clerkUserId,
+            archivedAt: null,
+            lastSeenAt: now,
+            name: sql`COALESCE(NULLIF(${clientContacts.name}, ''), ${input.name.trim() || "Artist"})`,
+          },
+        })
+        .returning({ clerkUserId: clientContacts.clerkUserId });
+      if (!contact) {
+        throw new ProjectOwnershipDomainError(
+          "OWNER_CONFLICT",
+          "This client already belongs to another verified account",
+        );
+      }
+      assertStableArtistOwnerAssignment(contact.clerkUserId, input.clerkUserId);
+      return;
+    }
+
+    const candidateIds = candidates.map((candidate) => candidate.id);
+    const activeOffers = await tx
+      .select({
+        clientContactId: privateOffers.clientContactId,
+        recipientEmailHash: privateOffers.recipientEmailHash,
+      })
+      .from(privateOffers)
+      .where(
+        and(
+          eq(privateOffers.producerId, input.producerId),
+          inArray(privateOffers.clientContactId, candidateIds),
+          eq(privateOffers.status, "sent"),
+          gt(privateOffers.expiresAt, now),
+        ),
+      );
+    const offerHashesByContact = new Map<string, string[]>();
+    for (const offer of activeOffers) {
+      const hashes = offerHashesByContact.get(offer.clientContactId) ?? [];
+      hashes.push(offer.recipientEmailHash);
+      offerHashesByContact.set(offer.clientContactId, hashes);
+    }
+
+    const claimableIds = candidates
+      .filter((candidate) => {
+        const activeOfferHashes = offerHashesByContact.get(candidate.id) ?? [];
+        const provesCurrentEmail = verifiedSet.has(candidate.emailHash);
+        const provesActiveOffer = activeOfferHashes.some((hash) => verifiedSet.has(hash));
+        return (
+          (candidate.clerkUserId === null || candidate.clerkUserId === input.clerkUserId) &&
+          (provesCurrentEmail || provesActiveOffer) &&
+          activeOfferHashes.every((hash) => verifiedSet.has(hash))
+        );
+      })
+      .map((candidate) => candidate.id);
+    if (claimableIds.length === 0) {
+      throw new ProjectOwnershipDomainError(
+        "OWNER_CONFLICT",
+        "This client already belongs to another verified account",
+      );
+    }
+
+    const claimed = await tx
+      .update(clientContacts)
+      .set({
+        clerkUserId: input.clerkUserId,
+        archivedAt: null,
+        lastSeenAt: now,
+        name: sql`COALESCE(NULLIF(${clientContacts.name}, ''), ${input.name.trim() || "Artist"})`,
+      })
+      .where(
+        and(
+          eq(clientContacts.producerId, input.producerId),
+          inArray(clientContacts.id, claimableIds),
+          or(isNull(clientContacts.clerkUserId), eq(clientContacts.clerkUserId, input.clerkUserId)),
+        ),
+      )
+      .returning({ clerkUserId: clientContacts.clerkUserId });
+    if (claimed.length !== claimableIds.length) {
+      throw new ProjectOwnershipDomainError(
+        "OWNER_CONFLICT",
+        "This client already belongs to another verified account",
+      );
+    }
+    for (const contact of claimed) {
+      assertStableArtistOwnerAssignment(contact.clerkUserId, input.clerkUserId);
+    }
+  });
 }

@@ -6,7 +6,8 @@ import { createDb, eq, producers } from "@skitza/db";
 
 import { AuthHero } from "~/components/auth/auth-hero";
 import { fetchUserRole } from "~/server/auth/role";
-import { connectArtistToProducer } from "~/server/contacts/connect-artist";
+import { verifiedEmailHashesFromUser } from "~/server/auth/verified-email";
+import { connectVerifiedArtistToProducer } from "~/server/contacts/connect-artist";
 import { SignOutAndReturnButton } from "./sign-out-and-return-button";
 
 // Dedicated sign-up entry for the /join/<slug> → artist flow.
@@ -102,15 +103,17 @@ export default async function JoinSignUpPage({ params }: Props) {
       const user = await currentUser();
       const email = user?.primaryEmailAddress?.emailAddress ?? null;
       if (email) {
+        const verifiedEmailHashes = verifiedEmailHashesFromUser(user, userId);
         const name =
           [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
           user?.username ||
           email.split("@")[0] ||
           "Artist";
         try {
-          await connectArtistToProducer(db, {
+          await connectVerifiedArtistToProducer(db, {
             producerId: producer.id,
-            email,
+            primaryEmail: email,
+            verifiedEmailHashes,
             name,
             clerkUserId: userId,
           });
@@ -119,7 +122,7 @@ export default async function JoinSignUpPage({ params }: Props) {
           // upsert, so a transient failure here doesn't strand the
           // artist. Sentry surfaces it server-side.
           console.error(
-            "[sign-up/join] connectArtistToProducer failed",
+            "[sign-up/join] connectVerifiedArtistToProducer failed",
             { producerSlug: slug },
             err,
           );
