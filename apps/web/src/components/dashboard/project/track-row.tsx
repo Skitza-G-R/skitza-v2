@@ -29,6 +29,8 @@ import {
 export interface TrackRowData {
   id: string;
   title: string;
+  /** Optional artist credit shown to listeners. */
+  artist: string | null;
   workflowStage: WorkflowStage;
   /** 0..100 — drives the trailing progress bar. */
   progress: number;
@@ -83,6 +85,7 @@ export function TrackRow({
   // Meta line — version · notes · duration. Each segment is optional;
   // a track with no version yet (no audio uploaded) shows just the title.
   const metaParts: string[] = [];
+  if (track.artist) metaParts.push(track.artist);
   if (track.currentVersion) metaParts.push(track.currentVersion);
   if (typeof track.noteCount === "number" && track.noteCount > 0) {
     metaParts.push(`${String(track.noteCount)} note${track.noteCount === 1 ? "" : "s"}`);

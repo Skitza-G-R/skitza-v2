@@ -145,6 +145,8 @@ export function UploadTrackModal({
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [allocatedNewTrackId, setAllocatedNewTrackId] = useState<string | null>(null);
+  const [allocatedNewTrackTitle, setAllocatedNewTrackTitle] = useState<string | null>(null);
 
   // Active upload state — kept in a ref so the abort handler reads the
   // freshest value even if the user closes mid-upload before React
@@ -152,8 +154,22 @@ export function UploadTrackModal({
   // the Cancel button's destructive label.
   const activeUploadRef = useRef<ActiveMultipartUpload | null>(null);
   const activeCancellationRef = useRef<UploadCancellationRequest | null>(null);
+  // A new-song submit allocates its purchased song space before the
+  // version and audio steps begin. Keep that exact track for retries in
+  // this modal session so a later failure cannot consume another space.
+  const allocatedNewTrackIdRef = useRef<string | null>(null);
+  const songSpaceOperationKeyRef = useRef("");
 
   useEffect(() => startMultipartCancellationRecovery(), []);
+
+  useEffect(() => {
+    if (!open) {
+      allocatedNewTrackIdRef.current = null;
+      songSpaceOperationKeyRef.current = "";
+      setAllocatedNewTrackId(null);
+      setAllocatedNewTrackTitle(null);
+    }
+  }, [open]);
 
   // Reset every time the modal opens. Carrying state across open/close
   // is confusing — same precedent as new-client-modal.
@@ -168,7 +184,9 @@ export function UploadTrackModal({
     setFile(null);
     setProgress(0);
     setIsDragging(false);
+    setAllocatedNewTrackTitle(null);
     activeUploadRef.current = null;
+    songSpaceOperationKeyRef.current = crypto.randomUUID();
   }, [open, mode, trackId, defaultLabel, tracks]);
 
   // When the user picks a different existing track, auto-bump the
@@ -193,7 +211,7 @@ export function UploadTrackModal({
     !file ||
     label.trim().length === 0 ||
     needsSongName ||
-    (isNewSong && !purchaseId) ||
+    (isNewSong && !purchaseId && !allocatedNewTrackId) ||
     (mode === "new-version" && !trackId);
 
   // ─── File handlers ─────────────────────────────────────────────────
@@ -223,6 +241,8 @@ export function UploadTrackModal({
 
   // ─── Submit / orchestration ────────────────────────────────────────
   const handleClose = () => {
+    allocatedNewTrackIdRef.current = null;
+    setAllocatedNewTrackId(null);
     const cancellation = activeCancellationRef.current;
     if (cancellation) requestUploadCancellation(cancellation);
     // Publish and reconcile an exact cancellation. Keep the identity in
@@ -263,17 +283,27 @@ export function UploadTrackModal({
       try {
         // 1. Resolve trackId — create a new project_tracks row if the
         //    producer picked "+ New song", else use the existing id.
-        let resolvedTrackId = selectedTrackId;
-        if (isNewSong) {
+        const retainedTrackId = allocatedNewTrackIdRef.current;
+        let resolvedTrackId = retainedTrackId ?? selectedTrackId;
+        if (!retainedTrackId && isNewSong) {
           if (!purchaseId) {
             throw new Error("No active purchase has an available song space.");
           }
           const res = await addTrackAction({
             projectId,
             purchaseId,
+            operationKey: songSpaceOperationKeyRef.current,
             title: newSongName.trim(),
           });
           if (!res.ok) throw new Error(res.error);
+          // Closing while allocation was in flight ends the modal
+          // session. Do not repopulate its retry identity afterward.
+          if (uploadCancellationRequested(cancellation)) {
+            throw new Error("Upload stopped.");
+          }
+          allocatedNewTrackIdRef.current = res.data.id;
+          setAllocatedNewTrackId(res.data.id);
+          setAllocatedNewTrackTitle(res.data.title);
           resolvedTrackId = res.data.id;
         }
 
@@ -406,6 +436,9 @@ export function UploadTrackModal({
 
         // Clear the orphan-cleanup handle — the row is now legitimate.
         createdVersionId = null;
+        allocatedNewTrackIdRef.current = null;
+        setAllocatedNewTrackId(null);
+        setAllocatedNewTrackTitle(null);
         toast("Upload complete", "success");
         onCreated?.();
         router.refresh();
@@ -500,12 +533,27 @@ export function UploadTrackModal({
                   {lockedSongTitle}
                 </p>
               </div>
+            ) : allocatedNewTrackId ? (
+              <div>
+                <FieldLabel htmlFor="upload-track-song-allocated">Song</FieldLabel>
+                <p
+                  id="upload-track-song-allocated"
+                  className="mt-1 truncate rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))]"
+                  style={{ borderColor: "rgb(var(--border-subtle))" }}
+                >
+                  {allocatedNewTrackTitle ?? newSongName}
+                </p>
+                <p className="mt-1 text-[11.5px] text-[rgb(var(--fg-muted))]">
+                  This purchased song space is allocated. Retry the upload for this song.
+                </p>
+              </div>
             ) : (
               <div>
                 <FieldLabel htmlFor="upload-track-song">Song</FieldLabel>
                 <select
                   id="upload-track-song"
                   value={selectedTrackId}
+                  disabled={pending}
                   onChange={(e) => {
                     setSelectedTrackId(e.target.value);
                     setLabelTouched(false);
@@ -527,6 +575,7 @@ export function UploadTrackModal({
                     required
                     autoFocus
                     value={newSongName}
+                    disabled={pending}
                     maxLength={120}
                     onChange={(e) => {
                       setNewSongName(e.target.value);
@@ -696,7 +745,7 @@ export function UploadTrackModal({
               </div>
             ) : null}
 
-            {isNewSong && !purchaseId ? (
+            {isNewSong && !purchaseId && !allocatedNewTrackId ? (
               <p role="alert" className="text-sm text-[rgb(var(--fg-danger))]">
                 No active purchase has an available song space.
               </p>

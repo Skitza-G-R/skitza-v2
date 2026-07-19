@@ -67,13 +67,15 @@ export default async function ProjectDetail({ params }: PageProps) {
   }
 
   // Single-Space rule (DESIGN.md §2 + Phase 3 plan, decision 4) —
-  // when a project has exactly one track, the project IS that song.
+  // when a project has exactly one purchased space and it has been named,
+  // the project IS that song. A still-empty paid single stays on this page
+  // so its purchased space remains visible and actionable before audio.
   // We redirect the album route to the song route server-side so EVERY
   // entry point (clients list, client space, deep link, breadcrumb)
   // collapses to the same Song Space surface. Implemented BEFORE any
   // rendering so the AlbumSpace shell never lights up for single-song
   // projects.
-  if (data.tracks.length === 1 && data.tracks[0]) {
+  if (data.songSpaces.mode === "single" && data.tracks.length === 1 && data.tracks[0]) {
     redirect(`/dashboard/clients-projects/${id}/songs/${data.tracks[0].id}`);
   }
 
@@ -131,6 +133,7 @@ export default async function ProjectDetail({ params }: PageProps) {
     const base: TrackRowData = {
       id: t.id,
       title: t.title,
+      artist: t.artist,
       workflowStage: stage,
       progress: progressForStage(stage),
     };
@@ -197,7 +200,7 @@ export default async function ProjectDetail({ params }: PageProps) {
     id: data.project.id,
     name: data.project.title,
     clientName: data.project.clientName ?? data.project.artistName,
-    songsCount: data.tracks.length,
+    songsCount: data.songSpaces.visibleCount,
     sessionsCount: projectBookings.length,
     totalCents: null,
     currency: null,
@@ -300,11 +303,17 @@ export default async function ProjectDetail({ params }: PageProps) {
     <main className="sk-page-enter mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
       <SetTopBarBreadcrumb crumbs={[breadcrumbClientCrumb, { label: data.project.title }]} />
       <AlbumSpace
+        mode={data.songSpaces.mode === "single" ? "single" : "album"}
         project={project}
         actionProject={actionProject}
         purchases={purchaseSummaries}
-        songSpacePurchaseId={data.songSpacePurchaseId}
         tracks={tracks}
+        emptySlots={data.songSpaces.emptySlots.map((slot) => ({
+          id: slot.id,
+          purchaseId: slot.purchaseId,
+          label: slot.label,
+        }))}
+        addSongHref={`/dashboard/music?addSong=1&projectId=${data.project.id}&lockProject=1`}
         studioLog={studioLog}
         playLatest={playLatest}
       />

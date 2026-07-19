@@ -56,6 +56,14 @@ describe("SongSpace — composes hero + strip + tabs + active panel", () => {
     expect(SRC).toMatch(/trackId=\{song\.id\}/);
   });
 
+  it("opens a query-requested upload only when this song is eligible for new work", () => {
+    expect(SRC).toMatch(/initialUploadOpen\?:\s*boolean/);
+    expect(SRC).toMatch(/useState\(initialUploadOpen\s*&&\s*canUpload\)/);
+    expect(SRC).toContain("canCreatePurchaseOwnedProjectWork");
+    expect(SRC).toContain("projectLifecycleStatus: actionProject.lifecycleStatus");
+    expect(SRC).toContain("purchaseId: song.purchaseId");
+  });
+
   // I5 — ChangeStageMenu now lives INSIDE the Status tile of the
   // SongSpaceStatStrip (passed via `trackId`), not as a standalone row
   // above the strip. We no longer import ChangeStageMenu directly in

@@ -4,7 +4,12 @@ import { Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { TrackRow, type TrackRowData } from "~/components/dashboard/project/track-row";
-import { UploadTrackModal } from "~/components/dashboard/song/upload-track-modal";
+
+export interface EmptySongSpaceRowData {
+  id: string;
+  purchaseId: string;
+  label: string;
+}
 
 // SongsTab — Songs panel for the new Album Page (DESIGN.md §4.3,
 // BUILD-NOTES §5.3). Renders the Tracklist header + list of
@@ -16,49 +21,33 @@ import { UploadTrackModal } from "~/components/dashboard/song/upload-track-modal
 // `project.reorderTracks` call). The local order resyncs to props
 // whenever the parent re-renders with a fresh `tracks` list.
 //
-// Phase 4: "+ Add song" opens the UploadTrackModal (mode="new-song").
-// We own the open/close state locally so the modal is colocated with
-// the button that summons it. The parent doesn't need an onAddSong
-// callback anymore (it's still accepted for backward-compat callers
-// that want to override the default open behaviour).
+// "+ Add song" delegates to the purchased-song-space flow. Claiming
+// a space and uploading audio are separate actions, so an allocated
+// song remains visible even before it has a version.
 
 interface SongsTabProps {
   projectId: string;
-  purchaseId: string | null;
   tracks: TrackRowData[];
+  emptySlots?: readonly EmptySongSpaceRowData[];
   canAddSong?: boolean;
   blockedReason?: string;
-  /** Optional override — if not provided, "+ Add song" opens the modal. */
-  onAddSong?: () => void;
+  /** Opens the chooser, optionally pinned to the exact visible entitlement. */
+  onAddSong?: (slot?: EmptySongSpaceRowData) => void;
   onReorder?: (orderedIds: string[]) => unknown;
 }
 
 export function SongsTab({
   projectId,
-  purchaseId,
   tracks,
+  emptySlots = [],
   canAddSong = true,
   blockedReason = "New work requires an active project and an active purchase or accepted offer.",
   onAddSong,
   onReorder,
 }: SongsTabProps) {
-  const [uploadOpen, setUploadOpen] = useState(false);
-  // The modal needs the same id+title+versionCount projection on every
-  // track in the project, so the producer can pick an existing song
-  // from the dropdown. `versionCount ?? 0` keeps the modal's default
-  // label deterministic even if the parent forgot to thread it.
-  const modalTracks = tracks.map((t) => ({
-    id: t.id,
-    title: t.title,
-    versionCount: t.versionCount ?? 0,
-  }));
-  const handleAddSong = () => {
+  const handleAddSong = (slot?: EmptySongSpaceRowData) => {
     if (!canAddSong) return;
-    if (onAddSong) {
-      onAddSong();
-      return;
-    }
-    setUploadOpen(true);
+    onAddSong?.(slot);
   };
   // Local mirror of the incoming order — enables optimistic reorder
   // without waiting on the server round-trip. Reset when props change.
@@ -102,22 +91,7 @@ export function SongsTab({
     setDragId(null);
   };
 
-  // Shared modal mount used by both render branches — colocated with
-  // the SongsTab so the open state lives where the trigger lives.
-  const modal = canAddSong ? (
-    <UploadTrackModal
-      open={uploadOpen}
-      onClose={() => {
-        setUploadOpen(false);
-      }}
-      projectId={projectId}
-      purchaseId={purchaseId}
-      mode="new-song"
-      tracks={modalTracks}
-    />
-  ) : null;
-
-  if (ordered.length === 0) {
+  if (ordered.length === 0 && emptySlots.length === 0) {
     return (
       <section
         role="tabpanel"
@@ -130,18 +104,20 @@ export function SongsTab({
         }}
       >
         <p className="font-syne text-[18px] font-bold" style={{ color: "rgb(var(--fg-default))" }}>
-          {canAddSong ? "No songs yet — upload the first one to get started." : blockedReason}
+          {canAddSong ? "No songs yet — add the first one to get started." : blockedReason}
         </p>
         {canAddSong ? (
           <p className="mt-2 text-[13px]" style={{ color: "rgb(var(--fg-muted))" }}>
-            Tracks you upload here show up in the artist&apos;s music library.
+            Purchased song spaces stay visible here before audio is uploaded.
           </p>
         ) : null}
         {canAddSong ? (
           <button
             type="button"
-            onClick={handleAddSong}
-            className="mt-5 inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-md)] px-4 py-2 text-[13px] font-semibold shadow-[var(--shadow-sm)] transition-colors"
+            onClick={() => {
+              handleAddSong();
+            }}
+            className="mt-5 inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] px-4 py-2 text-[13px] font-semibold shadow-[var(--shadow-sm)] transition-colors"
             style={{
               background: "rgb(var(--brand-primary))",
               color: "rgb(var(--bg-sidebar))",
@@ -151,7 +127,6 @@ export function SongsTab({
             Add song
           </button>
         ) : null}
-        {modal}
       </section>
     );
   }
@@ -165,7 +140,9 @@ export function SongsTab({
         {canAddSong ? (
           <button
             type="button"
-            onClick={handleAddSong}
+            onClick={() => {
+              handleAddSong();
+            }}
             className="inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] border px-3 py-1.5 text-[12px] font-semibold transition-colors"
             style={{
               background: "transparent",
@@ -191,8 +168,36 @@ export function SongsTab({
             onDrop={handleDrop}
           />
         ))}
+        {emptySlots.map((slot) => (
+          <div
+            key={slot.id}
+            className="flex min-h-14 items-center gap-3 rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2.5 sm:px-4"
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--brand-primary)/0.13)] text-[rgb(var(--brand-primary-dark))]">
+              <Plus size={15} aria-hidden />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13.5px] font-semibold text-[rgb(var(--fg-default))]">
+                {slot.label}
+              </span>
+              <span className="block text-[11.5px] text-[rgb(var(--fg-muted))]">
+                Purchased song space · ready to name
+              </span>
+            </span>
+            {canAddSong ? (
+              <button
+                type="button"
+                onClick={() => {
+                  handleAddSong(slot);
+                }}
+                className="inline-flex min-h-11 shrink-0 items-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-3 text-[12px] font-semibold text-[rgb(var(--bg-sidebar))]"
+              >
+                Add song
+              </button>
+            ) : null}
+          </div>
+        ))}
       </div>
-      {modal}
     </section>
   );
 }

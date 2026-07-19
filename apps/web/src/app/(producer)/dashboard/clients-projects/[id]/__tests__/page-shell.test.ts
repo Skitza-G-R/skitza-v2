@@ -14,9 +14,7 @@ const SRC = readFileSync(join(here, "..", "page.tsx"), "utf-8");
 describe("clients-projects/[id]/page.tsx — Phase 2 rewrite to AlbumSpace", () => {
   it("imports AlbumSpace as the new top-level body", () => {
     expect(SRC).toContain("AlbumSpace");
-    expect(SRC).toContain(
-      "~/components/dashboard/project/album-space",
-    );
+    expect(SRC).toContain("~/components/dashboard/project/album-space");
   });
 
   it("renders <AlbumSpace ... /> in the body", () => {
@@ -57,7 +55,7 @@ describe("clients-projects/[id]/page.tsx — Phase 2 rewrite to AlbumSpace", () 
 
   it("drops the imports of legacy sub-tabs that the new IA replaces", () => {
     // FilesSubTab is now wrapped by FilesTab from the album-tabs folder.
-    expect(SRC).not.toContain("from \"~/components/dashboard/project/sub-tabs/files-sub-tab\"");
+    expect(SRC).not.toContain('from "~/components/dashboard/project/sub-tabs/files-sub-tab"');
     expect(SRC).not.toContain("MusicSubTab");
     expect(SRC).not.toContain("NotesSubTab");
     expect(SRC).not.toContain("OverviewSubTab");
@@ -75,16 +73,21 @@ describe("clients-projects/[id]/page.tsx — Phase 2 rewrite to AlbumSpace", () 
     expect(SRC).toMatch(/startsAt\s*<\s*now|startsAt\s*<=\s*now|past\s*[Bb]ookings/);
   });
 
-  it("redirects to /songs/[songId] when the project has exactly 1 track (Single-Space rule)", () => {
-    // The Single-Space rule: a project with exactly one track is its
-    // song — the album route bounces straight to the song route.
-    // Assertion is whitespace-tolerant + accepts either tracks[0].id
-    // or a small destructure / lookup variant.
-    expect(SRC).toMatch(/data\.tracks\.length\s*===\s*1/);
+  it("redirects an allocated one-space project to its Song Space", () => {
+    expect(SRC).toContain('data.songSpaces.mode === "single"');
+    expect(SRC).toContain("data.tracks.length === 1");
     // Allow multi-line redirect call. Check the template literal
     // shape includes the dashboard + songs path with two interpolations.
     expect(SRC).toMatch(
       /redirect\([\s\S]*?`\/dashboard\/clients-projects\/\$\{[^}]+\}\/songs\/\$\{[^}]+\}`[\s\S]*?\)/,
     );
+  });
+
+  it("maps artist credit into AlbumSpace rows", () => {
+    expect(SRC).toMatch(/artist:\s*t\.artist/);
+  });
+
+  it("locks project-room Add Song to the project being viewed", () => {
+    expect(SRC).toContain("&lockProject=1");
   });
 });

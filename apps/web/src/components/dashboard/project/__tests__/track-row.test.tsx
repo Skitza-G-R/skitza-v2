@@ -42,6 +42,12 @@ describe("TrackRow — album-page tracklist row", () => {
     expect(SRC).toMatch(/<Link[\s\S]*?className="[^"]*absolute inset-0/);
   });
 
+  it("accepts and displays an optional artist credit in the track metadata", () => {
+    expect(SRC).toMatch(/artist:\s*string\s*\|\s*null/);
+    expect(SRC).toContain("if (track.artist) metaParts.push(track.artist)");
+    expect(SRC).not.toContain("SongActionsMenu");
+  });
+
   it("imports producerGradient for the 38px cover tile", () => {
     expect(SRC).toContain("producerGradient");
     expect(SRC).toContain("~/lib/_phase4-stubs/producer-color");

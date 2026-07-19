@@ -23,38 +23,57 @@ export default async function MusicPage() {
   if (!userId) return null;
 
   const caller = appRouter.createCaller({ userId });
-  const [data, projectData] = await Promise.all([
-    caller.artist.music.list(),
-    caller.artist.music.projects(),
+  const data = await caller.library.music.artistList();
+
+  const rows: MusicLibraryRow[] = data.projects.flatMap((project) => [
+    ...project.songs.map(
+      (song): MusicLibraryRow => ({
+        kind: "track",
+        id: song.id,
+        trackId: song.trackId,
+        trackTitle: song.title,
+        trackArtist: song.artist,
+        label: song.latestVersion?.label ?? null,
+        latestVersionId: song.latestVersion?.id ?? null,
+        projectId: project.id,
+        projectTitle: project.title,
+        projectLifecycleStatus: project.lifecycleStatus,
+        clientName: project.partnerName,
+        uploadedAtIso: song.latestVersion?.uploadedAt.toISOString() ?? null,
+        audioUrl: song.latestVersion?.audioUrl ?? null,
+        durationMs: song.latestVersion?.durationMs ?? null,
+        unreadComments: song.unreadComments,
+        plays: song.plays,
+      }),
+    ),
+    ...project.emptySlots.map(
+      (slot): MusicLibraryRow => ({
+        kind: "empty-slot",
+        id: slot.id,
+        purchaseId: slot.purchaseId,
+        slotIndex: slot.slotNumber,
+        trackTitle: slot.title,
+        projectId: project.id,
+        projectTitle: project.title,
+        projectLifecycleStatus: project.lifecycleStatus,
+        clientName: project.partnerName,
+      }),
+    ),
   ]);
 
-  const rows: MusicLibraryRow[] = data.tracks.map((t) => ({
-    id: t.id,
-    trackId: t.trackId,
-    trackTitle: t.trackTitle,
-    trackArtist: t.trackArtist,
-    label: t.label,
-    projectId: t.projectId,
-    projectTitle: t.projectTitle,
-    projectLifecycleStatus: t.projectLifecycleStatus,
-    // On the wire from artist.music.list, `clientName` is overloaded
-    // with the producer's display name (see the procedure header in
-    // routers/artist.ts) so this shared component renders identically.
-    clientName: t.clientName,
-    uploadedAtIso: t.uploadedAt.toISOString(),
-    audioUrl: t.audioUrl,
-    durationMs: t.durationMs,
-    unreadComments: t.unreadComments,
-    plays: t.plays,
-  }));
-
-  const projectRows: MusicLibraryProjectRow[] = projectData.projects.map((project) => ({
-    id: project.projectId,
+  const projectRows: MusicLibraryProjectRow[] = data.projects.map((project) => ({
+    id: project.id,
     title: project.title,
-    artistLabel: project.producerName,
-    trackCount: project.trackCount,
-    projectLifecycleStatus: project.projectLifecycleStatus,
-    latestTrackUploadedAtIso: project.latestTrackUploadedAt?.toISOString() ?? null,
+    artistLabel: project.partnerName ?? "Producer",
+    visibleSpaceCount: project.visibleCount,
+    playableTrackCount: project.songs.filter((song) => song.latestVersion?.audioUrl).length,
+    projectLifecycleStatus: project.lifecycleStatus,
+    latestTrackUploadedAtIso:
+      project.songs
+        .map((song) => song.latestVersion?.uploadedAt ?? null)
+        .filter((value): value is Date => value !== null)
+        .sort((left, right) => right.getTime() - left.getTime())[0]
+        ?.toISOString() ?? null,
   }));
 
   // Negative margins break the page out of the artist shell's

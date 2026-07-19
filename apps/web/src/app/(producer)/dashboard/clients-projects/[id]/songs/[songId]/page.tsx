@@ -26,7 +26,7 @@ import { appRouter } from "~/server/trpc/routers/_app";
 //      clientContacts.listWithProjects (the last only to resolve the
 //      LinkPill state for the Client snippet)
 //   3. Locates the song in data.tracks → notFound() when missing
-//   4. Decides album-vs-single mode from data.tracks.length === 1
+//   4. Decides album-vs-single mode from all allocated and purchased spaces
 //   5. Reshapes the data into the SongSpace prop tree
 //   6. Renders <SongSpace>
 //
@@ -36,6 +36,7 @@ import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = {
   params: Promise<{ id: string; songId: string }>;
+  searchParams?: Promise<{ upload?: string }>;
 };
 
 const STAGE_PROGRESS: Record<WorkflowStage, number> = {
@@ -50,10 +51,11 @@ function progressForStage(stage: WorkflowStage): number {
   return STAGE_PROGRESS[stage];
 }
 
-export default async function SongDetail({ params }: PageProps) {
+export default async function SongDetail({ params, searchParams }: PageProps) {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
   const { id, songId } = await params;
+  const query = (await searchParams) ?? {};
 
   const caller = appRouter.createCaller({ userId });
 
@@ -85,7 +87,7 @@ export default async function SongDetail({ params }: PageProps) {
   // a specific song (older rows) we still include it if the project
   // has exactly one track — the Single-Space rule means the project
   // IS the song.
-  const isSingleProject = data.tracks.length === 1;
+  const isSingleProject = data.songSpaces.mode === "single";
   const projectBookings = allBookings.filter((b) => b.projectId === data.project.id);
   const songBookings = projectBookings.filter(
     (b) => b.songId === songId || (isSingleProject && b.songId === null),
@@ -277,6 +279,8 @@ export default async function SongDetail({ params }: PageProps) {
         versions={versions}
         sessions={sessions}
         gradientToken={gradientToken}
+        initialUploadOpen={query.upload === "1"}
+        addAnotherSongHref={`/dashboard/music?addSong=1&projectId=${data.project.id}&lockProject=1`}
       />
     </main>
   );

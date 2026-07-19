@@ -6,7 +6,10 @@ import { useState } from "react";
 import { AlbumHero, type AlbumHeroProject } from "./album-hero";
 import { AlbumStatStrip } from "./album-stat-strip";
 import { AlbumTabs, type AlbumTab } from "./album-tabs";
-import { SongsTab } from "./album-tabs/songs-tab";
+import {
+  SongsTab,
+  type EmptySongSpaceRowData,
+} from "./album-tabs/songs-tab";
 import { FilesTab } from "./album-tabs/files-tab";
 import {
   StudioLogTab,
@@ -15,7 +18,6 @@ import {
 } from "./album-tabs/studio-log-tab";
 import type { TrackRowData } from "./track-row";
 import { playerPlay } from "~/components/audio/persistent-player";
-import { UploadTrackModal } from "~/components/dashboard/song/upload-track-modal";
 import {
   ProjectActionControls,
   type ProjectActionProject,
@@ -24,7 +26,6 @@ import {
   ProjectPurchasesPanel,
   type ProjectPurchaseSummary,
 } from "~/components/dashboard/projects/project-purchases-panel";
-import { canCreatePurchaseOwnedProjectWork } from "~/components/dashboard/projects/project-upload-access";
 
 // AlbumSpace — the top-level shell for the new Album Page. Owns the
 // active-tab state and composes AlbumHero + AlbumStatStrip + AlbumTabs
@@ -63,33 +64,33 @@ export interface AlbumSpacePlayLatest {
 }
 
 interface AlbumSpaceProps {
+  mode?: "single" | "album";
   project: AlbumSpaceProject;
   actionProject: ProjectActionProject;
   purchases: readonly ProjectPurchaseSummary[];
-  songSpacePurchaseId: string | null;
   tracks: TrackRowData[];
+  emptySlots?: readonly EmptySongSpaceRowData[];
+  addSongHref: string;
   studioLog: AlbumSpaceStudioLog;
   /** Newest playable version. When null, hero "Play latest" stays disabled. */
   playLatest?: AlbumSpacePlayLatest | null;
 }
 
 export function AlbumSpace({
+  mode = "album",
   project,
   actionProject,
   purchases,
-  songSpacePurchaseId,
   tracks,
+  emptySlots = [],
+  addSongHref,
   studioLog,
   playLatest = null,
 }: AlbumSpaceProps) {
   const router = useRouter();
   const [active, setActive] = useState<AlbumTab>("songs");
   const projectActive = actionProject.lifecycleStatus === "active";
-  const canUpload = canCreatePurchaseOwnedProjectWork({
-    projectLifecycleStatus: actionProject.lifecycleStatus,
-    purchaseId: songSpacePurchaseId,
-    purchases,
-  });
+  const canAddSong = projectActive;
   const archived =
     actionProject.lifecycleStatus === "completed" || actionProject.lifecycleStatus === "canceled";
   const newWorkBlockedReason = archived
@@ -104,11 +105,6 @@ export function AlbumSpace({
       : actionProject.lifecycleStatus === "paused"
         ? "Paused project"
         : "Active project";
-  // Hero "+ Add song" opens the same UploadTrackModal that SongsTab's
-  // own "+ Add song" button does. Owning the state here lets both
-  // triggers share one modal mount so the producer can fire it from
-  // either spot without duplicate dialogs.
-  const [uploadOpen, setUploadOpen] = useState(false);
 
   const heroProject: AlbumHeroProject = {
     id: project.id,
@@ -133,26 +129,25 @@ export function AlbumSpace({
       }
     : undefined;
 
-  const handleAddSong = () => {
-    setUploadOpen(true);
+  const handleAddSong = (slot?: EmptySongSpaceRowData) => {
+    if (!slot) {
+      router.push(addSongHref);
+      return;
+    }
+    const separator = addSongHref.includes("?") ? "&" : "?";
+    router.push(
+      `${addSongHref}${separator}purchaseId=${encodeURIComponent(slot.purchaseId)}&lockProject=1`,
+    );
   };
-
-  // versionCount projection for the modal's existing-song dropdown.
-  // Mirrors SongsTab's local projection so the modal renders the same
-  // options whichever trigger summoned it.
-  const modalTracks = tracks.map((t) => ({
-    id: t.id,
-    title: t.title,
-    versionCount: t.versionCount ?? 0,
-  }));
 
   return (
     <div className="space-y-4 md:space-y-5">
       <AlbumHero
         project={heroProject}
+        mode={mode}
         uploadDisabledReason={newWorkBlockedReason}
         {...(handlePlayLatest ? { onPlayLatest: handlePlayLatest } : {})}
-        {...(canUpload ? { onAddSong: handleAddSong } : {})}
+        {...(canAddSong ? { onAddSong: handleAddSong } : {})}
       />
 
       <section
@@ -166,11 +161,9 @@ export function AlbumSpace({
           <p className="mt-1 text-[12.5px] leading-snug text-[rgb(var(--fg-muted))]">
             {archived
               ? "Music, listening, payments, comments, history, and public links remain available."
-              : projectActive && canUpload
-                ? "Edit project details or archive the work when it is finished."
-                : projectActive
-                  ? `Comments are open. ${newWorkBlockedReason}`
-                  : "Uploads remain closed until this project returns to active work."}
+              : projectActive
+                ? "Add songs from purchased spaces, or start a separate extra-song purchase."
+                : "Uploads remain closed until this project returns to active work."}
           </p>
         </div>
         <ProjectActionControls
@@ -196,11 +189,11 @@ export function AlbumSpace({
       {active === "songs" ? (
         <SongsTab
           projectId={project.id}
-          purchaseId={songSpacePurchaseId}
           tracks={tracks}
-          canAddSong={canUpload}
+          emptySlots={emptySlots}
+          canAddSong={canAddSong}
           blockedReason={newWorkBlockedReason}
-          {...(canUpload ? { onAddSong: handleAddSong } : {})}
+          {...(canAddSong ? { onAddSong: handleAddSong } : {})}
         />
       ) : null}
       {active === "files" ? <FilesTab projectId={project.id} /> : null}
@@ -216,19 +209,6 @@ export function AlbumSpace({
       ) : null}
 
       <ProjectPurchasesPanel projectId={project.id} purchases={purchases} />
-
-      {canUpload ? (
-        <UploadTrackModal
-          open={uploadOpen}
-          onClose={() => {
-            setUploadOpen(false);
-          }}
-          projectId={project.id}
-          purchaseId={songSpacePurchaseId}
-          mode="new-song"
-          tracks={modalTracks}
-        />
-      ) : null}
     </div>
   );
 }

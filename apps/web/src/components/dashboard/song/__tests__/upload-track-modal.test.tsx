@@ -140,8 +140,39 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
 
   it("sends the exact purchase for new-song allocation and disables when unavailable", () => {
     expect(SRC).toMatch(/addTrackAction\(\{[\s\S]*?projectId,[\s\S]*?purchaseId,/);
+    expect(SRC).toMatch(/operationKey: songSpaceOperationKeyRef\.current/);
     expect(SRC).toMatch(/isNewSong && !purchaseId/);
     expect(SRC).toMatch(/No active purchase has an available song space/);
+  });
+
+  it("reuses a successfully allocated new-song track on retry and resets it on close or success", () => {
+    const submitStart = SRC.indexOf("const handleSubmit");
+    const submitEnd = SRC.indexOf("// Display label", submitStart);
+    const submit = SRC.slice(submitStart, submitEnd);
+    const close = SRC.slice(SRC.indexOf("const handleClose"), submitStart);
+
+    expect(SRC).toContain("allocatedNewTrackIdRef");
+    expect(submit).toMatch(
+      /const retainedTrackId = allocatedNewTrackIdRef\.current;[\s\S]*?let resolvedTrackId = retainedTrackId \?\? selectedTrackId;[\s\S]*?if \(!retainedTrackId && isNewSong\)[\s\S]*?await addTrackAction/,
+    );
+    expect(submit).toMatch(/allocatedNewTrackIdRef\.current = res\.data\.id/);
+    expect(submit).toContain("setAllocatedNewTrackId(res.data.id)");
+    expect(SRC).toMatch(/isNewSong && !purchaseId && !allocatedNewTrackId/);
+    expect(SRC).toMatch(/allocatedNewTrackId \? \([\s\S]*?upload-track-song-allocated/);
+    expect(SRC).toContain("This purchased song space is allocated. Retry the upload for this song.");
+
+    // A later version/audio failure must retain the allocation for the
+    // next submit instead of consuming another purchased song space.
+    const catchSource = submit.slice(submit.indexOf("} catch (err) {"));
+    expect(catchSource).not.toContain("allocatedNewTrackIdRef.current = null");
+
+    // Leaving the modal or completing the upload ends that retry session.
+    expect(close).toContain("allocatedNewTrackIdRef.current = null");
+    const completed = submit.slice(submit.indexOf("createdVersionId = null"));
+    expect(completed).toContain("allocatedNewTrackIdRef.current = null");
+    expect(completed.indexOf("allocatedNewTrackIdRef.current = null")).toBeLessThan(
+      completed.indexOf("onClose()"),
+    );
   });
 
   // I1 — on upload failure, the modal must cleanup the orphan

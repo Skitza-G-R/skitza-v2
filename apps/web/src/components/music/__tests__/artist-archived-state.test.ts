@@ -36,7 +36,7 @@ describe("artist archived project listening surfaces", () => {
   });
 
   it("lists project-level archive rows and gives artists an Active/Archived project filter", () => {
-    expect(artistLibraryPageSource).toContain("caller.artist.music.projects()");
+    expect(artistLibraryPageSource).toContain("caller.library.music.artistList()");
     expect(artistLibraryPageSource).toContain("projectRows={projectRows}");
     expect(librarySource).toContain('aria-label="Project status"');
     expect(librarySource).toContain('label="Active"');

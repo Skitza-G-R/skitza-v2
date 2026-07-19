@@ -14,16 +14,16 @@ const projectRouterSource = readFileSync(
   join(webRoot, "src/server/trpc/routers/project.ts"),
   "utf8",
 );
-const actionSource = readFileSync(
-  join(webRoot, "src/app/(producer)/dashboard/clients-projects/upload-actions.ts"),
-  "utf8",
-);
 const modalSource = readFileSync(
   join(webRoot, "src/components/dashboard/song/upload-track-modal.tsx"),
   "utf8",
 );
 const albumSource = readFileSync(
   join(webRoot, "src/components/dashboard/project/album-space.tsx"),
+  "utf8",
+);
+const addSongSource = readFileSync(
+  join(webRoot, "src/components/dashboard/song/add-song-dialog.tsx"),
   "utf8",
 );
 
@@ -43,7 +43,7 @@ describe("SK-90 project song ownership", () => {
     expect(projectTracks).toContain("project_tracks_purchase_project_fk");
   });
 
-  it("selects an owned active purchase with remaining capacity for the project UI", () => {
+  it("projects every owned purchase while exposing only active remaining capacity", () => {
     const detail = projectRouterSource.slice(
       projectRouterSource.indexOf("detail: producerProcedure"),
       projectRouterSource.indexOf("create: producerProcedure"),
@@ -51,21 +51,22 @@ describe("SK-90 project song ownership", () => {
 
     expect(detail).toMatch(/eq\(purchases\.producerId, ctx\.producerId\)/);
     expect(detail).toMatch(/eq\(purchases\.projectId, row\.id\)/);
-    expect(detail).toMatch(/eq\(purchases\.lifecycleStatus, "active"\)/);
+    expect(detail).toMatch(/summarizeProjectSongSpaces\(/);
+    expect(detail).toMatch(/lifecycleStatus: purchase\.lifecycleStatus/);
     expect(detail).toMatch(/includedSongSpaces/);
-    expect(detail).toMatch(/songSpacePurchaseId: eligibleSongSpacePurchase\?\.id \?\? null/);
+    expect(detail).toMatch(/songSpacePurchaseId: songSpaces\.emptySlots\[0\]\?\.purchaseId \?\? null/);
   });
 
-  it("threads the exact eligible purchase through modal, action, and mutation", () => {
-    expect(pageSource).toMatch(/songSpacePurchaseId=\{data\.songSpacePurchaseId\}/);
-    expect(albumSource).toMatch(/purchaseId=\{songSpacePurchaseId\}/);
-    expect(modalSource).toMatch(/addTrackAction\(\{[\s\S]*?projectId,[\s\S]*?purchaseId,/);
-    expect(actionSource).toMatch(/addTrackAction\(input: \{[\s\S]*?purchaseId: string/);
-    expect(actionSource).toMatch(/caller\.project\.addTrack\(input\)/);
+  it("threads the exact virtual-slot purchase through Add Song and allocation", () => {
+    expect(pageSource).toMatch(/emptySlots=\{data\.songSpaces\.emptySlots\.map/);
+    expect(pageSource).toMatch(/purchaseId: slot\.purchaseId/);
+    expect(albumSource).toContain("router.push(addSongHref)");
+    expect(addSongSource).toMatch(/purchaseId: slot\.purchaseId/);
+    expect(addSongSource).toMatch(/claimSongSpaceAction\(\{/);
   });
 
   it("fails closed in the new-song modal when no eligible purchase is available", () => {
-    expect(modalSource).toMatch(/\(isNewSong && !purchaseId\)/);
+    expect(modalSource).toMatch(/isNewSong && !purchaseId && !allocatedNewTrackId/);
     expect(modalSource).toMatch(/No active purchase has an available song space/);
   });
 });

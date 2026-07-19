@@ -34,7 +34,7 @@ export default async function ProducerProjectPage({ params }: PageProps) {
   const caller = appRouter.createCaller({ userId });
   let data;
   try {
-    data = await caller.producer.music.project({ projectId });
+    data = await caller.library.music.producerProject({ projectId });
   } catch (e) {
     if (e instanceof TRPCError && e.code === "NOT_FOUND") notFound();
     throw e;
@@ -43,25 +43,54 @@ export default async function ProducerProjectPage({ params }: PageProps) {
   // Convert Dates → ISO strings for the client boundary.
   const wire: ProjectPageData = {
     project: {
-      id: data.project.id,
-      title: data.project.title,
-      clientName: data.project.clientName,
-      createdAtIso: data.project.createdAt.toISOString(),
-      lifecycleStatus: data.project.lifecycleStatus,
+      id: data.id,
+      title: data.title,
+      clientName: data.partnerName,
+      createdAtIso: data.createdAt.toISOString(),
+      lifecycleStatus: data.lifecycleStatus,
     },
-    tracks: data.tracks.map((t) => ({
-      id: t.id,
-      trackId: t.trackId,
-      title: t.title,
-      artist: t.artist,
-      versionLabel: t.versionLabel,
-      audioUrl: t.audioUrl,
-      durationMs: t.durationMs,
-      uploadedAtIso: t.uploadedAt.toISOString(),
-      unreadComments: t.unreadComments,
-      plays: t.plays,
-    })),
+    tracks: [
+      ...data.songs.map((song) => ({
+        kind: "track" as const,
+        id: song.id,
+        trackId: song.trackId,
+        title: song.title,
+        artist: song.artist,
+        versionLabel: song.latestVersion?.label ?? null,
+        latestVersionId: song.latestVersion?.id ?? null,
+        audioUrl: song.latestVersion?.audioUrl ?? null,
+        durationMs: song.latestVersion?.durationMs ?? null,
+        uploadedAtIso: song.latestVersion?.uploadedAt.toISOString() ?? null,
+        unreadComments: song.unreadComments,
+        plays: song.plays,
+        actionHref:
+          data.lifecycleStatus === "active" &&
+          song.purchaseLifecycleStatus === "active"
+            ? `/dashboard/clients-projects/${data.id}/songs/${song.id}?upload=1`
+            : null,
+      })),
+      ...data.emptySlots.map((slot) => ({
+        kind: "empty-slot" as const,
+        id: slot.id,
+        purchaseId: slot.purchaseId,
+        slotIndex: slot.slotNumber,
+        title: slot.title,
+        actionHref:
+          data.lifecycleStatus === "active"
+            ? `/dashboard/music?addSong=1&projectId=${data.id}&purchaseId=${slot.purchaseId}&lockProject=1`
+            : null,
+      })),
+    ],
   };
 
-  return <ProjectPage data={wire} />;
+  return (
+    <ProjectPage
+      data={wire}
+      {...(data.lifecycleStatus === "active"
+        ? {
+            producerActionHref: `/dashboard/music?addSong=1&projectId=${data.id}&lockProject=1`,
+          }
+        : {})}
+    />
+  );
 }
