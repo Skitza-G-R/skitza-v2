@@ -7,6 +7,8 @@ import {
   eq,
   ilike,
   inArray,
+  isNotNull,
+  isNull,
   or,
   trackComments,
   trackVersions,
@@ -109,7 +111,7 @@ export const libraryRouter = router({
         .from(trackVersions)
         .innerJoin(projectTracks, eq(trackVersions.trackId, projectTracks.id))
         .innerJoin(projects, eq(projectTracks.projectId, projects.id))
-        .where(where)
+        .where(and(where, isNotNull(trackVersions.audioUrl), isNull(trackVersions.audioDeletedAt)))
         .orderBy(desc(trackVersions.uploadedAt))
         .limit(200);
 
@@ -130,10 +132,7 @@ export const libraryRouter = router({
       for (const c of commentRows) {
         totalByVersion.set(c.versionId, (totalByVersion.get(c.versionId) ?? 0) + 1);
         if (c.resolvedAt === null) {
-          unresolvedByVersion.set(
-            c.versionId,
-            (unresolvedByVersion.get(c.versionId) ?? 0) + 1,
-          );
+          unresolvedByVersion.set(c.versionId, (unresolvedByVersion.get(c.versionId) ?? 0) + 1);
         }
       }
 
@@ -145,9 +144,7 @@ export const libraryRouter = router({
 
       if (filter === "unread") return enriched.filter((r) => r.unresolvedCount > 0);
       if (filter === "resolved") {
-        return enriched.filter(
-          (r) => r.commentCount > 0 && r.unresolvedCount === 0,
-        );
+        return enriched.filter((r) => r.commentCount > 0 && r.unresolvedCount === 0);
       }
       return enriched;
     }),
@@ -163,11 +160,17 @@ export const libraryRouter = router({
           trackId: trackVersions.trackId,
           label: trackVersions.label,
           audioUrl: trackVersions.audioUrl,
+          audioDeletedAt: trackVersions.audioDeletedAt,
           durationMs: trackVersions.durationMs,
           uploadedAt: trackVersions.uploadedAt,
         })
         .from(trackVersions)
-        .where(eq(trackVersions.id, input.versionId))
+        .where(
+          and(
+            eq(trackVersions.id, input.versionId),
+            or(isNotNull(trackVersions.audioUrl), isNotNull(trackVersions.audioDeletedAt)),
+          ),
+        )
         .limit(1);
       if (!v) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -204,7 +207,7 @@ export const libraryRouter = router({
         .orderBy(asc(trackComments.timestampMs));
 
       return {
-        version: v,
+        version: v.audioDeletedAt ? { ...v, audioUrl: null, durationMs: null } : v,
         track: { id: t.id, title: t.title, projectId: t.projectId },
         project: { id: d.id, title: d.title, artistName: d.artistName },
         comments,
@@ -233,6 +236,8 @@ export const libraryRouter = router({
         .where(
           and(
             eq(projects.producerId, ctx.producerId),
+            isNotNull(trackVersions.audioUrl),
+            isNull(trackVersions.audioDeletedAt),
             or(ilike(projectTracks.title, pattern), ilike(trackVersions.label, pattern)),
           ),
         )

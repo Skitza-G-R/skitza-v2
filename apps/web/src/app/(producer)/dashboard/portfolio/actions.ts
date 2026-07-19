@@ -47,18 +47,12 @@ function toMessage(err: unknown): string {
 }
 
 export async function addPortfolioFromLibrary(input: {
-  title: string;
-  artist: string | null;
-  audioUrl: string;
+  versionId: string;
 }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    await c.caller.portfolio.create({
-      title: input.title,
-      ...(input.artist ? { artist: input.artist } : {}),
-      audioUrl: input.audioUrl,
-    });
+    await c.caller.portfolio.createFromVersion({ versionId: input.versionId });
     revalidatePath(PORTFOLIO_PATH);
     return { ok: true };
   } catch (err) {

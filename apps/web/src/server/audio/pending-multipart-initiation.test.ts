@@ -98,6 +98,14 @@ describe("durable multipart initiation", () => {
     expect(STORAGE_SOURCE).toMatch(/getR2SingleAttempt[\s\S]*maxAttempts: 1/);
   });
 
+  it("prevents newly uploaded audio from being retained by a public CDN cache", () => {
+    const remoteCreate = INITIATION_SOURCE.slice(
+      INITIATION_SOURCE.indexOf("new CreateMultipartUploadCommand"),
+      INITIATION_SOURCE.indexOf("const createdUploadId"),
+    );
+    expect(remoteCreate).toContain('CacheControl: "no-store"');
+  });
+
   it("records the exact latest 900-second signed-part capability", () => {
     const issuedAt = new Date("2026-07-17T12:00:00.000Z");
     expect(latestPendingAudioPartCapabilityExpiry(null, issuedAt)).toEqual(

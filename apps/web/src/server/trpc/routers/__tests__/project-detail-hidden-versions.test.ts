@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   PROJECT_ID,
+  PRODUCER_ID,
+  TRACK_ID,
   producers,
   projects,
   projectTracks,
@@ -11,6 +13,7 @@ const {
   trackComments,
   transactionMock,
   dbMock,
+  whereCalls,
 } = vi.hoisted(() => {
   const PRODUCER_ID = "00000000-0000-4000-8000-000000000901";
   const PROJECT_ID = "00000000-0000-4000-8000-000000000902";
@@ -59,7 +62,9 @@ const {
     __table: "track_versions",
     id: { __column: "track_versions.id" },
     trackId: { __column: "track_versions.track_id" },
+    producerId: { __column: "track_versions.producer_id" },
     uploadedAt: { __column: "track_versions.uploaded_at" },
+    audioUrl: { __column: "track_versions.audio_url" },
     audioDeletedAt: { __column: "track_versions.audio_deleted_at" },
   };
   const trackComments = {
@@ -112,12 +117,14 @@ const {
           id: "canceled-newest",
           trackId: TRACK_ID,
           uploadedAt: new Date("2026-07-18T12:00:00.000Z"),
+          audioUrl: "https://audio.invalid/deleted.wav",
           audioDeletedAt: new Date("2026-07-18T12:01:00.000Z"),
         },
         {
           id: "visible-older",
           trackId: TRACK_ID,
           uploadedAt: new Date("2026-07-17T12:00:00.000Z"),
+          audioUrl: "https://audio.invalid/visible.wav",
           audioDeletedAt: null,
         },
       ],
@@ -130,6 +137,7 @@ const {
       ],
     ],
   ]);
+  const whereCalls: Array<{ table: unknown; condition: unknown }> = [];
 
   const snapshotDbMock = {
     select: () => ({
@@ -137,11 +145,8 @@ const {
         const rows = rowsByTable.get(table) ?? [];
         return {
           where: (condition: unknown) => {
-            const selectedRows =
-              table === trackVersions &&
-              JSON.stringify(condition) === JSON.stringify({ isNull: trackVersions.audioDeletedAt })
-                ? rows.filter((row) => row.audioDeletedAt === null)
-                : rows;
+            whereCalls.push({ table, condition });
+            const selectedRows = rows;
             return {
               limit: () => Promise.resolve(selectedRows),
               orderBy: () => Promise.resolve(selectedRows),
@@ -153,10 +158,7 @@ const {
     }),
   };
   const transactionMock = vi.fn(
-    async (
-      work: (transaction: typeof snapshotDbMock) => Promise<unknown>,
-      config?: unknown,
-    ) => {
+    async (work: (transaction: typeof snapshotDbMock) => Promise<unknown>, config?: unknown) => {
       void config;
       return work(snapshotDbMock);
     },
@@ -177,6 +179,8 @@ const {
 
   return {
     PROJECT_ID,
+    PRODUCER_ID,
+    TRACK_ID,
     producers,
     projects,
     projectTracks,
@@ -186,6 +190,7 @@ const {
     trackComments,
     transactionMock,
     dbMock,
+    whereCalls,
   };
 });
 
@@ -217,17 +222,46 @@ vi.mock("~/server/email/send", () => ({
 beforeEach(() => {
   process.env.DATABASE_URL = "postgresql://test.invalid/sk90";
   transactionMock.mockClear();
+  whereCalls.length = 0;
 });
 
-describe("project.detail canceled upload placeholders", () => {
-  it("excludes audioDeletedAt versions and their comments from the returned version list", async () => {
+describe("project.detail deleted-audio history", () => {
+  it("keeps tombstoned versions and comments while removing their playback URL", async () => {
     const { projectRouter } = await import("../project");
     const caller = projectRouter.createCaller({ userId: "user_test_project_detail" });
 
     const result = await caller.detail({ id: PROJECT_ID });
 
-    expect(result.versions.map((version) => version.id)).toEqual(["visible-older"]);
-    expect(result.comments.map((comment) => comment.id)).toEqual(["visible-comment"]);
+    expect(result.versions.map((version) => version.id)).toEqual([
+      "canceled-newest",
+      "visible-older",
+    ]);
+    expect(
+      result.versions.find((version) => version.id === "canceled-newest")?.audioUrl,
+    ).toBeNull();
+    expect(result.versions.find((version) => version.id === "visible-older")?.audioUrl).toBe(
+      "https://audio.invalid/visible.wav",
+    );
+    expect(result.comments.map((comment) => comment.id)).toEqual([
+      "hidden-comment",
+      "visible-comment",
+    ]);
+    expect(whereCalls).toContainEqual({
+      table: trackVersions,
+      condition: {
+        conditions: [
+          { left: trackVersions.producerId, right: PRODUCER_ID },
+          { left: trackVersions.trackId, right: [TRACK_ID] },
+        ],
+      },
+    });
+    expect(whereCalls).toContainEqual({
+      table: trackComments,
+      condition: {
+        left: trackComments.versionId,
+        right: ["canceled-newest", "visible-older"],
+      },
+    });
     expect(transactionMock).toHaveBeenCalledOnce();
     expect(transactionMock.mock.calls[0]?.[1]).toEqual({
       isolationLevel: "repeatable read",

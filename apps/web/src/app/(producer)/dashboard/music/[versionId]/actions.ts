@@ -23,8 +23,7 @@ function pathDetail(versionId: string): string {
 }
 
 async function callerOrError(): Promise<
-  | { ok: true; caller: ReturnType<typeof appRouter.createCaller> }
-  | { ok: false; error: string }
+  { ok: true; caller: ReturnType<typeof appRouter.createCaller> } | { ok: false; error: string }
 > {
   const { userId } = await auth();
   if (!userId) return { ok: false, error: "Please sign in to continue." };
@@ -49,6 +48,8 @@ function toMessage(err: unknown): string {
       case "NOT_FOUND":
         return "Not found.";
       case "BAD_REQUEST":
+      case "PRECONDITION_FAILED":
+      case "CONFLICT":
         return err.message || "Invalid input.";
       default:
         return "Something went wrong. Please try again.";

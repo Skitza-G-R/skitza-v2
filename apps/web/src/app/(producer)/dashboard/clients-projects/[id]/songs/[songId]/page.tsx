@@ -121,6 +121,7 @@ export default async function SongDetail({ params, searchParams }: PageProps) {
       id: v.id,
       versionLabel: v.label,
       audioUrl: v.audioUrl,
+      audioDeletedAtIso: v.audioDeletedAt?.toISOString() ?? null,
       uploadedAtIso: v.uploadedAt.toISOString(),
       uploadedBy: "You",
       changelog: "",
@@ -130,7 +131,9 @@ export default async function SongDetail({ params, searchParams }: PageProps) {
   });
 
   // ── Shape: song meta ────────────────────────────────────────────
-  const latestVersion = songVersions[0];
+  const latestVersion = songVersions.find(
+    (version) => version.audioDeletedAt === null && version.audioUrl !== null,
+  );
   const totalNoteCount = songComments.filter((c) => c.resolvedAt === null).length;
   const mode: "album" | "single" = isSingleProject ? "single" : "album";
 
@@ -159,7 +162,9 @@ export default async function SongDetail({ params, searchParams }: PageProps) {
     id: track.id,
     purchaseId: track.purchaseId,
     title: track.title,
-    currentVersion: latestVersion?.label ?? "v0",
+    archivedAtIso: track.archivedAt?.toISOString() ?? null,
+    releasedAtIso: track.releasedAt?.toISOString() ?? null,
+    currentVersion: latestVersion?.label ?? "No audio",
     noteCount: totalNoteCount,
     durationMs: latestVersion?.durationMs ?? null,
     workflowStage: songStage,

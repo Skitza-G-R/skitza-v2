@@ -10,6 +10,7 @@ import {
   isNotNull,
   isNull,
   lte,
+  or,
   portfolioTracks,
   producers,
   projectTracks,
@@ -1243,6 +1244,9 @@ export const producerRouter = router({
             trackId: projectTracks.id,
             trackTitle: projectTracks.title,
             trackArtist: projectTracks.artist,
+            trackWorkflowStage: projectTracks.workflowStage,
+            trackArchivedAt: projectTracks.archivedAt,
+            trackReleasedAt: projectTracks.releasedAt,
             projectId: projects.id,
             projectTitle: projects.title,
             clientName: projects.clientName,
@@ -1254,7 +1258,9 @@ export const producerRouter = router({
           .where(
             and(
               eq(trackVersions.id, input.versionId),
+              eq(trackVersions.producerId, ctx.producerId),
               eq(projects.producerId, ctx.producerId),
+              or(isNotNull(trackVersions.audioUrl), isNotNull(trackVersions.audioDeletedAt)),
             ),
           )
           .limit(1);
@@ -1266,19 +1272,41 @@ export const producerRouter = router({
         //    show the green checkmark on the approved version, and
         //    `peaks` so the song-page renders the real envelope on
         //    first frame without a client-side decode round-trip.
-        const versions = await ctx.db
+        const versionRows = await ctx.db
           .select({
             id: trackVersions.id,
             label: trackVersions.label,
             audioUrl: trackVersions.audioUrl,
+            audioDeletedAt: trackVersions.audioDeletedAt,
             durationMs: trackVersions.durationMs,
             uploadedAt: trackVersions.uploadedAt,
             approvedAt: trackVersions.producerMarkedFinalAt,
             peaks: trackVersions.peaks,
           })
           .from(trackVersions)
-          .where(eq(trackVersions.trackId, head.trackId))
-          .orderBy(desc(trackVersions.uploadedAt));
+          .where(
+            and(
+              eq(trackVersions.trackId, head.trackId),
+              eq(trackVersions.producerId, ctx.producerId),
+              or(isNotNull(trackVersions.audioUrl), isNotNull(trackVersions.audioDeletedAt)),
+            ),
+          )
+          .orderBy(desc(trackVersions.uploadedAt), desc(trackVersions.id));
+
+        // Deleting stored audio keeps the lightweight version timeline,
+        // but its storage-backed playback fields must disappear from every
+        // read immediately. The immutable identity stays server-side for
+        // idempotent object cleanup and is never returned here.
+        const versions = versionRows.map((version) =>
+          version.audioDeletedAt
+            ? {
+                ...version,
+                audioUrl: null,
+                durationMs: null,
+                peaks: null,
+              }
+            : version,
+        );
 
         // 3. Comments across all versions of this track. Asc by
         //    timestampMs so the comment thread reads in track order
@@ -1306,6 +1334,9 @@ export const producerRouter = router({
             id: head.trackId,
             title: head.trackTitle,
             artist: head.trackArtist,
+            workflowStage: head.trackWorkflowStage,
+            archivedAt: head.trackArchivedAt,
+            releasedAt: head.trackReleasedAt,
             projectId: head.projectId,
             projectTitle: head.projectTitle,
             clientName: head.clientName,
@@ -1313,10 +1344,15 @@ export const producerRouter = router({
           },
           versions,
           comments,
-          // Selected version id — first version that matches the input,
-          // or the latest if the input version was somehow filtered out
-          // (shouldn't happen given the head check above, but defensive).
-          selectedVersionId: input.versionId,
+          // A deleted deep-link still opens its song history, while the
+          // player falls back to the newest available audio. If every
+          // stored object is gone, keep the requested history row selected;
+          // its null URL leaves playback and download disabled.
+          selectedVersionId:
+            versions.find((version) => version.id === input.versionId && version.audioUrl !== null)
+              ?.id ??
+            versions.find((version) => version.audioUrl !== null)?.id ??
+            input.versionId,
         };
       }),
   }),

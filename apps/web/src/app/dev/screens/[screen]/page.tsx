@@ -18,6 +18,7 @@ import {
   type MusicLibraryProjectRow,
   type MusicLibraryRow,
 } from "~/components/music/library-screen";
+import { Sk8LibraryDevScreen, Sk8SongDevScreen } from "~/components/dev/sk8-music-dev-screen";
 import {
   PurchaseStatusCard,
   type PurchaseStage,
@@ -251,6 +252,7 @@ function ProjectSpaceDevPreview({
           id: "song-lior",
           purchaseId: "purchase-lior",
           title: "Midnight Drive",
+          archivedAtIso: null,
           currentVersion: "v3",
           noteCount: 2,
           durationMs: 193_000,
@@ -319,6 +321,7 @@ function ArtistArchivedProjectDevPreview({
               trackId: "song-lior",
               title: "Midnight Drive",
               artist: "Lior Tansky",
+              archivedAtIso: null,
               versionLabel: "v3",
               audioUrl: "/icon",
               durationMs: 193_000,
@@ -339,6 +342,7 @@ const DEV_ARTIST_LIBRARY_TRACKS = [
     trackId: "track-active",
     trackTitle: "Neon Morning",
     trackArtist: "Maya Cohen",
+    archivedAtIso: null,
     label: "v2",
     projectId: "project-active",
     projectTitle: "Active single",
@@ -355,6 +359,7 @@ const DEV_ARTIST_LIBRARY_TRACKS = [
     trackId: "track-completed",
     trackTitle: "Afterlight",
     trackArtist: "Maya Cohen",
+    archivedAtIso: null,
     label: "v4",
     projectId: "project-completed",
     projectTitle: "Completed EP",
@@ -405,6 +410,80 @@ function ArtistLibraryLifecycleDevPreview() {
       />
     </main>
   );
+}
+
+const DEV_SK8_LIBRARY_TRACKS = [
+  {
+    id: "version-sk8-live-v3",
+    latestVersionId: "version-sk8-live-v3",
+    trackId: "track-sk8-live",
+    trackTitle: "After the Rain",
+    trackArtist: "Noya Halevi",
+    archivedAtIso: null,
+    releasedAtIso: "2026-07-18T12:00:00.000Z",
+    audioDeletedAtIso: null,
+    label: "Final master",
+    projectId: "project-sk8-live",
+    projectTitle: "After the Rain — Single",
+    projectLifecycleStatus: "active",
+    clientName: "Noya Halevi",
+    uploadedAtIso: "2026-07-18T09:30:00.000Z",
+    audioUrl: "/icon",
+    durationMs: 201_000,
+    unreadComments: 3,
+    plays: 18,
+    actionHref: "/dev/screens/sk8-library",
+  },
+  {
+    id: "version-sk8-history-v4",
+    latestVersionId: "version-sk8-history-v4",
+    trackId: "track-sk8-history",
+    trackTitle: "Paper Planes",
+    trackArtist: "Ari Cohen",
+    archivedAtIso: null,
+    releasedAtIso: "2026-07-17T12:00:00.000Z",
+    audioDeletedAtIso: "2026-07-18T11:00:00.000Z",
+    label: "v4 · audio deleted",
+    projectId: "project-sk8-history",
+    projectTitle: "Paper Planes — Single",
+    projectLifecycleStatus: "active",
+    clientName: "Ari Cohen",
+    uploadedAtIso: "2026-07-16T13:10:00.000Z",
+    audioUrl: null,
+    durationMs: null,
+    unreadComments: 1,
+    plays: 7,
+    actionHref: "/dev/screens/sk8-library",
+  },
+  {
+    id: "version-sk8-archived-v2",
+    latestVersionId: "version-sk8-archived-v2",
+    trackId: "track-sk8-archived",
+    trackTitle: "Slow Motion",
+    trackArtist: "Maya Cohen",
+    archivedAtIso: "2026-07-10T10:00:00.000Z",
+    releasedAtIso: null,
+    audioDeletedAtIso: null,
+    label: "v2",
+    projectId: "project-sk8-archived",
+    projectTitle: "Slow Motion — Single",
+    projectLifecycleStatus: "active",
+    clientName: "Maya Cohen",
+    uploadedAtIso: "2026-07-10T09:40:00.000Z",
+    audioUrl: "/icon",
+    durationMs: 184_000,
+    unreadComments: 0,
+    plays: 12,
+    actionHref: null,
+  },
+] satisfies MusicLibraryRow[];
+
+function Sk8LibraryDevPreview() {
+  return <Sk8LibraryDevScreen tracks={DEV_SK8_LIBRARY_TRACKS} />;
+}
+
+function Sk8SongDevPreview({ archived }: { archived: boolean }) {
+  return <Sk8SongDevScreen archived={archived} />;
 }
 
 // Dev-only screen gallery for the handoff-4 wave (2026-07-05). Renders the
@@ -706,6 +785,12 @@ export default async function DevScreenPage({ params }: Params) {
       return <ArtistArchivedProjectDevPreview lifecycleStatus="canceled" />;
     case "artist-library-lifecycle":
       return <ArtistLibraryLifecycleDevPreview />;
+    case "sk8-library":
+      return <Sk8LibraryDevPreview />;
+    case "sk8-song":
+      return <Sk8SongDevPreview archived={false} />;
+    case "sk8-song-archived":
+      return <Sk8SongDevPreview archived />;
     case "add-song":
       return <UploadModalDevScreen />;
     case "gate2-queue":

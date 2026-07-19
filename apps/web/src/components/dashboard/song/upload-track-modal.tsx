@@ -97,7 +97,7 @@ function isAudioFile(file: File): boolean {
 export interface UploadTrackModalTrack {
   id: string;
   title: string;
-  /** Used to auto-bump the default version label (v{N+1}). */
+  /** Used to auto-bump the default version label (V{N+1}). */
   versionCount: number;
 }
 
@@ -110,7 +110,7 @@ export interface UploadTrackModalProps {
   mode: "new-song" | "new-version";
   /** Pre-selected when mode === "new-version". Required for that mode. */
   trackId?: string;
-  /** Pre-populated version label (e.g. "v4"). Falls back to v{versionCount+1}. */
+  /** Pre-populated version label (e.g. "V4"). Falls back to V{versionCount+1}. */
   defaultLabel?: string;
   tracks: UploadTrackModalTrack[];
   /** Fired after the upload chain finishes — parent can refresh. */
@@ -139,7 +139,7 @@ export function UploadTrackModal({
   const initialPick = mode === "new-version" && trackId ? trackId : NEW_SONG_VALUE;
   const [selectedTrackId, setSelectedTrackId] = useState<string>(initialPick);
   const [newSongName, setNewSongName] = useState("");
-  const [label, setLabel] = useState(defaultLabel ?? "v1");
+  const [label, setLabel] = useState(defaultLabel ?? "V1");
   const [stage, setStage] = useState<"no-change" | WorkflowStage>("no-change");
   const [description, setDescription] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -190,7 +190,7 @@ export function UploadTrackModal({
   }, [open, mode, trackId, defaultLabel, tracks]);
 
   // When the user picks a different existing track, auto-bump the
-  // default label to v{N+1} for that track. We only do this if the
+  // default label to V{N+1} for that track. We only do this if the
   // label is still "factory default" (empty or last derived) — once
   // the producer typed their own, we leave it alone.
   const derivedLabel = useMemo(
@@ -603,7 +603,7 @@ export function UploadTrackModal({
                   setLabel(e.target.value);
                   setLabelTouched(true);
                 }}
-                placeholder="v2 / Mix / Master"
+                placeholder="V2 / Mix / Master"
                 className="mt-1 w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
                 style={{ borderColor: "rgb(var(--border-subtle))" }}
               />
@@ -801,13 +801,13 @@ function FieldLabel({
 }
 
 // Derive the next sensible version label for a given track id. For a
-// new song we suggest "v1"; otherwise v{N+1} based on the upstream
+// new song we suggest "V1"; otherwise V{N+1} based on the upstream
 // versionCount. The producer can always overwrite.
 function deriveNextLabel(tracks: UploadTrackModalTrack[], trackIdOrNew: string): string {
-  if (trackIdOrNew === NEW_SONG_VALUE) return "v1";
+  if (trackIdOrNew === NEW_SONG_VALUE) return "V1";
   const t = tracks.find((row) => row.id === trackIdOrNew);
   const next = (t?.versionCount ?? 0) + 1;
-  return `v${String(next)}`;
+  return `V${String(next)}`;
 }
 
 function formatBytes(bytes: number): string {

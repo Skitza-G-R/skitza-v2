@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { SongManagementDomainError } from "~/server/domain/song-management/service";
+
 // Tests for project.setTrackStage — Clients & Projects v3 redesign,
 // Phase 4 (Upload Track modal + manual stage edit). Mirrors the
 // project-set-stage-bulk.test.ts harness: marker objects + spies for
@@ -14,9 +16,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 //   4. UPDATE projects.updatedAt WHERE id = projectId  (bookkeeping)
 
 const PRODUCER_ID = "producer-uuid-stage-1";
-const FOREIGN_PRODUCER_ID = "producer-uuid-other-1";
 const TRACK_ID = "00000000-0000-0000-0000-000000000abc";
-const PROJECT_ID = "00000000-0000-0000-0000-000000000def";
 
 const {
   producersMarker,
@@ -29,6 +29,7 @@ const {
   projectUpdateSetSpy,
   projectUpdateWhereSpy,
   updateMock,
+  setSongWorkflowStageMock,
   dbMock,
 } = vi.hoisted(() => {
   type Row = Record<string, unknown>;
@@ -39,6 +40,19 @@ const {
   const projectUpdateSetSpy = vi.fn<(payload: Row) => void>();
   const projectUpdateWhereSpy = vi.fn<(where: unknown) => void>();
   const updateMock = vi.fn<() => Promise<void>>();
+  const setSongWorkflowStageMock = vi.fn<
+    (
+      db: unknown,
+      input: {
+        producerId: string;
+        trackId: string;
+        workflowStage: "brief" | "production" | "mixing" | "mastering" | "done";
+        changedAt: Date;
+      },
+    ) => Promise<{
+      workflowStage: "brief" | "production" | "mixing" | "mastering" | "done";
+    }>
+  >();
 
   const producersMarker = {
     __table: "producers",
@@ -125,6 +139,7 @@ const {
     projectUpdateSetSpy,
     projectUpdateWhereSpy,
     updateMock,
+    setSongWorkflowStageMock,
     dbMock,
   };
 });
@@ -150,32 +165,16 @@ vi.mock("@skitza/db", () => ({
   inArray: (col: unknown, vals: unknown[]) => ({ inArray: [col, vals] }),
   sql: () => ({ sql: true }),
 }));
+vi.mock("~/server/domain/song-management/db", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("~/server/domain/song-management/db")>();
+  return { ...actual, setSongWorkflowStage: setSongWorkflowStageMock };
+});
 vi.mock("~/server/contacts/record", () => ({ recordContact: vi.fn() }));
 vi.mock("~/server/email/send", () => ({
   SITE_URL: "https://skitza.test",
   sendProducerRepliedToCommentEmail: vi.fn(),
   sendTrackVersionUploadedEmail: vi.fn(),
 }));
-
-function findPredicate(
-  where: unknown,
-  operator: "eq",
-  columnMarker: unknown,
-): unknown {
-  if (!where || typeof where !== "object") return null;
-  if ("and" in where && Array.isArray((where as { and: unknown[] }).and)) {
-    for (const p of (where as { and: unknown[] }).and) {
-      const found = findPredicate(p, operator, columnMarker);
-      if (found) return found;
-    }
-    return null;
-  }
-  if (operator in where) {
-    const args = (where as Record<string, unknown>)[operator];
-    if (Array.isArray(args) && args[0] === columnMarker) return args;
-  }
-  return null;
-}
 
 beforeEach(() => {
   trackSelectMock.mockReset();
@@ -185,6 +184,7 @@ beforeEach(() => {
   projectUpdateSetSpy.mockReset();
   projectUpdateWhereSpy.mockReset();
   updateMock.mockReset().mockResolvedValue(undefined);
+  setSongWorkflowStageMock.mockReset();
   process.env.DATABASE_URL = "postgresql://test/test";
 });
 
@@ -195,10 +195,7 @@ const buildCaller = async () => {
 
 describe("project.setTrackStage", () => {
   it("updates workflowStage + returns the new stage when the producer owns the project", async () => {
-    trackSelectMock.mockResolvedValueOnce([
-      { id: TRACK_ID, projectId: PROJECT_ID },
-    ]);
-    projectSelectMock.mockResolvedValueOnce([{ producerId: PRODUCER_ID }]);
+    setSongWorkflowStageMock.mockResolvedValueOnce({ workflowStage: "mixing" });
 
     const caller = await buildCaller();
     const res = await caller.project.setTrackStage({
@@ -208,25 +205,15 @@ describe("project.setTrackStage", () => {
 
     expect(res).toEqual({ ok: true, workflowStage: "mixing" });
 
-    // The UPDATE on projectTracks targets the workflow_stage column,
-    // scoped by trackId.
-    const trackSetPayload = trackUpdateSetSpy.mock.calls[0]?.[0] ?? {};
-    expect(trackSetPayload.workflowStage).toBe("mixing");
-
-    const trackWhere = trackUpdateWhereSpy.mock.calls[0]?.[0];
-    const trackIdPred = findPredicate(
-      trackWhere,
-      "eq",
-      projectTracksMarker.id,
+    expect(setSongWorkflowStageMock).toHaveBeenCalledExactlyOnceWith(
+      dbMock,
+      expect.objectContaining({
+        producerId: PRODUCER_ID,
+        trackId: TRACK_ID,
+        workflowStage: "mixing",
+      }),
     );
-    expect(trackIdPred).not.toBeNull();
-    if (Array.isArray(trackIdPred)) {
-      expect(trackIdPred[1]).toBe(TRACK_ID);
-    }
-
-    // The bookkeeping UPDATE on projects.updatedAt fires too.
-    const projSetPayload = projectUpdateSetSpy.mock.calls[0]?.[0] ?? {};
-    expect(projSetPayload.updatedAt).toBeInstanceOf(Date);
+    expect(setSongWorkflowStageMock.mock.calls[0]?.[1].changedAt).toBeInstanceOf(Date);
   });
 
   it("accepts all 5 workflow stages", async () => {
@@ -238,10 +225,7 @@ describe("project.setTrackStage", () => {
       "done",
     ] as const;
     for (const stage of stages) {
-      trackSelectMock.mockResolvedValueOnce([
-        { id: TRACK_ID, projectId: PROJECT_ID },
-      ]);
-      projectSelectMock.mockResolvedValueOnce([{ producerId: PRODUCER_ID }]);
+      setSongWorkflowStageMock.mockResolvedValueOnce({ workflowStage: stage });
       const caller = await buildCaller();
       const res = await caller.project.setTrackStage({
         trackId: TRACK_ID,
@@ -252,7 +236,9 @@ describe("project.setTrackStage", () => {
   });
 
   it("throws NOT_FOUND when the track id is missing", async () => {
-    trackSelectMock.mockResolvedValueOnce([]);
+    setSongWorkflowStageMock.mockRejectedValueOnce(
+      new SongManagementDomainError("NOT_FOUND", "The song was not found"),
+    );
 
     const caller = await buildCaller();
     await expect(
@@ -267,12 +253,9 @@ describe("project.setTrackStage", () => {
   });
 
   it("returns NOT_FOUND when the producer doesn't own the parent project", async () => {
-    trackSelectMock.mockResolvedValueOnce([
-      { id: TRACK_ID, projectId: PROJECT_ID },
-    ]);
-    projectSelectMock.mockResolvedValueOnce([
-      { producerId: FOREIGN_PRODUCER_ID },
-    ]);
+    setSongWorkflowStageMock.mockRejectedValueOnce(
+      new SongManagementDomainError("NOT_FOUND", "The song was not found"),
+    );
 
     const caller = await buildCaller();
     await expect(

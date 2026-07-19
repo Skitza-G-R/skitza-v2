@@ -99,6 +99,7 @@ vi.mock("@skitza/db", () => ({
   portfolioTracks: portfolioTracksMarker,
   producerExternalLinks: externalLinksMarker,
   eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
+  isNotNull: (col: unknown) => ({ isNotNull: col }),
   and: (...conds: unknown[]) => ({ and: conds }),
   asc: (col: unknown) => ({ asc: col }),
   desc: (col: unknown) => ({ desc: col }),

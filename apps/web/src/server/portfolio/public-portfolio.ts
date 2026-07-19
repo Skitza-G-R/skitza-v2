@@ -1,23 +1,14 @@
-import {
-  and,
-  desc,
-  eq,
-  portfolioTracks,
-  type Db,
-} from "@skitza/db";
+import { and, desc, eq, isNotNull, portfolioTracks, type Db } from "@skitza/db";
 
 function explicitlyPublicPortfolio(producerId: string) {
   return and(
     eq(portfolioTracks.producerId, producerId),
     eq(portfolioTracks.isPublicSample, true),
+    isNotNull(portfolioTracks.audioUrl),
   );
 }
 
-export async function listPublicPortfolioTracks(
-  db: Db,
-  producerId: string,
-  limit = 3,
-) {
+export async function listPublicPortfolioTracks(db: Db, producerId: string, limit = 3) {
   return db
     .select({
       id: portfolioTracks.id,
@@ -33,10 +24,7 @@ export async function listPublicPortfolioTracks(
     .limit(limit);
 }
 
-export async function countPublicPortfolioTracks(
-  db: Db,
-  producerId: string,
-): Promise<number> {
+export async function countPublicPortfolioTracks(db: Db, producerId: string): Promise<number> {
   const rows = await db
     .select({ id: portfolioTracks.id })
     .from(portfolioTracks)

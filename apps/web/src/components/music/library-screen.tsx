@@ -9,6 +9,13 @@ import { playerPlay, playerToggle, useNowPlaying } from "~/components/audio/pers
 
 import { ProjectCover } from "./project-cover";
 import {
+  SongManagementControls,
+  type EditSongArtistAction,
+  type MarkSongReleasedAction,
+  type RenameSongAction,
+  type SetSongArchivedAction,
+} from "./song-management-controls";
+import {
   fmtCount,
   fmtDuration,
   gradientForSeed,
@@ -52,6 +59,10 @@ export interface MusicLibraryTrackRow extends MusicLibraryItemBase {
   trackId: string;
   trackTitle: string;
   trackArtist: string | null;
+  archivedAtIso: string | null;
+  releasedAtIso?: string | null;
+  /** Explicit tombstone for an intentionally deleted stored-audio object. */
+  audioDeletedAtIso?: string | null;
   label: string | null;
   latestVersionId?: string | null;
   uploadedAtIso: string | null;
@@ -112,6 +123,7 @@ type Mode = "projects" | "songs";
 type View = "grid" | "table";
 type SongSort = "recent" | "title" | "plays" | "notes" | "length";
 type ProjectArchiveFilter = "active" | "archived";
+export type SongArchiveFilter = "active" | "archived";
 
 const SORT_LABEL: Record<SongSort, string> = {
   recent: "Most recent",
@@ -129,10 +141,18 @@ export function isMusicLibraryTrack(row: MusicLibraryRow): row is MusicLibraryTr
   return !isMusicLibraryEmptySlot(row);
 }
 
-function rowActionHref(
-  actionHref: string | null | undefined,
-  fallbackHref: string,
-): string | null {
+export function filterMusicRowsBySongArchive(
+  rows: MusicLibraryRow[],
+  filter: SongArchiveFilter,
+): MusicLibraryRow[] {
+  return rows.filter((row) => {
+    if (isMusicLibraryEmptySlot(row)) return filter === "active";
+    const archived = row.archivedAtIso !== null;
+    return filter === "archived" ? archived : !archived;
+  });
+}
+
+function rowActionHref(actionHref: string | null | undefined, fallbackHref: string): string | null {
   // Undefined is the legacy "use the screen fallback" shape. Explicit null
   // means the exact project/purchase is not eligible for new work.
   return actionHref === undefined ? fallbackHref : actionHref;
@@ -145,6 +165,18 @@ export function kindFromVisibleSpaceCount(count: number): ProjectKind {
 
 export function latestVersionIdForLibraryTrack(row: MusicLibraryTrackRow): string | null {
   return row.latestVersionId === undefined ? row.id : row.latestVersionId;
+}
+
+export function isMusicLibraryTrackAudioDeleted(row: MusicLibraryTrackRow): boolean {
+  return row.audioDeletedAtIso != null && row.audioUrl === null;
+}
+
+export function isMusicLibraryTrackPlayable(row: MusicLibraryTrackRow): boolean {
+  return (
+    row.audioDeletedAtIso == null &&
+    row.audioUrl !== null &&
+    latestVersionIdForLibraryTrack(row) !== null
+  );
 }
 
 function rowTitle(row: MusicLibraryRow): string {
@@ -232,9 +264,7 @@ export function aggregateMusicProjects(
       unreadComments: tracks.reduce((total, track) => total + track.unreadComments, 0),
       playableTrackCount: Math.max(
         aggregate.playableTrackCount,
-        tracks.filter(
-          (track) => Boolean(track.audioUrl) && latestVersionIdForLibraryTrack(track) !== null,
-        ).length,
+        tracks.filter(isMusicLibraryTrackPlayable).length,
       ),
       projectLifecycleStatus: aggregate.projectLifecycleStatus,
       latestTrackUploadedAtIso:
@@ -277,12 +307,20 @@ export function MusicLibraryScreen({
   projectRows: explicitProjects = [],
   role = "producer",
   addSongHref = "/dashboard/music?addSong=1",
+  renameSong,
+  editArtist,
+  setArchived,
+  markReleased,
 }: {
   tracks: MusicLibraryRow[];
   projectRows?: MusicLibraryProjectRow[];
   role?: MusicLibraryRole;
   /** Producer Add Song entry point; also used by producer empty states. */
   addSongHref?: string;
+  renameSong?: RenameSongAction;
+  editArtist?: EditSongArtistAction;
+  setArchived?: SetSongArchivedAction;
+  markReleased?: MarkSongReleasedAction;
 }) {
   // "all" is the sentinel for "no artist filter" — any other string is
   // a literal client/artist name from the artist filter pill.
@@ -292,6 +330,7 @@ export function MusicLibraryScreen({
   const [artist, setArtist] = useState<string>("all");
   const [sort, setSort] = useState<SongSort>("recent");
   const [projectArchiveFilter, setProjectArchiveFilter] = useState<ProjectArchiveFilter>("active");
+  const [songArchiveFilter, setSongArchiveFilter] = useState<SongArchiveFilter>("active");
 
   // Unique client/artist names for the filter pill. Order by first
   // appearance so the most-recently-uploaded clients sit near the top.
@@ -346,6 +385,14 @@ export function MusicLibraryScreen({
     });
   }, [projectArchiveFilter, projects, role]);
 
+  // Song archive is deliberately a second-level filter. Project
+  // aggregation above always receives every matching song so archiving one
+  // song can never hide or archive its project.
+  const visibleSongs = useMemo(() => {
+    if (role !== "producer") return filteredTracks;
+    return filterMusicRowsBySongArchive(filteredTracks, songArchiveFilter);
+  }, [filteredTracks, role, songArchiveFilter]);
+
   // Header counts — surface the raw-tracks totals, not the filtered
   // version, so the meta line reads as a stable library summary.
   const totalTracks = tracks.length;
@@ -364,8 +411,8 @@ export function MusicLibraryScreen({
   // Sort songs only when the songs table is showing (per design.md the
   // sort dropdown disappears in grid view).
   const sortedSongs = useMemo(() => {
-    if (mode !== "songs" || view !== "table") return filteredTracks;
-    const arr = [...filteredTracks];
+    if (mode !== "songs" || view !== "table") return visibleSongs;
+    const arr = [...visibleSongs];
     switch (sort) {
       case "title":
         arr.sort((a, b) => rowTitle(a).localeCompare(rowTitle(b)));
@@ -395,7 +442,7 @@ export function MusicLibraryScreen({
         break;
     }
     return arr;
-  }, [filteredTracks, mode, sort, view]);
+  }, [mode, sort, view, visibleSongs]);
 
   return (
     <div className="sk-page-enter flex flex-col gap-5">
@@ -519,6 +566,10 @@ export function MusicLibraryScreen({
         />
       ) : null}
 
+      {role === "producer" && mode === "songs" ? (
+        <SongArchiveFilterControl value={songArchiveFilter} onChange={setSongArchiveFilter} />
+      ) : null}
+
       {/* Body — single panel that both toggles control via aria-controls. */}
       <div id={RESULTS_PANEL_ID} role="tabpanel" aria-label="Library results">
         {mode === "projects" && visibleProjects.length === 0 ? (
@@ -535,17 +586,34 @@ export function MusicLibraryScreen({
           ) : (
             <ProjectsTable projects={visibleProjects} role={role} />
           )
-        ) : filteredTracks.length === 0 ? (
+        ) : visibleSongs.length === 0 ? (
           <EmptyResult
             hasQuery={Boolean(search.trim()) || artist !== "all"}
             hasProjects={totalProjects > 0}
             role={role}
             addSongHref={addSongHref}
+            {...(role === "producer" ? { songArchiveFilter } : {})}
           />
         ) : view === "grid" ? (
-          <SongsGrid songs={filteredTracks} role={role} addSongHref={addSongHref} />
+          <SongsGrid
+            songs={visibleSongs}
+            role={role}
+            addSongHref={addSongHref}
+            {...(renameSong ? { renameSong } : {})}
+            {...(editArtist ? { editArtist } : {})}
+            {...(setArchived ? { setArchived } : {})}
+            {...(markReleased ? { markReleased } : {})}
+          />
         ) : (
-          <SongsTable songs={sortedSongs} role={role} addSongHref={addSongHref} />
+          <SongsTable
+            songs={sortedSongs}
+            role={role}
+            addSongHref={addSongHref}
+            {...(renameSong ? { renameSong } : {})}
+            {...(editArtist ? { editArtist } : {})}
+            {...(setArchived ? { setArchived } : {})}
+            {...(markReleased ? { markReleased } : {})}
+          />
         )}
       </div>
     </div>
@@ -615,6 +683,44 @@ function ProjectArchiveFilterButton({
     >
       {label}
     </button>
+  );
+}
+
+function SongArchiveFilterControl({
+  value,
+  onChange,
+}: {
+  value: SongArchiveFilter;
+  onChange: (value: SongArchiveFilter) => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Song status"
+      className="flex w-fit max-w-full rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-[2px]"
+    >
+      {(["active", "archived"] as const).map((status) => {
+        const active = value === status;
+        return (
+          <button
+            key={status}
+            type="button"
+            aria-pressed={active}
+            onClick={() => {
+              onChange(status);
+            }}
+            className={[
+              "sk-press min-h-11 rounded-[var(--radius-lg)] px-3 py-1.5 text-[11.5px] font-bold whitespace-nowrap",
+              active
+                ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))] shadow-sm"
+                : "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
+            ].join(" ")}
+          >
+            {status === "active" ? "Active Songs" : "Archived Songs"}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -971,7 +1077,8 @@ function ProjectsTable({
                   href={projectHref(role, p.id)}
                   className="grid items-center gap-3 px-4 py-2.5 hover:bg-[rgb(var(--bg-overlay))] focus-visible:bg-[rgb(var(--bg-overlay))] focus-visible:outline-none active:scale-[0.992] active:bg-[rgb(var(--bg-overlay))]"
                   style={{
-                    gridTemplateColumns: "44px minmax(0,2.2fr) minmax(0,1.4fr) 90px 100px 80px 70px",
+                    gridTemplateColumns:
+                      "44px minmax(0,2.2fr) minmax(0,1.4fr) 90px 100px 80px 70px",
                     borderBottom: "1px solid rgb(var(--border-subtle))",
                     transition:
                       "background-color 140ms ease-out, transform 100ms cubic-bezier(0.4,0,0.2,1)",
@@ -1092,10 +1199,18 @@ function SongsGrid({
   songs,
   role,
   addSongHref,
+  renameSong,
+  editArtist,
+  setArchived,
+  markReleased,
 }: {
   songs: MusicLibraryRow[];
   role: MusicLibraryRole;
   addSongHref: string;
+  renameSong?: RenameSongAction;
+  editArtist?: EditSongArtistAction;
+  setArchived?: SetSongArchivedAction;
+  markReleased?: MarkSongReleasedAction;
 }) {
   const nowPlaying = useNowPlaying();
   return (
@@ -1124,6 +1239,10 @@ function SongsGrid({
                 nowPlaying.trackId === latestVersionIdForLibraryTrack(song) && nowPlaying.playing
               }
               role={role}
+              {...(renameSong ? { renameSong } : {})}
+              {...(editArtist ? { editArtist } : {})}
+              {...(setArchived ? { setArchived } : {})}
+              {...(markReleased ? { markReleased } : {})}
             />
           )}
         </li>
@@ -1136,15 +1255,26 @@ function SongCard({
   song,
   isPlaying,
   role,
+  renameSong,
+  editArtist,
+  setArchived,
+  markReleased,
 }: {
   song: MusicLibraryTrackRow;
   isPlaying: boolean;
   role: MusicLibraryRole;
+  renameSong?: RenameSongAction;
+  editArtist?: EditSongArtistAction;
+  setArchived?: SetSongArchivedAction;
+  markReleased?: MarkSongReleasedAction;
 }) {
   const gradient = gradientForSeed(song.projectId);
   const projectArchivedLabel = archivedProjectLabel(song.projectLifecycleStatus);
+  const songArchived = song.archivedAtIso !== null;
+  const songReleased = song.releasedAtIso != null;
+  const audioDeleted = isMusicLibraryTrackAudioDeleted(song);
   const versionId = latestVersionIdForLibraryTrack(song);
-  const canPlay = Boolean(song.audioUrl) && versionId !== null;
+  const canPlay = isMusicLibraryTrackPlayable(song);
   const detailHref = versionId ? songHref(role, versionId) : null;
   const subtitle = [song.projectTitle, song.trackArtist ?? song.clientName]
     .filter(Boolean)
@@ -1160,6 +1290,23 @@ function SongCard({
           aria-label={`Open ${song.trackTitle} song page`}
           className="absolute inset-0 z-0 rounded-[12px] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-background))] focus-visible:outline-none"
         />
+      ) : null}
+      {role === "producer" && renameSong && editArtist && setArchived ? (
+        <span className="pointer-events-auto absolute top-1.5 left-1.5 z-30">
+          <SongManagementControls
+            projectId={song.projectId}
+            trackId={song.trackId}
+            title={song.trackTitle}
+            artist={song.trackArtist}
+            archived={songArchived}
+            {...(song.releasedAtIso === undefined ? {} : { releasedAtIso: song.releasedAtIso })}
+            renameSong={renameSong}
+            editArtist={editArtist}
+            setArchived={setArchived}
+            {...(markReleased ? { markReleased } : {})}
+            overlay
+          />
+        </span>
       ) : null}
       <div className="pointer-events-none relative z-10" style={{ willChange: "transform" }}>
         <ProjectCover
@@ -1184,7 +1331,7 @@ function SongCard({
           </span>
         ) : (
           <span className="absolute bottom-3 left-3 z-10 rounded-[var(--radius-sm)] border border-white/30 bg-[rgb(17_16_9)/0.38] px-2 py-1 font-mono text-[9px] font-bold tracking-[0.08em] text-white uppercase backdrop-blur-sm">
-            Awaiting audio
+            {audioDeleted ? "Audio deleted" : "Awaiting audio"}
           </span>
         )}
         {isPlaying && canPlay ? (
@@ -1213,6 +1360,16 @@ function SongCard({
               {projectArchivedLabel}
             </p>
           ) : null}
+          {songArchived ? (
+            <p className="mt-1 inline-flex rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-2 py-0.5 font-mono text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
+              Archived
+            </p>
+          ) : null}
+          {songReleased ? (
+            <p className="mt-1 inline-flex rounded-[var(--radius-sm)] border border-[rgb(var(--fg-success)/0.22)] bg-[rgb(var(--fg-success)/0.08)] px-2 py-0.5 font-mono text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-success))] uppercase">
+              Released
+            </p>
+          ) : null}
           {canPlay ? (
             <p className="mt-1 flex items-center justify-between font-mono text-[10.5px] text-[rgb(var(--fg-faint))]">
               <span className="inline-flex items-center gap-1">
@@ -1225,7 +1382,12 @@ function SongCard({
             </p>
           ) : (
             <span className="pointer-events-auto relative z-20 block">
-              <SongWaitingState role={role} actionHref={song.actionHref ?? null} compact />
+              <SongWaitingState
+                role={role}
+                actionHref={!songArchived && song.actionHref ? song.actionHref : null}
+                audioDeleted={audioDeleted}
+                compact
+              />
             </span>
           )}
         </div>
@@ -1274,14 +1436,35 @@ function EmptySongSpaceCard({
 function SongWaitingState({
   role,
   actionHref,
+  audioDeleted = false,
   emptySlot = false,
   compact = false,
 }: {
   role: MusicLibraryRole;
   actionHref?: string | null;
+  audioDeleted?: boolean;
   emptySlot?: boolean;
   compact?: boolean;
 }) {
+  if (audioDeleted) {
+    return (
+      <div className={compact ? "mt-1" : ""}>
+        <p className="text-[10.5px] font-bold text-[rgb(var(--fg-muted))]">Audio deleted</p>
+        <p className="text-[10px] leading-snug text-[rgb(var(--fg-faint))]">
+          No playable audio — history kept
+        </p>
+        {role === "producer" && actionHref ? (
+          <Link
+            href={actionHref}
+            className="sk-press mt-2 inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-3 text-[11px] font-bold text-[rgb(var(--fg-default))]"
+          >
+            <Plus size={12} strokeWidth={2.4} />
+            Upload audio
+          </Link>
+        ) : null}
+      </div>
+    );
+  }
   if (role === "artist") {
     return (
       <p
@@ -1323,10 +1506,18 @@ function SongsTable({
   songs,
   role,
   addSongHref,
+  renameSong,
+  editArtist,
+  setArchived,
+  markReleased,
 }: {
   songs: MusicLibraryRow[];
   role: MusicLibraryRole;
   addSongHref: string;
+  renameSong?: RenameSongAction;
+  editArtist?: EditSongArtistAction;
+  setArchived?: SetSongArchivedAction;
+  markReleased?: MarkSongReleasedAction;
 }) {
   const nowPlaying = useNowPlaying();
   // 9 columns now: play/idx, cover thumb, title, artist, version, plays,
@@ -1337,7 +1528,7 @@ function SongsTable({
 
   function handlePlay(song: MusicLibraryTrackRow) {
     const versionId = latestVersionIdForLibraryTrack(song);
-    if (!song.audioUrl || !versionId) return;
+    if (!isMusicLibraryTrackPlayable(song) || !song.audioUrl || !versionId) return;
     if (nowPlaying.trackId === versionId) {
       playerToggle();
       return;
@@ -1393,6 +1584,10 @@ function SongsTable({
                 isPlaying={nowPlaying.playing}
                 onPlay={handlePlay}
                 addSongHref={addSongHref}
+                {...(renameSong ? { renameSong } : {})}
+                {...(editArtist ? { editArtist } : {})}
+                {...(setArchived ? { setArchived } : {})}
+                {...(markReleased ? { markReleased } : {})}
               />
             ))}
           </ul>
@@ -1420,6 +1615,10 @@ function SongsTable({
             isPlaying={nowPlaying.playing}
             onPlay={handlePlay}
             addSongHref={addSongHref}
+            {...(renameSong ? { renameSong } : {})}
+            {...(editArtist ? { editArtist } : {})}
+            {...(setArchived ? { setArchived } : {})}
+            {...(markReleased ? { markReleased } : {})}
           />
         ))}
       </ul>
@@ -1436,6 +1635,10 @@ function LibrarySongDesktopRow({
   isPlaying,
   onPlay,
   addSongHref,
+  renameSong,
+  editArtist,
+  setArchived,
+  markReleased,
 }: {
   item: MusicLibraryRow;
   index: number;
@@ -1445,6 +1648,10 @@ function LibrarySongDesktopRow({
   isPlaying: boolean;
   onPlay: (track: MusicLibraryTrackRow) => void;
   addSongHref: string;
+  renameSong?: RenameSongAction;
+  editArtist?: EditSongArtistAction;
+  setArchived?: SetSongArchivedAction;
+  markReleased?: MarkSongReleasedAction;
 }) {
   const rowStyle: React.CSSProperties = {
     gridTemplateColumns: cols,
@@ -1504,16 +1711,23 @@ function LibrarySongDesktopRow({
   }
 
   const versionId = latestVersionIdForLibraryTrack(item);
-  const canPlay = Boolean(item.audioUrl) && versionId !== null;
+  const songArchived = item.archivedAtIso !== null;
+  const songReleased = item.releasedAtIso != null;
+  const audioDeleted = isMusicLibraryTrackAudioDeleted(item);
+  const canPlay = isMusicLibraryTrackPlayable(item);
   const current = canPlay && nowPlayingId === versionId;
   const playingHere = current && isPlaying;
-  const href = canPlay && versionId ? songHref(role, versionId) : null;
+  const href = versionId ? songHref(role, versionId) : null;
   return (
     <li data-music-row={canPlay ? "allocated-playable" : "allocated-no-audio"}>
       <div
         role="group"
         aria-label={
-          canPlay ? `Open ${item.trackTitle} song page` : `${item.trackTitle}, awaiting audio`
+          canPlay
+            ? `Open ${item.trackTitle} song page`
+            : audioDeleted
+              ? `${item.trackTitle}, audio deleted, history kept`
+              : `${item.trackTitle}, awaiting audio`
         }
         className={[
           "group grid items-center gap-3 px-4 py-2.5",
@@ -1536,7 +1750,7 @@ function LibrarySongDesktopRow({
                 "sk-press sk-trans inline-flex h-11 w-11 items-center justify-center rounded-full focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))]",
                 current
                   ? "skitza-playing-glow bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))]"
-                  : "bg-[rgb(var(--fg-default))] text-white opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
+                  : "bg-[rgb(var(--fg-default))] text-white opacity-0 group-focus-within:opacity-100 group-hover:opacity-100",
               ].join(" ")}
             >
               {playingHere ? (
@@ -1551,7 +1765,7 @@ function LibrarySongDesktopRow({
             className={[
               "pointer-events-none absolute font-mono text-[11px] text-[rgb(var(--fg-faint))] tabular-nums",
               canPlay && current ? "opacity-0" : "",
-              canPlay ? "group-hover:opacity-0 group-focus-within:opacity-0" : "",
+              canPlay ? "group-focus-within:opacity-0 group-hover:opacity-0" : "",
             ].join(" ")}
             style={{ width: 44, textAlign: "right", lineHeight: "44px" }}
           >
@@ -1583,13 +1797,25 @@ function LibrarySongDesktopRow({
           <span className="block truncate text-[11px] text-[rgb(var(--fg-muted))]">
             {canPlay
               ? item.projectTitle
-              : role === "producer"
-                ? "Allocated song, ready for the first upload"
-                : "Waiting for your producer"}
+              : audioDeleted
+                ? "No playable audio — history kept"
+                : role === "producer"
+                  ? "Allocated song, ready for the first upload"
+                  : "Waiting for your producer"}
           </span>
           {archivedProjectLabel(item.projectLifecycleStatus) ? (
             <span className="block truncate font-mono text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
               {archivedProjectLabel(item.projectLifecycleStatus)}
+            </span>
+          ) : null}
+          {songArchived ? (
+            <span className="block truncate font-mono text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
+              Archived
+            </span>
+          ) : null}
+          {songReleased ? (
+            <span className="block truncate font-mono text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-success))] uppercase">
+              Released
             </span>
           ) : null}
         </span>
@@ -1613,10 +1839,10 @@ function LibrarySongDesktopRow({
           {fmtCount(item.unreadComments)}
         </span>
         <span className="text-right font-mono text-[11px] text-[rgb(var(--fg-muted))] tabular-nums">
-          {canPlay ? fmtDuration(item.durationMs) : "No audio"}
+          {canPlay ? fmtDuration(item.durationMs) : audioDeleted ? "Audio deleted" : "No audio"}
         </span>
         <span className="flex justify-end gap-1.5">
-          {role === "producer" && !canPlay && item.actionHref ? (
+          {role === "producer" && !songArchived && !canPlay && item.actionHref ? (
             <Link
               href={item.actionHref}
               aria-label={`Upload audio for ${item.trackTitle}`}
@@ -1624,6 +1850,20 @@ function LibrarySongDesktopRow({
             >
               <Plus size={14} strokeWidth={2.4} />
             </Link>
+          ) : null}
+          {role === "producer" && renameSong && editArtist && setArchived ? (
+            <SongManagementControls
+              projectId={item.projectId}
+              trackId={item.trackId}
+              title={item.trackTitle}
+              artist={item.trackArtist}
+              archived={songArchived}
+              {...(item.releasedAtIso === undefined ? {} : { releasedAtIso: item.releasedAtIso })}
+              renameSong={renameSong}
+              editArtist={editArtist}
+              setArchived={setArchived}
+              {...(markReleased ? { markReleased } : {})}
+            />
           ) : null}
         </span>
       </div>
@@ -1638,6 +1878,10 @@ function LibrarySongMobileRow({
   isPlaying,
   onPlay,
   addSongHref,
+  renameSong,
+  editArtist,
+  setArchived,
+  markReleased,
 }: {
   item: MusicLibraryRow;
   role: MusicLibraryRole;
@@ -1645,6 +1889,10 @@ function LibrarySongMobileRow({
   isPlaying: boolean;
   onPlay: (track: MusicLibraryTrackRow) => void;
   addSongHref: string;
+  renameSong?: RenameSongAction;
+  editArtist?: EditSongArtistAction;
+  setArchived?: SetSongArchivedAction;
+  markReleased?: MarkSongReleasedAction;
 }) {
   const rowStyle: React.CSSProperties = {
     borderBottom: "1px solid rgb(var(--border-subtle))",
@@ -1686,16 +1934,23 @@ function LibrarySongMobileRow({
   }
 
   const versionId = latestVersionIdForLibraryTrack(item);
-  const canPlay = Boolean(item.audioUrl) && versionId !== null;
+  const songArchived = item.archivedAtIso !== null;
+  const songReleased = item.releasedAtIso != null;
+  const audioDeleted = isMusicLibraryTrackAudioDeleted(item);
+  const canPlay = isMusicLibraryTrackPlayable(item);
   const current = canPlay && nowPlayingId === versionId;
   const playingHere = current && isPlaying;
-  const href = canPlay && versionId ? songHref(role, versionId) : null;
+  const href = versionId ? songHref(role, versionId) : null;
   return (
     <li data-music-row={canPlay ? "allocated-playable" : "allocated-no-audio"}>
       <div
         role="group"
         aria-label={
-          canPlay ? `Open ${item.trackTitle} song page` : `${item.trackTitle}, awaiting audio`
+          canPlay
+            ? `Open ${item.trackTitle} song page`
+            : audioDeleted
+              ? `${item.trackTitle}, audio deleted, history kept`
+              : `${item.trackTitle}, awaiting audio`
         }
         className={[
           "flex min-h-[64px] items-center gap-3 px-3 py-2.5",
@@ -1754,10 +2009,22 @@ function LibrarySongMobileRow({
           <span className="block truncate text-[10.5px] text-[rgb(var(--fg-muted))]">
             {canPlay
               ? item.projectTitle
-              : role === "producer"
-                ? "Ready for the first upload"
-                : "Waiting for your producer"}
+              : audioDeleted
+                ? "No playable audio — history kept"
+                : role === "producer"
+                  ? "Ready for the first upload"
+                  : "Waiting for your producer"}
           </span>
+          {songArchived ? (
+            <span className="block truncate font-mono text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
+              Archived
+            </span>
+          ) : null}
+          {songReleased ? (
+            <span className="block truncate font-mono text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-success))] uppercase">
+              Released
+            </span>
+          ) : null}
         </span>
         {canPlay ? (
           <>
@@ -1769,7 +2036,7 @@ function LibrarySongMobileRow({
             </span>
           </>
         ) : null}
-        {role === "producer" && !canPlay && item.actionHref ? (
+        {role === "producer" && !songArchived && !canPlay && item.actionHref ? (
           <Link
             href={item.actionHref}
             aria-label={`Upload audio for ${item.trackTitle}`}
@@ -1777,6 +2044,20 @@ function LibrarySongMobileRow({
           >
             <Plus size={14} strokeWidth={2.4} />
           </Link>
+        ) : null}
+        {role === "producer" && renameSong && editArtist && setArchived ? (
+          <SongManagementControls
+            projectId={item.projectId}
+            trackId={item.trackId}
+            title={item.trackTitle}
+            artist={item.trackArtist}
+            archived={songArchived}
+            {...(item.releasedAtIso === undefined ? {} : { releasedAtIso: item.releasedAtIso })}
+            renameSong={renameSong}
+            editArtist={editArtist}
+            setArchived={setArchived}
+            {...(markReleased ? { markReleased } : {})}
+          />
         ) : null}
       </div>
     </li>
@@ -1789,12 +2070,14 @@ function EmptyResult({
   role,
   addSongHref,
   projectArchiveFilter,
+  songArchiveFilter,
 }: {
   hasQuery: boolean;
   hasProjects: boolean;
   role: MusicLibraryRole;
   addSongHref: string;
   projectArchiveFilter?: ProjectArchiveFilter;
+  songArchiveFilter?: SongArchiveFilter;
 }) {
   // Three states. CTAs route into producer-only surfaces (project
   // creation, upload), so they're suppressed in artist mode and the
@@ -1845,12 +2128,20 @@ function EmptyResult({
       />
     );
   }
+  if (role === "producer" && songArchiveFilter) {
+    return songArchiveFilter === "archived" ? (
+      <EmptyShell title="No archived songs" body="Songs you archive will stay available here." />
+    ) : (
+      <EmptyShell
+        title="No active songs"
+        body="Restore a song from Archived Songs, or add a song to an active project."
+        cta={{ href: addSongHref, label: "Add Song" }}
+      />
+    );
+  }
   if (role === "artist") {
     return (
-      <EmptyShell
-        title="No songs yet"
-        body="Once your producer uploads a mix, it shows up here."
-      />
+      <EmptyShell title="No songs yet" body="Once your producer uploads a mix, it shows up here." />
     );
   }
   return (

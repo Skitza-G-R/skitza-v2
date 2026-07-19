@@ -57,6 +57,7 @@ const {
     trackId: { __column: "track_versions.track_id" },
     label: { __column: "track_versions.label" },
     audioUrl: { __column: "track_versions.audio_url" },
+    audioDeletedAt: { __column: "track_versions.audio_deleted_at" },
     uploadedAt: { __column: "track_versions.uploaded_at" },
     durationMs: { __column: "track_versions.duration_ms" },
     approvedAt: { __column: "track_versions.approved_at" },
@@ -332,11 +333,7 @@ describe("producer.music.list", () => {
 
     // The `id` field is the latest version id (kept for deep-link
     // compatibility with /dashboard/music/<versionId>).
-    expect(result.tracks.map((t) => t.id)).toEqual([
-      "v-newest",
-      "v-middle",
-      "v-oldest",
-    ]);
+    expect(result.tracks.map((t) => t.id)).toEqual(["v-newest", "v-middle", "v-oldest"]);
   });
 
   it("collapses multiple versions of a track into one row (newest version wins)", async () => {
@@ -595,11 +592,7 @@ describe("producer.music.detail", () => {
     // Version stack must be filtered by trackId (the parent track),
     // not by versionId — otherwise we'd only show one version on the L3 page.
     const versionStackWhere = versionStackSpy.mock.calls[0]?.[0];
-    const stackPred = findPredicate(
-      versionStackWhere,
-      "eq",
-      trackVersions.trackId,
-    );
+    const stackPred = findPredicate(versionStackWhere, "eq", trackVersions.trackId);
     expect(stackPred).not.toBeNull();
     if (Array.isArray(stackPred)) {
       expect(stackPred[1]).toBe(trackId);
@@ -607,12 +600,94 @@ describe("producer.music.detail", () => {
 
     // Comments filtered by inArray(versionId, [...]).
     const commentsWhere = commentsSpy.mock.calls[0]?.[0];
-    const cPred = findPredicate(
-      commentsWhere,
-      "inArray",
-      trackComments.versionId,
-    );
+    const cPred = findPredicate(commentsWhere, "inArray", trackComments.versionId);
     expect(cPred).not.toBeNull();
+  });
+
+  it("keeps deleted versions as redacted history and selects the newest playable audio", async () => {
+    const deletedVersionId = "11111111-1111-4111-8111-111111111111";
+    const availableVersionId = "22222222-2222-4222-8222-222222222222";
+    const trackId = "33333333-3333-4333-8333-333333333333";
+
+    trackVersionsWhereSpies.push(vi.fn<(arg: unknown) => void>());
+    trackVersionsQueue.push(() =>
+      Promise.resolve([
+        {
+          versionId: deletedVersionId,
+          trackId,
+          trackTitle: "Midnight Drive",
+          trackArtist: "Alice",
+          projectId: "p1",
+          projectTitle: "Alice EP",
+          clientName: "Alice Records",
+        },
+      ]),
+    );
+
+    trackVersionsWhereSpies.push(vi.fn<(arg: unknown) => void>());
+    trackVersionsQueue.push(() =>
+      Promise.resolve([
+        {
+          id: deletedVersionId,
+          label: "Deleted master",
+          audioUrl: "https://cdn/deleted-master.mp3",
+          audioDeletedAt: new Date("2026-07-19T12:00:00Z"),
+          durationMs: 240_000,
+          uploadedAt: new Date("2026-07-19T10:00:00Z"),
+          approvedAt: new Date("2026-07-19T11:00:00Z"),
+          peaks: [0.2, 0.8],
+        },
+        {
+          id: availableVersionId,
+          label: "Mix V2",
+          audioUrl: "https://cdn/mix-v2.mp3",
+          audioDeletedAt: null,
+          durationMs: 235_000,
+          uploadedAt: new Date("2026-07-18T10:00:00Z"),
+          approvedAt: null,
+          peaks: [0.4, 0.6],
+        },
+      ]),
+    );
+
+    trackCommentsWhereSpies.push(vi.fn<(arg: unknown) => void>());
+    trackCommentsQueue.push(() =>
+      Promise.resolve([
+        {
+          id: "deleted-comment",
+          versionId: deletedVersionId,
+          timeMs: 30_000,
+          body: "Keep this note in history",
+          fromProducer: false,
+          authorName: "Alice",
+          createdAt: new Date("2026-07-19T10:30:00Z"),
+          resolvedAt: new Date("2026-07-19T11:30:00Z"),
+        },
+      ]),
+    );
+
+    const caller = await buildCaller();
+    const result = await caller.producer.music.detail({
+      versionId: deletedVersionId,
+    });
+
+    expect(result.versions).toHaveLength(2);
+    expect(result.versions[0]).toMatchObject({
+      id: deletedVersionId,
+      label: "Deleted master",
+      audioDeletedAt: new Date("2026-07-19T12:00:00Z"),
+      audioUrl: null,
+      durationMs: null,
+      peaks: null,
+    });
+    expect(result.comments).toEqual([
+      expect.objectContaining({
+        id: "deleted-comment",
+        versionId: deletedVersionId,
+        body: "Keep this note in history",
+      }),
+    ]);
+    expect(result.selectedVersionId).toBe(availableVersionId);
   });
 
   it("returns empty comments array when no versions exist (defensive)", async () => {

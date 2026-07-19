@@ -5,6 +5,14 @@ import { notFound, redirect } from "next/navigation";
 import { SongPage, type SongPageData } from "~/components/music/song-page";
 import { appRouter } from "~/server/trpc/routers/_app";
 
+import {
+  deleteMusicVersionAudio,
+  editMusicSongArtist,
+  markMusicSongReleased,
+  renameMusicSong,
+  renameMusicVersion,
+  setMusicSongArchived,
+} from "../actions";
 import { l3AddComment, l3ApproveVersion, l3ResolveComment } from "./actions";
 
 type PageProps = { params: Promise<{ versionId: string }> };
@@ -42,11 +50,23 @@ export default async function ProducerSongPage({ params }: PageProps) {
 
   // Cross the RSC → client boundary as plain JSON (Date → ISO).
   const wire: SongPageData = {
-    track: data.track,
+    track: {
+      id: data.track.id,
+      title: data.track.title,
+      artist: data.track.artist,
+      projectId: data.track.projectId,
+      projectTitle: data.track.projectTitle,
+      clientName: data.track.clientName,
+      archivedAtIso: data.track.archivedAt?.toISOString() ?? null,
+      releasedAtIso: data.track.releasedAt?.toISOString() ?? null,
+      workflowStage: data.track.workflowStage,
+      projectLifecycleStatus: data.track.projectLifecycleStatus,
+    },
     versions: data.versions.map((v) => ({
       id: v.id,
       label: v.label,
       audioUrl: v.audioUrl,
+      audioDeletedAtIso: v.audioDeletedAt?.toISOString() ?? null,
       durationMs: v.durationMs,
       uploadedAtIso: v.uploadedAt.toISOString(),
       approvedAtIso: v.approvedAt ? v.approvedAt.toISOString() : null,
@@ -78,6 +98,12 @@ export default async function ProducerSongPage({ params }: PageProps) {
         addComment: l3AddComment,
         resolveComment: l3ResolveComment,
         approveVersion: l3ApproveVersion,
+        renameSong: renameMusicSong,
+        editArtist: editMusicSongArtist,
+        setArchived: setMusicSongArchived,
+        markReleased: markMusicSongReleased,
+        renameVersion: renameMusicVersion,
+        deleteVersionAudio: deleteMusicVersionAudio,
       }}
     />
   );

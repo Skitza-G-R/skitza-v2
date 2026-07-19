@@ -127,6 +127,7 @@ export async function createOrResumePendingMultipartUpload(
         purchaseId: trackVersions.purchaseId,
         versionProducerId: trackVersions.producerId,
         projectId: projectTracks.projectId,
+        trackArchivedAt: projectTracks.archivedAt,
         projectProducerId: projects.producerId,
         projectLifecycleStatus: projects.lifecycleStatus,
         purchaseProducerId: purchases.producerId,
@@ -276,6 +277,9 @@ export async function createOrResumePendingMultipartUpload(
       Bucket: BUCKETS.audio,
       Key: staged.key,
       ContentType: input.contentType,
+      // Audio can be permanently deleted later. Prevent a custom-domain CDN
+      // from retaining playable bytes after the authoritative R2 object is gone.
+      CacheControl: "no-store",
       Metadata: { [AUDIO_UPLOAD_COMPLETION_TOKEN_METADATA]: staged.completionToken },
     }),
   );
@@ -328,6 +332,7 @@ async function reconcilePendingInitiation(
         purchaseId: trackVersions.purchaseId,
         versionProducerId: trackVersions.producerId,
         projectId: projectTracks.projectId,
+        trackArchivedAt: projectTracks.archivedAt,
         projectProducerId: projects.producerId,
         projectLifecycleStatus: projects.lifecycleStatus,
         purchaseProducerId: purchases.producerId,
@@ -558,6 +563,7 @@ export async function authorizePendingMultipartPart(
         trackId: trackVersions.trackId,
         versionProducerId: trackVersions.producerId,
         projectId: projectTracks.projectId,
+        trackArchivedAt: projectTracks.archivedAt,
         projectProducerId: projects.producerId,
         projectLifecycleStatus: projects.lifecycleStatus,
         purchaseId: trackVersions.purchaseId,
@@ -716,6 +722,7 @@ function assertOwnedActiveVersion(
         purchaseId: string;
         versionProducerId: string;
         projectId: string;
+        trackArchivedAt: Date | null;
         projectProducerId: string;
         projectLifecycleStatus: (typeof projects.$inferSelect)["lifecycleStatus"];
         purchaseProducerId: string;
@@ -743,6 +750,7 @@ function assertOwnedActiveVersion(
       purchaseId: version.purchaseId,
       projectLifecycleStatus: version.projectLifecycleStatus,
       purchaseLifecycleStatus: version.purchaseLifecycleStatus,
+      trackArchivedAt: version.trackArchivedAt,
     },
     { producerId, projectId: version.projectId, purchaseId: version.purchaseId },
   );

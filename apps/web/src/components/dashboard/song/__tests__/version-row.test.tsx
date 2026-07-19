@@ -104,6 +104,17 @@ describe("VersionRow — Song Space version-history row", () => {
     expect(SRC).toMatch(/No audio available/);
   });
 
+  it("carries an explicit audioDeletedAtIso tombstone instead of inferring deletion from null audio", () => {
+    expect(SRC).toMatch(/audioDeletedAtIso\?:\s*string\s*\|\s*null/);
+    expect(SRC).toMatch(/audioDeletedAtIso\s*!==\s*null|Boolean\(version\.audioDeletedAtIso\)/);
+  });
+
+  it("renders tombstoned rows as subdued Audio deleted history with comments intact", () => {
+    expect(SRC).toContain("Audio deleted");
+    expect(SRC).toContain("data-audio-state");
+    expect(SRC).toContain("noteCount");
+  });
+
   it("forbids --surface-card", () => {
     expect(SRC).not.toContain("--surface-card");
   });

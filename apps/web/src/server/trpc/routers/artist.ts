@@ -706,6 +706,9 @@ const musicSubrouter = router({
           trackId: projectTracks.id,
           trackTitle: projectTracks.title,
           trackArtist: projectTracks.artist,
+          trackWorkflowStage: projectTracks.workflowStage,
+          trackArchivedAt: projectTracks.archivedAt,
+          trackReleasedAt: projectTracks.releasedAt,
           projectId: projects.id,
           projectTitle: projects.title,
           projectProducerId: projects.producerId,
@@ -716,6 +719,7 @@ const musicSubrouter = router({
         .where(
           and(
             eq(trackVersions.id, input.versionId),
+            eq(trackVersions.producerId, projects.producerId),
             or(isNotNull(trackVersions.audioUrl), isNotNull(trackVersions.audioDeletedAt)),
           ),
         )
@@ -750,6 +754,7 @@ const musicSubrouter = router({
           id: trackVersions.id,
           label: trackVersions.label,
           audioUrl: trackVersions.audioUrl,
+          audioDeletedAt: trackVersions.audioDeletedAt,
           durationMs: trackVersions.durationMs,
           uploadedAt: trackVersions.uploadedAt,
           peaks: trackVersions.peaks,
@@ -758,10 +763,11 @@ const musicSubrouter = router({
         .where(
           and(
             eq(trackVersions.trackId, head.trackId),
+            eq(trackVersions.producerId, head.projectProducerId),
             or(isNotNull(trackVersions.audioUrl), isNotNull(trackVersions.audioDeletedAt)),
           ),
         )
-        .orderBy(desc(trackVersions.uploadedAt));
+        .orderBy(desc(trackVersions.uploadedAt), desc(trackVersions.id));
 
       const approvalRows =
         versionRows.length === 0
@@ -794,6 +800,12 @@ const musicSubrouter = router({
         const event = latestApprovalByVersion.get(version.id);
         return {
           ...version,
+          // A tombstoned version remains in the shared history and keeps
+          // its comments, label, and upload date. Storage-backed fields are
+          // redacted so artist playback cannot reach a deleted object.
+          audioUrl: version.audioDeletedAt ? null : version.audioUrl,
+          durationMs: version.audioDeletedAt ? null : version.durationMs,
+          peaks: version.audioDeletedAt ? null : version.peaks,
           approvedAt: event?.action === "approved" ? event.createdAt : null,
         };
       });
@@ -823,6 +835,9 @@ const musicSubrouter = router({
           id: head.trackId,
           title: head.trackTitle,
           artist: head.trackArtist,
+          workflowStage: head.trackWorkflowStage,
+          archivedAt: head.trackArchivedAt,
+          releasedAt: head.trackReleasedAt,
           projectId: head.projectId,
           projectTitle: head.projectTitle,
           clientName: producerName,
@@ -830,7 +845,11 @@ const musicSubrouter = router({
         },
         versions,
         comments,
-        selectedVersionId: input.versionId,
+        selectedVersionId:
+          versions.find((version) => version.id === input.versionId && version.audioUrl !== null)
+            ?.id ??
+          versions.find((version) => version.audioUrl !== null)?.id ??
+          input.versionId,
       };
     }),
 

@@ -350,7 +350,9 @@ All Add Song, upload, row, and empty-state actions must work.
 
 ### 7.4 Released songs and permanent audio deletion
 
-Before Released, current or final audio cannot be deleted until another version is selected.
+Released is a separate, producer-confirmed per-song state. Done / Delivered does not imply Released. Marking a song Released is one-way because it unlocks permanent deletion of protected audio.
+
+Before Released, current, producer-marked-final, or last stored audio cannot be deleted until another safe playable version exists.
 
 After Released, a producer may permanently delete any stored audio, including the final or last remaining audio. No Spotify or Apple Music link is required.
 

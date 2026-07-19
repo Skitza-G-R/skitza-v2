@@ -958,11 +958,7 @@ function AddFromLibraryButton({
     if (addedSet.has(row.audioUrl)) return;
     setPendingId(row.versionId);
     startTransition(async () => {
-      const res = await addPortfolioFromLibrary({
-        title: row.trackTitle,
-        artist: row.artistName,
-        audioUrl: row.audioUrl as string,
-      });
+      const res = await addPortfolioFromLibrary({ versionId: row.versionId });
       setPendingId(null);
       if (!res.ok) {
         toast(res.error, "error");

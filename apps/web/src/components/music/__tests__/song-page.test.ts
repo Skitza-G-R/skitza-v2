@@ -5,7 +5,12 @@ import { dirname, join } from "node:path";
 
 import {
   activeVersionToPlayerTrack,
+  deleteVersionAudioPolicy,
+  isSongPageVersionPlayable,
+  isTombstonedVersionLoaded,
+  newestPlayableSongPageVersion,
   playButtonState,
+  resolveInitialSongPageVersion,
   type SongPageVersion,
 } from "../song-page";
 
@@ -25,6 +30,7 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 const SONG_PAGE_PATH = join(here, "..", "song-page.tsx");
 const songPageSrc = readFileSync(SONG_PAGE_PATH, "utf8");
+const managementDialogSrc = readFileSync(join(here, "..", "song-management-dialog.tsx"), "utf8");
 
 // ─── activeVersionToPlayerTrack ──────────────────────────────────────
 
@@ -35,6 +41,9 @@ const baseTrack = {
   projectId: "p-1",
   projectTitle: "Bob's EP",
   clientName: "Bob" as string | null,
+  archivedAtIso: null as string | null,
+  releasedAtIso: null as string | null,
+  workflowStage: "mixing" as const,
 };
 
 function makeVersion(over: Partial<SongPageVersion> = {}): SongPageVersion {
@@ -45,6 +54,7 @@ function makeVersion(over: Partial<SongPageVersion> = {}): SongPageVersion {
     durationMs: 240_000,
     uploadedAtIso: "2026-05-06T12:00:00Z",
     approvedAtIso: null,
+    audioDeletedAtIso: null,
     // Default to null peaks so legacy-style fixtures keep working;
     // tests that care override via `over`.
     peaks: null,
@@ -54,7 +64,12 @@ function makeVersion(over: Partial<SongPageVersion> = {}): SongPageVersion {
 
 describe("activeVersionToPlayerTrack — PlayerTrack payload", () => {
   it("builds id/audioUrl/title/durationMs from the version + track", () => {
-    const v = makeVersion({ id: "v-42", audioUrl: "https://r2/x.mp3", durationMs: 200_000, label: "v3" });
+    const v = makeVersion({
+      id: "v-42",
+      audioUrl: "https://r2/x.mp3",
+      durationMs: 200_000,
+      label: "v3",
+    });
     const t = { ...baseTrack, title: "Sunset Mix" };
     const p = activeVersionToPlayerTrack(t, v);
     expect(p.id).toBe("v-42");
@@ -145,6 +160,153 @@ describe("playButtonState — Play/Pause + disabled + action mode", () => {
     });
     expect(s).toEqual({ label: "Play", disabled: true, action: "play-new" });
   });
+
+  it("an explicit audio tombstone stays disabled even if a stale URL is present", () => {
+    const s = playButtonState({
+      activeVersionId: "v-1",
+      audioUrl: "https://r2/stale.mp3",
+      audioDeletedAtIso: "2026-07-19T08:00:00Z",
+      nowPlaying: { trackId: null, playing: false },
+    });
+    expect(s).toEqual({ label: "Play", disabled: true, action: "play-new" });
+  });
+});
+
+describe("deleted-audio version selection", () => {
+  const deletedNewest = makeVersion({
+    id: "v-3",
+    label: "V3",
+    audioUrl: null,
+    audioDeletedAtIso: "2026-07-19T08:00:00Z",
+  });
+  const playableOlder = makeVersion({ id: "v-2", label: "V2" });
+
+  it("does not treat a tombstoned version as playable even if its URL is stale", () => {
+    expect(
+      isSongPageVersionPlayable({
+        ...deletedNewest,
+        audioUrl: "https://r2/stale.mp3",
+      }),
+    ).toBe(false);
+  });
+
+  it("identifies a stale loaded player after revalidation returns a tombstone", () => {
+    expect(isTombstonedVersionLoaded([deletedNewest, playableOlder], "v-3")).toBe(true);
+    expect(isTombstonedVersionLoaded([deletedNewest, playableOlder], "v-2")).toBe(false);
+    expect(isTombstonedVersionLoaded([deletedNewest, playableOlder], null)).toBe(false);
+  });
+
+  it("falls back from a requested deleted version to the newest available audio", () => {
+    expect(resolveInitialSongPageVersion([deletedNewest, playableOlder], "v-3")?.id).toBe("v-2");
+  });
+
+  it("keeps a requested playable version selected", () => {
+    expect(resolveInitialSongPageVersion([deletedNewest, playableOlder], "v-2")?.id).toBe("v-2");
+  });
+
+  it("returns no playable version when every stored audio object is gone", () => {
+    expect(newestPlayableSongPageVersion([deletedNewest])).toBeNull();
+    // The deleted record still resolves as history so its comments remain viewable.
+    expect(resolveInitialSongPageVersion([deletedNewest], "v-3")?.id).toBe("v-3");
+  });
+});
+
+describe("deleteVersionAudioPolicy — pre-Released protection and Released warnings", () => {
+  const current = makeVersion({ id: "v-3", label: "V3" });
+  const older = makeVersion({ id: "v-2", label: "V2" });
+  const finalOlder = makeVersion({
+    id: "v-1",
+    label: "V1",
+    approvedAtIso: "2026-07-18T10:00:00Z",
+  });
+
+  it("blocks the newest playable current version before Released", () => {
+    const policy = deleteVersionAudioPolicy({
+      versions: [current, older],
+      version: current,
+      isReleased: false,
+    });
+    expect(policy.isCurrent).toBe(true);
+    expect(policy.isReleased).toBe(false);
+    expect(policy.canDelete).toBe(false);
+    expect(policy.details.join(" ")).toMatch(/Before Released.*current/i);
+  });
+
+  it("blocks a producer-marked-final version before Released even when it is not current", () => {
+    const policy = deleteVersionAudioPolicy({
+      versions: [current, older, finalOlder],
+      version: finalOlder,
+      isReleased: false,
+    });
+    expect(policy.isFinal).toBe(true);
+    expect(policy.isCurrent).toBe(false);
+    expect(policy.canDelete).toBe(false);
+    expect(policy.details.join(" ")).toMatch(/final/i);
+  });
+
+  it("allows an older ordinary version before Released", () => {
+    const policy = deleteVersionAudioPolicy({
+      versions: [current, older],
+      version: older,
+      isReleased: false,
+    });
+    expect(policy.isCurrent).toBe(false);
+    expect(policy.isFinal).toBe(false);
+    expect(policy.isLast).toBe(false);
+    expect(policy.canDelete).toBe(true);
+  });
+
+  it("blocks the last stored audio before Released", () => {
+    const policy = deleteVersionAudioPolicy({
+      versions: [older],
+      version: older,
+      isReleased: false,
+    });
+    expect(policy.isLast).toBe(true);
+    expect(policy.canDelete).toBe(false);
+  });
+
+  it("allows final/last audio after Released with the strongest public consequences", () => {
+    const policy = deleteVersionAudioPolicy({
+      versions: [finalOlder],
+      version: finalOlder,
+      isReleased: true,
+    });
+    expect(policy.isReleased).toBe(true);
+    expect(policy.isFinal).toBe(true);
+    expect(policy.isLast).toBe(true);
+    expect(policy.canDelete).toBe(true);
+    expect(policy.strongWarning).toBe(true);
+    expect(policy.details.join(" ")).toMatch(/real stored audio/i);
+    expect(policy.details.join(" ")).toMatch(/cannot be undone/i);
+    expect(policy.details.join(" ")).toMatch(/history remains/i);
+    expect(policy.details.join(" ")).toMatch(/portfolio entry.*public link disabled/i);
+  });
+
+  it("offers an idempotent storage-cleanup retry for an already tombstoned version", () => {
+    const deleted = makeVersion({
+      audioUrl: null,
+      audioDeletedAtIso: "2026-07-19T08:00:00Z",
+    });
+    const policy = deleteVersionAudioPolicy({
+      versions: [deleted],
+      version: deleted,
+      isReleased: true,
+    });
+
+    expect(policy.canDelete).toBe(true);
+    expect(policy.isStorageCleanupRetry).toBe(true);
+    expect(policy.details.join(" ")).toMatch(/safe to repeat/i);
+  });
+
+  it("names producer final status accurately in permanent deletion warnings", () => {
+    const policy = deleteVersionAudioPolicy({
+      versions: [current, finalOlder],
+      version: finalOlder,
+      isReleased: true,
+    });
+    expect(policy.details.join(" ")).toMatch(/producer-marked-final audio/i);
+  });
 });
 
 // ─── Source-grep — wiring ────────────────────────────────────────────
@@ -211,7 +373,9 @@ describe("song-page.tsx — comments are clickable + replyable (founder feedback
     // The button delegates through handleJumpToComment so we check
     // both the wiring AND that handleJumpToComment is the one calling
     // playerSeek.
-    expect(songPageSrc).toMatch(/data-test="comment-jump"[\s\S]{0,400}?onClick=\{[^}]*handleJumpToComment\(/);
+    expect(songPageSrc).toMatch(
+      /data-test="comment-jump"[\s\S]{0,400}?onClick=\{[^}]*handleJumpToComment\(/,
+    );
     const jumpHandler = songPageSrc.match(/function handleJumpToComment[\s\S]*?\n {2}\}/);
     expect(jumpHandler).not.toBeNull();
     expect(jumpHandler?.[0]).toContain("playerSeek(");
@@ -278,7 +442,9 @@ describe("song-page.tsx source — Play button on the waveform card (founder fee
     // pressing either keeps the dock + the page in lock-step. If the
     // waveform button forked into its own onClick we'd risk drift
     // (e.g. one calls playerPlay, the other playerToggle).
-    expect(songPageSrc).toMatch(/data-test="waveform-play-button"[\s\S]{0,400}?onClick=\{handlePlayToggle\}/);
+    expect(songPageSrc).toMatch(
+      /data-test="waveform-play-button"[\s\S]{0,400}?onClick=\{handlePlayToggle\}/,
+    );
   });
 });
 
@@ -343,6 +509,105 @@ describe("song-page.tsx — SongPageVersion wire type carries peaks", () => {
   });
 });
 
+describe("song-page.tsx source — deleted audio remains history, not a player target", () => {
+  it("carries an explicit audioDeletedAtIso tombstone on each version", () => {
+    expect(songPageSrc).toMatch(/audioDeletedAtIso\?:\s*string\s*\|\s*null/);
+  });
+
+  it("renders an Audio deleted history state and keeps version comments selected by id", () => {
+    expect(songPageSrc).toContain("Audio deleted");
+    expect(songPageSrc).toMatch(
+      /data\.comments\.filter\(\(c\)\s*=>\s*c\.versionId\s*===\s*activeVersionId\)/,
+    );
+  });
+
+  it("gates download and waveform audio through the playable-version helper", () => {
+    expect(songPageSrc).toContain("isSongPageVersionPlayable(activeVersion)");
+  });
+});
+
+describe("song-page.tsx source — producer L3 management", () => {
+  it("carries independent song archive, release, and workflow state on the track wire", () => {
+    expect(songPageSrc).toMatch(/archivedAtIso:\s*string\s*\|\s*null/);
+    expect(songPageSrc).toMatch(/releasedAtIso:\s*string\s*\|\s*null/);
+    expect(songPageSrc).toMatch(
+      /workflowStage:\s*[\s\S]{0,160}["']brief["'][\s\S]{0,160}["']done["']/,
+    );
+  });
+
+  it("declares every optional management callback with the agreed names", () => {
+    for (const callback of [
+      "renameSong",
+      "editArtist",
+      "setArchived",
+      "markReleased",
+      "renameVersion",
+      "deleteVersionAudio",
+    ]) {
+      expect(songPageSrc).toContain(`${callback}?:`);
+    }
+    expect(songPageSrc).toContain("projectId: string");
+    expect(songPageSrc).toContain("trackId: string");
+    expect(songPageSrc).toContain("versionId: string");
+  });
+
+  it("keeps management producer-only and exposes all six actions from More", () => {
+    expect(songPageSrc).toContain('role === "producer"');
+    expect(songPageSrc).toContain("Rename song");
+    expect(songPageSrc).toContain("Edit artist credit");
+    expect(songPageSrc).toContain("Archive song");
+    expect(songPageSrc).toContain("Restore song");
+    expect(songPageSrc).toContain("Mark as Released");
+    expect(songPageSrc).toContain("Rename version");
+    expect(songPageSrc).toContain("Permanently delete audio");
+    expect(songPageSrc).toContain("Retry storage cleanup");
+  });
+
+  it("keeps the More menu above the later song body so every action remains clickable", () => {
+    expect(songPageSrc).toContain('<header className="relative z-10 isolate text-white"');
+    expect(songPageSrc).toContain("right-0 z-30");
+  });
+
+  it("keeps the More menu inside true phone viewports", () => {
+    expect(songPageSrc).toContain("max-[400px]:fixed");
+    expect(songPageSrc).toContain("max-[400px]:inset-x-4");
+    expect(songPageSrc).toContain("max-[400px]:max-h-[calc(100dvh-2rem)]");
+  });
+
+  it("keeps permanent deletion for playable versions and exposes retry for tombstones", () => {
+    expect(songPageSrc).toMatch(/activeVersionPlayable[\s\S]{0,3000}Permanently delete audio/);
+    expect(songPageSrc).toMatch(/Rename version/);
+    expect(songPageSrc).toContain("Retry storage cleanup");
+  });
+
+  it("blocks archived-song comments with restore guidance without hiding playback/history", () => {
+    expect(songPageSrc).toMatch(/songArchived/);
+    expect(songPageSrc).toMatch(/Restore this song.*comments|restore.*add comments/i);
+    expect(songPageSrc).toContain("isSongPageVersionPlayable(activeVersion)");
+  });
+});
+
+describe("SongManagementDialog source — accessible responsive confirmation UI", () => {
+  it("uses a Radix portal and dialog semantics", () => {
+    expect(managementDialogSrc).toContain("@radix-ui/react-dialog");
+    expect(managementDialogSrc).toContain("DialogPrimitive.Portal");
+    expect(managementDialogSrc).toContain("DialogPrimitive.Title");
+    expect(managementDialogSrc).toContain("DialogPrimitive.Description");
+  });
+
+  it("fits phone widths with 44px controls and large-radius text buttons", () => {
+    expect(managementDialogSrc).toContain("w-[calc(100vw-2rem)]");
+    expect(managementDialogSrc).toContain("max-h-[calc(100dvh-2rem)]");
+    expect(managementDialogSrc).toContain("min-h-11");
+    expect(managementDialogSrc).toContain("rounded-[var(--radius-lg)]");
+  });
+
+  it("surfaces action failures without closing the dialog", () => {
+    expect(managementDialogSrc).toContain('role="alert"');
+    expect(managementDialogSrc).toContain("result.error");
+  });
+});
+
 describe("song-page.tsx source — Play button wiring", () => {
   it("imports playerPlay + playerToggle + useNowPlaying from persistent-player", () => {
     expect(songPageSrc).toMatch(/from\s+["']~\/components\/audio\/persistent-player["']/);
@@ -371,14 +636,20 @@ describe("song-page.tsx source — Play button wiring", () => {
     expect(songPageSrc).toMatch(/disabled=\{[^}]*\.disabled[^}]*\}/);
   });
 
-  it("the play button is mounted inside the action rail (sibling of the Approve button), so it sits next to 'Approve version'", () => {
+  it("the play button is mounted inside the action rail beside the producer Mark final action", () => {
     // Pin the structural relationship without naming a specific class —
     // we just check both buttons live in the same JSX block. Easiest
-    // proxy: Approve version copy + Play helper appear in the same
+    // proxy: Mark final copy + Play helper appear in the same
     // file, and the action-rail comment exists. (The action rail is
-    // the only place wrapping the Approve button today.)
-    expect(songPageSrc).toContain("Approve version");
+    // the only place wrapping the producer-final button today.)
+    expect(songPageSrc).toContain("Mark final");
     expect(songPageSrc).toContain("playButtonState(");
+  });
+
+  it("keeps artist approval language separate from producer final language", () => {
+    expect(songPageSrc).toContain('role === "producer" ? "Marked final" : "Approved"');
+    expect(songPageSrc).toContain('"Marked final" : "Mark final"');
+    expect(songPageSrc).toContain("producer-marked-final audio");
   });
 });
 
@@ -398,9 +669,7 @@ describe("L3 project breadcrumb href is role-aware", () => {
   });
 
   it("uses /dashboard/music/project/<projectId> for the producer path", () => {
-    expect(songPageSrc).toMatch(
-      /\/dashboard\/music\/project\/\$\{data\.track\.projectId\}/,
-    );
+    expect(songPageSrc).toMatch(/\/dashboard\/music\/project\/\$\{data\.track\.projectId\}/);
   });
 
   it("the project crumb href is the role-derived value (not a hardcoded literal)", () => {

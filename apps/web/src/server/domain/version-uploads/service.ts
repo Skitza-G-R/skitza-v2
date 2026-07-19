@@ -17,6 +17,7 @@ export type VersionUploadLifecycleCandidate = VersionUploadLifecycleScope &
   Readonly<{
     projectLifecycleStatus: ProjectLifecycleStatus;
     purchaseLifecycleStatus: PurchaseLifecycleStatus;
+    trackArchivedAt: Date | null;
   }>;
 
 export type VersionUploadDomainErrorCode = "NOT_FOUND" | "INACTIVE";
@@ -34,7 +35,7 @@ export class VersionUploadDomainError extends Error {
 /**
  * Audio version history belongs to one immutable purchase. New placeholders,
  * presigned parts, and final object attachment are allowed only while both the
- * exact owning purchase and its project are active.
+ * exact owning purchase and its project are active and the track is not archived.
  */
 export function assertActiveVersionUploadLifecycle(
   candidate: VersionUploadLifecycleCandidate | null,
@@ -58,6 +59,12 @@ export function assertActiveVersionUploadLifecycle(
     throw new VersionUploadDomainError(
       "INACTIVE",
       "Audio versions can be changed only while the project and purchase are active",
+    );
+  }
+  if (candidate.trackArchivedAt !== null) {
+    throw new VersionUploadDomainError(
+      "INACTIVE",
+      "Restore this archived song before changing its audio versions",
     );
   }
   return candidate;

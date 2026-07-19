@@ -517,6 +517,10 @@ export const projectTracks = pgTable(
     artist: text("artist"),
     position: integer("position").notNull().default(0),
     workflowStage: workflowStage("workflow_stage").notNull().default("brief"),
+    // Release is a producer-confirmed product state, separate from creative
+    // progress (Done / Delivered). Once set, application code treats it as
+    // irreversible because protected audio may be permanently deleted.
+    releasedAt: timestamp("released_at", { withTimezone: true }),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     portfolioPublishedAt: timestamp("portfolio_published_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

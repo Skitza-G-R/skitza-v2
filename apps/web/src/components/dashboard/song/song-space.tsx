@@ -42,6 +42,8 @@ export interface SongSpaceSong {
   id: string;
   purchaseId: string;
   title: string;
+  archivedAtIso: string | null;
+  releasedAtIso?: string | null;
   currentVersion: string;
   noteCount: number;
   durationMs: number | null;
@@ -95,25 +97,36 @@ export function SongSpace({
   const router = useRouter();
   const [active, setActive] = useState<SongTab>("overview");
   const projectActive = actionProject.lifecycleStatus === "active";
-  const canUpload = canCreatePurchaseOwnedProjectWork({
-    projectLifecycleStatus: actionProject.lifecycleStatus,
-    purchaseId: song.purchaseId,
-    purchases,
-  });
-  const archived =
+  const songArchived = song.archivedAtIso !== null;
+  const songReleased = song.releasedAtIso != null;
+  const canUpload =
+    !songArchived &&
+    canCreatePurchaseOwnedProjectWork({
+      projectLifecycleStatus: actionProject.lifecycleStatus,
+      purchaseId: song.purchaseId,
+      purchases,
+    });
+  const projectArchived =
     actionProject.lifecycleStatus === "completed" || actionProject.lifecycleStatus === "canceled";
-  const newWorkBlockedReason = archived
-    ? "New work is closed because this project is archived."
-    : projectActive
-      ? "New work requires an active purchase or accepted offer."
-      : "New work requires an active project.";
-  const lifecycleLabel = archived
-    ? `Archived · ${actionProject.lifecycleStatus === "completed" ? "Completed" : "Canceled"}`
-    : actionProject.lifecycleStatus === "waiting_for_payment"
-      ? "Waiting for payment"
-      : actionProject.lifecycleStatus === "paused"
-        ? "Paused project"
-        : "Active project";
+  const newWorkBlockedReason = songArchived
+    ? "Restore this song before uploading a new version."
+    : projectArchived
+      ? "New work is closed because this project is archived."
+      : projectActive
+        ? "New work requires an active purchase or accepted offer."
+        : "New work requires an active project.";
+  const lifecycleLabel = songArchived
+    ? "Archived song"
+    : projectArchived
+      ? `Archived · ${actionProject.lifecycleStatus === "completed" ? "Completed" : "Canceled"}`
+      : actionProject.lifecycleStatus === "waiting_for_payment"
+        ? "Waiting for payment"
+        : actionProject.lifecycleStatus === "paused"
+          ? "Paused project"
+          : "Active project";
+  const releaseNotice = songReleased
+    ? " Released is permanent; stored audio can now be permanently deleted after a warning."
+    : "";
   // Phase 4: the Upload Track modal lives at the SongSpace level so both
   // the SongSpaceHero CTA and the VersionsTab drop zone open the same
   // instance. mode="new-version" + a locked trackId means the modal's
@@ -127,15 +140,18 @@ export function SongSpace({
   }, []);
 
   // Latest playable version — used by SongSpaceHero's Play-latest CTA.
-  // We treat versions as newest-first (parent ordering).
-  const latest = versions[0];
-  const hasPlayable = latest !== undefined && latest.audioUrl !== null;
+  // Versions are newest-first; explicit audio tombstones stay in history
+  // but must never become player targets.
+  const latest = versions.find(
+    (version) => version.audioDeletedAtIso == null && version.audioUrl !== null,
+  );
+  const hasPlayable = latest !== undefined;
 
   // Hero's Play-latest CTA wires to playerPlay() with the freshest
   // version that has audio. Defined locally so server components can
   // pass plain JSON props and the client shell owns the side-effect.
   const handlePlayLatest = useCallback(() => {
-    if (!latest || latest.audioUrl === null) return;
+    if (!latest || latest.audioDeletedAtIso != null || latest.audioUrl === null) return;
     playerPlay({
       id: latest.id,
       audioUrl: latest.audioUrl,
@@ -145,11 +161,11 @@ export function SongSpace({
     });
   }, [latest, song.title, project.name]);
 
-  // Default label for the modal — auto-bumps to v{revisionCount+1}. The
+  // Default label for the modal — auto-bumps to V{revisionCount+1}. The
   // modal can also derive this from tracks[].versionCount, but we lock
   // the SongSpace context to a single song, so passing it explicitly
   // skips the dropdown-driven re-derivation.
-  const defaultLabel = `v${String(song.revisionCount + 1)}`;
+  const defaultLabel = `V${String(song.revisionCount + 1)}`;
 
   return (
     <div className="space-y-4 md:space-y-5">
@@ -166,20 +182,32 @@ export function SongSpace({
 
       <section
         className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3.5 sm:flex-row sm:items-center sm:justify-between sm:p-4"
-        aria-label="Project lifecycle"
+        aria-label="Song and project lifecycle"
       >
         <div className="min-w-0">
-          <p className="text-[10.5px] font-bold tracking-[0.11em] text-[rgb(var(--fg-muted))] uppercase">
-            {lifecycleLabel}
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-[10.5px] font-bold tracking-[0.11em] text-[rgb(var(--fg-muted))] uppercase">
+              {lifecycleLabel}
+            </p>
+            {songReleased ? (
+              <span
+                role="status"
+                className="inline-flex min-h-6 items-center rounded-[var(--radius-lg)] border border-[rgb(var(--fg-success)/0.24)] bg-[rgb(var(--fg-success)/0.08)] px-2 text-[10.5px] font-bold tracking-[0.08em] text-[rgb(var(--fg-success))] uppercase"
+              >
+                Released
+              </span>
+            ) : null}
+          </div>
           <p className="mt-1 text-[12.5px] leading-snug text-[rgb(var(--fg-muted))]">
-            {archived
-              ? "Listening, payments, comments, history, and public links remain available. New uploads and comments are closed."
-              : projectActive && canUpload
-                ? "Edit project details or archive the work when it is finished."
-                : projectActive
-                  ? `Comments are open. ${newWorkBlockedReason}`
-                  : "Uploads remain closed until this project returns to active work."}
+            {`${
+              songArchived || projectArchived
+                ? "Listening, payments, comments, history, and public links remain available. New uploads and comments are closed."
+                : projectActive && canUpload
+                  ? "Edit project details or archive the work when it is finished."
+                  : projectActive
+                    ? `Comments are open. ${newWorkBlockedReason}`
+                    : "Uploads remain closed until this project returns to active work."
+            }${releaseNotice}`}
           </p>
         </div>
         <ProjectActionControls

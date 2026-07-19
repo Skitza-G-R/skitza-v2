@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { SongManagementDomainError } from "~/server/domain/song-management/service";
 
 const PRODUCER_ID = "producer-uuid-1";
 const TRACK_ID = "00000000-0000-0000-0000-000000000001";
@@ -7,12 +8,19 @@ const OTHER_TRACK_ID = "00000000-0000-0000-0000-000000000002";
 // Marker objects so the dbMock can branch on which table the caller hit.
 const producersMarker = { __table: "producers" };
 const portfolioTracksMarker = { __table: "portfolio_tracks" };
+const trackVersionsMarker = { __table: "track_versions" };
+
+const songManagementMocks = vi.hoisted(() => ({
+  createPortfolioTrackFromSongVersion: vi.fn(),
+}));
 
 // Per-mock return shapes are explicit so eslint's no-unsafe-return
 // doesn't trip on the chained mock builders below.
 type Row = Record<string, unknown>;
 const producerSelectFromMock = vi.fn<() => Promise<Array<{ id: string }>>>();
 const trackSelectByIdMock = vi.fn<() => Promise<Array<{ producerId: string }>>>();
+const storedAudioSelectMock = vi.fn<() => Promise<Array<{ id: string }>>>();
+const storedAudioWhereSpy = vi.fn<(condition: unknown) => void>();
 const trackListMock = vi.fn<() => Promise<Row[]>>();
 const trackInsertReturningMock = vi.fn<() => Promise<Row[]>>();
 const trackInsertValuesSpy = vi.fn<(rec: unknown) => void>();
@@ -24,6 +32,14 @@ const dbMock = {
     from: (table: unknown) => {
       if (table === producersMarker) {
         return { where: () => ({ limit: () => producerSelectFromMock() }) };
+      }
+      if (table === trackVersionsMarker) {
+        return {
+          where: (condition: unknown) => {
+            storedAudioWhereSpy(condition);
+            return { limit: () => storedAudioSelectMock() };
+          },
+        };
       }
       // portfolioTracks chain shapes:
       //   - list:        .from().leftJoin().where().orderBy()  (peaks JOIN)
@@ -61,15 +77,29 @@ vi.mock("@skitza/db", () => ({
   createDb: () => dbMock,
   producers: producersMarker,
   portfolioTracks: portfolioTracksMarker,
-  trackVersions: { __table: "track_versions" },
+  trackVersions: trackVersionsMarker,
   eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
   and: (...conds: unknown[]) => ({ and: conds }),
+  or: (...conds: unknown[]) => ({ or: conds }),
   isNotNull: (col: unknown) => ({ isNotNull: col }),
+}));
+
+vi.mock("~/server/domain/song-management/db", () => ({
+  createPortfolioTrackFromSongVersion:
+    songManagementMocks.createPortfolioTrackFromSongVersion,
+  renameSongVersion: vi.fn(),
+  setProducerFinalVersion: vi.fn(),
+  setSongArchiveState: vi.fn(),
+  setSongWorkflowStage: vi.fn(),
+  tombstoneStoredAudioVersion: vi.fn(),
+  updateSongMetadata: vi.fn(),
 }));
 
 beforeEach(() => {
   producerSelectFromMock.mockReset().mockResolvedValue([{ id: PRODUCER_ID }]);
   trackSelectByIdMock.mockReset().mockResolvedValue([]);
+  storedAudioSelectMock.mockReset().mockResolvedValue([]);
+  storedAudioWhereSpy.mockReset();
   trackListMock.mockReset().mockResolvedValue([]);
   trackInsertReturningMock
     .mockReset()
@@ -77,7 +107,11 @@ beforeEach(() => {
   trackInsertValuesSpy.mockReset();
   trackUpdateReturningMock.mockReset().mockResolvedValue([{ id: TRACK_ID }]);
   trackDeleteWhereMock.mockReset().mockResolvedValue(undefined);
+  songManagementMocks.createPortfolioTrackFromSongVersion
+    .mockReset()
+    .mockResolvedValue({ id: TRACK_ID, title: "From version" });
   process.env.DATABASE_URL = "postgresql://test/test";
+  process.env.R2_PUBLIC_BASE = "https://audio.example.test";
 });
 
 const buildCaller = async (userId: string | null = "user_test_1") => {
@@ -163,6 +197,7 @@ describe("portfolio.create", () => {
       audioUrl: null,
     });
     expect(trackInsertReturningMock).toHaveBeenCalledOnce();
+    expect(storedAudioWhereSpy).not.toHaveBeenCalled();
   });
 
   // Portfolio redesign 2026-05-17 §0.2 (Q1=B): new featured tracks added
@@ -194,6 +229,89 @@ describe("portfolio.create", () => {
       expect.objectContaining({ isPublicSample: true }),
     );
   });
+
+  it("rejects a producer-owned Skitza version URL on the generic create path", async () => {
+    storedAudioSelectMock.mockResolvedValueOnce([{ id: TRACK_ID }]);
+    const caller = await buildCaller();
+
+    await expect(
+      caller.portfolio.create({
+        title: "Stale stored audio",
+        audioUrl: "https://audio.example.test/%73tored.mp3?cache=stale#play",
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(trackInsertReturningMock).not.toHaveBeenCalled();
+    expect(JSON.stringify(storedAudioWhereSpy.mock.calls[0]?.[0])).toContain(
+      "https://audio.example.test/stored.mp3",
+    );
+  });
+
+  it("rejects a producer-owned pending version object before completion", async () => {
+    storedAudioSelectMock.mockResolvedValueOnce([{ id: TRACK_ID }]);
+    const caller = await buildCaller();
+    const pendingKey = `producers/${PRODUCER_ID}/tracks/${TRACK_ID}/pending.mp3`;
+
+    await expect(
+      caller.portfolio.create({
+        title: "Pending stored audio",
+        audioUrl: `https://audio.example.test/${pendingKey}?cache=stale`,
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(trackInsertReturningMock).not.toHaveBeenCalled();
+    expect(JSON.stringify(storedAudioWhereSpy.mock.calls[0]?.[0])).toContain(pendingKey);
+  });
+
+  it("keeps an external URL with a key-shaped path on the generic create path", async () => {
+    const caller = await buildCaller();
+    const externalUrl =
+      `https://mirror.example.test/producers/${PRODUCER_ID}/tracks/${TRACK_ID}/external.mp3`;
+
+    await caller.portfolio.create({ title: "External mirror", audioUrl: externalUrl });
+
+    expect(trackInsertReturningMock).toHaveBeenCalledOnce();
+    const where = storedAudioWhereSpy.mock.calls[0]?.[0] as
+      | { and?: Array<{ or?: unknown[] }> }
+      | undefined;
+    expect(where?.and?.[1]?.or).toHaveLength(2);
+  });
+});
+
+describe("portfolio.createFromVersion", () => {
+  it("delegates the version id to the serialized song-management boundary", async () => {
+    const caller = await buildCaller();
+    const row = await caller.portfolio.createFromVersion({ versionId: TRACK_ID });
+
+    expect(row).toMatchObject({ id: TRACK_ID, title: "From version" });
+    expect(songManagementMocks.createPortfolioTrackFromSongVersion).toHaveBeenCalledWith(
+      dbMock,
+      { producerId: PRODUCER_ID, versionId: TRACK_ID },
+    );
+  });
+
+  it("conceals unavailable, deleted, and cross-tenant versions as not found", async () => {
+    songManagementMocks.createPortfolioTrackFromSongVersion.mockRejectedValueOnce(
+      new SongManagementDomainError("NOT_FOUND", "sensitive scope detail"),
+    );
+    const caller = await buildCaller();
+
+    await expect(
+      caller.portfolio.createFromVersion({ versionId: TRACK_ID }),
+    ).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: "The live version was not found.",
+    });
+  });
+
+  it("returns a safe client error for an already-published version", async () => {
+    songManagementMocks.createPortfolioTrackFromSongVersion.mockRejectedValueOnce(
+      new SongManagementDomainError("INVALID_INPUT", "This track is already in your portfolio"),
+    );
+    const caller = await buildCaller();
+
+    await expect(
+      caller.portfolio.createFromVersion({ versionId: TRACK_ID }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
 });
 
 describe("portfolio.update", () => {
@@ -219,6 +337,20 @@ describe("portfolio.update", () => {
     await expect(
       caller.portfolio.update({ id: TRACK_ID, title: "Renamed" }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(trackUpdateReturningMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects setting a producer-owned Skitza version URL through generic update", async () => {
+    trackSelectByIdMock.mockResolvedValueOnce([{ producerId: PRODUCER_ID }]);
+    storedAudioSelectMock.mockResolvedValueOnce([{ id: TRACK_ID }]);
+    const caller = await buildCaller();
+
+    await expect(
+      caller.portfolio.update({
+        id: TRACK_ID,
+        audioUrl: "https://audio.example.test/stored.mp3",
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(trackUpdateReturningMock).not.toHaveBeenCalled();
   });
 });
