@@ -34,6 +34,7 @@ type SongScope = Readonly<{
 }>;
 
 type WorkflowStage = "brief" | "production" | "mixing" | "mastering" | "done";
+type TransactionDb = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 type LockedSong = Readonly<{
   id: string;
@@ -56,7 +57,7 @@ function integrityError(message: string): never {
 }
 
 async function discoverSongScope(
-  db: Db,
+  db: TransactionDb,
   input: Readonly<{ producerId: string; trackId: string }>,
 ): Promise<SongScope> {
   const [scope] = await db
@@ -85,7 +86,7 @@ async function discoverSongScope(
 }
 
 async function discoverVersionScope(
-  db: Db,
+  db: TransactionDb,
   input: Readonly<{ producerId: string; versionId: string }>,
 ): Promise<SongScope> {
   const [scope] = await db
@@ -117,7 +118,7 @@ async function discoverVersionScope(
 }
 
 async function lockSong(
-  tx: Parameters<Parameters<Db["transaction"]>[0]>[0],
+  tx: TransactionDb,
   input: Readonly<{ producerId: string; scope: SongScope }>,
 ): Promise<LockedSong> {
   await tx.execute(
@@ -182,7 +183,7 @@ async function lockSong(
 }
 
 async function touchProject(
-  tx: Parameters<Parameters<Db["transaction"]>[0]>[0],
+  tx: TransactionDb,
   input: Readonly<{ producerId: string; projectId: string; changedAt: Date }>,
 ): Promise<void> {
   const [updated] = await tx
@@ -209,9 +210,9 @@ export async function updateSongMetadata(
   if (title === undefined && artist === undefined) {
     throw new SongManagementDomainError("INVALID_INPUT", "No song metadata change was supplied");
   }
-  const scope = await discoverSongScope(db, input);
-  if (input.projectId !== undefined && scope.projectId !== input.projectId) notFound();
   return db.transaction(async (tx) => {
+    const scope = await discoverSongScope(tx, input);
+    if (input.projectId !== undefined && scope.projectId !== input.projectId) notFound();
     await lockSong(tx, { producerId: input.producerId, scope });
     const [updated] = await tx
       .update(projectTracks)
@@ -288,8 +289,8 @@ export async function setSongArchiveState(
     changedAt: Date;
   }>,
 ): Promise<Readonly<{ track: LockedSong; changed: boolean }>> {
-  const scope = await discoverSongScope(db, input);
   return db.transaction(async (tx) => {
+    const scope = await discoverSongScope(tx, input);
     const locked = await lockSong(tx, { producerId: input.producerId, scope });
     const plan = planSongArchiveChange({
       currentArchivedAt: locked.archivedAt,
@@ -339,11 +340,11 @@ export async function renameSongVersion(
   }>,
 ): Promise<Readonly<{ id: string; label: string }>> {
   const label = normalizeVersionLabel(input.label);
-  const scope = await discoverVersionScope(db, input);
-  if (input.projectId !== undefined && scope.projectId !== input.projectId) {
-    notFound("The version was not found");
-  }
   return db.transaction(async (tx) => {
+    const scope = await discoverVersionScope(tx, input);
+    if (input.projectId !== undefined && scope.projectId !== input.projectId) {
+      notFound("The version was not found");
+    }
     await lockSong(tx, { producerId: input.producerId, scope });
     const [lockedVersion] = await tx
       .select({ id: trackVersions.id, trackId: trackVersions.trackId })
@@ -385,8 +386,8 @@ export async function setProducerFinalVersion(
     changedAt: Date;
   }>,
 ): Promise<Readonly<{ markedFinalAt: Date | null }>> {
-  const scope = await discoverVersionScope(db, input);
   return db.transaction(async (tx) => {
+    const scope = await discoverVersionScope(tx, input);
     await lockSong(tx, { producerId: input.producerId, scope });
     const versions = await tx
       .select({
@@ -454,8 +455,8 @@ export async function setSongWorkflowStage(
     changedAt: Date;
   }>,
 ): Promise<Readonly<{ workflowStage: WorkflowStage }>> {
-  const scope = await discoverSongScope(db, input);
   return db.transaction(async (tx) => {
+    const scope = await discoverSongScope(tx, input);
     await lockSong(tx, { producerId: input.producerId, scope });
     const [updated] = await tx
       .update(projectTracks)
@@ -487,8 +488,8 @@ export async function markSongReleased(
   db: Db,
   input: Readonly<{ producerId: string; trackId: string; releasedAt: Date }>,
 ): Promise<Readonly<{ releasedAt: Date; changed: boolean }>> {
-  const scope = await discoverSongScope(db, input);
   return db.transaction(async (tx) => {
+    const scope = await discoverSongScope(tx, input);
     const track = await lockSong(tx, { producerId: input.producerId, scope });
     if (track.releasedAt !== null) {
       return { releasedAt: track.releasedAt, changed: false };
@@ -527,8 +528,8 @@ export async function createPortfolioTrackFromSongVersion(
   db: Db,
   input: Readonly<{ producerId: string; versionId: string }>,
 ): Promise<typeof portfolioTracks.$inferSelect> {
-  const scope = await discoverVersionScope(db, input);
   return db.transaction(async (tx) => {
+    const scope = await discoverVersionScope(tx, input);
     const track = await lockSong(tx, { producerId: input.producerId, scope });
     const [version] = await tx
       .select({
@@ -643,8 +644,8 @@ export async function tombstoneStoredAudioVersion(
   db: Db,
   input: Readonly<{ producerId: string; versionId: string; deletedAt: Date }>,
 ): Promise<TombstoneStoredAudioResult> {
-  const scope = await discoverVersionScope(db, input);
   return db.transaction(async (tx) => {
+    const scope = await discoverVersionScope(tx, input);
     const track = await lockSong(tx, { producerId: input.producerId, scope });
     const versions = await tx
       .select({

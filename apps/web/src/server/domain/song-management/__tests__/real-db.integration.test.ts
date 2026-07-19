@@ -41,21 +41,19 @@ function qualifiedTestTable(table: TestTable): string {
   return `"${testSchema}"."${table}"`;
 }
 
-/**
- * Song-management discovers ownership before entering its locked transaction.
- * Scope both Neon HTTP discovery and the later WebSocket transaction to the
- * same random schema instead of ever creating test tables in public.
- */
-function databaseUrlWithTestSearchPath(connectionString: string): string {
-  assertValidTestSchema();
-  const parsed = new URL(connectionString);
-  const existingOptions = parsed.searchParams.get("options")?.trim();
-  const searchPathOption = `-csearch_path=${testSchema}`;
-  parsed.searchParams.set(
-    "options",
-    existingOptions ? `${existingOptions} ${searchPathOption}` : searchPathOption,
-  );
-  return parsed.toString();
+type TransactionFn = Db["transaction"];
+
+function withIsolatedTransactionSchema(database: Db): Db {
+  const runTransaction = database.transaction.bind(database);
+  database.transaction = (async (...args: Parameters<TransactionFn>) => {
+    const [work, config] = args;
+    return runTransaction(async (transaction) => {
+      assertValidTestSchema();
+      await transaction.execute(sql.raw(`set local search_path to "${testSchema}"`));
+      return work(transaction);
+    }, config);
+  }) as TransactionFn;
+  return database;
 }
 
 type SongFixture = Readonly<{
@@ -81,11 +79,14 @@ function timestamp(value: DbDate | null): number | null {
 
 describeWithTestDatabase("SK-8 song management — separate CI test database", () => {
   const adminDb = testDatabaseUrl ? createDb(testDatabaseUrl) : null;
-  const scopedDatabaseUrl = testDatabaseUrl ? databaseUrlWithTestSearchPath(testDatabaseUrl) : null;
   // Race coverage needs distinct clients. Each operation still opens its own
   // max-one interactive transaction pool through createDb.
-  const transactionDbA = scopedDatabaseUrl ? createDb(scopedDatabaseUrl) : null;
-  const transactionDbB = scopedDatabaseUrl ? createDb(scopedDatabaseUrl) : null;
+  const transactionDbA = testDatabaseUrl
+    ? withIsolatedTransactionSchema(createDb(testDatabaseUrl))
+    : null;
+  const transactionDbB = testDatabaseUrl
+    ? withIsolatedTransactionSchema(createDb(testDatabaseUrl))
+    : null;
   let schemaCreated = false;
 
   function activeAdminDb(): Db {

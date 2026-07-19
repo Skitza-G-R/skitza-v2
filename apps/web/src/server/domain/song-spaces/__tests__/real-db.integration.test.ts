@@ -284,6 +284,7 @@ describeWithTestDatabase("SK-92 song-space allocation — separate CI test datab
         "artist" text,
         "position" integer not null default 0,
         "workflow_stage" text not null default 'brief',
+        "released_at" timestamptz,
         "archived_at" timestamptz,
         "portfolio_published_at" timestamptz,
         "created_at" timestamptz not null default now(),
