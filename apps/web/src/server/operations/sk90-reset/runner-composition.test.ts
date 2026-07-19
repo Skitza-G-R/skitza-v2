@@ -318,6 +318,8 @@ async function input(): Promise<
       Promise.reject(new Error("must not load a backup during composition")),
     revalidateApprovedBackup: () =>
       Promise.reject(new Error("must not validate a backup during composition")),
+    requirePreparedRestore: () =>
+      Promise.reject(new Error("must not validate a prepared restore during composition")),
     requireExecutedRestore: () =>
       Promise.reject(new Error("must not validate a restore during composition")),
     restore: () => Promise.reject(new Error("must not restore during composition")),
@@ -371,6 +373,9 @@ describe("SK-90 concrete adapter composition", () => {
 
     expect(restore).toMatch(
       /#observeDatabaseState\(\)[\s\S]*DATABASE_VERIFICATION_MISMATCH[\s\S]*forceReplay: true[\s\S]*assertDatabaseRecoveryReady\(context\)[\s\S]*restoreResetObjects\([\s\S]*forceReplay: true/,
+    );
+    expect(restore).toMatch(
+      /observedDatabase === "mixed"[\s\S]*requirePreparedRestore\(restoreSelector\)[\s\S]*resumePrepared = true/,
     );
   });
 

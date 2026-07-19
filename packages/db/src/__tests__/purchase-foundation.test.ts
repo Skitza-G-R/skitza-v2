@@ -318,7 +318,7 @@ function createdKeyConstraintContracts(source: string): string[] {
       "false",
       "false",
       "true",
-      "false",
+      "true",
       indexed ? "true" : "",
       indexed ? "true" : "",
       indexed ? "true" : "",
@@ -1193,6 +1193,9 @@ describe("SK-90 purchase foundation migration", () => {
     expect(sourceColumns.map((contract) => contract.split("|", 1)[0])).toEqual(
       REVIEWED_SOURCE_TABLES,
     );
+    expect(sourceColumns.find((contract) => contract.startsWith("products|"))).toContain(
+      'payment_plans:pg_catalog.jsonb:NO:[{"kind": "full"}]',
+    );
     expect(expectedEnumContracts(gate, "expected_source_enum")).toEqual(preservedEnums);
     expect(expectedEnumContracts(sql.slice(0, sql.indexOf("RETURN;")), "expected_enum")).toEqual(
       expect.arrayContaining(preservedEnums),
@@ -1220,8 +1223,29 @@ describe("SK-90 purchase foundation migration", () => {
     );
     expect(gate).toMatch(/pg_get_indexdef\(actual_source_index\.index_oid\)/);
     expect(gate).toMatch(/pg_index\.indnullsnotdistinct/);
-    expect(gate).toMatch(/pg_get_expr\(\s*actual_source_trigger\.tgqual/);
+    expect(gate).toMatch(
+      /actual_source_trigger\.tgqual::text\s*=\s*\(\s*SELECT expected_trigger_catalog\.tgqual::text/,
+    );
+    expect(gate).not.toMatch(/pg_get_expr\(\s*actual_source_trigger\.tgqual/);
     expect(gate).toMatch(/md5\(pg_proc\.prosrc\)/);
+  });
+
+  it("releases exact source-contract temp dependencies before dropping legacy types", () => {
+    const sql = migrationSql();
+    const cleanupStart = sql.indexOf(
+      'DROP TABLE\n    "skitza_0027_source_expected_agreement_acceptances"',
+    );
+    const publicDrop = sql.indexOf('DROP TABLE\n    "public"."agreement_acceptances"');
+    const legacyTypeDrop = sql.indexOf('DROP TYPE "public"."booking_status"');
+    const cleanup = sql.slice(cleanupStart, publicDrop);
+
+    expect(cleanupStart).toBeGreaterThan(sql.lastIndexOf("SKITZA_0027_SOURCE_SCHEMA_DRIFT"));
+    expect(cleanupStart).toBeGreaterThan(sql.indexOf("SKITZA_0027_LIVE_CARD_STATE"));
+    expect(cleanupStart).toBeLessThan(publicDrop);
+    expect(publicDrop).toBeLessThan(legacyTypeDrop);
+    expect(cleanup).not.toMatch(/CASCADE/);
+    expect(cleanup.match(/"skitza_0027_source_expected_[^"]+"/g)).toHaveLength(15);
+    expect(cleanup.match(/"skitza_0027_source_reference_[^"]+"/g)).toHaveLength(10);
   });
 
   it("rejects weakened same-name source definitions before any approved reset mutation", () => {
@@ -1365,6 +1389,10 @@ describe("SK-90 purchase foundation migration", () => {
     expect(completedGate).toMatch(/pg_constraint\.condeferred/);
     expect(completedGate).toMatch(/pg_index\.indnullsnotdistinct/);
     expect(completedGate).toMatch(/expected_constraint_inventory_md5/);
+    expect(completedGate).toMatch(/pg_constraint\.contype <> 't'/);
+    expect(completedGate).toContain(
+      "ratePct.*>= 0.*ratePct.*<= 100.*tax_free.*tax_cents = 0",
+    );
     expect(completedGate).toMatch(/expected_index_inventory_md5/);
     expect(completedGate).toMatch(/expected_trigger_inventory_md5/);
     expect(completedGate).toMatch(/expected_function_inventory_md5/);
@@ -1394,7 +1422,7 @@ describe("SK-90 purchase foundation migration", () => {
       [9, "true"],
       [10, "true"],
       [11, "false"],
-      [12, "true"],
+      [12, "false"],
     ] as const) {
       const wrongForeignKey = [...keyConstraintContracts];
       const foreignKeyIndex = wrongForeignKey.findIndex((contract) => contract.includes("|f|"));

@@ -99,6 +99,7 @@ class FakeS3 {
   corruptNextCopy = false;
   failNextBodyStream = false;
   failAfterNextDelete = false;
+  headLastModifiedPrecision: "exact" | "seconds" | "next_second" = "exact";
   beforeFirstHead: (() => void) | undefined;
   afterFirstGet: (() => void) | undefined;
   beforeFirstDelete: (() => void) | undefined;
@@ -192,10 +193,17 @@ class FakeS3 {
     if (command.input.IfMatch && command.input.IfMatch !== object.etag) {
       throw sdkFailure(412, "PreconditionFailed");
     }
+    const lastModified =
+      this.headLastModifiedPrecision === "exact"
+        ? object.lastModified
+        : new Date(
+            Math.floor(object.lastModified.getTime() / 1000) * 1000 +
+              (this.headLastModifiedPrecision === "next_second" ? 1000 : 0),
+          );
     return {
       ETag: object.etag,
       ContentLength: object.bytes.byteLength,
-      LastModified: object.lastModified,
+      LastModified: lastModified,
       ...rawMetadata(object.metadata),
     };
   }
@@ -426,6 +434,38 @@ describe("SK-90 dedicated R2 rehearsal boundary", () => {
     expect(snapshot.activeMultipartUploadCount).toBe(0);
     expect(snapshot.objects.map((object) => object.contentFingerprint).sort()).toEqual(
       envelope.entries.map((entry) => entry.contentFingerprint).sort(),
+    );
+  });
+
+  it("accepts R2 list milliseconds with whole-second HeadObject precision", async () => {
+    const fake = new FakeS3();
+    const envelope = exactEnvelope(fake);
+    const first = required(envelope.entries[0]);
+    const stored = required(fake.get(CONFIG.buckets[first.bucketRole], dataKey(first.logicalKey)));
+    stored.lastModified = new Date(stored.lastModified.getTime() + 808);
+    fake.headLastModifiedPrecision = "seconds";
+    const adapter = createSk90R2Rehearsal({
+      client: clientFor(fake),
+      config: CONFIG,
+      tokenForKey,
+    });
+
+    await expect(adapter.captureStableSnapshot(envelope, "pre")).resolves.toBeDefined();
+  });
+
+  it("rejects a HeadObject timestamp from a different second", async () => {
+    const fake = new FakeS3();
+    const envelope = exactEnvelope(fake);
+    fake.headLastModifiedPrecision = "next_second";
+    const adapter = createSk90R2Rehearsal({
+      client: clientFor(fake),
+      config: CONFIG,
+      tokenForKey,
+    });
+
+    await expectSafetyError(
+      () => adapter.captureStableSnapshot(envelope, "pre"),
+      "STORAGE_OBJECT_DRIFT",
     );
   });
 

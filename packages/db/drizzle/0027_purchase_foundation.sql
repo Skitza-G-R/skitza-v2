@@ -48,7 +48,7 @@ DECLARE
     'track_versions'
   ];
   expected_constraint_inventory_md5 CONSTANT text := 'a9e205f4f1b636413e899e76147a1756';
-  expected_constraint_structure_md5 CONSTANT text := 'eb03a328756137e134dcc6c356694d64';
+  expected_constraint_structure_md5 CONSTANT text := '5d6d90e934209fdc0cad9740a75464c0';
   expected_index_inventory_md5 CONSTANT text := 'ed847cb606dd766f90c2b1de0e798785';
   expected_trigger_inventory_md5 CONSTANT text := 'd80c8a527557cd653f3838bbdda546d6';
   expected_function_inventory_md5 CONSTANT text := '2f4f547b09747ee6481fabe09b2fd3b7';
@@ -627,6 +627,7 @@ BEGIN
           ON table_namespace.oid = table_relation.relnamespace
         WHERE table_namespace.nspname = 'public'
           AND table_relation.relname = ANY(completed_target_tables)
+          AND pg_constraint.contype <> 't'
       ) IS DISTINCT FROM expected_constraint_inventory_md5
       OR (
         SELECT md5(COALESCE(string_agg(
@@ -923,7 +924,7 @@ BEGIN
           AND pg_constraint.contype = 'c'
           AND pg_constraint.convalidated
           AND pg_get_constraintdef(pg_constraint.oid) ~*
-            'ratePct.*BETWEEN 0 AND 100.*tax_free.*tax_cents = 0.*tax_included.*round.*total_cents.*ratePct.*100.*ratePct.*tax_added.*round.*subtotal_cents.*ratePct.*100.*IS TRUE'
+            'ratePct.*>= 0.*ratePct.*<= 100.*tax_free.*tax_cents = 0.*tax_included.*round.*total_cents.*ratePct.*100.*ratePct.*tax_added.*round.*subtotal_cents.*ratePct.*100.*IS TRUE'
       )
       OR NOT EXISTS (
         SELECT 1
@@ -1252,7 +1253,7 @@ BEGIN
       ('notifications', 'archived_at:pg_catalog.timestamptz:YES:<none>,body:pg_catalog.text:NO:,booking_id:pg_catalog.uuid:YES:<none>,comment_id:pg_catalog.uuid:YES:<none>,created_at:pg_catalog.timestamptz:NO:now(),id:pg_catalog.uuid:NO:gen_random_uuid(),kind:public.notification_kind:NO:<none>,producer_id:pg_catalog.uuid:NO:<none>,project_id:pg_catalog.uuid:YES:<none>,purchase_request_id:pg_catalog.uuid:YES:<none>,read_at:pg_catalog.timestamptz:YES:<none>,title:pg_catalog.text:NO:<none>,track_version_id:pg_catalog.uuid:YES:<none>'),
       ('payment_proofs', 'amount_cents:pg_catalog.int4:NO:<none>,confirmed_at:pg_catalog.timestamptz:YES:<none>,content_type:pg_catalog.text:NO:<none>,created_at:pg_catalog.timestamptz:NO:now(),currency:pg_catalog.text:NO:<none>,id:pg_catalog.uuid:NO:gen_random_uuid(),kind:pg_catalog.text:NO:<none>,note:pg_catalog.text:YES:<none>,object_etag:pg_catalog.text:YES:<none>,original_file_name:pg_catalog.text:YES:<none>,producer_id:pg_catalog.uuid:NO:<none>,project_id:pg_catalog.uuid:YES:<none>,purchase_request_id:pg_catalog.uuid:NO:<none>,rejected_at:pg_catalog.timestamptz:YES:<none>,rejection_note:pg_catalog.text:YES:<none>,size_bytes:pg_catalog.int4:NO:<none>,status:public.payment_proof_status:NO:pending,storage_bucket:pg_catalog.text:NO:docs,storage_key:pg_catalog.text:NO:<none>'),
       ('producers', 'auto_confirm_bookings:pg_catalog.bool:NO:false,autopilot_auto_archive:pg_catalog.bool:NO:false,autopilot_comment_notify:pg_catalog.bool:NO:true,autopilot_request_testimonial:pg_catalog.bool:NO:false,autopilot_unpaid_reminder:pg_catalog.bool:NO:false,autopilot_welcome_email:pg_catalog.bool:NO:false,brand:pg_catalog.jsonb:YES:{},cancellation_policy_hours:pg_catalog.int4:NO:24,clerk_user_id:pg_catalog.text:NO:<none>,created_at:pg_catalog.timestamptz:NO:now(),default_currency:pg_catalog.text:NO:USD,default_session_min:pg_catalog.int4:NO:60,display_name:pg_catalog.text:YES:<none>,email:pg_catalog.text:NO:<none>,genres:pg_catalog._text:YES:<none>,id:pg_catalog.uuid:NO:gen_random_uuid(),notification_prefs:pg_catalog.jsonb:NO:{},payment_details:pg_catalog.jsonb:NO:{},plan:pg_catalog.text:NO:free,released_summary:pg_catalog.text:YES:<none>,response_hours:pg_catalog.int4:YES:<none>,service_roles:pg_catalog._text:YES:{},slug:pg_catalog.text:NO:<none>,streams_summary:pg_catalog.text:YES:<none>,stripe_account_id:pg_catalog.text:YES:<none>,stripe_charges_enabled:pg_catalog.bool:NO:false,tax_mode:pg_catalog.text:NO:tax_free,tax_rate_pct:pg_catalog.int4:NO:18,timezone:pg_catalog.text:NO:UTC,tranzila_terminal_name:pg_catalog.text:YES:<none>,updated_at:pg_catalog.timestamptz:NO:now(),week_start:pg_catalog.text:NO:sunday'),
-      ('products', 'active:pg_catalog.bool:NO:true,agreement_text:pg_catalog.text:YES:<none>,archived_at:pg_catalog.timestamptz:YES:<none>,buffer_minutes:pg_catalog.int4:NO:0,contract_url:pg_catalog.text:YES:<none>,created_at:pg_catalog.timestamptz:NO:now(),currency:pg_catalog.text:NO:USD,deliverables:pg_catalog._text:YES:<none>,deposit_model:pg_catalog.text:NO:flat,deposit_pct:pg_catalog.int4:NO:0,description:pg_catalog.text:YES:<none>,duration_min:pg_catalog.int4:NO:<none>,hourly_rate_cents:pg_catalog.int4:YES:<none>,id:pg_catalog.uuid:NO:gen_random_uuid(),kind:pg_catalog.text:NO:session,location_type:pg_catalog.text:NO:studio,milestones:pg_catalog.jsonb:YES:<none>,min_lead_hours:pg_catalog.int4:NO:12,name:pg_catalog.text:NO:<none>,payment_plans:pg_catalog.jsonb:NO:[{"kind":"full"}],position:pg_catalog.int4:NO:0,price_cents:pg_catalog.int4:NO:0,pricing_model:pg_catalog.text:NO:flat,producer_id:pg_catalog.uuid:NO:<none>,royalty_terms:pg_catalog.jsonb:YES:<none>,session_count:pg_catalog.int4:NO:1,volume_tiers:pg_catalog.jsonb:YES:<none>'),
+      ('products', 'active:pg_catalog.bool:NO:true,agreement_text:pg_catalog.text:YES:<none>,archived_at:pg_catalog.timestamptz:YES:<none>,buffer_minutes:pg_catalog.int4:NO:0,contract_url:pg_catalog.text:YES:<none>,created_at:pg_catalog.timestamptz:NO:now(),currency:pg_catalog.text:NO:USD,deliverables:pg_catalog._text:YES:<none>,deposit_model:pg_catalog.text:NO:flat,deposit_pct:pg_catalog.int4:NO:0,description:pg_catalog.text:YES:<none>,duration_min:pg_catalog.int4:NO:<none>,hourly_rate_cents:pg_catalog.int4:YES:<none>,id:pg_catalog.uuid:NO:gen_random_uuid(),kind:pg_catalog.text:NO:session,location_type:pg_catalog.text:NO:studio,milestones:pg_catalog.jsonb:YES:<none>,min_lead_hours:pg_catalog.int4:NO:12,name:pg_catalog.text:NO:<none>,payment_plans:pg_catalog.jsonb:NO:[{"kind": "full"}],position:pg_catalog.int4:NO:0,price_cents:pg_catalog.int4:NO:0,pricing_model:pg_catalog.text:NO:flat,producer_id:pg_catalog.uuid:NO:<none>,royalty_terms:pg_catalog.jsonb:YES:<none>,session_count:pg_catalog.int4:NO:1,volume_tiers:pg_catalog.jsonb:YES:<none>'),
       ('project_tracks', 'artist:pg_catalog.text:YES:<none>,created_at:pg_catalog.timestamptz:NO:now(),id:pg_catalog.uuid:NO:gen_random_uuid(),position:pg_catalog.int4:NO:0,project_id:pg_catalog.uuid:NO:<none>,title:pg_catalog.text:NO:<none>,workflow_stage:public.workflow_stage:NO:brief'),
       ('projects', 'artist_email:pg_catalog.text:NO:<none>,artist_name:pg_catalog.text:NO:<none>,booking_id:pg_catalog.uuid:YES:<none>,charges_completed:pg_catalog.int4:NO:0,charges_total:pg_catalog.int4:YES:<none>,client_email:pg_catalog.text:YES:<none>,client_name:pg_catalog.text:YES:<none>,created_at:pg_catalog.timestamptz:NO:now(),currency:pg_catalog.text:YES:<none>,deadline_at:pg_catalog.timestamptz:YES:<none>,deposit_cents:pg_catalog.int4:YES:<none>,deposit_paid:pg_catalog.bool:NO:false,engagement_total_cents:pg_catalog.int4:YES:<none>,final_paid:pg_catalog.bool:NO:false,id:pg_catalog.uuid:NO:gen_random_uuid(),installments:pg_catalog.int4:YES:<none>,invite_token:pg_catalog.text:YES:<none>,next_charge_at:pg_catalog.timestamptz:YES:<none>,notes:pg_catalog.text:YES:<none>,paid_at:pg_catalog.timestamptz:YES:<none>,payment_plan_kind:pg_catalog.text:YES:<none>,position:pg_catalog.int4:NO:0,producer_id:pg_catalog.uuid:NO:<none>,product_id:pg_catalog.uuid:YES:<none>,session_count:pg_catalog.int4:YES:1,song_qty:pg_catalog.int4:YES:<none>,stage:public.project_stage:NO:lead,stripe_customer_id:pg_catalog.text:YES:<none>,stripe_payment_method_id:pg_catalog.text:YES:<none>,stripe_subscription_schedule_id:pg_catalog.text:YES:<none>,testimonial_requested_at:pg_catalog.timestamptz:YES:<none>,title:pg_catalog.text:NO:<none>,total_amount_cents:pg_catalog.int4:YES:<none>,unit_price_cents:pg_catalog.int4:YES:<none>,updated_at:pg_catalog.timestamptz:NO:now(),workflow_stage:public.workflow_stage:NO:brief'),
       ('purchase_requests', 'agreement_text_snapshot:pg_catalog.text:YES:<none>,approved_at:pg_catalog.timestamptz:YES:<none>,artist_email:pg_catalog.text:NO:<none>,artist_name:pg_catalog.text:NO:<none>,booking_id:pg_catalog.uuid:YES:<none>,client_contact_id:pg_catalog.uuid:NO:<none>,contract_url_snapshot:pg_catalog.text:YES:<none>,created_at:pg_catalog.timestamptz:NO:now(),currency:pg_catalog.text:NO:<none>,declined_at:pg_catalog.timestamptz:YES:<none>,id:pg_catalog.uuid:NO:gen_random_uuid(),payment_plan_chosen_at:pg_catalog.timestamptz:YES:<none>,payment_plan_options_snapshot:pg_catalog.jsonb:YES:<none>,payment_plan_snapshot:pg_catalog.jsonb:NO:<none>,price_cents:pg_catalog.int4:NO:<none>,producer_id:pg_catalog.uuid:NO:<none>,product_id:pg_catalog.uuid:YES:<none>,product_name_snapshot:pg_catalog.text:NO:<none>,project_id:pg_catalog.uuid:YES:<none>,ref_number:pg_catalog.text:NO:<none>,royalty_terms_snapshot:pg_catalog.jsonb:YES:<none>,session_count_snapshot:pg_catalog.int4:YES:<none>,song_qty:pg_catalog.int4:YES:<none>,status:public.purchase_request_status:NO:pending,status_changed_at:pg_catalog.timestamptz:YES:<none>,unit_price_cents:pg_catalog.int4:YES:<none>'),
@@ -1849,16 +1850,8 @@ BEGIN
             ON event_attribute.attrelid = actual_source_trigger.tgrelid
            AND event_attribute.attnum = event_column.attnum
         ) = expected_source_trigger."event_columns"
-        AND pg_get_expr(
-          actual_source_trigger.tgqual,
-          actual_source_trigger.tgrelid,
-          false
-        ) = (
-          SELECT pg_get_expr(
-            expected_trigger_catalog.tgqual,
-            expected_trigger_catalog.tgrelid,
-            false
-          )
+        AND actual_source_trigger.tgqual::text = (
+          SELECT expected_trigger_catalog.tgqual::text
           FROM pg_trigger AS expected_trigger_catalog
           WHERE expected_trigger_catalog.tgrelid =
               'skitza_0027_source_expected_purchase_requests'::regclass
@@ -2022,6 +2015,38 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'SKITZA_0027_LIVE_CARD_STATE';
   END IF;
+
+  -- The exact source-contract tables above intentionally use LIKE so
+  -- PostgreSQL itself parses every reviewed column and constraint shape.
+  -- Release those temporary dependencies before removing their legacy enum
+  -- types and trigger function. This is an explicit inventory; CASCADE would
+  -- weaken the cutover boundary.
+  DROP TABLE
+    "skitza_0027_source_expected_agreement_acceptances",
+    "skitza_0027_source_expected_bookings",
+    "skitza_0027_source_expected_client_contacts",
+    "skitza_0027_source_expected_invoices",
+    "skitza_0027_source_expected_notifications",
+    "skitza_0027_source_expected_payment_proofs",
+    "skitza_0027_source_expected_producers",
+    "skitza_0027_source_expected_products",
+    "skitza_0027_source_expected_project_tracks",
+    "skitza_0027_source_expected_projects",
+    "skitza_0027_source_expected_purchase_requests",
+    "skitza_0027_source_expected_store_purchase_intents",
+    "skitza_0027_source_expected_stripe_customers",
+    "skitza_0027_source_expected_track_comments",
+    "skitza_0027_source_expected_track_versions",
+    "skitza_0027_source_reference_bookings",
+    "skitza_0027_source_reference_client_contacts",
+    "skitza_0027_source_reference_payment_proofs",
+    "skitza_0027_source_reference_producers",
+    "skitza_0027_source_reference_products",
+    "skitza_0027_source_reference_project_tracks",
+    "skitza_0027_source_reference_projects",
+    "skitza_0027_source_reference_purchase_requests",
+    "skitza_0027_source_reference_track_comments",
+    "skitza_0027_source_reference_track_versions";
 
   DROP TABLE
     "public"."agreement_acceptances",

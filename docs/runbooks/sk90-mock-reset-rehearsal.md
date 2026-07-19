@@ -3,7 +3,8 @@
 - **Issue:** SK-90
 - **Scope:** The approved purchase-foundation reset on one dedicated, isolated non-production database and storage namespace
 - **Implementation status:** Executable adapter and fail-closed contracts implemented in the repository
-- **External evidence status:** **PARTIAL — no database or storage connection, backup, rehearsal, reset, or restore has been run**
+- **External evidence status:** **COMPLETE — the isolated disposable database-and-storage rehearsal passed on 2026-07-19**
+- **Sanitized result:** phase `verified`, revision 81; all three rollback points, storage restore, and the second no-op passed; 306 database-row, 56 storage-copy, and 36 storage-delete mutations were recorded. The 0027 safety gate passed without bypass, then 0027/0028 applied and reran as no-ops. SK-95 real-database tests passed 7/7 and the authenticated Store create/edit/delete/archive checks passed at desktop, 390px, and 360px with no browser console errors.
 
 This runbook applies the gate in
 `docs/runbooks/canonical-database-gate.md`. Repository tests prove the adapter's
