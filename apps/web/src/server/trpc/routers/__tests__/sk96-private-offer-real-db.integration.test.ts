@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  and,
   clientContacts,
   createDb,
   eq,
+  inArray,
   paymentProofs,
   privateOffers,
   producers,
@@ -16,9 +18,13 @@ import {
   sql,
   type Db,
 } from "@skitza/db";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { emailHashFor } from "~/server/artist/identity";
+import {
+  connectVerifiedArtistToProducer,
+  stampUnownedArtistContactsForCreatedUser,
+} from "~/server/contacts/connect-artist";
 import {
   acceptPrivateOffer,
   cancelPrivateOffer,
@@ -33,6 +39,7 @@ import { approvedPurchaseRealDbTarget } from "./purchase-real-db-target-gate";
 
 const approvedTarget = approvedPurchaseRealDbTarget(process.env);
 const describeWithSafeDatabase = approvedTarget ? describe : describe.skip;
+if (approvedTarget) vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 async function safely<T>(operation: () => Promise<T>): Promise<T> {
   try {
@@ -139,6 +146,8 @@ describeWithSafeDatabase("SK-96 private offers — isolated disposable Postgres"
         databaseName: string;
         constraintCount: number;
         triggerCount: number;
+        recipientColumnCount: number;
+        recipientTriggerCount: number;
       }>(sql`
         select
           current_database()::text as "databaseName",
@@ -156,14 +165,27 @@ describeWithSafeDatabase("SK-96 private offers — isolated disposable Postgres"
             select count(*)::int from pg_trigger
             where tgname = 'private_offers_protect_purchase_source'
               and tgenabled = 'O' and not tgisinternal
-          ) as "triggerCount"
+          ) as "triggerCount",
+          (
+            select count(*)::int from information_schema.columns
+            where table_schema = 'public' and table_name = 'private_offers'
+              and column_name in ('recipient_email', 'recipient_email_hash')
+              and is_nullable = 'NO'
+          ) as "recipientColumnCount",
+          (
+            select count(*)::int from pg_trigger
+            where tgname = 'private_offers_recipient_identity_immutable'
+              and tgenabled = 'O' and not tgisinternal
+          ) as "recipientTriggerCount"
       `),
     );
     const markerRow = marker.rows[0];
     if (
       markerRow?.databaseName !== target.databaseName ||
       markerRow.constraintCount !== 4 ||
-      markerRow.triggerCount !== 1
+      markerRow.triggerCount !== 1 ||
+      markerRow.recipientColumnCount !== 2 ||
+      markerRow.recipientTriggerCount !== 1
     ) {
       throw new Error("SK-96 isolated database identity or schema marker mismatch");
     }
@@ -211,6 +233,147 @@ describeWithSafeDatabase("SK-96 private offers — isolated disposable Postgres"
     );
     if (!otherContact) throw new Error("SK-96 other contact fixture was not created");
     otherClientContactId = otherContact.id;
+  });
+
+  it("connects an offer sent to a verified secondary email", async () => {
+    const now = new Date();
+    const clerkUserId = `sk96-secondary-${suffix}`;
+    const primaryEmail = `sk96-primary-${suffix}@example.invalid`;
+    const secondaryEmail = `sk96-secondary-${suffix}@example.invalid`;
+    const secondaryHash = emailHashFor(secondaryEmail);
+    const [contact] = await safely(() =>
+      activeDb()
+        .insert(clientContacts)
+        .values({
+          producerId,
+          email: secondaryEmail,
+          emailHash: secondaryHash,
+          name: "SK-96 Secondary Artist",
+        })
+        .returning({ id: clientContacts.id }),
+    );
+    if (!contact) throw new Error("SK-96 secondary contact was not created");
+    const created = await createPrivateOffer(activeDb(), {
+      producerId,
+      recipient: { kind: "existing", clientContactId: contact.id },
+      target: { kind: "new" },
+      terms: terms({ name: "SK-96 secondary-email offer" }),
+      now,
+    });
+
+    await connectVerifiedArtistToProducer(activeDb(), {
+      producerId,
+      primaryEmail,
+      verifiedEmailHashes: [emailHashFor(primaryEmail), secondaryHash],
+      name: "SK-96 Secondary Artist",
+      clerkUserId,
+      now,
+    });
+
+    await expect(
+      getArtistPrivateOffer(activeDb(), {
+        clerkUserId,
+        verifiedEmailHashes: [emailHashFor(primaryEmail), secondaryHash],
+        offerId: created.offer.id,
+        now,
+      }),
+    ).resolves.toMatchObject({ id: created.offer.id });
+    const matchingContacts = await safely(() =>
+      activeDb()
+        .select({ id: clientContacts.id, clerkUserId: clientContacts.clerkUserId })
+        .from(clientContacts)
+        .where(
+          and(
+            eq(clientContacts.producerId, producerId),
+            inArray(clientContacts.emailHash, [emailHashFor(primaryEmail), secondaryHash]),
+          ),
+        ),
+    );
+    expect(matchingContacts).toEqual([{ id: contact.id, clerkUserId }]);
+  });
+
+  it("keeps a pending offer with its original recipient after a client email edit", async () => {
+    const now = new Date();
+    const invitedEmail = `sk96-frozen-${suffix}@example.invalid`;
+    const editedEmail = `sk96-edited-${suffix}@example.invalid`;
+    const invitedHash = emailHashFor(invitedEmail);
+    const editedHash = emailHashFor(editedEmail);
+    const rightfulClerkUserId = `sk96-frozen-owner-${suffix}`;
+    const wrongClerkUserId = `sk96-edited-owner-${suffix}`;
+    const [contact] = await safely(() =>
+      activeDb()
+        .insert(clientContacts)
+        .values({
+          producerId,
+          email: invitedEmail,
+          emailHash: invitedHash,
+          name: "SK-96 Frozen Recipient",
+        })
+        .returning({ id: clientContacts.id }),
+    );
+    if (!contact) throw new Error("SK-96 frozen-recipient contact was not created");
+    const created = await createPrivateOffer(activeDb(), {
+      producerId,
+      recipient: { kind: "existing", clientContactId: contact.id },
+      target: { kind: "new" },
+      terms: terms({ name: "SK-96 frozen-recipient offer" }),
+      now,
+    });
+
+    await safely(() =>
+      activeDb()
+        .update(clientContacts)
+        .set({ email: editedEmail, emailHash: editedHash })
+        .where(eq(clientContacts.id, contact.id)),
+    );
+    await stampUnownedArtistContactsForCreatedUser(activeDb(), {
+      email: editedEmail,
+      clerkUserId: wrongClerkUserId,
+      now,
+    });
+    const [afterWebhook] = await safely(() =>
+      activeDb()
+        .select({ clerkUserId: clientContacts.clerkUserId })
+        .from(clientContacts)
+        .where(eq(clientContacts.id, contact.id))
+        .limit(1),
+    );
+    expect(afterWebhook?.clerkUserId).toBeNull();
+    await expect(
+      connectVerifiedArtistToProducer(activeDb(), {
+        producerId,
+        primaryEmail: editedEmail,
+        verifiedEmailHashes: [editedHash],
+        name: "Wrong recipient",
+        clerkUserId: wrongClerkUserId,
+        now,
+      }),
+    ).rejects.toMatchObject({ code: "OWNER_CONFLICT" });
+
+    await connectVerifiedArtistToProducer(activeDb(), {
+      producerId,
+      primaryEmail: invitedEmail,
+      verifiedEmailHashes: [invitedHash],
+      name: "SK-96 Frozen Recipient",
+      clerkUserId: rightfulClerkUserId,
+      now,
+    });
+    await expect(
+      getArtistPrivateOffer(activeDb(), {
+        clerkUserId: rightfulClerkUserId,
+        verifiedEmailHashes: [invitedHash],
+        offerId: created.offer.id,
+        now,
+      }),
+    ).resolves.toMatchObject({ id: created.offer.id });
+    await expect(
+      safely(() =>
+        activeDb()
+          .update(privateOffers)
+          .set({ recipientEmail: editedEmail, recipientEmailHash: editedHash })
+          .where(eq(privateOffers.id, created.offer.id)),
+      ),
+    ).rejects.toThrow("SK-96 isolated database operation failed");
   });
 
   it("authorizes only the stable invited account and expires at the exact UTC boundary", async () => {

@@ -7,6 +7,18 @@ const persistenceSource = readFileSync(
   join(__dirname, "../../../domain/private-offers/db.ts"),
   "utf8",
 );
+const connectionSource = readFileSync(
+  join(__dirname, "../../../contacts/connect-artist.ts"),
+  "utf8",
+);
+const joinRouteSource = readFileSync(
+  join(__dirname, "../../../../app/(public)/(auth)/sign-up/join/[slug]/[[...rest]]/page.tsx"),
+  "utf8",
+);
+const welcomeRouteSource = readFileSync(
+  join(__dirname, "../../../../app/(artist-welcome)/artist-welcome/[slug]/page.tsx"),
+  "utf8",
+);
 
 function compact(source: string): string {
   return source.replace(/\s+/g, " ").trim();
@@ -64,7 +76,7 @@ describe("private-offer router security wiring", () => {
       eq(clientContacts.id, privateOffers.clientContactId),
       eq(clientContacts.producerId, privateOffers.producerId),
       eq(clientContacts.clerkUserId, input.clerkUserId),
-      inArray(clientContacts.emailHash, input.verifiedEmailHashes),
+      inArray(privateOffers.recipientEmailHash, input.verifiedEmailHashes),
       isNull(clientContacts.archivedAt)
     `);
     const occurrences = compact(persistenceSource).split(stableArtistJoin).length - 1;
@@ -73,6 +85,19 @@ describe("private-offer router security wiring", () => {
     // offer/contact id, tenant, stable Clerk owner, verified invited email,
     // and artist archive state.
     expect(occurrences).toBe(3);
+  });
+
+  it("freezes the invited email and connects verified secondary-email recipients", () => {
+    expect(compact(persistenceSource)).toContain(
+      "recipientEmail: recipient.email, recipientEmailHash: emailHashFor(recipient.email)",
+    );
+    expect(compact(connectionSource)).toContain(
+      "inArray(privateOffers.recipientEmailHash, verifiedEmailHashes)",
+    );
+    for (const source of [joinRouteSource, welcomeRouteSource]) {
+      expect(source).toContain("verifiedEmailHashesFromUser");
+      expect(source).toContain("verifiedEmailHashes,");
+    }
   });
 
   it("keeps list pages available without a verified email while actions fail closed", () => {

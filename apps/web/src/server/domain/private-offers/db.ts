@@ -211,6 +211,8 @@ export async function createPrivateOffer(
       .values({
         producerId: input.producerId,
         clientContactId: recipient.id,
+        recipientEmail: recipient.email,
+        recipientEmailHash: emailHashFor(recipient.email),
         targetProjectId,
         status: "sent",
         commercialDraft: snapshot,
@@ -253,7 +255,7 @@ export async function listProducerPrivateOffers(db: Db, input: { producerId: str
       updatedAt: privateOffers.updatedAt,
       clientContactId: privateOffers.clientContactId,
       recipientName: clientContacts.name,
-      recipientEmail: clientContacts.email,
+      recipientEmail: privateOffers.recipientEmail,
       targetProjectId: privateOffers.targetProjectId,
       targetProjectTitle: projects.title,
       purchaseId: purchases.id,
@@ -515,7 +517,7 @@ export async function listArtistPrivateOffers(
         eq(clientContacts.id, privateOffers.clientContactId),
         eq(clientContacts.producerId, privateOffers.producerId),
         eq(clientContacts.clerkUserId, input.clerkUserId),
-        inArray(clientContacts.emailHash, input.verifiedEmailHashes),
+        inArray(privateOffers.recipientEmailHash, input.verifiedEmailHashes),
         isNull(clientContacts.archivedAt),
       ),
     )
@@ -553,7 +555,7 @@ export async function getArtistPrivateOffer(
         eq(clientContacts.id, privateOffers.clientContactId),
         eq(clientContacts.producerId, privateOffers.producerId),
         eq(clientContacts.clerkUserId, input.clerkUserId),
-        inArray(clientContacts.emailHash, input.verifiedEmailHashes),
+        inArray(privateOffers.recipientEmailHash, input.verifiedEmailHashes),
         isNull(clientContacts.archivedAt),
       ),
     )
@@ -587,7 +589,7 @@ async function lockArtistOffer(
     .select({
       offer: privateOffers,
       recipientName: clientContacts.name,
-      recipientEmail: clientContacts.email,
+      recipientEmail: privateOffers.recipientEmail,
     })
     .from(privateOffers)
     .innerJoin(
@@ -596,7 +598,7 @@ async function lockArtistOffer(
         eq(clientContacts.id, privateOffers.clientContactId),
         eq(clientContacts.producerId, privateOffers.producerId),
         eq(clientContacts.clerkUserId, input.clerkUserId),
-        inArray(clientContacts.emailHash, input.verifiedEmailHashes),
+        inArray(privateOffers.recipientEmailHash, input.verifiedEmailHashes),
         isNull(clientContacts.archivedAt),
       ),
     )

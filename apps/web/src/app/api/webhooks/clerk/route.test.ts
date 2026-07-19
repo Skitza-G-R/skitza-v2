@@ -35,6 +35,15 @@ const clientContactsMarker = {
   clerkUserId: { _name: "clerk_user_id" },
   producerId: { _name: "producer_id" },
 };
+const privateOffersMarker = {
+  __table: "private_offers",
+  id: { _name: "id" },
+  clientContactId: { _name: "client_contact_id" },
+  producerId: { _name: "producer_id" },
+  recipientEmailHash: { _name: "recipient_email_hash" },
+  status: { _name: "status" },
+  expiresAt: { _name: "expires_at" },
+};
 
 // Capture-mock for the client_contacts UPDATE chain. The route does:
 //   db.update(clientContacts).set({...}).where(and(...))
@@ -92,11 +101,13 @@ let verifyShouldThrow = false;
 const andCalls: unknown[][] = [];
 const eqCalls: { col: unknown; value: unknown }[] = [];
 const isNullCalls: unknown[] = [];
+const notExistsCalls: unknown[] = [];
 
 vi.mock("@skitza/db", () => ({
   createDb: () => dbMock,
   producers: producersMarker,
   clientContacts: clientContactsMarker,
+  privateOffers: privateOffersMarker,
   eq: (col: unknown, value: unknown) => {
     eqCalls.push({ col, value });
     return { _kind: "eq", col, value };
@@ -108,6 +119,12 @@ vi.mock("@skitza/db", () => ({
   isNull: (col: unknown) => {
     isNullCalls.push(col);
     return { _kind: "isNull", col };
+  },
+  gt: (col: unknown, value: unknown) => ({ _kind: "gt", col, value }),
+  ne: (col: unknown, value: unknown) => ({ _kind: "ne", col, value }),
+  notExists: (query: unknown) => {
+    notExistsCalls.push(query);
+    return { _kind: "notExists", query };
   },
 }));
 vi.mock("svix", () => ({
@@ -134,6 +151,7 @@ beforeEach(() => {
   andCalls.length = 0;
   eqCalls.length = 0;
   isNullCalls.length = 0;
+  notExistsCalls.length = 0;
   insertsByTable.length = 0;
   producerLookupMock.mockReset();
   // Default: slug lookup returns empty (join-origin tests override
@@ -219,6 +237,10 @@ describe("user.created — artist stamping", () => {
     expect(eqCall, "expected eq(emailHash, sha256(lower(email))) to be composed").toBeDefined();
     // isNull(clerkUserId) must be part of the predicate (idempotency).
     expect(isNullCalls.length, "expected isNull(clerkUserId) in WHERE clause").toBeGreaterThan(0);
+    expect(
+      notExistsCalls.length,
+      "expected active offers for another frozen recipient to block ownership stamping",
+    ).toBeGreaterThan(0);
   });
 
   it("leaves rows that already have a clerk_user_id alone (idempotent on re-fire)", async () => {
@@ -237,9 +259,16 @@ describe("user.created — artist stamping", () => {
     // Critical idempotency invariant: WHERE includes isNull(clerkUserId)
     expect(isNullCalls.length, "isNull(clerkUserId) MUST appear in WHERE so already-stamped rows are skipped").toBeGreaterThan(0);
     // The composed `and(...)` must wrap both predicates so the SQL is
-    // emailHash = X AND clerkUserId IS NULL (not just one of them).
+    // emailHash = X AND clerkUserId IS NULL plus the frozen-offer guard.
     expect(andCalls.length).toBeGreaterThan(0);
-    expect(andCalls[0]?.length).toBe(2);
+    expect(
+      andCalls.some(
+        (args) =>
+          args.length === 3 &&
+          args.some((arg) => (arg as { _kind?: string })._kind === "isNull") &&
+          args.some((arg) => (arg as { _kind?: string })._kind === "notExists"),
+      ),
+    ).toBe(true);
   });
 
   it("creates the producers row AND stamps any client_contacts rows in one webhook (producer-also-client edge case)", async () => {

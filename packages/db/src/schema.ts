@@ -1194,6 +1194,8 @@ export const privateOffers = pgTable(
       .notNull()
       .references(() => producers.id, { onDelete: "restrict" }),
     clientContactId: uuid("client_contact_id").notNull(),
+    recipientEmail: text("recipient_email").notNull(),
+    recipientEmailHash: text("recipient_email_hash").notNull(),
     targetProjectId: uuid("target_project_id"),
     productId: uuid("product_id"),
     status: privateOfferStatus("status").notNull().default("draft"),
@@ -1234,6 +1236,15 @@ export const privateOffers = pgTable(
       t.producerId,
       t.status,
       t.expiresAt,
+    ),
+    recipientStatusExpiryIdx: index("private_offers_recipient_status_expiry_idx").on(
+      t.recipientEmailHash,
+      t.status,
+      t.expiresAt,
+    ),
+    recipientEmailHashShape: check(
+      "private_offers_recipient_email_hash_shape",
+      sql`${t.recipientEmailHash} ~ '^[0-9a-f]{64}$'`,
     ),
   }),
 );
