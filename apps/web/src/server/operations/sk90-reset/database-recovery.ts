@@ -14,7 +14,11 @@ import {
   type ProtectedToken,
   type Sha256Digest,
 } from "./canonical";
-import type { DatabaseVerificationReceipt } from "./database-adapter";
+import type {
+  DatabaseRestorePreparedRecord,
+  DatabaseVerificationReceipt,
+  PrepareRestoreTargetInput,
+} from "./database-adapter";
 import { Sk90ResetSafetyError, stop } from "./errors";
 import {
   bindExecutableResetApproval,
@@ -43,6 +47,7 @@ const PREPARATION_CONSUMPTION_CONTRACT =
 const PREPARATION_COMPLETION_CONTRACT =
   "sk90-database-backup-preparation-completion-v1" as const;
 const RESTORE_INTENT_CONTRACT = "sk90-database-restore-intent-v2" as const;
+const RESTORE_PREPARED_CONTRACT = "sk90-database-restore-prepared-v1" as const;
 const RESTORE_RECEIPT_CONTRACT = "sk90-database-restore-receipt-v2" as const;
 
 export type RecoveryProcessInput = Readonly<{
@@ -178,6 +183,14 @@ export type DatabaseRestoreExercise = Readonly<{
   durableNonceConsumptionDigest: Sha256Digest;
 }>;
 
+export type DatabaseRestoreSelector = Readonly<{
+  approvalDigest: Sha256Digest;
+  expectedRestorePointFingerprint: Sha256Digest;
+  expectedBaselineObservationDigest: Sha256Digest;
+  rollbackPoint: DatabaseRestoreRollbackPoint;
+  durableAction: DatabaseRestoreExercise["durableAction"];
+}>;
+
 type DatabaseRestoreIntentBody = Readonly<{
   contract: typeof RESTORE_INTENT_CONTRACT;
   artifactDigest: Sha256Digest;
@@ -198,6 +211,27 @@ type DatabaseRestoreIntentBody = Readonly<{
 
 type DatabaseRestoreIntent = DatabaseRestoreIntentBody &
   Readonly<{ bindingToken: ProtectedToken; intentDigest: Sha256Digest }>;
+
+type DatabaseRestorePreparedBody = Readonly<{
+  contract: typeof RESTORE_PREPARED_CONTRACT;
+  artifactDigest: Sha256Digest;
+  manifestDigest: Sha256Digest;
+  policyDigest: Sha256Digest;
+  targetDatabaseFingerprint: Sha256Digest;
+  targetObservationDigest: Sha256Digest;
+  executionApprovalDigest: Sha256Digest;
+  backupFingerprint: Sha256Digest;
+  backupReceiptDigest: Sha256Digest;
+  restoreIntentDigest: Sha256Digest;
+  expectedRestorePointFingerprint: Sha256Digest;
+  expectedBaselineObservationDigest: Sha256Digest;
+  rollbackPoint: DatabaseRestoreRollbackPoint;
+  durableAction: DatabaseRestoreExercise["durableAction"];
+  durableNonceConsumptionDigest: Sha256Digest;
+}>;
+
+type DatabaseRestorePreparedMarker = DatabaseRestorePreparedBody &
+  Readonly<{ bindingToken: ProtectedToken; markerDigest: Sha256Digest }>;
 
 type DatabaseRestoreReceiptBody = Readonly<{
   contract: typeof RESTORE_RECEIPT_CONTRACT;
@@ -243,16 +277,12 @@ export interface DatabaseRecoveryPort {
       expectedBaselineObservationDigest: Sha256Digest;
       exercise: DatabaseRestoreExercise;
       forceReplay: boolean;
+      resumePrepared: boolean;
     }>,
   ): Promise<DatabaseRestoreReceipt>;
+  requirePreparedRestore(input: DatabaseRestoreSelector): Promise<void>;
   requireExecutedRestore(
-    input: Readonly<{
-      approvalDigest: Sha256Digest;
-      expectedRestorePointFingerprint: Sha256Digest;
-      expectedBaselineObservationDigest: Sha256Digest;
-      rollbackPoint: DatabaseRestoreRollbackPoint;
-      durableAction: DatabaseRestoreExercise["durableAction"];
-    }>,
+    input: DatabaseRestoreSelector,
   ): Promise<DatabaseRestoreReceipt>;
 }
 
@@ -439,12 +469,45 @@ function postgresChildEnvironment(databaseUrl: string): Readonly<Record<string, 
   if (
     (parsed.protocol !== "postgres:" && parsed.protocol !== "postgresql:") ||
     parsed.hostname.length === 0 ||
+    parsed.username.length === 0 ||
+    parsed.password.length === 0 ||
     parsed.pathname === "/" ||
-    parsed.hash.length > 0
+    parsed.hash.length > 0 ||
+    [...parsed.searchParams.keys()].some((name) => name !== "sslmode") ||
+    parsed.searchParams.getAll("sslmode").length > 1
   ) {
     stop("REHEARSAL_ENV_INVALID");
   }
-  return Object.freeze({ PGDATABASE: databaseUrl, LC_ALL: "C", LANG: "C" });
+  try {
+    const database = decodeURIComponent(parsed.pathname.slice(1));
+    const username = decodeURIComponent(parsed.username);
+    const password = decodeURIComponent(parsed.password);
+    const sslMode = parsed.searchParams.get("sslmode");
+    if (
+      database.length === 0 ||
+      database.includes("/") ||
+      [database, username, password, parsed.hostname, parsed.port, sslMode ?? ""].some((value) =>
+        /[\0\r\n]/.test(value),
+      ) ||
+      (sslMode !== null &&
+        !["disable", "allow", "prefer", "require", "verify-ca", "verify-full"].includes(sslMode))
+    ) {
+      stop("REHEARSAL_ENV_INVALID");
+    }
+    return Object.freeze({
+      PGHOST: parsed.hostname,
+      ...(parsed.port.length > 0 ? { PGPORT: parsed.port } : {}),
+      PGDATABASE: database,
+      PGUSER: username,
+      PGPASSWORD: password,
+      ...(sslMode === null ? {} : { PGSSLMODE: sslMode }),
+      LC_ALL: "C",
+      LANG: "C",
+    });
+  } catch (error) {
+    if (error instanceof Sk90ResetSafetyError) throw error;
+    stop("REHEARSAL_ENV_INVALID");
+  }
 }
 
 const ARCHIVE_CHILD_ENVIRONMENT = Object.freeze({ LC_ALL: "C", LANG: "C" });
@@ -511,6 +574,18 @@ function bindRestoreIntent(body: DatabaseRestoreIntentBody, hmacKey: string): Da
   };
 }
 
+function bindRestorePreparedMarker(
+  body: DatabaseRestorePreparedBody,
+  hmacKey: string,
+): DatabaseRestorePreparedMarker {
+  const canonical = canonicalJson(body);
+  return {
+    ...body,
+    bindingToken: protectValue(hmacKey, `sk90-database-restore-prepared\0${canonical}`),
+    markerDigest: sha256Digest(canonical),
+  };
+}
+
 function bindRestoreReceipt(
   body: DatabaseRestoreReceiptBody,
   hmacKey: string,
@@ -548,7 +623,15 @@ export function createNodeRecoveryProcessPort(): RecoveryProcessPort {
         input.timeoutMs <= 0 ||
         input.arguments.some((argument) => /postgres(?:ql)?:\/\//i.test(argument)) ||
         Object.keys(input.environment).some(
-          (name) => name !== "PGDATABASE" && name !== "LC_ALL" && name !== "LANG",
+          (name) =>
+            name !== "PGHOST" &&
+            name !== "PGPORT" &&
+            name !== "PGDATABASE" &&
+            name !== "PGUSER" &&
+            name !== "PGPASSWORD" &&
+            name !== "PGSSLMODE" &&
+            name !== "LC_ALL" &&
+            name !== "LANG",
         )
       ) {
         return Promise.reject(new Error("invalid recovery process boundary"));
@@ -587,6 +670,8 @@ export function createDatabaseRecovery(input: Readonly<{
   pgRestoreBinary: string;
   hmacKey: string;
   now(): Date;
+  prepareRestoreTarget(input: PrepareRestoreTargetInput): Promise<void>;
+  readRestorePreparedRecord(): Promise<DatabaseRestorePreparedRecord | null>;
   verifyRestoredBaseline(): Promise<DatabaseVerificationReceipt>;
   withVerifiedBaselineSnapshot?(
     useSnapshot: (snapshotId: string) => Promise<void>,
@@ -1521,6 +1606,140 @@ export function createDatabaseRecovery(input: Readonly<{
     return rebound;
   }
 
+  function restorePreparedBody(
+    backup: DatabaseBackupHandle,
+    intent: DatabaseRestoreIntent,
+  ): DatabaseRestorePreparedBody {
+    return {
+      contract: RESTORE_PREPARED_CONTRACT,
+      artifactDigest: input.artifactDigest,
+      manifestDigest: input.manifestDigest,
+      policyDigest: input.policyDigest,
+      targetDatabaseFingerprint: input.targetDatabaseFingerprint,
+      targetObservationDigest: input.targetObservationDigest,
+      executionApprovalDigest: intent.executionApprovalDigest,
+      backupFingerprint: backup.receipt.backupFingerprint,
+      backupReceiptDigest: backup.receipt.receiptDigest,
+      restoreIntentDigest: intent.intentDigest,
+      expectedRestorePointFingerprint: intent.expectedRestorePointFingerprint,
+      expectedBaselineObservationDigest: intent.expectedBaselineObservationDigest,
+      rollbackPoint: intent.rollbackPoint,
+      durableAction: intent.durableAction,
+      durableNonceConsumptionDigest: intent.durableNonceConsumptionDigest,
+    };
+  }
+
+  function assertRestorePreparedMarker(
+    value: unknown,
+    expected?: DatabaseRestorePreparedBody,
+  ): DatabaseRestorePreparedMarker {
+    const candidate = requireRecord(value) as Partial<DatabaseRestorePreparedMarker>;
+    if (
+      candidate.contract !== RESTORE_PREPARED_CONTRACT ||
+      typeof candidate.artifactDigest !== "string" ||
+      typeof candidate.manifestDigest !== "string" ||
+      typeof candidate.policyDigest !== "string" ||
+      typeof candidate.targetDatabaseFingerprint !== "string" ||
+      typeof candidate.targetObservationDigest !== "string" ||
+      typeof candidate.executionApprovalDigest !== "string" ||
+      typeof candidate.backupFingerprint !== "string" ||
+      typeof candidate.backupReceiptDigest !== "string" ||
+      typeof candidate.restoreIntentDigest !== "string" ||
+      typeof candidate.expectedRestorePointFingerprint !== "string" ||
+      typeof candidate.expectedBaselineObservationDigest !== "string" ||
+      typeof candidate.rollbackPoint !== "string" ||
+      typeof candidate.durableAction !== "string" ||
+      typeof candidate.durableNonceConsumptionDigest !== "string" ||
+      typeof candidate.bindingToken !== "string" ||
+      typeof candidate.markerDigest !== "string"
+    ) {
+      stop("RESTORE_PROOF_MISMATCH");
+    }
+    const body: DatabaseRestorePreparedBody = {
+      contract: RESTORE_PREPARED_CONTRACT,
+      artifactDigest: candidate.artifactDigest,
+      manifestDigest: candidate.manifestDigest,
+      policyDigest: candidate.policyDigest,
+      targetDatabaseFingerprint: candidate.targetDatabaseFingerprint,
+      targetObservationDigest: candidate.targetObservationDigest,
+      executionApprovalDigest: candidate.executionApprovalDigest,
+      backupFingerprint: candidate.backupFingerprint,
+      backupReceiptDigest: candidate.backupReceiptDigest,
+      restoreIntentDigest: candidate.restoreIntentDigest,
+      expectedRestorePointFingerprint: candidate.expectedRestorePointFingerprint,
+      expectedBaselineObservationDigest: candidate.expectedBaselineObservationDigest,
+      rollbackPoint: candidate.rollbackPoint,
+      durableAction: candidate.durableAction,
+      durableNonceConsumptionDigest: candidate.durableNonceConsumptionDigest,
+    };
+    for (const digest of [
+      body.artifactDigest,
+      body.manifestDigest,
+      body.policyDigest,
+      body.targetDatabaseFingerprint,
+      body.targetObservationDigest,
+      body.executionApprovalDigest,
+      body.backupFingerprint,
+      body.backupReceiptDigest,
+      body.restoreIntentDigest,
+      body.expectedRestorePointFingerprint,
+      body.expectedBaselineObservationDigest,
+      body.durableNonceConsumptionDigest,
+      candidate.markerDigest,
+    ]) {
+      assertSha256Digest(digest);
+    }
+    assertRestoreExercise({
+      rollbackPoint: body.rollbackPoint,
+      durableAction: body.durableAction,
+      durableNonceConsumptionDigest: body.durableNonceConsumptionDigest,
+    });
+    assertProtectedToken(candidate.bindingToken);
+    const rebound = bindRestorePreparedMarker(body, input.hmacKey);
+    if (
+      !sameDigest(candidate.bindingToken, rebound.bindingToken) ||
+      !sameDigest(candidate.markerDigest, rebound.markerDigest) ||
+      (expected !== undefined && canonicalJson(body) !== canonicalJson(expected))
+    ) {
+      stop("RESTORE_PROOF_MISMATCH");
+    }
+    return rebound;
+  }
+
+  function preparedRecord(marker: DatabaseRestorePreparedMarker): DatabaseRestorePreparedRecord {
+    const markerJson = canonicalJson(marker);
+    return { markerJson, markerFingerprint: sha256Digest(markerJson) };
+  }
+
+  function assertPreparedRecord(
+    record: DatabaseRestorePreparedRecord,
+    expected?: DatabaseRestorePreparedBody,
+  ): Readonly<{
+    marker: DatabaseRestorePreparedMarker;
+    record: DatabaseRestorePreparedRecord;
+  }> {
+    if (
+      typeof record.markerJson !== "string" ||
+      record.markerJson.length === 0 ||
+      typeof record.markerFingerprint !== "string"
+    ) {
+      stop("RESTORE_PROOF_MISMATCH");
+    }
+    assertSha256Digest(record.markerFingerprint);
+    if (!sameDigest(sha256Digest(record.markerJson), record.markerFingerprint)) {
+      stop("RESTORE_PROOF_MISMATCH");
+    }
+    let value: unknown;
+    try {
+      value = JSON.parse(record.markerJson) as unknown;
+    } catch {
+      stop("RESTORE_PROOF_MISMATCH");
+    }
+    const marker = assertRestorePreparedMarker(value, expected);
+    if (record.markerJson !== canonicalJson(marker)) stop("RESTORE_PROOF_MISMATCH");
+    return { marker, record };
+  }
+
   function assertExactBaselineVerification(
     receipt: DatabaseVerificationReceipt,
   ): DatabaseVerificationReceipt {
@@ -1673,6 +1892,72 @@ export function createDatabaseRecovery(input: Readonly<{
       stop("RESTORE_PROOF_MISMATCH");
     }
     return rebound;
+  }
+
+  async function exactPreparedRestore(
+    selector: DatabaseRestoreSelector,
+  ): Promise<DatabaseRestorePreparedRecord> {
+    assertSha256Digest(selector.approvalDigest);
+    assertSha256Digest(selector.expectedRestorePointFingerprint);
+    assertSha256Digest(selector.expectedBaselineObservationDigest);
+    assertRestoreSelector(selector);
+    if (
+      !sameDigest(selector.expectedBaselineObservationDigest, input.baselineDatabaseFingerprint)
+    ) {
+      stop("RESTORE_PROOF_MISMATCH");
+    }
+    const place = await locations();
+    const tools = await currentTools();
+    const backup = await existingApprovedBackup(place, tools, selector.approvalDigest);
+    if (
+      backup === null ||
+      !sameDigest(backup.receipt.backupFingerprint, selector.expectedRestorePointFingerprint)
+    ) {
+      stop("RESTORE_POINT_NOT_READY");
+    }
+    let stored: DatabaseRestorePreparedRecord | null;
+    try {
+      stored = await input.readRestorePreparedRecord();
+    } catch (error) {
+      if (error instanceof Sk90ResetSafetyError) throw error;
+      stop("RESTORE_REQUIRED");
+    }
+    if (stored === null) stop("RESTORE_REQUIRED");
+    const preliminary = assertPreparedRecord(stored);
+    const marker = preliminary.marker;
+    if (
+      !sameDigest(marker.executionApprovalDigest, selector.approvalDigest) ||
+      !sameDigest(marker.backupFingerprint, selector.expectedRestorePointFingerprint) ||
+      !sameDigest(
+        marker.expectedRestorePointFingerprint,
+        selector.expectedRestorePointFingerprint,
+      ) ||
+      !sameDigest(
+        marker.expectedBaselineObservationDigest,
+        selector.expectedBaselineObservationDigest,
+      ) ||
+      marker.rollbackPoint !== selector.rollbackPoint ||
+      marker.durableAction !== selector.durableAction
+    ) {
+      stop("RESTORE_PROOF_MISMATCH");
+    }
+    const generation = restoreGenerationPaths(
+      place,
+      {
+        rollbackPoint: marker.rollbackPoint,
+        durableAction: marker.durableAction,
+        durableNonceConsumptionDigest: marker.durableNonceConsumptionDigest,
+      },
+      selector.approvalDigest,
+    );
+    if (!(await pathExists(generation.intent))) stop("RESTORE_PROOF_MISMATCH");
+    const intent = assertRestoreIntent(
+      requireRecord(await readPrivateJson(generation.intent)),
+    );
+    if (!sameDigest(intent.intentDigest, marker.restoreIntentDigest)) {
+      stop("RESTORE_PROOF_MISMATCH");
+    }
+    return assertPreparedRecord(stored, restorePreparedBody(backup, intent)).record;
   }
 
   return {
@@ -1887,6 +2172,10 @@ export function createDatabaseRecovery(input: Readonly<{
       return backup;
     },
 
+    async requirePreparedRestore(selector) {
+      await exactPreparedRestore(selector);
+    },
+
     async requireExecutedRestore(selector) {
       assertSha256Digest(selector.approvalDigest);
       assertSha256Digest(selector.expectedRestorePointFingerprint);
@@ -1967,7 +2256,12 @@ export function createDatabaseRecovery(input: Readonly<{
       assertSha256Digest(authorization.expectedRestorePointFingerprint);
       assertSha256Digest(authorization.expectedBaselineObservationDigest);
       assertRestoreExercise(authorization.exercise);
-      if (typeof authorization.forceReplay !== "boolean") stop("RESTORE_PROOF_MISMATCH");
+      if (
+        typeof authorization.forceReplay !== "boolean" ||
+        typeof authorization.resumePrepared !== "boolean"
+      ) {
+        stop("RESTORE_PROOF_MISMATCH");
+      }
       assertAuthorization(
         {
           freshAuthorization: authorization.freshAuthorization,
@@ -1988,6 +2282,23 @@ export function createDatabaseRecovery(input: Readonly<{
       ) {
         stop("RESTORE_PROOF_MISMATCH");
       }
+
+      const assertRestoreFresh = (): void => {
+        const boundaryTime = input.now();
+        if (!Number.isFinite(boundaryTime.getTime())) stop("FRESHNESS_PROOF_INVALID");
+        assertAuthorization(
+          {
+            freshAuthorization: authorization.freshAuthorization,
+            actionChallengeToken: authorization.actionChallengeToken,
+            currentTime: boundaryTime.toISOString(),
+          },
+          {
+            action: "restore",
+            artifactDigest: input.artifactDigest,
+            targetObservationDigest: input.targetObservationDigest,
+          },
+        );
+      };
 
       const place = await locations();
       const tools = await currentTools();
@@ -2066,27 +2377,52 @@ export function createDatabaseRecovery(input: Readonly<{
       let verification: DatabaseVerificationReceipt;
       let disposition: DatabaseRestoreReceiptBody["restoreDisposition"];
       if (crashWindowVerification && !authorization.forceReplay) {
+        if ((await input.readRestorePreparedRecord()) !== null) {
+          stop("RESTORE_PROOF_MISMATCH");
+        }
         verification = crashWindowVerification;
         disposition = "verified_without_replay";
       } else {
-        const boundaryTime = input.now();
-        if (!Number.isFinite(boundaryTime.getTime())) stop("FRESHNESS_PROOF_INVALID");
-        assertAuthorization(
-          {
-            freshAuthorization: authorization.freshAuthorization,
-            actionChallengeToken: authorization.actionChallengeToken,
-            currentTime: boundaryTime.toISOString(),
-          },
-          {
-            action: "restore",
-            artifactDigest: input.artifactDigest,
-            targetObservationDigest: input.targetObservationDigest,
-          },
+        const selector: DatabaseRestoreSelector = {
+          approvalDigest: authorization.approvalDigest,
+          expectedRestorePointFingerprint: authorization.expectedRestorePointFingerprint,
+          expectedBaselineObservationDigest: authorization.expectedBaselineObservationDigest,
+          rollbackPoint: authorization.exercise.rollbackPoint,
+          durableAction: authorization.exercise.durableAction,
+        };
+        const existingPrepared = authorization.resumePrepared
+          ? await exactPreparedRestore(selector)
+          : await input.readRestorePreparedRecord();
+        if (!authorization.resumePrepared && existingPrepared !== null) {
+          stop("RESTORE_PROOF_MISMATCH");
+        }
+        assertRestoreFresh();
+        const nextPrepared = preparedRecord(
+          bindRestorePreparedMarker(restorePreparedBody(backup, intent), input.hmacKey),
         );
+        try {
+          await input.prepareRestoreTarget({
+            marker: nextPrepared,
+            expectedExistingMarkerFingerprint:
+              existingPrepared?.markerFingerprint ?? null,
+            expectedSourceState:
+              authorization.exercise.rollbackPoint === "before_database_commit"
+                ? "baseline"
+                : "post_reset",
+            assertFresh: assertRestoreFresh,
+          });
+        } catch (error) {
+          if (error instanceof Sk90ResetSafetyError) throw error;
+          stop("RESTORE_REQUIRED");
+        }
+        assertRestoreFresh();
+        const targetDatabaseName = childEnvironment.PGDATABASE;
+        if (!targetDatabaseName) stop("REHEARSAL_ENV_INVALID");
         try {
           await processPort.run({
             binary: tools.restore.path,
             arguments: [
+              `--dbname=${targetDatabaseName}`,
               "--clean",
               "--if-exists",
               "--exit-on-error",
@@ -2102,6 +2438,9 @@ export function createDatabaseRecovery(input: Readonly<{
           stop("RESTORE_REQUIRED");
         }
         verification = await exactRestoredVerification();
+        if ((await input.readRestorePreparedRecord()) !== null) {
+          stop("RESTORE_PROOF_MISMATCH");
+        }
         disposition = "executed";
       }
 

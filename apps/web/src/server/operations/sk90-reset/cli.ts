@@ -497,6 +497,8 @@ export async function prepareExecutableSk90DatabaseBackup(
       pgRestoreBinary: environment.pgRestoreBinary,
       hmacKey: environment.manifestHmacKey,
       now: runtime.now,
+      prepareRestoreTarget: () => Promise.reject(new Error("restore unavailable during backup preparation")),
+      readRestorePreparedRecord: () => database.readRestorePreparedRecordForArchive(),
       verifyRestoredBaseline: () => database.verifyRestoredBaseline(baselineInput),
       withVerifiedBaselineSnapshot: (useSnapshot) =>
         database.withVerifiedBaselineSnapshot({ ...baselineInput, useSnapshot }),
@@ -564,7 +566,11 @@ export async function createExecutableSk90Runner(
           databasePool,
           storageClient: activeStorageClient,
         }),
-      createDatabaseRecovery: ({ verifyRestoredBaseline }) =>
+      createDatabaseRecovery: ({
+        prepareRestoreTarget,
+        readRestorePreparedRecord,
+        verifyRestoredBaseline,
+      }) =>
         createDatabaseRecovery({
           artifactDigest: bundle.artifact.digest,
           manifestDigest: bundle.manifest.digest,
@@ -581,6 +587,8 @@ export async function createExecutableSk90Runner(
           pgRestoreBinary: environment.pgRestoreBinary,
           hmacKey: environment.manifestHmacKey,
           now: runtime.now,
+          prepareRestoreTarget,
+          readRestorePreparedRecord,
           verifyRestoredBaseline,
         }),
       now: runtime.now,

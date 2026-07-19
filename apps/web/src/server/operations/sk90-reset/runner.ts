@@ -40,11 +40,13 @@ import {
 import {
   SK90_RESET_SOURCE_TABLES,
   Sk90DatabaseRehearsalAdapter,
+  type DatabaseRestorePreparedRecord,
   type DatabaseResetReceipt,
   type DatabaseVerificationReceipt,
   type NeonPoolClientLike,
   type NeonPoolLike,
   type ProviderResetEvidence,
+  type PrepareRestoreTargetInput,
   type ResetRowIdentity,
   type Sk90CutoverApprovalBinding,
 } from "./database-adapter";
@@ -239,6 +241,8 @@ export type AdapterBackedRehearsalInput = Readonly<{
   createStorageClient(): Sk90S3Client;
   createDatabaseRecovery(
     input: Readonly<{
+      prepareRestoreTarget(input: PrepareRestoreTargetInput): Promise<void>;
+      readRestorePreparedRecord(): Promise<DatabaseRestorePreparedRecord | null>;
       verifyRestoredBaseline(): Promise<DatabaseVerificationReceipt>;
     }>,
   ): DatabaseRecoveryPort;
@@ -896,7 +900,6 @@ class AdapterBackedRehearsalPorts implements RehearsalRunnerPorts {
     this.#assertContext(context);
     const observedDatabase = await this.#observeDatabaseState();
     const expectedDatabase = point === "before_database_commit" ? "baseline" : "post_reset";
-    if (observedDatabase === "mixed") stop("DATABASE_VERIFICATION_MISMATCH");
     const before = this.#storage.getMutationCounters();
     const baselineObservationDigest = sha256Digest(
       canonicalJson(this.#input.artifact.reviewedBaseline),
@@ -906,17 +909,27 @@ class AdapterBackedRehearsalPorts implements RehearsalRunnerPorts {
         ? "manual_restore"
         : (`rollback_restore:${point}` as const);
     if (context.action !== durableAction) stop("PHASE_STATE_INVALID");
+    const restoreSelector = {
+      approvalDigest: this.#input.executionApproval.digest,
+      expectedRestorePointFingerprint:
+        this.#input.executionApproval.databaseRestorePointFingerprint,
+      expectedBaselineObservationDigest: baselineObservationDigest,
+      rollbackPoint: point,
+      durableAction,
+    } as const;
+    let resumePrepared = false;
+    if (observedDatabase === "mixed") {
+      try {
+        await this.#recovery.requirePreparedRestore(restoreSelector);
+        resumePrepared = true;
+      } catch {
+        stop("DATABASE_VERIFICATION_MISMATCH");
+      }
+    }
     let database: DatabaseRestoreReceipt;
     if (observedDatabase === "baseline") {
       try {
-        database = await this.#recovery.requireExecutedRestore({
-          approvalDigest: this.#input.executionApproval.digest,
-          expectedRestorePointFingerprint:
-            this.#input.executionApproval.databaseRestorePointFingerprint,
-          expectedBaselineObservationDigest: baselineObservationDigest,
-          rollbackPoint: point,
-          durableAction,
-        });
+        database = await this.#recovery.requireExecutedRestore(restoreSelector);
         // The database restore completed before the local phase was published.
         // Consume this fresh authorization before replaying storage below.
         this.#authorization(context);
@@ -938,10 +951,13 @@ class AdapterBackedRehearsalPorts implements RehearsalRunnerPorts {
             durableNonceConsumptionDigest: context.durableNonceConsumptionDigest,
           },
           forceReplay: true,
+          resumePrepared: false,
         });
       }
     } else {
-      if (observedDatabase !== expectedDatabase) stop("DATABASE_VERIFICATION_MISMATCH");
+      if (observedDatabase !== expectedDatabase && !resumePrepared) {
+        stop("DATABASE_VERIFICATION_MISMATCH");
+      }
       database = await this.#recovery.restore({
         approvalDigest: this.#input.executionApproval.digest,
         freshAuthorization: this.#authorization(context),
@@ -956,6 +972,7 @@ class AdapterBackedRehearsalPorts implements RehearsalRunnerPorts {
           durableNonceConsumptionDigest: context.durableNonceConsumptionDigest,
         },
         forceReplay: true,
+        resumePrepared,
       });
     }
     await this.assertDatabaseRecoveryReady(context);
@@ -1417,7 +1434,29 @@ class AdapterBackedRehearsalPorts implements RehearsalRunnerPorts {
         stop("PHASE_STATE_INVALID");
       }
       const database = await this.#observeDatabaseState();
-      if (database === "mixed") stop("DATABASE_VERIFICATION_MISMATCH");
+      const baselineObservationDigest = sha256Digest(
+        canonicalJson(this.#input.artifact.reviewedBaseline),
+      );
+      const restoreSelector = {
+        approvalDigest: this.#input.executionApproval.digest,
+        expectedRestorePointFingerprint:
+          this.#input.executionApproval.databaseRestorePointFingerprint,
+        expectedBaselineObservationDigest: baselineObservationDigest,
+        rollbackPoint: restore.point,
+        durableAction: restore.durableAction,
+      } as const;
+      if (database === "mixed") {
+        if (phase === "restore_verification_started") {
+          stop("DATABASE_VERIFICATION_MISMATCH");
+        }
+        try {
+          await this.#recovery.requirePreparedRestore(restoreSelector);
+        } catch {
+          stop("DATABASE_VERIFICATION_MISMATCH");
+        }
+        this.#authorization(context);
+        return { observation: "pre", receipt: null };
+      }
       if (database !== "baseline") {
         if (phase === "restore_verification_started") {
           stop("DATABASE_VERIFICATION_MISMATCH");
@@ -1425,18 +1464,8 @@ class AdapterBackedRehearsalPorts implements RehearsalRunnerPorts {
         this.#authorization(context);
         return { observation: "pre", receipt: null };
       }
-      const baselineObservationDigest = sha256Digest(
-        canonicalJson(this.#input.artifact.reviewedBaseline),
-      );
       try {
-        await this.#recovery.requireExecutedRestore({
-          approvalDigest: this.#input.executionApproval.digest,
-          expectedRestorePointFingerprint:
-            this.#input.executionApproval.databaseRestorePointFingerprint,
-          expectedBaselineObservationDigest: baselineObservationDigest,
-          rollbackPoint: restore.point,
-          durableAction: restore.durableAction,
-        });
+        await this.#recovery.requireExecutedRestore(restoreSelector);
       } catch (error) {
         if (!(error instanceof Sk90ResetSafetyError) || error.code !== "RESTORE_REQUIRED") {
           throw error;
@@ -1781,6 +1810,15 @@ export async function createAdapterBackedRehearsalPorts(
       ),
   });
   const recovery = input.createDatabaseRecovery({
+    prepareRestoreTarget: (restoreInput) =>
+      database.prepareRestoreTargetForArchive({
+        ...restoreInput,
+        artifact: input.artifact,
+        hmacKey: input.hmacKey,
+        approvedStorageReferences: input.manifest.storageReferences,
+        migrationDigest: migrationRawDigest(input.migration.digest),
+      }),
+    readRestorePreparedRecord: () => database.readRestorePreparedRecordForArchive(),
     verifyRestoredBaseline: () =>
       database.verifyRestoredBaseline({
         artifact: input.artifact,

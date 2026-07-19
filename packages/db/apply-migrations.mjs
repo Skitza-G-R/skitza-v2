@@ -96,36 +96,17 @@ function replaceExactlyOnce(source, expected, replacement) {
   return `${source.slice(0, start)}${replacement}${source.slice(start + expected.length)}`;
 }
 
-function removeExactlyOneRange(source, startMarker, endMarker) {
-  const start = source.indexOf(startMarker);
-  const end = source.indexOf(endMarker, start + startMarker.length);
-  if (
-    start === -1 ||
-    end === -1 ||
-    source.indexOf(startMarker, start + startMarker.length) !== -1 ||
-    source.indexOf(endMarker, end + endMarker.length) !== -1
-  ) {
-    throw fail("SKITZA_CHAT3_VERIFIER_SOURCE_INVALID");
-  }
-  return `${source.slice(0, start)}${source.slice(end)}`;
-}
-
 /**
- * Keep 0027 immutable while turning its completed-target branch into a
- * read-only Chat 3 verifier. The original catalog fingerprint has two
- * PostgreSQL 17 mismatches: constraint triggers belong to the trigger
- * inventory, the key-constraint fingerprint was generated from DDL rather
- * than the real catalog representation, and redundant regex checks disagree
- * with PostgreSQL's deparser. Exact CHECK-definition equality remains in the
- * verifier. The catalog corrections were measured on the isolated Chat 3
- * rehearsal branch.
+ * Keep the rehearsed 0027 immutable while extracting only its read-only
+ * completed-target verifier. The PG17 catalog corrections are already part
+ * of the approved 0027 content and digest.
  */
 function chat3StructureVerificationStatement(cutoverContent) {
   if (migrationDigest(cutoverContent) !== APPROVED_CUTOVER_DIGEST) {
     throw fail("SKITZA_CHAT3_VERIFIER_SOURCE_INVALID");
   }
 
-  let verifier = replaceExactlyOnce(
+  const verifier = replaceExactlyOnce(
     cutoverContent,
     "IF to_regclass('public.purchases') IS NOT NULL THEN",
     `IF to_regclass('public.purchases') IS NULL THEN
@@ -133,36 +114,6 @@ function chat3StructureVerificationStatement(cutoverContent) {
   END IF;
   IF to_regclass('public.purchases') IS NOT NULL THEN`,
   );
-  verifier = replaceExactlyOnce(
-    verifier,
-    "expected_constraint_structure_md5 CONSTANT text := 'eb03a328756137e134dcc6c356694d64';",
-    "expected_constraint_structure_md5 CONSTANT text := '5d6d90e934209fdc0cad9740a75464c0';",
-  );
-  verifier = replaceExactlyOnce(
-    verifier,
-    `WHERE table_namespace.nspname = 'public'
-          AND table_relation.relname = ANY(completed_target_tables)
-      ) IS DISTINCT FROM expected_constraint_inventory_md5`,
-    `WHERE table_namespace.nspname = 'public'
-          AND pg_constraint.contype <> 't'
-          AND table_relation.relname = ANY(completed_target_tables)
-      ) IS DISTINCT FROM expected_constraint_inventory_md5`,
-  );
-  verifier = removeExactlyOneRange(
-    verifier,
-    `
-      OR NOT EXISTS (
-        SELECT 1
-        FROM pg_constraint
-        WHERE pg_constraint.conrelid = 'public.purchases'::regclass
-          AND pg_constraint.conname = 'purchases_payment_plan_shape'`,
-    `
-      OR EXISTS (
-        SELECT 1
-        FROM (VALUES
-          ('projects', 'projects_producer_lifecycle_idx'`,
-  );
-
   const completedTargetEnd = "    RETURN;\n  END IF;";
   const completedTargetEndAt = verifier.indexOf(completedTargetEnd);
   if (
@@ -171,12 +122,12 @@ function chat3StructureVerificationStatement(cutoverContent) {
   ) {
     throw fail("SKITZA_CHAT3_VERIFIER_SOURCE_INVALID");
   }
-  verifier = `${verifier.slice(
+  const completedVerifier = `${verifier.slice(
     0,
     completedTargetEndAt + completedTargetEnd.length,
   )}\nEND\n$migration$;`;
 
-  const statements = splitStatements(verifier);
+  const statements = splitStatements(completedVerifier);
   if (statements.length !== 1) throw fail("SKITZA_CHAT3_VERIFIER_SOURCE_INVALID");
   return statements[0];
 }
@@ -663,8 +614,8 @@ export {
   createSk90AdapterApproval,
   cutoverFiles,
   databaseUrl,
-  migrationDigest,
   hasAppliedLaterMigration,
+  migrationDigest,
   postLockMigrationStatement,
   splitStatements,
 };

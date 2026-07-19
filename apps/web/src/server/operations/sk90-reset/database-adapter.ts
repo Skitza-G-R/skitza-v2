@@ -250,6 +250,18 @@ export type DatabaseVerificationReceipt = Readonly<{
 export type VerifiedBaselineSnapshotReceipt = DatabaseVerificationReceipt &
   Readonly<{ purpose: "restored_baseline" }>;
 
+export type DatabaseRestorePreparedRecord = Readonly<{
+  markerJson: string;
+  markerFingerprint: Sha256Digest;
+}>;
+
+export type PrepareRestoreTargetInput = Readonly<{
+  marker: DatabaseRestorePreparedRecord;
+  expectedExistingMarkerFingerprint: Sha256Digest | null;
+  expectedSourceState: "baseline" | "post_reset";
+  assertFresh(): void;
+}>;
+
 export type Sk90CutoverApprovalBinding = Readonly<{
   artifactDigest: Sha256Digest;
   manifestDigest: Sha256Digest;
@@ -304,6 +316,95 @@ function freshnessCheckedClient(
 
 type CountRow = Readonly<{ count: number | string }>;
 type IdentityPayloadRow = Readonly<{ identity: string; payload: string }>;
+type RestorePreparedRow = Readonly<{
+  marker_json: unknown;
+  marker_fingerprint: unknown;
+}>;
+type RestorePreparedCatalogRow = Readonly<{
+  public_exists: unknown;
+  migrations_exists: unknown;
+  public_object_count: unknown;
+  private_relation_count: unknown;
+}>;
+type RestorePreparedAttributeRow = Readonly<{
+  attribute_name: unknown;
+  data_type: unknown;
+  not_null: unknown;
+}>;
+
+function assertRestorePreparedRecord(
+  value: DatabaseRestorePreparedRecord,
+): DatabaseRestorePreparedRecord {
+  if (
+    typeof value.markerJson !== "string" ||
+    value.markerJson.length === 0 ||
+    value.markerJson.includes("\0") ||
+    typeof value.markerFingerprint !== "string"
+  ) {
+    stop("RESTORE_PROOF_MISMATCH");
+  }
+  assertSha256Digest(value.markerFingerprint);
+  if (!sameDigest(sha256Digest(value.markerJson), value.markerFingerprint)) {
+    stop("RESTORE_PROOF_MISMATCH");
+  }
+  return value;
+}
+
+async function assertExactRestorePreparedCatalog(client: NeonPoolClientLike): Promise<void> {
+  const catalog = await client.query<RestorePreparedCatalogRow>(`
+    SELECT
+      to_regnamespace('public') IS NOT NULL AS "public_exists",
+      to_regnamespace('skitza_migrations') IS NOT NULL AS "migrations_exists",
+      (SELECT count(*)::text
+       FROM pg_depend AS dependency
+       WHERE dependency.refclassid = 'pg_namespace'::regclass
+         AND dependency.refobjid = to_regnamespace('public')
+         AND dependency.deptype = 'n') AS "public_object_count",
+      (SELECT count(*)::text
+       FROM pg_class AS relation
+       JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+       WHERE namespace.nspname = 'skitza_rehearsal'
+         AND relation.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')) AS "private_relation_count"`);
+  const row = catalog.rows[0];
+  if (
+    catalog.rows.length !== 1 ||
+    row?.public_exists !== true ||
+    row.migrations_exists !== false ||
+    safeCount(row.public_object_count) !== 0 ||
+    safeCount(row.private_relation_count) !== 1
+  ) {
+    stop("RESTORE_PROOF_MISMATCH");
+  }
+
+  const attributes = await client.query<RestorePreparedAttributeRow>(`
+    SELECT attribute.attname AS "attribute_name",
+      format_type(attribute.atttypid, attribute.atttypmod) AS "data_type",
+      attribute.attnotnull AS "not_null"
+    FROM pg_attribute AS attribute
+    JOIN pg_class AS relation ON relation.oid = attribute.attrelid
+    JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+    WHERE namespace.nspname = 'skitza_rehearsal'
+      AND relation.relname = 'target_identity'
+      AND attribute.attnum > 0
+      AND NOT attribute.attisdropped
+    ORDER BY attribute.attnum`);
+  const expected = [
+    ["private_marker", "text", true],
+    ["restore_prepared_marker_json", "text", false],
+    ["restore_prepared_marker_fingerprint", "text", false],
+  ] as const;
+  if (
+    attributes.rows.length !== expected.length ||
+    attributes.rows.some(
+      (attribute, index) =>
+        attribute.attribute_name !== expected[index]?.[0] ||
+        attribute.data_type !== expected[index]?.[1] ||
+        attribute.not_null !== expected[index]?.[2],
+    )
+  ) {
+    stop("RESTORE_PROOF_MISMATCH");
+  }
+}
 
 function safeCount(value: unknown): number {
   const parsed =
@@ -431,21 +532,23 @@ export async function collectDatabaseStorageReferencesFingerprint(
   const result = await client.query<
     Readonly<{ bucket_role: unknown; object_key: unknown; referenced_by: unknown }>
   >(`
-    SELECT 'audio'::text AS "bucket_role", "audio_r2_key" AS "object_key", 'reset'::text AS "referenced_by"
-    FROM "public"."track_versions" WHERE "audio_r2_key" IS NOT NULL
-    UNION ALL
-    SELECT 'audio', "peaks_r2_key", 'reset'
-    FROM "public"."track_versions" WHERE "peaks_r2_key" IS NOT NULL
-    UNION ALL
-    SELECT 'docs', "storage_key", 'reset'
-    FROM "public"."payment_proofs" WHERE "storage_key" IS NOT NULL
-    UNION ALL
-    SELECT 'audio', "audio_r2_key", 'preserved'
-    FROM "public"."portfolio_tracks" WHERE "audio_r2_key" IS NOT NULL
-    UNION ALL
-    SELECT 'audio', "peaks_r2_key", 'preserved'
-    FROM "public"."portfolio_tracks" WHERE "peaks_r2_key" IS NOT NULL
-    ORDER BY 1 COLLATE "C", 2 COLLATE "C", 3 COLLATE "C"`);
+    SELECT * FROM (
+      SELECT 'audio'::text AS "bucket_role", "audio_r2_key" AS "object_key", 'reset'::text AS "referenced_by"
+      FROM "public"."track_versions" WHERE "audio_r2_key" IS NOT NULL
+      UNION ALL
+      SELECT 'audio', "peaks_r2_key", 'reset'
+      FROM "public"."track_versions" WHERE "peaks_r2_key" IS NOT NULL
+      UNION ALL
+      SELECT 'docs', "storage_key", 'reset'
+      FROM "public"."payment_proofs" WHERE "storage_key" IS NOT NULL
+      UNION ALL
+      SELECT 'audio', "audio_r2_key", 'preserved'
+      FROM "public"."portfolio_tracks" WHERE "audio_r2_key" IS NOT NULL
+      UNION ALL
+      SELECT 'audio', "peaks_r2_key", 'preserved'
+      FROM "public"."portfolio_tracks" WHERE "peaks_r2_key" IS NOT NULL
+    ) AS "storage_reference"
+    ORDER BY "bucket_role" COLLATE "C", "object_key" COLLATE "C", "referenced_by" COLLATE "C"`);
 
   const remaining = new Map<string, StorageReference>();
   for (const reference of approvedReferences) {
@@ -504,7 +607,7 @@ export async function collectResetRowCandidates(
   for (const inventory of SK90_APPROVED_RESET_INVENTORY) {
     if (inventory.table === "stripe_customers") {
       const result = await client.query<IdentityPayloadRow>(
-        `SELECT concat("producer_id"::text, '/', "client_contact_id"::text) AS "identity", to_jsonb(source)::text AS "payload" FROM "public"."stripe_customers" AS source ORDER BY 1 COLLATE "C"`,
+        `SELECT * FROM (SELECT concat("producer_id"::text, '/', "client_contact_id"::text) AS "identity", to_jsonb(source)::text AS "payload" FROM "public"."stripe_customers" AS source) AS "reset_row" ORDER BY "identity" COLLATE "C"`,
       );
       for (const row of result.rows) {
         candidates.push({
@@ -605,7 +708,7 @@ export async function collectPreservedDatabaseEvidence(
 const CATALOG_FINGERPRINT_SQL = `
 WITH catalog_entry AS (
   SELECT 'column'::text AS kind,
-    format('%I.%I.%I', namespace.nspname, relation.relname, attribute.attname) AS identity,
+    format('%I.%I.%I', namespace.nspname, relation.relname, attribute.attname) AS "identity",
     concat_ws('|', format_type(attribute.atttypid, attribute.atttypmod), attribute.attnotnull::text,
       COALESCE(pg_get_expr(default_value.adbin, default_value.adrelid), '<none>')) AS definition
   FROM pg_attribute AS attribute
@@ -656,8 +759,8 @@ WITH catalog_entry AS (
   WHERE namespace.nspname = 'public'
   GROUP BY namespace.nspname, type_entry.typname
 )
-SELECT kind, identity, definition FROM catalog_entry
-ORDER BY kind COLLATE "C", identity COLLATE "C", definition COLLATE "C"`;
+SELECT kind, "identity", definition FROM catalog_entry
+ORDER BY kind COLLATE "C", "identity" COLLATE "C", definition COLLATE "C"`;
 
 export async function collectCatalogFingerprint(client: NeonPoolClientLike): Promise<Sha256Digest> {
   const result =
@@ -736,16 +839,18 @@ export async function stageProviderResetEvidence(
   const observed = await client.query<
     Readonly<{ source_kind: string; owner_id: string; provider_value: string }>
   >(`
-    SELECT 'producer_stripe_account'::text AS "source_kind",
-      "id"::text AS "owner_id", "stripe_account_id" AS "provider_value"
-    FROM "public"."producers"
-    WHERE "stripe_account_id" IS NOT NULL
-    UNION ALL
-    SELECT 'booking_tranzila_confirmation'::text AS "source_kind",
-      "id"::text AS "owner_id", "tranzila_confirmation_code" AS "provider_value"
-    FROM "public"."bookings"
-    WHERE "tranzila_confirmation_code" IS NOT NULL
-    ORDER BY 1 COLLATE "C", 2 COLLATE "C", 3 COLLATE "C"`);
+    SELECT * FROM (
+      SELECT 'producer_stripe_account'::text AS "source_kind",
+        "id"::text AS "owner_id", "stripe_account_id" AS "provider_value"
+      FROM "public"."producers"
+      WHERE "stripe_account_id" IS NOT NULL
+      UNION ALL
+      SELECT 'booking_tranzila_confirmation'::text AS "source_kind",
+        "id"::text AS "owner_id", "tranzila_confirmation_code" AS "provider_value"
+      FROM "public"."bookings"
+      WHERE "tranzila_confirmation_code" IS NOT NULL
+    ) AS "provider_reference"
+    ORDER BY "source_kind" COLLATE "C", "owner_id" COLLATE "C", "provider_value" COLLATE "C"`);
   const expectedReferences = evidence.map(
     (row) => `${row.sourceKind}\0${row.ownerId}\0${row.providerValue}`,
   );
@@ -824,8 +929,8 @@ async function collectForeignKeyIntegrity(
 ): Promise<Readonly<{ foreignKeyViolationCount: number; orphanRowCount: number }>> {
   const catalog = await client.query<ForeignKeyCatalogRow>(`
     SELECT child.relname AS child_table, parent.relname AS parent_table,
-      ARRAY(SELECT child_attribute.attname FROM unnest(constraint_entry.conkey) WITH ORDINALITY AS key(attnum, ordinality) JOIN pg_attribute AS child_attribute ON child_attribute.attrelid = child.oid AND child_attribute.attnum = key.attnum ORDER BY key.ordinality) AS child_columns,
-      ARRAY(SELECT parent_attribute.attname FROM unnest(constraint_entry.confkey) WITH ORDINALITY AS key(attnum, ordinality) JOIN pg_attribute AS parent_attribute ON parent_attribute.attrelid = parent.oid AND parent_attribute.attnum = key.attnum ORDER BY key.ordinality) AS parent_columns,
+      to_json(ARRAY(SELECT child_attribute.attname FROM unnest(constraint_entry.conkey) WITH ORDINALITY AS key(attnum, ordinality) JOIN pg_attribute AS child_attribute ON child_attribute.attrelid = child.oid AND child_attribute.attnum = key.attnum ORDER BY key.ordinality)) AS child_columns,
+      to_json(ARRAY(SELECT parent_attribute.attname FROM unnest(constraint_entry.confkey) WITH ORDINALITY AS key(attnum, ordinality) JOIN pg_attribute AS parent_attribute ON parent_attribute.attrelid = parent.oid AND parent_attribute.attnum = key.attnum ORDER BY key.ordinality)) AS parent_columns,
       constraint_entry.confmatchtype::text AS match_type, constraint_entry.convalidated AS validated
     FROM pg_constraint AS constraint_entry
     JOIN pg_class AS child ON child.oid = constraint_entry.conrelid
@@ -1243,6 +1348,248 @@ export class Sk90DatabaseRehearsalAdapter {
       }
       if (error instanceof Sk90ResetSafetyError) throw error;
       throw new Sk90ResetSafetyError("UNEXPECTED_FAILURE");
+    } finally {
+      client.release();
+    }
+  }
+
+  async readRestorePreparedRecordForArchive(): Promise<DatabaseRestorePreparedRecord | null> {
+    const client = await connectSafely(this.transactionPool);
+    let transactionOpen = false;
+    try {
+      await client.query("BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY");
+      transactionOpen = true;
+      await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [
+        SK90_MIGRATION_ADVISORY_LOCK_KEY,
+      ]);
+      await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [
+        SK90_DATABASE_ADVISORY_LOCK_KEY,
+      ]);
+      const columns = await client.query<CountRow>(`
+        SELECT count(*)::text AS "count"
+        FROM pg_attribute AS attribute
+        JOIN pg_class AS relation ON relation.oid = attribute.attrelid
+        JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+        WHERE namespace.nspname = 'skitza_rehearsal'
+          AND relation.relname = 'target_identity'
+          AND attribute.attname IN (
+            'restore_prepared_marker_json',
+            'restore_prepared_marker_fingerprint'
+          )
+          AND attribute.attnum > 0
+          AND NOT attribute.attisdropped`);
+      const columnCount = safeCount(columns.rows[0]?.count);
+      if (columnCount === 0) {
+        await client.query("COMMIT");
+        transactionOpen = false;
+        return null;
+      }
+      if (columnCount !== 2) stop("RESTORE_PROOF_MISMATCH");
+      await assertExactRestorePreparedCatalog(client);
+      const stored = await client.query<RestorePreparedRow>(
+        `SELECT "restore_prepared_marker_json" AS "marker_json",
+                "restore_prepared_marker_fingerprint" AS "marker_fingerprint"
+         FROM "skitza_rehearsal"."target_identity"`,
+      );
+      const row = stored.rows[0];
+      if (
+        stored.rows.length !== 1 ||
+        typeof row?.marker_json !== "string" ||
+        typeof row.marker_fingerprint !== "string"
+      ) {
+        stop("RESTORE_PROOF_MISMATCH");
+      }
+      const record = assertRestorePreparedRecord({
+        markerJson: row.marker_json,
+        markerFingerprint: row.marker_fingerprint as Sha256Digest,
+      });
+      await client.query("COMMIT");
+      transactionOpen = false;
+      return record;
+    } catch (error) {
+      if (transactionOpen) {
+        try {
+          await client.query("ROLLBACK");
+        } catch {
+          // Keep the original sanitized safety failure.
+        }
+      }
+      if (error instanceof Sk90ResetSafetyError) throw error;
+      throw new Sk90ResetSafetyError("RESTORE_REQUIRED");
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Atomically record the exact authenticated restore generation while removing
+   * the mutable catalogs. A failed single-transaction pg_restore leaves this
+   * marker intact so only that prepared generation can be resumed.
+   */
+  async prepareRestoreTargetForArchive(
+    input: PrepareRestoreTargetInput &
+      Readonly<{
+        artifact: ApprovedResetArtifact;
+        hmacKey: string;
+        approvedStorageReferences: readonly StorageReference[];
+        migrationDigest: string;
+      }>,
+  ): Promise<void> {
+    assertApprovedResetArtifact(input.artifact);
+    if (!/^[0-9a-f]{64}$/.test(input.migrationDigest)) stop("MIGRATION_DIGEST_MISMATCH");
+    const marker = assertRestorePreparedRecord(input.marker);
+    if (input.expectedExistingMarkerFingerprint !== null) {
+      assertSha256Digest(input.expectedExistingMarkerFingerprint);
+    }
+    input.assertFresh();
+    const client = await connectSafely(this.transactionPool);
+    let transactionOpen = false;
+    try {
+      await client.query("BEGIN ISOLATION LEVEL SERIALIZABLE");
+      transactionOpen = true;
+      await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [
+        SK90_MIGRATION_ADVISORY_LOCK_KEY,
+      ]);
+      input.assertFresh();
+      await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [
+        SK90_DATABASE_ADVISORY_LOCK_KEY,
+      ]);
+      input.assertFresh();
+      const targetMarker = await client.query<CountRow>(
+        'SELECT count(*)::text AS "count" FROM "skitza_rehearsal"."target_identity"',
+      );
+      if (safeCount(targetMarker.rows[0]?.count) !== 1) stop("RESTORE_PROOF_MISMATCH");
+
+      const existingColumns = await client.query<CountRow>(`
+        SELECT count(*)::text AS "count"
+        FROM pg_attribute AS attribute
+        JOIN pg_class AS relation ON relation.oid = attribute.attrelid
+        JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+        WHERE namespace.nspname = 'skitza_rehearsal'
+          AND relation.relname = 'target_identity'
+          AND attribute.attname IN (
+            'restore_prepared_marker_json',
+            'restore_prepared_marker_fingerprint'
+          )
+          AND attribute.attnum > 0
+          AND NOT attribute.attisdropped`);
+      const existingColumnCount = safeCount(existingColumns.rows[0]?.count);
+      if (input.expectedExistingMarkerFingerprint === null) {
+        if (existingColumnCount !== 0) stop("RESTORE_PROOF_MISMATCH");
+        const sourceState = await classifyDatabaseSchemaState(client);
+        if (sourceState !== input.expectedSourceState) {
+          stop("DATABASE_VERIFICATION_MISMATCH");
+        }
+        if (sourceState === "baseline") {
+          await client.query(
+            'LOCK TABLE "skitza_migrations"."applied" IN ACCESS EXCLUSIVE MODE',
+          );
+          await client.query(
+            `LOCK TABLE ${SK90_REQUIRED_LOCK_TABLES.map((table) => `"public"."${table}"`).join(", ")} IN ACCESS EXCLUSIVE MODE`,
+          );
+          const before = await collectBaselineSnapshot(
+            client,
+            input.artifact,
+            input.hmacKey,
+            input.approvedStorageReferences,
+          );
+          assertLockedBaseline(input.artifact, before);
+          await assertConcurrentWriteStop(this.concurrentProbePool);
+          const after = await collectBaselineSnapshot(
+            client,
+            input.artifact,
+            input.hmacKey,
+            input.approvedStorageReferences,
+          );
+          assertLockedBaseline(input.artifact, after);
+          if (canonicalJson(before) !== canonicalJson(after)) {
+            stop("RESTORE_PROOF_MISMATCH");
+          }
+        } else {
+          await client.query(
+            'LOCK TABLE "skitza_migrations"."applied" IN ACCESS EXCLUSIVE MODE',
+          );
+          await client.query(
+            `LOCK TABLE ${SK90_POST_RESET_LOCK_TABLES.map((table) => `"public"."${table}"`).join(", ")} IN ACCESS EXCLUSIVE MODE`,
+          );
+          await assertAppliedCutoverDigest(client, input.migrationDigest);
+          const before = await collectPostResetDatabaseEvidence(client, input.hmacKey);
+          assertPostDatabaseEvidence(input.artifact, before);
+          await assertConcurrentWriteStop(this.concurrentProbePool);
+          const after = await collectPostResetDatabaseEvidence(client, input.hmacKey);
+          assertPostDatabaseEvidence(input.artifact, after);
+          if (canonicalJson(before) !== canonicalJson(after)) {
+            stop("RESTORE_PROOF_MISMATCH");
+          }
+        }
+      } else {
+        if (existingColumnCount !== 2) stop("RESTORE_PROOF_MISMATCH");
+        await assertExactRestorePreparedCatalog(client);
+        const existing = await client.query<RestorePreparedRow>(
+          `SELECT "restore_prepared_marker_json" AS "marker_json",
+                  "restore_prepared_marker_fingerprint" AS "marker_fingerprint"
+           FROM "skitza_rehearsal"."target_identity"`,
+        );
+        const row = existing.rows[0];
+        if (
+          existing.rows.length !== 1 ||
+          typeof row?.marker_json !== "string" ||
+          typeof row.marker_fingerprint !== "string"
+        ) {
+          stop("RESTORE_PROOF_MISMATCH");
+        }
+        const existingMarker = assertRestorePreparedRecord({
+          markerJson: row.marker_json,
+          markerFingerprint: row.marker_fingerprint as Sha256Digest,
+        });
+        if (
+          !sameDigest(
+            existingMarker.markerFingerprint,
+            input.expectedExistingMarkerFingerprint,
+          )
+        ) {
+          stop("RESTORE_PROOF_MISMATCH");
+        }
+      }
+
+      if (existingColumnCount === 0) {
+        input.assertFresh();
+        await client.query(
+          'ALTER TABLE "skitza_rehearsal"."target_identity" ADD COLUMN "restore_prepared_marker_json" text',
+        );
+        input.assertFresh();
+        await client.query(
+          'ALTER TABLE "skitza_rehearsal"."target_identity" ADD COLUMN "restore_prepared_marker_fingerprint" text',
+        );
+      }
+      input.assertFresh();
+      await client.query(
+        `UPDATE "skitza_rehearsal"."target_identity"
+         SET "restore_prepared_marker_json" = $1,
+             "restore_prepared_marker_fingerprint" = $2`,
+        [marker.markerJson, marker.markerFingerprint],
+      );
+      input.assertFresh();
+      await client.query('DROP SCHEMA IF EXISTS "skitza_migrations" CASCADE');
+      input.assertFresh();
+      await client.query('DROP SCHEMA IF EXISTS "public" CASCADE');
+      input.assertFresh();
+      await client.query('CREATE SCHEMA "public" AUTHORIZATION CURRENT_USER');
+      input.assertFresh();
+      await client.query('GRANT USAGE ON SCHEMA "public" TO PUBLIC');
+      input.assertFresh();
+      await client.query("COMMIT");
+      transactionOpen = false;
+    } catch (error) {
+      if (transactionOpen) {
+        try {
+          await client.query("ROLLBACK");
+        } catch {
+          // Keep the original sanitized safety failure.
+        }
+      }
+      if (error instanceof Sk90ResetSafetyError) throw error;
+      throw new Sk90ResetSafetyError("RESTORE_REQUIRED");
     } finally {
       client.release();
     }

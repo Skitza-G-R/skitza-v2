@@ -22,6 +22,7 @@ import {
   classifyDatabaseSchemaState,
   SK90_BASELINE_ONLY_RELATIONS,
   SK90_POST_RESET_ONLY_RELATIONS,
+  type DatabaseRestorePreparedRecord,
   type DatabaseVerificationReceipt,
   type NeonPoolClientLike,
 } from "./database-adapter";
@@ -98,9 +99,13 @@ async function fixture() {
   const calls: RecoveryProcessInput[] = [];
   let databaseState: "baseline" | "post_reset" = "baseline";
   let failNextBaselineVerification = false;
+  let failNextRestore = false;
   let driftDuringSnapshot = false;
   let expireBeforeSnapshotUse = false;
+  let expireDuringRestorePreparation = false;
   let restoreProcessCount = 0;
+  let restorePreparationCount = 0;
+  let restorePreparedRecord: DatabaseRestorePreparedRecord | null = null;
   let snapshotSequence = 0;
   let authorizationSequence = 0;
   let recoveryNow = new Date(CURRENT_TIME);
@@ -145,7 +150,12 @@ async function fixture() {
         }
       } else {
         restoreProcessCount += 1;
+        if (failNextRestore) {
+          failNextRestore = false;
+          throw new Error("private pg_restore failure");
+        }
         databaseState = "baseline";
+        restorePreparedRecord = null;
       }
       return { exitCode: 0 };
     },
@@ -199,6 +209,28 @@ async function fixture() {
     pgRestoreBinary: restore,
     hmacKey: HMAC_KEY,
     now: () => recoveryNow,
+    prepareRestoreTarget: (input) => {
+      restorePreparationCount += 1;
+      input.assertFresh();
+      if (
+        (input.expectedExistingMarkerFingerprint === null &&
+          restorePreparedRecord !== null) ||
+        (input.expectedExistingMarkerFingerprint !== null &&
+          restorePreparedRecord?.markerFingerprint !==
+            input.expectedExistingMarkerFingerprint)
+      ) {
+        throw new Sk90ResetSafetyError("RESTORE_PROOF_MISMATCH");
+      }
+      if (expireDuringRestorePreparation) {
+        expireDuringRestorePreparation = false;
+        recoveryNow = new Date("2026-07-17T12:05:00.000Z");
+      }
+      input.assertFresh();
+      restorePreparedRecord = input.marker;
+      databaseState = "post_reset";
+      return Promise.resolve();
+    },
+    readRestorePreparedRecord: () => Promise.resolve(restorePreparedRecord),
     verifyRestoredBaseline,
     async withVerifiedBaselineSnapshot(useSnapshot) {
       if (databaseState !== "baseline") {
@@ -305,6 +337,7 @@ async function fixture() {
         durableNonceConsumptionDigest: sha256Digest(`nonce-${nonceLabel}`),
       },
       forceReplay: true,
+      resumePrepared: false,
     };
   }
 
@@ -344,8 +377,25 @@ async function fixture() {
     failNextBaselineVerification() {
       failNextBaselineVerification = true;
     },
+    failNextRestore() {
+      failNextRestore = true;
+    },
     failNextDump() {
       failNextDump = true;
+    },
+    expireDuringRestorePreparation() {
+      expireDuringRestorePreparation = true;
+    },
+    clearRestorePreparedRecord() {
+      restorePreparedRecord = null;
+    },
+    tamperRestorePreparedRecord() {
+      if (restorePreparedRecord) {
+        restorePreparedRecord = {
+          ...restorePreparedRecord,
+          markerJson: `${restorePreparedRecord.markerJson} `,
+        };
+      }
     },
     blockNextDump() {
       let markStarted: (() => void) | undefined;
@@ -361,6 +411,9 @@ async function fixture() {
     },
     restoreProcessCount() {
       return restoreProcessCount;
+    },
+    restorePreparationCount() {
+      return restorePreparationCount;
     },
   };
 }
@@ -423,10 +476,14 @@ describe("SK-90 PostgreSQL backup preparation and restore adapter", () => {
     expect(test.calls.filter((call) => basename(call.binary) === "pg_dump")).toHaveLength(1);
     expect(test.calls.filter((call) => call.arguments[0] === "--list")).toHaveLength(2);
     expect(test.calls[0]?.environment).toEqual({
-      PGDATABASE: DATABASE_URL,
+      PGHOST: "isolated.invalid",
+      PGDATABASE: "rehearsal",
+      PGUSER: "isolated-user",
+      PGPASSWORD: "isolated-password",
       LC_ALL: "C",
       LANG: "C",
     });
+    expect(Object.values(test.calls[0]?.environment ?? {})).not.toContain(DATABASE_URL);
     expect(test.calls.every((call) => !call.arguments.join(" ").includes(DATABASE_URL))).toBe(true);
   });
 
@@ -572,6 +629,12 @@ describe("SK-90 PostgreSQL backup preparation and restore adapter", () => {
     );
     expect(beforeCommit.restoreDisposition).toBe("executed");
     expect(test.restoreProcessCount()).toBe(1);
+    expect(test.restorePreparationCount()).toBe(1);
+    const restoreCall = test.calls.find(
+      (call) => basename(call.binary) === "pg_restore" && call.arguments.includes("--clean"),
+    );
+    expect(restoreCall?.arguments).toContain("--dbname=rehearsal");
+    expect(restoreCall?.arguments.join(" ")).not.toContain(DATABASE_URL);
 
     test.setDatabaseState("post_reset");
     const afterCommit = await test.recovery.restore(
@@ -589,6 +652,7 @@ describe("SK-90 PostgreSQL backup preparation and restore adapter", () => {
     );
     expect(partialStorage.restoreDisposition).toBe("executed");
     expect(test.restoreProcessCount()).toBe(3);
+    expect(test.restorePreparationCount()).toBe(3);
     expect(
       new Set([
         beforeCommit.receiptDigest,
@@ -626,6 +690,7 @@ describe("SK-90 PostgreSQL backup preparation and restore adapter", () => {
       ),
     ).resolves.toMatchObject({ restoreDisposition: "executed" });
     expect(test.restoreProcessCount()).toBe(1);
+    expect(test.restorePreparationCount()).toBe(1);
   });
 
   it("rechecks freshness after archive validation and before destructive pg_restore", async () => {
@@ -639,6 +704,86 @@ describe("SK-90 PostgreSQL backup preparation and restore adapter", () => {
       ),
     ).rejects.toMatchObject({ code: "FRESHNESS_PROOF_INVALID" });
     expect(test.restoreProcessCount()).toBe(0);
+  });
+
+  it("fails closed when restore authorization expires during locked target preparation", async () => {
+    const test = await fixture();
+    const { approval } = await test.prepareAndApprove();
+    test.setDatabaseState("post_reset");
+    test.expireDuringRestorePreparation();
+
+    await expect(
+      test.recovery.restore(
+        test.restoreAuthorization(
+          approval,
+          "after_database_commit_before_storage_delete",
+          "expires-during-preparation",
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "FRESHNESS_PROOF_INVALID" });
+    expect(test.restoreProcessCount()).toBe(0);
+  });
+
+  it("resumes only an exact authenticated crash-after-preparation generation", async () => {
+    const test = await fixture();
+    const { approval } = await test.prepareAndApprove();
+    test.setDatabaseState("post_reset");
+    test.failNextRestore();
+    const first = test.restoreAuthorization(
+      approval,
+      "after_database_commit_before_storage_delete",
+      "prepared-crash-first",
+    );
+
+    await expect(test.recovery.restore(first)).rejects.toMatchObject({
+      code: "RESTORE_REQUIRED",
+    });
+    const selector = {
+      approvalDigest: approval.digest,
+      expectedRestorePointFingerprint: approval.databaseRestorePointFingerprint,
+      expectedBaselineObservationDigest: test.baselineDatabaseFingerprint,
+      rollbackPoint: "after_database_commit_before_storage_delete",
+      durableAction: "rollback_restore:after_database_commit_before_storage_delete",
+    } as const;
+    await expect(test.recovery.requirePreparedRestore(selector)).resolves.toBeUndefined();
+
+    const resumed = await test.recovery.restore({
+      ...test.restoreAuthorization(
+        approval,
+        "after_database_commit_before_storage_delete",
+        "prepared-crash-resume",
+      ),
+      resumePrepared: true,
+    });
+    expect(resumed.restoreDisposition).toBe("executed");
+    expect(test.restoreProcessCount()).toBe(2);
+  });
+
+  it("rejects a tampered prepared marker before replay", async () => {
+    const test = await fixture();
+    const { approval } = await test.prepareAndApprove();
+    test.setDatabaseState("post_reset");
+    test.failNextRestore();
+    await expect(
+      test.recovery.restore(
+        test.restoreAuthorization(
+          approval,
+          "after_database_commit_before_storage_delete",
+          "prepared-tamper",
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "RESTORE_REQUIRED" });
+    test.tamperRestorePreparedRecord();
+
+    await expect(
+      test.recovery.requirePreparedRestore({
+        approvalDigest: approval.digest,
+        expectedRestorePointFingerprint: approval.databaseRestorePointFingerprint,
+        expectedBaselineObservationDigest: test.baselineDatabaseFingerprint,
+        rollbackPoint: "after_database_commit_before_storage_delete",
+        durableAction: "rollback_restore:after_database_commit_before_storage_delete",
+      }),
+    ).rejects.toMatchObject({ code: "RESTORE_PROOF_MISMATCH" });
   });
 
   it("force-replays the same restore generation after a post-commit crash", async () => {

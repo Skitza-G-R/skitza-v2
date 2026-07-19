@@ -813,7 +813,13 @@ class R2RehearsalAdapter implements Sk90R2RehearsalAdapter {
       head.ETag !== listed.etag ||
       head.ContentLength !== listed.sizeBytes ||
       !(head.LastModified instanceof Date) ||
-      head.LastModified.toISOString() !== listed.lastModified
+      !Number.isFinite(head.LastModified.getTime()) ||
+      // R2's ListObjects result preserves milliseconds while the HTTP
+      // Last-Modified header used by HeadObject has whole-second precision.
+      // Keep list-to-list stability exact, but compare these two APIs at their
+      // shared precision. ETag, size, full bytes, and metadata remain exact.
+      Math.floor(head.LastModified.getTime() / 1000) !==
+        Math.floor(Date.parse(listed.lastModified) / 1000)
     ) {
       stop("STORAGE_OBJECT_DRIFT");
     }

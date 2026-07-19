@@ -309,7 +309,7 @@ describe("SK-90 migration runner cutover", () => {
 
   it("does not replay the exact 0027 baseline verifier after a later migration", async () => {
     const filename = "0027_purchase_foundation.sql";
-    const migration = "SELECT 'BASELINE_ONLY';";
+    const migration = CUTOVER_MIGRATION;
     const client = fakeSql({
       initialDigest: migrationDigest(migration),
       laterMigration: true,
@@ -321,7 +321,7 @@ describe("SK-90 migration runner cutover", () => {
     expect(client.state.transactions).toHaveLength(0);
   });
 
-  it("derives a fail-closed Chat 3 verifier from the immutable 0027 migration", () => {
+  it("derives a fail-closed Chat 3 verifier from the rehearsed immutable 0027 migration", () => {
     const verifier = chat3StructureVerificationStatement(CUTOVER_MIGRATION);
 
     expect(verifier).toContain("SKITZA_CHAT3_STRUCTURE_REQUIRED");
@@ -337,7 +337,7 @@ describe("SK-90 migration runner cutover", () => {
     ).toThrow("SKITZA_CHAT3_VERIFIER_SOURCE_INVALID");
   });
 
-  it("checks the real Chat 3 structure under the lock before 0028 can run", async () => {
+  it("checks the rehearsed real Chat 3 structure under the lock before 0028 can run", async () => {
     const client = fakeSql();
 
     await expect(

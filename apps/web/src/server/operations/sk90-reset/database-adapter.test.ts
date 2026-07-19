@@ -341,6 +341,56 @@ describe("SK-90 executable database rehearsal adapter", () => {
     expect(secondRunVerifier).not.toMatch(/DELETE FROM|UPDATE "public"|INSERT INTO/);
   });
 
+  it("requests foreign-key column inventories as JSON arrays", () => {
+    const adapter = source();
+    const foreignKeyVerifier = adapter.slice(
+      adapter.indexOf("async function collectForeignKeyIntegrity"),
+      adapter.indexOf("const OWNERSHIP_CHECK_SQL"),
+    );
+
+    expect(foreignKeyVerifier).toMatch(/to_json\(ARRAY\(SELECT child_attribute\.attname/);
+    expect(foreignKeyVerifier).toMatch(/to_json\(ARRAY\(SELECT parent_attribute\.attname/);
+  });
+
+  it("atomically marks the exact target before pre-cleaning mutable catalogs", () => {
+    const adapter = source();
+    const restorePreparation = adapter.slice(
+      adapter.indexOf("async prepareRestoreTargetForArchive"),
+      adapter.indexOf("async withVerifiedBaselineSnapshot"),
+    );
+
+    expect(restorePreparation).toMatch(
+      /SK90_MIGRATION_ADVISORY_LOCK_KEY[\s\S]*SK90_DATABASE_ADVISORY_LOCK_KEY/,
+    );
+    expect(restorePreparation).toMatch(
+      /skitza_rehearsal"\."target_identity[\s\S]*restore_prepared_marker_json[\s\S]*UPDATE "skitza_rehearsal"\."target_identity"[\s\S]*DROP SCHEMA IF EXISTS "skitza_migrations" CASCADE[\s\S]*DROP SCHEMA IF EXISTS "public" CASCADE[\s\S]*CREATE SCHEMA "public" AUTHORIZATION CURRENT_USER/,
+    );
+    expect(restorePreparation).not.toMatch(/CREATE TABLE "skitza_rehearsal"\."restore_prepared"/);
+    expect(restorePreparation).not.toMatch(/DROP SCHEMA IF EXISTS "skitza_rehearsal"/);
+    expect(restorePreparation).toMatch(
+      /SK90_MIGRATION_ADVISORY_LOCK_KEY[\s\S]*input\.assertFresh\(\)[\s\S]*SK90_DATABASE_ADVISORY_LOCK_KEY[\s\S]*input\.assertFresh\(\)/,
+    );
+    expect(restorePreparation).toMatch(
+      /input\.assertFresh\(\)[\s\S]*ALTER TABLE[\s\S]*input\.assertFresh\(\)[\s\S]*UPDATE[\s\S]*input\.assertFresh\(\)[\s\S]*DROP SCHEMA[\s\S]*input\.assertFresh\(\)[\s\S]*client\.query\("COMMIT"\)/,
+    );
+    expect(restorePreparation).toMatch(/client\.query\("COMMIT"\)/);
+    expect(restorePreparation).toMatch(/client\.query\("ROLLBACK"\)/);
+  });
+
+  it("accepts a prepared restore only with an empty public catalog and exact marker columns", () => {
+    const adapter = source();
+    const verifier = adapter.slice(
+      adapter.indexOf("async function assertExactRestorePreparedCatalog"),
+      adapter.indexOf("export class Sk90DatabaseRehearsalAdapter"),
+    );
+
+    expect(verifier).toMatch(/skitza_migrations[\s\S]*public_object_count/);
+    expect(verifier).toMatch(/private_relation_count[\s\S]*private_marker/);
+    expect(verifier).toMatch(
+      /restore_prepared_marker_json[\s\S]*restore_prepared_marker_fingerprint/,
+    );
+  });
+
   it("keeps the exact reviewed baseline locked while pg_dump consumes an exported snapshot", () => {
     const adapter = source();
     const snapshotBoundary = adapter.slice(
@@ -829,5 +879,22 @@ describe("SK-90 executable database rehearsal adapter", () => {
     expect(adapter).toMatch(/charge_enabled/);
     expect(adapter).toMatch(/external_charge/);
     expect(adapter).toMatch(/live_schedule/);
+  });
+
+  it("orders PostgreSQL 17 discovery rows by text aliases, not numeric ordinals", () => {
+    const adapter = source();
+
+    expect(adapter).not.toMatch(/ORDER BY\s+\d+\s+COLLATE/);
+    expect(adapter).toMatch(/ORDER BY "identity" COLLATE "C"/);
+    expect(adapter).toMatch(
+      /ORDER BY "bucket_role" COLLATE "C", "object_key" COLLATE "C", "referenced_by" COLLATE "C"/,
+    );
+    expect(adapter).toMatch(
+      /ORDER BY "source_kind" COLLATE "C", "owner_id" COLLATE "C", "provider_value" COLLATE "C"/,
+    );
+    expect(adapter).toMatch(/AS "identity",[\s\S]*SELECT kind, "identity", definition/);
+    expect(adapter).toMatch(
+      /ORDER BY kind COLLATE "C", "identity" COLLATE "C", definition COLLATE "C"/,
+    );
   });
 });
