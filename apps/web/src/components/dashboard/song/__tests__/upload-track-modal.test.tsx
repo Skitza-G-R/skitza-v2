@@ -159,7 +159,9 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     expect(submit).toContain("setAllocatedNewTrackId(res.data.id)");
     expect(SRC).toMatch(/isNewSong && !purchaseId && !allocatedNewTrackId/);
     expect(SRC).toMatch(/allocatedNewTrackId \? \([\s\S]*?upload-track-song-allocated/);
-    expect(SRC).toContain("This purchased song space is allocated. Retry the upload for this song.");
+    expect(SRC).toContain(
+      "This purchased song space is allocated. Retry the upload for this song.",
+    );
 
     // A later version/audio failure must retain the allocation for the
     // next submit instead of consuming another purchased song space.
@@ -314,9 +316,12 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     expect(SRC).toMatch(/3000/);
   });
 
-  it("auto-bumps the default label to v{versionCount+1} when picking an existing track", () => {
+  it("auto-bumps the default label to uppercase V{versionCount+1} when picking an existing track", () => {
     expect(SRC).toMatch(/deriveNextLabel/);
     expect(SRC).toMatch(/versionCount/);
+    expect(SRC).toContain('return "V1"');
+    expect(SRC).toMatch(/return `V\$\{String\(next\)\}`/);
+    expect(SRC).toContain('defaultLabel ?? "V1"');
   });
 
   it("uses backdrop-blur on the scrim (matches NewClientModal precedent)", () => {

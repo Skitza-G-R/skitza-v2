@@ -5,6 +5,12 @@ import { notFound, redirect } from "next/navigation";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { ProjectPage, type ProjectPageData } from "~/components/music/project-page";
+import {
+  editMusicSongArtist,
+  markMusicSongReleased,
+  renameMusicSong,
+  setMusicSongArchived,
+} from "../../actions";
 
 type PageProps = { params: Promise<{ projectId: string }> };
 
@@ -23,11 +29,7 @@ export default async function ProducerProjectPage({ params }: PageProps) {
 
   // Validate UUID shape early — keeps the tRPC Zod layer from emitting
   // a generic BAD_REQUEST that we'd then bridge to a 500.
-  if (
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-      projectId,
-    )
-  ) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(projectId)) {
     notFound();
   }
 
@@ -56,16 +58,26 @@ export default async function ProducerProjectPage({ params }: PageProps) {
         trackId: song.trackId,
         title: song.title,
         artist: song.artist,
-        versionLabel: song.latestVersion?.label ?? null,
-        latestVersionId: song.latestVersion?.id ?? null,
+        archivedAtIso: song.archivedAt?.toISOString() ?? null,
+        releasedAtIso: song.releasedAt?.toISOString() ?? null,
+        audioDeletedAtIso:
+          song.latestVersion === null
+            ? (song.latestHistoryVersion?.audioDeletedAt?.toISOString() ?? null)
+            : null,
+        versionLabel: song.latestVersion?.label ?? song.latestHistoryVersion?.label ?? null,
+        latestVersionId: song.latestVersion?.id ?? song.latestHistoryVersion?.id ?? null,
         audioUrl: song.latestVersion?.audioUrl ?? null,
         durationMs: song.latestVersion?.durationMs ?? null,
-        uploadedAtIso: song.latestVersion?.uploadedAt.toISOString() ?? null,
+        uploadedAtIso:
+          (
+            song.latestVersion?.uploadedAt ?? song.latestHistoryVersion?.uploadedAt
+          )?.toISOString() ?? null,
         unreadComments: song.unreadComments,
         plays: song.plays,
         actionHref:
           data.lifecycleStatus === "active" &&
-          song.purchaseLifecycleStatus === "active"
+          song.purchaseLifecycleStatus === "active" &&
+          song.archivedAt === null
             ? `/dashboard/clients-projects/${data.id}/songs/${song.id}?upload=1`
             : null,
       })),
@@ -91,6 +103,10 @@ export default async function ProducerProjectPage({ params }: PageProps) {
             producerActionHref: `/dashboard/music?addSong=1&projectId=${data.id}&lockProject=1`,
           }
         : {})}
+      renameSong={renameMusicSong}
+      editArtist={editMusicSongArtist}
+      setArchived={setMusicSongArchived}
+      markReleased={markMusicSongReleased}
     />
   );
 }

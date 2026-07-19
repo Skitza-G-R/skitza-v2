@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Waveform50, type WaveformComment } from "~/components/audio/waveform-50";
 import {
   PLAYER_EVENTS,
+  playerClose,
   playerPlay,
   playerSeek,
   playerToggle,
@@ -15,6 +16,8 @@ import {
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 
+import { SongManagementDialog, type SongManagementDialogConfig } from "./song-management-dialog";
+
 // Server actions are passed in as props (see SongPage signature
 // below) rather than imported by a relative path. This is the seam
 // that lets the same component back two routes — producer's
@@ -22,6 +25,15 @@ import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 // /artist/music/song/[versionId] — each with its own
 // `revalidatePath`-targeted variant.
 export type MusicL3ActionResult = { ok: true } | { ok: false; error: string };
+
+export type MusicL3DeleteAudioActionResult =
+  | {
+      ok: true;
+      nextPlaybackVersionId?: string | null;
+      removedPortfolioEntry?: boolean;
+      disabledPublicLink?: boolean;
+    }
+  | { ok: false; error: string };
 
 export type L3Actions = {
   addComment: (input: {
@@ -34,21 +46,53 @@ export type L3Actions = {
     id: string;
     resolved: boolean;
   }) => Promise<MusicL3ActionResult>;
-  // Producer-only — the artist L3 hides the Approve affordance, so
+  // Producer-only — this compatibility callback marks producer final status.
+  // The artist L3 hides the affordance, so
   // this callback is never invoked there. Optional so artist route
   // call-sites don't have to pass a no-op stub.
   approveVersion?: (input: {
     versionId: string;
     approved: boolean;
   }) => Promise<MusicL3ActionResult>;
+  renameSong?: (input: {
+    projectId: string;
+    trackId: string;
+    versionId: string;
+    title: string;
+  }) => Promise<MusicL3ActionResult>;
+  editArtist?: (input: {
+    projectId: string;
+    trackId: string;
+    versionId: string;
+    artist: string | null;
+  }) => Promise<MusicL3ActionResult>;
+  setArchived?: (input: {
+    projectId: string;
+    trackId: string;
+    versionId: string;
+    archived: boolean;
+  }) => Promise<MusicL3ActionResult>;
+  markReleased?: (input: {
+    projectId: string;
+    trackId: string;
+    versionId: string;
+  }) => Promise<MusicL3ActionResult>;
+  renameVersion?: (input: {
+    projectId: string;
+    versionId: string;
+    label: string;
+  }) => Promise<MusicL3ActionResult>;
+  deleteVersionAudio?: (input: {
+    projectId: string;
+    versionId: string;
+  }) => Promise<MusicL3DeleteAudioActionResult>;
 };
 
 // Which side of the app is rendering this screen. Default = "producer"
 // so existing call-sites keep working unchanged.
 //
 // In artist mode:
-//   - the **Approve** CTA in the action rail is hidden (artists don't
-//     approve — that's the producer's job).
+//   - the producer-only **Mark final** CTA in the action rail is hidden.
 //   - the **"Open in project room"** pill is hidden (the artist
 //     doesn't have a clients-projects surface to cross-link into).
 //   - the breadcrumb middle crumb reads `track.clientName`, which the
@@ -60,8 +104,11 @@ export type SongPageVersion = {
   id: string;
   label: string;
   audioUrl: string | null;
+  /** Explicit storage tombstone. Null/undefined means the audio was not deleted. */
+  audioDeletedAtIso?: string | null;
   durationMs: number | null;
   uploadedAtIso: string;
+  /** Producer: marked-final time. Artist: exact artist-approval time. */
   approvedAtIso: string | null;
   /**
    * Pre-computed waveform peaks (200 normalized RMS floats 0..1).
@@ -91,12 +138,10 @@ export type SongPageData = {
     projectId: string;
     projectTitle: string;
     clientName: string | null;
-    projectLifecycleStatus?:
-      | "waiting_for_payment"
-      | "active"
-      | "paused"
-      | "completed"
-      | "canceled";
+    archivedAtIso: string | null;
+    releasedAtIso: string | null;
+    workflowStage: "brief" | "production" | "mixing" | "mastering" | "done";
+    projectLifecycleStatus?: "waiting_for_payment" | "active" | "paused" | "completed" | "canceled";
   };
   versions: SongPageVersion[];
   comments: SongPageComment[];
@@ -104,6 +149,153 @@ export type SongPageData = {
 };
 
 // ─── Pure helpers (exported for direct unit-testing) ─────────────────
+
+export function isSongPageVersionPlayable(version: SongPageVersion): boolean {
+  return version.audioDeletedAtIso == null && version.audioUrl !== null;
+}
+
+export function newestPlayableSongPageVersion(
+  versions: readonly SongPageVersion[],
+): SongPageVersion | null {
+  return versions.find(isSongPageVersionPlayable) ?? null;
+}
+
+export function isTombstonedVersionLoaded(
+  versions: readonly SongPageVersion[],
+  loadedVersionId: string | null,
+): boolean {
+  if (loadedVersionId === null) return false;
+  return versions.some(
+    (version) => version.id === loadedVersionId && version.audioDeletedAtIso != null,
+  );
+}
+
+/**
+ * Deep links normally request one exact version. If that audio was deleted,
+ * open the newest still-playable version instead. When no audio survives, keep
+ * the requested (or newest historical) row so its date and comments remain
+ * inspectable without presenting a player target.
+ */
+export function resolveInitialSongPageVersion(
+  versions: readonly SongPageVersion[],
+  selectedVersionId: string,
+): SongPageVersion | null {
+  const requested = versions.find((version) => version.id === selectedVersionId) ?? null;
+  if (requested && isSongPageVersionPlayable(requested)) return requested;
+  return newestPlayableSongPageVersion(versions) ?? requested ?? versions[0] ?? null;
+}
+
+export type DeleteVersionAudioPolicy = {
+  canDelete: boolean;
+  isStorageCleanupRetry: boolean;
+  isCurrent: boolean;
+  isFinal: boolean;
+  isLast: boolean;
+  isReleased: boolean;
+  strongWarning: boolean;
+  details: string[];
+};
+
+/**
+ * The UI mirrors the server's deletion guard so producers learn why audio is
+ * protected before they submit. The server remains authoritative if release
+ * state changes while the confirmation dialog is open.
+ */
+export function deleteVersionAudioPolicy(input: {
+  versions: readonly SongPageVersion[];
+  version: SongPageVersion;
+  isReleased: boolean;
+}): DeleteVersionAudioPolicy {
+  const playableVersions = input.versions.filter(isSongPageVersionPlayable);
+  const isStored = isSongPageVersionPlayable(input.version);
+  const isStorageCleanupRetry = input.version.audioDeletedAtIso != null;
+  const isCurrent = newestPlayableSongPageVersion(playableVersions)?.id === input.version.id;
+  const isFinal = input.version.approvedAtIso !== null;
+  const isLast = playableVersions.length === 1 && playableVersions[0]?.id === input.version.id;
+  const isReleased = input.isReleased;
+  const protectedRoles = [
+    ...(isCurrent ? ["current"] : []),
+    ...(isFinal ? ["producer-marked-final"] : []),
+    ...(isLast ? ["last remaining"] : []),
+  ];
+
+  if (isStorageCleanupRetry) {
+    return {
+      canDelete: true,
+      isStorageCleanupRetry,
+      isCurrent,
+      isFinal,
+      isLast,
+      isReleased,
+      strongWarning: false,
+      details: [
+        "This safely retries removal of the already-deleted version's stored audio object. It is safe to repeat.",
+        "The original deletion time, version name, upload date, and comment history stay unchanged.",
+        "Playback, downloads, and public switching remain unavailable for this version.",
+      ],
+    };
+  }
+
+  if (!isStored) {
+    return {
+      canDelete: false,
+      isStorageCleanupRetry,
+      isCurrent,
+      isFinal,
+      isLast,
+      isReleased,
+      strongWarning: false,
+      details: ["This version does not have completed stored audio to delete."],
+    };
+  }
+
+  if (!isReleased && protectedRoles.length > 0) {
+    return {
+      canDelete: false,
+      isStorageCleanupRetry,
+      isCurrent,
+      isFinal,
+      isLast,
+      isReleased,
+      strongWarning: false,
+      details: [
+        `Before Released, the ${protectedRoles.join(", ")} audio is protected from permanent deletion.`,
+        "Move the song to Released or keep another playable version before deleting this audio.",
+      ],
+    };
+  }
+
+  const details = [
+    "This permanently deletes the real stored audio object. It cannot be undone.",
+    "The lightweight version name, upload date, and comment history remains available.",
+  ];
+  if (isCurrent) {
+    details.push(
+      "This is the current audio. The newest remaining playable version becomes current.",
+    );
+  }
+  if (isFinal) {
+    details.push(
+      "This is producer-marked-final audio. Released songs allow it, so check the selection carefully.",
+    );
+  }
+  if (isLast) {
+    details.push(
+      "This is the last playable audio. Its portfolio entry will be removed and the public link disabled.",
+    );
+  }
+
+  return {
+    canDelete: true,
+    isStorageCleanupRetry,
+    isCurrent,
+    isFinal,
+    isLast,
+    isReleased,
+    strongWarning: isReleased && (isFinal || isLast),
+    details,
+  };
+}
 
 // Builds the PlayerTrack payload that PersistentPlayer expects when we
 // dispatch `skitza:player:set` to start playback of the active version.
@@ -148,22 +340,37 @@ export type PlayButtonState = {
 export function playButtonState(input: {
   activeVersionId: string;
   audioUrl: string | null;
+  audioDeletedAtIso?: string | null;
   nowPlaying: { trackId: string | null; playing: boolean };
 }): PlayButtonState {
+  if (input.audioDeletedAtIso != null || input.audioUrl === null) {
+    return { label: "Play", disabled: true, action: "play-new" };
+  }
   const isThisVersionLoaded = input.nowPlaying.trackId === input.activeVersionId;
   if (isThisVersionLoaded) {
     return {
       label: input.nowPlaying.playing ? "Pause" : "Play",
-      disabled: input.audioUrl === null,
+      disabled: false,
       action: "toggle",
     };
   }
   return {
     label: "Play",
-    disabled: input.audioUrl === null,
+    disabled: false,
     action: "play-new",
   };
 }
+
+type OpenSongManagement = {
+  kind:
+    | "rename-song"
+    | "edit-artist"
+    | "set-archived"
+    | "mark-released"
+    | "rename-version"
+    | "delete-version-audio";
+  versionId: string;
+};
 
 export function SongPage({
   data,
@@ -174,26 +381,61 @@ export function SongPage({
   role?: SongPageRole;
   actions: L3Actions;
 }) {
+  const [songTitleOverride, setSongTitleOverride] = useState<string | undefined>();
+  const [artistOverride, setArtistOverride] = useState<string | null | undefined>();
+  const [archivedOverride, setArchivedOverride] = useState<boolean | null>(null);
+  const [releasedOverride, setReleasedOverride] = useState<boolean | null>(null);
+  const [versionLabelOverrides, setVersionLabelOverrides] = useState<Record<string, string>>({});
+  const [optimisticDeletedAtByVersion, setOptimisticDeletedAtByVersion] = useState<
+    Record<string, string>
+  >({});
+  const versions = useMemo(
+    () =>
+      data.versions.map((version) => {
+        const label = versionLabelOverrides[version.id];
+        const deletedAt = optimisticDeletedAtByVersion[version.id];
+        return {
+          ...version,
+          ...(label === undefined ? {} : { label }),
+          ...(deletedAt === undefined ? {} : { audioUrl: null, audioDeletedAtIso: deletedAt }),
+        };
+      }),
+    [data.versions, optimisticDeletedAtByVersion, versionLabelOverrides],
+  );
+
   // Active version — the one the L1 row pointed at by default. Switching
   // a version filters the comment thread to that version's notes.
-  const [activeVersionId, setActiveVersionId] = useState(data.selectedVersionId);
+  const [activeVersionId, setActiveVersionId] = useState(
+    () =>
+      resolveInitialSongPageVersion(versions, data.selectedVersionId)?.id ?? data.selectedVersionId,
+  );
   const activeVersion = useMemo(
     () =>
-      data.versions.find((v) => v.id === activeVersionId) ??
-      data.versions[0] ??
-      null,
-    [data.versions, activeVersionId],
+      versions.find((v) => v.id === activeVersionId) ??
+      resolveInitialSongPageVersion(versions, data.selectedVersionId),
+    [activeVersionId, data.selectedVersionId, versions],
   );
+  const activeVersionPlayable = activeVersion ? isSongPageVersionPlayable(activeVersion) : false;
+  const activeVersionDeleted = activeVersion?.audioDeletedAtIso != null;
+
+  // A refresh can tombstone the version that was active before the mutation.
+  // Move to the newest surviving audio. A later deliberate click on a deleted
+  // version still selects its history because this effect only follows data.
+  useEffect(() => {
+    setActiveVersionId((currentId) => {
+      const current = versions.find((version) => version.id === currentId) ?? null;
+      if (current && isSongPageVersionPlayable(current)) return currentId;
+      return newestPlayableSongPageVersion(versions)?.id ?? current?.id ?? currentId;
+    });
+  }, [versions]);
 
   // Optimistic comments + resolutions, keyed by versionId. Server
   // mutations re-render the parent (revalidatePath) so these only
   // exist during the round-trip.
-  const [optimisticByVersion, setOptimisticByVersion] = useState<
-    Record<string, SongPageComment[]>
-  >({});
-  const [resolvedOverrides, setResolvedOverrides] = useState<
-    Record<string, boolean>
-  >({});
+  const [optimisticByVersion, setOptimisticByVersion] = useState<Record<string, SongPageComment[]>>(
+    {},
+  );
+  const [resolvedOverrides, setResolvedOverrides] = useState<Record<string, boolean>>({});
   // Default to TRUE — founder feedback: "resolve now disappears
   // messages, I want it greyed out and sent to the bottom." Showing
   // resolved by default + sorting them last preserves the
@@ -210,6 +452,13 @@ export function SongPage({
   // and lets the click handler decide between starting fresh vs toggling
   // the existing <audio> element in PersistentPlayer.
   const nowPlaying = useNowPlaying();
+
+  // Storage reconciliation can fail after the database tombstone commits.
+  // The server action revalidates this page in `finally`; when that refreshed
+  // tombstone arrives, revoke any stale player that still holds the old URL.
+  useEffect(() => {
+    if (isTombstonedVersionLoaded(versions, nowPlaying.trackId)) playerClose();
+  }, [nowPlaying.trackId, versions]);
 
   // Tracks whether playback was ours-paused for typing. Used by the
   // composer's onFocus + handleAddComment so submitting (or
@@ -246,6 +495,8 @@ export function SongPage({
   // sightline — the menu collapses into a single circular trigger.
   const [overflowOpen, setOverflowOpen] = useState(false);
   const overflowRef = useRef<HTMLDivElement | null>(null);
+  const moreButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [managementDialog, setManagementDialog] = useState<OpenSongManagement | null>(null);
   useEffect(() => {
     if (!overflowOpen) return;
     function onDown(e: MouseEvent) {
@@ -325,15 +576,19 @@ export function SongPage({
       }));
   }, [activeVersion?.durationMs, allCommentsForVersion, resolvedOverrides, showResolved]);
 
-  const clientLabel = data.track.clientName ?? data.track.artist ?? data.track.projectTitle;
+  const songTitle = songTitleOverride ?? data.track.title;
+  const songArtist = artistOverride !== undefined ? artistOverride : data.track.artist;
+  const clientLabel = data.track.clientName ?? songArtist ?? data.track.projectTitle;
   const heroBg = producerGradient(clientLabel);
-  const archivedLabel =
+  const projectArchivedLabel =
     data.track.projectLifecycleStatus === "completed"
       ? "Archived · Completed"
       : data.track.projectLifecycleStatus === "canceled"
         ? "Archived · Canceled"
         : null;
-  const commentsClosed = archivedLabel !== null;
+  const songArchived = archivedOverride ?? data.track.archivedAtIso !== null;
+  const songReleased = releasedOverride ?? data.track.releasedAtIso !== null;
+  const commentsClosed = projectArchivedLabel !== null || songArchived;
 
   function handleAddComment() {
     if (!activeVersion || commentsClosed) return;
@@ -376,9 +631,7 @@ export function SongPage({
         // Roll back optimistic on failure.
         setOptimisticByVersion((prev) => ({
           ...prev,
-          [activeVersion.id]: (prev[activeVersion.id] ?? []).filter(
-            (c) => c.id !== tempId,
-          ),
+          [activeVersion.id]: (prev[activeVersion.id] ?? []).filter((c) => c.id !== tempId),
         }));
         setError(res.error);
       } else {
@@ -389,9 +642,7 @@ export function SongPage({
         // (the founder reported this as "post twice").
         setOptimisticByVersion((prev) => ({
           ...prev,
-          [activeVersion.id]: (prev[activeVersion.id] ?? []).filter(
-            (c) => c.id !== tempId,
-          ),
+          [activeVersion.id]: (prev[activeVersion.id] ?? []).filter((c) => c.id !== tempId),
         }));
       }
     });
@@ -402,8 +653,7 @@ export function SongPage({
   // AddComment) or blurring resumes playback if WE paused it.
   function handleComposerFocus() {
     if (!activeVersion) return;
-    const isThisVersionPlaying =
-      nowPlaying.trackId === activeVersion.id && nowPlaying.playing;
+    const isThisVersionPlaying = nowPlaying.trackId === activeVersion.id && nowPlaying.playing;
     if (isThisVersionPlaying) {
       wasPlayingBeforeFocus.current = true;
       playerToggle();
@@ -423,8 +673,7 @@ export function SongPage({
 
   function handleResolveToggle(comment: SongPageComment) {
     const override = resolvedOverrides[comment.id];
-    const currentResolved =
-      override !== undefined ? override : comment.resolvedAtIso !== null;
+    const currentResolved = override !== undefined ? override : comment.resolvedAtIso !== null;
     const next = !currentResolved;
     setResolvedOverrides((p) => ({ ...p, [comment.id]: next }));
     if (!activeVersion) return;
@@ -443,7 +692,7 @@ export function SongPage({
 
   function handleApproveToggle() {
     if (!activeVersion) return;
-    // Producer-only path. The Approve button is hidden when role
+    // Producer-only path. The Mark final button is hidden when role
     // === "artist", so this defensive guard is mostly belt-and-
     // suspenders. If the callback wasn't passed, we silently no-op
     // rather than throw.
@@ -466,7 +715,7 @@ export function SongPage({
   // hears the moment they clicked.
   function handleJumpToComment(timeMs: number) {
     if (!activeVersion) return;
-    if (!activeVersion.audioUrl) return;
+    if (!isSongPageVersionPlayable(activeVersion)) return;
     const isThisVersionLoaded = nowPlaying.trackId === activeVersion.id;
     if (!isThisVersionLoaded) {
       playerPlay(activeVersionToPlayerTrack(data.track, activeVersion));
@@ -507,6 +756,9 @@ export function SongPage({
     const state = playButtonState({
       activeVersionId: activeVersion.id,
       audioUrl: activeVersion.audioUrl,
+      ...(activeVersion.audioDeletedAtIso === undefined
+        ? {}
+        : { audioDeletedAtIso: activeVersion.audioDeletedAtIso }),
       nowPlaying,
     });
     if (state.disabled) return;
@@ -526,7 +778,7 @@ export function SongPage({
     // navigator.clipboard (insecure contexts) without tripping the
     // strict-truthy lint rule.
     try {
-      void navigator.share({ title: data.track.title, url }).catch(() => undefined);
+      void navigator.share({ title: songTitle, url }).catch(() => undefined);
     } catch {
       try {
         void navigator.clipboard.writeText(url).catch(() => undefined);
@@ -535,6 +787,274 @@ export function SongPage({
       }
     }
     setOverflowOpen(false);
+  }
+
+  function openManagementDialog(kind: OpenSongManagement["kind"]) {
+    if (!activeVersion) return;
+    setOverflowOpen(false);
+    setManagementDialog({ kind, versionId: activeVersion.id });
+  }
+
+  async function handleManagementSubmit(value: string): Promise<MusicL3ActionResult> {
+    if (!managementDialog) {
+      return { ok: false, error: "Choose an action and try again." };
+    }
+    const targetVersion = versions.find((version) => version.id === managementDialog.versionId);
+    if (!targetVersion) {
+      return { ok: false, error: "This version is no longer available." };
+    }
+
+    const common = {
+      projectId: data.track.projectId,
+      trackId: data.track.id,
+      versionId: targetVersion.id,
+    };
+
+    if (managementDialog.kind === "rename-song") {
+      if (!actions.renameSong) return { ok: false, error: "Rename is unavailable." };
+      const result = await actions.renameSong({ ...common, title: value });
+      if (result.ok) setSongTitleOverride(value);
+      return result;
+    }
+
+    if (managementDialog.kind === "edit-artist") {
+      if (!actions.editArtist) {
+        return { ok: false, error: "Artist credit editing is unavailable." };
+      }
+      const artist = value.length > 0 ? value : null;
+      const result = await actions.editArtist({ ...common, artist });
+      if (result.ok) setArtistOverride(artist);
+      return result;
+    }
+
+    if (managementDialog.kind === "set-archived") {
+      if (!actions.setArchived) {
+        return { ok: false, error: "Song archiving is unavailable." };
+      }
+      const archived = !songArchived;
+      const result = await actions.setArchived({ ...common, archived });
+      if (result.ok) setArchivedOverride(archived);
+      return result;
+    }
+
+    if (managementDialog.kind === "mark-released") {
+      if (!actions.markReleased) {
+        return { ok: false, error: "Mark as Released is unavailable." };
+      }
+      const result = await actions.markReleased(common);
+      if (result.ok) setReleasedOverride(true);
+      return result;
+    }
+
+    if (managementDialog.kind === "rename-version") {
+      if (!actions.renameVersion) {
+        return { ok: false, error: "Version renaming is unavailable." };
+      }
+      const result = await actions.renameVersion({
+        projectId: common.projectId,
+        versionId: common.versionId,
+        label: value,
+      });
+      if (result.ok) {
+        setVersionLabelOverrides((current) => ({
+          ...current,
+          [targetVersion.id]: value,
+        }));
+      }
+      return result;
+    }
+
+    if (!actions.deleteVersionAudio) {
+      return { ok: false, error: "Audio deletion is unavailable." };
+    }
+    const policy = deleteVersionAudioPolicy({
+      versions,
+      version: targetVersion,
+      isReleased: songReleased,
+    });
+    if (!policy.canDelete) {
+      return { ok: false, error: policy.details[0] ?? "This audio is protected." };
+    }
+
+    const result = await actions.deleteVersionAudio({
+      projectId: common.projectId,
+      versionId: common.versionId,
+    });
+    if (!result.ok) return result;
+
+    if (policy.isStorageCleanupRetry) {
+      // The committed tombstone is the durable source of truth. A retry only
+      // reconciles its retained storage identity, so preserve the original
+      // deletion time and history selection while closing any stale player.
+      if (nowPlaying.trackId === targetVersion.id) playerClose();
+      return result;
+    }
+
+    const deletedAt = new Date().toISOString();
+    setOptimisticDeletedAtByVersion((current) => ({
+      ...current,
+      [targetVersion.id]: deletedAt,
+    }));
+    if (nowPlaying.trackId === targetVersion.id) playerClose();
+
+    const remaining = versions.map((version) =>
+      version.id === targetVersion.id
+        ? { ...version, audioUrl: null, audioDeletedAtIso: deletedAt }
+        : version,
+    );
+    const requestedFallback = result.nextPlaybackVersionId
+      ? remaining.find(
+          (version) =>
+            version.id === result.nextPlaybackVersionId && isSongPageVersionPlayable(version),
+        )
+      : null;
+    const fallback = requestedFallback ?? newestPlayableSongPageVersion(remaining);
+    setActiveVersionId(fallback?.id ?? targetVersion.id);
+    return result;
+  }
+
+  const managementVersion = managementDialog
+    ? (versions.find((version) => version.id === managementDialog.versionId) ?? null)
+    : null;
+  const managementPolicy = managementVersion
+    ? deleteVersionAudioPolicy({
+        versions,
+        version: managementVersion,
+        isReleased: songReleased,
+      })
+    : null;
+  let managementConfig: SongManagementDialogConfig | null = null;
+  if (managementDialog && managementVersion) {
+    switch (managementDialog.kind) {
+      case "rename-song":
+        managementConfig = {
+          id: `rename-song:${managementVersion.id}`,
+          title: "Rename song",
+          description: "Change the song title everywhere it appears in Music.",
+          confirmLabel: "Save song name",
+          pendingLabel: "Saving…",
+          field: {
+            label: "Song name",
+            initialValue: songTitle,
+            placeholder: "Song name",
+            maxLength: 120,
+            emptyError: "Enter a song name.",
+          },
+        };
+        break;
+      case "edit-artist":
+        managementConfig = {
+          id: `edit-artist:${managementVersion.id}`,
+          title: "Edit artist credit",
+          description: "Update the artist credit, or leave it blank to remove it.",
+          confirmLabel: "Save artist credit",
+          pendingLabel: "Saving…",
+          field: {
+            label: "Artist credit",
+            initialValue: songArtist ?? "",
+            placeholder: "Artist name",
+            maxLength: 120,
+            allowEmpty: true,
+          },
+        };
+        break;
+      case "set-archived":
+        managementConfig = songArchived
+          ? {
+              id: `restore-song:${managementVersion.id}`,
+              title: "Restore song?",
+              description: "Returns this song to active work.",
+              confirmLabel: "Restore song",
+              pendingLabel: "Restoring…",
+              cancelLabel: "Keep archived",
+              details: [
+                "Listening, version history, and the public link stay as they are.",
+                "New comments and version uploads can resume.",
+              ],
+            }
+          : {
+              id: `archive-song:${managementVersion.id}`,
+              title: "Archive song?",
+              description: "Pauses new work on this song without archiving its project.",
+              confirmLabel: "Archive song",
+              pendingLabel: "Archiving…",
+              cancelLabel: "Keep active",
+              details: [
+                "The song stays listenable and keeps its history and public link.",
+                "New comments and version uploads are blocked until you restore it.",
+                "Other songs in this project are not archived.",
+              ],
+            };
+        break;
+      case "mark-released":
+        managementConfig = {
+          id: `mark-released:${managementVersion.id}`,
+          title: "Mark song as Released?",
+          description: "Released is separate from Done / Delivered and cannot be undone.",
+          confirmLabel: "Mark as Released",
+          pendingLabel: "Marking Released…",
+          cancelLabel: "Not yet",
+          strongWarning: true,
+          details: [
+            "Use this only after the song has been officially released.",
+            "After release, current, producer-marked-final, and last remaining audio may be permanently deleted.",
+            "Marking Released does not delete audio by itself.",
+          ],
+        };
+        break;
+      case "rename-version":
+        managementConfig = {
+          id: `rename-version:${managementVersion.id}`,
+          title: "Rename version",
+          description: managementVersion.audioDeletedAtIso
+            ? "Only the lightweight version name changes. Its deleted-audio history stays intact."
+            : "Give this audio version a clearer name.",
+          confirmLabel: "Save version name",
+          pendingLabel: "Saving…",
+          field: {
+            label: "Version name",
+            initialValue: managementVersion.label,
+            placeholder: "V1",
+            maxLength: 40,
+            emptyError: "Enter a version name.",
+          },
+        };
+        break;
+      case "delete-version-audio":
+        if (managementPolicy) {
+          managementConfig = managementPolicy.isStorageCleanupRetry
+            ? {
+                id: `retry-storage-cleanup:${managementVersion.id}`,
+                title: `Retry storage cleanup for ${managementVersion.label}?`,
+                description:
+                  "The version is already deleted in Skitza. This safely retries removal of its exact stored audio object.",
+                confirmLabel: "Retry storage cleanup",
+                pendingLabel: "Retrying cleanup…",
+                cancelLabel: "Not now",
+                destructive: true,
+                details: managementPolicy.details,
+              }
+            : {
+                id: `delete-version-audio:${managementVersion.id}`,
+                title: `Permanently delete ${managementVersion.label} audio?`,
+                description: managementPolicy.canDelete
+                  ? managementPolicy.strongWarning
+                    ? "This Released song permits producer-marked-final or last-audio deletion. Review every consequence."
+                    : "The audio file is removed from storage, playback, downloads, and public switching."
+                  : "This audio is protected until the song is marked Released.",
+                confirmLabel: "Permanently delete audio",
+                pendingLabel: "Deleting audio…",
+                cancelLabel: "Keep audio",
+                destructive: true,
+                strongWarning: managementPolicy.strongWarning,
+                blockedReason: managementPolicy.canDelete
+                  ? null
+                  : "Keep another safe playable version or mark the song Released before deleting this audio.",
+                details: managementPolicy.details,
+              };
+        }
+        break;
+    }
   }
 
   // Topbar crumbs: Music › <client>? › <project> › <song>. Client is
@@ -547,9 +1067,7 @@ export function SongPage({
   // /dashboard/music/project/<id>; artist L2 lives at /artist/music/
   // <id> (different route shape, not just prefix). Same role switch
   // the tracklist row href already uses in project-page.tsx.
-  const clientCrumb = data.track.clientName
-    ? [{ label: data.track.clientName }]
-    : [];
+  const clientCrumb = data.track.clientName ? [{ label: data.track.clientName }] : [];
   const projectHref =
     role === "artist"
       ? `/artist/music/${data.track.projectId}`
@@ -560,7 +1078,7 @@ export function SongPage({
       label: data.track.projectTitle,
       href: projectHref,
     },
-    { label: data.track.title },
+    { label: songTitle },
   ];
 
   if (!activeVersion) {
@@ -578,10 +1096,13 @@ export function SongPage({
   const playState = playButtonState({
     activeVersionId: activeVersion.id,
     audioUrl: activeVersion.audioUrl,
+    ...(activeVersion.audioDeletedAtIso === undefined
+      ? {}
+      : { audioDeletedAtIso: activeVersion.audioDeletedAtIso }),
     nowPlaying,
   });
-  const isPlayingThis =
-    playState.action === "toggle" && playState.label === "Pause";
+  const newestPlayableVersion = newestPlayableSongPageVersion(versions);
+  const isPlayingThis = playState.action === "toggle" && playState.label === "Pause";
 
   return (
     <main className="sk-page-enter">
@@ -590,10 +1111,7 @@ export function SongPage({
           a deep radial mask + two-stop linear fade, so the band feels
           like the OPENING of a record sleeve rather than a card glued
           to the top of the page. */}
-      <header
-        className="relative isolate overflow-hidden text-white"
-        style={{ background: heroBg }}
-      >
+      <header className="relative z-10 isolate text-white" style={{ background: heroBg }}>
         {/* Atmosphere — soft highlight at top-left + ambient bottom fade
             so the gradient melts into the canvas with no hard edge. */}
         <div
@@ -610,8 +1128,7 @@ export function SongPage({
           aria-hidden
           className="pointer-events-none absolute inset-0 opacity-[0.035] mix-blend-overlay"
           style={{
-            backgroundImage:
-              "radial-gradient(rgb(255 255 255) 1px, transparent 1px)",
+            backgroundImage: "radial-gradient(rgb(255 255 255) 1px, transparent 1px)",
             backgroundSize: "3px 3px",
           }}
         />
@@ -693,56 +1210,89 @@ export function SongPage({
             {/* Title block + meta */}
             <div className="reveal-up reveal-up-delay-1 min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-white/65">
+                <span className="font-mono text-[10px] font-bold tracking-[0.18em] text-white/65 uppercase">
                   Song · {data.track.projectTitle}
                 </span>
-                {archivedLabel ? (
-                  <span className="inline-flex rounded-[var(--radius-sm)] border border-white/25 bg-white/12 px-2 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.08em] text-white/90 backdrop-blur-sm">
-                    {archivedLabel}
+                {projectArchivedLabel ? (
+                  <span className="inline-flex rounded-[var(--radius-sm)] border border-white/25 bg-white/12 px-2 py-0.5 font-mono text-[9.5px] font-bold tracking-[0.08em] text-white/90 uppercase backdrop-blur-sm">
+                    {projectArchivedLabel}
+                  </span>
+                ) : null}
+                {songArchived ? (
+                  <span className="inline-flex rounded-[var(--radius-sm)] border border-white/25 bg-white/12 px-2 py-0.5 font-mono text-[9.5px] font-bold tracking-[0.08em] text-white/90 uppercase backdrop-blur-sm">
+                    Song archived
+                  </span>
+                ) : null}
+                {songReleased ? (
+                  <span className="inline-flex rounded-[var(--radius-sm)] border border-white/35 bg-white/90 px-2 py-0.5 font-mono text-[9.5px] font-bold tracking-[0.08em] text-[rgb(17_16_9)] uppercase">
+                    Released
                   </span>
                 ) : null}
               </div>
               <h1
-                className="font-display mt-1 line-clamp-2 text-[clamp(24px,3.4vw,38px)] font-extrabold leading-[1.05] tracking-[-0.03em] [overflow-wrap:anywhere]"
+                className="font-display mt-1 line-clamp-2 text-[clamp(24px,3.4vw,38px)] leading-[1.05] font-extrabold tracking-[-0.03em] [overflow-wrap:anywhere]"
                 style={{ textShadow: "0 2px 14px rgba(0,0,0,0.2)" }}
               >
-                {data.track.title}
+                {songTitle}
               </h1>
               <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12px] text-white/80">
-                {clientLabel ? (
-                  <span className="font-medium">{clientLabel}</span>
+                {clientLabel ? <span className="font-medium">{clientLabel}</span> : null}
+                {songArtist && songArtist !== clientLabel ? (
+                  <>
+                    <span aria-hidden className="text-white/40">
+                      ·
+                    </span>
+                    <span className="text-white/75">Artist: {songArtist}</span>
+                  </>
                 ) : null}
                 {activeVersion.durationMs ? (
                   <>
-                    <span aria-hidden className="text-white/40">·</span>
+                    <span aria-hidden className="text-white/40">
+                      ·
+                    </span>
                     <span className="font-mono tabular-nums">
                       {fmtMs(activeVersion.durationMs)}
                     </span>
                   </>
                 ) : null}
-                <span aria-hidden className="text-white/40">·</span>
+                <span aria-hidden className="text-white/40">
+                  ·
+                </span>
                 <span className="text-white/70">
                   uploaded {fmtRelativeIso(activeVersion.uploadedAtIso)}
                 </span>
+                {activeVersionDeleted ? (
+                  <>
+                    <span aria-hidden className="text-white/40">
+                      ·
+                    </span>
+                    <span className="inline-flex rounded-[var(--radius-sm)] border border-white/20 bg-white/[0.08] px-2 py-0.5 font-mono text-[9.5px] font-bold tracking-[0.1em] text-white/65 uppercase">
+                      Audio deleted
+                    </span>
+                  </>
+                ) : null}
                 {isApproved ? (
                   <>
-                    <span aria-hidden className="text-white/40">·</span>
-                    <span className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] bg-white/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.16em] text-[rgb(17_16_9)]">
-                      <CheckIcon /> Approved
+                    <span aria-hidden className="text-white/40">
+                      ·
+                    </span>
+                    <span className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] bg-white/90 px-2 py-0.5 text-[10px] font-bold tracking-[0.16em] text-[rgb(17_16_9)] uppercase">
+                      <CheckIcon /> {role === "producer" ? "Marked final" : "Approved"}
                     </span>
                   </>
                 ) : null}
               </div>
 
               {/* Version pills — magnetic hover, monospace labels */}
-              {data.versions.length > 1 ? (
-                <div className="mt-3 flex flex-wrap items-center gap-1">
-                  <span className="mr-1 font-mono text-[9px] font-bold uppercase tracking-[0.16em] text-white/55">
+              {versions.length > 1 ? (
+                <div className="mt-3 flex flex-wrap items-center gap-x-1 gap-y-2">
+                  <span className="mr-1 font-mono text-[9px] font-bold tracking-[0.16em] text-white/55 uppercase">
                     Version
                   </span>
-                  {data.versions.map((v, i) => {
+                  {versions.map((v, i) => {
                     const isActive = v.id === activeVersion.id;
-                    const isLatest = v.id === data.versions[0]?.id;
+                    const isDeleted = v.audioDeletedAtIso != null;
+                    const isLatest = v.id === newestPlayableVersion?.id;
                     return (
                       <button
                         key={v.id}
@@ -752,18 +1302,15 @@ export function SongPage({
                         }}
                         style={{ animationDelay: `${String(120 + i * 50)}ms` }}
                         className={[
-                          "sk-press reveal-up relative inline-flex items-center gap-1 rounded-[var(--radius-sm)] border px-2.5 py-1 font-mono text-[10.5px] font-bold tracking-wide",
-                          // Invisible tap-area extension — the pill renders
-                          // ~26px tall; +12px each side clears the 44px touch
-                          // floor (the pseudo resolves against the padding
-                          // box, inside the 1px border). x stays at 2px so
-                          // adjacent pills (gap-1 = 4px apart) don't overlap
-                          // each other's zones.
-                          "before:absolute before:-inset-y-3 before:-inset-x-0.5 before:content-['']",
+                          "sk-press reveal-up relative inline-flex min-h-11 items-center gap-1 rounded-[var(--radius-sm)] border px-2.5 py-2 font-mono text-[10.5px] font-bold tracking-wide",
                           "transition-[background-color,border-color,transform] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
                           isActive
-                            ? "border-white bg-white text-[rgb(17_16_9)] shadow-[0_6px_18px_-6px_rgba(255,255,255,0.45)]"
-                            : "border-white/22 bg-white/[0.08] text-white/85 hover:-translate-y-px hover:bg-white/[0.16]",
+                            ? isDeleted
+                              ? "border-white/30 bg-white/[0.08] text-white/70"
+                              : "border-white bg-white text-[rgb(17_16_9)] shadow-[0_6px_18px_-6px_rgba(255,255,255,0.45)]"
+                            : isDeleted
+                              ? "border-white/12 bg-white/[0.04] text-white/50 hover:bg-white/[0.08]"
+                              : "border-white/22 bg-white/[0.08] text-white/85 hover:-translate-y-px hover:bg-white/[0.16]",
                         ].join(" ")}
                       >
                         {/* Active version: tiny amber dot — the visual
@@ -776,6 +1323,11 @@ export function SongPage({
                           />
                         ) : null}
                         <span>{v.label}</span>
+                        {isDeleted ? (
+                          <span className="text-[8.5px] font-semibold tracking-normal normal-case">
+                            · Audio deleted
+                          </span>
+                        ) : null}
                         {isActive && isLatest ? (
                           <span className="text-[rgb(17_16_9)/0.55]">· current</span>
                         ) : null}
@@ -788,79 +1340,78 @@ export function SongPage({
             </div>
 
             {/* Action rail — ONE confident Play CTA + a single secondary
-                overflow trigger + a quiet Approve. The brand color now
-                belongs to the playhead, NOT the chrome — Approve uses
-                a glass outline + check icon, flipping to filled white
-                once already approved. */}
+                overflow trigger + a quiet producer-final action. */}
             <div className="reveal-up reveal-up-delay-2 flex shrink-0 flex-wrap items-center gap-2.5">
               {/* Play CTA — primary, magnetic, glow when playing. The
                   data-test pin lives here now — the in-card transport
                   bar was removed so the floating PersistentPlayer dock
                   at the bottom of the screen handles inline controls. */}
-              <button
-                type="button"
-                data-test="waveform-play-button"
-                onClick={handlePlayToggle}
-                disabled={playState.disabled}
-                aria-label={playState.label}
-                title={
-                  playState.disabled
-                    ? "Audio is still uploading"
-                    : playState.label
-                }
-                className={[
-                  "sk-press group relative inline-flex items-center gap-2 rounded-[var(--radius-md)] pl-2 pr-5 py-2 text-[13px] font-bold",
-                  "transition-[transform,box-shadow] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
-                  "bg-white text-[rgb(17_16_9)] disabled:cursor-not-allowed disabled:opacity-50",
-                  isPlayingThis
-                    ? "shadow-[0_10px_30px_-8px_rgba(255,255,255,0.5),0_0_0_1px_rgba(255,255,255,0.4)]"
-                    : "shadow-[0_8px_24px_-6px_rgba(0,0,0,0.35)] hover:-translate-y-px hover:shadow-[0_14px_36px_-8px_rgba(0,0,0,0.4)]",
-                ].join(" ")}
-              >
+              {activeVersionDeleted ? (
                 <span
+                  role="status"
+                  className="inline-flex min-h-11 items-center rounded-[var(--radius-lg)] border border-white/20 bg-white/[0.08] px-4 text-[12.5px] font-bold text-white/65"
+                >
+                  Audio deleted
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  data-test="waveform-play-button"
+                  onClick={handlePlayToggle}
+                  disabled={playState.disabled}
+                  aria-label={playState.label}
+                  title={playState.disabled ? "Audio is still uploading" : playState.label}
                   className={[
-                    "flex h-8 w-8 items-center justify-center rounded-full",
-                    "transition-transform duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] group-hover:scale-[1.05]",
+                    "sk-press group relative inline-flex items-center gap-2 rounded-[var(--radius-md)] py-2 pr-5 pl-2 text-[13px] font-bold",
+                    "transition-[transform,box-shadow] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
+                    "bg-white text-[rgb(17_16_9)] disabled:cursor-not-allowed disabled:opacity-50",
                     isPlayingThis
-                      ? "bg-[rgb(var(--brand-primary))] text-white"
-                      : "bg-[rgb(17_16_9)] text-white",
+                      ? "shadow-[0_10px_30px_-8px_rgba(255,255,255,0.5),0_0_0_1px_rgba(255,255,255,0.4)]"
+                      : "shadow-[0_8px_24px_-6px_rgba(0,0,0,0.35)] hover:-translate-y-px hover:shadow-[0_14px_36px_-8px_rgba(0,0,0,0.4)]",
                   ].join(" ")}
                 >
-                  {isPlayingThis ? <PauseIcon /> : <PlayIcon />}
-                </span>
-                <span className="tracking-[-0.005em]">{playState.label}</span>
-              </button>
+                  <span
+                    className={[
+                      "flex h-8 w-8 items-center justify-center rounded-full",
+                      "transition-transform duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] group-hover:scale-[1.05]",
+                      isPlayingThis
+                        ? "bg-[rgb(var(--brand-primary))] text-white"
+                        : "bg-[rgb(17_16_9)] text-white",
+                    ].join(" ")}
+                  >
+                    {isPlayingThis ? <PauseIcon /> : <PlayIcon />}
+                  </span>
+                  <span className="tracking-[-0.005em]">{playState.label}</span>
+                </button>
+              )}
 
-              {/* Approve — quiet glass outline by default; filled cream
-                  once approved. Brand amber is reserved for the playhead.
-                  Producer-only: artists don't approve mixes (that's the
-                  producer's decision). The "Approved" status is still
-                  visible to the artist via the chip in the meta line
-                  above the version pills. */}
+              {/* Mark final — producer-only compatibility action. Artist
+                  approval remains a separate artist-side event. */}
               {role === "producer" ? (
-              <button
-                type="button"
-                onClick={handleApproveToggle}
-                disabled={isPending}
-                title={isApproved ? "Approved" : "Approve version"}
-                aria-label={isApproved ? "Approved" : "Approve version"}
-                className={[
-                  "sk-press inline-flex items-center gap-1.5 rounded-[var(--radius-md)] px-4 py-2 text-[12.5px] font-bold",
-                  "transition-[background-color,border-color,box-shadow,transform] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
-                  isApproved
-                    ? "border border-white/0 bg-white/95 text-[rgb(17_16_9)] shadow-[0_6px_20px_-6px_rgba(255,255,255,0.45)]"
-                    : "border border-white/28 bg-white/[0.06] text-white hover:bg-white/[0.14] hover:-translate-y-px",
-                  "disabled:opacity-60",
-                ].join(" ")}
-              >
-                <CheckIcon /> {isApproved ? "Approved" : "Approve"}
-              </button>
+                <button
+                  type="button"
+                  onClick={handleApproveToggle}
+                  disabled={isPending}
+                  title={isApproved ? "Marked final" : "Mark final"}
+                  aria-label={isApproved ? "Marked final" : "Mark final"}
+                  className={[
+                    "sk-press inline-flex items-center gap-1.5 rounded-[var(--radius-md)] px-4 py-2 text-[12.5px] font-bold",
+                    "transition-[background-color,border-color,box-shadow,transform] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
+                    isApproved
+                      ? "border border-white/0 bg-white/95 text-[rgb(17_16_9)] shadow-[0_6px_20px_-6px_rgba(255,255,255,0.45)]"
+                      : "border border-white/28 bg-white/[0.06] text-white hover:-translate-y-px hover:bg-white/[0.14]",
+                    "disabled:opacity-60",
+                  ].join(" ")}
+                >
+                  <CheckIcon /> {isApproved ? "Marked final" : "Mark final"}
+                </button>
               ) : null}
 
               {/* Overflow — single glass circle for share / favorite /
                   download. Origin-aware popover scales from this trigger. */}
               <div ref={overflowRef} className="relative">
                 <button
+                  ref={moreButtonRef}
                   type="button"
                   aria-label="More actions"
                   aria-haspopup="menu"
@@ -869,11 +1420,9 @@ export function SongPage({
                     setOverflowOpen((o) => !o);
                   }}
                   className={[
-                    "sk-press inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/22",
+                    "sk-press inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/22",
                     "transition-[background-color,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)]",
-                    overflowOpen
-                      ? "bg-white/[0.22]"
-                      : "bg-white/[0.08] hover:bg-white/[0.16]",
+                    overflowOpen ? "bg-white/[0.22]" : "bg-white/[0.08] hover:bg-white/[0.16]",
                   ].join(" ")}
                 >
                   <MoreIcon />
@@ -881,24 +1430,21 @@ export function SongPage({
                 {overflowOpen ? (
                   <div
                     role="menu"
-                    className="absolute right-0 top-[calc(100%+8px)] z-30 w-56 origin-top-right overflow-hidden rounded-[18px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 text-[rgb(var(--fg-default))] shadow-[0_30px_60px_-15px_rgba(17,16,9,0.35)]"
+                    className="absolute top-[calc(100%+8px)] right-0 z-30 max-h-[min(70dvh,520px)] w-64 origin-top-right overflow-y-auto rounded-[18px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 text-[rgb(var(--fg-default))] shadow-[0_30px_60px_-15px_rgba(17,16,9,0.35)] max-[400px]:fixed max-[400px]:inset-x-4 max-[400px]:top-auto max-[400px]:bottom-4 max-[400px]:max-h-[calc(100dvh-2rem)] max-[400px]:w-auto max-[400px]:origin-bottom-right"
                     style={{
-                      animation:
-                        "skitza-pop-in 220ms cubic-bezier(0.23, 1, 0.32, 1) both",
+                      animation: "skitza-pop-in 220ms cubic-bezier(0.23, 1, 0.32, 1) both",
                     }}
                   >
                     <button
                       type="button"
                       role="menuitem"
-                      aria-label={
-                        isFavorite ? "Remove from favorites" : "Add to favorites"
-                      }
+                      aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
                       aria-pressed={isFavorite}
                       onClick={() => {
                         setIsFavorite((f) => !f);
                         setOverflowOpen(false);
                       }}
-                      className="flex w-full items-center gap-2.5 rounded-[12px] px-3 py-2 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
+                      className="flex min-h-11 w-full items-center gap-2.5 rounded-[var(--radius-lg)] px-3 py-2 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
                     >
                       <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary-dark))]">
                         <StarIcon filled={isFavorite} />
@@ -910,14 +1456,14 @@ export function SongPage({
                       role="menuitem"
                       aria-label="Share with artist"
                       onClick={handleShare}
-                      className="flex w-full items-center gap-2.5 rounded-[12px] px-3 py-2 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
+                      className="flex min-h-11 w-full items-center gap-2.5 rounded-[var(--radius-lg)] px-3 py-2 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
                     >
                       <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[rgb(var(--fg-default)/0.06)] text-[rgb(var(--fg-default))]">
                         <ShareIcon />
                       </span>
                       Share with artist
                     </button>
-                    {activeVersion.audioUrl ? (
+                    {isSongPageVersionPlayable(activeVersion) ? (
                       <a
                         role="menuitem"
                         aria-label="Download"
@@ -926,7 +1472,7 @@ export function SongPage({
                         onClick={() => {
                           setOverflowOpen(false);
                         }}
-                        className="flex w-full items-center gap-2.5 rounded-[12px] px-3 py-2 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
+                        className="flex min-h-11 w-full items-center gap-2.5 rounded-[var(--radius-lg)] px-3 py-2 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
                       >
                         <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[rgb(var(--fg-default)/0.06)] text-[rgb(var(--fg-default))]">
                           <DownloadIcon />
@@ -938,14 +1484,111 @@ export function SongPage({
                         role="menuitem"
                         aria-label="Download"
                         aria-disabled
-                        className="flex w-full items-center gap-2.5 rounded-[12px] px-3 py-2 text-left text-[13px] font-semibold opacity-50"
+                        className="flex min-h-11 w-full items-center gap-2.5 rounded-[var(--radius-lg)] px-3 py-2 text-left text-[13px] font-semibold opacity-50"
                       >
                         <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[rgb(var(--fg-default)/0.06)] text-[rgb(var(--fg-default))]">
                           <DownloadIcon />
                         </span>
-                        Download (uploading…)
+                        {activeVersionDeleted ? "Audio deleted" : "Download (uploading…)"}
                       </span>
                     )}
+                    {role === "producer" &&
+                    (actions.renameSong ||
+                      actions.editArtist ||
+                      actions.setArchived ||
+                      actions.markReleased ||
+                      actions.renameVersion ||
+                      actions.deleteVersionAudio) ? (
+                      <>
+                        <div
+                          role="separator"
+                          className="mx-2 my-1 h-px bg-[rgb(var(--border-subtle))]"
+                        />
+                        {actions.renameSong ? (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              openManagementDialog("rename-song");
+                            }}
+                            className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
+                          >
+                            Rename song
+                          </button>
+                        ) : null}
+                        {actions.editArtist ? (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              openManagementDialog("edit-artist");
+                            }}
+                            className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
+                          >
+                            Edit artist credit
+                          </button>
+                        ) : null}
+                        {actions.setArchived ? (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              openManagementDialog("set-archived");
+                            }}
+                            className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
+                          >
+                            {songArchived ? "Restore song" : "Archive song"}
+                          </button>
+                        ) : null}
+                        {actions.markReleased && !songReleased ? (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              openManagementDialog("mark-released");
+                            }}
+                            className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
+                          >
+                            Mark as Released
+                          </button>
+                        ) : null}
+                        {actions.renameVersion ? (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              openManagementDialog("rename-version");
+                            }}
+                            className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
+                          >
+                            Rename version
+                          </button>
+                        ) : null}
+                        {actions.deleteVersionAudio && activeVersionPlayable ? (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              openManagementDialog("delete-version-audio");
+                            }}
+                            className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold text-[rgb(var(--fg-danger))] transition-colors hover:bg-[rgb(var(--fg-danger)/0.08)]"
+                          >
+                            Permanently delete audio
+                          </button>
+                        ) : actions.deleteVersionAudio && activeVersionDeleted ? (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              openManagementDialog("delete-version-audio");
+                            }}
+                            className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold text-[rgb(var(--fg-danger))] transition-colors hover:bg-[rgb(var(--fg-danger)/0.08)]"
+                          >
+                            Retry storage cleanup
+                          </button>
+                        ) : null}
+                      </>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -976,25 +1619,33 @@ export function SongPage({
                 "inset 0 1px 0 0 rgb(255 255 255 / 0.4), inset 0 -1px 0 0 rgb(var(--fg-default) / 0.04)",
             }}
           >
-            <Waveform50
-              durationMs={activeVersion.durationMs ?? 240_000}
-              comments={waveformComments}
-              seed={activeVersion.id}
-              // Pre-computed peaks from track_versions.peaks ride down
-              // with the page payload — Waveform50 renders the real
-              // envelope on first frame, no client-side decode.
-              initialPeaks={activeVersion.peaks}
-              // Fallback decode path for legacy versions (peaks=null)
-              // OR formats audio-decode missed server-side. Fetches
-              // same-origin /api/download/<id> so R2 CORS doesn't bite.
-              peaksUrl={
-                activeVersion.audioUrl
-                  ? `/api/download/${activeVersion.id}`
-                  : undefined
-              }
-              onProgress={setCurrentMs}
-              height={68}
-            />
+            {activeVersionDeleted ? (
+              <div
+                role="status"
+                className="flex min-h-[92px] flex-col items-center justify-center rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-4 text-center"
+              >
+                <p className="text-[13px] font-bold text-[rgb(var(--fg-muted))]">Audio deleted</p>
+                <p className="mt-1 text-[11.5px] text-[rgb(var(--fg-faint))]">
+                  Version name, upload date, and comment history remain available.
+                </p>
+              </div>
+            ) : (
+              <Waveform50
+                durationMs={activeVersion.durationMs ?? 240_000}
+                comments={waveformComments}
+                seed={activeVersion.id}
+                // Pre-computed peaks from track_versions.peaks ride down
+                // with the page payload — Waveform50 renders the real
+                // envelope on first frame, no client-side decode.
+                initialPeaks={activeVersion.peaks}
+                // Fallback decode path for legacy versions (peaks=null)
+                // OR formats audio-decode missed server-side. Fetches
+                // same-origin /api/download/<id> so R2 CORS doesn't bite.
+                peaksUrl={activeVersionPlayable ? `/api/download/${activeVersion.id}` : undefined}
+                onProgress={setCurrentMs}
+                height={68}
+              />
+            )}
           </div>
         </div>
 
@@ -1008,7 +1659,7 @@ export function SongPage({
               <h2 className="font-display text-[15px] font-bold tracking-[-0.018em] text-[rgb(var(--fg-default))]">
                 Notes
               </h2>
-              <span className="font-mono text-[10.5px] font-bold tabular-nums text-[rgb(var(--fg-muted))]">
+              <span className="font-mono text-[10.5px] font-bold text-[rgb(var(--fg-muted))] tabular-nums">
                 {String(visibleComments.length)}
                 {visibleComments.length !== allCommentsForVersion.length
                   ? ` of ${String(allCommentsForVersion.length)}`
@@ -1021,7 +1672,7 @@ export function SongPage({
                 onClick={() => {
                   setShowResolved((s) => !s);
                 }}
-                className="sk-press relative rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))] transition-colors before:absolute before:-inset-y-3 before:-inset-x-1 before:content-[''] hover:bg-[rgb(var(--fg-default)/0.04)] hover:text-[rgb(var(--fg-default))]"
+                className="sk-press relative rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-1 font-mono text-[10px] font-bold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase transition-colors before:absolute before:-inset-x-1 before:-inset-y-3 before:content-[''] hover:bg-[rgb(var(--fg-default)/0.04)] hover:text-[rgb(var(--fg-default))]"
               >
                 {showResolved ? "Hide resolved" : "Show resolved"}
               </button>
@@ -1042,20 +1693,21 @@ export function SongPage({
               role="status"
               className="mb-2.5 rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-3 py-2.5 text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))]"
             >
-              This project is archived. New comments are closed, but listening and
-              comment history remain available.
+              {songArchived
+                ? "This song is archived. Restore this song to add comments. Listening and comment history remain available."
+                : "This project is archived. New comments are closed, but listening and comment history remain available."}
             </div>
           ) : (
             /* Composer — premium pill, focus-state with amber ring. */
             <div
               className={[
-                "group/composer mb-2.5 flex items-center gap-2 rounded-[var(--radius-sm)] border bg-[rgb(var(--bg-elevated))] py-1 pl-2 pr-1",
+                "group/composer mb-2.5 flex items-center gap-2 rounded-[var(--radius-sm)] border bg-[rgb(var(--bg-elevated))] py-1 pr-1 pl-2",
                 "border-[rgb(var(--border-subtle))]",
                 "transition-[border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)]",
                 "focus-within:border-[rgb(var(--brand-primary)/0.5)] focus-within:shadow-[0_0_0_4px_rgb(var(--brand-primary)/0.12)]",
               ].join(" ")}
             >
-              <span className="shrink-0 rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary)/0.14)] px-2.5 py-1 font-mono text-[10.5px] font-bold tabular-nums text-[rgb(var(--brand-primary-dark))]">
+              <span className="shrink-0 rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary)/0.14)] px-2.5 py-1 font-mono text-[10.5px] font-bold text-[rgb(var(--brand-primary-dark))] tabular-nums">
                 @{fmtMs(currentMs)}
               </span>
               <input
@@ -1089,7 +1741,9 @@ export function SongPage({
               <ArrowUpHint />
               <p className="mt-2">
                 {commentsClosed
-                  ? "No notes were added before this project was archived."
+                  ? songArchived
+                    ? "No notes were added before this song was archived."
+                    : "No notes were added before this project was archived."
                   : "No notes yet. Type one above to drop it at the current playhead."}
               </p>
             </div>
@@ -1097,8 +1751,7 @@ export function SongPage({
             <ul className="flex flex-col gap-1.5">
               {visibleComments.map((c, i) => {
                 const override = resolvedOverrides[c.id];
-                const isResolved =
-                  override !== undefined ? override : c.resolvedAtIso !== null;
+                const isResolved = override !== undefined ? override : c.resolvedAtIso !== null;
                 // Stagger entry by index, capped at 5 (after that the cascade
                 // gets noticeably slow without adding polish).
                 const staggerMs = Math.min(i, 5) * 50;
@@ -1121,7 +1774,7 @@ export function SongPage({
                     >
                       <span
                         aria-hidden
-                        className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]"
+                        className="font-mono text-[10px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase"
                       >
                         ✓
                       </span>
@@ -1132,7 +1785,7 @@ export function SongPage({
                           handleJumpToComment(c.timeMs);
                         }}
                         aria-label={`Jump to ${fmtMs(c.timeMs)}`}
-                        className="sk-press relative shrink-0 rounded-[var(--radius-sm)] bg-[rgb(var(--fg-default)/0.05)] px-1.5 py-0 font-mono text-[10px] font-bold tabular-nums text-[rgb(var(--fg-muted))] before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] hover:bg-[rgb(var(--fg-default)/0.1)]"
+                        className="sk-press relative shrink-0 rounded-[var(--radius-sm)] bg-[rgb(var(--fg-default)/0.05)] px-1.5 py-0 font-mono text-[10px] font-bold text-[rgb(var(--fg-muted))] tabular-nums before:absolute before:-inset-x-1 before:-inset-y-2 before:content-[''] hover:bg-[rgb(var(--fg-default)/0.1)]"
                       >
                         @{fmtMs(c.timeMs)}
                       </button>
@@ -1142,7 +1795,7 @@ export function SongPage({
                       {/* Body: truncated single line by default; on
                           row hover, basis grows + line-clamp lifts so
                           the full body wraps onto subsequent lines. */}
-                      <span className="min-w-0 flex-1 basis-0 truncate text-[11.5px] text-[rgb(var(--fg-muted))] transition-[max-height,color] duration-200 group-hover/note:whitespace-normal group-hover:text-[rgb(var(--fg-default))]">
+                      <span className="min-w-0 flex-1 basis-0 truncate text-[11.5px] text-[rgb(var(--fg-muted))] transition-[max-height,color] duration-200 group-hover:text-[rgb(var(--fg-default))] group-hover/note:whitespace-normal">
                         {c.body}
                       </span>
                       {/* Hover-revealed on desktop; touch devices have
@@ -1156,7 +1809,7 @@ export function SongPage({
                         onClick={() => {
                           handleJumpToComment(c.timeMs);
                         }}
-                        className="relative hidden text-[10px] font-bold uppercase tracking-wide text-[rgb(var(--fg-muted))] before:absolute before:-inset-y-[15px] before:-inset-x-1 before:content-[''] hover:text-[rgb(var(--fg-default))] group-hover/note:inline [@media(hover:none)]:inline"
+                        className="relative hidden text-[10px] font-bold tracking-wide text-[rgb(var(--fg-muted))] uppercase group-hover/note:inline before:absolute before:-inset-x-1 before:-inset-y-[15px] before:content-[''] hover:text-[rgb(var(--fg-default))] [@media(hover:none)]:inline"
                       >
                         Jump
                       </button>
@@ -1167,7 +1820,7 @@ export function SongPage({
                           onClick={() => {
                             handleReplyToComment(c.authorName);
                           }}
-                          className="relative hidden text-[10px] font-bold uppercase tracking-wide text-[rgb(var(--fg-muted))] before:absolute before:-inset-y-[15px] before:-inset-x-1 before:content-[''] hover:text-[rgb(var(--fg-default))] group-hover/note:inline [@media(hover:none)]:inline"
+                          className="relative hidden text-[10px] font-bold tracking-wide text-[rgb(var(--fg-muted))] uppercase group-hover/note:inline before:absolute before:-inset-x-1 before:-inset-y-[15px] before:content-[''] hover:text-[rgb(var(--fg-default))] [@media(hover:none)]:inline"
                         >
                           Reply
                         </button>
@@ -1177,7 +1830,7 @@ export function SongPage({
                         onClick={() => {
                           handleResolveToggle(c);
                         }}
-                        className="relative hidden shrink-0 text-[10px] font-bold uppercase tracking-wide text-[rgb(var(--fg-muted))] before:absolute before:-inset-y-[15px] before:-inset-x-1 before:content-[''] hover:text-[rgb(var(--fg-default))] group-hover/note:inline [@media(hover:none)]:inline"
+                        className="relative hidden shrink-0 text-[10px] font-bold tracking-wide text-[rgb(var(--fg-muted))] uppercase group-hover/note:inline before:absolute before:-inset-x-1 before:-inset-y-[15px] before:content-[''] hover:text-[rgb(var(--fg-default))] [@media(hover:none)]:inline"
                       >
                         Reopen
                       </button>
@@ -1203,7 +1856,7 @@ export function SongPage({
                     <span
                       aria-hidden
                       className={[
-                        "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold uppercase tracking-wider text-white",
+                        "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold tracking-wider text-white uppercase",
                         c.fromProducer
                           ? "bg-[rgb(var(--brand-primary))] shadow-[0_2px_8px_-2px_rgb(var(--brand-primary)/0.55)]"
                           : "bg-[rgb(var(--fg-muted))]",
@@ -1223,7 +1876,7 @@ export function SongPage({
                             handleJumpToComment(c.timeMs);
                           }}
                           aria-label={`Jump to ${fmtMs(c.timeMs)}`}
-                          className="sk-press relative rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary)/0.14)] px-2 py-0.5 font-mono text-[10px] font-bold tabular-nums text-[rgb(var(--brand-primary-dark))] transition-colors duration-200 before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] hover:bg-[rgb(var(--brand-primary)/0.24)]"
+                          className="sk-press relative rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary)/0.14)] px-2 py-0.5 font-mono text-[10px] font-bold text-[rgb(var(--brand-primary-dark))] tabular-nums transition-colors duration-200 before:absolute before:-inset-x-1 before:-inset-y-2 before:content-[''] hover:bg-[rgb(var(--brand-primary)/0.24)]"
                         >
                           @{fmtMs(c.timeMs)}
                         </button>
@@ -1248,7 +1901,7 @@ export function SongPage({
                           onClick={() => {
                             handleJumpToComment(c.timeMs);
                           }}
-                          className="relative text-[rgb(var(--fg-muted))] before:absolute before:-inset-y-[15px] before:-inset-x-1 before:content-[''] hover:text-[rgb(var(--fg-default))]"
+                          className="relative text-[rgb(var(--fg-muted))] before:absolute before:-inset-x-1 before:-inset-y-[15px] before:content-[''] hover:text-[rgb(var(--fg-default))]"
                         >
                           Jump to
                         </button>
@@ -1259,7 +1912,7 @@ export function SongPage({
                             onClick={() => {
                               handleReplyToComment(c.authorName);
                             }}
-                            className="relative text-[rgb(var(--fg-muted))] before:absolute before:-inset-y-[15px] before:-inset-x-1 before:content-[''] hover:text-[rgb(var(--fg-default))]"
+                            className="relative text-[rgb(var(--fg-muted))] before:absolute before:-inset-x-1 before:-inset-y-[15px] before:content-[''] hover:text-[rgb(var(--fg-default))]"
                           >
                             Reply
                           </button>
@@ -1269,7 +1922,7 @@ export function SongPage({
                           onClick={() => {
                             handleResolveToggle(c);
                           }}
-                          className="relative text-[rgb(var(--fg-muted))] before:absolute before:-inset-y-[15px] before:-inset-x-1 before:content-[''] hover:text-[rgb(var(--fg-default))]"
+                          className="relative text-[rgb(var(--fg-muted))] before:absolute before:-inset-x-1 before:-inset-y-[15px] before:content-[''] hover:text-[rgb(var(--fg-default))]"
                         >
                           Resolve
                         </button>
@@ -1282,6 +1935,17 @@ export function SongPage({
           )}
         </div>
       </section>
+      {role === "producer" && managementConfig ? (
+        <SongManagementDialog
+          open={managementDialog !== null}
+          config={managementConfig}
+          onOpenChange={(open) => {
+            if (!open) setManagementDialog(null);
+          }}
+          onSubmit={handleManagementSubmit}
+          returnFocusRef={moreButtonRef}
+        />
+      ) : null}
     </main>
   );
 }
@@ -1317,7 +1981,17 @@ function initials(name: string): string {
 
 function ChevronRightIcon() {
   return (
-    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
       <polyline points="6 4 10 8 6 12" />
     </svg>
   );
@@ -1325,7 +1999,17 @@ function ChevronRightIcon() {
 
 function CheckIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
       <polyline points="3 8.5 7 12 13 5" />
     </svg>
   );
@@ -1333,7 +2017,16 @@ function CheckIcon() {
 
 function WaveformGlyph() {
   return (
-    <svg width="56" height="56" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" aria-hidden>
+    <svg
+      width="56"
+      height="56"
+      viewBox="0 0 32 32"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      aria-hidden
+    >
       <line x1="4" y1="14" x2="4" y2="18" opacity="0.7" />
       <line x1="8" y1="11" x2="8" y2="21" opacity="0.8" />
       <line x1="12" y1="7" x2="12" y2="25" opacity="0.95" />
@@ -1367,7 +2060,16 @@ function StarIcon({ filled }: { filled: boolean }) {
   // future tweaks to stroke / fill. Filled toggles between solid (in-
   // favorites) and outline (not yet favorited).
   return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" aria-hidden>
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinejoin="round"
+      aria-hidden
+    >
       <path d="M8 1.5 9.94 5.85 14.5 6.4 11.05 9.55 12 14.5 8 11.95 4 14.5 4.95 9.55 1.5 6.4 6.06 5.85 Z" />
     </svg>
   );
@@ -1375,7 +2077,17 @@ function StarIcon({ filled }: { filled: boolean }) {
 
 function ShareIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
       <circle cx="12" cy="3.5" r="2" />
       <circle cx="4" cy="8" r="2" />
       <circle cx="12" cy="12.5" r="2" />
@@ -1387,7 +2099,17 @@ function ShareIcon() {
 
 function DownloadIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
       <path d="M8 2v8" />
       <polyline points="4.5 7 8 10.5 11.5 7" />
       <line x1="2.5" y1="13.5" x2="13.5" y2="13.5" />

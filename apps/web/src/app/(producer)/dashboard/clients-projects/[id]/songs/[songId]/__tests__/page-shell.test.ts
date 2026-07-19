@@ -62,6 +62,10 @@ describe("songs/[songId]/page.tsx — Phase 3 Song Space page", () => {
     expect(SRC).toMatch(/songId/);
   });
 
+  it("projects the song's separate Released state into SongSpace", () => {
+    expect(SRC).toContain("releasedAtIso: track.releasedAt?.toISOString() ?? null");
+  });
+
   it("renders <main className=\"sk-page-enter ...\">", () => {
     expect(SRC).toMatch(/className=["'][^"']*sk-page-enter/);
   });

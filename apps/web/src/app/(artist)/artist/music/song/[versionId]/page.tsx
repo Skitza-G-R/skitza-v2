@@ -34,11 +34,7 @@ export default async function ArtistSongPage({ params }: PageProps) {
   const { userId } = await auth();
   if (!userId) return null;
 
-  if (
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-      versionId,
-    )
-  ) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(versionId)) {
     notFound();
   }
 
@@ -55,11 +51,23 @@ export default async function ArtistSongPage({ params }: PageProps) {
 
   // Cross the RSC → client boundary as plain JSON (Date → ISO).
   const wire: SongPageData = {
-    track: data.track,
+    track: {
+      id: data.track.id,
+      title: data.track.title,
+      artist: data.track.artist,
+      projectId: data.track.projectId,
+      projectTitle: data.track.projectTitle,
+      clientName: data.track.clientName,
+      archivedAtIso: data.track.archivedAt?.toISOString() ?? null,
+      releasedAtIso: data.track.releasedAt?.toISOString() ?? null,
+      workflowStage: data.track.workflowStage,
+      projectLifecycleStatus: data.track.projectLifecycleStatus,
+    },
     versions: data.versions.map((v) => ({
       id: v.id,
       label: v.label,
       audioUrl: v.audioUrl,
+      audioDeletedAtIso: v.audioDeletedAt?.toISOString() ?? null,
       durationMs: v.durationMs,
       uploadedAtIso: v.uploadedAt.toISOString(),
       approvedAtIso: v.approvedAt ? v.approvedAt.toISOString() : null,

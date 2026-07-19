@@ -9,6 +9,7 @@ import {
   isNotNull,
   isNull,
   ne,
+  or,
   projectTracks,
   projects,
   products,
@@ -45,6 +46,13 @@ export type MusicLatestVersion = Readonly<{
   uploadedAt: Date;
 }>;
 
+export type MusicHistoryVersion = Readonly<{
+  id: string;
+  label: string;
+  uploadedAt: Date;
+  audioDeletedAt: Date | null;
+}>;
+
 export type MusicAllocatedSong = Readonly<{
   kind: "song";
   id: string;
@@ -54,8 +62,11 @@ export type MusicAllocatedSong = Readonly<{
   title: string;
   artist: string | null;
   position: number;
+  archivedAt: Date | null;
+  releasedAt: Date | null;
   createdAt: Date;
   latestVersion: MusicLatestVersion | null;
+  latestHistoryVersion: MusicHistoryVersion | null;
   unreadComments: number;
   plays: 0;
 }>;
@@ -330,6 +341,8 @@ async function buildProjectReadModels(
         title: projectTracks.title,
         artist: projectTracks.artist,
         position: projectTracks.position,
+        archivedAt: projectTracks.archivedAt,
+        releasedAt: projectTracks.releasedAt,
         createdAt: projectTracks.createdAt,
       })
       .from(projectTracks)
@@ -346,6 +359,7 @@ async function buildProjectReadModels(
             trackId: trackVersions.trackId,
             label: trackVersions.label,
             audioUrl: trackVersions.audioUrl,
+            audioDeletedAt: trackVersions.audioDeletedAt,
             durationMs: trackVersions.durationMs,
             uploadedAt: trackVersions.uploadedAt,
           })
@@ -353,18 +367,30 @@ async function buildProjectReadModels(
           .where(
             and(
               inArray(trackVersions.trackId, trackIds),
-              isNull(trackVersions.audioDeletedAt),
-              isNotNull(trackVersions.audioUrl),
+              ...(scope.kind === "producer"
+                ? [eq(trackVersions.producerId, scope.producerId)]
+                : []),
+              or(isNotNull(trackVersions.audioUrl), isNotNull(trackVersions.audioDeletedAt)),
             ),
           )
           .orderBy(desc(trackVersions.uploadedAt), desc(trackVersions.id));
 
   const latestVersionByTrack = new Map<string, MusicLatestVersion>();
+  const latestHistoryVersionByTrack = new Map<string, MusicHistoryVersion>();
   for (const version of versionRows) {
+    if (version.audioUrl === null && version.audioDeletedAt == null) continue;
+    if (!latestHistoryVersionByTrack.has(version.trackId)) {
+      latestHistoryVersionByTrack.set(version.trackId, {
+        id: version.id,
+        label: version.label,
+        uploadedAt: version.uploadedAt,
+        audioDeletedAt: version.audioDeletedAt ?? null,
+      });
+    }
     // Keep this guard in addition to the SQL predicate so alternate test/read
     // adapters cannot let an in-flight null-audio placeholder hide older
     // playable audio.
-    if (version.audioUrl === null) continue;
+    if (version.audioUrl === null || version.audioDeletedAt != null) continue;
     if (!latestVersionByTrack.has(version.trackId)) {
       latestVersionByTrack.set(version.trackId, {
         id: version.id,
@@ -376,16 +402,21 @@ async function buildProjectReadModels(
     }
   }
 
-  const latestVersionIds = [...latestVersionByTrack.values()].map((version) => version.id);
+  const commentTargetVersionByTrack = new Map<string, string>();
+  for (const trackId of trackIds) {
+    const version = latestVersionByTrack.get(trackId) ?? latestHistoryVersionByTrack.get(trackId);
+    if (version) commentTargetVersionByTrack.set(trackId, version.id);
+  }
+  const commentVersionIds = [...new Set(commentTargetVersionByTrack.values())];
   const commentRows =
-    latestVersionIds.length === 0
+    commentVersionIds.length === 0
       ? []
       : await db
           .select({ versionId: trackComments.versionId })
           .from(trackComments)
           .where(
             and(
-              inArray(trackComments.versionId, latestVersionIds),
+              inArray(trackComments.versionId, commentVersionIds),
               eq(trackComments.fromProducer, scope.kind === "artist"),
               isNull(trackComments.resolvedAt),
             ),
@@ -432,6 +463,7 @@ async function buildProjectReadModels(
       const stored = tracksById.get(track.id);
       if (!stored) throw new Error("Song-space read model lost an allocated track");
       const latestVersion = latestVersionByTrack.get(track.id) ?? null;
+      const latestHistoryVersion = latestHistoryVersionByTrack.get(track.id) ?? null;
       const purchaseLifecycleStatus = purchaseLifecycleById.get(track.purchaseId);
       if (!purchaseLifecycleStatus) {
         throw new Error("Song-space read model lost an allocated song purchase");
@@ -445,10 +477,13 @@ async function buildProjectReadModels(
         title: track.title,
         artist: track.artist,
         position: track.position,
+        archivedAt: stored.archivedAt,
+        releasedAt: stored.releasedAt,
         createdAt: stored.createdAt,
         latestVersion,
+        latestHistoryVersion,
         unreadComments:
-          latestVersion === null ? 0 : (unreadByVersion.get(latestVersion.id) ?? 0),
+          unreadByVersion.get(commentTargetVersionByTrack.get(track.id) ?? "") ?? 0,
         plays: 0,
       };
     });

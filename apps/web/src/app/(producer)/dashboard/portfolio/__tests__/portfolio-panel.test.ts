@@ -513,6 +513,18 @@ describe("portfolio/page.tsx — slug + header pill", () => {
 // ─── actions.ts: shape + reorder wrappers ───────────────────────────
 
 describe("actions.ts — final URL-only + reorder wrappers", () => {
+  it("adds Library audio by immutable version id only", () => {
+    expect(actionsSource).toMatch(
+      /export async function addPortfolioFromLibrary\(input:\s*\{\s*versionId:\s*string;\s*\}\)/,
+    );
+    expect(actionsSource).toMatch(
+      /portfolio\.createFromVersion\(\{\s*versionId:\s*input\.versionId\s*\}\)/,
+    );
+    expect(panelSource).toMatch(
+      /addPortfolioFromLibrary\(\{\s*versionId:\s*row\.versionId\s*\}\)/,
+    );
+  });
+
   it("addExternalLink input is URL-only", () => {
     expect(actionsSource).toMatch(
       /export async function addExternalLink\(input:\s*\{\s*url:\s*string;\s*\}\)/,

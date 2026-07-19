@@ -12,6 +12,12 @@ import {
   type MusicLibraryProjectRow,
   type MusicLibraryRow,
 } from "~/components/music/library-screen";
+import type {
+  EditSongArtistAction,
+  MarkSongReleasedAction,
+  RenameSongAction,
+  SetSongArchivedAction,
+} from "~/components/music/song-management-controls";
 
 export function ProducerMusicLibrary({
   tracks,
@@ -21,6 +27,10 @@ export function ProducerMusicLibrary({
   initialProjectId,
   initialPurchaseId,
   lockInitialProject,
+  renameSong,
+  editArtist,
+  setArchived,
+  markReleased,
 }: {
   tracks: MusicLibraryRow[];
   projectRows: MusicLibraryProjectRow[];
@@ -29,6 +39,10 @@ export function ProducerMusicLibrary({
   initialProjectId?: string;
   initialPurchaseId?: string;
   lockInitialProject?: boolean;
+  renameSong: RenameSongAction;
+  editArtist: EditSongArtistAction;
+  setArchived: SetSongArchivedAction;
+  markReleased?: MarkSongReleasedAction;
 }) {
   const router = useRouter();
   const [addSongOpen, setAddSongOpen] = useState(initialAddSongOpen);
@@ -48,6 +62,10 @@ export function ProducerMusicLibrary({
         tracks={tracks}
         projectRows={projectRows}
         addSongHref="/dashboard/music?addSong=1"
+        renameSong={renameSong}
+        editArtist={editArtist}
+        setArchived={setArchived}
+        {...(markReleased ? { markReleased } : {})}
       />
       <AddSongDialog
         open={addSongOpen}

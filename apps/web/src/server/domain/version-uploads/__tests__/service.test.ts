@@ -12,6 +12,7 @@ const activeCandidate: VersionUploadLifecycleCandidate = {
   purchaseId: "purchase-1",
   projectLifecycleStatus: "active",
   purchaseLifecycleStatus: "active",
+  trackArchivedAt: null,
 };
 
 const expectedScope = {
@@ -50,6 +51,71 @@ describe("version upload lifecycle", () => {
       ).toThrow(expect.objectContaining<Partial<VersionUploadDomainError>>({ code: "INACTIVE" }));
     },
   );
+
+  it("rejects an archived track with a restore-specific inactive error", () => {
+    expect(() =>
+      assertActiveVersionUploadLifecycle(
+        {
+          ...activeCandidate,
+          trackArchivedAt: new Date("2026-07-19T09:00:00.000Z"),
+        },
+        expectedScope,
+      ),
+    ).toThrow(
+      expect.objectContaining<Partial<VersionUploadDomainError>>({
+        code: "INACTIVE",
+        message: "Restore this archived song before changing its audio versions",
+      }),
+    );
+  });
+
+  it("preserves ownership and lifecycle error precedence for archived tracks", () => {
+    const archivedAt = new Date("2026-07-19T09:00:00.000Z");
+
+    expect(() =>
+      assertActiveVersionUploadLifecycle(
+        { ...activeCandidate, producerId: "producer-2", trackArchivedAt: archivedAt },
+        expectedScope,
+      ),
+    ).toThrow(
+      expect.objectContaining<Partial<VersionUploadDomainError>>({
+        code: "NOT_FOUND",
+        message: "The purchase-owned version upload scope was not found",
+      }),
+    );
+
+    expect(() =>
+      assertActiveVersionUploadLifecycle(
+        {
+          ...activeCandidate,
+          projectLifecycleStatus: "completed",
+          trackArchivedAt: archivedAt,
+        },
+        expectedScope,
+      ),
+    ).toThrow(
+      expect.objectContaining<Partial<VersionUploadDomainError>>({
+        code: "INACTIVE",
+        message: "Audio versions can be changed only while the project and purchase are active",
+      }),
+    );
+
+    expect(() =>
+      assertActiveVersionUploadLifecycle(
+        {
+          ...activeCandidate,
+          purchaseLifecycleStatus: "canceled",
+          trackArchivedAt: archivedAt,
+        },
+        expectedScope,
+      ),
+    ).toThrow(
+      expect.objectContaining<Partial<VersionUploadDomainError>>({
+        code: "INACTIVE",
+        message: "Audio versions can be changed only while the project and purchase are active",
+      }),
+    );
+  });
 
   it("fails closed when ownership or the purchase-project binding changes", () => {
     for (const candidate of [

@@ -94,6 +94,19 @@ describe("SongSpace — composes hero + strip + tabs + active panel", () => {
 
   it("derives the default version label from song.revisionCount + 1", () => {
     expect(SRC).toMatch(/song\.revisionCount\s*\+\s*1/);
+    expect(SRC).toMatch(/`V\$\{String\(song\.revisionCount\s*\+\s*1\)\}`/);
+  });
+
+  it("chooses the newest playable, non-tombstoned version for Play latest", () => {
+    expect(SRC).toMatch(/versions\.find/);
+    expect(SRC).toContain("audioDeletedAtIso");
+  });
+
+  it("shows Released independently so an archived Released song displays both states", () => {
+    expect(SRC).toMatch(/releasedAtIso\?:\s*string\s*\|\s*null/);
+    expect(SRC).toMatch(/const songReleased = song\.releasedAtIso != null/);
+    expect(SRC).toContain("{lifecycleLabel}");
+    expect(SRC).toMatch(/songReleased[\s\S]*?role=["']status["'][\s\S]*?Released/);
   });
 
   it("forbids --surface-card", () => {

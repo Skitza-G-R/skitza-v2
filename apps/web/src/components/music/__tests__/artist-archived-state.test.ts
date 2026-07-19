@@ -46,7 +46,9 @@ describe("artist archived project listening surfaces", () => {
   });
 
   it("closes only new comment entry points while keeping the comment thread controls", () => {
-    expect(songSource).toContain("const commentsClosed = archivedLabel !== null");
+    expect(songSource).toContain(
+      "const commentsClosed = projectArchivedLabel !== null || songArchived",
+    );
     expect(songSource).toContain("This project is archived. New comments are closed");
     expect(songSource).toMatch(/commentsClosed \? \([\s\S]*?role="status"/);
     expect(songSource).toContain("visibleComments.map");

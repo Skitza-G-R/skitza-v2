@@ -9,6 +9,13 @@ import {
 import { ProducerMusicLibrary } from "~/components/music/producer-music-library";
 import { appRouter } from "~/server/trpc/routers/_app";
 
+import {
+  editMusicSongArtist,
+  markMusicSongReleased,
+  renameMusicSong,
+  setMusicSongArchived,
+} from "./actions";
+
 type PageProps = {
   searchParams?: Promise<{
     addSong?: string;
@@ -40,20 +47,30 @@ export default async function MusicPage({ searchParams }: PageProps) {
         trackId: song.trackId,
         trackTitle: song.title,
         trackArtist: song.artist,
-        label: song.latestVersion?.label ?? null,
-        latestVersionId: song.latestVersion?.id ?? null,
+        archivedAtIso: song.archivedAt?.toISOString() ?? null,
+        releasedAtIso: song.releasedAt?.toISOString() ?? null,
+        audioDeletedAtIso:
+          song.latestVersion === null
+            ? (song.latestHistoryVersion?.audioDeletedAt?.toISOString() ?? null)
+            : null,
+        label: song.latestVersion?.label ?? song.latestHistoryVersion?.label ?? null,
+        latestVersionId: song.latestVersion?.id ?? song.latestHistoryVersion?.id ?? null,
         projectId: project.id,
         projectTitle: project.title,
         projectLifecycleStatus: project.lifecycleStatus,
         clientName: project.partnerName,
-        uploadedAtIso: song.latestVersion?.uploadedAt.toISOString() ?? null,
+        uploadedAtIso:
+          (
+            song.latestVersion?.uploadedAt ?? song.latestHistoryVersion?.uploadedAt
+          )?.toISOString() ?? null,
         audioUrl: song.latestVersion?.audioUrl ?? null,
         durationMs: song.latestVersion?.durationMs ?? null,
         unreadComments: song.unreadComments,
         plays: song.plays,
         actionHref:
           project.lifecycleStatus === "active" &&
-          song.purchaseLifecycleStatus === "active"
+          song.purchaseLifecycleStatus === "active" &&
+          song.archivedAt === null
             ? `/dashboard/clients-projects/${project.id}/songs/${song.id}?upload=1`
             : null,
       }),
@@ -79,7 +96,7 @@ export default async function MusicPage({ searchParams }: PageProps) {
 
   const projectRows: MusicLibraryProjectRow[] = data.projects.map((project) => {
     const latestUpload = project.songs.reduce<Date | null>((latest, song) => {
-      const uploadedAt = song.latestVersion?.uploadedAt;
+      const uploadedAt = song.latestVersion?.uploadedAt ?? song.latestHistoryVersion?.uploadedAt;
       return uploadedAt && (!latest || uploadedAt > latest) ? uploadedAt : latest;
     }, null);
     return {
@@ -123,6 +140,10 @@ export default async function MusicPage({ searchParams }: PageProps) {
           lockInitialProject={params.lockProject === "1"}
           {...(params.projectId ? { initialProjectId: params.projectId } : {})}
           {...(params.purchaseId ? { initialPurchaseId: params.purchaseId } : {})}
+          renameSong={renameMusicSong}
+          editArtist={editMusicSongArtist}
+      setArchived={setMusicSongArchived}
+      markReleased={markMusicSongReleased}
         />
       </div>
     </div>

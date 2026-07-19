@@ -32,6 +32,7 @@ const allocatedNoVersion: MusicLibraryTrackRow = {
   trackId: "track-1",
   trackTitle: "First song",
   trackArtist: "Maya Vale",
+  archivedAtIso: null,
   label: null,
   latestVersionId: null,
   uploadedAtIso: null,
@@ -99,6 +100,7 @@ const projectTrack: ProjectPageTrack = {
   trackId: "track-1",
   title: "First song",
   artist: "Maya Vale",
+  archivedAtIso: null,
   versionLabel: null,
   latestVersionId: null,
   audioUrl: null,
@@ -162,7 +164,9 @@ describe("honest empty UI source guards", () => {
   });
 
   it("keeps playable song-page links touch-safe in desktop and mobile rows", () => {
-    expect(librarySource.match(/className="flex min-h-11 w-full items-center truncate/g)).toHaveLength(2);
+    expect(
+      librarySource.match(/className="flex min-h-11 w-full items-center truncate/g),
+    ).toHaveLength(2);
   });
 
   it("keeps only functional project actions and hides Shuffle without playable audio", () => {

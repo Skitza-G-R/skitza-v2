@@ -33,13 +33,22 @@ export default async function MusicPage() {
         trackId: song.trackId,
         trackTitle: song.title,
         trackArtist: song.artist,
-        label: song.latestVersion?.label ?? null,
-        latestVersionId: song.latestVersion?.id ?? null,
+        archivedAtIso: song.archivedAt?.toISOString() ?? null,
+        releasedAtIso: song.releasedAt?.toISOString() ?? null,
+        audioDeletedAtIso:
+          song.latestVersion === null
+            ? (song.latestHistoryVersion?.audioDeletedAt?.toISOString() ?? null)
+            : null,
+        label: song.latestVersion?.label ?? song.latestHistoryVersion?.label ?? null,
+        latestVersionId: song.latestVersion?.id ?? song.latestHistoryVersion?.id ?? null,
         projectId: project.id,
         projectTitle: project.title,
         projectLifecycleStatus: project.lifecycleStatus,
         clientName: project.partnerName,
-        uploadedAtIso: song.latestVersion?.uploadedAt.toISOString() ?? null,
+        uploadedAtIso:
+          (
+            song.latestVersion?.uploadedAt ?? song.latestHistoryVersion?.uploadedAt
+          )?.toISOString() ?? null,
         audioUrl: song.latestVersion?.audioUrl ?? null,
         durationMs: song.latestVersion?.durationMs ?? null,
         unreadComments: song.unreadComments,
@@ -70,7 +79,9 @@ export default async function MusicPage() {
     projectLifecycleStatus: project.lifecycleStatus,
     latestTrackUploadedAtIso:
       project.songs
-        .map((song) => song.latestVersion?.uploadedAt ?? null)
+        .map(
+          (song) => song.latestVersion?.uploadedAt ?? song.latestHistoryVersion?.uploadedAt ?? null,
+        )
         .filter((value): value is Date => value !== null)
         .sort((left, right) => right.getTime() - left.getTime())[0]
         ?.toISOString() ?? null,

@@ -76,10 +76,7 @@ class FakeMusicDb {
     return query;
   }
 
-  transaction<T>(
-    work: (transaction: FakeMusicDb) => Promise<T>,
-    options?: unknown,
-  ): Promise<T> {
+  transaction<T>(work: (transaction: FakeMusicDb) => Promise<T>, options?: unknown): Promise<T> {
     this.transactionOptions.push(options);
     return work(this);
   }
@@ -116,7 +113,9 @@ function collectSqlFacts(...expressions: unknown[]): SqlFacts {
     if (constructorName === "StringChunk") {
       const fragments = record.value;
       if (Array.isArray(fragments)) {
-        facts.fragments.push(...fragments.filter((part): part is string => typeof part === "string"));
+        facts.fragments.push(
+          ...fragments.filter((part): part is string => typeof part === "string"),
+        );
       }
       return;
     }
@@ -143,10 +142,7 @@ function queryFor(db: FakeMusicDb, table: unknown): FakeSelectQuery {
   return query;
 }
 
-function projectById(
-  library: MusicLibraryReadModel,
-  projectId: string,
-): MusicProjectReadModel {
+function projectById(library: MusicLibraryReadModel, projectId: string): MusicProjectReadModel {
   const project = library.projects.find((candidate) => candidate.id === projectId);
   if (!project) throw new Error(`Expected project ${projectId} in music read model`);
   return project;
@@ -177,9 +173,7 @@ describe("music song-space ownership", () => {
     );
     const facts = collectSqlFacts(query.whereExpression);
     expect(facts.params).toEqual(expect.arrayContaining(["producer-owned", "project-owned"]));
-    expect(facts.columns).toEqual(
-      expect.arrayContaining([projects.producerId, projects.id]),
-    );
+    expect(facts.columns).toEqual(expect.arrayContaining([projects.producerId, projects.id]));
   });
 
   it("scopes an artist lookup through the exact active producer contact", async () => {
@@ -387,6 +381,8 @@ describe("music song-space projection", () => {
         title: "Versioned song",
         artist: "Artist One",
         position: 0,
+        archivedAt: null,
+        releasedAt: new Date("2026-07-18T12:00:00Z"),
         createdAt,
       },
       {
@@ -396,6 +392,8 @@ describe("music song-space projection", () => {
         title: "Song before audio",
         artist: "Artist One",
         position: 1,
+        archivedAt: new Date("2026-07-18T10:00:00Z"),
+        releasedAt: null,
         createdAt,
       },
       {
@@ -405,6 +403,8 @@ describe("music song-space projection", () => {
         title: "Preserved purchased song",
         artist: "Artist One",
         position: 2,
+        archivedAt: null,
+        releasedAt: null,
         createdAt,
       },
     ];
@@ -414,14 +414,25 @@ describe("music song-space projection", () => {
         trackId: "track-versioned",
         label: "v3 pending",
         audioUrl: null,
+        audioDeletedAt: null,
         durationMs: null,
         uploadedAt: new Date("2026-07-19T08:00:00Z"),
+      },
+      {
+        id: "version-deleted-newest",
+        trackId: "track-versioned",
+        label: "V3 deleted",
+        audioUrl: "https://audio.invalid/deleted.wav",
+        audioDeletedAt: new Date("2026-07-19T07:30:00Z"),
+        durationMs: 130_000,
+        uploadedAt: new Date("2026-07-19T07:00:00Z"),
       },
       {
         id: "version-new",
         trackId: "track-versioned",
         label: "v2",
         audioUrl: "https://audio.invalid/new.wav",
+        audioDeletedAt: null,
         durationMs: 125_000,
         uploadedAt: latestUploadedAt,
       },
@@ -430,8 +441,18 @@ describe("music song-space projection", () => {
         trackId: "track-versioned",
         label: "v1",
         audioUrl: "https://audio.invalid/old.wav",
+        audioDeletedAt: null,
         durationMs: 120_000,
         uploadedAt: new Date("2026-07-16T08:00:00Z"),
+      },
+      {
+        id: "version-deleted-only",
+        trackId: "track-zero-version",
+        label: "V1 deleted",
+        audioUrl: "https://audio.invalid/deleted-only.wav",
+        audioDeletedAt: new Date("2026-07-18T10:30:00Z"),
+        durationMs: 90_000,
+        uploadedAt: new Date("2026-07-17T08:00:00Z"),
       },
     ];
     const db = new FakeMusicDb([
@@ -456,7 +477,14 @@ describe("music song-space projection", () => {
       [purchases, purchaseRows],
       [projectTracks, trackRows],
       [trackVersions, versionRows],
-      [trackComments, [{ versionId: "version-new" }, { versionId: "version-new" }]],
+      [
+        trackComments,
+        [
+          { versionId: "version-new" },
+          { versionId: "version-new" },
+          { versionId: "version-deleted-only" },
+        ],
+      ],
     ]);
 
     const result = await listMusicSongSpaces(db.asDb(), {
@@ -511,12 +539,24 @@ describe("music song-space projection", () => {
       label: "v2",
       audioUrl: "https://audio.invalid/new.wav",
     });
+    expect(latestSong?.latestHistoryVersion).toMatchObject({
+      id: "version-deleted-newest",
+      label: "V3 deleted",
+      audioDeletedAt: new Date("2026-07-19T07:30:00Z"),
+    });
     expect(latestSong?.unreadComments).toBe(2);
     expect(latestSong?.purchaseLifecycleStatus).toBe("active");
+    expect(latestSong?.archivedAt).toBeNull();
+    expect(latestSong?.releasedAt).toEqual(new Date("2026-07-18T12:00:00Z"));
 
     const zeroVersionSong = album.songs[1];
     expect(zeroVersionSong?.latestVersion).toBeNull();
-    expect(zeroVersionSong?.unreadComments).toBe(0);
+    expect(zeroVersionSong?.latestHistoryVersion).toMatchObject({
+      id: "version-deleted-only",
+      label: "V1 deleted",
+    });
+    expect(zeroVersionSong?.unreadComments).toBe(1);
+    expect(zeroVersionSong?.archivedAt).toEqual(new Date("2026-07-18T10:00:00Z"));
 
     const paidSingle = projectById(result, "project-virtual-only");
     expect(paidSingle.songs).toEqual([]);
@@ -558,8 +598,13 @@ describe("music song-space projection", () => {
     );
     expect(orderFacts.fragments.filter((fragment) => fragment.includes("desc"))).toHaveLength(2);
     const versionWhereFacts = collectSqlFacts(versionQuery.whereExpression);
+    expect(versionWhereFacts.params).toContain("producer-owned");
     expect(versionWhereFacts.columns).toEqual(
-      expect.arrayContaining([trackVersions.audioDeletedAt, trackVersions.audioUrl]),
+      expect.arrayContaining([
+        trackVersions.producerId,
+        trackVersions.audioDeletedAt,
+        trackVersions.audioUrl,
+      ]),
     );
     expect(db.transactionOptions).toEqual([
       { isolationLevel: "repeatable read", accessMode: "read only" },

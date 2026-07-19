@@ -2,10 +2,7 @@
 
 import { Play, MessageSquare } from "lucide-react";
 
-import {
-  playerPlay,
-  useNowPlaying,
-} from "~/components/audio/persistent-player";
+import { playerPlay, useNowPlaying } from "~/components/audio/persistent-player";
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 import { formatDuration } from "~/lib/format/duration";
 
@@ -39,6 +36,8 @@ export interface VersionRowVersionData {
   versionLabel: string;
   /** Direct R2/Cloudfront URL — fed straight to PlayerTrack.audioUrl. */
   audioUrl: string | null;
+  /** Explicit storage tombstone; deleted audio remains as history. */
+  audioDeletedAtIso?: string | null;
   /** ISO timestamp of upload (for the relative-when meta). */
   uploadedAtIso: string;
   /** "You" or the client/collab's display name. */
@@ -90,18 +89,17 @@ function relativeWhen(iso: string): string {
   }
 }
 
-export function VersionRow({
-  version,
-  songTitle,
-  projectName,
-}: VersionRowProps) {
+export function VersionRow({ version, songTitle, projectName }: VersionRowProps) {
   const { trackId } = useNowPlaying();
-  const isCurrent = trackId === version.id;
+  const isDeleted = version.audioDeletedAtIso !== null && version.audioDeletedAtIso !== undefined;
+  const hasAudio = !isDeleted && version.audioUrl !== null;
+  const isCurrent = hasAudio && trackId === version.id;
 
   const coverBg = producerGradient(songTitle);
   const versionLabel = version.versionLabel;
 
   const metaParts: string[] = [];
+  if (isDeleted) metaParts.push("Audio deleted");
   if (version.uploadedBy) metaParts.push(`by ${version.uploadedBy}`);
   metaParts.push(relativeWhen(version.uploadedAtIso));
   if (version.changelog) metaParts.push(version.changelog);
@@ -112,9 +110,8 @@ export function VersionRow({
   // "current" via the amber wash, but silently fail to load any audio —
   // the user sees a "playing" state with no sound and no feedback. Bail
   // early so the click is a true no-op for empty rows.
-  const hasAudio = version.audioUrl !== null;
   const handlePlay = () => {
-    if (version.audioUrl === null) return;
+    if (!hasAudio || version.audioUrl === null) return;
     playerPlay({
       id: version.id,
       audioUrl: version.audioUrl,
@@ -125,21 +122,11 @@ export function VersionRow({
   };
 
   // Background + foreground tokens flip when the row is now-playing.
-  const rowBg = isCurrent
-    ? "rgb(var(--brand-primary)/0.10)"
-    : "rgb(var(--bg-background))";
-  const titleColor = isCurrent
-    ? "rgb(var(--brand-primary))"
-    : "rgb(var(--fg-default))";
-  const versionColor = isCurrent
-    ? "rgb(var(--brand-primary))"
-    : "rgb(var(--fg-muted))";
-  const playBg = isCurrent
-    ? "rgb(var(--brand-primary))"
-    : "transparent";
-  const playColor = isCurrent
-    ? "rgb(var(--bg-sidebar))"
-    : "rgb(var(--fg-default))";
+  const rowBg = isCurrent ? "rgb(var(--brand-primary)/0.10)" : "rgb(var(--bg-background))";
+  const titleColor = isCurrent ? "rgb(var(--brand-primary))" : "rgb(var(--fg-default))";
+  const versionColor = isCurrent ? "rgb(var(--brand-primary))" : "rgb(var(--fg-muted))";
+  const playBg = isCurrent ? "rgb(var(--brand-primary))" : "transparent";
+  const playColor = isCurrent ? "rgb(var(--bg-sidebar))" : "rgb(var(--fg-default))";
 
   // The 3px amber left bar is a `::before` pseudo via Tailwind's
   // before:* utilities. Only painted when current.
@@ -153,14 +140,19 @@ export function VersionRow({
       onClick={handlePlay}
       data-version-id={version.id}
       data-current={isCurrent ? "true" : "false"}
+      data-audio-state={isDeleted ? "deleted" : hasAudio ? "available" : "uploading"}
       aria-disabled={!hasAudio}
-      className={`group relative w-full rounded-[var(--radius-md)] border text-left transition-colors hover:bg-[rgb(var(--bg-elevated))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] ${beforeClass} ${hasAudio ? "" : "cursor-not-allowed opacity-60"}`}
+      className={`group relative w-full rounded-[var(--radius-md)] border text-left transition-colors hover:bg-[rgb(var(--bg-elevated))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none ${beforeClass} ${hasAudio ? "" : isDeleted ? "cursor-default opacity-[0.65]" : "cursor-not-allowed opacity-60"}`}
       style={{
         borderColor: "rgb(var(--border-subtle))",
         background: rowBg,
       }}
       aria-label={
-        hasAudio ? `Play ${songTitle} ${versionLabel}` : "No audio available"
+        hasAudio
+          ? `Play ${songTitle} ${versionLabel}`
+          : isDeleted
+            ? `${versionLabel}, Audio deleted. Version history and ${String(version.noteCount)} comments remain.`
+            : "No audio available"
       }
     >
       {/* Desktop (md+) — exact 6-column grid, unchanged from the
@@ -172,74 +164,69 @@ export function VersionRow({
           gridTemplateColumns: "36px minmax(0,1fr) 48px 48px 56px 32px",
         }}
       >
-      {/* 1 — 36px gradient cover tile */}
-      <span
-        aria-hidden
-        className="relative z-10 h-[36px] w-[36px] shrink-0 rounded-[var(--radius-sm)]"
-        style={{ background: coverBg }}
-      />
+        {/* 1 — 36px gradient cover tile */}
+        <span
+          aria-hidden
+          className="relative z-10 h-[36px] w-[36px] shrink-0 rounded-[var(--radius-sm)]"
+          style={{ background: coverBg }}
+        />
 
-      {/* 2 — Title + meta (truncates) */}
-      <div className="relative z-10 min-w-0">
-        <p
-          className="truncate text-[14px] font-medium leading-tight transition-colors"
-          style={{ color: titleColor }}
+        {/* 2 — Title + meta (truncates) */}
+        <div className="relative z-10 min-w-0">
+          <p
+            className="truncate text-[14px] leading-tight font-medium transition-colors"
+            style={{ color: titleColor }}
+          >
+            {songTitle}
+          </p>
+          <p className="mt-0.5 truncate text-[11px]" style={{ color: "rgb(var(--fg-muted))" }}>
+            {meta}
+          </p>
+        </div>
+
+        {/* 3 — Version tag (mono, no chip background) */}
+        <span
+          className="relative z-10 font-mono text-[12px] tabular-nums"
+          style={{ color: versionColor }}
         >
-          {songTitle}
-        </p>
-        <p
-          className="mt-0.5 truncate text-[11px]"
+          {versionLabel}
+        </span>
+
+        {/* 4 — Duration (mono mm:ss) */}
+        <span
+          className="relative z-10 font-mono text-[12px] tabular-nums"
           style={{ color: "rgb(var(--fg-muted))" }}
         >
-          {meta}
-        </p>
-      </div>
+          {isDeleted ? "—" : formatDuration(version.durationMs)}
+        </span>
 
-      {/* 3 — Version tag (mono, no chip background) */}
-      <span
-        className="relative z-10 font-mono text-[12px] tabular-nums"
-        style={{ color: versionColor }}
-      >
-        {versionLabel}
-      </span>
+        {/* 5 — Comment count (chat bubble icon + count) */}
+        <span
+          className="relative z-10 inline-flex items-center gap-1 text-[12px] tabular-nums"
+          style={{ color: "rgb(var(--fg-muted))" }}
+        >
+          <MessageSquare size={12} aria-hidden />
+          {version.noteCount}
+        </span>
 
-      {/* 4 — Duration (mono mm:ss) */}
-      <span
-        className="relative z-10 font-mono text-[12px] tabular-nums"
-        style={{ color: "rgb(var(--fg-muted))" }}
-      >
-        {formatDuration(version.durationMs)}
-      </span>
-
-      {/* 5 — Comment count (chat bubble icon + count) */}
-      <span
-        className="relative z-10 inline-flex items-center gap-1 text-[12px] tabular-nums"
-        style={{ color: "rgb(var(--fg-muted))" }}
-      >
-        <MessageSquare size={12} aria-hidden />
-        {version.noteCount}
-      </span>
-
-      {/* 6 — Play button (28px CIRCLE, amber when current). G25:
+        {/* 6 — Play button (28px CIRCLE, amber when current). G25:
           design HTML 586–590 uses `border-radius:50%` for the
           iconic round play affordance, not a rounded square. */}
-      <span
-        aria-hidden
-        className="relative z-10 inline-flex h-[28px] w-[28px] items-center justify-center rounded-full border transition-colors"
-        style={{
-          background: playBg,
-          borderColor: isCurrent
-            ? "rgb(var(--brand-primary))"
-            : "rgb(var(--border-subtle))",
-          color: playColor,
-        }}
-      >
-        <Play
-          size={12}
-          fill="currentColor"
-          aria-label={hasAudio ? "Play" : "No audio available"}
-        />
-      </span>
+        <span
+          aria-hidden
+          className="relative z-10 inline-flex h-[28px] w-[28px] items-center justify-center rounded-full border transition-colors"
+          style={{
+            background: playBg,
+            borderColor: isCurrent ? "rgb(var(--brand-primary))" : "rgb(var(--border-subtle))",
+            color: playColor,
+          }}
+        >
+          <Play
+            size={12}
+            fill="currentColor"
+            aria-label={hasAudio ? "Play" : isDeleted ? "Audio deleted" : "No audio available"}
+          />
+        </span>
       </div>
 
       {/* Mobile (<md) — 64px two-line row. The version label leads
@@ -265,7 +252,7 @@ export function VersionRow({
               className="font-mono text-[12px] tabular-nums"
               style={{ color: "rgb(var(--fg-muted))" }}
             >
-              {formatDuration(version.durationMs)}
+              {isDeleted ? "—" : formatDuration(version.durationMs)}
             </span>
           </span>
           <span
@@ -288,9 +275,7 @@ export function VersionRow({
           className="inline-flex h-[28px] w-[28px] shrink-0 items-center justify-center rounded-full border transition-colors"
           style={{
             background: playBg,
-            borderColor: isCurrent
-              ? "rgb(var(--brand-primary))"
-              : "rgb(var(--border-subtle))",
+            borderColor: isCurrent ? "rgb(var(--brand-primary))" : "rgb(var(--border-subtle))",
             color: playColor,
           }}
         >

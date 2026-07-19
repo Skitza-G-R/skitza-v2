@@ -9,6 +9,13 @@ import { playerPlay, playerToggle, useNowPlaying } from "~/components/audio/pers
 
 import { ProjectCover } from "~/components/music/project-cover";
 import {
+  SongManagementControls,
+  type EditSongArtistAction,
+  type MarkSongReleasedAction,
+  type RenameSongAction,
+  type SetSongArchivedAction,
+} from "~/components/music/song-management-controls";
+import {
   fmtCount,
   fmtDuration,
   formatProjectFooter,
@@ -29,6 +36,10 @@ export interface ProjectPageTrack {
   trackId: string;
   title: string;
   artist: string | null;
+  archivedAtIso: string | null;
+  releasedAtIso?: string | null;
+  /** Explicit tombstone for an intentionally deleted stored-audio object. */
+  audioDeletedAtIso?: string | null;
   versionLabel: string | null;
   /** Undefined preserves the legacy `id is version id` contract. */
   latestVersionId?: string | null;
@@ -77,6 +88,18 @@ export function latestVersionIdForProjectTrack(track: ProjectPageTrack): string 
   return track.latestVersionId === undefined ? track.id : track.latestVersionId;
 }
 
+export function isProjectPageTrackAudioDeleted(track: ProjectPageTrack): boolean {
+  return track.audioDeletedAtIso != null && track.audioUrl === null;
+}
+
+export function isProjectPageTrackPlayable(track: ProjectPageTrack): boolean {
+  return (
+    track.audioDeletedAtIso == null &&
+    track.audioUrl !== null &&
+    latestVersionIdForProjectTrack(track) !== null
+  );
+}
+
 function projectItemActionHref(
   actionHref: string | null | undefined,
   fallbackHref: string | undefined,
@@ -92,9 +115,7 @@ export function projectKindFromVisibleSpaces(count: number): ProjectKind {
 
 export function summarizeProjectMusic(items: ProjectPageMusicItem[]) {
   const tracks = items.filter(isProjectPageTrack);
-  const playableTracks = tracks.filter(
-    (track) => Boolean(track.audioUrl) && latestVersionIdForProjectTrack(track) !== null,
-  );
+  const playableTracks = tracks.filter(isProjectPageTrackPlayable);
   let lastUploadIso: string | null = null;
   let lastUploadMs = 0;
   for (const track of tracks) {
@@ -137,12 +158,20 @@ export function ProjectPage({
   role = "producer",
   producerActionHref,
   extraBelow,
+  renameSong,
+  editArtist,
+  setArchived,
+  markReleased,
 }: {
   data: ProjectPageData;
   role?: ProjectPageRole;
   /** Fallback for producer Add Song/upload actions; omitted means no fake CTA. */
   producerActionHref?: string;
   extraBelow?: React.ReactNode;
+  renameSong?: RenameSongAction;
+  editArtist?: EditSongArtistAction;
+  setArchived?: SetSongArchivedAction;
+  markReleased?: MarkSongReleasedAction;
 }) {
   const nowPlaying = useNowPlaying();
   const [shareConfirm, setShareConfirm] = useState<null | "copied" | "shared">(null);
@@ -152,12 +181,10 @@ export function ProjectPage({
   const { kind, totalDurationMs, lastUploadIso, visibleSpaceCount, allocatedSongCount } = summary;
   const allocatedTracks = useMemo(() => data.tracks.filter(isProjectPageTrack), [data.tracks]);
   const playableTracks = useMemo(
-    () =>
-      allocatedTracks.filter(
-        (track) => Boolean(track.audioUrl) && latestVersionIdForProjectTrack(track) !== null,
-      ),
+    () => allocatedTracks.filter(isProjectPageTrackPlayable),
     [allocatedTracks],
   );
+  const hasDeletedAudioHistory = allocatedTracks.some(isProjectPageTrackAudioDeleted);
   const artistLabel = (data.project.clientName ?? "").trim() || "Unknown artist";
   const archivedLabel =
     data.project.lifecycleStatus === "completed"
@@ -191,7 +218,7 @@ export function ProjectPage({
 
   function handlePlayTrack(t: ProjectPageTrack) {
     const playerTrack = toPlayerTrack(t);
-    if (!t.audioUrl || !playerTrack) return;
+    if (!isProjectPageTrackPlayable(t) || !t.audioUrl || !playerTrack) return;
     if (nowPlaying.trackId === playerTrack.id) {
       playerToggle();
       return;
@@ -397,7 +424,9 @@ export function ProjectPage({
                 role="status"
                 className="inline-flex min-h-10 items-center rounded-[var(--radius-lg)] border border-white/30 bg-white/12 px-3 text-[11.5px] font-bold text-white backdrop-blur-sm"
               >
-                Audio has not been uploaded yet
+                {hasDeletedAudioHistory
+                  ? "No playable audio — history kept"
+                  : "Audio has not been uploaded yet"}
               </span>
             )}
             {playableTracks.length > 0 ? (
@@ -453,6 +482,10 @@ export function ProjectPage({
               onPlay={handlePlayTrack}
               role={role}
               producerActionHref={producerActionHref}
+              {...(renameSong ? { renameSong } : {})}
+              {...(editArtist ? { editArtist } : {})}
+              {...(setArchived ? { setArchived } : {})}
+              {...(markReleased ? { markReleased } : {})}
             />
             <footer
               className="mt-7 flex flex-col gap-1 pt-4 font-mono text-[11.5px] text-[rgb(var(--fg-muted))]"
@@ -522,6 +555,10 @@ function Tracklist({
   onPlay,
   role,
   producerActionHref,
+  renameSong,
+  editArtist,
+  setArchived,
+  markReleased,
 }: {
   items: ProjectPageMusicItem[];
   projectId: string;
@@ -530,8 +567,12 @@ function Tracklist({
   onPlay: (t: ProjectPageTrack) => void;
   role: ProjectPageRole;
   producerActionHref: string | undefined;
+  renameSong?: RenameSongAction;
+  editArtist?: EditSongArtistAction;
+  setArchived?: SetSongArchivedAction;
+  markReleased?: MarkSongReleasedAction;
 }) {
-  const cols = "44px minmax(0,1fr) 86px 80px 60px 72px 44px";
+  const cols = "44px minmax(0,1fr) 86px 80px 60px 72px 96px";
   return (
     <>
       {/* Header eyebrow row — desktop only. Below lg the fixed px
@@ -568,6 +609,10 @@ function Tracklist({
             onPlay={onPlay}
             role={role}
             producerActionHref={producerActionHref}
+            {...(renameSong ? { renameSong } : {})}
+            {...(editArtist ? { editArtist } : {})}
+            {...(setArchived ? { setArchived } : {})}
+            {...(markReleased ? { markReleased } : {})}
           />
         ))}
       </ul>
@@ -588,6 +633,10 @@ function Tracklist({
             onPlay={onPlay}
             role={role}
             producerActionHref={producerActionHref}
+            {...(renameSong ? { renameSong } : {})}
+            {...(editArtist ? { editArtist } : {})}
+            {...(setArchived ? { setArchived } : {})}
+            {...(markReleased ? { markReleased } : {})}
           />
         ))}
       </ul>
@@ -611,6 +660,10 @@ function ProjectMusicDesktopRow({
   onPlay,
   role,
   producerActionHref,
+  renameSong,
+  editArtist,
+  setArchived,
+  markReleased,
 }: {
   item: ProjectPageMusicItem;
   index: number;
@@ -621,6 +674,10 @@ function ProjectMusicDesktopRow({
   onPlay: (track: ProjectPageTrack) => void;
   role: ProjectPageRole;
   producerActionHref: string | undefined;
+  renameSong?: RenameSongAction;
+  editArtist?: EditSongArtistAction;
+  setArchived?: SetSongArchivedAction;
+  markReleased?: MarkSongReleasedAction;
 }) {
   const rowStyle: React.CSSProperties = {
     gridTemplateColumns: cols,
@@ -687,10 +744,13 @@ function ProjectMusicDesktopRow({
   }
 
   const versionId = latestVersionIdForProjectTrack(item);
-  const canPlay = Boolean(item.audioUrl) && versionId !== null;
+  const songArchived = item.archivedAtIso !== null;
+  const songReleased = item.releasedAtIso != null;
+  const audioDeleted = isProjectPageTrackAudioDeleted(item);
+  const canPlay = isProjectPageTrackPlayable(item);
   const current = canPlay && nowPlayingId === versionId;
   const playingHere = current && isPlaying;
-  const rowHref = canPlay && versionId ? projectSongHref(role, versionId, projectId) : null;
+  const rowHref = versionId ? projectSongHref(role, versionId, projectId) : null;
   const actionHref = projectItemActionHref(item.actionHref, producerActionHref);
   return (
     <li
@@ -700,7 +760,13 @@ function ProjectMusicDesktopRow({
     >
       <div
         role="group"
-        aria-label={canPlay ? `${item.title}, playable song` : `${item.title}, awaiting audio`}
+        aria-label={
+          canPlay
+            ? `${item.title}, playable song`
+            : audioDeleted
+              ? `${item.title}, audio deleted, history kept`
+              : `${item.title}, awaiting audio`
+        }
         className={[
           "group relative grid items-center gap-3 px-4 py-2.5",
           current ? "bg-[rgb(var(--brand-primary)/0.06)]" : "",
@@ -728,7 +794,7 @@ function ProjectMusicDesktopRow({
                 "sk-press sk-trans inline-flex h-11 w-11 items-center justify-center rounded-full focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-background))]",
                 current
                   ? "skitza-playing-glow bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))]"
-                  : "bg-[rgb(var(--fg-default))] text-white opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
+                  : "bg-[rgb(var(--fg-default))] text-white opacity-0 group-focus-within:opacity-100 group-hover:opacity-100",
               ].join(" ")}
             >
               {playingHere ? (
@@ -743,7 +809,7 @@ function ProjectMusicDesktopRow({
             className={[
               "pointer-events-none absolute font-mono text-[11px] text-[rgb(var(--fg-faint))] tabular-nums",
               canPlay && current ? "opacity-0" : "",
-              canPlay ? "group-hover:opacity-0 group-focus-within:opacity-0" : "",
+              canPlay ? "group-focus-within:opacity-0 group-hover:opacity-0" : "",
             ].join(" ")}
             style={{ width: 44, textAlign: "right", lineHeight: "44px" }}
           >
@@ -757,10 +823,22 @@ function ProjectMusicDesktopRow({
           <span className="truncate text-[10.5px] text-[rgb(var(--fg-muted))]">
             {canPlay
               ? (item.artist ?? "")
-              : role === "producer"
-                ? "Allocated song, ready for the first upload"
-                : "Waiting for your producer"}
+              : audioDeleted
+                ? "No playable audio — history kept"
+                : role === "producer"
+                  ? "Allocated song, ready for the first upload"
+                  : "Waiting for your producer"}
           </span>
+          {songArchived ? (
+            <span className="block truncate font-mono text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
+              Archived
+            </span>
+          ) : null}
+          {songReleased ? (
+            <span className="block truncate font-mono text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-success))] uppercase">
+              Released
+            </span>
+          ) : null}
         </span>
         <span className="pointer-events-none relative z-10 font-mono text-[9.5px] font-bold text-[rgb(var(--fg-default))] uppercase">
           {item.versionLabel ?? "No version"}
@@ -778,8 +856,11 @@ function ProjectMusicDesktopRow({
         >
           {fmtCount(item.unreadComments)}
         </span>
-        <span className="relative z-20 flex justify-end">
-          {!canPlay && role === "producer" && actionHref ? (
+        <span className="pointer-events-none relative z-10 flex justify-end font-mono text-[10px] text-[rgb(var(--fg-muted))] tabular-nums">
+          {canPlay ? fmtDuration(item.durationMs) : audioDeleted ? "Audio deleted" : "No audio"}
+        </span>
+        <span className="relative z-20 flex justify-end gap-1.5">
+          {!canPlay && role === "producer" && !songArchived && actionHref ? (
             <Link
               href={actionHref}
               aria-label={`Upload audio for ${item.title}`}
@@ -787,11 +868,21 @@ function ProjectMusicDesktopRow({
             >
               <Plus size={14} strokeWidth={2.4} />
             </Link>
-          ) : (
-            <span className="font-mono text-[10px] text-[rgb(var(--fg-muted))] tabular-nums">
-              {canPlay ? fmtDuration(item.durationMs) : "No audio"}
-            </span>
-          )}
+          ) : null}
+          {role === "producer" && renameSong && editArtist && setArchived ? (
+            <SongManagementControls
+              projectId={projectId}
+              trackId={item.trackId}
+              title={item.title}
+              artist={item.artist}
+              archived={songArchived}
+              {...(item.releasedAtIso === undefined ? {} : { releasedAtIso: item.releasedAtIso })}
+              renameSong={renameSong}
+              editArtist={editArtist}
+              setArchived={setArchived}
+              {...(markReleased ? { markReleased } : {})}
+            />
+          ) : null}
         </span>
       </div>
     </li>
@@ -807,6 +898,10 @@ function ProjectMusicMobileRow({
   onPlay,
   role,
   producerActionHref,
+  renameSong,
+  editArtist,
+  setArchived,
+  markReleased,
 }: {
   item: ProjectPageMusicItem;
   index: number;
@@ -816,6 +911,10 @@ function ProjectMusicMobileRow({
   onPlay: (track: ProjectPageTrack) => void;
   role: ProjectPageRole;
   producerActionHref: string | undefined;
+  renameSong?: RenameSongAction;
+  editArtist?: EditSongArtistAction;
+  setArchived?: SetSongArchivedAction;
+  markReleased?: MarkSongReleasedAction;
 }) {
   const rowStyle: React.CSSProperties = {
     borderRadius: 12,
@@ -862,10 +961,13 @@ function ProjectMusicMobileRow({
   }
 
   const versionId = latestVersionIdForProjectTrack(item);
-  const canPlay = Boolean(item.audioUrl) && versionId !== null;
+  const songArchived = item.archivedAtIso !== null;
+  const songReleased = item.releasedAtIso != null;
+  const audioDeleted = isProjectPageTrackAudioDeleted(item);
+  const canPlay = isProjectPageTrackPlayable(item);
   const current = canPlay && nowPlayingId === versionId;
   const playingHere = current && isPlaying;
-  const rowHref = canPlay && versionId ? projectSongHref(role, versionId, projectId) : null;
+  const rowHref = versionId ? projectSongHref(role, versionId, projectId) : null;
   const actionHref = projectItemActionHref(item.actionHref, producerActionHref);
   return (
     <li
@@ -875,7 +977,13 @@ function ProjectMusicMobileRow({
     >
       <div
         role="group"
-        aria-label={canPlay ? `${item.title}, playable song` : `${item.title}, awaiting audio`}
+        aria-label={
+          canPlay
+            ? `${item.title}, playable song`
+            : audioDeleted
+              ? `${item.title}, audio deleted, history kept`
+              : `${item.title}, awaiting audio`
+        }
         className={[
           "group relative flex min-h-[64px] items-center gap-3 px-2 py-2",
           current ? "bg-[rgb(var(--brand-primary)/0.06)]" : "",
@@ -886,7 +994,7 @@ function ProjectMusicMobileRow({
           <Link
             href={rowHref}
             aria-label={`Open ${item.title} song page`}
-            className="absolute inset-0 z-0 rounded-[12px] transition-colors active:bg-[rgb(var(--bg-overlay))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset"
+            className="absolute inset-0 z-0 rounded-[12px] transition-colors focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset active:bg-[rgb(var(--bg-overlay))]"
           />
         ) : null}
         {canPlay ? (
@@ -923,10 +1031,22 @@ function ProjectMusicMobileRow({
           <span className="truncate text-[10.5px] text-[rgb(var(--fg-muted))]">
             {canPlay
               ? (item.artist ?? "")
-              : role === "producer"
-                ? "Ready for the first upload"
-                : "Waiting for your producer"}
+              : audioDeleted
+                ? "No playable audio — history kept"
+                : role === "producer"
+                  ? "Ready for the first upload"
+                  : "Waiting for your producer"}
           </span>
+          {songArchived ? (
+            <span className="block truncate font-mono text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
+              Archived
+            </span>
+          ) : null}
+          {songReleased ? (
+            <span className="block truncate font-mono text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-success))] uppercase">
+              Released
+            </span>
+          ) : null}
         </span>
         {canPlay ? (
           <>
@@ -937,13 +1057,27 @@ function ProjectMusicMobileRow({
               {fmtDuration(item.durationMs)}
             </span>
           </>
-        ) : role === "producer" && actionHref ? (
+        ) : role === "producer" && !songArchived && actionHref ? (
           <Link
             href={actionHref}
             className="sk-press relative z-20 inline-flex min-h-11 shrink-0 items-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-3 text-[11px] font-bold text-[rgb(var(--fg-default))]"
           >
             Upload
           </Link>
+        ) : null}
+        {role === "producer" && renameSong && editArtist && setArchived ? (
+          <SongManagementControls
+            projectId={projectId}
+            trackId={item.trackId}
+            title={item.title}
+            artist={item.artist}
+            archived={songArchived}
+            {...(item.releasedAtIso === undefined ? {} : { releasedAtIso: item.releasedAtIso })}
+            renameSong={renameSong}
+            editArtist={editArtist}
+            setArchived={setArchived}
+            {...(markReleased ? { markReleased } : {})}
+          />
         ) : null}
       </div>
     </li>

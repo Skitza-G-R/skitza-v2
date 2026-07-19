@@ -3,10 +3,14 @@ import {
   and,
   eq,
   isNotNull,
+  or,
   portfolioTracks,
   trackVersions,
+  type Db,
 } from "@skitza/db";
 import { z } from "zod";
+import { createPortfolioTrackFromSongVersion } from "~/server/domain/song-management/db";
+import { SongManagementDomainError } from "~/server/domain/song-management/service";
 import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { stripUndefined } from "../strip-undefined";
@@ -20,6 +24,86 @@ const TrackInput = z.object({
   artworkUrl: z.string().url().optional(),
   position: z.number().int().min(0).optional(),
 });
+
+function canonicalAudioUrl(value: string): URL {
+  const url = new URL(value);
+  url.search = "";
+  url.hash = "";
+  url.pathname = url.pathname
+    .split("/")
+    .map((segment) => {
+      try {
+        return encodeURIComponent(decodeURIComponent(segment));
+      } catch {
+        return segment;
+      }
+    })
+    .join("/");
+  return url;
+}
+
+function publicAudioKeyFromUrl(url: URL): string | null {
+  const configuredBase = process.env.R2_PUBLIC_BASE?.trim();
+  if (!configuredBase) return null;
+  const base = canonicalAudioUrl(configuredBase);
+  if (url.origin !== base.origin) return null;
+  const basePath = base.pathname.replace(/\/+$/, "");
+  const keyPath = url.pathname.slice(basePath.length);
+  if (!url.pathname.startsWith(`${basePath}/`) || keyPath.length <= 1) return null;
+  try {
+    return decodeURIComponent(keyPath.slice(1));
+  } catch {
+    return null;
+  }
+}
+
+async function rejectOwnedSongVersionUrl(
+  db: Db,
+  input: Readonly<{ producerId: string; audioUrl: string }>,
+): Promise<void> {
+  // Completed identity is immutable and retained after tombstoning; the pending
+  // key journal also closes the initiation-to-completion window. A URL that
+  // belongs to this producer's song history must use createFromVersion, which
+  // locks and revalidates the exact live row before publishing it.
+  const canonicalUrl = canonicalAudioUrl(input.audioUrl);
+  const publicAudioKey = publicAudioKeyFromUrl(canonicalUrl);
+  const [storedVersion] = await db
+    .select({ id: trackVersions.id })
+    .from(trackVersions)
+    .where(
+      and(
+        eq(trackVersions.producerId, input.producerId),
+        or(
+          eq(trackVersions.audioUrl, input.audioUrl),
+          eq(trackVersions.audioUrl, canonicalUrl.toString()),
+          ...(publicAudioKey === null
+            ? []
+            : [
+                eq(trackVersions.audioR2Key, publicAudioKey),
+                eq(trackVersions.pendingAudioR2Key, publicAudioKey),
+              ]),
+        ),
+      ),
+    )
+    .limit(1);
+  if (storedVersion) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Add Skitza song audio from its live Library version.",
+    });
+  }
+}
+
+function mapSongManagementError(error: unknown): never {
+  if (!(error instanceof SongManagementDomainError)) throw error;
+  if (error.code === "NOT_FOUND") {
+    throw new TRPCError({ code: "NOT_FOUND", message: "The live version was not found." });
+  }
+  if (error.code === "INVALID_INPUT") {
+    throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+  }
+  throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+}
 
 export const portfolioRouter = router({
   list: producerProcedure.query(async ({ ctx }) => {
@@ -72,6 +156,10 @@ export const portfolioRouter = router({
       // placeholder rows from the audio.completeMultipart flow can
       // still be created.
       if (input.audioUrl) {
+        await rejectOwnedSongVersionUrl(ctx.db, {
+          producerId: ctx.producerId,
+          audioUrl: input.audioUrl,
+        });
         const [dup] = await ctx.db
           .select({ id: portfolioTracks.id })
           .from(portfolioTracks)
@@ -107,6 +195,19 @@ export const portfolioRouter = router({
       return row;
     }),
 
+  createFromVersion: producerProcedure
+    .input(z.object({ versionId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await createPortfolioTrackFromSongVersion(ctx.db, {
+          producerId: ctx.producerId,
+          versionId: input.versionId,
+        });
+      } catch (error) {
+        mapSongManagementError(error);
+      }
+    }),
+
   update: producerProcedure
     .input(TrackInput.partial().extend({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
@@ -121,6 +222,12 @@ export const portfolioRouter = router({
         .limit(1);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
       if (existing.producerId !== ctx.producerId) throw new TRPCError({ code: "FORBIDDEN" });
+      if (patch.audioUrl) {
+        await rejectOwnedSongVersionUrl(ctx.db, {
+          producerId: ctx.producerId,
+          audioUrl: patch.audioUrl,
+        });
+      }
       const [updated] = await ctx.db
         .update(portfolioTracks)
         .set(stripUndefined(patch))

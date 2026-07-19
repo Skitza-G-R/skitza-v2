@@ -64,6 +64,20 @@ import {
   assertActiveVersionUploadLifecycle,
   VersionUploadDomainError,
 } from "~/server/domain/version-uploads/service";
+import {
+  markSongReleased,
+  renameSongVersion,
+  setProducerFinalVersion,
+  setSongArchiveState,
+  setSongWorkflowStage,
+  tombstoneStoredAudioVersion,
+  updateSongMetadata,
+} from "~/server/domain/song-management/db";
+import {
+  reconcileExactStoredAudioDeletion,
+  SongManagementDomainError,
+} from "~/server/domain/song-management/service";
+import { r2ExactAudioStoragePort } from "~/server/domain/song-management/storage";
 import { assertWritableCommentTarget, CommentDomainError } from "~/server/domain/comments/service";
 import { SITE_URL, sendProducerRepliedToCommentEmail } from "~/server/email/send";
 
@@ -121,6 +135,23 @@ function mapCommentDomainError(error: unknown): never {
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
   }
   throw new TRPCError({ code: "NOT_FOUND" });
+}
+
+function mapSongManagementDomainError(error: unknown): never {
+  if (!(error instanceof SongManagementDomainError)) throw error;
+  if (error.code === "NOT_FOUND") {
+    throw new TRPCError({ code: "NOT_FOUND", message: error.message });
+  }
+  if (error.code === "INVALID_INPUT") {
+    throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+  }
+  if (error.code === "AUDIO_PROTECTED") {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+  }
+  if (error.code === "STORAGE_IDENTITY_MISMATCH") {
+    throw new TRPCError({ code: "CONFLICT", message: error.message });
+  }
+  throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message });
 }
 
 function mapProjectOwnershipDomainError(error: unknown): never {
@@ -354,25 +385,46 @@ export const projectRouter = router({
                   )
                   .orderBy(asc(purchaseInstallments.position), asc(purchaseInstallments.id))
               : [];
-          // Fetch all versions + comments with JS-side filter. Producers
-          // with dozens of projects wouldn't win from a SQL inArray here
-          // because the set of trackIds is already small (typically 1-5
-          // tracks per project).
+          // Keep version and comment reads inside the already-authorized
+          // project boundary. Tombstoned rows retain immutable storage
+          // identity, so they must never be loaded across producer tenants
+          // and filtered only in application memory.
           const trackIds = tracksList.map((track) => track.id);
           const allVersions = trackIds.length
             ? (
                 await tx
                   .select()
                   .from(trackVersions)
-                  .where(isNull(trackVersions.audioDeletedAt))
+                  .where(
+                    and(
+                      eq(trackVersions.producerId, ctx.producerId),
+                      inArray(trackVersions.trackId, trackIds),
+                    ),
+                  )
                   .orderBy(desc(trackVersions.uploadedAt))
-              ).filter((version) => trackIds.includes(version.trackId))
+              ).map((version) =>
+                version.audioDeletedAt === null
+                  ? version
+                  : {
+                      ...version,
+                      audioUrl: null,
+                      audioR2Key: null,
+                      sizeBytes: null,
+                      audioObjectEtag: null,
+                      audioIdentityFingerprint: null,
+                      durationMs: null,
+                      peaksR2Key: null,
+                      peaks: null,
+                    },
+              )
             : [];
           const versionIds = allVersions.map((version) => version.id);
           const allComments = versionIds.length
-            ? (
-                await tx.select().from(trackComments).orderBy(asc(trackComments.timestampMs))
-              ).filter((comment) => versionIds.includes(comment.versionId))
+            ? await tx
+                .select()
+                .from(trackComments)
+                .where(inArray(trackComments.versionId, versionIds))
+                .orderBy(asc(trackComments.timestampMs))
             : [];
           return {
             project: stripHash(row),
@@ -633,36 +685,17 @@ export const projectRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const [track] = await ctx.db
-        .select({
-          id: projectTracks.id,
-          projectId: projectTracks.projectId,
-        })
-        .from(projectTracks)
-        .where(eq(projectTracks.id, input.trackId))
-        .limit(1);
-      if (!track) throw new TRPCError({ code: "NOT_FOUND" });
-
-      const [project] = await ctx.db
-        .select({ producerId: projects.producerId })
-        .from(projects)
-        .where(eq(projects.id, track.projectId))
-        .limit(1);
-      if (!project || project.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "NOT_FOUND" });
+      try {
+        const result = await setSongWorkflowStage(ctx.db, {
+          producerId: ctx.producerId,
+          trackId: input.trackId,
+          workflowStage: input.workflowStage,
+          changedAt: new Date(),
+        });
+        return { ok: true as const, workflowStage: result.workflowStage };
+      } catch (error) {
+        mapSongManagementDomainError(error);
       }
-
-      await ctx.db
-        .update(projectTracks)
-        .set({ workflowStage: input.workflowStage })
-        .where(eq(projectTracks.id, input.trackId));
-
-      await ctx.db
-        .update(projects)
-        .set({ updatedAt: new Date() })
-        .where(eq(projects.id, track.projectId));
-
-      return { ok: true as const, workflowStage: input.workflowStage };
     }),
 
   // Inline-edit a track title from the Project Room music sub-tab.
@@ -678,23 +711,84 @@ export const projectRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const [proj] = await ctx.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(and(eq(projects.id, input.projectId), eq(projects.producerId, ctx.producerId)))
-        .limit(1);
-      if (!proj) throw new TRPCError({ code: "NOT_FOUND" });
-      await ctx.db
-        .update(projectTracks)
-        .set({ title: input.title })
-        .where(
-          and(eq(projectTracks.id, input.trackId), eq(projectTracks.projectId, input.projectId)),
-        );
-      await ctx.db
-        .update(projects)
-        .set({ updatedAt: new Date() })
-        .where(eq(projects.id, input.projectId));
-      return { ok: true as const };
+      try {
+        const track = await updateSongMetadata(ctx.db, {
+          producerId: ctx.producerId,
+          trackId: input.trackId,
+          projectId: input.projectId,
+          title: input.title,
+          changedAt: new Date(),
+        });
+        return { ok: true as const, title: track.title };
+      } catch (error) {
+        mapSongManagementDomainError(error);
+      }
+    }),
+
+  updateTrackArtist: producerProcedure
+    .input(
+      z.object({
+        trackId: z.string().uuid(),
+        artist: z.string().max(120).nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const track = await updateSongMetadata(ctx.db, {
+          producerId: ctx.producerId,
+          trackId: input.trackId,
+          artist: input.artist,
+          changedAt: new Date(),
+        });
+        return { ok: true as const, artist: track.artist };
+      } catch (error) {
+        mapSongManagementDomainError(error);
+      }
+    }),
+
+  setTrackArchived: producerProcedure
+    .input(
+      z.object({
+        trackId: z.string().uuid(),
+        archived: z.boolean(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await setSongArchiveState(ctx.db, {
+          producerId: ctx.producerId,
+          trackId: input.trackId,
+          intent: input.archived ? "archive" : "restore",
+          changedAt: new Date(),
+        });
+        return {
+          ok: true as const,
+          changed: result.changed,
+          archivedAt: result.track.archivedAt,
+        };
+      } catch (error) {
+        mapSongManagementDomainError(error);
+      }
+    }),
+
+  markTrackReleased: producerProcedure
+    .input(
+      z.object({
+        trackId: z.string().uuid(),
+        confirmation: z.literal("MARK_SONG_RELEASED"),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await markSongReleased(ctx.db, {
+          producerId: ctx.producerId,
+          trackId: input.trackId,
+          releasedAt: new Date(),
+        });
+        return { ok: true as const, ...result };
+      } catch (error) {
+        mapSongManagementDomainError(error);
+      }
     }),
 
   // Inline-edit a version label. Ownership chain: version → track →
@@ -709,28 +803,18 @@ export const projectRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const [row] = await ctx.db
-        .select({
-          projectId: projectTracks.projectId,
-          producerId: projects.producerId,
-        })
-        .from(trackVersions)
-        .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
-        .innerJoin(projects, eq(projects.id, projectTracks.projectId))
-        .where(eq(trackVersions.id, input.versionId))
-        .limit(1);
-      if (!row || row.producerId !== ctx.producerId || row.projectId !== input.projectId) {
-        throw new TRPCError({ code: "NOT_FOUND" });
+      try {
+        const version = await renameSongVersion(ctx.db, {
+          producerId: ctx.producerId,
+          versionId: input.versionId,
+          projectId: input.projectId,
+          label: input.label,
+          changedAt: new Date(),
+        });
+        return { ok: true as const, label: version.label };
+      } catch (error) {
+        mapSongManagementDomainError(error);
       }
-      await ctx.db
-        .update(trackVersions)
-        .set({ label: input.label })
-        .where(eq(trackVersions.id, input.versionId));
-      await ctx.db
-        .update(projects)
-        .set({ updatedAt: new Date() })
-        .where(eq(projects.id, input.projectId));
-      return { ok: true as const };
     }),
 
   addVersion: producerProcedure.input(AddVersionInput).mutation(async ({ ctx, input }) => {
@@ -801,6 +885,7 @@ export const projectRouter = router({
             id: projectTracks.id,
             projectId: projectTracks.projectId,
             purchaseId: projectTracks.purchaseId,
+            archivedAt: projectTracks.archivedAt,
           })
           .from(projectTracks)
           .where(eq(projectTracks.id, input.trackId))
@@ -815,6 +900,7 @@ export const projectRouter = router({
                 purchaseId: track.purchaseId,
                 projectLifecycleStatus: project.lifecycleStatus,
                 purchaseLifecycleStatus: purchase.lifecycleStatus,
+                trackArchivedAt: track.archivedAt,
               }
             : null,
           {
@@ -978,6 +1064,40 @@ export const projectRouter = router({
       return { ok: true as const };
     }),
 
+  permanentlyDeleteVersionAudio: producerProcedure
+    .input(
+      z.object({
+        versionId: z.string().uuid(),
+        confirmation: z.literal("DELETE_STORED_AUDIO"),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        // Commit the tombstone, playback fallback, portfolio retarget, and
+        // public-link consequence first. From this point every application
+        // read is revoked even if the exact R2 reconciliation must be retried.
+        const deletion = await tombstoneStoredAudioVersion(ctx.db, {
+          producerId: ctx.producerId,
+          versionId: input.versionId,
+          deletedAt: new Date(),
+        });
+        const storage = await reconcileExactStoredAudioDeletion(
+          r2ExactAudioStoragePort(),
+          deletion.identity,
+        );
+        return {
+          ok: true as const,
+          storage: storage.kind,
+          alreadyTombstoned: deletion.alreadyTombstoned,
+          nextPlaybackVersionId: deletion.nextPlaybackVersionId,
+          removedPortfolioEntry: deletion.wasLastStoredAudio,
+          disabledPublicLink: deletion.wasLastStoredAudio,
+        };
+      } catch (error) {
+        mapSongManagementDomainError(error);
+      }
+    }),
+
   resolveComment: producerProcedure.input(ResolveCommentInput).mutation(async ({ ctx, input }) => {
     const [c] = await ctx.db
       .select({ id: trackComments.id, versionId: trackComments.versionId })
@@ -1017,41 +1137,17 @@ export const projectRouter = router({
   approveVersion: producerProcedure
     .input(z.object({ versionId: z.string().uuid(), approved: z.boolean().default(true) }))
     .mutation(async ({ ctx, input }) => {
-      const [v] = await ctx.db
-        .select({
-          trackId: trackVersions.trackId,
-        })
-        .from(trackVersions)
-        .where(eq(trackVersions.id, input.versionId))
-        .limit(1);
-      if (!v) throw new TRPCError({ code: "NOT_FOUND" });
-      const [t] = await ctx.db
-        .select({ projectId: projectTracks.projectId })
-        .from(projectTracks)
-        .where(eq(projectTracks.id, v.trackId))
-        .limit(1);
-      if (!t) throw new TRPCError({ code: "NOT_FOUND" });
-      const [d] = await ctx.db
-        .select({ producerId: projects.producerId })
-        .from(projects)
-        .where(eq(projects.id, t.projectId))
-        .limit(1);
-      if (!d || d.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "NOT_FOUND" });
+      try {
+        const result = await setProducerFinalVersion(ctx.db, {
+          producerId: ctx.producerId,
+          versionId: input.versionId,
+          markedFinal: input.approved,
+          changedAt: new Date(),
+        });
+        return { ok: true as const, approvedAt: result.markedFinalAt };
+      } catch (error) {
+        mapSongManagementDomainError(error);
       }
-
-      const nowOrNull = input.approved ? new Date() : null;
-      await ctx.db
-        .update(trackVersions)
-        .set({ producerMarkedFinalAt: nowOrNull })
-        .where(eq(trackVersions.id, input.versionId));
-
-      await ctx.db
-        .update(projects)
-        .set({ updatedAt: new Date() })
-        .where(eq(projects.id, t.projectId));
-
-      return { ok: true as const, approvedAt: nowOrNull };
     }),
 
   // Producer-side comment (responds to artist).
