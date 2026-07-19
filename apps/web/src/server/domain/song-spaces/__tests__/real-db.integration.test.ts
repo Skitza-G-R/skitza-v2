@@ -113,6 +113,23 @@ type StoredAcceptance = Readonly<{
   acceptedAt: Date;
 }>;
 
+type RawStoredPurchase = Omit<StoredPurchase, "acceptedAt" | "activatedAt"> &
+  Readonly<{
+    acceptedAt: Date | string;
+    activatedAt: Date | string | null;
+  }>;
+
+type RawStoredAcceptance = Omit<StoredAcceptance, "acceptedAt"> &
+  Readonly<{ acceptedAt: Date | string }>;
+
+function storedTimestamp(value: Date | string, label: string): Date {
+  const parsed = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`${label} is not a valid stored timestamp`);
+  }
+  return parsed;
+}
+
 describeWithTestDatabase("SK-92 song-space allocation — separate CI test database", () => {
   const adminDb = testDatabaseUrl ? createDb(testDatabaseUrl) : null;
   // Distinct Db instances ensure the race tests use separate transaction
@@ -415,7 +432,7 @@ describeWithTestDatabase("SK-92 song-space allocation — separate CI test datab
   }
 
   async function storedPurchases(projectId: string): Promise<StoredPurchase[]> {
-    const result = await activeAdminDb().execute<StoredPurchase>(sql`
+    const result = await activeAdminDb().execute<RawStoredPurchase>(sql`
       select "id", "producer_id" as "producerId", "project_id" as "projectId",
         "client_contact_id" as "clientContactId", "product_id" as "productId",
         "private_offer_id" as "privateOfferId",
@@ -428,11 +445,18 @@ describeWithTestDatabase("SK-92 song-space allocation — separate CI test datab
       where "project_id" = ${projectId}
       order by "accepted_at", "id"
     `);
-    return [...result.rows];
+    return result.rows.map((row) => ({
+      ...row,
+      acceptedAt: storedTimestamp(row.acceptedAt, "purchase acceptedAt"),
+      activatedAt:
+        row.activatedAt === null
+          ? null
+          : storedTimestamp(row.activatedAt, "purchase activatedAt"),
+    }));
   }
 
   async function storedAcceptances(purchaseId: string): Promise<StoredAcceptance[]> {
-    const result = await activeAdminDb().execute<StoredAcceptance>(sql`
+    const result = await activeAdminDb().execute<RawStoredAcceptance>(sql`
       select "id", "purchase_id" as "purchaseId", "producer_id" as "producerId",
         "client_contact_id" as "clientContactId",
         "accepted_by_clerk_user_id" as "acceptedByClerkUserId",
@@ -441,7 +465,10 @@ describeWithTestDatabase("SK-92 song-space allocation — separate CI test datab
       where "purchase_id" = ${purchaseId}
       order by "id"
     `);
-    return [...result.rows];
+    return result.rows.map((row) => ({
+      ...row,
+      acceptedAt: storedTimestamp(row.acceptedAt, "acceptance acceptedAt"),
+    }));
   }
 
   async function purchaseRequestCount(): Promise<number> {
