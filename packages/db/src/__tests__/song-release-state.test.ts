@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const schema = readFileSync(join(process.cwd(), "src/schema.ts"), "utf8");
-const migration = readFileSync(join(process.cwd(), "drizzle/0029_song_release_state.sql"), "utf8");
+const migration = readFileSync(join(process.cwd(), "drizzle/0030_song_release_state.sql"), "utf8");
 
 describe("SK-8 song release state", () => {
   it("stores release independently from creative workflow progress", () => {
