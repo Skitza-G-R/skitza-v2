@@ -72,7 +72,7 @@ export async function createPackage(input: {
   deliverables?: string[];
   paymentPlans?: PaymentPlan[];
   royaltyTerms?: ProductRoyaltyTerms | null;
-  contractUrl?: string | null;
+  contractUrl?: null;
   agreementText?: string | null;
   // Per-song pricing. pricingModel='per_song' requires volumeTiers to
   // include a base tier at minQty=1 (server-side zod superRefine
@@ -108,7 +108,7 @@ export async function updatePackage(input: {
   deliverables?: string[];
   paymentPlans?: PaymentPlan[];
   royaltyTerms?: ProductRoyaltyTerms | null;
-  contractUrl?: string | null;
+  contractUrl?: null;
   agreementText?: string | null;
   // Per-song pricing — see createPackage's input comment.
   pricingModel?: "flat" | "per_song";
@@ -139,8 +139,8 @@ export async function deactivatePackage(input: { id: string }): Promise<ActionRe
   }
 }
 
-// Storefront visibility toggle — flips `active` without archiving.
-// Used by the storefront product card's Show / Hide control.
+// Signed-in Store visibility toggle — flips `active` without archiving.
+// Used by the Store product card's Show / Hide control.
 export async function setPackageActive(input: {
   id: string;
   active: boolean;
@@ -158,7 +158,7 @@ export async function setPackageActive(input: {
 }
 
 // Duplicate a product. The copy starts hidden (active=false) so the
-// producer can edit it before exposing it on the public page.
+// producer can edit it before exposing it to signed-in artists.
 export async function duplicatePackage(input: {
   id: string;
 }): Promise<ActionResult> {
@@ -174,19 +174,20 @@ export async function duplicatePackage(input: {
   }
 }
 
-// Archive (soft-delete). Distinct from deactivate / setActive — this
-// removes the product from the dashboard list entirely. Re-exposed
-// here so the storefront kebab menu doesn't import the
-// "deactivatePackage" name (which is the legacy alias).
-export async function archivePackage(input: { id: string }): Promise<ActionResult> {
+// Removes a product from the Store. The server checks purchase history under
+// lock and returns the authoritative lifecycle outcome: permanent delete when
+// unused, archive when commercial history must remain resolvable.
+export async function archivePackage(input: {
+  id: string;
+}): Promise<ActionDataResult<{ outcome: "deleted" | "archived" }>> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    await c.caller.booking.packages.archive(input);
+    const result = await c.caller.booking.packages.archive(input);
     revalidatePath(PATH);
     revalidatePath("/dashboard/profile");
     revalidatePath("/dashboard/store");
-    return { ok: true };
+    return { ok: true, data: { outcome: result.outcome } };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
   }

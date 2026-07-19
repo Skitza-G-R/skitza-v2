@@ -18,9 +18,7 @@ describe("StoreScreen shell", () => {
   });
 
   it("does NOT link Create or Edit to /dashboard/settings (regression carryover)", () => {
-    expect(SRC).not.toMatch(
-      /href\s*=\s*[`"']\/dashboard\/settings\?section=services/,
-    );
+    expect(SRC).not.toMatch(/href\s*=\s*[`"']\/dashboard\/settings\?section=services/);
   });
 
   it("renders the StoreHeader, StoreToolbar, ProductCard, EmptyState pieces", () => {
@@ -47,27 +45,21 @@ describe("StoreScreen shell", () => {
     expect(SRC).not.toMatch(/depositPct|depositModel|milestones/);
   });
 
-  it("mounts the DeleteConfirmModal", () => {
-    expect(SRC).toMatch(/<DeleteConfirmModal/);
+  it("mounts the lifecycle-aware ProductRemovalModal", () => {
+    expect(SRC).toMatch(/<ProductRemovalModal/);
   });
 
   it("no longer mounts NewPackageForm directly", () => {
     expect(SRC).not.toMatch(/NewPackageForm/);
   });
 
-  it("uses useUndoableDelete for the delete flow", () => {
-    expect(SRC).toMatch(/useUndoableDelete/);
+  it("uses useProductRemoval for the archive/delete outcome flow", () => {
+    expect(SRC).toMatch(/useProductRemoval/);
   });
 
-  it("uses the useDragReorder hook", () => {
-    expect(SRC).toMatch(/useDragReorder/);
-  });
-
-  it("uses computeNewOrder when applying drag-reorder updates", () => {
-    expect(SRC).toMatch(/computeNewOrder\(/);
-  });
-
-  it("calls reorderProducts with the new orderedIds on drop", () => {
+  it("calls reorderProducts with the complete ordered id list after an accessible move", () => {
+    expect(SRC).toMatch(/function moveProduct/);
+    expect(SRC).toMatch(/nextProducts\.map\(\(product\) => product\.id\)/);
     expect(SRC).toMatch(/reorderProducts\(\s*\{\s*orderedIds/);
   });
 
@@ -75,8 +67,18 @@ describe("StoreScreen shell", () => {
     expect(SRC).toMatch(/setOptimisticProducts\(products\)/);
   });
 
-  it("passes drag handlers into each ProductCard", () => {
-    expect(SRC).toMatch(/drag=\{getHandlersFor\(p\.id\)\}/);
+  it("passes move-up/down state and handlers into each ProductCard", () => {
+    expect(SRC).toMatch(/canMoveUp=\{index > 0\}/);
+    expect(SRC).toMatch(/canMoveDown=\{index < (?:live|hidden)\.length - 1\}/);
+    expect(SRC).toMatch(/onMoveUp=/);
+    expect(SRC).toMatch(/onMoveDown=/);
+    expect(SRC).not.toMatch(/useDragReorder|drag=\{/);
+  });
+
+  it("announces optimistic reorder outcomes to assistive technology", () => {
+    expect(SRC).toMatch(/aria-live="polite"/);
+    expect(SRC).toMatch(/Moved \$\{moving\.name\}/);
+    expect(SRC).toMatch(/Could not move \$\{moving\.name\}/);
   });
 
   it("mirrors the products prop into local optimistic state", () => {
@@ -84,20 +86,13 @@ describe("StoreScreen shell", () => {
     expect(SRC).toMatch(/setOptimisticProducts/);
   });
 
-  it("mounts StoreTable when view is 'table'", () => {
-    expect(SRC).toMatch(/StoreTable/);
+  it("ships one card catalog with no table view or unfinished toggle", () => {
+    expect(SRC).not.toMatch(/StoreTable|ViewToggle|ViewMode|enableTable/);
+    expect(SRC).not.toMatch(/view\s*===\s*["']table["']/);
   });
 
-  it("passes enableTable=true through to the toolbar / view toggle", () => {
-    // Accept either the prop on StoreToolbar (Path B) or directly on
-    // ViewToggle if StoreScreen passes it inline (rare).
-    expect(SRC).toMatch(/enableTable=\{true\}/);
-  });
-
-  it("renders the cards block only when view is not 'table'", () => {
-    // The branch `view === "table" ? <StoreTable ... /> : <div ...>` is
-    // the new render switch. Source-grep for the literal "table" view check.
-    expect(SRC).toMatch(/view\s*===\s*["']table["']/);
+  it("falls back to Archive until the server supplies a proven removal action", () => {
+    expect(SRC).toMatch(/product\.removalAction\s*\?\?\s*["']archive["']/);
   });
 
   it("tracks the most-recently-created product id in state", () => {
@@ -115,5 +110,20 @@ describe("StoreScreen shell", () => {
 
   it("wires onCreated on the create-mode ProductEditor", () => {
     expect(SRC).toMatch(/onCreated=\{handleCreated\}/);
+  });
+
+  it("passes the real focal or secondary Store placement into each preview", () => {
+    expect(SRC).toMatch(/previewPlacement=\{counts\.live === 0 \? "focal" : "secondary"\}/);
+    expect(SRC).toMatch(/editing\?\.active && editing\.id === firstLiveProductId/);
+  });
+
+  it("does not let global shortcuts fire from controls or any open dialog", () => {
+    expect(SRC).toMatch(/button, a\[href\]/);
+    expect(SRC).toMatch(/\[role="dialog"\]/);
+    expect(SRC).toMatch(/isContentEditable/);
+    expect(SRC).toMatch(/creating \|\|/);
+    expect(SRC).toMatch(/editing !== null/);
+    expect(SRC).toMatch(/removing !== null/);
+    expect(SRC).not.toMatch(/e\.key === "Escape"/);
   });
 });

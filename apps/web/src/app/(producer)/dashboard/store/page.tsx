@@ -8,11 +8,12 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
-import type { Currency } from "~/app/(producer)/dashboard/booking/package-form";
 import { coerceTaxMode } from "~/lib/tax-mode";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { StoreScreen, type StoreProduct } from "./store-screen";
+
+type Currency = "USD" | "EUR" | "GBP" | "ILS";
 
 export default async function StorePage() {
   const { userId } = await auth();
@@ -44,6 +45,7 @@ export default async function StorePage() {
     deliverables: p.deliverables ?? [],
     pricingModel: p.pricingModel,
     volumeTiers: p.volumeTiers,
+    removalAction: p.removalAction,
   }));
 
   const VALID = ["USD", "EUR", "GBP", "ILS"] as const;
@@ -65,6 +67,7 @@ export default async function StorePage() {
       defaultCurrency={defaultCurrency}
       taxMode={taxMode}
       taxRatePct={taxRatePct}
+      producerName={profile.displayName ?? "Your studio"}
     />
   );
 }

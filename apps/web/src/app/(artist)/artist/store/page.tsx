@@ -41,8 +41,7 @@ export default async function StorePage({ searchParams }: PageProps) {
   // returns them desc by lastSeenAt server-side). The length === 0
   // case is handled above, so studios[0] is defined here — the
   // explicit guard exists to satisfy the no-non-null-assertion lint.
-  const activeStudio =
-    studios.find((s) => s.producerId === sp.studio) ?? studios[0];
+  const activeStudio = studios.find((s) => s.producerId === sp.studio) ?? studios[0];
   if (!activeStudio) return null;
 
   const { products } = await caller.artist.store.products({
@@ -61,10 +60,7 @@ export default async function StorePage({ searchParams }: PageProps) {
   return (
     <div className="mx-auto w-full max-w-[600px] space-y-6 lg:max-w-[760px]">
       <StoreEyebrow />
-      <ProducerHero
-        producerName={activeStudio.name}
-        producerLogoUrl={activeStudio.logoUrl}
-      />
+      <ProducerHero producerName={activeStudio.name} producerLogoUrl={activeStudio.logoUrl} />
       {focal ? (
         <FocalProductCard
           product={{
@@ -87,6 +83,8 @@ export default async function StorePage({ searchParams }: PageProps) {
       )}
       <QuietProductList
         producerName={activeStudio.name}
+        taxMode={taxMode}
+        taxRatePct={taxRatePct}
         products={rest.map((p) => ({
           id: p.id,
           name: p.name,
@@ -107,7 +105,7 @@ export default async function StorePage({ searchParams }: PageProps) {
 function StoreEyebrow() {
   return (
     <header className="flex items-baseline justify-between px-1 sm:px-0">
-      <h1 className="font-display text-[20px] font-extrabold leading-none tracking-[-0.025em] text-[rgb(var(--fg-default))]">
+      <h1 className="font-display text-[20px] leading-none font-extrabold tracking-[-0.025em] text-[rgb(var(--fg-default))]">
         Store
         <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
       </h1>
@@ -154,14 +152,14 @@ function EmptyStudios() {
         }}
       >
         <span
-          className="font-mono text-[10px] font-bold uppercase tracking-[0.24em]"
+          className="font-mono text-[10px] font-bold tracking-[0.24em] uppercase"
           style={{ color: "rgb(var(--brand-primary))" }}
         >
           Waiting for an invite
         </span>
       </div>
       <div className="px-6 py-6 lg:px-8">
-        <p className="font-display text-[20px] font-extrabold leading-tight tracking-[-0.02em] text-[rgb(var(--fg-default))]">
+        <p className="font-display text-[20px] leading-tight font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
           No storefronts yet.
         </p>
         <p className="mt-2 text-[13px] leading-relaxed text-[rgb(var(--fg-muted))]">

@@ -455,10 +455,10 @@ describe("artist.store.products (query)", () => {
     expect(hasIsNullArchived).toBe(true);
   });
 
-  // Test 5b — every active, non-archived product remains visible.
-  // The Store catalog must not use a payment processor's former
-  // capabilities to decide which producer offerings an artist can see.
-  it("store.products lists every pricing model without a processor gate", async () => {
+  // Test 5b — signed-in Store lists only pricing models with an exact
+  // immutable purchase calculation. Hourly rows remain calendar-compatible
+  // legacy data but are not artist-purchasable Store products.
+  it("lists supported pricing models and returns normalized volume tiers", async () => {
     seedValidContact();
     productsSelectQueue.push([
       {
@@ -488,8 +488,8 @@ describe("artist.store.products (query)", () => {
         kind: "mix",
         pricingModel: "per_song",
         volumeTiers: [
-          { minQty: 1, pricePerUnitCents: 20000 },
           { minQty: 5, pricePerUnitCents: 15000 },
+          { minQty: 1, pricePerUnitCents: 20000 },
         ],
         paymentPlans: [{ kind: "full" }],
         position: 1,
@@ -507,6 +507,7 @@ describe("artist.store.products (query)", () => {
         sessionCount: 1,
         kind: "session",
         pricingModel: "hourly",
+        hourlyRateCents: 10000,
         paymentPlans: [{ kind: "full" }],
         position: 2,
         producerId: PRODUCER_ID,
@@ -539,7 +540,6 @@ describe("artist.store.products (query)", () => {
     expect(result.products.map((product) => product.pricingModel)).toEqual([
       "flat",
       "per_song",
-      "hourly",
       "bundle",
     ]);
     expect(result.products[1]?.volumeTiers).toEqual([
@@ -547,7 +547,8 @@ describe("artist.store.products (query)", () => {
       { minQty: 5, pricePerUnitCents: 15000 },
     ]);
 
-    // Producer scoping still uses inArray, but pricingModel must not.
+    // Producer scoping remains in SQL; unsupported legacy pricing is rejected
+    // by the central commercial domain after the row is loaded.
     const where = productsWhereSpy.mock.calls[0]?.[0];
     expect(findPredicate(where, "inArray", products.pricingModel)).toBeNull();
   });

@@ -104,3 +104,19 @@ export async function undoPurchaseApproval(input: {
     return { ok: false, error: actionErrorMessage(error) };
   }
 }
+
+export async function correctPurchaseTarget(input: {
+  purchaseRequestId: string;
+  projectId: string | null;
+}): Promise<{ ok: true; projectId: string | null } | { ok: false; error: string }> {
+  const result = await callerOrError();
+  if (!result.ok) return result;
+
+  try {
+    const corrected = await result.caller.producer.purchase.correctTarget(input);
+    revalidateRequestSurfaces(input.purchaseRequestId);
+    return { ok: true, projectId: corrected.projectId };
+  } catch (error) {
+    return { ok: false, error: actionErrorMessage(error) };
+  }
+}

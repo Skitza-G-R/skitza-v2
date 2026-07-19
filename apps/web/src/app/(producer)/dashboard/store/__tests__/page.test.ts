@@ -26,4 +26,12 @@ describe("dashboard/store/page.tsx", () => {
     expect(SRC).toMatch(/paymentPlans:\s*p\.paymentPlans/);
     expect(SRC).not.toMatch(/depositPct|depositModel|milestones/);
   });
+
+  it("does not depend on the removed legacy booking form for Store currency", () => {
+    expect(SRC).not.toMatch(/booking\/package-form/);
+  });
+
+  it("forwards only a server-proven delete/archive lifecycle action", () => {
+    expect(SRC).toMatch(/removalAction:\s*p\.removalAction/);
+  });
 });

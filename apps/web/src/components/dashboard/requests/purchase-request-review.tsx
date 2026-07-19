@@ -5,6 +5,7 @@ import { type SyntheticEvent, useEffect, useState, useTransition } from "react";
 
 import {
   approvePurchaseRequest,
+  correctPurchaseTarget,
   declinePurchaseRequest,
   undoPurchaseApproval,
 } from "~/app/(producer)/dashboard/requests/actions";
@@ -17,10 +18,20 @@ export function PurchaseRequestReview({
   id,
   initialStatus,
   initialUndoableUntilIso,
+  initialProjectId,
+  targetProjects,
 }: {
   id: string;
   initialStatus: PurchaseRequestStatus;
   initialUndoableUntilIso: string | null;
+  initialProjectId: string | null;
+  targetProjects: Array<{
+    id: string;
+    title: string;
+    lifecycleStatus: "waiting_for_payment" | "active";
+    workflowStage: "brief" | "production" | "mixing" | "mastering" | "done";
+    updatedAtIso: string;
+  }>;
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -29,13 +40,17 @@ export function PurchaseRequestReview({
   const [declineReason, setDeclineReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [undoableUntilIso, setUndoableUntilIso] = useState<string | null>(initialUndoableUntilIso);
+  const [projectId, setProjectId] = useState(initialProjectId);
+  const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId ?? "");
   const [isPending, startTransition] = useTransition();
   const canUndo = status === "approved" && isApprovalUndoAvailable(undoableUntilIso);
 
   useEffect(() => {
     setStatus(initialStatus);
     setUndoableUntilIso(initialStatus === "approved" ? initialUndoableUntilIso : null);
-  }, [initialStatus, initialUndoableUntilIso]);
+    setProjectId(initialProjectId);
+    setSelectedProjectId(initialProjectId ?? "");
+  }, [initialProjectId, initialStatus, initialUndoableUntilIso]);
 
   useEffect(() => {
     if (!undoableUntilIso) return;
@@ -74,7 +89,33 @@ export function PurchaseRequestReview({
         setStatus("approved");
         setUndoableUntilIso(result.undoableUntilIso);
         setShowDecline(false);
-        toast("Request approved. The artist can continue to payment.", "success");
+        toast(
+          "Request approved. The artist can choose a plan, review the exact agreement, and accept.",
+          "success",
+        );
+        router.refresh();
+      } catch {
+        showActionError();
+      }
+    });
+  };
+
+  const runTargetCorrection = () => {
+    const nextProjectId = selectedProjectId || null;
+    if (nextProjectId === projectId) return;
+    setError(null);
+    startTransition(async () => {
+      try {
+        const result = await correctPurchaseTarget({
+          purchaseRequestId: id,
+          projectId: nextProjectId,
+        });
+        if (!result.ok) {
+          showActionError(result.error);
+          return;
+        }
+        setProjectId(result.projectId);
+        toast("Purchase target updated.", "success");
         router.refresh();
       } catch {
         showActionError();
@@ -183,6 +224,50 @@ export function PurchaseRequestReview({
         ) : null}
       </div>
 
+      {(status === "pending" || status === "approved") &&
+      (projectId !== null || targetProjects.length > 0) ? (
+        <div className="mt-4 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] p-3">
+          <label
+            htmlFor="purchase-project-target"
+            className="block text-xs font-semibold text-[rgb(var(--fg-default))]"
+          >
+            Project target
+          </label>
+          <p className="mt-1 text-xs leading-relaxed text-[rgb(var(--fg-muted))]">
+            {projectId
+              ? "You may correct this to another project for the same artist until they accept."
+              : "A new project will be created by default. Choose an existing project only when this purchase belongs there."}
+          </p>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <select
+              id="purchase-project-target"
+              value={selectedProjectId}
+              onChange={(event) => {
+                setSelectedProjectId(event.target.value);
+              }}
+              disabled={isPending}
+              className="min-h-11 min-w-0 flex-1 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-base text-[rgb(var(--fg-default))] outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.55)] disabled:opacity-50 sm:text-sm"
+            >
+              <option value="">Start a new project (default)</option>
+              {targetProjects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.title} · {project.lifecycleStatus.replaceAll("_", " ")} ·{" "}
+                  {project.workflowStage} · updated {new Date(project.updatedAtIso).toLocaleDateString()}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={runTargetCorrection}
+              disabled={isPending || (selectedProjectId || null) === projectId}
+              className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] px-4 text-sm font-semibold text-[rgb(var(--fg-secondary))] hover:border-[rgb(var(--brand-primary)/0.55)] hover:text-[rgb(var(--brand-primary-text))] disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              {isPending ? "Saving…" : "Save target"}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {showDecline && status === "pending" ? (
         <form
           id="decline-request-form"
@@ -259,12 +344,12 @@ function reviewTitle(status: PurchaseRequestStatus): string {
 
 function reviewDescription(status: PurchaseRequestStatus, canUndo: boolean): string {
   if (status === "pending") {
-    return "Approving lets the artist choose from the frozen payment options below. No payment is taken here.";
+    return "Approving lets the artist review the current terms and choose an enabled payment plan. Nothing is frozen until final acceptance, and no payment is taken here.";
   }
   if (status === "approved") {
     return canUndo
-      ? "The artist can continue to payment. You can undo this approval while the five-minute safety window remains open."
-      : "The artist can continue to payment. Approval changes are limited to a short safety window.";
+      ? "The artist can now choose an enabled plan, review the exact agreement, and accept it before receiving external payment instructions. You can undo this approval while the five-minute safety window remains open."
+      : "The artist can now choose an enabled plan, review the exact agreement, and accept it before receiving external payment instructions. Approval changes are limited to a short safety window.";
   }
   if (status === "verifying") {
     return "The artist submitted payment proof and this request can no longer be changed here.";

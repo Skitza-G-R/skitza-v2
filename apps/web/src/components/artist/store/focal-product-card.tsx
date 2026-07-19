@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 
 import { coverGradient } from "~/components/artist/purchase/purchase-data";
@@ -18,6 +20,7 @@ export function FocalProductCard({
   producerName,
   taxMode = "tax_free",
   taxRatePct = 18,
+  onPreviewDetails,
 }: {
   product: {
     id: string;
@@ -33,6 +36,8 @@ export function FocalProductCard({
   producerName: string;
   taxMode?: TaxMode;
   taxRatePct?: number;
+  /** Producer Review only: opens the real artist detail preview without navigation. */
+  onPreviewDetails?: (trigger: HTMLButtonElement) => void;
 }) {
   const priceLabel = formatPriceLabel(product);
   const taxFootnote = taxModeFootnote(taxMode, taxRatePct);
@@ -46,7 +51,9 @@ export function FocalProductCard({
   } else {
     meta.push(planLabel(product.pricingModel).toUpperCase());
   }
-  if (product.sessionCount && product.sessionCount > 0) {
+  if (product.sessionCount === 0) {
+    meta.push("UNLIMITED SESSIONS");
+  } else if (product.sessionCount && product.sessionCount > 0) {
     meta.push(
       `${String(product.sessionCount)}× ${product.sessionCount > 1 ? "SESSIONS" : "SESSION"}`,
     );
@@ -82,7 +89,7 @@ export function FocalProductCard({
           one-word-per-line column on phones. sm+ is the original layout. */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
           <div className="min-w-0 sm:flex-1">
-            <h3 className="font-display text-[22px] leading-tight font-extrabold tracking-tight text-[rgb(var(--fg-default))] sm:text-[24px]">
+            <h3 className="font-display text-[22px] leading-tight font-extrabold tracking-tight [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-default))] sm:text-[24px]">
               {product.name}
             </h3>
             {meta.length > 0 ? (
@@ -116,16 +123,32 @@ export function FocalProductCard({
           </p>
         ) : null}
 
-        <Link
-          href={productHref(product)}
-          className="sk-press mt-5 flex w-full items-center justify-center rounded-[var(--radius-lg)] py-3 text-[14px] font-bold"
-          style={{
-            background: "rgb(var(--bg-sidebar))",
-            color: "rgb(var(--fg-onsidebar))",
-          }}
-        >
-          View details
-        </Link>
+        {onPreviewDetails ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              onPreviewDetails(event.currentTarget);
+            }}
+            className="sk-press mt-5 flex min-h-11 w-full items-center justify-center rounded-[var(--radius-lg)] py-3 text-[14px] font-bold"
+            style={{
+              background: "rgb(var(--bg-sidebar))",
+              color: "rgb(var(--fg-onsidebar))",
+            }}
+          >
+            View details
+          </button>
+        ) : (
+          <Link
+            href={productHref(product)}
+            className="sk-press mt-5 flex min-h-11 w-full items-center justify-center rounded-[var(--radius-lg)] py-3 text-[14px] font-bold"
+            style={{
+              background: "rgb(var(--bg-sidebar))",
+              color: "rgb(var(--fg-onsidebar))",
+            }}
+          >
+            View details
+          </Link>
+        )}
 
         <p className="mt-3 text-center font-mono text-[10px] font-medium tracking-[0.18em] text-[rgb(var(--fg-faint))] uppercase">
           Request details · payments stay external

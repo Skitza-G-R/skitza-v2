@@ -129,5 +129,16 @@ export function applyTaxToCents(
   mode: TaxMode,
   ratePct: number,
 ): number {
-  return Math.round(cents * taxTotalMultiplier(mode, ratePct));
+  if (mode !== "tax_added") return cents;
+
+  // Store prices and tax rates are integer database values. BigInt keeps this
+  // client-side preview bit-for-bit aligned with the immutable server snapshot
+  // even near Number's floating-point rounding boundaries.
+  const safeCents = Number.isSafeInteger(cents) ? Math.max(0, cents) : 0;
+  const safeRate = Number.isSafeInteger(ratePct)
+    ? Math.max(0, Math.min(100, ratePct))
+    : 0;
+  const numerator = BigInt(safeCents) * BigInt(safeRate);
+  const taxCents = Number((numerator * 2n + 100n) / 200n);
+  return safeCents + taxCents;
 }

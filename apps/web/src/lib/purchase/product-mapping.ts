@@ -5,8 +5,6 @@
 import type { PaymentPlan, ProductRoyaltyTerms } from "@skitza/db";
 
 import type { Producer, PurchaseProduct } from "~/components/artist/purchase/purchase-data";
-import { safeAgreementUrl } from "~/lib/agreement-url";
-import { offeredPlans } from "~/lib/purchase/request-helpers";
 import {
   producerHue,
   producerInitials,
@@ -22,30 +20,9 @@ function formatMinutes(min: number): string {
 
 /** Human duration line for the price row, derived from real product fields. */
 export function durationLabel(sessionCount: number, durationMin: number): string {
+  if (sessionCount === 0) return `Unlimited sessions · ${formatMinutes(durationMin)} each`;
   if (sessionCount <= 1) return `Single session · ${formatMinutes(durationMin)}`;
   return `${String(sessionCount)} sessions · ${formatMinutes(durationMin)} each`;
-}
-
-/** Optional producer-authored agreement link (PDF or normal web page). */
-export function agreementFor(
-  contractUrl: string | null | undefined,
-): { filename: string; url: string; kind: "pdf" | "link" } | null {
-  const safeUrl = safeAgreementUrl(contractUrl);
-  if (!safeUrl) return null;
-  let filename = "Agreement link";
-  let kind: "pdf" | "link" = "link";
-  try {
-    const path = new URL(safeUrl).pathname;
-    const last = path.split("/").filter(Boolean).pop();
-    if (last) {
-      filename = decodeURIComponent(last);
-      kind = filename.toLowerCase().endsWith(".pdf") ? "pdf" : "link";
-    }
-  } catch {
-    // Not a parseable URL — keep a truthful generic label rather than
-    // claiming the producer supplied a PDF.
-  }
-  return { filename, url: safeUrl, kind };
 }
 
 type StoreProductRow = {
@@ -57,12 +34,14 @@ type StoreProductRow = {
   durationMin: number;
   deliverables: string[] | null;
   producerName: string | null;
-  contractUrl: string | null;
   agreementText: string | null;
   royaltyTerms: ProductRoyaltyTerms | null;
   description: string | null;
   revisions: number;
+  unlimitedRevisions: boolean;
   paymentPlans: PaymentPlan[];
+  pricingModel: "flat" | "per_song" | "hourly" | "bundle";
+  volumeTiers: { minQty: number; pricePerUnitCents: number }[] | null;
 };
 
 /** Screen-shaped product from the real store row. */
@@ -76,10 +55,14 @@ export function toPurchaseProduct(row: StoreProductRow): PurchaseProduct {
     includes: row.deliverables ?? [],
     tagline: row.description,
     sessions: row.sessionCount,
+    unlimitedSessions: row.sessionCount === 0,
     revisions: row.revisions,
-    paymentPlans: offeredPlans(row),
+    unlimitedRevisions: row.unlimitedRevisions,
+    paymentPlans: [...row.paymentPlans],
     royaltyTerms: row.royaltyTerms ?? null,
     agreementText: row.agreementText ?? null,
+    pricingModel: row.pricingModel,
+    volumeTiers: row.volumeTiers ?? [],
   };
 }
 
@@ -90,6 +73,5 @@ export function toProducer(row: StoreProductRow): Producer {
     name,
     initials: producerInitials(name),
     hue: producerHue(name),
-    agreement: agreementFor(row.contractUrl),
   };
 }

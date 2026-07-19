@@ -12,16 +12,20 @@ import {
 import { formatCurrencyForEmail } from "../format";
 
 // Sent to the artist when the producer approves their purchase request
-// (SK-37 / BE-1, Gate 1). The next step for the artist is to accept the
-// producer's agreement, then pay — but those flows live in BE-2/3, so
-// this email keeps to "you're approved, here's what you committed to".
+// (SK-37 / BE-1, Gate 1). The proposal remains live until the artist
+// accepts the exact agreement, so every displayed amount comes from the
+// same tax-aware domain calculation used by the acceptance preview.
 export interface PurchaseApprovedToArtistProps {
   artistName: string;
   producerName: string;
   productName: string;
   refNumber: string;
   currency: string;
-  priceCents: number;
+  subtotalCents: number;
+  taxMode: "tax_free" | "tax_included" | "tax_added";
+  taxRatePct: number;
+  taxCents: number;
+  totalCents: number;
 }
 
 export function PurchaseApprovedToArtist(props: PurchaseApprovedToArtistProps) {
@@ -77,8 +81,26 @@ export function PurchaseApprovedToArtist(props: PurchaseApprovedToArtistProps) {
               <strong>Reference</strong> · {props.refNumber}
             </Text>
             <Text style={{ margin: "4px 0" }}>
+              <strong>Price</strong> ·{" "}
+              {formatCurrencyForEmail(props.subtotalCents, props.currency)}
+            </Text>
+            <Text style={{ margin: "4px 0" }}>
+              {props.taxMode === "tax_free" ? (
+                <>
+                  <strong>Tax</strong> · Tax-free
+                </>
+              ) : (
+                <>
+                  <strong>
+                    {props.taxMode === "tax_included" ? "Included tax" : "Tax"} ({props.taxRatePct}%)
+                  </strong>{" "}
+                  · {formatCurrencyForEmail(props.taxCents, props.currency)}
+                </>
+              )}
+            </Text>
+            <Text style={{ margin: "4px 0" }}>
               <strong>Total</strong> ·{" "}
-              {formatCurrencyForEmail(props.priceCents, props.currency)}
+              {formatCurrencyForEmail(props.totalCents, props.currency)}
             </Text>
           </Section>
           <Hr style={{ margin: "24px 0", borderColor: "#E8E2D9" }} />

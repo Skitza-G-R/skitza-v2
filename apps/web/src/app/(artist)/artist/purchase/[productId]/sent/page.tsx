@@ -49,7 +49,6 @@ export default async function PurchaseSentPage({ params, searchParams }: PagePro
     name: request.producerName,
     initials: producerInitials(request.producerName),
     hue: producerHue(request.producerName),
-    agreement: null,
   };
 
   return (

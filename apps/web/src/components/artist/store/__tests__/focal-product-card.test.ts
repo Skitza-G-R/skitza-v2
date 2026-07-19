@@ -33,10 +33,22 @@ describe("FocalProductCard", () => {
     expect(source).toMatch(/flex flex-row items-baseline gap-2 sm:flex-col sm:items-end/);
   });
 
-  it("links the primary CTA via productHref (funnel for flat, legacy for per-song)", () => {
+  it("links the live CTA via the unified productHref", () => {
     expect(source).toMatch(/href=\{productHref\(product\)\}/);
     expect(source).toMatch(/from\s+['"]~\/lib\/store\/product-href['"]/);
     expect(source).toMatch(/View details/);
+  });
+
+  it("turns the same CTA into a safe producer-preview button when requested", () => {
+    expect(source).toMatch(/onPreviewDetails\?: \(trigger: HTMLButtonElement\) => void/);
+    expect(source).toMatch(/onPreviewDetails\(event\.currentTarget\)/);
+    expect(source).toMatch(/onPreviewDetails \? \(/);
+    expect(source).toMatch(/type="button"/);
+  });
+
+  it("wraps long focal product names without overflowing", () => {
+    expect(source).toMatch(/break-words/);
+    expect(source).toMatch(/\[overflow-wrap:anywhere\]/);
   });
 
   it("uses the sidebar surface for the primary CTA", () => {
@@ -59,6 +71,11 @@ describe("FocalProductCard", () => {
     expect(source).toMatch(/taxMode/);
     expect(source).toMatch(/taxRatePct/);
     expect(source).toMatch(/taxModeFootnote/);
+  });
+
+  it("labels a zero session count as unlimited rather than omitting it", () => {
+    expect(source).toMatch(/product\.sessionCount === 0/);
+    expect(source).toMatch(/UNLIMITED SESSIONS/);
   });
 
   it("entrance animation uses reveal-up", () => {

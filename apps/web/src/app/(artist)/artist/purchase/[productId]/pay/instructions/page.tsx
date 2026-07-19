@@ -9,7 +9,7 @@ import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = {
   params: Promise<{ productId: string }>;
-  searchParams: Promise<{ req?: string }>;
+  searchParams: Promise<{ req?: string; purchase?: string }>;
 };
 
 export const metadata: Metadata = { title: "Payment instructions" };
@@ -22,23 +22,25 @@ export default async function PaymentInstructionsPage({ params, searchParams }: 
   if (!userId) return null;
 
   const { productId } = await params;
-  const { req } = await searchParams;
-  if (!req) redirect(`/artist/purchase/${productId}`);
+  const { req, purchase } = await searchParams;
+  if (!req && !purchase) redirect(`/artist/purchase/${productId}`);
 
   const caller = appRouter.createCaller({ userId });
   try {
-    const data = await caller.artist.purchase.paymentInstructions({
-      purchaseRequestId: req,
-    });
+    const data = purchase
+      ? await caller.artist.purchase.paymentInstructions({ purchaseId: purchase })
+      : req
+        ? await caller.artist.purchase.paymentInstructions({ purchaseRequestId: req })
+        : redirect(`/artist/purchase/${productId}`);
     if (data.productId && data.productId !== productId) notFound();
     if (!data.amountDueNowCents) {
       if (data.proofUploadsAvailable) {
-        redirect(`/artist/purchase/${productId}/pay/proof?req=${req}`);
+        redirect(`/artist/purchase/${productId}/pay/proof?req=${req ?? ""}`);
       }
       redirect("/artist");
     }
     if (data.proofUploadsAvailable && (data.pendingProofCents > 0 || data.remainingCents <= 0)) {
-      redirect(`/artist/purchase/${productId}/pay/proof?req=${req}`);
+      redirect(`/artist/purchase/${productId}/pay/proof?req=${req ?? ""}`);
     }
 
     const paymentDetails = data.hasDetails
@@ -52,7 +54,7 @@ export default async function PaymentInstructionsPage({ params, searchParams }: 
     return (
       <PaymentInstructionsScreen
         productId={productId}
-        purchaseRequestId={req}
+        purchaseRequestId={req ?? ""}
         producerName={data.producerName ?? "Your producer"}
         amountDueNowCents={data.amountDueNowCents}
         currency={data.currency}

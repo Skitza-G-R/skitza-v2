@@ -40,9 +40,8 @@ export type InitialPackageValues = {
   bufferMinutes: number;
   minLeadHours: number;
   paymentPlans?: PaymentPlan[];
-  // B7 — optional contract PDF URL the producer hosts elsewhere
-  // (Dropbox, Drive, their own site). Same paste-a-link pattern as
-  // brand.logoUrl.
+  // Legacy read compatibility only. Store editing clears this value and no
+  // longer lets producers publish mutable external agreement terms.
   contractUrl: string | null;
 };
 
@@ -116,12 +115,6 @@ export function NewPackageForm({
   const [description, setDescription] = useState(
     initialValues?.description ?? "",
   );
-  // B7 — contract PDF link (paste-a-URL, no file upload). Empty string
-  // collapses to null on submit so producers can clear an existing link
-  // by deleting the field's value.
-  const [contractUrl, setContractUrl] = useState(
-    initialValues?.contractUrl ?? "",
-  );
   const [durationMin, setDurationMin] = useState(
     initialValues?.durationMin ?? 60,
   );
@@ -182,12 +175,9 @@ export function NewPackageForm({
       n === 60 ? "1 hour" : n % 60 === 0 ? `${String(n / 60)} hours` : `${String(n)} min`,
   });
   const priceState: ValidationState = validateNumber(priceDollars, {
-    min: 0,
+    min: 0.01,
     label: currency,
-    formatParsed: (n) =>
-      n === 0
-        ? `Free · ${currency}`
-        : `${CURRENCY_SYMBOL[currency]}${n.toFixed(2)} ${currency}`,
+    formatParsed: (n) => `${CURRENCY_SYMBOL[currency]}${n.toFixed(2)} ${currency}`,
   });
 
   function onSubmit(e: SyntheticEvent<HTMLFormElement>) {
@@ -199,15 +189,6 @@ export function NewPackageForm({
     const paymentPlans = parsePaymentPlansFromFormData(
       new FormData(e.currentTarget),
     );
-    // B7 — collapse empty-string contract URL to null so producers can
-    // clear an existing link, and skip the field entirely when blank on
-    // CREATE so we don't send an empty string through z.string().url().
-    const trimmedContract = contractUrl.trim();
-    const contractField = isEdit
-      ? { contractUrl: trimmedContract.length > 0 ? trimmedContract : null }
-      : trimmedContract.length > 0
-        ? { contractUrl: trimmedContract }
-        : {};
     const payload = {
       name: name.trim(),
       ...(description.trim() ? { description: description.trim() } : {}),
@@ -221,7 +202,7 @@ export function NewPackageForm({
       bufferMinutes,
       minLeadHours,
       paymentPlans,
-      ...contractField,
+      contractUrl: null,
     };
     startTransition(async () => {
       const res = isEdit
@@ -276,38 +257,21 @@ export function NewPackageForm({
         </div>
 
         <div className="sm:col-span-2">
-          <Label htmlFor="description">Short description</Label>
+          <Label htmlFor="description">Store tagline</Label>
           <Textarea
             id="description"
             value={description}
             onChange={(e) => {
               setDescription(e.target.value);
             }}
-            placeholder="What the client walks away with, in one sentence."
-            maxLength={500}
+            placeholder="What the artist walks away with, in one sentence."
+            maxLength={160}
             rows={2}
+            required
             className="text-base"
           />
           <p className="mt-1.5 text-xs text-[rgb(var(--fg-muted))]">
-            Shown on your public booking page — keep it short (~140 chars).
-          </p>
-        </div>
-
-        <div className="sm:col-span-2">
-          <Label htmlFor="contractUrl">Contract PDF link (optional)</Label>
-          <Input
-            id="contractUrl"
-            type="url"
-            value={contractUrl}
-            onChange={(e) => {
-              setContractUrl(e.target.value);
-            }}
-            placeholder="https://drive.google.com/..."
-            maxLength={2048}
-            className="text-base"
-          />
-          <p className="mt-1.5 text-xs text-[rgb(var(--fg-muted))]">
-            Paste a public link to your contract PDF (Drive, Dropbox, your site). Leave blank to remove.
+            Shown only to signed-in artists in your Store. Keep it to one short line.
           </p>
         </div>
 
@@ -409,8 +373,8 @@ export function NewPackageForm({
           <Input
             id="price"
             type="number"
-            min={0}
-            step={1}
+            min={0.01}
+            step={0.01}
             value={priceDollars}
             onChange={(e) => {
               setPriceDollars(Number(e.target.value));
@@ -421,7 +385,7 @@ export function NewPackageForm({
           />
           <ValidationHint
             state={priceState}
-            hint="Use 0 for free discovery sessions."
+            hint="Published products need a positive cash price. Free or royalty-only deals belong in future private offers."
           />
         </div>
 
@@ -510,7 +474,7 @@ export function NewPackageForm({
               setPlanSplitChecked(e.target.checked);
             }}
           />
-          50/50 split — half now, half on delivery
+          50/50 split — half at acceptance, half when the artist approves the final version
         </label>
         <label className="mt-2 flex items-center gap-2 text-sm">
           <input

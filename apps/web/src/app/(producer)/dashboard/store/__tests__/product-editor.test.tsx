@@ -68,8 +68,13 @@ describe("ProductEditor orchestrator", () => {
     expect(SRC).toMatch(/onCreated\?\.\(/);
   });
 
-  it("hides the legacy payment panel from Price", () => {
-    expect(SRC).toMatch(/showPaymentPlans=\{false\}/);
+  it("threads the product's real signed-in Store placement into Review", () => {
+    expect(SRC).toMatch(/previewPlacement\?:\s*"focal" \| "secondary"/);
+    expect(SRC).toMatch(/previewPlacement=\{previewPlacement\}/);
+  });
+
+  it("uses the dedicated Payment step without duplicate pricing controls", () => {
+    expect(SRC).not.toMatch(/showPaymentPlans/);
   });
 
   it("uses purchase-level plans without deposit or milestone compatibility fields", () => {
@@ -86,13 +91,24 @@ describe("ProductEditor orchestrator", () => {
     expect(handler).not.toContain('setCurrentStep("details")');
   });
 
-  it("does not show rights validation errors before that section is touched", () => {
+  it("hides untouched rights errors but surfaces required legacy-link replacement", () => {
     expect(SRC).toContain("visibleRoyaltyErrors");
     expect(SRC).toMatch(/rightsTouched\.master\s*&&\s*royaltyErrors\.master/);
-    expect(SRC).toMatch(/rightsTouched\.agreement\s*\?\s*agreementError/);
+    expect(SRC).toMatch(
+      /rightsTouched\.agreement\s*\|\|\s*draft\._legacyAgreementLink\s*\?\s*agreementError/,
+    );
+    expect(SRC).toContain("Replace the old agreement link with the exact terms before saving.");
   });
 
   it("allows save only from the Review step", () => {
     expect(SRC).toMatch(/currentStep\s*!==\s*"review"/);
+  });
+
+  it("requires an exact tagline and positive cash price before Review", () => {
+    expect(SRC).toMatch(/productTaglineError\(draft\.tagline\)/);
+    expect(SRC).toMatch(/productCashPriceError\(draft\)/);
+    expect(SRC).toMatch(/paymentPlanFeasibilityError\(draft\)/);
+    expect(SRC).toMatch(/tagline=\{draft\.tagline\}/);
+    expect(SRC).toMatch(/priceError=\{priceError\}/);
   });
 });

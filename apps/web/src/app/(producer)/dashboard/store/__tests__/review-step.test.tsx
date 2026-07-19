@@ -8,6 +8,7 @@ describe("ReviewStep", () => {
     const html = renderToStaticMarkup(
       <ReviewStep
         name="Midnight mix package"
+        tagline="Release-ready clarity without losing the pulse."
         typeLabel="Mix"
         showTypeEdit={true}
         includes={["Stereo mix", "Instrumental", "Stems"]}
@@ -34,14 +35,20 @@ describe("ReviewStep", () => {
           },
         }}
         agreementMode="text"
-        contractUrl=""
         agreementText="Payment and credit terms."
+        producerName="Gili Studio"
         onEdit={() => undefined}
       />,
     );
 
+    expect(html).toContain("Exact artist preview");
+    expect(html).toContain("Signed-in Store focal card for Gili Studio.");
+    expect(html).toContain("View details");
+    expect(html).toContain("Gili Studio");
     expect(html).toContain("Product type");
     expect(html).toContain("Product details");
+    expect(html).toContain("Artist-facing tagline");
+    expect(html).toContain("Release-ready clarity without losing the pulse.");
     expect(html).toContain("Price");
     expect(html).toContain("Payment");
     expect(html).toContain("Delivery");
@@ -59,6 +66,7 @@ describe("ReviewStep", () => {
     const html = renderToStaticMarkup(
       <ReviewStep
         name="Legacy master"
+        tagline="Platform-ready master."
         typeLabel="Master"
         includes={[]}
         pricingModel="flat"
@@ -72,7 +80,6 @@ describe("ReviewStep", () => {
         unlimitedRevisions={false}
         royaltyTerms={null}
         agreementMode="none"
-        contractUrl=""
         agreementText=""
         onEdit={() => undefined}
       />,
@@ -82,10 +89,44 @@ describe("ReviewStep", () => {
     expect(html).toContain("No agreement added");
   });
 
+  it("renders the exact secondary Store row when the product is not focal", () => {
+    const html = renderToStaticMarkup(
+      <ReviewStep
+        name="Long-form vocal production package"
+        tagline="Focused sessions for a polished vocal release."
+        typeLabel="Production"
+        includes={["Vocal production"]}
+        pricingModel="flat"
+        priceCents={10_000}
+        currency="ILS"
+        sessions={1}
+        unlimitedSessions={false}
+        paymentPlans={[{ kind: "full" }]}
+        duration="60 min"
+        revisions={1}
+        unlimitedRevisions={false}
+        royaltyTerms={null}
+        agreementMode="none"
+        agreementText=""
+        producerName="Gili Studio"
+        taxMode="tax_added"
+        taxRatePct={18}
+        previewPlacement="secondary"
+        onEdit={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("Signed-in Store secondary row for Gili Studio.");
+    expect(html).toContain("Also from Gili Studio");
+    expect(html).toContain("+ 18% tax");
+    expect(html).not.toContain("Signature");
+  });
+
   it("distinguishes the saved list price from the post-tax artist total", () => {
     const html = renderToStaticMarkup(
       <ReviewStep
         name="Taxed mix"
+        tagline="A focused mix for release day."
         typeLabel="Mix"
         includes={[]}
         pricingModel="flat"
@@ -101,7 +142,6 @@ describe("ReviewStep", () => {
         unlimitedRevisions={false}
         royaltyTerms={null}
         agreementMode="none"
-        contractUrl=""
         agreementText=""
         onEdit={() => undefined}
       />,
@@ -117,6 +157,7 @@ describe("ReviewStep", () => {
     const html = renderToStaticMarkup(
       <ReviewStep
         name="EP mix"
+        tagline="One consistent sound across the full EP."
         typeLabel="Mix"
         includes={["Mixes"]}
         pricingModel="per_song"
@@ -135,7 +176,6 @@ describe("ReviewStep", () => {
         unlimitedRevisions={false}
         royaltyTerms={null}
         agreementMode="none"
-        contractUrl=""
         agreementText=""
         onEdit={() => undefined}
       />,

@@ -4,12 +4,15 @@ import type { PaymentPlan, ProductRoyaltyTerms } from "@skitza/db";
 
 import { royaltyTermsDisplay } from "~/lib/purchase/royalty-terms";
 import type { VolumeTier } from "~/lib/pricing";
+import type { TaxMode } from "~/lib/tax-mode";
+import { ArtistProductPreview } from "../artist-product-preview";
 import type { AgreementMode } from "../product-editor-draft";
 
 export type ReviewEditStep = "type" | "details" | "price" | "payment" | "delivery" | "rights";
 
 interface ReviewStepProps {
   name: string;
+  tagline: string;
   typeLabel: string;
   showTypeEdit?: boolean;
   includes: string[];
@@ -27,8 +30,11 @@ interface ReviewStepProps {
   unlimitedRevisions: boolean;
   royaltyTerms: ProductRoyaltyTerms | null;
   agreementMode: AgreementMode;
-  contractUrl: string;
   agreementText: string;
+  producerName?: string;
+  taxMode?: TaxMode;
+  taxRatePct?: number;
+  previewPlacement?: "focal" | "secondary";
   onEdit: (step: ReviewEditStep) => void;
 }
 
@@ -90,6 +96,7 @@ function ReviewSection({
 
 export function ReviewStep({
   name,
+  tagline,
   typeLabel,
   showTypeEdit = false,
   includes,
@@ -107,14 +114,39 @@ export function ReviewStep({
   unlimitedRevisions,
   royaltyTerms,
   agreementMode,
-  contractUrl,
   agreementText,
+  producerName = "Your studio",
+  taxMode = "tax_free",
+  taxRatePct = 18,
+  previewPlacement = "focal",
   onEdit,
 }: ReviewStepProps) {
   const royalty = royaltyTermsDisplay(royaltyTerms);
 
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <ArtistProductPreview
+        name={name}
+        tagline={tagline}
+        producerName={producerName}
+        priceCents={priceCents}
+        currency={currency}
+        pricingModel={pricingModel}
+        volumeTiers={volumeTiers}
+        sessions={sessions}
+        unlimitedSessions={unlimitedSessions}
+        duration={duration}
+        includes={includes}
+        revisions={revisions}
+        unlimitedRevisions={unlimitedRevisions}
+        paymentPlans={paymentPlans}
+        royaltyTerms={royaltyTerms}
+        agreementText={agreementMode === "text" ? agreementText : ""}
+        taxMode={taxMode}
+        taxRatePct={taxRatePct}
+        placement={previewPlacement}
+      />
+
       {showTypeEdit ? (
         <ReviewSection title="Product type" step="type" onEdit={onEdit}>
           <div className="font-semibold text-[rgb(var(--fg-default))]">{typeLabel}</div>
@@ -126,6 +158,14 @@ export function ReviewStep({
           {name}
         </div>
         {!showTypeEdit ? <div className="mt-0.5">{typeLabel}</div> : null}
+        <div className="mt-2">
+          <div className="text-[11px] font-bold tracking-[0.12em] text-[rgb(var(--fg-faint))] uppercase">
+            Artist-facing tagline
+          </div>
+          <p className="mt-0.5 [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-default))]">
+            {tagline}
+          </p>
+        </div>
         {includes.length > 0 ? (
           <ul className="mt-2 list-disc space-y-1 pl-5 [overflow-wrap:anywhere] break-words">
             {includes.map((item) => (
@@ -216,13 +256,6 @@ export function ReviewStep({
             <p className="mt-1 break-words whitespace-pre-wrap text-[rgb(var(--fg-default))]">
               {agreementText.trim()}
             </p>
-          </div>
-        ) : agreementMode === "link" && contractUrl.trim() ? (
-          <div className="mt-3 border-t border-[rgb(var(--border-subtle))] pt-3">
-            <div className="text-[11px] font-bold tracking-[0.12em] text-[rgb(var(--fg-faint))] uppercase">
-              Agreement link
-            </div>
-            <p className="mt-1 break-all text-[rgb(var(--fg-default))]">{contractUrl.trim()}</p>
           </div>
         ) : (
           <p className="mt-3 text-[rgb(var(--fg-faint))]">No agreement added</p>

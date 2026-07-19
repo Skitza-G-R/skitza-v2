@@ -8,7 +8,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "toggle.tsx"), "utf8");
 
 describe("Toggle component shell", () => {
-  it("declares the 44 by 24 dimensions per spec", () => {
+  it("keeps a 44 by 44 touch target around the 44 by 24 track", () => {
+    expect(SRC).toMatch(/h-11 w-11/);
     expect(SRC).toMatch(/width:\s*44/);
     expect(SRC).toMatch(/height:\s*24/);
   });
@@ -17,8 +18,10 @@ describe("Toggle component shell", () => {
     expect(SRC).toContain("cubic-bezier(.34,1.56,.64,1)");
   });
 
-  it("flips aria-pressed based on the on prop", () => {
-    expect(SRC).toMatch(/aria-pressed=\{on\}/);
+  it("uses the checked state required by role=switch", () => {
+    expect(SRC).toMatch(/role="switch"/);
+    expect(SRC).toMatch(/aria-checked=\{on\}/);
+    expect(SRC).not.toMatch(/aria-pressed/);
   });
 
   it("uses the success token for the on background", () => {

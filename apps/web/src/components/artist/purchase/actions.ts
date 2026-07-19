@@ -30,6 +30,8 @@ function errorResult(error: unknown, fallback: string): ActionError {
 export async function requestToBookAction(input: {
   productId: string;
   operationKey: string;
+  songQty?: number;
+  projectId?: string;
 }): Promise<
   { ok: true; purchaseRequestId: string; refNumber: string } | { ok: false; error: string }
 > {
@@ -41,6 +43,8 @@ export async function requestToBookAction(input: {
     const result = await caller.artist.purchase.request({
       productId: input.productId,
       operationKey: input.operationKey,
+      ...(input.songQty === undefined ? {} : { songQty: input.songQty }),
+      ...(input.projectId === undefined ? {} : { projectId: input.projectId }),
     });
     return {
       ok: true,
@@ -53,19 +57,28 @@ export async function requestToBookAction(input: {
   }
 }
 
-export async function choosePaymentPlanAction(input: {
+export async function acceptPurchaseAction(input: {
   purchaseRequestId: string;
   paymentPlan: PaymentPlanChoice;
-}): Promise<{ ok: true } | ActionError> {
+  expectedSnapshotDigest: string;
+  operationKey: string;
+  agreementAccepted: true;
+}): Promise<{ ok: true; purchaseId: string; productId: string } | ActionError> {
   const { userId } = await auth();
   if (!userId) return { ok: false, error: "Not signed in" };
 
   try {
     const caller = appRouter.createCaller({ userId });
-    await caller.artist.purchase.paymentPlan.choose(input);
-    return { ok: true };
+    const result = await caller.artist.purchase.acceptance.accept(input);
+    revalidatePath("/artist", "layout");
+    revalidatePath(`/artist/purchase/${result.productId}`);
+    return {
+      ok: true,
+      purchaseId: result.purchaseId,
+      productId: result.productId,
+    };
   } catch (error) {
-    return errorResult(error, "Couldn't save that plan. Try again.");
+    return errorResult(error, "Couldn't accept this agreement. Refresh and try again.");
   }
 }
 

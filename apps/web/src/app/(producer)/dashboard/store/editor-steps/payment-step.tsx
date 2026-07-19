@@ -30,16 +30,16 @@ function paymentPreview(
   currency: string,
   installments: number,
 ): string {
-  if (kind === "full") return `${formatAmount(totalCents, currency)} after approval`;
+  if (kind === "full") return `${formatAmount(totalCents, currency)} at acceptance`;
   if (kind === "split") {
     const second = Math.floor(totalCents / 2);
     const first = totalCents - second;
-    return `${formatAmount(first, currency)} first · ${formatAmount(second, currency)} on delivery`;
+    return `${formatAmount(first, currency)} at acceptance · ${formatAmount(second, currency)} when the artist approves the final version`;
   }
 
   const later = Math.floor(totalCents / installments);
   const first = totalCents - later * (installments - 1);
-  return `${formatAmount(first, currency)} first · then ${formatAmount(later, currency)} monthly`;
+  return `${formatAmount(first, currency)} at acceptance · then ${formatAmount(later, currency)} monthly`;
 }
 
 export function PaymentStep({
@@ -96,7 +96,7 @@ export function PaymentStep({
                 Pay in full
               </span>
               <span className="mt-0.5 block text-[12px] leading-snug text-[rgb(var(--fg-muted))]">
-                One payment after approval.
+                One payment at agreement acceptance.
               </span>
             </span>
             <span className="col-start-2 mt-1 text-[12px] font-medium text-[rgb(var(--fg-muted))] tabular-nums sm:col-start-3 sm:mt-0 sm:text-right">
@@ -124,7 +124,7 @@ export function PaymentStep({
                 50% / 50%
               </span>
               <span className="mt-0.5 block text-[12px] leading-snug text-[rgb(var(--fg-muted))]">
-                Half after approval. Half on delivery.
+                Half at agreement acceptance. Half when the artist approves the final version.
               </span>
             </span>
             <span className="col-start-2 mt-1 text-[12px] font-medium text-[rgb(var(--fg-muted))] tabular-nums sm:col-start-3 sm:mt-0 sm:text-right">
@@ -153,7 +153,7 @@ export function PaymentStep({
                   Monthly installments
                 </span>
                 <span className="mt-0.5 block text-[12px] leading-snug text-[rgb(var(--fg-muted))]">
-                  One schedule with 2–12 total payments.
+                  First payment at agreement acceptance, then monthly.
                 </span>
               </span>
               <span className="col-start-2 mt-1 text-[12px] font-medium text-[rgb(var(--fg-muted))] tabular-nums sm:col-start-3 sm:mt-0 sm:text-right">

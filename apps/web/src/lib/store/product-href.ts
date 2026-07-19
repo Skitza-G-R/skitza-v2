@@ -1,14 +1,9 @@
-// Where a store card sends the artist.
-//
-// Flat / bundle / hourly products enter the Request-to-book funnel (S3 —
-// price locks at request, Gate 1, money off-app). Per-song products still
-// use the legacy store detail page: it owns the song-count stepper, and the
-// funnel has no qty picker yet (follow-up on SK-46).
+// Every signed-in Store card enters the same purchase funnel. Quantity for a
+// per-song product is chosen on that unified detail screen, so no pricing
+// model has a separate checkout route anymore.
 export function productHref(product: {
   id: string;
   pricingModel: "flat" | "per_song" | "hourly" | "bundle";
 }): string {
-  return product.pricingModel === "per_song"
-    ? `/artist/store/${product.id}`
-    : `/artist/purchase/${product.id}`;
+  return `/artist/purchase/${product.id}`;
 }

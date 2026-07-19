@@ -129,6 +129,7 @@ export type PurchaseTargetProject = Readonly<{
   id: string;
   producerId: string;
   clientContactId: string;
+  clientClerkUserId: string | null;
   lifecycleStatus: PurchaseProjectLifecycleStatus;
 }>;
 
@@ -221,6 +222,11 @@ export type AcceptPurchaseInput = Readonly<{
   projectId: string;
   clientContactId: string;
   source: PurchaseSource;
+  /**
+   * The artist identity proven by an artist-authenticated orchestration
+   * boundary. A producer-facing caller must never supply itself or impersonate
+   * a client here, including for a no_charge_add_on acceptance.
+   */
   acceptedByClerkUserId: string;
   operationKey: string;
   totalCents: number;
@@ -394,6 +400,7 @@ function assertTargetProjectCanAcceptPurchase(
     producerId: string;
     projectId: string;
     clientContactId: string;
+    acceptedByClerkUserId: string;
   }>,
 ): void {
   if (project === null) {
@@ -409,6 +416,12 @@ function assertTargetProjectCanAcceptPurchase(
     throw new PurchaseDomainError(
       "NOT_OWNER",
       "The target project does not belong to this producer and client",
+    );
+  }
+  if (project.clientClerkUserId !== target.acceptedByClerkUserId) {
+    throw new PurchaseDomainError(
+      "NOT_OWNER",
+      "The authenticated artist does not own the target project",
     );
   }
   switch (project.lifecycleStatus) {
@@ -793,7 +806,7 @@ export async function acceptPurchase(
         if (!acceptance) {
           integrityError("An accepted purchase is missing its immutable acceptance record");
         }
-        assertAcceptanceMatchesPurchase(acceptance, existing);
+        assertAcceptanceMatchesPurchase(acceptance, existing, input.acceptedByClerkUserId);
         return { purchase: existing, acceptance, created: false };
       }
 

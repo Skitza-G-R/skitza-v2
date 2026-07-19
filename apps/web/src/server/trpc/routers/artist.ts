@@ -46,6 +46,13 @@ import {
   sessionUseConsumesAllowance,
 } from "~/server/domain/session-booking/service";
 import { assertWritableCommentTarget, CommentDomainError } from "~/server/domain/comments/service";
+import { listSameClientPurchaseTargets } from "~/server/domain/purchase-targeting/db";
+import {
+  assertPublishedStoreProduct,
+  StoreProductCommercialError,
+  type StoreProductCommercialInput,
+  type ValidatedStoreProductCommercialInput,
+} from "~/server/domain/store-products/service";
 
 function purchaseProductName(
   snapshot: PurchaseCommercialSnapshot | null,
@@ -1362,6 +1369,29 @@ const bookSubrouter = router({
 // artist app. `products` is the catalog read (all or one studio), and
 // `product` is the detail read. Accepted purchases use the off-app proof
 // workflow exposed by the purchase router.
+function assertArtistStoreProductSellable(
+  row: StoreProductCommercialInput,
+): ValidatedStoreProductCommercialInput {
+  // Database rows contain every field below. These null/default fallbacks
+  // retain compatibility with older projections while the commercial
+  // domain remains the single owner of positive-price and plan validation.
+  const compatibility = row as Partial<StoreProductCommercialInput>;
+  return assertPublishedStoreProduct({
+    ...row,
+    description: row.description ?? null,
+    volumeTiers: row.volumeTiers ?? null,
+    hourlyRateCents: row.hourlyRateCents ?? null,
+    deliverables: row.deliverables ?? null,
+    royaltyTerms: row.royaltyTerms ?? null,
+    agreementText: row.agreementText ?? null,
+    locationType: compatibility.locationType ?? "studio",
+    bufferMinutes: compatibility.bufferMinutes ?? 0,
+    minLeadHours: compatibility.minLeadHours ?? 12,
+    active: compatibility.active ?? true,
+    archivedAt: row.archivedAt ?? null,
+  });
+}
+
 const storeSubrouter = router({
   // List products the artist can buy. `producerId` optional: when
   // undefined, returns the union of products across all the artist's
@@ -1428,7 +1458,16 @@ const storeSubrouter = router({
           kind: products.kind,
           pricingModel: products.pricingModel,
           volumeTiers: products.volumeTiers,
+          hourlyRateCents: products.hourlyRateCents,
           paymentPlans: products.paymentPlans,
+          deliverables: products.deliverables,
+          royaltyTerms: products.royaltyTerms,
+          agreementText: products.agreementText,
+          locationType: products.locationType,
+          bufferMinutes: products.bufferMinutes,
+          minLeadHours: products.minLeadHours,
+          active: products.active,
+          archivedAt: products.archivedAt,
           position: products.position,
           producerId: products.producerId,
           producerName: producers.displayName,
@@ -1449,7 +1488,15 @@ const storeSubrouter = router({
         )
         .orderBy(asc(producers.displayName), asc(products.position));
 
-      const mapped: StoreProductRow[] = rows.map((r) => ({
+      const sellableRows = rows.flatMap((row) => {
+        try {
+          return [{ row, commercial: assertArtistStoreProductSellable(row) }];
+        } catch (error) {
+          if (error instanceof StoreProductCommercialError) return [];
+          throw error;
+        }
+      });
+      const mapped: StoreProductRow[] = sellableRows.map(({ row: r, commercial }) => ({
         id: r.id,
         name: r.name,
         // Artist surfaces show only the human tagline — the wizard encodes
@@ -1462,7 +1509,8 @@ const storeSubrouter = router({
         sessionCount: r.sessionCount,
         kind: r.kind,
         pricingModel: r.pricingModel as "flat" | "per_song" | "hourly" | "bundle",
-        volumeTiers: r.volumeTiers ?? null,
+        volumeTiers:
+          commercial.pricingModel === "per_song" ? [...commercial.volumeTiers] : null,
         paymentPlans: r.paymentPlans,
         producerId: r.producerId,
         producerName: r.producerName ?? "Untitled Studio",
@@ -1493,12 +1541,17 @@ const storeSubrouter = router({
           kind: products.kind,
           pricingModel: products.pricingModel,
           volumeTiers: products.volumeTiers,
+          hourlyRateCents: products.hourlyRateCents,
           paymentPlans: products.paymentPlans,
           position: products.position,
-          // Funnel S3/S4 surfaces (SK-46) — the what's-included list and
-          // the producer's uploaded agreement PDF.
+          // Funnel S3/S4 surfaces — the what's-included list and exact
+          // producer-authored inline agreement.
           deliverables: products.deliverables,
-          contractUrl: products.contractUrl,
+          locationType: products.locationType,
+          bufferMinutes: products.bufferMinutes,
+          minLeadHours: products.minLeadHours,
+          active: products.active,
+          archivedAt: products.archivedAt,
           ...(hasCommercialTermsColumns
             ? {
                 royaltyTerms: products.royaltyTerms,
@@ -1525,6 +1578,19 @@ const storeSubrouter = router({
         .limit(1);
       const row = rows[0];
       if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+      let commercial: ValidatedStoreProductCommercialInput;
+      try {
+        commercial = assertArtistStoreProductSellable({
+          ...row,
+          royaltyTerms: "royaltyTerms" in row ? (row.royaltyTerms ?? null) : null,
+          agreementText: "agreementText" in row ? (row.agreementText ?? null) : null,
+        });
+      } catch (error) {
+        if (error instanceof StoreProductCommercialError) {
+          throw new TRPCError({ code: "NOT_FOUND" });
+        }
+        throw error;
+      }
 
       // Ownership guard — artist must have a clientContacts row for
       // this product's producer. Reject with NOT_FOUND (not FORBIDDEN)
@@ -1551,6 +1617,12 @@ const storeSubrouter = router({
             ? savedAgreementText
             : null
           : decodedDescription.contractText || null;
+      const contact = contacts[0];
+      if (!contact) throw new TRPCError({ code: "NOT_FOUND" });
+      const targetProjects = await listSameClientPurchaseTargets(ctx.db, {
+        producerId: row.producerId,
+        clientContactId: contact.id,
+      });
 
       return {
         id: row.id,
@@ -1558,16 +1630,17 @@ const storeSubrouter = router({
         // Tagline only — see SK-49 note on the list read above.
         description: decodedDescription.tagline || null,
         revisions: decodedDescription.revisions,
+        unlimitedRevisions: decodedDescription.unlimitedRevisions,
         priceCents: row.priceCents,
         currency: row.currency,
         durationMin: row.durationMin,
         sessionCount: row.sessionCount,
         kind: row.kind,
         pricingModel: row.pricingModel as "flat" | "per_song" | "hourly" | "bundle",
-        volumeTiers: row.volumeTiers ?? null,
+        volumeTiers:
+          commercial.pricingModel === "per_song" ? [...commercial.volumeTiers] : null,
         paymentPlans: row.paymentPlans,
         deliverables: row.deliverables ?? null,
-        contractUrl: row.contractUrl ?? null,
         royaltyTerms: "royaltyTerms" in row ? (row.royaltyTerms ?? null) : null,
         agreementText,
         producerId: row.producerId,
@@ -1575,6 +1648,7 @@ const storeSubrouter = router({
         producerSlug: row.producerSlug,
         producerTaxMode: row.producerTaxMode,
         producerTaxRatePct: row.producerTaxRatePct,
+        targetProjects,
       };
     }),
 });

@@ -1,11 +1,10 @@
 // store-screen.tsx
 //
-// Composes the producer Store catalog. State: filter / search / view /
-// creating / editing / deleting. Keyboard: / focuses search, N opens
-// the new-product wizard, Esc closes the open modal, Enter on a
-// focused card opens edit. Create + Edit mount the Phase-2
-// <ProductEditor>; delete uses <DeleteConfirmModal> with the
-// useUndoableDelete hook so producers get a 4.5s Undo toast.
+// Composes the producer Store catalog. State: filter / search /
+// creating / editing / removing. Keyboard: / focuses search and N opens
+// the new-product wizard when focus is outside an interactive control or
+// dialog. Create + Edit mount the Phase-2 <ProductEditor>; product
+// removal uses a server-owned lifecycle action.
 
 "use client";
 
@@ -16,18 +15,15 @@ import { reorderProducts, setPackageActive } from "~/app/(producer)/dashboard/bo
 import { useToast } from "~/components/ui/toast";
 import type { TaxMode } from "~/lib/tax-mode";
 
-import { DeleteConfirmModal } from "./delete-confirm-modal";
 import { EmptyState } from "./empty-state";
 import { countByFilter, filterAndSearch, type FilterTab } from "./filter-search";
 import { NewProductButton } from "./new-product-button";
 import { ProductCard, type ProductCardData } from "./product-card";
 import { ProductEditor } from "./product-editor";
+import { ProductRemovalModal, type ProductRemovalAction } from "./product-removal-modal";
 import { StoreHeader } from "./store-header";
-import { StoreTable } from "./store-table";
 import { StoreToolbar } from "./store-toolbar";
-import { computeNewOrder, useDragReorder } from "./use-drag-reorder";
-import { useUndoableDelete } from "./use-undoable-delete";
-import type { ViewMode } from "./view-toggle";
+import { useProductRemoval } from "./use-product-removal";
 
 type Currency = "USD" | "EUR" | "GBP" | "ILS";
 
@@ -52,6 +48,10 @@ export interface StoreProduct extends ProductCardData {
   volumeTiers: { minQty: number; pricePerUnitCents: number }[] | null;
 }
 
+export function productRemovalAction(product: StoreProduct): ProductRemovalAction {
+  return product.removalAction ?? "archive";
+}
+
 interface StoreScreenProps {
   products: StoreProduct[];
   defaultCurrency: Currency;
@@ -61,6 +61,7 @@ interface StoreScreenProps {
   // live "Artists pay $X" preview.
   taxMode: TaxMode;
   taxRatePct: number;
+  producerName?: string;
 }
 
 export function StoreScreen({
@@ -68,23 +69,24 @@ export function StoreScreen({
   defaultCurrency,
   taxMode,
   taxRatePct,
+  producerName = "Your studio",
 }: StoreScreenProps) {
   const router = useRouter();
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [filter, setFilter] = useState<FilterTab>("all");
-  const [view, setView] = useState<ViewMode>("cards");
   const [search, setSearch] = useState("");
   // Editor state. `creating` opens <ProductEditor> in create mode;
-  // `editing` opens it in edit mode pre-filled. `deleting` opens the
-  // <DeleteConfirmModal> for a single product.
+  // `editing` opens it in edit mode pre-filled. `removing` opens the
+  // lifecycle-aware confirmation for a single product.
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<StoreProduct | null>(null);
-  const [deleting, setDeleting] = useState<StoreProduct | null>(null);
+  const [removing, setRemoving] = useState<StoreProduct | null>(null);
   // Phase 3 P3-11 — flags the most-recently-created product id so its
   // card gets the `sk-shimmer-glow` className for ~4s. Cleared by the
   // setTimeout in handleCreated below. Holds at most one id at a time.
   const [recentlyAdded, setRecentlyAdded] = useState<string | null>(null);
+  const [reorderAnnouncement, setReorderAnnouncement] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
 
   function handleCreated(id: string) {
@@ -99,11 +101,11 @@ export function StoreScreen({
     }, 4500);
   }
 
-  const undoableDelete = useUndoableDelete();
+  const removeProduct = useProductRemoval();
 
-  // Optimistic mirror of the server-rendered products list. Drag-to-reorder
-  // updates this immediately; the server call comes second, and a revert
-  // snaps back to props on error.
+  // Optimistic mirror of the server-rendered products list. Accessible
+  // move-up/down controls update this immediately; the server call comes
+  // second, and a failure snaps back to props.
   const [optimisticProducts, setOptimisticProducts] = useState(products);
 
   // Keep the optimistic state in sync if the server-rendered props change
@@ -118,54 +120,67 @@ export function StoreScreen({
     [optimisticProducts, filter, search],
   );
 
-  const { getHandlersFor } = useDragReorder({
-    onReorder: (fromId, toId, position) => {
-      // Optimistic local reorder using the same pure helper the server
-      // mutation does. Snapshot the current order BEFORE mutating local
-      // state so the server call uses the same orderedIds the user sees.
-      const currentIds = optimisticProducts.map((p) => p.id);
-      const nextIds = computeNewOrder(currentIds, fromId, toId, position);
-      const byId = new Map(optimisticProducts.map((p) => [p.id, p]));
-      const nextProducts = nextIds
-        .map((id) => byId.get(id))
-        .filter((p): p is StoreProduct => p !== undefined);
-      setOptimisticProducts(nextProducts);
-      startTransition(async () => {
-        const res = await reorderProducts({ orderedIds: nextIds });
-        if (!res.ok) {
-          // Revert by snapping back to the server-rendered props.
-          setOptimisticProducts(products);
-          toast(res.error, "error");
-        } else {
-          router.refresh();
-        }
-      });
-    },
-  });
+  function moveProduct(productId: string, targetId: string | undefined) {
+    if (!targetId || productId === targetId) return;
+    const fromIndex = optimisticProducts.findIndex((product) => product.id === productId);
+    const targetIndex = optimisticProducts.findIndex((product) => product.id === targetId);
+    if (fromIndex < 0 || targetIndex < 0) return;
+
+    const nextProducts = [...optimisticProducts];
+    const moving = nextProducts[fromIndex];
+    const target = nextProducts[targetIndex];
+    if (!moving || !target) return;
+    nextProducts[fromIndex] = target;
+    nextProducts[targetIndex] = moving;
+
+    const nextIds = nextProducts.map((product) => product.id);
+    const direction = targetIndex < fromIndex ? "up" : "down";
+    setOptimisticProducts(nextProducts);
+    setReorderAnnouncement(`Moved ${moving.name} ${direction}.`);
+    startTransition(async () => {
+      const res = await reorderProducts({ orderedIds: nextIds });
+      if (!res.ok) {
+        setOptimisticProducts(products);
+        setReorderAnnouncement(`Could not move ${moving.name}.`);
+        toast(res.error, "error");
+      } else {
+        router.refresh();
+      }
+    });
+  }
 
   // Group filtered list into live + hidden when filter is "all" so we
   // can render the "HIDDEN · N" divider between them.
   const live = filtered.filter((p) => p.active);
   const hidden = filtered.filter((p) => !p.active);
 
-  // Global keyboard handlers: / focuses search, N opens new flow, Esc
-  // closes any open modal. We skip handling when the user is typing
-  // inside a form field already.
+  // Global keyboard handlers: / focuses search and N opens the new flow.
+  // Radix owns Escape for each dialog (including the nested artist-detail
+  // preview), so the global listener never closes dialog state itself.
   useEffect(() => {
-    function isTypingTarget(t: EventTarget | null): boolean {
+    function isShortcutTarget(t: EventTarget | null): boolean {
       if (!(t instanceof HTMLElement)) return false;
-      const tag = t.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
-      return t.isContentEditable;
+      if (t.isContentEditable) return true;
+      return Boolean(
+        t.closest(
+          'input, textarea, select, button, a[href], [role="button"], [role="dialog"], [contenteditable="true"]',
+        ),
+      );
     }
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        if (creating) setCreating(false);
-        if (editing) setEditing(null);
-        if (deleting) setDeleting(null);
+      if (
+        e.defaultPrevented ||
+        e.isComposing ||
+        e.metaKey ||
+        e.ctrlKey ||
+        e.altKey ||
+        creating ||
+        editing !== null ||
+        removing !== null ||
+        isShortcutTarget(e.target)
+      ) {
         return;
       }
-      if (isTypingTarget(e.target)) return;
       if (e.key === "/") {
         e.preventDefault();
         searchRef.current?.focus();
@@ -180,7 +195,7 @@ export function StoreScreen({
     return () => {
       window.removeEventListener("keydown", onKey);
     };
-  }, [creating, editing, deleting]);
+  }, [creating, editing, removing]);
 
   function onToggleVisible(p: StoreProduct) {
     const next = !p.active;
@@ -199,9 +214,11 @@ export function StoreScreen({
     setEditing(p);
   }
 
-  function onDelete(p: StoreProduct) {
-    setDeleting(p);
+  function onRemove(p: StoreProduct) {
+    setRemoving(p);
   }
+
+  const firstLiveProductId = optimisticProducts.find((product) => product.active)?.id;
 
   return (
     <div className="mx-auto w-full max-w-[1100px] px-4 pt-6 pb-24 sm:px-6 sm:pt-10">
@@ -220,12 +237,13 @@ export function StoreScreen({
         filter={filter}
         onFilterChange={setFilter}
         counts={counts}
-        view={view}
-        onViewChange={setView}
         search={search}
         onSearchChange={setSearch}
-        enableTable={true}
       />
+
+      <p className="sr-only" aria-live="polite" aria-atomic="true">
+        {reorderAnnouncement}
+      </p>
 
       {filtered.length === 0 ? (
         products.length === 0 ? (
@@ -241,37 +259,25 @@ export function StoreScreen({
             }
           />
         ) : (
-          <EmptyState
-            title="Nothing matches"
-            body="Try clearing the filter or search."
-          />
+          <EmptyState title="Nothing matches" body="Try clearing the filter or search." />
         )
-      ) : view === "table" ? (
-        <StoreTable
-          live={live}
-          hidden={hidden}
-          pending={pending}
-          showHiddenGroup={filter === "all" || filter === "hidden"}
-          taxMode={taxMode}
-          taxRatePct={taxRatePct}
-          onOpen={onEdit}
-          onToggleVisible={onToggleVisible}
-          onEdit={onEdit}
-          onDelete={onDelete}
-        />
       ) : (
         <div className="flex flex-col gap-2">
-          {live.map((p) => (
+          {live.map((p, index) => (
             <ProductCard
               key={p.id}
               product={p}
-              drag={getHandlersFor(p.id)}
               pending={pending}
               recentlyAdded={p.id === recentlyAdded}
               taxMode={taxMode}
               taxRatePct={taxRatePct}
-              onOpen={() => {
-                onEdit(p);
+              canMoveUp={index > 0}
+              canMoveDown={index < live.length - 1}
+              onMoveUp={() => {
+                moveProduct(p.id, live[index - 1]?.id);
+              }}
+              onMoveDown={() => {
+                moveProduct(p.id, live[index + 1]?.id);
               }}
               onToggleVisible={() => {
                 onToggleVisible(p);
@@ -279,29 +285,33 @@ export function StoreScreen({
               onEdit={() => {
                 onEdit(p);
               }}
-              onDelete={() => {
-                onDelete(p);
+              onRemove={() => {
+                onRemove(p);
               }}
             />
           ))}
           {filter === "all" && hidden.length > 0 ? (
-            <div className="mt-4 mb-1 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+            <div className="mt-4 mb-1 flex items-center gap-2 text-[10.5px] font-bold tracking-[0.16em] text-[rgb(var(--fg-muted))] uppercase">
               HIDDEN <span aria-hidden>·</span>{" "}
               <span className="tabular-nums">{hidden.length}</span>
             </div>
           ) : null}
           {(filter === "all" || filter === "hidden") &&
-            hidden.map((p) => (
+            hidden.map((p, index) => (
               <ProductCard
                 key={p.id}
                 product={p}
-                drag={getHandlersFor(p.id)}
                 pending={pending}
                 recentlyAdded={p.id === recentlyAdded}
                 taxMode={taxMode}
                 taxRatePct={taxRatePct}
-                onOpen={() => {
-                  onEdit(p);
+                canMoveUp={index > 0}
+                canMoveDown={index < hidden.length - 1}
+                onMoveUp={() => {
+                  moveProduct(p.id, hidden[index - 1]?.id);
+                }}
+                onMoveDown={() => {
+                  moveProduct(p.id, hidden[index + 1]?.id);
                 }}
                 onToggleVisible={() => {
                   onToggleVisible(p);
@@ -309,8 +319,8 @@ export function StoreScreen({
                 onEdit={() => {
                   onEdit(p);
                 }}
-                onDelete={() => {
-                  onDelete(p);
+                onRemove={() => {
+                  onRemove(p);
                 }}
               />
             ))}
@@ -327,6 +337,8 @@ export function StoreScreen({
         defaultCurrency={defaultCurrency}
         taxMode={taxMode}
         taxRatePct={taxRatePct}
+        producerName={producerName}
+        previewPlacement={counts.live === 0 ? "focal" : "secondary"}
         onCreated={handleCreated}
       />
 
@@ -340,19 +352,27 @@ export function StoreScreen({
         defaultCurrency={defaultCurrency}
         taxMode={taxMode}
         taxRatePct={taxRatePct}
+        producerName={producerName}
+        previewPlacement={
+          editing?.active && editing.id === firstLiveProductId ? "focal" : "secondary"
+        }
       />
 
-      {/* Delete confirmation */}
-      <DeleteConfirmModal
-        open={deleting !== null}
+      <ProductRemovalModal
+        open={removing !== null}
         onOpenChange={(o) => {
-          if (!o) setDeleting(null);
+          if (!o) setRemoving(null);
         }}
-        productName={deleting?.name ?? ""}
+        productName={removing?.name ?? ""}
+        action={removing ? productRemovalAction(removing) : "archive"}
         onConfirm={() => {
-          if (deleting) {
-            void undoableDelete({ id: deleting.id, name: deleting.name });
-            setDeleting(null);
+          if (removing) {
+            void removeProduct({
+              id: removing.id,
+              name: removing.name,
+              action: productRemovalAction(removing),
+            });
+            setRemoving(null);
           }
         }}
       />

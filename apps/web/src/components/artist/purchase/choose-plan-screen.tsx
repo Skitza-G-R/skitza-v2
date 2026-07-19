@@ -4,21 +4,26 @@
 //
 // After Gate 1 (the producer approves the request), the artist picks how to
 // pay from the plans THIS purchase allows — full, 50/50, or monthly.
-// Each card shows what's due today and the full schedule with amounts. One
+// Each card shows what's due at acceptance and the full schedule with amounts. One
 // plan is selected at a time (amber ring); Continue carries it to the payment
 // instructions (S8). Funnel chrome: full-screen overlay, back arrow, no tab
 // bar, the primary action pinned low and thumb-reachable.
 //
-// Data-only props come from the request's frozen server snapshot. The choice
-// is persisted before navigation, so refresh/back never silently changes it.
+// Data-only props come from the approved request. Choosing a card does not
+// persist anything: Continue carries the choice to one final exact-agreement
+// preview, where plan and terms are accepted atomically.
 
-import { useRef, useState, useTransition, type KeyboardEvent } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 
 import { ArrowRight, Check, ShieldIcon } from "~/components/artist/funnel/funnel-icons";
 import { FunnelTopBar, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
-import { choosePaymentPlanAction } from "./actions";
-import { formatShekels, nextPlanIndex, type LivePlanOption } from "./pay-data";
+import {
+  formatPurchaseMoney,
+  nextPlanIndex,
+  paymentPlanAgreementHref,
+  type LivePlanOption,
+} from "./pay-data";
 
 export function ChoosePlanScreen({
   productId,
@@ -26,6 +31,7 @@ export function ChoosePlanScreen({
   producerName,
   purchaseRequestId,
   options,
+  currency = "ILS",
   previewNextHref,
 }: {
   productId: string;
@@ -33,27 +39,30 @@ export function ChoosePlanScreen({
   producerName: string;
   purchaseRequestId: string;
   options: LivePlanOption[];
-  /** Dev-gallery navigation only; real routes always persist through the action. */
+  currency?: string;
+  /** Dev-gallery navigation only. */
   previewNextHref?: string | undefined;
 }) {
   const router = useRouter();
-  const [isSaving, startSaving] = useTransition();
-  const [error, setError] = useState<string | null>(null);
+  const enabledOptions = options.filter(
+    (option) =>
+      option.choice.kind !== "monthly" ||
+      (option.choice.installments >= 2 && option.choice.installments <= 12),
+  );
 
   // Pre-select when the product allows only one plan — there's nothing to
   // choose, so the artist can go straight to Continue.
   const [selected, setSelected] = useState<string | null>(
-    options.length === 1 ? (options[0]?.id ?? null) : null,
+    enabledOptions.length === 1 ? (enabledOptions[0]?.id ?? null) : null,
   );
   const optionRefs = useRef<Array<HTMLDivElement | null>>([]);
-  const selectedIndex = options.findIndex((option) => option.id === selected);
+  const selectedIndex = enabledOptions.findIndex((option) => option.id === selected);
   const tabStopIndex = selectedIndex >= 0 ? selectedIndex : 0;
 
   function selectPlan(index: number) {
-    const option = options[index];
+    const option = enabledOptions[index];
     if (!option) return;
     setSelected(option.id);
-    setError(null);
   }
 
   function handlePlanKeyDown(event: KeyboardEvent<HTMLDivElement>, index: number) {
@@ -63,7 +72,7 @@ export function ChoosePlanScreen({
       return;
     }
 
-    const nextIndex = nextPlanIndex(index, options.length, event.key);
+    const nextIndex = nextPlanIndex(index, enabledOptions.length, event.key);
     if (nextIndex === null) return;
     event.preventDefault();
     selectPlan(nextIndex);
@@ -71,24 +80,19 @@ export function ChoosePlanScreen({
   }
 
   function go() {
-    const option = options.find((item) => item.id === selected);
-    if (!option || isSaving) return;
+    const option = enabledOptions.find((item) => item.id === selected);
+    if (!option) return;
     if (previewNextHref) {
       router.push(previewNextHref);
       return;
     }
-    setError(null);
-    startSaving(async () => {
-      const result = await choosePaymentPlanAction({
+    router.push(
+      paymentPlanAgreementHref({
+        productId,
         purchaseRequestId,
-        paymentPlan: option.choice,
-      });
-      if (!result.ok) {
-        setError(result.error);
-        return;
-      }
-      router.push(`/artist/purchase/${productId}/pay/instructions?req=${purchaseRequestId}`);
-    });
+        choice: option.choice,
+      }),
+    );
   }
 
   return (
@@ -112,13 +116,13 @@ export function ChoosePlanScreen({
           </h1>
           <p className="reveal-up reveal-up-delay-1 mt-2 text-[14px] leading-relaxed text-pretty text-[rgb(var(--fg-muted))]">
             {`${producerName} accepts ${
-              options.length === 1 ? "this plan" : "these plans"
-            } for ${productName}. Pick one — you'll pay the first part off-app, then upload your proof.`}
+              enabledOptions.length === 1 ? "this plan" : "these plans"
+            } for ${productName}. Pick one, then review and accept the exact agreement before anything is frozen.`}
           </p>
 
           {/* plan cards */}
           <div className="mt-5 flex flex-col gap-3" role="radiogroup" aria-label="Payment plan">
-            {options.map((opt, i) => {
+            {enabledOptions.map((opt, i) => {
               const isSelected = opt.id === selected;
               return (
                 <div
@@ -175,7 +179,7 @@ export function ChoosePlanScreen({
                         selected card — unselected stays neutral (proto-s7) */}
                     <div className="col-start-2 row-start-2 text-left min-[350px]:col-start-3 min-[350px]:row-start-1 min-[350px]:text-right">
                       <div className="font-mono text-[8.5px] tracking-[0.08em] text-[rgb(var(--fg-muted))]">
-                        DUE TODAY
+                        DUE AT ACCEPTANCE
                       </div>
                       <div
                         className="font-amount mt-px text-[19px] font-bold tracking-[-0.03em]"
@@ -185,7 +189,7 @@ export function ChoosePlanScreen({
                             : "rgb(var(--fg-default))",
                         }}
                       >
-                        {formatShekels(opt.dueNowCents)}
+                        {formatPurchaseMoney(opt.dueNowCents, currency)}
                       </div>
                     </div>
                   </div>
@@ -209,7 +213,7 @@ export function ChoosePlanScreen({
                         }}
                       >
                         <span className="flex items-center gap-2 text-[12.5px] text-[rgb(var(--fg-secondary))]">
-                          {/* small dot bullet — amber for today's payment */}
+                          {/* small dot bullet — amber for the acceptance payment */}
                           <span
                             aria-hidden
                             className="h-[5px] w-[5px] shrink-0 rounded-full"
@@ -223,7 +227,7 @@ export function ChoosePlanScreen({
                           {row.label}
                         </span>
                         <span className="font-amount text-[12.5px] font-medium text-[rgb(var(--fg-default))]">
-                          {formatShekels(row.amountCents)}
+                          {formatPurchaseMoney(row.amountCents, currency)}
                         </span>
                       </li>
                     ))}
@@ -233,35 +237,32 @@ export function ChoosePlanScreen({
             })}
           </div>
 
-          {/* deposit footnote (proto-s7) */}
+          {/* External-payment truth for the exact server-authored schedule. */}
           <div
             className="sk-rise mt-4 flex items-start gap-1.5 text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]"
-            style={{ animationDelay: `${String(140 + options.length * 60)}ms` }}
+            style={{ animationDelay: `${String(140 + enabledOptions.length * 60)}ms` }}
           >
             <span className="mt-px">
               <ShieldIcon />
             </span>
             <span>
-              The deposit secures your slot and is usually final once {producerName} begins.
-              Sessions can run on a deposit — downloads unlock at full payment.
+              Your first installment follows {producerName}&apos;s external payment instructions.
+              The project activates only after that complete installment is confirmed.
             </span>
           </div>
 
           <div
             className="sk-rise mt-3"
-            style={{ animationDelay: `${String(200 + options.length * 60)}ms` }}
+            style={{ animationDelay: `${String(200 + enabledOptions.length * 60)}ms` }}
           >
             <div className="max-w-full font-mono text-[9.5px] leading-relaxed font-bold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase">
               Money is handled off-app — Skitza keeps the record.
             </div>
           </div>
 
-          {error ? (
-            <p
-              role="alert"
-              className="mt-3 rounded-[12px] border border-[rgb(var(--fg-danger)/0.24)] bg-[rgb(var(--fg-danger)/0.08)] px-3.5 py-3 text-[12.5px] font-medium text-[rgb(var(--fg-danger-text))]"
-            >
-              {error}
+          {enabledOptions.length === 0 ? (
+            <p role="alert" className="mt-4 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-danger)/0.08)] px-4 py-3 text-[12.5px] text-[rgb(var(--fg-danger-text))]">
+              No enabled payment plan is available for this request.
             </p>
           ) : null}
         </div>
@@ -276,18 +277,11 @@ export function ChoosePlanScreen({
         >
           <PrimaryCta
             onClick={go}
-            disabled={!selected || isSaving}
-            glow={!!selected && !isSaving}
-            ariaBusy={isSaving}
-            sub={
-              isSaving
-                ? "Saving your plan"
-                : selected
-                  ? "Next: how to pay"
-                  : "Pick a plan to continue"
-            }
+            disabled={!selected}
+            glow={!!selected}
+            sub={selected ? "Next: review the exact agreement" : "Pick a plan to continue"}
           >
-            {isSaving ? "Saving…" : "Continue"} <ArrowRight />
+            Continue to agreement <ArrowRight />
           </PrimaryCta>
         </div>
       </div>

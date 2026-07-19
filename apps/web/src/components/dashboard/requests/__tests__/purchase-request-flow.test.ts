@@ -90,9 +90,12 @@ describe("producer purchase request flow", () => {
     expect(detailPageSource).not.toMatch(/<PaymentProofReview/);
     expect(detailPageSource).toMatch(/<PurchaseRequestReview/);
     expect(detailPageSource).toMatch(/paymentPlanOptionsSnapshot/);
+    expect(detailPageSource).toMatch(/commercialProposal\.totalCents/);
+    expect(detailPageSource).toMatch(/proposalTaxDisclosure\(commercialProposal/);
     expect(detailPageSource).toMatch(/royaltyTermsSnapshot/);
     expect(detailPageSource).toMatch(/agreementTextSnapshot/);
-    expect(detailPageSource).toMatch(/contractUrlSnapshot/);
+    expect(detailPageSource).not.toMatch(/contractUrlSnapshot|agreementUrlSnapshot/);
+    expect(detailPageSource).not.toMatch(/safeAgreementUrl/);
     expect(detailPageSource).toContain("Proposed agreement");
     expect(detailPageSource).toContain("Final acceptance is recorded on the purchase");
     expect(detailPageSource).toMatch(
@@ -122,5 +125,14 @@ describe("producer purchase request flow", () => {
     expect(reviewSource).toContain("The artist receives a generic update.");
     expect(reviewSource).toMatch(/aria-describedby="decline-reason-help"/);
     expect(reviewSource).toMatch(/role=\{error \? "alert" : undefined\}/);
+  });
+
+  it("keeps target reset available and describes the truthful acceptance sequence", () => {
+    expect(reviewSource).toMatch(/projectId !== null \|\| targetProjects\.length > 0/);
+    expect(reviewSource).toMatch(/project\.workflowStage/);
+    expect(reviewSource).toContain("choose an enabled plan");
+    expect(reviewSource).toContain("review the exact agreement");
+    expect(reviewSource).toContain("external payment instructions");
+    expect(reviewSource).not.toContain("continue to payment");
   });
 });

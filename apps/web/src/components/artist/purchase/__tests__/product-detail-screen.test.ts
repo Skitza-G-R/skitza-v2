@@ -4,75 +4,84 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-// Source-grep on the S3 entry screen for the wiring that matters — matching
-// the repo's existing test style (see commit-screens.test.ts). The pure data
-// helpers (formatShekels, swatchGradient) are already covered there; here we
-// assert the funnel ENTRY screen is wired correctly.
-
 const here = dirname(fileURLToPath(import.meta.url));
-const S3_PATH = join(here, "..", "product-detail-screen.tsx");
-const s3Src = readFileSync(S3_PATH, "utf8");
+const source = readFileSync(join(here, "..", "product-detail-screen.tsx"), "utf8");
+const actions = readFileSync(join(here, "..", "actions.ts"), "utf8");
 
-describe("product-detail-screen.tsx (S3) wiring", () => {
-  it("is a client component", () => {
-    expect(s3Src).toMatch(/^"use client";/);
+describe("unified artist product detail", () => {
+  it("renders product, producer, deliverables, rights, and enabled plans", () => {
+    expect(source).toMatch(/product\.name/);
+    expect(source).toMatch(/producer\.name/);
+    expect(source).toMatch(/product\.includes\.map/);
+    expect(source).toMatch(/royaltyTermsDisplay/);
+    expect(source).toMatch(/product\.paymentPlans\.map/);
   });
 
-  it("reuses the currency-aware price + avatar helpers from purchase-data", () => {
-    expect(s3Src).toMatch(/formatPurchaseMoney/);
-    expect(s3Src).toMatch(/swatchGradient/);
-    expect(s3Src).toMatch(/from "\.\/purchase-data"/);
+  it("owns per-song quantity and deterministic volume pricing", () => {
+    expect(source).toMatch(/product\.pricingModel === "per_song"/);
+    expect(source).toMatch(/<SongCountStepper/);
+    expect(source).toMatch(/songQty: songState\.qty/);
+    expect(source).not.toMatch(/unitPriceCents: songState/);
   });
 
-  it("renders the product name and locked price", () => {
-    expect(s3Src).toMatch(/product\.name/);
-    expect(s3Src).toMatch(
-      /formatPurchaseMoney\(product\.priceCents, product\.currency\)/,
+  it("defaults to a new project and makes an existing target deliberate", () => {
+    expect(source).toMatch(/useState<"new" \| "existing">\("new"\)/);
+    expect(source).toMatch(/Start a new project/);
+    expect(source).toMatch(/Add to an existing project/);
+    expect(source).toMatch(/targetKind === "existing" && projectId/);
+    expect(source).toMatch(/disabled=\{previewMode \|\| !targetIsReady \|\| sending\}/);
+  });
+
+  it("shows enough context for each same-client project", () => {
+    expect(source).toMatch(/project\.title/);
+    expect(source).toMatch(/project\.lifecycleStatus/);
+    expect(source).toMatch(/project\.workflowStage/);
+    expect(source).toMatch(/project\.updatedAtIso/);
+  });
+
+  it("uses tax-inclusive totals and preserves unlimited commercial rules", () => {
+    expect(source).toMatch(/applyTaxToCents\(proposalSubtotal, taxMode, taxRatePct\)/);
+    expect(source).toMatch(/planLabel\(plan, proposalTotal/);
+    expect(source).toMatch(/product\.unlimitedRevisions/);
+    expect(source).not.toMatch(/: "1 project"/);
+  });
+
+  it("sends only request intent with a stable operation identity", () => {
+    expect(source).toMatch(/requestToBookAction\(\{/);
+    expect(source).toMatch(/operationKeyRef\.current \?\? crypto\.randomUUID\(\)/);
+    expect(source).toMatch(/projectId \? \{ projectId \}/);
+    expect(actions).toMatch(/songQty\?: number/);
+    expect(actions).toMatch(/projectId\?: string/);
+    expect(actions).not.toMatch(/unitPriceCents/);
+  });
+
+  it("routes a successful request to the sent state", () => {
+    expect(source).toMatch(
+      /router\.push\(`\/artist\/purchase\/\$\{productId\}\/sent\?req=\$\{result\.purchaseRequestId\}`\)/,
     );
-    expect(s3Src).toMatch(/LOCKS AT REQUEST/);
   });
 
-  it("maps the what's-included list, hidden when deliverables are empty", () => {
-    expect(s3Src).toMatch(/product\.includes\.map/);
-    expect(s3Src).toMatch(/product\.includes\.length > 0 \? \(/);
+  it("does not enforce or describe a one-open-purchase restriction", () => {
+    expect(source).not.toMatch(/active purchase|fully paid/i);
+    expect(source).not.toMatch(/pendingRequest\s*=|disabled=\{pendingRequest/);
   });
 
-  it("shows the producer mini-row (avatar gradient + name)", () => {
-    expect(s3Src).toMatch(/swatchGradient\(producer\.hue\)/);
-    expect(s3Src).toMatch(/producer\.name/);
+  it("states the actual acceptance boundary instead of promising a request-time lock", () => {
+    expect(source).toMatch(/freeze only when\s+you accept after approval/);
+    expect(source).not.toMatch(/locks at request|price locks now|stays fixed once you request/i);
   });
 
-  it("shows the payment-plan hint card with per-plan chips (handoff-4 ticket)", () => {
-    expect(s3Src).toMatch(/The artist picks after\s+approval/);
-    expect(s3Src).toMatch(/PLAN_CHIP_LABELS/);
-    expect(s3Src).toMatch(/product\.paymentPlans\.map/);
+  it("keeps the back action and mobile controls reachable", () => {
+    expect(source).toMatch(/<StickyNav/);
+    expect(source).toMatch(/router\.push\("\/artist\/store"\)/);
+    expect(source).toMatch(/min-h-11/);
   });
 
-  it("shows concise product-level royalty terms before the request action", () => {
-    expect(s3Src).toMatch(/Rights & royalties/);
-    expect(s3Src).toMatch(/royaltyTermsDisplay/);
-    expect(s3Src).toMatch(/product\.royaltyTerms\?\.notes/);
-  });
-
-  it("backs out to the producer's store from the collapsing StickyNav", () => {
-    expect(s3Src).toMatch(/<StickyNav/);
-    expect(s3Src).toMatch(/router\.push\("\/artist\/store"\)/);
-  });
-
-  it("routes the primary CTA to the agree screen", () => {
-    expect(s3Src).toMatch(/Request to book/);
-    expect(s3Src).toMatch(
-      /previewAgreeHref \?\? `\/artist\/purchase\/\$\{productId\}\/agree`/,
-    );
-  });
-
-  it("disables the CTA while any purchase still has a balance", () => {
-    expect(s3Src).toMatch(/pendingRequest/);
-    expect(s3Src).toMatch(/active purchase/);
-    expect(s3Src).toMatch(/fully paid/);
-  });
-
-  it("gives the Store text action a full mobile touch target", () => {
-    expect(s3Src).toMatch(/min-h-11/);
+  it("supports a producer preview with callback back and no real submission", () => {
+    expect(source).toMatch(/previewMode\?: boolean/);
+    expect(source).toMatch(/onPreviewBack\?: \(\) => void/);
+    expect(source).toMatch(/if \(previewMode \|\| sending \|\| !targetIsReady\) return/);
+    expect(source).toMatch(/disabled=\{previewMode \|\| !targetIsReady \|\| sending\}/);
+    expect(source).toMatch(/if \(onPreviewBack\)/);
   });
 });

@@ -12,7 +12,7 @@ export type PlanOption = {
   installments?: number;
   /** per-charge minor units, in payment order; sums exactly to total */
   charges: number[];
-  /** first charge — the "due today" figure on S7 cards */
+  /** first charge — due when the artist accepts the exact agreement */
   dueNowCents: number;
   /** one human label per charge (en-only v1) */
   labels: string[];
@@ -21,11 +21,13 @@ export type PlanOption = {
 function labelsFor(plan: PaymentPlan, charges: number[]): string[] {
   switch (plan.kind) {
     case "full":
-      return ["Due today"];
+      return ["Due at acceptance"];
     case "split_50_50":
-      return ["Due today", "On delivery"];
+      return ["50% due at acceptance", "50% due when the artist approves the final version"];
     case "monthly":
-      return charges.map((_, i) => (i === 0 ? "Due today" : `Month ${String(i + 1)}`));
+      return charges.map((_, i) =>
+        i === 0 ? "First payment due at acceptance" : `Monthly payment ${String(i + 1)}`,
+      );
   }
 }
 

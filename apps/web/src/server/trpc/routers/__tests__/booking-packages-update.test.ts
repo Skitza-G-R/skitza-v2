@@ -4,10 +4,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // button dispatches. Verifies the mutation exists on the legacy
 // `.packages.*` alias (still used by the dashboard action), accepts
 // the full edit-mode input shape the form emits, and enforces the
-// same cross-producer FORBIDDEN guard as archive/deactivate.
+// same non-leaking NOT_FOUND boundary as archive/deactivate.
 
 const PRODUCER_ID = "producer-uuid-1";
-const OTHER_PRODUCER_ID = "producer-uuid-2";
 const PRODUCT_ID = "00000000-0000-0000-0000-000000000b01";
 
 const producersMarker = { __table: "producers" };
@@ -44,14 +43,33 @@ const dbMock = {
       // ownership check does .where().limit(1) too.
       return {
         where: () => ({
-          limit: () => Promise.resolve(handler()),
+          limit: () => {
+            const result = Promise.resolve(handler());
+            return Object.assign(result, { for: () => result });
+          },
           orderBy: () => Promise.resolve(handler()),
         }),
       };
     },
   }),
   update: () => ({ set: updateSetSpy }),
+  transaction: (callback: unknown) =>
+    (callback as (tx: unknown) => Promise<unknown>)(dbMock),
 };
+
+vi.mock("~/server/domain/store-products/service", () => {
+  class StoreProductCommercialError extends Error {}
+  return {
+    StoreProductCommercialError,
+    validateStoreProductCommercialState: () => undefined,
+    mergeAndValidateStoreProduct: (_existing: unknown, patch: { paymentPlans?: unknown[] }) => {
+      if (patch.paymentPlans?.length === 0) {
+        throw new StoreProductCommercialError("Choose at least one payment option");
+      }
+      return patch;
+    },
+  };
+});
 
 vi.mock("@clerk/nextjs/server", () => ({
   auth: () => Promise.resolve({ userId: "user_test_1" }),
@@ -139,12 +157,12 @@ describe("booking.packages.update", () => {
     expect(updateReturningSpy).toHaveBeenCalledOnce();
   });
 
-  it("throws FORBIDDEN when the product belongs to a different producer", async () => {
+  it("returns the same NOT_FOUND for a product owned by another producer", async () => {
     producerSelectQueue.push([{ id: PRODUCER_ID }]);
-    productSelectQueue.push([{ producerId: OTHER_PRODUCER_ID }]);
+    productSelectQueue.push([]); // scoped SQL hides the foreign row
     const caller = await buildCaller();
     await expect(caller.booking.packages.update(fullEditInput())).rejects.toMatchObject({
-      code: "FORBIDDEN",
+      code: "NOT_FOUND",
     });
     expect(updateReturningSpy).not.toHaveBeenCalled();
   });
@@ -271,15 +289,15 @@ describe("booking.packages.update", () => {
     expect(updateReturningSpy).not.toHaveBeenCalled();
   });
 
-  it("rejects executable agreement URL schemes", async () => {
+  it("rejects every mutable external agreement URL", async () => {
     producerSelectQueue.push([{ id: PRODUCER_ID }]);
     const caller = await buildCaller();
     await expect(
       caller.booking.packages.update({
         id: PRODUCT_ID,
         contractUrl: "javascript:alert(1)",
-      }),
-    ).rejects.toThrow(/http:\/\/ or https:\/\//i);
+      } as never),
+    ).rejects.toThrow();
     expect(updateReturningSpy).not.toHaveBeenCalled();
   });
 });

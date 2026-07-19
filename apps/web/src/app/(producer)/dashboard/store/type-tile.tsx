@@ -1,8 +1,7 @@
 // type-tile.tsx
 //
-// Gradient tile rendered on every product card. Two sizes: 60×60
-// (cards view), 32×32 (table view, Phase 3). Inset shadows + radial
-// highlight create depth; the design spec lives in
+// 60×60 gradient tile rendered on every product card. Inset shadows +
+// radial highlight create depth; the design spec lives in
 // docs/plans/active/2026-05-10-storefront-redesign-design.md §4.
 
 "use client";
@@ -28,18 +27,15 @@ const ICON_BY_NAME: Record<string, LucideIcon> = {
 
 interface TypeTileProps {
   type: TileType;
-  size?: 32 | 60;
   hidden?: boolean;
 }
 
-export function TypeTile({ type, size = 60, hidden = false }: TypeTileProps) {
+export function TypeTile({ type, hidden = false }: TypeTileProps) {
   const theme = TILE_THEME[type];
   const Icon = ICON_BY_NAME[theme.iconName] ?? Music2;
-  // Tile sizing is exactly two presets — when size === 60 (cards
-  // view) we use the larger 12/24 pair; otherwise (size === 32,
-  // table view) we use 8/16.
-  const radius = size === 60 ? 12 : 8;
-  const iconSize = size === 60 ? 24 : 16;
+  const size = 60;
+  const radius = 12;
+  const iconSize = 24;
 
   return (
     <div
