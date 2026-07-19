@@ -19,6 +19,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { correctProducerPurchaseTarget } from "~/server/domain/purchase-targeting/db";
 import { PurchaseTargetingError } from "~/server/domain/purchase-targeting/service";
+import { loadAcceptedPurchaseForProducerRequest } from "~/server/domain/purchases/db";
 import {
   acceptStorePurchase,
   previewStorePurchaseAcceptance,
@@ -102,11 +103,13 @@ describeWithSafeDatabase("SK-95 Store purchase — isolated disposable Postgres"
     return row.id;
   }
 
-  async function createProduct(input: {
-    name?: string;
-    priceCents?: number;
-    paymentPlans?: PaymentPlan[];
-  } = {}): Promise<string> {
+  async function createProduct(
+    input: {
+      name?: string;
+      priceCents?: number;
+      paymentPlans?: PaymentPlan[];
+    } = {},
+  ): Promise<string> {
     const [row] = await safely(() =>
       activeDb()
         .insert(products)
@@ -352,6 +355,12 @@ describeWithSafeDatabase("SK-95 Store purchase — isolated disposable Postgres"
       operationKey: `sk95-new-target-${randomUUID()}`,
       agreementAccepted: true,
     });
+    expect(accepted.notification).toMatchObject({
+      producerId,
+      purchaseRequestId: requestId,
+      artistName: "SK-95 Artist",
+      productName: "SK-95 New Project Mix",
+    });
     const [row] = await safely(() =>
       activeDb()
         .select({
@@ -486,6 +495,28 @@ describeWithSafeDatabase("SK-95 Store purchase — isolated disposable Postgres"
     expect(after?.purchaseSnapshot).toEqual(preview.snapshot);
     expect(after?.acceptedSnapshot).toEqual(preview.snapshot);
 
+    const acceptedRequest = await loadAcceptedPurchaseForProducerRequest(activeDb(), {
+      producerId,
+      clientContactId,
+      purchaseRequestId: requestId,
+    });
+    expect(acceptedRequest?.acceptance.commercialSnapshot.value).toEqual(preview.snapshot);
+    expect(acceptedRequest?.acceptance.commercialSnapshot.value.productOrOfferName).toBe(
+      "Original SK-95 Mix",
+    );
+    const missingRequest = await loadAcceptedPurchaseForProducerRequest(activeDb(), {
+      producerId,
+      clientContactId,
+      purchaseRequestId: randomUUID(),
+    });
+    const foreignRequest = await loadAcceptedPurchaseForProducerRequest(activeDb(), {
+      producerId: foreignProducerId,
+      clientContactId: foreignClientContactId,
+      purchaseRequestId: requestId,
+    });
+    expect(foreignRequest).toEqual(missingRequest);
+    expect(missingRequest).toBeNull();
+
     const locked = await targetingError(
       correctProducerPurchaseTarget(activeDb(), {
         producerId,
@@ -578,9 +609,7 @@ describeWithSafeDatabase("SK-95 Store purchase — isolated disposable Postgres"
         ),
       ),
     );
-    expect(
-      failures.map((failure) => ({ code: failure.code, message: failure.message })),
-    ).toEqual([
+    expect(failures.map((failure) => ({ code: failure.code, message: failure.message }))).toEqual([
       { code: "NOT_FOUND", message: "Purchase request or target was not found." },
       { code: "NOT_FOUND", message: "Purchase request or target was not found." },
       { code: "NOT_FOUND", message: "Purchase request or target was not found." },
@@ -597,10 +626,7 @@ describeWithSafeDatabase("SK-95 Store purchase — isolated disposable Postgres"
         .update(clientContacts)
         .set({ archivedAt: new Date() })
         .where(
-          and(
-            eq(clientContacts.id, clientContactId),
-            eq(clientContacts.producerId, producerId),
-          ),
+          and(eq(clientContacts.id, clientContactId), eq(clientContacts.producerId, producerId)),
         ),
     );
 

@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
+import { PurchaseRequestQueueRefresh } from "~/components/dashboard/requests/purchase-request-queue-refresh";
 import { PurchaseRequestsList } from "~/components/dashboard/requests/purchase-requests-list";
 import { appRouter } from "~/server/trpc/routers/_app";
 
@@ -13,6 +14,7 @@ export default async function PurchaseRequestsPage() {
 
   return (
     <div className="sk-page-enter mx-auto w-full max-w-[1040px] px-4 pt-6 pb-12 sm:px-6 lg:px-8 lg:pt-10">
+      <PurchaseRequestQueueRefresh />
       <header className="mb-6">
         <p className="font-mono text-[10px] font-bold tracking-widest text-[rgb(var(--brand-primary))] uppercase">
           Purchases · Gate 1

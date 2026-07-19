@@ -1,5 +1,6 @@
 import {
   and,
+  asc,
   clientContacts,
   desc,
   eq,
@@ -14,7 +15,6 @@ import type {
   Db,
   PaymentPlan,
   Product,
-  PurchaseCommercialSnapshot,
   PurchaseRequest,
 } from "@skitza/db";
 import { TRPCError } from "@trpc/server";
@@ -22,7 +22,6 @@ import { after } from "next/server";
 import { z } from "zod";
 
 import { decodeDescription } from "~/app/(producer)/dashboard/store/description-encoding";
-import { computeProjectSessionCount } from "~/lib/pricing";
 import { snapshotProductPrice } from "~/lib/purchase/price-snapshot";
 import { generateRefNumber } from "~/lib/purchase/request-helpers";
 import {
@@ -36,6 +35,13 @@ import {
   previewStorePurchaseAcceptance,
   StoreAcceptanceError,
 } from "~/server/domain/purchases/store-acceptance";
+import { loadAcceptedPurchaseForProducerRequest } from "~/server/domain/purchases/db";
+import {
+  buildPurchaseRequestCommercialProposal,
+  isPurchaseRequestApprovalAvailable,
+  tryBuildPurchaseRequestCommercialProposal,
+  type PurchaseRequestCommercialProposal,
+} from "~/server/domain/purchases/request-proposal";
 import {
   assertPurchaseRequestOperationReplay,
   preparePurchaseRequestOperation,
@@ -51,6 +57,7 @@ import {
 import { PurchaseTargetingError } from "~/server/domain/purchase-targeting/service";
 import { sendPurchaseApprovedEmail, sendPurchaseDeclinedEmail } from "~/server/email/send";
 import {
+  emitAgreementAccepted,
   emitPurchaseApproved,
   emitPurchaseDeclined,
   emitPurchaseRequested,
@@ -108,6 +115,7 @@ type ArtistCurrentCompatibility = {
   pendingProofCents: number;
   remainingCents: number;
   paidInFull: boolean;
+  acceptanceAvailable: boolean;
 };
 
 type ArtistProofStateOutput = {
@@ -243,40 +251,6 @@ function proposalPlan(
   return totalCents === 0 ? null : (product.paymentPlans[0] ?? null);
 }
 
-type PurchaseRequestCommercialProposal = Readonly<{
-  subtotalCents: number;
-  tax: PurchaseCommercialSnapshot["tax"];
-  totalCents: number;
-}>;
-
-function buildPurchaseRequestCommercialProposal(input: {
-  request: Pick<PurchaseRequest, "requestedSongQty">;
-  product: Product;
-  taxMode: string;
-  taxRatePct: number;
-}): PurchaseRequestCommercialProposal {
-  const initialPlan = input.product.paymentPlans[0];
-  if (!initialPlan) {
-    throw new StoreProductCommercialError(
-      "INVALID_PAYMENT_PLANS",
-      "At least one payment plan must be enabled.",
-      "paymentPlans",
-    );
-  }
-  const { snapshot } = buildStorePurchaseSnapshot({
-    product: input.product,
-    requestedSongQty: input.request.requestedSongQty,
-    taxMode: input.taxMode,
-    taxRatePct: input.taxRatePct,
-    selectedPaymentPlan: initialPlan,
-  });
-  return Object.freeze({
-    subtotalCents: snapshot.subtotalCents,
-    tax: Object.freeze({ ...snapshot.tax }),
-    totalCents: snapshot.totalCents,
-  });
-}
-
 async function loadArtistRequest(
   db: Pick<Db, "select">,
   clerkUserId: string,
@@ -360,7 +334,7 @@ async function applyProducerRequestTransition(
     if (action === "approve") {
       try {
         commercialProposal = buildPurchaseRequestCommercialProposal({
-          request: loaded.request,
+          requestedSongQty: loaded.request.requestedSongQty,
           product: loaded.product,
           taxMode: loaded.producerTaxMode,
           taxRatePct: loaded.producerTaxRatePct,
@@ -434,17 +408,42 @@ export const artistPurchaseRouter = router({
         .limit(1);
       if (!product) throw new TRPCError({ code: "NOT_FOUND" });
 
-      const [contact] = await ctx.db
-        .select({ id: clientContacts.id, name: clientContacts.name, email: clientContacts.email })
-        .from(clientContacts)
-        .where(
-          and(
-            eq(clientContacts.producerId, product.producerId),
-            eq(clientContacts.clerkUserId, ctx.clerkUserId),
-            isNull(clientContacts.archivedAt),
-          ),
-        )
-        .limit(1);
+      let contact: { id: string; name: string; email: string } | undefined;
+      if (input.projectId) {
+        [contact] = await ctx.db
+          .select({ id: clientContacts.id, name: clientContacts.name, email: clientContacts.email })
+          .from(projects)
+          .innerJoin(
+            clientContacts,
+            and(
+              eq(projects.clientContactId, clientContacts.id),
+              eq(projects.producerId, clientContacts.producerId),
+            ),
+          )
+          .where(
+            and(
+              eq(projects.id, input.projectId),
+              eq(projects.producerId, product.producerId),
+              eq(clientContacts.clerkUserId, ctx.clerkUserId),
+              isNull(clientContacts.archivedAt),
+              inArray(projects.lifecycleStatus, ["waiting_for_payment", "active"]),
+            ),
+          )
+          .limit(1);
+      } else {
+        [contact] = await ctx.db
+          .select({ id: clientContacts.id, name: clientContacts.name, email: clientContacts.email })
+          .from(clientContacts)
+          .where(
+            and(
+              eq(clientContacts.producerId, product.producerId),
+              eq(clientContacts.clerkUserId, ctx.clerkUserId),
+              isNull(clientContacts.archivedAt),
+            ),
+          )
+          .orderBy(asc(clientContacts.firstSeenAt), asc(clientContacts.id))
+          .limit(1);
+      }
       if (!contact) throw new TRPCError({ code: "NOT_FOUND" });
 
       const [commercialOwner] = await ctx.db
@@ -464,22 +463,6 @@ export const artistPurchaseRouter = router({
         });
       } catch {
         throw new TRPCError({ code: "BAD_REQUEST", message: "This product is not available." });
-      }
-
-      if (input.projectId) {
-        const [ownedProject] = await ctx.db
-          .select({ id: projects.id })
-          .from(projects)
-          .where(
-            and(
-              eq(projects.id, input.projectId),
-              eq(projects.producerId, product.producerId),
-              eq(projects.clientContactId, contact.id),
-              inArray(projects.lifecycleStatus, ["waiting_for_payment", "active"]),
-            ),
-          )
-          .limit(1);
-        if (!ownedProject) throw new TRPCError({ code: "NOT_FOUND" });
       }
 
       const brief = input.brief?.trim() || null;
@@ -666,19 +649,6 @@ export const artistPurchaseRouter = router({
   pending: artistProcedure
     .input(z.object({ producerId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const [contact] = await ctx.db
-        .select({ id: clientContacts.id })
-        .from(clientContacts)
-        .where(
-          and(
-            eq(clientContacts.producerId, input.producerId),
-            eq(clientContacts.clerkUserId, ctx.clerkUserId),
-            isNull(clientContacts.archivedAt),
-          ),
-        )
-        .limit(1);
-      if (!contact) return { pending: null };
-
       const [pending] = await ctx.db
         .select({
           id: purchaseRequests.id,
@@ -690,10 +660,18 @@ export const artistPurchaseRouter = router({
           createdAt: purchaseRequests.createdAt,
         })
         .from(purchaseRequests)
+        .innerJoin(
+          clientContacts,
+          and(
+            eq(clientContacts.id, purchaseRequests.clientContactId),
+            eq(clientContacts.producerId, purchaseRequests.producerId),
+          ),
+        )
         .where(
           and(
             eq(purchaseRequests.producerId, input.producerId),
-            eq(purchaseRequests.clientContactId, contact.id),
+            eq(clientContacts.clerkUserId, ctx.clerkUserId),
+            isNull(clientContacts.archivedAt),
             inArray(purchaseRequests.status, ["pending", "approved"]),
           ),
         )
@@ -704,17 +682,92 @@ export const artistPurchaseRouter = router({
 
   current: artistProcedure
     .input(z.object({ producerId: z.string().uuid() }))
-    .query((): { current: ArtistCurrentCompatibility | null } => ({ current: null })),
+    .query(async ({ ctx, input }): Promise<{ current: ArtistCurrentCompatibility | null }> => {
+      const [row] = await ctx.db
+        .select({
+          request: purchaseRequests,
+          product: products,
+          producerTaxMode: producers.taxMode,
+          producerTaxRatePct: producers.taxRatePct,
+        })
+        .from(purchaseRequests)
+        .innerJoin(
+          clientContacts,
+          and(
+            eq(clientContacts.id, purchaseRequests.clientContactId),
+            eq(clientContacts.producerId, purchaseRequests.producerId),
+          ),
+        )
+        .innerJoin(
+          products,
+          and(
+            eq(products.id, purchaseRequests.productId),
+            eq(products.producerId, purchaseRequests.producerId),
+          ),
+        )
+        .innerJoin(producers, eq(producers.id, purchaseRequests.producerId))
+        .where(
+          and(
+            eq(purchaseRequests.producerId, input.producerId),
+            eq(clientContacts.clerkUserId, ctx.clerkUserId),
+            isNull(clientContacts.archivedAt),
+            inArray(purchaseRequests.status, ["pending", "approved", "declined"]),
+          ),
+        )
+        .orderBy(desc(purchaseRequests.createdAt), desc(purchaseRequests.id))
+        .limit(1);
+      if (!row) return { current: null };
+
+      const { request, product } = row;
+      if (
+        request.status !== "pending" &&
+        request.status !== "approved" &&
+        request.status !== "declined"
+      ) {
+        return { current: null };
+      }
+
+      let proposal: PurchaseRequestCommercialProposal;
+      try {
+        proposal = buildPurchaseRequestCommercialProposal({
+          requestedSongQty: request.requestedSongQty,
+          product,
+          taxMode: row.producerTaxMode,
+          taxRatePct: row.producerTaxRatePct,
+          allowUnpublished: true,
+        });
+      } catch {
+        return { current: null };
+      }
+
+      return {
+        current: {
+          id: request.id,
+          producerId: request.producerId,
+          refNumber: request.refNumber,
+          productId: request.productId,
+          projectId: request.projectId,
+          status: request.status,
+          productNameSnapshot: product.name,
+          priceCents: proposal.totalCents,
+          currency: proposal.currency,
+          statusChangedAt: request.statusChangedAt,
+          createdAt: request.createdAt,
+          paidCents: 0,
+          pendingProofCents: 0,
+          remainingCents: proposal.totalCents,
+          paidInFull: proposal.totalCents === 0,
+          acceptanceAvailable: isPurchaseRequestApprovalAvailable(product),
+        },
+      };
+    }),
 
   paymentPlan: router({
     options: artistProcedure
       .input(z.object({ purchaseRequestId: z.string().uuid() }))
       .query(async ({ ctx, input }) => {
-        const { request, product, producerName, producerTaxMode, producerTaxRatePct } = await loadArtistRequest(
-          ctx.db,
-          ctx.clerkUserId,
-          input.purchaseRequestId,
-        );
+        const { request, product, producerName, producerTaxMode, producerTaxRatePct } =
+          await loadArtistRequest(ctx.db, ctx.clerkUserId, input.purchaseRequestId);
         if (request.status === "canceled" || request.status === "converted") {
           throw new TRPCError({ code: "NOT_FOUND" });
         }
@@ -745,7 +798,6 @@ export const artistPurchaseRouter = router({
           options: buildPlanOptions(product.paymentPlans, totalCents),
         };
       }),
-
   }),
 
   acceptance: router({
@@ -779,8 +831,9 @@ export const artistPurchaseRouter = router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
+        let result;
         try {
-          return await acceptStorePurchase(ctx.db, {
+          result = await acceptStorePurchase(ctx.db, {
             clerkUserId: ctx.clerkUserId,
             purchaseRequestId: input.purchaseRequestId,
             selectedPaymentPlan: input.paymentPlan,
@@ -791,6 +844,19 @@ export const artistPurchaseRouter = router({
         } catch (error) {
           mapStoreAcceptanceError(error);
         }
+
+        if (result.notification) {
+          try {
+            await emitAgreementAccepted(ctx.db, result.notification);
+          } catch {
+            console.error("[notify] agreement-accepted failed");
+          }
+        }
+        return {
+          purchaseId: result.purchaseId,
+          productId: result.productId,
+          created: result.created,
+        };
       }),
   }),
 
@@ -996,7 +1062,12 @@ export const producerPurchaseRouter = router({
     .input(z.object({ status: PURCHASE_REQUEST_STATUS_INPUT.optional() }).optional())
     .query(async ({ ctx, input }) => {
       const rows = await ctx.db
-        .select({ request: purchaseRequests, product: products })
+        .select({
+          request: purchaseRequests,
+          product: products,
+          producerTaxMode: producers.taxMode,
+          producerTaxRatePct: producers.taxRatePct,
+        })
         .from(purchaseRequests)
         .innerJoin(
           products,
@@ -1005,6 +1076,7 @@ export const producerPurchaseRouter = router({
             eq(products.producerId, purchaseRequests.producerId),
           ),
         )
+        .innerJoin(producers, eq(producers.id, purchaseRequests.producerId))
         .where(
           input?.status
             ? and(
@@ -1015,8 +1087,14 @@ export const producerPurchaseRouter = router({
         )
         .orderBy(desc(purchaseRequests.createdAt));
       return {
-        requests: rows.map(({ request, product }) => {
-          const price = requestPrice(request, product);
+        requests: rows.map(({ request, product, producerTaxMode, producerTaxRatePct }) => {
+          const proposal = tryBuildPurchaseRequestCommercialProposal({
+            requestedSongQty: request.requestedSongQty,
+            product,
+            taxMode: producerTaxMode,
+            taxRatePct: producerTaxRatePct,
+            allowUnpublished: true,
+          });
           return {
             id: request.id,
             refNumber: request.refNumber,
@@ -1025,8 +1103,11 @@ export const producerPurchaseRouter = router({
             artistEmail: request.artistEmail,
             productId: request.productId,
             productNameSnapshot: product.name,
-            priceCents: price.priceCents,
-            currency: product.currency,
+            priceCents: proposal?.totalCents ?? null,
+            currency: proposal?.currency ?? product.currency,
+            commercialTermsAvailable: proposal !== null,
+            approvalAvailable:
+              proposal !== null && isPurchaseRequestApprovalAvailable(product),
             requestedSongQty: request.requestedSongQty,
             brief: request.brief,
             createdAt: request.createdAt,
@@ -1038,66 +1119,88 @@ export const producerPurchaseRouter = router({
   get: producerProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const {
-        request,
-        product,
-        producerTaxMode,
-        producerTaxRatePct,
-      } = await loadProducerRequest(ctx.db, ctx.producerId, input.id);
-      if (request.status === "canceled" || request.status === "converted") {
+      const { request, product, producerTaxMode, producerTaxRatePct } = await loadProducerRequest(
+        ctx.db,
+        ctx.producerId,
+        input.id,
+      );
+      if (request.status === "canceled") {
         throw new TRPCError({ code: "NOT_FOUND" });
       }
-      const price = requestPrice(request, product);
-      let commercialProposal: PurchaseRequestCommercialProposal;
-      try {
-        commercialProposal = buildPurchaseRequestCommercialProposal({
-          request,
-          product,
-          taxMode: producerTaxMode,
-          taxRatePct: producerTaxRatePct,
+
+      const commonRequest = {
+        id: request.id,
+        refNumber: request.refNumber,
+        status: request.status,
+        statusChangedAt: request.statusChangedAt,
+        approvedAt: request.approvedAt,
+        declinedAt: request.declinedAt,
+        createdAt: request.createdAt,
+        artistName: request.artistName,
+        artistEmail: request.artistEmail,
+        productId: request.productId,
+        productNameSnapshot: product.name,
+        requestedSongQty: request.requestedSongQty,
+        brief: request.brief,
+        projectId: request.projectId,
+      };
+
+      if (request.status === "converted") {
+        const accepted = await loadAcceptedPurchaseForProducerRequest(ctx.db, {
+          producerId: request.producerId,
+          clientContactId: request.clientContactId,
+          purchaseRequestId: request.id,
         });
-      } catch (error) {
-        if (error instanceof StoreProductCommercialError) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
-        }
-        throw error;
+        if (!accepted) throw new TRPCError({ code: "NOT_FOUND" });
+
+        return {
+          request: {
+            ...commonRequest,
+            status: "converted" as const,
+            undoableUntil: null,
+            targetProjects: [],
+          },
+          commercialTerms: {
+            kind: "accepted" as const,
+            purchaseId: accepted.purchase.id,
+            acceptedAt: accepted.acceptance.acceptedAt,
+            snapshot: accepted.acceptance.commercialSnapshot.value,
+          },
+        };
       }
-      const paymentPlan = proposalPlan(product, commercialProposal.totalCents);
+
+      const commercialProposal = tryBuildPurchaseRequestCommercialProposal({
+        requestedSongQty: request.requestedSongQty,
+        product,
+        taxMode: producerTaxMode,
+        taxRatePct: producerTaxRatePct,
+        allowUnpublished: true,
+      });
       const targetProjects = await listSameClientPurchaseTargets(ctx.db, {
         producerId: request.producerId,
         clientContactId: request.clientContactId,
       });
       return {
         request: {
-          id: request.id,
-          refNumber: request.refNumber,
+          ...commonRequest,
           status: request.status,
-          statusChangedAt: request.statusChangedAt,
-          approvedAt: request.approvedAt,
-          declinedAt: request.declinedAt,
-          createdAt: request.createdAt,
-          artistName: request.artistName,
-          artistEmail: request.artistEmail,
-          productId: request.productId,
-          productNameSnapshot: product.name,
-          priceCents: price.priceCents,
-          currency: product.currency,
-          sessionCountSnapshot: computeProjectSessionCount(product, price.songQty),
-          songQty: price.songQty,
-          unitPriceCents: price.unitPriceCents,
-          commercialProposal,
-          paymentPlanSnapshot: paymentPlan,
-          paymentPlanOptionsSnapshot:
-            commercialProposal.totalCents === 0 ? [] : product.paymentPlans,
-          paymentPlanChosenAt: null as Date | null,
-          royaltyTermsSnapshot: product.royaltyTerms,
-          agreementTextSnapshot: effectiveAgreementText(product),
           undoableUntil:
             request.status === "approved" && request.approvedAt
               ? purchaseRequestApprovalUndoDeadline(request.approvedAt)
               : null,
-          projectId: request.projectId,
           targetProjects,
+        },
+        commercialTerms: {
+          ...(commercialProposal
+            ? {
+                kind: "proposal" as const,
+                snapshot: commercialProposal,
+                approvalAvailable: isPurchaseRequestApprovalAvailable(product),
+              }
+            : {
+                kind: "unavailable" as const,
+                productName: product.name,
+              }),
         },
       };
     }),

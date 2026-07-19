@@ -841,6 +841,7 @@ function limitLabel(limit: { kind: "fixed"; count: number } | { kind: "unlimited
 function finalAgreementText(
   snapshot: Omit<PurchaseCommercialSnapshot, "agreementText">,
   producerTerms: string,
+  paymentPlanLabelOverride?: string,
 ): string {
   const item = snapshot.lineItems[0];
   if (!item) fail("INVALID_PRODUCT", "A purchase must contain a line item");
@@ -857,7 +858,7 @@ function finalAgreementText(
     `Subtotal: ${money(snapshot.subtotalCents, snapshot.currency)}`,
     `Tax: ${snapshot.tax.mode} at ${String(snapshot.tax.ratePct)}% (${money(snapshot.tax.amountCents, snapshot.currency)})`,
     `Total: ${money(snapshot.totalCents, snapshot.currency)}`,
-    `Payment plan: ${snapshot.selectedPaymentPlan ? planLabel(snapshot.selectedPaymentPlan) : "None"}`,
+    `Payment plan: ${paymentPlanLabelOverride ?? (snapshot.selectedPaymentPlan ? planLabel(snapshot.selectedPaymentPlan) : "None")}`,
     `Included song spaces: ${String(snapshot.includedSongSpaces)}`,
     `Deliverables: ${snapshot.deliverables.length > 0 ? snapshot.deliverables.join("; ") : "None specified"}`,
     `Sessions: ${snapshot.session ? `${limitLabel(snapshot.session.limit)} × ${String(snapshot.session.durationMin)} minutes (${snapshot.session.locationType}; ${String(snapshot.session.bufferMinutes)}-minute buffer; ${String(snapshot.session.minLeadHours)}-hour lead time)` : "None"}`,
@@ -868,6 +869,26 @@ function finalAgreementText(
     producerTerms || "None.",
   ];
   return lines.join("\n");
+}
+
+/**
+ * Render the canonical Store agreement before an artist has selected a plan.
+ * Keeping this beside the accepted-agreement renderer prevents request previews
+ * from reconstructing or editing commercially significant text by position.
+ */
+export function buildStorePurchaseProposalAgreementText(
+  snapshot: PurchaseCommercialSnapshot,
+  product: StoreProductCommercialInput,
+): string {
+  const proposalSnapshot = {
+    ...snapshot,
+    selectedPaymentPlan: null,
+  } satisfies PurchaseCommercialSnapshot;
+  return finalAgreementText(
+    proposalSnapshot,
+    effectiveProducerAgreement(product),
+    "Not selected yet",
+  );
 }
 
 export type BuildStorePurchaseSnapshotInput = Readonly<{

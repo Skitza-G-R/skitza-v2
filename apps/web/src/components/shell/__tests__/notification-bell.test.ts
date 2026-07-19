@@ -59,6 +59,17 @@ describe("notificationHref", () => {
     ).toBe("/dashboard/requests/request-1");
   });
 
+  it("keeps an agreement-accepted notification on that same exact request", () => {
+    expect(
+      notificationHref(
+        makeItem({
+          kind: "agreement_accepted",
+          purchaseRequestId: "request-accepted-1",
+        }),
+      ),
+    ).toBe("/dashboard/requests/request-accepted-1");
+  });
+
   it("routes bookings to Calendar with that booking selected", () => {
     expect(
       notificationHref(

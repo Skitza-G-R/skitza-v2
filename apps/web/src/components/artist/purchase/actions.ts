@@ -46,6 +46,9 @@ export async function requestToBookAction(input: {
       ...(input.songQty === undefined ? {} : { songQty: input.songQty }),
       ...(input.projectId === undefined ? {} : { projectId: input.projectId }),
     });
+    revalidatePath("/dashboard", "layout");
+    revalidatePath("/dashboard/requests", "layout");
+    revalidatePath(`/dashboard/requests/${result.purchaseRequestId}`);
     return {
       ok: true,
       purchaseRequestId: result.purchaseRequestId,
@@ -72,6 +75,9 @@ export async function acceptPurchaseAction(input: {
     const result = await caller.artist.purchase.acceptance.accept(input);
     revalidatePath("/artist", "layout");
     revalidatePath(`/artist/purchase/${result.productId}`);
+    revalidatePath("/dashboard", "layout");
+    revalidatePath("/dashboard/requests", "layout");
+    revalidatePath(`/dashboard/requests/${input.purchaseRequestId}`);
     return {
       ok: true,
       purchaseId: result.purchaseId,

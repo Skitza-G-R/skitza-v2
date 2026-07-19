@@ -46,7 +46,12 @@ function paymentPlanForRow(
 }
 
 function sourceForRow(row: {
-  sourceKind: "store_product" | "private_offer" | "session_product" | "paid_add_on" | "no_charge_add_on";
+  sourceKind:
+    | "store_product"
+    | "private_offer"
+    | "session_product"
+    | "paid_add_on"
+    | "no_charge_add_on";
   productId: string | null;
   privateOfferId: string | null;
   purchaseRequestId: string | null;
@@ -130,6 +135,69 @@ async function loadAcceptedPurchase(
   };
 }
 
+export type AcceptedPurchaseForProducerRequest = Readonly<{
+  purchase: AcceptedPurchase;
+  acceptance: PurchaseAcceptanceRecord;
+}>;
+
+/**
+ * Load immutable commercial truth for one converted Store request.
+ *
+ * All three ownership anchors are part of the lookup. A request that belongs
+ * to another producer or client is therefore indistinguishable from a missing
+ * request to the caller, while a half-written purchase/acceptance pair fails
+ * closed as an integrity error.
+ */
+export async function loadAcceptedPurchaseForProducerRequest(
+  db: Db,
+  input: {
+    producerId: string;
+    clientContactId: string;
+    purchaseRequestId: string;
+  },
+): Promise<AcceptedPurchaseForProducerRequest | null> {
+  const purchase = await loadAcceptedPurchase(
+    db,
+    and(
+      eq(purchases.producerId, input.producerId),
+      eq(purchases.clientContactId, input.clientContactId),
+      eq(purchases.purchaseRequestId, input.purchaseRequestId),
+    ),
+    false,
+  );
+  if (!purchase) return null;
+
+  const [acceptanceRow] = await db
+    .select()
+    .from(purchaseAcceptances)
+    .where(
+      and(
+        eq(purchaseAcceptances.purchaseId, purchase.id),
+        eq(purchaseAcceptances.producerId, input.producerId),
+        eq(purchaseAcceptances.clientContactId, input.clientContactId),
+      ),
+    )
+    .limit(1);
+  if (!acceptanceRow) {
+    throw new Error("Accepted request is missing its immutable acceptance record");
+  }
+
+  const acceptance = acceptanceRecord(acceptanceRow);
+  if (
+    (purchase.source.kind !== "store_product" && purchase.source.kind !== "session_product") ||
+    purchase.source.purchaseRequestId !== input.purchaseRequestId ||
+    purchase.id !== acceptance.purchaseId ||
+    purchase.producerId !== acceptance.producerId ||
+    purchase.clientContactId !== acceptance.clientContactId ||
+    purchase.commercialSnapshot.digest !== acceptance.commercialSnapshot.digest ||
+    purchase.acceptedAt.getTime() !== acceptance.acceptedAt.getTime()
+  ) {
+    throw new Error("Accepted request commercial history is inconsistent");
+  }
+
+  return Object.freeze({ purchase, acceptance });
+}
+
 function acceptanceRecord(row: {
   id: string;
   purchaseId: string;
@@ -186,7 +254,9 @@ function transactionAdapter(tx: PurchaseTransactionDb): PurchaseAtomicTransactio
       return project ?? null;
     },
 
-    loadPurchaseSourceDescriptor: async (source: PurchaseSource): Promise<PurchaseSourceDescriptor> => {
+    loadPurchaseSourceDescriptor: async (
+      source: PurchaseSource,
+    ): Promise<PurchaseSourceDescriptor> => {
       const [product, privateOffer, purchaseRequest] = await Promise.all([
         source.productId === null
           ? Promise.resolve(null)
