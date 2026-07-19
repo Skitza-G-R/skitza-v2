@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import type { PurchaseCommercialSnapshot } from "@skitza/db";
 
 import {
   WorkspaceListView,
@@ -32,6 +33,8 @@ import { ReviewAgreeScreen } from "~/components/artist/purchase/review-agree-scr
 import { UploadProofScreen } from "~/components/artist/purchase/upload-proof-screen";
 import { buildAgreementTerms } from "~/components/artist/purchase/purchase-data";
 import { PaymentProofReview } from "~/components/dashboard/requests/payment-proof-review";
+import { PurchaseRequestCommercialDetails } from "~/components/dashboard/requests/purchase-request-commercial-details";
+import { PurchaseRequestReview } from "~/components/dashboard/requests/purchase-request-review";
 import {
   PendingPaymentProofs,
   type PendingPaymentProof,
@@ -48,6 +51,38 @@ import { CLIENT_ARCHIVE_BLOCKED_MESSAGE } from "~/server/domain/client-managemen
 const DEV_REQUEST_ID = "00000000-0000-4000-8000-000000000001";
 const DEV_PROOF_ID = "00000000-0000-4000-8000-000000000002";
 const DEV_USD_PROOF_ID = "00000000-0000-4000-8000-000000000003";
+const DEV_SK72_COMMERCIAL_SNAPSHOT = {
+  version: 1,
+  productOrOfferName: "Three-song production",
+  deliverables: ["Three mixed masters", "Instrumentals", "Vocal stems"],
+  lineItems: [
+    {
+      label: "Production per song",
+      quantity: 3,
+      listUnitPriceCents: 90_000,
+      unitPriceCents: 80_000,
+      totalCents: 240_000,
+    },
+  ],
+  listSubtotalCents: 270_000,
+  discountCents: 30_000,
+  subtotalCents: 240_000,
+  tax: { mode: "tax_added", ratePct: 18, amountCents: 43_200 },
+  totalCents: 283_200,
+  currency: "ILS",
+  includedSongSpaces: 3,
+  session: null,
+  revisionRule: { kind: "fixed", count: 2 },
+  royaltyTerms: {
+    master: { mode: "none" },
+    composition: { mode: "percentage", bps: 500, role: "composer" },
+  },
+  rights: ["Artist owns the approved masters."],
+  selectedPaymentPlan: { kind: "split_50_50" },
+  offeredPaymentPlans: [{ kind: "full" }, { kind: "split_50_50" }],
+  agreementText:
+    "Exact production agreement for three songs.\nProject target: Start a new project.\nExact installment schedule:\n- 1. 50% due at acceptance\n- 2. 50% due when the artist approves the final version",
+} satisfies PurchaseCommercialSnapshot;
 const DEV_PENDING_PROOF: PendingPaymentProof = {
   proofId: DEV_PROOF_ID,
   purchaseRequestId: DEV_REQUEST_ID,
@@ -486,6 +521,66 @@ function Sk8SongDevPreview({ archived }: { archived: boolean }) {
   return <Sk8SongDevScreen archived={archived} />;
 }
 
+function Sk72RequestDevPreview({ state }: { state: "pending" | "approved" | "accepted" }) {
+  const accepted = state === "accepted";
+  const commercialTerms = accepted
+    ? ({
+        kind: "accepted",
+        purchaseId: "00000000-0000-4000-8000-000000000004",
+        acceptedAt: new Date("2026-07-20T09:30:00.000Z"),
+        snapshot: DEV_SK72_COMMERCIAL_SNAPSHOT,
+      } as const)
+    : ({
+        kind: "proposal",
+        snapshot: {
+          ...DEV_SK72_COMMERCIAL_SNAPSHOT,
+          selectedPaymentPlan: null,
+          agreementText:
+            "Exact proposed production agreement for three songs.\nPayment plan: Not selected yet.\nThe artist chooses an enabled plan and accepts the exact agreement only after producer approval.",
+        },
+      } as const);
+
+  return (
+    <main className="mx-auto w-full max-w-[720px] px-4 py-6 sm:px-6 sm:py-10">
+      <header className="border-b border-[rgb(var(--border-subtle))] pb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="font-mono text-[11px] font-semibold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase">
+            SK-72QA
+          </p>
+          <span className="rounded-[var(--radius-sm)] bg-[rgb(var(--bg-sunken))] px-2.5 py-1 text-xs font-semibold text-[rgb(var(--fg-secondary))] capitalize">
+            {accepted ? "Accepted" : state}
+          </span>
+        </div>
+        <h1 className="font-display mt-3 text-[clamp(1.75rem,4vw,2.5rem)] leading-tight font-extrabold tracking-[-0.035em] break-words text-[rgb(var(--fg-default))]">
+          {DEV_SK72_COMMERCIAL_SNAPSHOT.productOrOfferName}
+        </h1>
+        <p className="mt-2 text-sm break-words text-[rgb(var(--fg-secondary))]">
+          Requested by Maya Cohen · maya.long.email@example.invalid
+        </p>
+        <p className="font-display mt-4 text-2xl font-extrabold text-[rgb(var(--fg-default))] tabular-nums">
+          ₪2,832
+        </p>
+      </header>
+
+      {!accepted ? (
+        <PurchaseRequestReview
+          id={DEV_REQUEST_ID}
+          initialStatus={state}
+          initialUndoableUntilIso={state === "approved" ? "2099-07-20T09:35:00.000Z" : null}
+          initialProjectId={null}
+          targetProjects={[]}
+        />
+      ) : null}
+
+      <PurchaseRequestCommercialDetails
+        commercialTerms={commercialTerms}
+        brief="Keep the lead vocal intimate and leave space for a live string overdub."
+        submittedAt={new Date("2026-07-20T08:00:00.000Z")}
+      />
+    </main>
+  );
+}
+
 // Dev-only screen gallery for the handoff-4 wave (2026-07-05). Renders the
 // funnel screens with mock props at /dev/screens/<name> so visual QA can
 // screenshot every state at 390×844 WITHOUT a Clerk session. Hard 404 in
@@ -590,6 +685,12 @@ export default async function DevScreenPage({ params }: Params) {
         />
       );
     }
+    case "sk72-request-pending":
+      return <Sk72RequestDevPreview state="pending" />;
+    case "sk72-request-approved":
+      return <Sk72RequestDevPreview state="approved" />;
+    case "sk72-request-accepted":
+      return <Sk72RequestDevPreview state="accepted" />;
     case "clients-projects":
       return (
         <main
@@ -832,6 +933,7 @@ export default async function DevScreenPage({ params }: Params) {
               stage={stage}
               productName={MOCK_PRODUCT.name}
               priceCents={MOCK_PRODUCT.priceCents}
+              currency={MOCK_PRODUCT.currency}
               remainingCents={
                 stage === "paid"
                   ? Math.ceil(MOCK_PRODUCT.priceCents / 2)

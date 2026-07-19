@@ -61,7 +61,7 @@ async function loadPendingPurchase(
     // exact paid project in booking; any remaining balance stays available as
     // a secondary payment action.
     const action =
-      stage === "awaiting_payment"
+      stage === "awaiting_payment" && current.acceptanceAvailable
         ? {
             actionHref: `/artist/purchase/${paymentRouteProductId}/pay?req=${current.id}`,
             actionLabel: "Choose a payment plan",
@@ -83,8 +83,10 @@ async function loadPendingPurchase(
       stage,
       productName: current.productNameSnapshot,
       priceCents: current.priceCents,
+      currency: current.currency,
       remainingCents: current.remainingCents,
       producerName: studio.name,
+      continuationAvailable: current.acceptanceAvailable,
       ...action,
     };
   } catch (err) {

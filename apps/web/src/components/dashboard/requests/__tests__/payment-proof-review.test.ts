@@ -31,7 +31,7 @@ const actionsPath = join(appRequestsDir, "proof-actions.ts");
 const dashboardPage = readFileSync(join(appRequestsDir, "..", "page.tsx"), "utf8");
 const requestsPage = readFileSync(join(appRequestsDir, "page.tsx"), "utf8");
 const detailPage = readFileSync(join(appRequestsDir, "[id]", "page.tsx"), "utf8");
-const detailComponent = readFileSync(join(requestsDir, "purchase-request-detail.tsx"), "utf8");
+const retiredDetailPath = join(requestsDir, "purchase-request-detail.tsx");
 describe("producer Gate-2 proof review containment", () => {
   it("keeps proof reads fail-closed and out of the Requests queue", () => {
     expect(existsSync(queuePath)).toBe(true);
@@ -60,7 +60,7 @@ describe("producer Gate-2 proof review containment", () => {
     expect(detailPage).toMatch(/if \(requestedProofId\) notFound\(\)/);
     expect(detailPage).not.toMatch(/proofOfPayment\.history|proofOfPayment\.view/);
     expect(detailPage).not.toMatch(/<PaymentProofReview/);
-    expect(detailComponent).toMatch(/<PaymentProofReview/);
+    expect(existsSync(retiredDetailPath)).toBe(false);
   });
 
   it("renders private image/PDF evidence with confirm and artist-facing reject controls", () => {

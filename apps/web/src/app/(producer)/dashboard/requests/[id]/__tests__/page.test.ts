@@ -6,43 +6,25 @@ import { describe, expect, it } from "vitest";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const page = readFileSync(join(here, "..", "page.tsx"), "utf8");
-const detail = readFileSync(
-  join(
-    here,
-    "..",
-    "..",
-    "..",
-    "..",
-    "..",
-    "..",
-    "components",
-    "dashboard",
-    "requests",
-    "purchase-request-detail.tsx",
-  ),
-  "utf8",
-);
-const surface = `${page}\n${detail}`;
 
 describe("producer purchase request detail", () => {
-  it("loads the tenant-scoped frozen request instead of the live product", () => {
+  it("loads the tenant-scoped request read model instead of querying products in the page", () => {
     expect(page).toMatch(/producer\.purchase\.get/);
     expect(page).not.toMatch(/booking\.packages|from\(products\)/);
   });
 
-  it("shows frozen payment, royalty, agreement, and acceptance terms", () => {
-    expect(surface).toMatch(/paymentPlanOptionsSnapshot/);
-    expect(surface).toMatch(/paymentPlanChosenAt/);
-    expect(surface).toMatch(/After approval, the artist chooses/);
-    expect(surface).toMatch(/royaltyTermsSnapshot/);
-    expect(surface).toMatch(/royaltyTermsSnapshot\?\.notes/);
-    expect(surface).toMatch(/agreementTextSnapshot/);
-    expect(surface).toMatch(/agreementUrl/);
-    expect(surface).toMatch(/acceptedAt/);
+  it("branches between the current proposal and authoritative accepted snapshot", () => {
+    expect(page).toMatch(/commercialTerms\.snapshot/);
+    expect(page).toMatch(/commercialTerms\.kind === "accepted"/);
+    expect(page).toMatch(/<PurchaseRequestCommercialDetails/);
+    expect(page).not.toMatch(/agreementUrl|contractUrlSnapshot/);
   });
 
   it("adds the Gate 1 review controls while preserving the detail route", () => {
-    expect(page).toMatch(/PurchaseRequestReview/);
+    expect(page).toMatch(/commercialTerms\.kind !== "accepted"[\s\S]*PurchaseRequestReview/);
+    expect(page).toMatch(
+      /canApprove=\{[\s\S]*commercialTerms\.kind === "proposal" && commercialTerms\.approvalAvailable/,
+    );
     expect(page).toMatch(/initialStatus=\{request\.status\}/);
     expect(page).toMatch(
       /initialUndoableUntilIso=\{request\.undoableUntil\?\.toISOString\(\) \?\? null\}/,
@@ -58,5 +40,9 @@ describe("producer purchase request detail", () => {
   it("maps malformed proof query ids to 404 before calling the API", () => {
     expect(page).toMatch(/PAYMENT_PROOF_ID\.safeParse\(requestedProofId\)/);
     expect(page).toMatch(/requestedProofId && !PAYMENT_PROOF_ID/);
+  });
+
+  it("does not put payment-proof review on the new-work detail", () => {
+    expect(page).not.toMatch(/proofOfPayment\.(history|view)|PaymentProofReview/);
   });
 });

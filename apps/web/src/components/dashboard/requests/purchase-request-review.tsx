@@ -20,6 +20,7 @@ export function PurchaseRequestReview({
   initialUndoableUntilIso,
   initialProjectId,
   targetProjects,
+  canApprove = true,
 }: {
   id: string;
   initialStatus: PurchaseRequestStatus;
@@ -32,6 +33,7 @@ export function PurchaseRequestReview({
     workflowStage: "brief" | "production" | "mixing" | "mastering" | "done";
     updatedAtIso: string;
   }>;
+  canApprove?: boolean;
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -73,6 +75,7 @@ export function PurchaseRequestReview({
   };
 
   const runApprove = () => {
+    if (!canApprove) return;
     setError(null);
     startTransition(async () => {
       try {
@@ -181,10 +184,10 @@ export function PurchaseRequestReview({
             id="request-review-heading"
             className="font-display mt-1 text-lg font-bold text-[rgb(var(--fg-default))]"
           >
-            {reviewTitle(status)}
+            {reviewTitle(status, canApprove)}
           </h2>
           <p className="mt-1 text-sm leading-relaxed text-[rgb(var(--fg-secondary))]">
-            {reviewDescription(status, canUndo)}
+            {reviewDescription(status, canUndo, canApprove)}
           </p>
         </div>
 
@@ -206,7 +209,7 @@ export function PurchaseRequestReview({
             <button
               type="button"
               onClick={runApprove}
-              disabled={isPending}
+              disabled={isPending || !canApprove}
               className="sk-press inline-flex h-10 flex-[1.35] items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-bold text-[rgb(var(--bg-sidebar))] transition-[filter] hover:brightness-105 disabled:cursor-wait disabled:opacity-55 sm:flex-none"
             >
               {isPending ? "Saving…" : "Approve request"}
@@ -334,19 +337,29 @@ export function PurchaseRequestReview({
   );
 }
 
-function reviewTitle(status: PurchaseRequestStatus): string {
-  if (status === "pending") return "Ready for your decision";
+function reviewTitle(status: PurchaseRequestStatus, canApprove: boolean): string {
+  if (status === "pending") return canApprove ? "Ready for your decision" : "Terms need attention";
   if (status === "approved") return "Request approved";
   if (status === "verifying") return "Payment is being verified";
   if (status === "paid") return "Payment received";
   return "Request declined";
 }
 
-function reviewDescription(status: PurchaseRequestStatus, canUndo: boolean): string {
+function reviewDescription(
+  status: PurchaseRequestStatus,
+  canUndo: boolean,
+  canApprove: boolean,
+): string {
   if (status === "pending") {
+    if (!canApprove) {
+      return "The current Store terms are invalid, so approval is unavailable. You can still decline this request with a private note.";
+    }
     return "Approving lets the artist review the current terms and choose an enabled payment plan. Nothing is frozen until final acceptance, and no payment is taken here.";
   }
   if (status === "approved") {
+    if (!canApprove) {
+      return "This request remains approved, but the artist cannot continue while the Store product is hidden, archived, or invalid. Restore valid published terms before they choose a plan and accept.";
+    }
     return canUndo
       ? "The artist can now choose an enabled plan, review the exact agreement, and accept it before receiving external payment instructions. You can undo this approval while the five-minute safety window remains open."
       : "The artist can now choose an enabled plan, review the exact agreement, and accept it before receiving external payment instructions. Approval changes are limited to a short safety window.";

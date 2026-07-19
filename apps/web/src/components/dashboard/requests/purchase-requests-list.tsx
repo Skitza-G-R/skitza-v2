@@ -8,8 +8,9 @@ export type PendingPurchaseRequestRow = {
   artistName: string;
   artistEmail: string;
   productNameSnapshot: string;
-  priceCents: number;
+  priceCents: number | null;
   currency: string;
+  commercialTermsAvailable: boolean;
   createdAt: Date;
 };
 
@@ -25,7 +26,8 @@ export function PurchaseRequestsList({
           You&rsquo;re all caught up
         </h2>
         <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-[rgb(var(--fg-muted))]">
-          New purchase requests will appear here with the artist&rsquo;s locked commercial terms.
+          New purchase requests will appear here with the artist&rsquo;s requested work and current
+          proposal.
         </p>
         <Link
           href="/dashboard"
@@ -79,9 +81,11 @@ export function PurchaseRequestsList({
 
               <div className="col-span-2 flex items-center justify-between gap-3 sm:col-span-1 sm:flex-col sm:items-end">
                 <p className="font-mono text-sm font-bold text-[rgb(var(--fg-default))] tabular-nums">
-                  {formatMoney(request.priceCents, request.currency, {
-                    withCents: request.priceCents % 100 !== 0,
-                  })}
+                  {request.commercialTermsAvailable && request.priceCents !== null
+                    ? formatMoney(request.priceCents, request.currency, {
+                        withCents: request.priceCents % 100 !== 0,
+                      })
+                    : "Terms unavailable"}
                 </p>
                 <span className="inline-flex h-9 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-3 text-xs font-bold text-[rgb(var(--bg-sidebar))] transition-[filter] group-hover:brightness-105">
                   Review

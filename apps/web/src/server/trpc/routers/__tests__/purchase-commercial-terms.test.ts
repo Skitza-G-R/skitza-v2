@@ -5,6 +5,14 @@ import { describe, expect, it } from "vitest";
 
 const purchaseSource = readFileSync(join(__dirname, "../purchase.ts"), "utf8");
 const bookingSource = readFileSync(join(__dirname, "../booking.ts"), "utf8");
+const proposalSource = readFileSync(
+  join(__dirname, "../../../domain/purchases/request-proposal.ts"),
+  "utf8",
+);
+const storeCommercialSource = readFileSync(
+  join(__dirname, "../../../domain/store-products/service.ts"),
+  "utf8",
+);
 
 describe("purchase commercial-term ownership", () => {
   it("keeps requests pre-acceptance and free of commercial snapshots", () => {
@@ -39,27 +47,30 @@ describe("purchase commercial-term ownership", () => {
   });
 
   it("uses the domain-built tax-aware proposal for approval email and producer reads", () => {
-    expect(purchaseSource).toMatch(/function buildPurchaseRequestCommercialProposal/);
-    expect(purchaseSource).toMatch(/buildStorePurchaseSnapshot\(\{/);
-    expect(purchaseSource).toMatch(/subtotalCents:\s*snapshot\.subtotalCents/);
-    expect(purchaseSource).toMatch(/tax:\s*Object\.freeze\(\{ \.\.\.snapshot\.tax \}\)/);
-    expect(purchaseSource).toMatch(/totalCents:\s*snapshot\.totalCents/);
+    expect(purchaseSource).toMatch(/buildPurchaseRequestCommercialProposal/);
+    expect(proposalSource).toMatch(/buildStorePurchaseSnapshot\(\{/);
+    expect(proposalSource).toMatch(/selectedPaymentPlan: null/);
+    expect(proposalSource).toMatch(/buildStorePurchaseProposalAgreementText/);
+    expect(storeCommercialSource).toContain('"Not selected yet"');
     expect(purchaseSource).toMatch(/subtotalCents:\s*proposal\.subtotalCents/);
     expect(purchaseSource).toMatch(/taxCents:\s*proposal\.tax\.amountCents/);
     expect(purchaseSource).toMatch(/totalCents:\s*proposal\.totalCents/);
   });
 
-  it("keeps request reads tenant-scoped and labels display values as live proposals", () => {
+  it("keeps request reads tenant-scoped and separates live proposals from accepted truth", () => {
     const producerGet = purchaseSource.slice(
       purchaseSource.lastIndexOf("  get: producerProcedure"),
       purchaseSource.indexOf("correctTarget: producerProcedure"),
     );
     expect(purchaseSource).toMatch(/get:\s*producerProcedure/);
-    expect(purchaseSource).toMatch(/loadProducerRequest\(ctx\.db, ctx\.producerId, input\.id\)/);
+    expect(purchaseSource).toMatch(
+      /loadProducerRequest\(\s*ctx\.db,\s*ctx\.producerId,\s*input\.id,?\s*\)/,
+    );
     expect(purchaseSource).toMatch(/eq\(purchaseRequests\.producerId, producerId\)/);
-    expect(purchaseSource).toContain("Compatibility display values are live proposal data");
-    expect(producerGet).not.toMatch(/acceptedAt|agreementUrl/);
-    expect(purchaseSource).toMatch(/paymentPlanChosenAt: null as Date \| null/);
+    expect(producerGet).toMatch(/kind: "proposal" as const/);
+    expect(producerGet).toMatch(/kind: "accepted" as const/);
+    expect(producerGet).toMatch(/loadAcceptedPurchaseForProducerRequest/);
+    expect(producerGet).not.toMatch(/agreementUrl/);
   });
 });
 

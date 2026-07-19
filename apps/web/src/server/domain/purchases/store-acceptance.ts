@@ -172,7 +172,10 @@ function buildTerms(
       schedule,
     };
   } catch (error) {
-    if (!(error instanceof StoreProductCommercialError) && !(error instanceof PurchaseDomainError)) {
+    if (
+      !(error instanceof StoreProductCommercialError) &&
+      !(error instanceof PurchaseDomainError)
+    ) {
       throw new StoreAcceptanceError(
         "INVALID",
         "This payment plan cannot create a valid installment schedule for the current total.",
@@ -290,7 +293,18 @@ export async function acceptStorePurchase(
     operationKey: string;
     agreementAccepted: boolean;
   },
-): Promise<{ purchaseId: string; productId: string; created: boolean }> {
+): Promise<{
+  purchaseId: string;
+  productId: string;
+  created: boolean;
+  notification: null | {
+    producerId: string;
+    purchaseRequestId: string;
+    artistName: string;
+    productName: string;
+    refNumber: string;
+  };
+}> {
   if (!input.agreementAccepted) {
     throw new StoreAcceptanceError("INVALID", "The exact agreement must be accepted.");
   }
@@ -336,14 +350,11 @@ export async function acceptStorePurchase(
           productId: purchases.productId,
           operationKey: purchases.operationKey,
           snapshotDigest: purchases.snapshotDigest,
-          selectedPaymentPlan: purchases.commercialSnapshot,
+          commercialSnapshot: purchases.commercialSnapshot,
           acceptedByClerkUserId: purchaseAcceptances.acceptedByClerkUserId,
         })
         .from(purchases)
-        .innerJoin(
-          purchaseAcceptances,
-          eq(purchaseAcceptances.purchaseId, purchases.id),
-        )
+        .innerJoin(purchaseAcceptances, eq(purchaseAcceptances.purchaseId, purchases.id))
         .where(eq(purchases.purchaseRequestId, context.request.id))
         .limit(1);
       if (
@@ -352,7 +363,7 @@ export async function acceptStorePurchase(
         existing.operationKey !== input.operationKey ||
         existing.snapshotDigest !== input.expectedSnapshotDigest ||
         existing.acceptedByClerkUserId !== input.clerkUserId ||
-        digestCommercialSnapshot(existing.selectedPaymentPlan.selectedPaymentPlan) !==
+        digestCommercialSnapshot(existing.commercialSnapshot.selectedPaymentPlan) !==
           digestCommercialSnapshot(input.selectedPaymentPlan)
       ) {
         throw new StoreAcceptanceError(
@@ -360,7 +371,12 @@ export async function acceptStorePurchase(
           "This acceptance key already belongs to different terms.",
         );
       }
-      return { purchaseId: existing.id, productId: existing.productId, created: false };
+      return {
+        purchaseId: existing.id,
+        productId: existing.productId,
+        created: false,
+        notification: null,
+      };
     }
 
     if (context.request.status !== "approved") {
@@ -369,7 +385,6 @@ export async function acceptStorePurchase(
         "The producer must approve this request before final acceptance.",
       );
     }
-
 
     const target = await lockAcceptanceTarget(tx, context);
     const terms = buildTerms(context, input.selectedPaymentPlan, target);
@@ -404,10 +419,7 @@ export async function acceptStorePurchase(
         .update(purchaseRequests)
         .set({ projectId, updatedAt: now })
         .where(
-          and(
-            eq(purchaseRequests.id, context.request.id),
-            eq(purchaseRequests.status, "approved"),
-          ),
+          and(eq(purchaseRequests.id, context.request.id), eq(purchaseRequests.status, "approved")),
         )
         .returning({ id: purchaseRequests.id });
       if (!targeted) {
@@ -471,6 +483,15 @@ export async function acceptStorePurchase(
       purchaseId: result.purchase.id,
       productId: context.product.id,
       created: result.created,
+      notification: result.created
+        ? {
+            producerId: context.request.producerId,
+            purchaseRequestId: context.request.id,
+            artistName: context.request.artistName,
+            productName: terms.snapshot.productOrOfferName,
+            refNumber: context.request.refNumber,
+          }
+        : null,
     };
   });
 }

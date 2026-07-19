@@ -2,7 +2,7 @@ import { Fragment } from "react";
 import Link from "next/link";
 
 import { ArrowRight, Check, ClockIcon, LockIcon } from "~/components/artist/funnel/funnel-icons";
-import { formatShekels } from "~/components/artist/purchase/purchase-data";
+import { formatMoney } from "~/lib/format/money";
 
 import { ProducerArt } from "./producer-art";
 
@@ -28,11 +28,14 @@ export type PurchaseStage =
 export type PurchaseStatusCardProps = {
   stage: PurchaseStage;
   productName: string;
-  /** Price-locked snapshot, in agorot (₪1 = 100). */
+  /** Current request total in the currency's minor unit. */
   priceCents: number;
+  currency: string;
   /** Confirmed balance still owed. Zero releases the purchase slot. */
   remainingCents: number;
   producerName: string;
+  /** Whether the current Store terms can still be reviewed and accepted. */
+  continuationAvailable?: boolean;
   /** Context CTA target (handoff S6): awaiting_payment → S7 plan chooser,
       paid → S10 booking. Omitted for stages without an action. */
   actionHref?: string | undefined;
@@ -44,6 +47,10 @@ export type PurchaseStatusCardProps = {
 export type StepState = "done" | "active" | "upcoming";
 
 export const STEP_LABELS = ["Request", "Pay", "Sessions", "Delivered"] as const;
+
+function formatAmount(cents: number, currency: string): string {
+  return formatMoney(cents, currency, { withCents: cents % 100 !== 0 });
+}
 
 // stage → the four stepper node states, in STEP_LABELS order.
 export function stepStatesForStage(
@@ -78,7 +85,7 @@ export function pillForStage(
     case "pending_review":
       return { label: "Pending review", tone: "amber" };
     case "awaiting_payment":
-      return { label: "Awaiting payment", tone: "amber" };
+      return { label: "Request approved", tone: "amber" };
     case "verifying":
       return { label: "Verifying payment", tone: "amber" };
     case "paid":
@@ -99,6 +106,7 @@ export function pillForStage(
 export function whatsNextForStage(
   stage: PurchaseStage,
   producerName: string,
+  continuationAvailable = true,
 ): { line: string; sub: string } {
   switch (stage) {
     case "pending_review":
@@ -107,9 +115,15 @@ export function whatsNextForStage(
         sub: "Usually within 24 hours",
       };
     case "awaiting_payment":
+      if (!continuationAvailable) {
+        return {
+          line: `${producerName} approved your request, but the offer is temporarily unavailable.`,
+          sub: "No terms have been accepted or frozen",
+        };
+      }
       return {
-        line: `${producerName} approved — payment details are ready.`,
-        sub: "Pay to lock your sessions",
+        line: `${producerName} approved — choose a plan and review the agreement.`,
+        sub: "Your exact terms freeze only when you accept",
       };
     case "verifying":
       return {
@@ -138,8 +152,10 @@ export function PurchaseStatusCard({
   stage,
   productName,
   priceCents,
+  currency,
   remainingCents,
   producerName,
+  continuationAvailable = true,
   actionHref,
   actionLabel,
   secondaryActionHref,
@@ -152,9 +168,9 @@ export function PurchaseStatusCard({
     stage === "paid" && !paidInFull
       ? {
           line: "Your sessions are open. Keep your payment record up to date.",
-          sub: `${formatShekels(remainingCents)} remains on this booking`,
+          sub: `${formatAmount(remainingCents, currency)} remains on this booking`,
         }
-      : whatsNextForStage(stage, producerName);
+      : whatsNextForStage(stage, producerName, continuationAvailable);
   const declined = stage === "declined";
   const pillColors =
     pill.tone === "amber"
@@ -206,7 +222,7 @@ export function PurchaseStatusCard({
             <p className="mt-0.5 truncate text-[12.5px] text-[rgb(var(--fg-muted))]">
               with {producerName} ·{" "}
               <span className="font-amount font-semibold text-[rgb(var(--fg-default))]">
-                {formatShekels(priceCents)}
+                {formatAmount(priceCents, currency)}
               </span>
             </p>
           </div>
@@ -323,7 +339,7 @@ export function PurchaseStatusCard({
         <p className="mt-2.5 flex items-center justify-center gap-1.5 text-[11.5px] text-[rgb(var(--fg-muted))]">
           <LockIcon />
           <span>
-            {stage === "paid" ? `${formatShekels(remainingCents)} remaining · ` : ""}
+            {stage === "paid" ? `${formatAmount(remainingCents, currency)} remaining · ` : ""}
             One booking at a time — this stays active until fully paid.
           </span>
         </p>

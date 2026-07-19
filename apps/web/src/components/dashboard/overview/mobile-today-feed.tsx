@@ -50,8 +50,9 @@ export interface MobileTodayFeedProps {
     id: string;
     artistName: string;
     productNameSnapshot: string;
-    priceCents: number;
+    priceCents: number | null;
     currency: string;
+    commercialTermsAvailable: boolean;
   }>;
   pendingPaymentProofs: PendingPaymentProof[];
   /** Raw follow-up sessions; the feed groups them per project. */
@@ -340,7 +341,10 @@ function PurchaseRequestCard({
           {request.productNameSnapshot}
         </p>
         <p className="mt-1 font-mono text-[10.5px] font-semibold tracking-[0.06em] text-[rgb(var(--brand-primary))] uppercase">
-          Purchase request · {formatMoney(request.priceCents, request.currency)}
+          Purchase request ·{" "}
+          {request.commercialTermsAvailable && request.priceCents !== null
+            ? formatMoney(request.priceCents, request.currency)
+            : "Terms unavailable"}
         </p>
       </div>
       <ChevronRight size={16} aria-hidden className="shrink-0 text-[rgb(var(--brand-primary))]" />

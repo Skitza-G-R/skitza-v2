@@ -1,8 +1,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import {
+  PurchaseStatusCard,
   pillForStage,
   STEP_LABELS,
   stepStatesForStage,
@@ -18,6 +21,7 @@ const ALL_STAGES: PurchaseStage[] = [
   "awaiting_payment",
   "verifying",
   "paid",
+  "declined",
   "delivered",
 ];
 
@@ -70,6 +74,56 @@ describe("PurchaseStatusCard (home heartbeat, S6)", () => {
       line: "Waiting for Gili Studio to review your request.",
       sub: "Usually within 24 hours",
     });
+  });
+
+  it("continues an approval into plan and exact-agreement review", () => {
+    expect(pillForStage("awaiting_payment")).toEqual({
+      label: "Request approved",
+      tone: "amber",
+    });
+    expect(whatsNextForStage("awaiting_payment", "Gili Studio")).toEqual({
+      line: "Gili Studio approved — choose a plan and review the agreement.",
+      sub: "Your exact terms freeze only when you accept",
+    });
+    expect(HOME_SRC).toMatch(/actionLabel: "Choose a payment plan"/);
+  });
+
+  it("does not offer a dead continuation when approved Store terms are unpublished", () => {
+    expect(whatsNextForStage("awaiting_payment", "Gili Studio", false)).toEqual({
+      line: "Gili Studio approved your request, but the offer is temporarily unavailable.",
+      sub: "No terms have been accepted or frozen",
+    });
+    expect(HOME_SRC).toMatch(/stage === "awaiting_payment" && current\.acceptanceAvailable/);
+    expect(HOME_SRC).toMatch(/continuationAvailable: current\.acceptanceAvailable/);
+  });
+
+  it("preserves the request currency and minor units on Artist Home", () => {
+    const markup = renderToStaticMarkup(
+      createElement(PurchaseStatusCard, {
+        stage: "paid",
+        productName: "Mix package",
+        priceCents: 12_345,
+        currency: "USD",
+        remainingCents: 2_345,
+        producerName: "Gili Studio",
+      }),
+    );
+
+    expect(markup).toContain("$123.45");
+    expect(markup).toContain("$23.45");
+    expect(markup).not.toContain("₪");
+    expect(HOME_SRC).toMatch(/currency: current\.currency/);
+  });
+
+  it("keeps a decline generic and never accepts a private-reason prop", () => {
+    expect(pillForStage("declined")).toEqual({
+      label: "Couldn't be confirmed",
+      tone: "neutral",
+    });
+    expect(whatsNextForStage("declined", "Gili Studio").line).toBe(
+      "This request couldn't be confirmed. You're free to explore other offers.",
+    );
+    expect(SRC).not.toMatch(/declineReason|privateReason/);
   });
 
   it("breathes the status dot and pulses the active node", () => {
