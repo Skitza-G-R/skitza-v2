@@ -564,7 +564,10 @@ async function applyCutoverMigrations(sql, directory) {
   const results = [];
   for (const filename of files) {
     const content = readFileSync(new URL(filename, pathToFileURL(`${directory}/`)), "utf8");
-    results.push({ filename, status: await applyMigration(sql, filename, content) });
+    results.push({
+      filename,
+      status: await applyMigration(sql, filename, content),
+    });
   }
   return results;
 }

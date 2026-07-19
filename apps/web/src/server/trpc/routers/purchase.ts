@@ -21,6 +21,12 @@ import { computeProjectSessionCount } from "~/lib/pricing";
 import { snapshotProductPrice } from "~/lib/purchase/price-snapshot";
 import { generateRefNumber } from "~/lib/purchase/request-helpers";
 import {
+  getProducerPaymentInstructions,
+  loadArtistInstallmentPaymentInstructions,
+  PaymentInstructionsNotFoundError,
+  saveProducerPaymentInstructions,
+} from "~/server/domain/payment-instructions/service";
+import {
   assertPurchaseRequestOperationReplay,
   preparePurchaseRequestOperation,
   purchaseRequestApprovalUndoDeadline,
@@ -83,27 +89,6 @@ type ArtistCurrentCompatibility = {
   pendingProofCents: number;
   remainingCents: number;
   paidInFull: boolean;
-};
-
-type ArtistPaymentInstructionsOutput = {
-  refNumber: string;
-  productId: string | null;
-  productName: string;
-  planKind: PaymentPlan["kind"];
-  planInstallments: number | null;
-  currency: string;
-  totalCents: number;
-  paidCents: number;
-  pendingProofCents: number;
-  remainingCents: number;
-  amountDueNowCents: number | null;
-  availableToSubmitCents: number;
-  producerName: string | null;
-  proofUploadsAvailable: boolean;
-  hasDetails: boolean;
-  bankTransfer: string | null;
-  bitPhone: string | null;
-  note: string | null;
 };
 
 type ArtistProofStateOutput = {
@@ -185,6 +170,13 @@ function mapRequestDomainError(error: unknown): never {
     throw new TRPCError({ code: "CONFLICT", message: error.message });
   }
   throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+}
+
+function mapPaymentInstructionsNotFound(error: unknown): never {
+  if (error instanceof PaymentInstructionsNotFoundError) {
+    throw new TRPCError({ code: "NOT_FOUND" });
+  }
+  throw error;
 }
 
 function effectiveAgreementText(
@@ -596,10 +588,29 @@ export const artistPurchaseRouter = router({
   }),
 
   paymentInstructions: artistProcedure
-    .input(z.object({ purchaseRequestId: z.string().uuid() }))
-    .query(
-      (): ArtistPaymentInstructionsOutput => notImplemented("artist.purchase.paymentInstructions"),
-    ),
+    .input(
+      z.union([
+        z
+          .object({
+            purchaseId: z.string().uuid(),
+            installmentId: z.string().uuid().optional(),
+          })
+          .strict(),
+        z
+          .object({
+            purchaseRequestId: z.string().uuid(),
+            installmentId: z.string().uuid().optional(),
+          })
+          .strict(),
+      ]),
+    )
+    .query(async ({ ctx, input }) => {
+      try {
+        return await loadArtistInstallmentPaymentInstructions(ctx.db, ctx.clerkUserId, input);
+      } catch (error) {
+        mapPaymentInstructionsNotFound(error);
+      }
+    }),
 
   proofOfPayment: router({
     state: artistProcedure
@@ -634,6 +645,33 @@ export const artistPurchaseRouter = router({
 });
 
 export const producerPurchaseRouter = router({
+  paymentInstructions: router({
+    get: producerProcedure.query(async ({ ctx }) => {
+      try {
+        return await getProducerPaymentInstructions(ctx.db, ctx.producerId);
+      } catch (error) {
+        mapPaymentInstructionsNotFound(error);
+      }
+    }),
+    update: producerProcedure
+      .input(
+        z
+          .object({
+            bankTransfer: z.string().max(500).optional(),
+            bitPhone: z.string().max(32).optional(),
+            note: z.string().max(500).optional(),
+          })
+          .strict(),
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await saveProducerPaymentInstructions(ctx.db, ctx.producerId, input);
+        } catch (error) {
+          mapPaymentInstructionsNotFound(error);
+        }
+      }),
+  }),
+
   approve: producerProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {

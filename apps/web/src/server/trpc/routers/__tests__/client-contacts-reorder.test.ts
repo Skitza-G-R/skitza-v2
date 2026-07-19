@@ -154,7 +154,7 @@ describe("clientContacts.reorder", () => {
     expect(updateSetSpy).not.toHaveBeenCalled();
   });
 
-  it("throws FORBIDDEN if any returned row belongs to another producer", async () => {
+  it("returns NOT_FOUND if any returned row belongs to another producer", async () => {
     producerSelectQueue.push([{ id: PRODUCER_ID }]);
     contactSelectQueue.push([
       { id: ID_A, producerId: PRODUCER_ID },
@@ -166,7 +166,7 @@ describe("clientContacts.reorder", () => {
       caller.clientContacts.reorder({
         orderedIds: [ID_A, ID_B, ID_C],
       }),
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(updateSetSpy).not.toHaveBeenCalled();
   });
 

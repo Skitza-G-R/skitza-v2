@@ -7,9 +7,10 @@ import {
 } from "~/components/dashboard/clients-projects/workspace-list-view";
 import type { ProjectRowData } from "~/components/dashboard/projects/project-row";
 import type { ClientCardData } from "~/components/dashboard/clients/client-card";
+import { CLIENT_ARCHIVE_BLOCKED_MESSAGE } from "~/server/domain/client-management/service";
 import { appRouter } from "~/server/trpc/routers/_app";
 
-import { reorderClientsAction, reorderProjectsAction } from "./clients-actions";
+import { reorderProjectsAction } from "./clients-actions";
 
 // /dashboard/clients-projects — producer's "Clients & Projects"
 // workspace. Phase 1 redesign (Task 16) — the page now renders a single
@@ -66,6 +67,14 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
           id: c.id,
           name: c.name,
           email: c.email,
+          phone: c.phone,
+          notes: c.notes,
+          tags: c.tags,
+          archived: c.producerArchivedAt !== null,
+          archiveBlockedReason:
+            c.producerArchivedAt === null && c.archiveBlockingProjectCount > 0
+              ? CLIENT_ARCHIVE_BLOCKED_MESSAGE
+              : null,
           // clerkUserId set ⇒ the artist signed up via the invite link
           // ("active"). Otherwise, invitedAt set ⇒ "pending" (amber
           // pulsing pill). Otherwise ⇒ "none" (the Invite-to-app CTA).
@@ -93,18 +102,18 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
   // ── KPIs ────────────────────────────────────────────────────────
   // Commercial totals fail closed until purchase payments provides the
   // canonical ledger projection. Needs attention is based only on
-  // unresolved artist comments. Next deadline remains the earliest
-  // upcoming session across active projects.
+  // unresolved artist comments. Next deadline is the earliest explicit
+  // project deadline across active work.
   let needsAttention = 0;
   let nextDeadlineAt: Date | null = null;
   let nextDeadlineProjectTitle: string | null = null;
   if (projectsResult.view === "all-projects") {
     for (const p of projectsResult.projects) {
-      if (p.unresolvedComments > 0) {
+      if (p.isActive && p.unresolvedComments > 0) {
         needsAttention += 1;
       }
-      if (p.nextSessionAt && p.isActive) {
-        const at = p.nextSessionAt instanceof Date ? p.nextSessionAt : new Date(p.nextSessionAt);
+      if (p.deadlineAt && p.isActive) {
+        const at = p.deadlineAt instanceof Date ? p.deadlineAt : new Date(p.deadlineAt);
         if (!Number.isNaN(at.getTime())) {
           if (!nextDeadlineAt || at < nextDeadlineAt) {
             nextDeadlineAt = at;
@@ -141,7 +150,6 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
           producerSlug={producerSlug}
           initialNewProjectOpen={autoOpenNewProject}
           onReorderProjects={reorderProjectsAction}
-          onReorderClients={reorderClientsAction}
         />
       </div>
     </div>
@@ -170,6 +178,9 @@ type EnrichedProject = {
   id: string;
   title: string;
   lifecycleStatus: ProjectLifecycleStatus;
+  workflowStage: ProjectRowData["workflowStage"];
+  deadlineAt: Date | string | null;
+  canPermanentlyDelete: boolean;
   client: { id: string | null; email: string; name: string };
   commercial: { outstandingCents: null };
   nextSessionAt: Date | null;
@@ -192,32 +203,41 @@ const LIFECYCLE_PRESENTATION: Record<
   waiting_for_payment: { label: "Waiting for payment", progress: null, tone: "warn" },
   active: { label: "Active", progress: null, tone: "ok" },
   paused: { label: "Paused", progress: null, tone: "warn" },
-  completed: { label: "Completed", progress: 100, tone: "neutral" },
-  canceled: { label: "Canceled", progress: null, tone: "neutral" },
+  completed: { label: "Archived · Completed", progress: 100, tone: "neutral" },
+  canceled: { label: "Archived · Canceled", progress: null, tone: "neutral" },
 };
 
 function toProjectRowData(p: EnrichedProject): ProjectRowData {
   const lifecycle = LIFECYCLE_PRESENTATION[p.lifecycleStatus];
-  const tone: ProjectRowData["statusTone"] = p.unresolvedComments > 0 ? "danger" : lifecycle.tone;
+  const tone: ProjectRowData["statusTone"] =
+    p.isActive && p.unresolvedComments > 0 ? "danger" : lifecycle.tone;
 
   return {
     id: p.id,
     title: p.title,
+    lifecycleStatus: p.lifecycleStatus,
+    workflowStage: p.workflowStage,
     client: p.client.name,
     clientEmail: p.client.email,
     progress: lifecycle.progress,
     balance: p.commercial.outstandingCents,
-    deadline: formatDeadlineShort(p.nextSessionAt),
+    deadline: formatDeadlineShort(p.deadlineAt),
     status: lifecycle.label,
     statusTone: tone,
     updatedAtIso:
       p.updatedAt instanceof Date ? p.updatedAt.toISOString() : new Date(p.updatedAt).toISOString(),
-    deadlineAtIso: p.nextSessionAt ? p.nextSessionAt.toISOString() : null,
+    deadlineAtIso: p.deadlineAt
+      ? p.deadlineAt instanceof Date
+        ? p.deadlineAt.toISOString()
+        : new Date(p.deadlineAt).toISOString()
+      : null,
+    canPermanentlyDelete: p.canPermanentlyDelete,
   };
 }
 
 // Short deadline label: "3d" / "May 28" / "—".
-function formatDeadlineShort(at: Date | null): string {
+function formatDeadlineShort(raw: Date | string | null): string {
+  const at = raw instanceof Date ? raw : raw ? new Date(raw) : null;
   if (!at) return "—";
   const now = Date.now();
   const diffMs = at.getTime() - now;

@@ -8,15 +8,12 @@ import { auth } from "@clerk/nextjs/server";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
-export type ActionDataResult<T> =
-  | { ok: true; data: T }
-  | { ok: false; error: string };
+export type ActionDataResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
 const CLIENTS_PATH = "/dashboard/clients-projects";
 
 async function callerOrError(): Promise<
-  | { ok: true; caller: ReturnType<typeof appRouter.createCaller> }
-  | { ok: false; error: string }
+  { ok: true; caller: ReturnType<typeof appRouter.createCaller> } | { ok: false; error: string }
 > {
   const { userId } = await auth();
   if (!userId) return { ok: false, error: "Please sign in to continue." };
@@ -44,6 +41,8 @@ function toMessage(err: unknown): string {
         return err.message || "A client with that email already exists.";
       case "BAD_REQUEST":
         return err.message || "Invalid input.";
+      case "PRECONDITION_FAILED":
+        return err.message || "Only an empty draft can be permanently deleted.";
       default:
         return "Something went wrong. Please try again.";
     }
@@ -180,25 +179,34 @@ export async function createClientAction(input: {
 // surface "field: message" hints directly.
 export async function createProjectAction(input: {
   title: string;
-  artistName: string;
-  artistEmail: string;
+  clientContactId?: string;
+  newClient?: { name: string; email: string };
   deadlineAt?: string;
 }): Promise<ActionDataResult<{ id: string }>> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
+    let clientContactId = input.clientContactId;
+    if (!clientContactId && input.newClient) {
+      const client = await c.caller.clientContacts.create({
+        name: input.newClient.name,
+        email: input.newClient.email,
+      });
+      clientContactId = client.id;
+    }
+    if (!clientContactId) {
+      return { ok: false, error: "Choose a client before creating the project." };
+    }
     // Conditional-spread to satisfy exactOptionalPropertyTypes — never
     // pass `undefined` as a property value. Deadline is forwarded only
     // when the caller actually filled it in.
     const payload: {
       title: string;
-      artistName: string;
-      artistEmail: string;
+      clientContactId: string;
       deadlineAt?: string;
     } = {
       title: input.title,
-      artistName: input.artistName,
-      artistEmail: input.artistEmail,
+      clientContactId,
     };
     if (input.deadlineAt) payload.deadlineAt = input.deadlineAt;
     const res = await c.caller.project.create(payload);
@@ -214,14 +222,13 @@ export async function createProjectAction(input: {
 // pre-Phase-1 actions, now wired to the Client Space hero menu.
 //
 // updateClientAction: thin wrapper over clientContacts.update. Accepts
-// any subset of name/email/phone/notes — only changed fields are sent.
+// any subset of name/email/phone/notes/tags — only changed fields are sent.
 // Null for phone/notes explicitly clears the column (the modal sends
 // the empty-string form normalised to null).
 //
-// removeClientAction: thin wrapper over clientContacts.remove. The
-// server keeps any projects/contracts/comments linked via the email
-// snapshot — this is purely a CRM-card removal, not a cascade. The
-// UI surfaces that copy on the confirmation modal.
+// removeClientAction: thin wrapper over the empty-draft deletion boundary.
+// Historical, invited, connected, disconnected, or archived clients fail
+// closed; the server never removes a CRM row while keeping detached history.
 
 export async function updateClientAction(input: {
   id: string;
@@ -229,6 +236,7 @@ export async function updateClientAction(input: {
   email?: string;
   phone?: string | null;
   notes?: string | null;
+  tags?: string[];
 }): Promise<
   ActionDataResult<{
     id: string;
@@ -236,6 +244,7 @@ export async function updateClientAction(input: {
     email: string;
     phone: string | null;
     notes: string | null;
+    tags: string[];
   }>
 > {
   const c = await callerOrError();
@@ -248,11 +257,13 @@ export async function updateClientAction(input: {
       email?: string;
       phone?: string | null;
       notes?: string | null;
+      tags?: string[];
     } = { id: input.id };
     if (input.name !== undefined) payload.name = input.name;
     if (input.email !== undefined) payload.email = input.email;
     if (input.phone !== undefined) payload.phone = input.phone;
     if (input.notes !== undefined) payload.notes = input.notes;
+    if (input.tags !== undefined) payload.tags = input.tags;
     const res = await c.caller.clientContacts.update(payload);
     revalidatePath(CLIENTS_PATH);
     revalidatePath(`${CLIENTS_PATH}/clients/${input.id}`);
@@ -264,6 +275,7 @@ export async function updateClientAction(input: {
         email: res.email,
         phone: res.phone ?? null,
         notes: res.notes ?? null,
+        tags: res.tags,
       },
     };
   } catch (err) {
@@ -272,9 +284,41 @@ export async function updateClientAction(input: {
   }
 }
 
-export async function removeClientAction(input: {
+export async function archiveClientAction(input: {
   id: string;
-}): Promise<ActionResult> {
+}): Promise<{ ok: true } | { ok: false; error: string; code?: "BLOCKING_PROJECT" }> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.clientContacts.archive(input);
+    revalidatePath(CLIENTS_PATH);
+    revalidatePath(`${CLIENTS_PATH}/clients/${input.id}`);
+    return { ok: true };
+  } catch (err) {
+    console.error("[clients-actions:archiveClient]", err);
+    const error = toMessage(err);
+    if (err instanceof TRPCError && err.code === "PRECONDITION_FAILED") {
+      return { ok: false, error, code: "BLOCKING_PROJECT" };
+    }
+    return { ok: false, error };
+  }
+}
+
+export async function restoreClientAction(input: { id: string }): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.clientContacts.restore(input);
+    revalidatePath(CLIENTS_PATH);
+    revalidatePath(`${CLIENTS_PATH}/clients/${input.id}`);
+    return { ok: true };
+  } catch (err) {
+    console.error("[clients-actions:restoreClient]", err);
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function removeClientAction(input: { id: string }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
@@ -294,9 +338,7 @@ export async function removeClientAction(input: {
 // the new order. Ownership re-check lives inside the tRPC procedures
 // — do not remove it there.
 
-export async function reorderClientsAction(
-  orderedIds: string[],
-): Promise<ActionResult> {
+export async function reorderClientsAction(orderedIds: string[]): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
@@ -309,9 +351,7 @@ export async function reorderClientsAction(
   }
 }
 
-export async function reorderProjectsAction(
-  orderedIds: string[],
-): Promise<ActionResult> {
+export async function reorderProjectsAction(orderedIds: string[]): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {

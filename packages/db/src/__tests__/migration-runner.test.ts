@@ -24,7 +24,10 @@ const CUTOVER_MIGRATION = readFileSync(
   join(process.cwd(), "drizzle", "0027_purchase_foundation.sql"),
   "utf8",
 );
-const STABLE_OWNERSHIP_MIGRATION = "SELECT 'SKITZA_CLIENT_OWNER_IMMUTABLE';";
+const STABLE_OWNERSHIP_MIGRATION = readFileSync(
+  join(process.cwd(), "drizzle", "0028_stable_client_ownership.sql"),
+  "utf8",
+);
 
 function adapterBinding() {
   return {
@@ -187,6 +190,14 @@ function ciSource(): string {
 }
 
 describe("SK-90 migration runner cutover", () => {
+  it("keeps SK-91 trigger bodies intact when splitting the migration", () => {
+    const statements = splitStatements(STABLE_OWNERSHIP_MIGRATION);
+    expect(statements).toHaveLength(9);
+    expect(
+      statements.filter((statement: string) => statement.includes("CREATE TRIGGER")),
+    ).toHaveLength(4);
+  });
+
   it("starts at 0027 instead of replaying the legacy 0000-0026 chain", () => {
     const source = runnerSource();
 
@@ -202,6 +213,7 @@ describe("SK-90 migration runner cutover", () => {
     expect(source).toMatch(/filename >= CUTOVER_FLOOR/);
     expect(source).not.toMatch(/localeCompare/);
     expect(source).toMatch(/SKITZA_MIGRATION_CUTOVER_FLOOR_MISSING/);
+    expect(source).not.toMatch(/laterMigrationPending/);
   });
 
   it("applies each cutover file and its ledger record in one transaction", async () => {
@@ -296,18 +308,20 @@ describe("SK-90 migration runner cutover", () => {
   });
 
   it("does not replay the exact 0027 baseline verifier after a later migration", async () => {
+    const filename = "0027_purchase_foundation.sql";
+    const migration = CUTOVER_MIGRATION;
     const client = fakeSql({
-      initialDigest: migrationDigest(CUTOVER_MIGRATION),
+      initialDigest: migrationDigest(migration),
       laterMigration: true,
     });
 
-    await expect(
-      applyMigration(client.sql, "0027_purchase_foundation.sql", CUTOVER_MIGRATION),
-    ).resolves.toBe("SKITZA_MIGRATION_ALREADY_APPLIED");
+    await expect(applyMigration(client.sql, filename, migration)).resolves.toBe(
+      "SKITZA_MIGRATION_ALREADY_APPLIED",
+    );
     expect(client.state.transactions).toHaveLength(0);
   });
 
-  it("derives a fail-closed Chat 3 verifier from the rehearsed 0027 migration", () => {
+  it("derives a fail-closed Chat 3 verifier from the rehearsed immutable 0027 migration", () => {
     const verifier = chat3StructureVerificationStatement(CUTOVER_MIGRATION);
 
     expect(verifier).toContain("SKITZA_CHAT3_STRUCTURE_REQUIRED");
@@ -315,12 +329,15 @@ describe("SK-90 migration runner cutover", () => {
     expect(verifier).not.toContain("SKITZA_0027_SOURCE_SCHEMA_DRIFT");
     expect(verifier).toContain("pg_constraint.contype <> 't'");
     expect(verifier).toContain("5d6d90e934209fdc0cad9740a75464c0");
+    expect(verifier).not.toContain("expected_constraint_structure_md5 CONSTANT text := 'eb03a328");
+    expect(verifier).toContain('AS approved_check("table_name", "constraint_name")');
+    expect(verifier).not.toContain("ratePct.*BETWEEN 0 AND 100");
     expect(() =>
       chat3StructureVerificationStatement(`${CUTOVER_MIGRATION}\n-- changed`),
     ).toThrow("SKITZA_CHAT3_VERIFIER_SOURCE_INVALID");
   });
 
-  it("checks the rehearsed Chat 3 structure under the lock before 0028", async () => {
+  it("checks the rehearsed real Chat 3 structure under the lock before 0028 can run", async () => {
     const client = fakeSql();
 
     await expect(
@@ -336,11 +353,12 @@ describe("SK-90 migration runner cutover", () => {
     expect(statements[4]).toContain("SKITZA_CHAT3_STRUCTURE_GUARD");
     expect(statements[4]).toContain("0027_purchase_foundation.sql");
     expect(statements[4]).toContain("SKITZA_CHAT3_STRUCTURE_REQUIRED");
+    expect(statements[4]).toContain("SKITZA_0027_TARGET_SCHEMA_DRIFT");
     expect(statements[5]).toContain("SKITZA_MIGRATION_POST_LOCK_GUARD");
     expect(statements[5]).toContain("SKITZA_CLIENT_OWNER_IMMUTABLE");
   });
 
-  it("aborts 0028 and its ledger entry when the Chat 3 verifier fails", async () => {
+  it("aborts 0028 and its ledger entry when the Chat 3 structure check fails", async () => {
     const client = fakeSql({ failStatement: "SKITZA_CHAT3_STRUCTURE_GUARD" });
 
     await expect(

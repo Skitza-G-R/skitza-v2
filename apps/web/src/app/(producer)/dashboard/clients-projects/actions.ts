@@ -10,12 +10,17 @@ import { appRouter } from "~/server/trpc/routers/_app";
 export type ActionResult = { ok: true } | { ok: false; error: string };
 export type ActionDataResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
-// Kanban lives at /dashboard — the /dashboard/clients-projects list
-// page is gone, so revalidating there would be a no-op. We point the
-// list-path revalidations at the Kanban root instead.
-const PATH_LIST = "/dashboard";
+const PATH_LIST = "/dashboard/clients-projects";
 function pathDetail(id: string): string {
   return `/dashboard/clients-projects/${id}`;
+}
+
+function revalidateProjectSurfaces(id: string): void {
+  revalidatePath(pathDetail(id));
+  revalidatePath(PATH_LIST);
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/music");
+  revalidatePath("/artist/music");
 }
 
 async function callerOrError(): Promise<
@@ -44,6 +49,8 @@ function toMessage(err: unknown): string {
       case "NOT_FOUND":
         return "Not found.";
       case "BAD_REQUEST":
+      case "CONFLICT":
+      case "PRECONDITION_FAILED":
         return err.message || "Invalid input.";
       default:
         return "Something went wrong. Please try again.";
@@ -57,16 +64,84 @@ function toMessage(err: unknown): string {
 
 export async function updateProjectAction(input: {
   id: string;
-  title?: string;
-  artistName?: string;
-  artistEmail?: string;
+  title: string;
+  deadlineAtIso: string | null;
+  workflowStage: "brief" | "production" | "mixing" | "mastering" | "done";
 }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    await c.caller.project.update(input);
-    revalidatePath(pathDetail(input.id));
-    revalidatePath(PATH_LIST);
+    await c.caller.project.update({
+      id: input.id,
+      title: input.title,
+      deadlineAt: input.deadlineAtIso,
+      workflowStage: input.workflowStage,
+    });
+    revalidateProjectSurfaces(input.id);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function completeProjectAction(input: { id: string }): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.project.complete(input);
+    revalidateProjectSurfaces(input.id);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function cancelProjectAction(input: { id: string }): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.project.cancel(input);
+    revalidateProjectSurfaces(input.id);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function reopenProjectAction(input: { id: string }): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.project.reopen(input);
+    revalidateProjectSurfaces(input.id);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function deleteEmptyDraftProjectAction(input: { id: string }): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.project.deleteEmptyDraft(input);
+    revalidateProjectSurfaces(input.id);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function cancelProjectPurchaseAction(input: {
+  projectId: string;
+  purchaseId: string;
+  reason: string;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.project.cancelPurchase(input);
+    revalidateProjectSurfaces(input.projectId);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };

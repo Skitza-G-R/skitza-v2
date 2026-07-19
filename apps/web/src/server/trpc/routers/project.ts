@@ -9,6 +9,7 @@ import {
   isNull,
   projectTracks,
   projects,
+  purchaseInstallments,
   purchases,
   sql,
   desc,
@@ -25,7 +26,26 @@ import {
   cancelPendingMultipartUpload,
   PendingMultipartCancellationError,
 } from "~/server/audio/pending-multipart-cancellation";
-import { recordContact } from "~/server/contacts/record";
+import { historicalDeletionRepository } from "~/server/domain/history-deletion/db";
+import {
+  canPermanentlyDeleteEmptyDraftProject,
+  HistoricalDeletionDomainError,
+  permanentlyDeleteEmptyDraftProject,
+} from "~/server/domain/history-deletion/service";
+import { projectLifecycleRepository } from "~/server/domain/project-lifecycle/db";
+import {
+  cancelProject as cancelProjectLifecycle,
+  cancelProjectPurchase,
+  completeProject,
+  editProject,
+  ProjectLifecycleDomainError,
+  reopenProject,
+} from "~/server/domain/project-lifecycle/service";
+import { stableProjectRepository } from "~/server/domain/project-ownership/db";
+import {
+  createStableClientProject,
+  ProjectOwnershipDomainError,
+} from "~/server/domain/project-ownership/service";
 import {
   createPurchaseOwnedSongSpace,
   SongSpaceDomainError,
@@ -90,6 +110,37 @@ function mapCommentDomainError(error: unknown): never {
   throw new TRPCError({ code: "NOT_FOUND" });
 }
 
+function mapProjectOwnershipDomainError(error: unknown): never {
+  if (!(error instanceof ProjectOwnershipDomainError)) throw error;
+  if (error.code === "CLIENT_ARCHIVED") {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+  }
+  throw new TRPCError({ code: "NOT_FOUND" });
+}
+
+function mapHistoricalDeletionDomainError(error: unknown): never {
+  if (!(error instanceof HistoricalDeletionDomainError)) throw error;
+  if (error.code === "NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND" });
+  throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+}
+
+function mapProjectLifecycleDomainError(error: unknown): never {
+  if (!(error instanceof ProjectLifecycleDomainError)) throw error;
+  if (error.code === "NOT_FOUND") {
+    throw new TRPCError({ code: "NOT_FOUND", message: error.message });
+  }
+  if (error.code === "INVALID_INPUT") {
+    throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+  }
+  if (error.code === "INVALID_TRANSITION") {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+  }
+  if (error.code === "CONCURRENT_CHANGE") {
+    throw new TRPCError({ code: "CONFLICT", message: error.message });
+  }
+  throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message });
+}
+
 type Stage = "lead" | "booked" | "in_production" | "final_review" | "paid" | "archived";
 
 // ─── Inputs ──────────────────────────────────────────────────────────
@@ -98,8 +149,7 @@ type Stage = "lead" | "booked" | "in_production" | "final_review" | "paid" | "ar
 const CreateProjectInput = z
   .object({
     title: z.string().min(1).max(120),
-    artistName: z.string().min(1).max(80),
-    artistEmail: z.string().email(),
+    clientContactId: z.string().uuid(),
     // ISO 8601 — parsed into a Date for the timestamptz column.
     deadlineAt: z.string().datetime().optional(),
   })
@@ -108,12 +158,14 @@ const CreateProjectInput = z
 // Edit-project modal payload. All fields optional so the modal can
 // PATCH only what the producer changed; at least one must be present
 // for the procedure to do anything (no-op return otherwise).
-const UpdateProjectInput = z.object({
-  id: z.string().uuid(),
-  title: z.string().min(1).max(120).optional(),
-  artistName: z.string().min(1).max(80).optional(),
-  artistEmail: z.string().email().optional(),
-});
+const UpdateProjectInput = z
+  .object({
+    id: z.string().uuid(),
+    title: z.string().min(1).max(120).optional(),
+    deadlineAt: z.string().datetime().nullable().optional(),
+    workflowStage: z.enum(["brief", "production", "mixing", "mastering", "done"]).optional(),
+  })
+  .strict();
 
 const AddTrackInput = z.object({
   projectId: z.string().uuid(),
@@ -183,11 +235,9 @@ export const projectRouter = router({
       const stage: Stage =
         r.lifecycleStatus === "waiting_for_payment"
           ? "lead"
-          : r.lifecycleStatus === "completed"
-            ? "paid"
-            : r.lifecycleStatus === "canceled"
-              ? "archived"
-              : "in_production";
+          : r.lifecycleStatus === "completed" || r.lifecycleStatus === "canceled"
+            ? "archived"
+            : "in_production";
       grouped[stage].push({ ...r, stage });
     }
     return grouped;
@@ -197,10 +247,21 @@ export const projectRouter = router({
   detail: producerProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const [row] = await ctx.db.select().from(projects).where(eq(projects.id, input.id)).limit(1);
+      const [row] = await ctx.db
+        .select()
+        .from(projects)
+        .where(and(eq(projects.id, input.id), eq(projects.producerId, ctx.producerId)))
+        .limit(1);
       if (!row || row.producerId !== ctx.producerId) {
         throw new TRPCError({ code: "NOT_FOUND" });
       }
+      const canPermanentlyDelete =
+        row.lifecycleStatus === "waiting_for_payment"
+          ? await canPermanentlyDeleteEmptyDraftProject(historicalDeletionRepository(ctx.db), {
+              producerId: ctx.producerId,
+              projectId: row.id,
+            })
+          : false;
       const tracksList = await ctx.db
         .select()
         .from(projectTracks)
@@ -236,6 +297,43 @@ export const projectRouter = router({
         const capacity = purchase.commercialSnapshot.includedSongSpaces;
         return Number.isSafeInteger(capacity) && capacity > (songSpaceCounts.get(purchase.id) ?? 0);
       });
+      const purchaseRows = await ctx.db
+        .select({
+          id: purchases.id,
+          sourceKind: purchases.sourceKind,
+          refNumber: purchases.refNumber,
+          lifecycleStatus: purchases.lifecycleStatus,
+          totalCents: purchases.totalCents,
+          currency: purchases.currency,
+          acceptedAt: purchases.acceptedAt,
+          canceledAt: purchases.canceledAt,
+          commercialSnapshot: purchases.commercialSnapshot,
+        })
+        .from(purchases)
+        .where(and(eq(purchases.producerId, ctx.producerId), eq(purchases.projectId, row.id)))
+        .orderBy(asc(purchases.acceptedAt), asc(purchases.id));
+      const purchaseIds = purchaseRows.map((purchase) => purchase.id);
+      const installmentRows =
+        purchaseIds.length > 0
+          ? await ctx.db
+              .select({
+                id: purchaseInstallments.id,
+                purchaseId: purchaseInstallments.purchaseId,
+                position: purchaseInstallments.position,
+                amountCents: purchaseInstallments.amountCents,
+                currency: purchaseInstallments.currency,
+                dueAt: purchaseInstallments.dueAt,
+                status: purchaseInstallments.status,
+              })
+              .from(purchaseInstallments)
+              .where(
+                and(
+                  eq(purchaseInstallments.producerId, ctx.producerId),
+                  inArray(purchaseInstallments.purchaseId, purchaseIds),
+                ),
+              )
+              .orderBy(asc(purchaseInstallments.position), asc(purchaseInstallments.id))
+          : [];
       // Fetch all versions + comments with JS-side filter. Producers
       // with dozens of projects wouldn't win from a SQL inArray here
       // because the set of trackIds is already small (typically 1-5
@@ -262,40 +360,30 @@ export const projectRouter = router({
         versions: allVersions,
         comments: allComments,
         songSpacePurchaseId: eligibleSongSpacePurchase?.id ?? null,
+        canPermanentlyDelete,
+        purchases: purchaseRows.map((purchase) => ({
+          ...purchase,
+          installments: installmentRows.filter(
+            (installment) => installment.purchaseId === purchase.id,
+          ),
+        })),
       };
     }),
 
   create: producerProcedure.input(CreateProjectInput).mutation(async ({ ctx, input }) => {
-    const clientContactId = await recordContact(ctx.db, {
-      producerId: ctx.producerId,
-      email: input.artistEmail,
-      name: input.artistName,
-    });
-    if (!clientContactId) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "A stable client is required for every project.",
-      });
-    }
     const token = mintShareToken();
-    const [row] = await ctx.db
-      .insert(projects)
-      .values({
+    try {
+      const row = await createStableClientProject(stableProjectRepository(ctx.db), {
         producerId: ctx.producerId,
-        clientContactId,
+        clientContactId: input.clientContactId,
         title: input.title,
-        artistName: input.artistName,
-        artistEmail: input.artistEmail.toLowerCase(),
-        // Persist the raw token so the project-room landing page can
-        // verify the URL the artist clicked. Unique constraint at the
-        // schema level guards against guess collisions.
         inviteToken: token.raw,
-        ...(input.deadlineAt ? { deadlineAt: new Date(input.deadlineAt) } : {}),
-      })
-      .returning();
-    if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-
-    return { project: stripHash(row), inviteToken: token.raw };
+        deadlineAt: input.deadlineAt ? new Date(input.deadlineAt) : null,
+      });
+      return { project: stripHash(row), inviteToken: token.raw };
+    } catch (error) {
+      mapProjectOwnershipDomainError(error);
+    }
   }),
 
   // Producer-only private notes for the Project Room → Notes tab.
@@ -317,7 +405,7 @@ export const projectRouter = router({
       const [row] = await ctx.db
         .select({ producerId: projects.producerId })
         .from(projects)
-        .where(eq(projects.id, input.projectId))
+        .where(and(eq(projects.id, input.projectId), eq(projects.producerId, ctx.producerId)))
         .limit(1);
       if (!row || row.producerId !== ctx.producerId) {
         // NOT_FOUND for both "missing" and "owned by someone else" so
@@ -328,35 +416,112 @@ export const projectRouter = router({
       await ctx.db
         .update(projects)
         .set({ notes: input.notes, updatedAt })
-        .where(eq(projects.id, input.projectId));
+        .where(and(eq(projects.id, input.projectId), eq(projects.producerId, ctx.producerId)));
       return { updatedAt };
     }),
 
-  // Edit-project modal handler. Ownership-checked; only the fields
-  // present in the input are written, so the modal can PATCH a single
-  // field without nulling the others. No-op when nothing changed.
+  // Project lifecycle commands remain thin; the domain service owns
+  // transitions, graph locks, commercial side effects, and idempotency.
   update: producerProcedure.input(UpdateProjectInput).mutation(async ({ ctx, input }) => {
-    const [row] = await ctx.db
-      .select({ producerId: projects.producerId })
-      .from(projects)
-      .where(eq(projects.id, input.id))
-      .limit(1);
-    if (!row) throw new TRPCError({ code: "NOT_FOUND" });
-    if (row.producerId !== ctx.producerId) throw new TRPCError({ code: "FORBIDDEN" });
-
-    const updates: Partial<typeof projects.$inferInsert> = {};
-    if (input.title !== undefined) updates.title = input.title;
-    if (input.artistName !== undefined) updates.artistName = input.artistName;
-    if (input.artistEmail !== undefined) {
-      updates.artistEmail = input.artistEmail.toLowerCase();
+    try {
+      return await editProject(projectLifecycleRepository(ctx.db), {
+        producerId: ctx.producerId,
+        projectId: input.id,
+        ...(input.title === undefined ? {} : { title: input.title }),
+        ...(input.deadlineAt === undefined
+          ? {}
+          : { deadlineAt: input.deadlineAt === null ? null : new Date(input.deadlineAt) }),
+        ...(input.workflowStage === undefined ? {} : { workflowStage: input.workflowStage }),
+        changedAt: new Date(),
+      });
+    } catch (error) {
+      mapProjectLifecycleDomainError(error);
     }
-    if (Object.keys(updates).length === 0) {
-      return { ok: true as const };
-    }
-    updates.updatedAt = new Date();
-    await ctx.db.update(projects).set(updates).where(eq(projects.id, input.id));
-    return { ok: true as const };
   }),
+
+  complete: producerProcedure
+    .input(z.object({ id: z.string().uuid() }).strict())
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await completeProject(projectLifecycleRepository(ctx.db), {
+          producerId: ctx.producerId,
+          projectId: input.id,
+          completedAt: new Date(),
+        });
+      } catch (error) {
+        mapProjectLifecycleDomainError(error);
+      }
+    }),
+
+  cancel: producerProcedure
+    .input(z.object({ id: z.string().uuid() }).strict())
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED" });
+      try {
+        return await cancelProjectLifecycle(projectLifecycleRepository(ctx.db), {
+          producerId: ctx.producerId,
+          projectId: input.id,
+          actorId: ctx.userId,
+          reason: "Project canceled",
+          canceledAt: new Date(),
+        });
+      } catch (error) {
+        mapProjectLifecycleDomainError(error);
+      }
+    }),
+
+  reopen: producerProcedure
+    .input(z.object({ id: z.string().uuid() }).strict())
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await reopenProject(projectLifecycleRepository(ctx.db), {
+          producerId: ctx.producerId,
+          projectId: input.id,
+          reopenedAt: new Date(),
+        });
+      } catch (error) {
+        mapProjectLifecycleDomainError(error);
+      }
+    }),
+
+  cancelPurchase: producerProcedure
+    .input(
+      z
+        .object({
+          projectId: z.string().uuid(),
+          purchaseId: z.string().uuid(),
+          reason: z.string().trim().min(1).max(500),
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED" });
+      try {
+        return await cancelProjectPurchase(projectLifecycleRepository(ctx.db), {
+          producerId: ctx.producerId,
+          projectId: input.projectId,
+          purchaseId: input.purchaseId,
+          actorId: ctx.userId,
+          reason: input.reason,
+          canceledAt: new Date(),
+        });
+      } catch (error) {
+        mapProjectLifecycleDomainError(error);
+      }
+    }),
+
+  deleteEmptyDraft: producerProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await permanentlyDeleteEmptyDraftProject(historicalDeletionRepository(ctx.db), {
+          producerId: ctx.producerId,
+          projectId: input.id,
+        });
+      } catch (error) {
+        mapHistoricalDeletionDomainError(error);
+      }
+    }),
 
   addTrack: producerProcedure.input(AddTrackInput).mutation(async ({ ctx, input }) => {
     let insertedRow: typeof projectTracks.$inferSelect | undefined;
@@ -522,7 +687,7 @@ export const projectRouter = router({
         .where(eq(projects.id, track.projectId))
         .limit(1);
       if (!project || project.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "FORBIDDEN" });
+        throw new TRPCError({ code: "NOT_FOUND" });
       }
 
       await ctx.db
@@ -858,7 +1023,7 @@ export const projectRouter = router({
       .where(eq(projects.id, t.projectId))
       .limit(1);
     if (!p || p.producerId !== ctx.producerId) {
-      throw new TRPCError({ code: "FORBIDDEN" });
+      throw new TRPCError({ code: "NOT_FOUND" });
     }
     await ctx.db
       .update(trackComments)
@@ -892,7 +1057,7 @@ export const projectRouter = router({
         .where(eq(projects.id, t.projectId))
         .limit(1);
       if (!d || d.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "FORBIDDEN" });
+        throw new TRPCError({ code: "NOT_FOUND" });
       }
 
       const nowOrNull = input.approved ? new Date() : null;
@@ -978,7 +1143,7 @@ export const projectRouter = router({
             .for("update");
 
           if (!project || project.producerId !== ctx.producerId) {
-            throw new TRPCError({ code: "FORBIDDEN" });
+            throw new TRPCError({ code: "NOT_FOUND" });
           }
           if (!track || !version) {
             throw new CommentDomainError("NOT_FOUND", "The comment target was not found");
@@ -1093,16 +1258,21 @@ export const projectRouter = router({
       const rows = await ctx.db
         .select({ id: projects.id, producerId: projects.producerId })
         .from(projects)
-        .where(inArray(projects.id, input.orderedIds));
+        .where(
+          and(inArray(projects.id, input.orderedIds), eq(projects.producerId, ctx.producerId)),
+        );
       if (rows.length !== input.orderedIds.length) {
         throw new TRPCError({ code: "NOT_FOUND" });
       }
       if (rows.some((r) => r.producerId !== ctx.producerId)) {
-        throw new TRPCError({ code: "FORBIDDEN" });
+        throw new TRPCError({ code: "NOT_FOUND" });
       }
       await ctx.db.transaction(async (tx) => {
         for (const [idx, id] of input.orderedIds.entries()) {
-          await tx.update(projects).set({ position: idx }).where(eq(projects.id, id));
+          await tx
+            .update(projects)
+            .set({ position: idx })
+            .where(and(eq(projects.id, id), eq(projects.producerId, ctx.producerId)));
         }
       });
       return { count: input.orderedIds.length };

@@ -24,7 +24,7 @@ import {
   trackVersions,
   versionApprovalEvents,
 } from "@skitza/db";
-import type { Db, PaymentPlan, PurchaseCommercialSnapshot } from "@skitza/db";
+import type { Db, PaymentPlan, Project, PurchaseCommercialSnapshot } from "@skitza/db";
 import { TRPCError } from "@trpc/server";
 import { after } from "next/server";
 import { z } from "zod";
@@ -115,6 +115,7 @@ const musicSubrouter = router({
         .select({
           projectId: projects.id,
           title: projects.title,
+          projectLifecycleStatus: projects.lifecycleStatus,
           producerId: projects.producerId,
           producerName: producers.displayName,
           producerSlug: producers.slug,
@@ -203,6 +204,7 @@ const musicSubrouter = router({
       return {
         projectId: p.projectId,
         title: p.title,
+        projectLifecycleStatus: p.projectLifecycleStatus,
         producerId: p.producerId,
         producerName: p.producerName ?? "Untitled Studio",
         producerSlug: p.producerSlug,
@@ -255,6 +257,7 @@ const musicSubrouter = router({
         trackArtist: projectTracks.artist,
         projectId: projects.id,
         projectTitle: projects.title,
+        projectLifecycleStatus: projects.lifecycleStatus,
         producerName: producers.displayName,
       })
       .from(trackVersions)
@@ -313,6 +316,7 @@ const musicSubrouter = router({
       label: r.versionLabel,
       projectId: r.projectId,
       projectTitle: r.projectTitle,
+      projectLifecycleStatus: r.projectLifecycleStatus,
       // See the procedure header: this is the producer's display name
       // surfaced under the producer's `clientName` field on the wire,
       // so the shared component can render it without conditional logic.
@@ -467,6 +471,7 @@ const musicSubrouter = router({
           // ProjectPage renders without conditional logic.
           clientName: producerName,
           createdAt: project.createdAt,
+          lifecycleStatus: project.lifecycleStatus,
           // Artist-specific extras kept on the wire — used by the
           // sessions panel + the breadcrumb topbar publisher.
           producerId: project.producerId,
@@ -814,6 +819,7 @@ const musicSubrouter = router({
           projectId: head.projectId,
           projectTitle: head.projectTitle,
           clientName: producerName,
+          projectLifecycleStatus: ownedProject.lifecycleStatus,
         },
         versions,
         comments,
@@ -864,6 +870,7 @@ const musicSubrouter = router({
 export type MusicProjectRow = {
   projectId: string;
   title: string;
+  projectLifecycleStatus: Project["lifecycleStatus"];
   producerId: string;
   producerName: string;
   producerSlug: string;
@@ -1351,17 +1358,10 @@ const bookSubrouter = router({
 });
 
 // ─── artist.store sub-router ─────────────────────────────────────────
-// Browse + buy products from any of the artist's studios without
-// leaving the artist app. `products` is the catalog read (all or one
-// studio), `product` is the detail read, `checkout` mints a Stripe
-// Direct-card checkout is intentionally unavailable; accepted purchases use
-// the off-app proof workflow.
-//
-// The helper is also used by `booking.publicRequest`, so the public
-// booking flow and the signed-in artist Store hit the same plan-aware
-// Stripe Connect + invoice-ledger code. Both paths get the same
-// plan-validation guard (BAD_REQUEST on unlisted plans) and the same
-// project row shape in `lead` stage.
+// Browse products from any of the artist's studios without leaving the
+// artist app. `products` is the catalog read (all or one studio), and
+// `product` is the detail read. Accepted purchases use the off-app proof
+// workflow exposed by the purchase router.
 const storeSubrouter = router({
   // List products the artist can buy. `producerId` optional: when
   // undefined, returns the union of products across all the artist's
@@ -1434,8 +1434,7 @@ const storeSubrouter = router({
           producerName: producers.displayName,
           producerSlug: producers.slug,
           // Migration 0019 — business-level tax disclosure mode + rate.
-          // Surfaced on every product card next to the price; the rate
-          // also powers checkout math for 'tax_added' products.
+          // Surfaced on every product card next to the price.
           producerTaxMode: producers.taxMode,
           producerTaxRatePct: producers.taxRatePct,
         })
@@ -1446,13 +1445,6 @@ const storeSubrouter = router({
             inArray(products.producerId, scopedProducerIds),
             eq(products.active, true),
             isNull(products.archivedAt),
-            // Per-song and flat products both list. hourly/bundle stay
-            // hidden until their flows ship — keep the guard narrow so
-            // the artist Store doesn't surface a product its detail
-            // page can't checkout. store.checkout enforces the same
-            // gate server-side so a hand-crafted productId can't
-            // bypass the flat-only Stripe self-checkout path.
-            inArray(products.pricingModel, ["flat", "per_song"]),
           ),
         )
         .orderBy(asc(producers.displayName), asc(products.position));
@@ -1517,8 +1509,7 @@ const storeSubrouter = router({
           producerName: producers.displayName,
           producerSlug: producers.slug,
           // Migration 0019 — tax mode + rate for the detail page's
-          // footnote AND checkout math (tax_added multiplies the
-          // Stripe charge).
+          // price disclosure.
           producerTaxMode: producers.taxMode,
           producerTaxRatePct: producers.taxRatePct,
         })
@@ -1585,32 +1576,6 @@ const storeSubrouter = router({
         producerTaxMode: row.producerTaxMode,
         producerTaxRatePct: row.producerTaxRatePct,
       };
-    }),
-
-  // SK-90 removes every direct-card execution path. Keep this temporary
-  // compatibility procedure only so the existing Store caller fails closed
-  // until the unified off-app purchase UI lands in SK-95.
-  checkout: artistProcedure
-    .input(
-      z.object({
-        productId: z.string().uuid(),
-        paymentPlan: z.discriminatedUnion("kind", [
-          z.object({ kind: z.literal("full") }),
-          z.object({ kind: z.literal("split_50_50") }),
-          z.object({
-            kind: z.literal("monthly"),
-            installments: z.number().int().min(2).max(12),
-          }),
-        ]),
-        songQty: z.number().int().min(1).max(1000).optional(),
-        unitPriceCents: z.number().int().min(0).max(100_000_000).optional(),
-      }),
-    )
-    .mutation((): { checkoutUrl: null; projectId: string } => {
-      throw new TRPCError({
-        code: "PRECONDITION_FAILED",
-        message: "Skitza records off-app payments and does not start card checkout.",
-      });
     }),
 });
 
@@ -2025,7 +1990,7 @@ export const artistRouter = router({
   // self-serve booking flow. See bookSubrouter for per-procedure docs.
   book: bookSubrouter,
 
-  // Catalog + checkout. See storeSubrouter for per-procedure docs.
+  // Catalog reads. See storeSubrouter for per-procedure docs.
   store: storeSubrouter,
 
   // Purchase flow (SK-37 / BE-1). request / acceptAgreement / get plus

@@ -10,7 +10,7 @@ import { DisconnectProducerButton } from "~/components/artist/disconnect-produce
 //   - "Settings." hero
 //   - Profile card (avatar + name + email + joined-date)
 //   - Connected producers list (one row per studio)
-//   - Settings rows (GCal, Payment method, Notifications, Time zone)
+//   - Settings rows (GCal, Notifications, Time zone)
 //   - Wordmark + version stamp footer
 //
 // We delegate "Sign out" + name/email/photo edits to Clerk's
@@ -43,11 +43,6 @@ export default async function ArtistSettingsPage() {
     {
       label: "Google Calendar sync",
       sub: "Mirror your sessions to your personal calendar",
-      soon: true,
-    },
-    {
-      label: "Payment method",
-      sub: "Add a card for instant payment",
       soon: true,
     },
     { label: "Notifications", sub: "Email · push · in-app", soon: true },

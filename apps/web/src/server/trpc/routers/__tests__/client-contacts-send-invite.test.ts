@@ -26,12 +26,14 @@ const {
   const setSpy = vi.fn<(payload: Row) => void>();
   const updateMock = vi.fn<() => Promise<void>>();
   const sendEmailSpy = vi.fn<(to: string, props: Row) => Promise<void>>();
+  let lockedClientRows: Row[] = [];
 
   const producersMarker = {
     __table: "producers",
     id: { __column: "producers.id" },
     clerkUserId: { __column: "producers.clerk_user_id" },
     slug: { __column: "producers.slug" },
+    displayName: { __column: "producers.display_name" },
   };
   const clientContactsMarker = {
     __table: "client_contacts",
@@ -43,6 +45,8 @@ const {
   };
 
   const dbMock = {
+    execute: () => Promise.resolve(),
+    transaction: <T>(work: (tx: unknown) => Promise<T>) => work(dbMock),
     select: () => ({
       from: (table: unknown) => {
         if (table === producersMarker) {
@@ -56,7 +60,12 @@ const {
         if (table === clientContactsMarker) {
           return {
             where: () => ({
-              limit: () => ownerSelectMock(),
+              limit: () => ({
+                for: async () => {
+                  lockedClientRows = await ownerSelectMock();
+                  return lockedClientRows;
+                },
+              }),
             }),
           };
         }
@@ -66,7 +75,14 @@ const {
     update: () => ({
       set: (payload: Row) => {
         setSpy(payload);
-        return { where: () => updateMock() };
+        return {
+          where: () => ({
+            returning: async () => {
+              await updateMock();
+              return lockedClientRows.map((row) => ({ ...row, ...payload }));
+            },
+          }),
+        };
       },
     }),
     insert: () => ({
@@ -186,7 +202,7 @@ describe("clientContacts.sendInvite", () => {
     expect(updateMock).toHaveBeenCalledTimes(1);
   });
 
-  it("throws FORBIDDEN when the contact belongs to another producer", async () => {
+  it("returns NOT_FOUND when the contact belongs to another producer", async () => {
     ownerSelectMock.mockResolvedValueOnce([
       {
         id: CONTACT_ID,
@@ -198,7 +214,7 @@ describe("clientContacts.sendInvite", () => {
     const caller = await buildCaller();
     await expect(
       caller.clientContacts.sendInvite({ id: CONTACT_ID, via: "link" }),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(updateMock).not.toHaveBeenCalled();
     expect(sendEmailSpy).not.toHaveBeenCalled();
   });
@@ -235,12 +251,10 @@ describe("clientContacts.sendInvite", () => {
     expect(sendEmailSpy).not.toHaveBeenCalled();
   });
 
-  it("does NOT stamp invited_at when the email send throws", async () => {
-    // Email is sent BEFORE invited_at is stamped, so a Resend failure
-    // (sandbox / unverified domain / rate-limit) leaves the contact
-    // in its prior state — the LinkPill keeps showing "Invite to app"
-    // so the producer can retry. This regression guards the email-first
-    // ordering in client-contacts.ts:sendInvite.
+  it("commits invited_at before delivery and keeps a failed send safely retryable", async () => {
+    // The durable pending state prevents a concurrent permanent deletion from
+    // creating a dead invite. The client detail already exposes a resend action
+    // for pending invites, so a provider failure remains recoverable.
     ownerSelectMock.mockResolvedValueOnce([
       {
         id: CONTACT_ID,
@@ -255,8 +269,9 @@ describe("clientContacts.sendInvite", () => {
       caller.clientContacts.sendInvite({ id: CONTACT_ID, via: "email" }),
     ).rejects.toThrow(/Resend sandbox reject/);
     expect(sendEmailSpy).toHaveBeenCalledTimes(1);
-    expect(updateMock).not.toHaveBeenCalled();
-    expect(setSpy).not.toHaveBeenCalled();
+    expect(updateMock).toHaveBeenCalledTimes(1);
+    expect(setSpy).toHaveBeenCalledTimes(1);
+    expect(setSpy.mock.calls[0]?.[0]?.invitedAt).toBeInstanceOf(Date);
   });
 
   it("rejects invalid via values via zod", async () => {

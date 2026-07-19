@@ -145,7 +145,7 @@ describe("projects.reorder", () => {
     expect(updateSetSpy).not.toHaveBeenCalled();
   });
 
-  it("throws FORBIDDEN if any returned row belongs to another producer", async () => {
+  it("returns NOT_FOUND if any returned row belongs to another producer", async () => {
     producerSelectQueue.push([{ id: PRODUCER_ID }]);
     projectSelectQueue.push([
       { id: ID_A, producerId: PRODUCER_ID },
@@ -157,7 +157,7 @@ describe("projects.reorder", () => {
       caller.project.reorder({
         orderedIds: [ID_A, ID_B, ID_C],
       }),
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(updateSetSpy).not.toHaveBeenCalled();
   });
 

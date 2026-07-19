@@ -7,44 +7,32 @@ import { dirname, join } from "node:path";
 // sortable column behavior the parent depends on.
 
 const here = dirname(fileURLToPath(import.meta.url));
-const SRC = readFileSync(
-  join(here, "..", "clients-table-header.tsx"),
-  "utf-8",
-);
+const SRC = readFileSync(join(here, "..", "clients-table-header.tsx"), "utf-8");
 
-describe("ClientsTableHeader — sortable column headers for table mode", () => {
+describe("ClientsTableHeader — automatic client roster columns", () => {
   it("exports a ClientsTableHeader component", () => {
     expect(SRC).toMatch(/export function ClientsTableHeader/);
   });
 
-  it("uses the 10-column grid matching ClientCompactRow (round-4 table polish)", () => {
-    // 2026-05-16 mockup-match: header was extended to carry separate
-    // Email + Link + Joined columns (was just Status). The grid is
-    // now 10 cells wide and the constant is exported so the row can
-    // reuse the same template.
-    expect(SRC).toContain(
-      "24px 44px minmax(0,1.4fr) minmax(0,1.5fr) 110px 90px 110px 100px 110px 36px",
-    );
+  it("uses the compact 7-column grid shared with ClientCompactRow", () => {
+    expect(SRC).toContain("44px minmax(0,1.4fr) minmax(0,1.5fr) 110px 90px 110px 44px");
     expect(SRC).toContain("export const CLIENTS_TABLE_GRID");
   });
 
-  it("declares Client / Email / Link / Projects / Lifetime / Owed / Joined column labels", () => {
-    // Mockup-match: every data column from the HTML carries its
-    // own header. Status was renamed to Link to match the column
-    // role (the LinkPill — linked / invited / invite to app).
+  it("declares only scan-useful roster labels", () => {
     expect(SRC).toContain("Client");
     expect(SRC).toContain("Email");
     expect(SRC).toContain("Link");
     expect(SRC).toContain("Projects");
-    expect(SRC).toContain("Lifetime");
-    expect(SRC).toContain("Owed");
     expect(SRC).toContain("Joined");
+    expect(SRC).not.toContain('label: "Lifetime"');
+    expect(SRC).not.toContain('label: "Owed"');
   });
 
-  it("makes Client sortable by 'name', Owed by 'balance', Joined by 'joined'", () => {
-    expect(SRC).toMatch(/label:\s*["']Client["'][\s\S]*?sortKey:\s*["']name["']/);
-    expect(SRC).toMatch(/label:\s*["']Owed["'][\s\S]*?sortKey:\s*["']balance["']/);
-    expect(SRC).toMatch(/label:\s*["']Joined["'][\s\S]*?sortKey:\s*["']joined["']/);
+  it("keeps the header visual-only and limits it to xl screens", () => {
+    expect(SRC).toMatch(/className="[^"]*hidden[^"]*xl:grid[^"]*"/);
+    expect(SRC).not.toMatch(/className="[^"]*hidden[^"]*lg:grid[^"]*"/);
+    expect(SRC).toContain('aria-hidden="true"');
   });
 
   it("forbids forbidden CSS tokens", () => {

@@ -795,6 +795,10 @@ export const clientContacts = pgTable(
     // history); artist-side queries filter `IS NULL` so a disconnected
     // studio disappears from the switcher / music / store / book.
     archivedAt: timestamp("archived_at", { withTimezone: true }),
+    // Producer CRM archive is deliberately separate from the artist's
+    // disconnect marker above. Producer archive changes list placement only;
+    // artist ownership and access continue through the stable client id.
+    producerArchivedAt: timestamp("producer_archived_at", { withTimezone: true }),
     // Linkpill "Invited" state for the Clients & Projects v3 redesign.
     // Stamped when the producer triggers Send Invite (email or copy-link)
     // from the Invite-to-App modal. Cleared when Clerk webhook resolves

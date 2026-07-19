@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ─── Test doubles ────────────────────────────────────────────────────
-// Tests for artist.store.{products, product, checkout}. Same
+// Tests for artist.store.{products, product}. Same
 // FIFO-queue-per-table pattern as the other artist router tests. The
 // store sub-router fans out:
 //
@@ -13,17 +13,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 //   1. products ⨝ producers — the single row by productId
 //   2. clientContacts  — ownership check (clerkUserId + producerId)
 //
-// store.checkout
-//   1. products        — load + verify active + non-archived
-//   2. clientContacts  — (clerkUserId, producerId) ownership + customer data
-//   3. producers       — stripeAccountId + stripeChargesEnabled + slug
-//   4. INSERT projects — plan-state row (lead stage)
-//   5. INSERT invoices — pending row (skipped for monthly)
-//
 // Auth-boundary tests pry open the WHERE clauses to verify the gating
-// predicate is pinned to the signed-in user's clerkUserId. Checkout
-// relies on the shared initiatePaidPlanCheckout helper (Task 11 step
-// 11.3) — calls into the mocked Stripe client + customer resolver.
+// predicate is pinned to the signed-in user's clerkUserId.
 
 type Row = Record<string, unknown>;
 
@@ -34,7 +25,6 @@ const {
   projectsMarker,
   invoicesMarker,
   bookingsMarker,
-  stripeCustomersMarker,
   contactsSelectQueue,
   productsSelectQueue,
   producersSelectQueue,
@@ -86,20 +76,16 @@ const {
     active: { __column: "products.active" },
     archivedAt: { __column: "products.archived_at" },
     volumeTiers: { __column: "products.volume_tiers" },
-    hourlyRateCents: { __column: "products.hourly_rate_cents" },
   };
   const producersMarker = {
     __table: "producers",
     id: { __column: "producers.id" },
     displayName: { __column: "producers.display_name" },
     slug: { __column: "producers.slug" },
-    stripeAccountId: { __column: "producers.stripe_account_id" },
-    stripeChargesEnabled: { __column: "producers.stripe_charges_enabled" },
   };
   const projectsMarker = { __table: "projects" };
   const invoicesMarker = { __table: "invoices" };
   const bookingsMarker = { __table: "bookings" };
-  const stripeCustomersMarker = { __table: "stripe_customers" };
 
   const shift = <T>(q: T[][]): T[] => q.shift() ?? [];
 
@@ -185,7 +171,6 @@ const {
     projectsMarker,
     invoicesMarker,
     bookingsMarker,
-    stripeCustomersMarker,
     contactsSelectQueue,
     productsSelectQueue,
     producersSelectQueue,
@@ -218,7 +203,6 @@ vi.mock("@skitza/db", () => ({
   projects: projectsMarker,
   invoices: invoicesMarker,
   bookings: bookingsMarker,
-  stripeCustomers: stripeCustomersMarker,
   // Other tables the broader router modules import — opaque markers.
   projectTracks: { __table: "project_tracks" },
   trackVersions: { __table: "track_versions" },
@@ -255,35 +239,6 @@ vi.mock("~/lib/rate-limit/in-memory", () => ({
   checkRateLimit: () => ({ ok: true, remaining: 10 }),
 }));
 
-// Stripe helpers — mocked so checkout tests can drive them without
-// hitting Stripe.
-vi.mock("~/server/payments/checkout", () => ({
-  buildCheckoutSessionParams: vi.fn(() => ({ mode: "payment" })),
-}));
-vi.mock("~/server/payments/plan", async () => {
-  const actual =
-    await vi.importActual<typeof import("~/server/payments/plan")>("~/server/payments/plan");
-  return {
-    ...actual,
-    calculateCharges: vi.fn(actual.calculateCharges),
-  };
-});
-const stripeSessionCreateMock = vi.fn(async () =>
-  Promise.resolve({
-    id: "cs_test_123",
-    url: "https://stripe.test/cs_test_123",
-  }),
-);
-vi.mock("~/server/stripe/client", () => ({
-  getSiteUrl: () => "https://skitza.test",
-  getStripe: () => ({
-    checkout: { sessions: { create: stripeSessionCreateMock } },
-  }),
-}));
-vi.mock("~/server/stripe/customer", () => ({
-  getOrCreateStripeCustomer: vi.fn(async () => Promise.resolve("cus_test")),
-}));
-
 // Re-import the mocked symbols so auth-boundary tests assert column
 // marker identity against the same objects the router references.
 import { clientContacts, products } from "@skitza/db";
@@ -298,7 +253,6 @@ beforeEach(() => {
   insertValuesSpy.mockReset();
   insertReturningSpy.mockReset().mockResolvedValue([]);
   updateSetSpy.mockReset();
-  stripeSessionCreateMock.mockClear();
   process.env.DATABASE_URL = "postgresql://test/test";
 });
 
@@ -344,7 +298,6 @@ function seedValidContact(overrides?: Partial<Row>) {
   ]);
 }
 
-// ─────────────────────────────────────────────────────────────────────
 describe("artist.store.products (query)", () => {
   // Test 1
   it("returns [] when artist has no studios", async () => {
@@ -502,19 +455,11 @@ describe("artist.store.products (query)", () => {
     expect(hasIsNullArchived).toBe(true);
   });
 
-  // Test 5b — Store catalog visibility rule. Flat AND per_song
-  // products list (per_song landed with the per-song-pricing feature
-  // 2026-05-16 — the rate-card products go through a song-count
-  // stepper in the detail page before the booking action). hourly /
-  // bundle stay hidden until their flows ship. store.checkout
-  // enforces the same gate server-side so a hand-crafted productId
-  // can't bypass the flat-only Stripe self-checkout path.
-  it("store.products lists flat + per_song, hides hourly + bundle", async () => {
+  // Test 5b — every active, non-archived product remains visible.
+  // The Store catalog must not use a payment processor's former
+  // capabilities to decide which producer offerings an artist can see.
+  it("store.products lists every pricing model without a processor gate", async () => {
     seedValidContact();
-    // The DB-layer filter returns flat + per_song; reflect that in
-    // the seeded response. The assertion below checks the WHERE
-    // predicate so a regression that removes the gate but happens
-    // to match tight fixtures still fails.
     productsSelectQueue.push([
       {
         id: "flat-1",
@@ -552,6 +497,38 @@ describe("artist.store.products (query)", () => {
         producerName: "Alpha",
         producerSlug: "alpha",
       },
+      {
+        id: "hourly-1",
+        name: "Hourly Session",
+        description: null,
+        priceCents: 0,
+        currency: "USD",
+        durationMin: 60,
+        sessionCount: 1,
+        kind: "session",
+        pricingModel: "hourly",
+        paymentPlans: [{ kind: "full" }],
+        position: 2,
+        producerId: PRODUCER_ID,
+        producerName: "Alpha",
+        producerSlug: "alpha",
+      },
+      {
+        id: "bundle-1",
+        name: "Bundle",
+        description: null,
+        priceCents: 30000,
+        currency: "USD",
+        durationMin: 0,
+        sessionCount: 3,
+        kind: "production",
+        pricingModel: "bundle",
+        paymentPlans: [{ kind: "full" }],
+        position: 3,
+        producerId: PRODUCER_ID,
+        producerName: "Alpha",
+        producerSlug: "alpha",
+      },
     ]);
 
     const caller = await buildCaller();
@@ -559,27 +536,20 @@ describe("artist.store.products (query)", () => {
       producerId: PRODUCER_ID,
     });
 
-    // Both rows came through.
-    expect(result.products).toHaveLength(2);
-    expect(result.products[0]?.pricingModel).toBe("flat");
-    expect(result.products[1]?.pricingModel).toBe("per_song");
+    expect(result.products.map((product) => product.pricingModel)).toEqual([
+      "flat",
+      "per_song",
+      "hourly",
+      "bundle",
+    ]);
     expect(result.products[1]?.volumeTiers).toEqual([
       { minQty: 1, pricePerUnitCents: 20000 },
       { minQty: 5, pricePerUnitCents: 15000 },
     ]);
 
-    // WHERE predicate uses inArray over the allowed set so hourly +
-    // bundle stay hidden. Walk the and(...) tree and look for an
-    // inArray entry pointing at products.pricing_model.
+    // Producer scoping still uses inArray, but pricingModel must not.
     const where = productsWhereSpy.mock.calls[0]?.[0];
-    const whereJson = JSON.stringify(where);
-    expect(whereJson).toContain('"inArray":');
-    expect(whereJson).toContain('"products.pricing_model"');
-    expect(whereJson).toContain('"flat"');
-    expect(whereJson).toContain('"per_song"');
-    // Defensive: confirm the excluded models are not present.
-    expect(whereJson).not.toContain('"hourly"');
-    expect(whereJson).not.toContain('"bundle"');
+    expect(findPredicate(where, "inArray", products.pricingModel)).toBeNull();
   });
 
   // Test 6
@@ -774,278 +744,3 @@ describe("artist.store.product (query)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-describe("artist.store.checkout (mutation)", () => {
-  // Seeds a product + contact + producer with Stripe enabled.
-  function seedCheckoutReady(opts?: { paymentPlans?: unknown }) {
-    productsSelectQueue.push([
-      {
-        id: PRODUCT_ID,
-        name: "Mix",
-        description: null,
-        priceCents: 100000,
-        currency: "USD",
-        durationMin: 0,
-        sessionCount: 1,
-        kind: "mix",
-        pricingModel: "flat",
-        paymentPlans: opts?.paymentPlans ?? [
-          { kind: "full" },
-          { kind: "split_50_50" },
-          { kind: "monthly", installments: 4 },
-        ],
-        position: 0,
-        producerId: PRODUCER_ID,
-        producerName: "Alpha",
-        producerSlug: "alpha",
-        active: true,
-        archivedAt: null,
-        depositPct: 0,
-      },
-    ]);
-    seedValidContact();
-    producersSelectQueue.push([
-      {
-        stripeAccountId: "acct_connected",
-        stripeChargesEnabled: true,
-        slug: "alpha",
-      },
-    ]);
-    // When the router INSERTs projects → returns id; when invoices →
-    // no returning (fine — tests don't assert on invoice insert id).
-    insertReturningSpy.mockImplementation(() => Promise.resolve([{ id: "project-new-1" }]));
-  }
-
-  // Test 11
-  it("fails closed before loading a product", async () => {
-    productsSelectQueue.push([]); // no product
-
-    const caller = await buildCaller();
-    await expect(
-      caller.artist.store.checkout({
-        productId: PRODUCT_ID,
-        paymentPlan: { kind: "full" },
-      }),
-    ).rejects.toMatchObject({
-      code: "PRECONDITION_FAILED",
-      message: expect.stringContaining("off-app payments") as unknown,
-    });
-  });
-
-  // Test 11b
-  it("fails closed before looking up the artist's producer link", async () => {
-    productsSelectQueue.push([
-      {
-        id: PRODUCT_ID,
-        name: "Foreign Mix",
-        description: null,
-        priceCents: 100000,
-        currency: "USD",
-        durationMin: 0,
-        sessionCount: 1,
-        kind: "mix",
-        pricingModel: "flat",
-        paymentPlans: [{ kind: "full" }],
-        position: 0,
-        producerId: OTHER_PRODUCER_ID,
-        producerName: "Bravo",
-        producerSlug: "bravo",
-        active: true,
-        archivedAt: null,
-        depositPct: 0,
-      },
-    ]);
-    contactsSelectQueue.push([]); // not my studio
-
-    const caller = await buildCaller();
-    await expect(
-      caller.artist.store.checkout({
-        productId: PRODUCT_ID,
-        paymentPlan: { kind: "full" },
-      }),
-    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-  });
-
-  // Test 12
-  it("fails closed even when the submitted plan was not offered", async () => {
-    seedCheckoutReady({
-      paymentPlans: [{ kind: "full" }], // only "full" offered
-    });
-
-    const caller = await buildCaller();
-    await expect(
-      caller.artist.store.checkout({
-        productId: PRODUCT_ID,
-        paymentPlan: { kind: "split_50_50" }, // not offered
-      }),
-    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-    expect(stripeSessionCreateMock).not.toHaveBeenCalled();
-  });
-
-  // Test 13
-  it("never creates a card checkout session", async () => {
-    seedCheckoutReady();
-
-    const caller = await buildCaller();
-    await expect(
-      caller.artist.store.checkout({
-        productId: PRODUCT_ID,
-        paymentPlan: { kind: "full" },
-      }),
-    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-
-    expect(stripeSessionCreateMock).not.toHaveBeenCalled();
-  });
-
-  // Test 14
-  it("does not perform ownership or database writes on the removed card path", async () => {
-    productsSelectQueue.push([
-      {
-        id: PRODUCT_ID,
-        name: "Mix",
-        description: null,
-        priceCents: 100000,
-        currency: "USD",
-        durationMin: 0,
-        sessionCount: 1,
-        kind: "mix",
-        pricingModel: "flat",
-        paymentPlans: [{ kind: "full" }],
-        position: 0,
-        producerId: PRODUCER_ID,
-        producerName: "Alpha",
-        producerSlug: "alpha",
-        active: true,
-        archivedAt: null,
-        depositPct: 0,
-      },
-    ]);
-    contactsSelectQueue.push([
-      {
-        id: "c1",
-        producerId: PRODUCER_ID,
-        email: "dan@x.com",
-        name: "Dan",
-        clerkUserId: "user_bob",
-      },
-    ]);
-    producersSelectQueue.push([
-      {
-        stripeAccountId: "acct_connected",
-        stripeChargesEnabled: true,
-        slug: "alpha",
-      },
-    ]);
-    insertReturningSpy.mockImplementation(() => Promise.resolve([{ id: "project-new-1" }]));
-
-    const caller = await buildCaller("user_bob");
-    await expect(
-      caller.artist.store.checkout({
-        productId: PRODUCT_ID,
-        paymentPlan: { kind: "full" },
-      }),
-    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-
-    expect(contactsWhereSpy).not.toHaveBeenCalled();
-    expect(insertValuesSpy).not.toHaveBeenCalled();
-  });
-
-  // Test 15 — defense-in-depth at the mutation layer.
-  // Store list filters to flat + per_song at the DB. A hand-crafted
-  // productId URL (or a client skipping the list) could still hit
-  // this mutation for hourly/bundle products. We reject those with
-  // BAD_REQUEST *before* calling into calculateCharges — the shared
-  // helper would otherwise throw "totalCents must be a positive
-  // integer" since hourly/bundle products have priceCents=0.
-  // Per-song products are valid here when songQty + unitPriceCents
-  // are provided (Test 15c covers the happy path).
-  it("fails the removed checkout path closed for hourly products too", async () => {
-    productsSelectQueue.push([
-      {
-        id: PRODUCT_ID,
-        name: "Hourly Session",
-        description: null,
-        priceCents: 0,
-        currency: "USD",
-        durationMin: 60,
-        sessionCount: 1,
-        kind: "session",
-        pricingModel: "hourly",
-        paymentPlans: [{ kind: "full" }],
-        position: 0,
-        producerId: PRODUCER_ID,
-        producerName: "Alpha",
-        producerSlug: "alpha",
-        active: true,
-        archivedAt: null,
-        depositPct: 0,
-        hourlyRateCents: 10000,
-      },
-    ]);
-    // Ownership check passes — the artist *is* linked to this producer.
-    seedValidContact();
-
-    const caller = await buildCaller();
-    await expect(
-      caller.artist.store.checkout({
-        productId: PRODUCT_ID,
-        paymentPlan: { kind: "full" },
-      }),
-    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-    expect(stripeSessionCreateMock).not.toHaveBeenCalled();
-  });
-
-  // Test 15c — per-song happy path. Artist picked 5 songs at $150
-  // each on the stepper; the mutation computes the locked-in total
-  // (75000 cents) and passes it to the shared helper, which in turn
-  // inserts a project row with the right total and mints a Stripe
-  // Checkout session.
-  it("fails the removed checkout path closed for per-song products too", async () => {
-    productsSelectQueue.push([
-      {
-        id: PRODUCT_ID,
-        name: "Per-song Mix",
-        description: null,
-        priceCents: 20000, // mirrors the base tier
-        currency: "USD",
-        durationMin: 0,
-        sessionCount: 1,
-        kind: "mix",
-        pricingModel: "per_song",
-        paymentPlans: [{ kind: "full" }],
-        position: 0,
-        producerId: PRODUCER_ID,
-        producerName: "Alpha",
-        producerSlug: "alpha",
-        active: true,
-        archivedAt: null,
-        depositPct: 0,
-        volumeTiers: [
-          { minQty: 1, pricePerUnitCents: 20000 },
-          { minQty: 5, pricePerUnitCents: 15000 },
-        ],
-      },
-    ]);
-    seedValidContact();
-    producersSelectQueue.push([
-      {
-        stripeAccountId: "acct_connected",
-        stripeChargesEnabled: true,
-        slug: "alpha",
-      },
-    ]);
-    insertReturningSpy.mockImplementation(() => Promise.resolve([{ id: "project-new-1" }]));
-
-    const caller = await buildCaller();
-    await expect(
-      caller.artist.store.checkout({
-        productId: PRODUCT_ID,
-        paymentPlan: { kind: "full" },
-        songQty: 5,
-        unitPriceCents: 15000,
-      }),
-    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-
-    expect(stripeSessionCreateMock).not.toHaveBeenCalled();
-    expect(insertValuesSpy).not.toHaveBeenCalled();
-  });
-});

@@ -1,26 +1,12 @@
-import { and, clientContacts, eq, isNull, projects, sql, type Db } from "@skitza/db";
+import { and, clientContacts, eq, isNull, projects, type Db } from "@skitza/db";
 import { TRPCError } from "@trpc/server";
 
 type SqlOperand = Parameters<typeof eq>[0];
-
-type ArtistResourcePair = {
-  producerId: SqlOperand;
-  email: SqlOperand;
-};
 
 type ArtistOwnedResource = {
   producerId: SqlOperand;
   clientContactId: SqlOperand;
 };
-
-export function activeArtistClientPair(clerkUserId: string, resource: ArtistResourcePair) {
-  return and(
-    eq(clientContacts.clerkUserId, clerkUserId),
-    eq(clientContacts.producerId, resource.producerId),
-    eq(sql<string>`lower(${clientContacts.email})`, sql<string>`lower(${resource.email})`),
-    isNull(clientContacts.archivedAt),
-  );
-}
 
 /**
  * Stable-ID ownership boundary for redesigned resources. Email is mutable
