@@ -1,5 +1,7 @@
 import * as Sentry from "@sentry/nextjs";
 
+import { redactPublicSongTelemetry } from "./src/lib/observability/public-song-telemetry";
+
 // Server-side (Node runtime) Sentry init. Loaded from
 // `instrumentation.ts` via dynamic import when NEXT_RUNTIME === "nodejs".
 // Captures errors from Server Components, tRPC procedures, server
@@ -16,6 +18,13 @@ if (dsn) {
   Sentry.init({
     dsn,
     sendDefaultPii: true,
+
+    beforeSend: redactPublicSongTelemetry,
+    beforeSendTransaction: redactPublicSongTelemetry,
+    beforeSendSpan: redactPublicSongTelemetry,
+    beforeBreadcrumb: redactPublicSongTelemetry,
+    beforeSendLog: redactPublicSongTelemetry,
+    beforeSendMetric: redactPublicSongTelemetry,
 
     // Capture 100% of transactions in dev, 10% in prod. Server-side
     // sampling is what feeds the performance dashboard + the

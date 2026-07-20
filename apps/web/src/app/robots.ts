@@ -9,9 +9,9 @@ const BASE = process.env.SITE_URL ?? "https://skitza.app";
 // * /join/* — the artist funnel requires Clerk signup; no durable
 //   public content to crawl. Disallow so Google doesn't waste budget
 //   on gated pages that always look the same.
-// * /m/* — magic links are single-use, should NEVER be crawled (and the
-//   route returns 404 for anyone without a valid signed token anyway,
-//   but make intent explicit here).
+// * /listen/* — producer-published songs are guest-listenable but
+//   private-by-URL and must never become search results.
+// * /m/* — retired legacy magic-link paths remain blocked defensively.
 // * /api/* — endpoints aren't pages.
 //
 // Post-Story-03 (PRD §6.6): `/p/*` was removed from the allow list
@@ -23,7 +23,14 @@ export default function robots(): MetadataRoute.Robots {
       {
         userAgent: "*",
         allow: ["/", "/about", "/privacy", "/terms", "/changelog", "/sign-in", "/sign-up"],
-        disallow: ["/dashboard", "/onboarding", "/join/", "/m/", "/api/"],
+        disallow: [
+          "/dashboard",
+          "/onboarding",
+          "/join/",
+          "/listen/",
+          "/m/",
+          "/api/",
+        ],
       },
     ],
     sitemap: `${BASE}/sitemap.xml`,

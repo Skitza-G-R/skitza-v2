@@ -153,12 +153,14 @@ export async function renameMusicVersion(input: {
 export async function deleteMusicVersionAudio(input: {
   projectId: string;
   versionId: string;
+  operationKey: string;
 }): Promise<MusicAudioDeletionActionResult> {
   const context = await callerOrError();
   if (!context.ok) return context;
   try {
     const result = await context.caller.project.permanentlyDeleteVersionAudio({
       versionId: input.versionId,
+      operationKey: input.operationKey,
       confirmation: "DELETE_STORED_AUDIO",
     });
     return {

@@ -78,6 +78,7 @@ export async function completeAudioUpload(input: {
   trackVersionId: string;
   sizeBytes: number;
   completionToken: string;
+  acknowledgePublicExposure: boolean;
   durationMs?: number;
 }): Promise<ActionData<{ url: string; key: string }>> {
   try {

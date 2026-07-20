@@ -3,6 +3,8 @@ import { TRPCError } from "@trpc/server";
 import { notFound, redirect } from "next/navigation";
 
 import { SongPage, type SongPageData } from "~/components/music/song-page";
+import type { SongPublicSharingView } from "~/components/music/song-public-link-controls";
+import { PUBLIC_BRAND_ORIGIN } from "~/lib/share/public-url";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import {
@@ -19,6 +21,12 @@ import {
   l3ReopenApprovedSong,
   l3ResolveComment,
 } from "./actions";
+import {
+  disablePublicSongLink,
+  publishPublicSongLink,
+  resetPublicSongLink,
+  setSongPortfolioPublic,
+} from "../public-link-actions";
 
 type PageProps = { params: Promise<{ versionId: string }> };
 
@@ -52,6 +60,15 @@ export default async function ProducerSongPage({ params }: PageProps) {
     }
     throw e;
   }
+  const sharing = await caller.songPublication.producerState({ trackId: data.track.id });
+  const publicSharing: SongPublicSharingView = {
+    trackId: sharing.trackId,
+    linkEnabled: sharing.linkEnabled,
+    portfolioPublished: sharing.portfolioPublished,
+    remainingAudioCount: sharing.remainingAudioCount,
+    tokenVersion: sharing.tokenVersion,
+    publicUrl: sharing.publicUrl ? `${PUBLIC_BRAND_ORIGIN}${sharing.publicUrl}` : null,
+  };
 
   // Cross the RSC → client boundary as plain JSON (Date → ISO).
   const wire: SongPageData = {
@@ -102,6 +119,13 @@ export default async function ProducerSongPage({ params }: PageProps) {
     <SongPage
       data={wire}
       role="producer"
+      publicSharing={publicSharing}
+      publicSharingActions={{
+        publish: publishPublicSongLink,
+        reset: resetPublicSongLink,
+        disable: disablePublicSongLink,
+        setPortfolioPublic: setSongPortfolioPublic,
+      }}
       actions={{
         addComment: l3AddComment,
         resolveComment: l3ResolveComment,

@@ -9,6 +9,7 @@ import {
   projects,
   projectTracks,
   purchases,
+  songPublicAccessEvents,
   songPublicLinks,
   sql,
   trackVersions,
@@ -16,16 +17,19 @@ import {
 } from "@skitza/db";
 
 import { publicPortfolioStreamPath } from "~/server/domain/audio-delivery/urls";
+import { isPublicStoredVersionCandidate } from "~/server/domain/song-publication/read-model";
 import { isAudioKeyForTrackVersion } from "~/server/storage/r2";
 
 import {
   assertStoredAudioDeletionAllowed,
+  monotonicStoredAudioDeletionTime,
   normalizeArtistCredit,
   normalizeSongTitle,
   normalizeVersionLabel,
   planSongArchiveChange,
   requireHistorySafeStoredAudioIdentity,
   SongManagementDomainError,
+  storedAudioDeletionOperationDigest,
   type StoredAudioIdentity,
 } from "./service";
 
@@ -56,6 +60,13 @@ function notFound(message = "The song was not found"): never {
 
 function integrityError(message: string): never {
   throw new SongManagementDomainError("INTEGRITY_ERROR", message);
+}
+
+function requireDeletionAuditText(value: string, label: string): string {
+  if (value.length === 0 || value.length > 200 || value !== value.trim()) {
+    throw new SongManagementDomainError("INVALID_INPUT", `${label} is invalid`);
+  }
+  return value;
 }
 
 async function discoverSongScope(
@@ -131,7 +142,7 @@ async function lockSong(
   );
 
   const [project] = await tx
-    .select({ id: projects.id, producerId: projects.producerId })
+    .select({ id: projects.id, producerId: projects.producerId, updatedAt: projects.updatedAt })
     .from(projects)
     .where(and(eq(projects.id, input.scope.projectId), eq(projects.producerId, input.producerId)))
     .limit(1)
@@ -646,30 +657,63 @@ export type TombstoneStoredAudioResult = Readonly<{
  */
 export async function tombstoneStoredAudioVersion(
   db: Db,
-  input: Readonly<{ producerId: string; versionId: string; deletedAt: Date }>,
+  input: Readonly<{
+    producerId: string;
+    versionId: string;
+    deletedAt: Date;
+    actorClerkUserId: string;
+    operationKey: string;
+  }>,
 ): Promise<TombstoneStoredAudioResult> {
   return db.transaction(async (tx) => {
+    const actorClerkUserId = requireDeletionAuditText(
+      input.actorClerkUserId,
+      "Deletion audit actor",
+    );
+    const operationKey = requireDeletionAuditText(input.operationKey, "Deletion operation key");
     const scope = await discoverVersionScope(tx, input);
     const track = await lockSong(tx, { producerId: input.producerId, scope });
+    const [lockedProjectState] = await tx
+      .select({ updatedAt: projects.updatedAt })
+      .from(projects)
+      .where(and(eq(projects.id, scope.projectId), eq(projects.producerId, input.producerId)))
+      .limit(1);
+    if (!lockedProjectState) integrityError("The locked song project could not be read");
     const versions = await tx
       .select({
         id: trackVersions.id,
         trackId: trackVersions.trackId,
+        purchaseId: trackVersions.purchaseId,
+        producerId: trackVersions.producerId,
+        label: trackVersions.label,
         audioUrl: trackVersions.audioUrl,
         audioR2Key: trackVersions.audioR2Key,
         sizeBytes: trackVersions.sizeBytes,
         audioObjectEtag: trackVersions.audioObjectEtag,
         audioIdentityFingerprint: trackVersions.audioIdentityFingerprint,
         durationMs: trackVersions.durationMs,
+        peaks: trackVersions.peaks,
         peaksR2Key: trackVersions.peaksR2Key,
         uploadedAt: trackVersions.uploadedAt,
         producerMarkedFinalAt: trackVersions.producerMarkedFinalAt,
         audioDeletedAt: trackVersions.audioDeletedAt,
+        pendingAudioR2Key: trackVersions.pendingAudioR2Key,
+        pendingAudioUploadId: trackVersions.pendingAudioUploadId,
+        pendingAudioInitiationDigest: trackVersions.pendingAudioInitiationDigest,
+        pendingAudioCompletionToken: trackVersions.pendingAudioCompletionToken,
+        pendingAudioSizeBytes: trackVersions.pendingAudioSizeBytes,
+        pendingAudioStartedAt: trackVersions.pendingAudioStartedAt,
+        pendingAudioCreateAttemptedAt: trackVersions.pendingAudioCreateAttemptedAt,
+        pendingAudioCompleteAttemptedAt: trackVersions.pendingAudioCompleteAttemptedAt,
+        pendingAudioPartUrlsExpireAt: trackVersions.pendingAudioPartUrlsExpireAt,
+        pendingAudioCancelRequestedAt: trackVersions.pendingAudioCancelRequestedAt,
+        pendingAudioCleanupEtag: trackVersions.pendingAudioCleanupEtag,
       })
       .from(trackVersions)
       .where(
         and(
           eq(trackVersions.trackId, scope.trackId),
+          eq(trackVersions.purchaseId, scope.purchaseId),
           eq(trackVersions.producerId, input.producerId),
         ),
       )
@@ -678,6 +722,41 @@ export async function tombstoneStoredAudioVersion(
     const target = versions.find((version) => version.id === input.versionId);
     if (!target || target.trackId !== scope.trackId)
       notFound("The stored audio version was not found");
+
+    const operationDigest = storedAudioDeletionOperationDigest({
+      producerId: input.producerId,
+      trackId: scope.trackId,
+      purchaseId: scope.purchaseId,
+      versionId: input.versionId,
+      actorClerkUserId,
+    });
+    const [existingOperation] = await tx
+      .select({
+        action: songPublicAccessEvents.action,
+        versionId: songPublicAccessEvents.versionId,
+        operationDigest: songPublicAccessEvents.operationDigest,
+      })
+      .from(songPublicAccessEvents)
+      .where(
+        and(
+          eq(songPublicAccessEvents.trackId, scope.trackId),
+          eq(songPublicAccessEvents.operationKey, operationKey),
+        ),
+      )
+      .limit(1);
+    if (existingOperation && existingOperation.operationDigest !== operationDigest) {
+      throw new SongManagementDomainError(
+        "OPERATION_KEY_CONFLICT",
+        "This deletion operation key already belongs to another song command",
+      );
+    }
+    if (
+      existingOperation &&
+      (existingOperation.action !== "audio_deleted" ||
+        existingOperation.versionId !== input.versionId)
+    ) {
+      integrityError("The stored deletion operation does not match its audit digest");
+    }
     if (target.audioUrl === null) {
       throw new SongManagementDomainError(
         "INVALID_INPUT",
@@ -700,16 +779,28 @@ export async function tombstoneStoredAudioVersion(
       integrityError("The retained audio key does not belong to this producer version");
     }
 
-    const storedVersions = versions.filter(
-      (version) => version.audioDeletedAt === null && version.audioUrl !== null,
+    const publicScope = {
+      trackId: scope.trackId,
+      purchaseId: scope.purchaseId,
+      producerId: input.producerId,
+    };
+    const alreadyTombstoned = target.audioDeletedAt !== null;
+    if (!alreadyTombstoned && !isPublicStoredVersionCandidate(target, publicScope)) {
+      integrityError("The stored audio version is not in a deliverable canonical state");
+    }
+    const storedVersions = versions.filter((version) =>
+      isPublicStoredVersionCandidate(version, publicScope),
     );
     const orderedStoredIds = storedVersions.map((version) => version.id);
     const targetStoredIndex = orderedStoredIds.indexOf(input.versionId);
-    const alreadyTombstoned = target.audioDeletedAt !== null;
     const isReleased = track.releasedAt !== null;
     let nextPlaybackVersionId = orderedStoredIds.find((id) => id !== input.versionId) ?? null;
     let wasCurrent = targetStoredIndex === 0;
     let wasLastStoredAudio = storedVersions.length === 1 && targetStoredIndex === 0;
+
+    if (existingOperation && !alreadyTombstoned) {
+      integrityError("The audited deletion is missing its committed audio tombstone");
+    }
 
     if (!alreadyTombstoned) {
       const decision = assertStoredAudioDeletionAllowed({
@@ -722,9 +813,54 @@ export async function tombstoneStoredAudioVersion(
         })),
       });
       nextPlaybackVersionId = decision.nextPlaybackVersionId;
+      const [currentLink] = await tx
+        .select({
+          id: songPublicLinks.id,
+          tokenVersion: songPublicLinks.tokenVersion,
+          tokenHash: songPublicLinks.tokenHash,
+          enabledAt: songPublicLinks.enabledAt,
+          disabledAt: songPublicLinks.disabledAt,
+          createdAt: songPublicLinks.createdAt,
+          updatedAt: songPublicLinks.updatedAt,
+        })
+        .from(songPublicLinks)
+        .where(
+          and(
+            eq(songPublicLinks.trackId, scope.trackId),
+            eq(songPublicLinks.purchaseId, scope.purchaseId),
+            eq(songPublicLinks.producerId, input.producerId),
+          ),
+        )
+        .limit(1)
+        .for("update");
+      const [latestEvent] = await tx
+        .select({
+          sequence: songPublicAccessEvents.sequence,
+          createdAt: songPublicAccessEvents.createdAt,
+        })
+        .from(songPublicAccessEvents)
+        .where(eq(songPublicAccessEvents.trackId, scope.trackId))
+        .orderBy(desc(songPublicAccessEvents.sequence))
+        .limit(1)
+        .for("update");
+      const effectiveDeletedAt = monotonicStoredAudioDeletionTime({
+        requestedAt: input.deletedAt,
+        projectUpdatedAt: lockedProjectState.updatedAt,
+        songReleasedAt: track.releasedAt,
+        songArchivedAt: track.archivedAt,
+        portfolioPublishedAt: track.portfolioPublishedAt,
+        versionUploadedAt: target.uploadedAt,
+        versionMarkedFinalAt: target.producerMarkedFinalAt,
+        priorAudioDeletedAt: target.audioDeletedAt,
+        linkCreatedAt: currentLink?.createdAt ?? null,
+        linkEnabledAt: currentLink?.enabledAt ?? null,
+        linkDisabledAt: currentLink?.disabledAt ?? null,
+        linkUpdatedAt: currentLink?.updatedAt ?? null,
+        latestPublicEventAt: latestEvent?.createdAt ?? null,
+      });
       const [tombstoned] = await tx
         .update(trackVersions)
-        .set({ audioDeletedAt: input.deletedAt })
+        .set({ audioDeletedAt: effectiveDeletedAt })
         .where(
           and(
             eq(trackVersions.id, input.versionId),
@@ -794,7 +930,7 @@ export async function tombstoneStoredAudioVersion(
           );
         await tx
           .update(songPublicLinks)
-          .set({ disabledAt: input.deletedAt, updatedAt: input.deletedAt })
+          .set({ disabledAt: effectiveDeletedAt, updatedAt: effectiveDeletedAt })
           .where(
             and(
               eq(songPublicLinks.trackId, scope.trackId),
@@ -805,10 +941,36 @@ export async function tombstoneStoredAudioVersion(
           );
       }
 
+      const remainingAudioCount = storedVersions.length - 1;
+      const [auditEvent] = await tx
+        .insert(songPublicAccessEvents)
+        .values({
+          trackId: scope.trackId,
+          purchaseId: scope.purchaseId,
+          producerId: input.producerId,
+          linkId: currentLink?.id ?? null,
+          versionId: input.versionId,
+          action: "audio_deleted",
+          sequence: (latestEvent?.sequence ?? 0) + 1,
+          tokenVersion: currentLink?.tokenVersion ?? null,
+          tokenHash: currentLink?.tokenHash ?? null,
+          changed: true,
+          linkEnabled:
+            currentLink !== undefined && currentLink.disabledAt === null && remainingAudioCount > 0,
+          portfolioPublished: remainingAudioCount > 0 && track.portfolioPublishedAt !== null,
+          remainingAudioCount,
+          operationKey,
+          operationDigest,
+          changedByClerkUserId: actorClerkUserId,
+          createdAt: effectiveDeletedAt,
+        })
+        .returning({ id: songPublicAccessEvents.id });
+      if (!auditEvent) integrityError("The stored audio deletion audit event was not committed");
+
       await touchProject(tx, {
         producerId: input.producerId,
         projectId: scope.projectId,
-        changedAt: input.deletedAt,
+        changedAt: effectiveDeletedAt,
       });
     } else {
       // The policy was already authorized by the committed tombstone. Derive

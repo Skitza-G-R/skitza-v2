@@ -184,6 +184,7 @@ export async function completeMultipartAction(input: {
   trackVersionId: string;
   sizeBytes: number;
   completionToken: string;
+  acknowledgePublicExposure: boolean;
   durationMs?: number;
 }): Promise<ActionDataResult<{ url: string; key: string }>> {
   const c = await callerOrError();
@@ -196,6 +197,7 @@ export async function completeMultipartAction(input: {
       trackVersionId: input.trackVersionId,
       sizeBytes: input.sizeBytes,
       completionToken: input.completionToken,
+      acknowledgePublicExposure: input.acknowledgePublicExposure,
       ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
     });
     revalidatePath(CLIENTS_PROJECTS_PATH);

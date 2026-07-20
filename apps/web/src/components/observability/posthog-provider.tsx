@@ -2,9 +2,17 @@
 
 import posthog from "posthog-js";
 import { PostHogProvider as PHProvider, usePostHog } from "posthog-js/react";
+import * as Sentry from "@sentry/nextjs";
 import { useEffect, Suspense } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
+
+import {
+  filterCurrentBrowserPublicSongTelemetry,
+  isBrowserPublicSongListenPage,
+  isPublicSongListenPath,
+  redactPublicSongTelemetryString,
+} from "~/lib/observability/public-song-telemetry";
 
 // Client-side PostHog provider. Wraps the authenticated app tree at
 // the root layout. Handles:
@@ -25,7 +33,7 @@ const POSTHOG_KEY = process.env.NEXT_PUBLIC_POSTHOG_KEY;
 
 export function PostHogProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
-    if (!POSTHOG_KEY) return;
+    if (!POSTHOG_KEY || isBrowserPublicSongListenPage()) return;
     // Check idempotency — if already initialised (e.g. after a soft
     // nav in dev with HMR), skip re-init.
     if (typeof window !== "undefined" && !posthog.__loaded) {
@@ -46,6 +54,12 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
         // Reduce default-heavy payload. We can flip these on later
         // as the analytics needs grow.
         capture_pageleave: true,
+        // Public-song URLs are bearer authorities. This last-mile hook
+        // scrubs them from every event, including auto-capture events.
+        before_send: filterCurrentBrowserPublicSongTelemetry,
+        // Initial /listen loads skip init above. Keep recording disabled
+        // as a second guard if the location changes during initialization.
+        disable_session_recording: isBrowserPublicSongListenPage(),
       });
     }
   }, []);
@@ -71,10 +85,16 @@ function PostHogPageView() {
   const ph = usePostHog();
 
   useEffect(() => {
-    if (!POSTHOG_KEY || !pathname) return;
+    if (!pathname) return;
+    if (isPublicSongListenPath(pathname)) {
+      if (POSTHOG_KEY && posthog.__loaded) ph.stopSessionRecording();
+      void Sentry.getReplay()?.stop();
+      return;
+    }
+    if (!POSTHOG_KEY) return;
     const search = searchParams.toString();
     const url = search ? `${pathname}?${search}` : pathname;
-    ph.capture("$pageview", { $current_url: url });
+    ph.capture("$pageview", { $current_url: redactPublicSongTelemetryString(url) });
   }, [pathname, searchParams, ph]);
 
   return null;
@@ -88,9 +108,10 @@ function PostHogPageView() {
 function PostHogIdentify() {
   const { isLoaded, isSignedIn, user } = useUser();
   const ph = usePostHog();
+  const pathname = usePathname();
 
   useEffect(() => {
-    if (!POSTHOG_KEY || !isLoaded) return;
+    if (!POSTHOG_KEY || !isLoaded || isPublicSongListenPath(pathname)) return;
     if (isSignedIn) {
       ph.identify(user.id, {
         email: user.emailAddresses[0]?.emailAddress,
@@ -102,7 +123,7 @@ function PostHogIdentify() {
       // after this point are anonymous until the next identify().
       ph.reset();
     }
-  }, [isLoaded, isSignedIn, user, ph]);
+  }, [isLoaded, isSignedIn, user, ph, pathname]);
 
   return null;
 }

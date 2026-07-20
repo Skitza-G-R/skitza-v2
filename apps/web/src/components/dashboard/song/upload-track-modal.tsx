@@ -99,6 +99,8 @@ export interface UploadTrackModalTrack {
   title: string;
   /** Used to auto-bump the default version label (V{N+1}). */
   versionCount: number;
+  /** Public surfaces that will immediately resolve to this completed upload. */
+  publicExposure?: "none" | "link" | "portfolio" | "link_and_portfolio";
 }
 
 export interface UploadTrackModalProps {
@@ -205,6 +207,8 @@ export function UploadTrackModal({
   }, [derivedLabel, defaultLabel, labelTouched]);
 
   const isNewSong = selectedTrackId === NEW_SONG_VALUE;
+  const selectedPublicExposure =
+    tracks.find((track) => track.id === selectedTrackId)?.publicExposure ?? "none";
   const needsSongName = isNewSong && newSongName.trim().length === 0;
   const submitDisabled =
     pending ||
@@ -414,6 +418,7 @@ export function UploadTrackModal({
           trackVersionId: versionId,
           sizeBytes: submittedFile.size,
           completionToken,
+          acknowledgePublicExposure: selectedPublicExposure !== "none",
           ...(durationMs ? { durationMs } : {}),
         });
         if (!cres.ok) throw new Error(cres.error);
@@ -587,6 +592,22 @@ export function UploadTrackModal({
                 ) : null}
               </div>
             )}
+
+            {selectedPublicExposure !== "none" ? (
+              <div
+                role="status"
+                className="rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.3)] bg-[rgb(var(--brand-primary)/0.1)] px-3.5 py-3 text-[12.5px] leading-relaxed text-[rgb(var(--fg-default))]"
+              >
+                <span className="font-semibold">This song is public.</span> When this upload
+                finishes, the new version will appear on its{
+                  selectedPublicExposure === "link"
+                    ? " public link"
+                    : selectedPublicExposure === "portfolio"
+                      ? " portfolio"
+                      : " public link and portfolio"
+                } automatically.
+              </div>
+            ) : null}
 
             {/* ─── Version label ──────────────────────────────── */}
             <div>

@@ -19,6 +19,7 @@ import {
 import { deriveGradient } from "~/lib/clients/derive-gradient";
 import type { WorkflowStage } from "~/lib/clients/workflow-stage";
 import type { LinkPillState } from "~/components/dashboard/clients/link-pill";
+import { classifySongUploadPublicExposure } from "~/server/domain/song-publication/upload-exposure";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 // Phase 3 — Song Space server component for
@@ -83,6 +84,7 @@ export default async function SongDetail({ params, searchParams }: PageProps) {
   if (!track) {
     notFound();
   }
+  const sharing = await caller.songPublication.producerState({ trackId: track.id });
 
   // Parallel: sessions + contacts (for the LinkPill state).
   const [bookingsResult, clientsResult] = await Promise.allSettled([
@@ -182,6 +184,7 @@ export default async function SongDetail({ params, searchParams }: PageProps) {
     deadline,
     isOverdue,
     revisionCount: Math.max(0, songVersions.length - 1),
+    publicExposure: classifySongUploadPublicExposure(sharing),
   };
 
   const project: SongSpaceProject = {

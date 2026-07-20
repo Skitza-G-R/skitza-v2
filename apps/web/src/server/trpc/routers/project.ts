@@ -157,6 +157,9 @@ function mapSongManagementDomainError(error: unknown): never {
   if (error.code === "STORAGE_IDENTITY_MISMATCH") {
     throw new TRPCError({ code: "CONFLICT", message: error.message });
   }
+  if (error.code === "OPERATION_KEY_CONFLICT") {
+    throw new TRPCError({ code: "CONFLICT", message: error.message });
+  }
   throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message });
 }
 
@@ -1110,11 +1113,13 @@ export const projectRouter = router({
     .input(
       z.object({
         versionId: z.string().uuid(),
+        operationKey: z.string().uuid(),
         confirmation: z.literal("DELETE_STORED_AUDIO"),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       try {
+        if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED" });
         // Commit the tombstone, playback fallback, portfolio retarget, and
         // public-link consequence first. From this point every application
         // read is revoked even if the exact R2 reconciliation must be retried.
@@ -1122,6 +1127,8 @@ export const projectRouter = router({
           producerId: ctx.producerId,
           versionId: input.versionId,
           deletedAt: new Date(),
+          actorClerkUserId: ctx.userId,
+          operationKey: input.operationKey,
         });
         const storage = await reconcileExactStoredAudioDeletion(
           r2ExactAudioStoragePort(),

@@ -8,6 +8,7 @@ export type SongManagementDomainErrorCode =
   | "INVALID_INPUT"
   | "NOT_FOUND"
   | "AUDIO_PROTECTED"
+  | "OPERATION_KEY_CONFLICT"
   | "INTEGRITY_ERROR"
   | "STORAGE_IDENTITY_MISMATCH"
   | "STORAGE_UNCERTAIN";
@@ -96,6 +97,55 @@ export function planSongArchiveChange(
   return input.currentArchivedAt === null
     ? { changed: false, nextArchivedAt: null }
     : { changed: true, nextArchivedAt: null };
+}
+
+/**
+ * A command timestamp can be captured before it waits for the per-song lock.
+ * Keep committed lifecycle timestamps monotonic even when an older request
+ * acquires that lock after a newer publication or deletion command.
+ */
+export function monotonicStoredAudioDeletionTime(
+  input: Readonly<{
+    requestedAt: Date;
+    projectUpdatedAt: Date;
+    songReleasedAt: Date | null;
+    songArchivedAt: Date | null;
+    portfolioPublishedAt: Date | null;
+    versionUploadedAt: Date;
+    versionMarkedFinalAt: Date | null;
+    priorAudioDeletedAt: Date | null;
+    linkCreatedAt: Date | null;
+    linkEnabledAt: Date | null;
+    linkDisabledAt: Date | null;
+    linkUpdatedAt: Date | null;
+    latestPublicEventAt: Date | null;
+  }>,
+): Date {
+  if (!isValidDate(input.requestedAt)) invalidInput("Stored audio deletion time must be valid");
+
+  const priorCommittedTimes = [
+    input.projectUpdatedAt,
+    input.songReleasedAt,
+    input.songArchivedAt,
+    input.portfolioPublishedAt,
+    input.versionUploadedAt,
+    input.versionMarkedFinalAt,
+    input.priorAudioDeletedAt,
+    input.linkCreatedAt,
+    input.linkEnabledAt,
+    input.linkDisabledAt,
+    input.linkUpdatedAt,
+    input.latestPublicEventAt,
+  ];
+  let effectiveTime = input.requestedAt.getTime();
+  for (const priorTime of priorCommittedTimes) {
+    if (priorTime === null) continue;
+    if (!isValidDate(priorTime)) {
+      integrityError("A stored public-audio lifecycle timestamp is invalid");
+    }
+    effectiveTime = Math.max(effectiveTime, priorTime.getTime());
+  }
+  return new Date(effectiveTime);
 }
 
 export type StoredAudioDeletionCandidate = Readonly<{
@@ -266,6 +316,29 @@ export function computeStoredAudioIdentityFingerprint(
     encodePart(input.sizeBytes.toString()),
   ].join("|");
   return `sha256:${createHash("sha256").update(canonicalIdentity, "utf8").digest("hex")}`;
+}
+
+/** Stable command identity for intent-idempotent stored-audio deletion audit events. */
+export function storedAudioDeletionOperationDigest(
+  input: Readonly<{
+    producerId: string;
+    trackId: string;
+    purchaseId: string;
+    versionId: string;
+    actorClerkUserId: string;
+  }>,
+): string {
+  const encodePart = (value: string): string =>
+    `${Buffer.byteLength(value, "utf8").toString()}:${value}`;
+  const canonicalIntent = [
+    "skitza-stored-audio-deletion-v1",
+    encodePart(input.producerId),
+    encodePart(input.trackId),
+    encodePart(input.purchaseId),
+    encodePart(input.versionId),
+    encodePart(input.actorClerkUserId),
+  ].join("|");
+  return `sha256:${createHash("sha256").update(canonicalIntent, "utf8").digest("hex")}`;
 }
 
 /**

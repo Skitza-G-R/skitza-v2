@@ -95,13 +95,17 @@ export function resolveLegacyRedirect(pathname: string): string | null {
 // and only delegate to Clerk when access is allowed.
 const ACCESS_COOKIE = "skitza-access";
 
-function isAccessGated(pathname: string): boolean {
+export function isAccessGated(pathname: string): boolean {
   // API + tRPC routes are excluded so server-to-server callers and webhooks
   // (Clerk, Stripe, Resend) keep working without the token.
   if (pathname.startsWith("/api/") || pathname === "/api") return false;
   if (pathname.startsWith("/trpc/") || pathname === "/trpc") return false;
   // /get-started is the public funnel entry — always reachable without the gate.
   if (pathname === "/get-started" || pathname.startsWith("/get-started/")) return false;
+  // Producer-published song URLs are intentionally guest-listenable. The
+  // unguessable, resettable song token is the authorization boundary; the
+  // pre-launch site gate must never turn a live share into a private app URL.
+  if (pathname === "/listen" || pathname.startsWith("/listen/")) return false;
   return true;
 }
 

@@ -12,8 +12,7 @@ export type ActionResult = { ok: true } | { ok: false; error: string };
 const PORTFOLIO_PATH = "/dashboard/portfolio";
 
 async function callerOrError(): Promise<
-  | { ok: true; caller: ReturnType<typeof appRouter.createCaller> }
-  | { ok: false; error: string }
+  { ok: true; caller: ReturnType<typeof appRouter.createCaller> } | { ok: false; error: string }
 > {
   const { userId } = await auth();
   if (!userId) return { ok: false, error: "Please sign in to continue." };
@@ -46,56 +45,17 @@ function toMessage(err: unknown): string {
   return err instanceof Error ? err.message : "Something went wrong.";
 }
 
-export async function addPortfolioFromLibrary(input: {
-  versionId: string;
+export async function setPortfolioSongPublished(input: {
+  trackId: string;
+  operationKey: string;
+  published: boolean;
 }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    await c.caller.portfolio.createFromVersion({ versionId: input.versionId });
+    await c.caller.songPublication.setPortfolioPublic(input);
     revalidatePath(PORTFOLIO_PATH);
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: toMessage(err) };
-  }
-}
-
-// Inline-edit the title and/or artist on a portfolio row. We omit
-// fields the producer didn't change so the partial schema on
-// portfolio.update leaves them untouched. Passing an empty-string
-// artist is intentional for "clear the credit line" — the DB column
-// is nullable but the existing zod schema only takes string|undefined,
-// so empty-string is the closest representation. The render path
-// already treats "" as falsy so a cleared artist disappears from the
-// row visually.
-export async function updatePortfolioTrack(input: {
-  id: string;
-  title?: string;
-  artist?: string;
-}): Promise<ActionResult> {
-  const c = await callerOrError();
-  if (!c.ok) return c;
-  try {
-    await c.caller.portfolio.update({
-      id: input.id,
-      ...(input.title !== undefined ? { title: input.title } : {}),
-      ...(input.artist !== undefined ? { artist: input.artist } : {}),
-    });
-    revalidatePath(PORTFOLIO_PATH);
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: toMessage(err) };
-  }
-}
-
-export async function deletePortfolioTrack(input: {
-  id: string;
-}): Promise<ActionResult> {
-  const c = await callerOrError();
-  if (!c.ok) return c;
-  try {
-    await c.caller.portfolio.delete({ id: input.id });
-    revalidatePath(PORTFOLIO_PATH);
+    revalidatePath("/join/[slug]", "page");
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
@@ -113,9 +73,7 @@ export type ExternalPlatformValue =
 
 // Smart-paste add: the server detects the platform from the URL itself
 // (see ~/lib/external-links/detect-platform).
-export async function addExternalLink(input: {
-  url: string;
-}): Promise<ActionResult> {
+export async function addExternalLink(input: { url: string }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
@@ -131,9 +89,7 @@ export async function addExternalLink(input: {
 // order (typically the result of an adjacent-swap from ▲/▼ click); the
 // existing producerExternalLinks.reorder mutation maps each id → its
 // index inside one Promise.all, scoped by producer.
-export async function reorderExternalLinks(input: {
-  orderedIds: string[];
-}): Promise<ActionResult> {
+export async function reorderExternalLinks(input: { orderedIds: string[] }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
@@ -147,25 +103,7 @@ export async function reorderExternalLinks(input: {
   }
 }
 
-// Bulk-reorder the producer's featured portfolio tracks. Same shape
-// and contract as reorderExternalLinks above.
-export async function reorderPortfolioTracks(input: {
-  orderedIds: string[];
-}): Promise<ActionResult> {
-  const c = await callerOrError();
-  if (!c.ok) return c;
-  try {
-    await c.caller.portfolio.reorder({ orderedIds: input.orderedIds });
-    revalidatePath(PORTFOLIO_PATH);
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: toMessage(err) };
-  }
-}
-
-export async function removeExternalLink(input: {
-  id: string;
-}): Promise<ActionResult> {
+export async function removeExternalLink(input: { id: string }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {

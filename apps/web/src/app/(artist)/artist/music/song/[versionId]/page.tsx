@@ -3,9 +3,16 @@ import { TRPCError } from "@trpc/server";
 import { notFound } from "next/navigation";
 
 import { SongPage, type SongPageData } from "~/components/music/song-page";
+import type { SongPublicSharingView } from "~/components/music/song-public-link-controls";
+import { PUBLIC_BRAND_ORIGIN } from "~/lib/share/public-url";
 import { appRouter } from "~/server/trpc/routers/_app";
 
-import { l3AddComment, l3ApproveVersion, l3ResolveComment } from "./actions";
+import {
+  l3AddComment,
+  l3ApproveVersion,
+  l3ResolveComment,
+  refreshArtistPublicSongLink,
+} from "./actions";
 
 type PageProps = { params: Promise<{ versionId: string }> };
 
@@ -47,6 +54,21 @@ export default async function ArtistSongPage({ params }: PageProps) {
       notFound();
     }
     throw e;
+  }
+
+  let publicSharing: SongPublicSharingView | undefined;
+  try {
+    const sharing = await caller.songPublication.artistState({ trackId: data.track.id });
+    publicSharing = {
+      trackId: sharing.trackId,
+      linkEnabled: sharing.linkEnabled,
+      portfolioPublished: sharing.portfolioPublished,
+      remainingAudioCount: sharing.remainingAudioCount,
+      tokenVersion: sharing.tokenVersion,
+      publicUrl: sharing.publicUrl ? `${PUBLIC_BRAND_ORIGIN}${sharing.publicUrl}` : null,
+    };
+  } catch (error) {
+    if (!(error instanceof TRPCError) || error.code !== "NOT_FOUND") throw error;
   }
 
   // Cross the RSC → client boundary as plain JSON (Date → ISO).
@@ -99,6 +121,8 @@ export default async function ArtistSongPage({ params }: PageProps) {
       <SongPage
         data={wire}
         role="artist"
+        {...(publicSharing ? { publicSharing } : {})}
+        {...(publicSharing ? { publicSharingRefresh: refreshArtistPublicSongLink } : {})}
         actions={{
           addComment: l3AddComment,
           resolveComment: l3ResolveComment,

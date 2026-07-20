@@ -32,7 +32,8 @@ type TestTable =
   | "project_tracks"
   | "track_versions"
   | "portfolio_tracks"
-  | "song_public_links";
+  | "song_public_links"
+  | "song_public_access_events";
 
 function assertValidTestSchema(): void {
   if (!/^sk8_[a-f0-9]{32}$/.test(testSchema)) {
@@ -212,6 +213,28 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
         "created_at" timestamptz not null,
         "updated_at" timestamptz not null
       )`,
+      `create table ${schema}."song_public_access_events" (
+        "id" uuid primary key default gen_random_uuid(),
+        "track_id" uuid not null,
+        "purchase_id" uuid not null,
+        "producer_id" uuid not null,
+        "link_id" uuid,
+        "version_id" uuid,
+        "action" text not null,
+        "sequence" integer not null,
+        "token_version" integer,
+        "token_hash" text,
+        "changed" boolean not null default false,
+        "link_enabled" boolean not null,
+        "portfolio_published" boolean not null,
+        "remaining_audio_count" integer not null,
+        "operation_key" text not null,
+        "operation_digest" text not null,
+        "changed_by_clerk_user_id" text not null,
+        "created_at" timestamptz not null default now(),
+        unique ("track_id", "sequence"),
+        unique ("track_id", "operation_key")
+      )`,
     ];
     for (const statement of statements) {
       await activeAdminDb().execute(sql.raw(statement));
@@ -230,6 +253,13 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
       values (${producerId})
     `);
     return producerId;
+  }
+
+  function deletionAuditInput(operationKey = randomUUID()): Readonly<{
+    actorClerkUserId: string;
+    operationKey: string;
+  }> {
+    return { actorClerkUserId: "user_song_management_test", operationKey };
   }
 
   async function createSong(
@@ -359,7 +389,8 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
           "disabled_at", "created_at", "updated_at"
         )
       values (
-        ${id}, ${song.trackId}, ${song.purchaseId}, ${song.producerId}, ${randomUUID()},
+        ${id}, ${song.trackId}, ${song.purchaseId}, ${song.producerId},
+        ${`sha256:${id.replaceAll("-", "").padEnd(64, "0")}`},
         ${enabledAt}, ${null}, ${enabledAt}, ${enabledAt}
       )
     `);
@@ -606,6 +637,7 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
         releasedAt,
       }),
       tombstoneStoredAudioVersion(activeTransactionDbB(), {
+        ...deletionAuditInput(),
         producerId: song.producerId,
         versionId: version.id,
         deletedAt,
@@ -684,6 +716,7 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
     ).rejects.toMatchObject({ code: "INVALID_INPUT" });
 
     await tombstoneStoredAudioVersion(activeTransactionDbA(), {
+      ...deletionAuditInput(),
       producerId: song.producerId,
       versionId: version.id,
       deletedAt: new Date("2026-07-10T08:00:00.000Z"),
@@ -735,6 +768,7 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
         versionId: version.id,
       }),
       tombstoneStoredAudioVersion(activeTransactionDbB(), {
+        ...deletionAuditInput(),
         producerId: song.producerId,
         versionId: version.id,
         deletedAt: new Date("2026-07-10T08:00:00.000Z"),
@@ -785,6 +819,7 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
 
     await expect(
       tombstoneStoredAudioVersion(activeTransactionDbA(), {
+        ...deletionAuditInput(),
         producerId: song.producerId,
         versionId: current.id,
         deletedAt: new Date("2026-07-10T08:00:00.000Z"),
@@ -792,6 +827,7 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
     ).rejects.toMatchObject({ code: "AUDIO_PROTECTED" });
     await expect(
       tombstoneStoredAudioVersion(activeTransactionDbA(), {
+        ...deletionAuditInput(),
         producerId: song.producerId,
         versionId: producerFinal.id,
         deletedAt: new Date("2026-07-10T08:00:00.000Z"),
@@ -799,6 +835,7 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
     ).rejects.toMatchObject({ code: "AUDIO_PROTECTED" });
     await expect(
       tombstoneStoredAudioVersion(activeTransactionDbA(), {
+        ...deletionAuditInput(),
         producerId: onlySong.producerId,
         versionId: only.id,
         deletedAt: new Date("2026-07-10T08:00:00.000Z"),
@@ -836,10 +873,12 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
       peaksR2Key: "peaks/newer.json",
     });
     const portfolioId = await publishPortfolioCopy(song, newer);
-    await enablePublicLink(song);
+    const publicLinkId = await enablePublicLink(song);
     const firstDeletedAt = new Date("2026-07-11T08:00:00.000Z");
+    const firstDeleteOperationKey = randomUUID();
 
     const first = await tombstoneStoredAudioVersion(activeTransactionDbA(), {
+      ...deletionAuditInput(firstDeleteOperationKey),
       producerId: song.producerId,
       versionId: newer.id,
       deletedAt: firstDeletedAt,
@@ -884,7 +923,17 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
     `);
     expect(activeLink.rows[0]?.disabled_at).toBeNull();
 
+    await expect(
+      tombstoneStoredAudioVersion(activeTransactionDbA(), {
+        ...deletionAuditInput(firstDeleteOperationKey),
+        producerId: song.producerId,
+        versionId: older.id,
+        deletedAt: new Date("2026-07-11T09:00:00.000Z"),
+      }),
+    ).rejects.toMatchObject({ code: "OPERATION_KEY_CONFLICT" });
+
     const retry = await tombstoneStoredAudioVersion(activeTransactionDbA(), {
+      ...deletionAuditInput(firstDeleteOperationKey),
       producerId: song.producerId,
       versionId: newer.id,
       deletedAt: new Date("2026-07-12T08:00:00.000Z"),
@@ -907,6 +956,7 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
 
     const lastDeletedAt = new Date("2026-07-13T08:00:00.000Z");
     const last = await tombstoneStoredAudioVersion(activeTransactionDbA(), {
+      ...deletionAuditInput(),
       producerId: song.producerId,
       versionId: older.id,
       deletedAt: lastDeletedAt,
@@ -955,6 +1005,113 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
     ).toBe(true);
     expect(timestamp(disabled.rows[0]?.disabled_at ?? null)).toBe(lastDeletedAt.getTime());
     expect(disabled.rows[0]?.portfolio_published_at).toBeNull();
+
+    const auditEvents = await activeAdminDb().execute<{
+      sequence: number;
+      link_id: string | null;
+      version_id: string | null;
+      action: string;
+      token_version: number | null;
+      token_hash: string | null;
+      changed: boolean;
+      link_enabled: boolean;
+      portfolio_published: boolean;
+      remaining_audio_count: number;
+      operation_digest: string;
+    }>(sql`
+      select
+        "sequence", "link_id", "version_id", "action", "token_version", "token_hash",
+        "changed", "link_enabled", "portfolio_published", "remaining_audio_count",
+        "operation_digest"
+      from ${sql.raw(qualifiedTestTable("song_public_access_events"))}
+      where "track_id" = ${song.trackId}
+      order by "sequence"
+    `);
+    expect(auditEvents.rows).toHaveLength(2);
+    expect(auditEvents.rows[0]).toMatchObject({
+      sequence: 1,
+      link_id: publicLinkId,
+      version_id: newer.id,
+      action: "audio_deleted",
+      token_version: 1,
+      changed: true,
+      link_enabled: true,
+      portfolio_published: true,
+      remaining_audio_count: 1,
+    });
+    expect(auditEvents.rows[1]).toMatchObject({
+      sequence: 2,
+      link_id: publicLinkId,
+      version_id: older.id,
+      action: "audio_deleted",
+      token_version: 1,
+      changed: true,
+      link_enabled: false,
+      portfolio_published: false,
+      remaining_audio_count: 0,
+    });
+    expect(auditEvents.rows[0]?.token_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(auditEvents.rows[0]?.operation_digest).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(auditEvents.rows[1]?.operation_digest).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(auditEvents.rows[1]?.operation_digest).not.toBe(auditEvents.rows[0]?.operation_digest);
+  }, 30_000);
+
+  it("disables public surfaces when only a noncanonical completed row remains", async () => {
+    const song = await createSong({
+      releasedAt: new Date("2026-07-10T08:00:00.000Z"),
+      portfolioPublishedAt: new Date("2026-07-10T08:01:00.000Z"),
+    });
+    const canonical = await createStoredVersion(song, {
+      label: "Deliverable",
+      uploadedAt: new Date("2026-07-11T08:00:00.000Z"),
+    });
+    const noncanonical = await createStoredVersion(song, {
+      label: "Corrupt completed row",
+      uploadedAt: new Date("2026-07-12T08:00:00.000Z"),
+    });
+    await activeAdminDb().execute(sql`
+      update ${sql.raw(qualifiedTestTable("track_versions"))}
+      set "audio_url" = ${privateVersionStreamPath(canonical.id)}
+      where "id" = ${noncanonical.id}
+    `);
+    await enablePublicLink(song);
+
+    const deletedAt = new Date("2026-07-13T08:00:00.000Z");
+    const deleted = await tombstoneStoredAudioVersion(activeTransactionDbA(), {
+      ...deletionAuditInput(),
+      producerId: song.producerId,
+      versionId: canonical.id,
+      deletedAt,
+    });
+
+    expect(deleted).toMatchObject({
+      wasLastStoredAudio: true,
+      nextPlaybackVersionId: null,
+    });
+    const lifecycle = await activeAdminDb().execute<{
+      disabled_at: DbDate | null;
+      portfolio_published_at: DbDate | null;
+      remaining_audio_count: number;
+      link_enabled: boolean;
+      portfolio_published: boolean;
+    }>(sql`
+      select
+        l."disabled_at", t."portfolio_published_at", e."remaining_audio_count",
+        e."link_enabled", e."portfolio_published"
+      from ${sql.raw(qualifiedTestTable("song_public_links"))} l
+      inner join ${sql.raw(qualifiedTestTable("project_tracks"))} t
+        on t."id" = l."track_id"
+      inner join ${sql.raw(qualifiedTestTable("song_public_access_events"))} e
+        on e."track_id" = t."id"
+      where t."id" = ${song.trackId} and e."version_id" = ${canonical.id}
+    `);
+    expect(timestamp(lifecycle.rows[0]?.disabled_at ?? null)).toBe(deletedAt.getTime());
+    expect(lifecycle.rows[0]).toMatchObject({
+      portfolio_published_at: null,
+      remaining_audio_count: 0,
+      link_enabled: false,
+      portfolio_published: false,
+    });
   }, 30_000);
 
   it("serializes final selection against stored-audio deletion", async () => {
@@ -970,6 +1127,7 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
 
     const outcomes = await Promise.allSettled([
       tombstoneStoredAudioVersion(activeTransactionDbA(), {
+        ...deletionAuditInput(),
         producerId: song.producerId,
         versionId: target.id,
         deletedAt: new Date("2026-07-14T08:00:00.000Z"),

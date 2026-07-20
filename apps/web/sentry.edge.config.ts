@@ -1,5 +1,7 @@
 import * as Sentry from "@sentry/nextjs";
 
+import { redactPublicSongTelemetry } from "./src/lib/observability/public-song-telemetry";
+
 // Edge-runtime Sentry init. Loaded from `instrumentation.ts` via
 // dynamic import when NEXT_RUNTIME === "edge". Covers middleware
 // (apps/web/src/middleware.ts) and any route handlers we move to
@@ -13,6 +15,12 @@ if (dsn) {
   Sentry.init({
     dsn,
     sendDefaultPii: true,
+    beforeSend: redactPublicSongTelemetry,
+    beforeSendTransaction: redactPublicSongTelemetry,
+    beforeSendSpan: redactPublicSongTelemetry,
+    beforeBreadcrumb: redactPublicSongTelemetry,
+    beforeSendLog: redactPublicSongTelemetry,
+    beforeSendMetric: redactPublicSongTelemetry,
     tracesSampleRate: process.env.NODE_ENV === "development" ? 1.0 : 0.1,
     environment: process.env.VERCEL_ENV || process.env.NODE_ENV,
   });

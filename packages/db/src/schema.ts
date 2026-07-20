@@ -685,6 +685,9 @@ export const projectTracks = pgTable(
       name: "project_tracks_purchase_project_fk",
     }).onDelete("restrict"),
     purchasePositionIdx: index("project_tracks_purchase_position_idx").on(t.purchaseId, t.position),
+    projectPortfolioPublishedIdx: index("project_tracks_project_portfolio_published_idx")
+      .on(t.projectId, t.portfolioPublishedAt.desc(), t.id)
+      .where(sql`${t.portfolioPublishedAt} IS NOT NULL`),
   }),
 );
 export type ProjectTrack = typeof projectTracks.$inferSelect;
@@ -772,6 +775,12 @@ export const trackVersions = pgTable(
   (t) => ({
     idPurchaseUnique: unique("track_versions_id_purchase_unique").on(t.id, t.purchaseId),
     idProducerUnique: unique("track_versions_id_producer_unique").on(t.id, t.producerId),
+    exactScopeUnique: unique("track_versions_id_track_purchase_producer_unique").on(
+      t.id,
+      t.trackId,
+      t.purchaseId,
+      t.producerId,
+    ),
     audioIdentityUnique: unique("track_versions_audio_identity_unique").on(
       t.id,
       t.purchaseId,
@@ -794,6 +803,9 @@ export const trackVersions = pgTable(
       t.purchaseId,
       t.uploadedAt,
     ),
+    trackLiveUploadedIdx: index("track_versions_track_live_uploaded_idx")
+      .on(t.trackId, t.uploadedAt.desc(), t.id.desc())
+      .where(sql`${t.audioDeletedAt} IS NULL AND ${t.audioUrl} IS NOT NULL`),
     audioIdentityShape: check(
       "track_versions_audio_identity_shape",
       sql`(
@@ -2366,6 +2378,12 @@ export const songPublicLinks = pgTable(
   },
   (t) => ({
     trackUnique: unique("song_public_links_track_unique").on(t.trackId),
+    exactScopeUnique: unique("song_public_links_exact_scope_unique").on(
+      t.id,
+      t.trackId,
+      t.purchaseId,
+      t.producerId,
+    ),
     trackPurchaseFk: foreignKey({
       columns: [t.trackId, t.purchaseId],
       foreignColumns: [projectTracks.id, projectTracks.purchaseId],
@@ -2376,5 +2394,116 @@ export const songPublicLinks = pgTable(
       foreignColumns: [purchases.id, purchases.producerId],
       name: "song_public_links_purchase_producer_fk",
     }).onDelete("restrict"),
+    positiveTokenVersion: check(
+      "song_public_links_positive_token_version",
+      sql`${t.tokenVersion} > 0`,
+    ),
+    tokenHashShape: check(
+      "song_public_links_token_hash_shape",
+      sql`${t.tokenHash} ~ '^sha256:[0-9a-f]{64}$'`,
+    ),
+    timestampShape: check(
+      "song_public_links_timestamp_shape",
+      sql`${t.updatedAt} >= ${t.enabledAt} AND (${t.disabledAt} IS NULL OR (${t.disabledAt} >= ${t.enabledAt} AND ${t.updatedAt} >= ${t.disabledAt}))`,
+    ),
   }),
 );
+
+export const songPublicAccessEvents = pgTable(
+  "song_public_access_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    trackId: uuid("track_id").notNull(),
+    purchaseId: uuid("purchase_id").notNull(),
+    producerId: uuid("producer_id").notNull(),
+    linkId: uuid("link_id"),
+    versionId: uuid("version_id"),
+    action: text("action").notNull(),
+    sequence: integer("sequence").notNull(),
+    tokenVersion: integer("token_version"),
+    tokenHash: text("token_hash"),
+    changed: boolean("changed").notNull().default(false),
+    linkEnabled: boolean("link_enabled").notNull(),
+    portfolioPublished: boolean("portfolio_published").notNull(),
+    remainingAudioCount: integer("remaining_audio_count").notNull(),
+    operationKey: text("operation_key").notNull(),
+    operationDigest: text("operation_digest").notNull(),
+    changedByClerkUserId: text("changed_by_clerk_user_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    trackSequenceUnique: unique("song_public_access_events_track_sequence_unique").on(
+      t.trackId,
+      t.sequence,
+    ),
+    trackOperationUnique: unique("song_public_access_events_track_operation_unique").on(
+      t.trackId,
+      t.operationKey,
+    ),
+    trackPurchaseFk: foreignKey({
+      columns: [t.trackId, t.purchaseId],
+      foreignColumns: [projectTracks.id, projectTracks.purchaseId],
+      name: "song_public_access_events_track_purchase_fk",
+    }).onDelete("restrict"),
+    purchaseProducerFk: foreignKey({
+      columns: [t.purchaseId, t.producerId],
+      foreignColumns: [purchases.id, purchases.producerId],
+      name: "song_public_access_events_purchase_producer_fk",
+    }).onDelete("restrict"),
+    linkScopeFk: foreignKey({
+      columns: [t.linkId, t.trackId, t.purchaseId, t.producerId],
+      foreignColumns: [
+        songPublicLinks.id,
+        songPublicLinks.trackId,
+        songPublicLinks.purchaseId,
+        songPublicLinks.producerId,
+      ],
+      name: "song_public_access_events_link_scope_fk",
+    }).onDelete("restrict"),
+    versionScopeFk: foreignKey({
+      columns: [t.versionId, t.trackId, t.purchaseId, t.producerId],
+      foreignColumns: [
+        trackVersions.id,
+        trackVersions.trackId,
+        trackVersions.purchaseId,
+        trackVersions.producerId,
+      ],
+      name: "song_public_access_events_version_scope_fk",
+    }).onDelete("restrict"),
+    actionShape: check(
+      "song_public_access_events_action_shape",
+      sql`${t.action} IN ('link_published', 'link_reset', 'link_disabled', 'audio_deleted', 'portfolio_published', 'portfolio_unpublished')`,
+    ),
+    positiveSequence: check("song_public_access_events_positive_sequence", sql`${t.sequence} > 0`),
+    tokenSnapshotShape: check(
+      "song_public_access_events_token_snapshot_shape",
+      sql`(${t.tokenVersion} IS NULL AND ${t.tokenHash} IS NULL) OR (${t.tokenVersion} > 0 AND ${t.tokenHash} ~ '^sha256:[0-9a-f]{64}$')`,
+    ),
+    linkSnapshotShape: check(
+      "song_public_access_events_link_snapshot_shape",
+      sql`(${t.linkId} IS NULL AND ${t.tokenVersion} IS NULL AND ${t.tokenHash} IS NULL AND ${t.linkEnabled} = false) OR (${t.linkId} IS NOT NULL AND ${t.tokenVersion} IS NOT NULL AND ${t.tokenHash} IS NOT NULL)`,
+    ),
+    targetShape: check(
+      "song_public_access_events_target_shape",
+      sql`((${t.action} IN ('link_published', 'link_reset', 'link_disabled') AND ${t.linkId} IS NOT NULL AND ${t.versionId} IS NULL) OR (${t.action} = 'audio_deleted' AND ${t.versionId} IS NOT NULL) OR (${t.action} IN ('portfolio_published', 'portfolio_unpublished') AND ${t.versionId} IS NULL))`,
+    ),
+    nonnegativeRemainingAudio: check(
+      "song_public_access_events_remaining_audio_nonnegative",
+      sql`${t.remainingAudioCount} >= 0`,
+    ),
+    operationShape: check(
+      "song_public_access_events_operation_shape",
+      sql`NULLIF(btrim(${t.operationKey}), '') IS NOT NULL AND NULLIF(btrim(${t.operationDigest}), '') IS NOT NULL`,
+    ),
+    actorShape: check(
+      "song_public_access_events_actor_shape",
+      sql`NULLIF(btrim(${t.changedByClerkUserId}), '') IS NOT NULL`,
+    ),
+    trackSequenceIdx: index("song_public_access_events_track_sequence_idx").on(
+      t.trackId,
+      t.sequence,
+    ),
+  }),
+);
+export type SongPublicAccessEvent = typeof songPublicAccessEvents.$inferSelect;
+export type NewSongPublicAccessEvent = typeof songPublicAccessEvents.$inferInsert;

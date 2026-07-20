@@ -50,6 +50,7 @@ import { deriveGradient } from "~/lib/clients/derive-gradient";
 import { UploadModalDevScreen } from "~/components/dev/upload-modal-dev-screen";
 import { Sk75ProofFlowDevScreen } from "~/components/dev/sk75-proof-flow-dev-screen";
 import { Sk69PaymentsDevScreen } from "~/components/dev/sk69-payments-dev-screen";
+import { PublicSongPlayer } from "~/components/public-song/public-song-player";
 import { CLIENT_ARCHIVE_BLOCKED_MESSAGE } from "~/server/domain/client-management/service";
 
 const DEV_REQUEST_ID = "00000000-0000-4000-8000-000000000001";
@@ -306,6 +307,7 @@ function ProjectSpaceDevPreview({
           deadline: "Jul 28",
           isOverdue: false,
           revisionCount: 2,
+          publicExposure: "link_and_portfolio",
         }}
         project={{ id: "project-lior", name: "Full production" }}
         actionProject={{
@@ -527,8 +529,14 @@ function Sk8LibraryDevPreview() {
   return <Sk8LibraryDevScreen tracks={DEV_SK8_LIBRARY_TRACKS} />;
 }
 
-function Sk8SongDevPreview({ archived }: { archived: boolean }) {
-  return <Sk8SongDevScreen archived={archived} />;
+function Sk8SongDevPreview({
+  archived,
+  role = "producer",
+}: {
+  archived: boolean;
+  role?: "producer" | "artist";
+}) {
+  return <Sk8SongDevScreen archived={archived} role={role} />;
 }
 
 function Sk94ApprovalDevPreview({
@@ -953,6 +961,35 @@ export default async function DevScreenPage({ params }: Params) {
       return <Sk8SongDevPreview archived={false} />;
     case "sk8-song-archived":
       return <Sk8SongDevPreview archived />;
+    case "sk98-artist-song":
+      return <Sk8SongDevPreview archived={false} role="artist" />;
+    case "sk98-public-song":
+      return (
+        <PublicSongPlayer
+          songTitle="Neon Afterglow"
+          artist="Maya Cohen"
+          producerName="Studio Gili"
+          producerLogoUrl={null}
+          versions={[
+            {
+              id: "00000000-0000-4000-8000-000000000103",
+              label: "Final master",
+              audioUrl: "/icon",
+              durationMs: 214_000,
+              uploadedAtIso: "2026-07-20T12:00:00.000Z",
+              peaks: [0.18, 0.42, 0.76, 0.51, 0.9, 0.62, 0.35, 0.71],
+            },
+            {
+              id: "00000000-0000-4000-8000-000000000102",
+              label: "Mix v2",
+              audioUrl: "/icon",
+              durationMs: 212_000,
+              uploadedAtIso: "2026-07-18T15:00:00.000Z",
+              peaks: [0.12, 0.36, 0.65, 0.44, 0.81, 0.57, 0.3, 0.63],
+            },
+          ]}
+        />
+      );
     case "sk94-producer-approved":
       return <Sk94ApprovalDevPreview role="producer" state="approved" />;
     case "sk94-producer-reopened":

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveLegacyRedirect } from "./middleware";
+import { isAccessGated, resolveLegacyRedirect } from "./middleware";
 
 // The pure `resolveLegacyRedirect` operates on pathname only; query-string
 // preservation on the 301 response is handled in the `clerkMiddleware`
@@ -36,5 +36,20 @@ describe("resolveLegacyRedirect", () => {
     expect(resolveLegacyRedirect("/dashboard/contracts/abc-123")).toBe("/dashboard");
     expect(resolveLegacyRedirect("/dashboard/leads/xyz")).toBe("/dashboard");
     expect(resolveLegacyRedirect("/dashboard/clients/zzz")).toBe("/dashboard");
+  });
+});
+
+describe("pre-launch access gate", () => {
+  it.each(["/listen", "/listen/live-song-token"])(
+    "keeps producer-published guest listening public: %s",
+    (pathname) => {
+      expect(isAccessGated(pathname)).toBe(false);
+    },
+  );
+
+  it("does not broaden the exemption to lookalike or authenticated paths", () => {
+    expect(isAccessGated("/listener/live-song-token")).toBe(true);
+    expect(isAccessGated("/listen-private/live-song-token")).toBe(true);
+    expect(isAccessGated("/dashboard/music/song-id")).toBe(true);
   });
 });

@@ -17,6 +17,12 @@ import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-contex
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 
 import { SongManagementDialog, type SongManagementDialogConfig } from "./song-management-dialog";
+import {
+  SongPublicLinkControls,
+  type SongPublicSharingActions,
+  type SongPublicSharingRefresh,
+  type SongPublicSharingView,
+} from "./song-public-link-controls";
 
 // Server actions are passed in as props (see SongPage signature
 // below) rather than imported by a relative path. This is the seam
@@ -91,6 +97,7 @@ export type L3Actions = {
   deleteVersionAudio?: (input: {
     projectId: string;
     versionId: string;
+    operationKey: string;
   }) => Promise<MusicL3DeleteAudioActionResult>;
 };
 
@@ -389,10 +396,16 @@ export function SongPage({
   data,
   role = "producer",
   actions,
+  publicSharing,
+  publicSharingActions,
+  publicSharingRefresh,
 }: {
   data: SongPageData;
   role?: SongPageRole;
   actions: L3Actions;
+  publicSharing?: SongPublicSharingView;
+  publicSharingActions?: SongPublicSharingActions;
+  publicSharingRefresh?: SongPublicSharingRefresh;
 }) {
   const [songTitleOverride, setSongTitleOverride] = useState<string | undefined>();
   const [artistOverride, setArtistOverride] = useState<string | null | undefined>();
@@ -822,26 +835,6 @@ export function SongPage({
     playerPlay(activeVersionToPlayerTrack(data.track, activeVersion));
   }
 
-  function handleShare() {
-    if (typeof window === "undefined") return;
-    const url = window.location.href;
-    // DOM lib types `navigator.share` as required, but browsers without
-    // the Web Share API throw on call — synchronous TypeError, not
-    // rejected promise. try/catch handles both that path AND a missing
-    // navigator.clipboard (insecure contexts) without tripping the
-    // strict-truthy lint rule.
-    try {
-      void navigator.share({ title: songTitle, url }).catch(() => undefined);
-    } catch {
-      try {
-        void navigator.clipboard.writeText(url).catch(() => undefined);
-      } catch {
-        // Neither API available; affordance is non-destructive.
-      }
-    }
-    setOverflowOpen(false);
-  }
-
   function openManagementDialog(kind: OpenSongManagement["kind"]) {
     if (!activeVersion) return;
     setOverflowOpen(false);
@@ -960,9 +953,11 @@ export function SongPage({
       return { ok: false, error: policy.details[0] ?? "This audio is protected." };
     }
 
+    const operationKey = crypto.randomUUID();
     const result = await actions.deleteVersionAudio({
       projectId: common.projectId,
       versionId: common.versionId,
+      operationKey,
     });
     if (!result.ok) return result;
 
@@ -1575,6 +1570,15 @@ export function SongPage({
                 </button>
               ) : null}
 
+              {publicSharing ? (
+                <SongPublicLinkControls
+                  role={role}
+                  initialState={publicSharing}
+                  {...(publicSharingActions ? { actions: publicSharingActions } : {})}
+                  {...(publicSharingRefresh ? { refreshLiveState: publicSharingRefresh } : {})}
+                />
+              ) : null}
+
               {/* Overflow — single glass circle for share / favorite /
                   download. Origin-aware popover scales from this trigger. */}
               <div ref={overflowRef} className="relative">
@@ -1618,18 +1622,6 @@ export function SongPage({
                         <StarIcon filled={isFavorite} />
                       </span>
                       {isFavorite ? "Remove from favorites" : "Add to favorites"}
-                    </button>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      aria-label="Share with artist"
-                      onClick={handleShare}
-                      className="flex min-h-11 w-full items-center gap-2.5 rounded-[var(--radius-lg)] px-3 py-2 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
-                    >
-                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[rgb(var(--fg-default)/0.06)] text-[rgb(var(--fg-default))]">
-                        <ShareIcon />
-                      </span>
-                      Share with artist
                     </button>
                     {isSongPageVersionPlayable(activeVersion) ? (
                       <a
@@ -2239,28 +2231,6 @@ function StarIcon({ filled }: { filled: boolean }) {
       aria-hidden
     >
       <path d="M8 1.5 9.94 5.85 14.5 6.4 11.05 9.55 12 14.5 8 11.95 4 14.5 4.95 9.55 1.5 6.4 6.06 5.85 Z" />
-    </svg>
-  );
-}
-
-function ShareIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <circle cx="12" cy="3.5" r="2" />
-      <circle cx="4" cy="8" r="2" />
-      <circle cx="12" cy="12.5" r="2" />
-      <line x1="5.7" y1="7" x2="10.3" y2="4.5" />
-      <line x1="5.7" y1="9" x2="10.3" y2="11.5" />
     </svg>
   );
 }
