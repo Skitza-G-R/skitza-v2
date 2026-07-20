@@ -5,10 +5,12 @@ import {
   ClientSpaceHero,
   type ClientSpaceHeroData,
 } from "~/components/dashboard/clients/client-space-hero";
+import type { ClientMoneyLedgerData } from "~/components/dashboard/clients/client-money-ledger";
 import {
-  ClientMoneyLedger,
-  type ClientMoneyLedgerData,
-} from "~/components/dashboard/clients/client-money-ledger";
+  allPaymentsBucket,
+  toPaymentHistoryViewData,
+} from "~/components/payments/payment-history-adapter";
+import { PaymentHistoryView } from "~/components/payments/payment-history-view";
 import { ProjectRow, type ProjectRowData } from "~/components/dashboard/projects/project-row";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
 import { PrivateOfferManager } from "~/components/dashboard/offers/private-offer-manager";
@@ -48,6 +50,12 @@ export default async function ClientDetailPage({ params }: PageProps) {
   } catch {
     notFound();
   }
+  let payments;
+  try {
+    payments = await caller.purchaseLedger.client({ clientContactId: id });
+  } catch {
+    notFound();
+  }
 
   let producerProfile: Awaited<ReturnType<typeof caller.producer.me>> | null = null;
   try {
@@ -61,8 +69,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
   // projects — kept here (preserved helper) rather than inside the
   // hero so the date-comparison logic stays presentational-free.
   const nextSession = pickNextSession(detail.projects);
-  const moneyLedgerData = toClientMoneyLedgerData(detail.money);
-  const singleCurrencyTotal = detail.money.totals.length === 1 ? detail.money.totals[0] : undefined;
+  const singleCurrencyTotal = payments.totals.length === 1 ? payments.totals[0] : undefined;
 
   // Build the hero payload. linkState reads invitedAt / clerkUserId off
   // the detail payload — clerkUserId set ⇒ "active" (signed up),
@@ -88,11 +95,11 @@ export default async function ClientDetailPage({ params }: PageProps) {
     canPermanentlyDelete: detail.contact.canPermanentlyDelete,
     linkState: heroLinkState,
     joinedAtIso: toIso(detail.contact.firstSeenAt),
-    lifetime: singleCurrencyTotal?.purchasedCents ?? null,
-    outstanding: singleCurrencyTotal?.remainingCents ?? null,
+    lifetime: singleCurrencyTotal?.purchaseTotalCents ?? null,
+    outstanding: singleCurrencyTotal?.totalRemainingCents ?? null,
     activeProjects: detail.stats.activeProjectCount,
-    moneyHasMultipleCurrencies: detail.money.totals.length > 1,
-    moneyHasNoPurchases: detail.money.projects.every((project) => project.purchases.length === 0),
+    moneyHasMultipleCurrencies: payments.totals.length > 1,
+    moneyHasNoPurchases: payments.projects.length === 0,
   };
   if (singleCurrencyTotal) heroData.currency = singleCurrencyTotal.currency;
 
@@ -201,7 +208,23 @@ export default async function ClientDetailPage({ params }: PageProps) {
         </section>
 
         <div className="mt-8">
-          <ClientMoneyLedger data={moneyLedgerData} />
+          <PaymentHistoryView
+            role="producer"
+            data={toPaymentHistoryViewData(
+              allPaymentsBucket(payments.projects, payments.totals),
+              {
+                id: "client-payment-history",
+                eyebrow: "Commercial history",
+                title: "Payments",
+                description:
+                  "Every accepted purchase, payment, and proof grouped by project. Currencies are never combined.",
+                emptyTitle: "No purchases or payments yet",
+                emptyDescription:
+                  "Accepted purchases and their immutable money history will appear here.",
+              },
+              "producer",
+            )}
+          />
         </div>
       </div>
     </main>

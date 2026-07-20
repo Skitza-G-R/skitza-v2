@@ -13,9 +13,7 @@ const SRC = readFileSync(join(here, "..", "page.tsx"), "utf-8");
 describe("clients/[id]/page.tsx — Phase 1 rewrite", () => {
   it("imports ClientSpaceHero", () => {
     expect(SRC).toContain("ClientSpaceHero");
-    expect(SRC).toContain(
-      "~/components/dashboard/clients/client-space-hero",
-    );
+    expect(SRC).toContain("~/components/dashboard/clients/client-space-hero");
   });
 
   it("imports ProjectRow for the project list below the hero", () => {
@@ -77,9 +75,11 @@ describe("clients/[id]/page.tsx — Phase 1 rewrite", () => {
 
   it("maps lifecycle explicitly and renders the currency-separated purchase ledger", () => {
     expect(SRC).toContain("lifecycleStatus");
-    expect(SRC).toContain("ClientMoneyLedger");
-    expect(SRC).toContain("detail.money");
-    expect(SRC).toContain("currencyTotals");
+    expect(SRC).toContain("PaymentHistoryView");
+    expect(SRC).toContain("purchaseLedger.client");
+    expect(SRC).toContain("payments.totals");
+    expect(SRC).toContain("payments.projects");
+    expect(SRC).not.toMatch(/<ClientMoneyLedger/);
     expect(SRC).not.toMatch(/depositPct|\.stage\b/);
     for (const label of ["Waiting for payment", "Active", "Paused", "Completed", "Canceled"]) {
       expect(SRC).toContain(label);

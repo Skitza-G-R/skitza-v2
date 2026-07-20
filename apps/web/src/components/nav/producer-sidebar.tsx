@@ -58,8 +58,8 @@ type NavItem = {
   labelKey: ActiveKey;
   href: string;
   icon: IconName;
-  /** Two-key G-leader shortcut surfaced on hover/focus. */
-  shortcut: string;
+  /** Existing two-key G-leader shortcut, when one is already wired. */
+  shortcut?: string;
 };
 
 const STORAGE_KEY = "skitza-sidebar-collapsed";
@@ -127,6 +127,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
     shortcut: "G C",
   },
   {
+    id: "payments",
+    label: "Payments",
+    labelKey: "payments",
+    href: "/dashboard/payments",
+    icon: "payments",
+  },
+  {
     id: "profile",
     label: "Storefront",
     labelKey: "profile",
@@ -156,7 +163,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
 // Groups: [Overview] / [Clients & Projects, Music, Calendar] /
 // [Storefront, Portfolio] / [Settings]. Pure layout concern;
 // doesn't change route behaviour or active-state derivation.
-const SECTION_BOUNDARY_AFTER: ReadonlySet<ActiveKey> = new Set(["today", "calendar", "portfolio"]);
+const SECTION_BOUNDARY_AFTER: ReadonlySet<ActiveKey> = new Set(["today", "payments", "portfolio"]);
 
 export function ProducerSidebar({
   producerSlug,

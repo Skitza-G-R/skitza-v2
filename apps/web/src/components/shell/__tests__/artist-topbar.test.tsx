@@ -36,6 +36,7 @@ describe("ArtistTopBar (artist wrapper)", () => {
     expect(SRC).toMatch(/"\/artist\/music":\s*"Music"/);
     expect(SRC).toMatch(/"\/artist\/book":\s*"Book"/);
     expect(SRC).toMatch(/"\/artist\/store":\s*"Store"/);
+    expect(SRC).toMatch(/"\/artist\/payments":\s*"Payments"/);
     expect(SRC).toMatch(/"\/artist\/settings":\s*"Settings"/);
   });
 

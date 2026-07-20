@@ -18,6 +18,7 @@ export type IconName =
   | "users"
   | "music"
   | "calendar"
+  | "payments"
   | "store"
   | "settings"
   | "bell"
@@ -89,6 +90,15 @@ export function Icon({
           <path d="M3 9h18" />
           <path d="M8 3v4" />
           <path d="M16 3v4" />
+        </svg>
+      );
+    case "payments":
+      return (
+        <svg {...common}>
+          <path d="M6 3h12v18l-3-2-3 2-3-2-3 2Z" />
+          <path d="M9 8h6" />
+          <path d="M9 12h6" />
+          <path d="M9 16h3" />
         </svg>
       );
     case "store":

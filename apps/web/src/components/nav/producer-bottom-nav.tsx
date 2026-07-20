@@ -20,10 +20,9 @@ import { Icon, type IconName } from "./icons";
 // 5-column grid. No FAB — the design intentionally simplifies to
 // match the artist nav grammar.
 //
-// Routes are mapped per Gili's Phase 2 Q3 — six top-level routes
-// reduced to 5 mobile tabs by collapsing Settings under the "Account"
-// menu accessed elsewhere (kept reachable via /dashboard/settings on
-// desktop and via Clerk UserButton in the mobile top bar). The mobile
+// Routes are mapped per Gili's approved Payments navigation — five
+// mobile tabs with Store and Settings under the Account menu in the
+// mobile top bar. The mobile
 // tab shape leans on the design source's `PROD_TABS` (notes/
 // shell.producer.jsx).
 //
@@ -43,14 +42,14 @@ type ProducerMobileTab = {
 };
 
 const PROD_TABS: readonly ProducerMobileTab[] = [
-  { id: "today", label: "Home", href: "/dashboard", icon: "home" },
+  { id: "today", label: "Today", href: "/dashboard", icon: "home" },
   { id: "clients-projects", label: "Clients", href: "/dashboard/clients-projects", icon: "users" },
-  { id: "music", label: "Library", href: "/dashboard/music", icon: "music" },
+  { id: "music", label: "Music", href: "/dashboard/music", icon: "music" },
   // SK-56: phones land on the Sessions tab — the week-grid Schedule
   // tab is desktop-only (useless at 390px, per Gili's mobile audit).
   // Active-state detection is pathname-based, so the query is inert.
   { id: "calendar", label: "Calendar", href: "/dashboard/calendar?tab=sessions", icon: "calendar" },
-  { id: "profile", label: "Store", href: "/dashboard/store", icon: "store" },
+  { id: "payments", label: "Payments", href: "/dashboard/payments", icon: "payments" },
 ] as const;
 
 export function ProducerBottomNav(): ReactNode {

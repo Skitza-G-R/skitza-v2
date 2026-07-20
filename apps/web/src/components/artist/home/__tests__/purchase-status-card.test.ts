@@ -142,20 +142,18 @@ describe("PurchaseStatusCard (home heartbeat, S6)", () => {
     expect(SRC).not.toMatch(/stage !== "paid"/);
   });
 
-  it("lets a partially-paid artist make the next payment from home", () => {
-    expect(HOME_SRC).toMatch(/current\.remainingCents > 0/);
-    expect(HOME_SRC).toMatch(/current\.productId \?\? current\.id/);
-    expect(HOME_SRC).toMatch(/Make next payment/);
-    expect(HOME_SRC).toMatch(/pay\/instructions\?req=\$\{current\.id\}/);
+  it("keeps accepted-purchase payment actions in the canonical payment card", () => {
+    expect(HOME_SRC).toMatch(/caller\.artist\.purchase\.payments\(\)/);
+    expect(HOME_SRC).toMatch(/<ArtistPaymentActionsCard payments=\{activePaymentActions\}/);
+    expect(HOME_SRC).toMatch(/payNextAvailable: purchase\.showPayNextPayment/);
+    expect(HOME_SRC).not.toMatch(/actionLabel: "Make next payment"/);
   });
 
-  it("opens the exact paid project for booking while keeping later payments available", () => {
-    expect(HOME_SRC).toMatch(/current\.projectId/);
-    expect(HOME_SRC).toMatch(
-      /`\/artist\/book\?studio=\$\{current\.producerId\}&project=\$\{current\.projectId\}`/,
-    );
-    expect(HOME_SRC).toMatch(/actionLabel: "Book a session"/);
-    expect(SRC).toMatch(/secondaryActionHref && secondaryActionLabel/);
+  it("keeps session actions separate from request and payment actions", () => {
+    expect(HOME_SRC).toMatch(/<NextSessionCard nextSession=\{data\.nextSession\}/);
+    expect(HOME_SRC).toMatch(/<BookSessionTiles studios=\{studiosForTiles\}/);
+    expect(HOME_SRC).not.toMatch(/actionLabel: "Book a session"/);
+    expect(HOME_SRC).not.toMatch(/current\.projectId/);
   });
 
   it("has no messaging row or fake buttons (v1 has no messaging)", () => {

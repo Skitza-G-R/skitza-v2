@@ -20,6 +20,7 @@ import {
   buildNeedsYouQueue,
   capNeedsYouQueue,
   type NeedsYouItem,
+  type PaymentBalanceSource,
   type PaymentProofSource,
   type PaymentSource,
 } from "./needs-you";
@@ -43,6 +44,7 @@ export interface OverviewScreenProps {
     activeProjects: number;
   };
   paymentProofs: readonly PaymentProofSource[];
+  paymentBalances: readonly PaymentBalanceSource[];
   purchaseRequests: Array<{
     id: string;
     artistName: string;
@@ -110,6 +112,7 @@ export function OverviewScreen({
   timezone,
   pulseStats,
   paymentProofs,
+  paymentBalances,
   purchaseRequests,
   pendingApprovals,
   followUps,
@@ -125,6 +128,7 @@ export function OverviewScreen({
   const firstName = (displayName ?? "").trim().split(/\s+/)[0] || "there";
   const needsYouItems = buildNeedsYouQueue({
     paymentProofs,
+    paymentBalances,
     purchaseRequests,
     pendingApprovals,
     followUps,

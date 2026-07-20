@@ -17,6 +17,7 @@ export type ActiveKey =
   | "music"
   | "clients-projects"
   | "calendar"
+  | "payments"
   | "profile"
   | "portfolio"
   | "setup";
@@ -30,6 +31,7 @@ export function getActiveKey(pathname: string): ActiveKey {
   if (pathname.startsWith("/dashboard/music")) return "music";
   if (pathname.startsWith("/dashboard/clients-projects")) return "clients-projects";
   if (pathname.startsWith("/dashboard/calendar")) return "calendar";
+  if (pathname.startsWith("/dashboard/payments")) return "payments";
   if (pathname.startsWith("/dashboard/portfolio")) return "portfolio";
   if (pathname.startsWith("/dashboard/store")) return "profile";
   if (pathname.startsWith("/dashboard/profile")) return "profile";
