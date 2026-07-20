@@ -1,10 +1,26 @@
 "use client";
 
 import { MusicLibraryScreen, type MusicLibraryRow } from "~/components/music/library-screen";
+import type { VersionDeliveryState } from "~/components/music/delivery-state";
 import { SongPage, type MusicL3ActionResult } from "~/components/music/song-page";
 
 function succeed(): Promise<MusicL3ActionResult> {
   return Promise.resolve({ ok: true });
+}
+
+function delivery(
+  permission: VersionDeliveryState["permission"],
+  purchaseId: string,
+): VersionDeliveryState {
+  return {
+    purchaseId,
+    permission,
+    fullyPaid: permission === "purchase_fully_paid",
+    remainingCents: permission === "purchase_fully_paid" ? 0 : 60_000,
+    currency: "ILS",
+    overdue: false,
+    totalCents: 120_000,
+  };
 }
 
 export function Sk8LibraryDevScreen({ tracks }: { tracks: MusicLibraryRow[] }) {
@@ -50,6 +66,7 @@ export function Sk8SongDevScreen({ archived }: { archived: boolean }) {
             artistApprovedAtIso: "2026-07-18T10:15:00.000Z",
             previouslyArtistApprovedAtIso: null,
             peaks: [0.18, 0.42, 0.68, 0.35, 0.82, 0.54, 0.27, 0.61],
+            delivery: delivery("purchase_fully_paid", "purchase-sk8"),
           },
           {
             id: "version-sk8-deleted-v2",
@@ -62,6 +79,7 @@ export function Sk8SongDevScreen({ archived }: { archived: boolean }) {
             artistApprovedAtIso: null,
             previouslyArtistApprovedAtIso: null,
             peaks: null,
+            delivery: delivery("audio_deleted", "purchase-sk8"),
           },
         ],
         comments: [
@@ -136,9 +154,9 @@ export function Sk94ApprovalDevScreen({
             uploadedAtIso: "2026-07-20T09:30:00.000Z",
             producerMarkedFinalAtIso: ready ? "2026-07-20T10:00:00.000Z" : null,
             artistApprovedAtIso: approved ? "2026-07-20T10:15:00.000Z" : null,
-            previouslyArtistApprovedAtIso:
-              state === "reopened" ? "2026-07-19T16:20:00.000Z" : null,
+            previouslyArtistApprovedAtIso: state === "reopened" ? "2026-07-19T16:20:00.000Z" : null,
             peaks: [0.24, 0.51, 0.73, 0.38, 0.88, 0.61, 0.32, 0.67],
+            delivery: delivery("payment_required", "purchase-sk94"),
           },
           {
             id: "version-sk94-v3",
@@ -151,6 +169,7 @@ export function Sk94ApprovalDevScreen({
             artistApprovedAtIso: null,
             previouslyArtistApprovedAtIso: null,
             peaks: [0.16, 0.37, 0.62, 0.44, 0.76, 0.48, 0.29, 0.58],
+            delivery: delivery("payment_required", "purchase-sk94"),
           },
         ],
         comments: [],
@@ -162,6 +181,7 @@ export function Sk94ApprovalDevScreen({
         markVersionReady: succeed,
         approveVersion: succeed,
         reopenSong: succeed,
+        ...(role === "producer" ? { setDownloadOverride: succeed } : {}),
       }}
     />
   );

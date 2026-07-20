@@ -5,6 +5,8 @@ import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { formatMoney } from "~/lib/format/money";
 
+import type { PaymentDeliveryState } from "./delivery-state";
+
 export type PaymentHistoryRole = "artist" | "producer";
 
 export type PaymentHistoryTone = "neutral" | "active" | "warning" | "danger" | "success" | "accent";
@@ -174,6 +176,7 @@ export interface PaymentHistoryPurchase {
   paidCents: number;
   dueNowCents: number;
   totalRemainingCents: number;
+  delivery: PaymentDeliveryState;
   frozenTerms: PaymentHistoryFrozenTerms;
   acceptance: PaymentHistoryAcceptance;
   plan: PaymentHistoryPlan;
@@ -391,6 +394,7 @@ function PurchaseHistory({
 
       <div className="min-w-0 space-y-5 border-t border-[rgb(var(--border-subtle))] p-3 sm:p-4">
         <PaymentSnapshot purchase={purchase} role={role} />
+        <PurchaseDelivery delivery={purchase.delivery} currency={purchase.currency} />
         <FrozenAgreement
           terms={purchase.frozenTerms}
           currency={purchase.currency}
@@ -442,9 +446,9 @@ function PaymentSnapshot({
             <Button asChild className="mt-3 w-full rounded-[var(--radius-sm)] sm:w-auto" size="sm">
               <Link
                 href={`/artist/payments/${encodeURIComponent(purchase.id)}`}
-                aria-label={`Pay next payment for ${purchase.title}`}
+                aria-label={`Complete payment for ${purchase.title}`}
               >
-                Pay next payment
+                Complete payment
               </Link>
             </Button>
           ) : null}
@@ -480,6 +484,84 @@ function PaymentSnapshot({
           )}
         </div>
       </div>
+    </section>
+  );
+}
+
+function PurchaseDelivery({
+  delivery,
+  currency,
+}: {
+  delivery: PaymentDeliveryState;
+  currency: string;
+}) {
+  const paid = delivery.key === "paid";
+  const early = delivery.key === "early_override";
+  return (
+    <section
+      aria-label="Purchase delivery state"
+      className="min-w-0 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3"
+    >
+      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <Eyebrow>Delivery</Eyebrow>
+          <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
+            <p className="text-[13px] font-extrabold break-words text-[rgb(var(--fg-default))]">
+              {delivery.label}
+            </p>
+            <Badge
+              className={[
+                "rounded-[var(--radius-sm)] border-0 px-2 py-0.5 text-[9.5px]",
+                paid
+                  ? "bg-[rgb(var(--fg-success)/0.12)] text-[rgb(var(--fg-success))]"
+                  : early
+                    ? "bg-[rgb(var(--brand-primary)/0.14)] text-[rgb(var(--brand-primary-text))]"
+                    : "bg-[rgb(var(--fg-danger)/0.1)] text-[rgb(var(--fg-danger))]",
+              ].join(" ")}
+            >
+              {paid ? "Paid" : early ? "Selected version only" : "Locked"}
+            </Badge>
+          </div>
+          <p className="mt-1 max-w-[68ch] text-[11.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
+            {delivery.description}
+          </p>
+          {delivery.overdue ? (
+            <p className="mt-1 text-[11px] font-bold text-[rgb(var(--fg-danger))]">
+              Payment is overdue. Listening stays available; download entitlement is unchanged.
+            </p>
+          ) : null}
+        </div>
+        <dl className="grid shrink-0 grid-cols-3 gap-3 sm:min-w-[280px]">
+          <MoneyDatum label="Paid" cents={delivery.paidCents} currency={currency} />
+          <MoneyDatum label="Waived" cents={delivery.waivedCents} currency={currency} />
+          <MoneyDatum label="Remaining" cents={delivery.remainingCents} currency={currency} />
+        </dl>
+      </div>
+
+      {delivery.googleDriveLinks.length > 0 ? (
+        <div className="mt-3 border-t border-[rgb(var(--border-subtle))] pt-3">
+          <p className="text-[11px] font-bold text-[rgb(var(--fg-default))]">
+            Stems and extra deliverables
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {delivery.googleDriveLinks.map((link) => (
+              <a
+                key={link.href}
+                href={link.href}
+                target="_blank"
+                rel="noreferrer"
+                className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-3 text-[12px] font-bold text-[rgb(var(--fg-default))]"
+              >
+                Open {link.label}
+              </a>
+            ))}
+          </div>
+        </div>
+      ) : delivery.withheldGoogleDriveLinkCount > 0 ? (
+        <p className="mt-3 border-t border-[rgb(var(--border-subtle))] pt-3 text-[11.5px] text-[rgb(var(--fg-muted))]">
+          Google Drive stems and extra deliverables stay locked until this purchase is fully paid.
+        </p>
+      ) : null}
     </section>
   );
 }

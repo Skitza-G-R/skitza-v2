@@ -787,6 +787,9 @@ const musicSubrouter = router({
       const versionRows = await ctx.db
         .select({
           id: trackVersions.id,
+          purchaseId: trackVersions.purchaseId,
+          purchaseTotalCents: purchases.totalCents,
+          purchaseCurrency: purchases.currency,
           label: trackVersions.label,
           audioUrl: trackVersions.audioUrl,
           audioDeletedAt: trackVersions.audioDeletedAt,
@@ -796,6 +799,15 @@ const musicSubrouter = router({
           peaks: trackVersions.peaks,
         })
         .from(trackVersions)
+        .innerJoin(
+          purchases,
+          and(
+            eq(purchases.id, trackVersions.purchaseId),
+            eq(purchases.producerId, trackVersions.producerId),
+            eq(purchases.projectId, head.projectId),
+            eq(purchases.clientContactId, ownedProject.clientContactId),
+          ),
+        )
         .where(
           and(
             eq(trackVersions.trackId, head.trackId),

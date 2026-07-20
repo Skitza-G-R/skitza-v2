@@ -394,7 +394,9 @@ export function paymentLedgerReadRepository(db: Db): PaymentLedgerReadRepository
                 producerId: purchaseDownloadOverrideEvents.producerId,
                 versionId: purchaseDownloadOverrideEvents.versionId,
                 versionLabel: trackVersions.label,
+                sequence: purchaseDownloadOverrideEvents.sequence,
                 enabled: purchaseDownloadOverrideEvents.enabled,
+                audioDeletedAt: trackVersions.audioDeletedAt,
                 createdAt: purchaseDownloadOverrideEvents.createdAt,
               })
               .from(purchaseDownloadOverrideEvents)

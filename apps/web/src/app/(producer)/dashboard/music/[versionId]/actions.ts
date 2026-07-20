@@ -2,6 +2,7 @@
 
 import { auth } from "@clerk/nextjs/server";
 import { TRPCError } from "@trpc/server";
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { ZodError } from "zod";
 
@@ -121,6 +122,30 @@ export async function l3ReopenApprovedSong(input: {
   try {
     await c.caller.project.reopenApprovedSong({ trackId: input.trackId });
     revalidatePath(pathDetail(input.versionId));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function l3SetDownloadOverride(input: {
+  purchaseId: string;
+  versionId: string;
+  enabled: boolean;
+  expectedUnpaidAmountCents: number;
+}): Promise<MusicL3ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.audioDelivery.setDownloadOverride({
+      purchaseId: input.purchaseId,
+      versionId: input.versionId,
+      enabled: input.enabled,
+      expectedUnpaidAmountCents: input.expectedUnpaidAmountCents,
+      operationKey: `music-delivery:${randomUUID()}`,
+    });
+    revalidatePath(pathDetail(input.versionId));
+    revalidatePath(`/artist/music/song/${input.versionId}`);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: toMessage(err) };

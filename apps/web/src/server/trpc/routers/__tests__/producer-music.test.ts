@@ -18,6 +18,7 @@ const PRODUCER_ID = "producer-uuid-1";
 const {
   producersMarker,
   projectsMarker,
+  purchasesMarker,
   trackVersionsMarker,
   projectTracksMarker,
   trackCommentsMarker,
@@ -52,10 +53,20 @@ const {
     title: { __column: "projects.title" },
     clientName: { __column: "projects.client_name" },
   };
+  const purchasesMarker = {
+    __table: "purchases",
+    id: { __column: "purchases.id" },
+    producerId: { __column: "purchases.producer_id" },
+    projectId: { __column: "purchases.project_id" },
+    totalCents: { __column: "purchases.total_cents" },
+    currency: { __column: "purchases.currency" },
+  };
   const trackVersionsMarker = {
     __table: "track_versions",
     id: { __column: "track_versions.id" },
     trackId: { __column: "track_versions.track_id" },
+    purchaseId: { __column: "track_versions.purchase_id" },
+    producerId: { __column: "track_versions.producer_id" },
     label: { __column: "track_versions.label" },
     audioUrl: { __column: "track_versions.audio_url" },
     audioDeletedAt: { __column: "track_versions.audio_deleted_at" },
@@ -172,6 +183,7 @@ const {
   return {
     producersMarker,
     projectsMarker,
+    purchasesMarker,
     trackVersionsMarker,
     projectTracksMarker,
     trackCommentsMarker,
@@ -193,6 +205,7 @@ vi.mock("@skitza/db", () => ({
   createDb: () => dbMock,
   producers: producersMarker,
   projects: projectsMarker,
+  purchases: purchasesMarker,
   trackVersions: trackVersionsMarker,
   projectTracks: projectTracksMarker,
   trackComments: trackCommentsMarker,
