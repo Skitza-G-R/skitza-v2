@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   and,
   desc,
@@ -14,6 +15,7 @@ import {
   type Db,
 } from "@skitza/db";
 
+import { publicPortfolioStreamPath } from "~/server/domain/audio-delivery/urls";
 import { isAudioKeyForTrackVersion } from "~/server/storage/r2";
 
 import {
@@ -604,13 +606,15 @@ export async function createPortfolioTrackFromSongVersion(
       );
     }
 
+    const portfolioTrackId = randomUUID();
     const [created] = await tx
       .insert(portfolioTracks)
       .values({
+        id: portfolioTrackId,
         producerId: input.producerId,
         title: track.title,
         artist: track.artist,
-        audioUrl: version.audioUrl,
+        audioUrl: publicPortfolioStreamPath(portfolioTrackId),
         audioR2Key: identity.key,
         sizeBytes: identity.sizeBytes,
         durationMs: version.durationMs,
@@ -752,18 +756,30 @@ export async function tombstoneStoredAudioVersion(
         ) {
           integrityError("The selected playback fallback is not stored audio");
         }
-        await tx
-          .update(portfolioTracks)
-          .set({
-            title: track.title,
-            artist: track.artist,
-            audioUrl: nextVersion.audioUrl,
-            audioR2Key: nextVersion.audioR2Key,
-            sizeBytes: nextVersion.sizeBytes,
-            durationMs: nextVersion.durationMs,
-            peaksR2Key: nextVersion.peaksR2Key,
-          })
-          .where(portfolioIdentityMatch);
+        const matchingPortfolioRows = await tx
+          .select({ id: portfolioTracks.id })
+          .from(portfolioTracks)
+          .where(portfolioIdentityMatch)
+          .for("update");
+        for (const portfolioRow of matchingPortfolioRows) {
+          await tx
+            .update(portfolioTracks)
+            .set({
+              title: track.title,
+              artist: track.artist,
+              audioUrl: publicPortfolioStreamPath(portfolioRow.id),
+              audioR2Key: nextVersion.audioR2Key,
+              sizeBytes: nextVersion.sizeBytes,
+              durationMs: nextVersion.durationMs,
+              peaksR2Key: nextVersion.peaksR2Key,
+            })
+            .where(
+              and(
+                eq(portfolioTracks.id, portfolioRow.id),
+                eq(portfolioTracks.producerId, input.producerId),
+              ),
+            );
+        }
       } else {
         await tx.delete(portfolioTracks).where(portfolioIdentityMatch);
         await tx

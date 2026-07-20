@@ -130,6 +130,43 @@ describe("portfolio.list", () => {
     expect((tracks[0] as { title: string }).title).toBe("Track 1");
   });
 
+  it("uses the source version's private path for producer playback and picker dedup", async () => {
+    trackListMock.mockResolvedValueOnce([
+      {
+        id: TRACK_ID,
+        producerId: PRODUCER_ID,
+        title: "Track 1",
+        position: 0,
+        audioUrl: `/api/audio/public/portfolio/${TRACK_ID}`,
+        sourceAudioUrl: `/api/audio/stream/${OTHER_TRACK_ID}`,
+      },
+    ]);
+    const caller = await buildCaller();
+
+    const [track] = await caller.portfolio.list();
+
+    expect(track?.audioUrl).toBe(`/api/audio/stream/${OTHER_TRACK_ID}`);
+    expect(track).not.toHaveProperty("sourceAudioUrl");
+  });
+
+  it("masks a legacy permanent R2 URL when no live source version joins", async () => {
+    trackListMock.mockResolvedValueOnce([
+      {
+        id: TRACK_ID,
+        producerId: PRODUCER_ID,
+        title: "Legacy track",
+        position: 0,
+        audioUrl: "https://audio.example.test/legacy/direct.wav",
+        sourceAudioUrl: null,
+      },
+    ]);
+    const caller = await buildCaller();
+
+    const [track] = await caller.portfolio.list();
+
+    expect(track?.audioUrl).toBeNull();
+  });
+
   it("throws UNAUTHORIZED when ctx.userId is null", async () => {
     const caller = await buildCaller(null);
     await expect(caller.portfolio.list()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
@@ -230,8 +267,7 @@ describe("portfolio.create", () => {
     );
   });
 
-  it("rejects a producer-owned Skitza version URL on the generic create path", async () => {
-    storedAudioSelectMock.mockResolvedValueOnce([{ id: TRACK_ID }]);
+  it("rejects every Skitza storage URL before a tenant-scoped lookup", async () => {
     const caller = await buildCaller();
 
     await expect(
@@ -241,15 +277,12 @@ describe("portfolio.create", () => {
       }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(trackInsertReturningMock).not.toHaveBeenCalled();
-    expect(JSON.stringify(storedAudioWhereSpy.mock.calls[0]?.[0])).toContain(
-      "https://audio.example.test/stored.mp3",
-    );
+    expect(storedAudioWhereSpy).not.toHaveBeenCalled();
   });
 
-  it("rejects a producer-owned pending version object before completion", async () => {
-    storedAudioSelectMock.mockResolvedValueOnce([{ id: TRACK_ID }]);
+  it("rejects a cross-tenant-looking pending object without revealing ownership", async () => {
     const caller = await buildCaller();
-    const pendingKey = `producers/${PRODUCER_ID}/tracks/${TRACK_ID}/pending.mp3`;
+    const pendingKey = `producers/other-tenant/tracks/${TRACK_ID}/pending.mp3`;
 
     await expect(
       caller.portfolio.create({
@@ -258,7 +291,7 @@ describe("portfolio.create", () => {
       }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(trackInsertReturningMock).not.toHaveBeenCalled();
-    expect(JSON.stringify(storedAudioWhereSpy.mock.calls[0]?.[0])).toContain(pendingKey);
+    expect(storedAudioWhereSpy).not.toHaveBeenCalled();
   });
 
   it("keeps an external URL with a key-shaped path on the generic create path", async () => {

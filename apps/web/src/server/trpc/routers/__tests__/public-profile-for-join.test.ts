@@ -100,6 +100,10 @@ vi.mock("@skitza/db", () => ({
   producerExternalLinks: externalLinksMarker,
   eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
   isNotNull: (col: unknown) => ({ isNotNull: col }),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
+    sql: [...strings],
+    values,
+  }),
   and: (...conds: unknown[]) => ({ and: conds }),
   asc: (col: unknown) => ({ asc: col }),
   desc: (col: unknown) => ({ desc: col }),
@@ -154,6 +158,7 @@ beforeEach(() => {
   lastTrackLimit = null;
   lastExternalLinksWhereArgs = null;
   process.env.DATABASE_URL = "postgresql://test/test";
+  process.env.CLERK_SECRET_KEY = "skitza-public-audio-test-secret";
 });
 
 const buildCaller = async () => {
@@ -205,7 +210,45 @@ describe("publicProfile.forJoin — happy path", () => {
     expect(result.producer.brandColor).toBe("212 150 10");
     expect(result.publicSamples).toHaveLength(1);
     expect(result.publicSamples[0]?.title).toBe("Sample A");
+    expect(result.publicSamples[0]?.audioUrl).toBeNull();
+    expect(result.publicSamples[0]?.peaksR2Key).toBeNull();
     expect(result.externalLinks).toEqual([]);
+  });
+
+  it("returns only an expiring public-stream token for a Skitza-owned sample", async () => {
+    const producerId = "10000000-0000-4000-8000-000000000001";
+    producerSelectMock.mockResolvedValueOnce([sensitiveProducerRow({ id: producerId })]);
+    trackSelectMock.mockResolvedValueOnce([
+      {
+        id: TRACK_ID_1,
+        title: "Protected sample",
+        artist: null,
+        audioUrl: `/api/audio/public/portfolio/${TRACK_ID_1}`,
+        durationMs: 30_000,
+        peaksR2Key: "must-not-leak/peaks.json",
+      },
+    ]);
+
+    const caller = await buildCaller();
+    const result = await caller.publicProfile.forJoin({ slug: PRODUCER_SLUG });
+    const sample = result.publicSamples[0];
+    if (!sample) throw new Error("missing protected sample");
+    if (!sample.audioUrl) throw new Error("missing protected sample URL");
+    const sampleUrl = new URL(sample.audioUrl, "https://skitza.test");
+    const token = sampleUrl.searchParams.get("token");
+    if (!token) throw new Error("missing public stream token");
+    const { verifyPublicAudioStreamToken } = await import("~/server/domain/audio-delivery/tokens");
+    const secret = process.env.CLERK_SECRET_KEY;
+    if (!secret) throw new Error("missing audio test secret");
+
+    expect(sampleUrl.pathname).toBe(`/api/audio/public/portfolio/${TRACK_ID_1}`);
+    expect(sample.peaksR2Key).toBeNull();
+    expect(JSON.stringify(sample)).not.toMatch(/download|must-not-leak|objectEtag/i);
+    expect(verifyPublicAudioStreamToken(secret, token)).toMatchObject({
+      purpose: "public_stream",
+      producerId,
+      publicSampleId: TRACK_ID_1,
+    });
   });
 });
 

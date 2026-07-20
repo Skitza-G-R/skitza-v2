@@ -156,13 +156,3 @@ export function hasValidProofFileSignature(contentType: string, bytes: Uint8Arra
       return false;
   }
 }
-
-// R2 Public Development URLs are bucket-scoped (e.g. https://pub-<id>.r2.dev
-// IS the bucket endpoint), so the URL format is `${base}/${key}` — no bucket
-// name in the path. `bucket` is kept as a parameter for future use if we ever
-// switch to a multi-bucket custom domain (e.g. https://cdn.skitza.com/audio/...).
-export function publicUrl(bucket: keyof typeof BUCKETS, key: string) {
-  void bucket;
-  const base = requireEnv("R2_PUBLIC_BASE").replace(/\/+$/, "");
-  return `${base}/${key}`;
-}

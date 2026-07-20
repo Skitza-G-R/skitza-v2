@@ -1,10 +1,12 @@
-import { and, desc, eq, isNotNull, portfolioTracks, type Db } from "@skitza/db";
+import { and, desc, eq, isNotNull, portfolioTracks, sql, type Db } from "@skitza/db";
 
 function explicitlyPublicPortfolio(producerId: string) {
   return and(
     eq(portfolioTracks.producerId, producerId),
     eq(portfolioTracks.isPublicSample, true),
     isNotNull(portfolioTracks.audioUrl),
+    isNotNull(portfolioTracks.audioR2Key),
+    sql`${portfolioTracks.audioUrl} = '/api/audio/public/portfolio/' || ${portfolioTracks.id}::text`,
   );
 }
 

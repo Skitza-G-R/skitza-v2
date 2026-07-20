@@ -499,7 +499,7 @@ describe("song-page.tsx source — passes pre-computed peaks to the waveform", (
   it("keeps peaksUrl as the client-decode fallback (legacy versions)", () => {
     // Both props ride together — peaks=null falls back to peaksUrl,
     // and a missing audioUrl skips both (audio still uploading).
-    expect(songPageSrc).toMatch(/peaksUrl=\{/);
+    expect(songPageSrc).toMatch(/peaksUrl=\{activeVersionPlayable\s*\?\s*activeVersion\.audioUrl/);
   });
 });
 

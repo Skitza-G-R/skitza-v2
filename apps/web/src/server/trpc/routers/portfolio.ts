@@ -9,6 +9,7 @@ import {
   type Db,
 } from "@skitza/db";
 import { z } from "zod";
+import { browserSafeStoredAudioUrl } from "~/server/domain/audio-delivery/urls";
 import { createPortfolioTrackFromSongVersion } from "~/server/domain/song-management/db";
 import { SongManagementDomainError } from "~/server/domain/song-management/service";
 import { router } from "../init";
@@ -67,6 +68,15 @@ async function rejectOwnedSongVersionUrl(
   // locks and revalidates the exact live row before publishing it.
   const canonicalUrl = canonicalAudioUrl(input.audioUrl);
   const publicAudioKey = publicAudioKeyFromUrl(canonicalUrl);
+  // The legacy R2 origin is one shared storage boundary. Reject it before any
+  // tenant-scoped lookup so a producer cannot republish another producer's
+  // leaked permanent object URL as an "external" portfolio track.
+  if (publicAudioKey !== null) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Add Skitza song audio from its live Library version.",
+    });
+  }
   const [storedVersion] = await db
     .select({ id: trackVersions.id })
     .from(trackVersions)
@@ -76,12 +86,6 @@ async function rejectOwnedSongVersionUrl(
         or(
           eq(trackVersions.audioUrl, input.audioUrl),
           eq(trackVersions.audioUrl, canonicalUrl.toString()),
-          ...(publicAudioKey === null
-            ? []
-            : [
-                eq(trackVersions.audioR2Key, publicAudioKey),
-                eq(trackVersions.pendingAudioR2Key, publicAudioKey),
-              ]),
         ),
       ),
     )
@@ -105,6 +109,22 @@ function mapSongManagementError(error: unknown): never {
   throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 }
 
+function portfolioResponse(row: typeof portfolioTracks.$inferSelect) {
+  return {
+    id: row.id,
+    producerId: row.producerId,
+    title: row.title,
+    artist: row.artist,
+    audioUrl: browserSafeStoredAudioUrl(row.audioUrl),
+    artworkUrl: row.artworkUrl,
+    position: row.position,
+    sizeBytes: row.sizeBytes,
+    durationMs: row.durationMs,
+    isPublicSample: row.isPublicSample,
+    createdAt: row.createdAt,
+  };
+}
+
 export const portfolioRouter = router({
   list: producerProcedure.query(async ({ ctx }) => {
     // LEFT JOIN trackVersions on a matching R2 key to surface the
@@ -123,13 +143,12 @@ export const portfolioRouter = router({
         audioUrl: portfolioTracks.audioUrl,
         artworkUrl: portfolioTracks.artworkUrl,
         position: portfolioTracks.position,
-        audioR2Key: portfolioTracks.audioR2Key,
         sizeBytes: portfolioTracks.sizeBytes,
         durationMs: portfolioTracks.durationMs,
-        peaksR2Key: portfolioTracks.peaksR2Key,
         isPublicSample: portfolioTracks.isPublicSample,
         createdAt: portfolioTracks.createdAt,
         peaks: trackVersions.peaks,
+        sourceAudioUrl: trackVersions.audioUrl,
       })
       .from(portfolioTracks)
       .leftJoin(
@@ -137,11 +156,17 @@ export const portfolioRouter = router({
         and(
           isNotNull(portfolioTracks.audioR2Key),
           eq(portfolioTracks.audioR2Key, trackVersions.audioR2Key),
+          eq(trackVersions.producerId, ctx.producerId),
         ),
       )
       .where(eq(portfolioTracks.producerId, ctx.producerId))
       .orderBy(portfolioTracks.position);
-    return rows;
+    return rows.map(({ sourceAudioUrl, ...row }) => ({
+      ...row,
+      // Keep the producer-only picker/player on the source version's private
+      // stream path. The stored portfolio path remains the public stream path.
+      audioUrl: browserSafeStoredAudioUrl(sourceAudioUrl ?? row.audioUrl),
+    }));
   }),
 
   create: producerProcedure
@@ -192,17 +217,18 @@ export const portfolioRouter = router({
         })
         .returning();
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      return row;
+      return portfolioResponse(row);
     }),
 
   createFromVersion: producerProcedure
     .input(z.object({ versionId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       try {
-        return await createPortfolioTrackFromSongVersion(ctx.db, {
+        const row = await createPortfolioTrackFromSongVersion(ctx.db, {
           producerId: ctx.producerId,
           versionId: input.versionId,
         });
+        return portfolioResponse(row);
       } catch (error) {
         mapSongManagementError(error);
       }
@@ -236,7 +262,7 @@ export const portfolioRouter = router({
       // Existence proven above (NOT_FOUND check); race-deletion between
       // SELECT and UPDATE would land here as INTERNAL_SERVER_ERROR.
       if (!updated) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      return updated;
+      return portfolioResponse(updated);
     }),
 
   delete: producerProcedure

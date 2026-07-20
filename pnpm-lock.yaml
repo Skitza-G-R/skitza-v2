@@ -171,6 +171,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.1031.0
+        version: 3.1031.0
       '@neondatabase/serverless':
         specifier: ^0.10.0
         version: 0.10.4

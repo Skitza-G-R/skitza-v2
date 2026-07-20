@@ -423,21 +423,35 @@ export const projectRouter = router({
                     ),
                   )
                   .orderBy(desc(trackVersions.uploadedAt))
-              ).map((version) =>
-                version.audioDeletedAt === null
-                  ? version
+              ).map((version) => {
+                const redactedVersion = {
+                  ...version,
+                  audioR2Key: null,
+                  sizeBytes: null,
+                  audioObjectEtag: null,
+                  audioIdentityFingerprint: null,
+                  pendingAudioR2Key: null,
+                  pendingAudioUploadId: null,
+                  pendingAudioInitiationDigest: null,
+                  pendingAudioCompletionToken: null,
+                  pendingAudioSizeBytes: null,
+                  pendingAudioStartedAt: null,
+                  pendingAudioCreateAttemptedAt: null,
+                  pendingAudioCompleteAttemptedAt: null,
+                  pendingAudioPartUrlsExpireAt: null,
+                  pendingAudioCancelRequestedAt: null,
+                  pendingAudioCleanupEtag: null,
+                  peaksR2Key: null,
+                };
+                return version.audioDeletedAt === null
+                  ? redactedVersion
                   : {
-                      ...version,
+                      ...redactedVersion,
                       audioUrl: null,
-                      audioR2Key: null,
-                      sizeBytes: null,
-                      audioObjectEtag: null,
-                      audioIdentityFingerprint: null,
                       durationMs: null,
-                      peaksR2Key: null,
                       peaks: null,
-                    },
-              )
+                    };
+              })
             : [];
           const versionIds = allVersions.map((version) => version.id);
           const allComments = versionIds.length

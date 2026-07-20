@@ -31,6 +31,7 @@ import { producerProcedure } from "../producer-procedure";
 import { producerPurchaseRouter } from "./purchase";
 import { stripUndefined } from "../strip-undefined";
 import { presentVersionApprovalHistory } from "~/server/domain/version-approval/service";
+import { browserSafeStoredAudioUrl } from "~/server/domain/audio-delivery/urls";
 import { sessionBookingScheduleAdvisoryLockKey } from "~/server/domain/session-booking/db";
 
 // Accepts a subset of producer-editable fields. The schema's cascade is
@@ -1402,7 +1403,19 @@ export const producerRouter = router({
     if (!profile) throw new TRPCError({ code: "NOT_FOUND" });
 
     const tracks = await ctx.db
-      .select()
+      .select({
+        id: portfolioTracks.id,
+        producerId: portfolioTracks.producerId,
+        title: portfolioTracks.title,
+        artist: portfolioTracks.artist,
+        audioUrl: portfolioTracks.audioUrl,
+        artworkUrl: portfolioTracks.artworkUrl,
+        position: portfolioTracks.position,
+        sizeBytes: portfolioTracks.sizeBytes,
+        durationMs: portfolioTracks.durationMs,
+        isPublicSample: portfolioTracks.isPublicSample,
+        createdAt: portfolioTracks.createdAt,
+      })
       .from(portfolioTracks)
       .where(eq(portfolioTracks.producerId, ctx.producerId))
       .orderBy(portfolioTracks.position);
@@ -1421,7 +1434,10 @@ export const producerRouter = router({
         createdAt: profile.createdAt,
         updatedAt: profile.updatedAt,
       },
-      portfolioTracks: tracks,
+      portfolioTracks: tracks.map((track) => ({
+        ...track,
+        audioUrl: browserSafeStoredAudioUrl(track.audioUrl),
+      })),
     };
   }),
 

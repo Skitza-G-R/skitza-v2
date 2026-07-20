@@ -160,28 +160,37 @@ export const producers = pgTable("producers", {
 export type Producer = typeof producers.$inferSelect;
 export type NewProducer = typeof producers.$inferInsert;
 
-export const portfolioTracks = pgTable("portfolio_tracks", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  producerId: uuid("producer_id")
-    .notNull()
-    .references(() => producers.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  artist: text("artist"), // optional credit line
-  audioUrl: text("audio_url"), // nullable during upload — filled by audio.completeMultipart
-  artworkUrl: text("artwork_url"),
-  position: integer("position").notNull().default(0), // for ordering
-  audioR2Key: text("audio_r2_key"),
-  sizeBytes: bigint("size_bytes", { mode: "number" }),
-  durationMs: integer("duration_ms"),
-  peaksR2Key: text("peaks_r2_key"),
-  // Story 01 of /join flow (PRD §6.2): only tracks with this flag
-  // play for unsigned-in visitors on `/join/<slug>`. Default false —
-  // producers opt tracks in one at a time. Partial index on
-  // (producer_id) WHERE is_public_sample = true keeps per-producer
-  // sample lookups on the public teaser cheap.
-  isPublicSample: boolean("is_public_sample").notNull().default(false),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const portfolioTracks = pgTable(
+  "portfolio_tracks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    producerId: uuid("producer_id")
+      .notNull()
+      .references(() => producers.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    artist: text("artist"), // optional credit line
+    audioUrl: text("audio_url"), // nullable during upload — filled by audio.completeMultipart
+    artworkUrl: text("artwork_url"),
+    position: integer("position").notNull().default(0), // for ordering
+    audioR2Key: text("audio_r2_key"),
+    sizeBytes: bigint("size_bytes", { mode: "number" }),
+    durationMs: integer("duration_ms"),
+    peaksR2Key: text("peaks_r2_key"),
+    // Story 01 of /join flow (PRD §6.2): only tracks with this flag
+    // play for unsigned-in visitors on `/join/<slug>`. Default false —
+    // producers opt tracks in one at a time. Partial index on
+    // (producer_id) WHERE is_public_sample = true keeps per-producer
+    // sample lookups on the public teaser cheap.
+    isPublicSample: boolean("is_public_sample").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    protectedOwnedAudioUrl: check(
+      "portfolio_tracks_protected_owned_audio_url",
+      sql`${t.audioR2Key} IS NULL OR ${t.audioUrl} = '/api/audio/public/portfolio/' || ${t.id}::text`,
+    ),
+  }),
+);
 export type PortfolioTrack = typeof portfolioTracks.$inferSelect;
 export type NewPortfolioTrack = typeof portfolioTracks.$inferInsert;
 
@@ -849,6 +858,10 @@ export const trackVersions = pgTable(
           AND ((${t.pendingAudioCancelRequestedAt} IS NULL AND ${t.audioDeletedAt} IS NULL) OR (${t.pendingAudioCancelRequestedAt} IS NOT NULL AND ${t.audioDeletedAt} IS NOT NULL))
         )
       ) IS TRUE`,
+    ),
+    protectedAudioUrl: check(
+      "track_versions_protected_audio_url",
+      sql`${t.audioUrl} IS NULL OR ${t.audioUrl} = '/api/audio/stream/' || ${t.id}::text`,
     ),
   }),
 );
@@ -2251,6 +2264,9 @@ export const purchaseDownloadOverrideEvents = pgTable(
     versionId: uuid("version_id").notNull(),
     producerId: uuid("producer_id").notNull(),
     enabled: boolean("enabled").notNull(),
+    sequence: integer("sequence").notNull(),
+    operationKey: text("operation_key").notNull(),
+    operationDigest: text("operation_digest").notNull(),
     changedByClerkUserId: text("changed_by_clerk_user_id").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -2265,13 +2281,34 @@ export const purchaseDownloadOverrideEvents = pgTable(
       foreignColumns: [trackVersions.id, trackVersions.purchaseId],
       name: "purchase_download_overrides_version_purchase_fk",
     }).onDelete("restrict"),
-    purchaseVersionCreatedIdx: index("purchase_download_overrides_version_created_idx").on(
+    purchaseVersionSequenceUnique: unique(
+      "purchase_download_overrides_purchase_version_sequence_unique",
+    ).on(t.purchaseId, t.versionId, t.sequence),
+    operationKeyUnique: unique("purchase_download_overrides_operation_key_unique").on(
+      t.purchaseId,
+      t.operationKey,
+    ),
+    positiveSequence: check(
+      "purchase_download_overrides_positive_sequence",
+      sql`${t.sequence} > 0`,
+    ),
+    operationShape: check(
+      "purchase_download_overrides_operation_shape",
+      sql`NULLIF(btrim(${t.operationKey}), '') IS NOT NULL AND NULLIF(btrim(${t.operationDigest}), '') IS NOT NULL`,
+    ),
+    actorShape: check(
+      "purchase_download_overrides_actor_shape",
+      sql`NULLIF(btrim(${t.changedByClerkUserId}), '') IS NOT NULL`,
+    ),
+    purchaseVersionSequenceIdx: index("purchase_download_overrides_version_sequence_idx").on(
       t.purchaseId,
       t.versionId,
-      t.createdAt,
+      t.sequence,
     ),
   }),
 );
+export type PurchaseDownloadOverrideEvent = typeof purchaseDownloadOverrideEvents.$inferSelect;
+export type NewPurchaseDownloadOverrideEvent = typeof purchaseDownloadOverrideEvents.$inferInsert;
 
 export const versionApprovalEvents = pgTable(
   "version_approval_events",

@@ -12,6 +12,10 @@ import {
   tombstoneStoredAudioVersion,
   updateSongMetadata,
 } from "../db";
+import {
+  privateVersionStreamPath,
+  publicPortfolioStreamPath,
+} from "../../audio-delivery/urls";
 import { computeStoredAudioIdentityFingerprint } from "../service";
 
 // This suite never falls back to DATABASE_URL. DATABASE_URL_TEST is the
@@ -302,7 +306,7 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
   ): Promise<VersionFixture> {
     const id = randomUUID();
     const audioR2Key = `producers/${song.producerId}/tracks/${id}/test-audio.mp3`;
-    const audioUrl = `https://audio.example.test/${id}.mp3`;
+    const audioUrl = privateVersionStreamPath(id);
     const sizeBytes = 4_096;
     const audioObjectEtag = `etag-${id}`;
     const audioIdentityFingerprint = computeStoredAudioIdentityFingerprint({
@@ -338,7 +342,7 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
         )
       values (
         ${id}, ${song.producerId}, ${"Portfolio fixture"}, ${"Old credit"},
-        ${version.audioUrl}, ${version.audioR2Key}, ${version.sizeBytes}, ${180_000},
+        ${publicPortfolioStreamPath(id)}, ${version.audioR2Key}, ${version.sizeBytes}, ${180_000},
         ${"peaks/old.json"}
       )
     `);
@@ -665,7 +669,7 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
       producerId: song.producerId,
       title: "Authoritative title",
       artist: "Authoritative credit",
-      audioUrl: version.audioUrl,
+      audioUrl: publicPortfolioStreamPath(created.id),
       audioR2Key: version.audioR2Key,
       sizeBytes: version.sizeBytes,
       durationMs: 172_000,
@@ -831,7 +835,7 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
       durationMs: 181_000,
       peaksR2Key: "peaks/newer.json",
     });
-    await publishPortfolioCopy(song, newer);
+    const portfolioId = await publishPortfolioCopy(song, newer);
     await enablePublicLink(song);
     const firstDeletedAt = new Date("2026-07-11T08:00:00.000Z");
 
@@ -867,7 +871,7 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
     expect(retargeted.rows[0]).toMatchObject({
       title: "Released song",
       artist: "Released artist",
-      audio_url: older.audioUrl,
+      audio_url: publicPortfolioStreamPath(portfolioId),
       audio_r2_key: older.audioR2Key,
       duration_ms: 175_000,
       peaks_r2_key: "peaks/older.json",

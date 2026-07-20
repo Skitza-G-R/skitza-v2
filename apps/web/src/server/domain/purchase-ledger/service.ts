@@ -174,6 +174,12 @@ export type ReconciledPurchaseLedger = Readonly<{
   projection: PurchaseLedgerProjection;
 }>;
 
+export type ReadPurchaseLedgerInput = Readonly<{
+  producerId: string;
+  purchaseId: string;
+  asOf?: Date;
+}>;
+
 function identifier(value: string, label: string): string {
   const normalized = value.trim();
   if (!normalized) throw new PurchaseLedgerDomainError("INVALID_INPUT", `${label} is required`);
@@ -295,6 +301,27 @@ function projection(snapshot: PurchaseLedgerSnapshot, asOf: Date): PurchaseLedge
     pendingProofInstallmentIds: snapshot.pendingProofInstallmentIds,
     asOf,
     timeZone: snapshot.producer.timeZone,
+  });
+}
+
+/**
+ * Read the current payment-only projection without reconciling or mutating the
+ * ledger. Callers that already hold the shared project/purchase locks can use
+ * the transaction-backed repository so an authorization decision observes the
+ * same serial order as payments, corrections, overrides, and audio deletion.
+ */
+export async function readPurchaseLedger(
+  repository: PurchaseLedgerRepository,
+  rawInput: ReadPurchaseLedgerInput,
+): Promise<ReconciledPurchaseLedger> {
+  const scope = {
+    producerId: identifier(rawInput.producerId, "Producer id"),
+    purchaseId: identifier(rawInput.purchaseId, "Purchase id"),
+  };
+  const asOf = date(rawInput.asOf ?? new Date(), "Ledger read time");
+  return repository.atomically(scope, async (transaction) => {
+    const snapshot = ownedSnapshot(await transaction.loadSnapshot(), scope);
+    return { snapshot, projection: projection(snapshot, asOf) };
   });
 }
 
