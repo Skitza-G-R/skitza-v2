@@ -28,9 +28,12 @@ type TestTable =
   | "projects"
   | "purchases"
   | "purchase_installments"
+  | "payment_proofs"
   | "purchase_payments"
+  | "purchase_payment_corrections"
   | "purchase_waivers"
   | "purchase_cancellations"
+  | "project_payment_pause_events"
   | "purchase_session_allowances"
   | "project_tracks"
   | "track_versions"
@@ -148,6 +151,9 @@ describeWithTestDatabase("SK-12 project lifecycle — separate CI test database"
         "id" uuid primary key,
         "clerk_user_id" text not null unique,
         "email" text not null,
+        "display_name" text,
+        "timezone" text not null default 'UTC',
+        "autopilot_unpaid_reminder" boolean not null default true,
         "slug" text not null unique
       )`,
       `create table ${schema}."client_contacts" (
@@ -187,7 +193,14 @@ describeWithTestDatabase("SK-12 project lifecycle — separate CI test database"
         "producer_id" uuid not null,
         "project_id" uuid not null,
         "client_contact_id" uuid not null,
+        "ref_number" text not null unique,
         "lifecycle_status" text not null,
+        "payment_plan_kind" text,
+        "commercial_snapshot" jsonb not null,
+        "subtotal_cents" integer not null,
+        "tax_cents" integer not null,
+        "total_cents" integer not null,
+        "currency" text not null,
         "accepted_at" timestamptz not null,
         "activated_at" timestamptz,
         "canceled_at" timestamptz,
@@ -211,6 +224,7 @@ describeWithTestDatabase("SK-12 project lifecycle — separate CI test database"
         "required_for_activation" boolean not null default false,
         "status" text not null,
         "reminders_enabled" boolean not null default true,
+        "created_at" timestamptz not null default now(),
         "updated_at" timestamptz not null,
         constraint "purchase_installments_purchase_position_unique"
           unique ("purchase_id", "position"),
@@ -218,25 +232,77 @@ describeWithTestDatabase("SK-12 project lifecycle — separate CI test database"
           foreign key ("purchase_id", "producer_id")
           references ${schema}."purchases"("id", "producer_id") on delete restrict
       )`,
+      `create table ${schema}."payment_proofs" (
+        "id" uuid primary key,
+        "purchase_id" uuid not null,
+        "installment_id" uuid not null,
+        "producer_id" uuid not null,
+        "status" text not null
+      )`,
       `create table ${schema}."purchase_payments" (
         "id" uuid primary key,
         "purchase_id" uuid not null references ${schema}."purchases"("id") on delete restrict,
+        "installment_id" uuid not null,
+        "producer_id" uuid not null,
+        "proof_id" uuid,
+        "operation_key" text not null,
+        "operation_digest" text not null,
+        "source" text not null,
         "amount_cents" integer not null,
-        "paid_at" timestamptz not null
+        "currency" text not null,
+        "paid_at" timestamptz not null,
+        "added_by_clerk_user_id" text not null,
+        "note" text,
+        "created_at" timestamptz not null default now()
+      )`,
+      `create table ${schema}."purchase_payment_corrections" (
+        "id" uuid primary key default gen_random_uuid(),
+        "purchase_id" uuid not null,
+        "payment_id" uuid not null,
+        "producer_id" uuid not null,
+        "operation_key" text not null,
+        "operation_digest" text not null,
+        "sequence" integer not null,
+        "previous_amount_cents" integer not null,
+        "new_amount_cents" integer not null,
+        "reason" text not null,
+        "corrected_by_clerk_user_id" text not null,
+        "created_at" timestamptz not null default now()
       )`,
       `create table ${schema}."purchase_waivers" (
         "id" uuid primary key,
         "purchase_id" uuid not null references ${schema}."purchases"("id") on delete restrict,
+        "installment_id" uuid not null,
+        "producer_id" uuid not null,
+        "operation_key" text not null,
+        "operation_digest" text not null,
         "amount_cents" integer not null,
-        "reason" text not null
+        "reason" text not null,
+        "waived_by_clerk_user_id" text not null,
+        "created_at" timestamptz not null default now()
       )`,
       `create table ${schema}."purchase_cancellations" (
         "id" uuid primary key default gen_random_uuid(),
         "purchase_id" uuid not null unique references ${schema}."purchases"("id") on delete restrict,
         "producer_id" uuid not null,
+        "operation_key" text not null,
+        "operation_digest" text not null,
         "reason" text not null,
         "canceled_by_clerk_user_id" text not null,
         "canceled_at" timestamptz not null,
+        "created_at" timestamptz not null default now()
+      )`,
+      `create table ${schema}."project_payment_pause_events" (
+        "id" uuid primary key default gen_random_uuid(),
+        "purchase_id" uuid not null,
+        "project_id" uuid not null,
+        "producer_id" uuid not null,
+        "action" text not null,
+        "operation_key" text not null,
+        "operation_digest" text not null,
+        "reason" text not null,
+        "changed_by_clerk_user_id" text not null,
+        "changed_at" timestamptz not null,
         "created_at" timestamptz not null default now()
       )`,
       `create table ${schema}."purchase_session_allowances" (
@@ -320,8 +386,9 @@ describeWithTestDatabase("SK-12 project lifecycle — separate CI test database"
     const key = `sk12-${randomUUID()}`;
     await activeAdminDb().execute(sql`
       insert into ${sql.raw(qualifiedTestTable("producers"))}
-        ("id", "clerk_user_id", "email", "slug")
-      values (${producerId}, ${key}, ${`${key}@example.test`}, ${key})
+        ("id", "clerk_user_id", "email", "display_name", "timezone", "slug")
+      values (${producerId}, ${key}, ${`${key}@example.test`}, ${"Fixture producer"},
+        ${"America/New_York"}, ${key})
     `);
     return producerId;
   }
@@ -363,12 +430,17 @@ describeWithTestDatabase("SK-12 project lifecycle — separate CI test database"
     const acceptedAt = new Date("2036-07-18T08:30:00.000Z");
     const activatedAt = lifecycleStatus === "waiting_for_payment" ? null : acceptedAt;
     const canceledAt = lifecycleStatus === "canceled" ? new Date("2036-07-18T09:00:00.000Z") : null;
+    const refNumber = `SK-${id}`;
+    const commercialSnapshot = JSON.stringify({ productOrOfferName: "Fixture purchase" });
     await activeAdminDb().execute(sql`
       insert into ${sql.raw(qualifiedTestTable("purchases"))}
-        ("id", "producer_id", "project_id", "client_contact_id", "lifecycle_status",
-         "accepted_at", "activated_at", "canceled_at", "updated_at")
+        ("id", "producer_id", "project_id", "client_contact_id", "ref_number",
+         "lifecycle_status", "payment_plan_kind", "commercial_snapshot", "subtotal_cents",
+         "tax_cents", "total_cents", "currency", "accepted_at", "activated_at", "canceled_at",
+         "updated_at")
       values (${id}, ${project.producerId}, ${project.id}, ${project.clientContactId},
-        ${lifecycleStatus}, ${acceptedAt}, ${activatedAt}, ${canceledAt}, ${canceledAt ?? acceptedAt})
+        ${refNumber}, ${lifecycleStatus}, ${null}, ${commercialSnapshot}::jsonb, ${0}, ${0}, ${0},
+        ${"USD"}, ${acceptedAt}, ${activatedAt}, ${canceledAt}, ${canceledAt ?? acceptedAt})
     `);
     return { id, producerId: project.producerId, projectId: project.id };
   }
@@ -398,6 +470,28 @@ describeWithTestDatabase("SK-12 project lifecycle — separate CI test database"
         ${input.requiredForActivation ?? false}, ${input.status ?? "not_paid"},
         ${input.remindersEnabled ?? true}, ${updatedAt})
     `);
+    await activeAdminDb().execute(sql`
+      update ${sql.raw(qualifiedTestTable("purchase_installments"))}
+      set "required_for_activation" = ("id" = (
+        select "id" from ${sql.raw(qualifiedTestTable("purchase_installments"))}
+        where "purchase_id" = ${purchase.id}
+        order by "position", "id"
+        limit 1
+      ))
+      where "purchase_id" = ${purchase.id}
+    `);
+    await activeAdminDb().execute(sql`
+      update ${sql.raw(qualifiedTestTable("purchases"))}
+      set "payment_plan_kind" = ${"full"},
+          "subtotal_cents" = totals."amount_cents",
+          "total_cents" = totals."amount_cents"
+      from (
+        select coalesce(sum("amount_cents"), 0)::integer as "amount_cents"
+        from ${sql.raw(qualifiedTestTable("purchase_installments"))}
+        where "purchase_id" = ${purchase.id}
+      ) totals
+      where "id" = ${purchase.id}
+    `);
     return id;
   }
 
@@ -426,8 +520,10 @@ describeWithTestDatabase("SK-12 project lifecycle — separate CI test database"
   ): Promise<void> {
     await activeAdminDb().execute(sql`
       insert into ${sql.raw(qualifiedTestTable("purchase_cancellations"))}
-        ("purchase_id", "producer_id", "reason", "canceled_by_clerk_user_id", "canceled_at")
-      values (${purchase.id}, ${purchase.producerId}, ${reason}, ${"fixture-actor"}, ${canceledAt})
+        ("purchase_id", "producer_id", "operation_key", "operation_digest", "reason",
+         "canceled_by_clerk_user_id", "canceled_at")
+      values (${purchase.id}, ${purchase.producerId}, ${`fixture-cancellation:${purchase.id}`},
+        ${`fixture-cancellation-digest:${purchase.id}`}, ${reason}, ${"fixture-actor"}, ${canceledAt})
     `);
   }
 
@@ -435,7 +531,7 @@ describeWithTestDatabase("SK-12 project lifecycle — separate CI test database"
     project: ProjectFixture,
     purchase: PurchaseFixture,
   ): Promise<void> {
-    await createInstallment(purchase, {
+    const installmentId = await createInstallment(purchase, {
       position: 90,
       status: "confirmed",
       dueAt: new Date("2036-07-17T12:00:00.000Z"),
@@ -450,13 +546,20 @@ describeWithTestDatabase("SK-12 project lifecycle — separate CI test database"
     const bookingId = randomUUID();
     await activeAdminDb().execute(sql`
       insert into ${sql.raw(qualifiedTestTable("purchase_payments"))}
-        ("id", "purchase_id", "amount_cents", "paid_at")
-      values (${paymentId}, ${purchase.id}, ${9000}, ${new Date("2036-07-17T12:00:00.000Z")})
+        ("id", "purchase_id", "installment_id", "producer_id", "operation_key",
+         "operation_digest", "source", "amount_cents", "currency", "paid_at",
+         "added_by_clerk_user_id")
+      values (${paymentId}, ${purchase.id}, ${installmentId}, ${purchase.producerId},
+        ${`fixture-payment:${paymentId}`}, ${`fixture-payment-digest:${paymentId}`}, ${"manual"},
+        ${9000}, ${"USD"}, ${new Date("2036-07-17T12:00:00.000Z")}, ${"fixture-actor"})
     `);
     await activeAdminDb().execute(sql`
       insert into ${sql.raw(qualifiedTestTable("purchase_waivers"))}
-        ("id", "purchase_id", "amount_cents", "reason")
-      values (${waiverId}, ${purchase.id}, ${500}, ${"Fixture waiver"})
+        ("id", "purchase_id", "installment_id", "producer_id", "operation_key",
+         "operation_digest", "amount_cents", "reason", "waived_by_clerk_user_id")
+      values (${waiverId}, ${purchase.id}, ${installmentId}, ${purchase.producerId},
+        ${`fixture-waiver:${waiverId}`}, ${`fixture-waiver-digest:${waiverId}`}, ${500},
+        ${"Fixture waiver"}, ${"fixture-actor"})
     `);
     await activeAdminDb().execute(sql`
       insert into ${sql.raw(qualifiedTestTable("project_tracks"))}
@@ -696,14 +799,17 @@ describeWithTestDatabase("SK-12 project lifecycle — separate CI test database"
       acceptanceDue: await createInstallment(purchase, {
         position: 8,
         dueTrigger: "acceptance",
+        dueAt: canceledAt,
       }),
       activationRequired: await createInstallment(purchase, {
         position: 9,
         requiredForActivation: true,
+        dueAt: canceledAt,
       }),
       triggered: await createInstallment(purchase, {
         position: 5,
         triggeredAt: new Date("2036-07-18T10:00:00.000Z"),
+        dueAt: canceledAt,
       }),
       partialFuture: await createInstallment(purchase, {
         position: 6,
@@ -719,13 +825,20 @@ describeWithTestDatabase("SK-12 project lifecycle — separate CI test database"
     await createAllowance(purchase);
     await activeAdminDb().execute(sql`
       insert into ${sql.raw(qualifiedTestTable("purchase_payments"))}
-        ("id", "purchase_id", "amount_cents", "paid_at")
-      values (${randomUUID()}, ${purchase.id}, ${1500}, ${new Date("2036-07-18T10:00:00.000Z")})
+        ("id", "purchase_id", "installment_id", "producer_id", "operation_key",
+         "operation_digest", "source", "amount_cents", "currency", "paid_at",
+         "added_by_clerk_user_id")
+      values (${randomUUID()}, ${purchase.id}, ${ids.partialFuture}, ${purchase.producerId},
+        ${`fixture-payment:${purchase.id}`}, ${`fixture-payment-digest:${purchase.id}`}, ${"manual"},
+        ${1500}, ${"USD"}, ${new Date("2036-07-18T10:00:00.000Z")}, ${"fixture-actor"})
     `);
     await activeAdminDb().execute(sql`
       insert into ${sql.raw(qualifiedTestTable("purchase_waivers"))}
-        ("id", "purchase_id", "amount_cents", "reason")
-      values (${randomUUID()}, ${purchase.id}, ${250}, ${"Manual waiver"})
+        ("id", "purchase_id", "installment_id", "producer_id", "operation_key",
+         "operation_digest", "amount_cents", "reason", "waived_by_clerk_user_id")
+      values (${randomUUID()}, ${purchase.id}, ${ids.overdue}, ${purchase.producerId},
+        ${`fixture-waiver:${purchase.id}`}, ${`fixture-waiver-digest:${purchase.id}`}, ${250},
+        ${"Manual waiver"}, ${"fixture-actor"})
     `);
     const beforeMoney = await moneyRows(project.id);
 
@@ -740,7 +853,7 @@ describeWithTestDatabase("SK-12 project lifecycle — separate CI test database"
     expect(result).toMatchObject({
       changed: true,
       canceledPurchaseIds: [purchase.id],
-      canceledInstallments: 2,
+      canceledInstallments: 3,
       closedAllowances: 1,
     });
     expect((await storedProject(project.id))?.lifecycleStatus).toBe("canceled");
@@ -751,20 +864,14 @@ describeWithTestDatabase("SK-12 project lifecycle — separate CI test database"
     const installments = new Map(
       (await storedInstallments(project.id)).map((row) => [row.id, row]),
     );
-    for (const id of [ids.futureDate, ids.untriggered]) {
+    for (const id of [ids.futureDate, ids.untriggered, ids.partialFuture]) {
       expect(installments.get(id)).toMatchObject({ status: "canceled", remindersEnabled: false });
     }
-    for (const id of [
-      ids.exactDue,
-      ids.pastDue,
-      ids.acceptanceDue,
-      ids.activationRequired,
-      ids.triggered,
-    ]) {
+    for (const id of [ids.exactDue, ids.acceptanceDue, ids.activationRequired, ids.triggered]) {
       expect(installments.get(id)).toMatchObject({ status: "not_paid", remindersEnabled: true });
     }
-    expect(installments.get(ids.partialFuture)).toMatchObject({
-      status: "partially_paid",
+    expect(installments.get(ids.pastDue)).toMatchObject({
+      status: "overdue",
       remindersEnabled: true,
     });
     expect(installments.get(ids.overdue)).toMatchObject({

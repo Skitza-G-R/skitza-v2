@@ -2,14 +2,9 @@ import {
   and,
   clientContacts,
   eq,
-  gt,
   inArray,
   isNull,
-  ne,
-  or,
   projects,
-  purchaseCancellations,
-  purchaseInstallments,
   purchases,
   purchaseSessionAllowances,
   sql,
@@ -17,6 +12,10 @@ import {
 } from "@skitza/db";
 
 import { clientAdvisoryLockKey } from "../client-management/lock";
+import {
+  purchaseLedgerAdvisoryLockKey,
+  purchaseLedgerRepositoryForTransaction,
+} from "../purchase-ledger/db";
 import { projectAdvisoryLockKey } from "./lock";
 import {
   ProjectLifecycleDomainError,
@@ -28,12 +27,6 @@ import {
 
 function sameIds(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((id, index) => id === right[index]);
-}
-
-function purchaseLockKey(purchaseId: string): string {
-  const normalized = purchaseId.trim();
-  if (!normalized) throw new Error("Purchase id must not be empty");
-  return normalized;
 }
 
 export function projectLifecycleRepository(db: Db): ProjectLifecycleRepository {
@@ -130,7 +123,7 @@ export function projectLifecycleRepository(db: Db): ProjectLifecycleRepository {
           initialGraphPurchaseIds = await discoverPurchaseIds();
           for (const purchaseId of initialGraphPurchaseIds) {
             await tx.execute(
-              sql`select pg_advisory_xact_lock(hashtextextended(${purchaseLockKey(purchaseId)}, 0))`,
+              sql`select pg_advisory_xact_lock(hashtextextended(${purchaseLedgerAdvisoryLockKey(purchaseId)}, 0))`,
             );
           }
           for (const purchaseId of initialGraphPurchaseIds) {
@@ -156,7 +149,7 @@ export function projectLifecycleRepository(db: Db): ProjectLifecycleRepository {
           }
         } else if (scope.kind === "purchase") {
           await tx.execute(
-            sql`select pg_advisory_xact_lock(hashtextextended(${purchaseLockKey(scope.purchaseId)}, 0))`,
+            sql`select pg_advisory_xact_lock(hashtextextended(${purchaseLedgerAdvisoryLockKey(scope.purchaseId)}, 0))`,
           );
           const [purchase] = await tx
             .select(purchaseSelection)
@@ -209,6 +202,11 @@ export function projectLifecycleRepository(db: Db): ProjectLifecycleRepository {
           project,
           reopenClient,
           purchases: lockedPurchases,
+          purchaseLedgerRepository: (purchaseId) =>
+            purchaseLedgerRepositoryForTransaction(tx, {
+              producerId: scope.producerId,
+              purchaseId,
+            }),
           updateProjectMetadata: async (input) => {
             const [updated] = await tx
               .update(projects)
@@ -237,53 +235,6 @@ export function projectLifecycleRepository(db: Db): ProjectLifecycleRepository {
               .returning(projectSelection);
             return (updated as ProjectLifecycleProjectRecord | undefined) ?? null;
           },
-          cancelPurchase: async (input) => {
-            const [updated] = await tx
-              .update(purchases)
-              .set({
-                lifecycleStatus: "canceled",
-                canceledAt: input.canceledAt,
-                updatedAt: input.canceledAt,
-              })
-              .where(
-                and(
-                  eq(purchases.id, input.purchaseId),
-                  eq(purchases.producerId, input.producerId),
-                  eq(purchases.projectId, input.projectId),
-                  eq(purchases.lifecycleStatus, input.from),
-                  isNull(purchases.canceledAt),
-                ),
-              )
-              .returning(purchaseSelection);
-            return (updated as ProjectLifecyclePurchaseRecord | undefined) ?? null;
-          },
-          cancelFutureInstallments: async (input) => {
-            const rows = await tx
-              .update(purchaseInstallments)
-              .set({
-                status: "canceled",
-                remindersEnabled: false,
-                updatedAt: input.canceledAt,
-              })
-              .where(
-                and(
-                  eq(purchaseInstallments.purchaseId, input.purchaseId),
-                  eq(purchaseInstallments.producerId, input.producerId),
-                  eq(purchaseInstallments.status, "not_paid"),
-                  eq(purchaseInstallments.requiredForActivation, false),
-                  ne(purchaseInstallments.dueTrigger, "acceptance"),
-                  or(
-                    gt(purchaseInstallments.dueAt, input.canceledAt),
-                    and(
-                      isNull(purchaseInstallments.dueAt),
-                      isNull(purchaseInstallments.triggeredAt),
-                    ),
-                  ),
-                ),
-              )
-              .returning({ id: purchaseInstallments.id });
-            return rows.length;
-          },
           closeOpenAllowances: async (input) => {
             if (input.purchaseIds.length === 0) return 0;
             const rows = await tx
@@ -298,20 +249,6 @@ export function projectLifecycleRepository(db: Db): ProjectLifecycleRepository {
               )
               .returning({ id: purchaseSessionAllowances.id });
             return rows.length;
-          },
-          insertPurchaseCancellation: async (input) => {
-            const rows = await tx
-              .insert(purchaseCancellations)
-              .values({
-                purchaseId: input.purchaseId,
-                producerId: input.producerId,
-                reason: input.reason,
-                canceledByClerkUserId: input.actorId,
-                canceledAt: input.canceledAt,
-              })
-              .onConflictDoNothing({ target: purchaseCancellations.purchaseId })
-              .returning({ id: purchaseCancellations.id });
-            return rows.length === 1;
           },
         });
       }),

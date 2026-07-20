@@ -281,9 +281,9 @@ describe("SK-90 executable database rehearsal adapter", () => {
     expect(SK90_REQUIRED_LOCK_TABLES).toHaveLength(20);
     expect(new Set(SK90_REQUIRED_LOCK_TABLES).size).toBe(20);
     expect(SK90_RESET_SOURCE_TABLES).toHaveLength(12);
-    expect(SK90_POST_RESET_EMPTY_TABLES).toHaveLength(20);
-    expect(SK90_POST_RESET_LOCK_TABLES).toHaveLength(28);
-    expect(new Set(SK90_POST_RESET_LOCK_TABLES).size).toBe(28);
+    expect(SK90_POST_RESET_EMPTY_TABLES).toHaveLength(23);
+    expect(SK90_POST_RESET_LOCK_TABLES).toHaveLength(31);
+    expect(new Set(SK90_POST_RESET_LOCK_TABLES).size).toBe(31);
     expect(adapter).toMatch(/BEGIN ISOLATION LEVEL SERIALIZABLE/);
     expect(adapter).toMatch(/pg_advisory_xact_lock/);
     expect(adapter).toMatch(/SHARE ROW EXCLUSIVE MODE/);

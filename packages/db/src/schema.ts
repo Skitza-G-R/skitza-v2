@@ -70,11 +70,12 @@ export const producers = pgTable("producers", {
   // Five named behaviors the producer can flip on/off. No rule-builder,
   // no conditions — each column is a discrete outcome. See migration
   // 0027 for the column-level rationale. Defaults:
-  //   * welcomeEmail=false / unpaidReminder=false /
-  //     requestTestimonial=false / autoArchive=false — opt-in.
+  //   * welcomeEmail=false / requestTestimonial=false /
+  //     autoArchive=false — opt-in.
+  //   * unpaidReminder=true — approved purchase reminders default on.
   //   * commentNotify=true — matches existing unconditional behavior.
   autopilotWelcomeEmail: boolean("autopilot_welcome_email").notNull().default(false),
-  autopilotUnpaidReminder: boolean("autopilot_unpaid_reminder").notNull().default(false),
+  autopilotUnpaidReminder: boolean("autopilot_unpaid_reminder").notNull().default(true),
   autopilotRequestTestimonial: boolean("autopilot_request_testimonial").notNull().default(false),
   autopilotCommentNotify: boolean("autopilot_comment_notify").notNull().default(true),
   autopilotAutoArchive: boolean("autopilot_auto_archive").notNull().default(false),
@@ -1099,6 +1100,27 @@ export const paymentProofStatus = pgEnum("payment_proof_status", [
 
 export const purchasePaymentSource = pgEnum("purchase_payment_source", ["proof", "manual"]);
 
+export const purchaseReminderKind = pgEnum("purchase_reminder_kind", [
+  "automatic_3_days_before",
+  "automatic_due",
+  "automatic_3_days_late",
+  "automatic_weekly_late",
+  "manual",
+]);
+
+export const purchaseReminderDeliveryStatus = pgEnum("purchase_reminder_delivery_status", [
+  "reserved",
+  "sending",
+  "sent",
+  "reservation_expired",
+  "dedupe_expired",
+]);
+
+export const projectPaymentPauseAction = pgEnum("project_payment_pause_action", [
+  "paused",
+  "resumed",
+]);
+
 export const sessionAllowanceKind = pgEnum("session_allowance_kind", ["fixed", "unlimited"]);
 
 export const sessionAllowanceCloseReason = pgEnum("session_allowance_close_reason", [
@@ -1642,6 +1664,8 @@ export const purchasePaymentCorrections = pgTable(
     purchaseId: uuid("purchase_id").notNull(),
     paymentId: uuid("payment_id").notNull(),
     producerId: uuid("producer_id").notNull(),
+    operationKey: text("operation_key").notNull(),
+    operationDigest: text("operation_digest").notNull(),
     sequence: integer("sequence").notNull(),
     previousAmountCents: integer("previous_amount_cents").notNull(),
     newAmountCents: integer("new_amount_cents").notNull(),
@@ -1650,6 +1674,10 @@ export const purchasePaymentCorrections = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
+    operationUnique: unique("purchase_payment_corrections_operation_key_unique").on(
+      t.purchaseId,
+      t.operationKey,
+    ),
     paymentSequenceUnique: unique("purchase_payment_corrections_payment_sequence_unique").on(
       t.paymentId,
       t.sequence,
@@ -1664,6 +1692,23 @@ export const purchasePaymentCorrections = pgTable(
       foreignColumns: [purchases.id, purchases.producerId],
       name: "purchase_payment_corrections_purchase_producer_fk",
     }).onDelete("restrict"),
+    purchaseCreatedIdx: index("purchase_payment_corrections_purchase_created_idx").on(
+      t.purchaseId,
+      t.createdAt,
+      t.id,
+    ),
+    operationShape: check(
+      "purchase_payment_corrections_operation_shape",
+      sql`NULLIF(btrim(${t.operationKey}), '') IS NOT NULL AND NULLIF(btrim(${t.operationDigest}), '') IS NOT NULL`,
+    ),
+    reasonShape: check(
+      "purchase_payment_corrections_reason_shape",
+      sql`NULLIF(btrim(${t.reason}), '') IS NOT NULL`,
+    ),
+    amountChanged: check(
+      "purchase_payment_corrections_amount_changed",
+      sql`${t.previousAmountCents} <> ${t.newAmountCents}`,
+    ),
     positiveSequence: check(
       "purchase_payment_corrections_positive_sequence",
       sql`${t.sequence} > 0`,
@@ -1684,12 +1729,18 @@ export const purchaseWaivers = pgTable(
     purchaseId: uuid("purchase_id").notNull(),
     installmentId: uuid("installment_id").notNull(),
     producerId: uuid("producer_id").notNull(),
+    operationKey: text("operation_key").notNull(),
+    operationDigest: text("operation_digest").notNull(),
     amountCents: integer("amount_cents").notNull(),
     reason: text("reason").notNull(),
     waivedByClerkUserId: text("waived_by_clerk_user_id").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
+    operationUnique: unique("purchase_waivers_operation_key_unique").on(
+      t.purchaseId,
+      t.operationKey,
+    ),
     installmentPurchaseFk: foreignKey({
       columns: [t.installmentId, t.purchaseId],
       foreignColumns: [purchaseInstallments.id, purchaseInstallments.purchaseId],
@@ -1700,6 +1751,19 @@ export const purchaseWaivers = pgTable(
       foreignColumns: [purchases.id, purchases.producerId],
       name: "purchase_waivers_purchase_producer_fk",
     }).onDelete("restrict"),
+    purchaseCreatedIdx: index("purchase_waivers_purchase_created_idx").on(
+      t.purchaseId,
+      t.createdAt,
+      t.id,
+    ),
+    operationShape: check(
+      "purchase_waivers_operation_shape",
+      sql`NULLIF(btrim(${t.operationKey}), '') IS NOT NULL AND NULLIF(btrim(${t.operationDigest}), '') IS NOT NULL`,
+    ),
+    reasonShape: check(
+      "purchase_waivers_reason_shape",
+      sql`NULLIF(btrim(${t.reason}), '') IS NOT NULL`,
+    ),
     positiveAmount: check("purchase_waivers_positive_amount", sql`${t.amountCents} > 0`),
   }),
 );
@@ -1712,6 +1776,8 @@ export const purchaseCancellations = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     purchaseId: uuid("purchase_id").notNull(),
     producerId: uuid("producer_id").notNull(),
+    operationKey: text("operation_key").notNull(),
+    operationDigest: text("operation_digest").notNull(),
     reason: text("reason").notNull(),
     canceledByClerkUserId: text("canceled_by_clerk_user_id").notNull(),
     canceledAt: timestamp("canceled_at", { withTimezone: true }).notNull(),
@@ -1719,15 +1785,278 @@ export const purchaseCancellations = pgTable(
   },
   (t) => ({
     purchaseUnique: unique("purchase_cancellations_purchase_unique").on(t.purchaseId),
+    operationUnique: unique("purchase_cancellations_operation_key_unique").on(
+      t.purchaseId,
+      t.operationKey,
+    ),
     purchaseProducerFk: foreignKey({
       columns: [t.purchaseId, t.producerId],
       foreignColumns: [purchases.id, purchases.producerId],
       name: "purchase_cancellations_purchase_producer_fk",
     }).onDelete("restrict"),
+    operationShape: check(
+      "purchase_cancellations_operation_shape",
+      sql`NULLIF(btrim(${t.operationKey}), '') IS NOT NULL AND NULLIF(btrim(${t.operationDigest}), '') IS NOT NULL`,
+    ),
+    reasonShape: check(
+      "purchase_cancellations_reason_shape",
+      sql`NULLIF(btrim(${t.reason}), '') IS NOT NULL`,
+    ),
   }),
 );
 export type PurchaseCancellation = typeof purchaseCancellations.$inferSelect;
 export type NewPurchaseCancellation = typeof purchaseCancellations.$inferInsert;
+
+export type PurchaseReminderMessageSnapshot = {
+  to: string;
+  props: {
+    artistName: string;
+    producerName: string;
+    purchaseName: string;
+    refNumber: string;
+    currency: string;
+    amountCents: number;
+    dueAt: string;
+    producerTimezone: string;
+    paymentUrl: string;
+  };
+};
+
+// Durable reservation/outbox for reminder delivery. A row is committed before
+// email I/O. A stable provider idempotency key makes a stale-claim retry safe
+// during the provider's 24-hour dedupe window; once that window expires the
+// row becomes dedupe_expired and requires an explicit new reminder operation.
+export const purchaseReminderDeliveries = pgTable(
+  "purchase_reminder_deliveries",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    purchaseId: uuid("purchase_id").notNull(),
+    installmentId: uuid("installment_id").notNull(),
+    producerId: uuid("producer_id").notNull(),
+    operationKey: text("operation_key").notNull(),
+    operationDigest: text("operation_digest").notNull(),
+    kind: purchaseReminderKind("kind").notNull(),
+    scheduledFor: timestamp("scheduled_for", { withTimezone: true }).notNull(),
+    amountDueCents: integer("amount_due_cents").notNull(),
+    currency: text("currency").notNull(),
+    recipientEmail: text("recipient_email").notNull(),
+    messageSnapshot: jsonb("message_snapshot").$type<PurchaseReminderMessageSnapshot>().notNull(),
+    sentByClerkUserId: text("sent_by_clerk_user_id"),
+    providerIdempotencyKey: text("provider_idempotency_key").notNull(),
+    status: purchaseReminderDeliveryStatus("status").notNull().default("reserved"),
+    claimToken: text("claim_token"),
+    claimUntil: timestamp("claim_until", { withTimezone: true }),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    firstAttemptAt: timestamp("first_attempt_at", { withTimezone: true }),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    providerDedupeExpiresAt: timestamp("provider_dedupe_expires_at", { withTimezone: true }),
+    lastFailedAt: timestamp("last_failed_at", { withTimezone: true }),
+    providerMessageId: text("provider_message_id"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    operationUnique: unique("purchase_reminder_deliveries_operation_key_unique").on(
+      t.purchaseId,
+      t.operationKey,
+    ),
+    providerIdempotencyUnique: unique(
+      "purchase_reminder_deliveries_provider_idempotency_unique",
+    ).on(t.providerIdempotencyKey),
+    automaticOccurrenceUnique: uniqueIndex(
+      "purchase_reminder_deliveries_automatic_occurrence_unique",
+    )
+      .on(t.installmentId, t.kind, t.scheduledFor)
+      .where(sql`${t.kind} <> 'manual'`),
+    purchaseProducerFk: foreignKey({
+      columns: [t.purchaseId, t.producerId],
+      foreignColumns: [purchases.id, purchases.producerId],
+      name: "purchase_reminder_deliveries_purchase_producer_fk",
+    }).onDelete("restrict"),
+    installmentPurchaseCurrencyFk: foreignKey({
+      columns: [t.installmentId, t.purchaseId, t.currency],
+      foreignColumns: [
+        purchaseInstallments.id,
+        purchaseInstallments.purchaseId,
+        purchaseInstallments.currency,
+      ],
+      name: "purchase_reminder_deliveries_installment_purchase_currency_fk",
+    }).onDelete("restrict"),
+    claimIdx: index("purchase_reminder_deliveries_claim_idx").on(t.status, t.claimUntil, t.id),
+    producerUpdatedIdx: index("purchase_reminder_deliveries_producer_updated_idx").on(
+      t.producerId,
+      t.updatedAt,
+      t.id,
+    ),
+    positiveAmount: check(
+      "purchase_reminder_deliveries_positive_amount",
+      sql`${t.amountDueCents} > 0`,
+    ),
+    operationShape: check(
+      "purchase_reminder_deliveries_operation_shape",
+      sql`NULLIF(btrim(${t.operationKey}), '') IS NOT NULL AND NULLIF(btrim(${t.operationDigest}), '') IS NOT NULL AND NULLIF(btrim(${t.providerIdempotencyKey}), '') IS NOT NULL`,
+    ),
+    actorShape: check(
+      "purchase_reminder_deliveries_actor_shape",
+      sql`((${t.kind} = 'manual' AND NULLIF(btrim(${t.sentByClerkUserId}), '') IS NOT NULL) OR (${t.kind} <> 'manual' AND ${t.sentByClerkUserId} IS NULL)) IS TRUE`,
+    ),
+    snapshotShape: check(
+      "purchase_reminder_deliveries_snapshot_shape",
+      sql`(NULLIF(btrim(${t.currency}), '') IS NOT NULL AND NULLIF(btrim(${t.recipientEmail}), '') IS NOT NULL AND char_length(${t.providerIdempotencyKey}) <= 256 AND ${t.messageSnapshot}->>'to' = ${t.recipientEmail} AND ${t.messageSnapshot}->'props'->>'currency' = ${t.currency} AND (${t.messageSnapshot}->'props'->>'amountCents')::integer = ${t.amountDueCents}) IS TRUE`,
+    ),
+    attemptShape: check(
+      "purchase_reminder_deliveries_attempt_shape",
+      sql`((${t.attemptCount} = 0 AND ${t.firstAttemptAt} IS NULL AND ${t.lastAttemptAt} IS NULL AND ${t.providerDedupeExpiresAt} IS NULL) OR (${t.attemptCount} > 0 AND ${t.firstAttemptAt} IS NOT NULL AND ${t.lastAttemptAt} IS NOT NULL AND ${t.providerDedupeExpiresAt} IS NOT NULL)) IS TRUE`,
+    ),
+    stateShape: check(
+      "purchase_reminder_deliveries_state_shape",
+      sql`((${t.status} = 'reserved' AND ${t.claimToken} IS NULL AND ${t.claimUntil} IS NULL AND ${t.providerMessageId} IS NULL AND ${t.sentAt} IS NULL) OR (${t.status} = 'sending' AND NULLIF(btrim(${t.claimToken}), '') IS NOT NULL AND ${t.claimUntil} IS NOT NULL AND ${t.attemptCount} > 0 AND ${t.providerMessageId} IS NULL AND ${t.sentAt} IS NULL) OR (${t.status} = 'sent' AND ${t.claimToken} IS NULL AND ${t.claimUntil} IS NULL AND NULLIF(btrim(${t.providerMessageId}), '') IS NOT NULL AND ${t.sentAt} IS NOT NULL) OR (${t.status} = 'reservation_expired' AND ${t.claimToken} IS NULL AND ${t.claimUntil} IS NULL AND ${t.attemptCount} = 0 AND ${t.providerMessageId} IS NULL AND ${t.sentAt} IS NULL) OR (${t.status} = 'dedupe_expired' AND ${t.claimToken} IS NULL AND ${t.claimUntil} IS NULL AND ${t.attemptCount} > 0 AND ${t.providerMessageId} IS NULL AND ${t.sentAt} IS NULL)) IS TRUE`,
+    ),
+  }),
+);
+export type PurchaseReminderDelivery = typeof purchaseReminderDeliveries.$inferSelect;
+export type NewPurchaseReminderDelivery = typeof purchaseReminderDeliveries.$inferInsert;
+
+// One immutable row per successfully sent payment reminder. Automatic rows
+// are uniquely keyed by their deterministic schedule occurrence; manual rows
+// use the caller's operation key. The amount/currency/recipient snapshot makes
+// the delivery log useful even after the live balance or contact changes.
+export const purchaseReminderLogs = pgTable(
+  "purchase_reminder_logs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    purchaseId: uuid("purchase_id").notNull(),
+    installmentId: uuid("installment_id").notNull(),
+    producerId: uuid("producer_id").notNull(),
+    operationKey: text("operation_key").notNull(),
+    operationDigest: text("operation_digest").notNull(),
+    kind: purchaseReminderKind("kind").notNull(),
+    scheduledFor: timestamp("scheduled_for", { withTimezone: true }).notNull(),
+    amountDueCents: integer("amount_due_cents").notNull(),
+    currency: text("currency").notNull(),
+    recipientEmail: text("recipient_email").notNull(),
+    sentByClerkUserId: text("sent_by_clerk_user_id"),
+    providerMessageId: text("provider_message_id").notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    operationUnique: unique("purchase_reminder_logs_operation_key_unique").on(
+      t.purchaseId,
+      t.operationKey,
+    ),
+    automaticOccurrenceUnique: uniqueIndex("purchase_reminder_logs_automatic_occurrence_unique")
+      .on(t.installmentId, t.kind, t.scheduledFor)
+      .where(sql`${t.kind} <> 'manual'`),
+    purchaseProducerFk: foreignKey({
+      columns: [t.purchaseId, t.producerId],
+      foreignColumns: [purchases.id, purchases.producerId],
+      name: "purchase_reminder_logs_purchase_producer_fk",
+    }).onDelete("restrict"),
+    installmentPurchaseCurrencyFk: foreignKey({
+      columns: [t.installmentId, t.purchaseId, t.currency],
+      foreignColumns: [
+        purchaseInstallments.id,
+        purchaseInstallments.purchaseId,
+        purchaseInstallments.currency,
+      ],
+      name: "purchase_reminder_logs_installment_purchase_currency_fk",
+    }).onDelete("restrict"),
+    deliveryOperationFk: foreignKey({
+      columns: [t.purchaseId, t.operationKey],
+      foreignColumns: [
+        purchaseReminderDeliveries.purchaseId,
+        purchaseReminderDeliveries.operationKey,
+      ],
+      name: "purchase_reminder_logs_delivery_operation_fk",
+    }).onDelete("restrict"),
+    producerSentIdx: index("purchase_reminder_logs_producer_sent_idx").on(
+      t.producerId,
+      t.sentAt,
+      t.id,
+    ),
+    installmentSentIdx: index("purchase_reminder_logs_installment_sent_idx").on(
+      t.installmentId,
+      t.sentAt,
+      t.id,
+    ),
+    positiveAmount: check("purchase_reminder_logs_positive_amount", sql`${t.amountDueCents} > 0`),
+    operationShape: check(
+      "purchase_reminder_logs_operation_shape",
+      sql`NULLIF(btrim(${t.operationKey}), '') IS NOT NULL AND NULLIF(btrim(${t.operationDigest}), '') IS NOT NULL`,
+    ),
+    deliveryShape: check(
+      "purchase_reminder_logs_delivery_shape",
+      sql`NULLIF(btrim(${t.currency}), '') IS NOT NULL AND NULLIF(btrim(${t.recipientEmail}), '') IS NOT NULL AND NULLIF(btrim(${t.providerMessageId}), '') IS NOT NULL`,
+    ),
+    actorShape: check(
+      "purchase_reminder_logs_actor_shape",
+      sql`((${t.kind} = 'manual' AND NULLIF(btrim(${t.sentByClerkUserId}), '') IS NOT NULL) OR (${t.kind} <> 'manual' AND ${t.sentByClerkUserId} IS NULL)) IS TRUE`,
+    ),
+  }),
+);
+export type PurchaseReminderLog = typeof purchaseReminderLogs.$inferSelect;
+export type NewPurchaseReminderLog = typeof purchaseReminderLogs.$inferInsert;
+
+// Audits producer-controlled pause/resume commands caused by overdue money.
+// Current state remains on projects.lifecycleStatus; this is immutable history.
+export const projectPaymentPauseEvents = pgTable(
+  "project_payment_pause_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    purchaseId: uuid("purchase_id").notNull(),
+    projectId: uuid("project_id").notNull(),
+    producerId: uuid("producer_id").notNull(),
+    action: projectPaymentPauseAction("action").notNull(),
+    operationKey: text("operation_key").notNull(),
+    operationDigest: text("operation_digest").notNull(),
+    reason: text("reason").notNull(),
+    changedByClerkUserId: text("changed_by_clerk_user_id").notNull(),
+    changedAt: timestamp("changed_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    operationUnique: unique("project_payment_pause_events_operation_key_unique").on(
+      t.projectId,
+      t.operationKey,
+    ),
+    projectProducerFk: foreignKey({
+      columns: [t.projectId, t.producerId],
+      foreignColumns: [projects.id, projects.producerId],
+      name: "project_payment_pause_events_project_producer_fk",
+    }).onDelete("restrict"),
+    purchaseProjectFk: foreignKey({
+      columns: [t.purchaseId, t.projectId],
+      foreignColumns: [purchases.id, purchases.projectId],
+      name: "project_payment_pause_events_purchase_project_fk",
+    }).onDelete("restrict"),
+    projectChangedIdx: index("project_payment_pause_events_project_changed_idx").on(
+      t.projectId,
+      t.changedAt,
+      t.id,
+    ),
+    purchaseChangedIdx: index("project_payment_pause_events_purchase_changed_idx").on(
+      t.purchaseId,
+      t.changedAt,
+      t.id,
+    ),
+    operationShape: check(
+      "project_payment_pause_events_operation_shape",
+      sql`NULLIF(btrim(${t.operationKey}), '') IS NOT NULL AND NULLIF(btrim(${t.operationDigest}), '') IS NOT NULL`,
+    ),
+    reasonShape: check(
+      "project_payment_pause_events_reason_shape",
+      sql`NULLIF(btrim(${t.reason}), '') IS NOT NULL`,
+    ),
+    actorShape: check(
+      "project_payment_pause_events_actor_shape",
+      sql`NULLIF(btrim(${t.changedByClerkUserId}), '') IS NOT NULL`,
+    ),
+  }),
+);
+export type ProjectPaymentPauseEvent = typeof projectPaymentPauseEvents.$inferSelect;
+export type NewProjectPaymentPauseEvent = typeof projectPaymentPauseEvents.$inferInsert;
 
 export const purchaseSessionAllowances = pgTable(
   "purchase_session_allowances",

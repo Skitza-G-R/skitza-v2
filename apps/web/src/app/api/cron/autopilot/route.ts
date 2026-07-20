@@ -1,16 +1,15 @@
-import {
-  and,
-  createDb,
-  eq,
-  isNull,
-  producers,
-  projects,
-} from "@skitza/db";
+import { and, createDb, eq, isNull, producers, projects } from "@skitza/db";
 import { NextResponse } from "next/server";
 
-// Autopilot cron. Purchase reminders and song archival now require
-// purchase-ledger and song-level projections, respectively; this route
-// fails closed for those legacy invoice/project-stage behaviors.
+import { SITE_URL, sendPaymentReminderEmail } from "~/server/email/send";
+import {
+  paymentReminderRepository,
+  sendAutomaticPurchaseReminders,
+} from "~/server/domain/purchase-ledger/reminders";
+
+// Autopilot cron. Purchase reminders use the exact purchase ledger and an
+// immutable successful-send log; song archival remains deferred until its
+// song-level policy exists.
 //
 // Request-testimonial detects projects that reached lifecycle completion and
 //      producer.autopilot_request_testimonial = true, ask the artist
@@ -31,28 +30,29 @@ export const runtime = "nodejs";
 export async function GET(req: Request) {
   const expected = process.env.CRON_SECRET;
   if (!expected) {
-    return NextResponse.json(
-      { ok: false, reason: "missing CRON_SECRET" },
-      { status: 503 },
-    );
+    return NextResponse.json({ ok: false, reason: "missing CRON_SECRET" }, { status: 503 });
   }
   const authHeader = req.headers.get("authorization");
   if (authHeader !== `Bearer ${expected}`) {
-    return NextResponse.json(
-      { ok: false, reason: "unauthorized" },
-      { status: 401 },
-    );
+    return NextResponse.json({ ok: false, reason: "unauthorized" }, { status: 401 });
   }
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) {
-    return NextResponse.json(
-      { ok: false, reason: "missing DATABASE_URL" },
-      { status: 503 },
-    );
+    return NextResponse.json({ ok: false, reason: "missing DATABASE_URL" }, { status: 503 });
   }
 
   const db = createDb(dbUrl);
   const now = new Date();
+
+  const unpaidReminder = await sendAutomaticPurchaseReminders(
+    paymentReminderRepository(db),
+    ({ to, props, idempotencyKey }) => sendPaymentReminderEmail(to, props, idempotencyKey),
+    {
+      asOf: now,
+      paymentUrlForPurchase: (purchaseId) =>
+        `${SITE_URL}/artist/payments/${encodeURIComponent(purchaseId)}`,
+    },
+  );
 
   // Request-testimonial sweep — detection only, no send.
   // The email + capture flow needs the /t/<token> testimonial-
@@ -75,16 +75,10 @@ export async function GET(req: Request) {
   return NextResponse.json({
     ok: true,
     ranAt: now.toISOString(),
-    unpaidReminder: {
-      eligible: 0,
-      sent: 0,
-      errored: 0,
-      deferred: "purchase-ledger reminder projection is not available in SK-90",
-    },
+    unpaidReminder,
     requestTestimonial: {
       eligible: testimonialEligible.length,
-      deferred:
-        "send+stamp gated on /t/<token> capture page — not yet built",
+      deferred: "send+stamp gated on /t/<token> capture page — not yet built",
     },
     autoArchive: {
       archived: 0,

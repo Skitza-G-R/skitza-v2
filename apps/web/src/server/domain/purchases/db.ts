@@ -349,6 +349,8 @@ function transactionAdapter(tx: PurchaseTransactionDb): PurchaseAtomicTransactio
             amountCents: installment.amountCents,
             currency: snapshot.currency,
             dueTrigger: installment.trigger,
+            dueAt: installment.sequence === 1 ? input.acceptedAt : null,
+            triggeredAt: installment.sequence === 1 ? input.acceptedAt : null,
             requiredForActivation: installment.sequence === 1,
             status: installment.status,
             updatedAt: input.acceptedAt,

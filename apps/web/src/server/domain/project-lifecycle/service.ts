@@ -1,3 +1,9 @@
+import { PurchaseLedgerDomainError } from "../purchase-ledger/policy";
+import {
+  cancelPurchase as cancelLedgerPurchase,
+  type PurchaseLedgerRepository,
+} from "../purchase-ledger/service";
+
 export type ProjectLifecycleStatus =
   | "waiting_for_payment"
   | "active"
@@ -58,6 +64,7 @@ export interface ProjectLifecycleTransaction {
   /** Present only for the client-serialized reopen boundary. */
   readonly reopenClient: ProjectLifecycleClientRecord | null;
   readonly purchases: readonly ProjectLifecyclePurchaseRecord[];
+  purchaseLedgerRepository(purchaseId: string): PurchaseLedgerRepository;
   updateProjectMetadata(
     input: Readonly<{
       producerId: string;
@@ -75,22 +82,6 @@ export interface ProjectLifecycleTransaction {
       changedAt: Date;
     }>,
   ): Promise<ProjectLifecycleProjectRecord | null>;
-  cancelPurchase(
-    input: Readonly<{
-      producerId: string;
-      projectId: string;
-      purchaseId: string;
-      from: Exclude<ProjectLifecyclePurchaseStatus, "canceled">;
-      canceledAt: Date;
-    }>,
-  ): Promise<ProjectLifecyclePurchaseRecord | null>;
-  cancelFutureInstallments(
-    input: Readonly<{
-      producerId: string;
-      purchaseId: string;
-      canceledAt: Date;
-    }>,
-  ): Promise<number>;
   closeOpenAllowances(
     input: Readonly<{
       producerId: string;
@@ -99,15 +90,6 @@ export interface ProjectLifecycleTransaction {
       closedAt: Date;
     }>,
   ): Promise<number>;
-  insertPurchaseCancellation(
-    input: Readonly<{
-      producerId: string;
-      purchaseId: string;
-      reason: string;
-      actorId: string;
-      canceledAt: Date;
-    }>,
-  ): Promise<boolean>;
 }
 
 export interface ProjectLifecycleRepository {
@@ -333,23 +315,16 @@ function assertTransitionedProject(
   return updated;
 }
 
-function assertCanceledPurchase(
-  updated: ProjectLifecyclePurchaseRecord | null,
-  previous: ProjectLifecyclePurchaseRecord,
-  canceledAt: Date,
-): ProjectLifecyclePurchaseRecord {
-  if (
-    !updated ||
-    updated.id !== previous.id ||
-    updated.producerId !== previous.producerId ||
-    updated.projectId !== previous.projectId ||
-    updated.lifecycleStatus !== "canceled" ||
-    !sameDate(updated.canceledAt, canceledAt) ||
-    !sameDate(updated.updatedAt, canceledAt)
-  ) {
-    throw concurrentChange("The purchase lifecycle changed concurrently");
+function mapPurchaseLedgerCancellationError(error: unknown): never {
+  if (!(error instanceof PurchaseLedgerDomainError)) throw error;
+  if (error.code === "INVALID_INPUT") {
+    throw new ProjectLifecycleDomainError("INVALID_INPUT", error.message);
   }
-  return updated;
+  if (error.code === "CONFLICT") throw concurrentChange(error.message);
+  if (error.code === "NOT_FOUND") {
+    throw concurrentChange("The locked purchase ledger disappeared during cancellation");
+  }
+  integrityError(error.message);
 }
 
 async function cancelLockedPurchase(
@@ -357,7 +332,6 @@ async function cancelLockedPurchase(
   purchase: ProjectLifecyclePurchaseRecord,
   input: Readonly<{
     producerId: string;
-    projectId: string;
     actorId: string;
     reason: string;
     canceledAt: Date;
@@ -367,36 +341,38 @@ async function cancelLockedPurchase(
     return { purchase, canceledInstallments: 0 };
   }
 
-  const canceledInstallments = assertCount(
-    await transaction.cancelFutureInstallments({
-      producerId: input.producerId,
-      purchaseId: purchase.id,
-      canceledAt: input.canceledAt,
-    }),
-    "Installment cancellation",
-  );
-  const updated = assertCanceledPurchase(
-    await transaction.cancelPurchase({
-      producerId: input.producerId,
-      projectId: input.projectId,
-      purchaseId: purchase.id,
-      from: purchase.lifecycleStatus,
-      canceledAt: input.canceledAt,
-    }),
-    purchase,
-    input.canceledAt,
-  );
-  const cancellationInserted = await transaction.insertPurchaseCancellation({
-    producerId: input.producerId,
-    purchaseId: purchase.id,
-    reason: input.reason,
-    actorId: input.actorId,
-    canceledAt: input.canceledAt,
-  });
-  if (!cancellationInserted) {
-    integrityError("The immutable purchase cancellation could not be recorded");
+  try {
+    const cancellation = await cancelLedgerPurchase(
+      transaction.purchaseLedgerRepository(purchase.id),
+      {
+        producerId: input.producerId,
+        purchaseId: purchase.id,
+        operationKey: `purchase-cancellation:${purchase.id}`,
+        reason: input.reason,
+        actorId: input.actorId,
+        canceledAt: input.canceledAt,
+      },
+    );
+    if (!cancellation.created) {
+      integrityError("An uncanceled purchase already has immutable cancellation history");
+    }
+    const canceledInstallments = assertCount(
+      cancellation.canceledInstallmentIds.length,
+      "Installment cancellation",
+    );
+    const canceledAt = cancellation.record.canceledAt;
+    return {
+      purchase: {
+        ...purchase,
+        lifecycleStatus: "canceled",
+        canceledAt,
+        updatedAt: canceledAt,
+      },
+      canceledInstallments,
+    };
+  } catch (error) {
+    mapPurchaseLedgerCancellationError(error);
   }
-  return { purchase: updated, canceledInstallments };
 }
 
 export async function editProject(
@@ -531,7 +507,6 @@ export async function cancelProject(
       if (purchase.lifecycleStatus === "canceled") continue;
       const result = await cancelLockedPurchase(transaction, purchase, {
         producerId,
-        projectId,
         actorId,
         reason,
         canceledAt,
@@ -643,7 +618,6 @@ export async function cancelProjectPurchase(
 
       const canceled = await cancelLockedPurchase(transaction, currentPurchase, {
         producerId,
-        projectId,
         actorId,
         reason,
         canceledAt,

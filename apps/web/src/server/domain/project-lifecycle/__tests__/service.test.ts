@@ -6,6 +6,7 @@ import {
   completeProject,
   editProject,
   PROJECT_REOPEN_ARCHIVED_CLIENT_MESSAGE,
+  ProjectLifecycleDomainError,
   reopenProject,
   type ProjectLifecycleAtomicScope,
   type ProjectLifecycleClientRecord,
@@ -14,6 +15,12 @@ import {
   type ProjectLifecycleRepository,
   type ProjectLifecycleTransaction,
 } from "../service";
+import { PurchaseLedgerDomainError } from "../../purchase-ledger/policy";
+import type {
+  PurchaseLedgerRepository,
+  PurchaseLedgerSnapshot,
+  PurchaseLedgerTransaction,
+} from "../../purchase-ledger/service";
 
 type Installment = {
   id: string;
@@ -45,6 +52,8 @@ type Allowance = {
 type Cancellation = {
   purchaseId: string;
   producerId: string;
+  operationKey: string;
+  operationDigest: string;
   reason: string;
   actorId: string;
   canceledAt: Date;
@@ -150,6 +159,222 @@ function cloneState(state: State): State {
   };
 }
 
+function memoryPurchaseLedgerRepository(
+  state: State,
+  expected: Readonly<{ producerId: string; projectId: string; purchaseId: string }>,
+  rejectCancellationInsert: () => boolean,
+): PurchaseLedgerRepository {
+  const purchaseInstallments = () =>
+    state.installments.filter(
+      (row) => row.purchaseId === expected.purchaseId && row.producerId === expected.producerId,
+    );
+  const snapshot = (): PurchaseLedgerSnapshot | null => {
+    const purchase = state.purchases.get(expected.purchaseId);
+    const project = state.projects.get(expected.projectId);
+    if (
+      !purchase ||
+      !project ||
+      purchase.producerId !== expected.producerId ||
+      purchase.projectId !== expected.projectId ||
+      project.producerId !== expected.producerId
+    ) {
+      return null;
+    }
+    const rows = purchaseInstallments();
+    const amountCents = 1_000;
+    const payments = rows.flatMap((row, index) => {
+      if (row.status !== "confirmed" && row.status !== "partially_paid") return [];
+      return [
+        {
+          id: `payment-${row.id}`,
+          purchaseId: purchase.id,
+          installmentId: row.id,
+          producerId: purchase.producerId,
+          operationKey: `payment-${row.id}`,
+          operationDigest: `payment-digest-${row.id}`,
+          source: "manual" as const,
+          proofId: null,
+          amountCents: row.status === "confirmed" ? amountCents : amountCents / 2,
+          currency: "USD",
+          paidAt: new Date(BASE_TIME.getTime() + index),
+          addedByClerkUserId: "test-producer",
+          note: null,
+        },
+      ];
+    });
+    const waivers = rows.flatMap((row, index) =>
+      row.status === "waived"
+        ? [
+            {
+              id: `waiver-${row.id}`,
+              purchaseId: purchase.id,
+              installmentId: row.id,
+              producerId: purchase.producerId,
+              operationKey: `waiver-${row.id}`,
+              operationDigest: `waiver-digest-${row.id}`,
+              amountCents,
+              reason: "Test waiver",
+              waivedByClerkUserId: "test-producer",
+              createdAt: new Date(BASE_TIME.getTime() + index),
+            },
+          ]
+        : [],
+    );
+    const cancellation = state.cancellations.find(
+      (row) => row.purchaseId === purchase.id && row.producerId === purchase.producerId,
+    );
+    return {
+      purchase: {
+        id: purchase.id,
+        producerId: purchase.producerId,
+        projectId: purchase.projectId,
+        clientContactId: project.clientContactId,
+        currency: "USD",
+        totalCents: rows.length * amountCents,
+        plan: rows.length === 0 ? null : "full",
+        lifecycleStatus: purchase.lifecycleStatus,
+        acceptedAt: new Date(BASE_TIME),
+        activatedAt:
+          purchase.lifecycleStatus === "waiting_for_payment" ? null : new Date(BASE_TIME),
+        canceledAt: cloneDate(purchase.canceledAt),
+      },
+      project: {
+        id: project.id,
+        producerId: project.producerId,
+        clientContactId: project.clientContactId,
+        lifecycleStatus: project.lifecycleStatus,
+      },
+      producer: {
+        id: purchase.producerId,
+        timeZone: "America/New_York",
+        automaticRemindersEnabled: true,
+        displayName: "Producer",
+      },
+      client: { id: project.clientContactId, name: "Artist", email: "artist@example.test" },
+      purchaseName: "Test purchase",
+      refNumber: "SK-TEST",
+      installments: rows.map((row, index) => ({
+        ...row,
+        position: index + 1,
+        amountCents,
+        currency: "USD",
+        requiredForActivation: index === 0,
+      })),
+      payments,
+      corrections: [],
+      waivers,
+      pendingProofInstallmentIds: rows
+        .filter((row) => row.status === "awaiting_review")
+        .map((row) => row.id),
+      cancellation: cancellation
+        ? {
+            id: `cancellation-${purchase.id}`,
+            purchaseId: cancellation.purchaseId,
+            producerId: cancellation.producerId,
+            operationKey: cancellation.operationKey,
+            operationDigest: cancellation.operationDigest,
+            reason: cancellation.reason,
+            canceledByClerkUserId: cancellation.actorId,
+            canceledAt: new Date(cancellation.canceledAt),
+          }
+        : null,
+      pauseEvents: [],
+    };
+  };
+
+  return {
+    atomically: async (scope, work) => {
+      if (scope.producerId !== expected.producerId || scope.purchaseId !== expected.purchaseId) {
+        throw new PurchaseLedgerDomainError("NOT_FOUND", "Purchase ledger was not found");
+      }
+      const transaction: PurchaseLedgerTransaction = {
+        loadSnapshot: () => Promise.resolve(snapshot()),
+        insertPayment: () => Promise.reject(new Error("Unexpected payment insert")),
+        insertCorrection: () => Promise.reject(new Error("Unexpected correction insert")),
+        insertWaiver: () => Promise.reject(new Error("Unexpected waiver insert")),
+        insertCancellation: (input) => {
+          if (rejectCancellationInsert()) {
+            return Promise.reject(
+              new ProjectLifecycleDomainError(
+                "INTEGRITY_ERROR",
+                "The immutable purchase cancellation could not be recorded",
+              ),
+            );
+          }
+          if (state.cancellations.some((row) => row.purchaseId === input.purchaseId)) {
+            return Promise.reject(
+              new PurchaseLedgerDomainError("CONFLICT", "Cancellation changed concurrently"),
+            );
+          }
+          state.cancellations.push({
+            purchaseId: input.purchaseId,
+            producerId: input.producerId,
+            operationKey: input.operationKey,
+            operationDigest: input.operationDigest,
+            reason: input.reason,
+            actorId: input.canceledByClerkUserId,
+            canceledAt: new Date(input.canceledAt),
+          });
+          return Promise.resolve({ ...input, id: `cancellation-${input.purchaseId}` });
+        },
+        setMonthlyInstallmentDates: () => Promise.resolve(0),
+        setInstallmentStatuses: (rows) => {
+          const statusById = new Map(rows.map((row) => [row.installmentId, row.status]));
+          let changed = 0;
+          for (const row of state.installments) {
+            if (row.purchaseId !== expected.purchaseId) continue;
+            const status = statusById.get(row.id);
+            if (!status) continue;
+            row.status = status;
+            changed += 1;
+          }
+          return Promise.resolve(changed);
+        },
+        activatePurchaseAndWaitingProject: () =>
+          Promise.reject(new Error("Unexpected purchase activation")),
+        setInstallmentRemindersEnabled: () => Promise.resolve(false),
+        cancelFutureInstallments: (installmentIds) => {
+          const ids = new Set(installmentIds);
+          let changed = 0;
+          for (const row of state.installments) {
+            if (
+              row.purchaseId !== expected.purchaseId ||
+              row.producerId !== expected.producerId ||
+              !ids.has(row.id)
+            ) {
+              continue;
+            }
+            row.status = "canceled";
+            row.remindersEnabled = false;
+            changed += 1;
+          }
+          return Promise.resolve(changed);
+        },
+        cancelPurchase: (canceledAt) => {
+          const purchase = state.purchases.get(expected.purchaseId);
+          if (
+            !purchase ||
+            purchase.producerId !== expected.producerId ||
+            purchase.lifecycleStatus === "canceled"
+          ) {
+            return Promise.resolve(false);
+          }
+          state.purchases.set(purchase.id, {
+            ...purchase,
+            lifecycleStatus: "canceled",
+            canceledAt: new Date(canceledAt),
+            updatedAt: new Date(canceledAt),
+          });
+          return Promise.resolve(true);
+        },
+        transitionProject: () => Promise.resolve(false),
+        insertPauseEvent: () => Promise.reject(new Error("Unexpected pause event insert")),
+      };
+      return work(transaction);
+    },
+  };
+}
+
 class MemoryRepository implements ProjectLifecycleRepository {
   state: State;
   rejectCancellationInsert = false;
@@ -199,6 +424,12 @@ class MemoryRepository implements ProjectLifecycleRepository {
         project: ownedProject,
         reopenClient: ownedClient,
         purchases: scopedPurchases,
+        purchaseLedgerRepository: (purchaseId) =>
+          memoryPurchaseLedgerRepository(
+            draft,
+            { producerId: scope.producerId, projectId: scope.projectId, purchaseId },
+            () => this.rejectCancellationInsert,
+          ),
         updateProjectMetadata: (input) => {
           const current = draft.projects.get(input.projectId);
           if (!current || current.producerId !== input.producerId) return Promise.resolve(null);
@@ -232,47 +463,6 @@ class MemoryRepository implements ProjectLifecycleRepository {
           draft.projects.set(updated.id, updated);
           return Promise.resolve(updated);
         },
-        cancelPurchase: (input) => {
-          const current = draft.purchases.get(input.purchaseId);
-          if (
-            !current ||
-            current.producerId !== input.producerId ||
-            current.projectId !== input.projectId ||
-            current.lifecycleStatus !== input.from
-          ) {
-            return Promise.resolve(null);
-          }
-          const updated = {
-            ...current,
-            lifecycleStatus: "canceled" as const,
-            canceledAt: new Date(input.canceledAt),
-            updatedAt: new Date(input.canceledAt),
-          };
-          draft.purchases.set(updated.id, updated);
-          return Promise.resolve(updated);
-        },
-        cancelFutureInstallments: (input) => {
-          let changed = 0;
-          for (const row of draft.installments) {
-            if (
-              row.purchaseId !== input.purchaseId ||
-              row.producerId !== input.producerId ||
-              row.status !== "not_paid"
-            ) {
-              continue;
-            }
-            const future =
-              !row.requiredForActivation &&
-              row.dueTrigger !== "acceptance" &&
-              ((row.dueAt !== null && row.dueAt > input.canceledAt) ||
-                (row.dueAt === null && row.triggeredAt === null));
-            if (!future) continue;
-            row.status = "canceled";
-            row.remindersEnabled = false;
-            changed += 1;
-          }
-          return Promise.resolve(changed);
-        },
         closeOpenAllowances: (input) => {
           let changed = 0;
           const purchaseIds = new Set(input.purchaseIds);
@@ -289,22 +479,6 @@ class MemoryRepository implements ProjectLifecycleRepository {
             changed += 1;
           }
           return Promise.resolve(changed);
-        },
-        insertPurchaseCancellation: (input) => {
-          if (
-            this.rejectCancellationInsert ||
-            draft.cancellations.some((row) => row.purchaseId === input.purchaseId)
-          ) {
-            return Promise.resolve(false);
-          }
-          draft.cancellations.push({
-            purchaseId: input.purchaseId,
-            producerId: input.producerId,
-            reason: input.reason,
-            actorId: input.actorId,
-            canceledAt: new Date(input.canceledAt),
-          });
-          return Promise.resolve(true);
         },
       };
 
@@ -465,7 +639,7 @@ describe("project completion", () => {
 });
 
 describe("project cancellation", () => {
-  it("cancels purchases and only genuinely future untouched installments", async () => {
+  it("uses producer-local dates and cancels every projected unresolved future installment", async () => {
     const canceledAt = new Date("2026-07-18T12:00:00.000Z");
     const repository = new MemoryRepository({
       purchases: new Map([
@@ -478,21 +652,39 @@ describe("project cancellation", () => {
           dueAt: new Date("2026-07-19T12:00:00.000Z"),
         }),
         installment("exact-due", PURCHASE_1, { dueAt: new Date(canceledAt) }),
+        installment("later-in-same-local-day", PURCHASE_1, {
+          dueAt: new Date("2026-07-19T01:00:00.000Z"),
+        }),
         installment("past-due", PURCHASE_1, {
           dueAt: new Date("2026-07-17T12:00:00.000Z"),
         }),
         installment("future-trigger", PURCHASE_1),
         installment("acceptance-due", PURCHASE_1, {
           dueTrigger: "acceptance",
+          dueAt: new Date(canceledAt),
         }),
         installment("activation-required", PURCHASE_1, {
           requiredForActivation: true,
+          dueAt: new Date(canceledAt),
         }),
         installment("already-triggered", PURCHASE_1, {
           triggeredAt: new Date("2026-07-18T10:00:00.000Z"),
+          dueAt: new Date(canceledAt),
         }),
         installment("partial-future", PURCHASE_1, {
           status: "partially_paid",
+          dueAt: new Date("2026-07-19T12:00:00.000Z"),
+        }),
+        installment("proof-pending-future", PURCHASE_1, {
+          status: "awaiting_review",
+          dueAt: new Date("2026-07-19T12:00:00.000Z"),
+        }),
+        installment("confirmed-future", PURCHASE_1, {
+          status: "confirmed",
+          dueAt: new Date("2026-07-19T12:00:00.000Z"),
+        }),
+        installment("waived-future", PURCHASE_1, {
+          status: "waived",
           dueAt: new Date("2026-07-19T12:00:00.000Z"),
         }),
         installment("second-purchase-future", PURCHASE_2, {
@@ -508,6 +700,8 @@ describe("project cancellation", () => {
         {
           purchaseId: PURCHASE_3,
           producerId: PRODUCER_ID,
+          operationKey: `purchase-cancellation:${PURCHASE_3}`,
+          operationDigest: "earlier-cancellation-digest",
           reason: "Earlier cancellation",
           actorId: "user-earlier",
           canceledAt: BASE_TIME,
@@ -526,7 +720,7 @@ describe("project cancellation", () => {
     expect(result).toMatchObject({
       changed: true,
       canceledPurchaseIds: [PURCHASE_1, PURCHASE_2],
-      canceledInstallments: 3,
+      canceledInstallments: 5,
       closedAllowances: 3,
     });
     expect(result.project.lifecycleStatus).toBe("canceled");
@@ -541,20 +735,28 @@ describe("project cancellation", () => {
     expect(repository.state.cancellations).toHaveLength(3);
 
     const byId = new Map(repository.state.installments.map((row) => [row.id, row]));
-    for (const id of ["future-date", "future-trigger", "second-purchase-future"]) {
+    for (const id of [
+      "future-date",
+      "future-trigger",
+      "partial-future",
+      "proof-pending-future",
+      "second-purchase-future",
+    ]) {
       expect(byId.get(id)).toMatchObject({ status: "canceled", remindersEnabled: false });
     }
     for (const id of [
       "exact-due",
-      "past-due",
+      "later-in-same-local-day",
       "acceptance-due",
       "activation-required",
       "already-triggered",
-      "partial-future",
+      "confirmed-future",
+      "waived-future",
     ]) {
       expect(byId.get(id)).not.toMatchObject({ status: "canceled" });
       expect(byId.get(id)?.remindersEnabled).toBe(true);
     }
+    expect(byId.get("past-due")).toMatchObject({ status: "overdue", remindersEnabled: true });
     expect(repository.state.allowances.every((row) => row.closeReason === "project_canceled")).toBe(
       true,
     );

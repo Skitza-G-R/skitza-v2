@@ -20,16 +20,23 @@ import {
 
 import { activeArtistClientOwner } from "~/server/artist/access";
 import { isInstallmentPayableForInstructions } from "~/server/domain/payment-instructions/policy";
+import {
+  lockPurchaseLedgerScope,
+  purchaseLedgerRepositoryForTransaction,
+} from "~/server/domain/purchase-ledger/db";
+import { PurchaseLedgerDomainError } from "~/server/domain/purchase-ledger/policy";
+import {
+  reconcilePurchaseLedger,
+  recordConfirmedPurchasePayment,
+} from "~/server/domain/purchase-ledger/service";
 
 import {
   assertProofAmount,
   assertProofUploadMetadata,
   decideProofTransition,
-  installmentStatusAfterDecision,
   normalizeProofFileName,
   normalizeProofNote,
   PaymentProofPolicyError,
-  proofPaymentOperationDigest,
   type ProofContentType,
 } from "./policy";
 import {
@@ -178,6 +185,17 @@ type LedgerSnapshot = Readonly<{
 
 function asDomainError(error: unknown): never {
   if (error instanceof PaymentProofDomainError) throw error;
+  if (error instanceof PurchaseLedgerDomainError) {
+    const code =
+      error.code === "INVALID_INPUT"
+        ? "INVALID_INPUT"
+        : error.code === "NOT_FOUND"
+          ? "NOT_FOUND"
+          : error.code === "INTEGRITY_ERROR"
+            ? "INTEGRITY_ERROR"
+            : "CONFLICT";
+    throw new PaymentProofDomainError(code, error.message);
+  }
   if (error instanceof PaymentProofPolicyError || error instanceof ProofStorageError) {
     throw new PaymentProofDomainError("INVALID_INPUT", error.message);
   }
@@ -386,6 +404,27 @@ function installmentRemainingCents(installment: InstallmentRow, ledger: LedgerSn
   );
 }
 
+function exactPurchaseRemainingCents(
+  installments: readonly InstallmentRow[],
+  ledger: LedgerSnapshot,
+): number {
+  return installments.reduce(
+    (sum, installment) =>
+      sum +
+      (installment.status === "canceled" ? 0 : installmentRemainingCents(installment, ledger)),
+    0,
+  );
+}
+
+function exactPurchasePaidInFull(
+  installments: readonly InstallmentRow[],
+  ledger: LedgerSnapshot,
+): boolean {
+  return installments.every(
+    (installment) => (ledger.paidByInstallment.get(installment.id) ?? 0) >= installment.amountCents,
+  );
+}
+
 function proofHistoryItem(
   proof: typeof paymentProofs.$inferSelect,
   installment: InstallmentRow,
@@ -505,10 +544,10 @@ export async function loadArtistPaymentProofState(
     totalCents: context.totalCents,
     paidCents: ledger.paidCents,
     pendingProofCents: pending?.amountCents ?? 0,
-    remainingCents: Math.max(0, context.totalCents - ledger.paidCents - ledger.waivedCents),
+    remainingCents: exactPurchaseRemainingCents(installments, ledger),
     amountDueNowCents,
     availableToSubmitCents: proofUploadsAvailable ? amountDueNowCents : 0,
-    paidInFull: ledger.paidCents >= context.totalCents,
+    paidInFull: exactPurchasePaidInFull(installments, ledger),
     proofs: proofs.map((proof) => {
       const installment = installmentById.get(proof.installmentId);
       if (!installment) {
@@ -1148,9 +1187,8 @@ export async function confirmProducerPaymentProof(
 
   try {
     return await db.transaction(async (tx) => {
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${`purchase-ledger:${initial.purchaseId}`}, 0))`,
-      );
+      const ledgerScope = { producerId: input.producerId, purchaseId: initial.purchaseId };
+      await lockPurchaseLedgerScope(tx, ledgerScope);
       const context = await loadProducerPurchaseContext(
         tx,
         input.producerId,
@@ -1184,7 +1222,7 @@ export async function confirmProducerPaymentProof(
         );
       }
 
-      let created = false;
+      let paidAt = proof.confirmedAt ?? now;
       if (decision.changed) {
         const ledgerBefore = await loadLedgerSnapshot(tx, context);
         assertProofAmount(proof.amountCents, installmentRemainingCents(installment, ledgerBefore));
@@ -1205,125 +1243,54 @@ export async function confirmProducerPaymentProof(
             "This proof changed in another review. Refresh and try again",
           );
         }
-        const operationKey = `proof:${proof.id}`;
-        const operationDigest = proofPaymentOperationDigest({
-          proofId: proof.id,
-          purchaseId: proof.purchaseId,
-          installmentId: proof.installmentId,
-          amountCents: proof.amountCents,
-          currency: proof.currency,
-        });
-        await tx.insert(purchasePayments).values({
+        paidAt = now;
+      }
+
+      const operationKey = `proof:${proof.id}`;
+      const ledgerResult = await recordConfirmedPurchasePayment(
+        purchaseLedgerRepositoryForTransaction(tx, ledgerScope),
+        {
+          producerId: context.producerId,
           purchaseId: context.purchaseId,
           installmentId: installment.id,
-          producerId: context.producerId,
-          proofId: proof.id,
           operationKey,
-          operationDigest,
           source: "proof",
+          proofId: proof.id,
           amountCents: proof.amountCents,
           currency: proof.currency,
-          paidAt: now,
-          addedByClerkUserId: input.clerkUserId,
+          paidAt,
+          actorId: input.clerkUserId,
           note: proof.note,
-          createdAt: now,
-        });
-        created = true;
-      }
-
-      const [payment] = await tx
-        .select()
-        .from(purchasePayments)
-        .where(
-          and(
-            eq(purchasePayments.proofId, proof.id),
-            eq(purchasePayments.purchaseId, context.purchaseId),
-            eq(purchasePayments.producerId, context.producerId),
-          ),
-        )
-        .limit(1);
-      if (
-        !payment ||
-        payment.amountCents !== proof.amountCents ||
-        payment.currency !== proof.currency
-      ) {
+          occurredAt: now,
+        },
+      );
+      if (ledgerResult.created !== decision.changed) {
         throw new PaymentProofDomainError(
           "INTEGRITY_ERROR",
-          "Confirmed proof lost its one immutable payment",
+          "Payment proof and immutable payment history disagree",
         );
       }
-      const ledger = await loadLedgerSnapshot(tx, context);
-      const confirmedCents = ledger.paidByInstallment.get(installment.id) ?? 0;
-      const waivedCents = ledger.waivedByInstallment.get(installment.id) ?? 0;
-      const installmentStatus = installmentStatusAfterDecision({
-        installmentAmountCents: installment.amountCents,
-        confirmedCents,
-        waivedCents,
-        hasPendingProof: false,
-        dueAt: installment.dueAt,
-        now,
-      });
-      await tx
-        .update(purchaseInstallments)
-        .set({ status: installmentStatus, updatedAt: now })
-        .where(
-          and(
-            eq(purchaseInstallments.id, installment.id),
-            eq(purchaseInstallments.purchaseId, context.purchaseId),
-            eq(purchaseInstallments.producerId, context.producerId),
-          ),
+      const projectedInstallment = ledgerResult.projection.installments.find(
+        (row) => row.id === installment.id,
+      );
+      const firstInstallment = ledgerResult.projection.installments[0];
+      if (!projectedInstallment || !firstInstallment) {
+        throw new PaymentProofDomainError(
+          "INTEGRITY_ERROR",
+          "Confirmed proof lost its accepted installment schedule",
         );
-
-      const firstInstallment = installments[0];
-      const firstInstallmentPaid =
-        firstInstallment !== undefined &&
-        (ledger.paidByInstallment.get(firstInstallment.id) ?? 0) >= firstInstallment.amountCents;
-      if (context.lifecycleStatus === "waiting_for_payment" && firstInstallmentPaid) {
-        if (context.projectLifecycleStatus !== "waiting_for_payment") {
-          throw new PaymentProofDomainError(
-            "CONFLICT",
-            "The project changed state and cannot be activated by this proof",
-          );
-        }
-        const [activatedPurchase] = await tx
-          .update(purchases)
-          .set({ lifecycleStatus: "active", activatedAt: now, updatedAt: now })
-          .where(
-            and(
-              eq(purchases.id, context.purchaseId),
-              eq(purchases.producerId, context.producerId),
-              eq(purchases.projectId, context.projectId),
-              eq(purchases.lifecycleStatus, "waiting_for_payment"),
-            ),
-          )
-          .returning({ id: purchases.id });
-        const [activatedProject] = await tx
-          .update(projects)
-          .set({ lifecycleStatus: "active", lifecycleChangedAt: now, updatedAt: now })
-          .where(
-            and(
-              eq(projects.id, context.projectId),
-              eq(projects.producerId, context.producerId),
-              eq(projects.clientContactId, context.clientContactId),
-              eq(projects.lifecycleStatus, "waiting_for_payment"),
-            ),
-          )
-          .returning({ id: projects.id });
-        if (!activatedPurchase || !activatedProject) {
-          throw new PaymentProofDomainError(
-            "CONFLICT",
-            "The purchase or project changed while payment was being confirmed",
-          );
-        }
       }
+      const installmentStatus = projectedInstallment.status;
+      const firstInstallmentPaid = firstInstallment.paidCents >= firstInstallment.amountCents;
       await markProofNotificationRead(tx, input.producerId, proof.id, now);
-      const paidInFull = ledger.paidCents >= context.totalCents;
+      const paidInFull = ledgerResult.projection.fullyPaidForDownloads;
+      const created = ledgerResult.created;
       return Object.freeze({
         proofId: proof.id,
         purchaseId: context.purchaseId,
         installmentId: installment.id,
         projectId: context.projectId,
-        paymentId: payment.id,
+        paymentId: ledgerResult.record.id,
         proofStatus: "confirmed" as const,
         installmentStatus,
         firstInstallmentPaid,
@@ -1338,7 +1305,7 @@ export async function confirmProducerPaymentProof(
               refNumber: context.refNumber,
               currency: context.currency,
               amountCents: proof.amountCents,
-              paidCents: ledger.paidCents,
+              paidCents: ledgerResult.projection.paidCents,
               totalCents: context.totalCents,
               paidInFull,
             }
@@ -1376,9 +1343,8 @@ export async function rejectProducerPaymentProof(
   if (!initial) throw new PaymentProofDomainError("NOT_FOUND", "Payment proof was not found");
   try {
     return await db.transaction(async (tx) => {
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${`purchase-ledger:${initial.purchaseId}`}, 0))`,
-      );
+      const ledgerScope = { producerId: input.producerId, purchaseId: initial.purchaseId };
+      await lockPurchaseLedgerScope(tx, ledgerScope);
       const context = await loadProducerPurchaseContext(
         tx,
         input.producerId,
@@ -1437,25 +1403,20 @@ export async function rejectProducerPaymentProof(
           );
         }
       }
-      const ledger = await loadLedgerSnapshot(tx, context);
-      const installmentStatus = installmentStatusAfterDecision({
-        installmentAmountCents: installment.amountCents,
-        confirmedCents: ledger.paidByInstallment.get(installment.id) ?? 0,
-        waivedCents: ledger.waivedByInstallment.get(installment.id) ?? 0,
-        hasPendingProof: false,
-        dueAt: installment.dueAt,
-        now,
-      });
-      await tx
-        .update(purchaseInstallments)
-        .set({ status: installmentStatus, updatedAt: now })
-        .where(
-          and(
-            eq(purchaseInstallments.id, installment.id),
-            eq(purchaseInstallments.purchaseId, context.purchaseId),
-            eq(purchaseInstallments.producerId, context.producerId),
-          ),
+      const reconciled = await reconcilePurchaseLedger(
+        purchaseLedgerRepositoryForTransaction(tx, ledgerScope),
+        { ...ledgerScope, asOf: now },
+      );
+      const projectedInstallment = reconciled.projection.installments.find(
+        (row) => row.id === installment.id,
+      );
+      if (!projectedInstallment) {
+        throw new PaymentProofDomainError(
+          "INTEGRITY_ERROR",
+          "Rejected proof lost its exact installment",
         );
+      }
+      const installmentStatus = projectedInstallment.status;
       await markProofNotificationRead(tx, input.producerId, proof.id, now);
       return Object.freeze({
         proofId: proof.id,
@@ -1474,9 +1435,9 @@ export async function rejectProducerPaymentProof(
               refNumber: context.refNumber,
               currency: context.currency,
               amountCents: proof.amountCents,
-              paidCents: ledger.paidCents,
+              paidCents: reconciled.projection.paidCents,
               totalCents: context.totalCents,
-              paidInFull: ledger.paidCents >= context.totalCents,
+              paidInFull: reconciled.projection.fullyPaidForDownloads,
               rejectionNote: decision.rejectionNote,
             }
           : null,

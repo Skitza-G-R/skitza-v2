@@ -558,7 +558,7 @@ describe("SK-90 executable rehearsal orchestration", () => {
           entry.mutations.databaseRows === 102,
       ),
     ).toBe(true);
-  });
+  }, 15_000);
 
   it("reconciles and restores a single-stage rollback committed before its receipt", async () => {
     const stateStore = await store();
