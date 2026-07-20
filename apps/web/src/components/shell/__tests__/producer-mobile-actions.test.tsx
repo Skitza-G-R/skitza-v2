@@ -31,6 +31,13 @@ describe("producer mobile account + public-link controls", () => {
     expect(ACTIONS_SRC).toContain('data-testid="account-sheet"');
   });
 
+  it("keeps Store and Settings reachable from the mobile account sheet", () => {
+    expect(ACTIONS_SRC).toContain('data-testid="producer-mobile-profile-links"');
+    expect(ACTIONS_SRC).toContain('href="/dashboard/store"');
+    expect(ACTIONS_SRC).toContain('href="/dashboard/settings"');
+    expect(ACTIONS_SRC).toContain('aria-label="Producer account links"');
+  });
+
   it("provides a 40px mobile copy target using the existing clipboard behavior", () => {
     expect(ACTIONS_SRC).toContain("copyPublicLink");
     expect(ACTIONS_SRC).toContain("buildJoinUrl");

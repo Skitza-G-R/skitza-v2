@@ -3,6 +3,7 @@ import { UserButton } from "@clerk/nextjs";
 import { StudioSwitcher } from "~/components/artist/studio-switcher";
 import type { Studio } from "~/server/artist/identity";
 
+import { Icon } from "./icons";
 import { Wordmark } from "./wordmark";
 
 // ─── Artist mobile top bar (<lg) ───────────────────────────────────
@@ -48,7 +49,15 @@ export function ArtistMobileTopBar({
               "h-8 w-8 ring-1 ring-[rgb(var(--border-subtle))]",
           },
         }}
-      />
+      >
+        <UserButton.MenuItems>
+          <UserButton.Link
+            label="Settings"
+            labelIcon={<Icon name="settings" size={16} />}
+            href="/artist/settings"
+          />
+        </UserButton.MenuItems>
+      </UserButton>
     </header>
   );
 }

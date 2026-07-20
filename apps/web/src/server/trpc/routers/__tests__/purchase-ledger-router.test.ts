@@ -23,6 +23,9 @@ describe("purchase-ledger router security contract", () => {
     expect(routerSource).not.toMatch(/producerId:\s*z\./);
     expect(routerSource).not.toMatch(/actorId:\s*z\./);
     for (const procedure of [
+      "overview",
+      "project",
+      "client",
       "state",
       "recordManualPayment",
       "correctPayment",
@@ -37,6 +40,8 @@ describe("purchase-ledger router security contract", () => {
   });
 
   it("keeps routers thin and delegates every money transition", () => {
+    expect(routerSource).toContain("loadProducerPaymentReadModel(");
+    expect(routerSource).toContain("paymentLedgerReadRepository(ctx.db)");
     expect(routerSource).toContain("recordConfirmedPurchasePayment(");
     expect(routerSource).toContain("correctPurchasePayment(");
     expect(routerSource).toContain("waiveInstallmentDebt(");

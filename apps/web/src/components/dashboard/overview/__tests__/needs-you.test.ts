@@ -9,6 +9,7 @@ import {
 
 const EMPTY: NeedsYouSources = {
   paymentProofs: [],
+  paymentBalances: [],
   purchaseRequests: [],
   pendingApprovals: [],
   followUps: [],
@@ -76,6 +77,32 @@ describe("buildNeedsYouQueue", () => {
         actionLabel: "Review",
       }),
     ]);
+  });
+
+  it("keeps due balances separate from proof, purchase, and session decisions", () => {
+    const queue = buildNeedsYouQueue({
+      ...EMPTY,
+      paymentBalances: [
+        {
+          purchaseId: "purchase-1",
+          projectId: "project-1",
+          projectTitle: "Debut EP",
+          clientName: "Maya",
+          purchaseTitle: "EP production",
+        },
+      ],
+      paymentProofs: [{ proofId: "proof-1", artistName: "Noa", productNameSnapshot: "Single" }],
+      purchaseRequests: [{ id: "request-1", artistName: "Ari", productNameSnapshot: "Mix" }],
+      pendingApprovals: [{ id: "session-1", artistName: "Dana", packageNameSnapshot: "Session" }],
+    });
+
+    expect(queue.map((item) => item.kind)).toEqual([
+      "payment_proof",
+      "payment_due",
+      "purchase_request",
+      "session_approval",
+    ]);
+    expect(queue[1]?.href).toBe("/dashboard/payments#payment-history-due-overdue");
   });
 
   it("keeps unresolved work separate from notification read state and orders real decisions first", () => {

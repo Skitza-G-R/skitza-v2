@@ -33,10 +33,19 @@ export type PaymentProofSource = {
   productNameSnapshot: string;
 };
 
+export type PaymentBalanceSource = {
+  purchaseId: string;
+  projectId: string;
+  projectTitle: string;
+  clientName: string;
+  purchaseTitle: string;
+};
+
 export type NeedsYouItem = {
   id: string;
   kind:
     | "payment_proof"
+    | "payment_due"
     | "purchase_request"
     | "session_approval"
     | "follow_up"
@@ -55,6 +64,7 @@ export type NeedsYouItem = {
 
 export type NeedsYouSources = {
   paymentProofs: readonly PaymentProofSource[];
+  paymentBalances: readonly PaymentBalanceSource[];
   purchaseRequests: readonly {
     id: string;
     artistName: string;
@@ -125,6 +135,18 @@ export function buildNeedsYouQueue(sources: NeedsYouSources): NeedsYouItem[] {
       href: `/dashboard/payments/${proof.proofId}`,
       actionLabel: "Review",
       priority: 5,
+    });
+  }
+
+  for (const balance of sources.paymentBalances) {
+    items.push({
+      id: `payment-due:${balance.purchaseId}`,
+      kind: "payment_due",
+      title: "Payment due",
+      meta: `${balance.clientName} · ${balance.projectTitle} · ${balance.purchaseTitle}`,
+      href: "/dashboard/payments#payment-history-due-overdue",
+      actionLabel: "Open",
+      priority: 8,
     });
   }
 

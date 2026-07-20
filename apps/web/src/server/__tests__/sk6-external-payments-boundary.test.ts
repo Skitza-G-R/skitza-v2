@@ -20,8 +20,9 @@ describe("SK-6 external-payments-only boundary", () => {
     expect(service).toMatch(/activeArtistClientOwner\(clerkUserId/);
     expect(service).toMatch(/eq\(purchases\.producerId, purchaseInstallments\.producerId\)/);
     expect(service).toMatch(/where\(eq\(producers\.id, producerId\)\)/);
-    expect(service).toMatch(/summarizePurchaseLedger\(/);
-    expect(service).toMatch(/remainingCents: ledger\.remainingBalanceCents/);
+    expect(service).toMatch(/projectPurchaseLedger\(/);
+    expect(service).toMatch(/remainingCents: ledger\.remainingCents/);
+    expect(service).not.toMatch(/summarizePurchaseLedger\(/);
     expect(service).not.toMatch(/update\(purchases\)|update\(purchaseInstallments\)/);
   });
 

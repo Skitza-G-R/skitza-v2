@@ -26,6 +26,10 @@ import {
   ProjectPurchasesPanel,
   type ProjectPurchaseSummary,
 } from "~/components/dashboard/projects/project-purchases-panel";
+import {
+  PaymentHistoryView,
+  type PaymentHistoryViewData,
+} from "~/components/payments/payment-history-view";
 
 // AlbumSpace — the top-level shell for the new Album Page. Owns the
 // active-tab state and composes AlbumHero + AlbumStatStrip + AlbumTabs
@@ -68,6 +72,7 @@ interface AlbumSpaceProps {
   project: AlbumSpaceProject;
   actionProject: ProjectActionProject;
   purchases: readonly ProjectPurchaseSummary[];
+  paymentHistory?: PaymentHistoryViewData;
   tracks: TrackRowData[];
   emptySlots?: readonly EmptySongSpaceRowData[];
   addSongHref: string;
@@ -81,6 +86,7 @@ export function AlbumSpace({
   project,
   actionProject,
   purchases,
+  paymentHistory,
   tracks,
   emptySlots = [],
   addSongHref,
@@ -208,6 +214,7 @@ export function AlbumSpace({
         />
       ) : null}
 
+      {paymentHistory ? <PaymentHistoryView role="producer" data={paymentHistory} /> : null}
       <ProjectPurchasesPanel projectId={project.id} purchases={purchases} />
     </div>
   );

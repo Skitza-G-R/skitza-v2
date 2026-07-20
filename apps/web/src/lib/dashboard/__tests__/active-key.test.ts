@@ -32,6 +32,8 @@ describe("getActiveKey", () => {
 
     // Calendar + Profile are top-level pages added in P2-A-7 (PRD §4).
     ["/dashboard/calendar", "calendar"],
+    ["/dashboard/payments", "payments"],
+    ["/dashboard/payments/proof-123", "payments"],
     ["/dashboard/profile", "profile"],
 
     // Setup covers settings + onboarding (which lives under

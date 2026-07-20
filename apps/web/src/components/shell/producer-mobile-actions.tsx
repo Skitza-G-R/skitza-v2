@@ -2,10 +2,12 @@
 
 import { UserAvatar, UserButton } from "@clerk/nextjs";
 import { Copy } from "lucide-react";
+import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useId, useRef, useState } from "react";
 
 import { copyPublicLink } from "~/components/dashboard/overview/public-link-strip";
+import { Icon } from "~/components/nav/icons";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "~/components/ui/sheet";
 import { useToast } from "~/components/ui/toast";
 import { buildJoinUrl } from "~/lib/share/public-url";
@@ -89,8 +91,34 @@ export function ProducerMobileActions({
             >
               <SheetTitle className="sr-only">Account</SheetTitle>
               <SheetDescription className="sr-only">
-                Manage your account or sign out.
+                Open your store or settings, manage your account, or sign out.
               </SheetDescription>
+              <nav
+                aria-label="Producer account links"
+                data-testid="producer-mobile-profile-links"
+                className="grid grid-cols-2 gap-2 border-b border-[rgb(var(--border-subtle))] p-4"
+              >
+                <Link
+                  href="/dashboard/store"
+                  onClick={() => {
+                    setAccountOpen(false);
+                  }}
+                  className="sk-press flex min-h-12 items-center gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3 text-sm font-semibold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
+                >
+                  <Icon name="store" size={18} />
+                  Store
+                </Link>
+                <Link
+                  href="/dashboard/settings"
+                  onClick={() => {
+                    setAccountOpen(false);
+                  }}
+                  className="sk-press flex min-h-12 items-center gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3 text-sm font-semibold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
+                >
+                  <Icon name="settings" size={18} />
+                  Settings
+                </Link>
+              </nav>
               <div className="w-full p-4 pt-2">
                 <UserButton.__experimental_Outlet
                   defaultOpen
