@@ -86,16 +86,16 @@ export async function ensurePurchaseSessionAllowance(
   >,
 ): Promise<void> {
   const draft = purchaseSessionAllowanceDraft(purchase);
+  // Non-session purchases cannot own session capacity. Return before touching
+  // the allowance relation so unrelated purchase flows stay independent of
+  // the session-booking schema during a staged deployment.
+  if (draft === null) return;
+
   const [existing] = await tx
     .select()
     .from(purchaseSessionAllowances)
     .where(eq(purchaseSessionAllowances.purchaseId, purchase.id))
     .limit(1);
-
-  if (draft === null) {
-    if (existing) throw new Error("A non-session purchase has an unexpected session allowance");
-    return;
-  }
 
   let row = existing;
   if (!row) {

@@ -61,10 +61,12 @@ type StoredAllowance = PurchaseSessionAllowanceDraft & {
 
 class AllowanceTx {
   row: StoredAllowance | null = null;
+  selectCalls = 0;
   insertCalls = 0;
   insertedDrafts: PurchaseSessionAllowanceDraft[] = [];
 
   select() {
+    this.selectCalls += 1;
     const rows = this.row === null ? [] : [this.row];
     const query = {
       from: () => query,
@@ -156,8 +158,14 @@ describe("purchase-owned session allowance materialization", () => {
     ).toMatchObject({ kind: "unlimited", sessionLimit: null });
   });
 
-  it("creates no allowance for an accepted non-session Store purchase", () => {
-    expect(purchaseSessionAllowanceDraft(purchase(null, "store_product"))).toBeNull();
+  it("creates no allowance or schema dependency for an accepted non-session Store purchase", async () => {
+    const tx = new AllowanceTx();
+    const accepted = purchase(null, "store_product");
+
+    expect(purchaseSessionAllowanceDraft(accepted)).toBeNull();
+    await ensurePurchaseSessionAllowance(tx.asTransaction(), accepted);
+    expect(tx.selectCalls).toBe(0);
+    expect(tx.insertCalls).toBe(0);
   });
 
   it("materializes legacy store_product session snapshots while rejecting missing session truth", () => {
