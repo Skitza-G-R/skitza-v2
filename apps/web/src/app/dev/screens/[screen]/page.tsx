@@ -19,7 +19,11 @@ import {
   type MusicLibraryProjectRow,
   type MusicLibraryRow,
 } from "~/components/music/library-screen";
-import { Sk8LibraryDevScreen, Sk8SongDevScreen } from "~/components/dev/sk8-music-dev-screen";
+import {
+  Sk8LibraryDevScreen,
+  Sk8SongDevScreen,
+  Sk94ApprovalDevScreen,
+} from "~/components/dev/sk8-music-dev-screen";
 import {
   PurchaseStatusCard,
   type PurchaseStage,
@@ -521,6 +525,16 @@ function Sk8SongDevPreview({ archived }: { archived: boolean }) {
   return <Sk8SongDevScreen archived={archived} />;
 }
 
+function Sk94ApprovalDevPreview({
+  role,
+  state,
+}: {
+  role: "producer" | "artist";
+  state: "ready" | "approved" | "reopened";
+}) {
+  return <Sk94ApprovalDevScreen role={role} state={state} />;
+}
+
 function Sk72RequestDevPreview({ state }: { state: "pending" | "approved" | "accepted" }) {
   const accepted = state === "accepted";
   const commercialTerms = accepted
@@ -892,6 +906,14 @@ export default async function DevScreenPage({ params }: Params) {
       return <Sk8SongDevPreview archived={false} />;
     case "sk8-song-archived":
       return <Sk8SongDevPreview archived />;
+    case "sk94-producer-approved":
+      return <Sk94ApprovalDevPreview role="producer" state="approved" />;
+    case "sk94-producer-reopened":
+      return <Sk94ApprovalDevPreview role="producer" state="reopened" />;
+    case "sk94-artist-ready":
+      return <Sk94ApprovalDevPreview role="artist" state="ready" />;
+    case "sk94-artist-approved":
+      return <Sk94ApprovalDevPreview role="artist" state="approved" />;
     case "add-song":
       return <UploadModalDevScreen />;
     case "gate2-queue":

@@ -5,7 +5,7 @@ import { notFound } from "next/navigation";
 import { SongPage, type SongPageData } from "~/components/music/song-page";
 import { appRouter } from "~/server/trpc/routers/_app";
 
-import { l3AddComment, l3ResolveComment } from "./actions";
+import { l3AddComment, l3ApproveVersion, l3ResolveComment } from "./actions";
 
 type PageProps = { params: Promise<{ versionId: string }> };
 
@@ -21,8 +21,8 @@ type PageProps = { params: Promise<{ versionId: string }> };
 // so we don't differentiate "doesn't exist" from "not yours".
 //
 // The shared SongPage component renders identically to producer in
-// `role="artist"` mode, with two pieces hidden:
-//   - Approve button (artists don't approve mixes)
+// `role="artist"` mode, with producer-only controls hidden:
+//   - Producer readiness and reopen controls
 //   - "Open in project room" pill (no clients-projects surface on
 //     the artist app).
 //
@@ -62,6 +62,7 @@ export default async function ArtistSongPage({ params }: PageProps) {
       releasedAtIso: data.track.releasedAt?.toISOString() ?? null,
       workflowStage: data.track.workflowStage,
       projectLifecycleStatus: data.track.projectLifecycleStatus,
+      artistApprovalLocked: data.track.artistApprovalLocked,
     },
     versions: data.versions.map((v) => ({
       id: v.id,
@@ -70,7 +71,9 @@ export default async function ArtistSongPage({ params }: PageProps) {
       audioDeletedAtIso: v.audioDeletedAt?.toISOString() ?? null,
       durationMs: v.durationMs,
       uploadedAtIso: v.uploadedAt.toISOString(),
-      approvedAtIso: v.approvedAt ? v.approvedAt.toISOString() : null,
+      producerMarkedFinalAtIso: v.producerMarkedFinalAt?.toISOString() ?? null,
+      artistApprovedAtIso: v.artistApprovedAt?.toISOString() ?? null,
+      previouslyArtistApprovedAtIso: v.previouslyArtistApprovedAt?.toISOString() ?? null,
       peaks: v.peaks,
     })),
     comments: data.comments.map((c) => ({
@@ -99,9 +102,7 @@ export default async function ArtistSongPage({ params }: PageProps) {
         actions={{
           addComment: l3AddComment,
           resolveComment: l3ResolveComment,
-          // approveVersion intentionally omitted — artists can't
-          // approve, and the L3Actions.approveVersion prop is
-          // optional.
+          approveVersion: l3ApproveVersion,
         }}
       />
     </div>

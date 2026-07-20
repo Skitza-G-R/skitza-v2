@@ -837,7 +837,7 @@ describe("purchase-owned audio lifecycle boundary", () => {
     const finalTransaction = completeSource.lastIndexOf("ctx.db.transaction");
     const projectLock = completeSource.indexOf(".from(projects)", finalTransaction);
     const purchaseLock = completeSource.indexOf(".from(purchases)", projectLock);
-    const lifecycleRecheck = completeSource.lastIndexOf("assertActiveVersionUploadLifecycle");
+    const lifecycleRecheck = completeSource.lastIndexOf("assertVersionUploadAllowed");
     const compareAndSet = completeSource.indexOf(".update(trackVersions)", lifecycleRecheck);
 
     expect(r2Completion).toBeGreaterThanOrEqual(0);
@@ -860,7 +860,7 @@ describe("purchase-owned audio lifecycle boundary", () => {
     const remoteCompletion = completeSource.indexOf("completeOrRecoverMultipart");
     const decision = completeSource.indexOf("const decision = resolvePendingAudioCompletion");
     const stagingLifecycleCheck = completeSource.indexOf(
-      "assertActiveVersionUploadLifecycle",
+      "assertVersionUploadAllowed",
       decision,
     );
     const durableCleanupDecision = completeSource.indexOf(

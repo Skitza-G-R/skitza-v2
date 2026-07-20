@@ -3,6 +3,10 @@ import { describe, expect, it } from "vitest";
 
 const projectRouter = readFileSync(new URL("../trpc/routers/project.ts", import.meta.url), "utf8");
 const songDb = readFileSync(new URL("../domain/song-management/db.ts", import.meta.url), "utf8");
+const versionApprovalDb = readFileSync(
+  new URL("../domain/version-approval/db.ts", import.meta.url),
+  "utf8",
+);
 const uploadPolicy = readFileSync(
   new URL("../domain/version-uploads/service.ts", import.meta.url),
   "utf8",
@@ -91,17 +95,21 @@ describe("SK-8 song management wiring", () => {
     expect(action).toMatch(/finally\s*\{[\s\S]*revalidateMusic/);
   });
 
-  it("uses the same serialized adapter for stage and final-selection races", () => {
+  it("keeps stage and producer-ready selection on serialized purchase-owned adapters", () => {
     expect(projectRouter).toContain("await setSongWorkflowStage(ctx.db");
-    expect(projectRouter).toContain("await setProducerFinalVersion(ctx.db");
+    expect(projectRouter).toContain("await markProducerVersionReady(versionApprovalRepository(ctx.db)");
 
-    const finalMutation = songDb.slice(
-      songDb.indexOf("function setProducerFinalVersion"),
-      songDb.indexOf("function setSongWorkflowStage"),
+    const projectLock = versionApprovalDb.indexOf(
+      "hashtextextended(${discovery.projectId}",
     );
-    expect(finalMutation).toContain('.for("update")');
-    expect(finalMutation).toContain("producerMarkedFinalAt: null");
-    expect(finalMutation).toContain("isNull(trackVersions.audioDeletedAt)");
+    const purchaseLock = versionApprovalDb.indexOf(
+      "hashtextextended(${discovery.purchaseId}",
+    );
+    expect(projectLock).toBeGreaterThan(-1);
+    expect(purchaseLock).toBeGreaterThan(projectLock);
+    expect(versionApprovalDb).toContain('.for("update")');
+    expect(versionApprovalDb).toContain("producerMarkedFinalAt: null");
+    expect(versionApprovalDb).toContain("isNull(trackVersions.audioDeletedAt)");
   });
 
   it("threads the locked song archive state through upload initiation and completion", () => {

@@ -21,6 +21,7 @@ const {
   trackVersionsMarker,
   projectTracksMarker,
   trackCommentsMarker,
+  versionApprovalEventsMarker,
   musicListMock,
   musicListWhereSpy,
   trackVersionsQueue,
@@ -60,7 +61,7 @@ const {
     audioDeletedAt: { __column: "track_versions.audio_deleted_at" },
     uploadedAt: { __column: "track_versions.uploaded_at" },
     durationMs: { __column: "track_versions.duration_ms" },
-    approvedAt: { __column: "track_versions.approved_at" },
+    producerMarkedFinalAt: { __column: "track_versions.producer_marked_final_at" },
     peaks: { __column: "track_versions.peaks" },
   };
   const projectTracksMarker = {
@@ -80,6 +81,14 @@ const {
     authorName: { __column: "track_comments.author_name" },
     createdAt: { __column: "track_comments.created_at" },
     resolvedAt: { __column: "track_comments.resolved_at" },
+  };
+  const versionApprovalEventsMarker = {
+    __table: "version_approval_events",
+    id: { __column: "version_approval_events.id" },
+    versionId: { __column: "version_approval_events.version_id" },
+    producerId: { __column: "version_approval_events.producer_id" },
+    action: { __column: "version_approval_events.action" },
+    createdAt: { __column: "version_approval_events.created_at" },
   };
 
   // Chain handler — any terminal (.where, .orderBy, .limit, .then)
@@ -152,6 +161,9 @@ const {
           }
           return chain(() => Promise.resolve([]));
         }
+        if (table === versionApprovalEventsMarker) {
+          return chain(() => Promise.resolve([]));
+        }
         throw new Error(`unexpected from(${String(table)})`);
       },
     }),
@@ -163,6 +175,7 @@ const {
     trackVersionsMarker,
     projectTracksMarker,
     trackCommentsMarker,
+    versionApprovalEventsMarker,
     musicListMock,
     musicListWhereSpy,
     trackVersionsQueue,
@@ -183,6 +196,7 @@ vi.mock("@skitza/db", () => ({
   trackVersions: trackVersionsMarker,
   projectTracks: projectTracksMarker,
   trackComments: trackCommentsMarker,
+  versionApprovalEvents: versionApprovalEventsMarker,
   // Tables referenced elsewhere in the producer router module — opaque
   // markers so the router loads inside the test without exercising them.
   invoices: { __table: "invoices" },
@@ -524,7 +538,7 @@ describe("producer.music.detail", () => {
           audioUrl: "https://cdn/master.mp3",
           durationMs: 240_000,
           uploadedAt: new Date("2026-04-15T12:00:00Z"),
-          approvedAt: null,
+          producerMarkedFinalAt: null,
           peaks: [0.3, 0.5, 0.7],
         },
         {
@@ -533,7 +547,7 @@ describe("producer.music.detail", () => {
           audioUrl: "https://cdn/mix2.mp3",
           durationMs: 240_000,
           uploadedAt: new Date("2026-04-14T12:00:00Z"),
-          approvedAt: null,
+          producerMarkedFinalAt: null,
           peaks: null,
         },
       ]),
@@ -570,13 +584,14 @@ describe("producer.music.detail", () => {
     const caller = await buildCaller();
     const result = await caller.producer.music.detail({ versionId });
 
-    expect(result.track).toEqual({
+    expect(result.track).toMatchObject({
       id: trackId,
       title: "Midnight Drive",
       artist: "Alice",
       projectId: "p1",
       projectTitle: "Alice EP",
       clientName: "Alice Records",
+      artistApprovalLocked: false,
     });
     expect(result.versions).toHaveLength(2);
     expect(result.versions[0]?.id).toBe(versionId);
@@ -634,7 +649,7 @@ describe("producer.music.detail", () => {
           audioDeletedAt: new Date("2026-07-19T12:00:00Z"),
           durationMs: 240_000,
           uploadedAt: new Date("2026-07-19T10:00:00Z"),
-          approvedAt: new Date("2026-07-19T11:00:00Z"),
+          producerMarkedFinalAt: new Date("2026-07-19T11:00:00Z"),
           peaks: [0.2, 0.8],
         },
         {
@@ -644,7 +659,7 @@ describe("producer.music.detail", () => {
           audioDeletedAt: null,
           durationMs: 235_000,
           uploadedAt: new Date("2026-07-18T10:00:00Z"),
-          approvedAt: null,
+          producerMarkedFinalAt: null,
           peaks: [0.4, 0.6],
         },
       ]),

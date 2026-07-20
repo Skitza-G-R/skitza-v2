@@ -17,10 +17,8 @@ import { appRouter } from "~/server/trpc/routers/_app";
 //     client_contacts; tags fromProducer = false).
 //   - resolveComment routes to `artist.music.resolveComment` (the
 //     artist-side mirror of project.resolveComment).
-//   - approveVersion is not exported. The shared SongPage's
-//     L3Actions.approveVersion prop is optional, and the artist L3
-//     hides the Approve button entirely (role="artist" gate inside
-//     the component), so no callback is needed here.
+//   - approveVersion routes to the exact-version artist approval
+//     boundary and is available only for the verified artist owner.
 //   - revalidatePath targets `/artist/music/song/<versionId>` so the
 //     L3 route refreshes after mutation rather than the producer
 //     dashboard path.
@@ -103,6 +101,20 @@ export async function l3ResolveComment(input: {
       id: input.id,
       resolved: input.resolved,
     });
+    revalidatePath(pathDetail(input.versionId));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function l3ApproveVersion(input: {
+  versionId: string;
+}): Promise<MusicL3ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.artist.music.approveVersion({ versionId: input.versionId });
     revalidatePath(pathDetail(input.versionId));
     return { ok: true };
   } catch (err) {

@@ -9,7 +9,7 @@ import { appRouter } from "~/server/trpc/routers/_app";
 
 // Server actions used by the L3 song page. Thin wrappers over the
 // existing project tRPC mutations (resolveComment, addProducerComment,
-// approveVersion). Same shape as the actions in
+// exact producer readiness and reopen). Same shape as the actions in
 // (producer)/dashboard/clients-projects/actions.ts — duplicated rather
 // than imported so the L3 page doesn't take a dependency on a sibling
 // route group's action file (cross-route imports tend to drift). Each
@@ -94,17 +94,32 @@ export async function l3ResolveComment(input: {
   }
 }
 
-export async function l3ApproveVersion(input: {
+export async function l3MarkVersionReady(input: {
   versionId: string;
-  approved: boolean;
+  ready: boolean;
 }): Promise<MusicL3ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    await c.caller.project.approveVersion({
+    await c.caller.project.markVersionReady({
       versionId: input.versionId,
-      approved: input.approved,
+      ready: input.ready,
     });
+    revalidatePath(pathDetail(input.versionId));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function l3ReopenApprovedSong(input: {
+  trackId: string;
+  versionId: string;
+}): Promise<MusicL3ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    await c.caller.project.reopenApprovedSong({ trackId: input.trackId });
     revalidatePath(pathDetail(input.versionId));
     return { ok: true };
   } catch (err) {

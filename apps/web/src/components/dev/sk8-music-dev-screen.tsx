@@ -36,6 +36,7 @@ export function Sk8SongDevScreen({ archived }: { archived: boolean }) {
           releasedAtIso: archived ? null : "2026-07-18T12:00:00.000Z",
           workflowStage: archived ? "mixing" : "done",
           projectLifecycleStatus: "active",
+          artistApprovalLocked: true,
         },
         versions: [
           {
@@ -45,7 +46,9 @@ export function Sk8SongDevScreen({ archived }: { archived: boolean }) {
             audioDeletedAtIso: null,
             durationMs: 201_000,
             uploadedAtIso: "2026-07-18T09:30:00.000Z",
-            approvedAtIso: "2026-07-18T10:15:00.000Z",
+            producerMarkedFinalAtIso: "2026-07-18T10:00:00.000Z",
+            artistApprovedAtIso: "2026-07-18T10:15:00.000Z",
+            previouslyArtistApprovedAtIso: null,
             peaks: [0.18, 0.42, 0.68, 0.35, 0.82, 0.54, 0.27, 0.61],
           },
           {
@@ -55,7 +58,9 @@ export function Sk8SongDevScreen({ archived }: { archived: boolean }) {
             audioDeletedAtIso: "2026-07-18T11:00:00.000Z",
             durationMs: null,
             uploadedAtIso: "2026-07-16T14:00:00.000Z",
-            approvedAtIso: null,
+            producerMarkedFinalAtIso: null,
+            artistApprovedAtIso: null,
+            previouslyArtistApprovedAtIso: null,
             peaks: null,
           },
         ],
@@ -76,7 +81,8 @@ export function Sk8SongDevScreen({ archived }: { archived: boolean }) {
       actions={{
         addComment: succeed,
         resolveComment: succeed,
-        approveVersion: succeed,
+        markVersionReady: succeed,
+        reopenSong: succeed,
         renameSong: succeed,
         editArtist: succeed,
         setArchived: succeed,
@@ -89,6 +95,73 @@ export function Sk8SongDevScreen({ archived }: { archived: boolean }) {
             removedPortfolioEntry: true,
             disabledPublicLink: true,
           }),
+      }}
+    />
+  );
+}
+
+export function Sk94ApprovalDevScreen({
+  role,
+  state,
+}: {
+  role: "producer" | "artist";
+  state: "ready" | "approved" | "reopened";
+}) {
+  const ready = state === "ready" || state === "approved";
+  const approved = state === "approved";
+  return (
+    <SongPage
+      role={role}
+      data={{
+        track: {
+          id: "track-sk94-preview",
+          title: "Golden Hour",
+          artist: "Noya Halevi",
+          projectId: "project-sk94-preview",
+          projectTitle: "Golden Hour — Single",
+          clientName: role === "producer" ? "Noya Halevi" : "Studio Gili",
+          archivedAtIso: null,
+          releasedAtIso: null,
+          workflowStage: "mastering",
+          projectLifecycleStatus: "active",
+          artistApprovalLocked: approved,
+        },
+        versions: [
+          {
+            id: "version-sk94-final",
+            label: "Final master v4",
+            audioUrl: "/icon",
+            audioDeletedAtIso: null,
+            durationMs: 218_000,
+            uploadedAtIso: "2026-07-20T09:30:00.000Z",
+            producerMarkedFinalAtIso: ready ? "2026-07-20T10:00:00.000Z" : null,
+            artistApprovedAtIso: approved ? "2026-07-20T10:15:00.000Z" : null,
+            previouslyArtistApprovedAtIso:
+              state === "reopened" ? "2026-07-19T16:20:00.000Z" : null,
+            peaks: [0.24, 0.51, 0.73, 0.38, 0.88, 0.61, 0.32, 0.67],
+          },
+          {
+            id: "version-sk94-v3",
+            label: "Mix v3",
+            audioUrl: "/icon",
+            audioDeletedAtIso: null,
+            durationMs: 218_000,
+            uploadedAtIso: "2026-07-19T14:00:00.000Z",
+            producerMarkedFinalAtIso: null,
+            artistApprovedAtIso: null,
+            previouslyArtistApprovedAtIso: null,
+            peaks: [0.16, 0.37, 0.62, 0.44, 0.76, 0.48, 0.29, 0.58],
+          },
+        ],
+        comments: [],
+        selectedVersionId: "version-sk94-final",
+      }}
+      actions={{
+        addComment: succeed,
+        resolveComment: succeed,
+        markVersionReady: succeed,
+        approveVersion: succeed,
+        reopenSong: succeed,
       }}
     />
   );

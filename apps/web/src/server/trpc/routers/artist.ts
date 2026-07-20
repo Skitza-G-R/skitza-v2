@@ -53,6 +53,12 @@ import {
   type StoreProductCommercialInput,
   type ValidatedStoreProductCommercialInput,
 } from "~/server/domain/store-products/service";
+import { versionApprovalRepository } from "~/server/domain/version-approval/db";
+import {
+  approveExactReadyVersion,
+  presentVersionApprovalHistory,
+  VersionApprovalDomainError,
+} from "~/server/domain/version-approval/service";
 
 function purchaseProductName(
   snapshot: PurchaseCommercialSnapshot | null,
@@ -90,6 +96,21 @@ function mapCommentDomainError(error: unknown): never {
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
   }
   throw new TRPCError({ code: "NOT_FOUND" });
+}
+
+function mapVersionApprovalDomainError(error: unknown): never {
+  if (!(error instanceof VersionApprovalDomainError)) throw error;
+  if (error.code === "NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND" });
+  if (error.code === "INVALID_INPUT") {
+    throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+  }
+  if (error.code === "NOT_READY" || error.code === "INACTIVE") {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+  }
+  if (error.code === "LOCKED" || error.code === "CONCURRENT_CHANGE") {
+    throw new TRPCError({ code: "CONFLICT", message: error.message });
+  }
+  throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message });
 }
 
 // ─── artist.music sub-router ─────────────────────────────────────────
@@ -746,9 +767,9 @@ const musicSubrouter = router({
       const producerName = producerRow?.displayName ?? "Producer";
 
       // (4) Full version stack desc by uploadedAt (newest first =
-      // "v3 · current" pill position in the L3 UI). Includes
-      // approvedAt + peaks — peaks ride down with the page payload
-      // so Waveform50 renders the real envelope on first frame.
+      // "v3 · current" pill position in the L3 UI). Readiness and exact
+      // artist approval remain distinct. Peaks ride down with the page
+      // payload so Waveform50 renders the real envelope on first frame.
       const versionRows = await ctx.db
         .select({
           id: trackVersions.id,
@@ -757,6 +778,7 @@ const musicSubrouter = router({
           audioDeletedAt: trackVersions.audioDeletedAt,
           durationMs: trackVersions.durationMs,
           uploadedAt: trackVersions.uploadedAt,
+          producerMarkedFinalAt: trackVersions.producerMarkedFinalAt,
           peaks: trackVersions.peaks,
         })
         .from(trackVersions)
@@ -774,6 +796,7 @@ const musicSubrouter = router({
           ? []
           : await ctx.db
               .select({
+                id: versionApprovalEvents.id,
                 versionId: versionApprovalEvents.versionId,
                 action: versionApprovalEvents.action,
                 createdAt: versionApprovalEvents.createdAt,
@@ -789,15 +812,13 @@ const musicSubrouter = router({
                   eq(versionApprovalEvents.clientContactId, ownedProject.clientContactId),
                 ),
               )
-              .orderBy(desc(versionApprovalEvents.createdAt));
-      const latestApprovalByVersion = new Map<string, (typeof approvalRows)[number]>();
-      for (const event of approvalRows) {
-        if (!latestApprovalByVersion.has(event.versionId)) {
-          latestApprovalByVersion.set(event.versionId, event);
-        }
-      }
+              .orderBy(desc(versionApprovalEvents.createdAt), desc(versionApprovalEvents.id));
+      const approvalHistory = presentVersionApprovalHistory(
+        versionRows.map((version) => version.id),
+        approvalRows,
+      );
       const versions = versionRows.map((version) => {
-        const event = latestApprovalByVersion.get(version.id);
+        const approval = approvalHistory.get(version.id);
         return {
           ...version,
           // A tombstoned version remains in the shared history and keeps
@@ -806,7 +827,8 @@ const musicSubrouter = router({
           audioUrl: version.audioDeletedAt ? null : version.audioUrl,
           durationMs: version.audioDeletedAt ? null : version.durationMs,
           peaks: version.audioDeletedAt ? null : version.peaks,
-          approvedAt: event?.action === "approved" ? event.createdAt : null,
+          artistApprovedAt: approval?.artistApprovedAt ?? null,
+          previouslyArtistApprovedAt: approval?.previouslyArtistApprovedAt ?? null,
         };
       });
 
@@ -842,6 +864,7 @@ const musicSubrouter = router({
           projectTitle: head.projectTitle,
           clientName: producerName,
           projectLifecycleStatus: ownedProject.lifecycleStatus,
+          artistApprovalLocked: approvalRows[0]?.action === "approved",
         },
         versions,
         comments,
@@ -851,6 +874,20 @@ const musicSubrouter = router({
           versions.find((version) => version.audioUrl !== null)?.id ??
           input.versionId,
       };
+    }),
+
+  approveVersion: artistProcedure
+    .input(z.object({ versionId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await approveExactReadyVersion(versionApprovalRepository(ctx.db), {
+          artistClerkUserId: ctx.clerkUserId,
+          versionId: input.versionId,
+          approvedAt: new Date(),
+        });
+      } catch (error) {
+        mapVersionApprovalDomainError(error);
+      }
     }),
 
   // Resolve / re-open a timestamped comment on the artist's project.

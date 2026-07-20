@@ -40,7 +40,10 @@ import {
 import {
   assertActiveVersionUploadLifecycle,
   VersionUploadDomainError,
+  type VersionUploadLifecycleCandidate,
+  type VersionUploadLifecycleScope,
 } from "~/server/domain/version-uploads/service";
+import { currentTrackArtistApprovalAction } from "~/server/domain/version-uploads/db";
 import { SITE_URL, sendTrackVersionUploadedEmail } from "~/server/email/send";
 import {
   BUCKETS,
@@ -876,6 +879,25 @@ function mapVersionUploadDomainError(error: unknown): never {
   throw new TRPCError({ code: "NOT_FOUND" });
 }
 
+async function assertVersionUploadAllowed(
+  db: Pick<Db, "select">,
+  candidate: Omit<VersionUploadLifecycleCandidate, "currentArtistApprovalAction"> | null,
+  expected: VersionUploadLifecycleScope,
+  trackId: string,
+): Promise<void> {
+  const currentArtistApprovalAction = candidate
+    ? await currentTrackArtistApprovalAction(db, {
+        trackId,
+        purchaseId: candidate.purchaseId,
+        producerId: candidate.producerId,
+      })
+    : null;
+  assertActiveVersionUploadLifecycle(
+    candidate ? { ...candidate, currentArtistApprovalAction } : null,
+    expected,
+  );
+}
+
 function mapPendingMultipartCancellationError(error: unknown): never {
   if (!(error instanceof PendingMultipartCancellationError)) throw error;
   if (error.code === "NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND" });
@@ -1003,7 +1025,8 @@ async function assertOwnsVersion(
       );
     }
     if (requireActiveLifecycle) {
-      assertActiveVersionUploadLifecycle(
+      await assertVersionUploadAllowed(
+        ctx.db,
         {
           producerId: tv.producerId,
           projectId: tv.projectId,
@@ -1017,6 +1040,7 @@ async function assertOwnsVersion(
           projectId: tv.projectId,
           purchaseId: tv.purchaseId,
         },
+        tv.trackId,
       );
     }
   } catch (error) {
@@ -1247,7 +1271,8 @@ export const audioRouter = router({
             };
           }
           try {
-            assertActiveVersionUploadLifecycle(
+            await assertVersionUploadAllowed(
+              tx,
               {
                 producerId: lockedProject.producerId,
                 projectId: lockedProject.id,
@@ -1257,6 +1282,7 @@ export const audioRouter = router({
                 trackArchivedAt: lockedVersion.trackArchivedAt,
               },
               { producerId: ctx.producerId, projectId, purchaseId },
+              lockedVersion.trackId,
             );
           } catch (error) {
             if (
@@ -1440,7 +1466,8 @@ export const audioRouter = router({
               "The purchase-owned version binding changed before remote completion",
             );
           }
-          assertActiveVersionUploadLifecycle(
+          await assertVersionUploadAllowed(
+            tx,
             {
               producerId: lockedVersion.projectProducerId,
               projectId: lockedVersion.projectId,
@@ -1450,6 +1477,7 @@ export const audioRouter = router({
               trackArchivedAt: lockedVersion.trackArchivedAt,
             },
             { producerId: ctx.producerId, projectId, purchaseId },
+            lockedVersion.trackId,
           );
           const decision = resolvePendingAudioCompletion(lockedVersion, {
             key: input.key,
@@ -1610,7 +1638,8 @@ export const audioRouter = router({
                 "The purchase-owned version binding changed before remote completion",
               );
             }
-            assertActiveVersionUploadLifecycle(
+            await assertVersionUploadAllowed(
+              tx,
               {
                 producerId: lockedVersion.projectProducerId,
                 projectId: lockedVersion.projectId,
@@ -1620,6 +1649,7 @@ export const audioRouter = router({
                 trackArchivedAt: lockedVersion.trackArchivedAt,
               },
               { producerId: ctx.producerId, projectId, purchaseId },
+              lockedVersion.trackId,
             );
             if (
               resolvePendingAudioCompletion(lockedVersion, {
@@ -1736,7 +1766,8 @@ export const audioRouter = router({
             .limit(1)
             .for("update");
 
-          assertActiveVersionUploadLifecycle(
+          await assertVersionUploadAllowed(
+            tx,
             lockedProject && lockedPurchase && lockedVersion
               ? {
                   producerId: lockedProject.producerId,
@@ -1748,6 +1779,7 @@ export const audioRouter = router({
                 }
               : null,
             { producerId: ctx.producerId, projectId, purchaseId },
+            trackId,
           );
           if (
             !lockedVersion ||

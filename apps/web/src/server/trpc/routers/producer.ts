@@ -19,6 +19,7 @@ import {
   sql,
   trackComments,
   trackVersions,
+  versionApprovalEvents,
 } from "@skitza/db";
 import { z } from "zod";
 
@@ -29,6 +30,7 @@ import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { producerPurchaseRouter } from "./purchase";
 import { stripUndefined } from "../strip-undefined";
+import { presentVersionApprovalHistory } from "~/server/domain/version-approval/service";
 
 // Accepts a subset of producer-editable fields. The schema's cascade is
 // designed so any of these can change without orphaning related data.
@@ -1268,10 +1270,10 @@ export const producerRouter = router({
 
         // 2. Full version stack for the track, desc by uploadedAt so
         //    the latest is first (matches the design's "v3 · current"
-        //    label position). Includes approvedAt so the L3 UI can
-        //    show the green checkmark on the approved version, and
-        //    `peaks` so the song-page renders the real envelope on
-        //    first frame without a client-side decode round-trip.
+        //    label position). Producer readiness and exact artist approval
+        //    remain separate fields so producer actions never masquerade
+        //    as artist approval. `peaks` lets the song page render the real
+        //    envelope on its first frame without a client decode round-trip.
         const versionRows = await ctx.db
           .select({
             id: trackVersions.id,
@@ -1280,7 +1282,7 @@ export const producerRouter = router({
             audioDeletedAt: trackVersions.audioDeletedAt,
             durationMs: trackVersions.durationMs,
             uploadedAt: trackVersions.uploadedAt,
-            approvedAt: trackVersions.producerMarkedFinalAt,
+            producerMarkedFinalAt: trackVersions.producerMarkedFinalAt,
             peaks: trackVersions.peaks,
           })
           .from(trackVersions)
@@ -1293,20 +1295,47 @@ export const producerRouter = router({
           )
           .orderBy(desc(trackVersions.uploadedAt), desc(trackVersions.id));
 
+        const approvalRows =
+          versionRows.length === 0
+            ? []
+            : await ctx.db
+                .select({
+                  id: versionApprovalEvents.id,
+                  versionId: versionApprovalEvents.versionId,
+                  action: versionApprovalEvents.action,
+                  createdAt: versionApprovalEvents.createdAt,
+                })
+                .from(versionApprovalEvents)
+                .where(
+                  and(
+                    inArray(
+                      versionApprovalEvents.versionId,
+                      versionRows.map((version) => version.id),
+                    ),
+                    eq(versionApprovalEvents.producerId, ctx.producerId),
+                  ),
+                )
+                .orderBy(desc(versionApprovalEvents.createdAt), desc(versionApprovalEvents.id));
+        const approvalHistory = presentVersionApprovalHistory(
+          versionRows.map((version) => version.id),
+          approvalRows,
+        );
+
         // Deleting stored audio keeps the lightweight version timeline,
         // but its storage-backed playback fields must disappear from every
         // read immediately. The immutable identity stays server-side for
         // idempotent object cleanup and is never returned here.
-        const versions = versionRows.map((version) =>
-          version.audioDeletedAt
-            ? {
-                ...version,
-                audioUrl: null,
-                durationMs: null,
-                peaks: null,
-              }
-            : version,
-        );
+        const versions = versionRows.map((version) => {
+          const approval = approvalHistory.get(version.id);
+          return {
+            ...version,
+            audioUrl: version.audioDeletedAt ? null : version.audioUrl,
+            durationMs: version.audioDeletedAt ? null : version.durationMs,
+            peaks: version.audioDeletedAt ? null : version.peaks,
+            artistApprovedAt: approval?.artistApprovedAt ?? null,
+            previouslyArtistApprovedAt: approval?.previouslyArtistApprovedAt ?? null,
+          };
+        });
 
         // 3. Comments across all versions of this track. Asc by
         //    timestampMs so the comment thread reads in track order
@@ -1341,6 +1370,7 @@ export const producerRouter = router({
             projectTitle: head.projectTitle,
             clientName: head.clientName,
             projectLifecycleStatus: head.projectLifecycleStatus,
+            artistApprovalLocked: approvalRows[0]?.action === "approved",
           },
           versions,
           comments,
