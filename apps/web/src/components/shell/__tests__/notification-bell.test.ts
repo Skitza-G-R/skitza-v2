@@ -28,6 +28,7 @@ function makeItem(overrides: Partial<ShellNotificationItem> = {}): ShellNotifica
     commentId: null,
     bookingId: null,
     purchaseRequestId: null,
+    purchaseId: null,
     paymentProofId: null,
     readAtIso: null,
     ...overrides,
@@ -35,16 +36,16 @@ function makeItem(overrides: Partial<ShellNotificationItem> = {}): ShellNotifica
 }
 
 describe("notificationHref", () => {
-  it("routes proof notifications to the real request detail until proof review lands", () => {
+  it("does not send an incomplete proof notification into Requests", () => {
     expect(
       notificationHref(
         makeItem({
           id: "proof-1",
           kind: "proof_submitted",
-          purchaseRequestId: "request-1",
+          purchaseId: "purchase-1",
         }),
       ),
-    ).toBe("/dashboard/requests/request-1#payment-proof");
+    ).toBe("/dashboard/clients-projects");
   });
 
   it("routes purchase notifications to the dedicated request detail", () => {
@@ -82,16 +83,16 @@ describe("notificationHref", () => {
     ).toBe("/dashboard/calendar?booking=booking-1");
   });
 
-  it("routes a submitted proof to the exact request's private-evidence anchor", () => {
+  it("routes a submitted proof to the exact Payments item", () => {
     expect(
       notificationHref(
         makeItem({
           kind: "proof_submitted",
-          purchaseRequestId: "request-proof-1",
+          purchaseId: "purchase-proof-1",
           paymentProofId: "proof-1",
         }),
       ),
-    ).toBe("/dashboard/requests/request-proof-1?proof=proof-1#payment-proof");
+    ).toBe("/dashboard/payments/proof-1");
   });
 
   it("routes comment notifications to the real track conversation", () => {

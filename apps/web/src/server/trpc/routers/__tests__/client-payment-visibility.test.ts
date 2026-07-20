@@ -37,22 +37,20 @@ describe("producer client payment visibility", () => {
     expect(clientContacts).not.toMatch(/emailMatchesProject|contactByEmail|byEmail/);
   });
 
-  it("shows client proof history through the purchase-owned projection only", () => {
-    expect(purchase).toMatch(
-      /history: producerProcedure[\s\S]*?available: false; proofs: ProducerProofHistory\[\]/,
-    );
-    expect(purchase).not.toMatch(/listProducerProofHistory|paymentProofsTableAvailable/);
+  it("keeps the client ledger purchase-owned without duplicating the proof queue", () => {
+    expect(purchase).toMatch(/history: producerProcedure/);
+    expect(purchase).toMatch(/listProducerPaymentProofHistory/);
     expect(clientContacts).toContain("clientMoneyRepository");
     expect(clientContacts).toContain("getClientMoneyLedger");
     expect(clientPage).toContain("ClientMoneyLedger");
     expect(clientPage).not.toMatch(/proofOfPayment\.history|<ClientPaymentProofs/);
   });
 
-  it("rejects proof deep-links and leaves proof decisions unavailable", () => {
+  it("rejects proof deep-links in Requests while Payments owns decisions", () => {
     expect(requestPage).toMatch(/if \(requestedProofId\) notFound\(\)/);
     expect(requestPage).not.toMatch(/proofOfPayment\.(?:history|pending|view)/);
-    expect(purchase).toMatch(/notImplemented\("producer\.purchase\.proofOfPayment\.view"\)/);
-    expect(purchase).toMatch(/notImplemented\("producer\.purchase\.proofOfPayment\.confirm"\)/);
-    expect(purchase).toMatch(/notImplemented\("producer\.purchase\.proofOfPayment\.reject"\)/);
+    expect(purchase).toMatch(/confirmProducerPaymentProof/);
+    expect(purchase).toMatch(/rejectProducerPaymentProof/);
+    expect(purchase).not.toMatch(/notImplemented\("producer\.purchase\.proofOfPayment/);
   });
 });

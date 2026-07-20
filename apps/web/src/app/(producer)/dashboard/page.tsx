@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 
 import { OverviewScreen } from "~/components/dashboard/overview/overview-screen";
 import { dateKeyInTimeZone } from "~/components/dashboard/overview/overview-time";
-import { ProofQueueRefresh } from "~/components/dashboard/requests/proof-queue-refresh";
+import { ProofQueueRefresh } from "~/components/dashboard/payments/proof-queue-refresh";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { detectOnboardingState } from "./onboarding/detect";

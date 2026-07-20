@@ -17,6 +17,7 @@ const PRODUCER_SECTIONS = {
   "/dashboard/music": "Music",
   "/dashboard/calendar": "Calendar",
   "/dashboard/requests": "Requests",
+  "/dashboard/payments": "Payments",
   "/dashboard/profile": "Storefront",
   "/dashboard/store": "Store",
   "/dashboard/settings": "Settings",

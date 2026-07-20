@@ -2,6 +2,7 @@
 
 import type { PaymentPlan, PurchaseCommercialSnapshot } from "@skitza/db";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 
 import {
@@ -52,6 +53,7 @@ export function PrivateOfferResponse({
   targetProjectTitle: string | null;
   snapshot: PurchaseCommercialSnapshot;
 }) {
+  const router = useRouter();
   const firstPlan = snapshot.offeredPaymentPlans[0] ?? null;
   const [selectedKey, setSelectedKey] = useState(firstPlan ? planKey(firstPlan) : "");
   const [agreed, setAgreed] = useState(false);
@@ -228,6 +230,10 @@ export function PrivateOfferResponse({
               });
               if (!response.ok) {
                 setError(response.error);
+                return;
+              }
+              if (response.lifecycleStatus === "waiting_for_payment") {
+                router.push(`/artist/payments/${encodeURIComponent(response.purchaseId)}`);
                 return;
               }
               setResult({ kind: "accepted", lifecycleStatus: response.lifecycleStatus });

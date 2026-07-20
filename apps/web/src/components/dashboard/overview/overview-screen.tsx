@@ -42,7 +42,7 @@ export interface OverviewScreenProps {
     currency: string | null;
     activeProjects: number;
   };
-  paymentProofs: PaymentProofSource[];
+  paymentProofs: readonly PaymentProofSource[];
   purchaseRequests: Array<{
     id: string;
     artistName: string;

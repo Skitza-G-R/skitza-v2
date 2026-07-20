@@ -5,7 +5,7 @@ import { formatMoney } from "~/lib/format/money";
 
 export type ClientPaymentProof = {
   proofId: string;
-  purchaseRequestId: string;
+  purchaseId: string;
   refNumber: string;
   productNameSnapshot: string;
   amountCents: number;
@@ -81,7 +81,7 @@ export function ClientPaymentProofs({ proofs }: { proofs: readonly ClientPayment
           {proofs.map((proof) => (
             <li key={proof.proofId}>
               <Link
-                href={`/dashboard/requests/${proof.purchaseRequestId}?proof=${proof.proofId}#payment-proof`}
+                href={`/dashboard/payments/${proof.proofId}`}
                 className="sk-press group grid min-h-[92px] gap-3 px-4 py-4 transition-colors hover:bg-[rgb(var(--bg-overlay))] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-5"
               >
                 <div className="min-w-0">
@@ -110,7 +110,9 @@ export function ClientPaymentProofs({ proofs }: { proofs: readonly ClientPayment
 
                 <div className="flex items-center justify-between gap-4 sm:block sm:text-right">
                   <p className="font-display text-lg font-extrabold text-[rgb(var(--fg-default))]">
-                    {formatMoney(proof.amountCents, proof.currency)}
+                    {formatMoney(proof.amountCents, proof.currency, {
+                      withCents: proof.amountCents % 100 !== 0,
+                    })}
                   </p>
                   <span className="mt-1 inline-flex min-h-11 items-center gap-1 font-mono text-[10px] font-bold tracking-widest text-[rgb(var(--brand-primary))] uppercase group-hover:underline sm:min-h-0">
                     View proof

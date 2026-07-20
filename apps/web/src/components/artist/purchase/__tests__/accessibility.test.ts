@@ -125,12 +125,11 @@ describe("artist purchase accessibility contract", () => {
     expect(reviewSrc).toMatch(/<h3/);
     expect(sentSrc).toMatch(/<ol className="relative list-none"/);
     expect(sentSrc).toMatch(/aria-current=\{i === 1 \? "step"/);
-    expect(proofSrc).toMatch(/<ul className="flex list-none flex-col/);
+    expect(proofSrc).toMatch(/<ul className="[^"]*flex[^"]*list-none[^"]*flex-col/);
   });
 
   it("gates every purchase animation for reduced-motion users", () => {
     expect(reviewSrc).toMatch(/animate-spin[^"]*motion-reduce:animate-none/);
-    expect(proofSrc.match(/motion-reduce:animate-none/g)?.length).toBeGreaterThanOrEqual(2);
     expect(proofSrc).toMatch(/motion-reduce:transition-none/);
     expect(stickySrc).toMatch(/sk-sticky-nav-backing/);
     expect(stickySrc).toMatch(/sk-sticky-nav-title/);

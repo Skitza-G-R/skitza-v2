@@ -24,6 +24,7 @@ function candidate(id: string, createdAt: string, read = false): ShellNotificati
     commentId: null,
     bookingId: null,
     purchaseRequestId: null,
+    purchaseId: null,
     readAt: read ? new Date("2026-07-11T12:00:00.000Z") : null,
   };
 }
@@ -96,8 +97,9 @@ describe("producer shell notification queries", () => {
     expect(SRC).toContain("mergeShellNotificationRows(");
   });
 
-  it("carries read state and purchase request refs into shell items", () => {
+  it("carries read state and accepted purchase refs into shell items", () => {
     expect(SRC).toContain("purchaseRequestId: notifications.purchaseRequestId");
+    expect(SRC).toContain("purchaseId: notifications.purchaseId");
     expect(SRC).toContain("readAt: notifications.readAt");
     expect(SRC).toContain("purchaseRequestId: row.purchaseRequestId");
     expect(SRC).toContain("readAtIso: row.readAt?.toISOString() ?? null");
@@ -105,7 +107,7 @@ describe("producer shell notification queries", () => {
 
   it("does not cross the purchase-owned proof boundary through a legacy request link", () => {
     expect(SRC).not.toContain("paymentProofs.purchaseRequestId");
-    expect(SRC).toContain("paymentProofId: null");
-    expect(SRC).toContain("Proof review is purchase/installment-owned after SK-90");
+    expect(SRC).toContain('row.kind === "proof_submitted" ? row.id : null');
+    expect(SRC).toContain("notification id, so no storage identity or request-level fallback");
   });
 });

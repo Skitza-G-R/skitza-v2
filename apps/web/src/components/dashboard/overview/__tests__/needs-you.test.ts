@@ -61,7 +61,6 @@ describe("buildNeedsYouQueue", () => {
       paymentProofs: [
         {
           proofId: "proof-1",
-          purchaseRequestId: "request-1",
           artistName: "Maya",
           productNameSnapshot: "Mix & Master",
         },
@@ -73,7 +72,7 @@ describe("buildNeedsYouQueue", () => {
         id: "payment-proof:proof-1",
         kind: "payment_proof",
         title: "Payment proof",
-        href: "/dashboard/requests/request-1?proof=proof-1#payment-proof",
+        href: "/dashboard/payments/proof-1",
         actionLabel: "Review",
       }),
     ]);
@@ -85,20 +84,13 @@ describe("buildNeedsYouQueue", () => {
       paymentProofs: [
         {
           proofId: "proof-1",
-          purchaseRequestId: "request-proof-1",
           artistName: "Ari",
           productNameSnapshot: "Production",
         },
       ],
-      purchaseRequests: [
-        { id: "r-1", artistName: "Maya", productNameSnapshot: "Mix & Master" },
-      ],
-      pendingApprovals: [
-        { id: "b-1", artistName: "Dana", packageNameSnapshot: "Session" },
-      ],
-      followUps: [
-        { id: "s-1", artistName: "NeedJuice", projectTitle: "Album", projectId: "p-1" },
-      ],
+      purchaseRequests: [{ id: "r-1", artistName: "Maya", productNameSnapshot: "Mix & Master" }],
+      pendingApprovals: [{ id: "b-1", artistName: "Dana", packageNameSnapshot: "Session" }],
+      followUps: [{ id: "s-1", artistName: "NeedJuice", projectTitle: "Album", projectId: "p-1" }],
       unresolvedItems: [
         {
           id: "invoice:i-1",
@@ -131,9 +123,7 @@ describe("buildNeedsYouQueue", () => {
       "payment_received",
       "setup",
     ]);
-    expect(queue[0]?.href).toBe(
-      "/dashboard/requests/request-proof-1?proof=proof-1#payment-proof",
-    );
+    expect(queue[0]?.href).toBe("/dashboard/payments/proof-1");
     expect(queue[1]?.href).toBe("/dashboard/requests/r-1");
     expect(queue[2]?.href).toBe("/dashboard/calendar?booking=b-1");
   });
@@ -187,10 +177,7 @@ describe("buildNeedsYouQueue", () => {
       ],
     });
 
-    expect(queue.map((item) => item.kind)).toEqual([
-      "follow_up",
-      "urgent_project",
-    ]);
+    expect(queue.map((item) => item.kind)).toEqual(["follow_up", "urgent_project"]);
   });
 
   it("does not let an unrelated invoice hide a stuck-project signal", () => {
@@ -216,10 +203,7 @@ describe("buildNeedsYouQueue", () => {
       ],
     });
 
-    expect(queue.map((item) => item.kind)).toEqual([
-      "invoice",
-      "urgent_project",
-    ]);
+    expect(queue.map((item) => item.kind)).toEqual(["invoice", "urgent_project"]);
   });
 
   it("preserves the server's newest-first order inside one priority", () => {
@@ -231,10 +215,7 @@ describe("buildNeedsYouQueue", () => {
       ],
     });
 
-    expect(queue.map((item) => item.id)).toEqual([
-      "purchase:z-newest",
-      "purchase:a-older",
-    ]);
+    expect(queue.map((item) => item.id)).toEqual(["purchase:z-newest", "purchase:a-older"]);
   });
 });
 

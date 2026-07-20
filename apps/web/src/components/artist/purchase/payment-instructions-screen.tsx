@@ -180,7 +180,8 @@ function PaymentDetailBlock({
 
 export function PaymentInstructionsScreen({
   productId,
-  purchaseRequestId,
+  purchaseId,
+  installmentId,
   producerName,
   amountDueNowCents,
   currency,
@@ -188,10 +189,12 @@ export function PaymentInstructionsScreen({
   productName,
   planLabel,
   proofUploadsAvailable = true,
+  proofHref,
   previewProofHref,
 }: {
   productId: string;
-  purchaseRequestId: string;
+  purchaseId?: string | undefined;
+  installmentId?: string | undefined;
   producerName: string;
   amountDueNowCents: number;
   currency: string;
@@ -203,7 +206,9 @@ export function PaymentInstructionsScreen({
   planLabel?: string | undefined;
   /** False on a pre-0023 database, where the private proof ledger does not exist yet. */
   proofUploadsAvailable?: boolean | undefined;
-  /** Dev-gallery navigation only; production routes derive S9 from the request id. */
+  /** Exact purchase-owned proof route for non-Store purchases. */
+  proofHref?: string | undefined;
+  /** Dev-gallery navigation only; production routes use the exact purchase installment. */
   previewProofHref?: string | undefined;
 }) {
   const router = useRouter();
@@ -218,7 +223,16 @@ export function PaymentInstructionsScreen({
       router.push(previewProofHref);
       return;
     }
-    router.push(`/artist/purchase/${productId}/pay/proof?req=${purchaseRequestId}`);
+    if (proofHref) {
+      router.push(proofHref);
+      return;
+    }
+    if (!purchaseId || !installmentId) {
+      router.push("/artist");
+      return;
+    }
+    const query = new URLSearchParams({ purchase: purchaseId, installment: installmentId });
+    router.push(`/artist/purchase/${productId}/pay/proof?${query.toString()}`);
   };
 
   return (

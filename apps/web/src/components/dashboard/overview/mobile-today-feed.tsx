@@ -13,7 +13,7 @@ import type { Stage } from "~/lib/projects/stages";
 import { STAGE_LABEL } from "~/lib/projects/stages";
 import { formatRelativeTime } from "~/lib/time/relative";
 import { formatMoney } from "~/lib/format/money";
-import type { PendingPaymentProof } from "~/components/dashboard/requests/pending-payment-proofs";
+import type { ProducerPendingPaymentProof } from "~/server/domain/payment-proofs/service";
 
 import { MobilePaymentRow } from "./mobile-payment-row";
 
@@ -54,7 +54,7 @@ export interface MobileTodayFeedProps {
     currency: string;
     commercialTermsAvailable: boolean;
   }>;
-  pendingPaymentProofs: PendingPaymentProof[];
+  pendingPaymentProofs: readonly ProducerPendingPaymentProof[];
   /** Raw follow-up sessions; the feed groups them per project. */
   followUps: Array<{
     id: string;
@@ -352,10 +352,10 @@ function PurchaseRequestCard({
   );
 }
 
-function PaymentProofCard({ proof }: { proof: PendingPaymentProof }) {
+function PaymentProofCard({ proof }: { proof: ProducerPendingPaymentProof }) {
   return (
     <Link
-      href={`/dashboard/requests/${proof.purchaseRequestId}?proof=${proof.proofId}#payment-proof`}
+      href={`/dashboard/payments/${proof.proofId}`}
       className="sk-press rounded-[var(--radius-lg)] border-[1.5px] border-[rgb(var(--brand-primary)/0.5)] bg-[rgb(var(--brand-primary)/0.06)] p-3.5 shadow-[0_4px_24px_rgb(var(--brand-primary)/0.1)]"
     >
       <div className="flex items-start gap-3">
@@ -384,10 +384,12 @@ function PaymentProofCard({ proof }: { proof: PendingPaymentProof }) {
       </div>
       <div className="mt-3 flex min-w-0 items-center justify-between gap-3 border-t border-[rgb(var(--brand-primary)/0.2)] pt-2.5">
         <p className="min-w-0 truncate font-mono text-[10px] text-[rgb(var(--fg-muted))]">
-          {proof.originalFileName ?? "Payment proof"}
+          {proof.originalFileName}
         </p>
         <p className="shrink-0 font-mono text-[11px] font-bold text-[rgb(var(--fg-default))]">
-          {formatMoney(proof.amountCents, proof.currency)}
+          {formatMoney(proof.amountCents, proof.currency, {
+            withCents: proof.amountCents % 100 !== 0,
+          })}
         </p>
       </div>
       {proof.proofNote ? (

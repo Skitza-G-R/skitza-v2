@@ -2,7 +2,11 @@ import type { PurchaseCommercialSnapshot } from "@skitza/db";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
 
 import { PrivateOfferResponse } from "../private-offer-response";
 import { PrivateOffersList } from "../private-offers-list";

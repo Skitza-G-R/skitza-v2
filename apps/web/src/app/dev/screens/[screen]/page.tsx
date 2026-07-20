@@ -36,13 +36,11 @@ import { RequestSentScreen } from "~/components/artist/purchase/request-sent-scr
 import { ReviewAgreeScreen } from "~/components/artist/purchase/review-agree-screen";
 import { UploadProofScreen } from "~/components/artist/purchase/upload-proof-screen";
 import { buildAgreementTerms } from "~/components/artist/purchase/purchase-data";
-import { PaymentProofReview } from "~/components/dashboard/requests/payment-proof-review";
+import { PaymentProofReview } from "~/components/dashboard/payments/payment-proof-review";
+import { PaymentProofList } from "~/components/dashboard/payments/payment-proof-list";
 import { PurchaseRequestCommercialDetails } from "~/components/dashboard/requests/purchase-request-commercial-details";
 import { PurchaseRequestReview } from "~/components/dashboard/requests/purchase-request-review";
-import {
-  PendingPaymentProofs,
-  type PendingPaymentProof,
-} from "~/components/dashboard/requests/pending-payment-proofs";
+import type { ProducerPendingPaymentProof } from "~/server/domain/payment-proofs/service";
 import {
   livePlanOptions,
   MOCK_PRODUCER,
@@ -50,6 +48,7 @@ import {
 } from "~/components/artist/purchase/pay-data";
 import { deriveGradient } from "~/lib/clients/derive-gradient";
 import { UploadModalDevScreen } from "~/components/dev/upload-modal-dev-screen";
+import { Sk75ProofFlowDevScreen } from "~/components/dev/sk75-proof-flow-dev-screen";
 import { CLIENT_ARCHIVE_BLOCKED_MESSAGE } from "~/server/domain/client-management/service";
 
 const DEV_REQUEST_ID = "00000000-0000-4000-8000-000000000001";
@@ -87,11 +86,17 @@ const DEV_SK72_COMMERCIAL_SNAPSHOT = {
   agreementText:
     "Exact production agreement for three songs.\nProject target: Start a new project.\nExact installment schedule:\n- 1. 50% due at acceptance\n- 2. 50% due when the artist approves the final version",
 } satisfies PurchaseCommercialSnapshot;
-const DEV_PENDING_PROOF: PendingPaymentProof = {
+const DEV_PENDING_PROOF: ProducerPendingPaymentProof = {
   proofId: DEV_PROOF_ID,
+  purchaseId: "00000000-0000-4000-8000-000000000004",
   purchaseRequestId: DEV_REQUEST_ID,
+  installmentId: "00000000-0000-4000-8000-000000000005",
+  installmentPosition: 1,
+  installmentAmountCents: 120_000,
   refNumber: "SK-7F3QK2",
   artistName: "Maya Cohen",
+  projectId: "00000000-0000-4000-8000-000000000006",
+  projectTitle: "Maya — debut single",
   productNameSnapshot: "Premium Single Production",
   amountCents: 120_000,
   totalCents: 240_000,
@@ -650,7 +655,6 @@ export default async function DevScreenPage({ params }: Params) {
       return (
         <PaymentInstructionsScreen
           productId={MOCK_PRODUCT.id}
-          purchaseRequestId={DEV_REQUEST_ID}
           producerName={MOCK_PRODUCER.name}
           amountDueNowCents={120000}
           currency={MOCK_PRODUCT.currency}
@@ -678,16 +682,58 @@ export default async function DevScreenPage({ params }: Params) {
         <UploadProofScreen
           productName={MOCK_PRODUCT.name}
           producerName={MOCK_PRODUCER.name}
-          purchaseRequestId={DEV_REQUEST_ID}
+          previewOnly
+          currency="ILS"
+          installmentPosition={1}
           proofs={
             isAwaiting
-              ? [{ id: "proof-1", amountCents: 120000, status: "awaiting" }]
+              ? [
+                  {
+                    id: "proof-1",
+                    amountCents: 120000,
+                    status: "awaiting",
+                    evidenceUrl: "#",
+                    originalFileName: "bit-transfer.png",
+                    createdAt: new Date("2026-07-20T09:00:00Z"),
+                    rejectionNote: null,
+                  },
+                ]
               : isRejected
-                ? [{ id: "proof-1", amountCents: 120000, status: "rejected" }]
+                ? [
+                    {
+                      id: "proof-1",
+                      amountCents: 120000,
+                      status: "rejected",
+                      evidenceUrl: "#",
+                      originalFileName: "bank-receipt.pdf",
+                      createdAt: new Date("2026-07-20T09:00:00Z"),
+                      rejectionNote: "The amount is cut off in the screenshot.",
+                    },
+                  ]
                 : isPaid
-                  ? [{ id: "proof-1", amountCents: 240000, status: "paid" }]
+                  ? [
+                      {
+                        id: "proof-1",
+                        amountCents: 240000,
+                        status: "paid",
+                        evidenceUrl: "#",
+                        originalFileName: "transfer.pdf",
+                        createdAt: new Date("2026-07-20T09:00:00Z"),
+                        rejectionNote: null,
+                      },
+                    ]
                   : isPartial
-                    ? [{ id: "proof-1", amountCents: 120000, status: "paid" }]
+                    ? [
+                        {
+                          id: "proof-1",
+                          amountCents: 120000,
+                          status: "paid",
+                          evidenceUrl: "#",
+                          originalFileName: "first-payment.png",
+                          createdAt: new Date("2026-07-20T09:00:00Z"),
+                          rejectionNote: null,
+                        },
+                      ]
                     : []
           }
           paidCents={isPaid ? 240000 : isPartial ? 120000 : 0}
@@ -919,25 +965,37 @@ export default async function DevScreenPage({ params }: Params) {
     case "gate2-queue":
       return (
         <main className="mx-auto w-full max-w-[1040px] px-4 py-8 sm:px-6 lg:px-8">
-          <PendingPaymentProofs proofs={[DEV_PENDING_PROOF]} />
+          <PaymentProofList
+            title="Needs review"
+            eyebrow="1 waiting"
+            proofs={[DEV_PENDING_PROOF]}
+            emptyCopy="No payment proofs need review."
+          />
         </main>
       );
-    case "gate2-review":
+    case "gate2-review": {
+      const proof = {
+        ...DEV_PENDING_PROOF,
+        status: "pending" as const,
+        rejectionNote: null,
+        confirmedAt: null,
+        rejectedAt: null,
+      };
       return (
         <main className="mx-auto w-full max-w-[1040px] px-4 py-8 sm:px-6 lg:px-8">
           <PaymentProofReview
-            proof={{
-              ...DEV_PENDING_PROOF,
-              status: "pending",
-              rejectionNote: null,
-              confirmedAt: null,
-              rejectedAt: null,
-              signedUrl: "/icon",
-              expiresInSeconds: 300,
+            review={{
+              proof,
+              evidenceUrl: "/icon",
+              evidenceExpiresInSeconds: 300,
+              history: [proof],
             }}
           />
         </main>
       );
+    }
+    case "sk75-proof-flow":
+      return <Sk75ProofFlowDevScreen />;
     default: {
       if (screen.startsWith("s6-")) {
         const stage = screen.slice(3) as PurchaseStage;

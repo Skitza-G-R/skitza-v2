@@ -354,7 +354,7 @@ export async function loadArtistInstallmentPaymentInstructions(
     amountDueNowCents: installmentRemainingCents,
     availableToSubmitCents: installmentRemainingCents,
     producerName: selected.producerName,
-    proofUploadsAvailable: false,
+    proofUploadsAvailable: true,
     hasDetails: hasPaymentInstructions(instructions),
     bankTransfer: instructions.bankTransfer ?? null,
     bitPhone: instructions.bitPhone ?? null,
