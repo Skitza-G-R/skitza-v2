@@ -13,12 +13,17 @@ import {
   renameMusicVersion,
   setMusicSongArchived,
 } from "../actions";
-import { l3AddComment, l3ApproveVersion, l3ResolveComment } from "./actions";
+import {
+  l3AddComment,
+  l3MarkVersionReady,
+  l3ReopenApprovedSong,
+  l3ResolveComment,
+} from "./actions";
 
 type PageProps = { params: Promise<{ versionId: string }> };
 
 // L3 song page — full waveform + timestamped comments + version
-// switcher + approve button. Routed at /dashboard/music/<versionId>
+// switcher + producer-ready/reopen controls. Routed at /dashboard/music/<versionId>
 // so the L1 list deep-links straight here.
 //
 // Resolves data via the new producer.music.detail tRPC procedure.
@@ -61,6 +66,7 @@ export default async function ProducerSongPage({ params }: PageProps) {
       releasedAtIso: data.track.releasedAt?.toISOString() ?? null,
       workflowStage: data.track.workflowStage,
       projectLifecycleStatus: data.track.projectLifecycleStatus,
+      artistApprovalLocked: data.track.artistApprovalLocked,
     },
     versions: data.versions.map((v) => ({
       id: v.id,
@@ -69,7 +75,9 @@ export default async function ProducerSongPage({ params }: PageProps) {
       audioDeletedAtIso: v.audioDeletedAt?.toISOString() ?? null,
       durationMs: v.durationMs,
       uploadedAtIso: v.uploadedAt.toISOString(),
-      approvedAtIso: v.approvedAt ? v.approvedAt.toISOString() : null,
+      producerMarkedFinalAtIso: v.producerMarkedFinalAt?.toISOString() ?? null,
+      artistApprovedAtIso: v.artistApprovedAt?.toISOString() ?? null,
+      previouslyArtistApprovedAtIso: v.previouslyArtistApprovedAt?.toISOString() ?? null,
       // Server-pre-computed peaks ride down with the page payload so
       // Waveform50 renders the real envelope on first frame instead
       // of a client-side decodeAudioData round-trip. Null for legacy
@@ -97,7 +105,8 @@ export default async function ProducerSongPage({ params }: PageProps) {
       actions={{
         addComment: l3AddComment,
         resolveComment: l3ResolveComment,
-        approveVersion: l3ApproveVersion,
+        markVersionReady: l3MarkVersionReady,
+        reopenSong: l3ReopenApprovedSong,
         renameSong: renameMusicSong,
         editArtist: editMusicSongArtist,
         setArchived: setMusicSongArchived,

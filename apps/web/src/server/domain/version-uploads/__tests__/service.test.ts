@@ -13,6 +13,7 @@ const activeCandidate: VersionUploadLifecycleCandidate = {
   projectLifecycleStatus: "active",
   purchaseLifecycleStatus: "active",
   trackArchivedAt: null,
+  currentArtistApprovalAction: null,
 };
 
 const expectedScope = {
@@ -67,6 +68,27 @@ describe("version upload lifecycle", () => {
         message: "Restore this archived song before changing its audio versions",
       }),
     );
+  });
+
+  it("locks all audio changes while the newest artist event is approval", () => {
+    expect(() =>
+      assertActiveVersionUploadLifecycle(
+        { ...activeCandidate, currentArtistApprovalAction: "approved" },
+        expectedScope,
+      ),
+    ).toThrow(
+      expect.objectContaining<Partial<VersionUploadDomainError>>({
+        code: "INACTIVE",
+        message: "Reopen this artist-approved song before changing its audio versions",
+      }),
+    );
+
+    expect(
+      assertActiveVersionUploadLifecycle(
+        { ...activeCandidate, currentArtistApprovalAction: "revoked" },
+        expectedScope,
+      ),
+    ).toEqual({ ...activeCandidate, currentArtistApprovalAction: "revoked" });
   });
 
   it("preserves ownership and lifecycle error precedence for archived tracks", () => {

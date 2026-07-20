@@ -18,6 +18,7 @@ export type VersionUploadLifecycleCandidate = VersionUploadLifecycleScope &
     projectLifecycleStatus: ProjectLifecycleStatus;
     purchaseLifecycleStatus: PurchaseLifecycleStatus;
     trackArchivedAt: Date | null;
+    currentArtistApprovalAction: "approved" | "revoked" | null;
   }>;
 
 export type VersionUploadDomainErrorCode = "NOT_FOUND" | "INACTIVE";
@@ -65,6 +66,12 @@ export function assertActiveVersionUploadLifecycle(
     throw new VersionUploadDomainError(
       "INACTIVE",
       "Restore this archived song before changing its audio versions",
+    );
+  }
+  if (candidate.currentArtistApprovalAction === "approved") {
+    throw new VersionUploadDomainError(
+      "INACTIVE",
+      "Reopen this artist-approved song before changing its audio versions",
     );
   }
   return candidate;

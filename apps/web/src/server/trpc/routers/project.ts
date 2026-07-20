@@ -64,10 +64,10 @@ import {
   assertActiveVersionUploadLifecycle,
   VersionUploadDomainError,
 } from "~/server/domain/version-uploads/service";
+import { currentTrackArtistApprovalAction } from "~/server/domain/version-uploads/db";
 import {
   markSongReleased,
   renameSongVersion,
-  setProducerFinalVersion,
   setSongArchiveState,
   setSongWorkflowStage,
   tombstoneStoredAudioVersion,
@@ -79,6 +79,12 @@ import {
 } from "~/server/domain/song-management/service";
 import { r2ExactAudioStoragePort } from "~/server/domain/song-management/storage";
 import { assertWritableCommentTarget, CommentDomainError } from "~/server/domain/comments/service";
+import { versionApprovalRepository } from "~/server/domain/version-approval/db";
+import {
+  markProducerVersionReady,
+  reopenArtistApprovedSong,
+  VersionApprovalDomainError,
+} from "~/server/domain/version-approval/service";
 import { SITE_URL, sendProducerRepliedToCommentEmail } from "~/server/email/send";
 
 // ─── Helpers ─────────────────────────────────────────────────────────
@@ -149,6 +155,21 @@ function mapSongManagementDomainError(error: unknown): never {
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
   }
   if (error.code === "STORAGE_IDENTITY_MISMATCH") {
+    throw new TRPCError({ code: "CONFLICT", message: error.message });
+  }
+  throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message });
+}
+
+function mapVersionApprovalDomainError(error: unknown): never {
+  if (!(error instanceof VersionApprovalDomainError)) throw error;
+  if (error.code === "NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND" });
+  if (error.code === "INVALID_INPUT") {
+    throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+  }
+  if (error.code === "NOT_READY" || error.code === "INACTIVE") {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+  }
+  if (error.code === "LOCKED" || error.code === "CONCURRENT_CHANGE") {
     throw new TRPCError({ code: "CONFLICT", message: error.message });
   }
   throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message });
@@ -892,6 +913,12 @@ export const projectRouter = router({
           .limit(1)
           .for("update");
 
+        const currentArtistApprovalAction = await currentTrackArtistApprovalAction(tx, {
+          trackId: input.trackId,
+          purchaseId: discoveredTrack.purchaseId,
+          producerId: ctx.producerId,
+        });
+
         assertActiveVersionUploadLifecycle(
           project && purchase && track
             ? {
@@ -901,6 +928,7 @@ export const projectRouter = router({
                 projectLifecycleStatus: project.lifecycleStatus,
                 purchaseLifecycleStatus: purchase.lifecycleStatus,
                 trackArchivedAt: track.archivedAt,
+                currentArtistApprovalAction,
               }
             : null,
           {
@@ -1132,21 +1160,35 @@ export const projectRouter = router({
     return { ok: true as const };
   }),
 
-  // Compatibility name: producer action records only producer-marked-final
-  // state. Artist approval is a separate immutable versionApprovalEvents row.
-  approveVersion: producerProcedure
-    .input(z.object({ versionId: z.string().uuid(), approved: z.boolean().default(true) }))
+  markVersionReady: producerProcedure
+    .input(z.object({ versionId: z.string().uuid(), ready: z.boolean().default(true) }))
     .mutation(async ({ ctx, input }) => {
       try {
-        const result = await setProducerFinalVersion(ctx.db, {
+        const result = await markProducerVersionReady(versionApprovalRepository(ctx.db), {
           producerId: ctx.producerId,
           versionId: input.versionId,
-          markedFinal: input.approved,
+          ready: input.ready,
           changedAt: new Date(),
         });
-        return { ok: true as const, approvedAt: result.markedFinalAt };
+        return { ok: true as const, markedFinalAt: result.markedFinalAt, changed: result.changed };
       } catch (error) {
-        mapSongManagementDomainError(error);
+        mapVersionApprovalDomainError(error);
+      }
+    }),
+
+  reopenApprovedSong: producerProcedure
+    .input(z.object({ trackId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED" });
+      try {
+        return await reopenArtistApprovedSong(versionApprovalRepository(ctx.db), {
+          producerId: ctx.producerId,
+          actorClerkUserId: ctx.userId,
+          trackId: input.trackId,
+          reopenedAt: new Date(),
+        });
+      } catch (error) {
+        mapVersionApprovalDomainError(error);
       }
     }),
 

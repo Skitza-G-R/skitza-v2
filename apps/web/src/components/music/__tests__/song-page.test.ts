@@ -44,6 +44,7 @@ const baseTrack = {
   archivedAtIso: null as string | null,
   releasedAtIso: null as string | null,
   workflowStage: "mixing" as const,
+  artistApprovalLocked: false,
 };
 
 function makeVersion(over: Partial<SongPageVersion> = {}): SongPageVersion {
@@ -53,7 +54,9 @@ function makeVersion(over: Partial<SongPageVersion> = {}): SongPageVersion {
     audioUrl: "https://r2/audio/v-1.mp3",
     durationMs: 240_000,
     uploadedAtIso: "2026-05-06T12:00:00Z",
-    approvedAtIso: null,
+    producerMarkedFinalAtIso: null,
+    artistApprovedAtIso: null,
+    previouslyArtistApprovedAtIso: null,
     audioDeletedAtIso: null,
     // Default to null peaks so legacy-style fixtures keep working;
     // tests that care override via `over`.
@@ -217,7 +220,7 @@ describe("deleteVersionAudioPolicy — pre-Released protection and Released warn
   const finalOlder = makeVersion({
     id: "v-1",
     label: "V1",
-    approvedAtIso: "2026-07-18T10:00:00Z",
+    producerMarkedFinalAtIso: "2026-07-18T10:00:00Z",
   });
 
   it("blocks the newest playable current version before Released", () => {
@@ -636,19 +639,21 @@ describe("song-page.tsx source — Play button wiring", () => {
     expect(songPageSrc).toMatch(/disabled=\{[^}]*\.disabled[^}]*\}/);
   });
 
-  it("the play button is mounted inside the action rail beside the producer Mark final action", () => {
+  it("the play button is mounted inside the action rail beside producer readiness", () => {
     // Pin the structural relationship without naming a specific class —
     // we just check both buttons live in the same JSX block. Easiest
-    // proxy: Mark final copy + Play helper appear in the same
+    // proxy: Mark ready copy + Play helper appear in the same
     // file, and the action-rail comment exists. (The action rail is
     // the only place wrapping the producer-final button today.)
-    expect(songPageSrc).toContain("Mark final");
+    expect(songPageSrc).toContain("Mark ready");
     expect(songPageSrc).toContain("playButtonState(");
   });
 
   it("keeps artist approval language separate from producer final language", () => {
-    expect(songPageSrc).toContain('role === "producer" ? "Marked final" : "Approved"');
-    expect(songPageSrc).toContain('"Marked final" : "Mark final"');
+    expect(songPageSrc).toContain("producerMarkedFinalAtIso");
+    expect(songPageSrc).toContain("artistApprovedAtIso");
+    expect(songPageSrc).toContain("Approve final version");
+    expect(songPageSrc).toContain("Ready for artist");
     expect(songPageSrc).toContain("producer-marked-final audio");
   });
 });

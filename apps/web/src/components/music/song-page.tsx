@@ -46,13 +46,19 @@ export type L3Actions = {
     id: string;
     resolved: boolean;
   }) => Promise<MusicL3ActionResult>;
-  // Producer-only — this compatibility callback marks producer final status.
-  // The artist L3 hides the affordance, so
-  // this callback is never invoked there. Optional so artist route
-  // call-sites don't have to pass a no-op stub.
+  // Producer-only readiness. It never writes artist approval history.
+  markVersionReady?: (input: {
+    versionId: string;
+    ready: boolean;
+  }) => Promise<MusicL3ActionResult>;
+  // Artist-only exact-version approval.
   approveVersion?: (input: {
     versionId: string;
-    approved: boolean;
+  }) => Promise<MusicL3ActionResult>;
+  // Producer-only reopen. Preserves approval history and unlocks uploads.
+  reopenSong?: (input: {
+    trackId: string;
+    versionId: string;
   }) => Promise<MusicL3ActionResult>;
   renameSong?: (input: {
     projectId: string;
@@ -92,7 +98,7 @@ export type L3Actions = {
 // so existing call-sites keep working unchanged.
 //
 // In artist mode:
-//   - the producer-only **Mark final** CTA in the action rail is hidden.
+//   - producer readiness/reopen controls are replaced by exact artist approval.
 //   - the **"Open in project room"** pill is hidden (the artist
 //     doesn't have a clients-projects surface to cross-link into).
 //   - the breadcrumb middle crumb reads `track.clientName`, which the
@@ -108,8 +114,12 @@ export type SongPageVersion = {
   audioDeletedAtIso?: string | null;
   durationMs: number | null;
   uploadedAtIso: string;
-  /** Producer: marked-final time. Artist: exact artist-approval time. */
-  approvedAtIso: string | null;
+  /** Producer declaration that this exact stored audio is ready for approval. */
+  producerMarkedFinalAtIso: string | null;
+  /** Current exact artist approval, present on at most one version per song. */
+  artistApprovedAtIso: string | null;
+  /** Preserved latest approval for this version after the song was reopened. */
+  previouslyArtistApprovedAtIso: string | null;
   /**
    * Pre-computed waveform peaks (200 normalized RMS floats 0..1).
    * Computed server-side at upload completion. Null for legacy rows
@@ -141,6 +151,7 @@ export type SongPageData = {
     archivedAtIso: string | null;
     releasedAtIso: string | null;
     workflowStage: "brief" | "production" | "mixing" | "mastering" | "done";
+    artistApprovalLocked: boolean;
     projectLifecycleStatus?: "waiting_for_payment" | "active" | "paused" | "completed" | "canceled";
   };
   versions: SongPageVersion[];
@@ -210,7 +221,7 @@ export function deleteVersionAudioPolicy(input: {
   const isStored = isSongPageVersionPlayable(input.version);
   const isStorageCleanupRetry = input.version.audioDeletedAtIso != null;
   const isCurrent = newestPlayableSongPageVersion(playableVersions)?.id === input.version.id;
-  const isFinal = input.version.approvedAtIso !== null;
+  const isFinal = input.version.producerMarkedFinalAtIso !== null;
   const isLast = playableVersions.length === 1 && playableVersions[0]?.id === input.version.id;
   const isReleased = input.isReleased;
   const protectedRoles = [
@@ -368,7 +379,9 @@ type OpenSongManagement = {
     | "set-archived"
     | "mark-released"
     | "rename-version"
-    | "delete-version-audio";
+    | "delete-version-audio"
+    | "approve-version"
+    | "reopen-approved-song";
   versionId: string;
 };
 
@@ -386,6 +399,13 @@ export function SongPage({
   const [archivedOverride, setArchivedOverride] = useState<boolean | null>(null);
   const [releasedOverride, setReleasedOverride] = useState<boolean | null>(null);
   const [versionLabelOverrides, setVersionLabelOverrides] = useState<Record<string, string>>({});
+  const [producerReadyOverrides, setProducerReadyOverrides] = useState<Record<string, boolean>>({});
+  const [artistApprovalVersionOverride, setArtistApprovalVersionOverride] = useState<
+    string | null | undefined
+  >(undefined);
+  const [previousApprovalOverrides, setPreviousApprovalOverrides] = useState<
+    Record<string, string>
+  >({});
   const [optimisticDeletedAtByVersion, setOptimisticDeletedAtByVersion] = useState<
     Record<string, string>
   >({});
@@ -394,14 +414,40 @@ export function SongPage({
       data.versions.map((version) => {
         const label = versionLabelOverrides[version.id];
         const deletedAt = optimisticDeletedAtByVersion[version.id];
+        const readyOverride = producerReadyOverrides[version.id];
+        const currentArtistApproval =
+          artistApprovalVersionOverride === undefined
+            ? version.artistApprovedAtIso
+            : artistApprovalVersionOverride === version.id
+              ? new Date().toISOString()
+              : null;
+        const previousApproval = previousApprovalOverrides[version.id];
         return {
           ...version,
           ...(label === undefined ? {} : { label }),
           ...(deletedAt === undefined ? {} : { audioUrl: null, audioDeletedAtIso: deletedAt }),
+          ...(readyOverride === undefined
+            ? {}
+            : { producerMarkedFinalAtIso: readyOverride ? new Date().toISOString() : null }),
+          artistApprovedAtIso: currentArtistApproval,
+          ...(previousApproval === undefined
+            ? {}
+            : { previouslyArtistApprovedAtIso: previousApproval }),
         };
       }),
-    [data.versions, optimisticDeletedAtByVersion, versionLabelOverrides],
+    [
+      artistApprovalVersionOverride,
+      data.versions,
+      optimisticDeletedAtByVersion,
+      previousApprovalOverrides,
+      producerReadyOverrides,
+      versionLabelOverrides,
+    ],
   );
+  const artistApprovalLocked =
+    artistApprovalVersionOverride === undefined
+      ? data.track.artistApprovalLocked
+      : artistApprovalVersionOverride !== null;
 
   // Active version — the one the L1 row pointed at by default. Switching
   // a version filters the comment thread to that version's notes.
@@ -690,21 +736,28 @@ export function SongPage({
     });
   }
 
-  function handleApproveToggle() {
+  function handleProducerReadyToggle() {
     if (!activeVersion) return;
-    // Producer-only path. The Mark final button is hidden when role
-    // === "artist", so this defensive guard is mostly belt-and-
-    // suspenders. If the callback wasn't passed, we silently no-op
-    // rather than throw.
-    if (!actions.approveVersion) return;
-    const isApproved = activeVersion.approvedAtIso !== null;
-    const approveAction = actions.approveVersion;
+    if (!actions.markVersionReady || artistApprovalLocked) return;
+    const isReady = activeVersion.producerMarkedFinalAtIso !== null;
+    const markReadyAction = actions.markVersionReady;
     startTransition(async () => {
-      const res = await approveAction({
+      const res = await markReadyAction({
         versionId: activeVersion.id,
-        approved: !isApproved,
+        ready: !isReady,
       });
-      if (!res.ok) setError(res.error);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setProducerReadyOverrides(
+        Object.fromEntries(
+          versions.map((version) => [
+            version.id,
+            !isReady && version.id === activeVersion.id,
+          ]),
+        ),
+      );
     });
   }
 
@@ -809,6 +862,37 @@ export function SongPage({
       trackId: data.track.id,
       versionId: targetVersion.id,
     };
+
+    if (managementDialog.kind === "approve-version") {
+      if (!actions.approveVersion) {
+        return { ok: false, error: "Artist approval is unavailable." };
+      }
+      const result = await actions.approveVersion({ versionId: targetVersion.id });
+      if (result.ok) setArtistApprovalVersionOverride(targetVersion.id);
+      return result;
+    }
+
+    if (managementDialog.kind === "reopen-approved-song") {
+      if (!actions.reopenSong) return { ok: false, error: "Reopen is unavailable." };
+      const approvedVersion = versions.find((version) => version.artistApprovedAtIso !== null);
+      const result = await actions.reopenSong({
+        trackId: data.track.id,
+        versionId: targetVersion.id,
+      });
+      if (result.ok) {
+        if (approvedVersion?.artistApprovedAtIso) {
+          setPreviousApprovalOverrides((current) => ({
+            ...current,
+            [approvedVersion.id]: approvedVersion.artistApprovedAtIso as string,
+          }));
+        }
+        setArtistApprovalVersionOverride(null);
+        setProducerReadyOverrides(
+          Object.fromEntries(versions.map((version) => [version.id, false])),
+        );
+      }
+      return result;
+    }
 
     if (managementDialog.kind === "rename-song") {
       if (!actions.renameSong) return { ok: false, error: "Rename is unavailable." };
@@ -926,6 +1010,38 @@ export function SongPage({
   let managementConfig: SongManagementDialogConfig | null = null;
   if (managementDialog && managementVersion) {
     switch (managementDialog.kind) {
+      case "approve-version":
+        managementConfig = {
+          id: `approve-version:${managementVersion.id}`,
+          title: `Approve ${managementVersion.label} as final?`,
+          description: "Your approval applies only to this exact audio version.",
+          confirmLabel: "Approve final version",
+          pendingLabel: "Approving…",
+          cancelLabel: "Not yet",
+          details: [
+            "The producer cannot approve on your behalf.",
+            "Approval locks new version uploads for this song until the producer reopens it.",
+            "For a 50/50 purchase, the final payment becomes due once every included song is approved.",
+          ],
+        };
+        break;
+      case "reopen-approved-song":
+        managementConfig = {
+          id: `reopen-approved-song:${managementVersion.id}`,
+          title: "Reopen this approved song?",
+          description: "Use this when more work or a corrected final version is needed.",
+          confirmLabel: "Reopen song",
+          pendingLabel: "Reopening…",
+          cancelLabel: "Keep approved",
+          strongWarning: true,
+          details: [
+            "The existing artist approval stays in the song history.",
+            "The producer-ready marker is cleared and version uploads unlock.",
+            "The corrected exact final version must be marked ready and approved again.",
+            "Any final installment already triggered remains due.",
+          ],
+        };
+        break;
       case "rename-song":
         managementConfig = {
           id: `rename-song:${managementVersion.id}`,
@@ -1092,7 +1208,9 @@ export function SongPage({
     );
   }
 
-  const isApproved = activeVersion.approvedAtIso !== null;
+  const isProducerReady = activeVersion.producerMarkedFinalAtIso !== null;
+  const isExactArtistApproved = activeVersion.artistApprovedAtIso !== null;
+  const wasPreviouslyArtistApproved = activeVersion.previouslyArtistApprovedAtIso !== null;
   const playState = playButtonState({
     activeVersionId: activeVersion.id,
     audioUrl: activeVersion.audioUrl,
@@ -1271,13 +1389,20 @@ export function SongPage({
                     </span>
                   </>
                 ) : null}
-                {isApproved ? (
+                {isExactArtistApproved || isProducerReady || wasPreviouslyArtistApproved ? (
                   <>
                     <span aria-hidden className="text-white/40">
                       ·
                     </span>
                     <span className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] bg-white/90 px-2 py-0.5 text-[10px] font-bold tracking-[0.16em] text-[rgb(17_16_9)] uppercase">
-                      <CheckIcon /> {role === "producer" ? "Marked final" : "Approved"}
+                      {isExactArtistApproved ? <CheckIcon /> : null}
+                      {isExactArtistApproved
+                        ? "Artist approved"
+                        : isProducerReady
+                          ? role === "artist"
+                            ? "Ready to approve"
+                            : "Ready for artist"
+                          : "Previously approved"}
                     </span>
                   </>
                 ) : null}
@@ -1331,7 +1456,17 @@ export function SongPage({
                         {isActive && isLatest ? (
                           <span className="text-[rgb(17_16_9)/0.55]">· current</span>
                         ) : null}
-                        {v.approvedAtIso ? <span>✓</span> : null}
+                        {v.artistApprovedAtIso ? (
+                          <span title="Artist approved">✓</span>
+                        ) : v.producerMarkedFinalAtIso ? (
+                          <span className="text-[8.5px] font-semibold tracking-normal normal-case">
+                            · Ready
+                          </span>
+                        ) : v.previouslyArtistApprovedAtIso ? (
+                          <span className="text-[8.5px] font-semibold tracking-normal normal-case">
+                            · Previously approved
+                          </span>
+                        ) : null}
                       </button>
                     );
                   })}
@@ -1385,25 +1520,58 @@ export function SongPage({
                 </button>
               )}
 
-              {/* Mark final — producer-only compatibility action. Artist
-                  approval remains a separate artist-side event. */}
-              {role === "producer" ? (
+              {role === "producer" && artistApprovalLocked ? (
                 <button
                   type="button"
-                  onClick={handleApproveToggle}
+                  data-test="reopen-approved-song"
+                  onClick={() => {
+                    openManagementDialog("reopen-approved-song");
+                  }}
                   disabled={isPending}
-                  title={isApproved ? "Marked final" : "Mark final"}
-                  aria-label={isApproved ? "Marked final" : "Mark final"}
+                  title="Reopen approved song"
+                  aria-label="Reopen approved song"
+                  className="sk-press inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-md)] border border-white/28 bg-white/[0.06] px-4 py-2 text-[12.5px] font-bold text-white transition-[background-color,transform] duration-[220ms] hover:-translate-y-px hover:bg-white/[0.14] disabled:opacity-60"
+                >
+                  <CheckIcon /> Artist approved · Reopen
+                </button>
+              ) : role === "producer" ? (
+                <button
+                  type="button"
+                  data-test="mark-version-ready"
+                  onClick={handleProducerReadyToggle}
+                  disabled={isPending || !actions.markVersionReady || activeVersionDeleted}
+                  title={isProducerReady ? "Remove ready status" : "Mark exact version ready"}
+                  aria-label={isProducerReady ? "Remove ready status" : "Mark exact version ready"}
                   className={[
-                    "sk-press inline-flex items-center gap-1.5 rounded-[var(--radius-md)] px-4 py-2 text-[12.5px] font-bold",
+                    "sk-press inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-md)] px-4 py-2 text-[12.5px] font-bold",
                     "transition-[background-color,border-color,box-shadow,transform] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
-                    isApproved
+                    isProducerReady
                       ? "border border-white/0 bg-white/95 text-[rgb(17_16_9)] shadow-[0_6px_20px_-6px_rgba(255,255,255,0.45)]"
                       : "border border-white/28 bg-white/[0.06] text-white hover:-translate-y-px hover:bg-white/[0.14]",
                     "disabled:opacity-60",
                   ].join(" ")}
                 >
-                  <CheckIcon /> {isApproved ? "Marked final" : "Mark final"}
+                  <CheckIcon /> {isProducerReady ? "Ready for artist" : "Mark ready"}
+                </button>
+              ) : isExactArtistApproved ? (
+                <span
+                  data-test="artist-approved-status"
+                  role="status"
+                  className="inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-md)] bg-white/95 px-4 py-2 text-[12.5px] font-bold text-[rgb(17_16_9)]"
+                >
+                  <CheckIcon /> Approved
+                </span>
+              ) : isProducerReady && !artistApprovalLocked ? (
+                <button
+                  type="button"
+                  data-test="approve-final-version"
+                  onClick={() => {
+                    openManagementDialog("approve-version");
+                  }}
+                  disabled={isPending || !actions.approveVersion || activeVersionDeleted}
+                  className="sk-press inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-md)] bg-white px-4 py-2 text-[12.5px] font-bold text-[rgb(17_16_9)] shadow-[0_6px_20px_-6px_rgba(255,255,255,0.45)] transition-transform duration-[220ms] hover:-translate-y-px disabled:opacity-60"
+                >
+                  <CheckIcon /> Approve final version
                 </button>
               ) : null}
 
@@ -1935,7 +2103,7 @@ export function SongPage({
           )}
         </div>
       </section>
-      {role === "producer" && managementConfig ? (
+      {managementConfig ? (
         <SongManagementDialog
           open={managementDialog !== null}
           config={managementConfig}

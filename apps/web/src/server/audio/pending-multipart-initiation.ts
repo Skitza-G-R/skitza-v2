@@ -18,6 +18,7 @@ import {
 } from "~/server/audio/multipart-storage-recovery";
 import { PendingMultipartCancellationError } from "~/server/audio/pending-multipart-cancellation";
 import { assertActiveVersionUploadLifecycle } from "~/server/domain/version-uploads/service";
+import { currentTrackArtistApprovalAction } from "~/server/domain/version-uploads/db";
 import {
   BUCKETS,
   buildAudioKey,
@@ -179,7 +180,12 @@ export async function createOrResumePendingMultipartUpload(
       )
       .limit(1)
       .for("update");
-    assertOwnedActiveVersion(ctx.producerId, discovered, version);
+    const approvalAction = await currentTrackArtistApprovalAction(tx, {
+      trackId: discovered.trackId,
+      purchaseId: discovered.purchaseId,
+      producerId: ctx.producerId,
+    });
+    assertOwnedActiveVersion(ctx.producerId, discovered, version, approvalAction);
     assertUnattachedVersion(version);
 
     const pending = readPendingInitiation(version);
@@ -384,7 +390,12 @@ async function reconcilePendingInitiation(
       )
       .limit(1)
       .for("update");
-    assertOwnedActiveVersion(ctx.producerId, discovered, version);
+    const approvalAction = await currentTrackArtistApprovalAction(tx, {
+      trackId: discovered.trackId,
+      purchaseId: discovered.purchaseId,
+      producerId: ctx.producerId,
+    });
+    assertOwnedActiveVersion(ctx.producerId, discovered, version, approvalAction);
     assertUnattachedVersion(version);
     const pending = readPendingInitiation(version);
     if (
@@ -611,7 +622,12 @@ export async function authorizePendingMultipartPart(
       )
       .limit(1)
       .for("update");
-    assertOwnedActiveVersion(ctx.producerId, discovered, version);
+    const approvalAction = await currentTrackArtistApprovalAction(tx, {
+      trackId: discovered.trackId,
+      purchaseId: discovered.purchaseId,
+      producerId: ctx.producerId,
+    });
+    assertOwnedActiveVersion(ctx.producerId, discovered, version, approvalAction);
     if (
       version.audioDeletedAt !== null ||
       !isAudioKeyForTrackVersion(input.key, {
@@ -730,6 +746,7 @@ function assertOwnedActiveVersion(
         purchaseLifecycleStatus: (typeof purchases.$inferSelect)["lifecycleStatus"];
       }>
     | undefined,
+  currentArtistApprovalAction: "approved" | "revoked" | null,
 ): asserts version is NonNullable<typeof version> {
   if (
     !version ||
@@ -751,6 +768,7 @@ function assertOwnedActiveVersion(
       projectLifecycleStatus: version.projectLifecycleStatus,
       purchaseLifecycleStatus: version.purchaseLifecycleStatus,
       trackArchivedAt: version.trackArchivedAt,
+      currentArtistApprovalAction,
     },
     { producerId, projectId: version.projectId, purchaseId: version.purchaseId },
   );

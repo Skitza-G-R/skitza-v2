@@ -336,17 +336,17 @@ export async function addProducerComment(input: {
   }
 }
 
-export async function approveVersionAction(input: {
+export async function markVersionReadyAction(input: {
   projectId: string;
   versionId: string;
-  approved: boolean;
+  ready: boolean;
 }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    await c.caller.project.approveVersion({
+    await c.caller.project.markVersionReady({
       versionId: input.versionId,
-      approved: input.approved,
+      ready: input.ready,
     });
     revalidatePath(pathDetail(input.projectId));
     return { ok: true };
