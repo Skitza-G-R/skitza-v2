@@ -13,6 +13,7 @@ import { producerExternalLinksRouter } from "./producer-external-links";
 import { producerNotesRouter } from "./producer-notes";
 import { projectRouter } from "./project";
 import { privateOffersRouter } from "./private-offers";
+import { purchaseLedgerRouter } from "./purchase-ledger";
 import { publicProfileRouter } from "./public-profile";
 import { waitlistRouter } from "./waitlist";
 
@@ -31,6 +32,7 @@ export const appRouter = router({
   producerNotes: producerNotesRouter,
   project: projectRouter,
   privateOffers: privateOffersRouter,
+  purchaseLedger: purchaseLedgerRouter,
   publicProfile: publicProfileRouter,
   waitlist: waitlistRouter,
 });

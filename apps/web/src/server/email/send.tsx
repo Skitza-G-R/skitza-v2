@@ -19,6 +19,10 @@ import {
   type NewCommentFromArtistProps,
 } from "./templates/new-comment-from-artist";
 import {
+  PaymentReminderToArtist,
+  type PaymentReminderToArtistProps,
+} from "./templates/payment-reminder-to-artist";
+import {
   ProducerRepliedToComment,
   type ProducerRepliedToCommentProps,
 } from "./templates/producer-replied-to-comment";
@@ -271,6 +275,40 @@ export async function sendProofRejectedEmail(
     subject: `Action needed on your payment — ${props.productName}`,
     html,
   });
+}
+
+export async function sendPaymentReminderEmail(
+  to: string,
+  props: PaymentReminderToArtistProps,
+  idempotencyKey: string,
+): Promise<string> {
+  const html = await render(<PaymentReminderToArtist {...props} />);
+  const result = await getResend().emails.send(
+    {
+      from: FROM_ADDRESS,
+      to,
+      subject: `Payment reminder · ${props.purchaseName}`,
+      html,
+    },
+    { idempotencyKey },
+  );
+
+  if (result.error) {
+    throw new Error("Email delivery failed");
+  }
+
+  const responseData: unknown = result.data;
+  if (
+    responseData === null ||
+    typeof responseData !== "object" ||
+    !("id" in responseData) ||
+    typeof responseData.id !== "string" ||
+    responseData.id.length === 0
+  ) {
+    throw new Error("Email delivery failed");
+  }
+
+  return responseData.id;
 }
 
 export async function sendPurchaseDeclinedEmail(

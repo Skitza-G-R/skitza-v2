@@ -31,8 +31,11 @@ const migrationSource = readFileSync(
 describe("payment proof concurrency and immutable ledger contract", () => {
   it("serializes submit, confirm, and reject on the shared purchase ledger lock", () => {
     expect(serviceSource.match(/purchase-ledger:\$\{input\.purchaseId\}/g)).toHaveLength(1);
-    expect(serviceSource.match(/purchase-ledger:\$\{initial\.purchaseId\}/g)).toHaveLength(2);
-    expect(serviceSource.match(/pg_advisory_xact_lock/g)).toHaveLength(3);
+    expect(serviceSource.match(/purchase-ledger:\$\{initial\.purchaseId\}/g) ?? []).toHaveLength(0);
+    expect(serviceSource.match(/pg_advisory_xact_lock/g)).toHaveLength(1);
+    expect(serviceSource.match(/await lockPurchaseLedgerScope\(tx, ledgerScope\)/g)).toHaveLength(
+      2,
+    );
   });
 
   it("allows only one pending proof and chains replacement to rejected immutable history", () => {
@@ -43,8 +46,10 @@ describe("payment proof concurrency and immutable ledger contract", () => {
     expect(migrationSource).toContain('CREATE TRIGGER "payment_proofs_protect_evidence"');
   });
 
-  it("creates one proof-sourced append-only payment with two independent uniqueness guards", () => {
-    expect(serviceSource.match(/insert\(purchasePayments\)/g)).toHaveLength(1);
+  it("delegates one proof-sourced payment to the generic ledger with two uniqueness guards", () => {
+    expect(serviceSource.match(/insert\(purchasePayments\)/g) ?? []).toHaveLength(0);
+    expect(serviceSource).toContain("recordConfirmedPurchasePayment(");
+    expect(serviceSource).toContain("purchaseLedgerRepositoryForTransaction(tx, ledgerScope)");
     expect(serviceSource).toMatch(/operationKey = `proof:\$\{proof\.id\}`/);
     expect(serviceSource).toMatch(/proofId: proof\.id/);
     expect(schemaSource).toContain("purchase_payments_operation_key_unique");
@@ -58,7 +63,9 @@ describe("payment proof concurrency and immutable ledger contract", () => {
       (serviceSource.match(/eq\(paymentProofs\.producerId, input\.producerId\)/g) ?? []).length,
     ).toBeGreaterThanOrEqual(5);
     expect(serviceSource).toMatch(/eq\(purchaseInstallments\.producerId, context\.producerId\)/);
-    expect(serviceSource).toMatch(/eq\(purchases\.producerId, context\.producerId\)/);
-    expect(serviceSource).toMatch(/eq\(projects\.producerId, context\.producerId\)/);
+    expect(serviceSource).toMatch(
+      /ledgerScope = \{ producerId: input\.producerId, purchaseId: initial\.purchaseId \}/,
+    );
+    expect(serviceSource).toContain("purchaseLedgerRepositoryForTransaction(tx, ledgerScope)");
   });
 });

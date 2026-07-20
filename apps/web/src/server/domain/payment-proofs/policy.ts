@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+export { proofPaymentOperationDigest } from "../purchase-ledger/operation-digest";
 
 export const PROOF_CONTENT_TYPES = [
   "image/jpeg",
@@ -122,28 +122,6 @@ export function decideProofTransition(
     );
   }
   return { kind: "reject", changed: status === "pending", rejectionNote };
-}
-
-export function proofPaymentOperationDigest(input: {
-  proofId: string;
-  purchaseId: string;
-  installmentId: string;
-  amountCents: number;
-  currency: string;
-}): string {
-  return createHash("sha256")
-    .update(
-      JSON.stringify({
-        version: 1,
-        source: "proof",
-        proofId: input.proofId,
-        purchaseId: input.purchaseId,
-        installmentId: input.installmentId,
-        amountCents: input.amountCents,
-        currency: input.currency,
-      }),
-    )
-    .digest("hex");
 }
 
 export function installmentStatusAfterDecision(input: {

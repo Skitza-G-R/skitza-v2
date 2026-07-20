@@ -1,10 +1,30 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const resendSendMock = vi.fn().mockResolvedValue(undefined);
+const reminderRunMock = vi.fn().mockResolvedValue({
+  recovery: {
+    candidates: 0,
+    sent: 0,
+    busy: 0,
+    alreadyCompleted: 0,
+    reservationExpired: 0,
+    dedupeExpired: 0,
+    errored: 0,
+  },
+  reconciled: 0,
+  eligible: 0,
+  sent: 0,
+  skipped: 0,
+  errored: 0,
+});
 vi.mock("~/server/email/client", () => ({
   FROM_ADDRESS: "test@skitza.app",
   getResend: () => ({ emails: { send: resendSendMock } }),
   SITE_URL: "https://test.skitza.app",
+}));
+vi.mock("~/server/domain/purchase-ledger/reminders", () => ({
+  paymentReminderRepository: () => ({ _kind: "reminder-repository" }),
+  sendAutomaticPurchaseReminders: reminderRunMock,
 }));
 
 type ProjectRow = { id: string };
@@ -46,6 +66,22 @@ const buildReq = (authHeader: string | null) =>
 
 beforeEach(() => {
   resendSendMock.mockReset().mockResolvedValue(undefined);
+  reminderRunMock.mockReset().mockResolvedValue({
+    recovery: {
+      candidates: 0,
+      sent: 0,
+      busy: 0,
+      alreadyCompleted: 0,
+      reservationExpired: 0,
+      dedupeExpired: 0,
+      errored: 0,
+    },
+    reconciled: 0,
+    eligible: 0,
+    sent: 0,
+    skipped: 0,
+    errored: 0,
+  });
   testimonialRowsQueue = [];
   process.env.CRON_SECRET = "secret123";
   process.env.DATABASE_URL = "postgresql://test/test";
@@ -92,16 +128,41 @@ describe("/api/cron/autopilot — empty-DB happy path", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       ok: boolean;
-      unpaidReminder: { eligible: number; sent: number; errored: number; deferred: string };
+      unpaidReminder: {
+        recovery: {
+          candidates: number;
+          sent: number;
+          busy: number;
+          alreadyCompleted: number;
+          reservationExpired: number;
+          dedupeExpired: number;
+          errored: number;
+        };
+        reconciled: number;
+        eligible: number;
+        sent: number;
+        skipped: number;
+        errored: number;
+      };
       requestTestimonial: { eligible: number; deferred: string };
       autoArchive: { archived: number; deferred: string };
     };
     expect(body.ok).toBe(true);
     expect(body.unpaidReminder).toEqual({
+      recovery: {
+        candidates: 0,
+        sent: 0,
+        busy: 0,
+        alreadyCompleted: 0,
+        reservationExpired: 0,
+        dedupeExpired: 0,
+        errored: 0,
+      },
+      reconciled: 0,
       eligible: 0,
       sent: 0,
+      skipped: 0,
       errored: 0,
-      deferred: "purchase-ledger reminder projection is not available in SK-90",
     });
     expect(body.requestTestimonial.eligible).toBe(0);
     expect(body.requestTestimonial.deferred).toContain("capture page");
@@ -127,17 +188,17 @@ describe("/api/cron/autopilot — request-testimonial (detect-only for now)", ()
   });
 });
 
-describe("/api/cron/autopilot — removed commercial behavior", () => {
-  it("fails closed instead of reading invoices or mutating project archive state", async () => {
+describe("/api/cron/autopilot — removed archive behavior", () => {
+  it("runs the ledger reminder service without mutating project archive state", async () => {
     const { GET } = await import("./route");
     const res = await GET(buildReq("Bearer secret123"));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      unpaidReminder: { eligible: number; sent: number; deferred: string };
+      unpaidReminder: { eligible: number; sent: number; skipped: number; errored: number };
       autoArchive: { archived: number; deferred: string };
     };
     expect(body.unpaidReminder).toMatchObject({ eligible: 0, sent: 0 });
-    expect(body.unpaidReminder.deferred).toContain("purchase-ledger");
+    expect(reminderRunMock).toHaveBeenCalledOnce();
     expect(body.autoArchive.archived).toBe(0);
     expect(body.autoArchive.deferred).toContain("song-level archive");
     expect(resendSendMock).not.toHaveBeenCalled();

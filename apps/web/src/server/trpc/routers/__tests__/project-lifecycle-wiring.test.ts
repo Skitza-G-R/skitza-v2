@@ -54,5 +54,8 @@ describe("SK-12 project lifecycle router boundary", () => {
     expect(db).toContain("eq(purchases.producerId, scope.producerId)");
     expect(db).toContain("eq(purchases.projectId, scope.projectId)");
     expect(db).toContain("pg_advisory_xact_lock");
+    expect(db).toContain("purchaseLedgerAdvisoryLockKey(purchaseId)");
+    expect(db).toContain("purchaseLedgerAdvisoryLockKey(scope.purchaseId)");
+    expect(db).toContain("purchaseLedgerRepositoryForTransaction(tx");
   });
 });
