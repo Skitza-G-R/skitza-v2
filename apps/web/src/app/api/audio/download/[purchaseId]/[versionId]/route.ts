@@ -1,35 +1,34 @@
 import { auth } from "@clerk/nextjs/server";
 import { createDb } from "@skitza/db";
 
+import { fetchUserRole } from "~/server/auth/role";
 import { audioDeliveryRepository } from "~/server/domain/audio-delivery/db";
 import {
   audioDeliveryErrorResponse,
   audioNotFoundResponse,
 } from "~/server/domain/audio-delivery/route-errors";
 import { authorizedAudioResponse } from "~/server/domain/audio-delivery/response";
-import { deliverProducerDownload } from "~/server/domain/audio-delivery/service";
+import { deliverArtistDownload } from "~/server/domain/audio-delivery/service";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/**
- * Producer download compatibility route. Artist downloads deliberately use the
- * separate exact-purchase route under /api/audio/download/:purchase/:version.
- */
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ versionId: string }> },
+  { params }: { params: Promise<{ purchaseId: string; versionId: string }> },
 ): Promise<Response> {
-  const { versionId } = await params;
-  if (!UUID.test(versionId)) return audioNotFoundResponse();
+  const { purchaseId, versionId } = await params;
+  if (!UUID.test(purchaseId) || !UUID.test(versionId)) return audioNotFoundResponse();
   const { userId } = await auth();
   if (!userId) return audioNotFoundResponse();
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error("Missing DATABASE_URL");
+  const role = await fetchUserRole({ dbUrl: databaseUrl, userId });
+  if (role.kind !== "artist") return audioNotFoundResponse();
   const db = createDb(databaseUrl);
   try {
-    return await deliverProducerDownload(
+    return await deliverArtistDownload(
       audioDeliveryRepository(db),
-      { viewerClerkUserId: userId, versionId },
+      { viewerClerkUserId: userId, purchaseId, versionId },
       (audio) => authorizedAudioResponse(request, audio, "attachment"),
     );
   } catch (error) {

@@ -1807,9 +1807,9 @@ export function SongPage({
                 // envelope on first frame, no client-side decode.
                 initialPeaks={activeVersion.peaks}
                 // Fallback decode path for legacy versions (peaks=null)
-                // OR formats audio-decode missed server-side. Fetches
-                // same-origin /api/download/<id> so R2 CORS doesn't bite.
-                peaksUrl={activeVersionPlayable ? `/api/download/${activeVersion.id}` : undefined}
+                // OR formats audio-decode missed server-side. Reuse the
+                // authorized private stream so this works for both roles.
+                peaksUrl={activeVersionPlayable ? activeVersion.audioUrl ?? undefined : undefined}
                 onProgress={setCurrentMs}
                 height={68}
               />

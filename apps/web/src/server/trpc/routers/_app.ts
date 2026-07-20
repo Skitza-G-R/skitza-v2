@@ -1,6 +1,7 @@
 import { router } from "../init";
 import { artistRouter } from "./artist";
 import { audioRouter } from "./audio";
+import { audioDeliveryRouter } from "./audio-delivery";
 import { bookingRouter } from "./booking";
 import { clientContactsRouter } from "./client-contacts";
 import { healthRouter } from "./health";
@@ -19,6 +20,7 @@ import { waitlistRouter } from "./waitlist";
 
 export const appRouter = router({
   artist: artistRouter,
+  audioDelivery: audioDeliveryRouter,
   audio: audioRouter,
   booking: bookingRouter,
   clientContacts: clientContactsRouter,

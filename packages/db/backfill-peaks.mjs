@@ -6,7 +6,8 @@
 // script fixes them all in one pass.
 //
 // Usage:
-//   DATABASE_URL=postgres://... node packages/db/backfill-peaks.mjs
+//   DATABASE_URL=postgres://... R2_ACCOUNT_ID=... R2_ACCESS_KEY_ID=... \
+//   R2_SECRET_ACCESS_KEY=... node packages/db/backfill-peaks.mjs
 //
 // Idempotent — only updates rows with peaks IS NULL. Safe to re-run.
 // Errors on a single row don't abort the whole batch; they log + skip.
@@ -18,15 +19,26 @@
 // rms-peaks.test.ts pins the canonical version; any drift between
 // here and there is a bug to fix.
 
+import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { neon } from "@neondatabase/serverless";
 import decode from "audio-decode";
 
-if (!process.env.DATABASE_URL) {
-  console.error("DATABASE_URL env var is required");
-  process.exit(1);
+function required(name) {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} env var is required`);
+  return value;
 }
 
-const sql = neon(process.env.DATABASE_URL);
+const sql = neon(required("DATABASE_URL"));
+const r2 = new S3Client({
+  region: "auto",
+  endpoint: `https://${required("R2_ACCOUNT_ID")}.r2.cloudflarestorage.com`,
+  credentials: {
+    accessKeyId: required("R2_ACCESS_KEY_ID"),
+    secretAccessKey: required("R2_SECRET_ACCESS_KEY"),
+  },
+});
+const audioBucket = process.env.R2_BUCKET_AUDIO ?? "skitza-audio";
 
 const BAR_COUNT = 200;
 
@@ -56,21 +68,33 @@ function roundPeaks(peaks, decimals = 4) {
   return peaks.map((p) => Math.round(p * factor) / factor);
 }
 
-async function computePeaks(url) {
+async function computePeaks(row) {
   let bytes;
   try {
-    const res = await fetch(url);
-    if (!res.ok) {
-      console.warn(`    fetch ${res.status} for ${url}`);
+    const object = await r2.send(
+      new GetObjectCommand({
+        Bucket: audioBucket,
+        Key: row.audio_r2_key,
+        IfMatch: row.audio_object_etag,
+      }),
+    );
+    if (
+      !object.Body ||
+      object.ETag !== row.audio_object_etag ||
+      object.ContentLength !== row.size_bytes
+    ) {
+      console.warn("    authenticated storage identity did not match");
       return null;
     }
-    bytes = await res.arrayBuffer();
+    bytes = await object.Body.transformToByteArray();
   } catch (err) {
-    console.warn(`    fetch failed: ${err.message}`);
+    console.warn(`    authenticated storage read failed: ${err.message}`);
     return null;
   }
   try {
-    const audio = await decode(bytes);
+    const audio = await decode(
+      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+    );
     const mono = audio.channelData[0];
     if (!mono || mono.length === 0) return null;
     return roundPeaks(rmsPeaks(mono, BAR_COUNT));
@@ -81,10 +105,13 @@ async function computePeaks(url) {
 }
 
 const rows = await sql`
-  SELECT id, audio_url
+  SELECT id, audio_r2_key, audio_object_etag, size_bytes::integer AS size_bytes
     FROM track_versions
    WHERE peaks IS NULL
-     AND audio_url IS NOT NULL
+     AND audio_r2_key IS NOT NULL
+     AND audio_object_etag IS NOT NULL
+     AND size_bytes IS NOT NULL
+     AND audio_deleted_at IS NULL
    ORDER BY uploaded_at DESC
 `;
 
@@ -96,8 +123,7 @@ let failed = 0;
 
 for (const row of rows) {
   console.log(`\n→ ${row.id}`);
-  console.log(`  ${row.audio_url}`);
-  const peaks = await computePeaks(row.audio_url);
+  const peaks = await computePeaks(row);
   if (!peaks) {
     failed += 1;
     console.log("  ✗ peaks=null (decode failed or empty)");

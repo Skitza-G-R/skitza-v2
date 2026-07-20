@@ -37,6 +37,7 @@ import {
   cancelPendingMultipartUpload,
   PendingMultipartCancellationError,
 } from "~/server/audio/pending-multipart-cancellation";
+import { privateVersionStreamPath } from "~/server/domain/audio-delivery/urls";
 import {
   assertActiveVersionUploadLifecycle,
   VersionUploadDomainError,
@@ -50,7 +51,6 @@ import {
   getR2,
   getR2SingleAttempt,
   isAudioKeyForTrackVersion,
-  publicUrl,
 } from "~/server/storage/r2";
 
 export {
@@ -1676,23 +1676,7 @@ export const audioRouter = router({
         sizeBytes: observedSizeBytes,
       });
 
-      let url: string;
-      try {
-        url = publicUrl("audio", input.key);
-      } catch (error) {
-        await cleanupCompletedAudioObjectIfIdentityMatches(ctx, {
-          key: input.key,
-          uploadId: input.uploadId,
-          objectEtag,
-          sizeBytes: observedSizeBytes,
-          completionToken: input.completionToken,
-          trackVersionId: input.trackVersionId,
-          trackId,
-          projectId,
-          purchaseId,
-        });
-        throw error;
-      }
+      const url = privateVersionStreamPath(input.trackVersionId);
 
       // Pre-compute waveform peaks server-side so the L3 song page
       // renders the real envelope on first frame. Fetch the bytes back

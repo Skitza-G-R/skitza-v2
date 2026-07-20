@@ -10,6 +10,7 @@ const { portfolioTracksMarker, whereSpy, limitSpy, countRows, setQueryKind, dbMo
       title: { __column: "portfolio_tracks.title" },
       artist: { __column: "portfolio_tracks.artist" },
       audioUrl: { __column: "portfolio_tracks.audio_url" },
+      audioR2Key: { __column: "portfolio_tracks.audio_r2_key" },
       durationMs: { __column: "portfolio_tracks.duration_ms" },
       peaksR2Key: { __column: "portfolio_tracks.peaks_r2_key" },
       createdAt: { __column: "portfolio_tracks.created_at" },
@@ -63,6 +64,10 @@ vi.mock("@skitza/db", () => ({
   and: (...conditions: unknown[]) => ({ and: conditions }),
   desc: (column: unknown) => ({ desc: column }),
   isNotNull: (column: unknown) => ({ isNotNull: column }),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
+    sql: [...strings],
+    values,
+  }),
 }));
 
 import { countPublicPortfolioTracks, listPublicPortfolioTracks } from "./public-portfolio";
@@ -75,6 +80,11 @@ function expectExplicitPublicPredicate(predicate: unknown) {
       { eq: [portfolioTracksMarker.producerId, PRODUCER_ID] },
       { eq: [portfolioTracksMarker.isPublicSample, true] },
       { isNotNull: portfolioTracksMarker.audioUrl },
+      { isNotNull: portfolioTracksMarker.audioR2Key },
+      {
+        sql: ["", " = '/api/audio/public/portfolio/' || ", "::text"],
+        values: [portfolioTracksMarker.audioUrl, portfolioTracksMarker.id],
+      },
     ],
   });
 }
