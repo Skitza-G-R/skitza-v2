@@ -4,31 +4,31 @@
 // routes to the session detail (S12). Left: a compact date block (short
 // weekday + day number, mirroring upcoming-sessions-card.tsx). Middle: the
 // product + producer line. Right: the shared StatusPill (confirmed / held /
-// done). UTC-safe date math via book-data so SSR and CSR agree.
+// done). Date and time are both rendered in the producer's timezone.
 
 import { useRouter } from "next/navigation";
 
 import { ClockIcon } from "~/components/artist/funnel/funnel-icons";
-import {
-  formatSessionTime,
-  type SessionListItem,
-} from "./book-data";
+import { formatSessionTime, type SessionListItem } from "./book-data";
 import { StatusPill } from "./status-pill";
 
-function monthShort(iso: string): string {
+function monthShort(iso: string, producerTimezone: string): string {
   return new Date(iso).toLocaleDateString("en-US", {
     month: "short",
-    timeZone: "UTC",
+    timeZone: producerTimezone,
   });
 }
 
-function dayNumber(iso: string): number {
-  return new Date(iso).getUTCDate();
+function dayNumber(iso: string, producerTimezone: string): string {
+  return new Date(iso).toLocaleDateString("en-US", {
+    day: "numeric",
+    timeZone: producerTimezone,
+  });
 }
 
 export function SessionRow({ session }: { session: SessionListItem }) {
   const router = useRouter();
-  const time = formatSessionTime(session.startsAtISO);
+  const time = formatSessionTime(session.startsAtISO, session.producerTimezone);
 
   return (
     <button
@@ -39,17 +39,17 @@ export function SessionRow({ session }: { session: SessionListItem }) {
       className="sk-press flex w-full items-center gap-3.5 py-3.5 text-left"
     >
       <div className="flex w-12 shrink-0 flex-col items-center">
-        <span className="font-amount text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--brand-primary))]">
-          {monthShort(session.startsAtISO)}
+        <span className="font-amount text-[10px] font-bold tracking-[0.12em] text-[rgb(var(--brand-primary))] uppercase">
+          {monthShort(session.startsAtISO, session.producerTimezone)}
         </span>
-        <span className="font-amount text-[20px] font-bold leading-none text-[rgb(var(--fg-default))]">
-          {dayNumber(session.startsAtISO)}
+        <span className="font-amount text-[20px] leading-none font-bold text-[rgb(var(--fg-default))]">
+          {dayNumber(session.startsAtISO, session.producerTimezone)}
         </span>
       </div>
 
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[14px] font-semibold leading-tight text-[rgb(var(--fg-default))]">
-          {session.productName}
+        <p className="truncate text-[14px] leading-tight font-semibold text-[rgb(var(--fg-default))]">
+          {session.packageName}
         </p>
         <p className="mt-1 flex items-center gap-1.5 truncate text-[12px] text-[rgb(var(--fg-muted))]">
           <ClockIcon width={12} height={12} className="shrink-0" />
@@ -60,7 +60,7 @@ export function SessionRow({ session }: { session: SessionListItem }) {
       </div>
 
       <div className="shrink-0">
-        <StatusPill status={session.status} />
+        <StatusPill status={session.status} outcome={session.outcome} />
       </div>
     </button>
   );

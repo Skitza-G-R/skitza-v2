@@ -8,7 +8,7 @@
 // pill with the label in sentence case (body font), still with the dot —
 // instead of the light-surface mono-caps chip.
 
-import type { SessionStatus } from "./book-data";
+import type { SessionOutcome, SessionStatus } from "./book-data";
 
 const TONE: Record<
   SessionStatus,
@@ -29,16 +29,40 @@ const TONE: Record<
     onDarkBg: "rgb(var(--fg-success) / 0.16)",
     onDarkFg: "rgb(134 211 158)",
   },
-  held: {
-    label: "Held",
+  pending_approval: {
+    label: "Pending",
     bg: "rgb(var(--brand-primary) / 0.14)",
     fg: "rgb(var(--brand-primary-dark))",
     dot: "rgb(var(--fg-warning))",
     onDarkBg: "rgb(var(--brand-primary) / 0.16)",
     onDarkFg: "rgb(var(--brand-primary))",
   },
-  done: {
-    label: "Done",
+  rejected: {
+    label: "Declined",
+    bg: "rgb(var(--fg-danger) / 0.10)",
+    fg: "rgb(var(--fg-danger))",
+    dot: "rgb(var(--fg-danger))",
+    onDarkBg: "rgb(var(--fg-danger) / 0.16)",
+    onDarkFg: "rgb(255 165 165)",
+  },
+  cancelled: {
+    label: "Cancelled",
+    bg: "rgb(var(--bg-sunken))",
+    fg: "rgb(var(--fg-muted))",
+    dot: "rgb(var(--fg-muted))",
+    onDarkBg: "rgb(255 255 255 / 0.08)",
+    onDarkFg: "rgb(255 255 255 / 0.65)",
+  },
+  completed: {
+    label: "Completed",
+    bg: "rgb(var(--bg-sunken))",
+    fg: "rgb(var(--fg-muted))",
+    dot: "rgb(var(--fg-success))",
+    onDarkBg: "rgb(255 255 255 / 0.08)",
+    onDarkFg: "rgb(255 255 255 / 0.65)",
+  },
+  no_show: {
+    label: "No-show",
     bg: "rgb(var(--bg-sunken))",
     fg: "rgb(var(--fg-muted))",
     dot: "rgb(var(--fg-muted))",
@@ -49,18 +73,28 @@ const TONE: Record<
 
 export function StatusPill({
   status,
+  outcome = null,
   onDark = false,
 }: {
   status: SessionStatus;
+  outcome?: SessionOutcome;
   onDark?: boolean;
 }) {
   const tone = TONE[status];
+  const label =
+    status === "cancelled" && outcome === "cancelled_late"
+      ? "Cancelled late"
+      : status === "cancelled" && outcome === "cancelled_by_producer"
+        ? "Producer cancelled"
+        : status === "cancelled" && outcome === "cancelled_on_time"
+          ? "Cancelled on time"
+          : tone.label;
   return (
     <span
       className={
         onDark
-          ? "inline-flex items-center gap-[6px] rounded-full px-[11px] py-[4px] text-[11.5px] font-semibold"
-          : "inline-flex items-center gap-[6px] rounded-full px-[10px] py-[3px] font-amount text-[10px] font-bold uppercase tracking-[0.12em]"
+          ? "inline-flex items-center gap-[6px] rounded-[var(--radius-sm)] px-[11px] py-[4px] text-[11.5px] font-semibold"
+          : "font-amount inline-flex items-center gap-[6px] rounded-[var(--radius-sm)] px-[10px] py-[3px] text-[10px] font-bold tracking-[0.12em] uppercase"
       }
       style={{
         background: onDark ? tone.onDarkBg : tone.bg,
@@ -72,7 +106,7 @@ export function StatusPill({
         className="h-[6px] w-[6px] shrink-0 rounded-full"
         style={{ background: onDark ? tone.onDarkFg : tone.dot }}
       />
-      {tone.label}
+      {label}
     </span>
   );
 }

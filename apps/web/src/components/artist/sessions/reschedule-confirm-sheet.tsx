@@ -1,43 +1,45 @@
 "use client";
 
-// RescheduleConfirmSheet (S12) — inline bottom-sheet confirm for cancelling a
-// session. NOT a real mutation: the backend doesn't expose an artist
-// `booking.cancel` proc yet, so confirming fires the same "coming soon"
-// pattern as the producer's CancelSessionModal (a toast + an inline note),
-// then closes. BE-3 (SK-39) swaps `onConfirm` for the real call — the sheet
-// stays the same. The sheet asks once, names the producer as notified, and
-// shows a spinner + inline role="alert" error if the (stub) action fails.
+// S12 inline bottom sheet for an on-time artist cancellation. The stable
+// operation key makes retries safe if the connection drops after the server
+// commits the cancellation.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { Check, CloseIcon } from "~/components/artist/funnel/funnel-icons";
-import { useToast } from "~/components/ui/toast";
+import { cancelSessionAction } from "~/app/(artist)/artist/sessions/actions";
 
 export function RescheduleConfirmSheet({
+  sessionId,
   producerName,
   onClose,
+  onCancelled,
 }: {
+  sessionId: string;
   producerName: string;
   onClose: () => void;
+  onCancelled: () => void;
 }) {
-  const { toast } = useToast();
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const operationKeyRef = useRef<string | null>(null);
 
   async function confirm() {
     if (confirming) return;
     setConfirming(true);
     setError(null);
     try {
-      // STUB — BE-3's `artist.booking.cancel` lands here. For now we mirror the
-      // producer cancel-session-modal "coming soon" pattern: no money moves,
-      // no slot is freed; we just acknowledge and close.
-      await new Promise((resolve) => setTimeout(resolve, 700));
-      toast(
-        `Self-serve cancel ships next sprint — message ${producerName} for now.`,
-        "info",
-      );
-      onClose();
+      operationKeyRef.current ??= crypto.randomUUID();
+      const result = await cancelSessionAction({
+        id: sessionId,
+        operationKey: operationKeyRef.current,
+      });
+      if (!result.ok) {
+        setConfirming(false);
+        setError(result.error);
+        return;
+      }
+      onCancelled();
     } catch {
       setConfirming(false);
       setError("Couldn't do that just now. Check your connection and try again.");
@@ -62,7 +64,7 @@ export function RescheduleConfirmSheet({
 
       {/* sheet */}
       <div
-        className="animate-slide-up-modal sk-safe-bottom relative w-full max-w-[440px] rounded-t-[var(--radius-2xl)] px-5 pb-5 pt-4"
+        className="animate-slide-up-modal sk-safe-bottom relative w-full max-w-[440px] rounded-t-[var(--radius-2xl)] px-5 pt-4 pb-5"
         style={{
           background: "rgb(var(--bg-elevated))",
           borderTop: "1px solid rgb(var(--border-subtle))",
@@ -70,7 +72,10 @@ export function RescheduleConfirmSheet({
         }}
       >
         {/* grabber */}
-        <div className="mx-auto mb-3.5 h-1 w-9 rounded-full" style={{ background: "rgb(var(--border-strong))" }} />
+        <div
+          className="mx-auto mb-3.5 h-1 w-9 rounded-full"
+          style={{ background: "rgb(var(--border-strong))" }}
+        />
 
         <div className="flex items-start gap-3.5">
           <span
@@ -83,12 +88,12 @@ export function RescheduleConfirmSheet({
             <CloseIcon width={20} height={20} />
           </span>
           <div className="min-w-0 flex-1">
-            <h2 className="font-syne text-[18px] font-extrabold leading-tight tracking-[-0.02em] text-[rgb(var(--fg-default))]">
+            <h2 className="font-syne text-[18px] leading-tight font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
               Cancel this session?
             </h2>
             <p className="mt-1.5 text-[13.5px] leading-relaxed text-[rgb(var(--fg-secondary))]">
-              {producerName} will be notified. Any deposit or refund follows your
-              signed agreement, off-app.
+              {producerName} will be notified, and this use returns to your session allowance. Any
+              refund follows your signed agreement, off-app.
             </p>
           </div>
         </div>

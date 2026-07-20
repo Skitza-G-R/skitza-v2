@@ -1,21 +1,42 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  allowanceBookHref,
+  allowanceCanBook,
+  allowanceUnavailableMessage,
   bookingActionLabel,
   buildProgressDots,
-  cancelPolicy,
   formatSessionDate,
   formatSessionTime,
   formatShekels,
   progressMode,
 } from "../book-data";
 
+const fixedAllowance = {
+  purchaseId: "purchase-1",
+  sessionAllowanceId: "allowance-1",
+  producerId: "producer-1",
+  producerName: "Gili Studio",
+  projectId: "project-1",
+  projectTitle: "Debut",
+  packageName: "Four sessions",
+  kind: "fixed" as const,
+  sessionLimit: 4,
+  sessionsUsed: 2,
+  sessionsRemaining: 2,
+  durationMin: 120,
+  locationType: "studio",
+  bufferMinutes: 30,
+  minLeadHours: 24,
+  closedAtISO: null,
+  canBook: true,
+  bookingBlockedReason: null,
+};
+
 // Pure unit tests for the sessions helpers (no rendering). Mirrors the
 // repo's existing pure-helper style (see purchase-data tests). Every
 // helper takes its `now`/`today` injected — none read the runtime clock —
 // so these assertions stay deterministic.
-
-const HOUR = 3_600_000;
 
 describe("progressMode", () => {
   it("returns 'count' when total is null (unlimited)", () => {
@@ -54,29 +75,6 @@ describe("buildProgressDots", () => {
   });
 });
 
-describe("cancelPolicy", () => {
-  it("is within policy when the session is comfortably ahead", () => {
-    const res = cancelPolicy(48 * HOUR, 24, 0, "Gili Studio");
-    expect(res.withinPolicy).toBe(true);
-    expect(res.hoursUntil).toBe(48);
-    expect(res.reason).toBeNull();
-  });
-
-  it("is outside policy (with a reason) when too close", () => {
-    const res = cancelPolicy(2 * HOUR, 24, 0, "Gili Studio");
-    expect(res.withinPolicy).toBe(false);
-    expect(res.hoursUntil).toBe(2);
-    expect(res.reason).toContain("Too close");
-    expect(res.reason).toContain("Gili Studio");
-  });
-
-  it("treats exactly-at-the-window as within policy (inclusive boundary)", () => {
-    const res = cancelPolicy(24 * HOUR, 24, 0, "Gili Studio");
-    expect(res.withinPolicy).toBe(true);
-    expect(res.reason).toBeNull();
-  });
-});
-
 describe("bookingActionLabel", () => {
   it("asks to request when Gate 3 (approval) is on", () => {
     expect(bookingActionLabel(true)).toBe("Request this slot");
@@ -87,16 +85,74 @@ describe("bookingActionLabel", () => {
   });
 });
 
-describe("formatSessionDate / formatSessionTime (UTC-safe)", () => {
-  it("formats a fixed ISO deterministically", () => {
+describe("formatSessionDate / formatSessionTime (producer timezone)", () => {
+  it("formats the same instant in the producer's IANA timezone", () => {
     const iso = "2026-06-09T14:30:00.000Z";
-    expect(formatSessionDate(iso)).toBe("Tue, Jun 9");
-    expect(formatSessionTime(iso)).toBe("2:30 PM");
+    expect(formatSessionDate(iso, "Asia/Jerusalem")).toBe("Tue, Jun 9");
+    expect(formatSessionTime(iso, "Asia/Jerusalem")).toBe("5:30 PM");
+    expect(formatSessionTime(iso, "America/New_York")).toBe("10:30 AM");
+  });
+
+  it("moves the calendar date when the producer's local day has crossed midnight", () => {
+    const iso = "2026-06-09T22:30:00.000Z";
+    expect(formatSessionDate(iso, "Asia/Jerusalem")).toBe("Wed, Jun 10");
+    expect(formatSessionTime(iso, "Asia/Jerusalem")).toBe("1:30 AM");
   });
 });
 
 describe("formatShekels re-export", () => {
   it("re-exports the purchase-data formatter unchanged", () => {
     expect(formatShekels(240000)).toBe("₪2,400");
+  });
+});
+
+describe("purchase-owned allowance links", () => {
+  it("preserves the exact studio, project, and allowance identity", () => {
+    expect(allowanceBookHref(fixedAllowance)).toBe(
+      "/artist/book?studio=producer-1&project=project-1&allowance=allowance-1",
+    );
+  });
+
+  it("blocks exhausted or closed fixed allowances but keeps unlimited open", () => {
+    expect(allowanceCanBook(fixedAllowance)).toBe(true);
+    expect(allowanceCanBook({ ...fixedAllowance, sessionsRemaining: 0 })).toBe(false);
+    expect(allowanceCanBook({ ...fixedAllowance, canBook: false })).toBe(false);
+    expect(allowanceCanBook({ ...fixedAllowance, closedAtISO: "2026-07-20T00:00:00Z" })).toBe(
+      false,
+    );
+    expect(
+      allowanceCanBook({
+        ...fixedAllowance,
+        kind: "unlimited",
+        sessionLimit: null,
+        sessionsRemaining: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("explains paused, exhausted, and permanently closed allowances accurately", () => {
+    expect(
+      allowanceUnavailableMessage({
+        ...fixedAllowance,
+        canBook: false,
+        bookingBlockedReason: "project_paused",
+      }),
+    ).toContain("Listening and comments stay available");
+    expect(
+      allowanceUnavailableMessage({
+        ...fixedAllowance,
+        sessionsRemaining: 0,
+        canBook: false,
+        bookingBlockedReason: "allowance_exhausted",
+      }),
+    ).toContain("new purchase");
+    expect(
+      allowanceUnavailableMessage({
+        ...fixedAllowance,
+        canBook: false,
+        closedAtISO: "2026-07-20T00:00:00Z",
+        bookingBlockedReason: "allowance_closed",
+      }),
+    ).toContain("permanently closed");
   });
 });

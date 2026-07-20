@@ -6,6 +6,14 @@ import { describe, expect, it } from "vitest";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, "..", "artist.ts"), "utf8");
+const domainSource = readFileSync(
+  join(here, "..", "..", "..", "domain", "session-booking", "service.ts"),
+  "utf8",
+);
+const repositorySource = readFileSync(
+  join(here, "..", "..", "..", "domain", "session-booking", "db.ts"),
+  "utf8",
+);
 const availability = source.slice(
   source.indexOf("availability: artistProcedure"),
   source.indexOf("activePackages: artistProcedure"),
@@ -57,51 +65,53 @@ describe("artist.book purchase-owned session boundary", () => {
     expect(confirm).toMatch(/A purchased session allowance is required/);
     expect(confirm).toMatch(/purchaseId: z\.string\(\)\.uuid\(\)/);
     expect(confirm).toMatch(/sessionAllowanceId: z\.string\(\)\.uuid\(\)/);
-    expect(confirm).toMatch(/eq\(purchases\.id, input\.purchaseId\)/);
-    expect(confirm).toMatch(
-      /eq\(purchaseSessionAllowances\.id, input\.sessionAllowanceId\)/,
-    );
-    expect(confirm).toMatch(/if \(candidates\.length > 1\)/);
-    expect(confirm).toMatch(/Choose the exact purchased session allowance/);
+    expect(confirm).toMatch(/createSessionBooking\(sessionBookingRepository\(ctx\.db\)/);
+    expect(confirm).toMatch(/projectId: targetProjectId/);
+    expect(confirm).toMatch(/purchaseId: input\.purchaseId/);
+    expect(confirm).toMatch(/sessionAllowanceId: input\.sessionAllowanceId/);
+    expect(confirm).toMatch(/actorClerkUserId: ctx\.clerkUserId/);
+    expect(confirm).not.toMatch(/\.insert\(bookings\)|\.update\(bookings\)/);
   });
 
   it("serializes producer slots and the exact allowance before policy evaluation", () => {
-    expect(confirm.match(/pg_advisory_xact_lock/g)).toHaveLength(2);
-    expect(confirm).toMatch(/hashtextextended\(\$\{input\.producerId\}, 0\)/);
-    expect(confirm).toMatch(/hashtextextended\(\$\{candidate\.allowance\.id\}, 0\)/);
-    expect(confirm).toMatch(/assertSessionBookingAllowed\(\{/);
-    expect(confirm).toMatch(/existingOutcomes: existingUses\.map/);
-    expect(confirm).toMatch(/requestedDurationMin: input\.durationMin/);
+    expect(repositorySource).toContain("sessionBookingScheduleAdvisoryLockKey(anchors.producerId)");
+    expect(repositorySource).toContain("session-booking:allowance:${anchors.sessionAllowanceId}");
+    expect(repositorySource).toContain("return work(transactionAdapter(tx))");
+    expect(domainSource).toMatch(/assertSessionBookingAllowed\(\{/);
+    expect(domainSource).toMatch(/existingOutcomes:\s*uses[\s\S]*\.map\(\(use\) => use\.outcome\)/);
+    expect(domainSource).toMatch(/requestedDurationMin: input\.durationMin/);
   });
 
   it("locks lifecycle and allowance rows before evaluating capacity", () => {
-    const candidateRead = confirm.indexOf("const candidates = await tx");
-    const rowLock = confirm.indexOf('.for("update")', candidateRead);
-    const existingUses = confirm.indexOf("const existingUses", rowLock);
-    const policy = confirm.indexOf("assertSessionBookingAllowed", existingUses);
+    const createContext = repositorySource.slice(
+      repositorySource.indexOf("loadCreateContext: async"),
+      repositorySource.indexOf("loadBookingContext: async"),
+    );
+    const rowLock = createContext.indexOf('.for("update")');
+    const existingUses = domainSource.indexOf("const uses = await transaction.listAllowanceUses");
+    const policy = domainSource.indexOf("assertSessionBookingAllowed", existingUses);
 
-    expect(candidateRead).toBeGreaterThanOrEqual(0);
-    expect(rowLock).toBeGreaterThan(candidateRead);
-    expect(existingUses).toBeGreaterThan(rowLock);
+    expect(rowLock).toBeGreaterThanOrEqual(0);
+    expect(existingUses).toBeGreaterThanOrEqual(0);
     expect(policy).toBeGreaterThan(existingUses);
   });
 
   it("locks and rechecks the active client relationship inside booking confirmation", () => {
-    const transaction = confirm.indexOf("ctx.db.transaction");
-    const producerLock = confirm.indexOf("pg_advisory_xact_lock", transaction);
-    const contactJoin = confirm.indexOf(".innerJoin(\n            clientContacts", producerLock);
-    const contactActive = confirm.indexOf("isNull(clientContacts.archivedAt)", contactJoin);
-    const rowLock = confirm.indexOf('.for("update")', contactActive);
-    const insert = confirm.indexOf(".insert(bookings)", rowLock);
+    const createContext = repositorySource.slice(
+      repositorySource.indexOf("loadCreateContext: async"),
+      repositorySource.indexOf("loadBookingContext: async"),
+    );
+    const contactJoin = createContext.indexOf("clientContacts");
+    const contactActive = createContext.indexOf("isNull(clientContacts.archivedAt)", contactJoin);
+    const rowLock = createContext.indexOf('.for("update")', contactActive);
+    const insert = domainSource.indexOf("transaction.insertBooking");
 
     expect(confirm).not.toContain("resolveClientContacts(ctx.db");
-    expect(transaction).toBeGreaterThanOrEqual(0);
-    expect(producerLock).toBeGreaterThan(transaction);
-    expect(contactJoin).toBeGreaterThan(producerLock);
-    expect(confirm).toContain("eq(clientContacts.clerkUserId, ctx.clerkUserId)");
+    expect(contactJoin).toBeGreaterThanOrEqual(0);
+    expect(createContext).toContain("eq(clientContacts.clerkUserId, input.actorClerkUserId)");
     expect(contactActive).toBeGreaterThan(contactJoin);
     expect(rowLock).toBeGreaterThan(contactActive);
-    expect(insert).toBeGreaterThan(rowLock);
+    expect(insert).toBeGreaterThanOrEqual(0);
   });
 
   it("makes disconnect contact locking, active-booking check, and archive one transaction", () => {
@@ -121,17 +131,21 @@ describe("artist.book purchase-owned session boundary", () => {
   });
 
   it("prevents slot races using only canonical active statuses", () => {
-    expect(confirm).toMatch(/inArray\(bookings\.status, \["pending_approval", "confirmed"\]\)/);
-    expect(confirm).toMatch(/bk\.startsAt < endsAt && startsAt < bkEnd/);
+    expect(repositorySource).toMatch(
+      /inArray\(bookings\.status, \["pending_approval", "confirmed"\]\)/,
+    );
+    expect(domainSource).toMatch(
+      /input\.startsAt\.getTime\(\) < existingEnd &&\s*existing\.startsAt\.getTime\(\) < requestedEnd \+ requestedBufferMs/,
+    );
     expect(confirm).not.toMatch(/pending_payment/);
   });
 
   it("persists exact project, purchase, and allowance ownership without legacy credits", () => {
-    expect(confirm).toMatch(/status: "pending_approval"/);
-    expect(confirm).toMatch(/projectId: candidate\.project\.id/);
-    expect(confirm).toMatch(/purchaseId: candidate\.purchase\.id/);
-    expect(confirm).toMatch(/sessionAllowanceId: candidate\.allowance\.id/);
-    expect(confirm).not.toMatch(
+    expect(domainSource).toMatch(/const status = initialSessionBookingStatus/);
+    expect(domainSource).toMatch(/projectId: input\.projectId/);
+    expect(domainSource).toMatch(/purchaseId: input\.purchaseId/);
+    expect(domainSource).toMatch(/sessionAllowanceId: input\.sessionAllowanceId/);
+    expect(domainSource).not.toMatch(
       /purchaseRequests|depositPaid|finalPaid|legacy|packageNameSnapshot/,
     );
   });

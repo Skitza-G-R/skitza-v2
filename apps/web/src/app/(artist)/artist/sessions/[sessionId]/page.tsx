@@ -1,32 +1,47 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
-import {
-  MOCK_CANCEL_WINDOW_HOURS,
-  MOCK_PRODUCER,
-  MOCK_SESSION_DETAIL,
-} from "~/components/artist/sessions/book-data";
+import type { SessionDetail } from "~/components/artist/sessions/book-data";
 import { SessionDetailScreen } from "~/components/artist/sessions/session-detail-screen";
+import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = { params: Promise<{ sessionId: string }> };
 
-// S12 — Session detail + cancel / reschedule (Book). Mock data while BE-3
-// (SK-39) is in flight; when it lands, swap MOCK_* for
-// `caller.artist.book.session({ id: sessionId })` — the screen props
-// (session + producer + cancelWindowHours) don't change.
 export default async function ArtistSessionDetailPage({ params }: PageProps) {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
 
   const { sessionId } = await params;
-  const session = { ...MOCK_SESSION_DETAIL, id: sessionId };
-  const producer = MOCK_PRODUCER;
+  const caller = appRouter.createCaller({ userId });
+  const row = await caller.artist.book.session({ id: sessionId });
+  const session: SessionDetail = {
+    id: row.id,
+    producerId: row.producerId,
+    producerName: row.producerName,
+    producerSlug: row.producerSlug,
+    producerTimezone: row.producerTimezone,
+    projectId: row.projectId,
+    projectTitle: row.projectTitle,
+    purchaseId: row.purchaseId,
+    sessionAllowanceId: row.sessionAllowanceId,
+    startsAtISO: row.startsAt.toISOString(),
+    durationMin: row.durationMin,
+    packageName: row.packageName,
+    locationType: row.locationType,
+    status: row.status,
+    outcome: row.outcome,
+    rescheduledFromBookingId: row.rescheduledFromBookingId,
+    policy: {
+      cancellationPolicyHours: row.policy.cancellationPolicyHours,
+      cancellationDeadlineISO: row.policy.cancellationDeadline.toISOString(),
+      isOnTime: row.policy.isOnTime,
+      canCancel: row.policy.canCancel,
+      canReschedule: row.policy.canReschedule,
+    },
+    bufferMinutes: row.bufferMinutes,
+    minLeadHours: row.minLeadHours,
+    autoConfirm: row.autoConfirm,
+  };
 
-  return (
-    <SessionDetailScreen
-      session={session}
-      producer={producer}
-      cancelWindowHours={MOCK_CANCEL_WINDOW_HOURS}
-    />
-  );
+  return <SessionDetailScreen session={session} />;
 }

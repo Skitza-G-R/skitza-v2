@@ -14,8 +14,7 @@ export type ActionDataResult<T> = { ok: true; data: T } | { ok: false; error: st
 const PATH = "/dashboard/booking";
 
 async function callerOrError(): Promise<
-  | { ok: true; caller: ReturnType<typeof appRouter.createCaller> }
-  | { ok: false; error: string }
+  { ok: true; caller: ReturnType<typeof appRouter.createCaller> } | { ok: false; error: string }
 > {
   const { userId } = await auth();
   if (!userId) return { ok: false, error: "Please sign in to continue." };
@@ -159,9 +158,7 @@ export async function setPackageActive(input: {
 
 // Duplicate a product. The copy starts hidden (active=false) so the
 // producer can edit it before exposing it to signed-in artists.
-export async function duplicatePackage(input: {
-  id: string;
-}): Promise<ActionResult> {
+export async function duplicatePackage(input: { id: string }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
@@ -216,9 +213,7 @@ export async function restorePackage(input: { id: string }): Promise<ActionResul
 // drag-reorder hook in <StoreScreen>; revalidates both legacy
 // /dashboard/profile and the new /dashboard/store so the next read
 // reflects the new order.
-export async function reorderProducts(input: {
-  orderedIds: string[];
-}): Promise<ActionResult> {
+export async function reorderProducts(input: { orderedIds: string[] }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
@@ -305,7 +300,10 @@ export async function confirmBooking(input: { id: string }): Promise<ActionResul
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    await c.caller.booking.confirm(input);
+    await c.caller.booking.confirm({
+      id: input.id,
+      operationKey: `producer-confirm:${input.id}:v1`,
+    });
     revalidatePath(PATH);
     return { ok: true };
   } catch (err) {
@@ -317,7 +315,10 @@ export async function rejectBooking(input: { id: string }): Promise<ActionResult
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    await c.caller.booking.reject(input);
+    await c.caller.booking.reject({
+      id: input.id,
+      operationKey: `producer-reject:${input.id}:v1`,
+    });
     revalidatePath(PATH);
     return { ok: true };
   } catch (err) {

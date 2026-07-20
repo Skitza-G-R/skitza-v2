@@ -2,30 +2,22 @@
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useTransition,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { ProducerPicker } from "~/components/artist/producer-picker";
-import { Check } from "~/components/artist/funnel/funnel-icons";
 import { PrimaryCta } from "~/components/artist/funnel/funnel-ui";
+import { bookingActionLabel, locationLabel } from "~/components/artist/sessions/book-data";
 
-import { confirmBookingAction } from "./actions";
+import { confirmBookingAction, rescheduleBookingAction } from "./actions";
 import { findPrepaidSessionByAllowance } from "./prepaid-session-selection";
 
 type BlockShape = { startMin: number; endMin: number; available: boolean };
 type Day = {
   date: string;
   weekday: number;
-  morning: BlockShape | null;
-  evening: BlockShape | null;
+  blocks: BlockShape[];
 };
-type Availability = { days: Day[] };
+type Availability = { days: Day[]; timeZone: string; today: string };
 type Studio = {
   producerId: string;
   name: string;
@@ -43,6 +35,10 @@ type ActivePackage = {
   sessionsRemaining: number;
   unlimitedSessions: boolean;
   durationMin: number;
+  locationType: string;
+  bufferMinutes: number;
+  minLeadHours: number;
+  autoConfirm: boolean;
 };
 type Props = {
   activeStudioId: string;
@@ -50,12 +46,16 @@ type Props = {
   studios: Studio[];
   activePackages: ActivePackage[];
   initialSessionAllowanceId: string | null;
+  rescheduleSessionId: string | null;
 };
 
 const WEEKDAY_HEADERS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
-const SLOT_INCREMENT_MIN = 60;
-const DEFAULT_DURATION_MIN = 120;
+const SLOT_INCREMENT_MIN = 30;
 const EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
+
+function dayHasAvailability(day: Day | undefined): boolean {
+  return day?.blocks.some((block) => block.available) ?? false;
+}
 
 // ──────────────────────────────────────────────────────────────────────
 // Formatters & date math
@@ -92,20 +92,20 @@ function fmtDateShort(iso: string): string {
   });
 }
 
+function formatDurationLabel(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours === 0) return `${String(rest)} min`;
+  if (rest === 0) return `${String(hours)} hr`;
+  return `${String(hours)} hr ${String(rest)} min`;
+}
+
 function fmtMonthYear(year: number, month0: number): string {
   return new Date(Date.UTC(year, month0, 1)).toLocaleDateString(undefined, {
     month: "long",
     year: "numeric",
     timeZone: "UTC",
   });
-}
-
-function todayISO(): string {
-  const t = new Date();
-  const y = t.getUTCFullYear();
-  const m = String(t.getUTCMonth() + 1).padStart(2, "0");
-  const d = String(t.getUTCDate()).padStart(2, "0");
-  return `${String(y)}-${m}-${d}`;
 }
 
 function isoForCell(year: number, month0: number, day: number): string {
@@ -122,7 +122,7 @@ function shiftIsoByDays(iso: string, delta: number): string {
   return isoForCell(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate());
 }
 
-// Hourly start-time options inside a block, capped so the session
+// Half-hour start-time options inside a block, capped so the session
 // still fits before the block closes.
 function startsForBlock(block: BlockShape, durationMin: number): number[] {
   const out: number[] = [];
@@ -136,37 +136,6 @@ function startsForBlock(block: BlockShape, durationMin: number): number[] {
 type StartOption = { minutes: number; block: "morning" | "evening" };
 
 // ──────────────────────────────────────────────────────────────────────
-// Live wall-clock for the time-zone footer. Returns null during SSR
-// so hydration matches; first client render fills it in and we tick
-// once a minute thereafter.
-// ──────────────────────────────────────────────────────────────────────
-
-function useLiveTimeZoneLabel(): string | null {
-  const [label, setLabel] = useState<string | null>(null);
-  useEffect(() => {
-    const update = () => {
-      try {
-        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        const now = new Date().toLocaleTimeString(undefined, {
-          hour: "numeric",
-          minute: "2-digit",
-          hour12: false,
-        });
-        setLabel(`${tz.replace(/_/g, " ")} · ${now}`);
-      } catch {
-        setLabel("Local time");
-      }
-    };
-    update();
-    const id = window.setInterval(update, 60_000);
-    return () => {
-      window.clearInterval(id);
-    };
-  }, []);
-  return label;
-}
-
-// ──────────────────────────────────────────────────────────────────────
 // Main client — single mobile-first column (proto S10 "Time" screen).
 // Title → producer/session summary → month calendar → legend → inline
 // time chips → service/credit picker → pinned "Request this slot".
@@ -178,9 +147,10 @@ export function BookingClient({
   studios,
   activePackages,
   initialSessionAllowanceId,
+  rescheduleSessionId,
 }: Props) {
   const router = useRouter();
-  const today = todayISO();
+  const today = availability.today;
 
   const daysByDate = useMemo(() => {
     const m = new Map<string, Day>();
@@ -190,7 +160,7 @@ export function BookingClient({
 
   const hasAnyAvailability = useMemo(() => {
     for (const d of availability.days) {
-      if (d.morning?.available || d.evening?.available) return true;
+      if (dayHasAvailability(d)) return true;
     }
     return false;
   }, [availability.days]);
@@ -202,22 +172,19 @@ export function BookingClient({
 
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [chosenStart, setChosenStart] = useState<number | null>(null);
-  const [selectedBlock, setSelectedBlock] = useState<
-    "morning" | "evening" | null
-  >(null);
-  const [selectedSessionAllowanceId, setSelectedSessionAllowanceId] = useState<
-    string | null
-  >(initialSessionAllowanceId);
+  const [selectedBlock, setSelectedBlock] = useState<"morning" | "evening" | null>(null);
+  const [selectedSessionAllowanceId, setSelectedSessionAllowanceId] = useState<string | null>(
+    initialSessionAllowanceId,
+  );
   const [isPending, startTransition] = useTransition();
   const [result, setResult] = useState<
-    { ok: true } | { ok: false; error: string } | null
+    | { ok: true; id: string; status: "pending_approval" | "confirmed" }
+    | { ok: false; error: string }
+    | null
   >(null);
+  const operationKeyRef = useRef<string | null>(null);
 
-  const selectedPackage = findPrepaidSessionByAllowance(
-    activePackages,
-    selectedSessionAllowanceId,
-  );
-  const usingCredit = selectedPackage !== null;
+  const selectedPackage = findPrepaidSessionByAllowance(activePackages, selectedSessionAllowanceId);
   const activeStudio = studios.find((s) => s.producerId === activeStudioId);
 
   // A successful request can consume the final prepaid session. Server
@@ -226,28 +193,23 @@ export function BookingClient({
   useEffect(() => {
     if (selectedSessionAllowanceId && !selectedPackage) {
       setSelectedSessionAllowanceId(null);
+      setSelectedDate(null);
+      setChosenStart(null);
+      setSelectedBlock(null);
+      setResult(null);
+      operationKeyRef.current = null;
     }
   }, [selectedPackage, selectedSessionAllowanceId]);
 
   const startsForSelected: StartOption[] = useMemo(() => {
-    if (!selectedDate) return [];
+    if (!selectedDate || !selectedPackage) return [];
     const day = daysByDate.get(selectedDate);
     if (!day) return [];
     const out: StartOption[] = [];
-    if (day.morning?.available) {
-      for (const m of startsForBlock(
-        day.morning,
-        selectedPackage?.durationMin ?? DEFAULT_DURATION_MIN,
-      )) {
-        out.push({ minutes: m, block: "morning" });
-      }
-    }
-    if (day.evening?.available) {
-      for (const m of startsForBlock(
-        day.evening,
-        selectedPackage?.durationMin ?? DEFAULT_DURATION_MIN,
-      )) {
-        out.push({ minutes: m, block: "evening" });
+    for (const block of day.blocks) {
+      if (!block.available) continue;
+      for (const m of startsForBlock(block, selectedPackage.durationMin)) {
+        out.push({ minutes: m, block: m < 12 * 60 ? "morning" : "evening" });
       }
     }
     return out;
@@ -258,6 +220,7 @@ export function BookingClient({
     setChosenStart(null);
     setSelectedBlock(null);
     setResult(null);
+    operationKeyRef.current = null;
   };
 
   const handleSwitchStudio = (id: string) => {
@@ -266,127 +229,103 @@ export function BookingClient({
     router.push(`/artist/book?studio=${id}`);
   };
 
+  const handlePickAllowance = (id: string) => {
+    if (id === selectedSessionAllowanceId) return;
+    const selected = activePackages.find((pkg) => pkg.sessionAllowanceId === id);
+    if (!selected) return;
+    resetSelection();
+    setSelectedSessionAllowanceId(id);
+    const params = new URLSearchParams({
+      studio: activeStudioId,
+      project: selected.projectId,
+      allowance: id,
+    });
+    router.replace(`/artist/book?${params.toString()}`);
+  };
+
   const handlePickDate = (date: string) => {
     setSelectedDate(date);
     setChosenStart(null);
     setSelectedBlock(null);
     setResult(null);
+    operationKeyRef.current = null;
   };
 
   const handlePickStart = (opt: StartOption) => {
     setChosenStart(opt.minutes);
     setSelectedBlock(opt.block);
     setResult(null);
+    operationKeyRef.current = null;
   };
 
   const handleConfirm = () => {
     if (!selectedDate || chosenStart == null || !selectedBlock || !selectedPackage) return;
     startTransition(async () => {
-      const res = await confirmBookingAction({
-        producerId: activeStudioId,
-        date: selectedDate,
-        block: selectedBlock,
-        startMin: chosenStart,
-        durationMin: selectedPackage.durationMin,
-        projectId: null,
-        productId: null,
-        existingProjectId: selectedPackage.projectId,
-        purchaseId: selectedPackage.purchaseId,
-        sessionAllowanceId: selectedPackage.sessionAllowanceId,
-      });
+      operationKeyRef.current ??= crypto.randomUUID();
+      const operationKey = operationKeyRef.current;
+      const res = rescheduleSessionId
+        ? await rescheduleBookingAction({
+            id: rescheduleSessionId,
+            date: selectedDate,
+            startMin: chosenStart,
+            operationKey,
+          })
+        : await confirmBookingAction({
+            producerId: activeStudioId,
+            date: selectedDate,
+            block: selectedBlock,
+            startMin: chosenStart,
+            durationMin: selectedPackage.durationMin,
+            projectId: null,
+            productId: null,
+            existingProjectId: selectedPackage.projectId,
+            purchaseId: selectedPackage.purchaseId,
+            sessionAllowanceId: selectedPackage.sessionAllowanceId,
+            operationKey,
+          });
       setResult(res);
-      if (res.ok) router.refresh();
+      if (res.ok) router.push(`/artist/sessions?just=${res.id}`);
     });
   };
 
   const canGoBack =
-    viewYear > initialYear ||
-    (viewYear === initialYear && viewMonth > initialMonth);
+    viewYear > initialYear || (viewYear === initialYear && viewMonth > initialMonth);
 
   // Gating — identical booleans to the original, only the markup moved.
-  const showConfirm = chosenStart != null && usingCredit;
+  const showConfirm = chosenStart != null && selectedBlock !== null && selectedPackage !== null;
+  const actionLabel = rescheduleSessionId
+    ? "Reschedule session"
+    : bookingActionLabel(!selectedPackage?.autoConfirm);
 
   return (
     <div className="mx-auto w-full max-w-[480px] space-y-6">
-      {studios.length > 1 ? (
-        <ProducerPicker
-          studios={studios}
-          activeId={activeStudioId}
-          onSelect={handleSwitchStudio}
-        />
+      {studios.length > 1 && !rescheduleSessionId ? (
+        <ProducerPicker studios={studios} activeId={activeStudioId} onSelect={handleSwitchStudio} />
       ) : null}
 
       {/* ── Title + producer/session summary (folds the old LeftContext) ── */}
       <header className="sk-rise space-y-3" style={{ animationDelay: "40ms" }}>
-        <h1 className="font-syne text-[28px] font-extrabold leading-[1.04] tracking-[-0.03em] text-balance text-[rgb(var(--fg-default))]">
-          When works for you?
+        <h1 className="font-syne text-[28px] leading-[1.04] font-extrabold tracking-[-0.03em] text-balance text-[rgb(var(--fg-default))]">
+          {rescheduleSessionId ? "Choose your new time" : "When works for you?"}
         </h1>
-        <SummaryLine activeStudio={activeStudio ?? null} />
+        <SummaryLine activeStudio={activeStudio ?? null} selectedPackage={selectedPackage} />
       </header>
 
-      {/* ── Month calendar card ── */}
-      <CalendarCard
-        className="sk-rise"
-        style={{ animationDelay: "100ms" }}
-        year={viewYear}
-        month0={viewMonth}
-        daysByDate={daysByDate}
-        today={today}
-        selectedDate={selectedDate}
-        hasAnyAvailability={hasAnyAvailability}
-        producerName={activeStudio?.name ?? null}
-        onPickDate={handlePickDate}
-        onPrevMonth={
-          canGoBack
-            ? () => {
-                const prev = new Date(Date.UTC(viewYear, viewMonth - 1));
-                setViewYear(prev.getUTCFullYear());
-                setViewMonth(prev.getUTCMonth());
-              }
-            : null
-        }
-        onNextMonth={() => {
-          const next = new Date(Date.UTC(viewYear, viewMonth + 1));
-          setViewYear(next.getUTCFullYear());
-          setViewMonth(next.getUTCMonth());
-        }}
-      />
-
-      <Legend />
-
-      {/* ── Inline time chips for the chosen day (no side rail) ── */}
-      {selectedDate ? (
-        <TimeSection
-          key={selectedDate}
-          selectedDate={selectedDate}
-          starts={startsForSelected}
-          chosenStart={chosenStart}
-          onPickStart={handlePickStart}
-        />
-      ) : null}
-
-      {/* ── Prepaid-credits option folds inline (subtle toggle) ── */}
+      {/* Purchase identity comes first: it owns duration, location and policy. */}
       {activePackages.length > 0 ? (
-        <>
-          <CreditsBlock
-            packages={activePackages}
-            selectedAllowanceId={selectedSessionAllowanceId}
-            onPick={(id) => {
-              setSelectedSessionAllowanceId(id);
-              setResult(null);
-            }}
-            onClear={() => {
-              setSelectedSessionAllowanceId(null);
-              setResult(null);
-            }}
-          />
-          <Link
-            href="/artist/store"
-            className="sk-press inline-flex min-h-11 items-center text-sm font-semibold text-[rgb(var(--brand-primary-dark))] underline underline-offset-4"
-          >
-            Request a new service instead
-          </Link>
-        </>
+        <CreditsBlock
+          packages={activePackages}
+          selectedAllowanceId={selectedSessionAllowanceId}
+          onPick={handlePickAllowance}
+        />
+      ) : rescheduleSessionId ? (
+        <p
+          role="alert"
+          className="rounded-[var(--radius-lg)] border px-4 py-3 text-sm text-[rgb(var(--fg-secondary))]"
+          style={{ borderColor: "rgb(var(--border-subtle))" }}
+        >
+          This session can no longer be rescheduled. Return to My Sessions for its current status.
+        </p>
       ) : (
         <Link
           href="/artist/store"
@@ -396,8 +335,70 @@ export function BookingClient({
         </Link>
       )}
 
-      {/* ── Summary footnote (time zone + reminder note) ── */}
-      <TimeZoneNote />
+      {selectedPackage && selectedSessionAllowanceId === initialSessionAllowanceId ? (
+        <>
+          <CalendarCard
+            className="sk-rise"
+            style={{ animationDelay: "100ms" }}
+            year={viewYear}
+            month0={viewMonth}
+            daysByDate={daysByDate}
+            today={today}
+            selectedDate={selectedDate}
+            hasAnyAvailability={hasAnyAvailability}
+            producerName={activeStudio?.name ?? null}
+            onPickDate={handlePickDate}
+            onPrevMonth={
+              canGoBack
+                ? () => {
+                    const prev = new Date(Date.UTC(viewYear, viewMonth - 1));
+                    setViewYear(prev.getUTCFullYear());
+                    setViewMonth(prev.getUTCMonth());
+                  }
+                : null
+            }
+            onNextMonth={() => {
+              const next = new Date(Date.UTC(viewYear, viewMonth + 1));
+              setViewYear(next.getUTCFullYear());
+              setViewMonth(next.getUTCMonth());
+            }}
+          />
+
+          <Legend />
+
+          {selectedDate ? (
+            <TimeSection
+              key={selectedDate}
+              selectedDate={selectedDate}
+              starts={startsForSelected}
+              chosenStart={chosenStart}
+              durationMin={selectedPackage.durationMin}
+              onPickStart={handlePickStart}
+            />
+          ) : null}
+
+          <TimeZoneNote timeZone={availability.timeZone} />
+        </>
+      ) : selectedPackage ? (
+        <p
+          className="rounded-[var(--radius-lg)] border px-4 py-3 text-sm text-[rgb(var(--fg-secondary))]"
+          style={{ borderColor: "rgb(var(--border-subtle))" }}
+          aria-live="polite"
+        >
+          Refreshing dates for this purchased session…
+        </p>
+      ) : null}
+
+      {activePackages.length > 0 && !rescheduleSessionId ? (
+        <div>
+          <Link
+            href="/artist/store"
+            className="sk-press inline-flex min-h-11 items-center text-sm font-semibold text-[rgb(var(--brand-primary-dark))] underline underline-offset-4"
+          >
+            Request a new service instead
+          </Link>
+        </div>
+      ) : null}
 
       {result && !result.ok ? (
         <p
@@ -411,43 +412,11 @@ export function BookingClient({
           {result.error}
         </p>
       ) : null}
-      {result?.ok ? (
-        <div
-          role="status"
-          className="reveal-up flex items-start gap-2.5 rounded-card px-3.5 py-3"
-          style={{
-            background: "rgb(var(--brand-primary) / 0.07)",
-            border: "1px solid rgb(var(--brand-primary) / 0.25)",
-          }}
-        >
-          <span
-            aria-hidden
-            className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full"
-            style={{
-              background: "rgb(var(--brand-primary))",
-              color: "rgb(var(--bg-sidebar))",
-            }}
-          >
-            <Check />
-          </span>
-          <span className="text-[12.5px] leading-snug">
-            <span className="block font-semibold text-[rgb(var(--fg-default))]">
-              Holding this time
-              {activeStudio?.name ? <> while {activeStudio.name} confirms</> : null}
-            </span>
-            <span className="text-[rgb(var(--fg-muted))]">
-              We&apos;ll ping you by app &amp; email the moment they do.
-            </span>
-          </span>
-        </div>
-      ) : null}
-
       {/* ── Pinned-low primary CTA ── */}
       <div
-        className="sticky bottom-3 z-10 pt-1"
+        className="sticky bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-10 pt-1 lg:bottom-3"
         style={{
-          background:
-            "linear-gradient(180deg, transparent, rgb(var(--bg-background)) 38%)",
+          background: "linear-gradient(180deg, transparent, rgb(var(--bg-background)) 38%)",
         }}
       >
         <PrimaryCta
@@ -456,23 +425,25 @@ export function BookingClient({
           sub={
             result?.ok
               ? undefined
-              : showConfirm
-                ? `Holding this time${activeStudio?.name ? ` while ${activeStudio.name} confirms` : ""}`
-                : selectedDate == null
-                  ? "Pick a time to continue"
-                  : chosenStart == null
-                    ? "Pick a time to continue"
-                    : "Choose a purchased session to continue"
+              : selectedPackage == null
+                ? "Choose the purchase that owns this session"
+                : selectedDate == null || chosenStart == null
+                  ? "Pick a date and time to continue"
+                  : rescheduleSessionId
+                    ? "Your old time stays booked until this succeeds"
+                    : selectedPackage.autoConfirm
+                      ? "This time will be confirmed immediately"
+                      : `Holding this time${activeStudio?.name ? ` while ${activeStudio.name} confirms` : ""}`
           }
         >
           {isPending
-            ? "Sending…"
+            ? rescheduleSessionId
+              ? "Rescheduling…"
+              : "Sending…"
             : result?.ok
-              ? "Sent"
-              : usingCredit
-                ? selectedPackage.unlimitedSessions
-                  ? "Use credit · Ongoing"
-                  : `Use credit · ${String(selectedPackage.sessionsRemaining)} left`
+              ? "Done"
+              : selectedPackage
+                ? actionLabel
                 : "Choose a purchased session"}
         </PrimaryCta>
       </div>
@@ -521,8 +492,7 @@ export function BookingClient({
           will-change: transform, opacity;
         }
         .book-avatar-pop {
-          animation: book-avatar-pop 360ms cubic-bezier(0.23, 1, 0.32, 1)
-            both;
+          animation: book-avatar-pop 360ms cubic-bezier(0.23, 1, 0.32, 1) both;
         }
         @media (hover: hover) and (pointer: fine) {
           .book-day-available:hover:not([aria-selected="true"]) {
@@ -546,7 +516,13 @@ export function BookingClient({
 // LeftContext side rail into one tight row under the title).
 // ──────────────────────────────────────────────────────────────────────
 
-function SummaryLine({ activeStudio }: { activeStudio: Studio | null }) {
+function SummaryLine({
+  activeStudio,
+  selectedPackage,
+}: {
+  activeStudio: Studio | null;
+  selectedPackage: ActivePackage | null;
+}) {
   const initial = (activeStudio?.name ?? "S").charAt(0).toUpperCase();
   return (
     <div className="flex items-center gap-2.5">
@@ -561,7 +537,7 @@ function SummaryLine({ activeStudio }: { activeStudio: Studio | null }) {
       ) : (
         <div
           aria-hidden
-          className="book-avatar-pop flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-display text-[13px] font-extrabold text-[rgb(var(--bg-sidebar))]"
+          className="book-avatar-pop font-display flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[13px] font-extrabold text-[rgb(var(--bg-sidebar))]"
           style={{
             background:
               "linear-gradient(140deg, rgb(var(--brand-primary)), rgb(var(--brand-copper)))",
@@ -574,13 +550,21 @@ function SummaryLine({ activeStudio }: { activeStudio: Studio | null }) {
         <span className="font-semibold text-[rgb(var(--fg-default))]">
           {activeStudio?.name ?? "Studio session"}
         </span>
-        <span className="text-[rgb(var(--fg-muted))]">
-          {" · "}
-          <span className="font-semibold text-[rgb(var(--fg-default))]">
-            {DEFAULT_DURATION_MIN / 60} hours
-          </span>{" "}
-          per session · Producer confirms within 24h
-        </span>
+        {selectedPackage ? (
+          <span className="text-[rgb(var(--fg-muted))]">
+            {" · "}
+            <span className="font-semibold text-[rgb(var(--fg-default))]">
+              {formatDurationLabel(selectedPackage.durationMin)}
+            </span>{" "}
+            · {locationLabel(selectedPackage.locationType)} · {selectedPackage.minLeadHours}h notice
+            · {selectedPackage.bufferMinutes}m buffer ·{" "}
+            {selectedPackage.autoConfirm ? "Instant confirmation" : "Producer approval"}
+          </span>
+        ) : (
+          <span className="text-[rgb(var(--fg-muted))]">
+            {" · Choose a purchased session first"}
+          </span>
+        )}
       </p>
     </div>
   );
@@ -630,23 +614,42 @@ function CalendarCard({
   // when the user tabs into the grid. Defaults to the selected day,
   // then today, then the first available day in view.
   const dayRefs = useRef(new Map<string, HTMLButtonElement>());
+  const pendingFocusDateRef = useRef<string | null>(null);
+  const [focusedDate, setFocusedDate] = useState<string | null>(null);
   const firstAvailableInView = useMemo(() => {
     for (const c of cells) {
       if (!c) continue;
       if (c.iso < today) continue;
       const d = daysByDate.get(c.iso);
-      if (d && (d.morning?.available || d.evening?.available)) return c.iso;
+      if (dayHasAvailability(d)) return c.iso;
     }
     return null;
   }, [cells, daysByDate, today]);
+  const datesInView = new Set(cells.flatMap((cell) => (cell ? [cell.iso] : [])));
   const rovingDate =
-    selectedDate ?? (cells.some((c) => c?.iso === today) ? today : firstAvailableInView);
+    (focusedDate && datesInView.has(focusedDate) ? focusedDate : null) ??
+    (selectedDate && datesInView.has(selectedDate) ? selectedDate : null) ??
+    (datesInView.has(today) ? today : null) ??
+    firstAvailableInView ??
+    cells.find((cell) => cell !== null)?.iso ??
+    null;
+
+  useEffect(() => {
+    const target = pendingFocusDateRef.current;
+    if (!target) return;
+    const element = dayRefs.current.get(target);
+    if (!element) return;
+    pendingFocusDateRef.current = null;
+    setFocusedDate(target);
+    element.focus();
+  }, [month0, year]);
 
   const moveFocus = useCallback(
     (fromIso: string, delta: number) => {
       const target = shiftIsoByDays(fromIso, delta);
       const el = dayRefs.current.get(target);
-      if (el && !el.disabled) {
+      if (el) {
+        setFocusedDate(target);
         el.focus();
         return;
       }
@@ -654,17 +657,21 @@ function CalendarCard({
       // focus on next render via a useEffect tied to viewYear/Month.
       const [y, m] = target.split("-").map(Number);
       if (!y || !m) return;
-      if (m - 1 < month0 || (m - 1 === month0 && y < year)) {
+      pendingFocusDateRef.current = target;
+      if (y < year || (y === year && m - 1 < month0)) {
         onPrevMonth?.();
-      } else if (m - 1 > month0 || (m - 1 === month0 && y > year)) {
+      } else if (y > year || (y === year && m - 1 > month0)) {
         onNextMonth();
+      } else {
+        pendingFocusDateRef.current = null;
       }
     },
     [month0, year, onPrevMonth, onNextMonth],
   );
 
   const onGridKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!rovingDate) return;
+    const fromIso = (e.target as HTMLElement).dataset.date ?? rovingDate;
+    if (!fromIso) return;
     let delta = 0;
     switch (e.key) {
       case "ArrowLeft":
@@ -680,14 +687,14 @@ function CalendarCard({
         delta = 7;
         break;
       case "Home": {
-        const [y, m, d] = rovingDate.split("-").map(Number);
+        const [y, m, d] = fromIso.split("-").map(Number);
         if (!y || !m || !d) return;
         const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
         delta = -dow;
         break;
       }
       case "End": {
-        const [y, m, d] = rovingDate.split("-").map(Number);
+        const [y, m, d] = fromIso.split("-").map(Number);
         if (!y || !m || !d) return;
         const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
         delta = 6 - dow;
@@ -697,12 +704,12 @@ function CalendarCard({
         return;
     }
     e.preventDefault();
-    moveFocus(rovingDate, delta);
+    moveFocus(fromIso, delta);
   };
 
   return (
     <div
-      className={`overflow-hidden rounded-card border bg-[rgb(var(--bg-elevated))] p-4 sm:p-5 ${className ?? ""}`}
+      className={`rounded-card overflow-hidden border bg-[rgb(var(--bg-elevated))] p-2 sm:p-5 ${className ?? ""}`}
       style={{
         borderColor: "rgb(var(--border-subtle))",
         boxShadow: "var(--shadow-md)",
@@ -715,9 +722,9 @@ function CalendarCard({
             <ChevronLeft />
           </NavButton>
         ) : (
-          <span className="h-8 w-8" aria-hidden />
+          <span className="h-11 w-11 sm:h-9 sm:w-9" aria-hidden />
         )}
-        <h2 className="font-syne text-[16px] font-extrabold leading-none tracking-[-0.015em] text-[rgb(var(--fg-default))]">
+        <h2 className="font-syne text-[16px] leading-none font-extrabold tracking-[-0.015em] text-[rgb(var(--fg-default))]">
           {fmtMonthYear(year, month0)}
         </h2>
         <NavButton onClick={onNextMonth} label="Next month">
@@ -735,7 +742,7 @@ function CalendarCard({
             color: "rgb(var(--fg-secondary))",
           }}
         >
-          No open slots in the next 14 days.
+          No open slots in this booking window.
           {producerName ? <> Message {producerName} directly.</> : null}
         </div>
       ) : null}
@@ -743,31 +750,23 @@ function CalendarCard({
       <div
         role="grid"
         aria-label={fmtMonthYear(year, month0)}
-        className="grid grid-cols-7 gap-1"
+        className="grid grid-cols-7 gap-0 sm:gap-1"
         onKeyDown={onGridKeyDown}
       >
         {WEEKDAY_HEADERS.map((w) => (
           <div
             key={w}
             role="columnheader"
-            className="pb-2 text-center font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[rgb(var(--fg-faint))]"
+            className="pb-2 text-center font-mono text-[10px] font-bold tracking-[0.12em] text-[rgb(var(--fg-faint))] uppercase"
           >
             {w.slice(0, 1)}
           </div>
         ))}
         {cells.map((cell, i) => {
           if (!cell)
-            return (
-              <div
-                key={`empty-${String(i)}`}
-                role="gridcell"
-                aria-hidden
-                className="h-10"
-              />
-            );
+            return <div key={`empty-${String(i)}`} role="gridcell" aria-hidden className="h-11" />;
           const day = daysByDate.get(cell.iso);
-          const available =
-            !!day && (!!day.morning?.available || !!day.evening?.available);
+          const available = dayHasAvailability(day);
           const isToday = cell.iso === today;
           const isSelected = cell.iso === selectedDate;
           const inPast = cell.iso < today;
@@ -781,11 +780,15 @@ function CalendarCard({
               isToday={isToday}
               isSelected={isSelected}
               tabIndex={isRoving ? 0 : -1}
+              dateISO={cell.iso}
               ariaLabel={fmtDateLong(cell.iso)}
               staggerDelayMs={Math.floor(i / 7) * 25}
               registerRef={(el) => {
                 if (el) dayRefs.current.set(cell.iso, el);
                 else dayRefs.current.delete(cell.iso);
+              }}
+              onFocus={() => {
+                setFocusedDate(cell.iso);
               }}
               onClick={() => {
                 if (enabled) onPickDate(cell.iso);
@@ -804,9 +807,11 @@ function DayCell({
   isToday,
   isSelected,
   tabIndex,
+  dateISO,
   ariaLabel,
   staggerDelayMs,
   registerRef,
+  onFocus,
   onClick,
 }: {
   dayNum: number;
@@ -814,9 +819,11 @@ function DayCell({
   isToday: boolean;
   isSelected: boolean;
   tabIndex: 0 | -1;
+  dateISO: string;
   ariaLabel: string;
   staggerDelayMs: number;
   registerRef: (el: HTMLButtonElement | null) => void;
+  onFocus: () => void;
   onClick: () => void;
 }) {
   const disabled = !available;
@@ -844,13 +851,15 @@ function DayCell({
       ref={registerRef}
       type="button"
       role="gridcell"
-      disabled={disabled}
+      data-date={dateISO}
+      aria-disabled={disabled}
+      onFocus={onFocus}
       onClick={onClick}
       tabIndex={tabIndex}
       aria-current={isToday ? "date" : undefined}
       aria-selected={isSelected}
       aria-label={ariaLabel}
-      className={`book-stagger sk-press relative flex h-10 items-center justify-center rounded-full font-mono text-[13px] font-semibold tabular-nums disabled:cursor-not-allowed ${available ? "book-day-available" : ""}`}
+      className={`book-stagger sk-press relative flex h-11 items-center justify-center rounded-full font-mono text-[13px] font-semibold tabular-nums ${disabled ? "cursor-not-allowed" : ""} ${available ? "book-day-available" : ""}`}
       style={{
         ...tone,
         transition: `background-color 150ms ${EASE_OUT}, color 150ms ${EASE_OUT}, box-shadow 220ms ${EASE_OUT}, transform 180ms ${EASE_OUT}`,
@@ -890,7 +899,7 @@ function NavButton({
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="sk-press flex h-8 w-8 items-center justify-center rounded-full text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--bg-overlay))]"
+      className="sk-press flex h-11 w-11 items-center justify-center rounded-full text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--bg-overlay))] sm:h-9 sm:w-9"
     >
       {children}
     </button>
@@ -903,7 +912,7 @@ function NavButton({
 
 function Legend() {
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-[rgb(var(--fg-muted))]">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1 font-mono text-[10px] font-semibold tracking-[0.1em] text-[rgb(var(--fg-muted))] uppercase">
       <span className="inline-flex items-center gap-1.5">
         <span
           aria-hidden
@@ -941,16 +950,17 @@ function TimeSection({
   selectedDate,
   starts,
   chosenStart,
+  durationMin,
   onPickStart,
 }: {
   selectedDate: string;
   starts: StartOption[];
   chosenStart: number | null;
+  durationMin: number;
   onPickStart: (opt: StartOption) => void;
 }) {
   const morningStarts = starts.filter((s) => s.block === "morning");
   const eveningStarts = starts.filter((s) => s.block === "evening");
-  const hours = DEFAULT_DURATION_MIN / 60;
 
   return (
     <section
@@ -958,7 +968,7 @@ function TimeSection({
       className="sk-rise space-y-3"
       style={{ animationDelay: "60ms" }}
     >
-      <p className="px-1 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+      <p className="px-1 font-mono text-[10px] font-bold tracking-[0.16em] text-[rgb(var(--fg-muted))] uppercase">
         {fmtDateShort(selectedDate)} · Available times
       </p>
 
@@ -980,7 +990,7 @@ function TimeSection({
       ) : null}
       {starts.length === 0 ? (
         <p className="px-1 text-[12.5px] text-[rgb(var(--fg-muted))]">
-          No {hours}-hour starts fit in this day&apos;s window.
+          No {formatDurationLabel(durationMin)} starts fit in this day&apos;s window.
         </p>
       ) : null}
     </section>
@@ -1000,7 +1010,7 @@ function TimeGroup({
 }) {
   return (
     <div>
-      <p className="mb-2 px-1 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgb(var(--fg-faint))]">
+      <p className="mb-2 px-1 font-mono text-[10px] font-semibold tracking-[0.18em] text-[rgb(var(--fg-faint))] uppercase">
         {label}
       </p>
       <div className="flex flex-wrap gap-2">
@@ -1013,17 +1023,11 @@ function TimeGroup({
               onClick={() => {
                 onPick(s);
               }}
-              className="time-pill book-stagger sk-press flex items-center justify-center rounded-card border px-5 py-3 font-amount text-[14px] font-semibold"
+              className="time-pill book-stagger sk-press font-amount flex items-center justify-center rounded-[var(--radius-lg)] border px-5 py-3 text-[14px] font-semibold"
               style={{
-                background: sel
-                  ? "rgb(var(--brand-primary))"
-                  : "rgb(var(--bg-elevated))",
-                color: sel
-                  ? "rgb(var(--bg-sidebar))"
-                  : "rgb(var(--fg-default))",
-                borderColor: sel
-                  ? "rgb(var(--brand-primary))"
-                  : "rgb(var(--border-strong))",
+                background: sel ? "rgb(var(--brand-primary))" : "rgb(var(--bg-elevated))",
+                color: sel ? "rgb(var(--bg-sidebar))" : "rgb(var(--fg-default))",
+                borderColor: sel ? "rgb(var(--brand-primary))" : "rgb(var(--border-strong))",
                 boxShadow: sel ? "var(--shadow-glow)" : "var(--shadow-sm)",
                 transition: `background-color 150ms ${EASE_OUT}, color 150ms ${EASE_OUT}, border-color 150ms ${EASE_OUT}, transform 180ms ${EASE_OUT}, box-shadow 220ms ${EASE_OUT}`,
                 animationDelay: `${String(i * 35)}ms`,
@@ -1056,12 +1060,10 @@ function CreditsBlock({
   packages,
   selectedAllowanceId,
   onPick,
-  onClear,
 }: {
   packages: ActivePackage[];
   selectedAllowanceId: string | null;
   onPick: (sessionAllowanceId: string) => void;
-  onClear: () => void;
 }) {
   const hasUnlimited = packages.some((pkg) => pkg.unlimitedSessions);
   const totalLeft = packages.reduce((n, p) => n + p.sessionsRemaining, 0);
@@ -1076,8 +1078,8 @@ function CreditsBlock({
       }}
     >
       <header className="flex items-baseline justify-between gap-3">
-        <h2 className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-          Use a prepaid session
+        <h2 className="font-mono text-[10px] font-bold tracking-[0.18em] text-[rgb(var(--fg-muted))] uppercase">
+          Choose a purchased session
         </h2>
         <p className="font-amount text-[10.5px] text-[rgb(var(--fg-secondary))]">
           {hasUnlimited ? "Ongoing" : `${String(totalLeft)} left`}
@@ -1086,8 +1088,7 @@ function CreditsBlock({
       <ul className="mt-2.5 space-y-1.5">
         {packages.map((pkg) => {
           const sel = pkg.sessionAllowanceId === selectedAllowanceId;
-          const exhausted =
-            !pkg.unlimitedSessions && pkg.sessionsRemaining <= 0;
+          const exhausted = !pkg.unlimitedSessions && pkg.sessionsRemaining <= 0;
           return (
             <li key={pkg.sessionAllowanceId}>
               <button
@@ -1096,32 +1097,32 @@ function CreditsBlock({
                   onPick(pkg.sessionAllowanceId);
                 }}
                 disabled={exhausted}
-                className="sk-press flex w-full items-center justify-between gap-2 rounded-[var(--radius-md)] border px-2.5 py-2 text-left disabled:cursor-not-allowed disabled:opacity-60"
+                className="sk-press flex min-h-11 w-full items-center justify-between gap-2 rounded-[var(--radius-lg)] border px-3 py-2.5 text-left disabled:cursor-not-allowed disabled:opacity-60"
                 style={{
-                  background: sel
-                    ? "rgb(var(--brand-primary))"
-                    : "rgb(var(--bg-elevated))",
+                  background: sel ? "rgb(var(--brand-primary))" : "rgb(var(--bg-elevated))",
                   borderColor: sel
                     ? "rgb(var(--brand-primary))"
                     : "rgb(var(--brand-primary) / 0.25)",
-                  color: sel
-                    ? "rgb(var(--bg-sidebar))"
-                    : "rgb(var(--fg-default))",
+                  color: sel ? "rgb(var(--bg-sidebar))" : "rgb(var(--fg-default))",
                   transition: `background-color 150ms ${EASE_OUT}, border-color 150ms ${EASE_OUT}, color 150ms ${EASE_OUT}`,
                 }}
               >
-                <span className="truncate text-[12.5px] font-semibold">
-                  {pkg.packageName ?? pkg.title}
+                <span className="min-w-0">
+                  <span className="block truncate text-[12.5px] font-semibold">
+                    {pkg.packageName ?? pkg.title}
+                  </span>
+                  <span className="mt-0.5 block truncate text-[10.5px] opacity-75">
+                    {pkg.title} · {formatDurationLabel(pkg.durationMin)} ·{" "}
+                    {locationLabel(pkg.locationType)}
+                  </span>
                 </span>
                 <span
-                  className="shrink-0 rounded-[var(--radius-sm)] px-1.5 py-0.5 font-amount text-[10px] font-bold"
+                  className="font-amount shrink-0 rounded-[var(--radius-sm)] px-1.5 py-0.5 text-[10px] font-bold"
                   style={{
                     background: sel
                       ? "rgb(var(--bg-sidebar) / 0.15)"
                       : "rgb(var(--brand-primary) / 0.12)",
-                    color: sel
-                      ? "rgb(var(--bg-sidebar))"
-                      : "rgb(var(--brand-primary-dark))",
+                    color: sel ? "rgb(var(--bg-sidebar))" : "rgb(var(--brand-primary-dark))",
                   }}
                 >
                   {pkg.unlimitedSessions
@@ -1133,21 +1134,11 @@ function CreditsBlock({
           );
         })}
       </ul>
-      <button
-        type="button"
-        onClick={onClear}
-        className="sk-press mt-2 text-[11px] underline decoration-dotted underline-offset-2"
-        style={{
-          color:
-            selectedAllowanceId === null
-              ? "rgb(var(--brand-primary-dark))"
-              : "rgb(var(--fg-muted))",
-        }}
-      >
-        {selectedAllowanceId === null
-          ? "No purchased session selected"
-          : "Don’t use a purchased session"}
-      </button>
+      {selectedAllowanceId === null ? (
+        <p className="mt-2 text-[11px] text-[rgb(var(--fg-muted))]">
+          Pick one to see dates that fit its duration and booking rules.
+        </p>
+      ) : null}
     </section>
   );
 }
@@ -1157,20 +1148,15 @@ function CreditsBlock({
 // region preserved from the calendar footer).
 // ──────────────────────────────────────────────────────────────────────
 
-function TimeZoneNote() {
-  const tzLabel = useLiveTimeZoneLabel();
+function TimeZoneNote({ timeZone }: { timeZone: string }) {
   return (
     <div
       className="flex items-center gap-2 px-1 text-[11.5px] text-[rgb(var(--fg-muted))]"
       aria-live="polite"
     >
-      {tzLabel ? (
-        <>
-          <GlobeIcon />
-          <span className="font-amount">{tzLabel}</span>
-          <span aria-hidden>· Reminders go out 24h &amp; 1h before.</span>
-        </>
-      ) : null}
+      <GlobeIcon />
+      <span className="font-amount">{timeZone.replaceAll("_", " ")}</span>
+      <span>· Studio time</span>
     </div>
   );
 }
