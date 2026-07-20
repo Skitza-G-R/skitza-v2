@@ -427,59 +427,68 @@ export async function listPublicPortfolioSongs(
   db: Db,
   input: Readonly<{ producerId: string; secret: string; limit?: number }>,
 ): Promise<PublicPortfolioSong[]> {
-  const tracks = await db
-    .select({
-      projectId: projectTracks.projectId,
-      purchaseId: projectTracks.purchaseId,
-      producerId: purchases.producerId,
-      trackId: projectTracks.id,
-      title: projectTracks.title,
-      artist: projectTracks.artist,
-      portfolioPublishedAt: projectTracks.portfolioPublishedAt,
-    })
-    .from(projectTracks)
-    .innerJoin(
-      purchases,
-      and(
-        eq(purchases.id, projectTracks.purchaseId),
-        eq(purchases.projectId, projectTracks.projectId),
-        eq(purchases.producerId, input.producerId),
-      ),
-    )
-    .where(and(eq(purchases.producerId, input.producerId), sql`${projectTracks.portfolioPublishedAt} is not null`))
-    .orderBy(sql`${projectTracks.portfolioPublishedAt} desc`, sql`${projectTracks.id} desc`);
-
-  const output: PublicPortfolioSong[] = [];
-  for (const track of tracks) {
-    if (!track.portfolioPublishedAt) continue;
-    const candidates = await db
-      .select(versionSelection())
-      .from(trackVersions)
+  return db.transaction(async (tx) => {
+    const tracks = await tx
+      .select({
+        projectId: projectTracks.projectId,
+        purchaseId: projectTracks.purchaseId,
+        producerId: purchases.producerId,
+        trackId: projectTracks.id,
+        title: projectTracks.title,
+        artist: projectTracks.artist,
+        portfolioPublishedAt: projectTracks.portfolioPublishedAt,
+      })
+      .from(projectTracks)
+      .innerJoin(
+        purchases,
+        and(
+          eq(purchases.id, projectTracks.purchaseId),
+          eq(purchases.projectId, projectTracks.projectId),
+          eq(purchases.producerId, input.producerId),
+        ),
+      )
       .where(
         and(
-          eq(trackVersions.trackId, track.trackId),
-          eq(trackVersions.purchaseId, track.purchaseId),
-          eq(trackVersions.producerId, track.producerId),
+          eq(purchases.producerId, input.producerId),
+          sql`${projectTracks.portfolioPublishedAt} is not null`,
         ),
-      );
-    const newest = selectPublicStoredVersions(candidates, track)[0];
-    if (!newest) continue;
-    const capability = createPortfolioAudioCapability(input.secret, {
-      producerId: track.producerId,
-      trackId: track.trackId,
-      versionId: newest.id,
-      portfolioPublishedAtEpochMs: track.portfolioPublishedAt.getTime(),
-    });
-    output.push({
-      id: track.trackId,
-      title: track.title,
-      artist: track.artist,
-      audioUrl: publicPortfolioSongAudioPath(newest.id, capability),
-      durationMs: newest.durationMs,
-      peaks: newest.peaks,
-      portfolioPublishedAt: track.portfolioPublishedAt,
-    });
-    if (output.length >= (input.limit ?? 3)) break;
-  }
-  return output;
+      )
+      .orderBy(sql`${projectTracks.portfolioPublishedAt} desc`, sql`${projectTracks.id} desc`)
+      .for("share", { of: projectTracks });
+
+    const output: PublicPortfolioSong[] = [];
+    for (const track of tracks) {
+      if (!track.portfolioPublishedAt) continue;
+      const candidates = await tx
+        .select(versionSelection())
+        .from(trackVersions)
+        .where(
+          and(
+            eq(trackVersions.trackId, track.trackId),
+            eq(trackVersions.purchaseId, track.purchaseId),
+            eq(trackVersions.producerId, track.producerId),
+          ),
+        )
+        .for("share");
+      const newest = selectPublicStoredVersions(candidates, track)[0];
+      if (!newest) continue;
+      const capability = createPortfolioAudioCapability(input.secret, {
+        producerId: track.producerId,
+        trackId: track.trackId,
+        versionId: newest.id,
+        portfolioPublishedAtEpochMs: track.portfolioPublishedAt.getTime(),
+      });
+      output.push({
+        id: track.trackId,
+        title: track.title,
+        artist: track.artist,
+        audioUrl: publicPortfolioSongAudioPath(newest.id, capability),
+        durationMs: newest.durationMs,
+        peaks: newest.peaks,
+        portfolioPublishedAt: track.portfolioPublishedAt,
+      });
+      if (output.length >= (input.limit ?? 3)) break;
+    }
+    return output;
+  });
 }

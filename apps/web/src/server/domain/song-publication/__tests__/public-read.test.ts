@@ -234,6 +234,13 @@ class PortfolioListingQuery implements PromiseLike<unknown[]> {
     return this;
   }
 
+  for(lock: string): this {
+    if (lock !== "share") throw new Error("Portfolio reads must use shared row locks");
+    if (this.kind === "tracks") this.owner.trackShareLocks += 1;
+    else this.owner.versionShareLocks += 1;
+    return this;
+  }
+
   then<TResult1 = unknown[], TResult2 = never>(
     onfulfilled?: ((value: unknown[]) => TResult1 | PromiseLike<TResult1>) | null,
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
@@ -245,6 +252,9 @@ class PortfolioListingQuery implements PromiseLike<unknown[]> {
 class PortfolioListingDb {
   trackFilterWasApplied = false;
   readonly versionQueries: string[] = [];
+  transactions = 0;
+  trackShareLocks = 0;
+  versionShareLocks = 0;
 
   constructor(
     readonly producerId: string,
@@ -257,6 +267,11 @@ class PortfolioListingDb {
       Object.hasOwn(selection, "portfolioPublishedAt") ? "tracks" : "versions",
       this,
     );
+  }
+
+  transaction<T>(work: (tx: Db) => Promise<T>): Promise<T> {
+    this.transactions += 1;
+    return work(this.asDb());
   }
 
   asDb(): Db {
@@ -593,6 +608,9 @@ describe("public song reads and audio delivery", () => {
     });
 
     expect(database.trackFilterWasApplied).toBe(true);
+    expect(database.transactions).toBe(1);
+    expect(database.trackShareLocks).toBe(1);
+    expect(database.versionShareLocks).toBe(3);
     expect(database.versionQueries).not.toContain(unmarked.trackId);
     expect(songs).toHaveLength(1);
     expect(songs[0]).toMatchObject({

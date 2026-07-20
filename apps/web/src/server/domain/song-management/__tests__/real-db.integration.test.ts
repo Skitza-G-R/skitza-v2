@@ -16,6 +16,9 @@ import {
   privateVersionStreamPath,
   publicPortfolioStreamPath,
 } from "../../audio-delivery/urls";
+import { songPublicationRepository } from "../../song-publication/db";
+import { listPublicPortfolioSongs } from "../../song-publication/public-read";
+import { setPortfolioPublic } from "../../song-publication/service";
 import { computeStoredAudioIdentityFingerprint } from "../service";
 
 // This suite never falls back to DATABASE_URL. DATABASE_URL_TEST is the
@@ -23,6 +26,10 @@ import { computeStoredAudioIdentityFingerprint } from "../service";
 const testDatabaseUrl = process.env.DATABASE_URL_TEST;
 const describeWithTestDatabase = testDatabaseUrl ? describe : describe.skip;
 const testSchema = `sk8_${randomUUID().replaceAll("-", "")}`;
+const transactionApplicationNameA = `${testSchema}_a`;
+const transactionApplicationNameB = `${testSchema}_b`;
+const transactionApplicationNameC = `${testSchema}_c`;
+const publicationTestSecret = "sk98-real-db-publication-secret-2026";
 
 type TestTable =
   | "producers"
@@ -48,13 +55,16 @@ function qualifiedTestTable(table: TestTable): string {
 
 type TransactionFn = Db["transaction"];
 
-function withIsolatedTransactionSchema(database: Db): Db {
+function withIsolatedTransactionSchema(database: Db, applicationName: string): Db {
   const runTransaction = database.transaction.bind(database);
   database.transaction = (async (...args: Parameters<TransactionFn>) => {
     const [work, config] = args;
     return runTransaction(async (transaction) => {
       assertValidTestSchema();
       await transaction.execute(sql.raw(`set local search_path to "${testSchema}"`));
+      await transaction.execute(
+        sql`select set_config('application_name', ${applicationName}, true)`,
+      );
       return work(transaction);
     }, config);
   }) as TransactionFn;
@@ -87,10 +97,13 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
   // Race coverage needs distinct clients. Each operation still opens its own
   // max-one interactive transaction pool through createDb.
   const transactionDbA = testDatabaseUrl
-    ? withIsolatedTransactionSchema(createDb(testDatabaseUrl))
+    ? withIsolatedTransactionSchema(createDb(testDatabaseUrl), transactionApplicationNameA)
     : null;
   const transactionDbB = testDatabaseUrl
-    ? withIsolatedTransactionSchema(createDb(testDatabaseUrl))
+    ? withIsolatedTransactionSchema(createDb(testDatabaseUrl), transactionApplicationNameB)
+    : null;
+  const transactionDbC = testDatabaseUrl
+    ? withIsolatedTransactionSchema(createDb(testDatabaseUrl), transactionApplicationNameC)
     : null;
   let schemaCreated = false;
 
@@ -107,6 +120,33 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
   function activeTransactionDbB(): Db {
     if (!transactionDbB) throw new Error("SK-8 second transaction database is unavailable");
     return transactionDbB;
+  }
+
+  function activeTransactionDbC(): Db {
+    if (!transactionDbC) throw new Error("SK-8 third transaction database is unavailable");
+    return transactionDbC;
+  }
+
+  async function waitForDatabaseLock(
+    applicationName: string,
+    queryFragment: "project_tracks" | "track_versions",
+  ): Promise<void> {
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      const waiting = await activeAdminDb().execute<{ waiting: boolean }>(sql`
+        select exists (
+          select 1
+          from pg_stat_activity
+          where "application_name" = ${applicationName}
+            and "state" = 'active'
+            and "wait_event_type" = 'Lock'
+            and position(lower(${queryFragment}) in lower("query")) > 0
+        ) as "waiting"
+      `);
+      if (waiting.rows[0]?.waiting) return;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw new Error(`Timed out waiting for ${queryFragment} lock serialization`);
   }
 
   beforeAll(async () => {
@@ -1168,5 +1208,88 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
       (row.audio_deleted_at !== null && row.producer_marked_final_at === null) ||
         (row.audio_deleted_at === null && row.producer_marked_final_at !== null),
     ).toBe(true);
+  }, 30_000);
+
+  it("serializes a public portfolio listing against producer unpublish", async () => {
+    const publishedAt = new Date("2026-07-15T08:00:00.000Z");
+    const song = await createSong({
+      portfolioPublishedAt: publishedAt,
+      title: "Public until the writer commits",
+      artist: "Race-safe artist",
+    });
+    const version = await createStoredVersion(song, {
+      label: "Current public mix",
+      uploadedAt: new Date("2026-07-15T09:00:00.000Z"),
+    });
+
+    let signalBlockerReady!: () => void;
+    let releaseVersionTable!: () => void;
+    const blockerReady = new Promise<void>((resolve) => {
+      signalBlockerReady = resolve;
+    });
+    const versionTableRelease = new Promise<void>((resolve) => {
+      releaseVersionTable = resolve;
+    });
+    const versionTableBlocker = activeTransactionDbB().transaction(async (tx) => {
+      await tx.execute(
+        sql.raw(`lock table ${qualifiedTestTable("track_versions")} in access exclusive mode`),
+      );
+      signalBlockerReady();
+      await versionTableRelease;
+    });
+    await blockerReady;
+
+    const completionOrder: string[] = [];
+    const listing = listPublicPortfolioSongs(activeTransactionDbA(), {
+      producerId: song.producerId,
+      secret: publicationTestSecret,
+      limit: 3,
+    }).then((songs) => {
+      completionOrder.push("listing");
+      return songs;
+    });
+    await waitForDatabaseLock(transactionApplicationNameA, "track_versions");
+
+    const unpublish = setPortfolioPublic(
+      songPublicationRepository(activeTransactionDbC()),
+      {
+        producerId: song.producerId,
+        trackId: song.trackId,
+        operationKey: randomUUID(),
+        changedByClerkUserId: "user_portfolio_race_test",
+        occurredAt: new Date("2026-07-16T08:00:00.000Z"),
+        published: false,
+      },
+      { tokenSecret: publicationTestSecret },
+    ).then((result) => {
+      completionOrder.push("unpublish");
+      return result;
+    });
+
+    try {
+      await waitForDatabaseLock(transactionApplicationNameC, "project_tracks");
+    } finally {
+      releaseVersionTable();
+      await versionTableBlocker;
+    }
+
+    const [songs, unpublished] = await Promise.all([listing, unpublish]);
+    expect(completionOrder).toEqual(["listing", "unpublish"]);
+    expect(songs).toHaveLength(1);
+    expect(songs[0]).toMatchObject({
+      id: song.trackId,
+      title: "Public until the writer commits",
+      artist: "Race-safe artist",
+      portfolioPublishedAt: publishedAt,
+    });
+    expect(songs[0]?.audioUrl).toContain(version.id);
+    expect(unpublished.state.portfolioPublished).toBe(false);
+
+    const stored = await activeAdminDb().execute<{ portfolio_published_at: DbDate | null }>(sql`
+      select "portfolio_published_at"
+      from ${sql.raw(qualifiedTestTable("project_tracks"))}
+      where "id" = ${song.trackId}
+    `);
+    expect(stored.rows[0]?.portfolio_published_at).toBeNull();
   }, 30_000);
 });
