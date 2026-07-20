@@ -12,8 +12,7 @@ export type ActionResult = { ok: true } | { ok: false; error: string };
 const CALENDAR_PATH = "/dashboard/calendar";
 
 async function callerOrError(): Promise<
-  | { ok: true; caller: ReturnType<typeof appRouter.createCaller> }
-  | { ok: false; error: string }
+  { ok: true; caller: ReturnType<typeof appRouter.createCaller> } | { ok: false; error: string }
 > {
   const { userId } = await auth();
   if (!userId) return { ok: false, error: "Please sign in to continue." };
@@ -50,7 +49,10 @@ export async function confirmBooking(input: { id: string }): Promise<ActionResul
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    await c.caller.booking.confirm({ id: input.id });
+    await c.caller.booking.confirm({
+      id: input.id,
+      operationKey: `producer-confirm:${input.id}:v1`,
+    });
     revalidatePath(CALENDAR_PATH);
     return { ok: true };
   } catch (err) {
@@ -62,7 +64,31 @@ export async function rejectBooking(input: { id: string }): Promise<ActionResult
   const c = await callerOrError();
   if (!c.ok) return c;
   try {
-    await c.caller.booking.reject({ id: input.id });
+    await c.caller.booking.reject({
+      id: input.id,
+      operationKey: `producer-reject:${input.id}:v1`,
+    });
+    revalidatePath(CALENDAR_PATH);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function cancelSession(input: {
+  id: string;
+  reason: string;
+  note?: string;
+}): Promise<ActionResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const reason = [input.reason.trim(), input.note?.trim()].filter(Boolean).join(": ");
+    await c.caller.booking.cancel({
+      id: input.id,
+      operationKey: `producer-cancel:${input.id}:v1`,
+      ...(reason ? { reason } : {}),
+    });
     revalidatePath(CALENDAR_PATH);
     return { ok: true };
   } catch (err) {

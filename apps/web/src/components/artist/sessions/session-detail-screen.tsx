@@ -12,75 +12,48 @@
 // (Reschedule + Cancel + the policy footnote) flows directly under the policy
 // note (proto-s12) — no dead band, no viewport pinning.
 //
-// The cancel/reschedule TIME-POLICY gates the ACTIONS only, not money. We
-// read the live clock once at render and inject it into the pure
-// `cancelPolicy` helper (it never reads the clock itself — deterministic in
-// tests). Within the window → buttons live; too close → both disabled and a
-// calm PolicyNotice appears. A done/past session hides the actions entirely.
-//
-// Cancel is a STUB (no real mutation yet): confirming opens the inline
-// RescheduleConfirmSheet which mirrors the producer cancel-session-modal
-// "coming soon" pattern. BE-3 (SK-39) swaps the stub for the real call —
-// these screens don't change.
+// The server-authored policy gates the actions. Within the window the artist
+// can change the booking; too close means both actions stay disabled and the
+// artist is directed to the producer. Terminal sessions hide actions.
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-import {
-  Check,
-  ClockIcon,
-  CloseIcon,
-} from "~/components/artist/funnel/funnel-icons";
+import { Check, ClockIcon, CloseIcon } from "~/components/artist/funnel/funnel-icons";
 import { FunnelTopBar } from "~/components/artist/funnel/funnel-ui";
 
 import {
-  cancelPolicy,
   formatSessionDate,
   formatSessionTime,
-  type Producer,
+  locationLabel,
   type SessionDetail,
-  swatchGradient,
 } from "./book-data";
 import { PolicyNotice } from "./policy-notice";
 import { RescheduleConfirmSheet } from "./reschedule-confirm-sheet";
 import { StatusPill } from "./status-pill";
 
-export function SessionDetailScreen({
-  session,
-  producer,
-  cancelWindowHours,
-}: {
-  session: SessionDetail;
-  producer: Producer;
-  cancelWindowHours: number;
-}) {
+export function SessionDetailScreen({ session }: { session: SessionDetail }) {
   const router = useRouter();
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const isPast = session.status === "done";
-
-  // Read the live clock once at render and inject it — the helper stays pure.
-  const nowMs = Date.now();
-  const policy = cancelPolicy(
-    session.startsAtMs,
-    cancelWindowHours,
-    nowMs,
-    producer.name,
-  );
+  const isActive = session.status === "pending_approval" || session.status === "confirmed";
+  const canChange = session.policy.canCancel || session.policy.canReschedule;
 
   const durationLabel = formatDuration(session.durationMin);
 
   function reschedule() {
-    if (!policy.withinPolicy) return;
-    setError(null);
-    // Carry the session id into the slot picker so it can rebind the booking.
-    router.push(`/artist/book?session=${session.id}`);
+    if (!session.policy.canReschedule) return;
+    const params = new URLSearchParams({
+      session: session.id,
+      studio: session.producerId,
+      project: session.projectId,
+      allowance: session.sessionAllowanceId,
+    });
+    router.push(`/artist/book?${params.toString()}`);
   }
 
   function openCancel() {
-    if (!policy.withinPolicy) return;
-    setError(null);
+    if (!session.policy.canCancel) return;
     setSheetOpen(true);
   }
 
@@ -92,17 +65,17 @@ export function SessionDetailScreen({
       <div className="relative mx-auto flex min-h-dvh w-full max-w-[440px] flex-col">
         <FunnelTopBar
           title="Session"
-          sub={isPast ? "PAST SESSION" : "YOUR BOOKING"}
+          sub={isActive ? "YOUR BOOKING" : "SESSION HISTORY"}
           onBack={() => {
             router.push("/artist/sessions");
           }}
         />
 
-        <div className="flex-1 px-5 pb-[max(env(safe-area-inset-bottom),20px)] pt-4">
+        <div className="flex-1 px-5 pt-4 pb-[max(env(safe-area-inset-bottom),20px)]">
           {/* hero summary — a DARK card (proto-s12): date/time large in white
               Syne, status pill, product + producer mini-row */}
           <div
-            className="sk-rise overflow-hidden rounded-card px-[20px] pb-5 pt-[18px]"
+            className="sk-rise rounded-card overflow-hidden px-[20px] pt-[18px] pb-5"
             style={{
               animationDelay: "40ms",
               background: "rgb(var(--bg-sidebar))",
@@ -111,17 +84,17 @@ export function SessionDetailScreen({
             }}
           >
             <div className="flex items-center justify-between">
-              <StatusPill status={session.status} onDark />
-              <span className="font-amount text-[10px] uppercase tracking-[0.16em] text-[rgb(255_255_255_/_0.45)]">
+              <StatusPill status={session.status} outcome={session.outcome} onDark />
+              <span className="font-amount text-[10px] tracking-[0.16em] text-[rgb(255_255_255_/_0.45)] uppercase">
                 {durationLabel} session
               </span>
             </div>
 
             {/* date + time — large in white Syne, time in font-amount */}
-            <div className="mt-3 font-syne text-[30px] font-extrabold leading-[1.04] tracking-[-0.035em] text-white">
-              {formatSessionDate(session.startsAtISO)} at{" "}
+            <div className="font-syne mt-3 text-[30px] leading-[1.04] font-extrabold tracking-[-0.035em] text-white">
+              {formatSessionDate(session.startsAtISO, session.producerTimezone)} at{" "}
               <span className="font-amount font-extrabold">
-                {formatSessionTime(session.startsAtISO)}
+                {formatSessionTime(session.startsAtISO, session.producerTimezone)}
               </span>
             </div>
 
@@ -131,38 +104,38 @@ export function SessionDetailScreen({
               style={{ background: "rgb(255 255 255 / 0.06)" }}
             >
               <span
-                className="flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-[12px] font-syne text-[14px] font-extrabold text-white"
-                style={{ background: swatchGradient(producer.hue) }}
+                className="font-syne flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-[12px] text-[14px] font-extrabold text-white"
+                style={{
+                  background:
+                    "linear-gradient(140deg, rgb(var(--brand-primary)), rgb(var(--brand-copper)))",
+                }}
               >
-                {producer.initials}
+                {producerInitials(session.producerName)}
               </span>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[14.5px] font-semibold text-white">
-                  {session.productName}
+                  {session.packageName}
                 </div>
                 <div className="mt-px truncate text-[12px] text-[rgb(255_255_255_/_0.55)]">
-                  with {producer.name}
+                  with {session.producerName} · {locationLabel(session.locationType)}
                 </div>
               </div>
             </div>
           </div>
 
-          {isPast ? (
-            <div
-              className="sk-rise mt-5 text-center"
-              style={{ animationDelay: "100ms" }}
-            >
+          {!isActive ? (
+            <div className="sk-rise mt-5 text-center" style={{ animationDelay: "100ms" }}>
               <p className="text-[13.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
-                This session has passed.
+                This booking is closed. Its outcome stays in your session history.
               </p>
             </div>
           ) : null}
 
           {/* within-policy → a calm GREEN note (you can change this yourself);
               too close → the muted PolicyNotice (message the producer) */}
-          {!isPast && policy.withinPolicy ? (
+          {isActive && canChange ? (
             <div
-              className="sk-rise mt-4 flex items-start gap-2.5 rounded-card px-3.5 py-3"
+              className="sk-rise rounded-card mt-4 flex items-start gap-2.5 px-3.5 py-3"
               style={{
                 animationDelay: "100ms",
                 background: "rgb(var(--fg-success) / 0.08)",
@@ -179,47 +152,31 @@ export function SessionDetailScreen({
                 <Check width={11} height={11} />
               </span>
               <p className="text-[12.5px] leading-snug text-[rgb(var(--fg-secondary))]">
-                You can change this yourself up to {cancelWindowHours}h before.{" "}
-                {producer.name} will be notified.
+                You can change this yourself up to {session.policy.cancellationPolicyHours}h before.{" "}
+                {session.producerName} will be notified.
               </p>
             </div>
           ) : null}
-          {!isPast && !policy.withinPolicy ? (
+          {isActive && !canChange ? (
             <div className="sk-rise mt-4" style={{ animationDelay: "100ms" }}>
-              <PolicyNotice producerName={producer.name} />
+              <PolicyNotice producerName={session.producerName} />
             </div>
           ) : null}
 
           {/* action stack flows right under the policy note (proto-s12) —
               hidden once the session has passed */}
-          {!isPast ? (
-            <div
-              className="sk-rise mt-5 flex flex-col gap-2.5"
-              style={{ animationDelay: "160ms" }}
-            >
-              {error ? (
-                <p
-                  className="rounded-[12px] px-3.5 py-2.5 text-center text-[12.5px] font-medium"
-                  style={{
-                    background: "rgb(var(--fg-danger) / 0.1)",
-                    color: "rgb(var(--fg-danger))",
-                  }}
-                  role="alert"
-                >
-                  {error}
-                </p>
-              ) : null}
-
+          {isActive ? (
+            <div className="sk-rise mt-5 flex flex-col gap-2.5" style={{ animationDelay: "160ms" }}>
               {/* amber Reschedule (proto-s12 primary action) */}
               <button
                 type="button"
                 onClick={reschedule}
-                disabled={!policy.withinPolicy}
-                className={`relative flex w-full items-center justify-center gap-[9px] overflow-hidden rounded-card px-[22px] py-4 text-[16px] font-semibold ${
-                  !policy.withinPolicy ? "cursor-not-allowed" : "sk-cta-press sk-gloss"
+                disabled={!session.policy.canReschedule}
+                className={`relative flex w-full items-center justify-center gap-[9px] overflow-hidden rounded-[var(--radius-lg)] px-[22px] py-4 text-[16px] font-semibold ${
+                  !session.policy.canReschedule ? "cursor-not-allowed" : "sk-cta-press sk-gloss"
                 }`}
                 style={
-                  !policy.withinPolicy
+                  !session.policy.canReschedule
                     ? {
                         background: "rgb(var(--fg-default) / 0.07)",
                         color: "rgb(var(--fg-muted) / 0.8)",
@@ -241,17 +198,17 @@ export function SessionDetailScreen({
               <button
                 type="button"
                 onClick={openCancel}
-                disabled={!policy.withinPolicy}
-                className={`flex w-full items-center justify-center gap-[8px] rounded-card px-[22px] py-[15px] text-[15px] font-semibold ${
-                  !policy.withinPolicy ? "cursor-not-allowed" : "sk-press"
+                disabled={!session.policy.canCancel}
+                className={`flex w-full items-center justify-center gap-[8px] rounded-[var(--radius-lg)] px-[22px] py-[15px] text-[15px] font-semibold ${
+                  !session.policy.canCancel ? "cursor-not-allowed" : "sk-press"
                 }`}
                 style={{
                   background: "rgb(var(--bg-elevated))",
-                  color: !policy.withinPolicy
+                  color: !session.policy.canCancel
                     ? "rgb(var(--fg-muted) / 0.7)"
                     : "rgb(var(--fg-danger))",
                   border: `1px solid ${
-                    !policy.withinPolicy
+                    !session.policy.canCancel
                       ? "rgb(var(--border-strong))"
                       : "rgb(var(--fg-danger) / 0.30)"
                   }`,
@@ -262,8 +219,8 @@ export function SessionDetailScreen({
               </button>
 
               <p className="px-1 pt-0.5 text-center text-[11px] leading-snug text-[rgb(var(--fg-muted))]">
-                The time policy controls changes only. Refunds and deposits follow
-                your signed agreement, off-app.
+                The time policy controls changes only. Refunds and deposits follow your signed
+                agreement, off-app.
               </p>
             </div>
           ) : null}
@@ -272,14 +229,28 @@ export function SessionDetailScreen({
 
       {sheetOpen ? (
         <RescheduleConfirmSheet
-          producerName={producer.name}
+          sessionId={session.id}
+          producerName={session.producerName}
           onClose={() => {
             setSheetOpen(false);
+          }}
+          onCancelled={() => {
+            router.push("/artist/sessions");
+            router.refresh();
           }}
         />
       ) : null}
     </div>
   );
+}
+
+function producerInitials(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join("");
 }
 
 // "120" min → "2 hr"; "90" → "1 hr 30 min"; "45" → "45 min".

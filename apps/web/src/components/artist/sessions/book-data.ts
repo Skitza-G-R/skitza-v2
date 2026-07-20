@@ -1,4 +1,4 @@
-// Types + pure helpers + placeholder data for the artist sessions screens
+// Types + pure helpers for the artist sessions screens
 // (Book section — S10 pick / S11 confirmed + My sessions / S12 cancel).
 //
 // Every helper here is pure: it takes its `now`/`today` as an argument and
@@ -7,26 +7,15 @@
 // tests stay deterministic. UTC-safe date parsing mirrors booking-client.tsx
 // so SSR and CSR format the same string.
 //
-// Shapes mirror Raz's BE-3 contract (SK-39): the producer's real sessions +
-// availability arrive through the same fields, so the route page.tsx swaps
-// MOCK_* for the tRPC caller and the screens don't change.
+// Route pages map the tRPC Date values to ISO strings before crossing the
+// server/client boundary. There is deliberately no placeholder data here:
+// an empty response renders the real empty state.
 
-import {
-  coverGradient,
-  formatShekels,
-  type Producer,
-  swatchGradient,
-} from "../purchase/purchase-data";
-// MOCK — the placeholder producer moved to pay-data when the Commit screens
-// went live on BE-1 (SK-46); sessions stay mock until BE-3 (SK-39).
-import { MOCK_PRODUCER as PURCHASE_MOCK_PRODUCER } from "../purchase/pay-data";
+import { coverGradient, formatShekels, swatchGradient } from "../purchase/purchase-data";
 
 // Re-export the shared store primitives so the sessions screens import from
 // one place (no duplicate gradient/format logic).
 export { coverGradient, formatShekels, swatchGradient };
-export type { Producer };
-
-const HOUR_MS = 3_600_000;
 
 // ── Session-progress display ──────────────────────────────────────────
 // How to show "sessions used of total" for an active booking. A short
@@ -47,24 +36,6 @@ export function buildProgressDots(used: number, total: number): { filled: boolea
   return Array.from({ length: total }, (_v, i) => ({ filled: i < safeUsed }));
 }
 
-// ── Cancel / reschedule policy (S12) ──────────────────────────────────
-// The time-policy gates the ACTION only, not money. `withinPolicy` is true
-// when the session is at least `windowHours` away. `nowMs` is injected.
-
-export function cancelPolicy(
-  startsAtMs: number,
-  windowHours: number,
-  nowMs: number,
-  producerName: string,
-): { withinPolicy: boolean; hoursUntil: number; reason: string | null } {
-  const withinPolicy = startsAtMs - nowMs >= windowHours * HOUR_MS;
-  const hoursUntil = Math.max(0, Math.floor((startsAtMs - nowMs) / HOUR_MS));
-  const reason = withinPolicy
-    ? null
-    : "Too close to the session — message " + producerName + " to change it.";
-  return { withinPolicy, hoursUntil, reason };
-}
-
 // ── Primary booking-action label (S10) ────────────────────────────────
 // Gate 3 (session approval) is a producer toggle, default ON. When on, the
 // slot is held pending approval ("Request"); when off it books instantly.
@@ -78,109 +49,156 @@ export function bookingActionLabel(gate3On: boolean): "Request this slot" | "Boo
 // agree (mirrors booking-client.tsx's `timeZone: "UTC"` date math). Single
 // timezone (Israel) in v1; the instant is the source of truth.
 
-export function formatSessionDate(iso: string): string {
+export function formatSessionDate(iso: string, producerTimezone: string): string {
   return new Date(iso).toLocaleDateString("en-US", {
     weekday: "short",
     month: "short",
     day: "numeric",
-    timeZone: "UTC",
+    timeZone: producerTimezone,
   });
 }
 
-export function formatSessionTime(iso: string): string {
+export function formatSessionTime(iso: string, producerTimezone: string): string {
   return new Date(iso).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
-    timeZone: "UTC",
+    timeZone: producerTimezone,
   });
 }
 
 // ── Domain types ──────────────────────────────────────────────────────
 
-export type SessionStatus = "confirmed" | "held" | "done";
+export type SessionStatus =
+  | "pending_approval"
+  | "confirmed"
+  | "rejected"
+  | "cancelled"
+  | "completed"
+  | "no_show";
+
+export type SessionOutcome =
+  | "reserved"
+  | "completed"
+  | "cancelled_on_time"
+  | "cancelled_by_producer"
+  | "cancelled_late"
+  | "no_show"
+  | null;
+
+export type SessionPolicy = {
+  cancellationPolicyHours: number;
+  cancellationDeadlineISO: string;
+  isOnTime: boolean;
+  canCancel: boolean;
+  canReschedule: boolean;
+};
 
 export type SessionListItem = {
   id: string;
-  startsAtISO: string;
-  durationMin: number;
-  productName: string;
+  producerId: string;
   producerName: string;
-  status: SessionStatus;
-};
-
-export type ActiveBooking = {
-  productName: string;
-  sessionsUsed: number;
-  sessionsTotal: number | null;
-  canBookAnother: boolean;
-};
-
-export type SessionDetail = {
-  id: string;
+  producerSlug: string;
+  producerTimezone: string;
+  projectId: string;
+  projectTitle: string;
+  purchaseId: string;
+  sessionAllowanceId: string;
   startsAtISO: string;
-  startsAtMs: number;
   durationMin: number;
-  productName: string;
+  packageName: string;
+  locationType: string;
   status: SessionStatus;
+  outcome: SessionOutcome;
+  rescheduledFromBookingId: string | null;
+  policy: SessionPolicy;
 };
 
-// ── Placeholder content ───────────────────────────────────────────────
-// MOCK — BE-3 (SK-39) will provide artist.book.mySessions / artist.book.session;
-// swap MOCK_* for the tRPC caller in page.tsx, screens unchanged.
-// Fixed ISO strings + fixed epoch-ms literals only — no runtime clock here.
-
-export const MOCK_PRODUCER: Producer = PURCHASE_MOCK_PRODUCER;
-
-export const MOCK_SESSIONS: SessionListItem[] = [
-  {
-    id: "ses_01",
-    startsAtISO: "2026-06-12T15:00:00.000Z",
-    durationMin: 120,
-    productName: "Single — start to finish",
-    producerName: MOCK_PRODUCER.name,
-    status: "held",
-  },
-  {
-    id: "ses_02",
-    startsAtISO: "2026-06-18T11:00:00.000Z",
-    durationMin: 120,
-    productName: "Single — start to finish",
-    producerName: MOCK_PRODUCER.name,
-    status: "confirmed",
-  },
-  {
-    id: "ses_03",
-    startsAtISO: "2026-06-25T17:00:00.000Z",
-    durationMin: 120,
-    productName: "Single — start to finish",
-    producerName: MOCK_PRODUCER.name,
-    status: "confirmed",
-  },
-  {
-    id: "ses_04",
-    startsAtISO: "2026-05-28T13:00:00.000Z",
-    durationMin: 120,
-    productName: "Single — start to finish",
-    producerName: MOCK_PRODUCER.name,
-    status: "done",
-  },
-];
-
-export const MOCK_ACTIVE_BOOKING: ActiveBooking = {
-  productName: "Single — start to finish",
-  sessionsUsed: 1,
-  sessionsTotal: 4,
-  canBookAnother: true,
+export type AllowanceSummary = {
+  purchaseId: string;
+  sessionAllowanceId: string;
+  producerId: string;
+  producerName: string;
+  projectId: string;
+  projectTitle: string;
+  packageName: string;
+  kind: "fixed" | "unlimited";
+  sessionLimit: number | null;
+  sessionsUsed: number;
+  sessionsRemaining: number | null;
+  durationMin: number;
+  locationType: string;
+  bufferMinutes: number;
+  minLeadHours: number;
+  closedAtISO: string | null;
+  canBook: boolean;
+  bookingBlockedReason:
+    | "purchase_waiting_for_payment"
+    | "purchase_canceled"
+    | "project_waiting_for_payment"
+    | "project_paused"
+    | "project_completed"
+    | "project_canceled"
+    | "allowance_closed"
+    | "allowance_exhausted"
+    | null;
 };
 
-export const MOCK_SESSION_DETAIL: SessionDetail = {
-  id: "ses_02",
-  startsAtISO: "2026-06-18T11:00:00.000Z",
-  startsAtMs: 1781780400000,
-  durationMin: 120,
-  productName: "Single — start to finish",
-  status: "confirmed",
+export type SessionDetail = SessionListItem & {
+  bufferMinutes: number;
+  minLeadHours: number;
+  autoConfirm: boolean;
 };
 
-export const MOCK_CANCEL_WINDOW_HOURS = 24;
+export function allowanceCanBook(allowance: AllowanceSummary): boolean {
+  return (
+    allowance.canBook &&
+    allowance.closedAtISO === null &&
+    (allowance.kind === "unlimited" || (allowance.sessionsRemaining ?? 0) > 0)
+  );
+}
+
+export function allowanceUnavailableMessage(allowance: AllowanceSummary): string | null {
+  if (allowanceCanBook(allowance)) return null;
+  switch (allowance.bookingBlockedReason) {
+    case "purchase_waiting_for_payment":
+      return "Booking opens after the complete required first installment is paid.";
+    case "purchase_canceled":
+      return "This purchase is canceled. New sessions require a new purchase.";
+    case "project_waiting_for_payment":
+      return "Booking opens when this project becomes active.";
+    case "project_paused":
+      return "New booking is paused. Listening and comments stay available.";
+    case "project_completed":
+    case "project_canceled":
+      return "This project is closed. New sessions require a new purchase.";
+    case "allowance_closed":
+      return "This allowance is permanently closed. New sessions require a new purchase.";
+    case "allowance_exhausted":
+      return "All included sessions have been used. New sessions require a new purchase.";
+    default:
+      return "New booking is not available for this allowance.";
+  }
+}
+
+export function allowanceBookHref(allowance: AllowanceSummary): string {
+  const params = new URLSearchParams({
+    studio: allowance.producerId,
+    project: allowance.projectId,
+    allowance: allowance.sessionAllowanceId,
+  });
+  return `/artist/book?${params.toString()}`;
+}
+
+export function locationLabel(locationType: string): string {
+  switch (locationType) {
+    case "remote":
+      return "Remote";
+    case "client_space":
+      return "Your space";
+    case "studio":
+      return "Producer studio";
+    default:
+      return locationType.replaceAll("_", " ");
+  }
+}

@@ -11,13 +11,7 @@
 // last 24 hours — surfaces a 6px amber dot top-right of the avatar so
 // the producer can distinguish "old pending" from "fresh inbound".
 
-import {
-  type RefObject,
-  useEffect,
-  useRef,
-  useState,
-  useTransition,
-} from "react";
+import { type RefObject, useEffect, useRef, useState, useTransition } from "react";
 
 import { useToast } from "~/components/ui/toast";
 
@@ -49,10 +43,14 @@ export function SchedulePendingCard({
   selectedBookingId?: string | null;
 }) {
   const [rows, setRows] = useState<readonly PendingRequest[]>(initial);
-  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(() => new Set());
   const [, startTransition] = useTransition();
   const { toast } = useToast();
   const selectedRef = useRef<HTMLLIElement>(null);
+
+  useEffect(() => {
+    setRows(initial);
+  }, [initial]);
 
   useEffect(() => {
     if (!selectedBookingId) return;
@@ -61,24 +59,23 @@ export function SchedulePendingCard({
   }, [selectedBookingId]);
 
   function act(row: PendingRequest, kind: "confirm" | "reject") {
-    setPendingId(row.id);
-    const snapshot = rows;
-    setRows((prev) => prev.filter((r) => r.id !== row.id));
+    setPendingIds((current) => new Set(current).add(row.id));
     startTransition(async () => {
       const res =
         kind === "confirm"
           ? await confirmBooking({ id: row.id })
           : await rejectBooking({ id: row.id });
-      setPendingId(null);
+      setPendingIds((current) => {
+        const next = new Set(current);
+        next.delete(row.id);
+        return next;
+      });
       if (!res.ok) {
-        setRows(snapshot);
         toast(res.error, "error");
         return;
       }
-      toast(
-        kind === "confirm" ? "Booking confirmed." : "Booking rejected.",
-        "success",
-      );
+      setRows((current) => current.filter((candidate) => candidate.id !== row.id));
+      toast(kind === "confirm" ? "Booking confirmed." : "Booking rejected.", "success");
     });
   }
 
@@ -116,7 +113,7 @@ export function SchedulePendingCard({
               row={row}
               initialNow={initialNow}
               timeZone={timeZone}
-              busy={pendingId === row.id}
+              busy={pendingIds.has(row.id)}
               selected={selectedBookingId === row.id}
               {...(selectedBookingId === row.id ? { selectedRef } : {})}
               onAccept={() => {
@@ -153,8 +150,7 @@ function PendingRow({
   onDecline: () => void;
 }) {
   const isNew = row.receivedAtIso
-    ? new Date(initialNow).getTime() - new Date(row.receivedAtIso).getTime() <
-      24 * 60 * 60 * 1000
+    ? new Date(initialNow).getTime() - new Date(row.receivedAtIso).getTime() < 24 * 60 * 60 * 1000
     : false;
   const dt = new Date(row.startsAt);
   const dateLabel = formatCalendarDate(dt, timeZone);
@@ -178,7 +174,7 @@ function PendingRow({
           {isNew ? (
             <span
               aria-label="New request"
-              className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full"
+              className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full"
               style={{ background: "rgb(var(--brand-primary))" }}
             />
           ) : null}
@@ -208,7 +204,7 @@ function PendingRow({
           type="button"
           disabled={busy}
           onClick={onAccept}
-          className="sk-press inline-flex h-8 flex-1 items-center justify-center rounded-[8px] bg-[rgb(var(--fg-default))] px-3 text-[11px] text-[rgb(var(--fg-inverse))] transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] disabled:opacity-50"
+          className="sk-press inline-flex h-11 flex-1 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-3 text-[11px] text-[rgb(var(--fg-inverse))] transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none disabled:opacity-50"
           style={{ fontWeight: 700 }}
         >
           Accept
@@ -217,7 +213,7 @@ function PendingRow({
           type="button"
           disabled={busy}
           onClick={onDecline}
-          className="sk-press inline-flex h-8 flex-1 items-center justify-center rounded-[8px] border border-[rgb(var(--border-subtle))] bg-transparent px-3 text-[11px] text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--border-strong))] hover:text-[rgb(var(--fg-default))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] disabled:opacity-50"
+          className="sk-press inline-flex h-11 flex-1 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-transparent px-3 text-[11px] text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--border-strong))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none disabled:opacity-50"
           style={{ fontWeight: 600 }}
         >
           Decline

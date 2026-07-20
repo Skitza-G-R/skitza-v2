@@ -1,11 +1,21 @@
 import { auth } from "@clerk/nextjs/server";
+import Link from "next/link";
 
 import { appRouter } from "~/server/trpc/routers/_app";
 import { BookingClient } from "./booking-client";
-import { uniquePrepaidSessionForProject } from "./prepaid-session-selection";
+import {
+  findPrepaidSessionByAllowance,
+  uniquePrepaidSessionForProject,
+} from "./prepaid-session-selection";
 
 type PageProps = {
-  searchParams: Promise<{ studio?: string; project?: string }>;
+  searchParams: Promise<{
+    studio?: string;
+    producerId?: string;
+    project?: string;
+    allowance?: string;
+    session?: string;
+  }>;
 };
 
 // Server Component. Resolves the artist's studios + the active
@@ -25,10 +35,14 @@ export default async function BookPage({ searchParams }: PageProps) {
 
   const sp = await searchParams;
   const { studios } = await caller.artist.studios();
+  const rescheduleSession = sp.session
+    ? await caller.artist.book.session({ id: sp.session })
+    : null;
 
   // Default to the studio from the search param, or the most-recent
   // studio. `studios` is already sorted desc by lastSeenAt server-side.
-  const activeStudioId = sp.studio ?? studios[0]?.producerId;
+  const activeStudioId =
+    rescheduleSession?.producerId ?? sp.studio ?? sp.producerId ?? studios[0]?.producerId;
   if (!activeStudioId) {
     return (
       <div className="reveal-up space-y-5">
@@ -38,24 +52,58 @@ export default async function BookPage({ searchParams }: PageProps) {
     );
   }
 
-  const [availability, activePackages] = await Promise.all([
-    caller.artist.book.availability({ producerId: activeStudioId }),
-    caller.artist.book.activePackages({ producerId: activeStudioId }),
-  ]);
-  const initialSessionAllowanceId = uniquePrepaidSessionForProject(
-    activePackages,
+  const activePackages = await caller.artist.book.activePackages({
+    producerId: activeStudioId,
+    bookingId: rescheduleSession?.id,
+  });
+  const selectablePackages = rescheduleSession
+    ? activePackages.filter(
+        (row) => row.sessionAllowanceId === rescheduleSession.sessionAllowanceId,
+      )
+    : activePackages;
+  const explicitAllowance = findPrepaidSessionByAllowance(
+    selectablePackages,
+    rescheduleSession?.sessionAllowanceId ?? sp.allowance ?? null,
+  );
+  const projectAllowance = uniquePrepaidSessionForProject(
+    selectablePackages,
     sp.project ?? null,
-  )?.sessionAllowanceId ?? null;
+  );
+  const onlyAllowance = selectablePackages.length === 1 ? selectablePackages[0] : null;
+  const initialSessionAllowanceId =
+    explicitAllowance?.sessionAllowanceId ??
+    projectAllowance?.sessionAllowanceId ??
+    onlyAllowance?.sessionAllowanceId ??
+    null;
+  // Do not query private schedule data until the artist has selected one
+  // server-authorized purchase allowance (or an owned session to reschedule).
+  const availability = rescheduleSession
+    ? await caller.artist.book.availability({
+        producerId: activeStudioId,
+        bookingId: rescheduleSession.id,
+      })
+    : initialSessionAllowanceId
+      ? await caller.artist.book.availability({
+          producerId: activeStudioId,
+          sessionAllowanceId: initialSessionAllowanceId,
+        })
+      : {
+          days: [],
+          timeZone: "UTC",
+          today: new Date().toISOString().slice(0, 10),
+        };
 
   return (
     <div className="reveal-up mx-auto w-full max-w-[480px] space-y-5">
       <BookEyebrow />
       <BookingClient
+        key={`${activeStudioId}:${initialSessionAllowanceId ?? "none"}:${rescheduleSession?.id ?? "new"}`}
         activeStudioId={activeStudioId}
         availability={availability}
         studios={studios}
-        activePackages={activePackages}
+        activePackages={selectablePackages}
         initialSessionAllowanceId={initialSessionAllowanceId}
+        rescheduleSessionId={rescheduleSession?.id ?? null}
       />
     </div>
   );
@@ -67,12 +115,17 @@ export default async function BookPage({ searchParams }: PageProps) {
 function BookEyebrow() {
   return (
     <header className="flex items-baseline justify-between px-1 sm:px-0">
-      <h1 className="font-display text-[20px] font-extrabold leading-none tracking-[-0.025em] text-[rgb(var(--fg-default))]">
+      <h1 className="font-display text-[20px] leading-none font-extrabold tracking-[-0.025em] text-[rgb(var(--fg-default))]">
         Book
         <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
       </h1>
-      <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-        Next 14 days
+      <p className="font-mono text-[10px] font-semibold tracking-[0.18em] text-[rgb(var(--fg-muted))] uppercase">
+        <Link
+          href="/artist/sessions"
+          className="sk-press inline-flex min-h-11 items-center underline decoration-dotted underline-offset-4"
+        >
+          My sessions
+        </Link>
       </p>
     </header>
   );
@@ -97,19 +150,19 @@ function EmptyStudios() {
         }}
       >
         <span
-          className="font-mono text-[10px] font-bold uppercase tracking-[0.24em]"
+          className="font-mono text-[10px] font-bold tracking-[0.24em] uppercase"
           style={{ color: "rgb(var(--brand-primary))" }}
         >
           Waiting for an invite
         </span>
       </div>
       <div className="px-6 py-6 lg:px-8">
-        <p className="font-display text-[20px] font-extrabold leading-tight tracking-[-0.02em] text-[rgb(var(--fg-default))]">
+        <p className="font-display text-[20px] leading-tight font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
           Nothing to book yet.
         </p>
         <p className="mt-2 text-[13px] leading-relaxed text-[rgb(var(--fg-muted))]">
-          Once a producer invites you, their next 14 days appear here. You
-          pick a window, they confirm.
+          Once a producer invites you, their next 14 days appear here. You pick a window, they
+          confirm.
         </p>
       </div>
     </section>

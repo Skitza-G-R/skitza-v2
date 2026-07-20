@@ -8,18 +8,20 @@
 //   1. eyebrow row "My sessions." (Syne + an amber dot, like BookEyebrow)
 //   2. ConfirmationHero — the just-booked beat (driven by ?just=<id> or the
 //      most-recent held/confirmed session)
-//   3. ActiveBookingHeader — sessions used of the current package
-//   4. "Book another session" → /artist/book (only when canBookAnother)
+//   3. ActiveBookingHeader — one per purchase-owned allowance
+//   4. "Book another session" → the exact open allowance
 //   5. the sessions list (divided rows, each tappable → S12)
 //   6. SessionsEmpty when there are none
 //
-// Mock data arrives from the route page (book-data MOCK_*); BE-3 (SK-39) will
-// swap the page's source for the tRPC caller with the same prop shape.
-
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { PrimaryCta } from "~/components/artist/funnel/funnel-ui";
-import type { ActiveBooking, SessionListItem } from "./book-data";
+import {
+  allowanceBookHref,
+  allowanceCanBook,
+  type AllowanceSummary,
+  type SessionListItem,
+} from "./book-data";
 import { ActiveBookingHeader } from "./active-booking-header";
 import { ConfirmationHero } from "./confirmation-hero";
 import { SessionRow } from "./session-row";
@@ -34,28 +36,29 @@ function pickJustBooked(
 ): SessionListItem | null {
   if (justId) {
     const match = sessions.find((s) => s.id === justId);
-    if (match) return match;
+    if (match && (match.status === "pending_approval" || match.status === "confirmed")) {
+      return match;
+    }
+    return null;
   }
   const upcoming = sessions.filter(
-    (s) => s.status === "held" || s.status === "confirmed",
+    (s) => s.status === "pending_approval" || s.status === "confirmed",
   );
   return upcoming.length > 0 ? (upcoming[0] ?? null) : null;
 }
 
 export function MySessionsScreen({
   sessions,
-  activeBooking,
-  producerName,
+  allowances,
 }: {
   sessions: SessionListItem[];
-  activeBooking: ActiveBooking;
-  producerName: string;
+  allowances: AllowanceSummary[];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const justId = searchParams.get("just");
   const justBooked = pickJustBooked(sessions, justId);
-  const sessionsLeft = bookAnotherSub(activeBooking);
+  const hasBookableAllowance = allowances.some(allowanceCanBook);
 
   return (
     <div className="space-y-4">
@@ -72,35 +75,65 @@ export function MySessionsScreen({
       </div>
 
       {/* (2) confirmation moment */}
-      {justBooked ? (
-        <ConfirmationHero session={justBooked} producerName={producerName} />
-      ) : null}
+      {justBooked ? <ConfirmationHero session={justBooked} /> : null}
 
-      {/* (3) active package progress */}
-      <ActiveBookingHeader booking={activeBooking} />
-
-      {/* (4) book another (guarded) — amber primary, like the prototype */}
-      {activeBooking.canBookAnother ? (
-        <div className="sk-rise" style={{ animationDelay: "120ms" }}>
-          <PrimaryCta
-            glow={false}
-            sub={sessionsLeft}
-            onClick={() => {
-              router.push("/artist/book");
-            }}
-          >
-            Book another session
-          </PrimaryCta>
+      {/* (3) / (4) purchase-owned allowance progress + exact booking link */}
+      {allowances.length > 0 ? (
+        <div className="space-y-3">
+          {allowances.map((allowance, index) => (
+            <section
+              key={allowance.sessionAllowanceId}
+              className="space-y-2.5"
+              aria-label={`${allowance.packageName} session allowance`}
+            >
+              <ActiveBookingHeader booking={allowance} />
+              {allowanceCanBook(allowance) ? (
+                <div
+                  className="sk-rise"
+                  style={{ animationDelay: `${String(120 + index * 30)}ms` }}
+                >
+                  <PrimaryCta
+                    glow={false}
+                    sub={bookAnotherSub(allowance)}
+                    onClick={() => {
+                      router.push(allowanceBookHref(allowance));
+                    }}
+                  >
+                    Book another session
+                  </PrimaryCta>
+                </div>
+              ) : null}
+            </section>
+          ))}
         </div>
       ) : null}
 
       {/* (5) / (6) list or empty */}
       {sessions.length === 0 ? (
-        <SessionsEmpty />
+        allowances.length === 0 ? (
+          <SessionsEmpty />
+        ) : (
+          <div
+            className="sk-rise rounded-card border border-dashed px-4 py-5 text-center"
+            style={{
+              borderColor: "rgb(var(--border-strong))",
+              background: "rgb(var(--bg-elevated))",
+            }}
+          >
+            <p className="font-syne text-[15px] font-extrabold text-[rgb(var(--fg-default))]">
+              No sessions booked yet
+            </p>
+            <p className="mt-1 text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
+              {hasBookableAllowance
+                ? "Your purchased session allowance is ready whenever booking is available."
+                : "No new booking is available for these allowances. Check each status above for what comes next."}
+            </p>
+          </div>
+        )
       ) : (
         <div className="space-y-2.5">
           <div
-            className="sk-rise inline-flex items-center gap-[9px] font-amount text-[10px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]"
+            className="sk-rise font-amount inline-flex items-center gap-[9px] text-[10px] font-bold tracking-[0.16em] text-[rgb(var(--fg-muted))] uppercase"
             style={{ animationDelay: "140ms" }}
           >
             <span
@@ -136,9 +169,9 @@ export function MySessionsScreen({
 // Small helper line under "Book another session" — mirrors the prototype's
 // "2 sessions left on this booking". Falls back to a generic nudge when the
 // package is open-ended (no total).
-function bookAnotherSub(booking: ActiveBooking): string {
-  if (booking.sessionsTotal === null) return "Set up your next session";
-  const left = Math.max(0, booking.sessionsTotal - booking.sessionsUsed);
+function bookAnotherSub(booking: AllowanceSummary): string {
+  if (booking.kind === "unlimited") return "Unlimited sessions on this purchase";
+  const left = Math.max(0, booking.sessionsRemaining ?? 0);
   const plural = left === 1 ? "session" : "sessions";
   return `${String(left)} ${plural} left on this booking`;
 }

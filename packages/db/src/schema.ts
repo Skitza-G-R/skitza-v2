@@ -352,6 +352,23 @@ export const sessionUseOutcome = pgEnum("session_use_outcome", [
   "no_show",
 ]);
 
+export const bookingTransitionKind = pgEnum("booking_transition_kind", [
+  "created",
+  "confirmed",
+  "rejected",
+  "artist_cancelled",
+  "producer_cancelled",
+  "rescheduled",
+  "completed",
+  "no_show",
+]);
+
+export const bookingTransitionActorKind = pgEnum("booking_transition_actor_kind", [
+  "artist",
+  "producer",
+  "system",
+]);
+
 export const bookings = pgTable(
   "bookings",
   {
@@ -377,6 +394,9 @@ export const bookings = pgTable(
     notes: text("notes"),
     startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
     durationMin: integer("duration_min").notNull(),
+    operationKey: text("operation_key").notNull(),
+    operationDigest: text("operation_digest").notNull(),
+    rescheduledFromBookingId: uuid("rescheduled_from_booking_id"),
     status: bookingStatus("status").notNull().default("pending_approval"),
     statusChangedAt: timestamp("status_changed_at", { withTimezone: true }),
     outcome: sessionUseOutcome("outcome").notNull().default("reserved"),
@@ -387,6 +407,19 @@ export const bookings = pgTable(
   },
   (t) => ({
     idProducerUnique: unique("bookings_id_producer_unique").on(t.id, t.producerId),
+    idLifecycleUnique: unique("bookings_id_lifecycle_unique").on(
+      t.id,
+      t.producerId,
+      t.purchaseId,
+      t.sessionAllowanceId,
+    ),
+    producerOperationKeyUnique: unique("bookings_producer_operation_key_unique").on(
+      t.producerId,
+      t.operationKey,
+    ),
+    rescheduledFromUnique: unique("bookings_rescheduled_from_unique").on(
+      t.rescheduledFromBookingId,
+    ),
     producerStartsIdx: index("bookings_producer_starts_idx").on(t.producerId, t.startsAt),
     purchaseStartsIdx: index("bookings_purchase_starts_idx").on(t.purchaseId, t.startsAt),
     purchaseProjectFk: foreignKey({
@@ -404,15 +437,123 @@ export const bookings = pgTable(
       foreignColumns: [purchaseSessionAllowances.id, purchaseSessionAllowances.purchaseId],
       name: "bookings_allowance_purchase_fk",
     }).onDelete("restrict"),
+    rescheduledFromFk: foreignKey({
+      columns: [t.rescheduledFromBookingId, t.producerId, t.purchaseId, t.sessionAllowanceId],
+      foreignColumns: [t.id, t.producerId, t.purchaseId, t.sessionAllowanceId],
+      name: "bookings_rescheduled_from_producer_fk",
+    }).onDelete("restrict"),
     songPurchaseFk: foreignKey({
       columns: [t.songId, t.purchaseId],
       foreignColumns: [projectTracks.id, projectTracks.purchaseId],
       name: "bookings_song_purchase_fk",
     }).onDelete("restrict"),
+    positiveDuration: check("bookings_positive_duration", sql`${t.durationMin} > 0`),
+    operationShape: check(
+      "bookings_operation_shape",
+      sql`NULLIF(btrim(${t.operationKey}), '') IS NOT NULL AND NULLIF(btrim(${t.operationDigest}), '') IS NOT NULL`,
+    ),
+    rescheduleShape: check(
+      "bookings_reschedule_shape",
+      sql`${t.rescheduledFromBookingId} IS NULL OR ${t.rescheduledFromBookingId} <> ${t.id}`,
+    ),
+    statusOutcomeShape: check(
+      "bookings_status_outcome_shape",
+      sql`(
+        (${t.status} IN ('pending_approval', 'confirmed') AND ${t.outcome} = 'reserved')
+        OR (${t.status} = 'rejected' AND ${t.outcome} = 'cancelled_by_producer')
+        OR (${t.status} = 'cancelled' AND ${t.outcome} IN ('cancelled_on_time', 'cancelled_by_producer', 'cancelled_late'))
+        OR (${t.status} = 'completed' AND ${t.outcome} = 'completed')
+        OR (${t.status} = 'no_show' AND ${t.outcome} = 'no_show')
+      )`,
+    ),
   }),
 );
 export type Booking = typeof bookings.$inferSelect;
 export type NewBooking = typeof bookings.$inferInsert;
+
+export const bookingTransitionEvents = pgTable(
+  "booking_transition_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    bookingId: uuid("booking_id").notNull(),
+    producerId: uuid("producer_id").notNull(),
+    operationKey: text("operation_key").notNull(),
+    operationDigest: text("operation_digest").notNull(),
+    kind: bookingTransitionKind("kind").notNull(),
+    actorKind: bookingTransitionActorKind("actor_kind").notNull(),
+    actorId: text("actor_id"),
+    fromStatus: bookingStatus("from_status"),
+    toStatus: bookingStatus("to_status").notNull(),
+    fromOutcome: sessionUseOutcome("from_outcome"),
+    toOutcome: sessionUseOutcome("to_outcome").notNull(),
+    oldStartsAt: timestamp("old_starts_at", { withTimezone: true }),
+    newStartsAt: timestamp("new_starts_at", { withTimezone: true }),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    operationKeyUnique: unique("booking_transition_events_operation_key_unique").on(
+      t.bookingId,
+      t.operationKey,
+    ),
+    bookingProducerFk: foreignKey({
+      columns: [t.bookingId, t.producerId],
+      foreignColumns: [bookings.id, bookings.producerId],
+      name: "booking_transition_events_booking_producer_fk",
+    }).onDelete("restrict"),
+    bookingOccurredIdx: index("booking_transition_events_booking_occurred_idx").on(
+      t.bookingId,
+      t.occurredAt,
+      t.id,
+    ),
+    producerOccurredIdx: index("booking_transition_events_producer_occurred_idx").on(
+      t.producerId,
+      t.occurredAt,
+      t.id,
+    ),
+    operationShape: check(
+      "booking_transition_events_operation_shape",
+      sql`NULLIF(btrim(${t.operationKey}), '') IS NOT NULL AND NULLIF(btrim(${t.operationDigest}), '') IS NOT NULL`,
+    ),
+    actorShape: check(
+      "booking_transition_events_actor_shape",
+      sql`(
+        (${t.actorKind} = 'system' AND ${t.actorId} IS NULL)
+        OR (${t.actorKind} IN ('artist', 'producer') AND NULLIF(btrim(${t.actorId}), '') IS NOT NULL)
+      )`,
+    ),
+    stateShape: check(
+      "booking_transition_events_state_shape",
+      sql`((
+        (${t.kind} = 'created' AND ${t.fromStatus} IS NULL AND ${t.fromOutcome} IS NULL AND ${t.toStatus} IN ('pending_approval', 'confirmed') AND ${t.toOutcome} = 'reserved')
+        OR (${t.kind} = 'confirmed' AND ${t.fromStatus} = 'pending_approval' AND ${t.toStatus} = 'confirmed' AND ${t.fromOutcome} = 'reserved' AND ${t.toOutcome} = 'reserved')
+        OR (${t.kind} = 'rejected' AND ${t.fromStatus} = 'pending_approval' AND ${t.toStatus} = 'rejected' AND ${t.fromOutcome} = 'reserved' AND ${t.toOutcome} = 'cancelled_by_producer')
+        OR (${t.kind} = 'artist_cancelled' AND ${t.fromStatus} IN ('pending_approval', 'confirmed') AND ${t.toStatus} = 'cancelled' AND ${t.fromOutcome} = 'reserved' AND ${t.toOutcome} IN ('cancelled_on_time', 'cancelled_late'))
+        OR (${t.kind} = 'producer_cancelled' AND ${t.fromStatus} IN ('pending_approval', 'confirmed') AND ${t.toStatus} = 'cancelled' AND ${t.fromOutcome} = 'reserved' AND ${t.toOutcome} = 'cancelled_by_producer')
+        OR (${t.kind} = 'rescheduled' AND ((
+          ${t.fromStatus} IN ('pending_approval', 'confirmed') AND ${t.toStatus} = 'cancelled' AND ${t.fromOutcome} = 'reserved' AND ${t.toOutcome} = 'cancelled_on_time'
+        ) OR (
+          ${t.fromStatus} IS NULL AND ${t.fromOutcome} IS NULL AND ${t.toStatus} IN ('pending_approval', 'confirmed') AND ${t.toOutcome} = 'reserved'
+        )))
+        OR (${t.kind} = 'completed' AND ${t.fromStatus} = 'confirmed' AND ${t.toStatus} = 'completed' AND ${t.fromOutcome} = 'reserved' AND ${t.toOutcome} = 'completed')
+        OR (${t.kind} = 'no_show' AND ${t.fromStatus} = 'confirmed' AND ${t.toStatus} = 'no_show' AND ${t.fromOutcome} = 'reserved' AND ${t.toOutcome} = 'no_show')
+      ) IS TRUE)`,
+    ),
+    rescheduleShape: check(
+      "booking_transition_events_reschedule_shape",
+      sql`(
+        (${t.kind} = 'created' AND ${t.oldStartsAt} IS NULL AND ${t.newStartsAt} IS NOT NULL)
+        OR (${t.kind} = 'rescheduled' AND ${t.newStartsAt} IS NOT NULL AND (
+          (${t.fromStatus} IS NULL AND ${t.oldStartsAt} IS NULL)
+          OR (${t.fromStatus} IS NOT NULL AND ${t.oldStartsAt} IS NOT NULL)
+        ))
+        OR (${t.kind} NOT IN ('created', 'rescheduled') AND ${t.oldStartsAt} IS NOT NULL AND ${t.newStartsAt} IS NULL)
+      )`,
+    ),
+  }),
+);
+export type BookingTransitionEvent = typeof bookingTransitionEvents.$inferSelect;
+export type NewBookingTransitionEvent = typeof bookingTransitionEvents.$inferInsert;
 
 // ─── Projects (stable client-owned workspaces) ─────────────────────
 // A project is the durable container for one producer/client relationship.
@@ -2105,6 +2246,10 @@ export const purchaseSessionAllowances = pgTable(
     closeShape: check(
       "purchase_session_allowances_close_shape",
       sql`(${t.closedAt} IS NULL AND ${t.closeReason} IS NULL) OR (${t.closedAt} IS NOT NULL AND ${t.closeReason} IS NOT NULL)`,
+    ),
+    termsShape: check(
+      "purchase_session_allowances_terms_shape",
+      sql`${t.durationMin} > 0 AND ${t.bufferMinutes} >= 0 AND ${t.minLeadHours} >= 0 AND NULLIF(btrim(${t.locationType}), '') IS NOT NULL`,
     ),
   }),
 );

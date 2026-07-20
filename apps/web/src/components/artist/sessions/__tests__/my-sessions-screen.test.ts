@@ -14,12 +14,25 @@ const HEADER_PATH = join(here, "..", "active-booking-header.tsx");
 const ROW_PATH = join(here, "..", "session-row.tsx");
 const EMPTY_PATH = join(here, "..", "sessions-empty.tsx");
 const HERO_PATH = join(here, "..", "confirmation-hero.tsx");
+const PAGE_PATH = join(
+  here,
+  "..",
+  "..",
+  "..",
+  "..",
+  "app",
+  "(artist)",
+  "artist",
+  "sessions",
+  "page.tsx",
+);
 
 const screenSrc = readFileSync(SCREEN_PATH, "utf8");
 const headerSrc = readFileSync(HEADER_PATH, "utf8");
 const rowSrc = readFileSync(ROW_PATH, "utf8");
 const emptySrc = readFileSync(EMPTY_PATH, "utf8");
 const heroSrc = readFileSync(HERO_PATH, "utf8");
+const pageSrc = readFileSync(PAGE_PATH, "utf8");
 
 describe("my-sessions-screen.tsx (S11) wiring", () => {
   it("is a client component (taps + router navigation)", () => {
@@ -29,10 +42,11 @@ describe("my-sessions-screen.tsx (S11) wiring", () => {
   it("sources its data types from the shared book-data module", () => {
     expect(screenSrc).toMatch(/from\s+["']\.\/book-data["']/);
     expect(screenSrc).toMatch(/SessionListItem/);
-    expect(screenSrc).toMatch(/ActiveBooking/);
+    expect(screenSrc).toMatch(/AllowanceSummary/);
   });
 
-  it("renders the active-booking header", () => {
+  it("renders one allowance header for every purchase-owned allowance", () => {
+    expect(screenSrc).toMatch(/allowances\.map/);
     expect(screenSrc).toMatch(/<ActiveBookingHeader/);
   });
 
@@ -40,6 +54,10 @@ describe("my-sessions-screen.tsx (S11) wiring", () => {
     expect(screenSrc).toMatch(/<ConfirmationHero/);
     // driven by a ?just=<id> searchParam or the most-recent held/confirmed
     expect(screenSrc).toMatch(/just/);
+    expect(screenSrc).toMatch(
+      /match\.status === "pending_approval" \|\| match\.status === "confirmed"/,
+    );
+    expect(screenSrc).toMatch(/if \(justId\)[\s\S]*return null;/);
   });
 
   it("uses the shared StatusPill (via SessionRow)", () => {
@@ -51,15 +69,23 @@ describe("my-sessions-screen.tsx (S11) wiring", () => {
     expect(rowSrc).toMatch(/router\.push\(`\/artist\/sessions\/\$\{[^}]+\}`\)/);
   });
 
-  it("renders the empty state when there are no sessions", () => {
-    expect(screenSrc).toMatch(/<SessionsEmpty/);
-    expect(screenSrc).toMatch(/sessions\.length\s*===\s*0/);
+  it("renders both the row date and time in the producer timezone", () => {
+    expect(rowSrc).toMatch(/monthShort\(session\.startsAtISO, session\.producerTimezone\)/);
+    expect(rowSrc).toMatch(/dayNumber\(session\.startsAtISO, session\.producerTimezone\)/);
+    expect(rowSrc).toMatch(/formatSessionTime\(session\.startsAtISO, session\.producerTimezone\)/);
   });
 
-  it("guards 'Book another session' on activeBooking.canBookAnother", () => {
-    expect(screenSrc).toMatch(/activeBooking\.canBookAnother/);
+  it("uses the Store empty state only before the artist owns an allowance", () => {
+    expect(screenSrc).toMatch(/<SessionsEmpty/);
+    expect(screenSrc).toMatch(/sessions\.length\s*===\s*0/);
+    expect(screenSrc).toMatch(/allowances\.length === 0/);
+    expect(screenSrc).toMatch(/No sessions booked yet/);
+  });
+
+  it("guards 'Book another session' and preserves the exact allowance", () => {
+    expect(screenSrc).toMatch(/allowanceCanBook\(allowance\)/);
+    expect(screenSrc).toMatch(/allowanceBookHref\(allowance\)/);
     expect(screenSrc).toMatch(/Book another session/);
-    expect(screenSrc).toMatch(/\/artist\/book/);
   });
 
   it("shows the 'My sessions.' eyebrow with font-syne + an amber dot", () => {
@@ -83,6 +109,11 @@ describe("active-booking-header.tsx wiring", () => {
   it("is an amber-tinted card", () => {
     expect(headerSrc).toMatch(/brand-primary/);
   });
+
+  it("explains why an open-looking allowance cannot currently book", () => {
+    expect(headerSrc).toMatch(/allowanceUnavailableMessage\(booking\)/);
+    expect(pageSrc).toMatch(/bookingBlockedReason: allowance\.bookingBlockedReason/);
+  });
 });
 
 describe("sessions-empty.tsx wiring", () => {
@@ -104,7 +135,22 @@ describe("confirmation-hero.tsx wiring", () => {
     expect(heroSrc).toMatch(/Holding this time/);
   });
 
-  it("offers the greyed 'Add to calendar' coming-soon chip", () => {
-    expect(heroSrc).toMatch(/Add to calendar/);
+  it("never presents a terminal session as newly held", () => {
+    expect(heroSrc).toMatch(
+      /session\.status !== "confirmed" && session\.status !== "pending_approval"/,
+    );
+  });
+
+  it("does not render a dead calendar control", () => {
+    expect(heroSrc).not.toMatch(/Add to calendar|Soon/);
+  });
+});
+
+describe("My Sessions route data", () => {
+  it("uses the real owned session read model and contains no mock fallback", () => {
+    expect(pageSrc).toMatch(/caller\.artist\.book\.mySessions\(\)/);
+    expect(pageSrc).not.toMatch(/MOCK_/);
+    expect(pageSrc).toMatch(/result\.sessions\.map/);
+    expect(pageSrc).toMatch(/result\.allowances\.map/);
   });
 });

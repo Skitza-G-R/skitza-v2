@@ -32,6 +32,7 @@ import { producerPurchaseRouter } from "./purchase";
 import { stripUndefined } from "../strip-undefined";
 import { presentVersionApprovalHistory } from "~/server/domain/version-approval/service";
 import { browserSafeStoredAudioUrl } from "~/server/domain/audio-delivery/urls";
+import { sessionBookingScheduleAdvisoryLockKey } from "~/server/domain/session-booking/db";
 
 // Accepts a subset of producer-editable fields. The schema's cascade is
 // designed so any of these can change without orphaning related data.
@@ -1475,18 +1476,25 @@ export const producerRouter = router({
     }
 
     try {
-      const [updated] = await ctx.db
-        .update(producers)
-        .set(
-          stripUndefined({
-            ...fields,
-            ...(brand === undefined ? {} : { brand }),
-            ...(notificationPrefs === undefined ? {} : { notificationPrefs }),
-            updatedAt: new Date(),
-          }),
-        )
-        .where(eq(producers.id, ctx.producerId))
-        .returning();
+      const [updated] = await ctx.db.transaction(async (tx) => {
+        if (input.timezone !== undefined) {
+          await tx.execute(
+            sql`select pg_advisory_xact_lock(hashtextextended(${sessionBookingScheduleAdvisoryLockKey(ctx.producerId)}, 0))`,
+          );
+        }
+        return tx
+          .update(producers)
+          .set(
+            stripUndefined({
+              ...fields,
+              ...(brand === undefined ? {} : { brand }),
+              ...(notificationPrefs === undefined ? {} : { notificationPrefs }),
+              updatedAt: new Date(),
+            }),
+          )
+          .where(eq(producers.id, ctx.producerId))
+          .returning();
+      });
       if (!updated) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       return { ok: true as const };
     } catch (err) {
