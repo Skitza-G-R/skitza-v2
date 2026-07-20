@@ -2,6 +2,7 @@ import { digestCommercialSnapshot } from "../purchases/policy";
 import {
   AudioDeliveryDomainError,
   authorizeArtistDownload,
+  authorizeArtistOwner,
   authorizePrivateStream,
   authorizePublicPortfolioStream,
   authorizeProducerDownload,
@@ -194,6 +195,7 @@ export type DownloadOverrideState = Readonly<{
   fullyPaid: boolean;
   unpaidAmountCents: number;
   currency: string;
+  overdue: boolean;
   sequence: number;
 }>;
 
@@ -206,8 +208,66 @@ function overrideState(context: AudioDeliveryContext): DownloadOverrideState {
     fullyPaid: ledger.fullyPaidForDownloads,
     unpaidAmountCents: paymentShortfallCents(context),
     currency: context.purchase.currency,
+    overdue: ledger.installments.some(
+      (installment) => installment.status === "overdue" && installment.remainingCents > 0,
+    ),
     sequence: context.latestOverride?.sequence ?? 0,
   };
+}
+
+export type ArtistDownloadEntitlement = DownloadOverrideState &
+  Readonly<{
+    canDownload: boolean;
+    permission: "purchase_fully_paid" | "version_override" | "payment_required" | "audio_deleted";
+  }>;
+
+/**
+ * Read the exact Chat 17 authorization result for artist UI. Money never gets
+ * interpreted in React: the policy decides paid, override, or payment-required.
+ */
+export async function readArtistDownloadEntitlement(
+  repository: AudioDeliveryRepository,
+  input: Readonly<{
+    artistClerkUserId: string;
+    purchaseId: string;
+    versionId: string;
+  }>,
+): Promise<ArtistDownloadEntitlement> {
+  const purchaseId = identifier(input.purchaseId, "Purchase id");
+  const versionId = identifier(input.versionId, "Version id");
+  const viewer: AudioDeliveryViewer = {
+    role: "artist",
+    clerkUserId: identifier(input.artistClerkUserId, "Artist id"),
+  };
+  return repository.atomically({ kind: "commercial", purchaseId, versionId }, (transaction) => {
+    exactScope(transaction.context, { purchaseId, versionId });
+    const state = overrideState(transaction.context);
+    authorizeArtistOwner(transaction.context, viewer);
+    if (transaction.context.storedAudio.deletedAt !== null) {
+      return Promise.resolve<ArtistDownloadEntitlement>({
+        ...state,
+        canDownload: false,
+        permission: "audio_deleted",
+      });
+    }
+    try {
+      const authorized = authorizeArtistDownload(transaction.context, viewer);
+      return Promise.resolve<ArtistDownloadEntitlement>({
+        ...state,
+        canDownload: true,
+        permission: authorized.reason,
+      });
+    } catch (error) {
+      if (!(error instanceof AudioDeliveryDomainError) || error.code !== "PAYMENT_REQUIRED") {
+        throw error;
+      }
+      return Promise.resolve<ArtistDownloadEntitlement>({
+        ...state,
+        canDownload: false,
+        permission: "payment_required",
+      });
+    }
+  });
 }
 
 export async function readDownloadOverrideState(

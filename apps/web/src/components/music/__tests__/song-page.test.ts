@@ -61,6 +61,15 @@ function makeVersion(over: Partial<SongPageVersion> = {}): SongPageVersion {
     // Default to null peaks so legacy-style fixtures keep working;
     // tests that care override via `over`.
     peaks: null,
+    delivery: {
+      purchaseId: "purchase-1",
+      permission: "purchase_fully_paid",
+      fullyPaid: true,
+      remainingCents: 0,
+      currency: "ILS",
+      overdue: false,
+      totalCents: 18_000,
+    },
     ...over,
   };
 }
@@ -499,7 +508,9 @@ describe("song-page.tsx source — passes pre-computed peaks to the waveform", (
   it("keeps peaksUrl as the client-decode fallback (legacy versions)", () => {
     // Both props ride together — peaks=null falls back to peaksUrl,
     // and a missing audioUrl skips both (audio still uploading).
-    expect(songPageSrc).toMatch(/peaksUrl=\{activeVersionPlayable\s*\?\s*activeVersion\.audioUrl/);
+    expect(songPageSrc).toMatch(
+      /peaksUrl=\{activeVersionPlayable\s*\?\s*\(activeVersion\.audioUrl\s*\?\?\s*undefined\)/,
+    );
   });
 });
 
@@ -567,7 +578,7 @@ describe("song-page.tsx source — producer L3 management", () => {
   });
 
   it("keeps the More menu above the later song body so every action remains clickable", () => {
-    expect(songPageSrc).toContain('<header className="relative z-10 isolate text-white"');
+    expect(songPageSrc).toMatch(/<header className="[^"]*\bisolate\b[^"]*\bz-10\b[^"]*"/);
     expect(songPageSrc).toContain("right-0 z-30");
   });
 

@@ -20,6 +20,18 @@ const purchase: PaymentHistoryPurchase = {
   paidCents: 40_000,
   dueNowCents: 20_000,
   totalRemainingCents: 80_000,
+  delivery: {
+    key: "overdue_locked",
+    label: "Overdue · downloads locked",
+    description: "Listening remains available, but downloads require full payment.",
+    paidCents: 40_000,
+    waivedCents: 20_000,
+    remainingCents: 80_000,
+    overdue: true,
+    activeOverrideVersionLabels: [],
+    googleDriveLinks: [],
+    withheldGoogleDriveLinkCount: 0,
+  },
   frozenTerms: {
     frozenAtIso: "2026-07-01T09:00:00.000Z",
     productName: "Three-song production",
@@ -277,6 +289,8 @@ describe("PaymentHistoryView", () => {
     expect(html).toContain("Download override history");
     expect(html).toContain("Early download allowed");
     expect(html).toContain("Final mix v3");
+    expect(html).toContain("Overdue · downloads locked");
+    expect(html).toContain("Purchase delivery state");
   });
 
   it("shows exact role-safe links without adding any mutation controls", () => {
@@ -286,8 +300,62 @@ describe("PaymentHistoryView", () => {
     expect(producerHtml).toContain('href="/dashboard/payments/proof-1"');
     expect(producerHtml).not.toContain("/artist/payments/purchase-1");
     expect(artistHtml).toContain('href="/artist/payments/purchase-1"');
+    expect(artistHtml).toContain("Complete payment");
     expect(artistHtml).not.toContain("/dashboard/payments/proof-1");
     expect(artistHtml).not.toMatch(/confirm payment|reject proof|cancel purchase/i);
+  });
+
+  it("reveals paid Google Drive delivery links and never renders withheld links", () => {
+    const driveHref = "https://drive.google.com/file/d/stems/view";
+    const paidPurchase: PaymentHistoryPurchase = {
+      ...purchase,
+      delivery: {
+        ...purchase.delivery,
+        key: "paid",
+        label: "Paid · downloads available",
+        description: "Every still-stored owned version is downloadable.",
+        remainingCents: 0,
+        overdue: false,
+        googleDriveLinks: [{ label: "Stems", href: driveHref }],
+        withheldGoogleDriveLinkCount: 0,
+      },
+    };
+    const paidHtml = renderToStaticMarkup(
+      <PaymentHistoryView
+        role="artist"
+        data={{ ...data, projects: [{ ...usdProject, purchases: [paidPurchase] }] }}
+      />,
+    );
+    expect(paidHtml).toContain(`href="${driveHref}"`);
+
+    const earlyHtml = renderToStaticMarkup(
+      <PaymentHistoryView
+        role="artist"
+        data={{
+          ...data,
+          projects: [
+            {
+              ...usdProject,
+              purchases: [
+                {
+                  ...purchase,
+                  delivery: {
+                    ...purchase.delivery,
+                    key: "early_override",
+                    label: "Early access · V2 only",
+                    activeOverrideVersionLabels: ["V2"],
+                    googleDriveLinks: [],
+                    withheldGoogleDriveLinkCount: 1,
+                  },
+                },
+              ],
+            },
+          ],
+        }}
+      />,
+    );
+    expect(earlyHtml).not.toContain(driveHref);
+    expect(earlyHtml).toContain("stay locked until this purchase is fully paid");
   });
 
   it("keeps resolved proof evidence reachable only to the producer", () => {

@@ -17,6 +17,7 @@ import type {
   PaymentHistoryStatus,
   PaymentHistoryViewData,
 } from "./payment-history-view";
+import { mapPaymentDeliveryState, splitGoogleDriveDeliverables } from "./delivery-state";
 
 function iso(value: Date | null): string | null {
   return value?.toISOString() ?? null;
@@ -49,7 +50,10 @@ function revisionLabel(rule: PurchaseCommercialSnapshot["revisionRule"]): string
   return rule.kind === "unlimited" ? "Unlimited" : `${String(rule.count)} rounds`;
 }
 
-function frozenTerms(purchase: PaymentPurchaseProjection): PaymentHistoryFrozenTerms {
+function frozenTerms(
+  purchase: PaymentPurchaseProjection,
+  deliverables: readonly string[],
+): PaymentHistoryFrozenTerms {
   const snapshot = purchase.commercialSnapshot;
   const royalty = royaltyTermsDisplay(snapshot.royaltyTerms);
   const royaltyValue = royalty.specified
@@ -60,7 +64,7 @@ function frozenTerms(purchase: PaymentPurchaseProjection): PaymentHistoryFrozenT
   return {
     frozenAtIso: purchase.acceptance.acceptedAt.toISOString(),
     productName: snapshot.productOrOfferName,
-    deliverables: snapshot.deliverables,
+    deliverables,
     lineItems: snapshot.lineItems.map((line, index) => ({
       id: `${purchase.id}-line-${String(index + 1)}`,
       label: line.label,
@@ -86,6 +90,9 @@ function frozenTerms(purchase: PaymentPurchaseProjection): PaymentHistoryFrozenT
 function purchaseStatus(purchase: PaymentPurchaseProjection): PaymentHistoryStatus {
   if (purchase.lifecycleStatus === "canceled") return { label: "Canceled", tone: "neutral" };
   if (purchase.fullyPaid) return { label: "Paid in full", tone: "success" };
+  if (purchase.waivedCents > 0 && purchase.totalRemainingCents === 0) {
+    return { label: "Settled by waiver", tone: "neutral" };
+  }
   if (purchase.producerBucket === "needs_review") {
     return { label: "Needs review", tone: "accent" };
   }
@@ -168,6 +175,23 @@ function mapPurchase(
           : null,
       ].filter((field): field is { label: string; value: string } => field !== null)
     : [];
+  const deliverables = splitGoogleDriveDeliverables(purchase.commercialSnapshot.deliverables);
+  const overdue = purchase.installments.some(
+    (installment) => installment.status === "overdue" && installment.remainingCents > 0,
+  );
+  const delivery = mapPaymentDeliveryState({
+    fullyPaid: purchase.fullyPaid,
+    totalCents: purchase.totalCents,
+    paidCents: purchase.paidCents,
+    waivedCents: purchase.waivedCents,
+    remainingCents: purchase.totalRemainingCents,
+    overdue,
+    activeOverrideVersionLabels: purchase.activeDownloadOverrides.map(
+      (override) => override.versionLabel,
+    ),
+    googleDriveLinks: deliverables.googleDriveLinks,
+    withheldGoogleDriveLinkCount: deliverables.googleDriveLinks.length,
+  });
 
   return {
     id: purchase.id,
@@ -183,7 +207,8 @@ function mapPurchase(
     paidCents: purchase.paidCents,
     dueNowCents: purchase.dueNowCents,
     totalRemainingCents: purchase.totalRemainingCents,
-    frozenTerms: frozenTerms(purchase),
+    delivery,
+    frozenTerms: frozenTerms(purchase, deliverables.labels),
     acceptance: {
       acceptedAtIso: purchase.acceptance.acceptedAt.toISOString(),
       acceptedByLabel: `${purchase.clientName} accepted the exact terms`,

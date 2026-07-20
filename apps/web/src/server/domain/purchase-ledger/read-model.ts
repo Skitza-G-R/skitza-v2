@@ -180,7 +180,9 @@ export type PaymentReadDownloadOverrideRecord = Readonly<{
   producerId: string;
   versionId: string;
   versionLabel: string;
+  sequence: number;
   enabled: boolean;
+  audioDeletedAt: Date | null;
   createdAt: Date;
 }>;
 
@@ -269,6 +271,7 @@ export type PaymentPurchaseProjection = Readonly<{
   cancellation: PaymentReadCancellationRecord | null;
   pauseEvents: readonly PaymentReadPauseRecord[];
   downloadOverrides: readonly PaymentReadDownloadOverrideRecord[];
+  activeDownloadOverrides: readonly Readonly<{ versionId: string; versionLabel: string }>[];
 }>;
 
 export type PaymentProjectProjection = Readonly<{
@@ -293,6 +296,22 @@ export type PaymentReadModel = Readonly<{
   producerBuckets: Readonly<Record<ProducerPaymentBucket, PaymentBucketProjection>>;
   artistBuckets: Readonly<Record<ArtistPaymentBucket, PaymentBucketProjection>>;
 }>;
+
+/** Latest enabled override for each still-stored exact version. */
+export function activeDownloadOverrides(
+  events: readonly PaymentReadDownloadOverrideRecord[],
+): readonly Readonly<{ versionId: string; versionLabel: string }>[] {
+  const latestByVersion = new Map<string, PaymentReadDownloadOverrideRecord>();
+  for (const event of [...events].sort(
+    (left, right) =>
+      right.sequence - left.sequence || right.createdAt.getTime() - left.createdAt.getTime(),
+  )) {
+    if (!latestByVersion.has(event.versionId)) latestByVersion.set(event.versionId, event);
+  }
+  return [...latestByVersion.values()]
+    .filter((event) => event.enabled && event.audioDeletedAt == null)
+    .map((event) => ({ versionId: event.versionId, versionLabel: event.versionLabel }));
+}
 
 function fail(code: "INVALID_INPUT" | "NOT_FOUND" | "INTEGRITY_ERROR", message: string): never {
   throw new PurchaseLedgerDomainError(code, message);
@@ -743,6 +762,7 @@ export function buildPaymentReadModel(
     ) {
       fail("INTEGRITY_ERROR", "Purchase event history escaped its scope");
     }
+    const currentActiveDownloadOverrides = activeDownloadOverrides(downloadOverrides);
 
     mappedPurchases.set(
       purchase.id,
@@ -828,6 +848,7 @@ export function buildPaymentReadModel(
             (left, right) => right.createdAt.getTime() - left.createdAt.getTime(),
           ),
         ),
+        activeDownloadOverrides: Object.freeze(currentActiveDownloadOverrides),
       }),
     );
   }

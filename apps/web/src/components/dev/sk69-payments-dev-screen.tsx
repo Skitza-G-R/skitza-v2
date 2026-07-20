@@ -48,6 +48,18 @@ const SHARED_PROJECT: PaymentHistoryProject = {
       paidCents: 60_000,
       dueNowCents: 60_000,
       totalRemainingCents: 60_000,
+      delivery: {
+        key: "overdue_locked",
+        label: "Overdue · downloads locked",
+        description: "Listening remains available, but downloads require full payment.",
+        paidCents: 60_000,
+        waivedCents: 0,
+        remainingCents: 60_000,
+        overdue: true,
+        activeOverrideVersionLabels: [],
+        googleDriveLinks: [],
+        withheldGoogleDriveLinkCount: 0,
+      },
       frozenTerms: {
         frozenAtIso: "2026-06-01T09:00:00.000Z",
         productName: "Single production",

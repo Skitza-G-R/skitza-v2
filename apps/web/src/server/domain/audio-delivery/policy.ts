@@ -272,6 +272,18 @@ function exactArtistOwner(context: AudioDeliveryContext, viewer: AudioDeliveryVi
   );
 }
 
+/** Authorize the exact artist/purchase graph without requiring stored audio. */
+export function authorizeArtistOwner(
+  context: AudioDeliveryContext,
+  viewer: AudioDeliveryViewer,
+): PurchaseLedgerProjection {
+  const ledger = requireCommercialLedger(context);
+  if (!exactArtistOwner(context, viewer)) {
+    throw new AudioDeliveryDomainError("NOT_FOUND", "Audio was not found");
+  }
+  return ledger;
+}
+
 export function authorizePrivateStream(
   context: AudioDeliveryContext,
   viewer: AudioDeliveryViewer,
@@ -300,10 +312,7 @@ export function authorizeArtistDownload(
   audio: AuthorizedStoredAudio;
   reason: "purchase_fully_paid" | "version_override";
 }> {
-  const ledger = requireCommercialLedger(context);
-  if (!exactArtistOwner(context, viewer)) {
-    throw new AudioDeliveryDomainError("NOT_FOUND", "Audio was not found");
-  }
+  const ledger = authorizeArtistOwner(context, viewer);
   const audio = requireAuthorizedStoredAudio(context);
   if (ledger.fullyPaidForDownloads) {
     return { audio, reason: "purchase_fully_paid" };

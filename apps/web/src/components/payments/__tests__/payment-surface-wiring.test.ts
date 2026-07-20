@@ -7,6 +7,15 @@ const read = (...parts: string[]) => readFileSync(join(root, "src", ...parts), "
 
 const producerPayments = read("app", "(producer)", "dashboard", "payments", "page.tsx");
 const artistPayments = read("app", "(artist)", "artist", "payments", "page.tsx");
+const artistPurchasePayment = read(
+  "app",
+  "(artist)",
+  "artist",
+  "payments",
+  "[purchaseId]",
+  "page.tsx",
+);
+const paymentHistory = read("components", "payments", "payment-history.tsx");
 const projectPage = read("app", "(producer)", "dashboard", "clients-projects", "[id]", "page.tsx");
 const songPage = read(
   "app",
@@ -82,5 +91,19 @@ describe("SK-69 payment surface wiring", () => {
     expect(readDb).toContain("activeArtistClientOwner");
     expect(readDb).toContain("eq(purchases.producerId, scope.producerId)");
     expect(readDb).not.toMatch(/paymentProofs\.(storageKey|objectEtag|storageBucket)/);
+  });
+
+  it("completes payment through the exact purchase and installment returned by the existing flow", () => {
+    expect(paymentHistory).toContain(
+      "href={`/artist/payments/${encodeURIComponent(purchase.id)}`}",
+    );
+    expect(paymentHistory).toContain("Complete payment");
+    expect(artistPurchasePayment).toContain(
+      "caller.artist.purchase.paymentInstructions({ purchaseId })",
+    );
+    expect(artistPurchasePayment).toContain("installmentId={data.installmentId}");
+    expect(artistPurchasePayment).toContain(
+      "new URLSearchParams({ installment: data.installmentId })",
+    );
   });
 });
