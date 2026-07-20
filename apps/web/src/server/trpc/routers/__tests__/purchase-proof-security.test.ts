@@ -4,63 +4,64 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const purchaseSource = readFileSync(join(__dirname, "../purchase.ts"), "utf8");
-const storeAcceptanceSource = readFileSync(
-  join(__dirname, "../../../domain/purchases/store-acceptance.ts"),
+const serviceSource = readFileSync(
+  join(__dirname, "../../../domain/payment-proofs/service.ts"),
+  "utf8",
+);
+const evidenceRouteSource = readFileSync(
+  join(__dirname, "../../../../app/api/payment-proofs/evidence/route.ts"),
   "utf8",
 );
 
-describe("accepted-purchase API containment", () => {
-  it("removes request-owned proof, invoice, and storage implementations", () => {
+describe("accepted-purchase proof API security", () => {
+  it("keeps storage implementation out of the tRPC router", () => {
     expect(purchaseSource).not.toMatch(/@aws-sdk|GetObjectCommand|PutObjectCommand/);
-    expect(purchaseSource).not.toMatch(/paymentProofs|invoices|ensurePurchaseProject/);
-    expect(purchaseSource).not.toMatch(/buildProofStagingKey|buildFinalProofKey/);
+    expect(purchaseSource).not.toMatch(/storageKey|objectEtag|storageBucket/);
+    expect(purchaseSource).toMatch(/prepareArtistProofUpload/);
+    expect(purchaseSource).toMatch(/submitArtistPaymentProof/);
   });
 
-  it("implements instruction reads while keeping unfinished proof mutations closed", () => {
-    expect(purchaseSource).toMatch(
-      /paymentInstructions:[\s\S]*loadArtistInstallmentPaymentInstructions/,
+  it("uses exact purchase/installment inputs and a signed opaque upload token", () => {
+    const artistProofRouter = purchaseSource.slice(
+      purchaseSource.indexOf("  proofOfPayment: router({"),
+      purchaseSource.indexOf("export const producerPurchaseRouter"),
     );
-    expect(purchaseSource).not.toContain('notImplemented("artist.purchase.paymentInstructions")');
-
-    expect(purchaseSource).not.toContain('notImplemented("artist.purchase.paymentPlan.choose")');
-
-    for (const procedure of [
-      "artist.purchase.proofOfPayment.state",
-      "artist.purchase.proofOfPayment.presign",
-      "artist.purchase.proofOfPayment.submit",
-    ]) {
-      expect(purchaseSource).toContain(`notImplemented("${procedure}")`);
-    }
+    expect(artistProofRouter).toMatch(/purchaseId: z\.string\(\)\.uuid\(\)/);
+    expect(artistProofRouter).toMatch(/installmentId: z\.string\(\)\.uuid\(\)/);
+    expect(artistProofRouter).toMatch(/uploadToken: z\.string\(\)/);
+    expect(artistProofRouter).toMatch(/amountCents: z\.number\(\)\.int\(\)\.positive\(\)/);
+    expect(artistProofRouter).not.toMatch(/purchaseRequestId|storageKey|objectEtag/);
   });
 
-  it("keeps critical producer proof reads safely unavailable and empty", () => {
-    const proofRouter = purchaseSource.slice(
-      purchaseSource.lastIndexOf("proofOfPayment: router({"),
+  it("scopes producer reads and decisions to ctx.producerId", () => {
+    const producerProofRouter = purchaseSource.slice(
+      purchaseSource.lastIndexOf("  proofOfPayment: router({"),
     );
-    expect(proofRouter).toMatch(/pending:[\s\S]*available: false,[\s\S]*proofs: \[\]/);
-    expect(proofRouter).toMatch(/history:[\s\S]*available: false,[\s\S]*proofs: \[\]/);
-    expect(proofRouter).toContain('notImplemented("producer.purchase.proofOfPayment.view")');
-    expect(proofRouter).toContain('notImplemented("producer.purchase.proofOfPayment.confirm")');
-    expect(proofRouter).toContain('notImplemented("producer.purchase.proofOfPayment.reject")');
+    expect(producerProofRouter).toMatch(
+      /listProducerPendingPaymentProofs\(ctx\.db, ctx\.producerId/,
+    );
+    expect(producerProofRouter).toMatch(/producerId: ctx\.producerId/);
+    expect(serviceSource).toMatch(/eq\(paymentProofs\.producerId, producerId\)/);
+    expect(serviceSource).toMatch(/eq\(purchases\.producerId, producerId\)/);
   });
 
-  it("does not expose standalone agreement, session, or download procedures", () => {
+  it("delivers evidence only through a short-lived same-origin authorization route", () => {
+    expect(serviceSource).toMatch(/PROOF_EVIDENCE_TTL_SECONDS/);
+    expect(serviceSource).toMatch(/\/api\/payment-proofs\/evidence\?token=/);
+    expect(evidenceRouteSource).toMatch(/verifyProofEvidenceToken/);
+    expect(evidenceRouteSource).toMatch(/payload\.viewerClerkUserId !== userId/);
+    expect(evidenceRouteSource).toMatch(/authorizePrivateProofEvidence/);
+    expect(evidenceRouteSource).toMatch(/private, no-store/);
+    expect(evidenceRouteSource).toMatch(/Content-Security-Policy/);
+    expect(evidenceRouteSource).not.toMatch(
+      /getSignedUrl|storageKey.*headers|storageBucket.*headers/,
+    );
+  });
+
+  it("does not add standalone agreement, session, or final-trigger procedures", () => {
     expect(purchaseSource).not.toMatch(/acceptAgreement: artistProcedure/);
     expect(purchaseSource).not.toMatch(/schedule: artistProcedure/);
     expect(purchaseSource).not.toMatch(/canDownload: artistProcedure/);
     expect(purchaseSource).not.toMatch(/session: router/);
-  });
-
-  it("keeps final Store acceptance artist-owned with no producer acceptance route", () => {
-    const producerRouterStart = purchaseSource.indexOf("export const producerPurchaseRouter");
-    const artistRouter = purchaseSource.slice(0, producerRouterStart);
-    const producerRouter = purchaseSource.slice(producerRouterStart);
-
-    expect(artistRouter).toMatch(/acceptance:\s*router\(\{[\s\S]*accept:\s*artistProcedure/);
-    expect(artistRouter).toMatch(/acceptStorePurchase\(ctx\.db,[\s\S]*clerkUserId: ctx\.clerkUserId/);
-    expect(producerRouter).not.toMatch(/acceptStorePurchase|acceptedByClerkUserId/);
-    expect(
-      storeAcceptanceSource.match(/isNull\(clientContacts\.archivedAt\)/g),
-    ).toHaveLength(2);
   });
 });

@@ -115,8 +115,11 @@ describe("producer purchase request flow", () => {
   });
 
   it("keeps converted request deep links alive through accepted Purchase truth", () => {
+    const producerGetStart = purchaseRouterSource.indexOf(
+      "  get: producerProcedure\n    .input(z.object({ id: z.string().uuid() }))",
+    );
     const producerGet = purchaseRouterSource.slice(
-      purchaseRouterSource.lastIndexOf("  get: producerProcedure"),
+      producerGetStart,
       purchaseRouterSource.indexOf("correctTarget: producerProcedure"),
     );
     expect(purchaseRouterSource).toMatch(/loadAcceptedPurchaseForProducerRequest/);

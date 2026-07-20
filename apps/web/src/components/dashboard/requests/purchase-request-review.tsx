@@ -365,7 +365,7 @@ function reviewDescription(
       : "The artist can now choose an enabled plan, review the exact agreement, and accept it before receiving external payment instructions. Approval changes are limited to a short safety window.";
   }
   if (status === "verifying") {
-    return "The artist submitted payment proof and this request can no longer be changed here.";
+    return "This accepted purchase can no longer be changed in Requests. Payment follow-up belongs in Payments.";
   }
   if (status === "paid") {
     return "Payment has been confirmed and this request can no longer be changed here.";

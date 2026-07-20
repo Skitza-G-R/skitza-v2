@@ -26,6 +26,7 @@ export interface ShellNotificationItem {
   commentId: string | null;
   bookingId: string | null;
   purchaseRequestId: string | null;
+  purchaseId: string | null;
   paymentProofId: string | null;
   readAtIso: string | null;
 }
@@ -41,6 +42,7 @@ export interface ShellNotificationCandidate {
   commentId: string | null;
   bookingId: string | null;
   purchaseRequestId: string | null;
+  purchaseId: string | null;
   readAt: Date | null;
 }
 
@@ -74,7 +76,10 @@ function toShellNotificationItem(row: ShellNotificationCandidate): ShellNotifica
     commentId: row.commentId,
     bookingId: row.bookingId,
     purchaseRequestId: row.purchaseRequestId,
-    paymentProofId: null,
+    purchaseId: row.purchaseId,
+    // Proof notifications deliberately reuse the immutable proof UUID as the
+    // notification id, so no storage identity or request-level fallback is needed.
+    paymentProofId: row.kind === "proof_submitted" ? row.id : null,
     readAtIso: row.readAt?.toISOString() ?? null,
   };
 }
@@ -146,6 +151,7 @@ export const getShellState = cache(async (): Promise<ShellState> => {
     commentId: notifications.commentId,
     bookingId: notifications.bookingId,
     purchaseRequestId: notifications.purchaseRequestId,
+    purchaseId: notifications.purchaseId,
     readAt: notifications.readAt,
   };
   const [unreadCountRows, unreadRows, recentReadRows] = await Promise.all([
@@ -192,12 +198,6 @@ export const getShellState = cache(async (): Promise<ShellState> => {
     displayName: row.displayName,
     plan: row.plan,
     unreadCount: unreadCountRows[0]?.value ?? 0,
-    recentNotifications: recentNotifications.map((notification) => ({
-      ...notification,
-      // Proof review is purchase/installment-owned after SK-90. The legacy
-      // request-level deep link is intentionally unavailable until the
-      // Payments surface consumes that exact authorization boundary.
-      paymentProofId: null,
-    })),
+    recentNotifications,
   };
 });

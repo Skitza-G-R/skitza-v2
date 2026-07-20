@@ -35,12 +35,16 @@ export default async function PaymentInstructionsPage({ params, searchParams }: 
     if (data.productId && data.productId !== productId) notFound();
     if (!data.amountDueNowCents) {
       if (data.proofUploadsAvailable) {
-        redirect(`/artist/purchase/${productId}/pay/proof?req=${req ?? ""}`);
+        redirect(
+          `/artist/purchase/${productId}/pay/proof?purchase=${data.purchaseId}&installment=${data.installmentId}`,
+        );
       }
       redirect("/artist");
     }
     if (data.proofUploadsAvailable && (data.pendingProofCents > 0 || data.remainingCents <= 0)) {
-      redirect(`/artist/purchase/${productId}/pay/proof?req=${req ?? ""}`);
+      redirect(
+        `/artist/purchase/${productId}/pay/proof?purchase=${data.purchaseId}&installment=${data.installmentId}`,
+      );
     }
 
     const paymentDetails = data.hasDetails
@@ -54,7 +58,8 @@ export default async function PaymentInstructionsPage({ params, searchParams }: 
     return (
       <PaymentInstructionsScreen
         productId={productId}
-        purchaseRequestId={req ?? ""}
+        purchaseId={data.purchaseId}
+        installmentId={data.installmentId}
         producerName={data.producerName ?? "Your producer"}
         amountDueNowCents={data.amountDueNowCents}
         currency={data.currency}

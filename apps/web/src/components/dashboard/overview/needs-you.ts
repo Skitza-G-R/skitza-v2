@@ -29,7 +29,6 @@ export type PaymentSource = {
 
 export type PaymentProofSource = {
   proofId: string;
-  purchaseRequestId: string;
   artistName: string;
   productNameSnapshot: string;
 };
@@ -123,7 +122,7 @@ export function buildNeedsYouQueue(sources: NeedsYouSources): NeedsYouItem[] {
       kind: "payment_proof",
       title: "Payment proof",
       meta: `${proof.artistName} · ${proof.productNameSnapshot}`,
-      href: `/dashboard/requests/${proof.purchaseRequestId}?proof=${proof.proofId}#payment-proof`,
+      href: `/dashboard/payments/${proof.proofId}`,
       actionLabel: "Review",
       priority: 5,
     });

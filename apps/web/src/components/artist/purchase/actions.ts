@@ -89,38 +89,37 @@ export async function acceptPurchaseAction(input: {
 }
 
 export async function presignProofUploadAction(input: {
-  purchaseRequestId: string;
+  purchaseId: string;
+  installmentId: string;
   fileName: string;
   contentType: ProofContentType;
   sizeBytes: number;
-}): Promise<{ ok: true; uploadUrl: string } | ActionError> {
+}): Promise<{ ok: true; uploadUrl: string; uploadToken: string } | ActionError> {
   const { userId } = await auth();
   if (!userId) return { ok: false, error: "Not signed in" };
 
   try {
     const caller = appRouter.createCaller({ userId });
     const result = await caller.artist.purchase.proofOfPayment.presign(input);
-    return { ok: true, uploadUrl: result.uploadUrl };
+    return { ok: true, uploadUrl: result.uploadUrl, uploadToken: result.uploadToken };
   } catch (error) {
     return errorResult(error, "Couldn't prepare the upload. Try again.");
   }
 }
 
 export async function submitPaymentProofAction(input: {
-  purchaseRequestId: string;
+  purchaseId: string;
+  installmentId: string;
+  uploadToken: string;
   amountCents: number;
-  originalFileName: string;
+  note?: string | undefined;
 }): Promise<{ ok: true; proofId: string } | ActionError> {
   const { userId } = await auth();
   if (!userId) return { ok: false, error: "Not signed in" };
 
   try {
     const caller = appRouter.createCaller({ userId });
-    const result = await caller.artist.purchase.proofOfPayment.submit({
-      purchaseRequestId: input.purchaseRequestId,
-      amountCents: input.amountCents,
-      originalFileName: input.originalFileName,
-    });
+    const result = await caller.artist.purchase.proofOfPayment.submit(input);
     revalidatePath("/artist", "layout");
     if (result.productId) {
       revalidatePath(`/artist/purchase/${result.productId}/pay`);
@@ -128,8 +127,8 @@ export async function submitPaymentProofAction(input: {
       revalidatePath(`/artist/purchase/${result.productId}/pay/proof`);
     }
     revalidatePath("/dashboard", "layout");
-    revalidatePath("/dashboard/requests", "layout");
-    revalidatePath(`/dashboard/requests/${result.purchaseRequestId}`);
+    revalidatePath("/dashboard/payments", "layout");
+    revalidatePath(`/dashboard/payments/${result.proofId}`);
     return { ok: true, proofId: result.proofId };
   } catch (error) {
     return errorResult(error, "Couldn't send the proof. Try again.");

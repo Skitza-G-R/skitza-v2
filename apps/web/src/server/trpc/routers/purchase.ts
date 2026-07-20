@@ -31,6 +31,18 @@ import {
   saveProducerPaymentInstructions,
 } from "~/server/domain/payment-instructions/service";
 import {
+  confirmProducerPaymentProof,
+  listProducerPaymentProofHistory,
+  listProducerPendingPaymentProofs,
+  loadArtistPaymentProofState,
+  loadProducerPaymentProofReview,
+  PaymentProofDomainError,
+  prepareArtistProofUpload,
+  rejectProducerPaymentProof,
+  submitArtistPaymentProof,
+} from "~/server/domain/payment-proofs/service";
+import { MAX_PROOF_BYTES, PROOF_CONTENT_TYPES } from "~/server/domain/payment-proofs/policy";
+import {
   acceptStorePurchase,
   previewStorePurchaseAcceptance,
   StoreAcceptanceError,
@@ -55,9 +67,15 @@ import {
   listSameClientPurchaseTargets,
 } from "~/server/domain/purchase-targeting/db";
 import { PurchaseTargetingError } from "~/server/domain/purchase-targeting/service";
-import { sendPurchaseApprovedEmail, sendPurchaseDeclinedEmail } from "~/server/email/send";
+import {
+  sendProofRejectedEmail,
+  sendProofVerifiedEmail,
+  sendPurchaseApprovedEmail,
+  sendPurchaseDeclinedEmail,
+} from "~/server/email/send";
 import {
   emitAgreementAccepted,
+  emitProofSubmitted,
   emitPurchaseApproved,
   emitPurchaseDeclined,
   emitPurchaseRequested,
@@ -88,15 +106,6 @@ const PURCHASE_REQUEST_STATUS_INPUT = z.enum([
   "converted",
 ]);
 
-const PROOF_CONTENT_TYPES = [
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/heic",
-  "application/pdf",
-] as const;
-const MAX_PROOF_BYTES = 15 * 1024 * 1024;
-
 type CompatibilityPurchaseStatus = PurchaseRequest["status"] | "verifying" | "paid";
 
 type ArtistCurrentCompatibility = {
@@ -118,79 +127,6 @@ type ArtistCurrentCompatibility = {
   acceptanceAvailable: boolean;
 };
 
-type ArtistProofStateOutput = {
-  purchaseRequestId: string;
-  producerId: string;
-  productId: string | null;
-  projectId: string | null;
-  productName: string;
-  producerName: string;
-  proofUploadsAvailable: boolean;
-  requestStatus: "pending" | "approved" | "verifying" | "paid" | "declined";
-  planChosenAt: Date | null;
-  currency: string;
-  totalCents: number;
-  paidCents: number;
-  pendingProofCents: number;
-  remainingCents: number;
-  amountDueNowCents: number;
-  availableToSubmitCents: number;
-  paidInFull: boolean;
-  proofs: Array<{
-    id: string;
-    amountCents: number;
-    status: "pending" | "confirmed" | "rejected";
-    rejectionNote: string | null;
-    createdAt: Date;
-  }>;
-};
-
-type ProducerPendingProof = {
-  proofId: string;
-  purchaseRequestId: string;
-  refNumber: string;
-  artistName: string;
-  productNameSnapshot: string;
-  amountCents: number;
-  totalCents: number;
-  currency: string;
-  originalFileName: string | null;
-  contentType: string | null;
-  sizeBytes: number | null;
-  proofNote: string | null;
-  createdAt: Date;
-};
-
-type ProducerProofHistory = ProducerPendingProof & {
-  status: "pending" | "confirmed" | "rejected";
-  rejectionNote: string | null;
-  confirmedAt: Date | null;
-  rejectedAt: Date | null;
-};
-
-type ProducerProofConfirmOutput = {
-  ok: true;
-  purchaseRequestId: string;
-  projectId: string | null;
-  proofStatus: "confirmed";
-  invoiceStatus: "paid";
-  depositPaid: boolean;
-  finalPaid: boolean;
-};
-
-type ProducerProofRejectOutput = {
-  ok: true;
-  purchaseRequestId: string;
-  proofStatus: "rejected";
-};
-
-function notImplemented(slice: string): never {
-  throw new TRPCError({
-    code: "NOT_IMPLEMENTED",
-    message: `${slice} requires an accepted purchase and is unavailable until that flow is wired`,
-  });
-}
-
 function mapRequestDomainError(error: unknown): never {
   if (!(error instanceof PurchaseRequestDomainError)) throw error;
   if (error.code === "OPERATION_KEY_CONFLICT") {
@@ -204,6 +140,31 @@ function mapPaymentInstructionsNotFound(error: unknown): never {
     throw new TRPCError({ code: "NOT_FOUND" });
   }
   throw error;
+}
+
+function mapPaymentProofError(error: unknown): never {
+  if (!(error instanceof PaymentProofDomainError)) throw error;
+  switch (error.code) {
+    case "NOT_FOUND":
+      throw new TRPCError({ code: "NOT_FOUND" });
+    case "CONFLICT":
+      throw new TRPCError({ code: "CONFLICT", message: error.message });
+    case "INVALID_INPUT":
+      throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+    case "INTEGRITY_ERROR":
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+  }
+}
+
+function proofServerSecret(): string {
+  const secret = process.env.CLERK_SECRET_KEY;
+  if (!secret) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Private proof delivery is not configured",
+    });
+  }
+  return secret;
 }
 
 function mapPurchaseTargetingError(error: unknown): never {
@@ -887,33 +848,91 @@ export const artistPurchaseRouter = router({
 
   proofOfPayment: router({
     state: artistProcedure
-      .input(z.object({ purchaseRequestId: z.string().uuid() }))
-      .query((): ArtistProofStateOutput => notImplemented("artist.purchase.proofOfPayment.state")),
+      .input(
+        z.object({
+          purchaseId: z.string().uuid(),
+          installmentId: z.string().uuid().optional(),
+        }),
+      )
+      .query(async ({ ctx, input }) => {
+        try {
+          return await loadArtistPaymentProofState(ctx.db, {
+            clerkUserId: ctx.clerkUserId,
+            purchaseId: input.purchaseId,
+            installmentId: input.installmentId,
+            serverSecret: proofServerSecret(),
+          });
+        } catch (error) {
+          mapPaymentProofError(error);
+        }
+      }),
     presign: artistProcedure
       .input(
         z.object({
-          purchaseRequestId: z.string().uuid(),
+          purchaseId: z.string().uuid(),
+          installmentId: z.string().uuid(),
           fileName: z.string().min(1).max(200),
           contentType: z.enum(PROOF_CONTENT_TYPES),
           sizeBytes: z.number().int().positive().max(MAX_PROOF_BYTES),
         }),
       )
-      .mutation((): { uploadUrl: string } =>
-        notImplemented("artist.purchase.proofOfPayment.presign"),
-      ),
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await prepareArtistProofUpload(ctx.db, {
+            clerkUserId: ctx.clerkUserId,
+            purchaseId: input.purchaseId,
+            installmentId: input.installmentId,
+            originalFileName: input.fileName,
+            contentType: input.contentType,
+            sizeBytes: input.sizeBytes,
+            serverSecret: proofServerSecret(),
+          });
+        } catch (error) {
+          mapPaymentProofError(error);
+        }
+      }),
     submit: artistProcedure
       .input(
         z.object({
-          purchaseRequestId: z.string().uuid(),
+          purchaseId: z.string().uuid(),
+          installmentId: z.string().uuid(),
+          uploadToken: z.string().min(1).max(4096),
           amountCents: z.number().int().positive(),
-          originalFileName: z.string().trim().min(1).max(200),
           note: z.string().max(2000).optional(),
         }),
       )
-      .mutation(
-        (): { ok: true; proofId: string; purchaseRequestId: string; productId: string | null } =>
-          notImplemented("artist.purchase.proofOfPayment.submit"),
-      ),
+      .mutation(async ({ ctx, input }) => {
+        let result;
+        try {
+          result = await submitArtistPaymentProof(ctx.db, {
+            clerkUserId: ctx.clerkUserId,
+            purchaseId: input.purchaseId,
+            installmentId: input.installmentId,
+            uploadToken: input.uploadToken,
+            amountCents: input.amountCents,
+            note: input.note,
+            serverSecret: proofServerSecret(),
+          });
+        } catch (error) {
+          mapPaymentProofError(error);
+        }
+        if (result.notification) {
+          try {
+            await emitProofSubmitted(ctx.db, result.notification);
+          } catch {
+            console.error("[notify] proof-submitted failed");
+          }
+        }
+        return {
+          ok: true as const,
+          proofId: result.proofId,
+          purchaseId: result.purchaseId,
+          installmentId: result.installmentId,
+          productId: result.productId,
+          projectId: result.projectId,
+          created: result.created,
+        };
+      }),
   }),
 });
 
@@ -1226,33 +1245,90 @@ export const producerPurchaseRouter = router({
 
   proofOfPayment: router({
     pending: producerProcedure
-      .input(z.object({ purchaseRequestId: z.string().uuid().optional() }).optional())
-      .query((): { available: false; proofs: ProducerPendingProof[] } => ({
-        available: false,
-        proofs: [],
+      .input(z.object({ purchaseId: z.string().uuid().optional() }).optional())
+      .query(async ({ ctx, input }) => ({
+        available: true as const,
+        proofs: await listProducerPendingPaymentProofs(ctx.db, ctx.producerId, input?.purchaseId),
       })),
     history: producerProcedure
       .input(
-        z.union([
-          z.object({ purchaseRequestId: z.string().uuid() }),
-          z.object({ clientContactId: z.string().uuid() }),
-        ]),
+        z
+          .object({
+            purchaseId: z.string().uuid().optional(),
+            clientContactId: z.string().uuid().optional(),
+            limit: z.number().int().min(1).max(200).optional(),
+          })
+          .optional(),
       )
-      .query((): { available: false; proofs: ProducerProofHistory[] } => ({
-        available: false,
-        proofs: [],
+      .query(async ({ ctx, input }) => ({
+        available: true as const,
+        proofs: await listProducerPaymentProofHistory(ctx.db, {
+          producerId: ctx.producerId,
+          purchaseId: input?.purchaseId,
+          clientContactId: input?.clientContactId,
+          limit: input?.limit,
+        }),
       })),
+    get: producerProcedure
+      .input(z.object({ proofId: z.string().uuid() }))
+      .query(async ({ ctx, input }) => {
+        if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED" });
+        try {
+          return await loadProducerPaymentProofReview(ctx.db, {
+            producerId: ctx.producerId,
+            clerkUserId: ctx.userId,
+            proofId: input.proofId,
+            serverSecret: proofServerSecret(),
+          });
+        } catch (error) {
+          mapPaymentProofError(error);
+        }
+      }),
     view: producerProcedure
       .input(z.object({ proofId: z.string().uuid() }))
-      .query((): { url: string; expiresInSeconds: number } =>
-        notImplemented("producer.purchase.proofOfPayment.view"),
-      ),
+      .query(async ({ ctx, input }) => {
+        if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED" });
+        try {
+          const review = await loadProducerPaymentProofReview(ctx.db, {
+            producerId: ctx.producerId,
+            clerkUserId: ctx.userId,
+            proofId: input.proofId,
+            serverSecret: proofServerSecret(),
+          });
+          return {
+            url: review.evidenceUrl,
+            expiresInSeconds: review.evidenceExpiresInSeconds,
+          };
+        } catch (error) {
+          mapPaymentProofError(error);
+        }
+      }),
     confirm: producerProcedure
       .input(z.object({ proofId: z.string().uuid() }))
-      .mutation(
-        (): ProducerProofConfirmOutput =>
-          notImplemented("producer.purchase.proofOfPayment.confirm"),
-      ),
+      .mutation(async ({ ctx, input }) => {
+        if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED" });
+        let result;
+        try {
+          result = await confirmProducerPaymentProof(ctx.db, {
+            producerId: ctx.producerId,
+            clerkUserId: ctx.userId,
+            proofId: input.proofId,
+          });
+        } catch (error) {
+          mapPaymentProofError(error);
+        }
+        const email = result.email;
+        if (email) {
+          after(async () => {
+            try {
+              await sendProofVerifiedEmail(email.artistEmail, email);
+            } catch {
+              console.error("[email] proof-verified failed");
+            }
+          });
+        }
+        return result;
+      }),
     reject: producerProcedure
       .input(
         z.object({
@@ -1260,8 +1336,37 @@ export const producerPurchaseRouter = router({
           note: z.string().trim().min(1).max(2000),
         }),
       )
-      .mutation(
-        (): ProducerProofRejectOutput => notImplemented("producer.purchase.proofOfPayment.reject"),
-      ),
+      .mutation(async ({ ctx, input }) => {
+        if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED" });
+        let result;
+        try {
+          result = await rejectProducerPaymentProof(ctx.db, {
+            producerId: ctx.producerId,
+            clerkUserId: ctx.userId,
+            proofId: input.proofId,
+            note: input.note,
+          });
+        } catch (error) {
+          mapPaymentProofError(error);
+        }
+        const email = result.email;
+        const rejectionNote = email?.rejectionNote;
+        if (email && rejectionNote) {
+          after(async () => {
+            try {
+              await sendProofRejectedEmail(email.artistEmail, {
+                artistName: email.artistName,
+                producerName: email.producerName,
+                productName: email.productName,
+                refNumber: email.refNumber,
+                note: rejectionNote,
+              });
+            } catch {
+              console.error("[email] proof-rejected failed");
+            }
+          });
+        }
+        return result;
+      }),
   }),
 });

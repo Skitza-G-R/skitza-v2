@@ -128,7 +128,8 @@ export async function emitAgreementAccepted(db: Db, input: {
 export async function emitProofSubmitted(db: Db, input: {
   proofId: string;
   producerId: string;
-  purchaseRequestId: string;
+  purchaseId: string;
+  projectId: string;
   artistName: string;
   productName: string;
   refNumber: string;
@@ -144,6 +145,7 @@ export async function emitProofSubmitted(db: Db, input: {
     kind: "proof_submitted",
     title: `${input.artistName} uploaded a proof of payment`,
     body: `${input.refNumber} \u2014 ${amount} \u00b7 ${input.productName}`,
-    purchaseRequestId: input.purchaseRequestId,
+    purchaseId: input.purchaseId,
+    projectId: input.projectId,
   });
 }

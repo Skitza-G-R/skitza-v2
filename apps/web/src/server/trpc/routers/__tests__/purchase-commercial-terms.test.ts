@@ -58,8 +58,11 @@ describe("purchase commercial-term ownership", () => {
   });
 
   it("keeps request reads tenant-scoped and separates live proposals from accepted truth", () => {
+    const producerGetStart = purchaseSource.indexOf(
+      "  get: producerProcedure\n    .input(z.object({ id: z.string().uuid() }))",
+    );
     const producerGet = purchaseSource.slice(
-      purchaseSource.lastIndexOf("  get: producerProcedure"),
+      producerGetStart,
       purchaseSource.indexOf("correctTarget: producerProcedure"),
     );
     expect(purchaseSource).toMatch(/get:\s*producerProcedure/);
