@@ -1,14 +1,14 @@
 "use client";
 
-// CancelSessionModal — UI-only. Backend doesn't expose a `booking.cancel`
-// proc yet (only confirm + reject for pending; no path for confirmed
-// sessions). Submitting toasts "Coming soon"; the design polish stays
-// so producers can see the workflow.
+// Producer cancellation returns the purchased session use and notifies the
+// artist. The server action owns the stable idempotency key so a retry after
+// a dropped response cannot cancel twice.
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 
 import { useToast } from "~/components/ui/toast";
 
+import { cancelSession } from "./calendar-actions";
 import {
   ModalGhostButton,
   ModalPrimaryButton,
@@ -18,14 +18,12 @@ import type { SessionListItem } from "./session-row";
 
 type Reason =
   | "schedule_conflict"
-  | "client_request"
   | "studio_unavailable"
   | "equipment_issue"
   | "other";
 
 const REASON_OPTIONS: ReadonlyArray<{ id: Reason; label: string }> = [
   { id: "schedule_conflict", label: "Schedule conflict" },
-  { id: "client_request", label: "Client request" },
   { id: "studio_unavailable", label: "Studio unavailable" },
   { id: "equipment_issue", label: "Equipment issue" },
   { id: "other", label: "Other" },
@@ -42,6 +40,7 @@ export function CancelSessionModal({
 }) {
   const [reason, setReason] = useState<Reason | null>(null);
   const [note, setNote] = useState("");
+  const [isPending, startTransition] = useTransition();
   const { toast } = useToast();
 
   useEffect(() => {
@@ -51,11 +50,21 @@ export function CancelSessionModal({
   }, [open]);
 
   function handleSubmit() {
-    toast(
-      "Session cancellation ships next sprint — flagged this one for follow-up.",
-      "info",
-    );
-    onOpenChange(false);
+    if (reason === null || isPending) return;
+    const reasonLabel = REASON_OPTIONS.find((option) => option.id === reason)?.label ?? reason;
+    startTransition(async () => {
+      const result = await cancelSession({
+        id: session.id,
+        reason: reasonLabel,
+        ...(note.trim() ? { note: note.trim() } : {}),
+      });
+      if (!result.ok) {
+        toast(result.error, "error");
+        return;
+      }
+      toast("Session cancelled. The artist’s session use was returned.", "success");
+      onOpenChange(false);
+    });
   }
 
   return (
@@ -65,7 +74,7 @@ export function CancelSessionModal({
       tone="danger"
       eyebrow="CANCEL SESSION"
       title={`Cancel ${session.packageName ?? "session"}?`}
-      subtitle={`This frees the slot and notifies ${session.artistName}. They keep any deposit on file.`}
+      subtitle={`This frees the slot, returns the session use, and notifies ${session.artistName}. Any refund follows the signed agreement off-app.`}
       icon={<XCircleIcon />}
       body={
         <>
@@ -86,7 +95,7 @@ export function CancelSessionModal({
                   }}
                   aria-pressed={reason === opt.id}
                   className={[
-                    "sk-press flex items-center justify-between rounded-[10px] border px-3 py-2 text-left text-[12px] transition-colors",
+                    "sk-press flex items-center justify-between rounded-[var(--radius-md)] border px-3 py-2 text-left text-[12px] transition-colors",
                     reason === opt.id
                       ? "border-[rgb(var(--fg-danger)/0.6)] bg-[rgb(var(--fg-danger)/0.05)] text-[rgb(var(--fg-default))]"
                       : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-secondary))] hover:border-[rgb(var(--border-strong))]",
@@ -109,6 +118,7 @@ export function CancelSessionModal({
             </span>
             <textarea
               rows={3}
+              maxLength={900}
               value={note}
               onChange={(e) => {
                 setNote(e.target.value);
@@ -122,6 +132,7 @@ export function CancelSessionModal({
       footer={
         <>
           <ModalGhostButton
+            disabled={isPending}
             onClick={() => {
               onOpenChange(false);
             }}
@@ -130,10 +141,10 @@ export function CancelSessionModal({
           </ModalGhostButton>
           <ModalPrimaryButton
             onClick={handleSubmit}
-            disabled={reason === null}
+            disabled={reason === null || isPending}
             tone="danger"
           >
-            Cancel session
+            {isPending ? "Cancelling…" : "Cancel session"}
           </ModalPrimaryButton>
         </>
       }

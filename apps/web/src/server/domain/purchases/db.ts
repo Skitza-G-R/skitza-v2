@@ -9,6 +9,7 @@ import {
   purchaseAcceptances,
   purchaseInstallments,
   purchaseRequests,
+  purchaseSessionAllowances,
   purchases,
   sql,
   type Db,
@@ -28,6 +29,103 @@ import type {
   PurchaseSource,
   PurchaseSourceDescriptor,
 } from "./service";
+
+export type PurchaseSessionAllowanceDraft = Readonly<{
+  purchaseId: string;
+  producerId: string;
+  kind: "fixed" | "unlimited";
+  sessionLimit: number | null;
+  durationMin: number;
+  locationType: string;
+  bufferMinutes: number;
+  minLeadHours: number;
+  createdAt: Date;
+}>;
+
+/**
+ * Derive the immutable booking allowance from accepted commercial truth.
+ * Store session products are deliberately distinguished in purchase
+ * provenance; private offers retain their source kind while using the same
+ * frozen session terms.
+ */
+export function purchaseSessionAllowanceDraft(
+  purchase: Pick<
+    AcceptedPurchase,
+    "id" | "producerId" | "source" | "commercialSnapshot" | "acceptedAt"
+  >,
+): PurchaseSessionAllowanceDraft | null {
+  const session = purchase.commercialSnapshot.value.session;
+  if (session === null) {
+    if (purchase.source.kind === "session_product") {
+      throw new Error("A session-product purchase is missing frozen session terms");
+    }
+    return null;
+  }
+  // SK-95 accepted Store rows used store_product before SK-68 introduced
+  // explicit session_product provenance. Their immutable session snapshot is
+  // still authoritative; all new Store session acceptances use session_product.
+  return {
+    purchaseId: purchase.id,
+    producerId: purchase.producerId,
+    kind: session.limit.kind,
+    sessionLimit: session.limit.kind === "fixed" ? session.limit.count : null,
+    durationMin: session.durationMin,
+    locationType: session.locationType,
+    bufferMinutes: session.bufferMinutes,
+    minLeadHours: session.minLeadHours,
+    createdAt: purchase.acceptedAt,
+  };
+}
+
+/** Create exactly one allowance, or prove an idempotent replay is identical. */
+export async function ensurePurchaseSessionAllowance(
+  tx: PurchaseTransactionDb,
+  purchase: Pick<
+    AcceptedPurchase,
+    "id" | "producerId" | "source" | "commercialSnapshot" | "acceptedAt"
+  >,
+): Promise<void> {
+  const draft = purchaseSessionAllowanceDraft(purchase);
+  const [existing] = await tx
+    .select()
+    .from(purchaseSessionAllowances)
+    .where(eq(purchaseSessionAllowances.purchaseId, purchase.id))
+    .limit(1);
+
+  if (draft === null) {
+    if (existing) throw new Error("A non-session purchase has an unexpected session allowance");
+    return;
+  }
+
+  let row = existing;
+  if (!row) {
+    [row] = await tx
+      .insert(purchaseSessionAllowances)
+      .values(draft)
+      .onConflictDoNothing({ target: purchaseSessionAllowances.purchaseId })
+      .returning();
+    if (!row) {
+      [row] = await tx
+        .select()
+        .from(purchaseSessionAllowances)
+        .where(eq(purchaseSessionAllowances.purchaseId, purchase.id))
+        .limit(1);
+    }
+  }
+
+  if (
+    !row ||
+    row.producerId !== draft.producerId ||
+    row.kind !== draft.kind ||
+    row.sessionLimit !== draft.sessionLimit ||
+    row.durationMin !== draft.durationMin ||
+    row.locationType !== draft.locationType ||
+    row.bufferMinutes !== draft.bufferMinutes ||
+    row.minLeadHours !== draft.minLeadHours
+  ) {
+    throw new Error("Stored purchase session allowance differs from frozen commercial terms");
+  }
+}
 
 /**
  * The Store acceptance orchestrator owns the surrounding interactive
@@ -368,7 +466,11 @@ function transactionAdapter(tx: PurchaseTransactionDb): PurchaseAtomicTransactio
         .from(purchaseAcceptances)
         .where(eq(purchaseAcceptances.purchaseId, purchaseId))
         .limit(1);
-      return row ? acceptanceRecord(row) : null;
+      if (!row) return null;
+      const purchase = await loadAcceptedPurchase(tx, eq(purchases.id, purchaseId), false);
+      if (!purchase) throw new Error("Purchase acceptance points to a missing purchase");
+      await ensurePurchaseSessionAllowance(tx, purchase);
+      return acceptanceRecord(row);
     },
 
     insertAcceptanceFromPurchase: async (purchase, acceptedByClerkUserId) => {
@@ -385,6 +487,7 @@ function transactionAdapter(tx: PurchaseTransactionDb): PurchaseAtomicTransactio
         })
         .returning();
       if (!row) throw new Error("Purchase acceptance insert did not return a row");
+      await ensurePurchaseSessionAllowance(tx, purchase);
       return acceptanceRecord(row);
     },
 

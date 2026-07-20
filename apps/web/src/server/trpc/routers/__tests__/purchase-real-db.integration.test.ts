@@ -1083,6 +1083,8 @@ describeWithSafeDatabase("SK-90 purchase constraints — isolated disposable Pos
         .returning({ id: purchaseSessionAllowances.id }),
     );
     if (!allowance) throw new Error("SK-90 notification allowance fixture was not created");
+    const bookingOperationKey = `sk90-notification-booking-${fixtureSuffix}`;
+    const bookingOperationDigest = `digest-sk90-notification-booking-${fixtureSuffix}`;
     const [booking] = await safely(() =>
       activeDb()
         .insert(bookings)
@@ -1095,10 +1097,49 @@ describeWithSafeDatabase("SK-90 purchase constraints — isolated disposable Pos
           artistEmail: `artist-${fixtureSuffix}@example.invalid`,
           startsAt: new Date("2035-03-01T10:00:00.000Z"),
           durationMin: 60,
+          operationKey: bookingOperationKey,
+          operationDigest: bookingOperationDigest,
         })
         .returning({ id: bookings.id }),
     );
     if (!booking) throw new Error("SK-90 notification booking fixture was not created");
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .update(bookings)
+          .set({ operationDigest: `${bookingOperationDigest}-changed` })
+          .where(eq(bookings.id, booking.id)),
+      ),
+    ).toBe("P0001");
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .update(bookings)
+          .set({
+            startsAt: new Date("2035-03-01T11:00:00.000Z"),
+            durationMin: 90,
+          })
+          .where(eq(bookings.id, booking.id)),
+      ),
+    ).toBe("P0001");
+    expect(
+      await rejectedPostgresCode(() =>
+        activeDb()
+          .insert(bookings)
+          .values({
+            producerId,
+            projectId,
+            purchaseId,
+            sessionAllowanceId: allowance.id,
+            artistName: "SK-90 Artist Fixture",
+            artistEmail: `artist-${fixtureSuffix}@example.invalid`,
+            startsAt: new Date("2035-03-01T12:00:00.000Z"),
+            durationMin: 60,
+            operationKey: bookingOperationKey,
+            operationDigest: `${bookingOperationDigest}-different-command`,
+          }),
+      ),
+    ).toBe("23505");
     const [otherProducer] = await safely(() =>
       activeDb()
         .insert(producers)

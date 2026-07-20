@@ -14,9 +14,36 @@ const here = dirname(fileURLToPath(import.meta.url));
 const SCREEN_PATH = join(here, "..", "session-detail-screen.tsx");
 const SHEET_PATH = join(here, "..", "reschedule-confirm-sheet.tsx");
 const NOTICE_PATH = join(here, "..", "policy-notice.tsx");
+const PAGE_PATH = join(
+  here,
+  "..",
+  "..",
+  "..",
+  "..",
+  "app",
+  "(artist)",
+  "artist",
+  "sessions",
+  "[sessionId]",
+  "page.tsx",
+);
+const ACTION_PATH = join(
+  here,
+  "..",
+  "..",
+  "..",
+  "..",
+  "app",
+  "(artist)",
+  "artist",
+  "sessions",
+  "actions.ts",
+);
 const screenSrc = readFileSync(SCREEN_PATH, "utf8");
 const sheetSrc = readFileSync(SHEET_PATH, "utf8");
 const noticeSrc = readFileSync(NOTICE_PATH, "utf8");
+const pageSrc = readFileSync(PAGE_PATH, "utf8");
+const actionSrc = readFileSync(ACTION_PATH, "utf8");
 
 describe("session-detail-screen.tsx (S12) wiring", () => {
   it("is a client component", () => {
@@ -29,49 +56,46 @@ describe("session-detail-screen.tsx (S12) wiring", () => {
     expect(screenSrc).toMatch(/router\.push\("\/artist\/sessions"\)/);
   });
 
-  it("computes the policy from cancelPolicy with the runtime clock (Date.now)", () => {
-    // The screen reads the live clock at render and injects it as nowMs.
-    expect(screenSrc).toMatch(/const nowMs = Date\.now\(\)/);
-    expect(screenSrc).toMatch(/cancelPolicy\(\s*[^)]*nowMs/s);
+  it("uses the server-authored policy without recomputing the deadline in the browser", () => {
+    expect(screenSrc).toMatch(/session\.policy\.canCancel/);
+    expect(screenSrc).toMatch(/session\.policy\.canReschedule/);
+    expect(screenSrc).not.toMatch(/Date\.now\(\)|cancelPolicy\(/);
   });
 
-  it("gates Reschedule + Cancel on policy.withinPolicy (disabled when false)", () => {
-    expect(screenSrc).toMatch(/disabled=\{!policy\.withinPolicy/);
-    // both the reschedule and cancel actions reference the gate
-    const gateCount = screenSrc.match(/!policy\.withinPolicy/g) ?? [];
-    expect(gateCount.length).toBeGreaterThanOrEqual(2);
+  it("gates Reschedule + Cancel independently on the approved policy", () => {
+    expect(screenSrc).toMatch(/disabled=\{!session\.policy\.canReschedule\}/);
+    expect(screenSrc).toMatch(/disabled=\{!session\.policy\.canCancel\}/);
   });
 
   it("shows the PolicyNotice (with the producer's name in the message reason) only when outside policy", () => {
     expect(screenSrc).toMatch(/<PolicyNotice/);
-    expect(screenSrc).toMatch(/!policy\.withinPolicy.*<PolicyNotice/s);
+    expect(screenSrc).toMatch(/isActive && !canChange[\s\S]*<PolicyNotice/);
     // The calm "message {Producer}" reason lives in policy-notice.tsx
     expect(noticeSrc).toMatch(/message \{producerName\}/);
     expect(noticeSrc).toMatch(/producerName/);
   });
 
   it("routes Reschedule to /artist/book (carrying the session id)", () => {
-    expect(screenSrc).toMatch(/router\.push\(`\/artist\/book\?[^`]*session/);
+    expect(screenSrc).toMatch(/session: session\.id/);
+    expect(screenSrc).toMatch(/allowance: session\.sessionAllowanceId/);
+    expect(screenSrc).toMatch(/router\.push\(`\/artist\/book\?\$\{params\.toString\(\)\}`\)/);
   });
 
-  it("designs an inline error state (role=alert), not a scary wall", () => {
-    expect(screenSrc).toMatch(/role="alert"/);
-    expect(screenSrc).toMatch(/setError/);
-  });
-
-  it("hides the actions on a past/done session and shows it has passed", () => {
-    expect(screenSrc).toMatch(/This session has passed/);
-    expect(screenSrc).toMatch(/status === "done"/);
+  it("hides actions for every terminal status and keeps the outcome visible", () => {
+    expect(screenSrc).toMatch(/const isActive/);
+    expect(screenSrc).toMatch(/status === "pending_approval"/);
+    expect(screenSrc).toMatch(/status === "confirmed"/);
+    expect(screenSrc).toMatch(/This booking is closed/);
+    expect(screenSrc).toMatch(/outcome=\{session\.outcome\}/);
   });
 
   it("renders the shared StatusPill", () => {
     expect(screenSrc).toMatch(/<StatusPill/);
   });
 
-  it("cancel is a stub — no server mutation import (no tRPC / api caller)", () => {
-    expect(screenSrc).not.toMatch(/from "~\/trpc/);
-    expect(screenSrc).not.toMatch(/useMutation/);
-    expect(screenSrc).not.toMatch(/\bapi\./);
+  it("keeps the primary actions comfortably above a 44px touch target", () => {
+    expect(screenSrc).toMatch(/py-4 text-\[16px\]/);
+    expect(screenSrc).toMatch(/py-\[15px\] text-\[15px\]/);
   });
 });
 
@@ -86,8 +110,18 @@ describe("reschedule-confirm-sheet.tsx wiring", () => {
     expect(sheetSrc).toMatch(/producerName/);
   });
 
-  it("confirm is a stub (coming-soon pattern), not a real mutation", () => {
-    expect(sheetSrc).not.toMatch(/useMutation/);
-    expect(sheetSrc).not.toMatch(/from "~\/trpc/);
+  it("calls the real idempotent cancel action", () => {
+    expect(sheetSrc).toMatch(/cancelSessionAction/);
+    expect(sheetSrc).toMatch(/operationKeyRef/);
+    expect(sheetSrc).toMatch(/crypto\.randomUUID\(\)/);
+    expect(actionSrc).toMatch(/caller\.artist\.book\.cancel\(input\)/);
+  });
+});
+
+describe("Session detail route data", () => {
+  it("loads the exact owned session and contains no mock fallback", () => {
+    expect(pageSrc).toMatch(/caller\.artist\.book\.session\(\{ id: sessionId \}\)/);
+    expect(pageSrc).not.toMatch(/MOCK_/);
+    expect(pageSrc).toMatch(/cancellationDeadline\.toISOString\(\)/);
   });
 });

@@ -58,6 +58,12 @@ export type StoreAcceptancePreview = {
 
 type AcceptanceContext = Awaited<ReturnType<typeof loadArtistAcceptanceContext>>;
 
+export function storePurchaseSourceKind(
+  session: PurchaseCommercialSnapshot["session"],
+): "store_product" | "session_product" {
+  return session === null ? "store_product" : "session_product";
+}
+
 function planKey(plan: PaymentPlan): string {
   return plan.kind === "monthly" ? `monthly:${String(plan.installments)}` : plan.kind;
 }
@@ -439,7 +445,7 @@ export async function acceptStorePurchase(
         projectId,
         clientContactId: context.request.clientContactId,
         source: {
-          kind: "store_product",
+          kind: storePurchaseSourceKind(terms.snapshot.session),
           productId: context.product.id,
           privateOfferId: null,
           purchaseRequestId: context.request.id,

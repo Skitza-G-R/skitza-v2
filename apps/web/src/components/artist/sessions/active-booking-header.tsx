@@ -12,15 +12,18 @@
 // the server and client agree and the unit tests stay deterministic.
 
 import {
+  allowanceUnavailableMessage,
   buildProgressDots,
+  locationLabel,
   progressMode,
-  type ActiveBooking,
+  type AllowanceSummary,
 } from "./book-data";
 
-export function ActiveBookingHeader({ booking }: { booking: ActiveBooking }) {
-  const mode = progressMode(booking.sessionsTotal);
+export function ActiveBookingHeader({ booking }: { booking: AllowanceSummary }) {
+  const mode = progressMode(booking.sessionLimit);
   const used = booking.sessionsUsed;
-  const total = booking.sessionsTotal;
+  const total = booking.sessionLimit;
+  const unavailableMessage = allowanceUnavailableMessage(booking);
 
   return (
     <div
@@ -33,30 +36,40 @@ export function ActiveBookingHeader({ booking }: { booking: ActiveBooking }) {
     >
       <div className="flex items-baseline justify-between gap-3">
         <div className="min-w-0">
-          <div className="font-amount text-[10px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--brand-primary-dark))]">
-            Active booking
+          <div className="font-amount text-[10px] font-bold tracking-[0.16em] text-[rgb(var(--brand-primary-dark))] uppercase">
+            {booking.closedAtISO ? "Closed allowance" : "Session allowance"}
           </div>
-          <div className="mt-1 line-clamp-2 font-syne text-[16px] font-extrabold leading-snug tracking-[-0.02em] text-[rgb(var(--fg-default))]">
-            {booking.productName}
+          <div className="font-syne mt-1 line-clamp-2 text-[16px] leading-snug font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
+            {booking.packageName}
           </div>
         </div>
 
         {mode === "dots" && total !== null ? (
-          <span className="shrink-0 font-amount text-[12px] font-semibold text-[rgb(var(--fg-secondary))]">
-            {used} of {total} booked
+          <span className="font-amount shrink-0 text-[12px] font-semibold text-[rgb(var(--fg-secondary))]">
+            {used} of {total} used
           </span>
         ) : null}
         {mode === "bar" && total !== null ? (
-          <span className="shrink-0 font-amount text-[12px] font-semibold text-[rgb(var(--fg-secondary))]">
+          <span className="font-amount shrink-0 text-[12px] font-semibold text-[rgb(var(--fg-secondary))]">
             {used} of {total}
           </span>
         ) : null}
         {mode === "count" ? (
-          <span className="shrink-0 font-amount text-[12px] font-semibold text-[rgb(var(--fg-secondary))]">
-            {used} sessions booked
+          <span className="font-amount shrink-0 text-[12px] font-semibold text-[rgb(var(--fg-secondary))]">
+            {used} sessions used
           </span>
         ) : null}
       </div>
+
+      <p className="mt-2 text-[11.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
+        {booking.projectTitle} · {booking.producerName} · {booking.durationMin} min ·{" "}
+        {locationLabel(booking.locationType)}
+      </p>
+      {unavailableMessage ? (
+        <p className="mt-2 text-[11.5px] font-medium leading-relaxed text-[rgb(var(--fg-secondary))]">
+          {unavailableMessage}
+        </p>
+      ) : null}
 
       {/* the track adapts to the package shape */}
       {mode === "dots" && total !== null ? (
@@ -67,9 +80,7 @@ export function ActiveBookingHeader({ booking }: { booking: ActiveBooking }) {
               aria-hidden
               className="h-[9px] w-[9px] rounded-full"
               style={{
-                background: dot.filled
-                  ? "rgb(var(--brand-primary))"
-                  : "transparent",
+                background: dot.filled ? "rgb(var(--brand-primary))" : "transparent",
                 border: dot.filled
                   ? "1px solid rgb(var(--brand-primary))"
                   : "1px solid rgb(var(--brand-primary) / 0.35)",

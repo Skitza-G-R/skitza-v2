@@ -14,7 +14,6 @@ import {
   projects,
   purchaseAcceptances,
   purchases,
-  purchaseSessionAllowances,
   sql,
   type Db,
   type PaymentPlan,
@@ -813,26 +812,6 @@ export async function acceptPrivateOffer(
       commercialSnapshot: finalized.snapshot,
       acceptedAt: input.now,
     });
-
-    if (finalized.snapshot.session !== null) {
-      await tx
-        .insert(purchaseSessionAllowances)
-        .values({
-          purchaseId: result.purchase.id,
-          producerId: offer.producerId,
-          kind: finalized.snapshot.session.limit.kind,
-          sessionLimit:
-            finalized.snapshot.session.limit.kind === "fixed"
-              ? finalized.snapshot.session.limit.count
-              : null,
-          durationMin: finalized.snapshot.session.durationMin,
-          locationType: finalized.snapshot.session.locationType,
-          bufferMinutes: finalized.snapshot.session.bufferMinutes,
-          minLeadHours: finalized.snapshot.session.minLeadHours,
-          createdAt: input.now,
-        })
-        .onConflictDoNothing({ target: purchaseSessionAllowances.purchaseId });
-    }
 
     const [accepted] = await tx
       .update(privateOffers)

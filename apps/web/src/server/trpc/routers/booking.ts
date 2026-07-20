@@ -18,7 +18,6 @@ import {
   privateOffers,
   purchases,
   purchaseRequests,
-  purchaseSessionAllowances,
   sql,
   type PaymentPlan,
   type Product,
@@ -41,6 +40,19 @@ import {
   validateStoreProductCommercialState,
   type StoreProductCommercialInput,
 } from "~/server/domain/store-products/service";
+import {
+  sessionBookingRepository,
+  sessionBookingScheduleAdvisoryLockKey,
+} from "~/server/domain/session-booking/db";
+import {
+  cancelProducerSessionBooking,
+  completeSessionBooking,
+  confirmSessionBooking,
+  markSessionNoShow,
+  recordLateArtistCancellation,
+  rejectSessionBooking,
+  SessionBookingDomainError,
+} from "~/server/domain/session-booking/service";
 
 function mapStoreProductCommercialError(error: unknown): never {
   if (error instanceof StoreProductCommercialError) {
@@ -49,9 +61,59 @@ function mapStoreProductCommercialError(error: unknown): never {
   throw error;
 }
 
+function mapSessionBookingDomainError(error: unknown): never {
+  if (!(error instanceof SessionBookingDomainError)) throw error;
+  if (error.code === "NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND" });
+  if (error.code === "OPERATION_KEY_CONFLICT") {
+    throw new TRPCError({ code: "CONFLICT", message: error.message });
+  }
+  if (
+    error.code === "PROJECT_INACTIVE" ||
+    error.code === "PURCHASE_INACTIVE" ||
+    error.code === "ALLOWANCE_CLOSED" ||
+    error.code === "CANCELLATION_WINDOW" ||
+    error.code === "TOO_EARLY"
+  ) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+  }
+  throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+}
+
+function producerActorClerkUserId(userId: string | null | undefined): string {
+  if (!userId) throw new TRPCError({ code: "UNAUTHORIZED" });
+  return userId;
+}
+
 function purchaseProductName(snapshot: PurchaseCommercialSnapshot, fallback: string): string {
   const name = snapshot.productOrOfferName.trim();
   return name || fallback;
+}
+
+async function loadProducerBookingMessageContext(
+  db: Parameters<typeof sessionBookingRepository>[0],
+  producerId: string,
+  bookingId: string,
+) {
+  const [row] = await db
+    .select({
+      booking: bookings,
+      commercialSnapshot: purchases.commercialSnapshot,
+      producerDisplayName: producers.displayName,
+      producerTimezone: producers.timezone,
+    })
+    .from(bookings)
+    .innerJoin(
+      purchases,
+      and(
+        eq(purchases.id, bookings.purchaseId),
+        eq(purchases.projectId, bookings.projectId),
+        eq(purchases.producerId, bookings.producerId),
+      ),
+    )
+    .innerJoin(producers, eq(producers.id, bookings.producerId))
+    .where(and(eq(bookings.id, bookingId), eq(bookings.producerId, producerId)))
+    .limit(1);
+  return row ?? null;
 }
 
 type RecentPaymentCompatibility = {
@@ -925,33 +987,53 @@ export const bookingRouter = router({
           }),
       )
       .mutation(async ({ ctx, input }) => {
-        const [row] = await ctx.db
-          .insert(availabilityBlackouts)
-          .values({
-            producerId: ctx.producerId,
-            startDate: input.startDate,
-            endDate: input.endDate,
-            ...(input.reason ? { reason: input.reason } : {}),
-          })
-          .returning();
-        if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-        return row;
+        return ctx.db.transaction(async (tx) => {
+          await tx.execute(
+            sql`select pg_advisory_xact_lock(hashtextextended(${sessionBookingScheduleAdvisoryLockKey(ctx.producerId)}, 0))`,
+          );
+          const [row] = await tx
+            .insert(availabilityBlackouts)
+            .values({
+              producerId: ctx.producerId,
+              startDate: input.startDate,
+              endDate: input.endDate,
+              ...(input.reason ? { reason: input.reason } : {}),
+            })
+            .returning();
+          if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+          return row;
+        });
       }),
 
     remove: producerProcedure
       .input(z.object({ id: z.string().uuid() }))
       .mutation(async ({ ctx, input }) => {
-        const [existing] = await ctx.db
-          .select({ producerId: availabilityBlackouts.producerId })
-          .from(availabilityBlackouts)
-          .where(eq(availabilityBlackouts.id, input.id))
-          .limit(1);
-        if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
-        if (existing.producerId !== ctx.producerId) {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
-        await ctx.db.delete(availabilityBlackouts).where(eq(availabilityBlackouts.id, input.id));
-        return { ok: true as const };
+        return ctx.db.transaction(async (tx) => {
+          await tx.execute(
+            sql`select pg_advisory_xact_lock(hashtextextended(${sessionBookingScheduleAdvisoryLockKey(ctx.producerId)}, 0))`,
+          );
+          const [existing] = await tx
+            .select({ producerId: availabilityBlackouts.producerId })
+            .from(availabilityBlackouts)
+            .where(
+              and(
+                eq(availabilityBlackouts.id, input.id),
+                eq(availabilityBlackouts.producerId, ctx.producerId),
+              ),
+            )
+            .limit(1)
+            .for("update");
+          if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+          await tx
+            .delete(availabilityBlackouts)
+            .where(
+              and(
+                eq(availabilityBlackouts.id, input.id),
+                eq(availabilityBlackouts.producerId, ctx.producerId),
+              ),
+            );
+          return { ok: true as const };
+        });
       }),
   }),
 
@@ -965,21 +1047,27 @@ export const bookingRouter = router({
         .orderBy(asc(availabilityBlocks.weekday), asc(availabilityBlocks.startMin));
     }),
 
-    setWeek: producerProcedure.input(AvailabilityWeekInput).mutation(async ({ ctx, input }) => {
-      await ctx.db
-        .delete(availabilityBlocks)
-        .where(eq(availabilityBlocks.producerId, ctx.producerId));
-      if (input.blocks.length === 0) return { ok: true as const };
-      await ctx.db.insert(availabilityBlocks).values(
-        input.blocks.map((b) => ({
-          producerId: ctx.producerId,
-          weekday: b.weekday,
-          startMin: b.startMin,
-          endMin: b.endMin,
-        })),
-      );
-      return { ok: true as const };
-    }),
+    setWeek: producerProcedure.input(AvailabilityWeekInput).mutation(async ({ ctx, input }) =>
+      ctx.db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${sessionBookingScheduleAdvisoryLockKey(ctx.producerId)}, 0))`,
+        );
+        await tx
+          .delete(availabilityBlocks)
+          .where(eq(availabilityBlocks.producerId, ctx.producerId));
+        if (input.blocks.length > 0) {
+          await tx.insert(availabilityBlocks).values(
+            input.blocks.map((b) => ({
+              producerId: ctx.producerId,
+              weekday: b.weekday,
+              startMin: b.startMin,
+              endMin: b.endMin,
+            })),
+          );
+        }
+        return { ok: true as const };
+      }),
+    ),
 
     // Producer-level booking settings surfaced on the availability
     // editor: default session length, auto-confirm toggle, cancellation
@@ -1028,11 +1116,16 @@ export const bookingRouter = router({
       .mutation(async ({ ctx, input }) => {
         const patch = stripUndefined(input);
         if (Object.keys(patch).length === 0) return { ok: true as const };
-        await ctx.db
-          .update(producers)
-          .set({ ...patch, updatedAt: new Date() })
-          .where(eq(producers.id, ctx.producerId));
-        return { ok: true as const };
+        return ctx.db.transaction(async (tx) => {
+          await tx.execute(
+            sql`select pg_advisory_xact_lock(hashtextextended(${sessionBookingScheduleAdvisoryLockKey(ctx.producerId)}, 0))`,
+          );
+          await tx
+            .update(producers)
+            .set({ ...patch, updatedAt: new Date() })
+            .where(eq(producers.id, ctx.producerId));
+          return { ok: true as const };
+        });
       }),
   }),
 
@@ -1198,189 +1291,235 @@ export const bookingRouter = router({
     }),
 
   confirm: producerProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        operationKey: z.string().trim().min(1).max(200),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
-      const result = await ctx.db.transaction(async (tx) => {
-        const [existing] = await tx
-          .select({
-            booking: bookings,
-            commercialSnapshot: purchases.commercialSnapshot,
-            purchaseLifecycleStatus: purchases.lifecycleStatus,
-            projectLifecycleStatus: projects.lifecycleStatus,
-            allowanceClosedAt: purchaseSessionAllowances.closedAt,
-            producerDisplayName: producers.displayName,
-            producerTimezone: producers.timezone,
-          })
-          .from(bookings)
-          .innerJoin(
-            purchases,
-            and(
-              eq(purchases.id, bookings.purchaseId),
-              eq(purchases.projectId, bookings.projectId),
-              eq(purchases.producerId, bookings.producerId),
-            ),
-          )
-          .innerJoin(
-            projects,
-            and(
-              eq(projects.id, purchases.projectId),
-              eq(projects.producerId, purchases.producerId),
-              eq(projects.clientContactId, purchases.clientContactId),
-            ),
-          )
-          .innerJoin(
-            purchaseSessionAllowances,
-            and(
-              eq(purchaseSessionAllowances.id, bookings.sessionAllowanceId),
-              eq(purchaseSessionAllowances.purchaseId, bookings.purchaseId),
-              eq(purchaseSessionAllowances.producerId, bookings.producerId),
-            ),
-          )
-          .innerJoin(producers, eq(producers.id, bookings.producerId))
-          .where(and(eq(bookings.id, input.id), eq(bookings.producerId, ctx.producerId)))
-          .for("update")
-          .limit(1);
-        if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
-        if (existing.booking.status === "confirmed") {
-          return { newlyConfirmed: false as const, email: null };
-        }
-        if (existing.booking.status !== "pending_approval") {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: `Cannot confirm a ${existing.booking.status} booking`,
-          });
-        }
-        if (
-          existing.purchaseLifecycleStatus !== "active" ||
-          existing.projectLifecycleStatus !== "active" ||
-          existing.allowanceClosedAt !== null
-        ) {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: "The purchase session allowance is no longer active.",
-          });
-        }
-
-        const now = new Date();
-        const [updated] = await tx
-          .update(bookings)
-          .set({ status: "confirmed", statusChangedAt: now })
-          .where(
-            and(
-              eq(bookings.id, input.id),
-              eq(bookings.producerId, ctx.producerId),
-              eq(bookings.status, "pending_approval"),
-            ),
-          )
-          .returning({ id: bookings.id });
-        if (!updated) {
-          throw new TRPCError({
-            code: "CONFLICT",
-            message: "This booking changed in another tab. Refresh and try again.",
-          });
-        }
-        return {
-          newlyConfirmed: true as const,
-          email: {
-            to: existing.booking.artistEmail,
-            artistName: existing.booking.artistName,
-            producerName: existing.producerDisplayName ?? "Your producer",
-            productName: purchaseProductName(existing.commercialSnapshot, "Session"),
-            startsAt: existing.booking.startsAt,
-            producerTimezone: existing.producerTimezone,
-          },
-        };
-      });
-      if (result.newlyConfirmed) {
+      const before = await loadProducerBookingMessageContext(ctx.db, ctx.producerId, input.id);
+      if (!before) throw new TRPCError({ code: "NOT_FOUND" });
+      let result;
+      try {
+        result = await confirmSessionBooking(sessionBookingRepository(ctx.db), {
+          bookingId: input.id,
+          producerId: ctx.producerId,
+          actorClerkUserId: producerActorClerkUserId(ctx.userId),
+          operationKey: input.operationKey,
+        });
+      } catch (error) {
+        mapSessionBookingDomainError(error);
+      }
+      if (result.changed) {
         after(async () => {
           try {
-            await sendBookingConfirmedEmail(result.email.to, {
-              artistName: result.email.artistName,
-              producerName: result.email.producerName,
-              productName: result.email.productName,
-              startsAt: result.email.startsAt,
-              producerTimezone: result.email.producerTimezone,
+            await sendBookingConfirmedEmail(before.booking.artistEmail, {
+              artistName: before.booking.artistName,
+              producerName: before.producerDisplayName ?? "Your producer",
+              productName: purchaseProductName(before.commercialSnapshot, "Session"),
+              startsAt: before.booking.startsAt,
+              producerTimezone: before.producerTimezone,
             });
           } catch {
             console.error("[email] booking confirmation failed");
           }
         });
       }
-      return { ok: true as const };
+      return { ok: true as const, id: result.booking.id, status: result.booking.status };
     }),
 
   reject: producerProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        operationKey: z.string().trim().min(1).max(200),
+        reason: z.string().trim().max(1_000).optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
-      const [existing] = await ctx.db
-        .select({
-          producerId: bookings.producerId,
-          status: bookings.status,
-          artistEmail: bookings.artistEmail,
-          artistName: bookings.artistName,
-          startsAt: bookings.startsAt,
-          commercialSnapshot: purchases.commercialSnapshot,
-          producerDisplayName: producers.displayName,
-          producerTimezone: producers.timezone,
-        })
-        .from(bookings)
-        .innerJoin(
-          purchases,
-          and(
-            eq(purchases.id, bookings.purchaseId),
-            eq(purchases.projectId, bookings.projectId),
-            eq(purchases.producerId, bookings.producerId),
-          ),
-        )
-        .innerJoin(producers, eq(producers.id, bookings.producerId))
-        .where(and(eq(bookings.id, input.id), eq(bookings.producerId, ctx.producerId)))
-        .limit(1);
-      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
-      if (existing.status !== "pending_approval") {
-        if (existing.status === "rejected") return { ok: true as const };
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: `Cannot reject a ${existing.status} booking`,
+      const before = await loadProducerBookingMessageContext(ctx.db, ctx.producerId, input.id);
+      if (!before) throw new TRPCError({ code: "NOT_FOUND" });
+      let result;
+      try {
+        result = await rejectSessionBooking(sessionBookingRepository(ctx.db), {
+          bookingId: input.id,
+          producerId: ctx.producerId,
+          actorClerkUserId: producerActorClerkUserId(ctx.userId),
+          operationKey: input.operationKey,
+          ...(input.reason ? { reason: input.reason } : {}),
+        });
+      } catch (error) {
+        mapSessionBookingDomainError(error);
+      }
+      if (result.changed) {
+        after(async () => {
+          try {
+            await sendBookingCancelledOrRescheduledEmail(before.booking.artistEmail, {
+              recipientName: before.booking.artistName,
+              counterpartName: before.producerDisplayName ?? "Your producer",
+              productName: purchaseProductName(before.commercialSnapshot, "Session"),
+              status: "cancelled",
+              oldStartsAt: before.booking.startsAt,
+              newStartsAt: null,
+              producerTimezone: before.producerTimezone,
+              reason: input.reason ?? null,
+            });
+          } catch (error) {
+            console.error("[email] booking rejection failed", error);
+          }
         });
       }
-      const now = new Date();
-      const [updated] = await ctx.db
-        .update(bookings)
-        .set({
-          status: "rejected",
-          statusChangedAt: now,
-          outcome: "cancelled_by_producer",
-          outcomeChangedAt: now,
-        })
-        .where(
-          and(
-            eq(bookings.id, input.id),
-            eq(bookings.producerId, ctx.producerId),
-            eq(bookings.status, "pending_approval"),
-          ),
-        )
-        .returning({ id: bookings.id });
-      if (!updated) {
-        throw new TRPCError({ code: "CONFLICT" });
+      return { ok: true as const, id: result.booking.id, status: result.booking.status };
+    }),
+
+  cancel: producerProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        operationKey: z.string().trim().min(1).max(200),
+        reason: z.string().trim().max(1_000).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const before = await loadProducerBookingMessageContext(ctx.db, ctx.producerId, input.id);
+      if (!before) throw new TRPCError({ code: "NOT_FOUND" });
+      let result;
+      try {
+        result = await cancelProducerSessionBooking(sessionBookingRepository(ctx.db), {
+          bookingId: input.id,
+          producerId: ctx.producerId,
+          actorClerkUserId: producerActorClerkUserId(ctx.userId),
+          operationKey: input.operationKey,
+          ...(input.reason ? { reason: input.reason } : {}),
+        });
+      } catch (error) {
+        mapSessionBookingDomainError(error);
       }
+      if (result.changed) {
+        after(async () => {
+          try {
+            await sendBookingCancelledOrRescheduledEmail(before.booking.artistEmail, {
+              recipientName: before.booking.artistName,
+              counterpartName: before.producerDisplayName ?? "Your producer",
+              productName: purchaseProductName(before.commercialSnapshot, "Session"),
+              status: "cancelled",
+              oldStartsAt: before.booking.startsAt,
+              newStartsAt: null,
+              producerTimezone: before.producerTimezone,
+              reason: input.reason ?? null,
+            });
+          } catch (error) {
+            console.error("[email] producer session cancellation failed", error);
+          }
+        });
+      }
+      return {
+        ok: true as const,
+        id: result.booking.id,
+        status: result.booking.status,
+        outcome: result.booking.outcome,
+      };
+    }),
 
-      after(async () => {
-        try {
-          await sendBookingCancelledOrRescheduledEmail(existing.artistEmail, {
-            recipientName: existing.artistName,
-            counterpartName: existing.producerDisplayName ?? "Your producer",
-            productName: purchaseProductName(existing.commercialSnapshot, "Session"),
-            status: "cancelled",
-            oldStartsAt: existing.startsAt,
-            newStartsAt: null,
-            producerTimezone: existing.producerTimezone,
-            reason: null,
-          });
-        } catch (err) {
-          console.error("[email] booking-cancelled-or-rescheduled failed", err);
-        }
-      });
+  recordLateCancellation: producerProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        operationKey: z.string().trim().min(1).max(200),
+        reason: z.string().trim().max(1_000).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const before = await loadProducerBookingMessageContext(ctx.db, ctx.producerId, input.id);
+      if (!before) throw new TRPCError({ code: "NOT_FOUND" });
+      let result;
+      try {
+        result = await recordLateArtistCancellation(sessionBookingRepository(ctx.db), {
+          bookingId: input.id,
+          producerId: ctx.producerId,
+          actorClerkUserId: producerActorClerkUserId(ctx.userId),
+          operationKey: input.operationKey,
+          ...(input.reason ? { reason: input.reason } : {}),
+        });
+      } catch (error) {
+        mapSessionBookingDomainError(error);
+      }
+      if (result.changed) {
+        after(async () => {
+          try {
+            await sendBookingCancelledOrRescheduledEmail(before.booking.artistEmail, {
+              recipientName: before.booking.artistName,
+              counterpartName: before.producerDisplayName ?? "Your producer",
+              productName: purchaseProductName(before.commercialSnapshot, "Session"),
+              status: "cancelled",
+              oldStartsAt: before.booking.startsAt,
+              newStartsAt: null,
+              producerTimezone: before.producerTimezone,
+              reason: input.reason ?? null,
+            });
+          } catch (error) {
+            console.error("[email] late artist cancellation record failed", error);
+          }
+        });
+      }
+      return {
+        ok: true as const,
+        id: result.booking.id,
+        status: result.booking.status,
+        outcome: result.booking.outcome,
+      };
+    }),
 
-      return { ok: true as const };
+  noShow: producerProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        operationKey: z.string().trim().min(1).max(200),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await markSessionNoShow(sessionBookingRepository(ctx.db), {
+          bookingId: input.id,
+          producerId: ctx.producerId,
+          actorClerkUserId: producerActorClerkUserId(ctx.userId),
+          operationKey: input.operationKey,
+        });
+        return {
+          ok: true as const,
+          id: result.booking.id,
+          status: result.booking.status,
+          outcome: result.booking.outcome,
+        };
+      } catch (error) {
+        mapSessionBookingDomainError(error);
+      }
+    }),
+
+  complete: producerProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        operationKey: z.string().trim().min(1).max(200),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await completeSessionBooking(sessionBookingRepository(ctx.db), {
+          bookingId: input.id,
+          producerId: ctx.producerId,
+          actorClerkUserId: producerActorClerkUserId(ctx.userId),
+          operationKey: input.operationKey,
+        });
+        return {
+          ok: true as const,
+          id: result.booking.id,
+          status: result.booking.status,
+          outcome: result.booking.outcome,
+        };
+      } catch (error) {
+        mapSessionBookingDomainError(error);
+      }
     }),
 });
