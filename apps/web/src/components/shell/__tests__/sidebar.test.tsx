@@ -19,11 +19,11 @@ import { NAV_ITEMS } from "../sidebar";
 // G C (calendar), G S (storefront), G F (portfolio), G T (settings).
 
 describe("Sidebar NAV_ITEMS", () => {
-  it("contains exactly 7 top-level items (Portfolio re-added 2026-05-18)", () => {
-    expect(NAV_ITEMS).toHaveLength(7);
+  it("contains the existing seven destinations plus global Payments", () => {
+    expect(NAV_ITEMS).toHaveLength(8);
   });
 
-  it("has the 7 canonical labels in order", () => {
+  it("has the canonical labels in order", () => {
     // 2026-05-16: "Store" was renamed to "Storefront" to match the
     // HTML mockup's locked sidebar nomenclature. The /dashboard/store
     // route is unchanged; only the visible label moved.
@@ -34,6 +34,7 @@ describe("Sidebar NAV_ITEMS", () => {
       "Clients & Projects",
       "Music",
       "Calendar",
+      "Payments",
       "Storefront",
       "Portfolio",
       "Settings",
@@ -47,6 +48,7 @@ describe("Sidebar NAV_ITEMS", () => {
     );
     expect(NAV_ITEMS.find((i) => i.id === "music")?.href).toBe("/dashboard/music");
     expect(NAV_ITEMS.find((i) => i.id === "calendar")?.href).toBe("/dashboard/calendar");
+    expect(NAV_ITEMS.find((i) => i.id === "payments")?.href).toBe("/dashboard/payments");
     expect(NAV_ITEMS.find((i) => i.id === "profile")?.href).toBe("/dashboard/store");
     expect(NAV_ITEMS.find((i) => i.id === "portfolio")?.href).toBe("/dashboard/portfolio");
     expect(NAV_ITEMS.find((i) => i.id === "setup")?.href).toBe("/dashboard/settings");
@@ -60,6 +62,7 @@ describe("Sidebar NAV_ITEMS", () => {
     expect(NAV_ITEMS.find((i) => i.id === "profile")?.shortcut).toBe("G S");
     expect(NAV_ITEMS.find((i) => i.id === "portfolio")?.shortcut).toBe("G F");
     expect(NAV_ITEMS.find((i) => i.id === "setup")?.shortcut).toBe("G T");
+    expect(NAV_ITEMS.find((i) => i.id === "payments")?.shortcut).toBeUndefined();
   });
 
   it("contains a Portfolio nav row directly under Storefront", () => {

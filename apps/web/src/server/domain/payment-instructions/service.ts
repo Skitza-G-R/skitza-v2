@@ -15,7 +15,7 @@ import {
 
 import { activeArtistClientOwner } from "~/server/artist/access";
 
-import { summarizePurchaseLedger } from "../purchases/ledger";
+import { projectPurchaseLedger } from "../purchase-ledger/policy";
 import {
   hasPaymentInstructions,
   isInstallmentPayableForInstructions,
@@ -99,46 +99,6 @@ export async function saveProducerPaymentInstructions(
   return normalized;
 }
 
-function paymentAmountsAfterCorrections(
-  payments: ReadonlyArray<{
-    id: string;
-    installmentId: string;
-    amountCents: number;
-  }>,
-  corrections: ReadonlyArray<{
-    paymentId: string;
-    sequence: number;
-    newAmountCents: number;
-  }>,
-): Map<string, { installmentId: string; amountCents: number }> {
-  const amounts = new Map(
-    payments.map((payment) => [
-      payment.id,
-      { installmentId: payment.installmentId, amountCents: payment.amountCents },
-    ]),
-  );
-  const ordered = [...corrections].sort((left, right) => left.sequence - right.sequence);
-  for (const correction of ordered) {
-    const payment = amounts.get(correction.paymentId);
-    if (!payment) continue;
-    amounts.set(correction.paymentId, {
-      installmentId: payment.installmentId,
-      amountCents: correction.newAmountCents,
-    });
-  }
-  return amounts;
-}
-
-function addByInstallment(
-  values: Iterable<{ installmentId: string; amountCents: number }>,
-): Map<string, number> {
-  const totals = new Map<string, number>();
-  for (const value of values) {
-    totals.set(value.installmentId, (totals.get(value.installmentId) ?? 0) + value.amountCents);
-  }
-  return totals;
-}
-
 /**
  * Resolve current producer instructions only through an accepted Purchase and
  * one of its payable installments. The stable client-contact ownership join
@@ -165,6 +125,8 @@ export async function loadArtistInstallmentPaymentInstructions(
       productId: purchases.productId,
       refNumber: purchases.refNumber,
       paymentPlanKind: purchases.paymentPlanKind,
+      purchaseLifecycleStatus: purchases.lifecycleStatus,
+      purchaseActivatedAt: purchases.activatedAt,
       commercialSnapshot: purchases.commercialSnapshot,
       totalCents: purchases.totalCents,
       installmentId: purchaseInstallments.id,
@@ -175,7 +137,9 @@ export async function loadArtistInstallmentPaymentInstructions(
       installmentDueTrigger: purchaseInstallments.dueTrigger,
       installmentDueAt: purchaseInstallments.dueAt,
       installmentTriggeredAt: purchaseInstallments.triggeredAt,
+      installmentRequiredForActivation: purchaseInstallments.requiredForActivation,
       producerName: producers.displayName,
+      producerTimeZone: producers.timezone,
       paymentDetails: producers.paymentDetails,
     })
     .from(purchaseInstallments)
@@ -256,50 +220,55 @@ export async function loadArtistInstallmentPaymentInstructions(
       ),
     );
 
-  const correctedPayments = paymentAmountsAfterCorrections(payments, corrections);
-  const paidByInstallment = addByInstallment(correctedPayments.values());
-  const waivedByInstallment = addByInstallment(waivers);
-  const installmentPositionById = new Map(
-    candidates.map((candidate) => [candidate.installmentId, candidate.installmentPosition]),
-  );
-  const installmentPosition = (installmentId: string): number => {
-    const position = installmentPositionById.get(installmentId);
-    if (position === undefined) throw new PaymentInstructionsNotFoundError();
-    return position;
-  };
-  const ledger = summarizePurchaseLedger({
-    totalCents: first.totalCents,
-    schedule: candidates.map((candidate) => ({
-      sequence: candidate.installmentPosition,
+  const ledger = projectPurchaseLedger({
+    purchase: {
+      id: first.purchaseId,
+      producerId: first.producerId,
+      currency: first.installmentCurrency,
+      lifecycleStatus: first.purchaseLifecycleStatus,
+      wasActivated: first.purchaseActivatedAt !== null,
+    },
+    installments: candidates.map((candidate) => ({
+      id: candidate.installmentId,
+      purchaseId: candidate.purchaseId,
+      producerId: candidate.producerId,
+      position: candidate.installmentPosition,
       amountCents: candidate.installmentAmountCents,
-      trigger: candidate.installmentDueTrigger,
+      currency: candidate.installmentCurrency,
+      dueAt: candidate.installmentDueAt,
+      requiredForActivation: candidate.installmentRequiredForActivation,
       status: candidate.installmentStatus,
     })),
     payments: payments.map((payment) => ({
       id: payment.id,
-      installmentSequence: installmentPosition(payment.installmentId),
+      purchaseId: first.purchaseId,
+      installmentId: payment.installmentId,
+      producerId: first.producerId,
       amountCents: payment.amountCents,
-      confirmedAt: payment.paidAt,
+      currency: first.installmentCurrency,
     })),
     corrections: corrections.map((correction) => ({
       id: correction.id,
+      purchaseId: first.purchaseId,
       paymentId: correction.paymentId,
+      producerId: first.producerId,
       sequence: correction.sequence,
-      oldAmountCents: correction.previousAmountCents,
+      previousAmountCents: correction.previousAmountCents,
       newAmountCents: correction.newAmountCents,
-      reason: correction.reason,
-      actorId: correction.correctedByClerkUserId,
-      correctedAt: correction.createdAt,
     })),
     waivers: waivers.map((waiver) => ({
       id: waiver.id,
-      installmentSequence: installmentPosition(waiver.installmentId),
+      purchaseId: first.purchaseId,
+      installmentId: waiver.installmentId,
+      producerId: first.producerId,
       amountCents: waiver.amountCents,
-      reason: waiver.reason,
-      actorId: waiver.waivedByClerkUserId,
-      waivedAt: waiver.createdAt,
     })),
+    asOf: now,
+    timeZone: first.producerTimeZone,
   });
+  const projectedByInstallment = new Map(
+    ledger.installments.map((installment) => [installment.id, installment]),
+  );
   const selected = candidates.find((candidate) => {
     if (reference.installmentId && candidate.installmentId !== reference.installmentId) {
       return false;
@@ -317,20 +286,14 @@ export async function loadArtistInstallmentPaymentInstructions(
     ) {
       return false;
     }
-    const paid = paidByInstallment.get(candidate.installmentId) ?? 0;
-    const waived = waivedByInstallment.get(candidate.installmentId) ?? 0;
-    return candidate.installmentAmountCents - paid - waived > 0;
+    return (projectedByInstallment.get(candidate.installmentId)?.remainingCents ?? 0) > 0;
   });
   if (!selected || selected.paymentPlanKind === null) {
     throw new PaymentInstructionsNotFoundError();
   }
 
-  const installmentRemainingCents = Math.max(
-    0,
-    selected.installmentAmountCents -
-      (paidByInstallment.get(selected.installmentId) ?? 0) -
-      (waivedByInstallment.get(selected.installmentId) ?? 0),
-  );
+  const installmentRemainingCents =
+    projectedByInstallment.get(selected.installmentId)?.remainingCents ?? 0;
   const instructions = normalizePaymentInstructions(selected.paymentDetails);
   const selectedPlan = selected.commercialSnapshot.selectedPaymentPlan;
   const planInstallments = selectedPlan?.kind === "monthly" ? selectedPlan.installments : null;
@@ -350,7 +313,7 @@ export async function loadArtistInstallmentPaymentInstructions(
     totalCents: selected.totalCents,
     paidCents: ledger.paidCents,
     pendingProofCents: 0,
-    remainingCents: ledger.remainingBalanceCents,
+    remainingCents: ledger.remainingCents,
     amountDueNowCents: installmentRemainingCents,
     availableToSubmitCents: installmentRemainingCents,
     producerName: selected.producerName,

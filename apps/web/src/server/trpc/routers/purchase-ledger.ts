@@ -4,6 +4,8 @@ import { z } from "zod";
 import { SITE_URL, sendPaymentReminderEmail } from "~/server/email/send";
 import { purchaseLedgerRepository } from "~/server/domain/purchase-ledger/db";
 import { PurchaseLedgerDomainError } from "~/server/domain/purchase-ledger/policy";
+import { paymentLedgerReadRepository } from "~/server/domain/purchase-ledger/read-db";
+import { loadProducerPaymentReadModel } from "~/server/domain/purchase-ledger/read-model";
 import {
   paymentReminderRepository,
   sendManualPurchaseReminder,
@@ -47,6 +49,33 @@ function requireActor(userId: string | null): string {
 }
 
 export const purchaseLedgerRouter = router({
+  overview: producerProcedure.query(async ({ ctx }) =>
+    loadProducerPaymentReadModel(paymentLedgerReadRepository(ctx.db), {
+      producerId: ctx.producerId,
+      asOf: new Date(),
+    }),
+  ),
+
+  project: producerProcedure
+    .input(z.object({ projectId: z.string().uuid() }).strict())
+    .query(async ({ ctx, input }) =>
+      loadProducerPaymentReadModel(paymentLedgerReadRepository(ctx.db), {
+        producerId: ctx.producerId,
+        projectId: input.projectId,
+        asOf: new Date(),
+      }),
+    ),
+
+  client: producerProcedure
+    .input(z.object({ clientContactId: z.string().uuid() }).strict())
+    .query(async ({ ctx, input }) =>
+      loadProducerPaymentReadModel(paymentLedgerReadRepository(ctx.db), {
+        producerId: ctx.producerId,
+        clientContactId: input.clientContactId,
+        asOf: new Date(),
+      }),
+    ),
+
   state: producerProcedure
     .input(z.object({ purchaseId: z.string().uuid() }).strict())
     .query(async ({ ctx, input }) => {

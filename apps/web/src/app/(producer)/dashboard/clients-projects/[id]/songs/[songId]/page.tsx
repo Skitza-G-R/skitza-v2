@@ -12,6 +12,10 @@ import type { SessionsTabSession } from "~/components/dashboard/song/song-tabs/s
 import type { VersionRowVersionData } from "~/components/dashboard/song/version-row";
 import type { ProjectActionProject } from "~/components/dashboard/projects/project-action-controls";
 import type { ProjectPurchaseSummary } from "~/components/dashboard/projects/project-purchases-panel";
+import {
+  allPaymentsBucket,
+  toPaymentHistoryViewData,
+} from "~/components/payments/payment-history-adapter";
 import { deriveGradient } from "~/lib/clients/derive-gradient";
 import type { WorkflowStage } from "~/lib/clients/workflow-stage";
 import type { LinkPillState } from "~/components/dashboard/clients/link-pill";
@@ -62,6 +66,12 @@ export default async function SongDetail({ params, searchParams }: PageProps) {
   let data;
   try {
     data = await caller.project.detail({ id });
+  } catch {
+    notFound();
+  }
+  let paymentModel;
+  try {
+    paymentModel = await caller.purchaseLedger.project({ projectId: id });
   } catch {
     notFound();
   }
@@ -187,23 +197,39 @@ export default async function SongDetail({ params, searchParams }: PageProps) {
     deadlineAtIso: data.project.deadlineAt?.toISOString() ?? null,
     canDeleteEmptyDraft: data.canPermanentlyDelete,
   };
-  const purchaseSummaries: ProjectPurchaseSummary[] = data.purchases.map((purchase) => ({
-    id: purchase.id,
-    sourceKind: purchase.sourceKind,
-    sourceLabel: purchase.commercialSnapshot.productOrOfferName,
-    lifecycleStatus: purchase.lifecycleStatus,
-    totalCents: purchase.totalCents,
-    currency: purchase.currency,
-    reference: purchase.refNumber,
-    installments: purchase.installments.map((installment) => ({
-      id: installment.id,
-      position: installment.position,
-      amountCents: installment.amountCents,
-      currency: installment.currency,
-      dueAtIso: installment.dueAt?.toISOString() ?? null,
-      status: installment.status,
-    })),
-  }));
+  const purchaseSummaries: ProjectPurchaseSummary[] = paymentModel.projects.flatMap(
+    (paymentProject) =>
+      paymentProject.purchases.map((purchase) => ({
+        id: purchase.id,
+        sourceKind: purchase.sourceKind,
+        sourceLabel: purchase.commercialSnapshot.productOrOfferName,
+        lifecycleStatus: purchase.lifecycleStatus,
+        totalCents: purchase.totalCents,
+        currency: purchase.currency,
+        reference: purchase.refNumber,
+        installments: purchase.installments.map((installment) => ({
+          id: installment.id,
+          position: installment.position,
+          amountCents: installment.amountCents,
+          currency: installment.currency,
+          dueAtIso: installment.dueAt?.toISOString() ?? null,
+          status: installment.status,
+        })),
+      })),
+  );
+  const paymentHistory = toPaymentHistoryViewData(
+    allPaymentsBucket(paymentModel.projects, paymentModel.totals),
+    {
+      id: "project-payment-history",
+      eyebrow: "Accepted purchase record",
+      title: "Payments",
+      description:
+        "Every agreement, installment, payment, correction, proof, waiver, cancellation, and download override for this project.",
+      emptyTitle: "No accepted purchases yet",
+      emptyDescription: "Accepted purchases and their immutable payment history will appear here.",
+    },
+    "producer",
+  );
 
   // ── Client snippet ──────────────────────────────────────────────
   // The project carries the client identity snapshot (clientName +
@@ -280,6 +306,7 @@ export default async function SongDetail({ params, searchParams }: PageProps) {
         project={project}
         actionProject={actionProject}
         purchases={purchaseSummaries}
+        paymentHistory={paymentHistory}
         client={client}
         versions={versions}
         sessions={sessions}

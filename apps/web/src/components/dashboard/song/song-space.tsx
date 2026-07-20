@@ -27,6 +27,10 @@ import {
   type ProjectPurchaseSummary,
 } from "~/components/dashboard/projects/project-purchases-panel";
 import { canCreatePurchaseOwnedProjectWork } from "~/components/dashboard/projects/project-upload-access";
+import {
+  PaymentHistoryView,
+  type PaymentHistoryViewData,
+} from "~/components/payments/payment-history-view";
 
 // SongSpace — top-level shell for the new Song Space (and Single
 // Space). Owns the active-tab state, composes SongSpaceHero +
@@ -73,6 +77,7 @@ interface SongSpaceProps {
   project: SongSpaceProject;
   actionProject: ProjectActionProject;
   purchases: readonly ProjectPurchaseSummary[];
+  paymentHistory?: PaymentHistoryViewData;
   client: SongSpaceClient;
   versions: VersionRowVersionData[];
   sessions: SessionsTabSession[];
@@ -87,6 +92,7 @@ export function SongSpace({
   project,
   actionProject,
   purchases,
+  paymentHistory,
   client,
   versions,
   sessions,
@@ -283,6 +289,7 @@ export function SongSpace({
         />
       ) : null}
       {active === "sessions" ? <SessionsTab sessions={sessions} /> : null}
+      {paymentHistory ? <PaymentHistoryView role="producer" data={paymentHistory} /> : null}
       <ProjectPurchasesPanel projectId={project.id} purchases={purchases} />
       {/* Phase 4: shared Upload Track modal — fired from SongSpaceHero's
           "Upload new version" CTA AND from the VersionsTab drop zone.

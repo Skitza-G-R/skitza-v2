@@ -42,6 +42,8 @@ import {
   submitArtistPaymentProof,
 } from "~/server/domain/payment-proofs/service";
 import { MAX_PROOF_BYTES, PROOF_CONTENT_TYPES } from "~/server/domain/payment-proofs/policy";
+import { paymentLedgerReadRepository } from "~/server/domain/purchase-ledger/read-db";
+import { loadArtistPaymentReadModel } from "~/server/domain/purchase-ledger/read-model";
 import {
   acceptStorePurchase,
   previewStorePurchaseAcceptance,
@@ -343,6 +345,13 @@ async function applyProducerRequestTransition(
 }
 
 export const artistPurchaseRouter = router({
+  payments: artistProcedure.query(async ({ ctx }) =>
+    loadArtistPaymentReadModel(paymentLedgerReadRepository(ctx.db), {
+      clerkUserId: ctx.clerkUserId,
+      asOf: new Date(),
+    }),
+  ),
+
   request: artistProcedure
     .input(
       z

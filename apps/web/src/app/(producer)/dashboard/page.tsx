@@ -45,6 +45,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     pendingBookings,
     pendingPurchaseRequests,
     pendingPaymentProofs,
+    paymentReadModel,
     urgent,
     recentPaid,
   ] = await Promise.all([
@@ -54,6 +55,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     caller.booking.list({ status: "pending_approval" }),
     caller.producer.purchase.list({ status: "pending" }),
     caller.producer.purchase.proofOfPayment.pending(),
+    caller.purchaseLedger.overview(),
     caller.producer.overview.urgent({ limit: 50 }),
     caller.booking.recentPaidUnacknowledged(),
   ]);
@@ -104,6 +106,16 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     projectId: payment.projectId,
     projectName: payment.projectName,
   }));
+  const paymentBalances = paymentReadModel.producerBuckets.due_or_overdue.projects.flatMap(
+    (project) =>
+      project.purchases.map((purchase) => ({
+        purchaseId: purchase.id,
+        projectId: project.id,
+        projectTitle: project.title,
+        clientName: purchase.clientName,
+        purchaseTitle: purchase.commercialSnapshot.productOrOfferName,
+      })),
+  );
 
   return (
     <div className="relative isolate">
@@ -119,6 +131,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           timezone={producerTimezone}
           pulseStats={today.pulseStats}
           paymentProofs={pendingPaymentProofs.proofs}
+          paymentBalances={paymentBalances}
           purchaseRequests={pendingPurchaseRequests.requests}
           pendingApprovals={pendingApprovals}
           followUps={followUpRaw.map((session) => ({

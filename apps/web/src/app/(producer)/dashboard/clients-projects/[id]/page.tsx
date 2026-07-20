@@ -12,6 +12,10 @@ import type { WorkflowStage } from "~/lib/clients/workflow-stage";
 import type { TrackRowData } from "~/components/dashboard/project/track-row";
 import type { ProjectActionProject } from "~/components/dashboard/projects/project-action-controls";
 import type { ProjectPurchaseSummary } from "~/components/dashboard/projects/project-purchases-panel";
+import {
+  allPaymentsBucket,
+  toPaymentHistoryViewData,
+} from "~/components/payments/payment-history-adapter";
 import type {
   StudioLogActivity,
   StudioLogSession,
@@ -62,6 +66,12 @@ export default async function ProjectDetail({ params }: PageProps) {
   let data;
   try {
     data = await caller.project.detail({ id });
+  } catch {
+    notFound();
+  }
+  let paymentModel;
+  try {
+    paymentModel = await caller.purchaseLedger.project({ projectId: id });
   } catch {
     notFound();
   }
@@ -219,26 +229,40 @@ export default async function ProjectDetail({ params }: PageProps) {
     deadlineAtIso: data.project.deadlineAt?.toISOString() ?? null,
     canDeleteEmptyDraft: data.canPermanentlyDelete,
   };
-  const purchaseSummaries: ProjectPurchaseSummary[] = data.purchases.map((purchase) => ({
-    id: purchase.id,
-    sourceKind: purchase.sourceKind,
-    sourceLabel: purchase.commercialSnapshot.productOrOfferName,
-    lifecycleStatus: purchase.lifecycleStatus,
-    totalCents: purchase.totalCents,
-    currency: purchase.currency,
-    reference: purchase.refNumber,
-    installments: purchase.installments.map((installment) => ({
-      id: installment.id,
-      position: installment.position,
-      amountCents: installment.amountCents,
-      currency: installment.currency,
-      dueAtIso: installment.dueAt?.toISOString() ?? null,
-      status: installment.status,
-    })),
-  }));
+  const purchaseSummaries: ProjectPurchaseSummary[] = paymentModel.projects.flatMap(
+    (paymentProject) =>
+      paymentProject.purchases.map((purchase) => ({
+        id: purchase.id,
+        sourceKind: purchase.sourceKind,
+        sourceLabel: purchase.commercialSnapshot.productOrOfferName,
+        lifecycleStatus: purchase.lifecycleStatus,
+        totalCents: purchase.totalCents,
+        currency: purchase.currency,
+        reference: purchase.refNumber,
+        installments: purchase.installments.map((installment) => ({
+          id: installment.id,
+          position: installment.position,
+          amountCents: installment.amountCents,
+          currency: installment.currency,
+          dueAtIso: installment.dueAt?.toISOString() ?? null,
+          status: installment.status,
+        })),
+      })),
+  );
+  const paymentHistory = toPaymentHistoryViewData(
+    allPaymentsBucket(paymentModel.projects, paymentModel.totals),
+    {
+      id: "project-payment-history",
+      eyebrow: "Accepted purchase record",
+      title: "Payments",
+      description:
+        "Every agreement, installment, payment, correction, proof, waiver, cancellation, and download override for this project.",
+      emptyTitle: "No accepted purchases yet",
+      emptyDescription: "Accepted purchases and their immutable payment history will appear here.",
+    },
+    "producer",
+  );
 
-  // Purchase-ledger projections are intentionally unavailable in SK-90.
-  // Do not reinterpret missing commercial data as zero or paid.
   const studioLog: AlbumSpaceStudioLog = {
     sessionsCount: projectBookings.length,
     studioHours,
@@ -307,6 +331,7 @@ export default async function ProjectDetail({ params }: PageProps) {
         project={project}
         actionProject={actionProject}
         purchases={purchaseSummaries}
+        paymentHistory={paymentHistory}
         tracks={tracks}
         emptySlots={data.songSpaces.emptySlots.map((slot) => ({
           id: slot.id,

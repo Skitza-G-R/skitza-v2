@@ -9,6 +9,8 @@ const SIDEBAR = readFileSync(join(here, "..", "producer-sidebar.tsx"), "utf8");
 const BOTTOM = readFileSync(join(here, "..", "producer-bottom-nav.tsx"), "utf8");
 const APP_SHELL = readFileSync(join(here, "..", "..", "shell", "app-shell.tsx"), "utf8");
 const APP_TOPBAR = readFileSync(join(here, "..", "..", "shell", "app-topbar.tsx"), "utf8");
+const EN_MESSAGES = readFileSync(join(here, "..", "..", "..", "..", "messages", "en.json"), "utf8");
+const HE_MESSAGES = readFileSync(join(here, "..", "..", "..", "..", "messages", "he.json"), "utf8");
 
 // Nav history:
 //   - 2026-05-15: Portfolio rows removed from both the desktop rail
@@ -20,9 +22,8 @@ const APP_TOPBAR = readFileSync(join(here, "..", "..", "shell", "app-topbar.tsx"
 //     consistent with the desktop-only producer dashboard preference
 //     in CLAUDE.md.
 //
-// These tests guard the current invariant: Portfolio IS in the
-// sidebar, NOT in the bottom-nav; both Store entries point to
-// /dashboard/store; no leftover /dashboard/profile hrefs.
+// These tests guard the current invariant: Portfolio and Store remain
+// in the desktop sidebar, while the five mobile tabs end in Payments.
 
 describe("producer nav: Portfolio in sidebar only", () => {
   it("sidebar Store entry hrefs to /dashboard/store", () => {
@@ -34,8 +35,18 @@ describe("producer nav: Portfolio in sidebar only", () => {
     expect(SIDEBAR).toMatch(/href:\s*["']\/dashboard\/portfolio["']/);
   });
 
-  it("bottom-nav Store entry hrefs to /dashboard/store", () => {
-    expect(BOTTOM).toMatch(/href:\s*["']\/dashboard\/store["']/);
+  it("adds global Payments to the desktop sidebar", () => {
+    expect(SIDEBAR).toMatch(/label:\s*["']Payments["']/);
+    expect(SIDEBAR).toMatch(/href:\s*["']\/dashboard\/payments["']/);
+    expect(SIDEBAR).toMatch(/icon:\s*["']payments["']/);
+  });
+
+  it("uses the approved five mobile labels and routes", () => {
+    expect(BOTTOM).toMatch(/label:\s*["']Today["']/);
+    expect(BOTTOM).toMatch(/label:\s*["']Music["']/);
+    expect(BOTTOM).toMatch(/label:\s*["']Payments["']/);
+    expect(BOTTOM).toMatch(/href:\s*["']\/dashboard\/payments["']/);
+    expect(BOTTOM).not.toMatch(/href:\s*["']\/dashboard\/store["']/);
   });
 
   it("bottom-nav does NOT contain a Portfolio entry (mobile stays 5 tabs)", () => {
@@ -46,6 +57,11 @@ describe("producer nav: Portfolio in sidebar only", () => {
   it("nav files contain no leftover /dashboard/profile hrefs", () => {
     expect(SIDEBAR).not.toMatch(/href:\s*["']\/dashboard\/profile["']/);
     expect(BOTTOM).not.toMatch(/href:\s*["']\/dashboard\/profile["']/);
+  });
+
+  it("provides the Payments sidebar label in both message catalogs", () => {
+    expect(EN_MESSAGES).toMatch(/"payments":\s*"Payments"/);
+    expect(HE_MESSAGES).toMatch(/"payments":\s*"תשלומים"/);
   });
 });
 

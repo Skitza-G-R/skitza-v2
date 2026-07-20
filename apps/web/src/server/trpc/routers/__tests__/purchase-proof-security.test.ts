@@ -19,6 +19,8 @@ describe("accepted-purchase proof API security", () => {
     expect(purchaseSource).not.toMatch(/storageKey|objectEtag|storageBucket/);
     expect(purchaseSource).toMatch(/prepareArtistProofUpload/);
     expect(purchaseSource).toMatch(/submitArtistPaymentProof/);
+    expect(purchaseSource).toMatch(/loadArtistPaymentReadModel/);
+    expect(purchaseSource).toMatch(/paymentLedgerReadRepository\(ctx\.db\)/);
   });
 
   it("uses exact purchase/installment inputs and a signed opaque upload token", () => {

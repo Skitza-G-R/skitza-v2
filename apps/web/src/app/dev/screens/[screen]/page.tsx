@@ -49,6 +49,7 @@ import {
 import { deriveGradient } from "~/lib/clients/derive-gradient";
 import { UploadModalDevScreen } from "~/components/dev/upload-modal-dev-screen";
 import { Sk75ProofFlowDevScreen } from "~/components/dev/sk75-proof-flow-dev-screen";
+import { Sk69PaymentsDevScreen } from "~/components/dev/sk69-payments-dev-screen";
 import { CLIENT_ARCHIVE_BLOCKED_MESSAGE } from "~/server/domain/client-management/service";
 
 const DEV_REQUEST_ID = "00000000-0000-4000-8000-000000000001";
@@ -996,6 +997,8 @@ export default async function DevScreenPage({ params }: Params) {
     }
     case "sk75-proof-flow":
       return <Sk75ProofFlowDevScreen />;
+    case "sk69-payments-flow":
+      return <Sk69PaymentsDevScreen />;
     default: {
       if (screen.startsWith("s6-")) {
         const stage = screen.slice(3) as PurchaseStage;

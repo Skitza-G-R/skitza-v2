@@ -1,0 +1,324 @@
+import type { PaymentPlan, PurchaseCommercialSnapshot } from "@skitza/db";
+
+import { royaltyTermsDisplay } from "~/lib/purchase/royalty-terms";
+import type {
+  PaymentBucketProjection,
+  PaymentProjectProjection,
+  PaymentPurchaseProjection,
+} from "~/server/domain/purchase-ledger/read-model";
+
+import type {
+  PaymentHistoryFrozenTerms,
+  PaymentHistoryInstallment,
+  PaymentHistoryProject,
+  PaymentHistoryPurchase,
+  PaymentHistoryRole,
+  PaymentHistorySectionDescriptor,
+  PaymentHistoryStatus,
+  PaymentHistoryViewData,
+} from "./payment-history-view";
+
+function iso(value: Date | null): string | null {
+  return value?.toISOString() ?? null;
+}
+
+function planLabel(plan: PaymentPlan | null): string {
+  if (plan === null) return "No payment required";
+  if (plan.kind === "full") return "Full payment";
+  if (plan.kind === "split_50_50") return "50 / 50";
+  return `${String(plan.installments)} monthly payments`;
+}
+
+function planDescription(plan: PaymentPlan | null): string | null {
+  if (plan === null) return "This accepted purchase has a zero total.";
+  if (plan.kind === "full") return "The full accepted total is one installment.";
+  if (plan.kind === "split_50_50") {
+    return "The first half is due at acceptance; the second follows the accepted trigger.";
+  }
+  return `The accepted total is split across ${String(plan.installments)} monthly installments.`;
+}
+
+function sessionLabel(session: PurchaseCommercialSnapshot["session"]): string {
+  if (!session) return "None included";
+  const count = session.limit.kind === "unlimited" ? "Unlimited" : String(session.limit.count);
+  return `${count} × ${String(session.durationMin)} min · ${session.locationType}`;
+}
+
+function revisionLabel(rule: PurchaseCommercialSnapshot["revisionRule"]): string {
+  if (!rule) return "Not specified";
+  return rule.kind === "unlimited" ? "Unlimited" : `${String(rule.count)} rounds`;
+}
+
+function frozenTerms(purchase: PaymentPurchaseProjection): PaymentHistoryFrozenTerms {
+  const snapshot = purchase.commercialSnapshot;
+  const royalty = royaltyTermsDisplay(snapshot.royaltyTerms);
+  const royaltyValue = royalty.specified
+    ? [royalty.master, royalty.composition, snapshot.royaltyTerms?.notes]
+        .filter((value): value is string => Boolean(value))
+        .join(" · ")
+    : "Not specified";
+  return {
+    frozenAtIso: purchase.acceptance.acceptedAt.toISOString(),
+    productName: snapshot.productOrOfferName,
+    deliverables: snapshot.deliverables,
+    lineItems: snapshot.lineItems.map((line, index) => ({
+      id: `${purchase.id}-line-${String(index + 1)}`,
+      label: line.label,
+      quantity: line.quantity,
+      unitPriceCents: line.unitPriceCents,
+      totalCents: line.totalCents,
+    })),
+    subtotalCents: snapshot.subtotalCents,
+    discountCents: snapshot.discountCents,
+    taxCents: snapshot.tax.amountCents,
+    totalCents: snapshot.totalCents,
+    detailRows: [
+      { label: "Song spaces", value: String(snapshot.includedSongSpaces) },
+      { label: "Session allowance", value: sessionLabel(snapshot.session) },
+      { label: "Revisions", value: revisionLabel(snapshot.revisionRule) },
+      { label: "Royalty terms", value: royaltyValue },
+    ],
+    rights: snapshot.rights,
+    agreementText: snapshot.agreementText,
+  };
+}
+
+function purchaseStatus(purchase: PaymentPurchaseProjection): PaymentHistoryStatus {
+  if (purchase.lifecycleStatus === "canceled") return { label: "Canceled", tone: "neutral" };
+  if (purchase.fullyPaid) return { label: "Paid in full", tone: "success" };
+  if (purchase.producerBucket === "needs_review") {
+    return { label: "Needs review", tone: "accent" };
+  }
+  if (purchase.dueNowCents > 0) {
+    const overdue = purchase.installments.some(
+      (installment) => installment.status === "overdue" && installment.remainingCents > 0,
+    );
+    return { label: overdue ? "Overdue" : "Due now", tone: overdue ? "danger" : "warning" };
+  }
+  if (purchase.lifecycleStatus === "waiting_for_payment") {
+    return { label: "Waiting for payment", tone: "warning" };
+  }
+  return { label: "Upcoming", tone: "active" };
+}
+
+function projectStatus(project: PaymentProjectProjection): PaymentHistoryStatus {
+  const hasBalance = project.purchases.some((purchase) => purchase.totalRemainingCents > 0);
+  if (project.lifecycleStatus === "completed") {
+    return {
+      label: hasBalance ? "Archived · balance remains" : "Archived · completed",
+      tone: hasBalance ? "warning" : "neutral",
+    };
+  }
+  if (project.lifecycleStatus === "canceled") {
+    return {
+      label: hasBalance ? "Archived · balance remains" : "Archived · canceled",
+      tone: hasBalance ? "warning" : "neutral",
+    };
+  }
+  if (project.lifecycleStatus === "paused") return { label: "Paused", tone: "warning" };
+  if (project.lifecycleStatus === "waiting_for_payment") {
+    return { label: "Waiting for payment", tone: "warning" };
+  }
+  return { label: "Active", tone: "active" };
+}
+
+function triggerLabel(trigger: PaymentHistoryInstallment["trigger"]): string | null {
+  if (trigger === "acceptance") return "At acceptance";
+  if (trigger === "artist_approval") return "When the artist approves the final version";
+  if (trigger === "monthly_anniversary") return "Monthly anniversary";
+  return trigger;
+}
+
+function installmentStatus(
+  status: PaymentPurchaseProjection["installments"][number]["status"],
+): PaymentHistoryStatus {
+  switch (status) {
+    case "confirmed":
+      return { label: "Paid", tone: "success" };
+    case "waived":
+      return { label: "Waived", tone: "neutral" };
+    case "canceled":
+      return { label: "Canceled", tone: "neutral" };
+    case "awaiting_review":
+      return { label: "Needs review", tone: "accent" };
+    case "overdue":
+      return { label: "Overdue", tone: "danger" };
+    case "partially_paid":
+      return { label: "Partially paid", tone: "warning" };
+    case "not_paid":
+      return { label: "Not paid", tone: "warning" };
+  }
+}
+
+function mapPurchase(
+  purchase: PaymentPurchaseProjection,
+  role: PaymentHistoryRole,
+): PaymentHistoryPurchase {
+  const installmentPosition = new Map(
+    purchase.installments.map((installment) => [installment.id, installment.position]),
+  );
+  const paymentById = new Map(purchase.payments.map((payment) => [payment.id, payment]));
+  const instructionFields = purchase.currentInstructions
+    ? [
+        purchase.currentInstructions.bankTransfer
+          ? { label: "Bank transfer", value: purchase.currentInstructions.bankTransfer }
+          : null,
+        purchase.currentInstructions.bitPhone
+          ? { label: "Bit phone", value: purchase.currentInstructions.bitPhone }
+          : null,
+      ].filter((field): field is { label: string; value: string } => field !== null)
+    : [];
+
+  return {
+    id: purchase.id,
+    reference: purchase.refNumber,
+    title: purchase.commercialSnapshot.productOrOfferName,
+    counterpartyLabel: role === "producer" ? purchase.clientName : purchase.producerName,
+    currency: purchase.currency,
+    status: purchaseStatus(purchase),
+    defaultOpen:
+      purchase.collection === "active" ||
+      purchase.proofs.some((proof) => proof.status === "pending" || proof.status === "rejected"),
+    totalCents: purchase.totalCents,
+    paidCents: purchase.paidCents,
+    dueNowCents: purchase.dueNowCents,
+    totalRemainingCents: purchase.totalRemainingCents,
+    frozenTerms: frozenTerms(purchase),
+    acceptance: {
+      acceptedAtIso: purchase.acceptance.acceptedAt.toISOString(),
+      acceptedByLabel: `${purchase.clientName} accepted the exact terms`,
+      statement: "The agreement, price, plan, and schedule above are the frozen accepted record.",
+    },
+    plan: {
+      label: planLabel(purchase.commercialSnapshot.selectedPaymentPlan),
+      description: planDescription(purchase.commercialSnapshot.selectedPaymentPlan),
+    },
+    schedule: purchase.installments.map((installment) => ({
+      id: installment.id,
+      position: installment.position,
+      label: `Payment ${String(installment.position)}`,
+      amountCents: installment.amountCents,
+      paidCents: installment.paidCents,
+      waivedCents: installment.waivedCents,
+      remainingCents: installment.remainingCents,
+      dueAtIso: iso(installment.dueAt),
+      trigger: triggerLabel(installment.dueTrigger),
+      status: installmentStatus(installment.status),
+    })),
+    nextPayment: purchase.nextPayment
+      ? {
+          amountCents: purchase.nextPayment.amountCents,
+          dueAtIso: iso(purchase.nextPayment.dueAt),
+          trigger: triggerLabel(purchase.nextPayment.dueTrigger),
+        }
+      : null,
+    showPayNextPayment: purchase.showPayNextPayment,
+    currentInstructions: purchase.currentInstructions
+      ? {
+          title: "Current producer payment instructions",
+          updatedAtIso: null,
+          fields: instructionFields,
+          note: purchase.currentInstructions.note ?? null,
+        }
+      : null,
+    proofs: purchase.proofs.map((proof) => ({
+      id: proof.id,
+      installmentLabel:
+        `Payment ${String(installmentPosition.get(proof.installmentId) ?? "")}`.trim(),
+      amountCents: proof.amountCents,
+      currency: proof.currency,
+      status: proof.status,
+      originalFileName: proof.originalFileName,
+      submittedAtIso: proof.createdAt.toISOString(),
+      reviewedAtIso: iso(proof.confirmedAt ?? proof.rejectedAt),
+      note: proof.note,
+      rejectionNote: proof.rejectionNote,
+      detailAvailable: role === "producer",
+    })),
+    payments: purchase.payments.map((payment) => ({
+      id: payment.id,
+      installmentLabel:
+        `Payment ${String(installmentPosition.get(payment.installmentId) ?? "")}`.trim(),
+      amountCents: payment.effectiveAmountCents,
+      currency: payment.currency,
+      paidAtIso: payment.paidAt.toISOString(),
+      sourceLabel: payment.source === "proof" ? "Confirmed from proof" : "Recorded manually",
+      note: payment.note,
+    })),
+    corrections: purchase.corrections.map((correction) => ({
+      id: correction.id,
+      label: "Payment corrected",
+      amountDeltaCents: correction.newAmountCents - correction.previousAmountCents,
+      currency: paymentById.get(correction.paymentId)?.currency ?? purchase.currency,
+      occurredAtIso: correction.createdAt.toISOString(),
+      reason: correction.reason,
+    })),
+    waivers: purchase.waivers.map((waiver) => ({
+      id: waiver.id,
+      installmentLabel:
+        `Payment ${String(installmentPosition.get(waiver.installmentId) ?? "")}`.trim(),
+      amountCents: waiver.amountCents,
+      currency: purchase.currency,
+      occurredAtIso: waiver.createdAt.toISOString(),
+      reason: waiver.reason,
+    })),
+    cancellations: purchase.cancellation
+      ? [
+          {
+            id: purchase.cancellation.id,
+            occurredAtIso: purchase.cancellation.canceledAt.toISOString(),
+            reason: purchase.cancellation.reason,
+          },
+        ]
+      : [],
+    pauseHistory: purchase.pauseEvents.map((event) => ({
+      id: event.id,
+      actionLabel: event.action === "paused" ? "Payments paused" : "Payments resumed",
+      occurredAtIso: event.changedAt.toISOString(),
+      reason: event.reason,
+    })),
+    downloadOverrideHistory: purchase.downloadOverrides.map((event) => ({
+      id: event.id,
+      actionLabel: event.enabled ? "Early download allowed" : "Early download removed",
+      trackVersionLabel: event.versionLabel,
+      occurredAtIso: event.createdAt.toISOString(),
+      reason: event.enabled
+        ? "The producer enabled the recorded version override."
+        : "The producer removed the recorded version override.",
+      expiresAtIso: null,
+    })),
+  };
+}
+
+function mapProject(
+  project: PaymentProjectProjection,
+  role: PaymentHistoryRole,
+): PaymentHistoryProject {
+  return {
+    id: project.id,
+    title: project.title,
+    status: projectStatus(project),
+    currencyTotals: project.totals,
+    purchases: project.purchases.map((purchase) => mapPurchase(purchase, role)),
+  };
+}
+
+/** Pure presentation adapter. Bucketing and all amounts already belong to the domain projection. */
+export function toPaymentHistoryViewData(
+  bucket: PaymentBucketProjection,
+  section: PaymentHistorySectionDescriptor,
+  role: PaymentHistoryRole,
+): PaymentHistoryViewData {
+  return {
+    section,
+    currencyTotals: bucket.totals,
+    projects: bucket.projects.map((project) => mapProject(project, role)),
+  };
+}
+
+export function allPaymentsBucket(
+  projects: readonly PaymentProjectProjection[],
+  totals: PaymentBucketProjection["totals"],
+): PaymentBucketProjection {
+  return { projects, totals };
+}

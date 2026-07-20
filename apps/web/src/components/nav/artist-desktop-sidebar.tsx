@@ -48,7 +48,7 @@ const NAV_ITEMS: readonly ArtistDesktopNav[] = [
   { id: "music", href: "/artist/music", label: "Music", icon: "music" },
   { id: "book", href: "/artist/book", label: "Book", icon: "plus" },
   { id: "store", href: "/artist/store", label: "Store", icon: "tag" },
-  { id: "settings", href: "/artist/settings", label: "Settings", icon: "settings" },
+  { id: "payments", href: "/artist/payments", label: "Payments", icon: "payments" },
 ] as const;
 
 export function ArtistDesktopSidebar({
@@ -160,7 +160,15 @@ export function ArtistDesktopSidebar({
                 "h-8 w-8 ring-1 ring-[rgb(var(--border-sidebar))]",
             },
           }}
-        />
+        >
+          <UserButton.MenuItems>
+            <UserButton.Link
+              label="Settings"
+              labelIcon={<Icon name="settings" size={16} />}
+              href="/artist/settings"
+            />
+          </UserButton.MenuItems>
+        </UserButton>
         <span
           style={{
             fontSize: 12,

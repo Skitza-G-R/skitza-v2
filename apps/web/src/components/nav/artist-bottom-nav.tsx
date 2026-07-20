@@ -14,7 +14,7 @@ import { Icon, type IconName } from "./icons";
 // labels, top brand-bar indicator) so the two apps share grammar.
 //
 // Routes wired per CLAUDE.md §"Artist platform — 5 sections":
-//   Home / Music / Book / Store / Settings
+//   Home / Music / Book / Store / Payments
 // "Messages" appears in the locked desktop design but no /artist/messages
 // route exists — dropped for Phase 2 per Gili's same-pattern Q3 ruling
 // (don't ship nav items that 404).
@@ -33,7 +33,7 @@ const TABS: readonly ArtistTab[] = [
   { href: "/artist/music", label: "Music", icon: "music" },
   { href: "/artist/book", label: "Book", icon: "book" },
   { href: "/artist/store", label: "Store", icon: "store" },
-  { href: "/artist/settings", label: "Settings", icon: "settings" },
+  { href: "/artist/payments", label: "Payments", icon: "payments" },
 ] as const;
 
 export function ArtistBottomNav(): ReactNode {

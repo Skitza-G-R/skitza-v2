@@ -14,6 +14,7 @@ const ARTIST_SECTIONS = {
   "/artist/music": "Music",
   "/artist/book": "Book",
   "/artist/store": "Store",
+  "/artist/payments": "Payments",
   "/artist/settings": "Settings",
 } as const;
 
