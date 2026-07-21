@@ -12,4 +12,19 @@ describe("CommandPalette accessibility", () => {
     expect(source).toContain('import * as Dialog from "@radix-ui/react-dialog"');
     expect(source).toContain('<Dialog.Title className="sr-only">Command palette</Dialog.Title>');
   });
+
+  it("uses only current producer destinations", () => {
+    expect(source).toContain("/dashboard/store");
+    expect(source).toContain("/dashboard/clients-projects?newProject=1");
+    expect(source).not.toContain("/dashboard/profile");
+    expect(source).not.toContain("/dashboard/clients-projects/new");
+  });
+
+  it("opens a selected client instead of dropping the user on the generic list", () => {
+    expect(source).toContain("/dashboard/clients-projects/clients/${c.id}");
+  });
+
+  it("does not advertise the removed Contracts search category", () => {
+    expect(source.toLowerCase()).not.toContain("contracts");
+  });
 });

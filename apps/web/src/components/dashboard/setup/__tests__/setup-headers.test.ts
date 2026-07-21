@@ -20,10 +20,7 @@ describe("SETTINGS_BRANCH_META (PRD v3 §4.6)", () => {
     for (const key of SETTINGS_BRANCH_KEYS) {
       const meta = SETTINGS_BRANCH_META[key];
       expect(meta.title.trim().length, `title for "${key}"`).toBeGreaterThan(0);
-      expect(
-        meta.description.trim().length,
-        `description for "${key}"`,
-      ).toBeGreaterThan(0);
+      expect(meta.description.trim().length, `description for "${key}"`).toBeGreaterThan(0);
     }
   });
 
@@ -61,5 +58,9 @@ describe("SETUP_SECTION_META (legacy 7-tab back-compat)", () => {
     // if someone tweaks them without intent, the test catches it.
     expect(SETUP_SECTION_META.services.title).toMatch(/sell/i);
     expect(SETUP_SECTION_META.availability.title).toMatch(/open/i);
+  });
+
+  it("does not promise the removed onboarding tour", () => {
+    expect(SETUP_SECTION_META.account.description).not.toMatch(/tour|replay/i);
   });
 });

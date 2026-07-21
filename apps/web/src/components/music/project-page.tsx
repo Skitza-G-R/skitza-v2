@@ -26,6 +26,7 @@ import {
   type ProjectKind,
 } from "~/components/music/lib";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 
 // ─── Wire types ──────────────────────────────────────────────────────
 
@@ -156,6 +157,7 @@ export type ProjectPageRole = "producer" | "artist";
 export function ProjectPage({
   data,
   role = "producer",
+  artistStudioId,
   producerActionHref,
   extraBelow,
   renameSong,
@@ -165,6 +167,7 @@ export function ProjectPage({
 }: {
   data: ProjectPageData;
   role?: ProjectPageRole;
+  artistStudioId?: string | undefined;
   /** Fallback for producer Add Song/upload actions; omitted means no fake CTA. */
   producerActionHref?: string;
   extraBelow?: React.ReactNode;
@@ -439,6 +442,7 @@ export function ProjectPage({
               isPlaying={nowPlaying.playing}
               onPlay={handlePlayTrack}
               role={role}
+              artistStudioId={artistStudioId}
               producerActionHref={producerActionHref}
               {...(renameSong ? { renameSong } : {})}
               {...(editArtist ? { editArtist } : {})}
@@ -512,6 +516,7 @@ function Tracklist({
   isPlaying,
   onPlay,
   role,
+  artistStudioId,
   producerActionHref,
   renameSong,
   editArtist,
@@ -524,6 +529,7 @@ function Tracklist({
   isPlaying: boolean;
   onPlay: (t: ProjectPageTrack) => void;
   role: ProjectPageRole;
+  artistStudioId: string | undefined;
   producerActionHref: string | undefined;
   renameSong?: RenameSongAction;
   editArtist?: EditSongArtistAction;
@@ -565,6 +571,7 @@ function Tracklist({
             isPlaying={isPlaying}
             onPlay={onPlay}
             role={role}
+            artistStudioId={artistStudioId}
             producerActionHref={producerActionHref}
             {...(renameSong ? { renameSong } : {})}
             {...(editArtist ? { editArtist } : {})}
@@ -589,6 +596,7 @@ function Tracklist({
             isPlaying={isPlaying}
             onPlay={onPlay}
             role={role}
+            artistStudioId={artistStudioId}
             producerActionHref={producerActionHref}
             {...(renameSong ? { renameSong } : {})}
             {...(editArtist ? { editArtist } : {})}
@@ -601,10 +609,15 @@ function Tracklist({
   );
 }
 
-function projectSongHref(role: ProjectPageRole, versionId: string, projectId: string): string {
+function projectSongHref(
+  role: ProjectPageRole,
+  versionId: string,
+  projectId: string,
+  artistStudioId?: string,
+): string {
   return role === "producer"
     ? `/dashboard/music/${versionId}?from=${projectId}`
-    : `/artist/music/song/${versionId}`;
+    : withArtistStudio(`/artist/music/song/${versionId}`, artistStudioId);
 }
 
 function ProjectMusicDesktopRow({
@@ -616,6 +629,7 @@ function ProjectMusicDesktopRow({
   isPlaying,
   onPlay,
   role,
+  artistStudioId,
   producerActionHref,
   renameSong,
   editArtist,
@@ -630,6 +644,7 @@ function ProjectMusicDesktopRow({
   isPlaying: boolean;
   onPlay: (track: ProjectPageTrack) => void;
   role: ProjectPageRole;
+  artistStudioId: string | undefined;
   producerActionHref: string | undefined;
   renameSong?: RenameSongAction;
   editArtist?: EditSongArtistAction;
@@ -706,7 +721,9 @@ function ProjectMusicDesktopRow({
   const canPlay = isProjectPageTrackPlayable(item);
   const current = canPlay && nowPlayingId === versionId;
   const playingHere = current && isPlaying;
-  const rowHref = versionId ? projectSongHref(role, versionId, projectId) : null;
+  const rowHref = versionId
+    ? projectSongHref(role, versionId, projectId, artistStudioId)
+    : null;
   const actionHref = projectItemActionHref(item.actionHref, producerActionHref);
   return (
     <li
@@ -850,6 +867,7 @@ function ProjectMusicMobileRow({
   isPlaying,
   onPlay,
   role,
+  artistStudioId,
   producerActionHref,
   renameSong,
   editArtist,
@@ -863,6 +881,7 @@ function ProjectMusicMobileRow({
   isPlaying: boolean;
   onPlay: (track: ProjectPageTrack) => void;
   role: ProjectPageRole;
+  artistStudioId: string | undefined;
   producerActionHref: string | undefined;
   renameSong?: RenameSongAction;
   editArtist?: EditSongArtistAction;
@@ -920,7 +939,9 @@ function ProjectMusicMobileRow({
   const canPlay = isProjectPageTrackPlayable(item);
   const current = canPlay && nowPlayingId === versionId;
   const playingHere = current && isPlaying;
-  const rowHref = versionId ? projectSongHref(role, versionId, projectId) : null;
+  const rowHref = versionId
+    ? projectSongHref(role, versionId, projectId, artistStudioId)
+    : null;
   const actionHref = projectItemActionHref(item.actionHref, producerActionHref);
   return (
     <li

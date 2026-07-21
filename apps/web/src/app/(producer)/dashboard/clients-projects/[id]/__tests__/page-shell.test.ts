@@ -54,7 +54,7 @@ describe("clients-projects/[id]/page.tsx — Phase 2 rewrite to AlbumSpace", () 
   });
 
   it("drops the imports of legacy sub-tabs that the new IA replaces", () => {
-    // FilesSubTab is now wrapped by FilesTab from the album-tabs folder.
+    // The removed Files control and its legacy sub-tab stay out of the shell.
     expect(SRC).not.toContain('from "~/components/dashboard/project/sub-tabs/files-sub-tab"');
     expect(SRC).not.toContain("MusicSubTab");
     expect(SRC).not.toContain("NotesSubTab");

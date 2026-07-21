@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+
+import { TrackRow } from "../track-row";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "track-row.tsx"), "utf-8");
@@ -11,8 +14,9 @@ describe("TrackRow — album-page tracklist row", () => {
     expect(SRC).toMatch(/export function TrackRow/);
   });
 
-  it("uses the BUILD-NOTES §6.4 grid: 22px 30px 38px minmax(0,1fr) 130px 180px 22px", () => {
-    expect(SRC).toContain("22px 30px 38px minmax(0,1fr) 130px 180px 22px");
+  it("uses the six-column grid without a dead drag-handle column", () => {
+    expect(SRC).toContain("30px 38px minmax(0,1fr) 130px 180px 22px");
+    expect(SRC).not.toContain("22px 30px 38px minmax(0,1fr) 130px 180px 22px");
   });
 
   it("wraps the row in a Next.js Link for whole-row click navigation", () => {
@@ -25,21 +29,40 @@ describe("TrackRow — album-page tracklist row", () => {
     expect(SRC).toMatch(/\/dashboard\/clients-projects\/\$\{[^}]*projectId[^}]*\}\/songs\/\$\{[^}]*track\.id[^}]*\}/);
   });
 
-  it('marks the row as draggable="true" for parent reorder handling', () => {
-    expect(SRC).toMatch(/draggable=(?:"true"|\{true\})/);
+  it("does not advertise drag/reorder before persistence exists", () => {
+    expect(SRC).not.toMatch(/\bdraggable=/);
+    expect(SRC).not.toContain("GripVertical");
   });
 
-  it("uses div-draggable + Link-overlay pattern (matches ClientCard / ProjectRow)", () => {
-    // The outer container is the draggable element — not the Link. This
-    // avoids the browser-level "draggable anchor with href" treatment
-    // that can hijack near-clicks into drag-with-no-drop and never
-    // navigate. We assert by ruling out `draggable` on a same-tag <Link>.
-    expect(SRC).not.toMatch(/<Link[^>]*draggable/);
-    expect(SRC).toMatch(/<div[^>]*draggable/);
+  it("uses the semantic Link itself as the block-level row container", () => {
+    expect(SRC).toMatch(/<Link\s+[\s\S]*?className="[^"]*group[^"]*block/);
+    expect(SRC).not.toContain('className="absolute inset-0 z-0');
   });
 
-  it("renders the Link as an absolute inset-0 navigation overlay", () => {
-    expect(SRC).toMatch(/<Link[\s\S]*?className="[^"]*absolute inset-0/);
+  it("renders every visible desktop and mobile cell inside the one semantic row link", () => {
+    const html = renderToStaticMarkup(
+      <TrackRow
+        projectId="project-1"
+        index={1}
+        track={{
+          id: "song-1",
+          title: "Whole row song",
+          artist: "Artist",
+          workflowStage: "mixing",
+          progress: 64,
+          currentVersion: "v2",
+        }}
+      />,
+    );
+
+    const linkStart = html.indexOf("<a ");
+    const linkEnd = html.indexOf("</a>", linkStart);
+    expect(linkStart).toBeGreaterThanOrEqual(0);
+    expect(html.match(/<a /g)).toHaveLength(1);
+    expect(linkEnd).toBeGreaterThan(html.lastIndexOf("Whole row song"));
+    expect(linkEnd).toBeGreaterThan(html.lastIndexOf("Mixing"));
+    expect(linkEnd).toBeGreaterThan(html.lastIndexOf("64%"));
+    expect(html).not.toContain("pointer-events-none");
   });
 
   it("accepts and displays an optional artist credit in the track metadata", () => {
@@ -59,14 +82,9 @@ describe("TrackRow — album-page tracklist row", () => {
     expect(SRC).toContain("~/lib/clients/workflow-stage");
   });
 
-  it("imports GripVertical for the drag handle and ChevronRight for the row chevron", () => {
-    expect(SRC).toContain("GripVertical");
+  it("imports ChevronRight for the row chevron", () => {
     expect(SRC).toContain("ChevronRight");
     expect(SRC).toContain('from "lucide-react"');
-  });
-
-  it("hides the drag handle by default and reveals it on group hover", () => {
-    expect(SRC).toMatch(/opacity-0[^"]*group-hover:opacity-100/);
   });
 
   it("uses tabular-nums for the index column (mono-style 01/02 numbers)", () => {
@@ -97,10 +115,10 @@ describe("TrackRow — album-page tracklist row", () => {
     expect(SRC).not.toMatch(/rounded-full[^<]*ChevronRight/);
   });
 
-  it("exposes onDragStart / onDragOver / onDrop props so the parent owns reorder state", () => {
-    expect(SRC).toContain("onDragStart");
-    expect(SRC).toContain("onDragOver");
-    expect(SRC).toContain("onDrop");
+  it("does not expose drag callbacks until a persistence owner exists", () => {
+    expect(SRC).not.toContain("onDragStart");
+    expect(SRC).not.toContain("onDragOver");
+    expect(SRC).not.toContain("onDrop");
   });
 
   it("renders the meta line: currentVersion · noteCount notes · duration when present", () => {

@@ -69,6 +69,7 @@ describe("PrivateOffersList", () => {
         offers={[
           {
             id: "00000000-0000-4000-8000-000000000096",
+            producerId: "00000000-0000-4000-8000-000000000099",
             producerName: "Gili Studio",
             commercialDraft: snapshot,
             expiresAt: new Date("2026-08-02T12:00:00.000Z"),
@@ -82,7 +83,9 @@ describe("PrivateOffersList", () => {
     expect(html).toContain("Gili Studio");
     expect(html).toContain("Expires 2 Aug 2026");
     expect(html).toContain("ILS");
-    expect(html).toContain("/artist/offers/00000000-0000-4000-8000-000000000096");
+    expect(html).toContain(
+      "/artist/offers/00000000-0000-4000-8000-000000000096?studio=00000000-0000-4000-8000-000000000099",
+    );
   });
 
   it("does not render an empty surface", () => {
@@ -174,6 +177,14 @@ describe("PrivateOfferTerms", () => {
 });
 
 describe("PrivateOfferResponse", () => {
+  it("requires a second, explicit confirmation before rejecting an offer", () => {
+    const source = readFileSync(join(__dirname, "..", "private-offer-response.tsx"), "utf8");
+
+    expect(source).toContain("setConfirmingReject(true)");
+    expect(source).toContain("Keep offer");
+    expect(source).toContain("Confirm rejection");
+  });
+
   it("previews the exact authoritative monthly schedule when cents do not divide evenly", () => {
     const oddMonthlySnapshot: PurchaseCommercialSnapshot = {
       ...snapshot,
@@ -185,6 +196,7 @@ describe("PrivateOfferResponse", () => {
     const html = renderToStaticMarkup(
       <PrivateOfferResponse
         offerId="00000000-0000-4000-8000-000000000096"
+        studioId="00000000-0000-4000-8000-000000000099"
         updatedAt={new Date("2026-07-19T12:00:00.000Z")}
         targetProjectTitle={null}
         snapshot={oddMonthlySnapshot}

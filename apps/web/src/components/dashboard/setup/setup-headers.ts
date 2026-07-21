@@ -65,7 +65,6 @@ export const SETUP_SECTION_META: Record<LegacySectionKey, SetupSectionMeta> = {
   connections: SETTINGS_BRANCH_META.integrations,
   account: {
     title: "Your account.",
-    description:
-      "Export your data, manage email and password, or replay the four-screen tour any time.",
+    description: "Export your data and manage your account access details.",
   },
 };

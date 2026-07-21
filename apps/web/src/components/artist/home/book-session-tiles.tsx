@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { withArtistStudio } from "~/lib/artist-studio-context";
+
 import { ProducerArt } from "./producer-art";
 
 export type BookSessionTilesProps = {
@@ -8,9 +10,10 @@ export type BookSessionTilesProps = {
     producerName: string;
     producerSlug: string;
   }>;
+  activeStudioId?: string | null;
 };
 
-export function BookSessionTiles({ studios }: BookSessionTilesProps) {
+export function BookSessionTiles({ studios, activeStudioId }: BookSessionTilesProps) {
   return (
     <section aria-labelledby="book-session-heading">
       <header className="flex items-baseline justify-between border-b border-[rgb(var(--border-subtle))] pb-2">
@@ -23,14 +26,14 @@ export function BookSessionTiles({ studios }: BookSessionTilesProps) {
             Book a session
           </h2>
           <span
-            className="uppercase text-[10.5px] tracking-[0.04em] text-[rgb(var(--fg-muted))]"
+            className="text-[10.5px] tracking-[0.04em] text-[rgb(var(--fg-muted))] uppercase"
             style={{ fontFamily: "var(--font-jetbrains-mono)" }}
           >
             {studios.length} IN ROSTER
           </span>
         </div>
         <Link
-          href="/artist/book"
+          href={withArtistStudio("/artist/book", activeStudioId)}
           className="text-[12px] font-medium text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-default))]"
         >
           Browse all →
@@ -43,14 +46,10 @@ export function BookSessionTiles({ studios }: BookSessionTilesProps) {
           {studios.map((s) => (
             <li key={s.producerId}>
               <Link
-                href={`/artist/book?producerId=${s.producerId}`}
+                href={withArtistStudio("/artist/book", s.producerId)}
                 className="flex items-center gap-2.5 rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-2 transition-colors hover:bg-[rgb(var(--bg-background))]"
               >
-                <ProducerArt
-                  producerName={s.producerName}
-                  size={44}
-                  initialsFontSize={14}
-                />
+                <ProducerArt producerName={s.producerName} size={44} initialsFontSize={14} />
                 <span className="truncate text-[12.5px] font-semibold text-[rgb(var(--fg-default))]">
                   {s.producerName}
                 </span>

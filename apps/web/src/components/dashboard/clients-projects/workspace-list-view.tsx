@@ -15,14 +15,27 @@ import { ClientArchiveConfirmModal } from "~/components/dashboard/clients/client
 import { StatTile } from "~/components/dashboard/common/stat-tile";
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 import { ClientCompactRow } from "~/components/dashboard/clients/client-compact-row";
+import { useToast } from "~/components/ui/toast";
 
 import { ClientsTableHeader } from "./clients-table-header";
+import {
+  canSyncProjectProps,
+  moveProjectRelativeToVisibleRows,
+  persistLatestProjectOrder,
+  serializeProjectOrderPersistence,
+  type ProjectReorderResult,
+} from "./project-reorder-persistence";
 import { ProjectsTableHeader } from "./projects-table-header";
 // Sort order options (in display order). `custom` defaults — the user
 // last-set order, persisted via the reorder mutations. `recent` is the
 // most-recently-updated. `name` is alphabetical. Everything else
 // targets a specific column.
-import { SORT_OPTIONS, type SortValue } from "./sort-value";
+import {
+  compareClientsByJoined,
+  compareProjectsByJoined,
+  SORT_OPTIONS,
+  type SortValue,
+} from "./sort-value";
 
 // Project filter chips — `all` is implicit (no filter applied).
 const PROJECT_FILTERS = [
@@ -89,10 +102,10 @@ export interface WorkspaceListViewProps {
    *  when `?newProject=1` is present in the URL — the legacy /new
    *  route redirects here with that flag (G7). */
   initialNewProjectOpen?: boolean;
-  /** Optional callback fired when the user drags rows into a new order.
-   *  Returning a Promise lets the page wire a Server Action — the
-   *  component never awaits the result (drag is optimistic). */
-  onReorderProjects?: (orderedIds: string[]) => unknown;
+  /** Optional callback fired when the user drags rows into a new order. */
+  onReorderProjects?: (
+    orderedIds: string[],
+  ) => ProjectReorderResult | Promise<ProjectReorderResult>;
 }
 
 // Shared pill-CTA styling for the header buttons. Extracted so the
@@ -139,6 +152,7 @@ export function WorkspaceListView({
   initialNewProjectOpen,
   onReorderProjects,
 }: WorkspaceListViewProps) {
+  const { toast } = useToast();
   // When the page hydrates with `?newProject=1` (the redirect target
   // from the deleted /new route), default to the Projects tab AND
   // open the modal — that's where the legacy route landed the user.
@@ -155,13 +169,21 @@ export function WorkspaceListView({
   const [orderedProjects, setOrderedProjects] = useState(projects);
   const [orderedClients, setOrderedClients] = useState(clients);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const projectReorderGenerationRef = useRef(0);
+  const projectReorderPendingGenerationRef = useRef<number | null>(null);
+  const [projectReorderPropSyncEpoch, setProjectReorderPropSyncEpoch] = useState(0);
+  const projectReorderPersistenceRef = useRef<Promise<void>>(Promise.resolve());
 
   // Server actions revalidate this route. Mirror new server props into
   // the optimistic lists so edits and archive moves appear immediately
   // after router.refresh() instead of leaving stale initial useState data.
+  // While a newer reorder is queued, an earlier success may also refresh
+  // these props; keep the newest optimistic order until that write settles.
   useEffect(() => {
+    if (!canSyncProjectProps(projectReorderPendingGenerationRef.current)) return;
+    projectReorderGenerationRef.current += 1;
     setOrderedProjects(projects);
-  }, [projects]);
+  }, [projects, projectReorderPropSyncEpoch]);
   useEffect(() => {
     setOrderedClients(clients);
   }, [clients]);
@@ -242,6 +264,10 @@ export function WorkspaceListView({
         // bottom (Number.POSITIVE_INFINITY).
         sorted.sort((a, b) => isoMsOrPosInf(a.deadlineAtIso) - isoMsOrPosInf(b.deadlineAtIso));
         break;
+      case "joined":
+        // Newest-created project first; invalid or missing dates sink.
+        sorted.sort(compareProjectsByJoined);
+        break;
     }
     return sorted;
   }, [orderedProjects, projectFilter, sort]);
@@ -259,13 +285,16 @@ export function WorkspaceListView({
         })
       : base;
 
-    // Clients choose the useful default automatically: the person with
-    // the most recent activity is first. There is no cross-currency
-    // money sort and no client-specific deadline to configure.
+    // Clients choose recent activity by default. The visible JOINED
+    // table header switches this to the roster join timestamp.
     const sorted = searched.slice();
-    sorted.sort((a, b) => isoMs(b.lastActivityIso) - isoMs(a.lastActivityIso));
+    if (sort === "joined") {
+      sorted.sort(compareClientsByJoined);
+    } else {
+      sorted.sort((a, b) => isoMs(b.lastActivityIso) - isoMs(a.lastActivityIso));
+    }
     return sorted;
-  }, [orderedClients, clientFilter, deferredClientSearch]);
+  }, [orderedClients, clientFilter, deferredClientSearch, sort]);
 
   const activeClientCount = orderedClients.filter((client) => !client.archived).length;
   const archivedClientCount = orderedClients.length - activeClientCount;
@@ -276,12 +305,52 @@ export function WorkspaceListView({
   const handleProjectDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
   };
+  const persistProjectOrder = (
+    next: ProjectRowData[],
+    previousProjects: ProjectRowData[],
+  ) => {
+    if (!onReorderProjects) return;
+    const generation = ++projectReorderGenerationRef.current;
+    projectReorderPendingGenerationRef.current = generation;
+
+    const orderedIds = next.map((project) => project.id);
+    projectReorderPersistenceRef.current = serializeProjectOrderPersistence(
+      projectReorderPersistenceRef.current,
+      () =>
+        persistLatestProjectOrder({
+          orderedIds,
+          previousOrder: previousProjects,
+          generation,
+          getLatestGeneration: () => projectReorderGenerationRef.current,
+          persist: onReorderProjects,
+          rollback: setOrderedProjects,
+          onError: (message) => {
+            toast(message, "error");
+          },
+        }).finally(() => {
+          if (projectReorderPendingGenerationRef.current === generation) {
+            projectReorderPendingGenerationRef.current = null;
+            // The props effect may have skipped one or more revalidation
+            // payloads while this write was pending. Rerun it now even when
+            // the latest projects reference arrived before the promise
+            // settled.
+            setProjectReorderPropSyncEpoch((epoch) => epoch + 1);
+          }
+        }),
+    );
+  };
+  const applyProjectOrder = (next: ProjectRowData[], previousProjects: ProjectRowData[]) => {
+    setOrderedProjects(next);
+    setSort("custom");
+    persistProjectOrder(next, previousProjects);
+  };
   const handleProjectDrop = (_e: DragEvent<HTMLDivElement>, targetId: string) => {
     if (!draggingId || draggingId === targetId) {
       setDraggingId(null);
       return;
     }
-    const next = [...orderedProjects];
+    const previousProjects = orderedProjects;
+    const next = [...previousProjects];
     const fromIdx = next.findIndex((p) => p.id === draggingId);
     const toIdx = next.findIndex((p) => p.id === targetId);
     if (fromIdx === -1 || toIdx === -1) {
@@ -290,14 +359,19 @@ export function WorkspaceListView({
     }
     const [moved] = next.splice(fromIdx, 1);
     if (moved) next.splice(toIdx, 0, moved);
-    setOrderedProjects(next);
+    applyProjectOrder(next, previousProjects);
     setDraggingId(null);
-    // Drag flips sort back to "custom" — that's how the user signals
-    // "this is the order I want, don't auto-sort over it".
-    setSort("custom");
-    // Fire-and-forget: the server persists the new order, but we
-    // already updated local state optimistically above.
-    void onReorderProjects?.(next.map((p) => p.id));
+  };
+  const handleProjectMove = (id: string, direction: "up" | "down") => {
+    const previousProjects = orderedProjects;
+    const next = moveProjectRelativeToVisibleRows(
+      previousProjects,
+      filteredProjects.map((project) => project.id),
+      id,
+      direction,
+    );
+    if (!next) return;
+    applyProjectOrder(next, previousProjects);
   };
 
   return (
@@ -592,7 +666,7 @@ export function WorkspaceListView({
                       setProjectFilter(f.value);
                     }}
                     aria-pressed={active}
-                    className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-[var(--radius-lg)] border px-3 py-2.5 text-[12px] font-medium whitespace-nowrap transition-[transform,background-color,border-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none active:scale-[0.97] sm:min-h-0 sm:py-1.5"
+                    className="inline-flex min-h-[44px] min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border px-3 py-2.5 text-[12px] font-medium whitespace-nowrap transition-[transform,background-color,border-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none active:scale-[0.97] sm:min-h-0 sm:min-w-0 sm:py-1.5"
                     style={{
                       background: active ? "rgb(var(--fg-default))" : "rgb(var(--bg-elevated))",
                       borderColor: active ? "rgb(var(--fg-default))" : "rgb(var(--border-subtle))",
@@ -620,7 +694,7 @@ export function WorkspaceListView({
                       setClientFilter(f.value);
                     }}
                     aria-pressed={active}
-                    className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-[var(--radius-lg)] border px-3 py-2.5 text-[12px] font-medium whitespace-nowrap transition-[transform,background-color,border-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none active:scale-[0.97] sm:min-h-0 sm:py-1.5"
+                    className="inline-flex min-h-[44px] min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border px-3 py-2.5 text-[12px] font-medium whitespace-nowrap transition-[transform,background-color,border-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none active:scale-[0.97] sm:min-h-0 sm:min-w-0 sm:py-1.5"
                     style={{
                       background: active ? "rgb(var(--fg-default))" : "rgb(var(--bg-elevated))",
                       borderColor: active ? "rgb(var(--fg-default))" : "rgb(var(--border-subtle))",
@@ -737,16 +811,31 @@ export function WorkspaceListView({
       </p>
 
       {/* The list — G18 wires layout switching for both tabs */}
-      {tab === "projects" ? (
+      {tab === "projects" && filteredProjects.length === 0 ? (
+        <ProjectEmptyState
+          kind={projectFilter}
+          onViewActive={() => {
+            setProjectFilter("active");
+          }}
+          onAddProject={() => {
+            setNewProjectOpen(true);
+          }}
+        />
+      ) : tab === "projects" ? (
         <div className="flex flex-col gap-2">
           {layout === "table" ? <ProjectsTableHeader sort={sort} onSortChange={setSort} /> : null}
           {filteredProjects.map((p) => (
             <ProjectRow
               key={p.id}
               row={p}
-              onDragStart={handleProjectDragStart}
-              onDragOver={handleProjectDragOver}
-              onDrop={handleProjectDrop}
+              {...(onReorderProjects
+                ? {
+                    onDragStart: handleProjectDragStart,
+                    onDragOver: handleProjectDragOver,
+                    onDrop: handleProjectDrop,
+                    onMove: handleProjectMove,
+                  }
+                : {})}
             />
           ))}
         </div>
@@ -766,6 +855,9 @@ export function WorkspaceListView({
           }}
           onAddClient={() => {
             setNewClientOpen(true);
+          }}
+          onViewActive={() => {
+            setClientFilter("active");
           }}
         />
       ) : (
@@ -800,7 +892,7 @@ export function WorkspaceListView({
               borderColor: "rgb(var(--border-subtle))",
             }}
           >
-            <ClientsTableHeader />
+            <ClientsTableHeader sort={sort} onSortChange={setSort} />
             <div
               role="list"
               aria-label="Clients"
@@ -949,10 +1041,12 @@ function ClientEmptyState({
   kind,
   onClearSearch,
   onAddClient,
+  onViewActive,
 }: {
   kind: "active" | "archived" | "active-search" | "archived-search";
   onClearSearch: () => void;
   onAddClient: () => void;
+  onViewActive: () => void;
 }) {
   const title =
     kind === "active-search" || kind === "archived-search"
@@ -966,7 +1060,7 @@ function ClientEmptyState({
       : kind === "archived-search"
         ? "Try a name, email, phone number, or tag. Active clients are under Active."
         : kind === "archived"
-          ? "Clients you archive will appear here and can be restored."
+          ? "Nothing is archived. Clients you archive will appear here and can be restored."
           : "Add your first client to keep their work and history together.";
 
   return (
@@ -992,7 +1086,16 @@ function ClientEmptyState({
         >
           Clear search
         </button>
-      ) : kind === "active" ? (
+      ) : kind === "archived" ? (
+        <button
+          type="button"
+          onClick={onViewActive}
+          className="mt-5 inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border px-4 py-2.5 text-[13px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--bg-overlay))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+          style={{ borderColor: "rgb(var(--border-subtle))" }}
+        >
+          View active clients
+        </button>
+      ) : (
         <button
           type="button"
           onClick={onAddClient}
@@ -1002,7 +1105,69 @@ function ClientEmptyState({
           <Plus size={14} aria-hidden />
           New client
         </button>
-      ) : null}
+      )}
+    </div>
+  );
+}
+
+function ProjectEmptyState({
+  kind,
+  onViewActive,
+  onAddProject,
+}: {
+  kind: ProjectFilter;
+  onViewActive: () => void;
+  onAddProject: () => void;
+}) {
+  const archived = kind === "archived";
+  const urgent = kind === "urgent";
+  const title = archived
+    ? "No archived projects"
+    : urgent
+      ? "No projects need attention"
+      : kind === "active"
+        ? "No active projects"
+        : "No projects yet";
+  const body = archived
+    ? "Nothing is archived. Completed and canceled projects will appear here."
+    : urgent
+      ? "Everything is clear right now."
+      : "Create a project to keep songs, sessions, and payments together.";
+
+  return (
+    <div
+      role="status"
+      className="rounded-[var(--radius-lg)] border border-dashed px-5 py-10 text-center"
+      style={{
+        borderColor: "rgb(var(--border-subtle))",
+        background: "rgb(var(--bg-elevated))",
+      }}
+    >
+      <FolderKanban size={24} aria-hidden className="mx-auto text-[rgb(var(--fg-muted))]" />
+      <h2 className="font-syne mt-3 text-[18px] font-bold text-[rgb(var(--fg-default))]">
+        {title}
+      </h2>
+      <p className="mx-auto mt-1 max-w-md text-[13px] text-[rgb(var(--fg-muted))]">{body}</p>
+      {archived || urgent ? (
+        <button
+          type="button"
+          onClick={onViewActive}
+          className="mt-5 inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border px-4 py-2.5 text-[13px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--bg-overlay))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+          style={{ borderColor: "rgb(var(--border-subtle))" }}
+        >
+          View active projects
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={onAddProject}
+          className="mt-5 inline-flex min-h-11 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] px-4 py-2.5 text-[13px] font-semibold text-[rgb(var(--bg-sidebar))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:outline-none"
+          style={{ background: "rgb(var(--brand-primary))" }}
+        >
+          <Plus size={14} aria-hidden />
+          New project
+        </button>
+      )}
     </div>
   );
 }

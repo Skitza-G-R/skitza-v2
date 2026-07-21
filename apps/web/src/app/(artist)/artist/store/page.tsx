@@ -78,6 +78,7 @@ export default async function StorePage({ searchParams }: PageProps) {
             durationMin: focal.durationMin,
           }}
           producerName={activeStudio.name}
+          studioId={activeStudio.producerId}
           taxMode={taxMode}
           taxRatePct={taxRatePct}
         />
@@ -86,6 +87,7 @@ export default async function StorePage({ searchParams }: PageProps) {
       )}
       <QuietProductList
         producerName={activeStudio.name}
+        studioId={activeStudio.producerId}
         taxMode={taxMode}
         taxRatePct={taxRatePct}
         products={rest.map((p) => ({

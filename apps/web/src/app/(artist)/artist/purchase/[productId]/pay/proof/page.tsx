@@ -5,11 +5,12 @@ import { notFound, redirect } from "next/navigation";
 
 import type { ProofStatus } from "~/components/artist/purchase/pay-data";
 import { UploadProofScreen } from "~/components/artist/purchase/upload-proof-screen";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = {
   params: Promise<{ productId: string }>;
-  searchParams: Promise<{ purchase?: string; installment?: string }>;
+  searchParams: Promise<{ purchase?: string; installment?: string; studio?: string }>;
 };
 
 export const metadata: Metadata = { title: "Upload payment proof" };
@@ -21,8 +22,8 @@ export default async function PurchaseProofPage({ params, searchParams }: PagePr
   if (!userId) return null;
 
   const { productId } = await params;
-  const { purchase, installment } = await searchParams;
-  if (!purchase) redirect(`/artist/purchase/${productId}`);
+  const { purchase, installment, studio } = await searchParams;
+  if (!purchase) redirect(withArtistStudio(`/artist/purchase/${productId}`, studio));
 
   const caller = appRouter.createCaller({ userId });
   try {
@@ -60,6 +61,7 @@ export default async function PurchaseProofPage({ params, searchParams }: PagePr
 
     return (
       <UploadProofScreen
+        studioId={data.producerId}
         productName={data.productName}
         producerName={data.producerName}
         purchaseId={data.purchaseId}

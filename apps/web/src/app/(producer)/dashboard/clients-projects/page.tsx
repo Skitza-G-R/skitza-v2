@@ -186,6 +186,7 @@ type EnrichedProject = {
   nextSessionAt: Date | null;
   unresolvedComments: number;
   isActive: boolean;
+  createdAt: Date | string;
   updatedAt: Date | string;
 };
 
@@ -226,6 +227,8 @@ function toProjectRowData(p: EnrichedProject): ProjectRowData {
     statusTone: tone,
     updatedAtIso:
       p.updatedAt instanceof Date ? p.updatedAt.toISOString() : new Date(p.updatedAt).toISOString(),
+    createdAtIso:
+      p.createdAt instanceof Date ? p.createdAt.toISOString() : new Date(p.createdAt).toISOString(),
     deadlineAtIso: p.deadlineAt
       ? p.deadlineAt instanceof Date
         ? p.deadlineAt.toISOString()

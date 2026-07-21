@@ -1,6 +1,10 @@
+"use client";
+
 import { UserButton } from "@clerk/nextjs";
+import { useSearchParams } from "next/navigation";
 
 import { StudioSwitcher } from "~/components/artist/studio-switcher";
+import { resolveArtistStudioId, withArtistStudio } from "~/lib/artist-studio-context";
 import type { Studio } from "~/server/artist/identity";
 
 import { Icon } from "./icons";
@@ -24,11 +28,10 @@ import { Wordmark } from "./wordmark";
 // leaks into page territory; will land in Phase 3 when individual
 // artist pages are migrated.
 
-export function ArtistMobileTopBar({
-  studios,
-}: {
-  studios: Studio[];
-}) {
+export function ArtistMobileTopBar({ studios }: { studios: Studio[] }) {
+  const searchParams = useSearchParams();
+  const activeStudioId = resolveArtistStudioId(studios, searchParams.get("studio"));
+
   return (
     <header
       className="sk-safe-top sk-safe-x sticky top-0 z-30 flex items-center justify-between gap-3 backdrop-blur lg:hidden"
@@ -38,26 +41,31 @@ export function ArtistMobileTopBar({
         padding: "12px 16px",
       }}
     >
-      <div className="flex items-center gap-3 min-w-0">
-        <Wordmark size={18} />
-        <StudioSwitcher studios={studios} />
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <span className="shrink-0">
+          <Wordmark size={18} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <StudioSwitcher studios={studios} />
+        </div>
       </div>
-      <UserButton
-        appearance={{
-          elements: {
-            avatarBox:
-              "h-8 w-8 ring-1 ring-[rgb(var(--border-subtle))]",
-          },
-        }}
-      >
-        <UserButton.MenuItems>
-          <UserButton.Link
-            label="Settings"
-            labelIcon={<Icon name="settings" size={16} />}
-            href="/artist/settings"
-          />
-        </UserButton.MenuItems>
-      </UserButton>
+      <div className="shrink-0">
+        <UserButton
+          appearance={{
+            elements: {
+              avatarBox: "h-8 w-8 ring-1 ring-[rgb(var(--border-subtle))]",
+            },
+          }}
+        >
+          <UserButton.MenuItems>
+            <UserButton.Link
+              label="Settings"
+              labelIcon={<Icon name="settings" size={16} />}
+              href={withArtistStudio("/artist/settings", activeStudioId)}
+            />
+          </UserButton.MenuItems>
+        </UserButton>
+      </div>
     </header>
   );
 }

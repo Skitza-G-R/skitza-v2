@@ -75,8 +75,11 @@ describe("payment plan agreement route", () => {
         productId: "product-1",
         purchaseRequestId: "request-1",
         choice: { kind: "split_50_50" },
+        studioId: "studio-b",
       }),
-    ).toBe("/artist/purchase/product-1/agree?req=request-1&plan=split_50_50");
+    ).toBe(
+      "/artist/purchase/product-1/agree?req=request-1&plan=split_50_50&studio=studio-b",
+    );
   });
 
   it("rejects disabled or malformed query choices", () => {

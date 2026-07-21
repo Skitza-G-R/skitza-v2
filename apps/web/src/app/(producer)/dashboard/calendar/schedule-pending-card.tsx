@@ -13,6 +13,14 @@
 
 import { type RefObject, useEffect, useRef, useState, useTransition } from "react";
 
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "~/components/ui/dialog";
 import { useToast } from "~/components/ui/toast";
 
 import { formatCalendarDate, formatCalendarTime } from "./calendar-time";
@@ -44,6 +52,7 @@ export function SchedulePendingCard({
 }) {
   const [rows, setRows] = useState<readonly PendingRequest[]>(initial);
   const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [declineTarget, setDeclineTarget] = useState<PendingRequest | null>(null);
   const [, startTransition] = useTransition();
   const { toast } = useToast();
   const selectedRef = useRef<HTMLLIElement>(null);
@@ -120,12 +129,54 @@ export function SchedulePendingCard({
                 act(row, "confirm");
               }}
               onDecline={() => {
-                act(row, "reject");
+                setDeclineTarget(row);
               }}
             />
           ))}
         </ul>
       )}
+
+      <Dialog
+        open={declineTarget !== null}
+        onOpenChange={(next) => {
+          if (!next) setDeclineTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Decline this booking request?</DialogTitle>
+            <DialogDescription>
+              {declineTarget
+                ? `${declineTarget.artistName} will need to choose another time.`
+                : "The artist will need to choose another time."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => {
+                setDeclineTarget(null);
+              }}
+              className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] px-4 text-sm font-semibold text-[rgb(var(--fg-default))]"
+            >
+              Keep request
+            </button>
+            <button
+              type="button"
+              disabled={!declineTarget || pendingIds.has(declineTarget.id)}
+              onClick={() => {
+                if (!declineTarget) return;
+                const target = declineTarget;
+                setDeclineTarget(null);
+                act(target, "reject");
+              }}
+              className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--fg-danger))] px-4 text-sm font-semibold text-[rgb(var(--fg-inverse))] disabled:opacity-50"
+            >
+              Decline booking
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

@@ -45,6 +45,13 @@ describe("artist archived project listening surfaces", () => {
     expect(librarySource).toContain("explicitProjects");
   });
 
+  it("gives empty archived views a truthful way back to active work", () => {
+    expect(librarySource).toContain('label: "View active projects"');
+    expect(librarySource).toContain('label: "View active songs"');
+    expect(librarySource).toContain('onProjectArchiveFilterChange?.("active")');
+    expect(librarySource).toContain('onSongArchiveFilterChange?.("active")');
+  });
+
   it("closes only new comment entry points while keeping the comment thread controls", () => {
     expect(songSource).toContain(
       "const commentsClosed = projectArchivedLabel !== null || songArchived",

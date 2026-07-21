@@ -5,11 +5,12 @@ import { notFound, redirect } from "next/navigation";
 
 import { ChoosePlanScreen } from "~/components/artist/purchase/choose-plan-screen";
 import { livePlanOptions } from "~/components/artist/purchase/pay-data";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = {
   params: Promise<{ productId: string }>;
-  searchParams: Promise<{ req?: string }>;
+  searchParams: Promise<{ req?: string; studio?: string }>;
 };
 
 export const metadata: Metadata = { title: "Choose a payment plan" };
@@ -21,8 +22,8 @@ export default async function ChoosePlanPage({ params, searchParams }: PageProps
   if (!userId) return null;
 
   const { productId } = await params;
-  const { req } = await searchParams;
-  if (!req) redirect(`/artist/purchase/${productId}`);
+  const { req, studio } = await searchParams;
+  if (!req) redirect(withArtistStudio(`/artist/purchase/${productId}`, studio));
 
   const caller = appRouter.createCaller({ userId });
   try {
@@ -31,11 +32,12 @@ export default async function ChoosePlanPage({ params, searchParams }: PageProps
     });
     if (data.productId && data.productId !== productId) notFound();
     if (data.status !== "approved") {
-      redirect("/artist");
+      redirect(withArtistStudio("/artist", data.producerId));
     }
     return (
       <ChoosePlanScreen
         productId={productId}
+        studioId={data.producerId}
         productName={data.productName}
         producerName={data.producerName}
         purchaseRequestId={req}

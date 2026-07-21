@@ -55,6 +55,7 @@ export type PurchaseTargetProject = {
 
 export type PurchaseAcceptancePreview = {
   productId: string;
+  producerId?: string;
   productName: string;
   producerName: string;
   status: string;

@@ -3,6 +3,8 @@
 import { Music, Notebook } from "lucide-react";
 import type { ComponentType, SVGProps } from "react";
 
+import { nextTabIndex } from "~/lib/keyboard/tab-navigation";
+
 // AlbumTabs — pill-shaped segmented control for the Album
 // Page (DESIGN.md §5.9, BUILD-NOTES §5.3).
 //
@@ -61,8 +63,19 @@ export function AlbumTabs({ active, onChange, songsCount }: AlbumTabsProps) {
             id={`tab-${t.key}`}
             aria-selected={isActive}
             aria-controls={`panel-${t.key}`}
+            tabIndex={isActive ? 0 : -1}
             onClick={() => {
               onChange(t.key);
+            }}
+            onKeyDown={(event) => {
+              const currentIndex = entries.findIndex((entry) => entry.key === t.key);
+              const nextIndex = nextTabIndex(currentIndex, entries.length, event.key);
+              if (nextIndex === null) return;
+              const next = entries[nextIndex];
+              if (!next) return;
+              event.preventDefault();
+              onChange(next.key);
+              document.getElementById(`tab-${next.key}`)?.focus();
             }}
             className="inline-flex min-h-[44px] shrink-0 snap-start items-center gap-1.5 rounded-[var(--radius-lg)] px-3 py-1.5 text-[12px] font-semibold whitespace-nowrap transition-colors md:min-h-0 md:px-4"
             style={{

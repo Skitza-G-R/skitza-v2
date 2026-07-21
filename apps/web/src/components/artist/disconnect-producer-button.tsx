@@ -25,7 +25,7 @@ export function DisconnectProducerButton({
 
   const onClick = () => {
     const message = `Disconnect from ${producerName}? You will lose access to all music and history with this studio.`;
-    if (!confirm(message)) return;
+    if (!window.confirm(message)) return;
 
     setError(null);
     startTransition(async () => {
@@ -42,16 +42,17 @@ export function DisconnectProducerButton({
     <div className="flex flex-col items-end gap-1">
       <button
         type="button"
+        aria-label={`Disconnect from ${producerName}`}
         onClick={onClick}
         disabled={pending}
-        className="sk-press rounded-md px-2.5 py-1 text-[11px] font-semibold text-[rgb(var(--danger))] transition-colors hover:bg-[rgb(var(--danger)/0.1)] disabled:opacity-50"
+        className="sk-press min-h-11 rounded-[var(--radius-lg)] px-3 py-1.5 text-[11px] font-semibold text-[rgb(var(--fg-danger))] transition-colors hover:bg-[rgb(var(--fg-danger)/0.1)] disabled:opacity-50"
       >
         {pending ? "Disconnecting…" : "Disconnect"}
       </button>
       {error ? (
         <p
           role="alert"
-          className="max-w-[180px] text-right text-[10.5px] text-[rgb(var(--danger))]"
+          className="max-w-[180px] text-right text-[10.5px] text-[rgb(var(--fg-danger))]"
         >
           {error}
         </p>

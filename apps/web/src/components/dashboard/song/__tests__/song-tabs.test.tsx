@@ -37,6 +37,9 @@ describe("SongTabs — purchase-safe tab control", () => {
     expect(SRC).toContain('role="tablist"');
     expect(SRC).toContain('role="tab"');
     expect(SRC).toContain("aria-selected");
+    expect(SRC).toContain("tabIndex={isActive ? 0 : -1}");
+    expect(SRC).toContain("nextTabIndex");
+    expect(SRC).toContain("onKeyDown");
   });
 
   it("renders the versionsCount inline with the Versions tab label", () => {

@@ -13,11 +13,10 @@ import { useToast } from "~/components/ui/toast";
 // the Today landing). Today's hero ShareLinkCard is removed in
 // Story 06; this chip is its replacement.
 //
-// Four render variants:
+// Truthful render variants:
 //   - expanded-with-slug   chip body + inline copy button
-//   - expanded-no-slug     "Set your slug →" dashed-border CTA
 //   - collapsed-with-slug  icon-only copy button (title=URL)
-//   - collapsed-no-slug    icon-only gear button to settings
+//   - hidden               no slug-edit affordance until an editor exists
 //
 // No new design tokens. No new deps. CSS vars only — matches every
 // other surface in the sidebar.
@@ -54,26 +53,17 @@ export function buildDisplayUrl(slug: string): string {
   return `skitza.app/join/${slug}`;
 }
 
-export type ChipMode =
-  | "expanded-with-slug"
-  | "expanded-no-slug"
-  | "collapsed-with-slug"
-  | "collapsed-no-slug";
+export type ChipMode = "expanded-with-slug" | "collapsed-with-slug" | "hidden";
 
 /**
  * Picks the render variant from the chip props. Treats empty-string
  * slug as no-slug (defensive — a producer with `slug = ""` is not a
  * configured slug and would render `/join/` with no path).
  */
-export function chipMode(props: {
-  producerSlug: string | null;
-  collapsed: boolean;
-}): ChipMode {
+export function chipMode(props: { producerSlug: string | null; collapsed: boolean }): ChipMode {
   const hasSlug = !!props.producerSlug && props.producerSlug.length > 0;
-  if (props.collapsed) {
-    return hasSlug ? "collapsed-with-slug" : "collapsed-no-slug";
-  }
-  return hasSlug ? "expanded-with-slug" : "expanded-no-slug";
+  if (!hasSlug) return "hidden";
+  return props.collapsed ? "collapsed-with-slug" : "expanded-with-slug";
 }
 
 /**
@@ -111,9 +101,7 @@ export function SidebarShareChip({
   const mode = chipMode({ producerSlug, collapsed });
 
   const fullUrl =
-    producerSlug && producerSlug.length > 0
-      ? buildShareUrl(publicBaseUrl, producerSlug)
-      : "";
+    producerSlug && producerSlug.length > 0 ? buildShareUrl(publicBaseUrl, producerSlug) : "";
 
   function copy() {
     void triggerCopy({
@@ -124,6 +112,11 @@ export function SidebarShareChip({
       tCouldNotCopy: tToasts("couldNotCopy"),
     });
   }
+
+  // Settings currently previews the public URL but cannot edit it.
+  // Hide the empty state instead of sending producers to a read-only
+  // screen that cannot fulfill the promised action.
+  if (mode === "hidden") return null;
 
   // Variant 1 — expanded sidebar + slug present.
   if (mode === "expanded-with-slug") {
@@ -137,16 +130,14 @@ export function SidebarShareChip({
           className="min-w-0 flex-1 truncate font-mono text-[0.7rem] text-[rgb(var(--fg-secondary))] hover:text-[rgb(var(--brand-primary))]"
         >
           <span className="text-[rgb(var(--fg-muted))]">skitza.app/join/</span>
-          <span className="font-semibold text-[rgb(var(--fg-primary))]">
-            {producerSlug}
-          </span>
+          <span className="font-semibold text-[rgb(var(--fg-primary))]">{producerSlug}</span>
         </a>
         <button
           type="button"
           onClick={copy}
           aria-label="Copy share link"
           title={fullUrl}
-          className="shrink-0 rounded p-1 text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+          className="shrink-0 rounded p-1 text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--brand-primary))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
         >
           <CopyIcon />
         </button>
@@ -154,43 +145,17 @@ export function SidebarShareChip({
     );
   }
 
-  // Variant 2 — expanded sidebar + no slug yet.
-  if (mode === "expanded-no-slug") {
-    return (
-      <a
-        href="/dashboard/settings?section=profile"
-        className="mx-2 mb-1 flex items-center justify-center rounded-md border border-dashed border-[rgb(var(--border-subtle))] px-2 py-1.5 font-mono text-[0.7rem] text-[rgb(var(--fg-muted))] hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--brand-primary))]"
-      >
-        Set your slug →
-      </a>
-    );
-  }
-
-  // Variant 3 — collapsed sidebar + slug present.
-  if (mode === "collapsed-with-slug") {
-    return (
-      <button
-        type="button"
-        onClick={copy}
-        aria-label="Copy share link"
-        title={fullUrl}
-        className="mx-auto mb-1 flex h-8 w-8 items-center justify-center rounded-md text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
-      >
-        <CopyIcon />
-      </button>
-    );
-  }
-
-  // Variant 4 — collapsed sidebar + no slug yet.
+  // Variant 2 — collapsed sidebar + slug present.
   return (
-    <a
-      href="/dashboard/settings?section=profile"
-      aria-label="Set your slug"
-      title="Set your slug"
-      className="mx-auto mb-1 flex h-8 w-8 items-center justify-center rounded-md text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+    <button
+      type="button"
+      onClick={copy}
+      aria-label="Copy share link"
+      title={fullUrl}
+      className="mx-auto mb-1 flex h-8 w-8 items-center justify-center rounded-md text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--brand-primary))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
     >
-      <GearIcon />
-    </a>
+      <CopyIcon />
+    </button>
   );
 }
 
@@ -213,27 +178,6 @@ function CopyIcon() {
     >
       <rect x="4" y="4" width="8" height="9" rx="1.25" />
       <path d="M9.5 4V2.25a1 1 0 0 0-1-1h-5a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1H4" />
-    </svg>
-  );
-}
-
-// Gear silhouette at 14x14 for the collapsed-no-slug "go to settings"
-// icon. Matches SettingsIcon's drawing in sidebar.tsx, scaled down.
-function GearIcon() {
-  return (
-    <svg
-      aria-hidden
-      width="14"
-      height="14"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.4"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="8" cy="8" r="2" />
-      <path d="M13 8a5 5 0 0 0-.1-1l1.4-1.1-1.3-2.3-1.7.6a5 5 0 0 0-1.8-1L9.3 1.5H6.7l-.2 1.7a5 5 0 0 0-1.8 1l-1.7-.6L1.7 5.9 3.1 7a5 5 0 0 0 0 2l-1.4 1.1 1.3 2.3 1.7-.6a5 5 0 0 0 1.8 1l.2 1.7h2.6l.2-1.7a5 5 0 0 0 1.8-1l1.7.6 1.3-2.3L12.9 9a5 5 0 0 0 .1-1Z" />
     </svg>
   );
 }

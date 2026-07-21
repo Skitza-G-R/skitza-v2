@@ -34,7 +34,7 @@ describe("FocalProductCard", () => {
   });
 
   it("links the live CTA via the unified productHref", () => {
-    expect(source).toMatch(/href=\{productHref\(product\)\}/);
+    expect(source).toContain("href={withArtistStudio(productHref(product), studioId)}");
     expect(source).toMatch(/from\s+['"]~\/lib\/store\/product-href['"]/);
     expect(source).toMatch(/View details/);
   });

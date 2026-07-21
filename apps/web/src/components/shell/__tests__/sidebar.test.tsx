@@ -16,7 +16,8 @@ import { NAV_ITEMS } from "../sidebar";
 //
 // G-leader shortcuts mirror the locked design's `ShortcutsHelp`
 // (notes/nav.jsx): G H (overview), G P (projects), G M (music),
-// G C (calendar), G S (storefront), G F (portfolio), G T (settings).
+// G C (calendar), G S (storefront), G T (settings). Portfolio has no
+// shortcut until the global handler supports it.
 
 describe("Sidebar NAV_ITEMS", () => {
   it("contains the existing seven destinations plus global Payments", () => {
@@ -52,13 +53,13 @@ describe("Sidebar NAV_ITEMS", () => {
     expect(NAV_ITEMS.find((i) => i.id === "setup")?.href).toBe("/dashboard/settings");
   });
 
-  it("assigns a G-leader shortcut to each item matching the locked design", () => {
+  it("shows only G-leader shortcuts that have working handlers", () => {
     expect(NAV_ITEMS.find((i) => i.id === "today")?.shortcut).toBe("G H");
     expect(NAV_ITEMS.find((i) => i.id === "clients-projects")?.shortcut).toBe("G P");
     expect(NAV_ITEMS.find((i) => i.id === "music")?.shortcut).toBe("G M");
     expect(NAV_ITEMS.find((i) => i.id === "calendar")?.shortcut).toBe("G C");
     expect(NAV_ITEMS.find((i) => i.id === "profile")?.shortcut).toBe("G S");
-    expect(NAV_ITEMS.find((i) => i.id === "portfolio")?.shortcut).toBe("G F");
+    expect(NAV_ITEMS.find((i) => i.id === "portfolio")?.shortcut).toBeUndefined();
     expect(NAV_ITEMS.find((i) => i.id === "setup")?.shortcut).toBe("G T");
     expect(NAV_ITEMS.find((i) => i.id === "payments")?.shortcut).toBeUndefined();
   });

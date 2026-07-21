@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 
+import { withArtistStudio } from "~/lib/artist-studio-context";
 import type { VolumeTier } from "~/lib/pricing";
 import { formatPriceLabel } from "~/lib/store/format-price-label";
 import { productHref } from "~/lib/store/product-href";
@@ -13,12 +14,14 @@ import { type TaxMode, taxModeFootnote } from "~/lib/tax-mode";
 // taught the artist what each product type looks like.
 export function QuietProductList({
   producerName,
+  studioId,
   products,
   taxMode = "tax_free",
   taxRatePct = 18,
   onPreviewDetails,
 }: {
   producerName: string;
+  studioId?: string;
   products: {
     id: string;
     name: string;
@@ -97,7 +100,7 @@ export function QuietProductList({
                 </button>
               ) : (
                 <Link
-                  href={productHref(product)}
+                  href={withArtistStudio(productHref(product), studioId)}
                   className={rowClassName}
                   style={{ borderColor: "rgb(var(--border-subtle))" }}
                 >

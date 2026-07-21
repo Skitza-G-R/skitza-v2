@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { CancelSessionModal } from "./cancel-session-modal";
 import { calendarDateTimeParts, formatCalendarTime } from "./calendar-time";
 import { KIND_COLORS, inferSessionKind } from "./session-kind";
 import type { RawBookingStatus, SessionListItem } from "./session-row";
@@ -22,6 +23,7 @@ export function ScheduleSessionsCard({
 }) {
   const now = useMemo(() => new Date(initialNow), [initialNow]);
   const [filter, setFilter] = useState<Filter>("upcoming");
+  const [cancelTarget, setCancelTarget] = useState<SessionListItem | null>(null);
   const selectedRef = useRef<HTMLLIElement>(null);
   const buckets = useMemo(() => bucketSessions(sessions, now), [sessions, now]);
   const filtered = buckets[filter];
@@ -66,7 +68,7 @@ export function ScheduleSessionsCard({
                 setFilter(id);
               }}
               className={[
-                "sk-press inline-flex h-7 items-center justify-center rounded-[var(--radius-sm)] px-1 text-[10px] capitalize transition-colors",
+                "sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-sm)] px-1 text-[10px] capitalize transition-colors lg:h-7",
                 filter === id
                   ? "bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] shadow-[0_1px_2px_rgb(17_16_9_/_0.08)]"
                   : "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
@@ -103,12 +105,26 @@ export function ScheduleSessionsCard({
                     : "outline-none"
                 }
               >
-                <CompactSessionRow session={session} now={now} timeZone={timeZone} />
+                <CompactSessionRow
+                  session={session}
+                  now={now}
+                  timeZone={timeZone}
+                  onCancel={setCancelTarget}
+                />
               </li>
             );
           })}
         </ul>
       )}
+      {cancelTarget ? (
+        <CancelSessionModal
+          open
+          onOpenChange={(next) => {
+            if (!next) setCancelTarget(null);
+          }}
+          session={cancelTarget}
+        />
+      ) : null}
     </section>
   );
 }
@@ -117,15 +133,18 @@ function CompactSessionRow({
   session,
   now,
   timeZone,
+  onCancel,
 }: {
   session: SessionListItem;
   now: Date;
   timeZone: string;
+  onCancel: (session: SessionListItem) => void;
 }) {
   const start = new Date(session.startsAt);
   const end = new Date(start.getTime() + session.durationMin * 60_000);
   const status = deriveDisplayStatus(session.status, end, now);
   const dimmed = status === "cancelled" || status === "rejected" || status === "no_show";
+  const cancellable = status === "confirmed" || status === "pending";
   const serviceLabel = session.packageName ?? "Session";
   const kindToken = KIND_COLORS[inferSessionKind(session.packageName)];
 
@@ -153,11 +172,41 @@ function CompactSessionRow({
             {formatCalendarTime(start, timeZone)}–{formatCalendarTime(end, timeZone)}
           </span>
         </div>
-        <div className="mt-1.5">
+        <div className="mt-1.5 flex min-w-0 items-center justify-between gap-2">
           <CompactStatus status={status} />
+          {cancellable ? (
+            <button
+              type="button"
+              aria-label={`Cancel session with ${session.artistName}`}
+              title="Cancel session"
+              onClick={() => {
+                onCancel(session);
+              }}
+              className="sk-press inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-danger))] transition-colors hover:bg-[rgb(var(--fg-danger)/0.08)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--fg-danger))] focus-visible:outline-none motion-reduce:active:scale-100"
+            >
+              <XMini />
+            </button>
+          ) : null}
         </div>
       </div>
     </div>
+  );
+}
+
+function XMini() {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      aria-hidden
+    >
+      <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
   );
 }
 

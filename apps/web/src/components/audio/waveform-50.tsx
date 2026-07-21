@@ -500,6 +500,7 @@ export function Waveform50({
       <div
         ref={containerRef}
         role="slider"
+        data-test="track-playhead"
         aria-label="Track playhead"
         aria-valuemin={0}
         aria-valuemax={durationMs}
@@ -511,7 +512,7 @@ export function Waveform50({
         onPointerUp={onPointerUp}
         onPointerLeave={onPointerLeave}
         onKeyDown={onKeyDown}
-        className="group relative w-full cursor-pointer touch-none select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-4 focus-visible:ring-offset-[rgb(var(--bg-elevated))] focus-visible:rounded-[8px]"
+        className="group relative min-h-11 w-full cursor-pointer touch-none select-none focus-visible:rounded-[8px] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-4 focus-visible:ring-offset-[rgb(var(--bg-elevated))] focus-visible:outline-none sm:min-h-0"
         style={{ height }}
       >
         {/* Bars layer — Samply/SoundCloud-density: 200 thin sharp bars

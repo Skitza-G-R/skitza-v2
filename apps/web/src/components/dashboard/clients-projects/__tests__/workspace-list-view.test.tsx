@@ -38,12 +38,13 @@ describe("WorkspaceListView source — compact clients + configurable projects",
     expect(SRC).toContain("Clients");
   });
 
-  it("keeps all six sort options for Projects", () => {
+  it("keeps all seven sort options for Projects", () => {
     expect(SRC).toContain('"custom"');
     expect(SRC).toContain('"recent"');
     expect(SRC).toContain('"deadline"');
     expect(SRC).toContain('"balance"');
     expect(SRC).toContain('"progress"');
+    expect(SRC).toContain('"joined"');
     expect(SRC).toContain('"name"');
     expect(SRC.match(/aria-label=["']Sort["']/g)).toHaveLength(1);
   });
@@ -52,6 +53,13 @@ describe("WorkspaceListView source — compact clients + configurable projects",
     expect(SRC).toContain('"urgent"');
     expect(SRC).toContain('"active"');
     expect(SRC).toContain('"archived"');
+  });
+
+  it("gives empty archived lists a clear way back to active work", () => {
+    expect(SRC).toContain("No archived projects");
+    expect(SRC).toContain("View active projects");
+    expect(SRC).toContain("No archived clients");
+    expect(SRC).toContain("View active clients");
   });
 
   it("uses lifecycle status, not presentation tone, to separate active and archived projects", () => {
@@ -78,6 +86,60 @@ describe("WorkspaceListView source — compact clients + configurable projects",
     // The reorder UX collapses the user's last-set drag order into the
     // custom sort — the dropdown should snap back to "custom" on drop.
     expect(SRC).toMatch(/setSort\(["']custom["']\)|sort.*=.*["']custom["']/);
+  });
+
+  it("delegates persistence to the latest-request rollback guard", () => {
+    expect(SRC).toContain('import { useToast } from "~/components/ui/toast"');
+    expect(SRC).toContain("const previousProjects = orderedProjects");
+    expect(SRC).toContain("persistLatestProjectOrder");
+    expect(SRC).toContain("projectReorderGenerationRef");
+    expect(SRC).toContain("serializeProjectOrderPersistence");
+    expect(SRC).toContain("projectReorderPersistenceRef");
+    expect(SRC).toContain("rollback: setOrderedProjects");
+    expect(SRC).toContain('toast(message, "error")');
+  });
+
+  it("does not let an earlier revalidation invalidate the queued latest reorder", () => {
+    expect(SRC).toContain("projectReorderPendingGenerationRef");
+    expect(SRC).toContain("projectReorderPropSyncEpoch");
+    expect(SRC).toContain("setProjectReorderPropSyncEpoch");
+    expect(SRC).toContain("canSyncProjectProps");
+    expect(SRC).toMatch(
+      /if \(!canSyncProjectProps\(projectReorderPendingGenerationRef\.current\)\) return;/,
+    );
+    expect(SRC).toMatch(
+      /projectReorderPendingGenerationRef\.current === generation[\s\S]{0,160}projectReorderPendingGenerationRef\.current = null/,
+    );
+    expect(SRC).toMatch(
+      /setProjectReorderPropSyncEpoch\(\(epoch\) => epoch \+ 1\)/,
+    );
+    expect(SRC).toMatch(/\[projects, projectReorderPropSyncEpoch\]/);
+  });
+
+  it("supports keyboard project moves through the same persisted order path", () => {
+    expect(SRC).toContain("handleProjectMove");
+    expect(SRC).toContain("onReorderProjects");
+    expect(SRC).toContain("onMove: handleProjectMove");
+    expect(SRC).toContain("applyProjectOrder(next, previousProjects)");
+  });
+
+  it("moves keyboard reorders relative to the rows visible through a filter", () => {
+    expect(SRC).toContain("moveProjectRelativeToVisibleRows");
+    expect(SRC).toContain("filteredProjects.map((project) => project.id)");
+  });
+
+  it("exposes reorder controls only when a persistence callback exists", () => {
+    expect(SRC).toMatch(/\.\.\.\(onReorderProjects[\s\S]{0,240}onDragStart: handleProjectDragStart/);
+    expect(SRC).toMatch(/onMove: handleProjectMove[\s\S]{0,80}: \{\}\)/);
+  });
+
+  it("implements Joined as newest-created-first project sorting", () => {
+    expect(SRC).toMatch(/case "joined":[\s\S]{0,160}compareProjectsByJoined/);
+  });
+
+  it("wires the Clients Joined header to newest-joined-first client sorting", () => {
+    expect(SRC).toMatch(/sort\s*===\s*["']joined["'][\s\S]{0,120}compareClientsByJoined/);
+    expect(SRC).toMatch(/<ClientsTableHeader\s+sort=\{sort\}\s+onSortChange=\{setSort\}/);
   });
 
   it("supports both card and table layouts for Projects", () => {
@@ -348,6 +410,13 @@ describe("WorkspaceListView — mockup-match polish (KPI subtitles, H1 sub-line,
 
   it("filter chips ship aria-pressed for screen readers", () => {
     expect(SRC).toMatch(/aria-pressed=\{active\}/);
+  });
+
+  it("keeps short filter labels at least 44px wide on phones", () => {
+    const mobileFilterTargets = SRC.match(
+      /min-h-\[44px\][^"]*min-w-11[^"]*sm:min-h-0[^"]*sm:min-w-0/g,
+    );
+    expect(mobileFilterTargets).toHaveLength(2);
   });
 });
 

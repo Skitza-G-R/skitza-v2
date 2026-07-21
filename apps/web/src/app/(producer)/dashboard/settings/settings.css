@@ -989,7 +989,8 @@
 @media (prefers-reduced-motion: reduce) {
   .s-reveal,
   .s-usage-bar > i,
-  .s-savebar {
+  .s-savebar,
+  .s-savebar-pulse::after {
     animation: none !important;
     transition: none !important;
   }

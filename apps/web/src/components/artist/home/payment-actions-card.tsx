@@ -1,9 +1,11 @@
 import Link from "next/link";
 
 import { formatMoney } from "~/lib/format/money";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 
 export type ArtistPaymentAction = Readonly<{
   purchaseId: string;
+  studioId?: string;
   projectTitle: string;
   purchaseTitle: string;
   producerName: string;
@@ -16,8 +18,10 @@ export type ArtistPaymentAction = Readonly<{
 
 export function ArtistPaymentActionsCard({
   payments,
+  activeStudioId,
 }: {
   payments: readonly ArtistPaymentAction[];
+  activeStudioId?: string | null;
 }) {
   if (payments.length === 0) return null;
   return (
@@ -35,8 +39,8 @@ export function ArtistPaymentActionsCard({
           </h2>
         </div>
         <Link
-          href="/artist/payments"
-          className="text-[12px] font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
+          href={withArtistStudio("/artist/payments", activeStudioId)}
+          className="inline-flex min-h-11 min-w-11 items-center text-[12px] font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-0 sm:min-w-0"
         >
           View all →
         </Link>
@@ -64,11 +68,12 @@ export function ArtistPaymentActionsCard({
               </dl>
             </div>
             <Link
-              href={
+              href={withArtistStudio(
                 payment.payNextAvailable
                   ? `/artist/payments/${encodeURIComponent(payment.purchaseId)}`
-                  : "/artist/payments"
-              }
+                  : "/artist/payments",
+                payment.payNextAvailable ? payment.studioId : activeStudioId,
+              )}
               className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sidebar))] px-4 text-[12px] font-bold text-[rgb(var(--brand-primary))] hover:brightness-110 focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-w-24"
             >
               {payment.payNextAvailable ? "Pay next" : "View"}

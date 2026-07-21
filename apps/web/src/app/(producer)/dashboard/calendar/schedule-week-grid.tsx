@@ -243,6 +243,9 @@ function SessionBlock({ session, timeZone }: { session: ScheduleSession; timeZon
   );
   const timeRangeLabel = `${timeLabel}–${endTimeLabel}`;
   const serviceLabel = session.packageName ?? "Session";
+  const accessibleLabel = `${serviceLabel} with ${session.artistName}, ${timeRangeLabel}, ${
+    isPending ? "pending" : "confirmed"
+  }`;
 
   // Pixel math is expressed in CSS so the block stays aligned as
   // `--hour-px` shrinks/grows with the viewport.
@@ -252,6 +255,8 @@ function SessionBlock({ session, timeZone }: { session: ScheduleSession; timeZon
 
   return (
     <div
+      role="group"
+      aria-label={accessibleLabel}
       className={[
         "absolute right-1 left-1 overflow-hidden rounded-[10px] border",
         isPending

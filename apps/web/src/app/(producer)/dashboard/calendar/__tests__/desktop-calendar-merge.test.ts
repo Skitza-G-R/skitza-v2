@@ -37,18 +37,24 @@ describe("desktop Calendar schedule and sessions merge", () => {
     expect(COMPACT).not.toContain("max-h-[360px]");
   });
 
+  it("keeps session filters at a safe touch size below desktop", () => {
+    expect(COMPACT).toContain("h-11");
+    expect(COMPACT).toContain("lg:h-7");
+  });
+
   it("keeps calendar session blocks informational", () => {
     expect(GRID).not.toContain("onEditSession");
     expect(GRID).not.toContain("onClick");
     expect(GRID).not.toContain("aria-label={`Edit ${serviceLabel}");
   });
 
-  it("removes fake edit, reminder, and cancel controls from the compact card", () => {
+  it("removes fake edit and reminder controls while keeping real cancellation", () => {
     expect(COMPACT).not.toContain("aria-label={`Edit ${serviceLabel}");
     expect(COMPACT).not.toContain("<span>Edit</span>");
     expect(COMPACT).not.toContain("onEdit");
     expect(COMPACT).not.toContain("onSendReminder");
-    expect(COMPACT).not.toContain("onCancel");
+    expect(COMPACT).toContain("CancelSessionModal");
+    expect(COMPACT).toContain("onCancel");
     expect(SCHEDULE).not.toContain("EditSessionModal");
   });
 });

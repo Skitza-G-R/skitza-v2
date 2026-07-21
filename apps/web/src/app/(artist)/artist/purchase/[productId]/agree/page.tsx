@@ -5,6 +5,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { parsePaymentPlanSearch } from "~/components/artist/purchase/pay-data";
 import { ReviewAgreeScreen } from "~/components/artist/purchase/review-agree-screen";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = {
@@ -13,6 +14,7 @@ type PageProps = {
     req?: string;
     plan?: string;
     installments?: string;
+    studio?: string;
   }>;
 };
 
@@ -28,12 +30,17 @@ export default async function PurchaseAgreePage({ params, searchParams }: PagePr
 
   const { productId } = await params;
   const query = await searchParams;
-  if (!query.req) redirect(`/artist/purchase/${encodeURIComponent(productId)}`);
+  if (!query.req) {
+    redirect(withArtistStudio(`/artist/purchase/${encodeURIComponent(productId)}`, query.studio));
+  }
 
   const paymentPlan = parsePaymentPlanSearch(query);
   if (!paymentPlan) {
     redirect(
-      `/artist/purchase/${encodeURIComponent(productId)}/pay?req=${encodeURIComponent(query.req)}`,
+      withArtistStudio(
+        `/artist/purchase/${encodeURIComponent(productId)}/pay?req=${encodeURIComponent(query.req)}`,
+        query.studio,
+      ),
     );
   }
 
@@ -48,6 +55,7 @@ export default async function PurchaseAgreePage({ params, searchParams }: PagePr
     return (
       <ReviewAgreeScreen
         preview={preview}
+        studioId={preview.producerId}
         purchaseRequestId={query.req}
         paymentPlan={paymentPlan}
       />

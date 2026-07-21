@@ -7,6 +7,8 @@ import { NextSessionCard } from "~/components/artist/home/next-session-card";
 import { ArtistPaymentActionsCard } from "~/components/artist/home/payment-actions-card";
 import { PurchaseStatusCard } from "~/components/artist/home/purchase-status-card";
 import { PrivateOffersList } from "~/components/artist/offers/private-offers-list";
+import { resolveArtistStudioId } from "~/lib/artist-studio-context";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { WelcomeModal } from "./welcome-modal";
@@ -53,7 +55,10 @@ async function loadPendingPurchase(
     const action =
       stage === "awaiting_payment" && current.acceptanceAvailable
         ? {
-            actionHref: `/artist/purchase/${paymentRouteProductId}/pay?req=${current.id}`,
+            actionHref: withArtistStudio(
+              `/artist/purchase/${paymentRouteProductId}/pay?req=${current.id}`,
+              studio.producerId,
+            ),
             actionLabel: "Choose a payment plan",
           }
         : {};
@@ -86,7 +91,11 @@ async function loadPendingPurchase(
 //
 // All four sections handle their own empty states. PersistentPlayer
 // is mounted by the artist app shell and stays where it is.
-export default async function ArtistHomePage() {
+type ArtistHomePageProps = {
+  searchParams?: Promise<{ studio?: string }>;
+};
+
+export default async function ArtistHomePage({ searchParams }: ArtistHomePageProps) {
   const { userId } = await auth();
   if (!userId) return null;
 
@@ -103,6 +112,8 @@ export default async function ArtistHomePage() {
     ]);
 
   const firstName = user?.firstName?.trim() || "there";
+  const requestedStudioId = (await searchParams)?.studio;
+  const activeStudioId = resolveArtistStudioId(studiosResp.studios, requestedStudioId);
 
   // Shape adapters: the router and the components were built in
   // separate tasks. The router doesn't (yet) carry durationMs on
@@ -123,6 +134,7 @@ export default async function ArtistHomePage() {
   ].flatMap((project) =>
     project.purchases.map((purchase) => ({
       purchaseId: purchase.id,
+      studioId: purchase.producerId,
       projectTitle: project.title,
       purchaseTitle: purchase.commercialSnapshot.productOrOfferName,
       producerName: purchase.producerName,
@@ -147,10 +159,13 @@ export default async function ArtistHomePage() {
         <GreetingStrip firstName={firstName} />
         <PrivateOffersList offers={privateOffers.offers} />
         {pendingPurchase ? <PurchaseStatusCard {...pendingPurchase} /> : null}
-        <ArtistPaymentActionsCard payments={activePaymentActions} />
-        <LastUploadCard latestMix={latestMixForCard} />
-        <NextSessionCard nextSession={data.nextSession} />
-        <BookSessionTiles studios={studiosForTiles} />
+        <ArtistPaymentActionsCard
+          payments={activePaymentActions}
+          activeStudioId={activeStudioId}
+        />
+        <LastUploadCard latestMix={latestMixForCard} activeStudioId={activeStudioId} />
+        <NextSessionCard nextSession={data.nextSession} activeStudioId={activeStudioId} />
+        <BookSessionTiles studios={studiosForTiles} activeStudioId={activeStudioId} />
       </div>
       <WelcomeModal />
     </>

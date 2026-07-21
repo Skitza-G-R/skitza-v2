@@ -2,9 +2,11 @@ import type { PurchaseCommercialSnapshot } from "@skitza/db";
 import Link from "next/link";
 
 import { formatPurchaseMoney } from "~/components/artist/purchase/purchase-data";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 
 export type PrivateOfferListItem = Readonly<{
   id: string;
+  producerId: string;
   producerName: string | null;
   commercialDraft: PurchaseCommercialSnapshot;
   expiresAt: Date;
@@ -54,7 +56,10 @@ export function PrivateOffersList({ offers }: { offers: readonly PrivateOfferLis
               }
             >
               <Link
-                href={`/artist/offers/${encodeURIComponent(offer.id)}`}
+                href={withArtistStudio(
+                  `/artist/offers/${encodeURIComponent(offer.id)}`,
+                  offer.producerId,
+                )}
                 className="group flex min-w-0 flex-col gap-3 px-4 py-4 transition-colors hover:bg-[rgb(var(--bg-sunken))] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[rgb(var(--focus-ring))] sm:flex-row sm:items-center sm:justify-between"
               >
                 <span className="min-w-0 flex-1">

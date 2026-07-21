@@ -13,6 +13,7 @@ import {
 } from "~/components/artist/funnel/funnel-icons";
 import { Eyebrow, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
 import { StickyNav } from "~/components/artist/sticky-nav";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 import { royaltyTermsDisplay } from "~/lib/purchase/royalty-terms";
 import {
   applyTaxToCents,
@@ -56,6 +57,7 @@ type ProductDetailScreenProps = {
   product: PurchaseProduct;
   producer: Producer;
   productId: string;
+  studioId?: string;
   targetProjects?: PurchaseTargetProject[];
   taxMode?: TaxMode;
   taxRatePct?: number;
@@ -73,6 +75,7 @@ export function ProductDetailScreen({
   product,
   producer,
   productId,
+  studioId,
   targetProjects = [],
   taxMode = "tax_free",
   taxRatePct = 0,
@@ -139,7 +142,12 @@ export function ProductDetailScreen({
         return;
       }
       operationKeyRef.current = null;
-      router.push(`/artist/purchase/${productId}/sent?req=${result.purchaseRequestId}`);
+      router.push(
+        withArtistStudio(
+          `/artist/purchase/${productId}/sent?req=${result.purchaseRequestId}`,
+          studioId,
+        ),
+      );
     } catch {
       setSending(false);
       setError("Couldn't send your request. Check your connection and try again.");
@@ -160,7 +168,7 @@ export function ProductDetailScreen({
             onPreviewBack();
             return;
           }
-          router.push("/artist/store");
+          router.push(withArtistStudio("/artist/store", studioId));
         }}
         scrollContainerRef={scrollRef}
         className="max-w-[440px]"

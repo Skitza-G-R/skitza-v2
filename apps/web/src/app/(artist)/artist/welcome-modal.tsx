@@ -3,6 +3,13 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "~/components/ui/dialog";
+
 // One-time explainer shown to artists after first sign-in. Triggered
 // by a ?welcome=1 URL param (set by the Clerk post-signup redirect
 // from `/join/<slug>`; previously also set by the retired public
@@ -50,65 +57,61 @@ export function WelcomeModal() {
     setOpen(false);
   };
 
-  if (!open) return null;
-
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="welcome-modal-title"
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center"
-      onClick={handleDismiss}
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && open) handleDismiss();
+      }}
     >
-      <div
-        onClick={(e) => {
-          e.stopPropagation();
-        }}
-        className="w-full max-w-md rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 shadow-xl"
-      >
-        <h2
-          id="welcome-modal-title"
-          className="font-display text-xl tracking-tight"
-        >
+      <DialogContent className="gap-0 p-6 sm:max-w-md">
+        <DialogTitle className="pr-12 text-xl">
           Welcome to Skitza.
-        </h2>
-        <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
-          Your project home. Four tabs, one always-on player.
-        </p>
+        </DialogTitle>
+        <DialogDescription className="mt-2 text-[rgb(var(--fg-secondary))]">
+          Your project home. Five tabs, one always-on player.
+        </DialogDescription>
         <dl className="mt-5 space-y-3 text-sm">
           <div>
             <dt className="font-semibold">Home</dt>
             <dd className="text-[rgb(var(--fg-secondary))]">
-              Your next session, newest mix, and anything due.
+              Sessions, new mixes, and anything due.
             </dd>
           </div>
           <div>
             <dt className="font-semibold">Music</dt>
             <dd className="text-[rgb(var(--fg-secondary))]">
-              Listen and leave comments at specific timestamps.
+              Listen, review, and comment at exact timestamps.
             </dd>
           </div>
           <div>
             <dt className="font-semibold">Book</dt>
             <dd className="text-[rgb(var(--fg-secondary))]">
-              Pick a slot that works for you — any day the producer is free.
+              Choose an available time with the selected studio.
             </dd>
           </div>
           <div>
             <dt className="font-semibold">Store</dt>
             <dd className="text-[rgb(var(--fg-secondary))]">
-              Browse services like a single, album, or mix, and pay your way.
+              Browse products and services from the selected studio.
+            </dd>
+          </div>
+          <div>
+            <dt className="font-semibold">Payments</dt>
+            <dd className="text-[rgb(var(--fg-secondary))]">
+              See what is due, follow instructions, and review your history.
             </dd>
           </div>
         </dl>
         <button
           type="button"
+          autoFocus
           onClick={handleDismiss}
-          className="mt-6 w-full rounded-md bg-[rgb(var(--brand-primary))] px-4 py-2 text-sm font-semibold text-[rgb(var(--bg-base))]"
+          className="mt-6 min-h-11 w-full rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 py-2 text-sm font-semibold text-[rgb(var(--bg-base))]"
         >
           Let&rsquo;s go
         </button>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

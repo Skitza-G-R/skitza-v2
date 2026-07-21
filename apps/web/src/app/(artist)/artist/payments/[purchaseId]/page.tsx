@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { paymentPlanLabel } from "~/components/artist/purchase/pay-data";
 import { PaymentInstructionsScreen } from "~/components/artist/purchase/payment-instructions-screen";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = { params: Promise<{ purchaseId: string }> };
@@ -23,7 +24,10 @@ export default async function ArtistPurchasePaymentPage({ params }: PageProps) {
       const proofState = await caller.artist.purchase.proofOfPayment.state({ purchaseId });
       const query = new URLSearchParams({ installment: proofState.installmentId });
       redirect(
-        `/artist/payments/${encodeURIComponent(proofState.purchaseId)}/proof?${query.toString()}`,
+        withArtistStudio(
+          `/artist/payments/${encodeURIComponent(proofState.purchaseId)}/proof?${query.toString()}`,
+          proofState.producerId,
+        ),
       );
     } catch (proofError) {
       if (proofError instanceof TRPCError && proofError.code === "NOT_FOUND") notFound();
@@ -42,6 +46,7 @@ export default async function ArtistPurchasePaymentPage({ params }: PageProps) {
   return (
     <PaymentInstructionsScreen
       productId={data.productId ?? "private-offer"}
+      studioId={data.producerId}
       purchaseId={data.purchaseId}
       installmentId={data.installmentId}
       producerName={data.producerName ?? "Your producer"}
@@ -51,7 +56,10 @@ export default async function ArtistPurchasePaymentPage({ params }: PageProps) {
       productName={data.productName}
       planLabel={paymentPlanLabel(data.planKind, data.planInstallments)}
       proofUploadsAvailable={data.proofUploadsAvailable}
-      proofHref={`/artist/payments/${encodeURIComponent(data.purchaseId)}/proof?${query.toString()}`}
+      proofHref={withArtistStudio(
+        `/artist/payments/${encodeURIComponent(data.purchaseId)}/proof?${query.toString()}`,
+        data.producerId,
+      )}
     />
   );
 }

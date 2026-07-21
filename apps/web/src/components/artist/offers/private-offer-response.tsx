@@ -9,6 +9,7 @@ import {
   acceptPrivateOfferAction,
   rejectPrivateOfferAction,
 } from "~/app/(artist)/artist/offers/actions";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 import {
   createInstallmentSchedule,
   purchaseInstallmentDueLabel,
@@ -44,11 +45,13 @@ function money(cents: number, currency: string): string {
 
 export function PrivateOfferResponse({
   offerId,
+  studioId,
   updatedAt,
   targetProjectTitle,
   snapshot,
 }: {
   offerId: string;
+  studioId: string;
   updatedAt: Date;
   targetProjectTitle: string | null;
   snapshot: PurchaseCommercialSnapshot;
@@ -59,6 +62,7 @@ export function PrivateOfferResponse({
   const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<ResultState>(null);
+  const [confirmingReject, setConfirmingReject] = useState(false);
   const [pending, startTransition] = useTransition();
   const selectedPlan =
     snapshot.offeredPaymentPlans.find((plan) => planKey(plan) === selectedKey) ?? null;
@@ -92,7 +96,7 @@ export function PrivateOfferResponse({
               : "Your exact terms are locked. Your producer will share the next payment step."}
         </p>
         <Link
-          href="/artist"
+          href={withArtistStudio("/artist", studioId)}
           className="mt-4 inline-flex min-h-10 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-semibold text-[rgb(var(--fg-on-brand))]"
         >
           Back to Artist Home
@@ -195,55 +199,102 @@ export function PrivateOfferResponse({
         </p>
       ) : null}
 
-      <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <button
-          type="button"
-          disabled={pending}
-          onClick={() => {
-            setError("");
-            startTransition(async () => {
-              const response = await rejectPrivateOfferAction(offerId);
-              if (!response.ok) {
-                setError(response.error);
-                return;
-              }
-              setResult({ kind: "rejected" });
-            });
-          }}
-          className="min-h-11 rounded-[var(--radius-lg)] border px-4 text-sm font-semibold text-[rgb(var(--fg-default))] disabled:opacity-50"
-          style={{ borderColor: "rgb(var(--border-subtle))" }}
+      {confirmingReject ? (
+        <div
+          role="group"
+          aria-labelledby="reject-offer-confirm-title"
+          className="mt-5 rounded-[var(--radius-lg)] border border-[rgb(var(--fg-danger)/0.3)] bg-[rgb(var(--fg-danger)/0.06)] p-4"
         >
-          Reject offer
-        </button>
-        <button
-          type="button"
-          disabled={pending || !agreed || (snapshot.totalCents > 0 && selectedPlan === null)}
-          onClick={() => {
-            setError("");
-            startTransition(async () => {
-              const response = await acceptPrivateOfferAction({
-                offerId,
-                expectedUpdatedAt: updatedAt.toISOString(),
-                expectedTargetProjectTitle: targetProjectTitle,
-                selectedPaymentPlan: snapshot.totalCents === 0 ? null : selectedPlan,
-                agreementAccepted: true,
+          <p
+            id="reject-offer-confirm-title"
+            className="text-sm font-bold text-[rgb(var(--fg-default))]"
+          >
+            Reject this offer?
+          </p>
+          <p className="mt-1 text-sm leading-relaxed text-[rgb(var(--fg-muted))]">
+            The producer will see that you rejected it. You cannot accept this offer afterward.
+          </p>
+          <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <button
+              autoFocus
+              type="button"
+              disabled={pending}
+              onClick={() => {
+                setConfirmingReject(false);
+              }}
+              className="min-h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] px-4 text-sm font-semibold text-[rgb(var(--fg-default))] disabled:opacity-50"
+            >
+              Keep offer
+            </button>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => {
+                setError("");
+                startTransition(async () => {
+                  const response = await rejectPrivateOfferAction(offerId);
+                  if (!response.ok) {
+                    setError(response.error);
+                    return;
+                  }
+                  setResult({ kind: "rejected" });
+                });
+              }}
+              className="min-h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--fg-danger)/0.4)] px-4 text-sm font-bold text-[rgb(var(--fg-danger))] disabled:opacity-50"
+            >
+              {pending ? "Rejecting…" : "Confirm rejection"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => {
+              setError("");
+              setConfirmingReject(true);
+            }}
+            className="min-h-11 rounded-[var(--radius-lg)] border px-4 text-sm font-semibold text-[rgb(var(--fg-default))] disabled:opacity-50"
+            style={{ borderColor: "rgb(var(--border-subtle))" }}
+          >
+            Reject offer
+          </button>
+          <button
+            type="button"
+            disabled={pending || !agreed || (snapshot.totalCents > 0 && selectedPlan === null)}
+            onClick={() => {
+              setError("");
+              startTransition(async () => {
+                const response = await acceptPrivateOfferAction({
+                  offerId,
+                  expectedUpdatedAt: updatedAt.toISOString(),
+                  expectedTargetProjectTitle: targetProjectTitle,
+                  selectedPaymentPlan: snapshot.totalCents === 0 ? null : selectedPlan,
+                  agreementAccepted: true,
+                });
+                if (!response.ok) {
+                  setError(response.error);
+                  return;
+                }
+                if (response.lifecycleStatus === "waiting_for_payment") {
+                  router.push(
+                    withArtistStudio(
+                      `/artist/payments/${encodeURIComponent(response.purchaseId)}`,
+                      studioId,
+                    ),
+                  );
+                  return;
+                }
+                setResult({ kind: "accepted", lifecycleStatus: response.lifecycleStatus });
               });
-              if (!response.ok) {
-                setError(response.error);
-                return;
-              }
-              if (response.lifecycleStatus === "waiting_for_payment") {
-                router.push(`/artist/payments/${encodeURIComponent(response.purchaseId)}`);
-                return;
-              }
-              setResult({ kind: "accepted", lifecycleStatus: response.lifecycleStatus });
-            });
-          }}
-          className="min-h-11 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-bold text-[rgb(var(--fg-on-brand))] disabled:opacity-50"
-        >
-          {pending ? "Saving…" : "Accept offer"}
-        </button>
-      </div>
+            }}
+            className="min-h-11 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-bold text-[rgb(var(--fg-on-brand))] disabled:opacity-50"
+          >
+            {pending ? "Saving…" : "Accept offer"}
+          </button>
+        </div>
+      )}
     </section>
   );
 }

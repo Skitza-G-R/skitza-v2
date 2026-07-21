@@ -39,6 +39,11 @@ describe("overview-tab — WorkflowStepper + Latest versions + Client snippet", 
     expect(SRC).toContain("onShowAllVersions");
   });
 
+  it("keeps the See all control at least 44px tall on phones", () => {
+    expect(SRC).toContain("min-h-11");
+    expect(SRC).toContain("sm:min-h-0");
+  });
+
   it("hides the Client snippet in single mode (mode === 'single' guard)", () => {
     // The client card is rendered ONLY when mode !== 'single'. We
     // assert the conditional render check appears in source.

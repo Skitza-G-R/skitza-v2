@@ -121,6 +121,7 @@ export default async function ArtistProjectPage({ params }: PageProps) {
       <ProjectPage
         data={wire}
         role="artist"
+        artistStudioId={data.producerId}
         extraBelow={sessions.length > 0 ? <SessionsPanel sessions={sessions} /> : null}
       />
     </div>

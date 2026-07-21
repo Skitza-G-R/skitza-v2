@@ -83,6 +83,11 @@ describe("ChangeStageMenu — manual stage advance on Song Space", () => {
     expect(SRC).toMatch(/aria-expanded=\{open\}/);
   });
 
+  it("keeps the trigger and disclosed choices at least 44px tall on phones", () => {
+    expect(SRC.match(/min-h-11/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(SRC.match(/sm:min-h-0/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+
   // I3 — we used to declare role="menu" / role="menuitem" without
   // implementing the keyboard contract those roles imply (arrow-key
   // nav, initial focus, type-ahead). Honest fix: drop the menu roles

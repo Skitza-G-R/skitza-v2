@@ -6,7 +6,6 @@ import { ProducerSidebar } from "~/components/nav/producer-sidebar";
 import { PUBLIC_BRAND_ORIGIN } from "~/lib/share/public-url";
 import { getShellState } from "~/server/shell-data";
 
-import { CoachmarkTour } from "./coachmark-tour";
 import { CommandPaletteTrigger } from "./command-palette-trigger";
 import { DashboardTopBar } from "./dashboard-topbar";
 import { ShortcutsBridge } from "./shortcuts-bridge";
@@ -36,7 +35,6 @@ import { TopBarBreadcrumbProvider } from "./topbar-breadcrumb-context";
 //   - CommandPaletteTrigger — ⌘K palette (deferred from new chrome,
 //     stays functional via the keyboard shortcut).
 //   - ShortcutsBridge     — keyboard shortcut dispatcher.
-//   - CoachmarkTour       — first-run guided tour.
 //
 // Phase 4 swaps PersistentPlayer for the new dark FloatingPlayer; for
 // now the existing player renders alongside the new chrome and looks
@@ -110,10 +108,9 @@ export async function AppShell({ children }: { children: ReactNode }) {
           drop-in replacement at this exact mount point. */}
       <PersistentPlayer />
 
-      {/* Existing infrastructure — not touched by Phase 2. */}
+      {/* Global producer controls. */}
       <CommandPaletteTrigger />
       <ShortcutsBridge />
-      <CoachmarkTour />
     </div>
   );
 }

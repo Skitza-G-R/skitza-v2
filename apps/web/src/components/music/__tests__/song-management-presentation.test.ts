@@ -152,8 +152,14 @@ describe("song management source guards", () => {
   });
 
   it("keeps deleted-audio history links while leaving play gated by actual audio", () => {
-    expect(librarySource.match(/const href = versionId \? songHref/g)).toHaveLength(2);
-    expect(projectSource.match(/const rowHref = versionId \? projectSongHref/g)).toHaveLength(2);
+    expect(
+      librarySource.match(
+        /const href = versionId \? songHref\(role, versionId, item\.producerId\)/g,
+      ),
+    ).toHaveLength(2);
+    expect(
+      projectSource.match(/const rowHref = versionId[\s\S]{0,100}projectSongHref/g),
+    ).toHaveLength(2);
     expect(librarySource).toContain("const canPlay = isMusicLibraryTrackPlayable(item)");
     expect(projectSource).toContain("const canPlay = isProjectPageTrackPlayable(item)");
   });

@@ -104,7 +104,7 @@ export function OverviewTab({
             <button
               type="button"
               onClick={onShowAllVersions}
-              className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] px-2.5 py-1 text-[12px] font-semibold transition-colors hover:bg-[rgb(var(--bg-background))]"
+              className="inline-flex min-h-11 items-center gap-1 rounded-[var(--radius-sm)] px-2.5 py-1 text-[12px] font-semibold transition-colors hover:bg-[rgb(var(--bg-background))] sm:min-h-0"
               style={{ color: "rgb(var(--brand-primary))" }}
             >
               See all

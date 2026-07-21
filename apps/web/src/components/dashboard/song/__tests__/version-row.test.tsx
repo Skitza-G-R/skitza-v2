@@ -99,9 +99,10 @@ describe("VersionRow — Song Space version-history row", () => {
     expect(SRC).toMatch(/version\.audioUrl\s*===\s*null/);
   });
 
-  it("sets aria-disabled / 'No audio available' for null-audio rows", () => {
-    expect(SRC).toMatch(/aria-disabled/);
-    expect(SRC).toMatch(/No audio available/);
+  it("truly disables null-audio rows and gives a visible reason", () => {
+    expect(SRC).toContain("disabled={!hasAudio}");
+    expect(SRC).not.toContain("aria-disabled");
+    expect(SRC).toContain("Audio is still uploading");
   });
 
   it("carries an explicit audioDeletedAtIso tombstone instead of inferring deletion from null audio", () => {

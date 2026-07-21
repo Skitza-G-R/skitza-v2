@@ -71,6 +71,7 @@ export type CreatedNoChargeProposal = Readonly<{
 
 export type NoChargeProposalPreview = Readonly<{
   proposalToken: string;
+  producerId: string;
   projectId: string;
   projectTitle: string;
   songTitle: string;
@@ -296,6 +297,7 @@ export async function previewNoChargeSongSpaceProposal(
   }
   return {
     proposalToken: input.proposalToken,
+    producerId: payload.producerId,
     projectId: payload.projectId,
     projectTitle: payload.projectTitle,
     songTitle: payload.songTitle,

@@ -18,6 +18,7 @@ import { useRouter } from "next/navigation";
 
 import { ArrowRight, Check, ShieldIcon } from "~/components/artist/funnel/funnel-icons";
 import { FunnelTopBar, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 import {
   formatPurchaseMoney,
   nextPlanIndex,
@@ -27,6 +28,7 @@ import {
 
 export function ChoosePlanScreen({
   productId,
+  studioId,
   productName,
   producerName,
   purchaseRequestId,
@@ -35,6 +37,7 @@ export function ChoosePlanScreen({
   previewNextHref,
 }: {
   productId: string;
+  studioId?: string | undefined;
   productName: string;
   producerName: string;
   purchaseRequestId: string;
@@ -91,6 +94,7 @@ export function ChoosePlanScreen({
         productId,
         purchaseRequestId,
         choice: option.choice,
+        studioId,
       }),
     );
   }
@@ -105,7 +109,7 @@ export function ChoosePlanScreen({
           title="Choose a plan"
           sub={producerName}
           onBack={() => {
-            router.push("/artist");
+            router.push(withArtistStudio("/artist", studioId));
           }}
         />
 

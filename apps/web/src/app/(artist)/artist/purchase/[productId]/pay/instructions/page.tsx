@@ -5,11 +5,12 @@ import { notFound, redirect } from "next/navigation";
 
 import { PaymentInstructionsScreen } from "~/components/artist/purchase/payment-instructions-screen";
 import { paymentPlanLabel } from "~/components/artist/purchase/pay-data";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = {
   params: Promise<{ productId: string }>;
-  searchParams: Promise<{ req?: string; purchase?: string }>;
+  searchParams: Promise<{ req?: string; purchase?: string; studio?: string }>;
 };
 
 export const metadata: Metadata = { title: "Payment instructions" };
@@ -22,8 +23,10 @@ export default async function PaymentInstructionsPage({ params, searchParams }: 
   if (!userId) return null;
 
   const { productId } = await params;
-  const { req, purchase } = await searchParams;
-  if (!req && !purchase) redirect(`/artist/purchase/${productId}`);
+  const { req, purchase, studio } = await searchParams;
+  if (!req && !purchase) {
+    redirect(withArtistStudio(`/artist/purchase/${productId}`, studio));
+  }
 
   const caller = appRouter.createCaller({ userId });
   try {
@@ -31,19 +34,25 @@ export default async function PaymentInstructionsPage({ params, searchParams }: 
       ? await caller.artist.purchase.paymentInstructions({ purchaseId: purchase })
       : req
         ? await caller.artist.purchase.paymentInstructions({ purchaseRequestId: req })
-        : redirect(`/artist/purchase/${productId}`);
+        : redirect(withArtistStudio(`/artist/purchase/${productId}`, studio));
     if (data.productId && data.productId !== productId) notFound();
     if (!data.amountDueNowCents) {
       if (data.proofUploadsAvailable) {
         redirect(
-          `/artist/purchase/${productId}/pay/proof?purchase=${data.purchaseId}&installment=${data.installmentId}`,
+          withArtistStudio(
+            `/artist/purchase/${productId}/pay/proof?purchase=${data.purchaseId}&installment=${data.installmentId}`,
+            data.producerId,
+          ),
         );
       }
-      redirect("/artist");
+      redirect(withArtistStudio("/artist", data.producerId));
     }
     if (data.proofUploadsAvailable && (data.pendingProofCents > 0 || data.remainingCents <= 0)) {
       redirect(
-        `/artist/purchase/${productId}/pay/proof?purchase=${data.purchaseId}&installment=${data.installmentId}`,
+        withArtistStudio(
+          `/artist/purchase/${productId}/pay/proof?purchase=${data.purchaseId}&installment=${data.installmentId}`,
+          data.producerId,
+        ),
       );
     }
 
@@ -58,6 +67,7 @@ export default async function PaymentInstructionsPage({ params, searchParams }: 
     return (
       <PaymentInstructionsScreen
         productId={productId}
+        studioId={data.producerId}
         purchaseId={data.purchaseId}
         installmentId={data.installmentId}
         producerName={data.producerName ?? "Your producer"}

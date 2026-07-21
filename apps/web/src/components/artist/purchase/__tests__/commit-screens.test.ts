@@ -99,9 +99,9 @@ describe("request sent screen", () => {
     expect(sent).not.toMatch(/PRICE LOCKED|product\.priceCents/);
   });
 
-  it("offers Home and Store exits", () => {
-    expect(sent).toMatch(/router\.push\("\/artist"\)/);
-    expect(sent).toMatch(/router\.push\("\/artist\/store"\)/);
+  it("offers studio-preserving Home and Store exits", () => {
+    expect(sent).toContain('withArtistStudio("/artist", studioId)');
+    expect(sent).toContain('withArtistStudio("/artist/store", studioId)');
   });
 
   it("shows approval, plan choice, exact acceptance, then external payment", () => {

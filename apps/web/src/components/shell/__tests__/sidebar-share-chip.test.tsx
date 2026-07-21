@@ -3,12 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-import {
-  buildShareUrl,
-  buildDisplayUrl,
-  chipMode,
-  type ChipMode,
-} from "../sidebar-share-chip";
+import { buildShareUrl, buildDisplayUrl, chipMode, type ChipMode } from "../sidebar-share-chip";
 
 // Story 05 — SidebarShareChip tests.
 //
@@ -18,9 +13,8 @@ import {
 //
 // Render modes the algorithm guarantees:
 //   - "expanded-with-slug"   — chip + copy button + opens-in-tab link
-//   - "expanded-no-slug"     — "Set your slug →" CTA to settings
 //   - "collapsed-with-slug"  — icon-only copy button (title=URL)
-//   - "collapsed-no-slug"    — icon-only gear button to settings
+//   - "hidden"               — no false slug-edit affordance
 //
 // `buildShareUrl` strips trailing slash from the base URL so we never
 // emit "skitza.app//join/alice".
@@ -43,21 +37,17 @@ const sidebarSource = readFileSync(SIDEBAR_PATH, "utf8");
 
 describe("buildShareUrl", () => {
   it("joins the base URL + /join/<slug>", () => {
-    expect(buildShareUrl("https://skitza.app", "alice")).toBe(
-      "https://skitza.app/join/alice",
-    );
+    expect(buildShareUrl("https://skitza.app", "alice")).toBe("https://skitza.app/join/alice");
   });
 
   it("strips a trailing slash on the base URL (no double-slash)", () => {
-    expect(buildShareUrl("https://skitza.app/", "alice")).toBe(
-      "https://skitza.app/join/alice",
-    );
+    expect(buildShareUrl("https://skitza.app/", "alice")).toBe("https://skitza.app/join/alice");
   });
 
   it("works with a Vercel preview origin", () => {
-    expect(
-      buildShareUrl("https://skitza-git-feat-today.vercel.app", "bob"),
-    ).toBe("https://skitza-git-feat-today.vercel.app/join/bob");
+    expect(buildShareUrl("https://skitza-git-feat-today.vercel.app", "bob")).toBe(
+      "https://skitza-git-feat-today.vercel.app/join/bob",
+    );
   });
 });
 
@@ -73,7 +63,7 @@ describe("buildDisplayUrl", () => {
   });
 });
 
-// ─── chipMode — picks one of 4 render variants ──────────────────────
+// ─── chipMode — picks a truthful render variant ────────────────────
 
 describe("chipMode", () => {
   it("expanded + slug → 'expanded-with-slug'", () => {
@@ -82,10 +72,8 @@ describe("chipMode", () => {
     );
   });
 
-  it("expanded + null slug → 'expanded-no-slug'", () => {
-    expect(chipMode({ producerSlug: null, collapsed: false })).toBe<ChipMode>(
-      "expanded-no-slug",
-    );
+  it("expanded + null slug → 'hidden'", () => {
+    expect(chipMode({ producerSlug: null, collapsed: false })).toBe<ChipMode>("hidden");
   });
 
   it("collapsed + slug → 'collapsed-with-slug'", () => {
@@ -94,21 +82,15 @@ describe("chipMode", () => {
     );
   });
 
-  it("collapsed + null slug → 'collapsed-no-slug'", () => {
-    expect(chipMode({ producerSlug: null, collapsed: true })).toBe<ChipMode>(
-      "collapsed-no-slug",
-    );
+  it("collapsed + null slug → 'hidden'", () => {
+    expect(chipMode({ producerSlug: null, collapsed: true })).toBe<ChipMode>("hidden");
   });
 
   it("treats empty-string slug as 'no slug' (defensive)", () => {
     // A producer with `slug = ""` is not a configured slug. Treat
     // identically to null so we don't render `/join/` with no path.
-    expect(chipMode({ producerSlug: "", collapsed: false })).toBe<ChipMode>(
-      "expanded-no-slug",
-    );
-    expect(chipMode({ producerSlug: "", collapsed: true })).toBe<ChipMode>(
-      "collapsed-no-slug",
-    );
+    expect(chipMode({ producerSlug: "", collapsed: false })).toBe<ChipMode>("hidden");
+    expect(chipMode({ producerSlug: "", collapsed: true })).toBe<ChipMode>("hidden");
   });
 });
 
@@ -119,21 +101,10 @@ describe("SidebarShareChip — render variants in source", () => {
     expect(componentSource).toContain("skitza.app/join/");
   });
 
-  it("renders the 'Set your slug →' missing-slug CTA copy", () => {
-    expect(componentSource).toContain("Set your slug");
-  });
-
-  it("missing-slug CTA links to /dashboard/settings?section=profile", () => {
-    expect(componentSource).toContain(
-      "/dashboard/settings?section=profile",
-    );
-  });
-
-  it("collapsed gear icon also points to /dashboard/settings?section=profile", () => {
-    // Both the expanded-no-slug link AND the collapsed-no-slug button
-    // resolve to the same settings deep-link. Single string match is
-    // sufficient — the source contains exactly one settings href.
-    expect(componentSource).toContain('href="/dashboard/settings?section=profile"');
+  it("does not render a slug-edit CTA until a real editor exists", () => {
+    expect(componentSource).not.toContain("Set your slug");
+    expect(componentSource).not.toContain("/dashboard/settings?section=profile");
+    expect(componentSource).not.toContain("GearIcon");
   });
 });
 
@@ -177,17 +148,13 @@ describe("SidebarShareChip — open-in-new-tab behavior", () => {
 describe("SidebarShareChip — RTL discipline", () => {
   it("does not use ml-* / mr-* literal margins (use ms-*/me-* / mx-*)", () => {
     // CLAUDE.md RTL rule. Strip comments first.
-    const codeOnly = componentSource
-      .replace(/\/\/.*$/gm, "")
-      .replace(/\/\*[\s\S]*?\*\//g, "");
+    const codeOnly = componentSource.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
     expect(codeOnly).not.toMatch(/\bml-\d/);
     expect(codeOnly).not.toMatch(/\bmr-\d/);
   });
 
   it("does not use right-* / left-* literal positioning (use start-*/end-*)", () => {
-    const codeOnly = componentSource
-      .replace(/\/\/.*$/gm, "")
-      .replace(/\/\*[\s\S]*?\*\//g, "");
+    const codeOnly = componentSource.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
     expect(codeOnly).not.toMatch(/className=["`][^"`]*\bright-\d/);
     expect(codeOnly).not.toMatch(/className=["`][^"`]*\bleft-\d/);
   });
@@ -225,9 +192,7 @@ describe("Sidebar integration — wires in the new chip", () => {
   it("does not render the legacy 'Public profile →' Link in the footer anymore", () => {
     // The chip replaces the prior /join/<slug> Link block. Strip
     // narrative comments first so prose mentions don't false-positive.
-    const codeOnly = sidebarSource
-      .replace(/\/\/.*$/gm, "")
-      .replace(/\/\*[\s\S]*?\*\//g, "");
+    const codeOnly = sidebarSource.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
     // Specifically the t("publicProfile") render call disappears.
     expect(codeOnly).not.toMatch(/\{t\(["']publicProfile["']\)\}/);
   });

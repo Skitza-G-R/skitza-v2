@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -53,7 +53,7 @@ describe("SK-99 final navigation", () => {
       expect(artistDesktopNav).toContain(`href: "${href}", label: "${label}"`);
     }
     expect(artistMobileNav).not.toContain('href: "/artist/settings"');
-    expect(artistDesktopNav).toContain('href="/artist/settings"');
+    expect(artistDesktopNav).toContain('withArtistStudio("/artist/settings", activeStudioId)');
   });
 
   it("keeps the approved producer mobile tabs and desktop Store, Payments, and Settings", () => {
@@ -99,6 +99,21 @@ describe("SK-99 removed dead controls", () => {
     expect(artistSettings).not.toMatch(/settingsRows|coming soon/i);
     expect(producerSettings).not.toMatch(/ComingSoonButton|Google Calendar/);
     expect(scheduleWeekNav).not.toContain("GCalPill");
+  });
+
+  it("deletes orphan placeholder controls so they cannot be rendered again", () => {
+    for (const relativePath of [
+      "../../../app/(producer)/dashboard/booking/gcal-sync-badge.tsx",
+      "../../../app/(producer)/dashboard/calendar/change-time-modal.tsx",
+      "../../../app/(producer)/dashboard/calendar/edit-session-modal.tsx",
+      "../../../app/(producer)/dashboard/calendar/gcal-pill.tsx",
+      "../../../app/(producer)/dashboard/calendar/send-reminder-modal.tsx",
+      "../../dashboard/project/album-tabs/files-tab.tsx",
+      "../../dashboard/project/sub-tabs/files-sub-tab.tsx",
+      "../../dashboard/setup/availability-section.tsx",
+    ]) {
+      expect(existsSync(resolve(here, relativePath))).toBe(false);
+    }
   });
 
   it("keeps only the real producer session cancellation action", () => {

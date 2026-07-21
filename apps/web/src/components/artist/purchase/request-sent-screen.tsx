@@ -16,18 +16,21 @@ import {
   RippleEmblem,
   SecondaryCta,
 } from "~/components/artist/funnel/funnel-ui";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 import { coverGradient, type Producer } from "./purchase-data";
 
 export function RequestSentScreen({
   producer,
   requestRef,
+  studioId,
 }: {
   producer: Producer;
   requestRef: string;
+  studioId?: string | undefined;
 }) {
   const router = useRouter();
   const toStore = () => {
-    router.push("/artist/store");
+    router.push(withArtistStudio("/artist/store", studioId));
   };
 
   const steps = [
@@ -226,7 +229,7 @@ export function RequestSentScreen({
             <PrimaryCta
               glow={false}
               onClick={() => {
-                router.push("/artist");
+                router.push(withArtistStudio("/artist", studioId));
               }}
             >
               Go to my Home

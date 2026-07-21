@@ -85,7 +85,8 @@ function formatPlanLabel(plan: string): string {
 //
 // G-leader shortcuts mirror the locked-design `ShortcutsHelp` panel
 // (notes/nav.jsx): G H = Overview, G P = Projects, G M = Music,
-// G C = Calendar, G S = Store, G F = Portfolio, G T = Settings.
+// G C = Calendar, G S = Store, G T = Settings. Portfolio does not
+// display a shortcut until the global G-leader handler supports it.
 //
 // Portfolio row history:
 //   - removed 2026-05-15 (CLAUDE.md called for 6 top-level pages)
@@ -147,7 +148,6 @@ export const NAV_ITEMS: readonly NavItem[] = [
     labelKey: "portfolio",
     href: "/dashboard/portfolio",
     icon: "star",
-    shortcut: "G F",
   },
   {
     id: "setup",

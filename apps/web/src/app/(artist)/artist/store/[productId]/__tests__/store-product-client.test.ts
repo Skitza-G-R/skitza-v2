@@ -13,9 +13,9 @@ describe("legacy artist Store product route", () => {
     expect(pageSrc).toMatch(/if \(!userId\) return null/);
   });
 
-  it("redirects every old product URL to the unified purchase route", () => {
-    expect(pageSrc).toMatch(
-      /redirect\(`\/artist\/purchase\/\$\{encodeURIComponent\(productId\)\}`\)/,
+  it("redirects every old product URL to the studio-preserving unified route", () => {
+    expect(pageSrc).toContain(
+      "redirect(withArtistStudio(`/artist/purchase/${encodeURIComponent(productId)}`, studio))",
     );
     expect(pageSrc).not.toMatch(/StoreProductClient|requestStorePurchaseAction/);
   });

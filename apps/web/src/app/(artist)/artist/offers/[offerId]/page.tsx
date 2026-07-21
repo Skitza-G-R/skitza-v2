@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 
 import { PrivateOfferResponse } from "~/components/artist/offers/private-offer-response";
 import { PrivateOfferTerms } from "~/components/artist/offers/private-offer-terms";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = { params: Promise<{ offerId: string }> };
@@ -32,7 +33,7 @@ export default async function PrivateOfferPage({ params }: PageProps) {
       <header className="flex min-w-0 items-start justify-between gap-4">
         <div className="min-w-0">
           <Link
-            href="/artist/store"
+            href={withArtistStudio("/artist/store", offer.producerId)}
             className="text-xs font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
           >
             ← Store
@@ -59,6 +60,7 @@ export default async function PrivateOfferPage({ params }: PageProps) {
       <PrivateOfferTerms snapshot={offer.commercialDraft} targetLabel={targetLabel} />
       <PrivateOfferResponse
         offerId={offer.id}
+        studioId={offer.producerId}
         updatedAt={offer.updatedAt}
         targetProjectTitle={offer.targetProjectTitle ?? null}
         snapshot={offer.commercialDraft}

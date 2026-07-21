@@ -21,6 +21,7 @@ import { useRouter } from "next/navigation";
 
 import { Check, ClockIcon, CloseIcon } from "~/components/artist/funnel/funnel-icons";
 import { FunnelTopBar } from "~/components/artist/funnel/funnel-ui";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 
 import {
   formatSessionDate,
@@ -67,7 +68,7 @@ export function SessionDetailScreen({ session }: { session: SessionDetail }) {
           title="Session"
           sub={isActive ? "YOUR BOOKING" : "SESSION HISTORY"}
           onBack={() => {
-            router.push("/artist/sessions");
+            router.push(withArtistStudio("/artist/sessions", session.producerId));
           }}
         />
 
@@ -235,7 +236,7 @@ export function SessionDetailScreen({ session }: { session: SessionDetail }) {
             setSheetOpen(false);
           }}
           onCancelled={() => {
-            router.push("/artist/sessions");
+            router.push(withArtistStudio("/artist/sessions", session.producerId));
             router.refresh();
           }}
         />

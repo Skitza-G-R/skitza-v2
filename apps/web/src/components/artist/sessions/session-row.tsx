@@ -9,6 +9,7 @@
 import { useRouter } from "next/navigation";
 
 import { ClockIcon } from "~/components/artist/funnel/funnel-icons";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 import { formatSessionTime, type SessionListItem } from "./book-data";
 import { StatusPill } from "./status-pill";
 
@@ -34,7 +35,7 @@ export function SessionRow({ session }: { session: SessionListItem }) {
     <button
       type="button"
       onClick={() => {
-        router.push(`/artist/sessions/${session.id}`);
+        router.push(withArtistStudio(`/artist/sessions/${session.id}`, session.producerId));
       }}
       className="sk-press flex w-full items-center gap-3.5 py-3.5 text-left"
     >

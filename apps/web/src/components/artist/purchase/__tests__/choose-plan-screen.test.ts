@@ -88,6 +88,6 @@ describe("choose-plan screen", () => {
 
   it("keeps pending/declined requests out of the payment funnel", () => {
     expect(page).toMatch(/if \(data\.status !== "approved"\)/);
-    expect(page).toMatch(/redirect\("\/artist"\)/);
+    expect(page).toContain('redirect(withArtistStudio("/artist", data.producerId))');
   });
 });

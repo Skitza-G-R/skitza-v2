@@ -7,9 +7,11 @@ import { useRouter } from "next/navigation";
 
 import { AgreeCheck, Eyebrow, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
 import { acceptNoChargeSongProposalAction } from "~/app/(artist)/artist/music/no-charge/[proposalId]/actions";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 
 export type NoChargeSongAgreementPreview = Readonly<{
   proposalToken: string;
+  producerId: string;
   projectId: string;
   projectTitle: string;
   songTitle: string;
@@ -40,7 +42,7 @@ export function NoChargeSongAgreement({ preview }: { preview: NoChargeSongAgreem
       setError(result.error);
       return;
     }
-    router.push(`/artist/music/${result.data.projectId}`);
+    router.push(withArtistStudio(`/artist/music/${result.data.projectId}`, preview.producerId));
     router.refresh();
   }
 
@@ -51,7 +53,7 @@ export function NoChargeSongAgreement({ preview }: { preview: NoChargeSongAgreem
           type="button"
           aria-label="Back to Music"
           onClick={() => {
-            router.push("/artist/music");
+            router.push(withArtistStudio("/artist/music", preview.producerId));
           }}
           className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))]"
         >

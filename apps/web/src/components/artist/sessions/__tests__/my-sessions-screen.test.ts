@@ -66,7 +66,9 @@ describe("my-sessions-screen.tsx (S11) wiring", () => {
   });
 
   it("routes each row to /artist/sessions/<id>", () => {
-    expect(rowSrc).toMatch(/router\.push\(`\/artist\/sessions\/\$\{[^}]+\}`\)/);
+    expect(rowSrc).toContain(
+      "router.push(withArtistStudio(`/artist/sessions/${session.id}`, session.producerId))",
+    );
   });
 
   it("renders both the row date and time in the producer timezone", () => {
@@ -118,7 +120,7 @@ describe("active-booking-header.tsx wiring", () => {
 
 describe("sessions-empty.tsx wiring", () => {
   it("links to the store (buying precedes booking)", () => {
-    expect(emptySrc).toMatch(/href="\/artist\/store"/);
+    expect(emptySrc).toContain('href={withArtistStudio("/artist/store", studioId)}');
     expect(emptySrc).toMatch(/<Link/);
   });
 });

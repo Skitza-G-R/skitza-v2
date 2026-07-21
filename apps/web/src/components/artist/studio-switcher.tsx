@@ -1,18 +1,25 @@
 "use client";
 
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+  DialogTrigger,
+} from "~/components/ui/dialog";
 import type { Studio } from "~/server/artist/identity";
 
+import { artistStudioSwitchHref } from "./studio-switch-destination";
+
 // Server-resolved studio list (artist.studios). The trigger always
-// opens a centered "Pick a studio" modal with backdrop blur, even
-// for single-studio artists — that branch shows a helper hint
-// pointing them at the "visit a producer's /join link" path to add
-// another studio. Picking a studio swaps ?studio=<id> on the
-// current path so every artist tab re-reads the selection on
-// navigation. The URL (not a cookie) remains the source of truth,
-// so deep-links from email / share copy / browser back work
-// unchanged.
+// opens the shared accessible Dialog (mobile bottom sheet, centered
+// desktop modal), even for single-studio artists. Picking a studio
+// swaps ?studio=<id> on safe tab roots. Resource detail paths belong
+// to one producer, so switching there first returns to the matching
+// studio-safe root (see studio-switch-destination.ts).
 export function StudioSwitcher({ studios }: { studios: Studio[] }) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
@@ -21,25 +28,10 @@ export function StudioSwitcher({ studios }: { studios: Studio[] }) {
   const activeId = searchParams.get("studio") ?? studios[0]?.producerId;
   const active = studios.find((s) => s.producerId === activeId) ?? studios[0];
 
-  // Esc closes the modal — match the browser's mental model for any
-  // overlay surface. Click-outside is handled by the backdrop button.
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
   if (!active) return null;
 
   const urlFor = (producerId: string) => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("studio", producerId);
-    return `${pathname}?${params.toString()}`;
+    return artistStudioSwitchHref(pathname, searchParams.toString(), producerId);
   };
 
   const pick = (producerId: string) => {
@@ -49,96 +41,66 @@ export function StudioSwitcher({ studios }: { studios: Studio[] }) {
   };
 
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => {
-          setOpen(true);
-        }}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        className="sk-press flex items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-[rgb(var(--bg-sunken))]"
-      >
-        <StudioAvatar studio={active} />
-        <span className="font-display text-sm tracking-tight">
-          {active.name}
-        </span>
-        <span aria-hidden className="text-xs text-[rgb(var(--fg-muted))]">
-          ▾
-        </span>
-      </button>
-
-      {open ? (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Pick a studio"
-          className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-8 backdrop-blur-sm"
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <button
+          type="button"
+          className="sk-press flex min-h-11 w-full max-w-full min-w-0 items-center gap-2 rounded-[var(--radius-lg)] px-2 py-1 transition-colors hover:bg-[rgb(var(--bg-sunken))]"
         >
-          {/* Backdrop click target — separate from the modal body so a
-              click outside dismisses without bubbling into the list. */}
-          <button
-            type="button"
-            aria-label="Close studio picker"
-            onClick={() => {
-              setOpen(false);
-            }}
-            className="absolute inset-0 cursor-default"
-            tabIndex={-1}
-          />
-          <div className="relative mt-20 w-full max-w-sm rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 shadow-[var(--shadow-lg)]">
-            <h3 className="mb-3 font-mono text-[0.66rem] font-semibold uppercase tracking-wider text-[rgb(var(--fg-muted))]">
-              Pick a studio
-            </h3>
-            <ul role="listbox" className="space-y-1">
-              {studios.map((studio) => {
-                const isActive = studio.producerId === active.producerId;
-                return (
-                  <li key={studio.producerId}>
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={isActive}
-                      onClick={() => {
-                        pick(studio.producerId);
-                      }}
-                      className={`sk-press flex w-full items-center gap-3 rounded-lg p-2 text-left transition-colors hover:bg-[rgb(var(--bg-sunken))] ${
-                        isActive
-                          ? "bg-[rgb(var(--brand-primary)/0.08)]"
-                          : ""
-                      }`}
-                    >
-                      <StudioAvatar studio={studio} />
-                      <span
-                        className={`min-w-0 flex-1 truncate font-display text-sm font-bold tracking-tight ${
-                          isActive
-                            ? "text-[rgb(var(--brand-primary))]"
-                            : "text-[rgb(var(--fg-primary))]"
-                        }`}
-                      >
-                        {studio.name}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-            {/* Helper hint for single-studio artists. There's no
-                in-app "add studio" affordance today — joining another
-                studio requires visiting that producer's /join link
-                while signed in (handled by the connect step at
-                /sign-up/join/<slug> + /artist-welcome/<slug>). The
-                hint sets expectations so a single-studio artist
-                doesn't open the modal and wonder what to do. */}
-            {studios.length === 1 ? (
-              <p className="mt-3 px-2 text-xs text-[rgb(var(--fg-muted))]">
-                To add another studio, visit that producer&apos;s link.
-              </p>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-    </>
+          <StudioAvatar studio={active} />
+          <span className="font-display min-w-0 flex-1 truncate text-start text-sm tracking-tight">
+            {active.name}
+          </span>
+          <span aria-hidden className="shrink-0 text-xs text-[rgb(var(--fg-muted))]">
+            ▾
+          </span>
+        </button>
+      </DialogTrigger>
+
+      <DialogContent className="gap-0 p-4 sm:max-w-sm">
+        <DialogTitle className="pr-8">Pick a studio</DialogTitle>
+        <DialogDescription className="mt-1 mb-3 pr-8 text-xs">
+          {studios.length === 1
+            ? "You’re connected to one studio. Visit another producer’s link to add it."
+            : "Choose which studio you want to view."}
+        </DialogDescription>
+        <ul className="space-y-1">
+          {studios.map((studio) => {
+            const isActive = studio.producerId === active.producerId;
+            return (
+              <li key={studio.producerId}>
+                <button
+                  type="button"
+                  aria-pressed={isActive}
+                  onClick={() => {
+                    pick(studio.producerId);
+                  }}
+                  className={`sk-press flex min-h-11 w-full items-center gap-3 rounded-[var(--radius-lg)] p-2 text-left transition-colors hover:bg-[rgb(var(--bg-sunken))] ${
+                    isActive ? "bg-[rgb(var(--brand-primary)/0.08)]" : ""
+                  }`}
+                >
+                  <StudioAvatar studio={studio} />
+                  <span
+                    className={`font-display min-w-0 flex-1 truncate text-sm font-bold tracking-tight ${
+                      isActive
+                        ? "text-[rgb(var(--brand-primary))]"
+                        : "text-[rgb(var(--fg-primary))]"
+                    }`}
+                  >
+                    {studio.name}
+                  </span>
+                  {isActive ? (
+                    <span className="shrink-0 font-mono text-[0.6rem] font-semibold tracking-wider text-[rgb(var(--brand-primary))] uppercase">
+                      Current
+                    </span>
+                  ) : null}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -146,18 +108,14 @@ function StudioAvatar({ studio }: { studio: Studio }) {
   if (studio.logoUrl) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={studio.logoUrl}
-        alt=""
-        className="h-6 w-6 rounded-full object-cover"
-      />
+      <img src={studio.logoUrl} alt="" className="h-6 w-6 shrink-0 rounded-full object-cover" />
     );
   }
   const initial = studio.name.charAt(0).toUpperCase();
   return (
     <div
       aria-hidden
-      className="flex h-6 w-6 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[0.65rem] font-semibold text-[rgb(var(--bg-base))]"
+      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[0.65rem] font-semibold text-[rgb(var(--bg-base))]"
     >
       {initial}
     </div>

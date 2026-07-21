@@ -405,6 +405,13 @@ describe("song-page.tsx — comments are clickable + replyable (founder feedback
     expect(songPageSrc).toMatch(/draftRef\.current[^\n]*?(\.value\s*=|focus\(\))/);
   });
 
+  it("Reply avoids smooth scrolling when the user prefers reduced motion", () => {
+    expect(songPageSrc).toContain('matchMedia("(prefers-reduced-motion: reduce)")');
+    expect(songPageSrc).toMatch(
+      /scrollIntoView\(\{\s*block:\s*"center",\s*behavior:\s*reduceMotion\.matches\s*\?\s*"auto"\s*:\s*"smooth",?\s*\}\)/,
+    );
+  });
+
   it("the @timestamp chip on each comment is a button (not a span) so clicking it jumps", () => {
     // Pinned via data attr to keep the chip discoverable as a control.
     expect(songPageSrc).toContain('data-test="comment-timestamp"');
@@ -461,6 +468,17 @@ describe("song-page.tsx source — Play button on the waveform card (founder fee
 });
 
 describe("song-page.tsx source — secondary actions and public sharing", () => {
+  it("uses the reduced-motion-aware pop primitive for the actions menu", () => {
+    expect(songPageSrc).toContain("sk-pop");
+    expect(songPageSrc).not.toContain('animation: "skitza-pop-in');
+  });
+
+  it("uses a truly disabled control with a reason when audio cannot be downloaded", () => {
+    expect(songPageSrc).not.toContain("aria-disabled");
+    expect(songPageSrc).toContain('title={\n                          activeVersionDeleted');
+    expect(songPageSrc).toContain('type="button"\n                        role="menuitem"\n                        disabled');
+  });
+
   it("removes the local-only Favorite control", () => {
     expect(songPageSrc).not.toContain('"Add to favorites"');
     expect(songPageSrc).not.toContain('"Remove from favorites"');
@@ -686,5 +704,41 @@ describe("L3 project breadcrumb href is role-aware", () => {
     // The breadcrumb item should reference `projectHref` (computed
     // once above the topbarCrumbs array), not inline either URL.
     expect(songPageSrc).toMatch(/href:\s*projectHref/);
+  });
+});
+
+describe("song-page.tsx source — phone touch targets", () => {
+  it("keeps the project-room link and comment Post button 44px tall on phones only", () => {
+    expect(songPageSrc).toMatch(
+      /data-test="project-room-link"[\s\S]{0,350}?className="[^"]*min-h-11[^"]*sm:min-h-0[^"]*"/,
+    );
+    expect(songPageSrc).toMatch(
+      /data-test="comment-post"[\s\S]{0,350}?className="[^"]*min-h-11[^"]*sm:min-h-0[^"]*"/,
+    );
+    expect(songPageSrc).toMatch(
+      /data-test="comment-input"[\s\S]{0,350}?className="[^"]*min-h-11[^"]*sm:min-h-0[^"]*"/,
+    );
+  });
+
+  it("gives both resolved and active note actions real 44px phone hit boxes", () => {
+    for (const control of ["timestamp", "jump", "reply", "resolve"]) {
+      const matches = songPageSrc.match(
+        new RegExp(
+          `data-test="comment-${control}"[\\s\\S]{0,350}?className="[^"]*min-h-11[^"]*sm:min-h-0[^"]*"`,
+          "g",
+        ),
+      );
+      expect(matches, `${control} controls`).toHaveLength(2);
+    }
+
+    for (const control of ["timestamp", "jump", "reply", "resolve"]) {
+      const matches = songPageSrc.match(
+        new RegExp(
+          `data-test="comment-${control}"[\\s\\S]{0,350}?className="[^"]*min-w-11[^"]*sm:min-w-0[^"]*"`,
+          "g",
+        ),
+      );
+      expect(matches, `${control} control widths`).toHaveLength(2);
+    }
   });
 });

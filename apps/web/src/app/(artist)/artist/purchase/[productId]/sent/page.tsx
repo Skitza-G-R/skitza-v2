@@ -8,11 +8,12 @@ import {
   producerHue,
   producerInitials,
 } from "~/lib/_phase4-stubs/producer-color";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = {
   params: Promise<{ productId: string }>;
-  searchParams: Promise<{ req?: string }>;
+  searchParams: Promise<{ req?: string; studio?: string }>;
 };
 
 export const metadata: Metadata = { title: "Request sent" };
@@ -26,8 +27,8 @@ export default async function PurchaseSentPage({ params, searchParams }: PagePro
   if (!userId) return null;
 
   const { productId } = await params;
-  const { req } = await searchParams;
-  if (!req) redirect(`/artist/purchase/${productId}`);
+  const { req, studio } = await searchParams;
+  if (!req) redirect(withArtistStudio(`/artist/purchase/${productId}`, studio));
 
   const caller = appRouter.createCaller({ userId });
 
@@ -55,6 +56,7 @@ export default async function PurchaseSentPage({ params, searchParams }: PagePro
     <RequestSentScreen
       producer={producer}
       requestRef={request.refNumber}
+      studioId={request.producerId}
     />
   );
 }

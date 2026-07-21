@@ -51,6 +51,10 @@ describe("ArtistAppShell + ArtistTopBar wiring", () => {
     expect(SRC).toMatch(/<ArtistMobileTopBar/);
   });
 
+  it("gives the mobile navigation the studio list needed to preserve context", () => {
+    expect(SRC).toContain("<ArtistBottomNav studios={studios} />");
+  });
+
   it("renders the topbar above <main> so it sits at the top of the column", () => {
     // Match the JSX element specifically (`<main`) so we
     // don't pick up the literal `<main>` text in the rationale

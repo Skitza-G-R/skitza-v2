@@ -145,6 +145,7 @@ export default async function ArtistSongPage({ params }: PageProps) {
       <SongPage
         data={wire}
         role="artist"
+        artistStudioId={data.track.producerId}
         {...(publicSharing ? { publicSharing } : {})}
         {...(publicSharing ? { publicSharingRefresh: refreshArtistPublicSongLink } : {})}
         actions={{

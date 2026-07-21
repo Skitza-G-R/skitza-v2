@@ -20,7 +20,7 @@ import { ArtistShellChrome } from "./artist-shell-chrome";
 //   Mobile (<lg):
 //     warm-canvas top bar   (Wordmark + StudioSwitcher + UserButton)
 //     main content          (warm canvas, scrollable)
-//     dark bottom nav       (5 tabs: Home / Music / Book / Store / Settings)
+//     dark bottom nav       (5 tabs: Home / Music / Book / Store / Payments)
 //
 //   Desktop (lg+):
 //     dark left sidebar     (Wordmark + 5 nav items + UserButton)
@@ -122,7 +122,7 @@ export function ArtistAppShell({
               artist pages that still use ArtistAudio. Both players will
               be unified in a follow-up — for PR #1 they coexist. */}
           <PersistentPlayer />
-          <ArtistBottomNav />
+          <ArtistBottomNav studios={studios} />
         </ArtistShellChrome>
       </div>
     </ArtistAudioProvider>

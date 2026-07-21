@@ -144,14 +144,16 @@ describe("PurchaseStatusCard (home heartbeat, S6)", () => {
 
   it("keeps accepted-purchase payment actions in the canonical payment card", () => {
     expect(HOME_SRC).toMatch(/caller\.artist\.purchase\.payments\(\)/);
-    expect(HOME_SRC).toMatch(/<ArtistPaymentActionsCard payments=\{activePaymentActions\}/);
+    expect(HOME_SRC).toMatch(
+      /<ArtistPaymentActionsCard[\s\S]{0,160}payments=\{activePaymentActions\}/,
+    );
     expect(HOME_SRC).toMatch(/payNextAvailable: purchase\.showPayNextPayment/);
     expect(HOME_SRC).not.toMatch(/actionLabel: "Make next payment"/);
   });
 
   it("keeps session actions separate from request and payment actions", () => {
     expect(HOME_SRC).toMatch(/<NextSessionCard nextSession=\{data\.nextSession\}/);
-    expect(HOME_SRC).toMatch(/<BookSessionTiles studios=\{studiosForTiles\}/);
+    expect(HOME_SRC).toMatch(/<BookSessionTiles[\s\S]{0,120}studios=\{studiosForTiles\}/);
     expect(HOME_SRC).not.toMatch(/actionLabel: "Book a session"/);
     expect(HOME_SRC).not.toMatch(/current\.projectId/);
   });

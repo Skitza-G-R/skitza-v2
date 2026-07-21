@@ -66,12 +66,13 @@ export function SessionRow({
     >
       <DateColumn date={start} kindToken={kindToken} timeZone={timeZone} />
       <BodyColumn session={session} start={start} end={end} status={derived} timeZone={timeZone} />
-      <Actions
-        cancellable={cancellable}
-        onCancel={() => {
-          onCancel(session);
-        }}
-      />
+      {cancellable ? (
+        <Actions
+          onCancel={() => {
+            onCancel(session);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -150,14 +151,12 @@ function BodyColumn({
   );
 }
 
-function Actions({ cancellable, onCancel }: { cancellable: boolean; onCancel: () => void }) {
+function Actions({ onCancel }: { onCancel: () => void }) {
   return (
     <div className="col-span-2 flex items-center justify-end gap-1 lg:col-span-1">
-      {cancellable ? (
-        <IconBtn label="Cancel session" tone="danger" onClick={onCancel}>
-          <XMini />
-        </IconBtn>
-      ) : null}
+      <IconBtn label="Cancel session" tone="danger" onClick={onCancel}>
+        <XMini />
+      </IconBtn>
     </div>
   );
 }

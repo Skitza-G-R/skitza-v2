@@ -42,7 +42,8 @@ describe("unified product entry route", () => {
 
 describe("final exact-agreement route", () => {
   it("requires a request id and one valid paid-plan query", () => {
-    expect(agree).toMatch(/if \(!query\.req\) redirect/);
+    expect(agree).toMatch(/if \(!query\.req\)\s*\{/);
+    expect(agree).toMatch(/withArtistStudio\([\s\S]{0,120}query\.studio/);
     expect(agree).toMatch(/parsePaymentPlanSearch\(query\)/);
     expect(agree).toMatch(/if \(!paymentPlan\)/);
   });
@@ -92,9 +93,12 @@ describe("approved request flow", () => {
   });
 
   it("opens payment instructions by immutable purchase id after acceptance", () => {
-    expect(instructions).toMatch(/searchParams: Promise<\{ req\?: string; purchase\?: string \}>/);
+    expect(instructions).toMatch(
+      /searchParams: Promise<\{ req\?: string; purchase\?: string; studio\?: string \}>/,
+    );
     expect(instructions).toMatch(/\{ purchaseId: purchase \}/);
     expect(instructions).toMatch(/\{ purchaseRequestId: req \}/);
+    expect(instructions).toMatch(/studioId=\{data\.producerId\}/);
   });
 });
 
