@@ -5,10 +5,7 @@ import { Command } from "cmdk";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import {
-  paletteSearch,
-  type PaletteResult,
-} from "~/app/(producer)/dashboard/palette-actions";
+import { paletteSearch, type PaletteResult } from "~/app/(producer)/dashboard/palette-actions";
 
 // ⌘K / Ctrl+K command palette. Lazy-loaded by CommandPaletteTrigger
 // so cmdk is only pulled into the client bundle when the producer
@@ -83,7 +80,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   // Phase 2 — labels + shortcuts mirror the locked design's
   // ShortcutsHelp (notes/nav.jsx) and the relabelled sidebar:
   //   G H = Overview, G P = Projects, G M = Music,
-  //   G C = Calendar, G S = Storefront, G T = Settings.
+  //   G C = Calendar, G S = Store, G T = Settings.
   // Calendar + Store entries newly added (the prior 4-route palette
   // pre-dated the 6-page producer surface). Internal `id`s use the
   // ActiveKey vocabulary (`today`, `profile`, `setup`) so any future
@@ -204,7 +201,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       >
         <Command label="Skitza command palette" shouldFilter={false}>
           <div className="flex items-center gap-2 border-b border-[rgb(var(--border-subtle))] px-4 py-3">
-            <span className="font-mono text-[11px] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
+            <span className="font-mono text-[11px] tracking-wider text-[rgb(var(--fg-muted))] uppercase">
               ⌘K
             </span>
             <Command.Input
@@ -215,17 +212,11 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
               autoFocus
             />
             {pending && (
-              <span className="font-mono text-[10px] text-[rgb(var(--fg-muted))]">
-                ...
-              </span>
+              <span className="font-mono text-[10px] text-[rgb(var(--fg-muted))]">...</span>
             )}
           </div>
           <Command.List className="max-h-[50vh] overflow-y-auto p-1">
-            {err && (
-              <div className="px-4 py-3 text-xs text-[rgb(var(--fg-danger))]">
-                {err}
-              </div>
-            )}
+            {err && <div className="px-4 py-3 text-xs text-[rgb(var(--fg-danger))]">{err}</div>}
             <Command.Empty className="px-4 py-6 text-center text-xs text-[rgb(var(--fg-muted))]">
               No results.
             </Command.Empty>
@@ -328,7 +319,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                 ))}
               </Command.Group>
             ) : null}
-
           </Command.List>
           <div className="flex items-center justify-between border-t border-[rgb(var(--border-subtle))] px-4 py-2 font-mono text-[10px] text-[rgb(var(--fg-muted))]">
             <span>Esc to close · ↵ to select · ↑↓ navigate</span>

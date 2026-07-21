@@ -121,14 +121,13 @@ export interface ProjectAggregate {
 
 type Mode = "projects" | "songs";
 type View = "grid" | "table";
-type SongSort = "recent" | "title" | "plays" | "notes" | "length";
+type SongSort = "recent" | "title" | "notes" | "length";
 type ProjectArchiveFilter = "active" | "archived";
 export type SongArchiveFilter = "active" | "archived";
 
 const SORT_LABEL: Record<SongSort, string> = {
   recent: "Most recent",
   title: "Title A → Z",
-  plays: "Most plays",
   notes: "Most notes",
   length: "Length",
 };
@@ -416,11 +415,6 @@ export function MusicLibraryScreen({
     switch (sort) {
       case "title":
         arr.sort((a, b) => rowTitle(a).localeCompare(rowTitle(b)));
-        break;
-      case "plays":
-        arr.sort(
-          (a, b) => (isMusicLibraryTrack(b) ? b.plays : 0) - (isMusicLibraryTrack(a) ? a.plays : 0),
-        );
         break;
       case "notes":
         arr.sort(
@@ -1371,14 +1365,8 @@ function SongCard({
             </p>
           ) : null}
           {canPlay ? (
-            <p className="mt-1 flex items-center justify-between font-mono text-[10.5px] text-[rgb(var(--fg-faint))]">
-              <span className="inline-flex items-center gap-1">
-                <Play size={9} strokeWidth={2.6} fill="currentColor" />
-                <span className="tabular-nums" style={{ minWidth: 16 }}>
-                  {fmtCount(song.plays)}
-                </span>
-              </span>
-              <span className="tabular-nums">{fmtDuration(song.durationMs)}</span>
+            <p className="mt-1 text-right font-mono text-[10.5px] text-[rgb(var(--fg-faint))] tabular-nums">
+              {fmtDuration(song.durationMs)}
             </p>
           ) : (
             <span className="pointer-events-auto relative z-20 block">
@@ -1520,11 +1508,11 @@ function SongsTable({
   markReleased?: MarkSongReleasedAction;
 }) {
   const nowPlaying = useNowPlaying();
-  // 9 columns now: play/idx, cover thumb, title, artist, version, plays,
-  // notes, length, actions. The 40px cover sits between the play column
+  // 8 columns: play/idx, cover thumb, title, artist, version, notes,
+  // length, actions. The 40px cover sits between the play column
   // and the title — same pattern Spotify + Apple Music use in their
   // table view (small album art next to track title for visual identity).
-  const cols = "44px 40px minmax(0,2fr) minmax(0,1fr) 70px 64px 60px 64px 104px";
+  const cols = "44px 40px minmax(0,2fr) minmax(0,1fr) 70px 60px 64px 104px";
 
   function handlePlay(song: MusicLibraryTrackRow) {
     const versionId = latestVersionIdForLibraryTrack(song);
@@ -1567,7 +1555,6 @@ function SongsTable({
             <span>Title</span>
             <span>Artist</span>
             <span>Version</span>
-            <span className="text-right">Plays</span>
             <span className="text-right">Notes</span>
             <span className="text-right">Length</span>
             <span className="text-right">Actions</span>
@@ -1691,7 +1678,6 @@ function LibrarySongDesktopRow({
           <span className="font-mono text-[9.5px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
             Empty
           </span>
-          <span />
           <span />
           <span className="text-right text-[11px] text-[rgb(var(--fg-faint))]">No audio</span>
           <span className="flex justify-end">
@@ -1824,9 +1810,6 @@ function LibrarySongDesktopRow({
         </span>
         <span className="font-mono text-[10px] font-bold text-[rgb(var(--fg-default))] uppercase">
           {item.label ?? "No version"}
-        </span>
-        <span className="text-right font-mono text-[11px] text-[rgb(var(--fg-muted))] tabular-nums">
-          {canPlay ? fmtCount(item.plays) : ""}
         </span>
         <span
           className={[

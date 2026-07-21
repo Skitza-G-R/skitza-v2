@@ -85,12 +85,12 @@ function formatPlanLabel(plan: string): string {
 //
 // G-leader shortcuts mirror the locked-design `ShortcutsHelp` panel
 // (notes/nav.jsx): G H = Overview, G P = Projects, G M = Music,
-// G C = Calendar, G S = Storefront, G F = Portfolio, G T = Settings.
+// G C = Calendar, G S = Store, G F = Portfolio, G T = Settings.
 //
 // Portfolio row history:
 //   - removed 2026-05-15 (CLAUDE.md called for 6 top-level pages)
 //   - re-introduced 2026-05-18 (PR #142 — Gili's call) as a 7th entry
-//     directly under Storefront. Producer-facing decision; CLAUDE.md
+//     directly under Store. Producer-facing decision; CLAUDE.md
 //     surface count is now stale and should be refreshed when the
 //     portfolio redesign promotes to prod.
 export const NAV_ITEMS: readonly NavItem[] = [
@@ -135,7 +135,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   },
   {
     id: "profile",
-    label: "Storefront",
+    label: "Store",
     labelKey: "profile",
     href: "/dashboard/store",
     icon: "store",
@@ -161,7 +161,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
 
 // Visual grouping — section dividers render after these item ids.
 // Groups: [Overview] / [Clients & Projects, Music, Calendar] /
-// [Storefront, Portfolio] / [Settings]. Pure layout concern;
+// [Store, Portfolio] / [Settings]. Pure layout concern;
 // doesn't change route behaviour or active-state derivation.
 const SECTION_BOUNDARY_AFTER: ReadonlySet<ActiveKey> = new Set(["today", "payments", "portfolio"]);
 

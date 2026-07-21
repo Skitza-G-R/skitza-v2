@@ -17,7 +17,7 @@ const HE_MESSAGES = readFileSync(join(here, "..", "..", "..", "..", "messages", 
 //     and the mobile bottom-tab bar (CLAUDE.md called for 6 top-level
 //     producer pages).
 //   - 2026-05-18 (PR #142): Portfolio re-introduced to the DESKTOP
-//     sidebar only, directly under Storefront (Gili's call). Mobile
+//     sidebar only, directly under Store (Gili's call). Mobile
 //     bottom-nav stays at 5 tabs — Portfolio is desktop-only chrome,
 //     consistent with the desktop-only producer dashboard preference
 //     in CLAUDE.md.
@@ -30,7 +30,7 @@ describe("producer nav: Portfolio in sidebar only", () => {
     expect(SIDEBAR).toMatch(/href:\s*["']\/dashboard\/store["']/);
   });
 
-  it("sidebar contains a Portfolio entry under Storefront", () => {
+  it("sidebar contains a Portfolio entry under Store", () => {
     expect(SIDEBAR).toMatch(/label:\s*["']Portfolio["']/);
     expect(SIDEBAR).toMatch(/href:\s*["']\/dashboard\/portfolio["']/);
   });
@@ -62,6 +62,10 @@ describe("producer nav: Portfolio in sidebar only", () => {
   it("provides the Payments sidebar label in both message catalogs", () => {
     expect(EN_MESSAGES).toMatch(/"payments":\s*"Payments"/);
     expect(HE_MESSAGES).toMatch(/"payments":\s*"תשלומים"/);
+  });
+
+  it("uses the approved Store label in English navigation", () => {
+    expect(EN_MESSAGES).toMatch(/"profile":\s*"Store"/);
   });
 });
 

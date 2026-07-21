@@ -1,8 +1,8 @@
 "use client";
 
-import { AudioLines, Clock3, Play, Plus, Share2, Shuffle } from "lucide-react";
+import { AudioLines, Clock3, Play, Plus, Shuffle } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import { EqBars } from "~/components/audio/eq-bars";
 import { playerPlay, playerToggle, useNowPlaying } from "~/components/audio/persistent-player";
@@ -174,7 +174,6 @@ export function ProjectPage({
   markReleased?: MarkSongReleasedAction;
 }) {
   const nowPlaying = useNowPlaying();
-  const [shareConfirm, setShareConfirm] = useState<null | "copied" | "shared">(null);
 
   const gradient = useMemo(() => gradientForSeed(data.project.id), [data.project.id]);
   const summary = useMemo(() => summarizeProjectMusic(data.tracks), [data.tracks]);
@@ -192,16 +191,6 @@ export function ProjectPage({
       : data.project.lifecycleStatus === "canceled"
         ? "Archived · Canceled"
         : null;
-
-  useEffect(() => {
-    if (shareConfirm === null) return;
-    const timeout = window.setTimeout(() => {
-      setShareConfirm(null);
-    }, 2400);
-    return () => {
-      window.clearTimeout(timeout);
-    };
-  }, [shareConfirm]);
 
   // Build a PlayerTrack payload for a given row.
   function toPlayerTrack(t: ProjectPageTrack) {
@@ -244,22 +233,6 @@ export function ProjectPage({
     if (playableTracks.length === 0) return;
     const target = playableTracks[Math.floor(Math.random() * playableTracks.length)];
     if (target) handlePlayTrack(target);
-  }
-
-  async function handleShare() {
-    if (typeof window === "undefined") return;
-    const url = window.location.href;
-    try {
-      await navigator.share({ title: data.project.title, url });
-      setShareConfirm("shared");
-    } catch {
-      try {
-        await navigator.clipboard.writeText(url);
-        setShareConfirm("copied");
-      } catch {
-        // Neither API is available; sharing remains non-destructive.
-      }
-    }
   }
 
   // Whole project-play playing state (true when ANY track in the
@@ -434,13 +407,6 @@ export function ProjectPage({
                 <Shuffle size={16} strokeWidth={2.2} />
               </CircleIconButton>
             ) : null}
-            <CircleIconButton
-              ariaLabel="Share"
-              title="Share project link"
-              onClick={() => void handleShare()}
-            >
-              <Share2 size={16} strokeWidth={2.2} />
-            </CircleIconButton>
             {role === "producer" && producerActionHref ? (
               <Link
                 href={producerActionHref}
@@ -449,14 +415,6 @@ export function ProjectPage({
                 <Plus size={14} strokeWidth={2.4} />
                 {kind === "SINGLE" && allocatedSongCount === 1 ? "Add another song" : "Add Song"}
               </Link>
-            ) : null}
-            {shareConfirm ? (
-              <span
-                role="status"
-                className="reveal-up rounded-[var(--radius-sm)] bg-white/90 px-3 py-1.5 text-[11.5px] font-bold text-[rgb(17_16_9)] backdrop-blur-sm"
-              >
-                {shareConfirm === "copied" ? "Link copied" : "Shared"}
-              </span>
             ) : null}
           </div>
         </div>
@@ -572,7 +530,7 @@ function Tracklist({
   setArchived?: SetSongArchivedAction;
   markReleased?: MarkSongReleasedAction;
 }) {
-  const cols = "44px minmax(0,1fr) 86px 80px 60px 72px 96px";
+  const cols = "44px minmax(0,1fr) 86px 60px 72px 96px";
   return (
     <>
       {/* Header eyebrow row — desktop only. Below lg the fixed px
@@ -589,7 +547,6 @@ function Tracklist({
         <span className="text-right">#</span>
         <span>Title</span>
         <span>Version</span>
-        <span className="text-right">Plays</span>
         <span className="text-right">Notes</span>
         <span className="flex justify-end">
           <Clock3 size={11} strokeWidth={2} />
@@ -723,7 +680,6 @@ function ProjectMusicDesktopRow({
             Empty
           </span>
           <span />
-          <span />
           <span className="flex justify-end font-mono text-[9px] text-[rgb(var(--fg-faint))] uppercase">
             No audio
           </span>
@@ -842,9 +798,6 @@ function ProjectMusicDesktopRow({
         </span>
         <span className="pointer-events-none relative z-10 font-mono text-[9.5px] font-bold text-[rgb(var(--fg-default))] uppercase">
           {item.versionLabel ?? "No version"}
-        </span>
-        <span className="pointer-events-none relative z-10 text-right font-mono text-[11px] text-[rgb(var(--fg-muted))] tabular-nums">
-          {canPlay ? fmtCount(item.plays) : ""}
         </span>
         <span
           className={[

@@ -58,7 +58,6 @@ export function DashboardTopBar({
       fallback={PRODUCER_FALLBACK}
       searchPlaceholder="Search projects, clients, songs…"
       onSearchClick={openProducerPalette}
-      unreadCount={unreadCount}
       notificationControl={notificationControl}
     />
   );

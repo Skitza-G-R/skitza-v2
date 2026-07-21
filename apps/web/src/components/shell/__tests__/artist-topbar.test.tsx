@@ -6,9 +6,8 @@ import { dirname, join } from "node:path";
 // Artist-side wrapper tests. Shared rendering lives in `app-topbar.tsx`
 // (pinned by app-topbar.test.tsx); this file pins the artist-specific
 // configuration: section labels (Home / Music / Book / Store /
-// Settings), artist search placeholder, and the absence of an
-// onSearchClick handler (the artist palette ships in a separate task,
-// per SK-31 — visual parity now, behavior later).
+// Settings), artist search placeholder, and the absence of dead
+// search or notification actions.
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "artist-topbar.tsx"), "utf-8");
@@ -53,8 +52,9 @@ describe("ArtistTopBar (artist wrapper)", () => {
     expect(SRC).not.toContain("dispatchEvent");
   });
 
-  it("threads unreadCount through to the shared topbar", () => {
-    expect(SRC).toMatch(/unreadCount=\{unreadCount\}/);
+  it("does not pass a passive notification signal", () => {
+    expect(SRC).not.toContain("unreadCount");
+    expect(SRC).not.toContain("notificationControl");
   });
 
   it("uses no forbidden Skitza CSS tokens", () => {

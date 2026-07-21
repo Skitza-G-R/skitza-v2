@@ -461,12 +461,11 @@ describe("song-page.tsx source — Play button on the waveform card (founder fee
 });
 
 describe("song-page.tsx source — secondary actions and public sharing", () => {
-  it("Favorite (Star) button is rendered with an aria-label", () => {
-    // Allow either a static label or a conditional ternary — both
-    // strings must appear so the toggle reads correctly to screen
-    // readers in either state.
-    expect(songPageSrc).toContain('"Add to favorites"');
-    expect(songPageSrc).toContain('"Remove from favorites"');
+  it("removes the local-only Favorite control", () => {
+    expect(songPageSrc).not.toContain('"Add to favorites"');
+    expect(songPageSrc).not.toContain('"Remove from favorites"');
+    expect(songPageSrc).not.toContain("StarIcon");
+    expect(songPageSrc).not.toContain("isFavorite");
   });
 
   it("uses the producer-controlled public-link surface instead of copying the private page URL", () => {
@@ -477,13 +476,6 @@ describe("song-page.tsx source — secondary actions and public sharing", () => 
 
   it("Download button is rendered with an aria-label", () => {
     expect(songPageSrc).toContain('aria-label="Download"');
-  });
-
-  it("Star icon is an inline SVG path (avoids icon-font-load failures the user saw on the dock mockup)", () => {
-    // Both filled + outlined variants ship as SVG so the toggle never
-    // shows an empty circle while a glyph is missing.
-    expect(songPageSrc).toContain("StarIcon");
-    expect(songPageSrc).toMatch(/<path[^>]*d="M8 1\.5/); // five-point star path begins here
   });
 
   it("keeps the Download icon inline and removes the obsolete private-page share icon", () => {

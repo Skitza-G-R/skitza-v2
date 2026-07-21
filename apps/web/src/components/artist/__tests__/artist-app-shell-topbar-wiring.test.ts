@@ -10,10 +10,7 @@ import { dirname, join } from "node:path";
 // untouched.
 
 const here = dirname(fileURLToPath(import.meta.url));
-const SRC = readFileSync(
-  join(here, "..", "artist-app-shell.tsx"),
-  "utf-8",
-);
+const SRC = readFileSync(join(here, "..", "artist-app-shell.tsx"), "utf-8");
 
 describe("ArtistAppShell + ArtistTopBar wiring", () => {
   it("imports ArtistTopBar from the shared shell folder", () => {
@@ -45,8 +42,9 @@ describe("ArtistAppShell + ArtistTopBar wiring", () => {
     expect(SRC).toMatch(/hidden\s+lg:block[\s\S]{0,80}<ArtistTopBar/);
   });
 
-  it("threads unreadCount into ArtistTopBar", () => {
-    expect(SRC).toMatch(/<ArtistTopBar[\s\S]{0,80}unreadCount=\{unreadCount\}/);
+  it("mounts ArtistTopBar without a passive notification prop", () => {
+    expect(SRC).toContain("<ArtistTopBar />");
+    expect(SRC).not.toContain("unreadCount");
   });
 
   it("keeps the existing ArtistMobileTopBar mounted (mobile chrome untouched)", () => {

@@ -7,26 +7,18 @@ import { KIND_COLORS, inferSessionKind } from "./session-kind";
 import type { RawBookingStatus, SessionListItem } from "./session-row";
 
 type Filter = "upcoming" | "past" | "all";
-type DisplayStatus =
-  | "confirmed"
-  | "pending"
-  | "completed"
-  | "no_show"
-  | "rejected"
-  | "cancelled";
+type DisplayStatus = "confirmed" | "pending" | "completed" | "no_show" | "rejected" | "cancelled";
 
 export function ScheduleSessionsCard({
   sessions,
   initialNow,
   timeZone,
   selectedBookingId = null,
-  onEditSession,
 }: {
   sessions: readonly SessionListItem[];
   initialNow: string;
   timeZone: string;
   selectedBookingId?: string | null;
-  onEditSession: (session: SessionListItem) => void;
 }) {
   const now = useMemo(() => new Date(initialNow), [initialNow]);
   const [filter, setFilter] = useState<Filter>("upcoming");
@@ -111,14 +103,7 @@ export function ScheduleSessionsCard({
                     : "outline-none"
                 }
               >
-                <CompactSessionRow
-                  session={session}
-                  now={now}
-                  timeZone={timeZone}
-                  onEdit={() => {
-                    onEditSession(session);
-                  }}
-                />
+                <CompactSessionRow session={session} now={now} timeZone={timeZone} />
               </li>
             );
           })}
@@ -132,24 +117,21 @@ function CompactSessionRow({
   session,
   now,
   timeZone,
-  onEdit,
 }: {
   session: SessionListItem;
   now: Date;
   timeZone: string;
-  onEdit: () => void;
 }) {
   const start = new Date(session.startsAt);
   const end = new Date(start.getTime() + session.durationMin * 60_000);
   const status = deriveDisplayStatus(session.status, end, now);
-  const dimmed =
-    status === "cancelled" || status === "rejected" || status === "no_show";
+  const dimmed = status === "cancelled" || status === "rejected" || status === "no_show";
   const serviceLabel = session.packageName ?? "Session";
   const kindToken = KIND_COLORS[inferSessionKind(session.packageName)];
 
   return (
     <div
-      className="grid min-h-[68px] grid-cols-[38px_minmax(0,1fr)_auto] items-center gap-2 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-2 transition-colors hover:border-[rgb(var(--border-strong))]"
+      className="grid min-h-[68px] grid-cols-[38px_minmax(0,1fr)] items-center gap-2 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-2"
       style={{ opacity: dimmed ? 0.62 : 1 }}
     >
       <CompactDate date={start} kindToken={kindToken} timeZone={timeZone} />
@@ -168,24 +150,13 @@ function CompactSessionRow({
             {session.artistName}
           </span>
           <span className="shrink-0 font-mono text-[8.5px] text-[rgb(var(--fg-muted))]">
-            {formatCalendarTime(start, timeZone)}–
-            {formatCalendarTime(end, timeZone)}
+            {formatCalendarTime(start, timeZone)}–{formatCalendarTime(end, timeZone)}
           </span>
         </div>
         <div className="mt-1.5">
           <CompactStatus status={status} />
         </div>
       </div>
-      <button
-        type="button"
-        onClick={onEdit}
-        aria-label={`Edit ${serviceLabel} with ${session.artistName}`}
-        className="sk-press inline-flex h-8 items-center justify-center gap-1 rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2 text-[10px] text-[rgb(var(--fg-secondary))] transition-colors hover:border-[rgb(var(--border-strong))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
-        style={{ fontWeight: 700 }}
-      >
-        <PencilIcon />
-        <span>Edit</span>
-      </button>
     </div>
   );
 }
@@ -272,23 +243,4 @@ function bucketSessions(
     (a, b) => new Date(b.startsAt).getTime() - new Date(a.startsAt).getTime(),
   );
   return { upcoming, past, all };
-}
-
-function PencilIcon() {
-  return (
-    <svg
-      width="11"
-      height="11"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
-    </svg>
-  );
 }

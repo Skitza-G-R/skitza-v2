@@ -24,18 +24,16 @@ describe("Sidebar NAV_ITEMS", () => {
   });
 
   it("has the canonical labels in order", () => {
-    // 2026-05-16: "Store" was renamed to "Storefront" to match the
-    // HTML mockup's locked sidebar nomenclature. The /dashboard/store
-    // route is unchanged; only the visible label moved.
-    // 2026-05-18: Portfolio re-introduced as the 7th entry directly
-    // under Storefront.
+    // SK-99 restores the approved product label, "Store". The
+    // /dashboard/store route is unchanged.
+    // Portfolio remains directly under Store on desktop.
     expect(NAV_ITEMS.map((i) => i.label)).toEqual([
       "Overview",
       "Clients & Projects",
       "Music",
       "Calendar",
       "Payments",
-      "Storefront",
+      "Store",
       "Portfolio",
       "Settings",
     ]);
@@ -65,7 +63,7 @@ describe("Sidebar NAV_ITEMS", () => {
     expect(NAV_ITEMS.find((i) => i.id === "payments")?.shortcut).toBeUndefined();
   });
 
-  it("contains a Portfolio nav row directly under Storefront", () => {
+  it("contains a Portfolio nav row directly under Store", () => {
     const idx = NAV_ITEMS.findIndex((i) => i.id === "portfolio");
     const prev = idx > 0 ? NAV_ITEMS[idx - 1] : undefined;
     expect(idx).toBeGreaterThan(-1);

@@ -15,17 +15,17 @@ describe("AlbumTabs — purchase-safe segmented control", () => {
     expect(SRC).toMatch(/export type AlbumTab/);
   });
 
-  it("supports songs / files / log without the removed project payment model", () => {
+  it("supports only real songs and studio-log surfaces", () => {
     expect(SRC).toContain('"songs"');
-    expect(SRC).toContain('"files"');
     expect(SRC).toContain('"log"');
+    expect(SRC).not.toContain('"files"');
     expect(SRC).not.toContain('"payments"');
   });
 
-  it("renders Songs / Files / Studio Log only", () => {
+  it("renders Songs and Studio Log only", () => {
     expect(SRC).toContain("Songs");
-    expect(SRC).toContain('"Files"');
     expect(SRC).toContain('"Studio Log"');
+    expect(SRC).not.toContain('"Files"');
     expect(SRC).not.toContain('"Payments"');
   });
 
@@ -95,7 +95,7 @@ describe("AlbumTabs — purchase-safe segmented control", () => {
     // or a static string form
     //   id="tab-songs" aria-controls="panel-songs"
     // for each remaining tab key.
-    for (const key of ["songs", "files", "log"]) {
+    for (const key of ["songs", "log"]) {
       const idStatic = new RegExp(`id=["']tab-${key}["']`);
       const idDynamic = /id=\{`tab-\$\{[^}]+\}`\}/;
       const ctrlStatic = new RegExp(`aria-controls=["']panel-${key}["']`);

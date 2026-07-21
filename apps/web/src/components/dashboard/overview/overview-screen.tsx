@@ -26,11 +26,7 @@ import {
 } from "./needs-you";
 import { NeedsYouPaymentRow } from "./needs-you-payment-row";
 import { PublicLinkStrip } from "./public-link-strip";
-import {
-  formatDashboardDate,
-  formatDashboardTime,
-  greetingFor,
-} from "./overview-time";
+import { formatDashboardDate, formatDashboardTime, greetingFor } from "./overview-time";
 
 export interface OverviewScreenProps {
   displayName: string | null;
@@ -94,7 +90,7 @@ export interface OverviewScreenProps {
   }>;
   unresolvedItems: Array<{
     id: string;
-    kind: "comment" | "invoice";
+    kind: "comment";
     title: string;
     subtitle: string;
     occurredAt: Date;
@@ -139,10 +135,10 @@ export function OverviewScreen({
   });
 
   return (
-    <div className="sk-page-enter mx-auto flex w-full max-w-[1180px] flex-col gap-4 px-4 pb-10 pt-5 sm:px-6 lg:gap-5 lg:px-8 lg:pb-8 lg:pt-8">
+    <div className="sk-page-enter mx-auto flex w-full max-w-[1180px] flex-col gap-4 px-4 pt-5 pb-10 sm:px-6 lg:gap-5 lg:px-8 lg:pt-8 lg:pb-8">
       <header className="reveal-up flex min-w-0 items-end justify-between gap-6">
         <div className="min-w-0">
-          <h1 className="font-syne break-words text-[32px] font-extrabold leading-[0.98] tracking-[-0.03em] text-[rgb(var(--fg-default))] [overflow-wrap:anywhere] lg:text-[38px]">
+          <h1 className="font-syne text-[32px] leading-[0.98] font-extrabold tracking-[-0.03em] [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-default))] lg:text-[38px]">
             {greetingFor(now, timezone)}, {firstName}.
           </h1>
           <p className="mt-2 text-[15px] text-[rgb(var(--fg-muted))] lg:text-sm">
@@ -192,7 +188,7 @@ function NeedsYouPanel({
     >
       <h2
         id="needs-you-heading"
-        className="pb-2 font-mono text-[11px] font-semibold uppercase tracking-[0.2em] text-[rgb(var(--fg-onsidebar))] lg:text-[rgb(var(--fg-default))]"
+        className="pb-2 font-mono text-[11px] font-semibold tracking-[0.2em] text-[rgb(var(--fg-onsidebar))] uppercase lg:text-[rgb(var(--fg-default))]"
       >
         Needs you
       </h2>
@@ -224,14 +220,14 @@ function NeedsYouPanel({
       {hiddenCount > 0 ? (
         <Link
           href="/dashboard?view=all#needs-you"
-          className="flex min-h-11 items-center justify-center border-t border-[rgb(var(--fg-onsidebar)/0.16)] font-mono text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[rgb(var(--brand-primary))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset lg:border-[rgb(var(--border-subtle))] lg:text-[rgb(var(--brand-primary-text))]"
+          className="flex min-h-11 items-center justify-center border-t border-[rgb(var(--fg-onsidebar)/0.16)] font-mono text-[10.5px] font-semibold tracking-[0.12em] text-[rgb(var(--brand-primary))] uppercase focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset lg:border-[rgb(var(--border-subtle))] lg:text-[rgb(var(--brand-primary-text))]"
         >
           View all {items.length} actions
         </Link>
       ) : showAll && items.length > 3 ? (
         <Link
           href="/dashboard#needs-you"
-          className="flex min-h-11 items-center justify-center border-t border-[rgb(var(--fg-onsidebar)/0.16)] font-mono text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[rgb(var(--brand-primary))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset lg:border-[rgb(var(--border-subtle))] lg:text-[rgb(var(--brand-primary-text))]"
+          className="flex min-h-11 items-center justify-center border-t border-[rgb(var(--fg-onsidebar)/0.16)] font-mono text-[10.5px] font-semibold tracking-[0.12em] text-[rgb(var(--brand-primary))] uppercase focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset lg:border-[rgb(var(--border-subtle))] lg:text-[rgb(var(--brand-primary-text))]"
         >
           Show top 3
         </Link>
@@ -310,10 +306,10 @@ function MobileTodayCard({
         <CalendarDays aria-hidden size={21} />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block font-mono text-[10.5px] font-semibold uppercase tracking-[0.18em] text-[rgb(var(--fg-default))]">
+        <span className="block font-mono text-[10.5px] font-semibold tracking-[0.18em] text-[rgb(var(--fg-default))] uppercase">
           Today
         </span>
-        <span className="mt-1 block font-mono text-[13px] font-semibold uppercase tracking-[0.08em] text-[rgb(var(--brand-primary-text))]">
+        <span className="mt-1 block font-mono text-[13px] font-semibold tracking-[0.08em] text-[rgb(var(--brand-primary-text))] uppercase">
           {formatDashboardTime(session.occurredAt, timezone)}
         </span>
         <span className="mt-0.5 block truncate text-[17px] font-bold text-[rgb(var(--fg-default))]">
@@ -325,11 +321,7 @@ function MobileTodayCard({
   );
 }
 
-function UrgentProjectsCard({
-  projects,
-}: {
-  projects: OverviewScreenProps["urgentProjects"];
-}) {
+function UrgentProjectsCard({ projects }: { projects: OverviewScreenProps["urgentProjects"] }) {
   return (
     <section
       aria-labelledby="urgent-projects-heading"
@@ -337,7 +329,7 @@ function UrgentProjectsCard({
     >
       <h2
         id="urgent-projects-heading"
-        className="pb-2 font-mono text-[10.5px] font-semibold uppercase tracking-[0.18em] text-[rgb(var(--fg-default))]"
+        className="pb-2 font-mono text-[10.5px] font-semibold tracking-[0.18em] text-[rgb(var(--fg-default))] uppercase"
       >
         Urgent projects
       </h2>
@@ -348,7 +340,10 @@ function UrgentProjectsCard({
           </li>
         ) : (
           projects.slice(0, 2).map((project) => (
-            <li key={project.id} className="border-b border-[rgb(var(--border-subtle))] last:border-b-0">
+            <li
+              key={project.id}
+              className="border-b border-[rgb(var(--border-subtle))] last:border-b-0"
+            >
               <Link
                 href={`/dashboard/clients-projects/${project.id}`}
                 className="flex min-h-[72px] items-center gap-3 rounded-[var(--radius-sm)] py-2.5 focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset"
@@ -377,7 +372,7 @@ function UrgentProjectsCard({
       </ul>
       <Link
         href="/dashboard/clients-projects"
-        className="mt-auto flex min-h-11 items-center justify-center border-t border-[rgb(var(--border-subtle))] font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-[rgb(var(--brand-primary-text))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset"
+        className="mt-auto flex min-h-11 items-center justify-center border-t border-[rgb(var(--border-subtle))] font-mono text-[10px] font-semibold tracking-[0.12em] text-[rgb(var(--brand-primary-text))] uppercase focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset"
       >
         View all projects
       </Link>
@@ -399,7 +394,7 @@ function LatestUploadsCard({
     >
       <h2
         id="latest-uploads-heading"
-        className="pb-2 font-mono text-[10.5px] font-semibold uppercase tracking-[0.18em] text-[rgb(var(--fg-default))]"
+        className="pb-2 font-mono text-[10.5px] font-semibold tracking-[0.18em] text-[rgb(var(--fg-default))] uppercase"
       >
         Latest uploads
       </h2>
@@ -410,7 +405,10 @@ function LatestUploadsCard({
           </li>
         ) : (
           uploads.map((upload) => (
-            <li key={upload.versionId} className="border-b border-[rgb(var(--border-subtle))] last:border-b-0">
+            <li
+              key={upload.versionId}
+              className="border-b border-[rgb(var(--border-subtle))] last:border-b-0"
+            >
               <Link
                 href={`/dashboard/music/${upload.versionId}`}
                 className="flex min-h-[72px] items-center gap-3 rounded-[var(--radius-sm)] py-2.5 focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset"
@@ -434,7 +432,7 @@ function LatestUploadsCard({
       </ul>
       <Link
         href="/dashboard/music"
-        className="mt-auto flex min-h-11 items-center justify-center border-t border-[rgb(var(--border-subtle))] font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-[rgb(var(--brand-primary-text))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset"
+        className="mt-auto flex min-h-11 items-center justify-center border-t border-[rgb(var(--border-subtle))] font-mono text-[10px] font-semibold tracking-[0.12em] text-[rgb(var(--brand-primary-text))] uppercase focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset"
       >
         View all uploads
       </Link>
@@ -453,21 +451,19 @@ function UploadMeta({
 }) {
   return (
     <span className="w-[78px] shrink-0 text-right">
-      <span className="block font-mono text-[8.5px] font-semibold uppercase tracking-[0.13em] text-[rgb(var(--fg-muted))]">
+      <span className="block font-mono text-[8.5px] font-semibold tracking-[0.13em] text-[rgb(var(--fg-muted))] uppercase">
         {label}
       </span>
-      <span className={`${mono ? "font-mono" : ""} mt-0.5 block text-xs font-semibold text-[rgb(var(--fg-default))]`}>
+      <span
+        className={`${mono ? "font-mono" : ""} mt-0.5 block text-xs font-semibold text-[rgb(var(--fg-default))]`}
+      >
         {value}
       </span>
     </span>
   );
 }
 
-function StudioPulse({
-  pulseStats,
-}: {
-  pulseStats: OverviewScreenProps["pulseStats"];
-}) {
+function StudioPulse({ pulseStats }: { pulseStats: OverviewScreenProps["pulseStats"] }) {
   return (
     <section
       aria-label="Studio pulse"
@@ -489,11 +485,7 @@ function StudioPulse({
           />
         </>
       ) : null}
-      <PulseStat
-        label="Active projects"
-        value={String(pulseStats.activeProjects)}
-        last
-      />
+      <PulseStat label="Active projects" value={String(pulseStats.activeProjects)} last />
     </section>
   );
 }
@@ -513,10 +505,10 @@ function PulseStat({
     <div
       className={`${last ? "" : "border-r border-[rgb(var(--border-subtle))]"} ${className} min-w-0 px-4 py-5 lg:px-6`}
     >
-      <p className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.18em] text-[rgb(var(--fg-default))]">
+      <p className="font-mono text-[9.5px] font-semibold tracking-[0.18em] text-[rgb(var(--fg-default))] uppercase">
         {label}
       </p>
-      <p className="font-syne mt-2 truncate text-[30px] font-bold leading-none tracking-[-0.035em] tabular-nums text-[rgb(var(--fg-default))] lg:text-[34px]">
+      <p className="font-syne mt-2 truncate text-[30px] leading-none font-bold tracking-[-0.035em] text-[rgb(var(--fg-default))] tabular-nums lg:text-[34px]">
         {value}
       </p>
     </div>
@@ -540,7 +532,7 @@ function MobileLatestUpload({
         <AudioLines aria-hidden size={19} />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block font-mono text-[10.5px] font-semibold uppercase tracking-[0.18em] text-[rgb(var(--fg-default))]">
+        <span className="block font-mono text-[10.5px] font-semibold tracking-[0.18em] text-[rgb(var(--fg-default))] uppercase">
           Latest upload
         </span>
         <span className="mt-1 block truncate text-[17px] font-bold text-[rgb(var(--fg-default))]">
@@ -555,19 +547,11 @@ function MobileLatestUpload({
   );
 }
 
-function UrgencyBadge({
-  urgency,
-}: {
-  urgency: "overdue" | "deposit_due" | "stuck";
-}) {
+function UrgencyBadge({ urgency }: { urgency: "overdue" | "deposit_due" | "stuck" }) {
   const label =
-    urgency === "overdue"
-      ? "Overdue"
-      : urgency === "deposit_due"
-        ? "Deposit due"
-        : "Stuck";
+    urgency === "overdue" ? "Overdue" : urgency === "deposit_due" ? "Deposit due" : "Stuck";
   return (
-    <span className="shrink-0 rounded-[var(--radius-sm)] border border-[rgb(var(--fg-danger)/0.25)] bg-[rgb(var(--fg-danger)/0.08)] px-2 py-1 font-mono text-[8.5px] font-semibold uppercase tracking-[0.12em] text-[rgb(var(--fg-danger-text))]">
+    <span className="shrink-0 rounded-[var(--radius-sm)] border border-[rgb(var(--fg-danger)/0.25)] bg-[rgb(var(--fg-danger)/0.08)] px-2 py-1 font-mono text-[8.5px] font-semibold tracking-[0.12em] text-[rgb(var(--fg-danger-text))] uppercase">
       {label}
     </span>
   );

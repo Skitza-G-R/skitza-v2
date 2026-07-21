@@ -561,14 +561,7 @@ export function SongPage({
     };
   }, []);
 
-  // Local-only "favorite" toggle — the backend mutation isn't wired
-  // yet, but the UI affordance ships now so the action rail matches
-  // the design. State resets per page navigation, which is fine for
-  // the optimistic preview; persistence lands when producer-favorites
-  // is added on the server.
-  const [isFavorite, setIsFavorite] = useState(false);
-
-  // Secondary actions overflow menu (heart/share/download). Click-out
+  // Secondary actions overflow menu. Click-out
   // closes it. Premium players keep utility actions out of the primary
   // sightline — the menu collapses into a single circular trigger.
   const [overflowOpen, setOverflowOpen] = useState(false);
@@ -1661,8 +1654,8 @@ export function SongPage({
                 />
               ) : null}
 
-              {/* Overflow — single glass circle for share / favorite /
-                  download. Origin-aware popover scales from this trigger. */}
+              {/* Overflow — single glass circle for download and producer
+                  management actions. Origin-aware popover scales from this trigger. */}
               <div ref={overflowRef} className="relative">
                 <button
                   ref={moreButtonRef}
@@ -1689,22 +1682,6 @@ export function SongPage({
                       animation: "skitza-pop-in 220ms cubic-bezier(0.23, 1, 0.32, 1) both",
                     }}
                   >
-                    <button
-                      type="button"
-                      role="menuitem"
-                      aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
-                      aria-pressed={isFavorite}
-                      onClick={() => {
-                        setIsFavorite((f) => !f);
-                        setOverflowOpen(false);
-                      }}
-                      className="flex min-h-11 w-full items-center gap-2.5 rounded-[var(--radius-lg)] px-3 py-2 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
-                    >
-                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary-dark))]">
-                        <StarIcon filled={isFavorite} />
-                      </span>
-                      {isFavorite ? "Remove from favorites" : "Add to favorites"}
-                    </button>
                     {canUseDownloadAction ? (
                       <a
                         role="menuitem"
@@ -2417,26 +2394,6 @@ function PauseIcon() {
     <svg width="13" height="13" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
       <rect x="3" y="2.5" width="2" height="7" rx="0.5" />
       <rect x="7" y="2.5" width="2" height="7" rx="0.5" />
-    </svg>
-  );
-}
-
-function StarIcon({ filled }: { filled: boolean }) {
-  // 5-point star — `d="M8 1.5..."` keeps the test grep stable across
-  // future tweaks to stroke / fill. Filled toggles between solid (in-
-  // favorites) and outline (not yet favorited).
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 16 16"
-      fill={filled ? "currentColor" : "none"}
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M8 1.5 9.94 5.85 14.5 6.4 11.05 9.55 12 14.5 8 11.95 4 14.5 4.95 9.55 1.5 6.4 6.06 5.85 Z" />
     </svg>
   );
 }

@@ -179,9 +179,7 @@ export function SettingsClient({
         if (res.saved?.producer || res.saved?.paymentInstructions) {
           setSavedForm((current) => ({
             displayName: res.saved?.producer ? form.displayName : current.displayName,
-            defaultCurrency: res.saved?.producer
-              ? form.defaultCurrency
-              : current.defaultCurrency,
+            defaultCurrency: res.saved?.producer ? form.defaultCurrency : current.defaultCurrency,
             weekStart: res.saved?.producer ? form.weekStart : current.weekStart,
             paymentInstructions: res.saved?.paymentInstructions
               ? form.paymentInstructions
@@ -435,10 +433,6 @@ function PlanFreeView() {
           >
             Up to 3 artists · 5 GB storage · Standard storefront.
           </div>
-          {/* CTA intentionally lives in the pricing card below — keeps
-              the hero descriptive and the action card decisive. Saves
-              the producer from hitting the same 'Coming soon' toast
-              twice in a row. */}
         </div>
         <div className="s-usage-grid">
           <UsageCell
@@ -493,7 +487,6 @@ function PlanFreeView() {
                 </span>
               </div>
             </div>
-            <ComingSoonButton kind="amber">Upgrade</ComingSoonButton>
           </div>
         </div>
       </div>
@@ -535,9 +528,6 @@ function PlanProView() {
             }}
           >
             Unlimited artists · 100 GB storage · Custom storefront.
-          </div>
-          <div className="s-plan-ctas">
-            <ComingSoonButton kind="link-muted">Switch to Free</ComingSoonButton>
           </div>
         </div>
         <div className="s-usage-grid">
@@ -587,39 +577,6 @@ function UsageCell({
         />
       </div>
     </div>
-  );
-}
-
-// Pro/Upgrade-style CTAs that don't have a destination yet. Toasting on
-// click is friendlier than swallowing the press — the producer at least
-// knows the button works.
-function ComingSoonButton({
-  kind,
-  children,
-  style,
-}: {
-  kind: "amber" | "ghost" | "link-muted";
-  children: React.ReactNode;
-  style?: React.CSSProperties;
-}) {
-  const { toast } = useToast();
-  const cls =
-    kind === "amber"
-      ? "s-btn s-btn-amber"
-      : kind === "ghost"
-        ? "s-btn s-btn-ghost"
-        : "s-plan-link-muted";
-  return (
-    <button
-      type="button"
-      className={cls}
-      style={style}
-      onClick={() => {
-        toast("Coming soon.", "success");
-      }}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -731,7 +688,7 @@ function IntegrationsSection({
       <header className="s-section-head">
         <span className="s-section-eyebrow">Payments &amp; tools</span>
         <h2 id="settings-int-h">Integrations</h2>
-        <p>Tell artists how to pay you directly and manage external tools.</p>
+        <p>Tell artists how to pay you directly.</p>
       </header>
 
       <div className="s-card">
@@ -820,30 +777,6 @@ function IntegrationsSection({
                 });
               }}
             />
-          </div>
-        </div>
-      </div>
-
-      <div className="s-card">
-        <div className="s-intlist">
-          <div className="s-introw">
-            <div
-              className="s-introw-logo"
-              style={{
-                background: "#fff",
-                color: "#4285F4",
-                border: "1px solid rgb(var(--border-subtle))",
-              }}
-            >
-              G
-            </div>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div className="s-introw-title">
-                Google Calendar
-                <span className="s-chip s-chip-neutral">Coming soon</span>
-              </div>
-              <div className="s-introw-sub">Two-way session sync.</div>
-            </div>
           </div>
         </div>
       </div>

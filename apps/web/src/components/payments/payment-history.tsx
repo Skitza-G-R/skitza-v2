@@ -6,6 +6,7 @@ import { Button } from "~/components/ui/button";
 import { formatMoney } from "~/lib/format/money";
 
 import type { PaymentDeliveryState } from "./delivery-state";
+import { PaymentReminderButton } from "./payment-reminder-button";
 
 export type PaymentHistoryRole = "artist" | "producer";
 
@@ -401,7 +402,12 @@ function PurchaseHistory({
           headingId={`purchase-${purchase.id}-frozen-terms`}
         />
         <AcceptanceAndPlan acceptance={purchase.acceptance} plan={purchase.plan} />
-        <InstallmentSchedule schedule={purchase.schedule} currency={purchase.currency} />
+        <InstallmentSchedule
+          schedule={purchase.schedule}
+          currency={purchase.currency}
+          purchaseId={purchase.id}
+          role={role}
+        />
         <PurchaseHistories purchase={purchase} role={role} />
       </div>
     </details>
@@ -696,9 +702,13 @@ function AcceptanceAndPlan({
 function InstallmentSchedule({
   schedule,
   currency,
+  purchaseId,
+  role,
 }: {
   schedule: readonly PaymentHistoryInstallment[];
   currency: string;
+  purchaseId: string;
+  role: PaymentHistoryRole;
 }) {
   return (
     <section aria-label="Payment schedule" className="min-w-0">
@@ -730,6 +740,12 @@ function InstallmentSchedule({
                 currency={currency}
               />
             </dl>
+            {role === "producer" &&
+            installment.remainingCents > 0 &&
+            installment.dueAtIso !== null &&
+            installment.status.label !== "Canceled" ? (
+              <PaymentReminderButton purchaseId={purchaseId} installmentId={installment.id} />
+            ) : null}
           </li>
         ))}
       </ol>

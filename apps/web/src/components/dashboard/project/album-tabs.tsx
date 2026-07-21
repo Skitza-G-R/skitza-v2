@@ -1,12 +1,12 @@
 "use client";
 
-import { FolderOpen, Music, Notebook } from "lucide-react";
+import { Music, Notebook } from "lucide-react";
 import type { ComponentType, SVGProps } from "react";
 
 // AlbumTabs — pill-shaped segmented control for the Album
 // Page (DESIGN.md §5.9, BUILD-NOTES §5.3).
 //
-// Tabs (in order): Songs (n) · Files · Studio Log. Purchase-grouped payment
+// Tabs (in order): Songs (n) · Studio Log. Purchase-grouped payment
 // UI lands separately; the removed project invoice/Milestone model is absent.
 // Default tab = "songs" (the album page has no "Overview" tab — the
 // hero + stat strip already serves that role).
@@ -15,7 +15,7 @@ import type { ComponentType, SVGProps } from "react";
 // the design prototype — the dark-fill pill is the "you are here"
 // signal. Each tab carries a leading icon for visual scan.
 
-export type AlbumTab = "songs" | "files" | "log";
+export type AlbumTab = "songs" | "log";
 
 interface AlbumTabsProps {
   active: AlbumTab;
@@ -31,14 +31,9 @@ interface TabEntry {
   icon: IconComponent;
 }
 
-export function AlbumTabs({
-  active,
-  onChange,
-  songsCount,
-}: AlbumTabsProps) {
+export function AlbumTabs({ active, onChange, songsCount }: AlbumTabsProps) {
   const entries: TabEntry[] = [
     { key: "songs", label: `Songs (${String(songsCount)})`, icon: Music },
-    { key: "files", label: "Files", icon: FolderOpen },
     { key: "log", label: "Studio Log", icon: Notebook },
   ];
 

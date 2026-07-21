@@ -293,14 +293,16 @@ describe("PaymentHistoryView", () => {
     expect(html).toContain("Purchase delivery state");
   });
 
-  it("shows exact role-safe links without adding any mutation controls", () => {
+  it("shows exact role-safe links and the logged producer reminder only", () => {
     const producerHtml = renderToStaticMarkup(<PaymentHistoryView role="producer" data={data} />);
     const artistHtml = renderToStaticMarkup(<PaymentHistoryView role="artist" data={data} />);
 
     expect(producerHtml).toContain('href="/dashboard/payments/proof-1"');
     expect(producerHtml).not.toContain("/artist/payments/purchase-1");
+    expect(producerHtml).toContain("Send reminder");
     expect(artistHtml).toContain('href="/artist/payments/purchase-1"');
     expect(artistHtml).toContain("Complete payment");
+    expect(artistHtml).not.toContain("Send reminder");
     expect(artistHtml).not.toContain("/dashboard/payments/proof-1");
     expect(artistHtml).not.toMatch(/confirm payment|reject proof|cancel purchase/i);
   });

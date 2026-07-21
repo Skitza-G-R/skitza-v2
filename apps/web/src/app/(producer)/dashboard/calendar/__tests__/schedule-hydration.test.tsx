@@ -32,7 +32,6 @@ function renderSchedule(processTimeZone: string): string {
       showNowLine
       initialNow={NOW_ISO}
       timeZone={PRODUCER_TIME_ZONE}
-      onEditSession={() => undefined}
     />,
   );
 }

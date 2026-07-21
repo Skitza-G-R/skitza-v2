@@ -1,18 +1,10 @@
 "use client";
 
-import { FileText } from "lucide-react";
-
-import {
-  producerGradient,
-  producerInitials,
-} from "~/lib/_phase4-stubs/producer-color";
+import { producerGradient, producerInitials } from "~/lib/_phase4-stubs/producer-color";
 
 // SessionsTab — per-song session log (DESIGN.md §4.4, BUILD-NOTES
 // §5.4.3). Each row: stacked date stamp (e.g. `14 / OCT`) · session
-// name + sub · attendee avatars · duration · "Notes" button.
-//
-// Phase 3 surfaces the data; the "Notes" button is stubbed disabled
-// (Phase 4 wires the note-viewer panel).
+// name + sub · attendee avatars · duration.
 
 export interface SessionsTabSession {
   id: string;
@@ -37,9 +29,7 @@ function formatDay(d: Date): string {
 
 function formatMonth(d: Date): string {
   try {
-    return new Intl.DateTimeFormat("en-US", { month: "short" })
-      .format(d)
-      .toUpperCase();
+    return new Intl.DateTimeFormat("en-US", { month: "short" }).format(d).toUpperCase();
   } catch {
     return d.toISOString().slice(5, 7);
   }
@@ -65,16 +55,10 @@ export function SessionsTab({ sessions }: SessionsTabProps) {
           borderColor: "rgb(var(--border-subtle))",
         }}
       >
-        <p
-          className="font-syne text-[18px] font-bold"
-          style={{ color: "rgb(var(--fg-default))" }}
-        >
+        <p className="font-syne text-[18px] font-bold" style={{ color: "rgb(var(--fg-default))" }}>
           No sessions yet
         </p>
-        <p
-          className="mt-2 text-[13px]"
-          style={{ color: "rgb(var(--fg-muted))" }}
-        >
+        <p className="mt-2 text-[13px]" style={{ color: "rgb(var(--fg-muted))" }}>
           Book the artist on Calendar to schedule the first one.
         </p>
       </section>
@@ -100,13 +84,13 @@ export function SessionsTab({ sessions }: SessionsTabProps) {
           {/* Stacked date stamp — DD / MON */}
           <div className="flex w-12 shrink-0 flex-col items-center justify-center text-center">
             <span
-              className="font-syne text-[18px] font-bold leading-none tabular-nums"
+              className="font-syne text-[18px] leading-none font-bold tabular-nums"
               style={{ color: "rgb(var(--fg-default))" }}
             >
               {formatDay(s.startsAt)}
             </span>
             <span
-              className="mt-0.5 text-[10px] font-bold uppercase tracking-widest"
+              className="mt-0.5 text-[10px] font-bold tracking-widest uppercase"
               style={{ color: "rgb(var(--fg-muted))" }}
             >
               {formatMonth(s.startsAt)}
@@ -121,10 +105,7 @@ export function SessionsTab({ sessions }: SessionsTabProps) {
             >
               {s.name}
             </p>
-            <p
-              className="mt-0.5 truncate text-[12px]"
-              style={{ color: "rgb(var(--fg-muted))" }}
-            >
+            <p className="mt-0.5 truncate text-[12px]" style={{ color: "rgb(var(--fg-muted))" }}>
               {s.attendees.join(" · ") || "—"}
             </p>
           </div>
@@ -154,22 +135,6 @@ export function SessionsTab({ sessions }: SessionsTabProps) {
           >
             {formatDuration(s.durationMinutes)}
           </span>
-
-          {/* Notes button */}
-          <button
-            type="button"
-            disabled
-            title="Coming soon"
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-[var(--radius-sm)] border px-3 py-1.5 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-            style={{
-              background: "transparent",
-              borderColor: "rgb(var(--border-subtle))",
-              color: "rgb(var(--fg-default))",
-            }}
-          >
-            <FileText size={12} />
-            Notes
-          </button>
         </div>
       ))}
     </section>
