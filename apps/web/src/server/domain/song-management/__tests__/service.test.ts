@@ -3,12 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 import {
   computeStoredAudioIdentityFingerprint,
   evaluateStoredAudioDeletionPolicy,
+  monotonicStoredAudioDeletionTime,
   normalizeArtistCredit,
   normalizeSongTitle,
   normalizeVersionLabel,
   planSongArchiveChange,
   reconcileExactStoredAudioDeletion,
   requireHistorySafeStoredAudioIdentity,
+  storedAudioDeletionOperationDigest,
   type ExactAudioStoragePort,
   type ExactAudioStorageObservation,
   type StoredAudioDeletionCandidate,
@@ -102,6 +104,58 @@ describe("planSongArchiveChange", () => {
   });
 });
 
+describe("monotonicStoredAudioDeletionTime", () => {
+  const deletionTimes = (
+    overrides: Partial<Parameters<typeof monotonicStoredAudioDeletionTime>[0]> = {},
+  ): Parameters<typeof monotonicStoredAudioDeletionTime>[0] => ({
+    requestedAt: new Date("2026-07-19T10:00:00.000Z"),
+    projectUpdatedAt: new Date("2026-07-18T10:00:00.000Z"),
+    songReleasedAt: null,
+    songArchivedAt: null,
+    portfolioPublishedAt: null,
+    versionUploadedAt: new Date("2026-07-17T10:00:00.000Z"),
+    versionMarkedFinalAt: null,
+    priorAudioDeletedAt: null,
+    linkCreatedAt: null,
+    linkEnabledAt: null,
+    linkDisabledAt: null,
+    linkUpdatedAt: null,
+    latestPublicEventAt: null,
+    ...overrides,
+  });
+
+  it("records an older delete after the later release that authorized it", () => {
+    const requestedAt = new Date("2026-07-19T10:00:00.000Z");
+    const releasedAt = new Date("2026-07-20T10:00:00.000Z");
+
+    const effectiveAt = monotonicStoredAudioDeletionTime(
+      deletionTimes({
+        requestedAt,
+        projectUpdatedAt: releasedAt,
+        songReleasedAt: releasedAt,
+        songArchivedAt: new Date("2026-07-20T09:58:00.000Z"),
+        versionMarkedFinalAt: new Date("2026-07-20T09:59:00.000Z"),
+      }),
+    );
+
+    expect(effectiveAt).toEqual(releasedAt);
+    expect(effectiveAt).not.toBe(releasedAt);
+  });
+
+  it("fails safely for invalid request or stored timestamps", () => {
+    expect(() =>
+      monotonicStoredAudioDeletionTime(
+        deletionTimes({ requestedAt: new Date(Number.NaN) }),
+      ),
+    ).toThrow(expect.objectContaining({ code: "INVALID_INPUT" }));
+    expect(() =>
+      monotonicStoredAudioDeletionTime(
+        deletionTimes({ projectUpdatedAt: new Date(Number.NaN) }),
+      ),
+    ).toThrow(expect.objectContaining({ code: "INTEGRITY_ERROR" }));
+  });
+});
+
 describe("evaluateStoredAudioDeletionPolicy", () => {
   const storedVersions = [
     version("version-1", "2026-07-01T10:00:00.000Z"),
@@ -192,6 +246,34 @@ describe("evaluateStoredAudioDeletionPolicy", () => {
         storedVersions,
       }),
     ).toThrow(expect.objectContaining({ code: "NOT_FOUND" }));
+  });
+});
+
+describe("storedAudioDeletionOperationDigest", () => {
+  const intent = {
+    producerId: "producer-1",
+    trackId: "track-1",
+    purchaseId: "purchase-1",
+    versionId: "version-1",
+    actorClerkUserId: "user-1",
+  };
+
+  it("is stable for the same exact deletion intent", () => {
+    const first = storedAudioDeletionOperationDigest(intent);
+    expect(first).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(storedAudioDeletionOperationDigest({ ...intent })).toBe(first);
+  });
+
+  it.each([
+    ["producer", { producerId: "producer-2" }],
+    ["track", { trackId: "track-2" }],
+    ["purchase", { purchaseId: "purchase-2" }],
+    ["version", { versionId: "version-2" }],
+    ["actor", { actorClerkUserId: "user-2" }],
+  ])("changes when the %s scope changes", (_label, change) => {
+    expect(storedAudioDeletionOperationDigest({ ...intent, ...change })).not.toBe(
+      storedAudioDeletionOperationDigest(intent),
+    );
   });
 });
 

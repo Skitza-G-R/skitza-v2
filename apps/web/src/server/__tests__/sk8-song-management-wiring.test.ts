@@ -22,6 +22,10 @@ const producerMusicActions = readFileSync(
   new URL("../../app/(producer)/dashboard/music/actions.ts", import.meta.url),
   "utf8",
 );
+const songPage = readFileSync(
+  new URL("../../components/music/song-page.tsx", import.meta.url),
+  "utf8",
+);
 
 describe("SK-8 song management wiring", () => {
   it("serializes every song mutation with the established project then purchase locks", () => {
@@ -83,6 +87,9 @@ describe("SK-8 song management wiring", () => {
     const reconcile = mutation.indexOf("await reconcileExactStoredAudioDeletion");
 
     expect(mutation).toContain('confirmation: z.literal("DELETE_STORED_AUDIO")');
+    expect(mutation).toContain("operationKey: z.string().uuid()");
+    expect(mutation).toContain("actorClerkUserId: ctx.userId");
+    expect(mutation).toContain("operationKey: input.operationKey");
     expect(tombstone).toBeGreaterThan(-1);
     expect(reconcile).toBeGreaterThan(tombstone);
     expect(mutation).toContain("r2ExactAudioStoragePort()");
@@ -93,6 +100,45 @@ describe("SK-8 song management wiring", () => {
       producerMusicActions.indexOf("function deleteMusicVersionAudio"),
     );
     expect(action).toMatch(/finally\s*\{[\s\S]*revalidateMusic/);
+    expect(action).toContain("operationKey: input.operationKey");
+    expect(songPage).toContain("const operationKey = crypto.randomUUID()");
+    expect(songPage).toMatch(/deleteVersionAudio\(\{[\s\S]*operationKey,[\s\S]*\}\)/);
+  });
+
+  it("audits each newly committed audio tombstone once in the same transaction", () => {
+    const deletion = songDb.slice(
+      songDb.indexOf("function tombstoneStoredAudioVersion"),
+      songDb.indexOf("return {", songDb.indexOf("function tombstoneStoredAudioVersion")),
+    );
+    const tombstone = deletion.indexOf(".update(trackVersions)");
+    const publicConsequences = deletion.indexOf(".update(songPublicLinks)");
+    const auditInsert = deletion.indexOf(".insert(songPublicAccessEvents)");
+    const retryBranch = deletion.indexOf(
+      "The policy was already authorized by the committed tombstone",
+    );
+
+    expect(deletion).toContain("storedAudioDeletionOperationDigest");
+    expect(deletion).toContain("OPERATION_KEY_CONFLICT");
+    expect(deletion).toContain("eq(songPublicAccessEvents.operationKey, operationKey)");
+    expect(deletion).toContain('action: "audio_deleted"');
+    expect(deletion).toContain("changed: true");
+    expect(tombstone).toBeGreaterThan(-1);
+    expect(publicConsequences).toBeGreaterThan(tombstone);
+    expect(auditInsert).toBeGreaterThan(publicConsequences);
+    expect(retryBranch).toBeGreaterThan(auditInsert);
+  });
+
+  it("uses the public delivery predicate for deletion fallback and last-audio lifecycle", () => {
+    const deletion = songDb.slice(
+      songDb.indexOf("function tombstoneStoredAudioVersion"),
+      songDb.indexOf("return {", songDb.indexOf("function tombstoneStoredAudioVersion")),
+    );
+
+    expect(deletion).toContain("isPublicStoredVersionCandidate(target, publicScope)");
+    expect(deletion).toContain("isPublicStoredVersionCandidate(version, publicScope)");
+    expect(deletion).not.toContain(
+      "version.audioDeletedAt === null && version.audioUrl !== null",
+    );
   });
 
   it("keeps stage and producer-ready selection on serialized purchase-owned adapters", () => {

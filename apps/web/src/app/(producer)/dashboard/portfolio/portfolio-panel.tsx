@@ -36,11 +36,9 @@ import { PlatformIcon } from "~/components/portfolio/platform-icons";
 
 import {
   addExternalLink,
-  addPortfolioFromLibrary,
-  deletePortfolioTrack,
   removeExternalLink,
   reorderExternalLinks,
-  reorderPortfolioTracks,
+  setPortfolioSongPublished,
   type ExternalPlatformValue,
 } from "./actions";
 
@@ -50,9 +48,10 @@ export type PortfolioTrackRow = {
   id: string;
   title: string;
   artist: string | null;
-  isPublicSample: boolean;
+  portfolioPublished: true;
   audioUrl: string | null;
   durationMs: number | null;
+  versionLabel: string;
   // Pre-computed RMS peaks (~200 normalized values, 0..1) from
   // trackVersions.peaks via the LEFT JOIN in portfolio.list. null when
   // the source track has no peaks yet (legacy upload, decoder miss, or
@@ -68,7 +67,7 @@ export type ExternalLinkRow = {
 };
 
 export type LibraryPickRow = {
-  versionId: string;
+  trackId: string;
   trackTitle: string;
   projectTitle: string;
   artistName: string;
@@ -144,10 +143,7 @@ export function seededBars(id: string, count = 80): number[] {
  * a mean would flatten transients to a wall of mid-grey bars. If the
  * input already has ≤ targetCount values it is returned untouched.
  */
-export function downsamplePeaks(
-  peaks: readonly number[],
-  targetCount = 80,
-): number[] {
+export function downsamplePeaks(peaks: readonly number[], targetCount = 80): number[] {
   if (peaks.length === 0) return [];
   if (peaks.length <= targetCount) return peaks.slice();
   const chunkSize = peaks.length / targetCount;
@@ -175,11 +171,7 @@ export function formatDuration(ms: number | null): string {
 }
 
 /** Kept for legacy callers + tests; not used by the drag-driven UI. */
-export function canReorder(
-  direction: "up" | "down",
-  index: number,
-  total: number,
-): boolean {
+export function canReorder(direction: "up" | "down", index: number, total: number): boolean {
   return direction === "up" ? index > 0 : index < total - 1;
 }
 
@@ -213,12 +205,12 @@ export function PortfolioPanel({
   tracks,
   links,
   library,
-  addedAudioUrls,
+  publishedTrackIds,
 }: {
   tracks: PortfolioTrackRow[];
   links: ExternalLinkRow[];
   library: LibraryPickRow[];
-  addedAudioUrls: string[];
+  publishedTrackIds: string[];
 }) {
   return (
     // Mobile (<lg): single column, Featured tracks first. Desktop (lg+):
@@ -231,7 +223,7 @@ export function PortfolioPanel({
         <FeaturedTracksSection
           initialTracks={tracks}
           library={library}
-          addedAudioUrls={addedAudioUrls}
+          publishedTrackIds={publishedTrackIds}
         />
       </div>
     </div>
@@ -243,11 +235,11 @@ export function PortfolioPanel({
 function FeaturedTracksSection({
   initialTracks,
   library,
-  addedAudioUrls,
+  publishedTrackIds,
 }: {
   initialTracks: PortfolioTrackRow[];
   library: LibraryPickRow[];
-  addedAudioUrls: string[];
+  publishedTrackIds: string[];
 }) {
   const [rows, setRows] = useState<PortfolioTrackRow[]>(initialTracks);
   // The single source of truth for "which track is currently playing".
@@ -262,35 +254,10 @@ function FeaturedTracksSection({
     setRows(initialTracks);
   }, [initialTracks]);
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
-
   const atCap = rows.length >= TRACK_CAP;
 
   function handlePlayChange(id: string, next: boolean) {
     setPlayingId((curr) => computePlayingId(curr, id, next));
-  }
-
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    const oldIndex = rows.findIndex((r) => r.id === active.id);
-    const newIndex = rows.findIndex((r) => r.id === over.id);
-    if (oldIndex < 0 || newIndex < 0) return;
-    const next = arrayMove(rows, oldIndex, newIndex);
-    const orderedIds = next.map((r) => r.id);
-    setRows(next);
-    startTransition(async () => {
-      const res = await reorderPortfolioTracks({ orderedIds });
-      if (!res.ok) {
-        toast(res.error, "error");
-        setRows(initialTracks);
-        return;
-      }
-      router.refresh();
-    });
   }
 
   function remove(id: string) {
@@ -298,7 +265,11 @@ function FeaturedTracksSection({
     setPlayingId((curr) => (curr === id ? null : curr));
     setRows((all) => all.filter((r) => r.id !== id));
     startTransition(async () => {
-      const res = await deletePortfolioTrack({ id });
+      const res = await setPortfolioSongPublished({
+        trackId: id,
+        operationKey: crypto.randomUUID(),
+        published: false,
+      });
       if (!res.ok) {
         toast(res.error, "error");
         setRows(initialTracks);
@@ -309,10 +280,7 @@ function FeaturedTracksSection({
   }
 
   return (
-    <section
-      aria-labelledby="portfolio-tracks-heading"
-      className="sk-portfolio-section"
-    >
+    <section aria-labelledby="portfolio-tracks-heading" className="sk-portfolio-section">
       <header className="mb-5 flex flex-col items-start gap-4 sm:flex-row sm:items-end sm:justify-between sm:gap-3">
         <div>
           <h2
@@ -322,15 +290,13 @@ function FeaturedTracksSection({
           >
             Featured tracks
           </h2>
-          {/* Drag is desktop-only (grip hidden < sm) — don't promise it on phones. */}
-          <p className="mt-2 font-mono text-[10.5px] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
-            <span className="sm:hidden">PICK YOUR BEST.</span>
-            <span className="hidden sm:inline">PICK YOUR BEST. DRAG TO REORDER.</span>
+          <p className="mt-2 font-mono text-[10.5px] tracking-[0.18em] text-[rgb(var(--fg-muted))] uppercase">
+            PICK YOUR BEST. NEW UPLOADS STAY CURRENT.
           </p>
         </div>
         <AddFromLibraryButton
           library={library}
-          addedAudioUrls={addedAudioUrls}
+          publishedTrackIds={publishedTrackIds}
           disabled={atCap}
         />
       </header>
@@ -338,7 +304,7 @@ function FeaturedTracksSection({
       {atCap ? (
         <p
           aria-live="polite"
-          className="mb-3 font-mono text-[10.5px] uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]"
+          className="mb-3 font-mono text-[10.5px] tracking-[0.16em] text-[rgb(var(--fg-muted))] uppercase"
         >
           LIMIT REACHED ({TRACK_CAP}/{TRACK_CAP})
         </p>
@@ -347,32 +313,21 @@ function FeaturedTracksSection({
       {rows.length === 0 ? (
         <FeaturedTracksEmpty />
       ) : (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext
-            items={rows.map((r) => r.id)}
-            strategy={verticalListSortingStrategy}
-          >
-            <ul className="space-y-2.5">
-              {rows.map((row) => (
-                <TrackRow
-                  key={row.id}
-                  row={row}
-                  isPlaying={playingId === row.id}
-                  onPlayChange={(next) => {
-                    handlePlayChange(row.id, next);
-                  }}
-                  onRemove={() => {
-                    remove(row.id);
-                  }}
-                />
-              ))}
-            </ul>
-          </SortableContext>
-        </DndContext>
+        <ul className="space-y-2.5">
+          {rows.map((row) => (
+            <TrackRow
+              key={row.id}
+              row={row}
+              isPlaying={playingId === row.id}
+              onPlayChange={(next) => {
+                handlePlayChange(row.id, next);
+              }}
+              onRemove={() => {
+                remove(row.id);
+              }}
+            />
+          ))}
+        </ul>
       )}
     </section>
   );
@@ -384,7 +339,7 @@ function FeaturedTracksEmpty() {
       role="status"
       className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken)/0.6)] px-6 py-14 text-center"
     >
-      <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+      <p className="font-mono text-[11px] tracking-[0.18em] text-[rgb(var(--fg-muted))] uppercase">
         NO FEATURED TRACKS YET. ADD ONE FROM YOUR MUSIC LIBRARY.
       </p>
     </div>
@@ -404,22 +359,6 @@ function TrackRow({
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [progress, setProgress] = useState(0);
-
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: row.id });
-
-  const sortableStyle: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-    zIndex: isDragging ? 10 : "auto",
-  };
 
   function ensureAudio(): HTMLAudioElement | null {
     if (!row.audioUrl) return null;
@@ -520,29 +459,10 @@ function TrackRow({
   }, [row.peaks, row.id]);
 
   return (
-    <li ref={setNodeRef} style={sortableStyle} className="group/track">
-      <div className="rounded-[1.25rem] p-[3px] bg-[rgb(var(--bg-overlay)/0.55)] ring-1 ring-[rgb(var(--border-subtle))] group-hover/track:ring-[rgb(var(--border-strong))] transition-[box-shadow,background-color] duration-300 ease-out">
-        {/* Mobile: row wraps — play + meta on top, waveform on its own
-            full-width line, grip hidden (drag stays desktop-only). */}
+    <li className="group/track">
+      <div className="rounded-[1.25rem] bg-[rgb(var(--bg-overlay)/0.55)] p-[3px] ring-1 ring-[rgb(var(--border-subtle))] transition-[box-shadow,background-color] duration-300 ease-out group-hover/track:ring-[rgb(var(--border-strong))]">
+        {/* Mobile: row wraps — play + meta on top, waveform on its own line. */}
         <div className="flex flex-wrap items-center gap-3 rounded-[calc(1.25rem-3px)] bg-[rgb(var(--bg-elevated))] px-3.5 py-3 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)] sm:flex-nowrap">
-          {/* drag handle */}
-          <button
-            type="button"
-            className="hidden h-9 w-4 shrink-0 cursor-grab touch-none place-items-center rounded-sm text-[rgb(var(--fg-muted)/0.6)] transition-colors duration-200 ease-out hover:text-[rgb(var(--fg-primary))] group-hover/track:text-[rgb(var(--fg-muted))] active:cursor-grabbing sm:grid"
-            {...attributes}
-            {...listeners}
-            aria-label="Drag to reorder"
-          >
-            <svg viewBox="0 0 8 14" className="h-3.5 w-3.5" fill="currentColor" aria-hidden="true">
-              <circle cx="2" cy="2.5" r="1.1" />
-              <circle cx="6" cy="2.5" r="1.1" />
-              <circle cx="2" cy="7" r="1.1" />
-              <circle cx="6" cy="7" r="1.1" />
-              <circle cx="2" cy="11.5" r="1.1" />
-              <circle cx="6" cy="11.5" r="1.1" />
-            </svg>
-          </button>
-
           {/* col 1: play/pause */}
           <button
             type="button"
@@ -553,7 +473,7 @@ function TrackRow({
               "grid h-11 w-11 shrink-0 place-items-center rounded-full transition-all duration-200 ease-out active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-40",
               isPlaying
                 ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-inverse))] shadow-[0_8px_22px_-8px_rgb(var(--brand-primary)/0.7)]"
-                : "bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))] ring-1 ring-[rgb(var(--border-subtle))] group-hover/track:bg-[rgb(var(--brand-primary))] group-hover/track:text-[rgb(var(--fg-inverse))] group-hover/track:ring-transparent group-hover/track:shadow-[0_6px_18px_-8px_rgb(var(--brand-primary)/0.55)]",
+                : "bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))] ring-1 ring-[rgb(var(--border-subtle))] group-hover/track:bg-[rgb(var(--brand-primary))] group-hover/track:text-[rgb(var(--fg-inverse))] group-hover/track:shadow-[0_6px_18px_-8px_rgb(var(--brand-primary)/0.55)] group-hover/track:ring-transparent",
             ].join(" ")}
           >
             {isPlaying ? (
@@ -576,7 +496,7 @@ function TrackRow({
             aria-label="Seek"
             onClick={onWaveClick}
             disabled={!row.audioUrl}
-            className="order-last flex h-10 w-full flex-none min-w-0 items-center gap-[2px] transition-opacity duration-200 ease-out disabled:cursor-not-allowed disabled:opacity-40 sm:order-none sm:w-auto sm:flex-1"
+            className="order-last flex h-10 w-full min-w-0 flex-none items-center gap-[2px] transition-opacity duration-200 ease-out disabled:cursor-not-allowed disabled:opacity-40 sm:order-none sm:w-auto sm:flex-1"
           >
             {bars.map((h, i) => {
               const playedFraction = (i + 1) / bars.length;
@@ -609,11 +529,15 @@ function TrackRow({
             </p>
             <p className="mt-1 truncate text-[11.5px] leading-tight text-[rgb(var(--fg-secondary))]">
               {row.artist ?? "Unknown artist"}
+              <span className="text-[rgb(var(--fg-muted))]"> · </span>
+              <span className="font-mono text-[10px] tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
+                {row.versionLabel}
+              </span>
               {formatDuration(row.durationMs) ? (
                 <>
                   {" "}
                   <span className="text-[rgb(var(--fg-muted))]">·</span>{" "}
-                  <span className="font-mono tabular-nums text-[rgb(var(--fg-muted))]">
+                  <span className="font-mono text-[rgb(var(--fg-muted))] tabular-nums">
                     {formatDuration(row.durationMs)}
                   </span>
                 </>
@@ -623,19 +547,13 @@ function TrackRow({
 
           <Separator />
 
-          {/* col 4: public / private mono label — fixed width on sm+ so the divider sits at a stable x */}
+          {/* col 4: every rendered row is backed by the song's public marker. */}
           <div className="flex shrink-0 items-center sm:w-16">
             <span
-              aria-hidden="true"
-              className={[
-                "font-mono text-[9.5px] uppercase tracking-[0.18em] tabular-nums",
-                row.isPublicSample
-                  ? "text-[rgb(var(--brand-primary))]"
-                  : "text-[rgb(var(--fg-muted)/0.55)]",
-              ].join(" ")}
-              title={row.isPublicSample ? "Plays on /join" : "Hidden from /join"}
+              className="font-mono text-[9.5px] tracking-[0.18em] text-[rgb(var(--brand-primary))] uppercase tabular-nums"
+              title="Plays the newest stored version on /join"
             >
-              {row.isPublicSample ? "Public" : "Private"}
+              Public
             </span>
           </div>
 
@@ -644,9 +562,16 @@ function TrackRow({
             type="button"
             aria-label={`Remove ${row.title}`}
             onClick={onRemove}
-            className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[rgb(var(--fg-muted))] opacity-0 transition-all duration-200 ease-out hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] focus-visible:opacity-100 group-hover/track:opacity-100 active:scale-[0.92] max-sm:h-11 max-sm:w-11 max-sm:opacity-100"
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[rgb(var(--fg-muted))] opacity-0 transition-all duration-200 ease-out group-hover/track:opacity-100 hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] focus-visible:opacity-100 active:scale-[0.92] max-sm:h-11 max-sm:w-11 max-sm:opacity-100"
           >
-            <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+            <svg
+              viewBox="0 0 12 12"
+              className="h-3 w-3"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            >
               <path d="M3 3l6 6M9 3l-6 6" />
             </svg>
           </button>
@@ -671,11 +596,7 @@ function Separator() {
 
 // ─── Section: Social links ──────────────────────────────────────────
 
-function SocialLinksSection({
-  initialLinks,
-}: {
-  initialLinks: ExternalLinkRow[];
-}) {
+function SocialLinksSection({ initialLinks }: { initialLinks: ExternalLinkRow[] }) {
   const [rows, setRows] = useState<ExternalLinkRow[]>(initialLinks);
   const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -745,10 +666,7 @@ function SocialLinksSection({
   }
 
   return (
-    <section
-      aria-labelledby="portfolio-links-heading"
-      className="sk-portfolio-section"
-    >
+    <section aria-labelledby="portfolio-links-heading" className="sk-portfolio-section">
       <header className="mb-5">
         <h2
           id="portfolio-links-heading"
@@ -757,13 +675,13 @@ function SocialLinksSection({
         >
           Social links
         </h2>
-        <p className="mt-2 font-mono text-[10.5px] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+        <p className="mt-2 font-mono text-[10.5px] tracking-[0.18em] text-[rgb(var(--fg-muted))] uppercase">
           PASTE THE URL. WE FIGURE OUT THE PLATFORM.
         </p>
       </header>
 
       <form onSubmit={submit} className="mb-5">
-        <div className="flex items-center gap-2 rounded-full bg-[rgb(var(--bg-elevated))] px-2 py-1.5 ring-1 ring-[rgb(var(--border-subtle))] transition-[box-shadow,background-color] duration-300 ease-out focus-within:ring-[rgb(var(--brand-primary)/0.6)] focus-within:bg-[rgb(var(--bg-base))]">
+        <div className="flex items-center gap-2 rounded-full bg-[rgb(var(--bg-elevated))] px-2 py-1.5 ring-1 ring-[rgb(var(--border-subtle))] transition-[box-shadow,background-color] duration-300 ease-out focus-within:bg-[rgb(var(--bg-base))] focus-within:ring-[rgb(var(--brand-primary)/0.6)]">
           <input
             type="url"
             value={url}
@@ -778,7 +696,7 @@ function SocialLinksSection({
           <button
             type="submit"
             disabled={adding || !url.trim()}
-            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-4 py-2 text-xs font-medium text-[rgb(var(--fg-primary))] transition-all duration-200 ease-out hover:bg-[rgb(var(--bg-overlay))] hover:border-[rgb(var(--fg-primary))] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-[rgb(var(--bg-elevated))] sm:min-h-0"
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] px-4 py-2 text-xs font-medium text-[rgb(var(--fg-primary))] transition-all duration-200 ease-out hover:border-[rgb(var(--fg-primary))] hover:bg-[rgb(var(--bg-overlay))] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-[rgb(var(--bg-elevated))] sm:min-h-0"
           >
             <svg
               viewBox="0 0 16 16"
@@ -797,7 +715,7 @@ function SocialLinksSection({
         {error ? (
           <p
             role="alert"
-            className="mt-2 font-mono text-[10.5px] uppercase tracking-[0.14em] text-[rgb(var(--brand-primary))]"
+            className="mt-2 font-mono text-[10.5px] tracking-[0.14em] text-[rgb(var(--brand-primary))] uppercase"
           >
             {error}
           </p>
@@ -809,20 +727,13 @@ function SocialLinksSection({
           role="status"
           className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken)/0.6)] px-6 py-12 text-center"
         >
-          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
+          <p className="font-mono text-[11px] tracking-[0.18em] text-[rgb(var(--fg-muted))] uppercase">
             NO LINKS YET. PASTE A SPOTIFY OR YOUTUBE LINK ABOVE.
           </p>
         </div>
       ) : (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext
-            items={rows.map((r) => r.id)}
-            strategy={verticalListSortingStrategy}
-          >
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={rows.map((r) => r.id)} strategy={verticalListSortingStrategy}>
             <ul className="space-y-2">
               {rows.map((row) => (
                 <LinkRow
@@ -841,21 +752,10 @@ function SocialLinksSection({
   );
 }
 
-function LinkRow({
-  row,
-  onRemove,
-}: {
-  row: ExternalLinkRow;
-  onRemove: () => void;
-}) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: row.id });
+function LinkRow({ row, onRemove }: { row: ExternalLinkRow; onRemove: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: row.id,
+  });
 
   const sortableStyle: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -866,7 +766,7 @@ function LinkRow({
 
   return (
     <li ref={setNodeRef} style={sortableStyle} className="group/link">
-      <div className="rounded-[1.25rem] p-[3px] bg-[rgb(var(--bg-overlay)/0.55)] ring-1 ring-[rgb(var(--border-subtle))] group-hover/link:ring-[rgb(var(--border-strong))] transition-[box-shadow,background-color] duration-300 ease-out">
+      <div className="rounded-[1.25rem] bg-[rgb(var(--bg-overlay)/0.55)] p-[3px] ring-1 ring-[rgb(var(--border-subtle))] transition-[box-shadow,background-color] duration-300 ease-out group-hover/link:ring-[rgb(var(--border-strong))]">
         <div className="flex items-center gap-3 rounded-[calc(1.25rem-3px)] bg-[rgb(var(--bg-elevated))] px-3.5 py-2.5 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
           {/* drag handle — hidden on mobile (drag stays desktop-only) */}
           <button
@@ -912,9 +812,16 @@ function LinkRow({
             type="button"
             aria-label={`Remove ${PLATFORM_LABEL[row.platform]} link`}
             onClick={onRemove}
-            className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[rgb(var(--fg-muted))] opacity-0 transition-all duration-200 ease-out hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] focus-visible:opacity-100 group-hover/link:opacity-100 active:scale-[0.92] max-sm:h-11 max-sm:w-11 max-sm:opacity-100"
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[rgb(var(--fg-muted))] opacity-0 transition-all duration-200 ease-out group-hover/link:opacity-100 hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] focus-visible:opacity-100 active:scale-[0.92] max-sm:h-11 max-sm:w-11 max-sm:opacity-100"
           >
-            <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+            <svg
+              viewBox="0 0 12 12"
+              className="h-3 w-3"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            >
               <path d="M3 3l6 6M9 3l-6 6" />
             </svg>
           </button>
@@ -928,14 +835,14 @@ function LinkRow({
 
 function AddFromLibraryButton({
   library,
-  addedAudioUrls,
+  publishedTrackIds,
   disabled,
 }: {
   library: LibraryPickRow[];
-  addedAudioUrls: string[];
+  publishedTrackIds: string[];
   disabled: boolean;
 }) {
-  const addedSet = useMemo(() => new Set(addedAudioUrls), [addedAudioUrls]);
+  const addedSet = useMemo(() => new Set(publishedTrackIds), [publishedTrackIds]);
   const [open, setOpen] = useState(false);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
@@ -955,10 +862,14 @@ function AddFromLibraryButton({
 
   function pick(row: LibraryPickRow) {
     if (!row.audioUrl) return;
-    if (addedSet.has(row.audioUrl)) return;
-    setPendingId(row.versionId);
+    if (addedSet.has(row.trackId)) return;
+    setPendingId(row.trackId);
     startTransition(async () => {
-      const res = await addPortfolioFromLibrary({ versionId: row.versionId });
+      const res = await setPortfolioSongPublished({
+        trackId: row.trackId,
+        operationKey: crypto.randomUUID(),
+        published: true,
+      });
       setPendingId(null);
       if (!res.ok) {
         toast(res.error, "error");
@@ -977,7 +888,7 @@ function AddFromLibraryButton({
         onClick={() => {
           setOpen(true);
         }}
-        className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 py-2.5 text-sm font-semibold text-[rgb(var(--fg-primary))] transition-all duration-200 ease-out hover:bg-[rgb(var(--brand-primary)/0.94)] hover:-translate-y-px hover:shadow-[0_10px_28px_-8px_rgb(var(--brand-primary)/0.6),0_4px_10px_-2px_rgb(17_16_9_/_0.14)] active:scale-[0.97] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-none sm:min-h-0 sm:w-auto"
+        className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 py-2.5 text-sm font-semibold text-[rgb(var(--fg-primary))] transition-all duration-200 ease-out hover:-translate-y-px hover:bg-[rgb(var(--brand-primary)/0.94)] hover:shadow-[0_10px_28px_-8px_rgb(var(--brand-primary)/0.6),0_4px_10px_-2px_rgb(17_16_9_/_0.14)] active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-none sm:min-h-0 sm:w-auto"
         style={{
           boxShadow:
             "0 6px 18px -6px rgb(var(--brand-primary) / 0.45), 0 2px 6px -1px rgb(17 16 9 / 0.10)",
@@ -1073,19 +984,16 @@ function LibraryPickerModal({
           backgroundColor: "rgb(var(--bg-base) / 0.12)",
           backdropFilter: visible ? "blur(20px)" : "blur(0px)",
           WebkitBackdropFilter: visible ? "blur(20px)" : "blur(0px)",
-          transition:
-            "backdrop-filter 280ms ease-out, -webkit-backdrop-filter 280ms ease-out",
+          transition: "backdrop-filter 280ms ease-out, -webkit-backdrop-filter 280ms ease-out",
         }}
       />
       {/* modal card — centered, scaled-in for entry, wider for the table */}
       <div
         className="relative z-10 flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
         style={{
-          boxShadow:
-            "0 24px 64px -16px rgb(17 16 9 / 0.18), 0 6px 12px -4px rgb(17 16 9 / 0.08)",
+          boxShadow: "0 24px 64px -16px rgb(17 16 9 / 0.18), 0 6px 12px -4px rgb(17 16 9 / 0.08)",
           transform: visible ? "scale(1) translateY(0)" : "scale(0.97) translateY(8px)",
-          transition:
-            "transform 260ms cubic-bezier(0.16, 1, 0.3, 1), opacity 220ms ease-out",
+          transition: "transform 260ms cubic-bezier(0.16, 1, 0.3, 1), opacity 220ms ease-out",
           opacity: visible ? 1 : 0,
         }}
       >
@@ -1106,19 +1014,21 @@ function LibraryPickerModal({
             type="button"
             onClick={onClose}
             aria-label="Close picker"
-            className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-[rgb(var(--fg-secondary))] transition-all duration-200 ease-out hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] active:scale-[0.92] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-[rgb(var(--fg-secondary))] transition-all duration-200 ease-out hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none active:scale-[0.92]"
           >
-            <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+            <svg
+              viewBox="0 0 12 12"
+              className="h-3 w-3"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            >
               <path d="M3 3l6 6M9 3l-6 6" />
             </svg>
           </button>
         </header>
-        <PickerTable
-          library={library}
-          addedSet={addedSet}
-          pendingId={pendingId}
-          onPick={onPick}
-        />
+        <PickerTable library={library} addedSet={addedSet} pendingId={pendingId} onPick={onPick} />
       </div>
     </div>,
     window.document.body,
@@ -1130,10 +1040,7 @@ function LibraryPickerModal({
  * against title + project + artist. Empty query returns the input
  * untouched.
  */
-export function filterLibrary(
-  library: readonly LibraryPickRow[],
-  query: string,
-): LibraryPickRow[] {
+export function filterLibrary(library: readonly LibraryPickRow[], query: string): LibraryPickRow[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return library.slice();
   return library.filter((row) => {
@@ -1158,10 +1065,7 @@ function PickerTable({
 }): ReactNode {
   const [query, setQuery] = useState("");
 
-  const filtered = useMemo(
-    () => filterLibrary(library, query),
-    [library, query],
-  );
+  const filtered = useMemo(() => filterLibrary(library, query), [library, query]);
 
   if (library.length === 0) {
     return (
@@ -1208,7 +1112,14 @@ function PickerTable({
               aria-label="Clear search"
               className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-[rgb(var(--fg-muted))] transition-colors duration-200 ease-out hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))]"
             >
-              <svg viewBox="0 0 12 12" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+              <svg
+                viewBox="0 0 12 12"
+                className="h-2.5 w-2.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+              >
                 <path d="M3 3l6 6M9 3l-6 6" />
               </svg>
             </button>
@@ -1221,20 +1132,20 @@ function PickerTable({
         <table className="w-full border-collapse">
           <thead className="sticky top-0 bg-[rgb(var(--bg-elevated))]">
             <tr className="border-b border-[rgb(var(--border-subtle))]">
-              <th className="px-5 py-2.5 text-left font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+              <th className="px-5 py-2.5 text-left font-mono text-[10px] font-medium tracking-[0.16em] text-[rgb(var(--fg-muted))] uppercase">
                 Title
               </th>
               {/* Project + Uploaded hidden on mobile — Title + Artist + action fit 390px */}
-              <th className="hidden px-3 py-2.5 text-left font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))] sm:table-cell">
+              <th className="hidden px-3 py-2.5 text-left font-mono text-[10px] font-medium tracking-[0.16em] text-[rgb(var(--fg-muted))] uppercase sm:table-cell">
                 Project
               </th>
-              <th className="px-3 py-2.5 text-left font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+              <th className="px-3 py-2.5 text-left font-mono text-[10px] font-medium tracking-[0.16em] text-[rgb(var(--fg-muted))] uppercase">
                 Artist
               </th>
-              <th className="hidden px-3 py-2.5 text-left font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))] sm:table-cell">
+              <th className="hidden px-3 py-2.5 text-left font-mono text-[10px] font-medium tracking-[0.16em] text-[rgb(var(--fg-muted))] uppercase sm:table-cell">
                 Uploaded
               </th>
-              <th className="px-5 py-2.5 text-right font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]">
+              <th className="px-5 py-2.5 text-right font-mono text-[10px] font-medium tracking-[0.16em] text-[rgb(var(--fg-muted))] uppercase">
                 <span className="sr-only">Action</span>
               </th>
             </tr>
@@ -1244,7 +1155,7 @@ function PickerTable({
               <tr>
                 <td
                   colSpan={5}
-                  className="px-5 py-12 text-center font-mono text-[11px] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]"
+                  className="px-5 py-12 text-center font-mono text-[11px] tracking-[0.18em] text-[rgb(var(--fg-muted))] uppercase"
                 >
                   NO SONGS MATCH “{query}”
                 </td>
@@ -1252,7 +1163,7 @@ function PickerTable({
             ) : (
               filtered.map((row) => (
                 <PickerRow
-                  key={row.versionId}
+                  key={row.trackId}
                   row={row}
                   addedSet={addedSet}
                   pendingId={pendingId}
@@ -1278,10 +1189,10 @@ function PickerRow({
   pendingId: string | null;
   onPick: (row: LibraryPickRow) => void;
 }): ReactNode {
-  const alreadyAdded = row.audioUrl ? addedSet.has(row.audioUrl) : false;
+  const alreadyAdded = addedSet.has(row.trackId);
   const noAudio = !row.audioUrl;
   const rowDisabled = noAudio || alreadyAdded;
-  const pending = pendingId === row.versionId;
+  const pending = pendingId === row.trackId;
   const date = new Date(row.uploadedAt).toLocaleDateString(undefined, {
     year: "numeric",
     month: "short",
@@ -1315,16 +1226,16 @@ function PickerRow({
       <td className="px-3 py-3 text-[12.5px] text-[rgb(var(--fg-secondary))]">
         <span className="block max-w-[120px] truncate">{row.artistName}</span>
       </td>
-      <td className="hidden px-3 py-3 font-mono text-[10.5px] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))] tabular-nums sm:table-cell">
+      <td className="hidden px-3 py-3 font-mono text-[10.5px] tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase tabular-nums sm:table-cell">
         {date}
       </td>
       <td className="px-5 py-3 text-right">
         {alreadyAdded ? (
-          <span className="inline-flex items-center rounded-full bg-[rgb(var(--brand-primary)/0.12)] px-2.5 py-1 font-mono text-[9.5px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--brand-primary))]">
+          <span className="inline-flex items-center rounded-full bg-[rgb(var(--brand-primary)/0.12)] px-2.5 py-1 font-mono text-[9.5px] font-medium tracking-[0.16em] text-[rgb(var(--brand-primary))] uppercase">
             Added
           </span>
         ) : noAudio ? (
-          <span className="inline-flex items-center rounded-full bg-[rgb(var(--fg-muted)/0.12)] px-2.5 py-1 font-mono text-[9.5px] font-medium uppercase tracking-[0.16em] text-[rgb(var(--fg-secondary))]">
+          <span className="inline-flex items-center rounded-full bg-[rgb(var(--fg-muted)/0.12)] px-2.5 py-1 font-mono text-[9.5px] font-medium tracking-[0.16em] text-[rgb(var(--fg-secondary))] uppercase">
             No audio
           </span>
         ) : (

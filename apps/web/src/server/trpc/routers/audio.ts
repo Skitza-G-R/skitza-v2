@@ -15,6 +15,7 @@ import {
   projectTracks,
   projects,
   purchases,
+  songPublicLinks,
   eq,
   isNotNull,
   isNull,
@@ -38,6 +39,10 @@ import {
   PendingMultipartCancellationError,
 } from "~/server/audio/pending-multipart-cancellation";
 import { privateVersionStreamPath } from "~/server/domain/audio-delivery/urls";
+import {
+  requireSongUploadPublicExposureAcknowledgement as requireSongUploadPublicExposureAcknowledgementDomain,
+  SongUploadPublicExposureError,
+} from "~/server/domain/song-publication/upload-exposure";
 import {
   assertActiveVersionUploadLifecycle,
   VersionUploadDomainError,
@@ -879,6 +884,21 @@ function mapVersionUploadDomainError(error: unknown): never {
   throw new TRPCError({ code: "NOT_FOUND" });
 }
 
+function requireSongUploadPublicExposureAcknowledgement(input: {
+  linkEnabled: boolean;
+  portfolioPublished: boolean;
+  acknowledged: boolean;
+}): void {
+  try {
+    requireSongUploadPublicExposureAcknowledgementDomain(input);
+  } catch (error) {
+    if (error instanceof SongUploadPublicExposureError) {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+    }
+    throw error;
+  }
+}
+
 async function assertVersionUploadAllowed(
   db: Pick<Db, "select">,
   candidate: Omit<VersionUploadLifecycleCandidate, "currentArtistApprovalAction"> | null,
@@ -1134,6 +1154,7 @@ export const audioRouter = router({
         trackVersionId: z.string().uuid(),
         sizeBytes: z.number().int().positive().max(MAX_BYTES),
         completionToken: z.string().regex(/^[0-9a-f]{64}$/),
+        acknowledgePublicExposure: z.boolean(),
         durationMs: z.number().int().positive().optional(),
       }),
     )
@@ -1196,6 +1217,7 @@ export const audioRouter = router({
               purchaseId: trackVersions.purchaseId,
               projectId: projectTracks.projectId,
               trackArchivedAt: projectTracks.archivedAt,
+              portfolioPublishedAt: projectTracks.portfolioPublishedAt,
               audioUrl: trackVersions.audioUrl,
               audioR2Key: trackVersions.audioR2Key,
               sizeBytes: trackVersions.sizeBytes,
@@ -1300,6 +1322,23 @@ export const audioRouter = router({
               message: "The server-issued multipart identity was not initialized.",
             });
           }
+          const [publicLink] = await tx
+            .select({ disabledAt: songPublicLinks.disabledAt })
+            .from(songPublicLinks)
+            .where(
+              and(
+                eq(songPublicLinks.trackId, trackId),
+                eq(songPublicLinks.purchaseId, purchaseId),
+                eq(songPublicLinks.producerId, ctx.producerId),
+              ),
+            )
+            .limit(1)
+            .for("update");
+          requireSongUploadPublicExposureAcknowledgement({
+            linkEnabled: publicLink?.disabledAt === null,
+            portfolioPublished: lockedVersion.portfolioPublishedAt !== null,
+            acknowledged: input.acknowledgePublicExposure,
+          });
           return {
             kind: "pending" as const,
             completeWasAttempted: decision === "observe_only",
@@ -1720,6 +1759,7 @@ export const audioRouter = router({
               purchaseId: trackVersions.purchaseId,
               projectId: projectTracks.projectId,
               trackArchivedAt: projectTracks.archivedAt,
+              portfolioPublishedAt: projectTracks.portfolioPublishedAt,
               audioUrl: trackVersions.audioUrl,
               audioR2Key: trackVersions.audioR2Key,
               sizeBytes: trackVersions.sizeBytes,
@@ -1779,6 +1819,23 @@ export const audioRouter = router({
               "The purchase-owned version binding changed before completion",
             );
           }
+          const [publicLink] = await tx
+            .select({ disabledAt: songPublicLinks.disabledAt })
+            .from(songPublicLinks)
+            .where(
+              and(
+                eq(songPublicLinks.trackId, trackId),
+                eq(songPublicLinks.purchaseId, purchaseId),
+                eq(songPublicLinks.producerId, ctx.producerId),
+              ),
+            )
+            .limit(1)
+            .for("update");
+          requireSongUploadPublicExposureAcknowledgement({
+            linkEnabled: publicLink?.disabledAt === null,
+            portfolioPublished: lockedVersion.portfolioPublishedAt !== null,
+            acknowledged: input.acknowledgePublicExposure,
+          });
           if (
             resolvePendingAudioCompletion(lockedVersion, {
               key: input.key,

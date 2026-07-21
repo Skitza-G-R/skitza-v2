@@ -460,7 +460,7 @@ describe("song-page.tsx source — Play button on the waveform card (founder fee
   });
 });
 
-describe("song-page.tsx source — secondary action rail icons (Star / Share / Download)", () => {
+describe("song-page.tsx source — secondary actions and public sharing", () => {
   it("Favorite (Star) button is rendered with an aria-label", () => {
     // Allow either a static label or a conditional ternary — both
     // strings must appear so the toggle reads correctly to screen
@@ -469,8 +469,10 @@ describe("song-page.tsx source — secondary action rail icons (Star / Share / D
     expect(songPageSrc).toContain('"Remove from favorites"');
   });
 
-  it("Share button is rendered with an aria-label", () => {
-    expect(songPageSrc).toContain('aria-label="Share with artist"');
+  it("uses the producer-controlled public-link surface instead of copying the private page URL", () => {
+    expect(songPageSrc).toContain("SongPublicLinkControls");
+    expect(songPageSrc).not.toContain('aria-label="Share with artist"');
+    expect(songPageSrc).not.toContain("window.location.href");
   });
 
   it("Download button is rendered with an aria-label", () => {
@@ -484,9 +486,9 @@ describe("song-page.tsx source — secondary action rail icons (Star / Share / D
     expect(songPageSrc).toMatch(/<path[^>]*d="M8 1\.5/); // five-point star path begins here
   });
 
-  it("Share + Download icons are inline SVGs too", () => {
-    expect(songPageSrc).toContain("ShareIcon");
+  it("keeps the Download icon inline and removes the obsolete private-page share icon", () => {
     expect(songPageSrc).toContain("DownloadIcon");
+    expect(songPageSrc).not.toContain("ShareIcon");
   });
 
   it("Download button reads from activeVersion.audioUrl (so version switch swaps the target)", () => {

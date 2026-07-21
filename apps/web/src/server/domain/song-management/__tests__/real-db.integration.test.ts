@@ -16,6 +16,9 @@ import {
   privateVersionStreamPath,
   publicPortfolioStreamPath,
 } from "../../audio-delivery/urls";
+import { songPublicationRepository } from "../../song-publication/db";
+import { listPublicPortfolioSongs } from "../../song-publication/public-read";
+import { setPortfolioPublic } from "../../song-publication/service";
 import { computeStoredAudioIdentityFingerprint } from "../service";
 
 // This suite never falls back to DATABASE_URL. DATABASE_URL_TEST is the
@@ -23,6 +26,10 @@ import { computeStoredAudioIdentityFingerprint } from "../service";
 const testDatabaseUrl = process.env.DATABASE_URL_TEST;
 const describeWithTestDatabase = testDatabaseUrl ? describe : describe.skip;
 const testSchema = `sk8_${randomUUID().replaceAll("-", "")}`;
+const transactionApplicationNameA = `${testSchema}_a`;
+const transactionApplicationNameB = `${testSchema}_b`;
+const transactionApplicationNameC = `${testSchema}_c`;
+const publicationTestSecret = "sk98-real-db-publication-secret-2026";
 
 type TestTable =
   | "producers"
@@ -32,7 +39,8 @@ type TestTable =
   | "project_tracks"
   | "track_versions"
   | "portfolio_tracks"
-  | "song_public_links";
+  | "song_public_links"
+  | "song_public_access_events";
 
 function assertValidTestSchema(): void {
   if (!/^sk8_[a-f0-9]{32}$/.test(testSchema)) {
@@ -47,13 +55,16 @@ function qualifiedTestTable(table: TestTable): string {
 
 type TransactionFn = Db["transaction"];
 
-function withIsolatedTransactionSchema(database: Db): Db {
+function withIsolatedTransactionSchema(database: Db, applicationName: string): Db {
   const runTransaction = database.transaction.bind(database);
   database.transaction = (async (...args: Parameters<TransactionFn>) => {
     const [work, config] = args;
     return runTransaction(async (transaction) => {
       assertValidTestSchema();
       await transaction.execute(sql.raw(`set local search_path to "${testSchema}"`));
+      await transaction.execute(
+        sql`select set_config('application_name', ${applicationName}, true)`,
+      );
       return work(transaction);
     }, config);
   }) as TransactionFn;
@@ -86,10 +97,13 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
   // Race coverage needs distinct clients. Each operation still opens its own
   // max-one interactive transaction pool through createDb.
   const transactionDbA = testDatabaseUrl
-    ? withIsolatedTransactionSchema(createDb(testDatabaseUrl))
+    ? withIsolatedTransactionSchema(createDb(testDatabaseUrl), transactionApplicationNameA)
     : null;
   const transactionDbB = testDatabaseUrl
-    ? withIsolatedTransactionSchema(createDb(testDatabaseUrl))
+    ? withIsolatedTransactionSchema(createDb(testDatabaseUrl), transactionApplicationNameB)
+    : null;
+  const transactionDbC = testDatabaseUrl
+    ? withIsolatedTransactionSchema(createDb(testDatabaseUrl), transactionApplicationNameC)
     : null;
   let schemaCreated = false;
 
@@ -106,6 +120,33 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
   function activeTransactionDbB(): Db {
     if (!transactionDbB) throw new Error("SK-8 second transaction database is unavailable");
     return transactionDbB;
+  }
+
+  function activeTransactionDbC(): Db {
+    if (!transactionDbC) throw new Error("SK-8 third transaction database is unavailable");
+    return transactionDbC;
+  }
+
+  async function waitForDatabaseLock(
+    applicationName: string,
+    queryFragment: "project_tracks" | "track_versions",
+  ): Promise<void> {
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      const waiting = await activeAdminDb().execute<{ waiting: boolean }>(sql`
+        select exists (
+          select 1
+          from pg_stat_activity
+          where "application_name" = ${applicationName}
+            and "state" = 'active'
+            and "wait_event_type" = 'Lock'
+            and position(lower(${queryFragment}) in lower("query")) > 0
+        ) as "waiting"
+      `);
+      if (waiting.rows[0]?.waiting) return;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw new Error(`Timed out waiting for ${queryFragment} lock serialization`);
   }
 
   beforeAll(async () => {
@@ -180,7 +221,19 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
         "size_bytes" bigint,
         "audio_object_etag" text,
         "audio_identity_fingerprint" text,
+        "pending_audio_r2_key" text,
+        "pending_audio_upload_id" text,
+        "pending_audio_initiation_digest" text,
+        "pending_audio_completion_token" text,
+        "pending_audio_size_bytes" bigint,
+        "pending_audio_started_at" timestamptz,
+        "pending_audio_create_attempted_at" timestamptz,
+        "pending_audio_complete_attempted_at" timestamptz,
+        "pending_audio_part_urls_expire_at" timestamptz,
+        "pending_audio_cancel_requested_at" timestamptz,
+        "pending_audio_cleanup_etag" text,
         "peaks_r2_key" text,
+        "peaks" jsonb,
         "uploaded_at" timestamptz not null,
         "producer_marked_final_at" timestamptz,
         "audio_deleted_at" timestamptz
@@ -212,6 +265,28 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
         "created_at" timestamptz not null,
         "updated_at" timestamptz not null
       )`,
+      `create table ${schema}."song_public_access_events" (
+        "id" uuid primary key default gen_random_uuid(),
+        "track_id" uuid not null,
+        "purchase_id" uuid not null,
+        "producer_id" uuid not null,
+        "link_id" uuid,
+        "version_id" uuid,
+        "action" text not null,
+        "sequence" integer not null,
+        "token_version" integer,
+        "token_hash" text,
+        "changed" boolean not null default false,
+        "link_enabled" boolean not null,
+        "portfolio_published" boolean not null,
+        "remaining_audio_count" integer not null,
+        "operation_key" text not null,
+        "operation_digest" text not null,
+        "changed_by_clerk_user_id" text not null,
+        "created_at" timestamptz not null default now(),
+        unique ("track_id", "sequence"),
+        unique ("track_id", "operation_key")
+      )`,
     ];
     for (const statement of statements) {
       await activeAdminDb().execute(sql.raw(statement));
@@ -230,6 +305,13 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
       values (${producerId})
     `);
     return producerId;
+  }
+
+  function deletionAuditInput(operationKey = randomUUID()): Readonly<{
+    actorClerkUserId: string;
+    operationKey: string;
+  }> {
+    return { actorClerkUserId: "user_song_management_test", operationKey };
   }
 
   async function createSong(
@@ -359,7 +441,8 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
           "disabled_at", "created_at", "updated_at"
         )
       values (
-        ${id}, ${song.trackId}, ${song.purchaseId}, ${song.producerId}, ${randomUUID()},
+        ${id}, ${song.trackId}, ${song.purchaseId}, ${song.producerId},
+        ${`sha256:${id.replaceAll("-", "").padEnd(64, "0")}`},
         ${enabledAt}, ${null}, ${enabledAt}, ${enabledAt}
       )
     `);
@@ -606,6 +689,7 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
         releasedAt,
       }),
       tombstoneStoredAudioVersion(activeTransactionDbB(), {
+        ...deletionAuditInput(),
         producerId: song.producerId,
         versionId: version.id,
         deletedAt,
@@ -684,6 +768,7 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
     ).rejects.toMatchObject({ code: "INVALID_INPUT" });
 
     await tombstoneStoredAudioVersion(activeTransactionDbA(), {
+      ...deletionAuditInput(),
       producerId: song.producerId,
       versionId: version.id,
       deletedAt: new Date("2026-07-10T08:00:00.000Z"),
@@ -735,6 +820,7 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
         versionId: version.id,
       }),
       tombstoneStoredAudioVersion(activeTransactionDbB(), {
+        ...deletionAuditInput(),
         producerId: song.producerId,
         versionId: version.id,
         deletedAt: new Date("2026-07-10T08:00:00.000Z"),
@@ -785,6 +871,7 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
 
     await expect(
       tombstoneStoredAudioVersion(activeTransactionDbA(), {
+        ...deletionAuditInput(),
         producerId: song.producerId,
         versionId: current.id,
         deletedAt: new Date("2026-07-10T08:00:00.000Z"),
@@ -792,6 +879,7 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
     ).rejects.toMatchObject({ code: "AUDIO_PROTECTED" });
     await expect(
       tombstoneStoredAudioVersion(activeTransactionDbA(), {
+        ...deletionAuditInput(),
         producerId: song.producerId,
         versionId: producerFinal.id,
         deletedAt: new Date("2026-07-10T08:00:00.000Z"),
@@ -799,6 +887,7 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
     ).rejects.toMatchObject({ code: "AUDIO_PROTECTED" });
     await expect(
       tombstoneStoredAudioVersion(activeTransactionDbA(), {
+        ...deletionAuditInput(),
         producerId: onlySong.producerId,
         versionId: only.id,
         deletedAt: new Date("2026-07-10T08:00:00.000Z"),
@@ -836,10 +925,12 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
       peaksR2Key: "peaks/newer.json",
     });
     const portfolioId = await publishPortfolioCopy(song, newer);
-    await enablePublicLink(song);
+    const publicLinkId = await enablePublicLink(song);
     const firstDeletedAt = new Date("2026-07-11T08:00:00.000Z");
+    const firstDeleteOperationKey = randomUUID();
 
     const first = await tombstoneStoredAudioVersion(activeTransactionDbA(), {
+      ...deletionAuditInput(firstDeleteOperationKey),
       producerId: song.producerId,
       versionId: newer.id,
       deletedAt: firstDeletedAt,
@@ -884,7 +975,17 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
     `);
     expect(activeLink.rows[0]?.disabled_at).toBeNull();
 
+    await expect(
+      tombstoneStoredAudioVersion(activeTransactionDbA(), {
+        ...deletionAuditInput(firstDeleteOperationKey),
+        producerId: song.producerId,
+        versionId: older.id,
+        deletedAt: new Date("2026-07-11T09:00:00.000Z"),
+      }),
+    ).rejects.toMatchObject({ code: "OPERATION_KEY_CONFLICT" });
+
     const retry = await tombstoneStoredAudioVersion(activeTransactionDbA(), {
+      ...deletionAuditInput(firstDeleteOperationKey),
       producerId: song.producerId,
       versionId: newer.id,
       deletedAt: new Date("2026-07-12T08:00:00.000Z"),
@@ -907,6 +1008,7 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
 
     const lastDeletedAt = new Date("2026-07-13T08:00:00.000Z");
     const last = await tombstoneStoredAudioVersion(activeTransactionDbA(), {
+      ...deletionAuditInput(),
       producerId: song.producerId,
       versionId: older.id,
       deletedAt: lastDeletedAt,
@@ -955,6 +1057,113 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
     ).toBe(true);
     expect(timestamp(disabled.rows[0]?.disabled_at ?? null)).toBe(lastDeletedAt.getTime());
     expect(disabled.rows[0]?.portfolio_published_at).toBeNull();
+
+    const auditEvents = await activeAdminDb().execute<{
+      sequence: number;
+      link_id: string | null;
+      version_id: string | null;
+      action: string;
+      token_version: number | null;
+      token_hash: string | null;
+      changed: boolean;
+      link_enabled: boolean;
+      portfolio_published: boolean;
+      remaining_audio_count: number;
+      operation_digest: string;
+    }>(sql`
+      select
+        "sequence", "link_id", "version_id", "action", "token_version", "token_hash",
+        "changed", "link_enabled", "portfolio_published", "remaining_audio_count",
+        "operation_digest"
+      from ${sql.raw(qualifiedTestTable("song_public_access_events"))}
+      where "track_id" = ${song.trackId}
+      order by "sequence"
+    `);
+    expect(auditEvents.rows).toHaveLength(2);
+    expect(auditEvents.rows[0]).toMatchObject({
+      sequence: 1,
+      link_id: publicLinkId,
+      version_id: newer.id,
+      action: "audio_deleted",
+      token_version: 1,
+      changed: true,
+      link_enabled: true,
+      portfolio_published: true,
+      remaining_audio_count: 1,
+    });
+    expect(auditEvents.rows[1]).toMatchObject({
+      sequence: 2,
+      link_id: publicLinkId,
+      version_id: older.id,
+      action: "audio_deleted",
+      token_version: 1,
+      changed: true,
+      link_enabled: false,
+      portfolio_published: false,
+      remaining_audio_count: 0,
+    });
+    expect(auditEvents.rows[0]?.token_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(auditEvents.rows[0]?.operation_digest).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(auditEvents.rows[1]?.operation_digest).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(auditEvents.rows[1]?.operation_digest).not.toBe(auditEvents.rows[0]?.operation_digest);
+  }, 30_000);
+
+  it("disables public surfaces when only a noncanonical completed row remains", async () => {
+    const song = await createSong({
+      releasedAt: new Date("2026-07-10T08:00:00.000Z"),
+      portfolioPublishedAt: new Date("2026-07-10T08:01:00.000Z"),
+    });
+    const canonical = await createStoredVersion(song, {
+      label: "Deliverable",
+      uploadedAt: new Date("2026-07-11T08:00:00.000Z"),
+    });
+    const noncanonical = await createStoredVersion(song, {
+      label: "Corrupt completed row",
+      uploadedAt: new Date("2026-07-12T08:00:00.000Z"),
+    });
+    await activeAdminDb().execute(sql`
+      update ${sql.raw(qualifiedTestTable("track_versions"))}
+      set "audio_url" = ${privateVersionStreamPath(canonical.id)}
+      where "id" = ${noncanonical.id}
+    `);
+    await enablePublicLink(song);
+
+    const deletedAt = new Date("2026-07-13T08:00:00.000Z");
+    const deleted = await tombstoneStoredAudioVersion(activeTransactionDbA(), {
+      ...deletionAuditInput(),
+      producerId: song.producerId,
+      versionId: canonical.id,
+      deletedAt,
+    });
+
+    expect(deleted).toMatchObject({
+      wasLastStoredAudio: true,
+      nextPlaybackVersionId: null,
+    });
+    const lifecycle = await activeAdminDb().execute<{
+      disabled_at: DbDate | null;
+      portfolio_published_at: DbDate | null;
+      remaining_audio_count: number;
+      link_enabled: boolean;
+      portfolio_published: boolean;
+    }>(sql`
+      select
+        l."disabled_at", t."portfolio_published_at", e."remaining_audio_count",
+        e."link_enabled", e."portfolio_published"
+      from ${sql.raw(qualifiedTestTable("song_public_links"))} l
+      inner join ${sql.raw(qualifiedTestTable("project_tracks"))} t
+        on t."id" = l."track_id"
+      inner join ${sql.raw(qualifiedTestTable("song_public_access_events"))} e
+        on e."track_id" = t."id"
+      where t."id" = ${song.trackId} and e."version_id" = ${canonical.id}
+    `);
+    expect(timestamp(lifecycle.rows[0]?.disabled_at ?? null)).toBe(deletedAt.getTime());
+    expect(lifecycle.rows[0]).toMatchObject({
+      portfolio_published_at: null,
+      remaining_audio_count: 0,
+      link_enabled: false,
+      portfolio_published: false,
+    });
   }, 30_000);
 
   it("serializes final selection against stored-audio deletion", async () => {
@@ -970,6 +1179,7 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
 
     const outcomes = await Promise.allSettled([
       tombstoneStoredAudioVersion(activeTransactionDbA(), {
+        ...deletionAuditInput(),
         producerId: song.producerId,
         versionId: target.id,
         deletedAt: new Date("2026-07-14T08:00:00.000Z"),
@@ -998,5 +1208,88 @@ describeWithTestDatabase("SK-8 song management — separate CI test database", (
       (row.audio_deleted_at !== null && row.producer_marked_final_at === null) ||
         (row.audio_deleted_at === null && row.producer_marked_final_at !== null),
     ).toBe(true);
+  }, 30_000);
+
+  it("serializes a public portfolio listing against producer unpublish", async () => {
+    const publishedAt = new Date("2026-07-15T08:00:00.000Z");
+    const song = await createSong({
+      portfolioPublishedAt: publishedAt,
+      title: "Public until the writer commits",
+      artist: "Race-safe artist",
+    });
+    const version = await createStoredVersion(song, {
+      label: "Current public mix",
+      uploadedAt: new Date("2026-07-15T09:00:00.000Z"),
+    });
+
+    let signalBlockerReady!: () => void;
+    let releaseVersionTable!: () => void;
+    const blockerReady = new Promise<void>((resolve) => {
+      signalBlockerReady = resolve;
+    });
+    const versionTableRelease = new Promise<void>((resolve) => {
+      releaseVersionTable = resolve;
+    });
+    const versionTableBlocker = activeTransactionDbB().transaction(async (tx) => {
+      await tx.execute(
+        sql.raw(`lock table ${qualifiedTestTable("track_versions")} in access exclusive mode`),
+      );
+      signalBlockerReady();
+      await versionTableRelease;
+    });
+    await blockerReady;
+
+    const completionOrder: string[] = [];
+    const listing = listPublicPortfolioSongs(activeTransactionDbA(), {
+      producerId: song.producerId,
+      secret: publicationTestSecret,
+      limit: 3,
+    }).then((songs) => {
+      completionOrder.push("listing");
+      return songs;
+    });
+    await waitForDatabaseLock(transactionApplicationNameA, "track_versions");
+
+    const unpublish = setPortfolioPublic(
+      songPublicationRepository(activeTransactionDbC()),
+      {
+        producerId: song.producerId,
+        trackId: song.trackId,
+        operationKey: randomUUID(),
+        changedByClerkUserId: "user_portfolio_race_test",
+        occurredAt: new Date("2026-07-16T08:00:00.000Z"),
+        published: false,
+      },
+      { tokenSecret: publicationTestSecret },
+    ).then((result) => {
+      completionOrder.push("unpublish");
+      return result;
+    });
+
+    try {
+      await waitForDatabaseLock(transactionApplicationNameC, "project_tracks");
+    } finally {
+      releaseVersionTable();
+      await versionTableBlocker;
+    }
+
+    const [songs, unpublished] = await Promise.all([listing, unpublish]);
+    expect(completionOrder).toEqual(["listing", "unpublish"]);
+    expect(songs).toHaveLength(1);
+    expect(songs[0]).toMatchObject({
+      id: song.trackId,
+      title: "Public until the writer commits",
+      artist: "Race-safe artist",
+      portfolioPublishedAt: publishedAt,
+    });
+    expect(songs[0]?.audioUrl).toContain(version.id);
+    expect(unpublished.state.portfolioPublished).toBe(false);
+
+    const stored = await activeAdminDb().execute<{ portfolio_published_at: DbDate | null }>(sql`
+      select "portfolio_published_at"
+      from ${sql.raw(qualifiedTestTable("project_tracks"))}
+      where "id" = ${song.trackId}
+    `);
+    expect(stored.rows[0]?.portfolio_published_at).toBeNull();
   }, 30_000);
 });

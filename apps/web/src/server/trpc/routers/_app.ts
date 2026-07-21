@@ -16,6 +16,7 @@ import { projectRouter } from "./project";
 import { privateOffersRouter } from "./private-offers";
 import { purchaseLedgerRouter } from "./purchase-ledger";
 import { publicProfileRouter } from "./public-profile";
+import { songPublicationRouter } from "./song-publication";
 import { waitlistRouter } from "./waitlist";
 
 export const appRouter = router({
@@ -36,6 +37,7 @@ export const appRouter = router({
   privateOffers: privateOffersRouter,
   purchaseLedger: purchaseLedgerRouter,
   publicProfile: publicProfileRouter,
+  songPublication: songPublicationRouter,
   waitlist: waitlistRouter,
 });
 

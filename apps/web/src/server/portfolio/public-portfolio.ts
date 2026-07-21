@@ -1,36 +1,25 @@
-import { and, desc, eq, isNotNull, portfolioTracks, sql, type Db } from "@skitza/db";
+import type { Db } from "@skitza/db";
 
-function explicitlyPublicPortfolio(producerId: string) {
-  return and(
-    eq(portfolioTracks.producerId, producerId),
-    eq(portfolioTracks.isPublicSample, true),
-    isNotNull(portfolioTracks.audioUrl),
-    isNotNull(portfolioTracks.audioR2Key),
-    sql`${portfolioTracks.audioUrl} = '/api/audio/public/portfolio/' || ${portfolioTracks.id}::text`,
-  );
-}
+import { songPublicationSecret } from "~/server/domain/song-publication/config";
+import { listPublicPortfolioSongs } from "~/server/domain/song-publication/public-read";
 
+/**
+ * Public portfolio authority is the song marker plus its newest stored audio.
+ * Legacy portfolio rows are intentionally absent from this read path.
+ */
 export async function listPublicPortfolioTracks(db: Db, producerId: string, limit = 3) {
-  return db
-    .select({
-      id: portfolioTracks.id,
-      title: portfolioTracks.title,
-      artist: portfolioTracks.artist,
-      audioUrl: portfolioTracks.audioUrl,
-      durationMs: portfolioTracks.durationMs,
-      peaksR2Key: portfolioTracks.peaksR2Key,
-    })
-    .from(portfolioTracks)
-    .where(explicitlyPublicPortfolio(producerId))
-    .orderBy(desc(portfolioTracks.createdAt))
-    .limit(limit);
+  return listPublicPortfolioSongs(db, {
+    producerId,
+    secret: songPublicationSecret(),
+    limit,
+  });
 }
 
 export async function countPublicPortfolioTracks(db: Db, producerId: string): Promise<number> {
-  const rows = await db
-    .select({ id: portfolioTracks.id })
-    .from(portfolioTracks)
-    .where(explicitlyPublicPortfolio(producerId));
-
+  const rows = await listPublicPortfolioSongs(db, {
+    producerId,
+    secret: songPublicationSecret(),
+    limit: Number.MAX_SAFE_INTEGER,
+  });
   return rows.length;
 }

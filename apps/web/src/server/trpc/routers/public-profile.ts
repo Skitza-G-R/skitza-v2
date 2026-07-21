@@ -13,8 +13,6 @@ import { headers } from "next/headers";
 import { z } from "zod";
 import { publicProcedure, router } from "../init";
 import { listPublicPortfolioTracks } from "~/server/portfolio/public-portfolio";
-import { createPublicAudioStreamToken } from "~/server/domain/audio-delivery/tokens";
-import { publicPortfolioStreamPath } from "~/server/domain/audio-delivery/urls";
 
 // `/join/<slug>` is the Instagram-bio-friendly public surface a stranger
 // hits before they sign up. The payload we return is deliberately
@@ -102,7 +100,6 @@ export const publicProfileRouter = router({
 
       // Step 2: fetch only tracks the producer explicitly marked public.
       const sampleRows = await listPublicPortfolioTracks(db, producerRow.id);
-      const protectedSampleSecret = process.env.CLERK_SECRET_KEY;
 
       // Step 3: fetch external streaming links (Wave 2, PRD §6.2
       // Section B). Ordered by the producer-curated `position` field
@@ -175,15 +172,7 @@ export const publicProfileRouter = router({
           id: row.id,
           title: row.title,
           artist: row.artist,
-          audioUrl:
-            row.audioUrl === publicPortfolioStreamPath(row.id)
-              ? `${row.audioUrl}?token=${encodeURIComponent(
-                  createPublicAudioStreamToken(protectedSampleSecret ?? "", {
-                    producerId: producerRow.id,
-                    publicSampleId: row.id,
-                  }),
-                )}`
-              : null,
+          audioUrl: row.audioUrl,
           durationMs: row.durationMs,
           peaksR2Key: null,
         })),

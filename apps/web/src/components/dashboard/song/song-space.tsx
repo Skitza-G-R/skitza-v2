@@ -57,6 +57,7 @@ export interface SongSpaceSong {
   isOverdue: boolean;
   /** Total versions - 1. */
   revisionCount: number;
+  publicExposure: "none" | "link" | "portfolio" | "link_and_portfolio";
 }
 
 export interface SongSpaceProject {
@@ -303,7 +304,14 @@ export function SongSpace({
           mode="new-version"
           trackId={song.id}
           defaultLabel={defaultLabel}
-          tracks={[{ id: song.id, title: song.title, versionCount: versions.length }]}
+          tracks={[
+            {
+              id: song.id,
+              title: song.title,
+              versionCount: versions.length,
+              publicExposure: song.publicExposure,
+            },
+          ]}
         />
       ) : null}
     </div>

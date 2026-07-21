@@ -64,20 +64,12 @@ describe("PLATFORM_LABEL", () => {
 describe("swapAdjacent", () => {
   it("swaps index 1 up with index 0", () => {
     const arr = [{ id: "a" }, { id: "b" }, { id: "c" }] as const;
-    expect(swapAdjacent(arr, 1, "up")).toEqual([
-      { id: "b" },
-      { id: "a" },
-      { id: "c" },
-    ]);
+    expect(swapAdjacent(arr, 1, "up")).toEqual([{ id: "b" }, { id: "a" }, { id: "c" }]);
   });
 
   it("swaps index 1 down with index 2", () => {
     const arr = [{ id: "a" }, { id: "b" }, { id: "c" }] as const;
-    expect(swapAdjacent(arr, 1, "down")).toEqual([
-      { id: "a" },
-      { id: "c" },
-      { id: "b" },
-    ]);
+    expect(swapAdjacent(arr, 1, "down")).toEqual([{ id: "a" }, { id: "c" }, { id: "b" }]);
   });
 
   it("returns null when ▲ pressed on first row (no-op)", () => {
@@ -168,7 +160,7 @@ describe("computePlayingId", () => {
 describe("filterLibrary", () => {
   const lib = [
     {
-      versionId: "v1",
+      trackId: "t1",
       trackTitle: "Midnight Drive",
       projectTitle: "Neon Dreams",
       artistName: "Lior",
@@ -176,7 +168,7 @@ describe("filterLibrary", () => {
       uploadedAt: "2026-05-01T00:00:00Z",
     },
     {
-      versionId: "v2",
+      trackId: "t2",
       trackTitle: "Sun Reborn",
       projectTitle: "Sunshine EP",
       artistName: "Ani Sameach",
@@ -286,9 +278,7 @@ describe("canReorder", () => {
 
 describe("portfolio-panel.tsx — structural invariants", () => {
   it("uses the 2-col grid (38/62 split via fr units)", () => {
-    expect(panelSource).toContain(
-      "grid-cols-[minmax(0,38fr)_minmax(0,62fr)]",
-    );
+    expect(panelSource).toContain("grid-cols-[minmax(0,38fr)_minmax(0,62fr)]");
   });
 
   it("renders 'Featured tracks' and 'Social links' as section headings", () => {
@@ -304,10 +294,9 @@ describe("portfolio-panel.tsx — structural invariants", () => {
     expect(panelSource).not.toMatch(/<select[\s>]/);
   });
 
-  it("renders Public / Private mono label per track (Q1=B passive)", () => {
-    // Status is now an inline mono label inside a <span>, not a chunky
-    // chip. Source carries both string literals via the ternary.
-    expect(panelSource).toMatch(/isPublicSample\s*\?\s*"Public"\s*:\s*"Private"/);
+  it("renders only song-marker-backed Public rows", () => {
+    expect(panelSource).toContain('title="Plays the newest stored version on /join"');
+    expect(panelSource).not.toContain("isPublicSample");
   });
 
   it("does not render a public-sample toggle / switch", () => {
@@ -333,9 +322,9 @@ describe("portfolio-panel.tsx — structural invariants", () => {
     expect(panelSource).toContain("arrayMove");
   });
 
-  it("calls reorderPortfolioTracks and reorderExternalLinks (bulk reorder API)", () => {
-    expect(panelSource).toContain("reorderPortfolioTracks");
+  it("keeps social-link reorder without a copied-track reorder API", () => {
     expect(panelSource).toContain("reorderExternalLinks");
+    expect(panelSource).not.toContain("reorderPortfolioTracks");
   });
 
   it("calls addExternalLink with a URL-only payload (no platform/title)", () => {
@@ -346,13 +335,13 @@ describe("portfolio-panel.tsx — structural invariants", () => {
   });
 
   it("renders the helper mono micro-labels for both sections", () => {
-    expect(panelSource).toContain("PICK YOUR BEST. DRAG TO REORDER.");
+    expect(panelSource).toContain("PICK YOUR BEST. NEW UPLOADS STAY CURRENT.");
     expect(panelSource).toContain("PASTE THE URL. WE FIGURE OUT THE PLATFORM.");
   });
 
   it("renders LinkRow with a PlatformIcon brand tile", () => {
     expect(panelSource).toContain("PlatformIcon");
-    expect(panelSource).toContain('platform={row.platform}');
+    expect(panelSource).toContain("platform={row.platform}");
   });
 
   it("renders the picker modal via React's createPortal (escapes sidebar stacking)", () => {
@@ -412,16 +401,12 @@ describe("portfolio-panel.tsx — structural invariants", () => {
     // 2026-05-18: play state lifted to the parent section (single-
     // playback invariant) — aria-label now reads from the isPlaying
     // prop instead of a local `playing` state.
-    const playMatch = panelSource.search(
-      /aria-label=\{isPlaying \? "Pause" : "Play"\}/,
-    );
+    const playMatch = panelSource.search(/aria-label=\{isPlaying \? "Pause" : "Play"\}/);
     const waveMatch = panelSource.search(/aria-label="Seek"/);
     // 2026-06-10 (SK-47): the name column's fixed 168px width moved from
     // an inline style to a responsive class (flexes on mobile).
     const nameMatch = panelSource.search(/sm:w-\[168px\]/);
-    const publicMatch = panelSource.search(
-      /isPublicSample\s*\?\s*"Public"\s*:\s*"Private"/,
-    );
+    const publicMatch = panelSource.search(/title="Plays the newest stored version on \/join"/);
     expect(playMatch).toBeGreaterThan(-1);
     expect(waveMatch).toBeGreaterThan(playMatch);
     expect(nameMatch).toBeGreaterThan(waveMatch);
@@ -447,9 +432,7 @@ describe("portfolio-panel.tsx — structural invariants", () => {
   });
 
   it("renders the smart-paste placeholder copy", () => {
-    expect(panelSource).toMatch(
-      /Paste a Spotify, YouTube, SoundCloud link/,
-    );
+    expect(panelSource).toMatch(/Paste a Spotify, YouTube, SoundCloud link/);
   });
 
   it("renders the LIMIT REACHED mono helper at cap (5/5)", () => {
@@ -460,9 +443,7 @@ describe("portfolio-panel.tsx — structural invariants", () => {
     // Guard against the documented memory: tokens like --surface-card,
     // --text-muted, --text-strong, --surface-hover, --brand-primary-on
     // don't exist and result in transparent/invisible UI.
-    const codeOnly = panelSource
-      .replace(/\/\/.*$/gm, "")
-      .replace(/\/\*[\s\S]*?\*\//g, "");
+    const codeOnly = panelSource.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
     expect(codeOnly).not.toMatch(/--surface-card\b/);
     expect(codeOnly).not.toMatch(/--text-muted\b/);
     expect(codeOnly).not.toMatch(/--text-strong\b/);
@@ -500,9 +481,10 @@ describe("portfolio/page.tsx — slug + header pill", () => {
     expect(pageSource).toMatch(/\/join\/\$\{me\.slug\}/);
   });
 
-  it("passes audioUrl and durationMs into PortfolioTrackRow rows", () => {
-    expect(pageSource).toMatch(/audioUrl:\s*t\.audioUrl/);
-    expect(pageSource).toMatch(/durationMs:\s*t\.durationMs/);
+  it("passes the current latest-version preview into PortfolioTrackRow rows", () => {
+    expect(pageSource).toMatch(/audioUrl:\s*song\.latestVersion\.audioUrl/);
+    expect(pageSource).toMatch(/durationMs:\s*song\.latestVersion\.durationMs/);
+    expect(pageSource).toMatch(/versionLabel:\s*song\.latestVersion\.label/);
   });
 
   it("drops the per-link title from ExternalLinkRow mapping (no longer captured)", () => {
@@ -512,41 +494,34 @@ describe("portfolio/page.tsx — slug + header pill", () => {
 
 // ─── actions.ts: shape + reorder wrappers ───────────────────────────
 
-describe("actions.ts — final URL-only + reorder wrappers", () => {
-  it("adds Library audio by immutable version id only", () => {
+describe("actions.ts — song marker + social-link wrappers", () => {
+  it("publishes portfolio inclusion by song id and idempotency key", () => {
     expect(actionsSource).toMatch(
-      /export async function addPortfolioFromLibrary\(input:\s*\{\s*versionId:\s*string;\s*\}\)/,
+      /export async function setPortfolioSongPublished\(input:\s*\{\s*trackId:\s*string;\s*operationKey:\s*string;\s*published:\s*boolean;/,
     );
-    expect(actionsSource).toMatch(
-      /portfolio\.createFromVersion\(\{\s*versionId:\s*input\.versionId\s*\}\)/,
-    );
-    expect(panelSource).toMatch(
-      /addPortfolioFromLibrary\(\{\s*versionId:\s*row\.versionId\s*\}\)/,
-    );
+    expect(actionsSource).toMatch(/songPublication\.setPortfolioPublic\(input\)/);
+    expect(panelSource).toMatch(/setPortfolioSongPublished\(\{[\s\S]*trackId:\s*row\.trackId/);
+    expect(actionsSource).not.toContain("portfolio.createFromVersion");
   });
 
   it("addExternalLink input is URL-only", () => {
     expect(actionsSource).toMatch(
-      /export async function addExternalLink\(input:\s*\{\s*url:\s*string;\s*\}\)/,
+      /export async function addExternalLink\(input:\s*\{\s*url:\s*string;?\s*\}\)/,
     );
   });
 
-  it("exports reorderPortfolioTracks", () => {
-    expect(actionsSource).toMatch(
-      /export async function reorderPortfolioTracks/,
-    );
+  it("does not expose legacy copied-track mutations", () => {
+    expect(actionsSource).not.toContain("reorderPortfolioTracks");
+    expect(actionsSource).not.toContain("deletePortfolioTrack");
+    expect(actionsSource).not.toContain("updatePortfolioTrack");
   });
 
   it("exports reorderExternalLinks", () => {
-    expect(actionsSource).toMatch(
-      /export async function reorderExternalLinks/,
-    );
+    expect(actionsSource).toMatch(/export async function reorderExternalLinks/);
   });
 
-  it("reorder wrappers call the bulk { orderedIds } router mutations", () => {
-    expect(actionsSource).toMatch(
-      /portfolio\.reorder\(\{\s*orderedIds:\s*input\.orderedIds/,
-    );
+  it("social-link reorder still calls its bulk { orderedIds } mutation", () => {
+    expect(actionsSource).not.toContain("portfolio.reorder");
     expect(actionsSource).toMatch(
       /producerExternalLinks\.reorder\(\{\s*orderedIds:\s*input\.orderedIds/,
     );

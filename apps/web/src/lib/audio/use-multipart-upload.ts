@@ -543,6 +543,7 @@ export function useMultipartUpload() {
         trackVersionId: opts.trackVersionId,
         sizeBytes: opts.file.size,
         completionToken: init.data.completionToken,
+        acknowledgePublicExposure: false,
       });
       if (!done.ok) {
         await cancelResumableEntry(entry);

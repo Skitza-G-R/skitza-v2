@@ -5,6 +5,11 @@ import { TRPCError } from "@trpc/server";
 import { revalidatePath } from "next/cache";
 import { ZodError } from "zod";
 
+import type {
+  SongPublicSharingRefreshResult,
+  SongPublicSharingView,
+} from "~/components/music/song-public-link-controls";
+import { PUBLIC_BRAND_ORIGIN } from "~/lib/share/public-url";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 // Artist-side L3 server actions — match the shape of the producer's
@@ -118,6 +123,48 @@ export async function l3ApproveVersion(input: {
     revalidatePath(pathDetail(input.versionId));
     return { ok: true };
   } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+function publicSharingView(state: {
+  trackId: string;
+  linkEnabled: boolean;
+  portfolioPublished: boolean;
+  remainingAudioCount: number;
+  tokenVersion: number | null;
+  publicUrl: string | null;
+}): SongPublicSharingView {
+  return {
+    trackId: state.trackId,
+    linkEnabled: state.linkEnabled,
+    portfolioPublished: state.portfolioPublished,
+    remainingAudioCount: state.remainingAudioCount,
+    tokenVersion: state.tokenVersion,
+    publicUrl:
+      state.publicUrl?.startsWith("/listen/") === true
+        ? `${PUBLIC_BRAND_ORIGIN}${state.publicUrl}`
+        : null,
+  };
+}
+
+/**
+ * Read-only authority check used immediately before an artist copies a
+ * producer-controlled public URL. Reset returns the replacement URL; disabled
+ * or inaccessible state returns null without revealing why it is unavailable.
+ */
+export async function refreshArtistPublicSongLink(input: {
+  trackId: string;
+}): Promise<SongPublicSharingRefreshResult> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const state = await c.caller.songPublication.artistState(input);
+    return { ok: true, state: publicSharingView(state) };
+  } catch (err) {
+    if (err instanceof TRPCError && err.code === "NOT_FOUND") {
+      return { ok: true, state: null };
+    }
     return { ok: false, error: toMessage(err) };
   }
 }

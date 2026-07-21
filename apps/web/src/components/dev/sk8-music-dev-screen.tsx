@@ -3,9 +3,28 @@
 import { MusicLibraryScreen, type MusicLibraryRow } from "~/components/music/library-screen";
 import type { VersionDeliveryState } from "~/components/music/delivery-state";
 import { SongPage, type MusicL3ActionResult } from "~/components/music/song-page";
+import type {
+  SongPublicSharingActionResult,
+  SongPublicSharingView,
+} from "~/components/music/song-public-link-controls";
 
 function succeed(): Promise<MusicL3ActionResult> {
   return Promise.resolve({ ok: true });
+}
+
+const publicSharing: SongPublicSharingView = {
+  trackId: "00000000-0000-4000-8000-000000000098",
+  linkEnabled: true,
+  portfolioPublished: true,
+  remainingAudioCount: 2,
+  tokenVersion: 1,
+  publicUrl: "https://skitza.app/listen/sk98-browser-preview",
+};
+
+function publicResult(
+  state: SongPublicSharingView = publicSharing,
+): Promise<SongPublicSharingActionResult> {
+  return Promise.resolve({ ok: true, state });
 }
 
 function delivery(
@@ -37,9 +56,34 @@ export function Sk8LibraryDevScreen({ tracks }: { tracks: MusicLibraryRow[] }) {
   );
 }
 
-export function Sk8SongDevScreen({ archived }: { archived: boolean }) {
+export function Sk8SongDevScreen({
+  archived,
+  role = "producer",
+}: {
+  archived: boolean;
+  role?: "producer" | "artist";
+}) {
   return (
     <SongPage
+      role={role}
+      publicSharing={publicSharing}
+      {...(role === "producer"
+        ? {
+            publicSharingActions: {
+              publish: () => publicResult(),
+              reset: () =>
+                publicResult({
+                  ...publicSharing,
+                  tokenVersion: 2,
+                  publicUrl: "https://skitza.app/listen/sk98-browser-preview-reset",
+                }),
+              disable: () =>
+                publicResult({ ...publicSharing, linkEnabled: false, publicUrl: null }),
+              setPortfolioPublic: ({ published }: { published: boolean }) =>
+                publicResult({ ...publicSharing, portfolioPublished: published }),
+            },
+          }
+        : {})}
       data={{
         track: {
           id: "track-sk8-live",

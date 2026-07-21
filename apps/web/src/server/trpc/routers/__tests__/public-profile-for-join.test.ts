@@ -8,8 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 //   - return a minimal, scrubbed producer payload (no email, no stripe
 //     ids, no autopilot flags — those leak data about a producer's
 //     operation that a random visitor should never see)
-//   - return up to 3 tracks where `is_public_sample = true`, ordered
-//     by `created_at desc`
+//   - return up to 3 songs selected by the song-publication read model
 //   - return an empty `externalLinks` array in Wave 1 (table ships
 //     in Wave 2, see architecture doc)
 //   - throw NOT_FOUND for an unknown slug
@@ -19,14 +18,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // (email, stripe_*, autopilot_*) so we can assert the procedure strips
 // them from the response shape.
 
-const PRODUCER_ID = "producer-uuid-1";
+const PRODUCER_ID = "10000000-0000-4000-8000-000000000001";
 const PRODUCER_SLUG = "gili-asraf";
 const TRACK_ID_1 = "00000000-0000-0000-0000-000000000001";
 const TRACK_ID_2 = "00000000-0000-0000-0000-000000000002";
 const TRACK_ID_3 = "00000000-0000-0000-0000-000000000003";
 
 const producersMarker = { __table: "producers" };
-const portfolioTracksMarker = { __table: "portfolio_tracks" };
 const externalLinksMarker = { __table: "producer_external_links" };
 
 type Row = Record<string, unknown>;
@@ -34,13 +32,6 @@ const producerSelectMock = vi.fn<() => Promise<Row[]>>();
 const trackSelectMock = vi.fn<() => Promise<Row[]>>();
 const externalLinksSelectMock = vi.fn<() => Promise<Row[]>>();
 
-// Capture the last WHERE args handed to the portfolio-tracks select
-// so the public-sample-filter test can assert the `isPublicSample` eq
-// predicate is actually in the where-tree.
-let lastTrackWhereArgs: unknown = null;
-// Capture the limit the router requested — acceptance criterion
-// says "limit 3", so assert it on the chain.
-let lastTrackLimit: number | null = null;
 // Capture the WHERE args for external links — used to verify producer
 // scoping (only the caller's producer's links are returned).
 let lastExternalLinksWhereArgs: unknown = null;
@@ -50,21 +41,6 @@ const dbMock = {
     from: (table: unknown) => {
       if (table === producersMarker) {
         return { where: () => ({ limit: () => producerSelectMock() }) };
-      }
-      if (table === portfolioTracksMarker) {
-        return {
-          where: (args: unknown) => {
-            lastTrackWhereArgs = args;
-            return {
-              orderBy: () => ({
-                limit: (n: number) => {
-                  lastTrackLimit = n;
-                  return trackSelectMock();
-                },
-              }),
-            };
-          },
-        };
       }
       if (table === externalLinksMarker) {
         return {
@@ -96,7 +72,6 @@ vi.mock("next/headers", () => ({
 vi.mock("@skitza/db", () => ({
   createDb: () => dbMock,
   producers: producersMarker,
-  portfolioTracks: portfolioTracksMarker,
   producerExternalLinks: externalLinksMarker,
   eq: (col: unknown, val: unknown) => ({ eq: [col, val] }),
   isNotNull: (col: unknown) => ({ isNotNull: col }),
@@ -107,6 +82,10 @@ vi.mock("@skitza/db", () => ({
   and: (...conds: unknown[]) => ({ and: conds }),
   asc: (col: unknown) => ({ asc: col }),
   desc: (col: unknown) => ({ desc: col }),
+}));
+
+vi.mock("~/server/portfolio/public-portfolio", () => ({
+  listPublicPortfolioTracks: trackSelectMock,
 }));
 
 function sensitiveProducerRow(overrides: Partial<Row> = {}): Row {
@@ -154,8 +133,6 @@ beforeEach(() => {
   producerSelectMock.mockReset().mockResolvedValue([]);
   trackSelectMock.mockReset().mockResolvedValue([]);
   externalLinksSelectMock.mockReset().mockResolvedValue([]);
-  lastTrackWhereArgs = null;
-  lastTrackLimit = null;
   lastExternalLinksWhereArgs = null;
   process.env.DATABASE_URL = "postgresql://test/test";
   process.env.CLERK_SECRET_KEY = "skitza-public-audio-test-secret";
@@ -192,11 +169,8 @@ describe("publicProfile.forJoin — happy path", () => {
         id: TRACK_ID_1,
         title: "Sample A",
         artist: "Artist A",
-        audioUrl: "https://example.com/a.mp3",
+        audioUrl: `/api/audio/public/song/${TRACK_ID_1}?cap=public-capability`,
         durationMs: 180_000,
-        peaksR2Key: "peaks/a.json",
-        isPublicSample: true,
-        createdAt: new Date("2026-03-03"),
       },
     ]);
     // externalLinksSelectMock default in beforeEach is [] — no links
@@ -210,22 +184,23 @@ describe("publicProfile.forJoin — happy path", () => {
     expect(result.producer.brandColor).toBe("212 150 10");
     expect(result.publicSamples).toHaveLength(1);
     expect(result.publicSamples[0]?.title).toBe("Sample A");
-    expect(result.publicSamples[0]?.audioUrl).toBeNull();
+    expect(result.publicSamples[0]?.audioUrl).toBe(
+      `/api/audio/public/song/${TRACK_ID_1}?cap=public-capability`,
+    );
     expect(result.publicSamples[0]?.peaksR2Key).toBeNull();
     expect(result.externalLinks).toEqual([]);
   });
 
-  it("returns only an expiring public-stream token for a Skitza-owned sample", async () => {
-    const producerId = "10000000-0000-4000-8000-000000000001";
+  it("returns only the capability-backed song audio URL for a public sample", async () => {
+    const producerId = "20000000-0000-4000-8000-000000000001";
     producerSelectMock.mockResolvedValueOnce([sensitiveProducerRow({ id: producerId })]);
     trackSelectMock.mockResolvedValueOnce([
       {
         id: TRACK_ID_1,
         title: "Protected sample",
         artist: null,
-        audioUrl: `/api/audio/public/portfolio/${TRACK_ID_1}`,
+        audioUrl: `/api/audio/public/song/${TRACK_ID_1}?cap=public-capability`,
         durationMs: 30_000,
-        peaksR2Key: "must-not-leak/peaks.json",
       },
     ]);
 
@@ -235,20 +210,12 @@ describe("publicProfile.forJoin — happy path", () => {
     if (!sample) throw new Error("missing protected sample");
     if (!sample.audioUrl) throw new Error("missing protected sample URL");
     const sampleUrl = new URL(sample.audioUrl, "https://skitza.test");
-    const token = sampleUrl.searchParams.get("token");
-    if (!token) throw new Error("missing public stream token");
-    const { verifyPublicAudioStreamToken } = await import("~/server/domain/audio-delivery/tokens");
-    const secret = process.env.CLERK_SECRET_KEY;
-    if (!secret) throw new Error("missing audio test secret");
-
-    expect(sampleUrl.pathname).toBe(`/api/audio/public/portfolio/${TRACK_ID_1}`);
+    expect(sampleUrl.pathname).toBe(`/api/audio/public/song/${TRACK_ID_1}`);
+    expect(sampleUrl.searchParams.get("cap")).toBe("public-capability");
+    expect(sampleUrl.searchParams.has("token")).toBe(false);
     expect(sample.peaksR2Key).toBeNull();
-    expect(JSON.stringify(sample)).not.toMatch(/download|must-not-leak|objectEtag/i);
-    expect(verifyPublicAudioStreamToken(secret, token)).toMatchObject({
-      purpose: "public_stream",
-      producerId,
-      publicSampleId: TRACK_ID_1,
-    });
+    expect(JSON.stringify(sample)).not.toMatch(/download|objectEtag|fingerprint|must-not-leak/i);
+    expect(trackSelectMock).toHaveBeenCalledWith(dbMock, producerId);
   });
 });
 
@@ -320,11 +287,8 @@ describe("publicProfile.forJoin — external-links resilience (audit 2026-04-22 
         id: TRACK_ID_1,
         title: "Sample A",
         artist: "Artist A",
-        audioUrl: "https://example.com/a.mp3",
+        audioUrl: `/api/audio/public/song/${TRACK_ID_1}?cap=public-capability`,
         durationMs: 180_000,
-        peaksR2Key: "peaks/a.json",
-        isPublicSample: true,
-        createdAt: new Date("2026-03-03"),
       },
     ]);
     // Simulate the exact Neon error we saw in prod: the table doesn't
@@ -366,19 +330,13 @@ describe("publicProfile.forJoin — 404", () => {
 });
 
 describe("publicProfile.forJoin — portfolio scope", () => {
-  it("scopes by producerId and returns only explicitly public tracks", async () => {
+  it("delegates portfolio privacy and newest-audio selection for the resolved producer", async () => {
     producerSelectMock.mockResolvedValueOnce([sensitiveProducerRow()]);
     trackSelectMock.mockResolvedValueOnce([]);
     const caller = await buildCaller();
     await caller.publicProfile.forJoin({ slug: PRODUCER_SLUG });
 
-    const { portfolioTracks } = await import("@skitza/db");
-    expect(
-      containsEq(lastTrackWhereArgs, portfolioTracks.producerId, PRODUCER_ID),
-    ).toBe(true);
-    expect(
-      containsEq(lastTrackWhereArgs, portfolioTracks.isPublicSample, true),
-    ).toBe(true);
+    expect(trackSelectMock).toHaveBeenCalledWith(dbMock, PRODUCER_ID);
   });
 });
 
@@ -451,9 +409,7 @@ describe("publicProfile.forJoin — marketing meta (migration 0006)", () => {
 describe("publicProfile.forJoin — limit 3", () => {
   it("requests at most 3 samples from the DB", async () => {
     producerSelectMock.mockResolvedValueOnce([sensitiveProducerRow()]);
-    // Seed 3 rows — router should've asked for no more than 3 and
-    // the DB response stream is pre-capped. The key assertion is on
-    // the `.limit(n)` value.
+    // The domain read model is already capped to 3 by its wrapper.
     trackSelectMock.mockResolvedValueOnce([
       { id: TRACK_ID_1, title: "Most recent", artist: null, audioUrl: null, durationMs: null, peaksR2Key: null, isPublicSample: true, createdAt: new Date("2026-03-05") },
       { id: TRACK_ID_2, title: "Middle", artist: null, audioUrl: null, durationMs: null, peaksR2Key: null, isPublicSample: true, createdAt: new Date("2026-03-04") },
@@ -462,7 +418,7 @@ describe("publicProfile.forJoin — limit 3", () => {
     const caller = await buildCaller();
     const result = await caller.publicProfile.forJoin({ slug: PRODUCER_SLUG });
 
-    expect(lastTrackLimit).toBe(3);
+    expect(trackSelectMock).toHaveBeenCalledWith(dbMock, PRODUCER_ID);
     expect(result.publicSamples).toHaveLength(3);
     // Producer may have had 5 flagged samples; only 3 come back, most
     // recent first. The mock is already sorted, we're asserting the
