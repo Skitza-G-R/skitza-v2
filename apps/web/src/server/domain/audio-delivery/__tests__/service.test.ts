@@ -5,6 +5,7 @@ import {
   deliverArtistDownload,
   deliverPrivateStream,
   deliverProducerDownload,
+  readArtistDownloadEntitlement,
   readDownloadOverrideState,
   setDownloadOverride,
   type AudioDeliveryRepository,
@@ -262,6 +263,94 @@ describe("SK-40 atomic audio delivery", () => {
       ),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(open).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("SK-44 artist entitlement read model", () => {
+  it("returns paid permission for paid and zero-total purchase ledgers", async () => {
+    for (const ledgerKind of ["paid", "zero"] as const) {
+      const state = await readArtistDownloadEntitlement(
+        new MemoryAudioDeliveryRepository(makeAudioDeliveryContext({ ledgerKind })),
+        {
+          artistClerkUserId: AUDIO_DELIVERY_IDS.artistClerkUserId,
+          purchaseId: AUDIO_DELIVERY_IDS.purchaseId,
+          versionId: AUDIO_DELIVERY_IDS.versionId,
+        },
+      );
+      expect(state).toMatchObject({
+        canDownload: true,
+        permission: "purchase_fully_paid",
+        fullyPaid: true,
+        unpaidAmountCents: 0,
+      });
+    }
+  });
+
+  it("keeps unpaid, corrected, and waived ledgers locked", async () => {
+    for (const ledgerKind of ["unpaid", "corrected", "waived"] as const) {
+      const state = await readArtistDownloadEntitlement(
+        new MemoryAudioDeliveryRepository(makeAudioDeliveryContext({ ledgerKind })),
+        {
+          artistClerkUserId: AUDIO_DELIVERY_IDS.artistClerkUserId,
+          purchaseId: AUDIO_DELIVERY_IDS.purchaseId,
+          versionId: AUDIO_DELIVERY_IDS.versionId,
+        },
+      );
+      expect(state).toMatchObject({
+        canDownload: false,
+        permission: "payment_required",
+        fullyPaid: false,
+      });
+    }
+  });
+
+  it("returns early access only for the exact overridden version and keeps debt", async () => {
+    const state = await readArtistDownloadEntitlement(
+      new MemoryAudioDeliveryRepository(
+        makeAudioDeliveryContext({
+          ledgerKind: "unpaid",
+          latestOverride: {
+            purchaseId: AUDIO_DELIVERY_IDS.purchaseId,
+            versionId: AUDIO_DELIVERY_IDS.versionId,
+            enabled: true,
+            sequence: 1,
+          },
+        }),
+      ),
+      {
+        artistClerkUserId: AUDIO_DELIVERY_IDS.artistClerkUserId,
+        purchaseId: AUDIO_DELIVERY_IDS.purchaseId,
+        versionId: AUDIO_DELIVERY_IDS.versionId,
+      },
+    );
+    expect(state).toMatchObject({
+      canDownload: true,
+      permission: "version_override",
+      fullyPaid: false,
+      unpaidAmountCents: 6_000,
+    });
+  });
+
+  it("returns deleted-audio state without hiding the exact purchase debt", async () => {
+    const state = await readArtistDownloadEntitlement(
+      new MemoryAudioDeliveryRepository(
+        makeAudioDeliveryContext({
+          ledgerKind: "unpaid",
+          storedAudio: { deletedAt: new Date("2026-07-20T12:00:00.000Z") },
+        }),
+      ),
+      {
+        artistClerkUserId: AUDIO_DELIVERY_IDS.artistClerkUserId,
+        purchaseId: AUDIO_DELIVERY_IDS.purchaseId,
+        versionId: AUDIO_DELIVERY_IDS.versionId,
+      },
+    );
+    expect(state).toMatchObject({
+      canDownload: false,
+      permission: "audio_deleted",
+      fullyPaid: false,
+      unpaidAmountCents: 6_000,
+    });
   });
 });
 

@@ -71,6 +71,17 @@ export default async function ArtistSongPage({ params }: PageProps) {
     if (!(error instanceof TRPCError) || error.code !== "NOT_FOUND") throw error;
   }
 
+  const entitlementEntries = await Promise.all(
+    data.versions.map(async (version) => {
+      const entitlement = await caller.audioDelivery.artistEntitlement({
+        purchaseId: version.purchaseId,
+        versionId: version.id,
+      });
+      return [version.id, entitlement] as const;
+    }),
+  );
+  const entitlementByVersion = new Map(entitlementEntries);
+
   // Cross the RSC → client boundary as plain JSON (Date → ISO).
   const wire: SongPageData = {
     track: {
@@ -97,6 +108,19 @@ export default async function ArtistSongPage({ params }: PageProps) {
       artistApprovedAtIso: v.artistApprovedAt?.toISOString() ?? null,
       previouslyArtistApprovedAtIso: v.previouslyArtistApprovedAt?.toISOString() ?? null,
       peaks: v.peaks,
+      delivery: (() => {
+        const entitlement = entitlementByVersion.get(v.id);
+        if (!entitlement) throw new Error("Missing artist version entitlement");
+        return {
+          purchaseId: entitlement.purchaseId,
+          permission: entitlement.permission,
+          fullyPaid: entitlement.fullyPaid,
+          remainingCents: entitlement.unpaidAmountCents,
+          currency: entitlement.currency,
+          overdue: entitlement.overdue,
+          totalCents: v.purchaseTotalCents,
+        };
+      })(),
     })),
     comments: data.comments.map((c) => ({
       id: c.id,

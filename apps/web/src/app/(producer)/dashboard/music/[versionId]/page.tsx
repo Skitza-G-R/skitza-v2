@@ -20,6 +20,7 @@ import {
   l3MarkVersionReady,
   l3ReopenApprovedSong,
   l3ResolveComment,
+  l3SetDownloadOverride,
 } from "./actions";
 import {
   disablePublicSongLink,
@@ -70,6 +71,17 @@ export default async function ProducerSongPage({ params }: PageProps) {
     publicUrl: sharing.publicUrl ? `${PUBLIC_BRAND_ORIGIN}${sharing.publicUrl}` : null,
   };
 
+  const overrideEntries = await Promise.all(
+    data.versions.map(async (version) => {
+      const state = await caller.audioDelivery.overrideState({
+        purchaseId: version.purchaseId,
+        versionId: version.id,
+      });
+      return [version.id, state] as const;
+    }),
+  );
+  const overrideByVersion = new Map(overrideEntries);
+
   // Cross the RSC → client boundary as plain JSON (Date → ISO).
   const wire: SongPageData = {
     track: {
@@ -101,6 +113,26 @@ export default async function ProducerSongPage({ params }: PageProps) {
       // rows pre-backfill — Waveform50 falls back to the existing
       // /api/download client decode path.
       peaks: v.peaks,
+      delivery: (() => {
+        const state = overrideByVersion.get(v.id);
+        if (!state) throw new Error("Missing producer override state");
+        return {
+          purchaseId: state.purchaseId,
+          permission:
+            v.audioDeletedAt !== null
+              ? ("audio_deleted" as const)
+              : state.fullyPaid
+                ? ("purchase_fully_paid" as const)
+                : state.enabled
+                  ? ("version_override" as const)
+                  : ("payment_required" as const),
+          fullyPaid: state.fullyPaid,
+          remainingCents: state.unpaidAmountCents,
+          currency: state.currency,
+          overdue: state.overdue,
+          totalCents: v.purchaseTotalCents,
+        };
+      })(),
     })),
     comments: data.comments.map((c) => ({
       id: c.id,
@@ -131,6 +163,7 @@ export default async function ProducerSongPage({ params }: PageProps) {
         resolveComment: l3ResolveComment,
         markVersionReady: l3MarkVersionReady,
         reopenSong: l3ReopenApprovedSong,
+        setDownloadOverride: l3SetDownloadOverride,
         renameSong: renameMusicSong,
         editArtist: editMusicSongArtist,
         setArchived: setMusicSongArchived,

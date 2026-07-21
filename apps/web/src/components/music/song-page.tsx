@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type RefObject } from "react";
 
 import { Waveform50, type WaveformComment } from "~/components/audio/waveform-50";
 import {
@@ -15,7 +15,13 @@ import {
 } from "~/components/audio/persistent-player";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
+import { formatMoney } from "~/lib/format/money";
 
+import {
+  presentVersionDelivery,
+  type VersionDeliveryPermission,
+  type VersionDeliveryState,
+} from "./delivery-state";
 import { SongManagementDialog, type SongManagementDialogConfig } from "./song-management-dialog";
 import {
   SongPublicLinkControls,
@@ -53,19 +59,11 @@ export type L3Actions = {
     resolved: boolean;
   }) => Promise<MusicL3ActionResult>;
   // Producer-only readiness. It never writes artist approval history.
-  markVersionReady?: (input: {
-    versionId: string;
-    ready: boolean;
-  }) => Promise<MusicL3ActionResult>;
+  markVersionReady?: (input: { versionId: string; ready: boolean }) => Promise<MusicL3ActionResult>;
   // Artist-only exact-version approval.
-  approveVersion?: (input: {
-    versionId: string;
-  }) => Promise<MusicL3ActionResult>;
+  approveVersion?: (input: { versionId: string }) => Promise<MusicL3ActionResult>;
   // Producer-only reopen. Preserves approval history and unlocks uploads.
-  reopenSong?: (input: {
-    trackId: string;
-    versionId: string;
-  }) => Promise<MusicL3ActionResult>;
+  reopenSong?: (input: { trackId: string; versionId: string }) => Promise<MusicL3ActionResult>;
   renameSong?: (input: {
     projectId: string;
     trackId: string;
@@ -99,6 +97,12 @@ export type L3Actions = {
     versionId: string;
     operationKey: string;
   }) => Promise<MusicL3DeleteAudioActionResult>;
+  setDownloadOverride?: (input: {
+    purchaseId: string;
+    versionId: string;
+    enabled: boolean;
+    expectedUnpaidAmountCents: number;
+  }) => Promise<MusicL3ActionResult>;
 };
 
 // Which side of the app is rendering this screen. Default = "producer"
@@ -134,6 +138,8 @@ export type SongPageVersion = {
    * parse — the Waveform50 client decode picks up either case.
    */
   peaks: number[] | null;
+  /** Exact purchase/version delivery result supplied by the protected backend. */
+  delivery: VersionDeliveryState;
 };
 
 export type SongPageComment = {
@@ -387,6 +393,7 @@ type OpenSongManagement = {
     | "mark-released"
     | "rename-version"
     | "delete-version-audio"
+    | "download-override"
     | "approve-version"
     | "reopen-approved-song";
   versionId: string;
@@ -422,12 +429,16 @@ export function SongPage({
   const [optimisticDeletedAtByVersion, setOptimisticDeletedAtByVersion] = useState<
     Record<string, string>
   >({});
+  const [deliveryPermissionOverrides, setDeliveryPermissionOverrides] = useState<
+    Record<string, VersionDeliveryPermission>
+  >({});
   const versions = useMemo(
     () =>
       data.versions.map((version) => {
         const label = versionLabelOverrides[version.id];
         const deletedAt = optimisticDeletedAtByVersion[version.id];
         const readyOverride = producerReadyOverrides[version.id];
+        const deliveryPermissionOverride = deliveryPermissionOverrides[version.id];
         const currentArtistApproval =
           artistApprovalVersionOverride === undefined
             ? version.artistApprovedAtIso
@@ -439,6 +450,13 @@ export function SongPage({
           ...version,
           ...(label === undefined ? {} : { label }),
           ...(deletedAt === undefined ? {} : { audioUrl: null, audioDeletedAtIso: deletedAt }),
+          delivery: {
+            ...version.delivery,
+            permission:
+              deletedAt === undefined
+                ? (deliveryPermissionOverride ?? version.delivery.permission)
+                : "audio_deleted",
+          },
           ...(readyOverride === undefined
             ? {}
             : { producerMarkedFinalAtIso: readyOverride ? new Date().toISOString() : null }),
@@ -451,6 +469,7 @@ export function SongPage({
     [
       artistApprovalVersionOverride,
       data.versions,
+      deliveryPermissionOverrides,
       optimisticDeletedAtByVersion,
       previousApprovalOverrides,
       producerReadyOverrides,
@@ -555,6 +574,7 @@ export function SongPage({
   const [overflowOpen, setOverflowOpen] = useState(false);
   const overflowRef = useRef<HTMLDivElement | null>(null);
   const moreButtonRef = useRef<HTMLButtonElement | null>(null);
+  const deliveryOverrideButtonRef = useRef<HTMLButtonElement | null>(null);
   const [managementDialog, setManagementDialog] = useState<OpenSongManagement | null>(null);
   useEffect(() => {
     if (!overflowOpen) return;
@@ -765,10 +785,7 @@ export function SongPage({
       }
       setProducerReadyOverrides(
         Object.fromEntries(
-          versions.map((version) => [
-            version.id,
-            !isReady && version.id === activeVersion.id,
-          ]),
+          versions.map((version) => [version.id, !isReady && version.id === activeVersion.id]),
         ),
       );
     });
@@ -936,6 +953,26 @@ export function SongPage({
         setVersionLabelOverrides((current) => ({
           ...current,
           [targetVersion.id]: value,
+        }));
+      }
+      return result;
+    }
+
+    if (managementDialog.kind === "download-override") {
+      if (!actions.setDownloadOverride) {
+        return { ok: false, error: "Early download control is unavailable." };
+      }
+      const enabled = targetVersion.delivery.permission !== "version_override";
+      const result = await actions.setDownloadOverride({
+        purchaseId: targetVersion.delivery.purchaseId,
+        versionId: targetVersion.id,
+        enabled,
+        expectedUnpaidAmountCents: targetVersion.delivery.remainingCents,
+      });
+      if (result.ok) {
+        setDeliveryPermissionOverrides((current) => ({
+          ...current,
+          [targetVersion.id]: enabled ? "version_override" : "payment_required",
         }));
       }
       return result;
@@ -1131,6 +1168,38 @@ export function SongPage({
           },
         };
         break;
+      case "download-override": {
+        const delivery = presentVersionDelivery(managementVersion.delivery);
+        const removeOverride = managementVersion.delivery.permission === "version_override";
+        managementConfig = {
+          id: `download-override:${managementVersion.id}:${removeOverride ? "disable" : "enable"}`,
+          title: removeOverride
+            ? `Remove early download from ${managementVersion.label}?`
+            : `Allow ${managementVersion.label} download now?`,
+          description: removeOverride
+            ? "This removes early access from this exact version only."
+            : "This unlocks only the selected audio version before full payment.",
+          confirmLabel: removeOverride ? "Remove early access" : "Allow download now",
+          pendingLabel: removeOverride ? "Removing…" : "Allowing…",
+          cancelLabel: "Keep current access",
+          strongWarning: !removeOverride,
+          blockedReason:
+            delivery.key === "deleted"
+              ? "Deleted audio cannot be made downloadable."
+              : managementVersion.delivery.fullyPaid
+                ? "This purchase is fully paid and no longer needs an early override."
+                : null,
+          details: [
+            managementVersion.delivery.remainingCents > 0
+              ? `${formatMoney(managementVersion.delivery.remainingCents, managementVersion.delivery.currency, { withCents: true })} remains owed on this purchase.`
+              : "No cash balance remains, but waived amounts do not count as full payment for downloads.",
+            `Only ${managementVersion.label} changes. Every other version keeps its own access state.`,
+            "The debt, payment schedule, and payment history stay visible.",
+            "Stems and other Google Drive deliverables stay locked until full payment.",
+          ],
+        };
+        break;
+      }
       case "delete-version-audio":
         if (managementPolicy) {
           managementConfig = managementPolicy.isStorageCleanupRetry
@@ -1206,6 +1275,7 @@ export function SongPage({
   const isProducerReady = activeVersion.producerMarkedFinalAtIso !== null;
   const isExactArtistApproved = activeVersion.artistApprovedAtIso !== null;
   const wasPreviouslyArtistApproved = activeVersion.previouslyArtistApprovedAtIso !== null;
+  const activeDelivery = presentVersionDelivery(activeVersion.delivery);
   const playState = playButtonState({
     activeVersionId: activeVersion.id,
     audioUrl: activeVersion.audioUrl,
@@ -1216,6 +1286,12 @@ export function SongPage({
   });
   const newestPlayableVersion = newestPlayableSongPageVersion(versions);
   const isPlayingThis = playState.action === "toggle" && playState.label === "Pause";
+  const canUseDownloadAction =
+    activeVersionPlayable && (role === "producer" || activeDelivery.canDownload);
+  const downloadHref =
+    role === "producer"
+      ? `/api/download/${activeVersion.id}`
+      : `/api/audio/download/${activeVersion.delivery.purchaseId}/${activeVersion.id}`;
 
   return (
     <main className="sk-page-enter">
@@ -1224,7 +1300,7 @@ export function SongPage({
           a deep radial mask + two-stop linear fade, so the band feels
           like the OPENING of a record sleeve rather than a card glued
           to the top of the page. */}
-      <header className="relative z-10 isolate text-white" style={{ background: heroBg }}>
+      <header className="relative isolate z-10 text-white" style={{ background: heroBg }}>
         {/* Atmosphere — soft highlight at top-left + ambient bottom fade
             so the gradient melts into the canvas with no hard edge. */}
         <div
@@ -1413,6 +1489,7 @@ export function SongPage({
                     const isActive = v.id === activeVersion.id;
                     const isDeleted = v.audioDeletedAtIso != null;
                     const isLatest = v.id === newestPlayableVersion?.id;
+                    const versionDelivery = presentVersionDelivery(v.delivery);
                     return (
                       <button
                         key={v.id}
@@ -1446,6 +1523,11 @@ export function SongPage({
                         {isDeleted ? (
                           <span className="text-[8.5px] font-semibold tracking-normal normal-case">
                             · Audio deleted
+                          </span>
+                        ) : null}
+                        {!isDeleted ? (
+                          <span className="text-[8.5px] font-semibold tracking-normal normal-case">
+                            · {versionDelivery.badge}
                           </span>
                         ) : null}
                         {isActive && isLatest ? (
@@ -1623,11 +1705,11 @@ export function SongPage({
                       </span>
                       {isFavorite ? "Remove from favorites" : "Add to favorites"}
                     </button>
-                    {isSongPageVersionPlayable(activeVersion) ? (
+                    {canUseDownloadAction ? (
                       <a
                         role="menuitem"
                         aria-label="Download"
-                        href={`/api/download/${activeVersion.id}`}
+                        href={downloadHref}
                         download
                         onClick={() => {
                           setOverflowOpen(false);
@@ -1649,7 +1731,11 @@ export function SongPage({
                         <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[rgb(var(--fg-default)/0.06)] text-[rgb(var(--fg-default))]">
                           <DownloadIcon />
                         </span>
-                        {activeVersionDeleted ? "Audio deleted" : "Download (uploading…)"}
+                        {activeVersionDeleted
+                          ? "Audio deleted"
+                          : activeVersionPlayable
+                            ? activeDelivery.badge
+                            : "Download (uploading…)"}
                       </span>
                     )}
                     {role === "producer" &&
@@ -1757,6 +1843,21 @@ export function SongPage({
         </div>
       </header>
 
+      <section className="mx-auto max-w-[1120px] px-4 pt-4 sm:px-6 sm:pt-5">
+        <VersionDeliveryPanel
+          role={role}
+          version={activeVersion}
+          delivery={activeDelivery}
+          downloadHref={downloadHref}
+          canUseDownloadAction={canUseDownloadAction}
+          canManageOverride={Boolean(actions.setDownloadOverride)}
+          overrideButtonRef={deliveryOverrideButtonRef}
+          onManageOverride={() => {
+            openManagementDialog("download-override");
+          }}
+        />
+      </section>
+
       {/* ───── Body ──────────────────────────────────────────────────
           Waveform first, then comments. The waveform card uses the
           double-bezel pattern — an outer hairline sheath + inner core
@@ -1801,7 +1902,7 @@ export function SongPage({
                 // Fallback decode path for legacy versions (peaks=null)
                 // OR formats audio-decode missed server-side. Reuse the
                 // authorized private stream so this works for both roles.
-                peaksUrl={activeVersionPlayable ? activeVersion.audioUrl ?? undefined : undefined}
+                peaksUrl={activeVersionPlayable ? (activeVersion.audioUrl ?? undefined) : undefined}
                 onProgress={setCurrentMs}
                 height={68}
               />
@@ -2103,7 +2204,11 @@ export function SongPage({
             if (!open) setManagementDialog(null);
           }}
           onSubmit={handleManagementSubmit}
-          returnFocusRef={moreButtonRef}
+          returnFocusRef={
+            managementDialog?.kind === "download-override"
+              ? deliveryOverrideButtonRef
+              : moreButtonRef
+          }
         />
       ) : null}
     </main>
@@ -2111,6 +2216,107 @@ export function SongPage({
 }
 
 // ─── Local primitives ────────────────────────────────────────────────
+
+function VersionDeliveryPanel({
+  role,
+  version,
+  delivery,
+  downloadHref,
+  canUseDownloadAction,
+  canManageOverride,
+  overrideButtonRef,
+  onManageOverride,
+}: {
+  role: SongPageRole;
+  version: SongPageVersion;
+  delivery: ReturnType<typeof presentVersionDelivery>;
+  downloadHref: string;
+  canUseDownloadAction: boolean;
+  canManageOverride: boolean;
+  overrideButtonRef: RefObject<HTMLButtonElement | null>;
+  onManageOverride: () => void;
+}) {
+  const hasDebt = delivery.remainingCents > 0;
+  const canManage =
+    role === "producer" &&
+    canManageOverride &&
+    delivery.key !== "paid" &&
+    delivery.key !== "deleted";
+
+  return (
+    <div
+      data-test="version-delivery-state"
+      className="min-w-0 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 shadow-[var(--shadow-sm)]"
+    >
+      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <span className="font-mono text-[9.5px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
+              {version.label} delivery
+            </span>
+            <span
+              className={[
+                "inline-flex rounded-[var(--radius-sm)] px-2 py-0.5 text-[10px] font-bold",
+                delivery.key === "paid"
+                  ? "bg-[rgb(var(--fg-success)/0.12)] text-[rgb(var(--fg-success))]"
+                  : delivery.key === "early_override"
+                    ? "bg-[rgb(var(--brand-primary)/0.14)] text-[rgb(var(--brand-primary-text))]"
+                    : delivery.key === "deleted"
+                      ? "bg-[rgb(var(--fg-default)/0.07)] text-[rgb(var(--fg-muted))]"
+                      : "bg-[rgb(var(--fg-danger)/0.1)] text-[rgb(var(--fg-danger))]",
+              ].join(" ")}
+            >
+              {delivery.badge}
+            </span>
+          </div>
+          <h2 className="mt-1 text-[14px] font-extrabold break-words text-[rgb(var(--fg-default))]">
+            {delivery.title}
+          </h2>
+          <p className="mt-1 max-w-[68ch] text-[12px] leading-relaxed text-[rgb(var(--fg-muted))]">
+            {delivery.description}
+          </p>
+          {hasDebt ? (
+            <p className="mt-2 font-mono text-[12px] font-bold text-[rgb(var(--fg-default))] tabular-nums">
+              {formatMoney(delivery.remainingCents, delivery.currency, { withCents: true })}{" "}
+              remaining
+              {version.delivery.overdue ? " · overdue" : ""}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="flex shrink-0 flex-col gap-2 sm:items-end">
+          {role === "artist" && canUseDownloadAction ? (
+            <a
+              href={downloadHref}
+              download
+              className="sk-press inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[13px] font-bold text-[rgb(var(--bg-background))]"
+            >
+              <DownloadIcon /> Download {version.label}
+            </a>
+          ) : role === "artist" && hasDebt && delivery.key !== "deleted" ? (
+            <Link
+              href={`/artist/payments/${encodeURIComponent(version.delivery.purchaseId)}`}
+              className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[13px] font-bold text-[rgb(var(--bg-background))]"
+            >
+              Complete payment
+            </Link>
+          ) : null}
+
+          {canManage ? (
+            <button
+              ref={overrideButtonRef}
+              type="button"
+              onClick={onManageOverride}
+              className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-4 text-[13px] font-bold text-[rgb(var(--fg-default))]"
+            >
+              {delivery.key === "early_override" ? "Remove early access" : "Allow download now"}
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function fmtMs(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "0:00";

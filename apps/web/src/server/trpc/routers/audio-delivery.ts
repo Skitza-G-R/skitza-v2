@@ -4,10 +4,12 @@ import { z } from "zod";
 import { audioDeliveryRepository } from "~/server/domain/audio-delivery/db";
 import { AudioDeliveryDomainError } from "~/server/domain/audio-delivery/policy";
 import {
+  readArtistDownloadEntitlement,
   readDownloadOverrideState,
   setDownloadOverride,
 } from "~/server/domain/audio-delivery/service";
 
+import { artistProcedure } from "../artist-procedure";
 import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 
@@ -36,6 +38,18 @@ function mapAudioDeliveryError(error: unknown): never {
 }
 
 export const audioDeliveryRouter = router({
+  artistEntitlement: artistProcedure.input(OverrideScope).query(async ({ ctx, input }) => {
+    try {
+      return await readArtistDownloadEntitlement(audioDeliveryRepository(ctx.db), {
+        artistClerkUserId: ctx.clerkUserId,
+        purchaseId: input.purchaseId,
+        versionId: input.versionId,
+      });
+    } catch (error) {
+      mapAudioDeliveryError(error);
+    }
+  }),
+
   overrideState: producerProcedure.input(OverrideScope).query(async ({ ctx, input }) => {
     if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED" });
     try {

@@ -2,6 +2,7 @@ import type { PurchaseCommercialSnapshot } from "@skitza/db";
 import { describe, expect, it } from "vitest";
 
 import {
+  activeDownloadOverrides,
   buildPaymentReadModel,
   loadArtistPaymentReadModel,
   loadProducerPaymentReadModel,
@@ -9,6 +10,59 @@ import {
   type PaymentLedgerReadSnapshot,
   type PaymentReadPurchaseRecord,
 } from "../read-model";
+
+describe("SK-44 active exact-version delivery overrides", () => {
+  it("keeps only the latest enabled still-stored version state", () => {
+    expect(
+      activeDownloadOverrides([
+        {
+          id: "v1-enable",
+          purchaseId: "purchase-1",
+          producerId: "producer-1",
+          versionId: "version-1",
+          versionLabel: "V1",
+          sequence: 1,
+          enabled: true,
+          audioDeletedAt: null,
+          createdAt: new Date("2026-07-20T09:00:00.000Z"),
+        },
+        {
+          id: "v1-disable",
+          purchaseId: "purchase-1",
+          producerId: "producer-1",
+          versionId: "version-1",
+          versionLabel: "V1",
+          sequence: 2,
+          enabled: false,
+          audioDeletedAt: null,
+          createdAt: new Date("2026-07-20T10:00:00.000Z"),
+        },
+        {
+          id: "v2-enable",
+          purchaseId: "purchase-1",
+          producerId: "producer-1",
+          versionId: "version-2",
+          versionLabel: "V2",
+          sequence: 1,
+          enabled: true,
+          audioDeletedAt: null,
+          createdAt: new Date("2026-07-20T11:00:00.000Z"),
+        },
+        {
+          id: "deleted-enable",
+          purchaseId: "purchase-1",
+          producerId: "producer-1",
+          versionId: "version-deleted",
+          versionLabel: "Deleted V3",
+          sequence: 1,
+          enabled: true,
+          audioDeletedAt: new Date("2026-07-20T12:00:00.000Z"),
+          createdAt: new Date("2026-07-20T11:30:00.000Z"),
+        },
+      ]),
+    ).toEqual([{ versionId: "version-2", versionLabel: "V2" }]);
+  });
+});
 
 const AS_OF = new Date("2026-07-20T12:00:00.000Z");
 
