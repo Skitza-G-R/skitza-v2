@@ -40,6 +40,9 @@ CREATE TABLE IF NOT EXISTS "skitza_migrations"."applied" (
     CHECK ("digest" ~ '^[0-9a-f]{64}$')
 )`;
 const LEDGER_LOCK_SQL = 'LOCK TABLE "skitza_migrations"."applied" IN SHARE ROW EXCLUSIVE MODE';
+const TRANSACTION_GUARD_SAVEPOINT_SQL = 'SAVEPOINT "skitza_migration_runner_transaction_guard"';
+const TRANSACTION_GUARD_RELEASE_SQL =
+  'RELEASE SAVEPOINT "skitza_migration_runner_transaction_guard"';
 const LEDGER_INSERT_SQL = `
 INSERT INTO "skitza_migrations"."applied" ("filename", "digest")
 VALUES ($1, $2)
@@ -56,6 +59,7 @@ const SHA256_DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
 const RAW_SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const PROTECTED_TOKEN_PATTERN = /^hmac-sha256:[0-9a-f]{64}$/;
 const adapterApprovals = new WeakSet();
+const productionAdapterApprovals = new WeakSet();
 const ADAPTER_BINDING_DIGEST_FIELDS = [
   "artifactDigest",
   "manifestDigest",
@@ -87,6 +91,30 @@ const APPROVED_CUTOVER_CONTENT = readFileSync(
   "utf8",
 );
 const APPROVED_CUTOVER_DIGEST = migrationDigest(APPROVED_CUTOVER_CONTENT);
+const APPROVED_CUTOVER_DIRECTORY = fileURLToPath(new URL("./drizzle/", import.meta.url));
+const APPROVED_CUTOVER_FILES = Object.freeze([
+  "0027_purchase_foundation.sql",
+  "0028_stable_client_ownership.sql",
+  "0029_private_offer_recipient_identity.sql",
+  "0030_song_release_state.sql",
+  "0031_purchase_ledger_runtime.sql",
+  "0032_purchase_session_allowance.sql",
+  "0033_purchase_version_download_overrides.sql",
+  "0034_song_public_access.sql",
+]);
+const APPROVED_CUTOVER_BUNDLE_DIGEST = `sha256:${createHash("sha256")
+  .update(
+    JSON.stringify(
+      APPROVED_CUTOVER_FILES.map((filename) => ({
+        filename,
+        digest: migrationDigest(
+          readFileSync(new URL(filename, pathToFileURL(`${APPROVED_CUTOVER_DIRECTORY}/`)), "utf8"),
+        ),
+      })),
+    ),
+    "utf8",
+  )
+  .digest("hex")}`;
 
 function replaceExactlyOnce(source, expected, replacement) {
   const start = source.indexOf(expected);
@@ -204,6 +232,30 @@ function createSk90AdapterApproval(input) {
   return approval;
 }
 
+/**
+ * Brand the exact 0027 file and fresh production-cutover contract approved by
+ * SK-104. The caller must supply both the independently observed database
+ * fingerprint and the exact canonical fingerprint recorded in that contract;
+ * raw provider identifiers never enter this runner.
+ */
+function createSk104ProductionAdapterApproval(input) {
+  assertAdapterBindingShape(input);
+  if (
+    input?.targetClass !== "canonical_production" ||
+    input.filename !== CUTOVER_FLOOR ||
+    !SHA256_DIGEST_PATTERN.test(input.canonicalProductionTargetDatabaseFingerprint ?? "") ||
+    input.targetDatabaseFingerprint !== input.canonicalProductionTargetDatabaseFingerprint ||
+    input.migrationBundleDigest !== APPROVED_CUTOVER_BUNDLE_DIGEST ||
+    !RAW_SHA256_PATTERN.test(input.migrationDigest ?? "") ||
+    input.migrationDigest !== APPROVED_CUTOVER_DIGEST
+  ) {
+    throw fail("SKITZA_MIGRATION_ADAPTER_APPROVAL_INVALID");
+  }
+  const approval = Object.freeze({ ...input });
+  productionAdapterApprovals.add(approval);
+  return approval;
+}
+
 function assertSk90AdapterApproval(approval, filename, digest, expectedBinding) {
   if (!approval) throw fail("SKITZA_MIGRATION_ADAPTER_APPROVAL_REQUIRED");
   assertAdapterBindingShape(expectedBinding);
@@ -213,12 +265,53 @@ function assertSk90AdapterApproval(approval, filename, digest, expectedBinding) 
     approval.targetClass !== "isolated_nonproduction" ||
     approval.filename !== filename ||
     approval.migrationDigest !== digest ||
-    ADAPTER_BINDING_DIGEST_FIELDS.some(
-      (field) => approval[field] !== expectedBinding[field],
-    ) ||
+    ADAPTER_BINDING_DIGEST_FIELDS.some((field) => approval[field] !== expectedBinding[field]) ||
     approval.actionChallengeToken !== expectedBinding.actionChallengeToken
   ) {
     throw fail("SKITZA_MIGRATION_ADAPTER_APPROVAL_INVALID");
+  }
+}
+
+function assertSk104ProductionAdapterApproval(approval, filename, digest, expectedBinding) {
+  if (!approval) throw fail("SKITZA_MIGRATION_ADAPTER_APPROVAL_REQUIRED");
+  assertAdapterBindingShape(expectedBinding);
+  if (
+    typeof approval !== "object" ||
+    !productionAdapterApprovals.has(approval) ||
+    approval.targetClass !== "canonical_production" ||
+    approval.filename !== filename ||
+    approval.migrationDigest !== digest ||
+    !SHA256_DIGEST_PATTERN.test(
+      expectedBinding.canonicalProductionTargetDatabaseFingerprint ?? "",
+    ) ||
+    expectedBinding.targetDatabaseFingerprint !==
+      expectedBinding.canonicalProductionTargetDatabaseFingerprint ||
+    approval.canonicalProductionTargetDatabaseFingerprint !==
+      expectedBinding.canonicalProductionTargetDatabaseFingerprint ||
+    approval.migrationBundleDigest !== APPROVED_CUTOVER_BUNDLE_DIGEST ||
+    expectedBinding.migrationBundleDigest !== APPROVED_CUTOVER_BUNDLE_DIGEST ||
+    ADAPTER_BINDING_DIGEST_FIELDS.some((field) => approval[field] !== expectedBinding[field]) ||
+    approval.actionChallengeToken !== expectedBinding.actionChallengeToken
+  ) {
+    throw fail("SKITZA_MIGRATION_ADAPTER_APPROVAL_INVALID");
+  }
+}
+
+function assertTransactionalCutoverAdapterApproval(approval, filename, digest, expectedBinding) {
+  if (!approval) throw fail("SKITZA_MIGRATION_ADAPTER_APPROVAL_REQUIRED");
+  if (adapterApprovals.has(approval)) {
+    assertSk90AdapterApproval(approval, filename, digest, expectedBinding);
+    return;
+  }
+  assertSk104ProductionAdapterApproval(approval, filename, digest, expectedBinding);
+}
+
+async function assertCallerTransaction(client) {
+  try {
+    await client.query(TRANSACTION_GUARD_SAVEPOINT_SQL);
+    await client.query(TRANSACTION_GUARD_RELEASE_SQL);
+  } catch (cause) {
+    throw fail("SKITZA_MIGRATION_CALLER_TRANSACTION_REQUIRED", cause);
   }
 }
 
@@ -451,12 +544,7 @@ async function applyMigration(sql, filename, content, options = {}) {
     }
   }
   if (filename === CUTOVER_FLOOR && recordedDigest === null) {
-    assertSk90AdapterApproval(
-      options.adapterApproval,
-      filename,
-      digest,
-      options.adapterBinding,
-    );
+    assertSk90AdapterApproval(options.adapterApproval, filename, digest, options.adapterBinding);
   }
 
   const statements =
@@ -521,7 +609,12 @@ async function applyMigrationInTransaction(
   adapterBinding,
 ) {
   const digest = migrationDigest(content);
-  assertSk90AdapterApproval(adapterApproval, filename, digest, adapterBinding);
+  assertTransactionalCutoverAdapterApproval(adapterApproval, filename, digest, adapterBinding);
+  await assertCallerTransaction(client);
+  return applyApprovedMigrationInActiveTransaction(client, filename, content, digest);
+}
+
+async function applyApprovedMigrationInActiveTransaction(client, filename, content, digest) {
   const statements = splitStatements(content);
   const guardedMigration = postLockMigrationStatement(filename, digest, statements);
 
@@ -557,6 +650,108 @@ async function applyMigrationInTransaction(
     throw fail("SKITZA_MIGRATION_LEDGER_COMMIT_INVALID");
   }
   return recordedDigest === digest ? "SKITZA_MIGRATION_VERIFIED" : "SKITZA_MIGRATION_APPLIED";
+}
+
+async function applyLaterMigrationInTransaction(client, filename, content) {
+  if (filename <= CUTOVER_FLOOR) throw fail("SKITZA_MIGRATION_FILENAME_INVALID");
+  const digest = migrationDigest(content);
+  const statements = splitStatements(content);
+  const guardedMigration = postLockMigrationStatement(filename, digest, statements);
+  const chat3StructureGuard =
+    filename === STABLE_OWNERSHIP_MIGRATION
+      ? postLockChat3StructureStatement(filename, digest)
+      : null;
+
+  await client.query(RUNNER_LOCK_SQL);
+  await client.query(LEDGER_SCHEMA_SQL);
+  await client.query(LEDGER_TABLE_SQL);
+  await client.query(LEDGER_LOCK_SQL);
+  const existing = await transactionRows(
+    client,
+    'SELECT "digest" FROM "skitza_migrations"."applied" WHERE "filename" = $1',
+    [filename],
+  );
+  if (existing.length > 1) throw fail("SKITZA_MIGRATION_LEDGER_STATE_INVALID");
+  const recordedDigest = existing[0]?.digest ?? null;
+  if (recordedDigest !== null && recordedDigest !== digest) {
+    throw fail("SKITZA_MIGRATION_DIGEST_MISMATCH");
+  }
+
+  try {
+    if (chat3StructureGuard !== null) await client.query(chat3StructureGuard);
+    await client.query(guardedMigration);
+    await client.query(LEDGER_INSERT_SQL, [filename, digest]);
+    await client.query(LEDGER_VERIFY_SQL, [filename, digest]);
+  } catch (cause) {
+    throw fail("SKITZA_MIGRATION_FAILED", cause);
+  }
+
+  const committed = await transactionRows(
+    client,
+    'SELECT "digest" FROM "skitza_migrations"."applied" WHERE "filename" = $1',
+    [filename],
+  );
+  if (committed.length !== 1 || committed[0]?.digest !== digest) {
+    throw fail("SKITZA_MIGRATION_LEDGER_COMMIT_INVALID");
+  }
+  return recordedDigest === digest ? "SKITZA_MIGRATION_VERIFIED" : "SKITZA_MIGRATION_APPLIED";
+}
+
+/**
+ * Apply the exact approved 0027-0034 bundle inside the caller-owned production
+ * transaction. The caller must roll back on any failure and commit only after
+ * its reset and preserved-data checks also pass.
+ */
+async function applyApprovedCutoverBundleInTransaction(
+  client,
+  directory,
+  productionApproval,
+  productionBinding,
+) {
+  const files = cutoverFiles(readdirSync(directory));
+  if (JSON.stringify(files) !== JSON.stringify(APPROVED_CUTOVER_FILES)) {
+    throw fail("SKITZA_MIGRATION_DIGEST_MISMATCH");
+  }
+  const capturedMigrations = files.map((filename) => {
+    const content = readFileSync(new URL(filename, pathToFileURL(`${directory}/`)), "utf8");
+    return { filename, content, digest: migrationDigest(content) };
+  });
+  const observedBundleDigest = `sha256:${createHash("sha256")
+    .update(
+      JSON.stringify(
+        capturedMigrations.map(({ filename, digest }) => ({
+          filename,
+          digest,
+        })),
+      ),
+      "utf8",
+    )
+    .digest("hex")}`;
+  if (observedBundleDigest !== APPROVED_CUTOVER_BUNDLE_DIGEST) {
+    throw fail("SKITZA_MIGRATION_DIGEST_MISMATCH");
+  }
+
+  const cutoverFloor = capturedMigrations[0];
+  if (!cutoverFloor || cutoverFloor.filename !== CUTOVER_FLOOR) {
+    throw fail("SKITZA_MIGRATION_DIGEST_MISMATCH");
+  }
+  assertSk104ProductionAdapterApproval(
+    productionApproval,
+    cutoverFloor.filename,
+    cutoverFloor.digest,
+    productionBinding,
+  );
+  await assertCallerTransaction(client);
+
+  const results = [];
+  for (const { filename, content, digest } of capturedMigrations) {
+    const status =
+      filename === CUTOVER_FLOOR
+        ? await applyApprovedMigrationInActiveTransaction(client, filename, content, digest)
+        : await applyLaterMigrationInTransaction(client, filename, content);
+    results.push({ filename, status });
+  }
+  return results;
 }
 
 async function applyCutoverMigrations(sql, directory) {
@@ -606,11 +801,14 @@ if (isMain) {
 }
 
 export {
+  APPROVED_CUTOVER_BUNDLE_DIGEST,
   CUTOVER_FLOOR,
+  applyApprovedCutoverBundleInTransaction,
   applyCutoverMigrations,
   applyMigration,
   applyMigrationInTransaction,
   chat3StructureVerificationStatement,
+  createSk104ProductionAdapterApproval,
   createSk90AdapterApproval,
   cutoverFiles,
   databaseUrl,

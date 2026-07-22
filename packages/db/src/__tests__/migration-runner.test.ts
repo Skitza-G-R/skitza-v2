@@ -1,4 +1,12 @@
-import { existsSync, readFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -10,9 +18,12 @@ import { describe, expect, it } from "vitest";
 import * as migrationRunner from "../../apply-migrations.mjs";
 
 const {
+  APPROVED_CUTOVER_BUNDLE_DIGEST,
+  applyApprovedCutoverBundleInTransaction,
   applyMigration,
   applyMigrationInTransaction,
   chat3StructureVerificationStatement,
+  createSk104ProductionAdapterApproval,
   createSk90AdapterApproval,
   cutoverFiles,
   databaseUrl,
@@ -48,6 +59,26 @@ function adapterApprovalFor() {
     filename: "0027_purchase_foundation.sql",
     migrationDigest: migrationDigest(CUTOVER_MIGRATION),
     targetClass: "isolated_nonproduction",
+  });
+}
+
+const CANONICAL_PRODUCTION_DATABASE_TARGET = `sha256:${"3".repeat(64)}`;
+
+function productionAdapterBinding() {
+  return {
+    ...adapterBinding(),
+    canonicalProductionTargetDatabaseFingerprint: CANONICAL_PRODUCTION_DATABASE_TARGET,
+    migrationBundleDigest: APPROVED_CUTOVER_BUNDLE_DIGEST,
+    targetDatabaseFingerprint: CANONICAL_PRODUCTION_DATABASE_TARGET,
+  };
+}
+
+function productionAdapterApprovalFor() {
+  return createSk104ProductionAdapterApproval({
+    ...productionAdapterBinding(),
+    filename: "0027_purchase_foundation.sql",
+    migrationDigest: migrationDigest(CUTOVER_MIGRATION),
+    targetClass: "canonical_production",
   });
 }
 
@@ -332,20 +363,16 @@ describe("SK-90 migration runner cutover", () => {
     expect(verifier).not.toContain("expected_constraint_structure_md5 CONSTANT text := 'eb03a328");
     expect(verifier).toContain('AS approved_check("table_name", "constraint_name")');
     expect(verifier).not.toContain("ratePct.*BETWEEN 0 AND 100");
-    expect(() =>
-      chat3StructureVerificationStatement(`${CUTOVER_MIGRATION}\n-- changed`),
-    ).toThrow("SKITZA_CHAT3_VERIFIER_SOURCE_INVALID");
+    expect(() => chat3StructureVerificationStatement(`${CUTOVER_MIGRATION}\n-- changed`)).toThrow(
+      "SKITZA_CHAT3_VERIFIER_SOURCE_INVALID",
+    );
   });
 
   it("checks the rehearsed real Chat 3 structure under the lock before 0028 can run", async () => {
     const client = fakeSql();
 
     await expect(
-      applyMigration(
-        client.sql,
-        "0028_stable_client_ownership.sql",
-        STABLE_OWNERSHIP_MIGRATION,
-      ),
+      applyMigration(client.sql, "0028_stable_client_ownership.sql", STABLE_OWNERSHIP_MIGRATION),
     ).resolves.toBe("SKITZA_MIGRATION_APPLIED");
 
     const statements = client.state.transactions[0]?.queries.map((query) => query.statement) ?? [];
@@ -362,11 +389,7 @@ describe("SK-90 migration runner cutover", () => {
     const client = fakeSql({ failStatement: "SKITZA_CHAT3_STRUCTURE_GUARD" });
 
     await expect(
-      applyMigration(
-        client.sql,
-        "0028_stable_client_ownership.sql",
-        STABLE_OWNERSHIP_MIGRATION,
-      ),
+      applyMigration(client.sql, "0028_stable_client_ownership.sql", STABLE_OWNERSHIP_MIGRATION),
     ).rejects.toThrow("SKITZA_MIGRATION_FAILED");
     expect(client.state.transactions).toHaveLength(1);
     expect(client.state.relationExists()).toBe(false);
@@ -504,11 +527,324 @@ describe("SK-90 migration runner cutover", () => {
     ).resolves.toBe("SKITZA_MIGRATION_APPLIED");
 
     expect(client.state.transactions).toHaveLength(0);
-    expect(statements[0]?.statement).toContain("pg_advisory_xact_lock");
+    expect(statements[0]?.statement).toContain("SAVEPOINT");
+    expect(statements[1]?.statement).toContain("RELEASE SAVEPOINT");
+    expect(statements[2]?.statement).toContain("pg_advisory_xact_lock");
     expect(
       statements.some((entry) => entry.statement.includes("SKITZA_0027_SOURCE_SCHEMA_DRIFT")),
     ).toBe(true);
     expect(statements.some((entry) => entry.statement.includes("ON CONFLICT"))).toBe(true);
+  });
+
+  it("allows the exact SK-104 production approval only inside the adapter transaction", async () => {
+    const migration = CUTOVER_MIGRATION;
+    const approval = productionAdapterApprovalFor();
+    const genericClient = fakeSql();
+
+    await expect(
+      applyMigration(genericClient.sql, "0027_purchase_foundation.sql", migration, {
+        adapterApproval: approval,
+        adapterBinding: productionAdapterBinding(),
+      }),
+    ).rejects.toThrow("SKITZA_MIGRATION_ADAPTER_APPROVAL_INVALID");
+    expect(genericClient.state.transactions).toHaveLength(0);
+
+    const statements: Query[] = [];
+    let ledgerDigest: string | null = null;
+    const transactionClient = {
+      query: async (statement: string, params?: unknown[]) => {
+        statements.push({ statement, params });
+        if (statement.includes('SELECT "digest"')) {
+          return { rows: ledgerDigest === null ? [] : [{ digest: ledgerDigest }] };
+        }
+        if (statement.includes('INSERT INTO "skitza_migrations"."applied"')) {
+          ledgerDigest = String(params?.[1]);
+        }
+        return { rows: [] };
+      },
+    };
+
+    await expect(
+      applyMigrationInTransaction(
+        transactionClient,
+        "0027_purchase_foundation.sql",
+        migration,
+        approval,
+        productionAdapterBinding(),
+      ),
+    ).resolves.toBe("SKITZA_MIGRATION_APPLIED");
+    expect(statements[0]?.statement).toContain("SAVEPOINT");
+    expect(statements[1]?.statement).toContain("RELEASE SAVEPOINT");
+    expect(statements[2]?.statement).toContain("pg_advisory_xact_lock");
+  });
+
+  it("requires an active caller transaction before the production bundle can query migrations", async () => {
+    const queries: Query[] = [];
+    const client = {
+      query: async (statement: string, params?: unknown[]) => {
+        queries.push({ statement, params });
+        throw new Error("SAVEPOINT can only be used in transaction blocks");
+      },
+    };
+
+    await expect(
+      applyApprovedCutoverBundleInTransaction(
+        client,
+        join(process.cwd(), "drizzle"),
+        productionAdapterApprovalFor(),
+        productionAdapterBinding(),
+      ),
+    ).rejects.toThrow("SKITZA_MIGRATION_CALLER_TRANSACTION_REQUIRED");
+    expect(queries).toHaveLength(1);
+    expect(queries[0]?.statement).toContain("SAVEPOINT");
+    expect(queries[0]?.statement).not.toContain("pg_advisory_xact_lock");
+  });
+
+  it("rejects an SK-90 isolated approval from the production-only bundle before any query", async () => {
+    const binding = productionAdapterBinding();
+    const isolatedApproval = createSk90AdapterApproval({
+      ...binding,
+      filename: "0027_purchase_foundation.sql",
+      migrationDigest: migrationDigest(CUTOVER_MIGRATION),
+      targetClass: "isolated_nonproduction",
+    });
+    const queries: Query[] = [];
+    const client = {
+      query: async (statement: string, params?: unknown[]) => {
+        queries.push({ statement, params });
+        return { rows: [] };
+      },
+    };
+
+    await expect(
+      applyApprovedCutoverBundleInTransaction(
+        client,
+        join(process.cwd(), "drizzle"),
+        isolatedApproval,
+        binding,
+      ),
+    ).rejects.toThrow("SKITZA_MIGRATION_ADAPTER_APPROVAL_INVALID");
+    expect(queries).toHaveLength(0);
+  });
+
+  it("rejects an unbound or mismatched SK-104 production approval before any query", async () => {
+    const migrationDigestValue = migrationDigest(CUTOVER_MIGRATION);
+    const binding = productionAdapterBinding();
+
+    expect(() =>
+      createSk104ProductionAdapterApproval({
+        ...binding,
+        canonicalProductionTargetDatabaseFingerprint: `sha256:${"4".repeat(64)}`,
+        filename: "0027_purchase_foundation.sql",
+        migrationDigest: migrationDigestValue,
+        targetClass: "canonical_production",
+      }),
+    ).toThrow("SKITZA_MIGRATION_ADAPTER_APPROVAL_INVALID");
+    expect(() =>
+      createSk104ProductionAdapterApproval({
+        ...binding,
+        filename: "0027_purchase_foundation.sql",
+        migrationDigest: migrationDigestValue,
+        targetClass: "isolated_nonproduction",
+      }),
+    ).toThrow("SKITZA_MIGRATION_ADAPTER_APPROVAL_INVALID");
+    expect(() =>
+      createSk104ProductionAdapterApproval({
+        ...binding,
+        filename: "0027_purchase_foundation.sql",
+        migrationDigest: migrationDigest(`${CUTOVER_MIGRATION}\n-- different`),
+        targetClass: "canonical_production",
+      }),
+    ).toThrow("SKITZA_MIGRATION_ADAPTER_APPROVAL_INVALID");
+
+    const approval = productionAdapterApprovalFor();
+    const queries: Query[] = [];
+    const transactionClient = {
+      query: async (statement: string, params?: unknown[]) => {
+        queries.push({ statement, params });
+        return { rows: [] };
+      },
+    };
+    await expect(
+      applyMigrationInTransaction(
+        transactionClient,
+        "0027_purchase_foundation.sql",
+        CUTOVER_MIGRATION,
+        { ...approval },
+        binding,
+      ),
+    ).rejects.toThrow("SKITZA_MIGRATION_ADAPTER_APPROVAL_INVALID");
+    await expect(
+      applyMigrationInTransaction(
+        transactionClient,
+        "0027_purchase_foundation.sql",
+        CUTOVER_MIGRATION,
+        approval,
+        {
+          ...binding,
+          targetDatabaseFingerprint: `sha256:${"6".repeat(64)}`,
+        },
+      ),
+    ).rejects.toThrow("SKITZA_MIGRATION_ADAPTER_APPROVAL_INVALID");
+    await expect(
+      applyMigrationInTransaction(
+        transactionClient,
+        "0027_purchase_foundation.sql",
+        CUTOVER_MIGRATION,
+        approval,
+        {
+          ...binding,
+          freshAuthorizationDigest: `sha256:${"5".repeat(64)}`,
+        },
+      ),
+    ).rejects.toThrow("SKITZA_MIGRATION_ADAPTER_APPROVAL_INVALID");
+    expect(queries).toHaveLength(0);
+  });
+
+  it("applies the exact approved production bundle in one caller transaction", async () => {
+    const statements: Query[] = [];
+    const ledger = new Map<string, string>();
+    const client = {
+      query: async (statement: string, params?: unknown[]) => {
+        statements.push({ statement, params });
+        if (statement.includes('SELECT "digest"')) {
+          const digest = ledger.get(String(params?.[0]));
+          return { rows: digest === undefined ? [] : [{ digest }] };
+        }
+        if (statement.includes('INSERT INTO "skitza_migrations"."applied"')) {
+          ledger.set(String(params?.[0]), String(params?.[1]));
+        }
+        return { rows: [] };
+      },
+    };
+
+    const results = await applyApprovedCutoverBundleInTransaction(
+      client,
+      join(process.cwd(), "drizzle"),
+      productionAdapterApprovalFor(),
+      productionAdapterBinding(),
+    );
+
+    expect(results.map((result: { filename: string }) => result.filename)).toEqual([
+      "0027_purchase_foundation.sql",
+      "0028_stable_client_ownership.sql",
+      "0029_private_offer_recipient_identity.sql",
+      "0030_song_release_state.sql",
+      "0031_purchase_ledger_runtime.sql",
+      "0032_purchase_session_allowance.sql",
+      "0033_purchase_version_download_overrides.sql",
+      "0034_song_public_access.sql",
+    ]);
+    expect(ledger.size).toBe(8);
+    expect(
+      statements.some((entry) => /^\s*(?:COMMIT|ROLLBACK)\s*;?\s*$/i.test(entry.statement)),
+    ).toBe(false);
+  });
+
+  it("executes the same captured migration bytes that produced the approved bundle digest", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "skitza-sk104-captured-migrations-"));
+    const approvedFiles = [
+      "0027_purchase_foundation.sql",
+      "0028_stable_client_ownership.sql",
+      "0029_private_offer_recipient_identity.sql",
+      "0030_song_release_state.sql",
+      "0031_purchase_ledger_runtime.sql",
+      "0032_purchase_session_allowance.sql",
+      "0033_purchase_version_download_overrides.sql",
+      "0034_song_public_access.sql",
+    ];
+    for (const filename of approvedFiles) {
+      copyFileSync(join(process.cwd(), "drizzle", filename), join(directory, filename));
+    }
+
+    const statements: Query[] = [];
+    const ledger = new Map<string, string>();
+    let changedAfterValidation = false;
+    const changedFilename = "0034_song_public_access.sql";
+    const client = {
+      query: async (statement: string, params?: unknown[]) => {
+        statements.push({ statement, params });
+        if (!changedAfterValidation && statement.includes("pg_advisory_xact_lock")) {
+          changedAfterValidation = true;
+          const changedPath = join(directory, changedFilename);
+          writeFileSync(
+            changedPath,
+            `${readFileSync(changedPath, "utf8")}\nSELECT 'SKITZA_MUTATED_AFTER_BUNDLE_VALIDATION';\n`,
+            "utf8",
+          );
+        }
+        if (statement.includes('SELECT "digest"')) {
+          const digest = ledger.get(String(params?.[0]));
+          return { rows: digest === undefined ? [] : [{ digest }] };
+        }
+        if (statement.includes('INSERT INTO "skitza_migrations"."applied"')) {
+          ledger.set(String(params?.[0]), String(params?.[1]));
+        }
+        return { rows: [] };
+      },
+    };
+
+    try {
+      await expect(
+        applyApprovedCutoverBundleInTransaction(
+          client,
+          directory,
+          productionAdapterApprovalFor(),
+          productionAdapterBinding(),
+        ),
+      ).resolves.toHaveLength(8);
+      expect(changedAfterValidation).toBe(true);
+      expect(readFileSync(join(directory, changedFilename), "utf8")).toContain(
+        "SKITZA_MUTATED_AFTER_BUNDLE_VALIDATION",
+      );
+      expect(
+        statements.some((entry) =>
+          entry.statement.includes("SKITZA_MUTATED_AFTER_BUNDLE_VALIDATION"),
+        ),
+      ).toBe(false);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an unexpected migration outside the fixed SK-104 0027-0034 bundle", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "skitza-sk104-migrations-"));
+    const approvedFiles = [
+      "0027_purchase_foundation.sql",
+      "0028_stable_client_ownership.sql",
+      "0029_private_offer_recipient_identity.sql",
+      "0030_song_release_state.sql",
+      "0031_purchase_ledger_runtime.sql",
+      "0032_purchase_session_allowance.sql",
+      "0033_purchase_version_download_overrides.sql",
+      "0034_song_public_access.sql",
+    ];
+    for (const filename of approvedFiles) {
+      copyFileSync(join(process.cwd(), "drizzle", filename), join(directory, filename));
+    }
+    writeFileSync(join(directory, "0035_unapproved_change.sql"), "SELECT 1;\n", "utf8");
+
+    const queries: Query[] = [];
+    const client = {
+      query: async (statement: string, params?: unknown[]) => {
+        queries.push({ statement, params });
+        return { rows: [] };
+      },
+    };
+
+    try {
+      await expect(
+        applyApprovedCutoverBundleInTransaction(
+          client,
+          directory,
+          productionAdapterApprovalFor(),
+          productionAdapterBinding(),
+        ),
+      ).rejects.toThrow("SKITZA_MIGRATION_DIGEST_MISMATCH");
+      expect(queries).toHaveLength(0);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("rejects ambiguous generic migration selectors", () => {
