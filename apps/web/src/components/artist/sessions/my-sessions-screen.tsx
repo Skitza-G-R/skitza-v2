@@ -111,7 +111,7 @@ export function MySessionsScreen({
       {/* (5) / (6) list or empty */}
       {sessions.length === 0 ? (
         allowances.length === 0 ? (
-          <SessionsEmpty />
+          <SessionsEmpty studioId={searchParams.get("studio")} />
         ) : (
           <div
             className="sk-rise rounded-card border border-dashed px-4 py-5 text-center"

@@ -15,14 +15,12 @@
 //   - All      → everything (sorted descending by date)
 //
 // Search filters by artist name OR package name (case-insensitive).
-// The 3 action modals are owned here so they share the bridge between
+// The cancellation modal is owned here so it shares the bridge between
 // the row click and the modal state without prop-drilling.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { CancelSessionModal } from "./cancel-session-modal";
-import { ChangeTimeModal } from "./change-time-modal";
-import { SendReminderModal } from "./send-reminder-modal";
 import { SessionRow, type SessionListItem } from "./session-row";
 
 type Filter = "upcoming" | "past" | "all";
@@ -44,7 +42,6 @@ export function SessionsPanel({
   const selectedRef = useRef<HTMLLIElement>(null);
 
   const [activeModal, setActiveModal] = useState<{
-    kind: "change" | "remind" | "cancel";
     session: SessionListItem;
   } | null>(null);
 
@@ -52,9 +49,7 @@ export function SessionsPanel({
 
   useEffect(() => {
     if (!selectedBookingId) return;
-    const selectedIsPast = buckets.past.some(
-      (session) => session.id === selectedBookingId,
-    );
+    const selectedIsPast = buckets.past.some((session) => session.id === selectedBookingId);
     setFilter(selectedIsPast ? "past" : "upcoming");
   }, [buckets, selectedBookingId]);
 
@@ -69,8 +64,7 @@ export function SessionsPanel({
     const q = search.trim().toLowerCase();
     return base.filter((s) => {
       return (
-        s.artistName.toLowerCase().includes(q) ||
-        (s.packageName ?? "").toLowerCase().includes(q)
+        s.artistName.toLowerCase().includes(q) || (s.packageName ?? "").toLowerCase().includes(q)
       );
     });
   }, [buckets, filter, search]);
@@ -103,7 +97,7 @@ export function SessionsPanel({
               data-selected={s.id === selectedBookingId ? "true" : "false"}
               className={
                 s.id === selectedBookingId
-                  ? "rounded-[var(--radius-md)] outline-none ring-2 ring-[rgb(var(--brand-primary)/0.35)]"
+                  ? "rounded-[var(--radius-md)] ring-2 ring-[rgb(var(--brand-primary)/0.35)] outline-none"
                   : undefined
               }
             >
@@ -111,14 +105,8 @@ export function SessionsPanel({
                 session={s}
                 now={now}
                 timeZone={timeZone}
-                onChangeTime={(sess) => {
-                  setActiveModal({ kind: "change", session: sess });
-                }}
-                onSendReminder={(sess) => {
-                  setActiveModal({ kind: "remind", session: sess });
-                }}
                 onCancel={(sess) => {
-                  setActiveModal({ kind: "cancel", session: sess });
+                  setActiveModal({ session: sess });
                 }}
               />
             </li>
@@ -126,25 +114,7 @@ export function SessionsPanel({
         </ul>
       )}
 
-      {activeModal?.kind === "change" ? (
-        <ChangeTimeModal
-          open
-          onOpenChange={(o) => {
-            if (!o) setActiveModal(null);
-          }}
-          session={activeModal.session}
-        />
-      ) : null}
-      {activeModal?.kind === "remind" ? (
-        <SendReminderModal
-          open
-          onOpenChange={(o) => {
-            if (!o) setActiveModal(null);
-          }}
-          session={activeModal.session}
-        />
-      ) : null}
-      {activeModal?.kind === "cancel" ? (
+      {activeModal ? (
         <CancelSessionModal
           open
           onOpenChange={(o) => {
@@ -233,9 +203,7 @@ function FilterChip({
         <span
           className={[
             "font-mono text-[10px]",
-            active
-              ? "text-[rgb(var(--fg-muted))]"
-              : "text-[rgb(var(--fg-faint))]",
+            active ? "text-[rgb(var(--fg-muted))]" : "text-[rgb(var(--fg-faint))]",
           ].join(" ")}
         >
           · {String(count)}
@@ -245,13 +213,7 @@ function FilterChip({
   );
 }
 
-function SearchPill({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-}) {
+function SearchPill({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
     // <lg: full-width 44px-tall field on its own toolbar row; lg+
     // restores the compact 220px pill.
@@ -270,19 +232,11 @@ function SearchPill({
   );
 }
 
-function EmptyState({
-  filter,
-  hasSearch,
-}: {
-  filter: Filter;
-  hasSearch: boolean;
-}) {
+function EmptyState({ filter, hasSearch }: { filter: Filter; hasSearch: boolean }) {
   if (hasSearch) {
     return (
       <div className="rounded-[var(--radius-md)] border border-dashed border-[rgb(var(--border-subtle))] px-4 py-10 text-center">
-        <p className="text-[12.5px] text-[rgb(var(--fg-muted))]">
-          No sessions match that search.
-        </p>
+        <p className="text-[12.5px] text-[rgb(var(--fg-muted))]">No sessions match that search.</p>
       </div>
     );
   }
@@ -326,8 +280,7 @@ function bucket(
   const upcoming: SessionListItem[] = [];
   const past: SessionListItem[] = [];
   const all = [...sessions].sort(
-    (a, b) =>
-      new Date(b.startsAt).getTime() - new Date(a.startsAt).getTime(),
+    (a, b) => new Date(b.startsAt).getTime() - new Date(a.startsAt).getTime(),
   );
   const nowMs = now.getTime();
   for (const s of sessions) {
@@ -344,13 +297,7 @@ function bucket(
       upcoming.push(s);
     }
   }
-  upcoming.sort(
-    (a, b) =>
-      new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
-  );
-  past.sort(
-    (a, b) =>
-      new Date(b.startsAt).getTime() - new Date(a.startsAt).getTime(),
-  );
+  upcoming.sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
+  past.sort((a, b) => new Date(b.startsAt).getTime() - new Date(a.startsAt).getTime());
   return { upcoming, past, all };
 }

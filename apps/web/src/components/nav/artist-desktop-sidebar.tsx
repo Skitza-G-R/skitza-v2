@@ -1,14 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { UserButton } from "@clerk/nextjs";
 
 import { StudioSwitcher } from "~/components/artist/studio-switcher";
 import { LogoMark } from "~/components/brand/logo-mark";
+import { resolveArtistStudioId, withArtistStudio } from "~/lib/artist-studio-context";
 import type { Studio } from "~/server/artist/identity";
 
+import { isArtistNavItemActive } from "./artist-nav-active";
 import { Icon, type IconName } from "./icons";
 import { Wordmark } from "./wordmark";
 
@@ -51,14 +53,11 @@ const NAV_ITEMS: readonly ArtistDesktopNav[] = [
   { id: "payments", href: "/artist/payments", label: "Payments", icon: "payments" },
 ] as const;
 
-export function ArtistDesktopSidebar({
-  studios,
-}: {
-  studios: Studio[];
-}): ReactNode {
+export function ArtistDesktopSidebar({ studios }: { studios: Studio[] }): ReactNode {
   const pathname = usePathname();
-  const isActive = (href: string) =>
-    href === "/artist" ? pathname === "/artist" : pathname.startsWith(href);
+  const searchParams = useSearchParams();
+  const activeStudioId = resolveArtistStudioId(studios, searchParams.get("studio"));
+  const isActive = (href: string) => isArtistNavItemActive(pathname, href);
 
   return (
     <aside
@@ -74,7 +73,7 @@ export function ArtistDesktopSidebar({
     >
       {/* Logo lockup — mark + lowercase wordmark, matches producer rail. */}
       <Link
-        href="/artist"
+        href={withArtistStudio("/artist", activeStudioId)}
         aria-label="Skitza artist home"
         className="sk-press flex items-center"
         style={{ gap: 10, padding: "4px 8px 18px" }}
@@ -92,28 +91,20 @@ export function ArtistDesktopSidebar({
       </div>
 
       {/* Nav rail */}
-      <nav
-        aria-label="Primary"
-        className="flex flex-col"
-        style={{ gap: 2 }}
-      >
+      <nav aria-label="Primary" className="flex flex-col" style={{ gap: 2 }}>
         {NAV_ITEMS.map((item) => {
           const active = isActive(item.href);
           return (
             <Link
               key={item.id}
-              href={item.href}
+              href={withArtistStudio(item.href, activeStudioId)}
               {...(active ? { "aria-current": "page" as const } : {})}
-              className="sk-press relative flex items-center rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
+              className="sk-press relative flex items-center rounded-xl focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset"
               style={{
                 gap: 12,
                 padding: "10px 12px",
-                background: active
-                  ? "rgb(var(--fg-onsidebar) / 0.08)"
-                  : "transparent",
-                color: active
-                  ? "rgb(var(--fg-onsidebar))"
-                  : "rgb(var(--fg-onsidebar) / 0.62)",
+                background: active ? "rgb(var(--fg-onsidebar) / 0.08)" : "transparent",
+                color: active ? "rgb(var(--fg-onsidebar))" : "rgb(var(--fg-onsidebar) / 0.62)",
                 fontFamily: "var(--font-outfit)",
                 fontSize: 14.5,
                 fontWeight: active ? 600 : 500,
@@ -156,8 +147,7 @@ export function ArtistDesktopSidebar({
         <UserButton
           appearance={{
             elements: {
-              avatarBox:
-                "h-8 w-8 ring-1 ring-[rgb(var(--border-sidebar))]",
+              avatarBox: "h-8 w-8 ring-1 ring-[rgb(var(--border-sidebar))]",
             },
           }}
         >
@@ -165,7 +155,7 @@ export function ArtistDesktopSidebar({
             <UserButton.Link
               label="Settings"
               labelIcon={<Icon name="settings" size={16} />}
-              href="/artist/settings"
+              href={withArtistStudio("/artist/settings", activeStudioId)}
             />
           </UserButton.MenuItems>
         </UserButton>

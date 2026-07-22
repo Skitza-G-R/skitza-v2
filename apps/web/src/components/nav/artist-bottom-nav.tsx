@@ -1,9 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 
+import { resolveArtistStudioId, withArtistStudio } from "~/lib/artist-studio-context";
+import type { Studio } from "~/server/artist/identity";
+
+import { isArtistNavItemActive } from "./artist-nav-active";
 import { Icon, type IconName } from "./icons";
 
 // ─── Artist mobile bottom nav (<lg) ─────────────────────────────────
@@ -36,12 +40,13 @@ const TABS: readonly ArtistTab[] = [
   { href: "/artist/payments", label: "Payments", icon: "payments" },
 ] as const;
 
-export function ArtistBottomNav(): ReactNode {
+export function ArtistBottomNav({ studios }: { studios: Studio[] }): ReactNode {
   const pathname = usePathname();
-  // "Home" is the only path that needs an exact match; the others
-  // light up on any descendant route (e.g. /artist/music/abc123).
-  const isActive = (href: string) =>
-    href === "/artist" ? pathname === "/artist" : pathname.startsWith(href);
+  const searchParams = useSearchParams();
+  const activeStudioId = resolveArtistStudioId(studios, searchParams.get("studio"));
+  // My Sessions belongs to the approved Book section even though its
+  // route lives at /artist/sessions.
+  const isActive = (href: string) => isArtistNavItemActive(pathname, href);
 
   return (
     <nav
@@ -60,22 +65,16 @@ export function ArtistBottomNav(): ReactNode {
         return (
           <Link
             key={tab.href}
-            href={tab.href}
+            href={withArtistStudio(tab.href, activeStudioId)}
             {...(active ? { "aria-current": "page" as const } : {})}
-            className="sk-press relative flex flex-col items-center gap-0.5 rounded-md py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--brand-primary))]"
+            className="sk-press relative flex flex-col items-center gap-0.5 rounded-md py-2 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset"
             style={{
               flex: 1,
               minHeight: 56,
-              color: active
-                ? "rgb(var(--brand-primary))"
-                : "rgb(var(--fg-onsidebar) / 0.55)",
+              color: active ? "rgb(var(--brand-primary))" : "rgb(var(--fg-onsidebar) / 0.55)",
             }}
           >
-            <Icon
-              name={tab.icon}
-              size={20}
-              strokeWidth={active ? 2.4 : 2}
-            />
+            <Icon name={tab.icon} size={20} strokeWidth={active ? 2.4 : 2} />
             <span
               style={{
                 fontSize: 9.5,

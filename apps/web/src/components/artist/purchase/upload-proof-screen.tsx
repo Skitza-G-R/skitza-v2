@@ -11,6 +11,7 @@ import {
   PrimaryCta,
   SecondaryCta,
 } from "~/components/artist/funnel/funnel-ui";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 import {
   presignProofUploadAction,
   submitPaymentProofAction,
@@ -110,6 +111,7 @@ function formatUploadedAt(value: Date): string {
 
 export function UploadProofScreen({
   productName,
+  studioId,
   producerName,
   purchaseId,
   installmentId,
@@ -127,6 +129,7 @@ export function UploadProofScreen({
   onPreviewSubmit,
 }: {
   productName: string;
+  studioId?: string | undefined;
   producerName: string;
   purchaseId?: string | undefined;
   installmentId?: string | undefined;
@@ -612,7 +615,7 @@ export function UploadProofScreen({
           ) : (
             <SecondaryCta
               onClick={() => {
-                router.push("/artist");
+                router.push(withArtistStudio("/artist", studioId));
               }}
             >
               Back to Home

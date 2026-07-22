@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import { coverGradient } from "~/components/artist/purchase/purchase-data";
 import { producerHue } from "~/lib/_phase4-stubs/producer-color";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 import type { VolumeTier } from "~/lib/pricing";
 import { formatPriceLabel, planLabel } from "~/lib/store/format-price-label";
 import { productHref } from "~/lib/store/product-href";
@@ -18,6 +19,7 @@ import { type TaxMode, taxModeFootnote } from "~/lib/tax-mode";
 export function FocalProductCard({
   product,
   producerName,
+  studioId,
   taxMode = "tax_free",
   taxRatePct = 18,
   onPreviewDetails,
@@ -34,6 +36,7 @@ export function FocalProductCard({
     durationMin: number | null;
   };
   producerName: string;
+  studioId?: string;
   taxMode?: TaxMode;
   taxRatePct?: number;
   /** Producer Review only: opens the real artist detail preview without navigation. */
@@ -139,7 +142,7 @@ export function FocalProductCard({
           </button>
         ) : (
           <Link
-            href={productHref(product)}
+            href={withArtistStudio(productHref(product), studioId)}
             className="sk-press mt-5 flex min-h-11 w-full items-center justify-center rounded-[var(--radius-lg)] py-3 text-[14px] font-bold"
             style={{
               background: "rgb(var(--bg-sidebar))",

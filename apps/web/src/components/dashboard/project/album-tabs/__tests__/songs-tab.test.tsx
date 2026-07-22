@@ -34,16 +34,16 @@ describe("SongsTab — Songs panel for the album page", () => {
     expect(SRC).toMatch(/index=\{[^}]*\+\s*1\s*\}/);
   });
 
-  it("exposes onAddSong + onReorder callbacks", () => {
+  it("exposes Add Song without an unpersisted reorder callback", () => {
     expect(SRC).toContain("onAddSong");
-    expect(SRC).toContain("onReorder");
+    expect(SRC).not.toContain("onReorder");
   });
 
-  it("wires draggable handlers via local state for optimistic reorder", () => {
-    expect(SRC).toContain("useState");
-    expect(SRC).toContain("onDragStart");
-    expect(SRC).toContain("onDragOver");
-    expect(SRC).toContain("onDrop");
+  it("renders the server-provided order without drag handlers", () => {
+    expect(SRC).toContain("tracks.map");
+    expect(SRC).not.toContain("onDragStart");
+    expect(SRC).not.toContain("onDragOver");
+    expect(SRC).not.toContain("onDrop");
   });
 
   it("delegates Add Song to the purchased-space flow without opening upload", () => {

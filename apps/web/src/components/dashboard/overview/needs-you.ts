@@ -49,7 +49,6 @@ export type NeedsYouItem = {
     | "purchase_request"
     | "session_approval"
     | "follow_up"
-    | "invoice"
     | "comment"
     | "urgent_project"
     | "payment_received"
@@ -78,7 +77,7 @@ export type NeedsYouSources = {
   followUps: readonly FollowUpSource[];
   unresolvedItems: readonly {
     id: string;
-    kind: "comment" | "invoice";
+    kind: "comment";
     title: string;
     subtitle: string;
     href: string;
@@ -98,9 +97,7 @@ export type NeedsYouSources = {
  * Collapse every finished session for the same project into one action.
  * Map insertion order preserves the server's newest-first project order.
  */
-export function groupFollowUps(
-  followUps: readonly FollowUpSource[],
-): FollowUpGroup[] {
+export function groupFollowUps(followUps: readonly FollowUpSource[]): FollowUpGroup[] {
   const byProject = new Map<string, FollowUpGroup>();
   for (const followUp of followUps) {
     const existing = byProject.get(followUp.projectId);
@@ -178,10 +175,7 @@ export function buildNeedsYouQueue(sources: NeedsYouSources): NeedsYouItem[] {
     items.push({
       id: `follow-up:${group.projectId}`,
       kind: "follow_up",
-      title:
-        group.count === 1
-          ? "Finished session"
-          : `${String(group.count)} finished sessions`,
+      title: group.count === 1 ? "Finished session" : `${String(group.count)} finished sessions`,
       meta: `${group.artistName} · ${group.projectTitle}`,
       href: `/dashboard/clients-projects/${group.projectId}`,
       actionLabel: "Open project",
@@ -193,35 +187,16 @@ export function buildNeedsYouQueue(sources: NeedsYouSources): NeedsYouItem[] {
     items.push({
       id: `unresolved:${unresolved.id}`,
       kind: unresolved.kind,
-      title: unresolved.kind === "invoice" ? "Payment due" : "Artist comment",
+      title: "Artist comment",
       meta: `${unresolved.title} · ${unresolved.subtitle}`,
       href: unresolved.href,
       actionLabel: "Open project",
-      priority: unresolved.kind === "invoice" ? 40 : 45,
+      priority: 45,
     });
   }
 
-  // An invoice already pointing at an overdue/deposit-due project is the
-  // more specific version of that same payment action. Other project work
-  // (comments and finished-session follow-ups) is not equivalent: on mobile
-  // the Needs You queue is the only place the separate urgency is visible.
-  const invoiceProjectHrefs = new Set(
-    items
-      .filter(
-        (item) =>
-          item.kind === "invoice" &&
-          item.href.startsWith("/dashboard/clients-projects/"),
-      )
-      .map((item) => item.href.split("?")[0]),
-  );
   for (const project of sources.urgentProjects) {
     const href = `/dashboard/clients-projects/${project.id}`;
-    if (
-      invoiceProjectHrefs.has(href) &&
-      (project.urgency === "overdue" || project.urgency === "deposit_due")
-    ) {
-      continue;
-    }
     items.push({
       id: `urgent:${project.id}`,
       kind: "urgent_project",

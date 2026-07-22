@@ -6,8 +6,8 @@
 //   ┌─ Working hours card (left, 1fr) ───────┬─ Booking prefs ──────┐
 //   │ Mini-chart (7 bars)                    │ Auto-confirm         │
 //   │ Day rows (toggle | name | windows | h) │ Cancellation window  │
-//   │ Save changes                           │ Buffer between       │
-//   ├────────────────────────────────────────┤ Timezone             │
+//   │ Save changes                           │ Timezone             │
+//   ├────────────────────────────────────────┤                      │
 //   │                                        ├──────────────────────┤
 //   │                                        │ Blocked dates        │
 //   └────────────────────────────────────────┴──────────────────────┘
@@ -17,14 +17,23 @@
 // Booking prefs uses `availability.updateSettings`. Blackouts use
 // `blackouts.create` / `blackouts.remove`.
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "~/components/ui/dialog";
 import { useToast } from "~/components/ui/toast";
 import {
   orderByWeekStart,
   useWeekStartPref,
   type WeekStart,
 } from "~/lib/time/week-start";
+import { runOptimisticPreferenceSave } from "~/lib/optimistic-preference-save";
 
 import {
   addBlackout,
@@ -56,7 +65,6 @@ const DAYS = [
 type DayInfo = (typeof DAYS)[number];
 
 const CANCEL_HOURS = [12, 24, 48, 72] as const;
-const BUFFER_MIN = [0, 15, 30, 60] as const;
 
 // ── Public API ──────────────────────────────────────────────────────
 
@@ -66,7 +74,6 @@ export type AvailabilityPanelProps = {
   settings: {
     autoConfirmBookings: boolean;
     cancellationPolicyHours: number;
-    bufferMin?: number;
   };
   // Producer's stored week-start preference (DB-backed since the
   // Settings redesign). The toggle here persists to the same column,
@@ -80,7 +87,13 @@ export function AvailabilityPanel({
   settings,
   initialWeekStart,
 }: AvailabilityPanelProps) {
-  const [weekStart, setWeekStart] = useWeekStartPref(initialWeekStart);
+  const { toast } = useToast();
+  const [weekStart, setWeekStart, weekStartSaving] = useWeekStartPref(
+    initialWeekStart,
+    (message) => {
+      toast(message, "error");
+    },
+  );
   const orderedDays = useMemo(
     () => orderByWeekStart(DAYS, weekStart),
     [weekStart],
@@ -98,9 +111,9 @@ export function AvailabilityPanel({
         <BookingPrefsCard
           autoConfirm={settings.autoConfirmBookings}
           cancelHours={settings.cancellationPolicyHours}
-          bufferMin={settings.bufferMin ?? 0}
           weekStart={weekStart}
           onWeekStartChange={setWeekStart}
+          weekStartSaving={weekStartSaving}
         />
         <BlockedDatesCard blackouts={initialBlackouts} />
       </div>
@@ -334,7 +347,7 @@ function DayRow({
         borderBottom: isLast ? "none" : "1px solid rgb(var(--border-subtle))",
       }}
     >
-      <PillToggle on={isOn} onChange={onToggle} />
+      <PillToggle label={`${dayLabel} availability`} on={isOn} onChange={onToggle} />
       <span
         className="text-[13.5px] text-[rgb(var(--fg-default))]"
         style={{ fontWeight: 700 }}
@@ -399,32 +412,42 @@ function DayRow({
 }
 
 function PillToggle({
+  label,
   on,
   onChange,
+  disabled = false,
 }: {
+  label: string;
   on: boolean;
   onChange: (next: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={on}
+      aria-label={label}
+      disabled={disabled}
       onClick={() => {
         onChange(!on);
       }}
-      className={[
-        "sk-press relative inline-flex h-[22px] w-[36px] flex-shrink-0 items-center rounded-full transition-colors",
-        on
-          ? "bg-[rgb(var(--brand-primary))]"
-          : "bg-[rgb(var(--border-strong))]",
-      ].join(" ")}
+      className="sk-press relative inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full disabled:cursor-wait disabled:opacity-60 lg:h-7 lg:w-9"
     >
       <span
         aria-hidden
-        className="absolute top-[2px] h-[18px] w-[18px] rounded-full bg-white transition-[left] duration-200"
-        style={{ left: on ? 16 : 2 }}
-      />
+        className={[
+          "relative inline-flex h-[22px] w-[36px] flex-shrink-0 rounded-full transition-colors motion-reduce:transition-none",
+          on
+            ? "bg-[rgb(var(--brand-primary))]"
+            : "bg-[rgb(var(--border-strong))]",
+        ].join(" ")}
+      >
+        <span
+          className="absolute top-[2px] h-[18px] w-[18px] rounded-full bg-white transition-[left] duration-200 motion-reduce:transition-none"
+          style={{ left: on ? 16 : 2 }}
+        />
+      </span>
     </button>
   );
 }
@@ -460,30 +483,50 @@ function TimeSelect({
 function BookingPrefsCard({
   autoConfirm,
   cancelHours,
-  bufferMin,
   weekStart,
   onWeekStartChange,
+  weekStartSaving,
 }: {
   autoConfirm: boolean;
   cancelHours: number;
-  bufferMin: number;
   weekStart: WeekStart;
   onWeekStartChange: (next: WeekStart) => void;
+  weekStartSaving: boolean;
 }) {
   const [draftAuto, setDraftAuto] = useState(autoConfirm);
   const [draftCancel, setDraftCancel] = useState(cancelHours);
-  const [draftBuffer, setDraftBuffer] = useState(bufferMin);
-  const [, startTransition] = useTransition();
+  const [isSaving, setIsSaving] = useState(false);
+  const saveLock = useRef({ current: false });
   const { toast } = useToast();
 
-  // Local optimistic apply + persist for each control.
-  function persist(patch: {
-    autoConfirmBookings?: boolean;
-    cancellationPolicyHours?: number;
+  // Apply immediately, but keep the previous value until the server
+  // confirms the write. One lock prevents rapid clicks from racing
+  // contradictory preference patches.
+  function persist({
+    patch,
+    apply,
+    rollback,
+    errorLabel,
+  }: {
+    patch: {
+      autoConfirmBookings?: boolean;
+      cancellationPolicyHours?: number;
+    };
+    apply: () => void;
+    rollback: () => void;
+    errorLabel: string;
   }) {
-    startTransition(async () => {
-      const res = await updateAvailabilitySettings(patch);
-      if (!res.ok) toast(res.error, "error");
+    if (saveLock.current.current) return;
+    apply();
+    void runOptimisticPreferenceSave({
+      lock: saveLock.current,
+      save: () => updateAvailabilitySettings(patch),
+      rollback,
+      onError: (message) => {
+        toast(message, "error");
+      },
+      setPending: setIsSaving,
+      errorLabel,
     });
   }
 
@@ -521,10 +564,21 @@ function BookingPrefsCard({
             </p>
           </div>
           <PillToggle
+            label="Auto-confirm bookings"
             on={draftAuto}
+            disabled={isSaving}
             onChange={(next) => {
-              setDraftAuto(next);
-              persist({ autoConfirmBookings: next });
+              const previous = draftAuto;
+              persist({
+                patch: { autoConfirmBookings: next },
+                apply: () => {
+                  setDraftAuto(next);
+                },
+                rollback: () => {
+                  setDraftAuto(previous);
+                },
+                errorLabel: "Auto-confirm",
+              });
             }}
           />
         </div>
@@ -553,12 +607,13 @@ function BookingPrefsCard({
                   key={opt}
                   type="button"
                   aria-pressed={isActive}
+                  disabled={weekStartSaving}
                   onClick={() => {
                     onWeekStartChange(opt);
                   }}
                   className={[
                     // 44px tap target below lg; compact h-7 on desktop.
-                    "sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-sm)] border px-2.5 font-mono text-[11.5px] transition-colors lg:h-7",
+                    "sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-sm)] border px-2.5 font-mono text-[11.5px] transition-colors disabled:cursor-wait disabled:opacity-60 lg:h-7",
                     isActive
                       ? "border-transparent bg-[rgb(var(--fg-default))] text-[rgb(var(--fg-inverse))]"
                       : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
@@ -581,9 +636,19 @@ function BookingPrefsCard({
               label: `${String(h)}h`,
             }))}
             active={draftCancel}
+            disabled={isSaving}
             onChange={(v) => {
-              setDraftCancel(v);
-              persist({ cancellationPolicyHours: v });
+              const previous = draftCancel;
+              persist({
+                patch: { cancellationPolicyHours: v },
+                apply: () => {
+                  setDraftCancel(v);
+                },
+                rollback: () => {
+                  setDraftCancel(previous);
+                },
+                errorLabel: "Cancellation window",
+              });
             }}
           />
           <p className="mt-1 text-[10.5px] text-[rgb(var(--fg-muted))]">
@@ -591,30 +656,12 @@ function BookingPrefsCard({
           </p>
         </div>
 
-        {/* Buffer between sessions — UI-only knob today. */}
-        <div>
-          <Eyebrow label="Buffer between sessions" />
-          <ChipGroup
-            options={BUFFER_MIN.map((m) => ({
-              value: m,
-              label: m === 0 ? "None" : `${String(m)}m`,
-            }))}
-            active={draftBuffer}
-            onChange={(v) => {
-              setDraftBuffer(v);
-              toast("Buffer wiring lands with calendar v2 — saved your pick locally.", "info");
-            }}
-          />
-        </div>
-
-        {/* Timezone — read-only locked to Asia/Jerusalem in the mock,
-            real producers see their browser-resolved zone. */}
+        {/* Timezone is informational until producers can persist a choice. */}
         <div>
           <Eyebrow label="Timezone" />
-          <div className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-overlay)/0.4)] px-3 text-[12px] text-[rgb(var(--fg-muted))]">
-            <span className="font-mono">{getTimezoneLabel()}</span>
-            <ChevronDown />
-          </div>
+          <p className="mt-1.5 font-mono text-[12px] text-[rgb(var(--fg-muted))]">
+            {getTimezoneLabel()}
+          </p>
         </div>
       </div>
     </section>
@@ -625,10 +672,12 @@ function ChipGroup<T extends number | string>({
   options,
   active,
   onChange,
+  disabled = false,
 }: {
   options: readonly { value: T; label: string }[];
   active: T;
   onChange: (v: T) => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -638,13 +687,14 @@ function ChipGroup<T extends number | string>({
           <button
             key={String(opt.value)}
             type="button"
+            disabled={disabled}
             onClick={() => {
               onChange(opt.value);
             }}
             aria-pressed={isActive}
             className={[
               // 44px tap target below lg; compact h-7 on desktop.
-              "sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-sm)] border px-2.5 font-mono text-[11.5px] transition-colors lg:h-7",
+              "sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-sm)] border px-2.5 font-mono text-[11.5px] transition-colors disabled:cursor-wait disabled:opacity-60 lg:h-7",
               isActive
                 ? "border-transparent bg-[rgb(var(--fg-default))] text-[rgb(var(--fg-inverse))]"
                 : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
@@ -663,6 +713,7 @@ function ChipGroup<T extends number | string>({
 
 function BlockedDatesCard({ blackouts }: { blackouts: readonly Blackout[] }) {
   const [open, setOpen] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<Blackout | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
   const { toast } = useToast();
@@ -733,7 +784,7 @@ function BlockedDatesCard({ blackouts }: { blackouts: readonly Blackout[] }) {
                 aria-label="Remove block"
                 disabled={busyId === b.id}
                 onClick={() => {
-                  handleRemove(b.id);
+                  setRemoveTarget(b);
                 }}
                 className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full text-[rgb(var(--fg-faint))] hover:text-[rgb(var(--fg-default))] disabled:opacity-50 lg:h-6 lg:w-6"
               >
@@ -745,6 +796,47 @@ function BlockedDatesCard({ blackouts }: { blackouts: readonly Blackout[] }) {
       )}
 
       <BlockDatesModal open={open} onOpenChange={setOpen} />
+      <Dialog
+        open={removeTarget !== null}
+        onOpenChange={(next) => {
+          if (!next) setRemoveTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Remove this blocked date?</DialogTitle>
+            <DialogDescription>
+              {removeTarget
+                ? `${removeTarget.reason ?? "Time off"} · ${formatBlackoutRange(removeTarget.startDate, removeTarget.endDate)}`
+                : "This date will become bookable again."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => {
+                setRemoveTarget(null);
+              }}
+              className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] px-4 text-sm font-semibold text-[rgb(var(--fg-default))]"
+            >
+              Keep block
+            </button>
+            <button
+              type="button"
+              disabled={!removeTarget || busyId === removeTarget.id}
+              onClick={() => {
+                if (!removeTarget) return;
+                const target = removeTarget;
+                setRemoveTarget(null);
+                handleRemove(target.id);
+              }}
+              className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--fg-danger))] px-4 text-sm font-semibold text-[rgb(var(--fg-inverse))] disabled:opacity-50"
+            >
+              Remove block
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
@@ -786,9 +878,9 @@ function BlockDatesModal({
     });
   }
 
-  if (!open) return null;
   return (
-    <BasicDialog onClose={() => { onOpenChange(false); }}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-[460px]">
       <div className="px-6 pt-6">
         <div
           className="inline-flex h-10 w-10 items-center justify-center rounded-[10px] text-[rgb(var(--brand-primary-dark))]"
@@ -798,15 +890,15 @@ function BlockDatesModal({
         >
           <PalmIcon />
         </div>
-        <h3
-          className="mt-3 font-display text-[20px] leading-tight"
+        <DialogTitle
+          className="mt-3 text-[20px]"
           style={{ fontWeight: 800, letterSpacing: "-0.025em" }}
         >
           Block dates
-        </h3>
-        <p className="mt-1 text-[12.5px] text-[rgb(var(--fg-muted))]">
+        </DialogTitle>
+        <DialogDescription className="mt-1 text-[12.5px]">
           Mark a range as unavailable. Existing bookings stay on the calendar.
-        </p>
+        </DialogDescription>
       </div>
 
       <div className="space-y-3 px-6 py-4">
@@ -878,42 +970,8 @@ function BlockDatesModal({
           {isPending ? "Saving…" : "Block dates"}
         </button>
       </div>
-    </BasicDialog>
-  );
-}
-
-// Lightweight modal frame — the two big SessionModalShell-styled
-// modals belong on the Sessions tab, not here. This keeps the dep
-// surface minimal.
-function BasicDialog({
-  children,
-  onClose,
-}: {
-  children: React.ReactNode;
-  onClose: () => void;
-}) {
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [onClose]);
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-end justify-center bg-[rgb(var(--bg-sidebar)/0.45)] p-4 backdrop-blur-sm sm:items-center"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="sk-dialog-enter w-full max-w-[460px] overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-[var(--shadow-lg)]">
-        {children}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1098,25 +1156,6 @@ function PalmIcon() {
       <path d="M5.89 9.71c-2.15 2.15-2.3 5.47-.35 7.43l4.24-4.25" />
       <path d="M11 15.5c.5 2.5 2 4.5 4 6l4-4c-1.5-2-3.5-3.5-6-4" />
       <path d="m12 12-2 8-2-2 1-3" />
-    </svg>
-  );
-}
-
-function ChevronDown() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-      className="text-[rgb(var(--fg-faint))]"
-    >
-      <polyline points="6 9 12 15 18 9" />
     </svg>
   );
 }

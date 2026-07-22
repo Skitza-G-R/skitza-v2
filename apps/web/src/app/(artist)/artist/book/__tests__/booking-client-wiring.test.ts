@@ -31,7 +31,7 @@ describe("book/page.tsx server wiring", () => {
     expect(pageSrc).toMatch(/sp\.studio/);
     expect(pageSrc).toMatch(/sp\.producerId/);
     expect(pageSrc).toMatch(
-      /const activeStudioId =\s*rescheduleSession\?\.producerId \?\? sp\.studio \?\? sp\.producerId/,
+      /const activeStudioId =\s*rescheduleSession\?\.producerId \?\? resolveArtistStudioId\(studios, requestedStudioId\)/,
     );
     expect(pageSrc).toMatch(/caller\.artist\.book\.session\(\{ id: sp\.session \}\)/);
   });
@@ -72,7 +72,7 @@ describe("booking-client.tsx — confirm action wiring", () => {
   it("does not expose a direct product-booking path", () => {
     expect(clientSrc).toMatch(/productId: null/);
     expect(clientSrc).not.toMatch(/selectedProductId|ServiceBlock/);
-    expect(clientSrc).toMatch(/href="\/artist\/store"/);
+    expect(clientSrc).toContain('href={withArtistStudio("/artist/store", activeStudioId)}');
   });
 
   it("threads the exact project, purchase, and allowance identity", () => {
@@ -83,7 +83,9 @@ describe("booking-client.tsx — confirm action wiring", () => {
   });
 
   it("lands on the exact real session after success", () => {
-    expect(clientSrc).toMatch(/router\.push\(`\/artist\/sessions\?just=\$\{res\.id\}`\)/);
+    expect(clientSrc).toContain(
+      "router.push(withArtistStudio(`/artist/sessions?just=${res.id}`, activeStudioId))",
+    );
   });
 
   it("uses the atomic reschedule action for an existing booking", () => {

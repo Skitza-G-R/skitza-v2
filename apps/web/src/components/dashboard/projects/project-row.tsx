@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { DragEvent } from "react";
+import type { DragEvent, KeyboardEvent } from "react";
 import { ChevronRight, GripVertical } from "lucide-react";
 
 import { ProjectActionControls } from "~/components/dashboard/projects/project-action-controls";
@@ -43,6 +43,8 @@ export interface ProjectRowData {
   currency?: string;
   /** Last-updated timestamp (ISO) — drives "recent" sort. */
   updatedAtIso?: string;
+  /** Project creation timestamp (ISO) — drives "joined" sort. */
+  createdAtIso?: string;
   /** Deadline timestamp (ISO, null when no upcoming session) — drives "deadline" sort. */
   deadlineAtIso?: string | null;
   /** Exact advisory result; the server rechecks under lock before deleting. */
@@ -54,6 +56,7 @@ interface ProjectRowProps {
   onDragStart?: (e: DragEvent<HTMLDivElement>, id: string) => void;
   onDragOver?: (e: DragEvent<HTMLDivElement>, id: string) => void;
   onDrop?: (e: DragEvent<HTMLDivElement>, id: string) => void;
+  onMove?: (id: string, direction: "up" | "down") => void;
   /**
    * SK-64 — omit the client name from the MOBILE meta line. Set by the
    * Client Space page, where every row belongs to the client whose
@@ -115,7 +118,14 @@ function formatMoney(cents: number, currency: string): string {
   }
 }
 
-export function ProjectRow({ row, hideClient, onDragStart, onDragOver, onDrop }: ProjectRowProps) {
+export function ProjectRow({
+  row,
+  hideClient,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onMove,
+}: ProjectRowProps) {
   const {
     id,
     title,
@@ -151,11 +161,24 @@ export function ProjectRow({ row, hideClient, onDragStart, onDragOver, onDrop }:
       : statusTone === "warn"
         ? "rgb(var(--fg-warning))"
         : null;
+  const canReorder = Boolean(onDragStart && onDragOver && onDrop && onMove);
+
+  const handleReorderKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!canReorder || event.target !== event.currentTarget) return;
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    onMove?.(id, event.key === "ArrowUp" ? "up" : "down");
+  };
 
   return (
     <div
-      draggable="true"
+      draggable={canReorder}
       data-id={id}
+      role={canReorder ? "group" : undefined}
+      tabIndex={canReorder ? 0 : undefined}
+      aria-keyshortcuts={canReorder ? "ArrowUp ArrowDown" : undefined}
+      aria-label={canReorder ? `Reorder ${title}. Use Arrow Up or Arrow Down.` : undefined}
+      onKeyDown={handleReorderKey}
       onDragStart={
         onDragStart
           ? (e) => {
@@ -200,16 +223,20 @@ export function ProjectRow({ row, hideClient, onDragStart, onDragOver, onDrop }:
           gridTemplateColumns: "24px 44px minmax(0,1.6fr) minmax(0,1fr) 120px 100px 110px 36px",
         }}
       >
-        <span
-          // G8 — grip is permanently visible at muted opacity so the user
-          // sees at-a-glance that rows are reorderable. Brightens on row
-          // hover for affordance.
-          className="flex h-6 w-6 cursor-grab items-center justify-center opacity-60 transition-opacity group-hover:opacity-100"
-          style={{ color: "rgb(var(--fg-muted))" }}
-          aria-hidden
-        >
-          <GripVertical size={14} />
-        </span>
+        {canReorder ? (
+          <span
+            // G8 — grip is permanently visible at muted opacity so the user
+            // sees at-a-glance that rows are reorderable. The focusable row
+            // also supports Arrow Up / Arrow Down for keyboard users.
+            className="flex h-6 w-6 cursor-grab items-center justify-center opacity-60 transition-opacity group-hover:opacity-100"
+            style={{ color: "rgb(var(--fg-muted))" }}
+            aria-hidden
+          >
+            <GripVertical size={14} />
+          </span>
+        ) : (
+          <span aria-hidden className="h-6 w-6" />
+        )}
 
         <span
           className="flex h-11 w-11 items-center justify-center rounded-[var(--radius-sm)] text-[12px] font-bold text-white"

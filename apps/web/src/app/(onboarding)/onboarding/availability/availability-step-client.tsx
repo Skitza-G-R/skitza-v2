@@ -1,6 +1,6 @@
 "use client";
 
-import { Calendar, Copy, Plus, X } from "lucide-react";
+import { Copy, Plus, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 
@@ -23,18 +23,9 @@ import {
 
 // Step 3 — When you work. May 2026 redesign (revised 2026-05-09).
 //
-// Compact two-column layout that fits 1280×840 without scrolling:
-//
-//   Left  (340px): 7 day rows. Toggle on/off + 1..3 time windows per
-//                  day with + add window / × remove window.
-//   Right (180px): Settings — Auto-confirm toggle, Buffer minutes,
-//                  Cancellation policy, Google Calendar sync stub.
-//
-// The settings (auto-confirm / buffer / cancellation / GCal) capture
-// in local state today; persistence to producers.{auto_confirm_bookings,
-// buffer_minutes, cancellation_policy_hours} is a 3-line follow-up
-// once we wire a server action. The columns already exist in the
-// producers table — no schema work needed.
+// Seven day rows let the producer toggle days and edit up to three
+// working windows per day. Continue persists only these working hours,
+// so this step intentionally does not show unrelated policy controls.
 
 type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -68,23 +59,17 @@ const ROW_TEMPLATE: ReadonlyArray<{
   { weekday: 6, label: "Sat", defaultActive: false },
 ];
 
+const WEEKDAY_NAMES = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+] as const;
+
 const DEFAULT_WINDOW: WindowConfig = { startMin: 10 * 60, endMin: 18 * 60 };
-
-const BUFFER_OPTIONS: ReadonlyArray<{ label: string; value: number }> = [
-  { label: "None", value: 0 },
-  { label: "15 min", value: 15 },
-  { label: "30 min", value: 30 },
-  { label: "60 min", value: 60 },
-];
-
-const CANCELLATION_OPTIONS: ReadonlyArray<{
-  label: string;
-  value: number;
-}> = [
-  { label: "24h", value: 24 },
-  { label: "48h", value: 48 },
-  { label: "1 week", value: 168 },
-];
 
 interface BlockInput {
   weekday: number;
@@ -152,16 +137,17 @@ export function AvailabilityStepClient({
   const [days, setDays] = useState<DayConfig[]>(() =>
     buildInitialDays(blocks),
   );
-  const [autoConfirm, setAutoConfirm] = useState(false);
-  const [bufferMin, setBufferMin] = useState(15);
-  const [cancellationHours, setCancellationHours] = useState(24);
-  const [gcalConnected] = useState(false);
 
   // Shared week-start preference — DB-backed, so flipping it here
   // carries over to the Calendar availability tab and the Settings →
   // Language & region segmented control. `days` stays canonically
   // Sun-first; we only rotate the rendered slice.
-  const [weekStart, setWeekStart] = useWeekStartPref(initialWeekStart);
+  const [weekStart, setWeekStart] = useWeekStartPref(
+    initialWeekStart,
+    (message) => {
+      toast(message, "error");
+    },
+  );
   const orderedDays = useMemo(
     () => orderByWeekStart(days, weekStart),
     [days, weekStart],
@@ -267,12 +253,6 @@ export function AvailabilityStepClient({
         toast(`Couldn't save availability: ${res.error}`, "error");
         return;
       }
-      // TODO(persist-settings): wire a `setSchedulePolicies` server
-      // action to write { autoConfirm, bufferMin, cancellationHours }
-      // to producers.{auto_confirm_bookings, buffer_minutes,
-      // cancellation_policy_hours}. Columns already exist; one-line
-      // upsert per field. Tracked separately to keep this commit
-      // focused on the visual rebuild.
       router.push(target);
     });
   };
@@ -301,7 +281,7 @@ export function AvailabilityStepClient({
           When you work.
         </h1>
         <p className="mt-1.5 text-[13px] leading-snug text-[rgb(var(--fg-muted))]">
-          Set your hours and rules. Edit anything from Calendar later.
+          Set your working hours. Edit them from Calendar later.
         </p>
 
         {/* Week-start preference — shared with the Calendar page via
@@ -327,7 +307,7 @@ export function AvailabilityStepClient({
                   aria-pressed={isActive}
                   onClick={() => { setWeekStart(opt); }}
                   className={[
-                    "inline-flex h-6 items-center justify-center rounded-[var(--radius-sm)] border px-2.5 font-mono text-[10.5px] transition-colors",
+                    "inline-flex h-11 items-center justify-center rounded-[var(--radius-sm)] border px-2.5 font-mono text-[10.5px] transition-colors motion-reduce:transition-none",
                     isActive
                       ? "border-transparent bg-[rgb(var(--fg-default))] text-[rgb(var(--fg-inverse))]"
                       : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
@@ -346,7 +326,7 @@ export function AvailabilityStepClient({
           {orderedDays.map((day) => (
             <li
               key={day.weekday}
-              className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 transition-opacity ${
+              className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 transition-opacity motion-reduce:transition-none ${
                 day.active
                   ? "border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] opacity-100"
                   : "border border-transparent opacity-50"
@@ -357,18 +337,24 @@ export function AvailabilityStepClient({
                 type="button"
                 role="switch"
                 aria-checked={day.active}
+                aria-label={`${WEEKDAY_NAMES[day.weekday]} availability`}
                 onClick={() => { updateDay(day.weekday, { active: !day.active }); }}
-                className={`relative flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors ${
-                  day.active
-                    ? "bg-[rgb(var(--brand-primary))]"
-                    : "bg-[rgb(var(--border-strong))]"
-                }`}
+                className="relative flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full"
               >
                 <span
-                  className={`absolute h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
-                    day.active ? "translate-x-[18px]" : "translate-x-[2px]"
+                  aria-hidden
+                  className={`relative h-5 w-9 rounded-full transition-colors motion-reduce:transition-none ${
+                    day.active
+                      ? "bg-[rgb(var(--brand-primary))]"
+                      : "bg-[rgb(var(--border-strong))]"
                   }`}
-                />
+                >
+                  <span
+                    className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform motion-reduce:transition-none ${
+                      day.active ? "translate-x-[18px]" : "translate-x-[2px]"
+                    }`}
+                  />
+                </span>
               </button>
               <span className="w-9 text-[12px] font-bold text-[rgb(var(--fg-default))]">
                 {day.label}
@@ -380,13 +366,13 @@ export function AvailabilityStepClient({
                   Anchoring Copy to the day-label cluster keeps the
                   row a constant height and reads as "this day's
                   action" — same convention as the toggle. */}
-              {day.active ? (
+              {day.active && activeDayCount > 1 ? (
                 <button
                   type="button"
                   onClick={() => { copyToAllDays(day.weekday); }}
                   aria-label={`Copy ${day.label}'s hours to all days`}
                   title="Copy to all days"
-                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))]"
+                  className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))] motion-reduce:transition-none"
                 >
                   <Copy size={11} />
                 </button>
@@ -410,7 +396,7 @@ export function AvailabilityStepClient({
                             startMin: timeToMinutes(e.target.value),
                           }); }
                         }
-                        className="time-input-naked w-[64px] bg-transparent px-1 py-0.5 font-mono text-[11px] text-[rgb(var(--fg-default))] outline-none disabled:cursor-not-allowed"
+                        className="time-input-naked h-11 w-[64px] bg-transparent px-1 py-0.5 font-mono text-[11px] text-[rgb(var(--fg-default))] outline-none disabled:cursor-not-allowed"
                       />
                       <span className="text-[rgb(var(--fg-faint))]">–</span>
                       <input
@@ -422,14 +408,14 @@ export function AvailabilityStepClient({
                             endMin: timeToMinutes(e.target.value),
                           }); }
                         }
-                        className="time-input-naked w-[64px] bg-transparent px-1 py-0.5 font-mono text-[11px] text-[rgb(var(--fg-default))] outline-none disabled:cursor-not-allowed"
+                        className="time-input-naked h-11 w-[64px] bg-transparent px-1 py-0.5 font-mono text-[11px] text-[rgb(var(--fg-default))] outline-none disabled:cursor-not-allowed"
                       />
                       {day.windows.length > 1 ? (
                         <button
                           type="button"
                           onClick={() => { removeWindow(day.weekday, idx); }}
                           aria-label="Remove window"
-                          className="flex h-7 w-7 items-center justify-center rounded text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-elevated))] hover:text-[rgb(var(--fg-default))]"
+                          className="flex h-11 w-11 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-elevated))] hover:text-[rgb(var(--fg-default))]"
                         >
                           <X size={12} />
                         </button>
@@ -441,21 +427,9 @@ export function AvailabilityStepClient({
                       type="button"
                       onClick={() => { addWindow(day.weekday); }}
                       aria-label={`Add window to ${day.label}`}
-                      className="flex h-7 w-7 items-center justify-center rounded-md border border-dashed border-[rgb(var(--border-strong))] text-[rgb(var(--fg-muted))] hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))]"
+                      className="flex h-11 w-11 items-center justify-center rounded-full border border-dashed border-[rgb(var(--border-strong))] text-[rgb(var(--fg-muted))] hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))]"
                     >
                       <Plus size={12} />
-                    </button>
-                  ) : null}
-                  {activeDayCount > 1 ? (
-                    <button
-                      type="button"
-                      onClick={() => { copyToAllDays(day.weekday); }}
-                      disabled={pending}
-                      aria-label={`Copy ${day.label}'s hours to all other active days`}
-                      title="Copy to all days"
-                      className="flex h-7 w-7 items-center justify-center rounded-md text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-elevated))] hover:text-[rgb(var(--fg-default))] disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <Copy size={12} />
                     </button>
                   ) : null}
                 </div>
@@ -467,105 +441,6 @@ export function AvailabilityStepClient({
             </li>
           ))}
         </ul>
-
-        {/* Settings strip */}
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          {/* Auto-confirm toggle */}
-          <label className="flex cursor-pointer items-center justify-between gap-2 rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2">
-            <span className="flex flex-col">
-              <span className="text-[11.5px] font-bold text-[rgb(var(--fg-default))]">
-                Auto-confirm
-              </span>
-              <span className="text-[10px] text-[rgb(var(--fg-muted))]">
-                Skip the approval click
-              </span>
-            </span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={autoConfirm}
-              onClick={() => { setAutoConfirm(!autoConfirm); }}
-              className={`relative flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors ${
-                autoConfirm
-                  ? "bg-[rgb(var(--brand-primary))]"
-                  : "bg-[rgb(var(--border-strong))]"
-              }`}
-            >
-              <span
-                className={`absolute h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
-                  autoConfirm ? "translate-x-[18px]" : "translate-x-[2px]"
-                }`}
-              />
-            </button>
-          </label>
-
-          {/* Buffer */}
-          <div className="flex items-center justify-between gap-2 rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2">
-            <span className="flex flex-col">
-              <span className="text-[11.5px] font-bold text-[rgb(var(--fg-default))]">
-                Buffer
-              </span>
-              <span className="text-[10px] text-[rgb(var(--fg-muted))]">
-                Between sessions
-              </span>
-            </span>
-            <select
-              value={bufferMin}
-              onChange={(e) => { setBufferMin(Number(e.target.value)); }}
-              className="rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-2 py-1 font-mono text-[11px] font-semibold text-[rgb(var(--fg-default))] outline-none focus:border-[rgb(var(--brand-primary))]"
-            >
-              {BUFFER_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Cancellation policy */}
-          <div className="flex items-center justify-between gap-2 rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2">
-            <span className="flex flex-col">
-              <span className="text-[11.5px] font-bold text-[rgb(var(--fg-default))]">
-                Cancellation
-              </span>
-              <span className="text-[10px] text-[rgb(var(--fg-muted))]">
-                Notice required
-              </span>
-            </span>
-            <select
-              value={cancellationHours}
-              onChange={(e) => { setCancellationHours(Number(e.target.value)); }}
-              className="rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-2 py-1 font-mono text-[11px] font-semibold text-[rgb(var(--fg-default))] outline-none focus:border-[rgb(var(--brand-primary))]"
-            >
-              {CANCELLATION_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Google Calendar sync (stub) */}
-          <button
-            type="button"
-            disabled
-            className="flex items-center justify-between gap-2 rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-left opacity-70"
-          >
-            <span className="flex flex-col">
-              <span className="text-[11.5px] font-bold text-[rgb(var(--fg-default))]">
-                Google Calendar
-              </span>
-              <span className="text-[10px] text-[rgb(var(--fg-muted))]">
-                {gcalConnected ? "Connected" : "Coming soon"}
-              </span>
-            </span>
-            <Calendar
-              size={14}
-              className="text-[rgb(var(--brand-primary-dark))]"
-              aria-hidden
-            />
-          </button>
-        </div>
       </div>
     </WizardChrome>
   );

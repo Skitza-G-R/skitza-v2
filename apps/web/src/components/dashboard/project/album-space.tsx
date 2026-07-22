@@ -6,11 +6,7 @@ import { useState } from "react";
 import { AlbumHero, type AlbumHeroProject } from "./album-hero";
 import { AlbumStatStrip } from "./album-stat-strip";
 import { AlbumTabs, type AlbumTab } from "./album-tabs";
-import {
-  SongsTab,
-  type EmptySongSpaceRowData,
-} from "./album-tabs/songs-tab";
-import { FilesTab } from "./album-tabs/files-tab";
+import { SongsTab, type EmptySongSpaceRowData } from "./album-tabs/songs-tab";
 import {
   StudioLogTab,
   type StudioLogActivity,
@@ -202,7 +198,6 @@ export function AlbumSpace({
           {...(canAddSong ? { onAddSong: handleAddSong } : {})}
         />
       ) : null}
-      {active === "files" ? <FilesTab projectId={project.id} /> : null}
       {active === "log" ? (
         <StudioLogTab
           sessionsCount={studioLog.sessionsCount}

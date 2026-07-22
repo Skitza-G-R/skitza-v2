@@ -18,3 +18,30 @@ export const SORT_OPTIONS = [
 ] as const;
 
 export type SortValue = (typeof SORT_OPTIONS)[number]["value"];
+
+type ProjectJoinedSortRow = {
+  createdAtIso?: string | null;
+};
+
+type ClientJoinedSortRow = {
+  joinedAtIso?: string | null;
+};
+
+function createdAtMs(value: string | null | undefined): number {
+  if (!value) return 0;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+/** Newest-created first; projects without a valid creation date sink. */
+export function compareProjectsByJoined<T extends ProjectJoinedSortRow>(
+  left: T,
+  right: T,
+): number {
+  return createdAtMs(right.createdAtIso) - createdAtMs(left.createdAtIso);
+}
+
+/** Newest roster join first; clients without a valid join date sink. */
+export function compareClientsByJoined<T extends ClientJoinedSortRow>(left: T, right: T): number {
+  return createdAtMs(right.joinedAtIso) - createdAtMs(left.joinedAtIso);
+}

@@ -1,10 +1,9 @@
 "use client";
 
-import { GCalPill } from "./gcal-pill";
 import { weekRangeLabel } from "./calendar-week";
 
 // Schedule tab top control strip per the design spec § 4.1.
-//   [‹] [Today] [›]   May 3 – 9, 2026   6 sessions · 9.5h booked    [GCal]
+//   [‹] [Today] [›]   May 3 – 9, 2026   6 sessions · 9.5h booked
 //
 // Pure visual — `weekOffset` lives in the parent (SchedulePanel) so
 // the change can re-bucket sessions for the new week.
@@ -42,7 +41,7 @@ export function ScheduleWeekNav({
             // h-11 below lg = the 44px mobile tap-target rule;
             // collapses to the spec's compact h-8 on desktop.
             "sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-md)] px-3.5 text-[0.72rem] tracking-tight transition-colors lg:h-8",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))]",
+            "focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))] focus-visible:outline-none",
             onCurrentWeek
               ? "bg-[rgb(var(--fg-default))] text-[rgb(var(--fg-inverse))]"
               : "border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
@@ -68,26 +67,18 @@ export function ScheduleWeekNav({
           {sessionsLabel} · {hoursLabel}
         </p>
       </div>
-
-      <GCalPill status="not_connected" />
     </div>
   );
 }
 
-function NavArrow({
-  direction,
-  onClick,
-}: {
-  direction: "prev" | "next";
-  onClick: () => void;
-}) {
+function NavArrow({ direction, onClick }: { direction: "prev" | "next"; onClick: () => void }) {
   const label = direction === "prev" ? "Previous week" : "Next week";
   return (
     <button
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-default))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))] lg:h-8 lg:w-8"
+      className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))] focus-visible:outline-none lg:h-8 lg:w-8"
     >
       <svg
         width="14"

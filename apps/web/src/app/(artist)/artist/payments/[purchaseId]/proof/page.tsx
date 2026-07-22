@@ -31,6 +31,7 @@ export default async function ArtistPrivateOfferProofPage({ params, searchParams
           : "empty";
     return (
       <UploadProofScreen
+        studioId={data.producerId}
         productName={data.productName}
         producerName={data.producerName}
         purchaseId={data.purchaseId}

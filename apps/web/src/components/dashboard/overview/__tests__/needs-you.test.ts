@@ -120,10 +120,10 @@ describe("buildNeedsYouQueue", () => {
       followUps: [{ id: "s-1", artistName: "NeedJuice", projectTitle: "Album", projectId: "p-1" }],
       unresolvedItems: [
         {
-          id: "invoice:i-1",
-          kind: "invoice",
+          id: "comment:c-1",
+          kind: "comment",
           title: "Lior",
-          subtitle: "₪1,500 outstanding",
+          subtitle: "Please check the bridge",
           href: "/dashboard/clients-projects/p-2",
         },
       ],
@@ -146,7 +146,7 @@ describe("buildNeedsYouQueue", () => {
       "purchase_request",
       "session_approval",
       "follow_up",
-      "invoice",
+      "comment",
       "payment_received",
       "setup",
     ]);
@@ -155,15 +155,15 @@ describe("buildNeedsYouQueue", () => {
     expect(queue[2]?.href).toBe("/dashboard/calendar?booking=b-1");
   });
 
-  it("deduplicates a generic urgent-project action when a specific unresolved row opens the same project", () => {
+  it("keeps an artist comment separate from a project urgency signal", () => {
     const queue = buildNeedsYouQueue({
       ...EMPTY,
       unresolvedItems: [
         {
-          id: "invoice:i-1",
-          kind: "invoice",
+          id: "comment:c-1",
+          kind: "comment",
           title: "Lior",
-          subtitle: "₪1,500 outstanding",
+          subtitle: "Please check the bridge",
           href: "/dashboard/clients-projects/p-2",
         },
       ],
@@ -178,8 +178,7 @@ describe("buildNeedsYouQueue", () => {
       ],
     });
 
-    expect(queue).toHaveLength(1);
-    expect(queue[0]?.kind).toBe("invoice");
+    expect(queue.map((item) => item.kind)).toEqual(["comment", "urgent_project"]);
   });
 
   it("keeps a distinct urgent signal beside a follow-up for the same project", () => {
@@ -207,15 +206,15 @@ describe("buildNeedsYouQueue", () => {
     expect(queue.map((item) => item.kind)).toEqual(["follow_up", "urgent_project"]);
   });
 
-  it("does not let an unrelated invoice hide a stuck-project signal", () => {
+  it("does not let an unrelated comment hide a stuck-project signal", () => {
     const queue = buildNeedsYouQueue({
       ...EMPTY,
       unresolvedItems: [
         {
-          id: "invoice:i-1",
-          kind: "invoice",
+          id: "comment:c-1",
+          kind: "comment",
           title: "Lior",
-          subtitle: "₪1,500 outstanding",
+          subtitle: "Please check the bridge",
           href: "/dashboard/clients-projects/p-2",
         },
       ],
@@ -230,7 +229,7 @@ describe("buildNeedsYouQueue", () => {
       ],
     });
 
-    expect(queue.map((item) => item.kind)).toEqual(["invoice", "urgent_project"]);
+    expect(queue.map((item) => item.kind)).toEqual(["comment", "urgent_project"]);
   });
 
   it("preserves the server's newest-first order inside one priority", () => {

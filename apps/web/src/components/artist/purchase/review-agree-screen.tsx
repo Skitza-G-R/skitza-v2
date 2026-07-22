@@ -17,6 +17,7 @@ import {
   PrimaryCta,
 } from "~/components/artist/funnel/funnel-ui";
 import type { PaymentPlanChoice } from "~/lib/purchase/request-helpers";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 import { royaltyTermsDisplay } from "~/lib/purchase/royalty-terms";
 import { acceptPurchaseAction } from "./actions";
 import { paymentPlanLabel } from "./pay-data";
@@ -30,6 +31,7 @@ import {
 
 type ExactReviewProps = {
   preview: PurchaseAcceptancePreview;
+  studioId?: string | undefined;
   purchaseRequestId: string;
   paymentPlan: PaymentPlanChoice;
   product?: never;
@@ -43,6 +45,7 @@ type GalleryReviewProps = {
   producer: Producer;
   terms: AgreementTerm[];
   previewSentHref: string;
+  studioId?: never;
   preview?: never;
   purchaseRequestId?: never;
   paymentPlan?: never;
@@ -217,7 +220,10 @@ export function ReviewAgreeScreen(props: ReviewAgreeScreenProps) {
         req: props.purchaseRequestId,
       });
       router.push(
-        `/artist/purchase/${encodeURIComponent(result.productId)}/pay/instructions?${query.toString()}`,
+        withArtistStudio(
+          `/artist/purchase/${encodeURIComponent(result.productId)}/pay/instructions?${query.toString()}`,
+          props.studioId,
+        ),
       );
     } catch {
       setSending(false);
@@ -226,7 +232,10 @@ export function ReviewAgreeScreen(props: ReviewAgreeScreenProps) {
   }
 
   const backHref = isExactReview(props)
-    ? `/artist/purchase/${preview.productId}/pay?req=${props.purchaseRequestId}`
+    ? withArtistStudio(
+        `/artist/purchase/${preview.productId}/pay?req=${props.purchaseRequestId}`,
+        props.studioId,
+      )
     : `/artist/purchase/${preview.productId}`;
 
   return (

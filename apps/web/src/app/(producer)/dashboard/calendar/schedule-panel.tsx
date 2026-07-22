@@ -3,7 +3,7 @@
 // Producer Calendar — Schedule tab orchestrator.
 //
 // Composes:
-//   - ScheduleWeekNav  (top control strip — prev/Today/next + GCal)
+//   - ScheduleWeekNav  (top control strip — prev/Today/next)
 //   - ScheduleWeekGrid (left, the redesigned week grid)
 //   - ScheduleSessionsCard + SchedulePendingCard (right rail, 260px)
 //
@@ -14,18 +14,11 @@
 import { useMemo, useState } from "react";
 
 import { buildWeek, isSameDay, todayIndex } from "./calendar-week";
-import { EditSessionModal } from "./edit-session-modal";
 import type { ScheduleAvailabilityBlock } from "./schedule-hours";
 import { ScheduleSessionsCard } from "./schedule-sessions-card";
-import {
-  ScheduleWeekGrid,
-  type ScheduleSession,
-} from "./schedule-week-grid";
+import { ScheduleWeekGrid, type ScheduleSession } from "./schedule-week-grid";
 import { ScheduleWeekNav } from "./schedule-week-nav";
-import {
-  SchedulePendingCard,
-  type PendingRequest,
-} from "./schedule-pending-card";
+import { SchedulePendingCard, type PendingRequest } from "./schedule-pending-card";
 import type { SessionListItem } from "./session-row";
 
 export type ScheduleData = {
@@ -51,8 +44,6 @@ export function SchedulePanel({
   timeZone,
 }: ScheduleData & { initialNow: string; timeZone: string }) {
   const [weekOffset, setWeekOffset] = useState(0);
-  const [editingSession, setEditingSession] =
-    useState<SessionListItem | null>(null);
   const reference = useMemo(() => new Date(initialNow), [initialNow]);
 
   const week = useMemo(
@@ -72,12 +63,8 @@ export function SchedulePanel({
   // Stats for the readout — counts confirmed + pending; sums duration.
   const totalSessions = visible.length;
   const totalHours =
-    Math.round(
-      (visible.reduce((acc, s) => acc + s.durationMin, 0) / 60) * 10,
-    ) / 10;
-  const selectedSession = desktopSessions.find(
-    (session) => session.id === selectedBookingId,
-  );
+    Math.round((visible.reduce((acc, s) => acc + s.durationMin, 0) / 60) * 10) / 10;
+  const selectedSession = desktopSessions.find((session) => session.id === selectedBookingId);
   const selectedPendingId =
     selectedSession?.status === "pending_approval" ? selectedBookingId : null;
   const selectedSessionId = selectedPendingId ? null : selectedBookingId;
@@ -112,9 +99,6 @@ export function SchedulePanel({
           showNowLine={weekOffset === 0}
           initialNow={initialNow}
           timeZone={timeZone}
-          onEditSession={(session) => {
-            setEditingSession(session);
-          }}
         />
         {/* Right rail mirrors the grid's height (same grid row).
             min-h-0 + overflow-hidden keeps content inside the rail
@@ -126,7 +110,6 @@ export function SchedulePanel({
             initialNow={initialNow}
             timeZone={timeZone}
             selectedBookingId={selectedSessionId}
-            onEditSession={setEditingSession}
           />
           <SchedulePendingCard
             initial={pending}
@@ -137,16 +120,6 @@ export function SchedulePanel({
           />
         </div>
       </div>
-
-      {editingSession ? (
-        <EditSessionModal
-          open
-          session={editingSession}
-          onOpenChange={(next) => {
-            if (!next) setEditingSession(null);
-          }}
-        />
-      ) : null}
     </div>
   );
 }

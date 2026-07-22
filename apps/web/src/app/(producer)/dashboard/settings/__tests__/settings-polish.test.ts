@@ -21,6 +21,17 @@ describe("Settings polish — reveal animation duration", () => {
   });
 });
 
+describe("Settings polish — reduced motion", () => {
+  it("stops the savebar pulse as well as the section animations", () => {
+    const reducedMotion = css.match(
+      /@media \(prefers-reduced-motion: reduce\)\s*\{([\s\S]*?)\n\}/,
+    )?.[1];
+
+    expect(reducedMotion).toContain(".s-savebar-pulse::after");
+    expect(reducedMotion).toContain("animation: none !important");
+  });
+});
+
 describe("Settings polish — no fake usage numbers", () => {
   it("PlanFreeView does not hard-code fake artistsUsed or storageUsed", () => {
     // Wrong numbers cost trust permanently. Real usage measurement
@@ -124,17 +135,17 @@ describe("Settings polish — sub-nav click updates URL", () => {
   });
 });
 
-describe("Settings polish — Plan CTAs collapsed (Free view)", () => {
-  it("PlanFreeView renders at most one ComingSoonButton (was three)", () => {
+describe("Settings polish — dead Plan CTAs removed (Free view)", () => {
+  it("PlanFreeView renders no ComingSoonButton", () => {
     // Pull the PlanFreeView function body out of the source. Previously
     // it had 3 buttons (Upgrade in the hero, See-what's-in-Pro in the
     // hero, Upgrade in the pricing card) — all toasting 'Coming soon'.
-    // Producer hits the same toast three times. Consolidate to ONE
-    // upgrade CTA (in the pricing card where the price is shown).
+    // Producer hit the same fake toast three times. SK-99 removes
+    // placeholder controls instead of leaving an unwired upgrade CTA.
     const block = client.match(/function PlanFreeView[\s\S]*?\n}\s*\n/)?.[0] ?? "";
     expect(block, "PlanFreeView block not found").not.toBe("");
     const ctas = block.match(/<ComingSoonButton\b/g) ?? [];
-    expect(ctas.length).toBeLessThanOrEqual(1);
+    expect(ctas).toHaveLength(0);
   });
 });
 

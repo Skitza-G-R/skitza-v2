@@ -346,6 +346,7 @@ describe("stateless no-charge song-space proposals", () => {
     const result = await preview(repository, created.proposalToken);
 
     expect(result).toMatchObject({
+      producerId: context.producerId,
       projectId: context.projectId,
       projectTitle: context.projectTitle,
       songTitle: "Neon Signs",

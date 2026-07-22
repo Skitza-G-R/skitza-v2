@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 
+import { resolveArtistStudioId, withArtistStudio } from "~/lib/artist-studio-context";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { BookingClient } from "./booking-client";
 import {
@@ -41,12 +42,13 @@ export default async function BookPage({ searchParams }: PageProps) {
 
   // Default to the studio from the search param, or the most-recent
   // studio. `studios` is already sorted desc by lastSeenAt server-side.
+  const requestedStudioId = sp.studio ?? sp.producerId ?? null;
   const activeStudioId =
-    rescheduleSession?.producerId ?? sp.studio ?? sp.producerId ?? studios[0]?.producerId;
+    rescheduleSession?.producerId ?? resolveArtistStudioId(studios, requestedStudioId);
   if (!activeStudioId) {
     return (
       <div className="reveal-up space-y-5">
-        <BookEyebrow />
+        <BookEyebrow studioId={null} />
         <EmptyStudios />
       </div>
     );
@@ -95,7 +97,7 @@ export default async function BookPage({ searchParams }: PageProps) {
 
   return (
     <div className="reveal-up mx-auto w-full max-w-[480px] space-y-5">
-      <BookEyebrow />
+      <BookEyebrow studioId={activeStudioId} />
       <BookingClient
         key={`${activeStudioId}:${initialSessionAllowanceId ?? "none"}:${rescheduleSession?.id ?? "new"}`}
         activeStudioId={activeStudioId}
@@ -112,7 +114,7 @@ export default async function BookPage({ searchParams }: PageProps) {
 // Tiny page-identity row above the card. The card itself carries the
 // producer + session context, so this stays a quiet visual handle for
 // the route rather than a competing heading.
-function BookEyebrow() {
+function BookEyebrow({ studioId }: { studioId: string | null }) {
   return (
     <header className="flex items-baseline justify-between px-1 sm:px-0">
       <h1 className="font-display text-[20px] leading-none font-extrabold tracking-[-0.025em] text-[rgb(var(--fg-default))]">
@@ -121,7 +123,7 @@ function BookEyebrow() {
       </h1>
       <p className="font-mono text-[10px] font-semibold tracking-[0.18em] text-[rgb(var(--fg-muted))] uppercase">
         <Link
-          href="/artist/sessions"
+          href={withArtistStudio("/artist/sessions", studioId)}
           className="sk-press inline-flex min-h-11 items-center underline decoration-dotted underline-offset-4"
         >
           My sessions

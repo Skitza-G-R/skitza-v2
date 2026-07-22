@@ -1,26 +1,18 @@
 "use client";
 
-import { useEffect } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "~/components/ui/dialog";
 
 // The `?` overlay. Mounted by ShortcutsBridge; open state is owned
 // by the bridge so the hook can call openCheatsheet() as a plain
-// handler. Esc closes. The backdrop is a real <button> so click-
-// to-close is keyboard-reachable (matches the palette's a11y shape).
+// handler. The shared Radix dialog owns initial focus, Escape,
+// focus trapping, outside-click dismissal, and focus return.
 
 export function ShortcutCheatsheet({ open, onClose }: { open: boolean; onClose: () => void }) {
-  useEffect(() => {
-    if (!open) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [open, onClose]);
-
-  if (!open) return null;
-
   const sections: Array<{ title: string; keys: Array<{ k: string; desc: string }> }> = [
     {
       // Phase 2 — entries mirror the locked design's ShortcutsHelp
@@ -44,46 +36,31 @@ export function ShortcutCheatsheet({ open, onClose }: { open: boolean; onClose: 
       keys: [
         { k: "⌘ K", desc: "Command palette" },
         { k: "n", desc: "New project" },
-        { k: "c", desc: "Create (context-aware)" },
-        { k: "/", desc: "Search" },
         { k: "[", desc: "Toggle sidebar" },
         { k: "?", desc: "This cheatsheet" },
         { k: "Esc", desc: "Close overlay / deselect" },
       ],
     },
-    {
-      title: "Context shortcuts",
-      keys: [
-        { k: "u", desc: "Upload track (Project Room)" },
-        { k: "t", desc: "Toggle done (Project Room)" },
-        { k: "e", desc: "Edit (context-aware)" },
-        { k: "c", desc: "Copy share link (Today)" },
-      ],
-    },
   ];
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Keyboard shortcuts"
-      className="fixed inset-0 z-[55] flex items-center justify-center p-4"
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <button
-        type="button"
-        aria-label="Close"
-        onClick={onClose}
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-      />
-      <div className="sk-pop-center relative w-full max-w-xl rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-6 shadow-2xl">
-        <h2 className="font-display text-xl text-[rgb(var(--fg-primary))]">Keyboard shortcuts</h2>
-        <p className="mt-1 text-xs text-[rgb(var(--fg-muted))]">
+      <DialogContent className="gap-0 p-6 sm:max-w-xl">
+        <DialogTitle className="pr-12 text-xl text-[rgb(var(--fg-primary))]">
+          Keyboard shortcuts
+        </DialogTitle>
+        <DialogDescription className="mt-1 text-xs">
           Press <kbd className="font-mono">?</kbd> any time.
-        </p>
-        <div className="mt-5 grid grid-cols-1 gap-6 text-sm sm:grid-cols-3">
+        </DialogDescription>
+        <div className="mt-5 grid grid-cols-1 gap-6 text-sm sm:grid-cols-2">
           {sections.map((s) => (
             <div key={s.title}>
-              <h3 className="mb-2 font-mono text-[11px] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
+              <h3 className="mb-2 font-mono text-[11px] tracking-wider text-[rgb(var(--fg-muted))] uppercase">
                 {s.title}
               </h3>
               <ul className="space-y-1">
@@ -97,7 +74,7 @@ export function ShortcutCheatsheet({ open, onClose }: { open: boolean; onClose: 
             </div>
           ))}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

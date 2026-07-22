@@ -46,7 +46,7 @@ const DialogOverlay = forwardRef<
     ref={ref}
     className={cn(
       "fixed inset-0 z-50 bg-[rgb(var(--bg-sidebar)/0.45)] backdrop-blur-sm",
-      "data-[state=open]:animate-[skitza-reveal-up_240ms_cubic-bezier(0.16,1,0.3,1)_both]",
+      "data-[state=open]:animate-[skitza-reveal-up_240ms_cubic-bezier(0.16,1,0.3,1)_both] motion-reduce:animate-none",
       className,
     )}
     {...props}
@@ -81,7 +81,7 @@ const DialogContent = forwardRef<
       {children}
       <DialogPrimitive.Close
         className={cn(
-          "absolute right-4 top-4 rounded-[var(--radius-sm)] p-1",
+          "absolute right-4 top-4 inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-sm)] sm:h-8 sm:w-8",
           "text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))]",
           "sk-press",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))]",

@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 // Background: until 2026-04-25 every page under /dashboard/* wrapped
 // its own copy of <AppShell>. That made navigation between sibling
 // dashboard routes visibly remount the entire shell — Sidebar,
-// PersistentPlayer, NotificationBell, CoachmarkTour, MobileBottomNav,
+// PersistentPlayer, NotificationBell, MobileBottomNav,
 // CommandPaletteTrigger — because each page's <AppShell> is a fresh
 // instance. Next.js App Router preserves layout instances across
 // sibling-route navigation but unmounts page components, so the fix

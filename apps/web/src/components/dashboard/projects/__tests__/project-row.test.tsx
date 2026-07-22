@@ -17,8 +17,10 @@ describe("ProjectRow source — grid + drag + gradient + status pills", () => {
     );
   });
 
-  it("is draggable=\"true\" for native HTML5 drag-to-reorder", () => {
-    expect(SRC).toMatch(/draggable=("|\{)["']?true["']?("|\})/);
+  it("is draggable only when the complete reorder controller is present", () => {
+    expect(SRC).toContain("const canReorder = Boolean(onDragStart && onDragOver && onDrop && onMove)");
+    expect(SRC).toContain("draggable={canReorder}");
+    expect(SRC).not.toContain('draggable="true"');
   });
 
   // Note: ProjectRow doesn't import deriveGradient — the avatar/badge
@@ -60,6 +62,14 @@ describe("ProjectRow source — grid + drag + gradient + status pills", () => {
     expect(SRC).toContain("onDragStart");
     expect(SRC).toContain("onDragOver");
     expect(SRC).toContain("onDrop");
+    expect(SRC).toContain("onMove");
+  });
+
+  it("offers keyboard move controls and hides the grip when reorder is unavailable", () => {
+    expect(SRC).toContain('aria-keyshortcuts={canReorder ? "ArrowUp ArrowDown" : undefined}');
+    expect(SRC).toContain('event.key !== "ArrowUp" && event.key !== "ArrowDown"');
+    expect(SRC).toContain("{canReorder ? (");
+    expect(SRC).toContain('<span aria-hidden className="h-6 w-6" />');
   });
 
   it("renders the row with data-id={id} so the parent can identify dropped rows", () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { type ReactNode, useEffect, useState } from "react";
 
@@ -19,14 +19,13 @@ import { useTopBarBreadcrumb } from "./topbar-breadcrumb-context";
 //                       When `onSearchClick` is provided the button
 //                       invokes it (producer side dispatches the
 //                       command-palette event); when omitted the button
-//                       renders identically but does nothing yet
-//                       (artist side, until the artist palette ships).
+//                       is omitted so the shell never renders a dead action.
 //   3. Notifications  — producer passes its functional notification
-//                       centre; artist keeps the existing passive dot.
+//                       centre; artist omits the slot.
 //
 // The shared component is dumb — it owns no data fetching. Section
-// labels, search placeholder, search behavior, and unread count all
-// come in as props so the same chrome can read identically on either
+// Labels, search placeholder, search behavior, and functional actions
+// come in as props so the same chrome can read consistently on either
 // side of the app while the configuration lives next to the surface
 // that knows it.
 //
@@ -73,13 +72,11 @@ export interface AppTopBarProps {
   fallback: Section;
   /** Placeholder text inside the search pill. */
   searchPlaceholder: string;
-  /** Optional click handler for the search pill. When omitted the
-   *  button still renders identically but is a no-op. */
+  /** Optional click handler for the search pill. The control is omitted
+   *  when no working search surface is available. */
   onSearchClick?: () => void;
-  /** Unread notification count for the bell dot. */
-  unreadCount?: number;
   /** Optional functional notification control. Producer supplies the SK-76
-   *  centre; artist omits it and retains the passive compatibility bell. */
+   *  centre; artist omits the slot. */
   notificationControl?: ReactNode;
 }
 
@@ -89,7 +86,6 @@ export function AppTopBar({
   fallback,
   searchPlaceholder,
   onSearchClick,
-  unreadCount = 0,
   notificationControl,
 }: AppTopBarProps) {
   // App Router's usePathname always returns a string for client
@@ -175,68 +171,49 @@ export function AppTopBar({
             wrapping side wired (producer: command palette; artist: no
             handler today). Desktop-only (`lg:`): on phones a ⌘K-pill
             wastes the whole strip and a hardware keyboard shortcut
-            means nothing, so mobile chrome is just label + bell
+            means nothing, so mobile chrome is just the label and any
+            working actions
             (Gili's 2026-06-11 audit, item 3). */}
         <div className="ml-auto flex justify-end">
-          <button
-            type="button"
-            onClick={onSearchClick}
-            data-testid="topbar-search-trigger"
-            className={
-              isProducer
-                ? "hidden h-9 w-[260px] max-w-[420px] items-center gap-2 rounded-[var(--radius-md)] border pr-2 pl-3 text-left text-[12.5px] transition-[transform,border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] hover:shadow-[0_1px_3px_rgb(17_16_9/0.05)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none active:scale-[0.985] motion-reduce:transition-none motion-reduce:active:scale-100 sm:w-[320px] lg:inline-flex lg:w-[400px]"
-                : "hidden w-[260px] max-w-[420px] items-center gap-2 rounded-full border py-1.5 pr-2 pl-3 text-left text-[12.5px] transition-[transform,border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] hover:shadow-[0_1px_3px_rgb(17_16_9/0.05)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] focus-visible:outline-none active:scale-[0.985] motion-reduce:transition-none motion-reduce:active:scale-100 sm:w-[320px] lg:inline-flex lg:w-[400px]"
-            }
-            style={{
-              background: "rgb(var(--bg-elevated))",
-              borderColor: "rgb(var(--border-subtle))",
-              color: "rgb(var(--fg-muted))",
-            }}
-            aria-label="Open search palette"
-          >
-            <Search size={13} strokeWidth={2.2} aria-hidden />
-            <span className="flex-1 truncate">{searchPlaceholder}</span>
-            <kbd
-              className="pointer-events-none ml-auto inline-flex items-center gap-0.5 rounded-[4px] border px-1.5 py-0.5 font-mono text-[10px]"
-              style={{
-                borderColor: "rgb(var(--border-subtle))",
-                background: "rgb(var(--bg-background))",
-                color: "rgb(var(--fg-muted))",
-              }}
-              aria-hidden
-            >
-              ⌘K
-            </kbd>
-          </button>
-        </div>
-
-        <div data-testid="topbar-bell" className="flex-shrink-0">
-          {notificationControl ?? (
+          {onSearchClick ? (
             <button
               type="button"
+              onClick={onSearchClick}
+              data-testid="topbar-search-trigger"
               className={
                 isProducer
-                  ? "relative inline-flex h-10 w-10 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none active:scale-[0.94] motion-reduce:transition-none motion-reduce:active:scale-100"
-                  : "relative inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[rgb(17_16_9/0.05)] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] focus-visible:outline-none active:scale-[0.94] motion-reduce:transition-none motion-reduce:active:scale-100"
+                  ? "hidden h-9 w-[260px] max-w-[420px] items-center gap-2 rounded-[var(--radius-md)] border pr-2 pl-3 text-left text-[12.5px] transition-[transform,border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] hover:shadow-[0_1px_3px_rgb(17_16_9/0.05)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none active:scale-[0.985] motion-reduce:transition-none motion-reduce:active:scale-100 sm:w-[320px] lg:inline-flex lg:w-[400px]"
+                  : "hidden w-[260px] max-w-[420px] items-center gap-2 rounded-full border py-1.5 pr-2 pl-3 text-left text-[12.5px] transition-[transform,border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] hover:shadow-[0_1px_3px_rgb(17_16_9/0.05)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] focus-visible:outline-none active:scale-[0.985] motion-reduce:transition-none motion-reduce:active:scale-100 sm:w-[320px] lg:inline-flex lg:w-[400px]"
               }
-              aria-label={
-                unreadCount > 0 ? `Notifications (${String(unreadCount)} unread)` : "Notifications"
-              }
+              style={{
+                background: "rgb(var(--bg-elevated))",
+                borderColor: "rgb(var(--border-subtle))",
+                color: "rgb(var(--fg-muted))",
+              }}
+              aria-label="Open search palette"
             >
-              <Bell size={isProducer ? 19 : 16} strokeWidth={2} aria-hidden />
-              {unreadCount > 0 ? (
-                <span
-                  aria-hidden
-                  className={
-                    isProducer
-                      ? "absolute top-2 right-2 inline-flex h-2 w-2 rounded-full bg-[rgb(var(--brand-primary))] ring-2 ring-[rgb(var(--bg-elevated))]"
-                      : "absolute top-1.5 right-1.5 inline-flex h-2 w-2 rounded-full bg-[rgb(var(--brand-primary))] ring-2 ring-[rgb(var(--bg-background))]"
-                  }
-                />
-              ) : null}
+              <Search size={13} strokeWidth={2.2} aria-hidden />
+              <span className="flex-1 truncate">{searchPlaceholder}</span>
+              <kbd
+                className="pointer-events-none ml-auto inline-flex items-center gap-0.5 rounded-[4px] border px-1.5 py-0.5 font-mono text-[10px]"
+                style={{
+                  borderColor: "rgb(var(--border-subtle))",
+                  background: "rgb(var(--bg-background))",
+                  color: "rgb(var(--fg-muted))",
+                }}
+                aria-hidden
+              >
+                ⌘K
+              </kbd>
             </button>
-          )}
+          ) : null}
         </div>
+
+        {notificationControl ? (
+          <div data-testid="topbar-bell" className="flex-shrink-0">
+            {notificationControl}
+          </div>
+        ) : null}
       </div>
     </header>
   );

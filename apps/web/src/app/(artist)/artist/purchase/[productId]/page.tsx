@@ -40,6 +40,7 @@ export default async function PurchaseEntryPage({ params }: PageProps) {
       product={toPurchaseProduct(row)}
       producer={toProducer(row)}
       productId={productId}
+      studioId={row.producerId}
       taxMode={coerceTaxMode(row.producerTaxMode)}
       taxRatePct={Math.max(0, Math.min(100, Math.round(row.producerTaxRatePct)))}
       targetProjects={row.targetProjects.map((project) => ({

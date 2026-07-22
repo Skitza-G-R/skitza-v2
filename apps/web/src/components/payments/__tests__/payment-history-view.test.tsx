@@ -265,6 +265,17 @@ describe("PaymentHistoryView", () => {
     expect(html).toMatch(/Due now[\s\S]*Total remaining/);
   });
 
+  it("does not repeat an identical totals block for a single project", () => {
+    const html = renderToStaticMarkup(
+      <PaymentHistoryView
+        role="producer"
+        data={{ ...data, currencyTotals: usdProject.currencyTotals, projects: [usdProject] }}
+      />,
+    );
+
+    expect(html.match(/aria-label="USD totals"/g)).toHaveLength(1);
+  });
+
   it("renders project then purchase grouping and the complete immutable history", () => {
     const html = renderToStaticMarkup(<PaymentHistoryView role="producer" data={data} />);
 
@@ -293,16 +304,46 @@ describe("PaymentHistoryView", () => {
     expect(html).toContain("Purchase delivery state");
   });
 
-  it("shows exact role-safe links without adding any mutation controls", () => {
+  it("shows exact role-safe links and the logged producer reminder only", () => {
     const producerHtml = renderToStaticMarkup(<PaymentHistoryView role="producer" data={data} />);
     const artistHtml = renderToStaticMarkup(<PaymentHistoryView role="artist" data={data} />);
 
     expect(producerHtml).toContain('href="/dashboard/payments/proof-1"');
     expect(producerHtml).not.toContain("/artist/payments/purchase-1");
+    expect(producerHtml).toContain("Send reminder");
+    expect(producerHtml).toContain(
+      'aria-label="Send payment reminder for purchase SK-P-1001, installment 2: Recording complete"',
+    );
     expect(artistHtml).toContain('href="/artist/payments/purchase-1"');
     expect(artistHtml).toContain("Complete payment");
+    expect(artistHtml).toMatch(
+      /aria-label="Complete payment for Debut EP production"[^>]*class="[^"]*min-h-11[^"]*min-w-11[^"]*sm:min-h-0[^"]*sm:min-w-0[^"]*"/,
+    );
+    expect(artistHtml).not.toContain("Send reminder");
     expect(artistHtml).not.toContain("/dashboard/payments/proof-1");
     expect(artistHtml).not.toMatch(/confirm payment|reject proof|cancel purchase/i);
+  });
+
+  it("does not offer a payment reminder while proof is awaiting review", () => {
+    const needsReviewPurchase: PaymentHistoryPurchase = {
+      ...purchase,
+      schedule: purchase.schedule.map((installment) =>
+        installment.id === "installment-2"
+          ? { ...installment, status: { label: "Needs review", tone: "accent" } }
+          : installment,
+      ),
+    };
+    const needsReviewData: PaymentHistoryViewData = {
+      ...data,
+      projects: [{ ...usdProject, purchases: [needsReviewPurchase] }],
+    };
+
+    const html = renderToStaticMarkup(
+      <PaymentHistoryView role="producer" data={needsReviewData} />,
+    );
+
+    expect(html).toContain("Needs review");
+    expect(html).not.toContain("Send reminder");
   });
 
   it("reveals paid Google Drive delivery links and never renders withheld links", () => {

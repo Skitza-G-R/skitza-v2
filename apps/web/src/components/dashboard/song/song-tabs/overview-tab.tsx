@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronRight, MessageCircle, User } from "lucide-react";
+import { ChevronRight, User } from "lucide-react";
 
 import { producerGradient, producerInitials } from "~/lib/_phase4-stubs/producer-color";
 import type { WorkflowStage } from "~/lib/clients/workflow-stage";
@@ -16,7 +16,7 @@ import { WorkflowStepper } from "~/components/dashboard/song/workflow-stepper";
 //             Left: Latest versions (top 3 VersionRows + "See all →"
 //                   button that jumps to the Versions tab)
 //             Right (album mode only): Client snippet (avatar + name
-//                   + LinkPill + "View client" + "Message")
+//                   + LinkPill + "View client")
 //
 // Single mode hides the Client snippet because the client identity
 // already sits in the SongSpaceHero meta line.
@@ -104,7 +104,7 @@ export function OverviewTab({
             <button
               type="button"
               onClick={onShowAllVersions}
-              className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] px-2.5 py-1 text-[12px] font-semibold transition-colors hover:bg-[rgb(var(--bg-background))]"
+              className="inline-flex min-h-11 items-center gap-1 rounded-[var(--radius-sm)] px-2.5 py-1 text-[12px] font-semibold transition-colors hover:bg-[rgb(var(--bg-background))] sm:min-h-0"
               style={{ color: "rgb(var(--brand-primary))" }}
             >
               See all
@@ -201,20 +201,6 @@ export function OverviewTab({
                   View client
                 </Link>
               ) : null}
-              <button
-                type="button"
-                disabled
-                title="Coming soon"
-                className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border px-3 py-1.5 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                style={{
-                  background: "transparent",
-                  borderColor: "rgb(var(--border-subtle))",
-                  color: "rgb(var(--fg-default))",
-                }}
-              >
-                <MessageCircle size={12} />
-                Message
-              </button>
             </div>
           </div>
         ) : null}

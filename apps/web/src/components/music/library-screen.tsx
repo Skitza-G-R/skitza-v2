@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 
 import { EqBars } from "~/components/audio/eq-bars";
 import { playerPlay, playerToggle, useNowPlaying } from "~/components/audio/persistent-player";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 
 import { ProjectCover } from "./project-cover";
 import {
@@ -43,6 +44,7 @@ export function archivedProjectLabel(
 
 interface MusicLibraryItemBase {
   id: string;
+  producerId?: string;
   projectId: string;
   projectTitle: string;
   projectLifecycleStatus?: MusicProjectLifecycleStatus;
@@ -93,6 +95,7 @@ export type MusicLibraryRow = MusicLibraryTrackRow | MusicLibraryEmptySlotRow;
 // entirely from the track list.
 export interface MusicLibraryProjectRow {
   id: string;
+  producerId?: string;
   title: string;
   artistLabel: string;
   /** Total allocated songs plus synthesized empty entitlements. */
@@ -107,6 +110,7 @@ export interface MusicLibraryProjectRow {
 // One row per PROJECT, combined client-side from project metadata and tracks.
 export interface ProjectAggregate {
   id: string;
+  producerId: string | undefined;
   title: string;
   artistLabel: string;
   trackCount: number;
@@ -121,14 +125,13 @@ export interface ProjectAggregate {
 
 type Mode = "projects" | "songs";
 type View = "grid" | "table";
-type SongSort = "recent" | "title" | "plays" | "notes" | "length";
+type SongSort = "recent" | "title" | "notes" | "length";
 type ProjectArchiveFilter = "active" | "archived";
 export type SongArchiveFilter = "active" | "archived";
 
 const SORT_LABEL: Record<SongSort, string> = {
   recent: "Most recent",
   title: "Title A → Z",
-  plays: "Most plays",
   notes: "Most notes",
   length: "Length",
 };
@@ -207,6 +210,7 @@ export function aggregateMusicProjects(
     const visibleSpaceCount = project.visibleSpaceCount ?? project.trackCount ?? 0;
     byId.set(project.id, {
       id: project.id,
+      producerId: project.producerId,
       title: project.title,
       artistLabel: project.artistLabel,
       trackCount: visibleSpaceCount,
@@ -227,6 +231,7 @@ export function aggregateMusicProjects(
     if (!aggregate) {
       aggregate = {
         id: row.projectId,
+        producerId: row.producerId,
         title: row.projectTitle,
         artistLabel: rowArtist(row)?.trim() ?? "",
         trackCount: 0,
@@ -255,6 +260,7 @@ export function aggregateMusicProjects(
     }, null);
     projects.push({
       id: aggregate.id,
+      producerId: aggregate.producerId,
       title: aggregate.title,
       artistLabel: aggregate.artistLabel,
       trackCount,
@@ -293,13 +299,19 @@ export type MusicLibraryRole = "producer" | "artist";
 // Internal href builders centralised here (instead of inlined per-cell)
 // so the URL switch lives in ONE place. Each side now has its own
 // L2 + L3 route (SK-30 added the artist L3).
-function projectHref(role: MusicLibraryRole, projectId: string): string {
+function projectHref(
+  role: MusicLibraryRole,
+  projectId: string,
+  producerId?: string,
+): string {
   return role === "producer"
     ? `/dashboard/music/project/${projectId}`
-    : `/artist/music/${projectId}`;
+    : withArtistStudio(`/artist/music/${projectId}`, producerId);
 }
-function songHref(role: MusicLibraryRole, songId: string): string {
-  return role === "producer" ? `/dashboard/music/${songId}` : `/artist/music/song/${songId}`;
+function songHref(role: MusicLibraryRole, songId: string, producerId?: string): string {
+  return role === "producer"
+    ? `/dashboard/music/${songId}`
+    : withArtistStudio(`/artist/music/song/${songId}`, producerId);
 }
 
 export function MusicLibraryScreen({
@@ -417,11 +429,6 @@ export function MusicLibraryScreen({
       case "title":
         arr.sort((a, b) => rowTitle(a).localeCompare(rowTitle(b)));
         break;
-      case "plays":
-        arr.sort(
-          (a, b) => (isMusicLibraryTrack(b) ? b.plays : 0) - (isMusicLibraryTrack(a) ? a.plays : 0),
-        );
-        break;
       case "notes":
         arr.sort(
           (a, b) =>
@@ -500,7 +507,7 @@ export function MusicLibraryScreen({
         {/* Search — focus-within ring brightens the pill so the
             keyboardable surface is visible without a heavy outline. */}
         <div
-          className="sk-trans flex min-h-11 min-w-0 flex-1 items-center gap-1.5 rounded-[var(--radius-md)] bg-[rgb(var(--bg-elevated))] px-3 py-2 focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.18)] md:max-w-[320px] md:min-w-[220px] md:py-1.5"
+          className="sk-trans flex min-h-11 min-w-0 flex-1 items-center gap-1.5 rounded-[var(--radius-md)] bg-[rgb(var(--bg-elevated))] px-3 focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.18)] md:max-w-[320px] md:min-w-[220px]"
           style={{ border: "1px solid rgb(var(--border-subtle))" }}
         >
           <Search size={13} className="text-[rgb(var(--fg-muted))]" />
@@ -512,7 +519,7 @@ export function MusicLibraryScreen({
             }}
             placeholder="Search tracks, artists, projects…"
             aria-label="Search music library"
-            className="min-w-0 flex-1 bg-transparent text-[12.5px] outline-none placeholder:text-[rgb(var(--fg-muted))]"
+            className="h-11 min-w-0 flex-1 bg-transparent text-[12.5px] outline-none placeholder:text-[rgb(var(--fg-muted))]"
           />
           {search ? (
             <button
@@ -546,17 +553,18 @@ export function MusicLibraryScreen({
           <ModeToggle value={mode} onChange={setMode} />
         </div>
 
-        {/* Sort dropdown — always rendered. Disabled (greyed) when not
-            applicable (i.e. anything except Songs + Table view) so the
-            toolbar shape stays stable across mode/view toggles. */}
-        <SortDropdown
-          value={sort}
-          onChange={setSort}
-          disabled={!(mode === "songs" && view === "table")}
-        />
+        {/* Sorting is a real action only in the songs table. Removing it
+            elsewhere keeps phones free of a disabled, dead control. */}
+        {mode === "songs" && view === "table" ? (
+          <SortDropdown value={sort} onChange={setSort} />
+        ) : null}
 
-        {/* View toggle (Grid / Table) */}
-        <ViewToggle value={view} onChange={setView} />
+        {/* Phones use one compact native menu; desktop keeps the faster
+            two-button view switch. Both update the same view state. */}
+        <CompactViewMenu value={view} onChange={setView} />
+        <div className="hidden md:block">
+          <ViewToggle value={view} onChange={setView} />
+        </div>
       </div>
 
       {role === "artist" && mode === "projects" ? (
@@ -570,8 +578,8 @@ export function MusicLibraryScreen({
         <SongArchiveFilterControl value={songArchiveFilter} onChange={setSongArchiveFilter} />
       ) : null}
 
-      {/* Body — single panel that both toggles control via aria-controls. */}
-      <div id={RESULTS_PANEL_ID} role="tabpanel" aria-label="Library results">
+      {/* Body — one results region updated by the two pressed-button groups. */}
+      <div id={RESULTS_PANEL_ID} role="region" aria-label="Library results">
         {mode === "projects" && visibleProjects.length === 0 ? (
           <EmptyResult
             hasQuery={Boolean(search.trim()) || artist !== "all"}
@@ -579,6 +587,7 @@ export function MusicLibraryScreen({
             role={role}
             addSongHref={addSongHref}
             {...(role === "artist" ? { projectArchiveFilter } : {})}
+            onProjectArchiveFilterChange={setProjectArchiveFilter}
           />
         ) : mode === "projects" ? (
           view === "grid" ? (
@@ -593,6 +602,7 @@ export function MusicLibraryScreen({
             role={role}
             addSongHref={addSongHref}
             {...(role === "producer" ? { songArchiveFilter } : {})}
+            onSongArchiveFilterChange={setSongArchiveFilter}
           />
         ) : view === "grid" ? (
           <SongsGrid
@@ -622,11 +632,9 @@ export function MusicLibraryScreen({
 
 // ─── Toolbar primitives ──────────────────────────────────────────────
 
-// Shared id for the results panel — both toggles point to it via
-// aria-controls so screen readers can announce "controls library
-// results" on each tab. Two tablists controlling one panel is a known
-// compromise; the alternative is duplicate panels per axis which is
-// worse semantically + visually.
+// Shared id for the results region — both pressed-button groups point
+// to it via aria-controls so their effect is explicit without claiming
+// the keyboard contract of tabs.
 const RESULTS_PANEL_ID = "library-results";
 
 function ProjectArchiveFilterControl({
@@ -727,7 +735,7 @@ function SongArchiveFilterControl({
 function ModeToggle({ value, onChange }: { value: Mode; onChange: (m: Mode) => void }) {
   return (
     <div
-      role="tablist"
+      role="group"
       aria-label="Library mode"
       className="flex rounded-[9px] p-[2px]"
       style={{
@@ -760,7 +768,7 @@ function ModeToggle({ value, onChange }: { value: Mode; onChange: (m: Mode) => v
 function ViewToggle({ value, onChange }: { value: View; onChange: (v: View) => void }) {
   return (
     <div
-      role="tablist"
+      role="group"
       aria-label="View"
       className="flex rounded-[9px] p-[2px]"
       style={{
@@ -792,6 +800,36 @@ function ViewToggle({ value, onChange }: { value: View; onChange: (v: View) => v
   );
 }
 
+function CompactViewMenu({ value, onChange }: { value: View; onChange: (v: View) => void }) {
+  return (
+    <label
+      className="sk-press relative ml-auto inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2.5 text-[11.5px] font-semibold text-[rgb(var(--fg-default))] md:hidden"
+    >
+      <span className="pointer-events-none text-[rgb(var(--fg-muted))]">View</span>
+      <span className="pointer-events-none hidden min-[375px]:inline">
+        {value === "grid" ? "Grid" : "List"}
+      </span>
+      <ChevronDown
+        aria-hidden
+        size={11}
+        strokeWidth={2.2}
+        className="pointer-events-none"
+      />
+      <select
+        aria-label="Library view"
+        value={value}
+        onChange={(event) => {
+          onChange(event.target.value as View);
+        }}
+        className="absolute inset-0 min-h-11 cursor-pointer opacity-0 md:min-h-0"
+      >
+        <option value="grid">Grid view</option>
+        <option value="table">List view</option>
+      </select>
+    </label>
+  );
+}
+
 function SegmentedButton({
   active,
   onClick,
@@ -812,8 +850,7 @@ function SegmentedButton({
   return (
     <button
       type="button"
-      role="tab"
-      aria-selected={active}
+      aria-pressed={active}
       aria-label={ariaLabel ?? label}
       aria-controls={controls}
       onClick={onClick}
@@ -871,7 +908,7 @@ function ArtistFilterPill({
         onChange={(e) => {
           onChange(e.target.value);
         }}
-        className="absolute inset-0 cursor-pointer opacity-0"
+        className="absolute inset-0 min-h-11 cursor-pointer opacity-0 md:min-h-0"
       >
         <option value="all">All artists</option>
         {options.map((o) => (
@@ -887,25 +924,14 @@ function ArtistFilterPill({
 function SortDropdown({
   value,
   onChange,
-  disabled = false,
 }: {
   value: SongSort;
   onChange: (v: SongSort) => void;
-  disabled?: boolean;
 }) {
   return (
     <label
-      className={[
-        // ml-auto pushes sort + view to the right edge of the phone
-        // toolbar's second row; md+ resets to the desktop card flow.
-        "sk-trans relative ml-auto inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-[9px] bg-[rgb(var(--bg-elevated))] px-2.5 py-1.5 text-[11.5px] font-semibold md:ml-0 md:px-3",
-        disabled
-          ? "cursor-not-allowed text-[rgb(var(--fg-faint))]"
-          : "sk-press text-[rgb(var(--fg-default))]",
-      ].join(" ")}
+      className="sk-press sk-trans relative inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-elevated))] px-2.5 py-1.5 text-[11.5px] font-semibold text-[rgb(var(--fg-default))] md:px-3"
       style={{ border: "1px solid rgb(var(--border-subtle))" }}
-      aria-disabled={disabled}
-      title={disabled ? "Sort applies to Songs · Table view" : undefined}
     >
       <span className="pointer-events-none text-[rgb(var(--fg-muted))]">Sort</span>
       <span className="pointer-events-none hidden md:inline">{SORT_LABEL[value]}</span>
@@ -913,11 +939,10 @@ function SortDropdown({
       <select
         aria-label="Sort songs"
         value={value}
-        disabled={disabled}
         onChange={(e) => {
           onChange(e.target.value as SongSort);
         }}
-        className="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-not-allowed"
+        className="absolute inset-0 min-h-11 cursor-pointer opacity-0 md:min-h-0"
       >
         {(Object.keys(SORT_LABEL) as SongSort[]).map((k) => (
           <option key={k} value={k}>
@@ -978,7 +1003,7 @@ function ProjectCard({ project, role }: { project: ProjectAggregate; role: Music
   const archivedLabel = archivedProjectLabel(project.projectLifecycleStatus);
   return (
     <Link
-      href={projectHref(role, project.id)}
+      href={projectHref(role, project.id, project.producerId)}
       className="sk-lift group flex flex-col gap-3 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-background))] focus-visible:outline-none"
     >
       <div className="relative" style={{ willChange: "transform" }}>
@@ -1074,7 +1099,7 @@ function ProjectsTable({
             {projects.map((p) => (
               <li key={p.id}>
                 <Link
-                  href={projectHref(role, p.id)}
+                  href={projectHref(role, p.id, p.producerId)}
                   className="grid items-center gap-3 px-4 py-2.5 hover:bg-[rgb(var(--bg-overlay))] focus-visible:bg-[rgb(var(--bg-overlay))] focus-visible:outline-none active:scale-[0.992] active:bg-[rgb(var(--bg-overlay))]"
                   style={{
                     gridTemplateColumns:
@@ -1150,7 +1175,7 @@ function ProjectsTable({
         {projects.map((p) => (
           <li key={p.id}>
             <Link
-              href={projectHref(role, p.id)}
+              href={projectHref(role, p.id, p.producerId)}
               className="flex items-center gap-3 px-3 py-2.5 active:bg-[rgb(var(--bg-overlay))]"
               style={{
                 borderBottom: "1px solid rgb(var(--border-subtle))",
@@ -1275,7 +1300,7 @@ function SongCard({
   const audioDeleted = isMusicLibraryTrackAudioDeleted(song);
   const versionId = latestVersionIdForLibraryTrack(song);
   const canPlay = isMusicLibraryTrackPlayable(song);
-  const detailHref = versionId ? songHref(role, versionId) : null;
+  const detailHref = versionId ? songHref(role, versionId, song.producerId) : null;
   const subtitle = [song.projectTitle, song.trackArtist ?? song.clientName]
     .filter(Boolean)
     .join(" · ");
@@ -1371,14 +1396,8 @@ function SongCard({
             </p>
           ) : null}
           {canPlay ? (
-            <p className="mt-1 flex items-center justify-between font-mono text-[10.5px] text-[rgb(var(--fg-faint))]">
-              <span className="inline-flex items-center gap-1">
-                <Play size={9} strokeWidth={2.6} fill="currentColor" />
-                <span className="tabular-nums" style={{ minWidth: 16 }}>
-                  {fmtCount(song.plays)}
-                </span>
-              </span>
-              <span className="tabular-nums">{fmtDuration(song.durationMs)}</span>
+            <p className="mt-1 text-right font-mono text-[10.5px] text-[rgb(var(--fg-faint))] tabular-nums">
+              {fmtDuration(song.durationMs)}
             </p>
           ) : (
             <span className="pointer-events-auto relative z-20 block">
@@ -1520,11 +1539,11 @@ function SongsTable({
   markReleased?: MarkSongReleasedAction;
 }) {
   const nowPlaying = useNowPlaying();
-  // 9 columns now: play/idx, cover thumb, title, artist, version, plays,
-  // notes, length, actions. The 40px cover sits between the play column
+  // 8 columns: play/idx, cover thumb, title, artist, version, notes,
+  // length, actions. The 40px cover sits between the play column
   // and the title — same pattern Spotify + Apple Music use in their
   // table view (small album art next to track title for visual identity).
-  const cols = "44px 40px minmax(0,2fr) minmax(0,1fr) 70px 64px 60px 64px 104px";
+  const cols = "44px 40px minmax(0,2fr) minmax(0,1fr) 70px 60px 64px 104px";
 
   function handlePlay(song: MusicLibraryTrackRow) {
     const versionId = latestVersionIdForLibraryTrack(song);
@@ -1567,7 +1586,6 @@ function SongsTable({
             <span>Title</span>
             <span>Artist</span>
             <span>Version</span>
-            <span className="text-right">Plays</span>
             <span className="text-right">Notes</span>
             <span className="text-right">Length</span>
             <span className="text-right">Actions</span>
@@ -1692,7 +1710,6 @@ function LibrarySongDesktopRow({
             Empty
           </span>
           <span />
-          <span />
           <span className="text-right text-[11px] text-[rgb(var(--fg-faint))]">No audio</span>
           <span className="flex justify-end">
             {role === "producer" && actionHref ? (
@@ -1717,7 +1734,7 @@ function LibrarySongDesktopRow({
   const canPlay = isMusicLibraryTrackPlayable(item);
   const current = canPlay && nowPlayingId === versionId;
   const playingHere = current && isPlaying;
-  const href = versionId ? songHref(role, versionId) : null;
+  const href = versionId ? songHref(role, versionId, item.producerId) : null;
   return (
     <li data-music-row={canPlay ? "allocated-playable" : "allocated-no-audio"}>
       <div
@@ -1824,9 +1841,6 @@ function LibrarySongDesktopRow({
         </span>
         <span className="font-mono text-[10px] font-bold text-[rgb(var(--fg-default))] uppercase">
           {item.label ?? "No version"}
-        </span>
-        <span className="text-right font-mono text-[11px] text-[rgb(var(--fg-muted))] tabular-nums">
-          {canPlay ? fmtCount(item.plays) : ""}
         </span>
         <span
           className={[
@@ -1940,7 +1954,7 @@ function LibrarySongMobileRow({
   const canPlay = isMusicLibraryTrackPlayable(item);
   const current = canPlay && nowPlayingId === versionId;
   const playingHere = current && isPlaying;
-  const href = versionId ? songHref(role, versionId) : null;
+  const href = versionId ? songHref(role, versionId, item.producerId) : null;
   return (
     <li data-music-row={canPlay ? "allocated-playable" : "allocated-no-audio"}>
       <div
@@ -2071,6 +2085,8 @@ function EmptyResult({
   addSongHref,
   projectArchiveFilter,
   songArchiveFilter,
+  onProjectArchiveFilterChange,
+  onSongArchiveFilterChange,
 }: {
   hasQuery: boolean;
   hasProjects: boolean;
@@ -2078,6 +2094,8 @@ function EmptyResult({
   addSongHref: string;
   projectArchiveFilter?: ProjectArchiveFilter;
   songArchiveFilter?: SongArchiveFilter;
+  onProjectArchiveFilterChange?: (value: ProjectArchiveFilter) => void;
+  onSongArchiveFilterChange?: (value: SongArchiveFilter) => void;
 }) {
   // Three states. CTAs route into producer-only surfaces (project
   // creation, upload), so they're suppressed in artist mode and the
@@ -2119,7 +2137,13 @@ function EmptyResult({
     return projectArchiveFilter === "archived" ? (
       <EmptyShell
         title="No archived projects"
-        body="Completed and canceled projects will appear here."
+        body="Nothing is archived. Completed and canceled projects will appear here."
+        action={{
+          label: "View active projects",
+          onClick: () => {
+            onProjectArchiveFilterChange?.("active");
+          },
+        }}
       />
     ) : (
       <EmptyShell
@@ -2130,7 +2154,16 @@ function EmptyResult({
   }
   if (role === "producer" && songArchiveFilter) {
     return songArchiveFilter === "archived" ? (
-      <EmptyShell title="No archived songs" body="Songs you archive will stay available here." />
+      <EmptyShell
+        title="No archived songs"
+        body="Nothing is archived. Songs you archive will stay available here."
+        action={{
+          label: "View active songs",
+          onClick: () => {
+            onSongArchiveFilterChange?.("active");
+          },
+        }}
+      />
     ) : (
       <EmptyShell
         title="No active songs"
@@ -2160,10 +2193,12 @@ function EmptyShell({
   title,
   body,
   cta,
+  action,
 }: {
   title: string;
   body: string;
   cta?: { href: string; label: string };
+  action?: { label: string; onClick: () => void };
 }) {
   return (
     <div
@@ -2186,6 +2221,15 @@ function EmptyShell({
         >
           {cta.label}
         </Link>
+      ) : null}
+      {action ? (
+        <button
+          type="button"
+          onClick={action.onClick}
+          className="sk-press mt-4 inline-flex min-h-11 items-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 py-2 text-[12.5px] font-bold text-[rgb(var(--fg-default))]"
+        >
+          {action.label}
+        </button>
       ) : null}
     </div>
   );

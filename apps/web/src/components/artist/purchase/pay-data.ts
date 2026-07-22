@@ -13,6 +13,7 @@ import {
   type Producer,
   type PurchaseProduct,
 } from "./purchase-data";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 
 // ── Placeholder product + producer (BE-2 / BE-3 era) ────────────────────────
 // Live purchase routes never read these placeholders. They remain only for
@@ -104,11 +105,15 @@ export function paymentPlanAgreementHref(input: {
   productId: string;
   purchaseRequestId: string;
   choice: LivePaymentPlanChoice;
+  studioId?: string | undefined;
 }): string {
   const query = new URLSearchParams({ req: input.purchaseRequestId });
   const plan = new URLSearchParams(paymentPlanSearch(input.choice));
   for (const [key, value] of plan) query.set(key, value);
-  return `/artist/purchase/${encodeURIComponent(input.productId)}/agree?${query.toString()}`;
+  return withArtistStudio(
+    `/artist/purchase/${encodeURIComponent(input.productId)}/agree?${query.toString()}`,
+    input.studioId,
+  );
 }
 
 export function nextPlanIndex(

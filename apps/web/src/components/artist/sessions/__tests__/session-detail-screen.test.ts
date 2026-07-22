@@ -50,10 +50,12 @@ describe("session-detail-screen.tsx (S12) wiring", () => {
     expect(screenSrc).toMatch(/^"use client";/);
   });
 
-  it("mounts FunnelTopBar with onBack -> router.push('/artist/sessions')", () => {
+  it("mounts FunnelTopBar with a studio-preserving back route", () => {
     expect(screenSrc).toMatch(/<FunnelTopBar/);
     expect(screenSrc).toMatch(/title="Session"/);
-    expect(screenSrc).toMatch(/router\.push\("\/artist\/sessions"\)/);
+    expect(screenSrc).toContain(
+      'router.push(withArtistStudio("/artist/sessions", session.producerId))',
+    );
   });
 
   it("uses the server-authored policy without recomputing the deadline in the browser", () => {

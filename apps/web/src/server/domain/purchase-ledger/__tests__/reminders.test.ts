@@ -16,6 +16,7 @@ import type { PurchaseLedgerSnapshot, ReconciledPurchaseLedger } from "../servic
 type ReminderOverrides = Readonly<{
   globalEnabled?: boolean;
   installmentEnabled?: boolean;
+  pendingProof?: boolean;
   lifecycleStatus?: "waiting_for_payment" | "active" | "canceled";
   dueAt?: Date;
   email?: string;
@@ -74,7 +75,7 @@ function reminderLedger(asOf: Date, overrides: ReminderOverrides = {}): Reconcil
     payments: [],
     corrections: [],
     waivers: [],
-    pendingProofInstallmentIds: [],
+    pendingProofInstallmentIds: overrides.pendingProof ? ["installment-a"] : [],
     cancellation: null,
     pauseEvents: [],
   };
@@ -92,6 +93,7 @@ function reminderLedger(asOf: Date, overrides: ReminderOverrides = {}): Reconcil
       payments: [],
       corrections: [],
       waivers: [],
+      pendingProofInstallmentIds: snapshot.pendingProofInstallmentIds,
       asOf,
       timeZone: snapshot.producer.timeZone,
     }),
@@ -379,6 +381,23 @@ describe("purchase reminders", () => {
     expect(mail.calls).toHaveLength(0);
   });
 
+  it("does not send an automatic reminder while payment proof awaits review", async () => {
+    const asOf = new Date("2026-07-17T12:00:00.000Z");
+    const repository = new MemoryReminderRepository(
+      reminderLedger(asOf, { pendingProof: true }),
+    );
+    const mail = provider();
+
+    const result = await sendAutomaticPurchaseReminders(repository, mail.send, {
+      asOf,
+      paymentUrlForPurchase,
+    });
+
+    expect(result).toMatchObject({ reconciled: 1, eligible: 0, sent: 0, errored: 0 });
+    expect(mail.calls).toHaveLength(0);
+    expect(repository.deliveries).toHaveLength(0);
+  });
+
   it("selects today's producer-local occurrence before the exact due wall-clock time", async () => {
     const asOf = new Date("2026-07-20T05:00:00.000Z");
     const repository = new MemoryReminderRepository(
@@ -565,6 +584,28 @@ describe("purchase reminders", () => {
     expect(repository.loadCount).toBe(1);
     expect(mail.calls).toHaveLength(1);
     expect(repository.logs[0]?.sentByClerkUserId).toBe("clerk-producer");
+  });
+
+  it("rejects a manual reminder while payment proof awaits review", async () => {
+    const requestedAt = new Date("2026-07-20T12:00:00.000Z");
+    const repository = new MemoryReminderRepository(
+      reminderLedger(requestedAt, { pendingProof: true }),
+    );
+    const mail = provider();
+
+    await expect(
+      sendManualPurchaseReminder(repository, mail.send, {
+        producerId: "producer-a",
+        purchaseId: "purchase-a",
+        installmentId: "installment-a",
+        operationKey: "manual-proof-review",
+        actorId: "clerk-producer",
+        paymentUrl: "https://skitza.app/artist/payments/purchase-a",
+        requestedAt,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(mail.calls).toHaveLength(0);
+    expect(repository.deliveries).toHaveLength(0);
   });
 
   it("retries an uncertain manual send from its stored snapshot after live terms change", async () => {

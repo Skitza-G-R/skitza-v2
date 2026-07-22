@@ -20,7 +20,7 @@ import { ArtistShellChrome } from "./artist-shell-chrome";
 //   Mobile (<lg):
 //     warm-canvas top bar   (Wordmark + StudioSwitcher + UserButton)
 //     main content          (warm canvas, scrollable)
-//     dark bottom nav       (5 tabs: Home / Music / Book / Store / Settings)
+//     dark bottom nav       (5 tabs: Home / Music / Book / Store / Payments)
 //
 //   Desktop (lg+):
 //     dark left sidebar     (Wordmark + 5 nav items + UserButton)
@@ -45,17 +45,10 @@ import { ArtistShellChrome } from "./artist-shell-chrome";
 export function ArtistAppShell({
   isProducer: _isProducer,
   studios,
-  unreadCount = 0,
   children,
 }: {
   isProducer: boolean;
   studios: Studio[];
-  /** Bell-dot signal for the desktop topbar. See
-   *  `getArtistShellState` in `~/server/artist/shell-data.ts` for the
-   *  composition (pending payments + sessions within 7 days + recent
-   *  mix flag). Mobile chrome ignores this — the topbar only mounts on
-   *  `lg+` per Gili's SK-31 decision. */
-  unreadCount?: number;
   children: React.ReactNode;
 }) {
   // `_isProducer` parked in scope so the prior call-site signature is
@@ -99,7 +92,7 @@ export function ArtistAppShell({
           <TopBarBreadcrumbProvider>
             <ArtistShellChrome>
               <div className="hidden lg:block">
-                <ArtistTopBar unreadCount={unreadCount} />
+                <ArtistTopBar />
               </div>
             </ArtistShellChrome>
             {/* `pb-20` reserves space for the mobile bottom nav (56px
@@ -113,7 +106,7 @@ export function ArtistAppShell({
             <main
               id="main-content"
               tabIndex={-1}
-              className="mx-auto w-full max-w-2xl px-4 pb-20 pt-6 lg:max-w-none lg:px-10 lg:pb-12 lg:pt-10"
+              className="mx-auto w-full max-w-2xl px-4 pt-6 pb-20 lg:max-w-none lg:px-10 lg:pt-10 lg:pb-12"
             >
               {children}
             </main>
@@ -129,7 +122,7 @@ export function ArtistAppShell({
               artist pages that still use ArtistAudio. Both players will
               be unified in a follow-up — for PR #1 they coexist. */}
           <PersistentPlayer />
-          <ArtistBottomNav />
+          <ArtistBottomNav studios={studios} />
         </ArtistShellChrome>
       </div>
     </ArtistAudioProvider>

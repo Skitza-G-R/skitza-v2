@@ -15,6 +15,7 @@ import {
 } from "~/components/audio/persistent-player";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 import { formatMoney } from "~/lib/format/money";
 
 import {
@@ -402,6 +403,7 @@ type OpenSongManagement = {
 export function SongPage({
   data,
   role = "producer",
+  artistStudioId,
   actions,
   publicSharing,
   publicSharingActions,
@@ -409,6 +411,7 @@ export function SongPage({
 }: {
   data: SongPageData;
   role?: SongPageRole;
+  artistStudioId?: string | undefined;
   actions: L3Actions;
   publicSharing?: SongPublicSharingView;
   publicSharingActions?: SongPublicSharingActions;
@@ -561,14 +564,7 @@ export function SongPage({
     };
   }, []);
 
-  // Local-only "favorite" toggle — the backend mutation isn't wired
-  // yet, but the UI affordance ships now so the action rail matches
-  // the design. State resets per page navigation, which is fine for
-  // the optimistic preview; persistence lands when producer-favorites
-  // is added on the server.
-  const [isFavorite, setIsFavorite] = useState(false);
-
-  // Secondary actions overflow menu (heart/share/download). Click-out
+  // Secondary actions overflow menu. Click-out
   // closes it. Premium players keep utility actions out of the primary
   // sightline — the menu collapses into a single circular trigger.
   const [overflowOpen, setOverflowOpen] = useState(false);
@@ -828,7 +824,11 @@ export function SongPage({
       input.value = prefix;
     }
     input.focus();
-    input.scrollIntoView({ block: "center", behavior: "smooth" });
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    input.scrollIntoView({
+      block: "center",
+      behavior: reduceMotion.matches ? "auto" : "smooth",
+    });
   }
 
   // Play / Pause click — branches on the helper-derived action so the
@@ -1250,7 +1250,7 @@ export function SongPage({
   const clientCrumb = data.track.clientName ? [{ label: data.track.clientName }] : [];
   const projectHref =
     role === "artist"
-      ? `/artist/music/${data.track.projectId}`
+      ? withArtistStudio(`/artist/music/${data.track.projectId}`, artistStudioId)
       : `/dashboard/music/project/${data.track.projectId}`;
   const topbarCrumbs = [
     ...clientCrumb,
@@ -1345,7 +1345,8 @@ export function SongPage({
             <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
               <Link
                 href={`/dashboard/clients-projects/${data.track.projectId}?tab=music&version=${activeVersion.id}`}
-                className="sk-press group inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-white/20 bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white/90 backdrop-blur-md transition-colors duration-200 hover:bg-white/[0.14]"
+                data-test="project-room-link"
+                className="sk-press group inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-sm)] border border-white/20 bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white/90 backdrop-blur-md transition-colors duration-200 hover:bg-white/[0.14] sm:min-h-0"
               >
                 <span>Open in project room</span>
                 <ChevronRightIcon />
@@ -1661,8 +1662,8 @@ export function SongPage({
                 />
               ) : null}
 
-              {/* Overflow — single glass circle for share / favorite /
-                  download. Origin-aware popover scales from this trigger. */}
+              {/* Overflow — single glass circle for download and producer
+                  management actions. Origin-aware popover scales from this trigger. */}
               <div ref={overflowRef} className="relative">
                 <button
                   ref={moreButtonRef}
@@ -1684,27 +1685,8 @@ export function SongPage({
                 {overflowOpen ? (
                   <div
                     role="menu"
-                    className="absolute top-[calc(100%+8px)] right-0 z-30 max-h-[min(70dvh,520px)] w-64 origin-top-right overflow-y-auto rounded-[18px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 text-[rgb(var(--fg-default))] shadow-[0_30px_60px_-15px_rgba(17,16,9,0.35)] max-[400px]:fixed max-[400px]:inset-x-4 max-[400px]:top-auto max-[400px]:bottom-4 max-[400px]:max-h-[calc(100dvh-2rem)] max-[400px]:w-auto max-[400px]:origin-bottom-right"
-                    style={{
-                      animation: "skitza-pop-in 220ms cubic-bezier(0.23, 1, 0.32, 1) both",
-                    }}
+                    className="sk-pop absolute top-[calc(100%+8px)] right-0 z-30 max-h-[min(70dvh,520px)] w-64 origin-top-right overflow-y-auto rounded-[18px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 text-[rgb(var(--fg-default))] shadow-[0_30px_60px_-15px_rgba(17,16,9,0.35)] max-[400px]:fixed max-[400px]:inset-x-4 max-[400px]:top-auto max-[400px]:bottom-4 max-[400px]:max-h-[calc(100dvh-2rem)] max-[400px]:w-auto max-[400px]:origin-bottom-right"
                   >
-                    <button
-                      type="button"
-                      role="menuitem"
-                      aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
-                      aria-pressed={isFavorite}
-                      onClick={() => {
-                        setIsFavorite((f) => !f);
-                        setOverflowOpen(false);
-                      }}
-                      className="flex min-h-11 w-full items-center gap-2.5 rounded-[var(--radius-lg)] px-3 py-2 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
-                    >
-                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary-dark))]">
-                        <StarIcon filled={isFavorite} />
-                      </span>
-                      {isFavorite ? "Remove from favorites" : "Add to favorites"}
-                    </button>
                     {canUseDownloadAction ? (
                       <a
                         role="menuitem"
@@ -1722,11 +1704,16 @@ export function SongPage({
                         Download audio
                       </a>
                     ) : (
-                      <span
+                      <button
+                        type="button"
                         role="menuitem"
-                        aria-label="Download"
-                        aria-disabled
-                        className="flex min-h-11 w-full items-center gap-2.5 rounded-[var(--radius-lg)] px-3 py-2 text-left text-[13px] font-semibold opacity-50"
+                        disabled
+                        title={
+                          activeVersionDeleted
+                            ? "Audio was deleted"
+                            : "Audio is still uploading"
+                        }
+                        className="flex min-h-11 w-full cursor-not-allowed items-center gap-2.5 rounded-[var(--radius-lg)] px-3 py-2 text-left text-[13px] font-semibold opacity-50"
                       >
                         <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[rgb(var(--fg-default)/0.06)] text-[rgb(var(--fg-default))]">
                           <DownloadIcon />
@@ -1736,7 +1723,7 @@ export function SongPage({
                           : activeVersionPlayable
                             ? activeDelivery.badge
                             : "Download (uploading…)"}
-                      </span>
+                      </button>
                     )}
                     {role === "producer" &&
                     (actions.renameSong ||
@@ -1846,6 +1833,7 @@ export function SongPage({
       <section className="mx-auto max-w-[1120px] px-4 pt-4 sm:px-6 sm:pt-5">
         <VersionDeliveryPanel
           role={role}
+          artistStudioId={artistStudioId}
           version={activeVersion}
           delivery={activeDelivery}
           downloadHref={downloadHref}
@@ -1974,9 +1962,10 @@ export function SongPage({
               <input
                 ref={draftRef}
                 type="text"
+                data-test="comment-input"
                 maxLength={2000}
                 placeholder="Add a note at this timestamp…"
-                className="flex-1 bg-transparent text-[13.5px] outline-none placeholder:text-[rgb(var(--fg-muted))]"
+                className="min-h-11 min-w-0 flex-1 bg-transparent text-[13.5px] outline-none placeholder:text-[rgb(var(--fg-muted))] sm:min-h-0"
                 onFocus={handleComposerFocus}
                 onBlur={handleComposerBlur}
                 onKeyDown={(e) => {
@@ -1988,9 +1977,10 @@ export function SongPage({
               />
               <button
                 type="button"
+                data-test="comment-post"
                 onClick={handleAddComment}
                 disabled={isPending}
-                className="sk-press rounded-[var(--radius-sm)] bg-[rgb(var(--fg-default))] px-4 py-1.5 text-[11.5px] font-bold tracking-wide text-[rgb(var(--bg-elevated))] transition-[transform,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:-translate-y-px hover:shadow-[0_8px_20px_-6px_rgb(var(--fg-default)/0.35)] disabled:opacity-60"
+                className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-sm)] bg-[rgb(var(--fg-default))] px-4 py-1.5 text-[11.5px] font-bold tracking-wide text-[rgb(var(--bg-elevated))] transition-[transform,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:-translate-y-px hover:shadow-[0_8px_20px_-6px_rgb(var(--fg-default)/0.35)] disabled:opacity-60 sm:min-h-0"
               >
                 Post
               </button>
@@ -2046,7 +2036,7 @@ export function SongPage({
                           handleJumpToComment(c.timeMs);
                         }}
                         aria-label={`Jump to ${fmtMs(c.timeMs)}`}
-                        className="sk-press relative shrink-0 rounded-[var(--radius-sm)] bg-[rgb(var(--fg-default)/0.05)] px-1.5 py-0 font-mono text-[10px] font-bold text-[rgb(var(--fg-muted))] tabular-nums before:absolute before:-inset-x-1 before:-inset-y-2 before:content-[''] hover:bg-[rgb(var(--fg-default)/0.1)]"
+                        className="sk-press inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-[rgb(var(--fg-default)/0.05)] px-1.5 py-0 font-mono text-[10px] font-bold text-[rgb(var(--fg-muted))] tabular-nums hover:bg-[rgb(var(--fg-default)/0.1)] sm:min-h-0 sm:min-w-0"
                       >
                         @{fmtMs(c.timeMs)}
                       </button>
@@ -2060,17 +2050,16 @@ export function SongPage({
                         {c.body}
                       </span>
                       {/* Hover-revealed on desktop; touch devices have
-                          no hover, so `[@media(hover:none)]:inline`
+                          no hover, so `[@media(hover:none)]:inline-flex`
                           keeps the affordance permanently visible
-                          there. Same invisible ±15px tap extension as
-                          the active-card actions. */}
+                          there with a real 44px-tall hit box. */}
                       <button
                         type="button"
                         data-test="comment-jump"
                         onClick={() => {
                           handleJumpToComment(c.timeMs);
                         }}
-                        className="relative hidden text-[10px] font-bold tracking-wide text-[rgb(var(--fg-muted))] uppercase group-hover/note:inline before:absolute before:-inset-x-1 before:-inset-y-[15px] before:content-[''] hover:text-[rgb(var(--fg-default))] [@media(hover:none)]:inline"
+                        className="hidden min-h-11 min-w-11 items-center justify-center text-[10px] font-bold tracking-wide text-[rgb(var(--fg-muted))] uppercase group-hover/note:inline-flex hover:text-[rgb(var(--fg-default))] [@media(hover:none)]:inline-flex sm:min-h-0 sm:min-w-0"
                       >
                         Jump
                       </button>
@@ -2081,17 +2070,18 @@ export function SongPage({
                           onClick={() => {
                             handleReplyToComment(c.authorName);
                           }}
-                          className="relative hidden text-[10px] font-bold tracking-wide text-[rgb(var(--fg-muted))] uppercase group-hover/note:inline before:absolute before:-inset-x-1 before:-inset-y-[15px] before:content-[''] hover:text-[rgb(var(--fg-default))] [@media(hover:none)]:inline"
+                          className="hidden min-h-11 min-w-11 items-center justify-center text-[10px] font-bold tracking-wide text-[rgb(var(--fg-muted))] uppercase group-hover/note:inline-flex hover:text-[rgb(var(--fg-default))] [@media(hover:none)]:inline-flex sm:min-h-0 sm:min-w-0"
                         >
                           Reply
                         </button>
                       ) : null}
                       <button
                         type="button"
+                        data-test="comment-resolve"
                         onClick={() => {
                           handleResolveToggle(c);
                         }}
-                        className="relative hidden shrink-0 text-[10px] font-bold tracking-wide text-[rgb(var(--fg-muted))] uppercase group-hover/note:inline before:absolute before:-inset-x-1 before:-inset-y-[15px] before:content-[''] hover:text-[rgb(var(--fg-default))] [@media(hover:none)]:inline"
+                        className="hidden min-h-11 min-w-11 shrink-0 items-center justify-center text-[10px] font-bold tracking-wide text-[rgb(var(--fg-muted))] uppercase group-hover/note:inline-flex hover:text-[rgb(var(--fg-default))] [@media(hover:none)]:inline-flex sm:min-h-0 sm:min-w-0"
                       >
                         Reopen
                       </button>
@@ -2137,7 +2127,7 @@ export function SongPage({
                             handleJumpToComment(c.timeMs);
                           }}
                           aria-label={`Jump to ${fmtMs(c.timeMs)}`}
-                          className="sk-press relative rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary)/0.14)] px-2 py-0.5 font-mono text-[10px] font-bold text-[rgb(var(--brand-primary-dark))] tabular-nums transition-colors duration-200 before:absolute before:-inset-x-1 before:-inset-y-2 before:content-[''] hover:bg-[rgb(var(--brand-primary)/0.24)]"
+                          className="sk-press inline-flex min-h-11 min-w-11 items-center justify-center rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary)/0.14)] px-2 py-0.5 font-mono text-[10px] font-bold text-[rgb(var(--brand-primary-dark))] tabular-nums transition-colors duration-200 hover:bg-[rgb(var(--brand-primary)/0.24)] sm:min-h-0 sm:min-w-0"
                         >
                           @{fmtMs(c.timeMs)}
                         </button>
@@ -2150,11 +2140,9 @@ export function SongPage({
                       </p>
                       {/* Touch devices have no hover to lift the 60%
                           dim — render the actions at full opacity when
-                          the device can't hover. Each action also gets
-                          an invisible ±15px vertical tap extension
-                          (15px text row → 45px effective target); the
-                          x extension stays at 4px so neighbours
-                          (gap-2.5 = 10px apart) don't overlap. */}
+                          the device can't hover. Phone buttons get a
+                          real 44px height; desktop keeps the compact
+                          text-row treatment. */}
                       <div className="mt-1 flex gap-2.5 text-[10px] font-bold tracking-wide opacity-60 transition-opacity duration-200 group-hover/note:opacity-100 [@media(hover:none)]:opacity-100">
                         <button
                           type="button"
@@ -2162,7 +2150,7 @@ export function SongPage({
                           onClick={() => {
                             handleJumpToComment(c.timeMs);
                           }}
-                          className="relative text-[rgb(var(--fg-muted))] before:absolute before:-inset-x-1 before:-inset-y-[15px] before:content-[''] hover:text-[rgb(var(--fg-default))]"
+                          className="inline-flex min-h-11 min-w-11 items-center justify-center text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] sm:min-h-0 sm:min-w-0"
                         >
                           Jump to
                         </button>
@@ -2173,17 +2161,18 @@ export function SongPage({
                             onClick={() => {
                               handleReplyToComment(c.authorName);
                             }}
-                            className="relative text-[rgb(var(--fg-muted))] before:absolute before:-inset-x-1 before:-inset-y-[15px] before:content-[''] hover:text-[rgb(var(--fg-default))]"
+                            className="inline-flex min-h-11 min-w-11 items-center justify-center text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] sm:min-h-0 sm:min-w-0"
                           >
                             Reply
                           </button>
                         ) : null}
                         <button
                           type="button"
+                          data-test="comment-resolve"
                           onClick={() => {
                             handleResolveToggle(c);
                           }}
-                          className="relative text-[rgb(var(--fg-muted))] before:absolute before:-inset-x-1 before:-inset-y-[15px] before:content-[''] hover:text-[rgb(var(--fg-default))]"
+                          className="inline-flex min-h-11 min-w-11 items-center justify-center text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] sm:min-h-0 sm:min-w-0"
                         >
                           Resolve
                         </button>
@@ -2219,6 +2208,7 @@ export function SongPage({
 
 function VersionDeliveryPanel({
   role,
+  artistStudioId,
   version,
   delivery,
   downloadHref,
@@ -2228,6 +2218,7 @@ function VersionDeliveryPanel({
   onManageOverride,
 }: {
   role: SongPageRole;
+  artistStudioId: string | undefined;
   version: SongPageVersion;
   delivery: ReturnType<typeof presentVersionDelivery>;
   downloadHref: string;
@@ -2295,7 +2286,10 @@ function VersionDeliveryPanel({
             </a>
           ) : role === "artist" && hasDebt && delivery.key !== "deleted" ? (
             <Link
-              href={`/artist/payments/${encodeURIComponent(version.delivery.purchaseId)}`}
+              href={withArtistStudio(
+                `/artist/payments/${encodeURIComponent(version.delivery.purchaseId)}`,
+                artistStudioId,
+              )}
               className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[13px] font-bold text-[rgb(var(--bg-background))]"
             >
               Complete payment
@@ -2417,26 +2411,6 @@ function PauseIcon() {
     <svg width="13" height="13" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
       <rect x="3" y="2.5" width="2" height="7" rx="0.5" />
       <rect x="7" y="2.5" width="2" height="7" rx="0.5" />
-    </svg>
-  );
-}
-
-function StarIcon({ filled }: { filled: boolean }) {
-  // 5-point star — `d="M8 1.5..."` keeps the test grep stable across
-  // future tweaks to stroke / fill. Filled toggles between solid (in-
-  // favorites) and outline (not yet favorited).
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 16 16"
-      fill={filled ? "currentColor" : "none"}
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M8 1.5 9.94 5.85 14.5 6.4 11.05 9.55 12 14.5 8 11.95 4 14.5 4.95 9.55 1.5 6.4 6.06 5.85 Z" />
     </svg>
   );
 }

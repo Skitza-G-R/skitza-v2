@@ -42,6 +42,7 @@ export type ArtistPaymentInstructionReference =
 
 export type ArtistInstallmentPaymentInstructions = Readonly<{
   purchaseId: string;
+  producerId: string;
   installmentId: string;
   installmentPosition: number;
   installmentStatus: (typeof purchaseInstallments.$inferSelect)["status"];
@@ -300,6 +301,7 @@ export async function loadArtistInstallmentPaymentInstructions(
 
   return Object.freeze({
     purchaseId: selected.purchaseId,
+    producerId: selected.producerId,
     installmentId: selected.installmentId,
     installmentPosition: selected.installmentPosition,
     installmentStatus: selected.installmentStatus,

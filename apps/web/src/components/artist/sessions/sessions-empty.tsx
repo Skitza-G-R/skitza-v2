@@ -5,9 +5,11 @@
 
 import Link from "next/link";
 
+import { withArtistStudio } from "~/lib/artist-studio-context";
+
 import { CalendarIcon } from "./session-icons";
 
-export function SessionsEmpty() {
+export function SessionsEmpty({ studioId }: { studioId: string | null }) {
   return (
     <div
       className="reveal-up flex flex-col items-center rounded-[var(--radius-xl)] px-6 py-10 text-center"
@@ -31,7 +33,7 @@ export function SessionsEmpty() {
         time against it.
       </p>
       <Link
-        href="/artist/store"
+        href={withArtistStudio("/artist/store", studioId)}
         className="sk-press mt-5 inline-flex items-center justify-center rounded-[var(--radius-lg)] px-6 py-3 text-[15px] font-semibold"
         style={{
           background: "rgb(var(--brand-primary))",

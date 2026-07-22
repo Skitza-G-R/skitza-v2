@@ -1,6 +1,13 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { G_LEADER_ROUTES, isTypingTarget } from "./use-shortcuts";
+
+const source = readFileSync(
+  fileURLToPath(new URL("./use-shortcuts.ts", import.meta.url)),
+  "utf8",
+);
 
 // Node-environment tests only. The DOM-dependent branches (HTMLElement,
 // isContentEditable) get manual QA in the browser — jsdom is not set up
@@ -35,7 +42,15 @@ describe("G_LEADER_ROUTES", () => {
     expect(G_LEADER_ROUTES.m).toBe("/dashboard/music");
     expect(G_LEADER_ROUTES.p).toBe("/dashboard/clients-projects");
     expect(G_LEADER_ROUTES.c).toBe("/dashboard/calendar");
-    expect(G_LEADER_ROUTES.s).toBe("/dashboard/profile");
+    expect(G_LEADER_ROUTES.s).toBe("/dashboard/store");
     expect(G_LEADER_ROUTES.t).toBe("/dashboard/settings");
+  });
+});
+
+describe("global action shortcuts", () => {
+  it("keeps one truthful New Project key", () => {
+    expect(source).toMatch(/key === "n"[\s\S]*handlers\.createNewProject\(\)/);
+    expect(source).not.toMatch(/key === "c"/);
+    expect(source).not.toContain("createContextAware");
   });
 });

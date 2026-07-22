@@ -21,10 +21,10 @@ describe("AlbumSpace — composes hero + strip + tabs + active panel", () => {
     expect(SRC).toContain("AlbumTabs");
   });
 
-  it("imports the creative-work panels without the removed payment panel", () => {
+  it("imports only the real creative-work panels", () => {
     expect(SRC).toContain("SongsTab");
-    expect(SRC).toContain("FilesTab");
     expect(SRC).toContain("StudioLogTab");
+    expect(SRC).not.toContain("FilesTab");
     expect(SRC).not.toContain("PaymentsTab");
   });
 
@@ -39,8 +39,8 @@ describe("AlbumSpace — composes hero + strip + tabs + active panel", () => {
   it("renders each tab panel conditionally based on active tab", () => {
     // The body conditionally renders based on the active tab key.
     expect(SRC).toMatch(/active\s*===\s*["']songs["']/);
-    expect(SRC).toMatch(/active\s*===\s*["']files["']/);
     expect(SRC).toMatch(/active\s*===\s*["']log["']/);
+    expect(SRC).not.toMatch(/active\s*===\s*["']files["']/);
     expect(SRC).not.toMatch(/active\s*===\s*["']payments["']/);
   });
 

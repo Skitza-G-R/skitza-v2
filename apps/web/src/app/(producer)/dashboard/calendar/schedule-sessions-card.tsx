@@ -2,34 +2,28 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { CancelSessionModal } from "./cancel-session-modal";
 import { calendarDateTimeParts, formatCalendarTime } from "./calendar-time";
 import { KIND_COLORS, inferSessionKind } from "./session-kind";
 import type { RawBookingStatus, SessionListItem } from "./session-row";
 
 type Filter = "upcoming" | "past" | "all";
-type DisplayStatus =
-  | "confirmed"
-  | "pending"
-  | "completed"
-  | "no_show"
-  | "rejected"
-  | "cancelled";
+type DisplayStatus = "confirmed" | "pending" | "completed" | "no_show" | "rejected" | "cancelled";
 
 export function ScheduleSessionsCard({
   sessions,
   initialNow,
   timeZone,
   selectedBookingId = null,
-  onEditSession,
 }: {
   sessions: readonly SessionListItem[];
   initialNow: string;
   timeZone: string;
   selectedBookingId?: string | null;
-  onEditSession: (session: SessionListItem) => void;
 }) {
   const now = useMemo(() => new Date(initialNow), [initialNow]);
   const [filter, setFilter] = useState<Filter>("upcoming");
+  const [cancelTarget, setCancelTarget] = useState<SessionListItem | null>(null);
   const selectedRef = useRef<HTMLLIElement>(null);
   const buckets = useMemo(() => bucketSessions(sessions, now), [sessions, now]);
   const filtered = buckets[filter];
@@ -74,7 +68,7 @@ export function ScheduleSessionsCard({
                 setFilter(id);
               }}
               className={[
-                "sk-press inline-flex h-7 items-center justify-center rounded-[var(--radius-sm)] px-1 text-[10px] capitalize transition-colors",
+                "sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-sm)] px-1 text-[10px] capitalize transition-colors lg:h-7",
                 filter === id
                   ? "bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] shadow-[0_1px_2px_rgb(17_16_9_/_0.08)]"
                   : "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
@@ -115,15 +109,22 @@ export function ScheduleSessionsCard({
                   session={session}
                   now={now}
                   timeZone={timeZone}
-                  onEdit={() => {
-                    onEditSession(session);
-                  }}
+                  onCancel={setCancelTarget}
                 />
               </li>
             );
           })}
         </ul>
       )}
+      {cancelTarget ? (
+        <CancelSessionModal
+          open
+          onOpenChange={(next) => {
+            if (!next) setCancelTarget(null);
+          }}
+          session={cancelTarget}
+        />
+      ) : null}
     </section>
   );
 }
@@ -132,24 +133,24 @@ function CompactSessionRow({
   session,
   now,
   timeZone,
-  onEdit,
+  onCancel,
 }: {
   session: SessionListItem;
   now: Date;
   timeZone: string;
-  onEdit: () => void;
+  onCancel: (session: SessionListItem) => void;
 }) {
   const start = new Date(session.startsAt);
   const end = new Date(start.getTime() + session.durationMin * 60_000);
   const status = deriveDisplayStatus(session.status, end, now);
-  const dimmed =
-    status === "cancelled" || status === "rejected" || status === "no_show";
+  const dimmed = status === "cancelled" || status === "rejected" || status === "no_show";
+  const cancellable = status === "confirmed" || status === "pending";
   const serviceLabel = session.packageName ?? "Session";
   const kindToken = KIND_COLORS[inferSessionKind(session.packageName)];
 
   return (
     <div
-      className="grid min-h-[68px] grid-cols-[38px_minmax(0,1fr)_auto] items-center gap-2 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-2 transition-colors hover:border-[rgb(var(--border-strong))]"
+      className="grid min-h-[68px] grid-cols-[38px_minmax(0,1fr)] items-center gap-2 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-2"
       style={{ opacity: dimmed ? 0.62 : 1 }}
     >
       <CompactDate date={start} kindToken={kindToken} timeZone={timeZone} />
@@ -168,25 +169,44 @@ function CompactSessionRow({
             {session.artistName}
           </span>
           <span className="shrink-0 font-mono text-[8.5px] text-[rgb(var(--fg-muted))]">
-            {formatCalendarTime(start, timeZone)}–
-            {formatCalendarTime(end, timeZone)}
+            {formatCalendarTime(start, timeZone)}–{formatCalendarTime(end, timeZone)}
           </span>
         </div>
-        <div className="mt-1.5">
+        <div className="mt-1.5 flex min-w-0 items-center justify-between gap-2">
           <CompactStatus status={status} />
+          {cancellable ? (
+            <button
+              type="button"
+              aria-label={`Cancel session with ${session.artistName}`}
+              title="Cancel session"
+              onClick={() => {
+                onCancel(session);
+              }}
+              className="sk-press inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-danger))] transition-colors hover:bg-[rgb(var(--fg-danger)/0.08)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--fg-danger))] focus-visible:outline-none motion-reduce:active:scale-100"
+            >
+              <XMini />
+            </button>
+          ) : null}
         </div>
       </div>
-      <button
-        type="button"
-        onClick={onEdit}
-        aria-label={`Edit ${serviceLabel} with ${session.artistName}`}
-        className="sk-press inline-flex h-8 items-center justify-center gap-1 rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2 text-[10px] text-[rgb(var(--fg-secondary))] transition-colors hover:border-[rgb(var(--border-strong))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
-        style={{ fontWeight: 700 }}
-      >
-        <PencilIcon />
-        <span>Edit</span>
-      </button>
     </div>
+  );
+}
+
+function XMini() {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      aria-hidden
+    >
+      <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
   );
 }
 
@@ -272,23 +292,4 @@ function bucketSessions(
     (a, b) => new Date(b.startsAt).getTime() - new Date(a.startsAt).getTime(),
   );
   return { upcoming, past, all };
-}
-
-function PencilIcon() {
-  return (
-    <svg
-      width="11"
-      height="11"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
-    </svg>
-  );
 }

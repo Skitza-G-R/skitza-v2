@@ -17,47 +17,53 @@
 // — which revalidates `/dashboard/calendar` and `/onboarding/availability`
 // so other tabs see the new value on next visit.
 
-import { useState, useTransition } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { updateProducer } from "~/app/(producer)/dashboard/settings/actions";
+import { runOptimisticPreferenceSave } from "~/lib/optimistic-preference-save";
 
 export type WeekStart = "sunday" | "monday";
 
 // Returns the current value + a setter that optimistically updates
 // local state, then persists to the DB via updateProducer. On error
-// we revert silently — the caller can wrap the setter in their own
-// pending/toast logic if they want richer feedback.
+// it restores the previous value and reports through the optional
+// callback. The pending flag lets controls prevent conflicting writes.
 //
 // `initial` is REQUIRED so SSR + first paint match the DB value.
 // Pass `profile.weekStart` from a server component that fetched
 // `producer.me()`.
 export function useWeekStartPref(
   initial: WeekStart,
-): [WeekStart, (next: WeekStart) => void] {
+  onError?: (message: string) => void,
+): [WeekStart, (next: WeekStart) => void, boolean] {
   const router = useRouter();
   const [value, setValue] = useState<WeekStart>(initial);
-  const [, startTransition] = useTransition();
+  const [isPending, setIsPending] = useState(false);
+  const saveLock = useRef({ current: false });
 
   const update = (next: WeekStart) => {
-    if (next === value) return;
+    if (next === value || saveLock.current.current) return;
     const prev = value;
     setValue(next); // optimistic — UI rotates immediately
-    startTransition(async () => {
-      const res = await updateProducer({ weekStart: next });
-      if (!res.ok) {
-        // Revert local state on server error.
+    void runOptimisticPreferenceSave({
+      lock: saveLock.current,
+      save: () => updateProducer({ weekStart: next }),
+      rollback: () => {
         setValue(prev);
-      } else {
-        // Pull fresh server data so any sibling surface that reads
-        // weekStart (e.g. another tab showing Settings) sees the
-        // new value too.
+      },
+      onError: onError ?? (() => undefined),
+      setPending: setIsPending,
+      errorLabel: "Week start",
+    }).then((result) => {
+      if (result === "saved") {
+        // Pull fresh server data so sibling surfaces see the same value.
         router.refresh();
       }
     });
   };
 
-  return [value, update];
+  return [value, update, isPending];
 }
 
 // Rotate a Sunday-first array so Monday leads when the preference is

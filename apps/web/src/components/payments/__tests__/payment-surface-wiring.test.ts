@@ -94,8 +94,8 @@ describe("SK-69 payment surface wiring", () => {
   });
 
   it("completes payment through the exact purchase and installment returned by the existing flow", () => {
-    expect(paymentHistory).toContain(
-      "href={`/artist/payments/${encodeURIComponent(purchase.id)}`}",
+    expect(paymentHistory).toMatch(
+      /withArtistStudio\([\s\S]{0,120}`\/artist\/payments\/\$\{encodeURIComponent\(purchase\.id\)\}`[\s\S]{0,80}purchase\.studioId/,
     );
     expect(paymentHistory).toContain("Complete payment");
     expect(artistPurchasePayment).toContain(

@@ -19,7 +19,9 @@ describe("NextSessionCard (compact strip)", () => {
 
   it("has a single Open calendar CTA pointing to /artist/book", () => {
     expect(SRC).toMatch(/Open\s*calendar/);
-    expect(SRC).toMatch(/href="\/artist\/book"/);
+    expect(SRC).toContain(
+      'href={withArtistStudio("/artist/book", nextSession.producerId)}',
+    );
   });
 
   it("uses ProducerArt for the avatar", () => {

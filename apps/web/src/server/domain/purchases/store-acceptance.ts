@@ -38,6 +38,7 @@ export class StoreAcceptanceError extends Error {
 
 export type StoreAcceptancePreview = {
   productId: string;
+  producerId: string;
   productName: string;
   producerName: string;
   status: "approved";
@@ -279,6 +280,7 @@ export async function previewStorePurchaseAcceptance(
   const terms = buildTerms(context, input.selectedPaymentPlan, target);
   return {
     productId: context.product.id,
+    producerId: context.request.producerId,
     productName: context.product.name,
     producerName: context.producerName ?? "Your producer",
     status: "approved",

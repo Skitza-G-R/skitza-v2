@@ -15,10 +15,7 @@ import { useEffect, useRef } from "react";
 
 import { calendarDateTimeParts, formatCalendarTime } from "./calendar-time";
 import { isSameDay } from "./calendar-week";
-import {
-  deriveScheduleHourRange,
-  type ScheduleAvailabilityBlock,
-} from "./schedule-hours";
+import { deriveScheduleHourRange, type ScheduleAvailabilityBlock } from "./schedule-hours";
 
 export type ScheduleSession = {
   id: string;
@@ -46,7 +43,6 @@ export function ScheduleWeekGrid({
   showNowLine,
   initialNow,
   timeZone,
-  onEditSession,
 }: {
   week: readonly Date[];
   sessions: readonly ScheduleSession[];
@@ -55,14 +51,9 @@ export function ScheduleWeekGrid({
   showNowLine: boolean;
   initialNow: string;
   timeZone: string;
-  onEditSession: (session: ScheduleSession) => void;
 }) {
   const sectionRef = useRef<HTMLElement>(null);
-  const { startHour, endHour } = deriveScheduleHourRange(
-    availabilityBlocks,
-    sessions,
-    timeZone,
-  );
+  const { startHour, endHour } = deriveScheduleHourRange(availabilityBlocks, sessions, timeZone);
   const hoursVisible = endHour - startHour;
 
   // Measure the section and write `--hour-px` so the grid rows + the
@@ -74,10 +65,7 @@ export function ScheduleWeekGrid({
     if (!node) return;
     const update = () => {
       const total = node.clientHeight;
-      const perHour = Math.max(
-        MIN_HOUR_PX,
-        (total - HEADER_ROW_PX) / hoursVisible,
-      );
+      const perHour = Math.max(MIN_HOUR_PX, (total - HEADER_ROW_PX) / hoursVisible);
       node.style.setProperty("--hour-px", `${String(perHour)}px`);
     };
     update();
@@ -88,10 +76,7 @@ export function ScheduleWeekGrid({
     };
   }, [hoursVisible]);
 
-  const hours = Array.from(
-    { length: hoursVisible },
-    (_, i) => startHour + i,
-  );
+  const hours = Array.from({ length: hoursVisible }, (_, i) => startHour + i);
 
   // Bucket sessions per day so the grid only iterates once.
   const perDay: ScheduleSession[][] = week.map(() => []);
@@ -139,9 +124,7 @@ export function ScheduleWeekGrid({
               <div
                 className={[
                   "font-mono text-[9.5px] leading-none tracking-[0.1em]",
-                  isToday
-                    ? "text-[rgb(var(--brand-primary-dark))]"
-                    : "text-[rgb(var(--fg-muted))]",
+                  isToday ? "text-[rgb(var(--brand-primary-dark))]" : "text-[rgb(var(--fg-muted))]",
                 ].join(" ")}
                 style={{ fontWeight: 700 }}
               >
@@ -172,7 +155,6 @@ export function ScheduleWeekGrid({
             todayIdx={todayIdx}
             cellsPerDay={perDay}
             timeZone={timeZone}
-            onEditSession={onEditSession}
           />
         ))}
 
@@ -201,14 +183,12 @@ function HourRow({
   todayIdx,
   cellsPerDay,
   timeZone,
-  onEditSession,
 }: {
   hour: number;
   hourIdx: number;
   todayIdx: number;
   cellsPerDay: readonly ScheduleSession[][];
   timeZone: string;
-  onEditSession: (session: ScheduleSession) => void;
 }) {
   return (
     <>
@@ -217,8 +197,7 @@ function HourRow({
         style={{
           height: HOUR_ROW_CSS,
           paddingTop: hourIdx === 0 ? 0 : 4,
-          borderTop:
-            hourIdx === 0 ? "none" : "1px solid rgb(var(--border-subtle))",
+          borderTop: hourIdx === 0 ? "none" : "1px solid rgb(var(--border-subtle))",
         }}
       >
         {String(hour).padStart(2, "0")}:00
@@ -231,13 +210,8 @@ function HourRow({
             className="relative border-l border-[rgb(var(--border-subtle))] first-of-type:border-l-0"
             style={{
               height: HOUR_ROW_CSS,
-              borderTop:
-                hourIdx === 0
-                  ? "none"
-                  : "1px solid rgb(var(--border-subtle))",
-              background: isToday
-                ? "rgb(var(--brand-primary) / 0.025)"
-                : undefined,
+              borderTop: hourIdx === 0 ? "none" : "1px solid rgb(var(--border-subtle))",
+              background: isToday ? "rgb(var(--brand-primary) / 0.025)" : undefined,
             }}
           >
             {daySessions
@@ -246,12 +220,7 @@ function HourRow({
                 return calendarDateTimeParts(dt, timeZone).hour === hour;
               })
               .map((s) => (
-                <SessionBlock
-                  key={s.id}
-                  session={s}
-                  timeZone={timeZone}
-                  onEditSession={onEditSession}
-                />
+                <SessionBlock key={s.id} session={s} timeZone={timeZone} />
               ))}
           </div>
         );
@@ -260,15 +229,7 @@ function HourRow({
   );
 }
 
-function SessionBlock({
-  session,
-  timeZone,
-  onEditSession,
-}: {
-  session: ScheduleSession;
-  timeZone: string;
-  onEditSession: (session: ScheduleSession) => void;
-}) {
+function SessionBlock({ session, timeZone }: { session: ScheduleSession; timeZone: string }) {
   const dt = new Date(session.startsAt);
   const minute = calendarDateTimeParts(dt, timeZone).minute;
   const lenHours = session.durationMin / 60;
@@ -282,6 +243,9 @@ function SessionBlock({
   );
   const timeRangeLabel = `${timeLabel}–${endTimeLabel}`;
   const serviceLabel = session.packageName ?? "Session";
+  const accessibleLabel = `${serviceLabel} with ${session.artistName}, ${timeRangeLabel}, ${
+    isPending ? "pending" : "confirmed"
+  }`;
 
   // Pixel math is expressed in CSS so the block stays aligned as
   // `--hour-px` shrinks/grows with the viewport.
@@ -291,11 +255,13 @@ function SessionBlock({
 
   return (
     <div
+      role="group"
+      aria-label={accessibleLabel}
       className={[
-        "group absolute left-1 right-1 overflow-hidden rounded-[10px] border motion-safe:transition-[transform,box-shadow,filter] motion-safe:duration-300 motion-safe:ease-[var(--ease-out-strong)] motion-safe:hover:-translate-y-[2px] motion-safe:hover:brightness-[1.035] motion-reduce:transition-none",
+        "absolute right-1 left-1 overflow-hidden rounded-[10px] border",
         isPending
-          ? "border-dashed text-[rgb(var(--fg-default))] shadow-[0_3px_10px_-6px_rgb(var(--brand-primary-dark)/0.35)] motion-safe:hover:shadow-[0_8px_18px_-10px_rgb(var(--brand-primary-dark)/0.45)]"
-          : "text-[rgb(var(--fg-on-brand))] shadow-[0_5px_14px_-7px_rgb(var(--brand-primary-dark)/0.55)] motion-safe:hover:shadow-[0_11px_22px_-11px_rgb(var(--brand-primary-dark)/0.7)]",
+          ? "border-dashed text-[rgb(var(--fg-default))] shadow-[0_3px_10px_-6px_rgb(var(--brand-primary-dark)/0.35)]"
+          : "text-[rgb(var(--fg-on-brand))] shadow-[0_5px_14px_-7px_rgb(var(--brand-primary-dark)/0.55)]",
       ].join(" ")}
       style={{
         top,
@@ -315,37 +281,16 @@ function SessionBlock({
         isPending ? " · Pending" : ""
       }`}
     >
-      <button
-        type="button"
-        onClick={() => {
-          onEditSession(session);
-        }}
-        aria-label={`Edit ${serviceLabel} with ${session.artistName}, ${timeRangeLabel}`}
-        className="absolute inset-0 z-20 cursor-pointer rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--fg-default))]"
-      />
       {/* Warm inset edge keeps the block legible over the grid lines. */}
       <span
         aria-hidden
         className="absolute inset-y-0 left-0 w-[3px] rounded-l-[9px] bg-[rgb(var(--fg-on-brand)/0.72)]"
       />
 
-      {/* A single CSS-only light pass gives hover feedback without
-          adding a runtime animation dependency. */}
-      <span
-        aria-hidden
-        className="pointer-events-none absolute inset-y-0 -left-1/2 w-1/3 -skew-x-12 opacity-0 motion-safe:transition-[transform,opacity] motion-safe:duration-500 motion-safe:ease-[var(--ease-out-strong)] motion-safe:group-hover:translate-x-[420%] motion-safe:group-hover:opacity-100 motion-reduce:hidden"
-        style={{
-          background:
-            "linear-gradient(90deg, transparent, rgb(255 255 255 / 0.24), transparent)",
-        }}
-      />
-
       <div
         className={[
           "relative flex h-full min-w-0",
-          isCompact
-            ? "items-center justify-between gap-2"
-            : "flex-col items-start",
+          isCompact ? "items-center justify-between gap-2" : "flex-col items-start",
         ].join(" ")}
       >
         <div className="flex w-full min-w-0 items-start gap-2">
@@ -366,7 +311,7 @@ function SessionBlock({
           <div className="mt-1 flex min-w-0 items-center gap-1.5">
             <span
               aria-hidden
-              className="h-1.5 w-1.5 shrink-0 rounded-full bg-[rgb(var(--fg-on-brand)/0.72)] motion-safe:transition-transform motion-safe:duration-300 motion-safe:group-hover:scale-125 motion-reduce:transition-none"
+              className="h-1.5 w-1.5 shrink-0 rounded-full bg-[rgb(var(--fg-on-brand)/0.72)]"
             />
             <span className="truncate font-mono text-[9px] font-semibold tracking-[0.025em] opacity-75">
               {session.artistName}
@@ -413,16 +358,13 @@ function NowLineOverlay({
       className="pointer-events-none absolute"
       style={{ left: leftPct, top, width: widthPct }}
     >
-      <div
-        className="relative h-[1.5px]"
-        style={{ background: "rgb(var(--fg-danger))" }}
-      >
+      <div className="relative h-[1.5px]" style={{ background: "rgb(var(--fg-danger))" }}>
         <span
-          className="absolute -left-[3px] -top-[3px] h-2 w-2 rounded-full"
+          className="absolute -top-[3px] -left-[3px] h-2 w-2 rounded-full"
           style={{ background: "rgb(var(--fg-danger))" }}
         />
         <span
-          className="absolute -right-1 -top-2.5 inline-flex items-center rounded-[4px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-1.5 py-0.5 font-mono text-[9px] text-[rgb(var(--fg-default))] shadow-sm"
+          className="absolute -top-2.5 -right-1 inline-flex items-center rounded-[4px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-1.5 py-0.5 font-mono text-[9px] text-[rgb(var(--fg-default))] shadow-sm"
           style={{ fontWeight: 700 }}
         >
           {formatCalendarTime(now, timeZone)}

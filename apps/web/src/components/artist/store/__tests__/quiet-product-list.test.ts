@@ -26,7 +26,7 @@ describe("QuietProductList", () => {
   });
 
   it("links each row via productHref (funnel for flat, legacy for per-song)", () => {
-    expect(source).toMatch(/href=\{productHref\(product\)\}/);
+    expect(source).toContain("href={withArtistStudio(productHref(product), studioId)}");
     expect(source).toMatch(/from\s+['"]~\/lib\/store\/product-href['"]/);
   });
 

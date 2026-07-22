@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { DragEvent } from "react";
-import { ChevronRight, GripVertical } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 import {
@@ -14,17 +13,14 @@ import {
 // The Album Page tracklist row.
 //
 // Grid columns (verbatim from BUILD-NOTES §6.4):
-//   22px · 30px · 38px · minmax(0,1fr) · 130px · 180px · 22px
-//   ──── ─── ──── ─────────────── ───── ───── ───
-//   drag  idx  cover  title + meta  stage pill  progress  chevron
+//   30px · 38px · minmax(0,1fr) · 130px · 180px · 22px
+//   ──── ──── ─────────────── ───── ───── ───
+//   idx  cover  title + meta  stage pill  progress  chevron
 //
-// Container is a <div draggable>; navigation is handled by a Link
-// overlaid via `absolute inset-0 z-0`. Cells layer above the overlay
-// with `relative z-10` so the link still receives clicks that fall on
-// gaps. This mirrors the ClientCard/ProjectRow reorder protocol and
-// avoids the browser-level "draggable anchor" footgun where a
-// near-drag-then-release on an <a> can hijack the click into a drag
-// with no drop and never navigate.
+// The semantic Link is the row container, so every visible desktop and
+// mobile cell — including whitespace — has the same navigation target.
+// Reorder UI stays absent until a persisted album-track ordering
+// contract exists.
 
 export interface TrackRowData {
   id: string;
@@ -53,9 +49,6 @@ export interface TrackRowProps {
   track: TrackRowData;
   /** 1-based row index (rendered as "01", "02"…). */
   index: number;
-  onDragStart?: (e: DragEvent<HTMLDivElement>, id: string) => void;
-  onDragOver?: (e: DragEvent<HTMLDivElement>, id: string) => void;
-  onDrop?: (e: DragEvent<HTMLDivElement>, id: string) => void;
 }
 
 // Inline mm:ss formatter — duplicated from persistent-player's
@@ -69,14 +62,7 @@ function formatDuration(ms: number): string {
   return `${String(m)}:${String(s).padStart(2, "0")}`;
 }
 
-export function TrackRow({
-  projectId,
-  track,
-  index,
-  onDragStart,
-  onDragOver,
-  onDrop,
-}: TrackRowProps) {
+export function TrackRow({ projectId, track, index }: TrackRowProps) {
   const indexLabel = String(index).padStart(2, "0");
   const coverBg = producerGradient(track.title);
   const stageHue = stageColor(track.workflowStage);
@@ -96,61 +82,41 @@ export function TrackRow({
   const meta = metaParts.join(" · ");
 
   return (
-    <div
-      draggable="true"
-      data-id={track.id}
-      onDragStart={onDragStart ? (e) => { onDragStart(e, track.id); } : undefined}
-      onDragOver={onDragOver ? (e) => { onDragOver(e, track.id); } : undefined}
-      onDrop={onDrop ? (e) => { onDrop(e, track.id); } : undefined}
-      className="group relative rounded-[var(--radius-md)] border transition-colors hover:bg-[rgb(var(--bg-elevated))] active:bg-[rgb(var(--bg-elevated))]"
+    <Link
+      href={`/dashboard/clients-projects/${projectId}/songs/${track.id}`}
+      className="group relative block rounded-[var(--radius-md)] border transition-colors hover:bg-[rgb(var(--bg-elevated))] active:bg-[rgb(var(--bg-elevated))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
       style={{
         borderColor: "rgb(var(--border-subtle))",
         background: "rgb(var(--bg-background))",
       }}
+      aria-label={`Open ${track.title}`}
     >
-      <Link
-        href={`/dashboard/clients-projects/${projectId}/songs/${track.id}`}
-        className="absolute inset-0 z-0 rounded-[var(--radius-md)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
-        aria-label={`Open ${track.title}`}
-      />
-
-      {/* Desktop (md+) — exact 7-column grid, unchanged from the
-          original single-layout row. Hidden below md: the fixed tracks
-          (~420px) pushed phones to a 521px layout and crushed the
-          minmax(0,1fr) title column to 0px (invisible song titles). */}
+      {/* Desktop (md+) — six-column grid. Hidden below md because the
+          fixed tracks (~420px) pushed phones to a 521px layout and
+          crushed the minmax(0,1fr) title column to 0px. */}
       <div
         className="hidden items-center gap-3 px-3 py-2 md:grid"
         style={{
-          gridTemplateColumns: "22px 30px 38px minmax(0,1fr) 130px 180px 22px",
+          gridTemplateColumns: "30px 38px minmax(0,1fr) 130px 180px 22px",
         }}
       >
+        {/* 1 — Index (mono "01", "02"…) */}
+        <span
+          className="font-mono text-[12px] tabular-nums"
+          style={{ color: "rgb(var(--fg-muted))" }}
+        >
+          {indexLabel}
+        </span>
 
-      {/* 1 — Drag handle (hidden until group hover) */}
+      {/* 2 — 38px gradient cover tile */}
       <span
         aria-hidden
-        className="relative z-10 flex h-5 w-5 cursor-grab items-center justify-center opacity-0 transition-opacity group-hover:opacity-100"
-        style={{ color: "rgb(var(--fg-muted))" }}
-      >
-        <GripVertical size={14} />
-      </span>
-
-      {/* 2 — Index (mono "01", "02"…) */}
-      <span
-        className="relative z-10 font-mono text-[12px] tabular-nums"
-        style={{ color: "rgb(var(--fg-muted))" }}
-      >
-        {indexLabel}
-      </span>
-
-      {/* 3 — 38px gradient cover tile */}
-      <span
-        aria-hidden
-        className="relative z-10 h-[38px] w-[38px] shrink-0 rounded-[var(--radius-sm)]"
+        className="h-[38px] w-[38px] shrink-0 rounded-[var(--radius-sm)]"
         style={{ background: coverBg }}
       />
 
-      {/* 4 — Title + meta (truncates) */}
-      <div className="relative z-10 min-w-0">
+      {/* 3 — Title + meta (truncates) */}
+      <div className="min-w-0">
         <p
           className="truncate text-[14px] font-medium leading-tight transition-colors group-hover:text-[rgb(var(--brand-primary))]"
           style={{ color: "rgb(var(--fg-default))" }}
@@ -167,9 +133,9 @@ export function TrackRow({
         ) : null}
       </div>
 
-      {/* 5 — Stage pill (colored dot + label) */}
+      {/* 4 — Stage pill (colored dot + label) */}
       <span
-        className="relative z-10 inline-flex items-center gap-1.5 self-center justify-self-start rounded-[var(--radius-sm)] border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest"
+        className="inline-flex items-center gap-1.5 self-center justify-self-start rounded-[var(--radius-sm)] border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest"
         style={{
           color: stageHue,
           borderColor: stageHue,
@@ -184,8 +150,8 @@ export function TrackRow({
         {stageLabel(track.workflowStage)}
       </span>
 
-      {/* 6 — Progress bar + % */}
-      <div className="relative z-10 flex items-center gap-2">
+      {/* 5 — Progress bar + % */}
+      <div className="flex items-center gap-2">
         <div
           className="relative h-1.5 flex-1 overflow-hidden rounded-full"
           style={{ background: "rgb(var(--border-subtle))" }}
@@ -206,22 +172,20 @@ export function TrackRow({
         </span>
       </div>
 
-      {/* 7 — Chevron (decorative — the whole row is the link) */}
+      {/* 6 — Chevron (decorative — the whole row is the link) */}
       <span
         aria-hidden
-        className="relative z-10 flex h-5 w-5 items-center justify-center"
+        className="flex h-5 w-5 items-center justify-center"
         style={{ color: "rgb(var(--fg-muted))" }}
       >
         <ChevronRight size={16} />
       </span>
       </div>
 
-      {/* Mobile (<md) — Spotify-style 64px two-line row. Content is
-          pointer-transparent so every tap lands on the overlay Link;
-          drag + index column are desktop-only. */}
+      {/* Mobile (<md) — Spotify-style 64px two-line row. */}
       <div
         aria-hidden
-        className="pointer-events-none relative z-10 flex min-h-[64px] items-center gap-3 px-3 py-2.5 md:hidden"
+        className="flex min-h-[64px] items-center gap-3 px-3 py-2.5 md:hidden"
       >
         <span
           className="h-11 w-11 shrink-0 rounded-[var(--radius-sm)]"
@@ -266,6 +230,6 @@ export function TrackRow({
           style={{ color: "rgb(var(--fg-muted))" }}
         />
       </div>
-    </div>
+    </Link>
   );
 }

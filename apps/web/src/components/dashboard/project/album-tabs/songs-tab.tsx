@@ -1,7 +1,6 @@
 "use client";
 
 import { Plus } from "lucide-react";
-import { useEffect, useState } from "react";
 
 import { TrackRow, type TrackRowData } from "~/components/dashboard/project/track-row";
 
@@ -15,12 +14,6 @@ export interface EmptySongSpaceRowData {
 // BUILD-NOTES §5.3). Renders the Tracklist header + list of
 // <TrackRow>s, or an empty state when no tracks exist yet.
 //
-// Drag-and-drop is owned locally for optimistic feedback. When the
-// drop fires we call back to the parent via `onReorder(orderedIds)`
-// — the parent owns the tRPC mutation (Phase 4 wires the real
-// `project.reorderTracks` call). The local order resyncs to props
-// whenever the parent re-renders with a fresh `tracks` list.
-//
 // "+ Add song" delegates to the purchased-song-space flow. Claiming
 // a space and uploading audio are separate actions, so an allocated
 // song remains visible even before it has a version.
@@ -33,7 +26,6 @@ interface SongsTabProps {
   blockedReason?: string;
   /** Opens the chooser, optionally pinned to the exact visible entitlement. */
   onAddSong?: (slot?: EmptySongSpaceRowData) => void;
-  onReorder?: (orderedIds: string[]) => unknown;
 }
 
 export function SongsTab({
@@ -43,55 +35,12 @@ export function SongsTab({
   canAddSong = true,
   blockedReason = "New work requires an active project and an active purchase or accepted offer.",
   onAddSong,
-  onReorder,
 }: SongsTabProps) {
   const handleAddSong = (slot?: EmptySongSpaceRowData) => {
     if (!canAddSong) return;
     onAddSong?.(slot);
   };
-  // Local mirror of the incoming order — enables optimistic reorder
-  // without waiting on the server round-trip. Reset when props change.
-  const [ordered, setOrdered] = useState<TrackRowData[]>(tracks);
-  useEffect(() => {
-    setOrdered(tracks);
-  }, [tracks]);
-
-  const [dragId, setDragId] = useState<string | null>(null);
-
-  const handleDragStart = (e: React.DragEvent<HTMLDivElement>, id: string) => {
-    void e;
-    setDragId(id);
-  };
-
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>, id: string) => {
-    // Allow drop — without this, the drop event never fires.
-    void id;
-    e.preventDefault();
-  };
-
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>, targetId: string) => {
-    e.preventDefault();
-    if (!dragId || dragId === targetId) {
-      setDragId(null);
-      return;
-    }
-    const fromIndex = ordered.findIndex((t) => t.id === dragId);
-    const toIndex = ordered.findIndex((t) => t.id === targetId);
-    if (fromIndex === -1 || toIndex === -1) {
-      setDragId(null);
-      return;
-    }
-    const next = [...ordered];
-    const removed = next.splice(fromIndex, 1)[0];
-    if (removed) {
-      next.splice(toIndex, 0, removed);
-      setOrdered(next);
-      onReorder?.(next.map((t) => t.id));
-    }
-    setDragId(null);
-  };
-
-  if (ordered.length === 0 && emptySlots.length === 0) {
+  if (tracks.length === 0 && emptySlots.length === 0) {
     return (
       <section
         role="tabpanel"
@@ -157,15 +106,12 @@ export function SongsTab({
       </div>
 
       <div className="space-y-1.5">
-        {ordered.map((t, i) => (
+        {tracks.map((t, i) => (
           <TrackRow
             key={t.id}
             projectId={projectId}
             track={t}
             index={i + 1}
-            onDragStart={handleDragStart}
-            onDragOver={handleDragOver}
-            onDrop={handleDrop}
           />
         ))}
         {emptySlots.map((slot) => (

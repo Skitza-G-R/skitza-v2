@@ -56,9 +56,12 @@ describe("unified artist product detail", () => {
   });
 
   it("routes a successful request to the sent state", () => {
+    expect(source).toMatch(/router\.push\(/);
+    expect(source).toMatch(/withArtistStudio\(/);
     expect(source).toMatch(
-      /router\.push\(`\/artist\/purchase\/\$\{productId\}\/sent\?req=\$\{result\.purchaseRequestId\}`\)/,
+      /`\/artist\/purchase\/\$\{productId\}\/sent\?req=\$\{result\.purchaseRequestId\}`/,
     );
+    expect(source).toMatch(/studioId/);
   });
 
   it("does not enforce or describe a one-open-purchase restriction", () => {
@@ -73,7 +76,7 @@ describe("unified artist product detail", () => {
 
   it("keeps the back action and mobile controls reachable", () => {
     expect(source).toMatch(/<StickyNav/);
-    expect(source).toMatch(/router\.push\("\/artist\/store"\)/);
+    expect(source).toContain('router.push(withArtistStudio("/artist/store", studioId))');
     expect(source).toMatch(/min-h-11/);
   });
 

@@ -54,8 +54,9 @@ describe("DashboardTopBar (producer wrapper)", () => {
     expect(SRC).toMatch(/onSearchClick=/);
   });
 
-  it("threads unreadCount through to the shared topbar", () => {
-    expect(SRC).toMatch(/unreadCount=\{unreadCount\}/);
+  it("uses unreadCount only in the functional notification centre", () => {
+    expect(SRC).toMatch(/<NotificationBell\s+unreadCount=\{unreadCount\}/);
+    expect(SRC).not.toMatch(/<AppTopBar[\s\S]*unreadCount=/);
   });
 
   it("mounts the functional notification centre in the top-right slot", () => {

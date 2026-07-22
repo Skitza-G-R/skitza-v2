@@ -100,6 +100,7 @@ export function VersionRow({ version, songTitle, projectName }: VersionRowProps)
 
   const metaParts: string[] = [];
   if (isDeleted) metaParts.push("Audio deleted");
+  if (!hasAudio && !isDeleted) metaParts.push("Audio is still uploading");
   if (version.uploadedBy) metaParts.push(`by ${version.uploadedBy}`);
   metaParts.push(relativeWhen(version.uploadedAtIso));
   if (version.changelog) metaParts.push(version.changelog);
@@ -141,7 +142,7 @@ export function VersionRow({ version, songTitle, projectName }: VersionRowProps)
       data-version-id={version.id}
       data-current={isCurrent ? "true" : "false"}
       data-audio-state={isDeleted ? "deleted" : hasAudio ? "available" : "uploading"}
-      aria-disabled={!hasAudio}
+      disabled={!hasAudio}
       className={`group relative w-full rounded-[var(--radius-md)] border text-left transition-colors hover:bg-[rgb(var(--bg-elevated))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none ${beforeClass} ${hasAudio ? "" : isDeleted ? "cursor-default opacity-[0.65]" : "cursor-not-allowed opacity-60"}`}
       style={{
         borderColor: "rgb(var(--border-subtle))",
@@ -152,7 +153,7 @@ export function VersionRow({ version, songTitle, projectName }: VersionRowProps)
           ? `Play ${songTitle} ${versionLabel}`
           : isDeleted
             ? `${versionLabel}, Audio deleted. Version history and ${String(version.noteCount)} comments remain.`
-            : "No audio available"
+            : "Audio is still uploading"
       }
     >
       {/* Desktop (md+) — exact 6-column grid, unchanged from the
@@ -224,7 +225,7 @@ export function VersionRow({ version, songTitle, projectName }: VersionRowProps)
           <Play
             size={12}
             fill="currentColor"
-            aria-label={hasAudio ? "Play" : isDeleted ? "Audio deleted" : "No audio available"}
+            aria-label={hasAudio ? "Play" : isDeleted ? "Audio deleted" : "Audio is still uploading"}
           />
         </span>
       </div>

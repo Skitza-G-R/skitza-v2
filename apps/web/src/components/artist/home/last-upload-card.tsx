@@ -7,6 +7,7 @@ import {
   playerToggle,
   useNowPlaying,
 } from "~/components/audio/persistent-player";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 
 import { ProducerArt } from "./producer-art";
 
@@ -22,6 +23,7 @@ export type LastUploadProps = {
     trackTitle: string;
     label: string | null;
     producerName: string;
+    producerId: string;
     projectId: string;
     uploadedAt: Date;
     audioUrl: string | null;
@@ -33,8 +35,11 @@ export type LastUploadProps = {
 const ART_SIZE = 140;
 const ART_SIZE_SM = 96;
 
-export function LastUploadCard({ latestMix }: LastUploadProps) {
-  if (!latestMix) return <EmptyState />;
+export function LastUploadCard({
+  latestMix,
+  activeStudioId,
+}: LastUploadProps & { activeStudioId?: string | null | undefined }) {
+  if (!latestMix) return <EmptyState activeStudioId={activeStudioId} />;
   return <FilledCard latestMix={latestMix} />;
 }
 
@@ -141,7 +146,7 @@ function FilledCard({
           {isThisPlaying ? "Pause track" : "Play track"}
         </button>
         <Link
-          href={`/artist/music/${latestMix.projectId}`}
+          href={withArtistStudio(`/artist/music/${latestMix.projectId}`, latestMix.producerId)}
           className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-[rgb(var(--border-subtle))] px-3.5 py-2 text-[12.5px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--bg-background))]"
         >
           Open library →
@@ -151,7 +156,7 @@ function FilledCard({
   );
 }
 
-function EmptyState() {
+function EmptyState({ activeStudioId }: { activeStudioId?: string | null | undefined }) {
   return (
     <article className="flex gap-4 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4">
       <div
@@ -180,7 +185,7 @@ function EmptyState() {
         </div>
         <div className="pt-4">
           <Link
-            href="/artist/music"
+            href={withArtistStudio("/artist/music", activeStudioId)}
             className="inline-flex items-center gap-1 rounded-full border border-[rgb(var(--border-subtle))] px-3.5 py-2 text-[12.5px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--bg-background))]"
           >
             Open library →

@@ -94,3 +94,11 @@ describe("waveform-50.tsx source — accepts pre-computed initialPeaks", () => {
     expect(waveformSrc).toContain("useAudioPeaks");
   });
 });
+
+describe("waveform-50.tsx source — phone touch target", () => {
+  it("keeps the playhead slider at least 44px tall on phones without enlarging desktop", () => {
+    expect(waveformSrc).toMatch(
+      /data-test="track-playhead"[\s\S]{0,500}?className="[^"]*min-h-11[^"]*sm:min-h-0[^"]*"/,
+    );
+  });
+});

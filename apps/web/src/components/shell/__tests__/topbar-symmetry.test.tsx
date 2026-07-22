@@ -5,11 +5,9 @@ import { dirname, join } from "node:path";
 
 // Safety-net symmetry tests for the producer + artist top bar
 // wrappers (SK-31). Pins that both wrappers stay structurally the
-// same — i.e. both delegate to the shared `AppTopBar`, both pass the
-// same prop contract (including an explicit visual variant), and both keep
-// their own section maps. If a future
-// PR takes one side off the shared component or adds a feature to
-// only one side, this file fails the build before merge.
+// same — both delegate to the shared `AppTopBar`, pass the shared
+// navigation contract, and keep their own section maps. Working actions
+// remain intentionally role-specific.
 //
 // What we deliberately do NOT pin:
 //   - The literal contents of each section map. Producer and artist
@@ -55,10 +53,6 @@ describe.each(wrappers)("$name stays on the shared AppTopBar contract", ({ src }
     expect(src).toMatch(/searchPlaceholder=/);
   });
 
-  it("threads unreadCount through to the shared bar", () => {
-    expect(src).toMatch(/unreadCount=\{unreadCount\}/);
-  });
-
   it("defines its own *_SECTIONS const at the top of the file", () => {
     expect(src).toMatch(/const\s+[A-Z_]+_SECTIONS\s*=\s*\{/);
   });
@@ -80,13 +74,7 @@ describe.each(wrappers)("$name stays on the shared AppTopBar contract", ({ src }
   });
 });
 
-describe("producer + artist wrappers share the same prop shape", () => {
-  // Final hard pin: the set of props each side hands to <AppTopBar>
-  // must be the same set. We extract every `propName=` token inside
-  // each wrapper's `<AppTopBar ...>` block and assert the two sets
-  // are equal (ignoring `onSearchClick`, the one intentional
-  // asymmetry for SK-31). New prop added to one side without the
-  // other → the sets diverge → the test fails.
+describe("producer + artist wrappers share the same core prop shape", () => {
   function extractAppTopBarProps(src: string): Set<string> {
     const start = src.indexOf("<AppTopBar");
     expect(start).toBeGreaterThan(-1);
@@ -106,21 +94,12 @@ describe("producer + artist wrappers share the same prop shape", () => {
     return props;
   }
 
-  it("the producer + artist wrappers pass an equivalent set of props (modulo onSearchClick)", () => {
+  it("both wrappers pass the shared navigation props while only producer passes working actions", () => {
     const producerProps = extractAppTopBarProps(PRODUCER);
     const artistProps = extractAppTopBarProps(ARTIST);
+    const coreProps = ["variant", "sections", "fallback", "searchPlaceholder"];
 
-    // `onSearchClick` is the one intentional asymmetry (artist
-    // palette ships later). Everything else must match. If/when the
-    // artist gets its own palette and adds `onSearchClick=`, the
-    // two sets will be equal — that day this test passes without
-    // modification.
-    const normalize = (s: Set<string>) => {
-      const copy = new Set(s);
-      copy.delete("onSearchClick");
-      return [...copy].sort();
-    };
-
-    expect(normalize(artistProps)).toEqual(normalize(producerProps));
+    expect([...artistProps].sort()).toEqual(coreProps.sort());
+    expect(producerProps).toEqual(new Set([...coreProps, "onSearchClick", "notificationControl"]));
   });
 });

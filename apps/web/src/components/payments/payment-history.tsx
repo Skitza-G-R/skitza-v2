@@ -4,8 +4,10 @@ import type { ReactNode } from "react";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { formatMoney } from "~/lib/format/money";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 
 import type { PaymentDeliveryState } from "./delivery-state";
+import { PaymentReminderButton } from "./payment-reminder-button";
 
 export type PaymentHistoryRole = "artist" | "producer";
 
@@ -166,6 +168,7 @@ export interface PaymentHistoryDownloadOverride {
 
 export interface PaymentHistoryPurchase {
   id: string;
+  studioId?: string;
   reference: string;
   title: string;
   counterpartyLabel: string | null;
@@ -206,6 +209,21 @@ export interface PaymentHistorySectionProps {
   section: PaymentHistorySectionDescriptor;
   currencyTotals: readonly PaymentHistoryCurrencyTotal[];
   projects: readonly PaymentHistoryProject[];
+}
+
+function currencyTotalsMatch(
+  left: readonly PaymentHistoryCurrencyTotal[],
+  right: readonly PaymentHistoryCurrencyTotal[],
+): boolean {
+  if (left.length !== right.length) return false;
+  const rightByCurrency = new Map(right.map((total) => [total.currency, total]));
+  return left.every((total) => {
+    const match = rightByCurrency.get(total.currency);
+    return (
+      match?.dueNowCents === total.dueNowCents &&
+      match.totalRemainingCents === total.totalRemainingCents
+    );
+  });
 }
 
 /**
@@ -259,7 +277,14 @@ export function PaymentHistorySection({
       ) : (
         <div className="min-w-0 space-y-4">
           {projects.map((project) => (
-            <ProjectHistory key={project.id} project={project} role={role} />
+            <ProjectHistory
+              key={project.id}
+              project={project}
+              role={role}
+              showCurrencyTotals={
+                projects.length !== 1 || !currencyTotalsMatch(currencyTotals, project.currencyTotals)
+              }
+            />
           ))}
         </div>
       )}
@@ -302,9 +327,11 @@ function CurrencyTotalCard({
 function ProjectHistory({
   project,
   role,
+  showCurrencyTotals,
 }: {
   project: PaymentHistoryProject;
   role: PaymentHistoryRole;
+  showCurrencyTotals: boolean;
 }) {
   return (
     <article className="min-w-0 overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">
@@ -320,7 +347,7 @@ function ProjectHistory({
         <StatusBadge status={project.status} />
       </header>
 
-      {project.currencyTotals.length > 0 ? (
+      {showCurrencyTotals && project.currencyTotals.length > 0 ? (
         <div className="grid min-w-0 grid-cols-1 gap-2 border-b border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background)/0.45)] p-3 sm:grid-cols-2 xl:grid-cols-3">
           {project.currencyTotals.map((total) => (
             <CurrencyTotalCard key={`${project.id}-${total.currency}`} total={total} compact />
@@ -401,7 +428,13 @@ function PurchaseHistory({
           headingId={`purchase-${purchase.id}-frozen-terms`}
         />
         <AcceptanceAndPlan acceptance={purchase.acceptance} plan={purchase.plan} />
-        <InstallmentSchedule schedule={purchase.schedule} currency={purchase.currency} />
+        <InstallmentSchedule
+          schedule={purchase.schedule}
+          currency={purchase.currency}
+          purchaseId={purchase.id}
+          purchaseReference={purchase.reference}
+          role={role}
+        />
         <PurchaseHistories purchase={purchase} role={role} />
       </div>
     </details>
@@ -443,9 +476,16 @@ function PaymentSnapshot({
           )}
 
           {role === "artist" && purchase.showPayNextPayment ? (
-            <Button asChild className="mt-3 w-full rounded-[var(--radius-sm)] sm:w-auto" size="sm">
+            <Button
+              asChild
+              className="mt-3 min-h-11 min-w-11 w-full rounded-[var(--radius-sm)] sm:min-h-0 sm:min-w-0 sm:w-auto"
+              size="sm"
+            >
               <Link
-                href={`/artist/payments/${encodeURIComponent(purchase.id)}`}
+                href={withArtistStudio(
+                  `/artist/payments/${encodeURIComponent(purchase.id)}`,
+                  purchase.studioId,
+                )}
                 aria-label={`Complete payment for ${purchase.title}`}
               >
                 Complete payment
@@ -696,9 +736,15 @@ function AcceptanceAndPlan({
 function InstallmentSchedule({
   schedule,
   currency,
+  purchaseId,
+  purchaseReference,
+  role,
 }: {
   schedule: readonly PaymentHistoryInstallment[];
   currency: string;
+  purchaseId: string;
+  purchaseReference: string;
+  role: PaymentHistoryRole;
 }) {
   return (
     <section aria-label="Payment schedule" className="min-w-0">
@@ -730,6 +776,17 @@ function InstallmentSchedule({
                 currency={currency}
               />
             </dl>
+            {role === "producer" &&
+            installment.remainingCents > 0 &&
+            installment.dueAtIso !== null &&
+            installment.status.label !== "Canceled" &&
+            installment.status.label !== "Needs review" ? (
+              <PaymentReminderButton
+                purchaseId={purchaseId}
+                installmentId={installment.id}
+                installmentLabel={`purchase ${purchaseReference}, installment ${String(installment.position)}: ${installment.label}`}
+              />
+            ) : null}
           </li>
         ))}
       </ol>

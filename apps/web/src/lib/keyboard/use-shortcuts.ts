@@ -4,8 +4,8 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef } from "react";
 
 // Global keyboard-shortcut layer. Patterned after Linear/Superhuman:
-// two-key navigation (`g` then one of t/m/p/s), single-key actions
-// (`c`, `/`, `?`, `[`), and `Esc` to close open overlays. We skip
+// two-key navigation (`g` then a key from G_LEADER_ROUTES) and
+// single-key actions (`n`, `?`, `[`). We skip
 // when the user is typing into an input/textarea/contenteditable
 // so the shortcuts never interrupt real writing. Modifier combos
 // (⌘/Ctrl/Alt) are allowed through untouched — cmdk owns ⌘K.
@@ -25,7 +25,7 @@ export function isTypingTarget(el: unknown): boolean {
 export type ShortcutHandlers = {
   openCheatsheet: () => void;
   toggleSidebar: () => void;
-  createContextAware: () => void;
+  createNewProject: () => void;
 };
 
 // G-leader navigation map. Exported so the test suite can assert the
@@ -37,7 +37,7 @@ export type ShortcutHandlers = {
 // `ShortcutsHelp` (notes/nav.jsx) and the relabelled sidebar:
 //   - `h` (new) — Overview            → /dashboard
 //                  Was `t` previously.
-//   - `s` shifts — Storefront          → /dashboard/profile
+//   - `s` shifts — Store               → /dashboard/store
 //                  Was Setup → /dashboard/settings.
 //   - `t` shifts — Settings            → /dashboard/settings
 //                  Was Today → /dashboard.
@@ -53,7 +53,7 @@ export const G_LEADER_ROUTES = {
   m: "/dashboard/music",
   p: "/dashboard/clients-projects",
   c: "/dashboard/calendar",
-  s: "/dashboard/profile",
+  s: "/dashboard/store",
   t: "/dashboard/settings",
 } as const;
 
@@ -68,9 +68,7 @@ export type GLeaderKey = keyof typeof G_LEADER_ROUTES;
 // handler should do the action (navigate, call a server action, open
 // a modal) — the hook registers in the capture phase + calls
 // stopImmediatePropagation, which pre-empts the global layer's
-// bubble-phase handler. This lets a page override "c" (which is
-// global "create") with "c" for "copy share link" on Today without
-// both handlers firing on the same keypress.
+// bubble-phase handler when both layers use the same key.
 export function useHotkey(key: string, handler: () => void) {
   // Wrap in useCallback so the effect's deps stay stable across
   // re-renders when the caller passes an inline lambda.
@@ -83,8 +81,6 @@ export function useHotkey(key: string, handler: () => void) {
       if (e.key.toLowerCase() !== lower) return;
       e.preventDefault();
       // Block the global keydown listener from seeing this event.
-      // Important for keys like "c" where the global default would
-      // otherwise fire the context-aware create.
       e.stopImmediatePropagation();
       stable();
     }
@@ -113,15 +109,8 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers) {
       if (e.metaKey || e.ctrlKey || e.altKey) return; // let modifier combos through
       const key = e.key.toLowerCase();
 
-      // Two-key navigation matches the 4-screen shell. The old 9-route
-      // map (p/i/c/l/n/b/r/o/s) collapsed alongside the sidebar in
-      // Task 2 — pipeline/inbox/clients/library/contracts/bookings/
-      // leads/portfolio/settings became Today / Music / Projects / Setup.
-      // Rationale for each letter:
-      //   t = Today (the daily dashboard)
-      //   m = Music (library / catalog)
-      //   p = Projects (per-client work rooms roll up here)
-      //   s = Setup (portfolio, settings, account)
+      // Two-key navigation follows the canonical producer routes in
+      // G_LEADER_ROUTES. Visible hints are limited to this exact map.
       if (gBufferRef.current.timer) {
         if (key in G_LEADER_ROUTES) {
           e.preventDefault();
@@ -150,20 +139,14 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers) {
         handlers.toggleSidebar();
         return;
       }
-      if (key === "c") {
-        e.preventDefault();
-        handlers.createContextAware();
-        return;
-      }
-      // `n` = new project. Distinct from `c` (context-aware create) so
-      // producers anywhere in the app can hit N and land on the new-
-      // project form without thinking about which screen they're on.
+      // `n` = new project. Producers anywhere in the app can hit N
+      // and open the canonical new-project flow.
       // If the current surface wants a different "new", it can layer
-      // a useHotkey("n", ...) on top — page-scoped hotkeys register
-      // after the global layer and call preventDefault, which wins.
+      // a useHotkey("n", ...) on top; its capture-phase listener stops
+      // the event before the global bubble-phase listener receives it.
       if (key === "n") {
         e.preventDefault();
-        handlers.createContextAware();
+        handlers.createNewProject();
         return;
       }
     }

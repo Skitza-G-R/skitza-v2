@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import { ProducerPicker } from "~/components/artist/producer-picker";
 import { PrimaryCta } from "~/components/artist/funnel/funnel-ui";
 import { bookingActionLabel, locationLabel } from "~/components/artist/sessions/book-data";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 
 import { confirmBookingAction, rescheduleBookingAction } from "./actions";
 import { findPrepaidSessionByAllowance } from "./prepaid-session-selection";
@@ -284,7 +285,9 @@ export function BookingClient({
             operationKey,
           });
       setResult(res);
-      if (res.ok) router.push(`/artist/sessions?just=${res.id}`);
+      if (res.ok) {
+        router.push(withArtistStudio(`/artist/sessions?just=${res.id}`, activeStudioId));
+      }
     });
   };
 
@@ -328,7 +331,7 @@ export function BookingClient({
         </p>
       ) : (
         <Link
-          href="/artist/store"
+          href={withArtistStudio("/artist/store", activeStudioId)}
           className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 py-2 text-sm font-semibold text-[rgb(var(--bg-sidebar))]"
         >
           Browse services to request a session
@@ -392,7 +395,7 @@ export function BookingClient({
       {activePackages.length > 0 && !rescheduleSessionId ? (
         <div>
           <Link
-            href="/artist/store"
+            href={withArtistStudio("/artist/store", activeStudioId)}
             className="sk-press inline-flex min-h-11 items-center text-sm font-semibold text-[rgb(var(--brand-primary-dark))] underline underline-offset-4"
           >
             Request a new service instead

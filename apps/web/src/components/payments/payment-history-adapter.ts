@@ -195,6 +195,7 @@ function mapPurchase(
 
   return {
     id: purchase.id,
+    studioId: purchase.producerId,
     reference: purchase.refNumber,
     title: purchase.commercialSnapshot.productOrOfferName,
     counterpartyLabel: role === "producer" ? purchase.clientName : purchase.producerName,

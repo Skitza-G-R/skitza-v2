@@ -4,8 +4,7 @@ import { redirect } from "next/navigation";
 // form (new-project-form.tsx) has been deleted; producers now create
 // projects from the floating NewProjectModal on /dashboard/clients-
 // projects. This route exists only as a server-side redirect for the
-// last few internal call sites that still link here (command palette,
-// keyboard shortcut, Today contextual actions).
+// remaining saved URLs and Today contextual actions that still link here.
 //
 // Query params from the legacy URL (?mode=offline, ?clientFirst=1, …)
 // are dropped — the modal handles all flows uniformly. The redirect

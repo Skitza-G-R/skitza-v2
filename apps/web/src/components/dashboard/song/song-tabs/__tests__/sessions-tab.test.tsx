@@ -16,8 +16,9 @@ describe("sessions-tab — per-song session log", () => {
     expect(SRC).toContain("~/lib/_phase4-stubs/producer-color");
   });
 
-  it("renders a 'Notes' button on each session row", () => {
-    expect(SRC).toMatch(/Notes/);
+  it("does not render the unfinished Notes control", () => {
+    expect(SRC).not.toContain(">Notes<");
+    expect(SRC).not.toContain('title="Coming soon"');
   });
 
   it("renders the empty state when no sessions exist", () => {

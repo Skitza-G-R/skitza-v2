@@ -26,9 +26,9 @@ describe("desktop Calendar schedule and sessions merge", () => {
     );
   });
 
-  it("replaces the desktop agenda with compact sessions and one editor", () => {
+  it("uses compact read-only sessions without a fake editor", () => {
     expect(SCHEDULE).toContain("ScheduleSessionsCard");
-    expect(SCHEDULE).toContain("EditSessionModal");
+    expect(SCHEDULE).not.toContain("EditSessionModal");
     expect(SCHEDULE).not.toContain("ScheduleTodayAgenda");
   });
 
@@ -37,25 +37,24 @@ describe("desktop Calendar schedule and sessions merge", () => {
     expect(COMPACT).not.toContain("max-h-[360px]");
   });
 
-  it("makes calendar session blocks open the shared editor", () => {
-    expect(GRID).toContain("onEditSession");
-    expect(GRID).toMatch(/onClick=\{\(\) => \{[\s\S]*onEditSession\(session\);/);
-    expect(GRID).toContain("aria-label={`Edit ${serviceLabel}");
+  it("keeps session filters at a safe touch size below desktop", () => {
+    expect(COMPACT).toContain("h-11");
+    expect(COMPACT).toContain("lg:h-7");
   });
 
-  it("uses one Edit button and a three-tab modal", () => {
-    const EDIT_MODAL = readCalendarFile("edit-session-modal.tsx");
+  it("keeps calendar session blocks informational", () => {
+    expect(GRID).not.toContain("onEditSession");
+    expect(GRID).not.toContain("onClick");
+    expect(GRID).not.toContain("aria-label={`Edit ${serviceLabel}");
+  });
 
-    expect(COMPACT).toContain("aria-label={`Edit ${serviceLabel}");
-    expect(COMPACT).toContain("<span>Edit</span>");
+  it("removes fake edit and reminder controls while keeping real cancellation", () => {
+    expect(COMPACT).not.toContain("aria-label={`Edit ${serviceLabel}");
+    expect(COMPACT).not.toContain("<span>Edit</span>");
+    expect(COMPACT).not.toContain("onEdit");
     expect(COMPACT).not.toContain("onSendReminder");
-    expect(COMPACT).not.toContain("onCancel");
-
-    expect(EDIT_MODAL).toContain('id: "reschedule"');
-    expect(EDIT_MODAL).toContain('id: "reminder"');
-    expect(EDIT_MODAL).toContain('id: "cancel"');
-    expect(EDIT_MODAL).toContain("ReschedulePanel");
-    expect(EDIT_MODAL).toContain("ReminderPanel");
-    expect(EDIT_MODAL).toContain("CancelPanel");
+    expect(COMPACT).toContain("CancelSessionModal");
+    expect(COMPACT).toContain("onCancel");
+    expect(SCHEDULE).not.toContain("EditSessionModal");
   });
 });

@@ -6,8 +6,8 @@ import { AppShell } from "~/components/shell/app-shell";
 // here instead of in each individual page is what makes the producer
 // dashboard feel like a single-page app: Next.js App Router preserves
 // layout instances across sibling-route navigation, so the sidebar,
-// persistent audio player, notification bell, command palette, and
-// coachmark tour stop unmounting on every click.
+// persistent audio player, notification bell, and command palette
+// stop unmounting on every click.
 //
 // Auth + redirect gating already happens one level up in
 // (app)/layout.tsx — this layout is purely the shell host. Active

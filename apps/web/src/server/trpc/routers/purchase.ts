@@ -593,6 +593,7 @@ export const artistPurchaseRouter = router({
         refNumber: request.refNumber,
         status: request.status,
         productId: request.productId,
+        producerId: request.producerId,
         projectId: request.projectId,
         requestedSongQty: request.requestedSongQty,
         brief: request.brief,
@@ -758,6 +759,7 @@ export const artistPurchaseRouter = router({
         const totalCents = exactTerms.snapshot.totalCents;
         return {
           productId: request.productId,
+          producerId: request.producerId,
           productName: product.name,
           producerName: producerName ?? "Your producer",
           status: request.status as CompatibilityPurchaseStatus,

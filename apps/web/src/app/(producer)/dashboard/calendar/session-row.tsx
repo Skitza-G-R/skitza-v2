@@ -28,34 +28,23 @@ export type SessionListItem = {
   status: RawBookingStatus;
 };
 
-type DerivedStatus =
-  | "confirmed"
-  | "pending"
-  | "completed"
-  | "no_show"
-  | "rejected"
-  | "cancelled";
+type DerivedStatus = "confirmed" | "pending" | "completed" | "no_show" | "rejected" | "cancelled";
 
 export function SessionRow({
   session,
   now,
   timeZone,
-  onChangeTime,
-  onSendReminder,
   onCancel,
 }: {
   session: SessionListItem;
   now: Date;
   timeZone: string;
-  onChangeTime: (s: SessionListItem) => void;
-  onSendReminder: (s: SessionListItem) => void;
   onCancel: (s: SessionListItem) => void;
 }) {
   const start = new Date(session.startsAt);
   const end = new Date(start.getTime() + session.durationMin * 60_000);
   const derived = deriveStatus(session.status, end, now);
-  const dimmed =
-    derived === "cancelled" || derived === "rejected" || derived === "no_show";
+  const dimmed = derived === "cancelled" || derived === "rejected" || derived === "no_show";
   const cancellable =
     derived !== "cancelled" &&
     derived !== "rejected" &&
@@ -76,25 +65,14 @@ export function SessionRow({
       }}
     >
       <DateColumn date={start} kindToken={kindToken} timeZone={timeZone} />
-      <BodyColumn
-        session={session}
-        start={start}
-        end={end}
-        status={derived}
-        timeZone={timeZone}
-      />
-      <Actions
-        cancellable={cancellable}
-        onChangeTime={() => {
-          onChangeTime(session);
-        }}
-        onSendReminder={() => {
-          onSendReminder(session);
-        }}
-        onCancel={() => {
-          onCancel(session);
-        }}
-      />
+      <BodyColumn session={session} start={start} end={end} status={derived} timeZone={timeZone} />
+      {cancellable ? (
+        <Actions
+          onCancel={() => {
+            onCancel(session);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -113,10 +91,10 @@ function DateColumn({
   const day = String(parts.day);
   const time = formatCalendarTime(date, timeZone);
   return (
-    <div className="relative flex flex-col items-center justify-center pl-1.5 pr-1">
+    <div className="relative flex flex-col items-center justify-center pr-1 pl-1.5">
       <span
         aria-hidden
-        className="absolute left-0 top-1.5 h-[calc(100%-12px)] w-[3px] rounded-full"
+        className="absolute top-1.5 left-0 h-[calc(100%-12px)] w-[3px] rounded-full"
         style={{ background: `rgb(var(${kindToken}))` }}
       />
       <p
@@ -131,9 +109,7 @@ function DateColumn({
       >
         {day}
       </p>
-      <p className="font-mono text-[10px] text-[rgb(var(--fg-muted))]">
-        {time}
-      </p>
+      <p className="font-mono text-[10px] text-[rgb(var(--fg-muted))]">{time}</p>
     </div>
   );
 }
@@ -164,45 +140,23 @@ function BodyColumn({
       </div>
       <div className="mt-1 flex items-center gap-2 text-[11.5px] text-[rgb(var(--fg-muted))]">
         <Avatar name={session.artistName} email={session.artistEmail} />
-        <span
-          className="truncate text-[rgb(var(--fg-default))]"
-          style={{ fontWeight: 700 }}
-        >
+        <span className="truncate text-[rgb(var(--fg-default))]" style={{ fontWeight: 700 }}>
           {session.artistName}
         </span>
         <span className="font-mono text-[10.5px] text-[rgb(var(--fg-muted))]">
-          {formatCalendarTime(start, timeZone)} –{" "}
-          {formatCalendarTime(end, timeZone)}
+          {formatCalendarTime(start, timeZone)} – {formatCalendarTime(end, timeZone)}
         </span>
       </div>
     </div>
   );
 }
 
-function Actions({
-  cancellable,
-  onChangeTime,
-  onSendReminder,
-  onCancel,
-}: {
-  cancellable: boolean;
-  onChangeTime: () => void;
-  onSendReminder: () => void;
-  onCancel: () => void;
-}) {
+function Actions({ onCancel }: { onCancel: () => void }) {
   return (
     <div className="col-span-2 flex items-center justify-end gap-1 lg:col-span-1">
-      <IconBtn label="Change time" onClick={onChangeTime}>
-        <CalendarClockMini />
+      <IconBtn label="Cancel session" tone="danger" onClick={onCancel}>
+        <XMini />
       </IconBtn>
-      <IconBtn label="Send reminder" onClick={onSendReminder}>
-        <BellMini />
-      </IconBtn>
-      {cancellable ? (
-        <IconBtn label="Cancel session" tone="danger" onClick={onCancel}>
-          <XMini />
-        </IconBtn>
-      ) : null}
     </div>
   );
 }
@@ -227,7 +181,7 @@ function IconBtn({
       className={[
         // 44px tap target below lg; compact 30px square on desktop.
         "sk-press inline-flex h-11 w-11 items-center justify-center rounded-[7px] border transition-colors lg:h-[30px] lg:w-[30px]",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))]",
+        "focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))] focus-visible:outline-none",
         tone === "danger"
           ? "border-[rgb(var(--fg-danger)/0.25)] bg-transparent text-[rgb(var(--fg-danger))] hover:border-[rgb(var(--fg-danger)/0.45)] hover:bg-[rgb(var(--fg-danger)/0.08)]"
           : "border-[rgb(var(--border-subtle))] bg-transparent text-[rgb(var(--fg-muted))] hover:border-[rgb(var(--border-strong))] hover:text-[rgb(var(--fg-default))]",
@@ -247,17 +201,14 @@ function StatusPill({ status }: { status: DerivedStatus }) {
   if (status === "rejected") {
     return (
       <span
-        className="inline-flex items-center rounded-[6px] border border-[rgb(var(--fg-danger)/0.4)] bg-transparent px-2 py-[2px] text-[10px] uppercase tracking-[0.08em] text-[rgb(var(--fg-danger))]"
+        className="inline-flex items-center rounded-[6px] border border-[rgb(var(--fg-danger)/0.4)] bg-transparent px-2 py-[2px] text-[10px] tracking-[0.08em] text-[rgb(var(--fg-danger))] uppercase"
         style={{ fontWeight: 700 }}
       >
         Rejected
       </span>
     );
   }
-  const map: Record<
-    Exclude<DerivedStatus, "rejected">,
-    { label: string; cls: string }
-  > = {
+  const map: Record<Exclude<DerivedStatus, "rejected">, { label: string; cls: string }> = {
     confirmed: { label: "Confirmed", cls: "pill-success" },
     pending: { label: "Pending", cls: "pill-warning" },
     completed: { label: "Completed", cls: "pill-neutral" },
@@ -268,11 +219,7 @@ function StatusPill({ status }: { status: DerivedStatus }) {
   return <span className={`pill ${m.cls}`}>{m.label}</span>;
 }
 
-function deriveStatus(
-  raw: RawBookingStatus,
-  endsAt: Date,
-  now: Date,
-): DerivedStatus {
+function deriveStatus(raw: RawBookingStatus, endsAt: Date, now: Date): DerivedStatus {
   if (raw === "rejected") return "rejected";
   if (raw === "cancelled") return "cancelled";
   if (raw === "pending_approval") return "pending";
@@ -319,49 +266,6 @@ function hashCode(s: string): number {
     h |= 0;
   }
   return Math.abs(h);
-}
-
-function CalendarClockMini() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <rect x="3" y="4" width="18" height="18" rx="2" />
-      <line x1="16" y1="2" x2="16" y2="6" />
-      <line x1="8" y1="2" x2="8" y2="6" />
-      <line x1="3" y1="10" x2="21" y2="10" />
-      <circle cx="16" cy="16" r="3" />
-      <line x1="16" y1="14" x2="16" y2="16" />
-      <line x1="16" y1="16" x2="17.5" y2="17.5" />
-    </svg>
-  );
-}
-
-function BellMini() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-      <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-    </svg>
-  );
 }
 
 function XMini() {

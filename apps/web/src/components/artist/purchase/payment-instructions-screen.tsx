@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation";
 
 import { ArrowRight, Check, ShieldIcon } from "~/components/artist/funnel/funnel-icons";
 import { Eyebrow, FunnelTopBar, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
+import { withArtistStudio } from "~/lib/artist-studio-context";
 import { formatPurchaseMoney } from "./pay-data";
 
 // The producer's off-app payment details. Absent → "will send details".
@@ -180,6 +181,7 @@ function PaymentDetailBlock({
 
 export function PaymentInstructionsScreen({
   productId,
+  studioId,
   purchaseId,
   installmentId,
   producerName,
@@ -193,6 +195,7 @@ export function PaymentInstructionsScreen({
   previewProofHref,
 }: {
   productId: string;
+  studioId?: string | undefined;
   purchaseId?: string | undefined;
   installmentId?: string | undefined;
   producerName: string;
@@ -228,11 +231,16 @@ export function PaymentInstructionsScreen({
       return;
     }
     if (!purchaseId || !installmentId) {
-      router.push("/artist");
+      router.push(withArtistStudio("/artist", studioId));
       return;
     }
     const query = new URLSearchParams({ purchase: purchaseId, installment: installmentId });
-    router.push(`/artist/purchase/${productId}/pay/proof?${query.toString()}`);
+    router.push(
+      withArtistStudio(
+        `/artist/purchase/${productId}/pay/proof?${query.toString()}`,
+        studioId,
+      ),
+    );
   };
 
   return (

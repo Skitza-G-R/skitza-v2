@@ -171,13 +171,13 @@ describe("honest empty UI source guards", () => {
 
   it("keeps only functional project actions and hides Shuffle without playable audio", () => {
     expect(projectSource).toContain('ariaLabel="Shuffle"');
-    expect(projectSource).toContain('ariaLabel="Share"');
     expect(projectSource).toContain("playableTracks.length > 0 ? (");
+    expect(projectSource).not.toContain('ariaLabel="Share"');
     expect(projectSource).not.toContain('ariaLabel="More"');
     expect(projectSource).not.toContain('aria-label="More actions"');
     expect(projectSource).not.toContain("MoreHorizontal");
-    expect(projectSource).toContain('title="Share project link"');
-    expect(projectSource).toContain('setShareConfirm("copied")');
-    expect(projectSource).toContain("inline-flex h-11 w-11 items-center");
+    expect(projectSource).not.toContain('title="Share project link"');
+    expect(projectSource).not.toContain("setShareConfirm");
+    expect(projectSource).not.toContain("Share2");
   });
 });

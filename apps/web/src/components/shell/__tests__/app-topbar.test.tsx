@@ -63,13 +63,10 @@ describe("AppTopBar (shared)", () => {
     );
   });
 
-  it("renders a search trigger that delegates to onSearchClick", () => {
-    // Producer wrapper passes a function that dispatches the command
-    // palette open event; artist wrapper omits the prop today so the
-    // button stays visible and identical-looking but is a no-op until
-    // the artist palette ships.
+  it("renders a search trigger only when it delegates to onSearchClick", () => {
     expect(SRC).toMatch(/data-testid="topbar-search-trigger"/);
     expect(SRC).toMatch(/onClick=\{onSearchClick\}/);
+    expect(SRC).toMatch(/\{onSearchClick\s*\?/);
   });
 
   it("renders the search placeholder text via the searchPlaceholder prop", () => {
@@ -80,13 +77,14 @@ describe("AppTopBar (shared)", () => {
     expect(SRC).toMatch(/<kbd[\s\S]+?⌘K/);
   });
 
-  it("renders the notifications bell with a data-testid", () => {
+  it("renders the notifications slot with a data-testid", () => {
     expect(SRC).toMatch(/data-testid="topbar-bell"/);
   });
 
-  it("shows an unread dot only when unreadCount > 0 (no false alarm at zero)", () => {
-    expect(SRC).toMatch(/unreadCount\s*>\s*0/);
-    expect(SRC).toMatch(/aria-label=[^>]*unread/);
+  it("omits notification chrome when no functional control is supplied", () => {
+    expect(SRC).toMatch(/\{notificationControl\s*\?/);
+    expect(SRC).not.toContain("notificationControl ??");
+    expect(SRC).not.toContain("Bell");
   });
 
   it("requires an explicit producer or artist chrome variant", () => {
@@ -107,7 +105,6 @@ describe("AppTopBar (shared)", () => {
     expect(SRC).toContain("backdrop-blur-[60px]");
     expect(SRC).toContain('WebkitBackdropFilter: "blur(60px)"');
     expect(SRC).toContain("px-3 py-1 sm:gap-4 sm:px-4");
-    expect(SRC).toContain("h-8 w-8");
     expect(SRC).toContain("rounded-full border py-1.5");
   });
 
@@ -139,9 +136,9 @@ describe("AppTopBar (shared)", () => {
     expect(SRC).toContain("motion-reduce:active:scale-100");
   });
 
-  it("accepts a producer notification control while preserving the artist fallback", () => {
+  it("accepts an optional functional notification control", () => {
     expect(SRC).toMatch(/notificationControl\?:\s*ReactNode/);
-    expect(SRC).toContain("notificationControl ??");
+    expect(SRC).toContain("{notificationControl}");
   });
 
   it("follows the no-pill rule for the producer search control", () => {

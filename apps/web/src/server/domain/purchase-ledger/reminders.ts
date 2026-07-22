@@ -504,6 +504,7 @@ export async function sendAutomaticPurchaseReminders(
         !stored.remindersEnabled ||
         projected.remainingCents <= 0 ||
         projected.status === "confirmed" ||
+        projected.status === "awaiting_review" ||
         projected.status === "waived" ||
         projected.status === "canceled"
       ) {
@@ -654,6 +655,12 @@ export async function sendManualPurchaseReminder(
   const stored = ledger.snapshot.installments.find((row) => row.id === installmentId);
   if (!projected || !stored?.dueAt) {
     throw new PurchaseLedgerDomainError("NOT_FOUND", "Installment was not found");
+  }
+  if (projected.status === "awaiting_review") {
+    throw new PurchaseLedgerDomainError(
+      "CONFLICT",
+      "Payment proof is awaiting review for this installment",
+    );
   }
   if (projected.remainingCents <= 0) {
     throw new PurchaseLedgerDomainError("CONFLICT", "This installment has no remaining debt");

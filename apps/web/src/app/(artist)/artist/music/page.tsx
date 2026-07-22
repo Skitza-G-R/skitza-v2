@@ -30,6 +30,7 @@ export default async function MusicPage() {
       (song): MusicLibraryRow => ({
         kind: "track",
         id: song.id,
+        producerId: project.producerId,
         trackId: song.trackId,
         trackTitle: song.title,
         trackArtist: song.artist,
@@ -59,6 +60,7 @@ export default async function MusicPage() {
       (slot): MusicLibraryRow => ({
         kind: "empty-slot",
         id: slot.id,
+        producerId: project.producerId,
         purchaseId: slot.purchaseId,
         slotIndex: slot.slotNumber,
         trackTitle: slot.title,
@@ -72,6 +74,7 @@ export default async function MusicPage() {
 
   const projectRows: MusicLibraryProjectRow[] = data.projects.map((project) => ({
     id: project.id,
+    producerId: project.producerId,
     title: project.title,
     artistLabel: project.partnerName ?? "Producer",
     visibleSpaceCount: project.visibleCount,

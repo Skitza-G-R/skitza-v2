@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { withArtistStudio } from "~/lib/artist-studio-context";
+
 import { ProducerArt } from "./producer-art";
 
 export type NextSessionStripProps = {
@@ -7,13 +9,15 @@ export type NextSessionStripProps = {
     id: string;
     startsAt: Date;
     durationMin: number;
+    producerId: string;
     producerName: string;
     productName: string | null;
   } | null;
+  activeStudioId: string | null;
 };
 
-export function NextSessionCard({ nextSession }: NextSessionStripProps) {
-  if (!nextSession) return <EmptyState />;
+export function NextSessionCard({ nextSession, activeStudioId }: NextSessionStripProps) {
+  if (!nextSession) return <EmptyState activeStudioId={activeStudioId} />;
   const today = isToday(nextSession.startsAt);
   return (
     <article className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3 sm:flex-row sm:items-center">
@@ -51,7 +55,7 @@ export function NextSessionCard({ nextSession }: NextSessionStripProps) {
         </div>
       </div>
       <Link
-        href="/artist/book"
+        href={withArtistStudio("/artist/book", nextSession.producerId)}
         className="inline-flex shrink-0 items-center gap-1 self-end rounded-full border border-[rgb(var(--border-subtle))] px-3.5 py-2 text-[12.5px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--bg-background))] sm:self-auto"
       >
         Open calendar →
@@ -60,7 +64,7 @@ export function NextSessionCard({ nextSession }: NextSessionStripProps) {
   );
 }
 
-function EmptyState() {
+function EmptyState({ activeStudioId }: { activeStudioId: string | null }) {
   return (
     <article className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3 sm:flex-row sm:items-center">
       <div className="flex min-w-0 items-center gap-3 sm:flex-1">
@@ -81,7 +85,7 @@ function EmptyState() {
         </div>
       </div>
       <Link
-        href="/artist/book"
+        href={withArtistStudio("/artist/book", activeStudioId)}
         className="inline-flex shrink-0 items-center gap-1 self-end rounded-full bg-[rgb(var(--brand-primary))] px-3.5 py-2 text-[12.5px] font-bold text-[#111009] transition-transform hover:brightness-110 active:scale-[0.97] sm:self-auto"
       >
         Book a session →

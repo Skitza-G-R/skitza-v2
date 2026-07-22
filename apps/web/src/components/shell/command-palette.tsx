@@ -5,15 +5,12 @@ import { Command } from "cmdk";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import {
-  paletteSearch,
-  type PaletteResult,
-} from "~/app/(producer)/dashboard/palette-actions";
+import { paletteSearch, type PaletteResult } from "~/app/(producer)/dashboard/palette-actions";
 
 // ⌘K / Ctrl+K command palette. Lazy-loaded by CommandPaletteTrigger
 // so cmdk is only pulled into the client bundle when the producer
 // actually opens it. Filtering happens server-side (producer-scoped
-// ilike across projects/contacts/contracts) — we tell cmdk
+// ilike across projects/contacts/tracks) — we tell cmdk
 // `shouldFilter={false}` so its built-in client filter doesn't fight
 // the server results. Actions are filtered client-side since they're
 // static and tiny.
@@ -27,11 +24,9 @@ import {
 //
 // Nav surface: the 4-screen shell (Today / Music / Projects / Setup)
 // collapsed the previous 9-route nav, so "Go to …" commands match.
-// Clients and contracts no longer have dedicated detail pages, so
-// palette results for those entities deep-link into the Project Room
-// (contracts via their stored projectId, clients via the projects
-// list — we don't have a per-client filter on the list page yet, so
-// for now the list itself is the landing surface).
+// Search results land on their current canonical detail surface:
+// projects and tracks open the Project Room, while a client opens
+// the dedicated client detail page.
 //
 // Controlled component: `open` + `onClose` come from the trigger so
 // the keydown listener can stay mounted without loading cmdk.
@@ -83,7 +78,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   // Phase 2 — labels + shortcuts mirror the locked design's
   // ShortcutsHelp (notes/nav.jsx) and the relabelled sidebar:
   //   G H = Overview, G P = Projects, G M = Music,
-  //   G C = Calendar, G S = Storefront, G T = Settings.
+  //   G C = Calendar, G S = Store, G T = Settings.
   // Calendar + Store entries newly added (the prior 4-route palette
   // pre-dated the 6-page producer surface). Internal `id`s use the
   // ActiveKey vocabulary (`today`, `profile`, `setup`) so any future
@@ -96,7 +91,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         shortcut: "N",
         run: () => {
           onClose();
-          router.push("/dashboard/clients-projects/new");
+          router.push("/dashboard/clients-projects?newProject=1");
         },
       },
       {
@@ -141,7 +136,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         shortcut: "G S",
         run: () => {
           onClose();
-          router.push("/dashboard/profile");
+          router.push("/dashboard/store");
         },
       },
       {
@@ -204,28 +199,22 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       >
         <Command label="Skitza command palette" shouldFilter={false}>
           <div className="flex items-center gap-2 border-b border-[rgb(var(--border-subtle))] px-4 py-3">
-            <span className="font-mono text-[11px] uppercase tracking-wider text-[rgb(var(--fg-muted))]">
+            <span className="font-mono text-[11px] tracking-wider text-[rgb(var(--fg-muted))] uppercase">
               ⌘K
             </span>
             <Command.Input
               value={query}
               onValueChange={setQuery}
-              placeholder="Search projects, clients, contracts, or > actions..."
+              placeholder="Search projects, clients, tracks, or > actions..."
               className="w-full bg-transparent text-sm text-[rgb(var(--fg-primary))] outline-none placeholder:text-[rgb(var(--fg-muted))]"
               autoFocus
             />
             {pending && (
-              <span className="font-mono text-[10px] text-[rgb(var(--fg-muted))]">
-                ...
-              </span>
+              <span className="font-mono text-[10px] text-[rgb(var(--fg-muted))]">...</span>
             )}
           </div>
           <Command.List className="max-h-[50vh] overflow-y-auto p-1">
-            {err && (
-              <div className="px-4 py-3 text-xs text-[rgb(var(--fg-danger))]">
-                {err}
-              </div>
-            )}
+            {err && <div className="px-4 py-3 text-xs text-[rgb(var(--fg-danger))]">{err}</div>}
             <Command.Empty className="px-4 py-6 text-center text-xs text-[rgb(var(--fg-muted))]">
               No results.
             </Command.Empty>
@@ -280,14 +269,8 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                     key={c.id}
                     value={`client ${c.name} ${c.email}`}
                     onSelect={() => {
-                      // Clients no longer have their own detail page
-                      // post-Task-2. Land on the Projects list — the
-                      // producer can then pick the specific project
-                      // room they want. If they want to start fresh
-                      // work with this client, the "New project"
-                      // action handles that separately.
                       onClose();
-                      router.push("/dashboard/clients-projects");
+                      router.push(`/dashboard/clients-projects/clients/${c.id}`);
                     }}
                     className="flex cursor-pointer items-center justify-between rounded-md px-3 py-2 text-sm text-[rgb(var(--fg-primary))] data-[selected=true]:bg-[rgb(var(--bg-overlay))]"
                   >
@@ -328,7 +311,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                 ))}
               </Command.Group>
             ) : null}
-
           </Command.List>
           <div className="flex items-center justify-between border-t border-[rgb(var(--border-subtle))] px-4 py-2 font-mono text-[10px] text-[rgb(var(--fg-muted))]">
             <span>Esc to close · ↵ to select · ↑↓ navigate</span>
