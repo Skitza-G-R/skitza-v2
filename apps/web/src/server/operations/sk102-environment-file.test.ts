@@ -77,6 +77,17 @@ describe("SK-102 private environment file", () => {
     }
   });
 
+  it("rejects migration-owner credentials from the browser runtime file", async () => {
+    const root = await temporaryRoot();
+    for (const source of [
+      "SK102_DATABASE_MIGRATION_URL=postgresql://owner:secret@isolated.invalid/db\n",
+      "SK102_DATABASE_APPROVED_MIGRATION_CREDENTIAL_FINGERPRINT=sha256:placeholder\n",
+    ]) {
+      await writeEnvironment(root, source);
+      expect(() => loadSk102EnvironmentFile(root, {})).toThrow("SK102_ENV_FILE_INVALID");
+    }
+  });
+
   it("does not partially mutate the environment when a later value conflicts", async () => {
     const root = await temporaryRoot();
     await writeEnvironment(

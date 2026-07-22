@@ -24,17 +24,17 @@ Next.js telemetry is disabled with the required exact setting
 Gili must approve this complete target set and each external action before it
 happens:
 
-| Role                   | Proposed isolated target/action                                                                                                                                                                                                                                                                                                                                                                                                          |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Database               | Use the approved isolated current-schema source project `sk90-rehearsal` (bound privately by its observed fingerprint); create child branch `sk102-browser`, database `skitza_sk102_browser`, and dedicated role `sk102_browser`. Do not use either protected project as source or target.                                                                                                                                               |
-| Clerk                  | Create a new development instance named `Skitza SK-102 Browser`, its dedicated webhook endpoint, and fixture-only accounts. Do not reuse the current development instance or any existing account.                                                                                                                                                                                                                                       |
-| R2 audio               | Create `skitza-sk102-browser-audio` with a credential scoped only to the two SK-102 buckets.                                                                                                                                                                                                                                                                                                                                             |
-| R2 docs and email sink | Create `skitza-sk102-browser-docs`; email captures live under `sk102-email-sink/<runtime-slot>/<kind>/`.                                                                                                                                                                                                                                                                                                                                 |
-| R2 CORS                | Apply the SK-102-only policy to those two buckets: origin `http://127.0.0.1:3102`; methods `PUT`, `GET`, `HEAD`; headers `*`; expose `ETag`.                                                                                                                                                                                                                                                                                             |
-| Email                  | Use the internal private R2 capture sink; create no Resend resource and set no Resend variable. Recipients must be fixture aliases ending in `+clerk_test...@example.com`.                                                                                                                                                                                                                                                               |
-| Payment                | Use `off_app_test` only; set no Stripe, Tranzila, PayPal, or Adyen variable.                                                                                                                                                                                                                                                                                                                                                             |
-| Web runtime            | Local/CI loopback on port 3102 only. The empty non-production hosting project is only a future candidate and this issue does not authorize a deployment.                                                                                                                                                                                                                                                                                 |
-| GitHub Actions         | Create a protected environment named `sk102-browser`, scope only SK-102 secrets to it, and require Gili as reviewer. Until the workflow exists on the default branch, its manual trigger is the exact `run-sk102-browser` label on same-repository PR #235 only, after a no-secret preflight verifies the exact source branch and `v3-clean` base. It must never use `pull_request_target`, deploy, or run on ordinary pushes/PR events. |
+| Role                   | Proposed isolated target/action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Database               | Use the approved isolated current-schema source project `sk90-rehearsal` (bound privately by its observed fingerprint); create child branch `sk102-browser`, database `skitza_sk102_browser`, and dedicated runtime role `sk102_browser`. A cloned database keeps its existing object owners: if migrations are missing, use its existing isolated table-owner credential only for one separately approved migration run, then remove that credential from the local process. Never transfer ownership or grant the runtime role owner membership. Do not use either protected project as source or target. |
+| Clerk                  | Create a new development instance named `Skitza SK-102 Browser`, its dedicated webhook endpoint, and fixture-only accounts. Do not reuse the current development instance or any existing account.                                                                                                                                                                                                                                                                                                                                                                                                          |
+| R2 audio               | Create `skitza-sk102-browser-audio` with a credential scoped only to the two SK-102 buckets.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| R2 docs and email sink | Create `skitza-sk102-browser-docs`; email captures live under `sk102-email-sink/<runtime-slot>/<kind>/`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| R2 CORS                | Apply the SK-102-only policy to those two buckets: origin `http://127.0.0.1:3102`; methods `PUT`, `GET`, `HEAD`; headers `*`; expose `ETag`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Email                  | Use the internal private R2 capture sink; create no Resend resource and set no Resend variable. Recipients must be fixture aliases ending in `+clerk_test...@example.com`.                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Payment                | Use `off_app_test` only; set no Stripe, Tranzila, PayPal, or Adyen variable.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Web runtime            | Local/CI loopback on port 3102 only. The empty non-production hosting project is only a future candidate and this issue does not authorize a deployment.                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| GitHub Actions         | Create a protected environment named `sk102-browser`, scope only SK-102 secrets to it, and require Gili as reviewer. Until the workflow exists on the default branch, its manual trigger is the exact `run-sk102-browser` label on same-repository PR #235 only, after a no-secret preflight verifies the exact source branch and `v3-clean` base. It must never use `pull_request_target`, deploy, or run on ordinary pushes/PR events.                                                                                                                                                                    |
 
 The Clerk webhook cannot reach a loopback URL from Clerk. A separately approved
 non-production callback/tunnel target is therefore still required before real
@@ -75,8 +75,8 @@ SHA-256 fingerprints in private approval material. Configure:
 - the observed and approved fingerprint of the disposable database target;
 - the approved database endpoint fingerprint and at least two forbidden
   endpoint fingerprints covering the protected databases;
-- the approved credential fingerprint for the dedicated `sk102_browser`
-  database role;
+- the approved runtime credential fingerprint for the dedicated
+  `sk102_browser` database role;
 - at least two forbidden database target fingerprints;
 - the approved new Clerk publishable-key target fingerprint, the approved
   fingerprint of that instance's exact publishable/secret/webhook credential
@@ -110,22 +110,49 @@ secrets unset. It also rejects ambient TLS-verification, custom CA/OpenSSL,
 Node loader, and HTTP(S)/all-proxy overrides before any database or provider
 client is created. Error messages never include the rejected value.
 
+`DATABASE_URL` in `.skitza/sk102-browser.env` and in the protected GitHub
+environment is always the dedicated `sk102_browser` runtime credential. Never
+put a database-owner or migration credential in that file or environment. If a
+cloned target needs an approved migration, keep the existing isolated
+table-owner credential in a separate mode-`0600`, git-ignored one-shot input.
+Before use, bind it privately to the same approved endpoint, database name, and
+target fingerprint, and to a separately approved credential fingerprint. Do
+not print it, add it to GitHub, change ownership or memberships, or retain it
+after the migration process exits.
+
 ## Approved setup sequence
 
 Only after Gili approves the exact targets/actions above:
 
 1. Create branch `sk102-browser` from the privately fingerprinted
    `sk90-rehearsal` source, then create/rename database
-   `skitza_sk102_browser` and dedicated role `sk102_browser` before copying
-   its connection string into the private environment.
-2. Inspect schema and migration ledger read-only. The exact expected ledger
-   spans `0027` through `0034`; within it, the ordinary runner-owned set is
-   exactly `0029` through `0034` (`0027`/`0028` retain their special cutover
-   history). If any item is missing, extra, or has a different digest, stop and
-   ask Gili; do not repair it ad hoc. If an approved migration run is required, follow `$skitza-migrate`
-   and run only `packages/db/apply-migrations.mjs` against the explicitly
-   confirmed disposable URL. Never run `drizzle-kit migrate` or
+   `skitza_sk102_browser` and dedicated runtime role `sk102_browser` before
+   copying its connection string into the private environment. Grant only the
+   application data/schema access required by seed, browser, and cleanup; do
+   not make it an owner or a member of an owner role.
+2. Inspect schema, ownership, grants, and migration ledger read-only. A cloned
+   0027-0029 baseline has exactly 28 public application tables. Before a
+   migration, confirm that the one-shot migration role owns (or is already a
+   member of the role that owns) every existing public table plus the public
+   schema and migration ledger. DML grants, `CREATEDB`, and `CREATEROLE` do not
+   authorize `ALTER TABLE`. If the runtime role is not an owner, stop; do not
+   retry with it, transfer ownership, or grant it owner membership. Ask Gili to
+   approve one use of the existing isolated table-owner credential against the
+   same fingerprinted endpoint and database.
+
+   The exact expected completed ledger spans `0027` through `0034`; within it,
+   the ordinary runner-owned set is exactly `0029` through `0034`
+   (`0027`/`0028` retain their special cutover history). If any item is missing,
+   extra, or has a different digest, stop and ask Gili; do not repair it ad hoc.
+   If an approved migration run is required, follow `$skitza-migrate` and run
+   only `packages/db/apply-migrations.mjs` against the explicitly confirmed
+   disposable URL. Recheck that the local migration range ends at `0034`
+   because the runner processes every file from `0027` onward. After the run,
+   require exact ledger entries `0027`–`0034`, matching digests, and 33 public
+   application tables. Then discard the one-shot owner credential and return
+   to the dedicated runtime URL. Never run `drizzle-kit migrate` or
    `pnpm -F db db:migrate`.
+
 3. Create the new Clerk development instance, dedicated webhook endpoint, and
    fixture-only accounts. Configure the new approved instance fingerprint as
    approved and the existing development-instance fingerprint as forbidden
