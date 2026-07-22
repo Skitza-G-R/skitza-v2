@@ -1,0 +1,231 @@
+name: SK-102 isolated authenticated browser verification
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+
+concurrency:
+  group: sk102-isolated-browser
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       github.event.action == 'labeled' &&
+       github.event.label.name == 'run-sk102-browser' &&
+       github.event.pull_request.number == 235 &&
+       github.event.pull_request.base.ref == 'v3-clean' &&
+       github.event.pull_request.head.ref == 'giasraf/sk-99-chat-20-apply-final-navigation-and-remove-dead-controls' &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      harness_sha: ${{ steps.scope.outputs.harness_sha }}
+      sk99_sha: ${{ steps.scope.outputs.sk99_sha }}
+
+    steps:
+      - name: Checkout the fixed harness ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'giasraf/sk-102-build-an-isolated-logged-in-browser-test-environment' || 'v3-clean' }}
+          fetch-depth: 0
+
+      - name: Validate and pin harness plus PR 235
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SK99_SHA: 56ec667949017c1d870c2792ee555cb603bde2b6
+          EXPECTED_SK102_REF: giasraf/sk-102-build-an-isolated-logged-in-browser-test-environment
+          TRIGGER_LABEL: run-sk102-browser
+          TRIGGER_ACTION: ${{ github.event.action }}
+          TRIGGER_LABEL_VALUE: ${{ github.event.label.name }}
+          TRIGGER_PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            test "$GITHUB_REF" = "refs/heads/$EXPECTED_SK102_REF"
+            test "$(git branch --show-current)" = "$EXPECTED_SK102_REF"
+            test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          else
+            test "$GITHUB_EVENT_NAME" = "pull_request"
+            test "$TRIGGER_ACTION" = "labeled"
+            test "$TRIGGER_LABEL_VALUE" = "$TRIGGER_LABEL"
+            test "$TRIGGER_PR_NUMBER" = "235"
+            v3_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/v3-clean" --jq '.object.sha')"
+            test "$(git rev-parse HEAD)" = "$v3_sha"
+          fi
+
+          pr_state="$(gh api "repos/$GITHUB_REPOSITORY/pulls/235" --jq '.state')"
+          pr_base="$(gh api "repos/$GITHUB_REPOSITORY/pulls/235" --jq '.base.ref')"
+          pr_head="$(gh api "repos/$GITHUB_REPOSITORY/pulls/235" --jq '.head.ref')"
+          pr_repo="$(gh api "repos/$GITHUB_REPOSITORY/pulls/235" --jq '.head.repo.full_name')"
+          pr_sha="$(gh api "repos/$GITHUB_REPOSITORY/pulls/235" --jq '.head.sha')"
+          test "$pr_state" = "open"
+          test "$pr_base" = "v3-clean"
+          test "$pr_head" = "giasraf/sk-99-chat-20-apply-final-navigation-and-remove-dead-controls"
+          test "$pr_repo" = "$GITHUB_REPOSITORY"
+          test "$pr_sha" = "$EXPECTED_SK99_SHA"
+
+          harness_sha="$(git rev-parse HEAD)"
+          echo "harness_sha=$harness_sha" >> "$GITHUB_OUTPUT"
+          echo "sk99_sha=$EXPECTED_SK99_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Record immutable preflight inputs
+        env:
+          HARNESS_SHA: ${{ steps.scope.outputs.harness_sha }}
+          SK99_SHA: ${{ steps.scope.outputs.sk99_sha }}
+        shell: bash
+        run: |
+          {
+            echo "### SK-102 authenticated browser inputs"
+            echo "- Harness/base SHA: \`$HARNESS_SHA\`"
+            echo "- SK-99 PR #235 SHA: \`$SK99_SHA\`"
+            echo "- Preflight used no SK-102 environment or service secret."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  browser:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 160
+    environment: sk102-browser
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      - name: Checkout the immutable harness/base revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.harness_sha }}
+          fetch-depth: 0
+
+      - name: Build the immutable local integration revision
+        timeout-minutes: 10
+        env:
+          EXPECTED_HARNESS_SHA: ${{ needs.preflight.outputs.harness_sha }}
+          EXPECTED_SK99_SHA: ${{ needs.preflight.outputs.sk99_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HARNESS_SHA"
+          git fetch --no-tags origin "pull/235/head:refs/remotes/origin/sk99-pr235"
+          test "$(git rev-parse refs/remotes/origin/sk99-pr235)" = "$EXPECTED_SK99_SHA"
+
+          git config --unset-all http.https://github.com/.extraheader || true
+          git config user.name "SK-102 browser verifier"
+          git config user.email "sk102-browser@users.noreply.github.com"
+          git merge --no-edit --no-ff "$EXPECTED_SK99_SHA"
+
+          {
+            echo "### Protected SK-102 browser job"
+            echo "- Harness/base SHA: \`$EXPECTED_HARNESS_SHA\`"
+            echo "- SK-99 PR #235 SHA: \`$EXPECTED_SK99_SHA\`"
+            echo "- Integration exists only in this runner; nothing is pushed or deployed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup pnpm
+        timeout-minutes: 5
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+
+      - name: Setup Node
+        timeout-minutes: 5
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.11.1
+          cache: pnpm
+
+      - name: Install dependencies
+        id: install
+        timeout-minutes: 15
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        timeout-minutes: 20
+        run: pnpm --filter web exec playwright install --with-deps chromium
+
+      - name: Build isolated web app
+        timeout-minutes: 15
+        env: &sk102-runtime
+          SK102_E2E_MODE: isolated_nonproduction
+          SK102_DISPOSABLE_CONFIRMATION: isolated-disposable
+          SK102_SLOT: sk102-browser
+          SK102_PAYMENT_MODE: off_app_test
+          NEXT_TELEMETRY_DISABLED: "1"
+          SK102_BROWSER_ORIGIN: http://127.0.0.1:3102
+          SITE_URL: http://127.0.0.1:3102
+          SK102_R2_ALLOWED_ORIGIN: http://127.0.0.1:3102
+          SK102_EMAIL_MODE: r2_capture
+          SK102_EMAIL_ALLOWED_RECIPIENT_DOMAIN: example.com
+          SK102_EMAIL_FROM: Skitza SK-102 <no-reply@sk102.invalid>
+          DATABASE_URL: ${{ secrets.SK102_DATABASE_URL }}
+          SK102_DATABASE_APPROVED_ENDPOINT_FINGERPRINT: ${{ vars.SK102_DATABASE_APPROVED_ENDPOINT_FINGERPRINT }}
+          SK102_DATABASE_FORBIDDEN_ENDPOINT_FINGERPRINTS: ${{ vars.SK102_DATABASE_FORBIDDEN_ENDPOINT_FINGERPRINTS }}
+          SK102_DATABASE_APPROVED_CREDENTIAL_FINGERPRINT: ${{ vars.SK102_DATABASE_APPROVED_CREDENTIAL_FINGERPRINT }}
+          SK102_DATABASE_OBSERVED_TARGET_FINGERPRINT: ${{ vars.SK102_DATABASE_OBSERVED_TARGET_FINGERPRINT }}
+          SK102_DATABASE_APPROVED_TARGET_FINGERPRINT: ${{ vars.SK102_DATABASE_APPROVED_TARGET_FINGERPRINT }}
+          SK102_DATABASE_FORBIDDEN_TARGET_FINGERPRINTS: ${{ vars.SK102_DATABASE_FORBIDDEN_TARGET_FINGERPRINTS }}
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.SK102_CLERK_PUBLISHABLE_KEY }}
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.SK102_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.SK102_CLERK_SECRET_KEY }}
+          CLERK_WEBHOOK_SECRET: ${{ secrets.SK102_CLERK_WEBHOOK_SECRET }}
+          SK102_CLERK_APPROVED_TARGET_FINGERPRINT: ${{ vars.SK102_CLERK_APPROVED_TARGET_FINGERPRINT }}
+          SK102_CLERK_APPROVED_CREDENTIAL_FINGERPRINT: ${{ vars.SK102_CLERK_APPROVED_CREDENTIAL_FINGERPRINT }}
+          SK102_CLERK_FORBIDDEN_TARGET_FINGERPRINTS: ${{ vars.SK102_CLERK_FORBIDDEN_TARGET_FINGERPRINTS }}
+          R2_ACCOUNT_ID: ${{ secrets.SK102_R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.SK102_R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.SK102_R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET_AUDIO: ${{ vars.SK102_R2_BUCKET_AUDIO }}
+          R2_BUCKET_DOCS: ${{ vars.SK102_R2_BUCKET_DOCS }}
+          SK102_R2_APPROVED_TARGET_FINGERPRINT: ${{ vars.SK102_R2_APPROVED_TARGET_FINGERPRINT }}
+          SK102_R2_APPROVED_CREDENTIAL_FINGERPRINT: ${{ vars.SK102_R2_APPROVED_CREDENTIAL_FINGERPRINT }}
+          SK102_R2_FORBIDDEN_TARGET_FINGERPRINTS: ${{ vars.SK102_R2_FORBIDDEN_TARGET_FINGERPRINTS }}
+          SK102_PROTECTED_SITE_HOSTS: ${{ vars.SK102_PROTECTED_SITE_HOSTS }}
+          SK102_PROTECTED_R2_BUCKETS: ${{ vars.SK102_PROTECTED_R2_BUCKETS }}
+          SKITZA_E2E_PRODUCER_CLERK_USER_ID: ${{ secrets.SK102_PRODUCER_CLERK_USER_ID }}
+          SKITZA_E2E_ARTIST_CLERK_USER_ID: ${{ secrets.SK102_ARTIST_CLERK_USER_ID }}
+          SKITZA_E2E_PRODUCER_EMAIL: ${{ secrets.SK102_PRODUCER_EMAIL }}
+          SKITZA_E2E_ARTIST_EMAIL: ${{ secrets.SK102_ARTIST_EMAIL }}
+        run: pnpm --filter web build
+
+      - name: Run desktop, 390px, and 360px authenticated journeys
+        id: browser-tests
+        timeout-minutes: 65
+        env: *sk102-runtime
+        run: pnpm test:browser
+
+      - name: Cleanup isolated fixtures after browser attempt
+        if: always() && steps.browser-tests.outcome != 'skipped'
+        timeout-minutes: 10
+        env: *sk102-runtime
+        shell: bash
+        run: |
+          set +e
+          cleanup_failed=0
+          for slot in desktop phone390 phone360; do
+            corepack pnpm e2e:cleanup -- --slot "$slot" --manifest ".skitza/e2e/$slot.json" >/dev/null 2>&1
+            if [ "$?" -ne 0 ]; then cleanup_failed=1; fi
+          done
+          exit "$cleanup_failed"
+
+      - name: Upload secret-safe browser evidence
+        if: always() && steps.browser-tests.outcome != 'skipped'
+        timeout-minutes: 5
+        uses: actions/upload-artifact@v4
+        with:
+          name: sk102-browser-evidence
+          path: |
+            apps/web/browser-evidence/desktop.json
+            apps/web/browser-evidence/phone390.json
+            apps/web/browser-evidence/phone360.json
+          if-no-files-found: warn
+          retention-days: 3

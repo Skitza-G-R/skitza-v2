@@ -1,6 +1,6 @@
 import { render } from "@react-email/components";
 
-import { FROM_ADDRESS, getResend, SITE_URL } from "./client";
+import { FROM_ADDRESS, sendEmail, SITE_URL } from "./client";
 import {
   BookingCancelledOrRescheduled,
   type BookingCancelledOrRescheduledProps,
@@ -53,8 +53,9 @@ import {
   type TrackVersionUploadedProps,
 } from "./templates/track-version-uploaded";
 
-// All four send helpers share the same shape: render the template,
-// hand the HTML to Resend. Callers MUST wrap each invocation in
+// All send helpers share the same shape: render the template, then hand the
+// HTML to the environment-safe delivery adapter (Resend normally, private R2
+// capture in SK-102). Callers MUST wrap each invocation in
 // try/catch + console.warn so a transient email failure never breaks
 // the primary flow (booking insert, status transition, etc.).
 //
@@ -69,7 +70,7 @@ export async function sendBookingRequestEmail(
 ): Promise<void> {
   const reviewUrl = props.reviewUrl ?? `${SITE_URL}/dashboard/booking?tab=upcoming`;
   const html = await render(<BookingRequestReceived {...props} reviewUrl={reviewUrl} />);
-  await getResend().emails.send({
+  await sendEmail("booking-request", {
     from: FROM_ADDRESS,
     to,
     subject: `New session request from ${props.artistName}`,
@@ -82,7 +83,7 @@ export async function sendBookingConfirmedEmail(
   props: BookingConfirmedToArtistProps,
 ): Promise<void> {
   const html = await render(<BookingConfirmedToArtist {...props} />);
-  await getResend().emails.send({
+  await sendEmail("booking-confirmed", {
     from: FROM_ADDRESS,
     to,
     subject: `Your session with ${props.producerName} is confirmed`,
@@ -95,7 +96,7 @@ export async function sendSessionReminder24h(
   props: SessionReminder24hProps,
 ): Promise<void> {
   const html = await render(<SessionReminder24h {...props} />);
-  await getResend().emails.send({
+  await sendEmail("session-reminder-24h", {
     from: FROM_ADDRESS,
     to,
     subject: `Reminder · session tomorrow with ${props.counterpartName}`,
@@ -108,7 +109,7 @@ export async function sendSessionReminder1h(
   props: SessionReminder1hProps,
 ): Promise<void> {
   const html = await render(<SessionReminder1h {...props} />);
-  await getResend().emails.send({
+  await sendEmail("session-reminder-1h", {
     from: FROM_ADDRESS,
     to,
     subject: `Starting soon · session with ${props.counterpartName}`,
@@ -117,8 +118,8 @@ export async function sendSessionReminder1h(
 }
 
 // ─── 2026-04-22 — audit Task 13: the 8 additional templates ──────
-// Each follows the same render-then-send idiom so callers can drop
-// one-liners at the right event hook without touching Resend client.
+// Each follows the same render-then-send idiom so callers can drop one-liners
+// at the right event hook without touching the delivery adapter.
 //
 // All send functions can throw on Resend error. Callers MUST wrap
 // in try/catch (the existing booking routes already do). See also
@@ -130,7 +131,7 @@ export async function sendTrackVersionUploadedEmail(
   props: TrackVersionUploadedProps,
 ): Promise<void> {
   const html = await render(<TrackVersionUploaded {...props} />);
-  await getResend().emails.send({
+  await sendEmail("track-version-uploaded", {
     from: FROM_ADDRESS,
     to,
     subject: `New mix from ${props.producerName} · ${props.versionLabel}`,
@@ -143,7 +144,7 @@ export async function sendProducerRepliedToCommentEmail(
   props: ProducerRepliedToCommentProps,
 ): Promise<void> {
   const html = await render(<ProducerRepliedToComment {...props} />);
-  await getResend().emails.send({
+  await sendEmail("producer-comment-reply", {
     from: FROM_ADDRESS,
     to,
     subject: `${props.producerName} replied · ${props.trackTitle}`,
@@ -156,7 +157,7 @@ export async function sendNewCommentFromArtistEmail(
   props: NewCommentFromArtistProps,
 ): Promise<void> {
   const html = await render(<NewCommentFromArtist {...props} />);
-  await getResend().emails.send({
+  await sendEmail("artist-comment", {
     from: FROM_ADDRESS,
     to,
     subject: `New comment from ${props.artistName} · ${props.trackTitle}`,
@@ -170,7 +171,7 @@ export async function sendBookingCancelledOrRescheduledEmail(
 ): Promise<void> {
   const html = await render(<BookingCancelledOrRescheduled {...props} />);
   const verb = props.status === "cancelled" ? "cancelled" : "rescheduled";
-  await getResend().emails.send({
+  await sendEmail("booking-cancelled-or-rescheduled", {
     from: FROM_ADDRESS,
     to,
     subject: `Session ${verb} · ${props.productName}`,
@@ -186,7 +187,7 @@ export async function sendBookingCancelledOrRescheduledEmail(
 // (invited_at stamp).
 export async function sendClientInviteEmail(to: string, props: ClientInviteProps): Promise<void> {
   const html = await render(<ClientInvite {...props} />);
-  const result = await getResend().emails.send({
+  const result = await sendEmail("client-invite", {
     from: FROM_ADDRESS,
     to,
     subject: `${props.producerName} invited you to Skitza`,
@@ -219,7 +220,7 @@ export async function sendPrivateOfferNotificationEmail(
       openUrl={openUrl}
     />,
   );
-  const result = await getResend().emails.send({
+  const result = await sendEmail("private-offer", {
     from: FROM_ADDRESS,
     to,
     subject: `${props.producerName} sent you a private offer`,
@@ -241,7 +242,7 @@ export async function sendPurchaseApprovedEmail(
   props: PurchaseApprovedToArtistProps,
 ): Promise<void> {
   const html = await render(<PurchaseApprovedToArtist {...props} />);
-  await getResend().emails.send({
+  await sendEmail("purchase-approved", {
     from: FROM_ADDRESS,
     to,
     subject: `${props.producerName} approved your request`,
@@ -254,7 +255,7 @@ export async function sendProofVerifiedEmail(
   props: ProofVerifiedToArtistProps,
 ): Promise<void> {
   const html = await render(<ProofVerifiedToArtist {...props} />);
-  await getResend().emails.send({
+  await sendEmail("proof-verified", {
     from: FROM_ADDRESS,
     to,
     subject: props.paidInFull
@@ -269,7 +270,7 @@ export async function sendProofRejectedEmail(
   props: ProofRejectedToArtistProps,
 ): Promise<void> {
   const html = await render(<ProofRejectedToArtist {...props} />);
-  await getResend().emails.send({
+  await sendEmail("proof-rejected", {
     from: FROM_ADDRESS,
     to,
     subject: `Action needed on your payment — ${props.productName}`,
@@ -283,7 +284,8 @@ export async function sendPaymentReminderEmail(
   idempotencyKey: string,
 ): Promise<string> {
   const html = await render(<PaymentReminderToArtist {...props} />);
-  const result = await getResend().emails.send(
+  const result = await sendEmail(
+    "payment-reminder",
     {
       from: FROM_ADDRESS,
       to,
@@ -316,7 +318,7 @@ export async function sendPurchaseDeclinedEmail(
   props: PurchaseDeclinedToArtistProps,
 ): Promise<void> {
   const html = await render(<PurchaseDeclinedToArtist {...props} />);
-  await getResend().emails.send({
+  await sendEmail("purchase-declined", {
     from: FROM_ADDRESS,
     to,
     subject: `Update on your request to ${props.producerName}`,

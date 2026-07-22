@@ -1,4 +1,5 @@
 import type { CORSRule } from "@aws-sdk/client-s3";
+import { SK102_BROWSER_ORIGIN } from "@skitza/db/sk102-runtime";
 
 // CORS ruleset for Skitza's Cloudflare R2 buckets (`skitza-audio`,
 // `skitza-docs`). Applied via scripts/apply-r2-cors.mjs using
@@ -57,6 +58,22 @@ export function buildR2CorsRules(): CORSRule[] {
       // 1 hour. Short enough that policy edits propagate same-day,
       // long enough that a busy producer uploading 20 parts doesn't
       // trigger 20 preflights.
+      MaxAgeSeconds: 3600,
+    },
+  ];
+}
+
+/**
+ * Deliberately separate from the shared/live policy. SK-102 accepts exactly
+ * its loopback browser origin and cannot inherit production or preview hosts.
+ */
+export function buildSk102R2CorsRules(): CORSRule[] {
+  return [
+    {
+      AllowedOrigins: [SK102_BROWSER_ORIGIN],
+      AllowedMethods: ["PUT", "GET", "HEAD"],
+      AllowedHeaders: ["*"],
+      ExposeHeaders: ["ETag"],
       MaxAgeSeconds: 3600,
     },
   ];

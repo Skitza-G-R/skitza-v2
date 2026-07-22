@@ -8,7 +8,7 @@ const { sendEmail } = vi.hoisted(() => ({
 vi.mock("../../client", () => ({
   FROM_ADDRESS: "Skitza <test@skitza.test>",
   SITE_URL: "https://skitza.test",
-  getResend: () => ({ emails: { send: sendEmail } }),
+  sendEmail,
 }));
 
 import { sendClientInviteEmail, sendPrivateOfferNotificationEmail } from "../../send";
@@ -47,7 +47,8 @@ describe("private offer notification email", () => {
     });
 
     expect(sendEmail).toHaveBeenCalledTimes(1);
-    const message = sendEmail.mock.calls[0]?.[0] as
+    expect(sendEmail.mock.calls[0]?.[0]).toBe("private-offer");
+    const message = sendEmail.mock.calls[0]?.[1] as
       | { from?: string; to?: string; subject?: string; html?: string }
       | undefined;
 
@@ -101,7 +102,8 @@ describe("client invite email delivery", () => {
     ).resolves.toBeUndefined();
 
     expect(sendEmail).toHaveBeenCalledTimes(1);
-    expect(sendEmail.mock.calls[0]?.[0]).toMatchObject({
+    expect(sendEmail.mock.calls[0]?.[0]).toBe("client-invite");
+    expect(sendEmail.mock.calls[0]?.[1]).toMatchObject({
       from: "Skitza <test@skitza.test>",
       to: "ada@example.com",
       subject: "Gili invited you to Skitza",

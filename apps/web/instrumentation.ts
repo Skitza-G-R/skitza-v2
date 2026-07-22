@@ -1,4 +1,5 @@
 import * as Sentry from "@sentry/nextjs";
+import { assertSk102EdgeRuntime } from "~/server/sk102-edge-runtime";
 
 // Next.js 15 instrumentation hook. Runs once on server boot (Node
 // runtime) or edge boot. Dynamically imports the runtime-specific
@@ -10,9 +11,12 @@ import * as Sentry from "@sentry/nextjs";
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
+    const { approvedSk102Runtime } = await import("@skitza/db/sk102-runtime");
+    approvedSk102Runtime();
     await import("./sentry.server.config");
   }
   if (process.env.NEXT_RUNTIME === "edge") {
+    assertSk102EdgeRuntime();
     await import("./sentry.edge.config");
   }
 }

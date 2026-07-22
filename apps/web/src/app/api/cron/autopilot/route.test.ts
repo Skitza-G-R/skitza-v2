@@ -20,6 +20,7 @@ const reminderRunMock = vi.fn().mockResolvedValue({
 vi.mock("~/server/email/client", () => ({
   FROM_ADDRESS: "test@skitza.app",
   getResend: () => ({ emails: { send: resendSendMock } }),
+  sendEmail: resendSendMock,
   SITE_URL: "https://test.skitza.app",
 }));
 vi.mock("~/server/domain/purchase-ledger/reminders", () => ({

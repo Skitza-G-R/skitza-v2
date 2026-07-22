@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { S3Client } from "@aws-sdk/client-s3";
+import { assertSk102R2Target } from "@skitza/db/sk102-runtime";
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -9,8 +10,16 @@ function requireEnv(name: string): string {
 
 let _r2: S3Client | null = null;
 let _r2SingleAttempt: S3Client | null = null;
+const sk102R2 = assertSk102R2Target();
 
 function r2Config() {
+  if (sk102R2) {
+    return {
+      region: "auto" as const,
+      endpoint: sk102R2.r2Endpoint,
+      credentials: sk102R2.r2Credentials,
+    };
+  }
   return {
     region: "auto" as const,
     endpoint: `https://${requireEnv("R2_ACCOUNT_ID")}.r2.cloudflarestorage.com`,
@@ -35,8 +44,8 @@ export function getR2SingleAttempt(): S3Client {
 }
 
 export const BUCKETS = {
-  audio: process.env.R2_BUCKET_AUDIO ?? "skitza-audio",
-  docs: process.env.R2_BUCKET_DOCS ?? "skitza-docs",
+  audio: sk102R2?.audioBucket ?? process.env.R2_BUCKET_AUDIO ?? "skitza-audio",
+  docs: sk102R2?.docsBucket ?? process.env.R2_BUCKET_DOCS ?? "skitza-docs",
 } as const;
 
 // Extract the extension (with leading dot) from a filename, or empty string.

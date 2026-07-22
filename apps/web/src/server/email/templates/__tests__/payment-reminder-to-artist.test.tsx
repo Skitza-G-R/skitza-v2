@@ -8,7 +8,7 @@ const { sendEmail } = vi.hoisted(() => ({
 vi.mock("../../client", () => ({
   FROM_ADDRESS: "Skitza <test@skitza.test>",
   SITE_URL: "https://skitza.test",
-  getResend: () => ({ emails: { send: sendEmail } }),
+  sendEmail,
 }));
 
 import { sendPaymentReminderEmail } from "../../send";
@@ -62,6 +62,7 @@ describe("sendPaymentReminderEmail", () => {
 
     expect(sendEmail).toHaveBeenCalledTimes(1);
     expect(sendEmail).toHaveBeenCalledWith(
+      "payment-reminder",
       expect.objectContaining({
         from: "Skitza <test@skitza.test>",
         to: "ada@example.com",
@@ -69,7 +70,7 @@ describe("sendPaymentReminderEmail", () => {
       }),
       { idempotencyKey: "payment-reminder:installment-42:due" },
     );
-    const payload: unknown = sendEmail.mock.calls[0]?.[0];
+    const payload: unknown = sendEmail.mock.calls[0]?.[1];
     if (
       payload === null ||
       typeof payload !== "object" ||

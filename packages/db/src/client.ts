@@ -3,6 +3,9 @@ import { drizzle as createHttpDb, type NeonHttpDatabase } from "drizzle-orm/neon
 import { drizzle as createTransactionDb } from "drizzle-orm/neon-serverless";
 import WebSocket from "ws";
 import * as schema from "./schema";
+import { assertSk102DatabaseTarget } from "./sk102-runtime";
+
+export type { PoolClient as NeonPoolClient } from "@neondatabase/serverless";
 
 neonConfig.webSocketConstructor = WebSocket;
 
@@ -16,6 +19,7 @@ export type Db = NeonHttpDatabase<typeof schema>;
  * gates have passed.
  */
 export function createNeonPool(connectionString: string, max = 1): Pool {
+  assertSk102DatabaseTarget(connectionString);
   if (!Number.isSafeInteger(max) || max !== 1) {
     throw new Error("Interactive database pools must use exactly one connection");
   }
@@ -49,6 +53,7 @@ function createTransaction(connectionString: string): TransactionFn {
 }
 
 export function createDb(connectionString: string): Db {
+  assertSk102DatabaseTarget(connectionString);
   const db = createHttpDb(neon(connectionString), { schema });
 
   // Neon HTTP is ideal for the app's ordinary one-shot queries, but Drizzle's

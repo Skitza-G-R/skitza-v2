@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildR2CorsRules } from "../r2-cors";
+import { buildR2CorsRules, buildSk102R2CorsRules } from "../r2-cors";
 
 // Regression tests for the 2026-04-23 "Failed to fetch" upload crash
 // (audit Task 19). The R2 bucket `skitza-audio` had no CORS policy,
@@ -61,5 +61,19 @@ describe("buildR2CorsRules — policy invariants", () => {
     // slower to roll out policy changes.
     expect(rule?.MaxAgeSeconds).toBeGreaterThanOrEqual(3600);
     expect(rule?.MaxAgeSeconds).toBeLessThanOrEqual(86400);
+  });
+});
+
+describe("buildSk102R2CorsRules — isolated browser policy", () => {
+  it("allows only the exact SK-102 loopback origin and required browser methods", () => {
+    expect(buildSk102R2CorsRules()).toEqual([
+      {
+        AllowedOrigins: ["http://127.0.0.1:3102"],
+        AllowedMethods: ["PUT", "GET", "HEAD"],
+        AllowedHeaders: ["*"],
+        ExposeHeaders: ["ETag"],
+        MaxAgeSeconds: 3600,
+      },
+    ]);
   });
 });

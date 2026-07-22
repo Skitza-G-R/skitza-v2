@@ -27,6 +27,14 @@ pnpm-debug.log*
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 .playwright-mcp/
+.skitza/
+
+# Authenticated browser tests. Auth state and traces can contain cookies,
+# signed URLs, or private fixture data and must never be committed.
+apps/web/playwright/.auth/
+apps/web/playwright-report/
+apps/web/test-results/
+apps/web/browser-evidence/
 
 # Generated documentation artifacts — regenerate with scripts/build-onboarding-pdf.py
 skitza-onboarding-guide.pdf

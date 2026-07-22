@@ -1,5 +1,6 @@
 export * from "./schema";
 export * from "./client";
+export * from "./sk102-runtime";
 // Re-export drizzle helpers so consumer apps don't need a direct
 // drizzle-orm dependency just to compose where-clauses. Add more
 // helpers here only when an actual call-site needs them.

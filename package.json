@@ -8,7 +8,10 @@
     "build": "corepack pnpm -r build",
     "lint": "corepack pnpm -r lint",
     "typecheck": "corepack pnpm -r typecheck",
-    "test": "corepack pnpm -r test"
+    "test": "corepack pnpm -r test",
+    "test:browser": "corepack pnpm --filter web test:browser",
+    "e2e:seed": "corepack pnpm --filter web e2e:seed",
+    "e2e:cleanup": "corepack pnpm --filter web e2e:cleanup"
   },
   "engines": {
     "node": ">=20.11",

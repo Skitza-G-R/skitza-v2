@@ -15,6 +15,8 @@
     "src/**/*.tsx",
     ".next/types/**/*.ts",
     "instrumentation.ts",
+    "playwright.config.ts",
+    "e2e/**/*.ts",
     "sentry.client.config.ts",
     "sentry.server.config.ts",
     "sentry.edge.config.ts",
