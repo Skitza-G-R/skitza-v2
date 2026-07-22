@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "sk90:reset": "tsx src/server/operations/sk90-reset/cli.ts",
+    "sk104:cutover": "tsx src/server/operations/sk104-cutover/cli.ts",
     "changelog:regen": "node scripts/generate-changelog.mjs",
     "audit:legacy-proof-objects": "node scripts/audit-legacy-proof-objects.mjs"
   },
