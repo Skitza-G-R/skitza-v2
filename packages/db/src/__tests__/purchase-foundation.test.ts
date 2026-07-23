@@ -1196,6 +1196,12 @@ describe("SK-90 purchase foundation migration", () => {
     expect(sourceColumns.find((contract) => contract.startsWith("products|"))).toContain(
       'payment_plans:pg_catalog.jsonb:NO:[{"kind": "full"}]',
     );
+    expect(sourceColumns.find((contract) => contract.startsWith("producers|"))).toContain(
+      "tax_mode:pg_catalog.text:NO:none",
+    );
+    expect(sql).toMatch(
+      /ALTER TABLE "public"\."producers"\s+ALTER COLUMN "tax_mode" SET DEFAULT 'tax_free',\s+DROP COLUMN "stripe_account_id"/,
+    );
     expect(expectedEnumContracts(gate, "expected_source_enum")).toEqual(preservedEnums);
     expect(expectedEnumContracts(sql.slice(0, sql.indexOf("RETURN;")), "expected_enum")).toEqual(
       expect.arrayContaining(preservedEnums),
