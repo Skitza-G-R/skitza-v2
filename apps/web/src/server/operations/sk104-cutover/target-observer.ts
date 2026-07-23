@@ -5,10 +5,10 @@ import { assertSha256Digest, sameDigest, type Sha256Digest } from "../sk90-reset
 import { stop } from "../sk90-reset/errors";
 
 export const SK104_CANONICAL_DATABASE_FINGERPRINT =
-  "sha256:bd49f0b3bb80fa36b3be74c74053f786b17ba15afe0cba8928721310b3093226" as const;
+  "sha256:fc7d5987ba12e0eea387d8ebb36b733ab1b246d949075ec194f1ef40ab1b43b2" as const;
 
 export const SK104_FROZEN_DATABASE_FINGERPRINT =
-  "sha256:fc7d5987ba12e0eea387d8ebb36b733ab1b246d949075ec194f1ef40ab1b43b2" as const;
+  "sha256:bd49f0b3bb80fa36b3be74c74053f786b17ba15afe0cba8928721310b3093226" as const;
 
 const TARGET_FINGERPRINT_CONTRACT = "sk104-production-target-v1";
 

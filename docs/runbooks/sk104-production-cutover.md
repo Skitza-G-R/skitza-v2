@@ -52,8 +52,8 @@ Confirm all of the following:
 1. The SK-104 code and runbook come from the exact approved release commit.
 2. The target database and storage fingerprints are the approved production
    fingerprints, and the frozen fingerprints are present as explicit deny
-   values. The canonical production project is `skitza`; the older
-   `skitza-v3` project is stale and forbidden.
+   values. The canonical production project is `skitza-v3`; the older
+   `skitz` project is stale and forbidden.
 3. Gili's statement that all current activity is mock/test is still true. If
    there is any real user, payment, charge, or live schedule, stop.
 4. The database and storage credentials are available privately. Do not print,
