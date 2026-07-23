@@ -425,13 +425,17 @@ async function reconcilePendingInitiation(
       };
     }
 
-    const observedUploadIds = await listExactMultipartUploadIds(pending.key);
     const now = new Date();
-    const decision = decideMultipartCreateRecovery({
-      observedUploadIds,
-      createAttemptedAt: pending.createAttemptedAt,
-      now,
-    });
+    // A successful CreateMultipartUpload response is authoritative. Only a
+    // retry that lost that response needs to discover the upload by listing.
+    const decision =
+      expectedCreatedUploadId !== undefined
+        ? { kind: "bind" as const, uploadId: expectedCreatedUploadId }
+        : decideMultipartCreateRecovery({
+            observedUploadIds: await listExactMultipartUploadIds(pending.key),
+            createAttemptedAt: pending.createAttemptedAt,
+            now,
+          });
     if (decision.kind === "conflict") {
       throw new PendingMultipartCancellationError(
         "INTEGRITY_ERROR",
@@ -451,12 +455,6 @@ async function reconcilePendingInitiation(
       );
     }
     if (decision.kind === "create") {
-      if (expectedCreatedUploadId !== undefined) {
-        throw new PendingMultipartCancellationError(
-          "RECONCILIATION_PENDING",
-          "The server-created multipart upload is not visible yet",
-        );
-      }
       const [attempted] = await tx
         .update(trackVersions)
         .set({ pendingAudioCreateAttemptedAt: now })
@@ -491,12 +489,6 @@ async function reconcilePendingInitiation(
     }
 
     const uploadId = decision.uploadId;
-    if (expectedCreatedUploadId !== undefined && uploadId !== expectedCreatedUploadId) {
-      throw new PendingMultipartCancellationError(
-        "INTEGRITY_ERROR",
-        "Storage returned a different multipart upload during reconciliation",
-      );
-    }
     const boundAttemptedAt = pending.createAttemptedAt ?? now;
     const [bound] = await tx
       .update(trackVersions)

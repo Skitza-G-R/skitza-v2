@@ -91,6 +91,23 @@ describe("durable multipart initiation", () => {
     ).toEqual({ kind: "abandon" });
   });
 
+  it("binds the exact id returned by a successful create without listing first", () => {
+    const reconciliation = INITIATION_SOURCE.slice(
+      INITIATION_SOURCE.indexOf("async function reconcilePendingInitiation"),
+      INITIATION_SOURCE.indexOf("export const AUDIO_PART_URL_TTL_SECONDS"),
+    );
+    const directBind = reconciliation.indexOf("uploadId: expectedCreatedUploadId");
+    const recoveryListing = reconciliation.indexOf(
+      "await listExactMultipartUploadIds(pending.key)",
+    );
+
+    expect(directBind).toBeGreaterThan(-1);
+    expect(recoveryListing).toBeGreaterThan(directBind);
+    expect(reconciliation).not.toContain(
+      "Storage returned a different multipart upload during reconciliation",
+    );
+  });
+
   it("uses a single-attempt client for the only non-idempotent remote create", () => {
     expect(INITIATION_SOURCE).toContain("getR2SingleAttempt().send");
     expect(INITIATION_SOURCE.match(/new CreateMultipartUploadCommand/g)).toHaveLength(1);
