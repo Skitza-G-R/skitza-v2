@@ -12,6 +12,7 @@ import {
 import {
   SK90_MIGRATION_ADVISORY_LOCK_KEY,
   SK90_POST_RESET_EMPTY_TABLES,
+  assertNoUnresolvedPendingAudioUploads,
   classifyDatabaseSchemaState,
   collectCatalogFingerprint,
   collectPostResetDatabaseEvidence,
@@ -316,7 +317,7 @@ async function collectResetRows(
     const result =
       inventory.table === "stripe_customers"
         ? await client.query<IdentityPayloadRow>(
-            `SELECT concat("producer_id"::text, '/', "client_contact_id"::text) AS "identity", to_jsonb(source)::text AS "payload" FROM "public"."stripe_customers" AS source ORDER BY "identity" COLLATE "C"`,
+            `SELECT concat("producer_id"::text, '/', "client_contact_id"::text) AS "identity", to_jsonb(source)::text AS "payload" FROM "public"."stripe_customers" AS source ORDER BY concat("producer_id"::text, '/', "client_contact_id"::text) COLLATE "C"`,
           )
         : await client.query<IdentityPayloadRow>(
             `SELECT "id"::text AS "identity", to_jsonb(source)::text AS "payload" FROM "public"."${inventory.table}" AS source ORDER BY "id"::text COLLATE "C"`,
@@ -412,13 +413,7 @@ async function collectStorageReferences(
     fingerprint: Sha256Digest;
   }>
 > {
-  const pending = await client.query<CountRow>(`
-    SELECT count(*)::text AS "count"
-    FROM "public"."track_versions"
-    WHERE "pending_audio_r2_key" IS NOT NULL OR "pending_audio_object_etag" IS NOT NULL`);
-  if (pending.rows.length !== 1 || safeCount(pending.rows[0]?.count) !== 0) {
-    stop("STORAGE_OBJECT_DRIFT");
-  }
+  await assertNoUnresolvedPendingAudioUploads(client);
   const result = await client.query<
     Readonly<{
       bucket_role: unknown;
@@ -593,7 +588,7 @@ export async function discoverSk104AttestedMockEvidence(
   const identities = await client.query<Readonly<{ owner_id: unknown; identity_value: unknown }>>(
     `SELECT "id"::text AS "owner_id", "clerk_user_id" AS "identity_value"
      FROM "public"."client_contacts" WHERE "clerk_user_id" IS NOT NULL
-     ORDER BY "owner_id" COLLATE "C", "identity_value" COLLATE "C"`,
+     ORDER BY ("id"::text) COLLATE "C", "clerk_user_id" COLLATE "C"`,
   );
   const monetary = await client.query<Readonly<{ source_kind: unknown; owner_id: unknown }>>(`
     SELECT * FROM (
@@ -669,7 +664,7 @@ async function assertExactMockEvidence(
   const identities = await client.query<Readonly<{ owner_id: unknown; identity_value: unknown }>>(
     `SELECT "id"::text AS "owner_id", "clerk_user_id" AS "identity_value"
      FROM "public"."client_contacts" WHERE "clerk_user_id" IS NOT NULL
-     ORDER BY "owner_id" COLLATE "C", "identity_value" COLLATE "C"`,
+     ORDER BY ("id"::text) COLLATE "C", "clerk_user_id" COLLATE "C"`,
   );
   const observedIdentities = identities.rows.map(
     (row) => `${privateUuid(row.owner_id)}\0${privateText(row.identity_value)}`,

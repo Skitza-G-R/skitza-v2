@@ -196,6 +196,12 @@ function discoveryClient(options: DiscoveryOptions = {}): NeonPoolClientLike {
       if (statement.includes("WITH catalog_entry AS")) {
         return { rows: options.catalogRows ?? baselineCatalogRows };
       }
+      if (
+        statement.includes('"information_schema"."columns"') &&
+        statement.includes("pending_audio_%")
+      ) {
+        return { rows: [] };
+      }
       if (statement.includes('AS "storage_reference"')) {
         return {
           rows: [
@@ -591,8 +597,9 @@ describe("SK-104 production database adapter", () => {
   });
 
   it("discovers and privately binds the exact current database inventory", async () => {
+    const events: string[] = [];
     const manifest = await discoverSk104PrivateProductionDatabaseManifest(
-      discoveryClient(),
+      discoveryClient({ events }),
       HMAC_KEY,
       evidence(),
     );
@@ -606,6 +613,30 @@ describe("SK-104 production database adapter", () => {
     expect(manifest.preservedBusinessFingerprint).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(manifest.bindingToken).toMatch(/^hmac-sha256:[0-9a-f]{64}$/);
     expect(assertSk104PrivateProductionDatabaseManifest(manifest, HMAC_KEY)).toBe(manifest);
+    expect(
+      events.some((statement) =>
+        statement.includes(
+          'ORDER BY ("id"::text) COLLATE "C", "clerk_user_id" COLLATE "C"',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      events.some((statement) => statement.includes('ORDER BY "owner_id" COLLATE "C"')),
+    ).toBe(false);
+    expect(
+      events.some((statement) =>
+        statement.includes(
+          `ORDER BY concat("producer_id"::text, '/', "client_contact_id"::text) COLLATE "C"`,
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      events.some(
+        (statement) =>
+          statement.includes('"information_schema"."columns"') &&
+          statement.includes("pending_audio_%"),
+      ),
+    ).toBe(true);
 
     expect(() =>
       assertSk104PrivateProductionDatabaseManifest(
