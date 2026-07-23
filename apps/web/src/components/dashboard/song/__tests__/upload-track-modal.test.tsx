@@ -328,6 +328,11 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     expect(SRC).toMatch(/backdrop-blur/);
   });
 
+  it("applies centering translations only from the desktop breakpoint", () => {
+    expect(SRC).toMatch(/sk-sheet-mobile[^"]*md:-translate-x-1\/2[^"]*md:-translate-y-1\/2/);
+    expect(SRC).not.toMatch(/\s-translate-[xy]-1\/2(?:\s|")/);
+  });
+
   it("forbids --surface-card", () => {
     expect(SRC).not.toContain("--surface-card");
   });
