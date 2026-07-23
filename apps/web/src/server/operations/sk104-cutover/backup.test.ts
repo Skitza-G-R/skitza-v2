@@ -23,6 +23,7 @@ import {
   parseSk104PgRestoreList,
   prepareSk104DatabaseBackup,
   sk104DatabaseBackupArchivePath,
+  sk104LibpqEnvironment,
   sk104PublicSchemaRestorePrelude,
   restoreSk104DatabaseBackup,
   type Sk104DatabaseBackupRuntime,
@@ -219,6 +220,30 @@ describe("SK-104 production database backup", () => {
         "5; 2615 2200 SCHEMA - public owner\n7; 2615 2200 SCHEMA - public owner\n",
       ),
     ).toThrow(expect.objectContaining({ code: "SK104_CONTRACT_INVALID" }));
+  });
+
+  it("passes connection fields to libpq without treating the private URL as a database name", () => {
+    expect(
+      sk104LibpqEnvironment(
+        "postgresql://owner%40example:p%40ssword@database.invalid:6432/production?sslmode=require&channel_binding=require",
+      ),
+    ).toEqual({
+      LC_ALL: "C",
+      LANG: "C",
+      NODE_ENV: "production",
+      PGHOST: "database.invalid",
+      PGPORT: "6432",
+      PGUSER: "owner@example",
+      PGPASSWORD: "p@ssword",
+      PGDATABASE: "production",
+      PGSSLMODE: "require",
+      PGCHANNELBINDING: "require",
+    });
+    expect(() =>
+      sk104LibpqEnvironment(
+        "postgresql://owner:password@database.invalid/production?application_name=unsafe",
+      ),
+    ).toThrow(expect.objectContaining({ code: "SK104_ENV_INVALID" }));
   });
 
   it("leaves an incomplete orphan untouched and publishes a fresh independent archive", async () => {

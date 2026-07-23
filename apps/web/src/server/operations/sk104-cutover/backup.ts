@@ -259,6 +259,66 @@ function exactDatabaseName(databaseUrl: string): string {
   }
 }
 
+export function sk104LibpqEnvironment(databaseUrl: string): NodeJS.ProcessEnv {
+  try {
+    const url = new URL(databaseUrl);
+    if (
+      !["postgres:", "postgresql:"].includes(url.protocol) ||
+      url.hostname.length === 0 ||
+      url.username.length === 0 ||
+      url.password.length === 0 ||
+      url.hash.length !== 0
+    ) {
+      stopSk104("SK104_ENV_INVALID");
+    }
+    const port = url.port || "5432";
+    if (!/^\d{1,5}$/.test(port) || Number(port) < 1 || Number(port) > 65_535) {
+      stopSk104("SK104_ENV_INVALID");
+    }
+    const databaseName = exactDatabaseName(databaseUrl);
+    const allowedParameters = new Set(["sslmode", "channel_binding"]);
+    for (const key of url.searchParams.keys()) {
+      if (!allowedParameters.has(key) || url.searchParams.getAll(key).length !== 1) {
+        stopSk104("SK104_ENV_INVALID");
+      }
+    }
+    const sslMode = url.searchParams.get("sslmode");
+    const channelBinding = url.searchParams.get("channel_binding");
+    if (
+      (sslMode !== null &&
+        !["disable", "allow", "prefer", "require", "verify-ca", "verify-full"].includes(
+          sslMode,
+        )) ||
+      (channelBinding !== null &&
+        !["disable", "prefer", "require"].includes(channelBinding))
+    ) {
+      stopSk104("SK104_ENV_INVALID");
+    }
+    return {
+      LC_ALL: "C",
+      LANG: "C",
+      NODE_ENV: "production",
+      PGHOST: url.hostname,
+      PGPORT: port,
+      PGUSER: decodeURIComponent(url.username),
+      PGPASSWORD: decodeURIComponent(url.password),
+      PGDATABASE: databaseName,
+      ...(sslMode === null ? {} : { PGSSLMODE: sslMode }),
+      ...(channelBinding === null ? {} : { PGCHANNELBINDING: channelBinding }),
+    };
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "SK104_ENV_INVALID"
+    ) {
+      throw error;
+    }
+    return stopSk104("SK104_ENV_INVALID");
+  }
+}
+
 function exactAdvisoryLockKey(value: string): string {
   if (!/^[1-9]\d{0,18}$/.test(value) || BigInt(value) > 9_223_372_036_854_775_807n) {
     stopSk104("SK104_CONTRACT_INVALID");
@@ -902,12 +962,7 @@ export function defaultSk104DatabaseBackupRuntime(): Sk104DatabaseBackupRuntime 
       input.psqlBinary,
       ["--no-psqlrc", "--no-password", "--set=ON_ERROR_STOP=1", "--set=VERBOSITY=terse", "--quiet"],
       {
-        ...spawnOptions({
-          LC_ALL: "C",
-          LANG: "C",
-          NODE_ENV: "production",
-          PGDATABASE: input.databaseUrl,
-        }),
+        ...spawnOptions(sk104LibpqEnvironment(input.databaseUrl)),
         stdio: ["pipe", "ignore", "ignore"],
       },
     );
@@ -1012,7 +1067,7 @@ export function defaultSk104DatabaseBackupRuntime(): Sk104DatabaseBackupRuntime 
           "--schema=public",
           "--strict-names",
         ],
-        { LC_ALL: "C", LANG: "C", NODE_ENV: "production", PGDATABASE: databaseUrl },
+        sk104LibpqEnvironment(databaseUrl),
       ),
     verifyPgRestoreList: async ({ binary, archivePath }) =>
       parseSk104PgRestoreList(
