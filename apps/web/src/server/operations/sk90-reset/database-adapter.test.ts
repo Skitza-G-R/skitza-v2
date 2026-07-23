@@ -884,6 +884,9 @@ describe("SK-90 executable database rehearsal adapter", () => {
   it("orders PostgreSQL 17 discovery rows by text aliases, not numeric ordinals", () => {
     const adapter = source();
 
+    expect(adapter).toMatch(
+      /client_contacts:\s*"to_jsonb\(source\) - ARRAY\['producer_archived_at'\]::text\[\]"/,
+    );
     expect(adapter).not.toMatch(/ORDER BY\s+\d+\s+COLLATE/);
     expect(adapter).toMatch(/ORDER BY "identity" COLLATE "C"/);
     expect(adapter).toMatch(

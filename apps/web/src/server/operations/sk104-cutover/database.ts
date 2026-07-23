@@ -299,7 +299,8 @@ function exactMigrationFiles(files: readonly string[]): boolean {
 const PRESERVED_PAYLOAD_EXPRESSION: Readonly<Record<PreservedTable, string>> = {
   availability_blackouts: "to_jsonb(source)",
   availability_blocks: "to_jsonb(source)",
-  client_contacts: "to_jsonb(source)",
+  client_contacts:
+    "to_jsonb(source) - ARRAY['producer_archived_at']::text[]",
   portfolio_tracks: "to_jsonb(source)",
   producer_external_links: "to_jsonb(source)",
   producer_notes: "to_jsonb(source)",

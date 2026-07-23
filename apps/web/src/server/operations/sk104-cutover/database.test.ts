@@ -633,6 +633,13 @@ describe("SK-104 production database adapter", () => {
     expect(
       events.some(
         (statement) =>
+          statement.includes('FROM "public"."client_contacts"') &&
+          statement.includes("producer_archived_at"),
+      ),
+    ).toBe(true);
+    expect(
+      events.some(
+        (statement) =>
           statement.includes('"information_schema"."columns"') &&
           statement.includes("pending_audio_%"),
       ),
