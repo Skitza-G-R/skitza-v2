@@ -1558,6 +1558,7 @@ function SongsTable({
       title: song.trackTitle,
       subtitle: `${song.trackArtist ?? song.clientName ?? song.projectTitle} · ${song.label ?? "No version"}`,
       durationMs: song.durationMs,
+      ...(role === "producer" ? { cachePolicy: "account-unlocked" as const } : {}),
     });
   }
 

@@ -41,12 +41,15 @@ describe("SK-110 root media runtime", () => {
   });
 
   it("waits for account cleanup before every app-owned Clerk sign-out", () => {
-    const explicitCleanup = ROOT_RUNTIME.indexOf("if (user?.id) await prepareAccountExit(user.id)");
+    expect(ROOT_RUNTIME).toContain("export async function prepareMediaAccountExit");
+    const explicitCleanup = ROOT_RUNTIME.indexOf(
+      "if (user?.id) await prepareMediaAccountExit(user.id)",
+    );
     const explicitSignOut = ROOT_RUNTIME.indexOf("await clerk.signOut(options)", explicitCleanup);
     expect(explicitCleanup).toBeGreaterThanOrEqual(0);
     expect(explicitSignOut).toBeGreaterThan(explicitCleanup);
 
-    const builtInCleanup = ROOT_RUNTIME.indexOf("void prepareAccountExit(accountId)");
+    const builtInCleanup = ROOT_RUNTIME.indexOf("void prepareMediaAccountExit(accountId)");
     const builtInSignOut = ROOT_RUNTIME.indexOf(".then(() => clerk.signOut())", builtInCleanup);
     expect(ROOT_RUNTIME).toContain('data-localization-key="userButtonPopoverActionSignOut"');
     expect(builtInSignOut).toBeGreaterThan(builtInCleanup);
@@ -66,5 +69,13 @@ describe("SK-110 root media runtime", () => {
     expect(ROOT_RUNTIME).toContain("upload.error");
     expect(ROOT_RUNTIME).toContain("retryManagedUpload");
     expect(ROOT_RUNTIME).toContain("cancelManagedUpload");
+  });
+
+  it("gives upload actions coarse touch targets and clears the audio dock", () => {
+    expect(ROOT_RUNTIME.match(/sk-press inline-flex min-h-11 min-w-11/g)).toHaveLength(2);
+    expect(ROOT_RUNTIME).toContain("playback.track");
+    expect(ROOT_RUNTIME).toContain(
+      "bottom-[calc(10rem+env(safe-area-inset-bottom))] lg:bottom-[6.5rem]",
+    );
   });
 });

@@ -31,6 +31,7 @@ export default async function PortfolioPage() {
     .filter((song) => song.portfolioPublishedAt !== null)
     .map((song) => ({
       id: song.trackId,
+      versionId: song.latestVersion.id,
       title: song.title,
       artist: song.artist ?? song.projectArtistName,
       portfolioPublished: true,

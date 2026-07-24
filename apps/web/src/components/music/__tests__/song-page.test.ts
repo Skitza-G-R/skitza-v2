@@ -83,17 +83,19 @@ describe("activeVersionToPlayerTrack — PlayerTrack payload", () => {
       label: "v3",
     });
     const t = { ...baseTrack, title: "Sunset Mix" };
-    const p = activeVersionToPlayerTrack(t, v);
+    const p = activeVersionToPlayerTrack(t, v, "producer");
     expect(p.id).toBe("v-42");
     expect(p.audioUrl).toBe("https://r2/x.mp3");
     expect(p.title).toBe("Sunset Mix");
     expect(p.durationMs).toBe(200_000);
+    expect(p.cachePolicy).toBe("account-unlocked");
   });
 
   it("subtitle uses 'clientName · versionLabel' when clientName is set", () => {
     const p = activeVersionToPlayerTrack(
       { ...baseTrack, clientName: "Bob" },
       makeVersion({ label: "v3" }),
+      "producer",
     );
     expect(p.subtitle).toBe("Bob · v3");
   });
@@ -102,6 +104,7 @@ describe("activeVersionToPlayerTrack — PlayerTrack payload", () => {
     const p = activeVersionToPlayerTrack(
       { ...baseTrack, clientName: null, artist: "feat. Alice" },
       makeVersion({ label: "v2" }),
+      "producer",
     );
     expect(p.subtitle).toBe("feat. Alice · v2");
   });
@@ -110,18 +113,76 @@ describe("activeVersionToPlayerTrack — PlayerTrack payload", () => {
     const p = activeVersionToPlayerTrack(
       { ...baseTrack, clientName: null, artist: null, projectTitle: "Side EP" },
       makeVersion({ label: "v1" }),
+      "producer",
     );
     expect(p.subtitle).toBe("Side EP · v1");
   });
 
   it("propagates audioUrl=null (PersistentPlayer handles the missing-src case)", () => {
-    const p = activeVersionToPlayerTrack(baseTrack, makeVersion({ audioUrl: null }));
+    const p = activeVersionToPlayerTrack(baseTrack, makeVersion({ audioUrl: null }), "producer");
     expect(p.audioUrl).toBeNull();
+    expect(p.cachePolicy).toBeUndefined();
   });
 
   it("propagates durationMs=null", () => {
-    const p = activeVersionToPlayerTrack(baseTrack, makeVersion({ durationMs: null }));
+    const p = activeVersionToPlayerTrack(
+      baseTrack,
+      makeVersion({ durationMs: null }),
+      "producer",
+    );
     expect(p.durationMs).toBeNull();
+  });
+
+  it.each(["purchase_fully_paid", "version_override"] as const)(
+    "marks an artist version unlocked only for exact backend permission %s",
+    (permission) => {
+      const version = makeVersion({
+        delivery: {
+          ...makeVersion().delivery,
+          permission,
+        },
+      });
+      expect(activeVersionToPlayerTrack(baseTrack, version, "artist").cachePolicy).toBe(
+        "account-unlocked",
+      );
+    },
+  );
+
+  it("marks a producer-owned version explicitly even when artist payment is required", () => {
+    const version = makeVersion({
+      delivery: {
+        ...makeVersion().delivery,
+        permission: "payment_required",
+      },
+    });
+    expect(activeVersionToPlayerTrack(baseTrack, version, "producer").cachePolicy).toBe(
+      "account-unlocked",
+    );
+  });
+
+  it.each(["payment_required", "audio_deleted"] as const)(
+    "keeps artist version %s out of private byte caching",
+    (permission) => {
+      const version = makeVersion({
+        delivery: {
+          ...makeVersion().delivery,
+          permission,
+        },
+      });
+      expect(
+        activeVersionToPlayerTrack(baseTrack, version, "artist").cachePolicy,
+      ).toBeUndefined();
+    },
+  );
+
+  it("defaults an unknown artist entitlement to no byte cache", () => {
+    const version = makeVersion({
+      delivery: {
+        ...makeVersion().delivery,
+        permission: "unknown_permission",
+      } as unknown as SongPageVersion["delivery"],
+    });
+    expect(activeVersionToPlayerTrack(baseTrack, version, "artist").cachePolicy).toBeUndefined();
   });
 });
 

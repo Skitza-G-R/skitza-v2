@@ -120,6 +120,7 @@ describe("RecentUploadsShelf cardPlayDetail — custom-event payload", () => {
       title: "Sunset Mix",
       subtitle: "Bob's EP · v3",
       durationMs: 200_000,
+      cachePolicy: "account-unlocked",
     });
   });
 });

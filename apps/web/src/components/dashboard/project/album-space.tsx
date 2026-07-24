@@ -127,6 +127,7 @@ export function AlbumSpace({
           title: playLatest.songTitle,
           subtitle: `${playLatest.projectName} · ${playLatest.versionLabel}`,
           durationMs: playLatest.durationMs ?? null,
+          cachePolicy: "account-unlocked",
         });
       }
     : undefined;

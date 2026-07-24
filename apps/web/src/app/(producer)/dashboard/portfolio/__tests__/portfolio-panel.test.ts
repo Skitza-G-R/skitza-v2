@@ -5,6 +5,11 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  expandHrefForTrack,
+  pickDurationMs,
+} from "~/components/audio/persistent-player";
+
+import {
   canReorder,
   computePlayingId,
   downsamplePeaks,
@@ -420,6 +425,44 @@ describe("portfolio-panel.tsx — structural invariants", () => {
     expect(panelSource).not.toMatch(/new Audio\(/);
   });
 
+  it("uses the exact latest version for player identity and its expand route", () => {
+    expect(pageSource).toMatch(/versionId:\s*song\.latestVersion\.id/);
+    expect(panelSource).toContain("playback.trackId === row.versionId");
+    expect(panelSource).toMatch(/playerPlay\(\{\s*id:\s*row\.versionId/);
+    expect(
+      expandHrefForTrack(
+        {
+          id: "version-42",
+          audioUrl: "/api/audio/stream/version-42",
+          title: "Track",
+          subtitle: "Artist",
+          durationMs: null,
+        },
+        "/dashboard/portfolio",
+      ),
+    ).toBe("/dashboard/music/version-42");
+  });
+
+  it("keeps publication identity separate and closes a removed loaded version", () => {
+    expect(panelSource).toContain("remove(row.id)");
+    expect(panelSource).toContain("playback.trackId === removed.versionId");
+    expect(panelSource).toContain("playerClose()");
+  });
+
+  it("falls back to live runtime duration for progress and seeking", () => {
+    expect(pickDurationMs(null, 185.5)).toBe(185_500);
+    expect(panelSource).toContain("const resolvedDurationMs = pickDurationMs(");
+    expect(panelSource).toContain("runtime.currentMs / resolvedDurationMs");
+    expect(panelSource).toContain("playerSeek(clamped * resolvedDurationMs)");
+  });
+
+  it("preserves a first waveform click until null DB duration loads", () => {
+    expect(panelSource).toContain("const pendingSeekFractionRef = useRef<number | null>(null)");
+    expect(panelSource).toContain("pendingSeekFractionRef.current = clamped");
+    expect(panelSource).toContain("pendingFraction * resolvedDurationMs");
+    expect(panelSource).toContain("pendingSeekFractionRef.current = null");
+  });
+
   it("uses real peaks when present, falls back to seededBars", () => {
     // Behavioural test for downsample math itself is in describe(downsamplePeaks).
     // This source-grep just proves the fallback branch is wired.
@@ -479,6 +522,7 @@ describe("portfolio/page.tsx — slug + header pill", () => {
   });
 
   it("passes the current latest-version preview into PortfolioTrackRow rows", () => {
+    expect(pageSource).toMatch(/versionId:\s*song\.latestVersion\.id/);
     expect(pageSource).toMatch(/audioUrl:\s*song\.latestVersion\.audioUrl/);
     expect(pageSource).toMatch(/durationMs:\s*song\.latestVersion\.durationMs/);
     expect(pageSource).toMatch(/versionLabel:\s*song\.latestVersion\.label/);

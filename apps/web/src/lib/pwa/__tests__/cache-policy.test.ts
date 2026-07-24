@@ -72,7 +72,7 @@ describe("service worker cache policy", () => {
     ["/sign-in", "sensitive-path"],
     ["/listen/private-song-token", "sensitive-path"],
     ["/audio/locked-master.wav", "sensitive-path"],
-    ["/media/unlocked/example.mp3", "not-allowlisted"],
+    ["/api/audio/stream/10000000-0000-4000-8000-000000000001", "sensitive-path"],
     ["/public/store", "not-allowlisted"],
   ])("keeps %s network-only (%s)", (path, reason) => {
     expect(policy.classifyRequest(request(path), OWN_ORIGIN)).toEqual({

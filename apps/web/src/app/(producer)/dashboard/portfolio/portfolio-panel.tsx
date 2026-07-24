@@ -3,6 +3,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   useTransition,
   type MouseEvent as ReactMouseEvent,
@@ -33,6 +34,8 @@ import { CSS } from "@dnd-kit/utilities";
 import { useToast } from "~/components/ui/toast";
 import { PlatformIcon } from "~/components/portfolio/platform-icons";
 import {
+  pickDurationMs,
+  playerClose,
   playerPlay,
   playerSeek,
   playerToggle,
@@ -51,7 +54,10 @@ import {
 // ─── Public types ───────────────────────────────────────────────────
 
 export type PortfolioTrackRow = {
+  /** Song/track identity used for portfolio publication mutations. */
   id: string;
+  /** Exact latest version identity used by the shared player and expand route. */
+  versionId: string;
   title: string;
   artist: string | null;
   portfolioPublished: true;
@@ -251,6 +257,7 @@ function FeaturedTracksSection({
   const router = useRouter();
   const { toast } = useToast();
   const [, startTransition] = useTransition();
+  const playback = useNowPlaying();
 
   useEffect(() => {
     setRows(initialTracks);
@@ -259,6 +266,10 @@ function FeaturedTracksSection({
   const atCap = rows.length >= TRACK_CAP;
 
   function remove(id: string) {
+    const removed = rows.find((row) => row.id === id);
+    if (removed && playback.trackId === removed.versionId) {
+      playerClose();
+    }
     setRows((all) => all.filter((r) => r.id !== id));
     startTransition(async () => {
       const res = await setPortfolioSongPublished({
@@ -340,42 +351,65 @@ function FeaturedTracksEmpty() {
 
 function TrackRow({ row, onRemove }: { row: PortfolioTrackRow; onRemove: () => void }) {
   const playback = useNowPlaying();
-  const isPlaying = playback.trackId === row.id && playback.playing;
+  const isCurrent = playback.trackId === row.versionId;
+  const isPlaying = isCurrent && playback.playing;
   const runtime = usePlaybackSnapshot();
+  const pendingSeekFractionRef = useRef<number | null>(null);
+  const resolvedDurationMs = pickDurationMs(
+    row.durationMs,
+    isCurrent ? runtime.audioDurationSec : null,
+  );
   const progress =
-    playback.trackId === row.id && row.durationMs && row.durationMs > 0
-      ? Math.min(1, runtime.currentMs / row.durationMs)
+    isCurrent && resolvedDurationMs
+      ? Math.min(1, runtime.currentMs / resolvedDurationMs)
       : 0;
+
+  useEffect(() => {
+    if (!isCurrent) {
+      pendingSeekFractionRef.current = null;
+      return;
+    }
+    const pendingFraction = pendingSeekFractionRef.current;
+    if (pendingFraction === null || !resolvedDurationMs) return;
+    pendingSeekFractionRef.current = null;
+    playerSeek(pendingFraction * resolvedDurationMs);
+  }, [isCurrent, resolvedDurationMs]);
 
   function togglePlay() {
     if (!row.audioUrl) return;
-    if (playback.trackId === row.id) {
+    if (isCurrent) {
       playerToggle();
       return;
     }
     playerPlay({
-      id: row.id,
+      id: row.versionId,
       audioUrl: row.audioUrl,
       title: row.title,
       subtitle: row.artist ?? row.versionLabel,
       durationMs: row.durationMs,
+      cachePolicy: "account-unlocked",
     });
   }
 
   function seekToFraction(fraction: number) {
     const clamped = Math.max(0, Math.min(1, fraction));
     if (!row.audioUrl) return;
-    if (playback.trackId !== row.id) {
+    if (!resolvedDurationMs) {
+      pendingSeekFractionRef.current = clamped;
+    }
+    if (!isCurrent) {
       playerPlay({
-        id: row.id,
+        id: row.versionId,
         audioUrl: row.audioUrl,
         title: row.title,
         subtitle: row.artist ?? row.versionLabel,
         durationMs: row.durationMs,
+        cachePolicy: "account-unlocked",
       });
     }
-    if (row.durationMs && row.durationMs > 0) {
-      playerSeek(clamped * row.durationMs);
+    if (resolvedDurationMs) {
+      pendingSeekFractionRef.current = null;
+      playerSeek(clamped * resolvedDurationMs);
     }
   }
 
@@ -471,12 +505,12 @@ function TrackRow({ row, onRemove }: { row: PortfolioTrackRow; onRemove: () => v
               <span className="font-mono text-[10px] tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
                 {row.versionLabel}
               </span>
-              {formatDuration(row.durationMs) ? (
+              {formatDuration(resolvedDurationMs) ? (
                 <>
                   {" "}
                   <span className="text-[rgb(var(--fg-muted))]">·</span>{" "}
                   <span className="font-mono text-[rgb(var(--fg-muted))] tabular-nums">
-                    {formatDuration(row.durationMs)}
+                    {formatDuration(resolvedDurationMs)}
                   </span>
                 </>
               ) : null}

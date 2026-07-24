@@ -345,6 +345,7 @@ async function runScheduledCancellationRecovery(): Promise<void> {
   if (!accountId) return;
   recoveryRunning = true;
   try {
+    await migrateLegacyUploadJournalForAccount(accountId);
     await runRecoverableUploadPass({
       entries: resumableUploads(accountId),
       now: new Date(),
@@ -439,6 +440,7 @@ function isResumableEntry(
   if (typeof value !== "object" || value === null) return false;
   const entry = value as Record<string, unknown>;
   if (
+    accountId.length === 0 ||
     entry.accountId !== accountId ||
     typeof entry.uploadId !== "string" ||
     entry.uploadId.length === 0 ||
@@ -501,7 +503,247 @@ function pendingVersionCleanups(
   return out;
 }
 
+type LegacyResumableEntry = Omit<ResumableEntry, "accountId">;
+type LegacyVersionCleanupEntry = Omit<PendingVersionCleanupEntry, "accountId">;
+
+type LegacyJournalScan = {
+  uploads: Array<{ storageKey: string; entry: LegacyResumableEntry }>;
+  versionCleanups: Array<{
+    storageKey: string;
+    entry: LegacyVersionCleanupEntry;
+  }>;
+  malformedKeys: string[];
+  blockingUploadVersionIds: Set<string>;
+};
+
+function localStorageKeySnapshot(): string[] {
+  if (typeof localStorage === "undefined") return [];
+  try {
+    return Array.from({ length: localStorage.length }, (_, index) =>
+      localStorage.key(index),
+    ).filter((key): key is string => key !== null);
+  } catch {
+    return [];
+  }
+}
+
+function validCompletedParts(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.every((part) => {
+      if (typeof part !== "object" || part === null) return false;
+      const candidate = part as Record<string, unknown>;
+      return (
+        typeof candidate.partNumber === "number" &&
+        Number.isSafeInteger(candidate.partNumber) &&
+        candidate.partNumber > 0 &&
+        typeof candidate.eTag === "string"
+      );
+    })
+  );
+}
+
+function isLegacyResumableEntry(value: unknown, storageKey: string): value is LegacyResumableEntry {
+  if (typeof value !== "object" || value === null) return false;
+  const entry = value as Record<string, unknown>;
+  return (
+    entry.accountId === undefined &&
+    typeof entry.uploadId === "string" &&
+    entry.uploadId.length > 0 &&
+    storageKey === `${STORAGE_PREFIX}${entry.uploadId}` &&
+    typeof entry.key === "string" &&
+    entry.key.length > 0 &&
+    isUuid(entry.trackVersionId) &&
+    typeof entry.completionToken === "string" &&
+    /^[0-9a-f]{64}$/.test(entry.completionToken) &&
+    typeof entry.totalBytes === "number" &&
+    Number.isSafeInteger(entry.totalBytes) &&
+    entry.totalBytes > 0 &&
+    validCompletedParts(entry.completed) &&
+    isIsoTimestamp(entry.createdAt) &&
+    isIsoTimestamp(entry.lastProgressAt) &&
+    new Date(entry.createdAt).getTime() <= new Date(entry.lastProgressAt).getTime() &&
+    (entry.cancellationRequestedAt === undefined || isIsoTimestamp(entry.cancellationRequestedAt))
+  );
+}
+
+function isLegacyVersionCleanupEntry(
+  value: unknown,
+  storageKey: string,
+): value is LegacyVersionCleanupEntry {
+  if (typeof value !== "object" || value === null) return false;
+  const entry = value as Record<string, unknown>;
+  return (
+    entry.accountId === undefined &&
+    isUuid(entry.trackVersionId) &&
+    storageKey === `${VERSION_CLEANUP_STORAGE_PREFIX}${entry.trackVersionId}` &&
+    isIsoTimestamp(entry.cleanupRequestedAt)
+  );
+}
+
+function scanLegacyUploadJournal(): LegacyJournalScan {
+  const scan: LegacyJournalScan = {
+    uploads: [],
+    versionCleanups: [],
+    malformedKeys: [],
+    blockingUploadVersionIds: new Set(),
+  };
+  for (const storageKey of localStorageKeySnapshot()) {
+    const isUpload = storageKey.startsWith(STORAGE_PREFIX);
+    const isVersionCleanup = storageKey.startsWith(VERSION_CLEANUP_STORAGE_PREFIX);
+    if (!isUpload && !isVersionCleanup) continue;
+    let parsed: unknown;
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) {
+        scan.malformedKeys.push(storageKey);
+        continue;
+      }
+      parsed = JSON.parse(raw) as unknown;
+    } catch {
+      scan.malformedKeys.push(storageKey);
+      continue;
+    }
+
+    if (typeof parsed === "object" && parsed !== null) {
+      const parsedAccountId = (parsed as Record<string, unknown>).accountId;
+      if (typeof parsedAccountId === "string") {
+        const validScopedUpload =
+          parsedAccountId.length > 0 &&
+          isUpload &&
+          isResumableEntry(parsed, parsedAccountId, storageKey);
+        const scopedCleanup = parsed as Partial<PendingVersionCleanupEntry>;
+        const validScopedVersionCleanup =
+          parsedAccountId.length > 0 &&
+          isVersionCleanup &&
+          scopedCleanup.accountId === parsedAccountId &&
+          isUuid(scopedCleanup.trackVersionId) &&
+          storageKey === versionCleanupStorageKey(parsedAccountId, scopedCleanup.trackVersionId) &&
+          isIsoTimestamp(scopedCleanup.cleanupRequestedAt);
+        if (!validScopedUpload && !validScopedVersionCleanup) {
+          scan.malformedKeys.push(storageKey);
+        }
+        const scopedUploadVersionId = (parsed as Record<string, unknown>).trackVersionId;
+        if (isUpload && isUuid(scopedUploadVersionId)) {
+          // Scoped uploads are never adopted by legacy migration. Even a
+          // malformed scoped sibling blocks version deletion because its
+          // exact multipart identity could not be safely aborted.
+          scan.blockingUploadVersionIds.add(scopedUploadVersionId);
+        }
+        // Valid scoped journals remain isolated to their explicit owner and
+        // keep their normal retry semantics. Invalid scoped payloads cannot
+        // be recovered and are purged so embedded secrets do not linger.
+        continue;
+      }
+    }
+    if (isUpload && isLegacyResumableEntry(parsed, storageKey)) {
+      scan.uploads.push({ storageKey, entry: parsed });
+    } else if (isVersionCleanup && isLegacyVersionCleanupEntry(parsed, storageKey)) {
+      scan.versionCleanups.push({ storageKey, entry: parsed });
+    } else {
+      if (
+        isUpload &&
+        typeof parsed === "object" &&
+        parsed !== null &&
+        isUuid((parsed as Record<string, unknown>).trackVersionId)
+      ) {
+        scan.blockingUploadVersionIds.add(
+          (parsed as { trackVersionId: string }).trackVersionId,
+        );
+      }
+      scan.malformedKeys.push(storageKey);
+    }
+  }
+  return scan;
+}
+
+function removeLegacyStorageKey(storageKey: string): void {
+  try {
+    localStorage.removeItem(storageKey);
+  } catch {
+    // Best effort: storage may be unavailable during browser teardown.
+  }
+}
+
+/**
+ * Pre-SK-110 journals had no account owner and persisted R2 keys and
+ * completion tokens. The first authenticated recovery gets one fail-closed
+ * server attempt using the current session, then purges every ownerless local
+ * record. A false/unauthorized/transient result is never adopted into the
+ * current account because doing so could expose another account's secret.
+ */
+export async function migrateLegacyUploadJournalForAccount(
+  accountId: string,
+  dependencies: Readonly<{
+    abort?: ExactAbort;
+    cleanup?: VersionCleanup;
+  }> = {},
+): Promise<{
+  attemptedUploads: number;
+  attemptedVersionCleanups: number;
+  removedLocalEntries: number;
+}> {
+  const abort = dependencies.abort ?? abortAudioUpload;
+  const cleanup = dependencies.cleanup ?? deleteVersionAction;
+  const scan = scanLegacyUploadJournal();
+  let removedLocalEntries = 0;
+  for (const storageKey of scan.malformedKeys) {
+    removeLegacyStorageKey(storageKey);
+    removedLocalEntries += 1;
+  }
+
+  const uploadVersionIds = new Set(scan.uploads.map(({ entry }) => entry.trackVersionId));
+  const everyLegacyUploadSafelyAborted = new Map<string, boolean>(
+    [...uploadVersionIds].map((versionId) => [versionId, true]),
+  );
+  for (const { storageKey, entry } of scan.uploads) {
+    try {
+      const result = await abort(
+        toExactAbortInput({
+          ...entry,
+          accountId,
+        }),
+      );
+      if (!result.ok) {
+        everyLegacyUploadSafelyAborted.set(entry.trackVersionId, false);
+      }
+    } catch {
+      everyLegacyUploadSafelyAborted.set(entry.trackVersionId, false);
+      // Treat errors as unauthorized/transient and still purge the unowned
+      // local secret rather than assigning it to the current account.
+    } finally {
+      removeLegacyStorageKey(storageKey);
+      removedLocalEntries += 1;
+    }
+  }
+
+  let attemptedVersionCleanups = 0;
+  for (const { storageKey, entry } of scan.versionCleanups) {
+    const safeToDeleteVersion =
+      !scan.blockingUploadVersionIds.has(entry.trackVersionId) &&
+      (!uploadVersionIds.has(entry.trackVersionId) ||
+        everyLegacyUploadSafelyAborted.get(entry.trackVersionId) === true);
+    if (safeToDeleteVersion) {
+      attemptedVersionCleanups += 1;
+      try {
+        await cleanup({ id: entry.trackVersionId });
+      } catch {
+        // The local legacy record is purged even when current auth rejects it.
+      }
+    }
+    removeLegacyStorageKey(storageKey);
+    removedLocalEntries += 1;
+  }
+
+  return {
+    attemptedUploads: scan.uploads.length,
+    attemptedVersionCleanups,
+    removedLocalEntries,
+  };
+}
+
 export async function cancelPersistedUploadsForAccount(accountId: string): Promise<boolean> {
+  await migrateLegacyUploadJournalForAccount(accountId);
   let allCancelled = true;
   for (const entry of resumableUploads(accountId)) {
     const result = await requestExactMultipartCancellation(entry, abortAudioUpload);

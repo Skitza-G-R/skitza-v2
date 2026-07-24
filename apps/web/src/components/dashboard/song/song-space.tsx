@@ -165,6 +165,7 @@ export function SongSpace({
       title: song.title,
       subtitle: `${project.name} · ${latest.versionLabel}`,
       durationMs: latest.durationMs,
+      cachePolicy: "account-unlocked",
     });
   }, [latest, song.title, project.name]);
 

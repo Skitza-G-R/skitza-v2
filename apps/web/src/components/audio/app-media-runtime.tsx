@@ -17,11 +17,15 @@ import {
   cancelPersistedUploadsForAccount,
   startMultipartCancellationRecovery,
 } from "~/lib/audio/use-multipart-upload";
-import { AppPlaybackRuntime, clearPlaybackForAccount } from "./playback-runtime";
+import {
+  AppPlaybackRuntime,
+  clearPlaybackForAccount,
+  usePlaybackSnapshot,
+} from "./playback-runtime";
 
 type SignOutOptions = { redirectUrl?: string };
 
-async function prepareAccountExit(accountId: string): Promise<boolean> {
+export async function prepareMediaAccountExit(accountId: string): Promise<boolean> {
   // The active in-memory callbacks hold the File and can abort an in-flight
   // PUT immediately. The journal pass then catches an identity whose owning
   // component disappeared or whose cancellation callback failed.
@@ -53,7 +57,7 @@ export function useSafeSignOut(): (options?: SignOutOptions) => Promise<void> {
   return useCallback(
     async (options?: SignOutOptions) => {
       try {
-        if (user?.id) await prepareAccountExit(user.id);
+        if (user?.id) await prepareMediaAccountExit(user.id);
       } finally {
         await clerk.signOut(options);
       }
@@ -77,7 +81,7 @@ function AppUploadRuntime({ accountId }: { accountId: string | null | undefined 
     previousAccountRef.current = accountId;
 
     if (previous && previous !== accountId) {
-      void prepareAccountExit(previous);
+      void prepareMediaAccountExit(previous);
     }
     if (!accountId) return;
     return startMultipartCancellationRecovery();
@@ -114,7 +118,7 @@ function AppUploadRuntime({ accountId }: { accountId: string | null | undefined 
       event.preventDefault();
       event.stopImmediatePropagation();
       interceptingSignOutRef.current = true;
-      void prepareAccountExit(accountId)
+      void prepareMediaAccountExit(accountId)
         .catch(() => {
           // Failed exact cancellation remains in the scoped journal.
         })
@@ -134,13 +138,19 @@ function AppUploadRuntime({ accountId }: { accountId: string | null | undefined 
 
 function UploadActivityDock() {
   const uploads = useManagedUploads();
+  const playback = usePlaybackSnapshot();
   if (uploads.length === 0) return null;
   const visible = uploads.slice(-3);
 
   return (
     <aside
       aria-label="Upload activity"
-      className="fixed right-3 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-[55] grid w-[min(22rem,calc(100vw-1.5rem))] gap-2 lg:bottom-4"
+      className={[
+        "fixed right-3 z-[55] grid w-[min(22rem,calc(100vw-1.5rem))] gap-2 transition-[bottom] motion-reduce:transition-none",
+        playback.track
+          ? "bottom-[calc(10rem+env(safe-area-inset-bottom))] lg:bottom-[6.5rem]"
+          : "bottom-[calc(5.5rem+env(safe-area-inset-bottom))] lg:bottom-4",
+      ].join(" ")}
     >
       {visible.map((upload) => {
         const active = managedUploadIsActive(upload);
@@ -205,7 +215,7 @@ function UploadActivityDock() {
                 {upload.canRetry && upload.status === "error" ? (
                   <button
                     type="button"
-                    className="rounded-[var(--radius-lg)] px-2.5 py-1.5 text-xs font-semibold text-[rgb(var(--fg-default))] ring-1 ring-[rgb(var(--border-strong))]"
+                    className="sk-press inline-flex min-h-11 min-w-11 items-center justify-center rounded-[var(--radius-lg)] px-3 py-2 text-xs font-semibold text-[rgb(var(--fg-default))] ring-1 ring-[rgb(var(--border-strong))]"
                     onClick={() => {
                       void retryManagedUpload(upload.id);
                     }}
@@ -216,7 +226,7 @@ function UploadActivityDock() {
                 {upload.canCancel && active ? (
                   <button
                     type="button"
-                    className="rounded-[var(--radius-lg)] px-2.5 py-1.5 text-xs font-semibold text-[rgb(var(--fg-danger))]"
+                    className="sk-press inline-flex min-h-11 min-w-11 items-center justify-center rounded-[var(--radius-lg)] px-3 py-2 text-xs font-semibold text-[rgb(var(--fg-danger))]"
                     onClick={() => {
                       void cancelManagedUpload(upload.id);
                     }}

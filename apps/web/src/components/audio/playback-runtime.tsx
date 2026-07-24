@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   cacheRecentAudio,
   clearRecentAudioForAccount,
+  enforceRecentAudioAccountIsolation,
   isAudioUrlSafeToRestore,
   isRecentAudioCacheEligible,
   readRecentAudio,
@@ -27,6 +28,12 @@ export type PlaybackSnapshot = {
   currentMs: number;
   audioDurationSec: number | null;
 };
+
+export type PlaybackCommand =
+  | { kind: "set"; track: PlayerTrack }
+  | { kind: "toggle" }
+  | { kind: "seek"; currentMs: number }
+  | { kind: "close" };
 
 type ResolvedAudioSource = {
   accountId: string | null;
@@ -135,36 +142,123 @@ type StoredPlayback = {
   updatedAt: string;
 };
 
-function isFiniteDuration(value: unknown): value is number | null {
-  return value === null || (typeof value === "number" && Number.isFinite(value) && value >= 0);
-}
+const PLAYER_ID_MAX_LENGTH = 256;
+const PLAYER_METADATA_MAX_LENGTH = 300;
+const PLAYER_AUDIO_URL_MAX_LENGTH = 2_048;
+const PLAYER_DURATION_MAX_MS = 7 * 24 * 60 * 60 * 1_000;
+const PLAYER_ARTWORK_MAX_ITEMS = 8;
 
-function isStoredTrack(value: unknown, origin: string): value is PlayerTrack {
-  if (typeof value !== "object" || value === null) return false;
-  const track = value as Record<string, unknown>;
+function isFiniteDuration(value: unknown): value is number | null {
   return (
-    typeof track.id === "string" &&
-    track.id.length > 0 &&
-    typeof track.audioUrl === "string" &&
-    isAudioUrlSafeToRestore(track.audioUrl, origin) &&
-    typeof track.title === "string" &&
-    typeof track.subtitle === "string" &&
-    isFiniteDuration(track.durationMs) &&
-    (track.cachePolicy === undefined ||
-      track.cachePolicy === "none" ||
-      track.cachePolicy === "public-unlocked")
+    value === null ||
+    (typeof value === "number" &&
+      Number.isFinite(value) &&
+      value >= 0 &&
+      value <= PLAYER_DURATION_MAX_MS)
   );
 }
 
-function restorePlayback(accountId: string, origin: string): PlaybackSnapshot {
+function isAudioCachePolicy(value: unknown): value is AudioCachePolicy | undefined {
+  return value === undefined || value === "none" || value === "account-unlocked";
+}
+
+function boundedString(value: unknown, maxLength: number, allowEmpty = true): value is string {
+  return typeof value === "string" && value.length <= maxLength && (allowEmpty || value.length > 0);
+}
+
+function sanitizedArtwork(value: unknown): MediaImage[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const images = value.slice(0, PLAYER_ARTWORK_MAX_ITEMS).flatMap((candidate): MediaImage[] => {
+    if (typeof candidate !== "object" || candidate === null) return [];
+    const image = candidate as Record<string, unknown>;
+    if (!boundedString(image.src, PLAYER_AUDIO_URL_MAX_LENGTH, false)) return [];
+    let parsed: URL;
+    try {
+      parsed = new URL(
+        image.src,
+        typeof window === "undefined" ? "https://skitza.app" : window.location.origin,
+      );
+    } catch {
+      return [];
+    }
+    if (
+      (parsed.protocol !== "https:" && parsed.protocol !== "http:") ||
+      parsed.username ||
+      parsed.password ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      return [];
+    }
+    if (image.sizes !== undefined && !boundedString(image.sizes, PLAYER_METADATA_MAX_LENGTH)) {
+      return [];
+    }
+    if (image.type !== undefined && !boundedString(image.type, PLAYER_METADATA_MAX_LENGTH)) {
+      return [];
+    }
+    return [
+      {
+        src: image.src,
+        ...(typeof image.sizes === "string" ? { sizes: image.sizes } : {}),
+        ...(typeof image.type === "string" ? { type: image.type } : {}),
+      },
+    ];
+  });
+  return images.length > 0 ? images : undefined;
+}
+
+export function normalizePlayerTrack(value: unknown): PlayerTrack | null {
+  if (typeof value !== "object" || value === null) return null;
+  const track = value as Record<string, unknown>;
+  if (
+    !boundedString(track.id, PLAYER_ID_MAX_LENGTH, false) ||
+    !(
+      track.audioUrl === null || boundedString(track.audioUrl, PLAYER_AUDIO_URL_MAX_LENGTH, false)
+    ) ||
+    !boundedString(track.title, PLAYER_METADATA_MAX_LENGTH) ||
+    !boundedString(track.subtitle, PLAYER_METADATA_MAX_LENGTH) ||
+    !isFiniteDuration(track.durationMs) ||
+    !isAudioCachePolicy(track.cachePolicy)
+  ) {
+    return null;
+  }
+  const artwork = sanitizedArtwork(track.artwork);
+  return {
+    id: track.id,
+    audioUrl: track.audioUrl,
+    title: track.title,
+    subtitle: track.subtitle,
+    durationMs: track.durationMs,
+    ...(track.cachePolicy === undefined ? {} : { cachePolicy: track.cachePolicy }),
+    ...(artwork ? { artwork } : {}),
+  };
+}
+
+function storedPlayerTrack(value: unknown, origin: string): PlayerTrack | null {
+  const normalized = normalizePlayerTrack(value);
+  if (!normalized?.audioUrl || !isAudioUrlSafeToRestore(normalized.audioUrl, origin)) {
+    return null;
+  }
+  return {
+    id: normalized.id,
+    audioUrl: normalized.audioUrl,
+    title: normalized.title,
+    subtitle: normalized.subtitle,
+    durationMs: normalized.durationMs,
+    ...(normalized.cachePolicy === undefined ? {} : { cachePolicy: normalized.cachePolicy }),
+  };
+}
+
+export function restorePlaybackForAccount(accountId: string, origin: string): PlaybackSnapshot {
   if (typeof localStorage === "undefined") return EMPTY_PLAYBACK;
-  const raw = localStorage.getItem(playbackStorageKey(accountId));
-  if (!raw) return EMPTY_PLAYBACK;
   try {
+    const raw = localStorage.getItem(playbackStorageKey(accountId));
+    if (!raw) return EMPTY_PLAYBACK;
     const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const track = storedPlayerTrack(parsed.track, origin);
     if (
       parsed.version !== 1 ||
-      !isStoredTrack(parsed.track, origin) ||
+      !track ||
       typeof parsed.currentMs !== "number" ||
       !Number.isFinite(parsed.currentMs) ||
       parsed.currentMs < 0 ||
@@ -174,37 +268,58 @@ function restorePlayback(accountId: string, origin: string): PlaybackSnapshot {
       localStorage.removeItem(playbackStorageKey(accountId));
       return EMPTY_PLAYBACK;
     }
+    const sanitized: StoredPlayback = {
+      version: 1,
+      track,
+      currentMs: parsed.currentMs,
+      updatedAt: parsed.updatedAt,
+    };
+    localStorage.setItem(playbackStorageKey(accountId), JSON.stringify(sanitized));
     return {
-      track: parsed.track,
+      track,
       playing: false,
       currentMs: parsed.currentMs,
       audioDurationSec: null,
     };
   } catch {
-    localStorage.removeItem(playbackStorageKey(accountId));
+    try {
+      localStorage.removeItem(playbackStorageKey(accountId));
+    } catch {
+      // Storage can be blocked or quota-constrained in private browsing.
+    }
     return EMPTY_PLAYBACK;
   }
 }
 
-function persistPlayback(origin: string): void {
-  if (
-    !playbackAccountId ||
-    typeof localStorage === "undefined" ||
-    !playbackSnapshot.track?.audioUrl ||
-    !isAudioUrlSafeToRestore(playbackSnapshot.track.audioUrl, origin)
-  ) {
-    if (playbackAccountId && typeof localStorage !== "undefined") {
-      localStorage.removeItem(playbackStorageKey(playbackAccountId));
+export function persistPlaybackSnapshotForAccount(
+  accountId: string,
+  snapshot: PlaybackSnapshot,
+  origin: string,
+  currentMs = snapshot.currentMs,
+): boolean {
+  if (typeof localStorage === "undefined") return false;
+  try {
+    const track = storedPlayerTrack(snapshot.track, origin);
+    if (!track) {
+      localStorage.removeItem(playbackStorageKey(accountId));
+      return false;
     }
-    return;
+    const stored: StoredPlayback = {
+      version: 1,
+      track,
+      currentMs: Number.isFinite(currentMs) && currentMs >= 0 ? currentMs : snapshot.currentMs,
+      updatedAt: new Date().toISOString(),
+    };
+    localStorage.setItem(playbackStorageKey(accountId), JSON.stringify(stored));
+    return true;
+  } catch {
+    return false;
   }
-  const stored: StoredPlayback = {
-    version: 1,
-    track: playbackSnapshot.track,
-    currentMs: playbackSnapshot.currentMs,
-    updatedAt: new Date().toISOString(),
-  };
-  localStorage.setItem(playbackStorageKey(playbackAccountId), JSON.stringify(stored));
+}
+
+function persistPlayback(origin: string, currentMs = playbackSnapshot.currentMs): void {
+  if (!playbackAccountId) return;
+  persistPlaybackSnapshotForAccount(playbackAccountId, playbackSnapshot, origin, currentMs);
 }
 
 export async function clearPlaybackForAccount(accountId: string): Promise<void> {
@@ -243,23 +358,31 @@ export function resetPlaybackForPrivacy(): void {
   }
 }
 
-function validPlayerTrack(value: unknown): value is PlayerTrack {
-  if (typeof value !== "object" || value === null) return false;
-  const track = value as Record<string, unknown>;
-  return (
-    typeof track.id === "string" &&
-    track.id.length > 0 &&
-    (typeof track.audioUrl === "string" || track.audioUrl === null) &&
-    typeof track.title === "string" &&
-    typeof track.subtitle === "string" &&
-    isFiniteDuration(track.durationMs)
-  );
+export function reducePlaybackSnapshot(
+  current: PlaybackSnapshot,
+  command: PlaybackCommand,
+): PlaybackSnapshot {
+  switch (command.kind) {
+    case "set":
+      return {
+        track: command.track,
+        playing: command.track.audioUrl !== null,
+        currentMs: 0,
+        audioDurationSec: null,
+      };
+    case "toggle":
+      return current.track?.audioUrl ? { ...current, playing: !current.playing } : current;
+    case "seek":
+      return Number.isFinite(command.currentMs)
+        ? { ...current, currentMs: Math.max(0, command.currentMs) }
+        : current;
+    case "close":
+      return EMPTY_PLAYBACK;
+  }
 }
 
 function mediaArtwork(track: PlayerTrack): MediaImage[] {
-  const supplied = Array.isArray(track.artwork)
-    ? track.artwork.filter((item) => typeof item.src === "string" && item.src.length > 0)
-    : [];
+  const supplied = sanitizedArtwork(track.artwork) ?? [];
   if (supplied.length > 0) return supplied;
   return [
     { src: "/icons/skitza-192.png", sizes: "192x192", type: "image/png" },
@@ -283,6 +406,7 @@ export function AppPlaybackRuntime({ accountId }: { accountId: string | null | u
 
   useEffect(() => {
     if (accountId === undefined) return;
+    void enforceRecentAudioAccountIsolation(accountId);
     const previous = previousAccountRef.current;
     if (accountInitializedRef.current && previous !== accountId) {
       resetPlaybackForPrivacy();
@@ -292,7 +416,7 @@ export function AppPlaybackRuntime({ accountId }: { accountId: string | null | u
     previousAccountRef.current = accountId;
     playbackAccountId = accountId;
     if (accountId) {
-      emitPlayback(restorePlayback(accountId, window.location.origin));
+      emitPlayback(restorePlaybackForAccount(accountId, window.location.origin));
     } else {
       emitPlayback(EMPTY_PLAYBACK);
     }
@@ -300,20 +424,13 @@ export function AppPlaybackRuntime({ accountId }: { accountId: string | null | u
 
   useEffect(() => {
     const onSet = (event: Event) => {
-      const track = (event as CustomEvent<unknown>).detail;
-      if (!validPlayerTrack(track)) return;
-      emitPlayback({
-        track,
-        playing: track.audioUrl !== null,
-        currentMs: 0,
-        audioDurationSec: null,
-      });
+      const track = normalizePlayerTrack((event as CustomEvent<unknown>).detail);
+      if (!track) return;
+      emitPlayback(reducePlaybackSnapshot(playbackSnapshot, { kind: "set", track }));
       persistPlayback(window.location.origin);
     };
     const onToggle = () => {
-      updatePlayback((current) =>
-        current.track?.audioUrl ? { ...current, playing: !current.playing } : current,
-      );
+      updatePlayback((current) => reducePlaybackSnapshot(current, { kind: "toggle" }));
       persistPlayback(window.location.origin);
     };
     const onSeek = (event: Event) => {
@@ -321,14 +438,16 @@ export function AppPlaybackRuntime({ accountId }: { accountId: string | null | u
       if (typeof detail !== "number" || !Number.isFinite(detail)) return;
       const nextMs = Math.max(0, detail);
       if (audioRef.current) audioRef.current.currentTime = nextMs / 1000;
-      updatePlayback((current) => ({ ...current, currentMs: nextMs }));
+      updatePlayback((current) =>
+        reducePlaybackSnapshot(current, { kind: "seek", currentMs: nextMs }),
+      );
       persistPlayback(window.location.origin);
     };
     const onClose = () => {
       const currentAccount = playbackAccountId;
-      emitPlayback(EMPTY_PLAYBACK);
-      if (currentAccount && typeof localStorage !== "undefined") {
-        localStorage.removeItem(playbackStorageKey(currentAccount));
+      emitPlayback(reducePlaybackSnapshot(playbackSnapshot, { kind: "close" }));
+      if (currentAccount) {
+        persistPlaybackSnapshotForAccount(currentAccount, EMPTY_PLAYBACK, window.location.origin);
       }
     };
     window.addEventListener(EVT_SET, onSet as EventListener);
@@ -340,6 +459,26 @@ export function AppPlaybackRuntime({ accountId }: { accountId: string | null | u
       window.removeEventListener(EVT_TOGGLE, onToggle);
       window.removeEventListener(EVT_SEEK, onSeek as EventListener);
       window.removeEventListener(EVT_CLOSE, onClose);
+    };
+  }, []);
+
+  useEffect(() => {
+    const flushCurrentPosition = () => {
+      const currentTime = audioRef.current?.currentTime;
+      const currentMs =
+        typeof currentTime === "number" && Number.isFinite(currentTime)
+          ? Math.max(0, Math.floor(currentTime * 1_000))
+          : playbackSnapshot.currentMs;
+      persistPlayback(window.location.origin, currentMs);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flushCurrentPosition();
+    };
+    window.addEventListener("pagehide", flushCurrentPosition);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", flushCurrentPosition);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, []);
 

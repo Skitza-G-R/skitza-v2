@@ -335,14 +335,22 @@ export function deleteVersionAudioPolicy(input: {
 export function activeVersionToPlayerTrack(
   track: SongPageData["track"],
   version: SongPageVersion,
+  role: SongPageRole,
 ): PlayerTrack {
   const label = track.clientName ?? track.artist ?? track.projectTitle;
+  const accountUnlocked =
+    isSongPageVersionPlayable(version) &&
+    version.delivery.permission !== "audio_deleted" &&
+    (role === "producer" ||
+      version.delivery.permission === "purchase_fully_paid" ||
+      version.delivery.permission === "version_override");
   return {
     id: version.id,
     audioUrl: version.audioUrl,
     title: track.title,
     subtitle: `${label} · ${version.label}`,
     durationMs: version.durationMs,
+    ...(accountUnlocked ? { cachePolicy: "account-unlocked" as const } : {}),
   };
 }
 
@@ -817,7 +825,7 @@ export function SongPage({
     if (!isSongPageVersionPlayable(activeVersion)) return;
     const isThisVersionLoaded = nowPlaying.trackId === activeVersion.id;
     if (!isThisVersionLoaded) {
-      playerPlay(activeVersionToPlayerTrack(data.track, activeVersion));
+      playerPlay(activeVersionToPlayerTrack(data.track, activeVersion, role));
     } else if (!nowPlaying.playing) {
       playerToggle();
     }
@@ -867,7 +875,7 @@ export function SongPage({
       playerToggle();
       return;
     }
-    playerPlay(activeVersionToPlayerTrack(data.track, activeVersion));
+    playerPlay(activeVersionToPlayerTrack(data.track, activeVersion, role));
   }
 
   function openManagementDialog(kind: OpenSongManagement["kind"]) {
