@@ -298,6 +298,18 @@ describe("PersistentPlayer source — dock progress visual is a mini waveform, n
     // the click affordance stays discoverable.
     expect(playerSrc).toMatch(/MiniWaveform[\s\S]*?onClick/);
   });
+
+  it("keeps a 44px desktop slider target around the compact visual rail", () => {
+    const miniWaveformSrc = playerSrc.slice(
+      playerSrc.indexOf("function MiniWaveform"),
+      playerSrc.indexOf("// ─── Time formatter"),
+    );
+
+    expect(miniWaveformSrc).toContain('tall ? "h-12" : "h-11"');
+    expect(miniWaveformSrc).toContain(
+      'tall ? "inset-0" : "inset-x-0 top-1/2 h-6 -translate-y-1/2"',
+    );
+  });
 });
 
 describe("PersistentPlayer source — duration fallback (the 0:00 bug)", () => {

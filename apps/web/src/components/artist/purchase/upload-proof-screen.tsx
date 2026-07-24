@@ -19,6 +19,7 @@ import {
   type ProofContentType,
 } from "./actions";
 import { formatPurchaseMoney, type ProofStatus, proofStatusCopy } from "./pay-data";
+import { startManagedPaymentProofUpload } from "./proof-upload-lifecycle";
 
 export type ArtistProofHistoryItem = Readonly<{
   id: string;
@@ -153,6 +154,7 @@ export function UploadProofScreen({
   const online = useOnlineStatus();
   const fileRef = useRef<HTMLInputElement>(null);
   const previewUrlRef = useRef<string | null>(null);
+  const mountedRef = useRef(false);
   const effectiveCurrency = currency ?? "ILS";
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -179,12 +181,13 @@ export function UploadProofScreen({
     if (["empty", "awaiting", "rejected", "paid"].includes(initialStatus)) clearFile();
   }, [initialStatus, thisProofCents]);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
-    },
-    [],
-  );
+    };
+  }, []);
 
   useEffect(() => {
     if (status !== "awaiting" || previewOnly || !online) return;
@@ -243,7 +246,7 @@ export function UploadProofScreen({
     setStatus("attached");
   }
 
-  async function send() {
+  function send() {
     if (!online && !previewOnly) {
       setUploadError("Reconnect before uploading. No proof has been sent.");
       return;
@@ -271,37 +274,42 @@ export function UploadProofScreen({
       setUploadError("This payment link is incomplete. Return to Payment and try again.");
       return;
     }
-    setStatus("uploading");
-    setUploadError(null);
+    const submittedFile = file;
+    const submittedNote = note.trim() || null;
     try {
-      const presigned = await presignProofUploadAction({
+      startManagedPaymentProofUpload({
+        file: submittedFile,
         purchaseId,
         installmentId,
-        fileName: file.name,
         contentType,
-        sizeBytes: file.size,
-      });
-      if (!presigned.ok) throw new Error(presigned.error);
-      const uploaded = await fetch(presigned.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": contentType },
-        body: file,
-      });
-      if (!uploaded.ok) {
-        throw new Error("The file upload did not finish. Check your connection and try again.");
-      }
-      const submitted = await submitPaymentProofAction({
-        purchaseId,
-        installmentId,
-        uploadToken: presigned.uploadToken,
         amountCents,
-        ...(note.trim() ? { note } : {}),
+        note: submittedNote,
+        presign: presignProofUploadAction,
+        submit: submitPaymentProofAction,
+        fetchImpl: fetch,
+        onStart: () => {
+          if (!mountedRef.current) return;
+          setStatus("uploading");
+          setUploadError(null);
+        },
+        onSuccess: () => {
+          if (!mountedRef.current) return;
+          clearFile();
+          setNote("");
+          setStatus("awaiting");
+          router.refresh();
+        },
+        onCancelled: () => {
+          if (!mountedRef.current) return;
+          setStatus("attached");
+          setUploadError("Upload stopped. The payment proof was not submitted.");
+        },
+        onFailure: (message) => {
+          if (!mountedRef.current) return;
+          setStatus("attached");
+          setUploadError(message);
+        },
       });
-      if (!submitted.ok) throw new Error(submitted.error);
-      clearFile();
-      setNote("");
-      setStatus("awaiting");
-      router.refresh();
     } catch (error) {
       setStatus("attached");
       setUploadError(error instanceof Error ? error.message : "Could not upload the proof.");
@@ -605,7 +613,7 @@ export function UploadProofScreen({
         >
           {canUpload ? (
             <PrimaryCta
-              onClick={() => void send()}
+              onClick={send}
               disabled={!canSend}
               glow={canSend}
               ariaBusy={isUploading}

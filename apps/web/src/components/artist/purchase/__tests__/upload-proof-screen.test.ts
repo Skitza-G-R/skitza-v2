@@ -8,6 +8,7 @@ import { parseProofAmountCents } from "../upload-proof-screen";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const screenSource = readFileSync(join(here, "..", "upload-proof-screen.tsx"), "utf8");
+const lifecycleSource = readFileSync(join(here, "..", "proof-upload-lifecycle.ts"), "utf8");
 const actionsSource = readFileSync(join(here, "..", "actions.ts"), "utf8");
 const pageSource = readFileSync(
   join(
@@ -77,12 +78,15 @@ describe("UploadProofScreen SK-75 wiring", () => {
   });
 
   it("uses an opaque upload token and never sends storage identity through the client", () => {
-    expect(screenSource).toMatch(/presigned\.uploadToken/);
-    expect(screenSource).toMatch(/fetch\(presigned\.uploadUrl/);
+    expect(screenSource).toMatch(/startManagedPaymentProofUpload/);
+    expect(lifecycleSource).toMatch(/presigned\.uploadToken/);
+    expect(lifecycleSource).toMatch(/fetchImpl\(presigned\.uploadUrl/);
     expect(screenSource).toMatch(/submitPaymentProofAction/);
     expect(actionsSource).toMatch(/proofOfPayment\.presign/);
     expect(actionsSource).toMatch(/proofOfPayment\.submit/);
-    expect(screenSource).not.toMatch(/storageKey|objectEtag|storageBucket/);
+    expect(`${screenSource}\n${lifecycleSource}`).not.toMatch(
+      /storageKey|objectEtag|storageBucket/,
+    );
     expect(actionsSource).not.toMatch(/storageKey|objectEtag|storageBucket/);
   });
 
@@ -116,9 +120,7 @@ describe("UploadProofScreen SK-75 wiring", () => {
   });
 
   it("keeps the accepted-purchase payment entry usable after submit or rejection", () => {
-    expect(acceptedPurchasePaymentSource).toMatch(
-      /proofOfPayment\.state\(\{ purchaseId \}\)/,
-    );
+    expect(acceptedPurchasePaymentSource).toMatch(/proofOfPayment\.state\(\{ purchaseId \}\)/);
     expect(acceptedPurchasePaymentSource).toMatch(
       /\/artist\/payments\/\$\{encodeURIComponent\(proofState\.purchaseId\)\}\/proof/,
     );
@@ -127,7 +129,9 @@ describe("UploadProofScreen SK-75 wiring", () => {
 
   it("polls only while review is pending and remains usable at narrow widths", () => {
     expect(screenSource).toMatch(/status !== "awaiting" \|\| previewOnly/);
-    expect(screenSource).toMatch(/setInterval\(\(\) => \{[\s\S]*router\.refresh\(\);[\s\S]*\}, 8_000\)/);
+    expect(screenSource).toMatch(
+      /setInterval\(\(\) => \{[\s\S]*router\.refresh\(\);[\s\S]*\}, 8_000\)/,
+    );
     expect(screenSource).toMatch(/max-w-\[440px\]/);
     expect(screenSource).toMatch(/overflow-x-hidden/);
     expect(screenSource).toMatch(/min-\[390px\]:px-5/);

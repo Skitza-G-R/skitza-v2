@@ -125,11 +125,7 @@ describe("activeVersionToPlayerTrack — PlayerTrack payload", () => {
   });
 
   it("propagates durationMs=null", () => {
-    const p = activeVersionToPlayerTrack(
-      baseTrack,
-      makeVersion({ durationMs: null }),
-      "producer",
-    );
+    const p = activeVersionToPlayerTrack(baseTrack, makeVersion({ durationMs: null }), "producer");
     expect(p.durationMs).toBeNull();
   });
 
@@ -169,9 +165,7 @@ describe("activeVersionToPlayerTrack — PlayerTrack payload", () => {
           permission,
         },
       });
-      expect(
-        activeVersionToPlayerTrack(baseTrack, version, "artist").cachePolicy,
-      ).toBeUndefined();
+      expect(activeVersionToPlayerTrack(baseTrack, version, "artist").cachePolicy).toBeUndefined();
     },
   );
 
@@ -461,9 +455,15 @@ describe("song-page.tsx — comments are clickable + replyable (founder feedback
   it("Reply pre-fills the composer with the @author handle and focuses it", () => {
     // When the producer clicks Reply, the composer should be ready to
     // receive their message — focus + a draft prefix make that
-    // obvious. We use a ref on the input so we can both set its value
-    // AND focus it.
-    expect(songPageSrc).toMatch(/draftRef\.current[^\n]*?(\.value\s*=|focus\(\))/);
+    // obvious. The controlled draft owns the value while the input ref
+    // provides the focus target.
+    const replySource = songPageSrc.slice(
+      songPageSrc.indexOf("function handleReplyToComment"),
+      songPageSrc.indexOf("function handlePlayToggle"),
+    );
+    expect(replySource).toContain("const input = draftRef.current");
+    expect(replySource).toContain("commentDraft.setBody(prefix)");
+    expect(replySource).toContain("input.focus()");
   });
 
   it("Reply avoids smooth scrolling when the user prefers reduced motion", () => {
@@ -535,9 +535,20 @@ describe("song-page.tsx source — secondary actions and public sharing", () => 
   });
 
   it("uses a truly disabled control with a reason when audio cannot be downloaded", () => {
-    expect(songPageSrc).not.toContain("aria-disabled");
-    expect(songPageSrc).toContain('title={\n                          activeVersionDeleted');
-    expect(songPageSrc).toContain('type="button"\n                        role="menuitem"\n                        disabled');
+    const downloadControlSource = songPageSrc.slice(
+      songPageSrc.indexOf("{canUseDownloadAction ?"),
+      songPageSrc.indexOf(
+        '{role === "producer" &&',
+        songPageSrc.indexOf("{canUseDownloadAction ?"),
+      ),
+    );
+    expect(downloadControlSource).not.toContain("aria-disabled");
+    expect(downloadControlSource).toContain(
+      "title={\n                          activeVersionDeleted",
+    );
+    expect(downloadControlSource).toContain(
+      'type="button"\n                        role="menuitem"\n                        disabled',
+    );
   });
 
   it("removes the local-only Favorite control", () => {
@@ -610,6 +621,35 @@ describe("song-page.tsx source — deleted audio remains history, not a player t
 
   it("gates download and waveform audio through the playable-version helper", () => {
     expect(songPageSrc).toContain("isSongPageVersionPlayable(activeVersion)");
+  });
+});
+
+describe("song-page.tsx source — truthful comment mutations", () => {
+  const addCommentSource = songPageSrc.slice(
+    songPageSrc.indexOf("function handleAddComment"),
+    songPageSrc.indexOf("function handleComposerFocus"),
+  );
+  const resolveCommentSource = songPageSrc.slice(
+    songPageSrc.indexOf("function handleResolveToggle"),
+    songPageSrc.indexOf("function handleProducerReadyToggle"),
+  );
+
+  it("keeps the draft until add-comment succeeds and rolls back transport failures", () => {
+    expect(addCommentSource).toContain("commentDraft.preserveDraft(body)");
+    expect(addCommentSource).toMatch(/try \{[\s\S]*await actions\.addComment/);
+    expect(addCommentSource).toMatch(/catch[\s\S]*commentDraft\.setBody\(body\)/);
+    expect(addCommentSource).toMatch(/if \(!res\.ok\)[\s\S]*commentDraft\.setBody\(body\)/);
+    expect(addCommentSource).toMatch(/else|return/);
+    expect(addCommentSource).toContain("commentDraft.clearDraft()");
+  });
+
+  it("blocks offline resolve/reopen and rolls back result and transport failures", () => {
+    expect(resolveCommentSource).toMatch(/if \(!online\)/);
+    expect(resolveCommentSource).toMatch(/try \{[\s\S]*await actions\.resolveComment/);
+    expect(resolveCommentSource).toMatch(
+      /if \(res\.ok\) return;[\s\S]*setResolvedOverrides[\s\S]*currentResolved/,
+    );
+    expect(resolveCommentSource).toMatch(/catch[\s\S]*setResolvedOverrides[\s\S]*currentResolved/);
   });
 });
 

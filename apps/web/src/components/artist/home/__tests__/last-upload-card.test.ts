@@ -38,10 +38,11 @@ describe("LastUploadCard", () => {
     expect(SRC).toMatch(/Nothing\s*new/);
   });
 
-  it("calls playerToggle when the same track is already playing", () => {
+  it("toggles the already-loaded track whether it is playing or paused", () => {
     expect(SRC).toMatch(
       /import\s*\{[^}]*playerToggle[^}]*\}\s*from\s*["']~\/components\/audio\/persistent-player["']/,
     );
-    expect(SRC).toMatch(/isThisPlaying[\s\S]*?playerToggle\(\)/);
+    expect(SRC).toMatch(/const isThisTrack = trackId === latestMix\.id/);
+    expect(SRC).toMatch(/if \(isThisTrack\) \{[\s\S]{0,120}playerToggle\(\)/);
   });
 });

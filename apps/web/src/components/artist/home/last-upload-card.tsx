@@ -41,9 +41,10 @@ export function LastUploadCard({
 
 function FilledCard({ latestMix }: { latestMix: NonNullable<LastUploadProps["latestMix"]> }) {
   const { trackId, playing } = useNowPlaying();
-  const isThisPlaying = trackId === latestMix.id && playing;
+  const isThisTrack = trackId === latestMix.id;
+  const isThisPlaying = isThisTrack && playing;
   const onPlay = () => {
-    if (isThisPlaying) {
+    if (isThisTrack) {
       playerToggle();
       return;
     }

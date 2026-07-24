@@ -686,7 +686,7 @@ export function SongPage({
   const commentsClosed = projectArchivedLabel !== null || songArchived;
 
   function handleAddComment() {
-    if (!activeVersion || commentsClosed) return;
+    if (!activeVersion || commentsClosed || isPending) return;
     const body = commentDraft.body.trim();
     if (!body) return;
     if (!online) {
@@ -723,30 +723,38 @@ export function SongPage({
     }
 
     startTransition(async () => {
-      const res = await actions.addComment({
-        versionId: activeVersion.id,
-        body,
-        timestampMs: currentMs,
-      });
-      if (!res.ok) {
-        // Roll back optimistic on failure.
-        setOptimisticByVersion((prev) => ({
-          ...prev,
-          [activeVersion.id]: (prev[activeVersion.id] ?? []).filter((c) => c.id !== tempId),
-        }));
-        commentDraft.setBody(body);
-        setError(res.error);
-      } else {
-        // Clear optimistic on success too. The server action calls
-        // revalidatePath, so the next render carries the canonical
-        // row from the DB. Without this filter we'd render BOTH the
-        // optimistic copy AND the server copy → comment appears twice
-        // (the founder reported this as "post twice").
+      try {
+        const res = await actions.addComment({
+          versionId: activeVersion.id,
+          body,
+          timestampMs: currentMs,
+        });
+        if (!res.ok) {
+          // Roll back optimistic on a server-confirmed rejection.
+          setOptimisticByVersion((prev) => ({
+            ...prev,
+            [activeVersion.id]: (prev[activeVersion.id] ?? []).filter((c) => c.id !== tempId),
+          }));
+          commentDraft.setBody(body);
+          setError(res.error);
+          return;
+        }
+        // Clear optimistic only after server-confirmed success. The
+        // server action revalidates the canonical row from the DB.
         setOptimisticByVersion((prev) => ({
           ...prev,
           [activeVersion.id]: (prev[activeVersion.id] ?? []).filter((c) => c.id !== tempId),
         }));
         commentDraft.clearDraft();
+      } catch {
+        // A rejected transport never counts as success. Restore both
+        // the persisted draft and the visible composer for retry.
+        setOptimisticByVersion((prev) => ({
+          ...prev,
+          [activeVersion.id]: (prev[activeVersion.id] ?? []).filter((c) => c.id !== tempId),
+        }));
+        commentDraft.setBody(body);
+        setError("Couldn’t post this comment. Your draft is saved. Try again.");
       }
     });
   }
@@ -775,20 +783,29 @@ export function SongPage({
   }
 
   function handleResolveToggle(comment: SongPageComment) {
+    if (!activeVersion) return;
+    if (!online) {
+      setError("Reconnect to update this comment. No change was saved.");
+      return;
+    }
     const override = resolvedOverrides[comment.id];
     const currentResolved = override !== undefined ? override : comment.resolvedAtIso !== null;
     const next = !currentResolved;
+    setError(null);
     setResolvedOverrides((p) => ({ ...p, [comment.id]: next }));
-    if (!activeVersion) return;
     startTransition(async () => {
-      const res = await actions.resolveComment({
-        versionId: activeVersion.id,
-        id: comment.id,
-        resolved: next,
-      });
-      if (!res.ok) {
+      try {
+        const res = await actions.resolveComment({
+          versionId: activeVersion.id,
+          id: comment.id,
+          resolved: next,
+        });
+        if (res.ok) return;
         setResolvedOverrides((p) => ({ ...p, [comment.id]: currentResolved }));
         setError(res.error);
+      } catch {
+        setResolvedOverrides((p) => ({ ...p, [comment.id]: currentResolved }));
+        setError("Couldn’t update this comment. Try again.");
       }
     });
   }
@@ -1737,9 +1754,7 @@ export function SongPage({
                         role="menuitem"
                         disabled
                         title={
-                          activeVersionDeleted
-                            ? "Audio was deleted"
-                            : "Audio is still uploading"
+                          activeVersionDeleted ? "Audio was deleted" : "Audio is still uploading"
                         }
                         className="flex min-h-11 w-full cursor-not-allowed items-center gap-2.5 rounded-[var(--radius-lg)] px-3 py-2 text-left text-[13px] font-semibold opacity-50"
                       >
@@ -1992,6 +2007,7 @@ export function SongPage({
                 type="text"
                 data-test="comment-input"
                 maxLength={2000}
+                disabled={isPending}
                 placeholder="Add a note at this timestamp…"
                 className="min-h-11 min-w-0 flex-1 bg-transparent text-[13.5px] outline-none placeholder:text-[rgb(var(--fg-muted))] sm:min-h-0"
                 value={commentDraft.body}
@@ -2092,7 +2108,7 @@ export function SongPage({
                         onClick={() => {
                           handleJumpToComment(c.timeMs);
                         }}
-                        className="hidden min-h-11 min-w-11 items-center justify-center text-[10px] font-bold tracking-wide text-[rgb(var(--fg-muted))] uppercase group-hover/note:inline-flex hover:text-[rgb(var(--fg-default))] [@media(hover:none)]:inline-flex sm:min-h-0 sm:min-w-0"
+                        className="hidden min-h-11 min-w-11 items-center justify-center text-[10px] font-bold tracking-wide text-[rgb(var(--fg-muted))] uppercase group-hover/note:inline-flex hover:text-[rgb(var(--fg-default))] sm:min-h-0 sm:min-w-0 [@media(hover:none)]:inline-flex"
                       >
                         Jump
                       </button>
@@ -2103,7 +2119,7 @@ export function SongPage({
                           onClick={() => {
                             handleReplyToComment(c.authorName);
                           }}
-                          className="hidden min-h-11 min-w-11 items-center justify-center text-[10px] font-bold tracking-wide text-[rgb(var(--fg-muted))] uppercase group-hover/note:inline-flex hover:text-[rgb(var(--fg-default))] [@media(hover:none)]:inline-flex sm:min-h-0 sm:min-w-0"
+                          className="hidden min-h-11 min-w-11 items-center justify-center text-[10px] font-bold tracking-wide text-[rgb(var(--fg-muted))] uppercase group-hover/note:inline-flex hover:text-[rgb(var(--fg-default))] sm:min-h-0 sm:min-w-0 [@media(hover:none)]:inline-flex"
                         >
                           Reply
                         </button>
@@ -2111,10 +2127,11 @@ export function SongPage({
                       <button
                         type="button"
                         data-test="comment-resolve"
+                        disabled={isPending}
                         onClick={() => {
                           handleResolveToggle(c);
                         }}
-                        className="hidden min-h-11 min-w-11 shrink-0 items-center justify-center text-[10px] font-bold tracking-wide text-[rgb(var(--fg-muted))] uppercase group-hover/note:inline-flex hover:text-[rgb(var(--fg-default))] [@media(hover:none)]:inline-flex sm:min-h-0 sm:min-w-0"
+                        className="hidden min-h-11 min-w-11 shrink-0 items-center justify-center text-[10px] font-bold tracking-wide text-[rgb(var(--fg-muted))] uppercase group-hover/note:inline-flex hover:text-[rgb(var(--fg-default))] sm:min-h-0 sm:min-w-0 [@media(hover:none)]:inline-flex"
                       >
                         Reopen
                       </button>
@@ -2202,6 +2219,7 @@ export function SongPage({
                         <button
                           type="button"
                           data-test="comment-resolve"
+                          disabled={isPending}
                           onClick={() => {
                             handleResolveToggle(c);
                           }}

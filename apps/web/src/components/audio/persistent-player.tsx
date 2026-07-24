@@ -835,10 +835,15 @@ function MiniWaveform({
       }}
       className={[
         "relative flex-1 cursor-pointer touch-none select-none focus-visible:ring-1 focus-visible:ring-white/40 focus-visible:outline-none",
-        tall ? "h-12" : "h-6",
+        tall ? "h-12" : "h-11",
       ].join(" ")}
     >
-      <div className="absolute inset-0 flex items-center justify-between gap-[2px]">
+      <div
+        className={[
+          "absolute flex items-center justify-between gap-[2px]",
+          tall ? "inset-0" : "inset-x-0 top-1/2 h-6 -translate-y-1/2",
+        ].join(" ")}
+      >
         {heights.map((h, i) => (
           <span
             key={`mb-${String(i)}`}
