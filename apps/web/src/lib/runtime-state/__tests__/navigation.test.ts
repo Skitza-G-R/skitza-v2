@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { clearAccountPrivateRuntimeState } from "../account-exit";
 import {
   popRuntimeBack,
   readRuntimeNavigationIndex,
@@ -36,6 +37,53 @@ describe("runtime navigation restoration", () => {
         { key: "search", value: "Yael" },
       ],
     });
+  });
+
+  it("restores only Store filter and search state with its scroll position", () => {
+    const storage = new MemoryStorage();
+    const href =
+      "/dashboard/store?search=Mix&filter=hidden&token=secret&product=private";
+
+    expect(recordRuntimeNavigation(storage, PRODUCER, href, 615, 100)).toBe(
+      true,
+    );
+    const canonicalHref = "/dashboard/store?filter=hidden&search=Mix";
+    expect(readRuntimeResumeHref(storage, PRODUCER, 100)).toBe(canonicalHref);
+    expect(
+      readRuntimeNavigationSnapshot(storage, PRODUCER, canonicalHref, 100),
+    ).toEqual({
+      href: canonicalHref,
+      scrollTop: 615,
+      filters: [
+        { key: "filter", value: "hidden" },
+        { key: "search", value: "Mix" },
+      ],
+    });
+  });
+
+  it("isolates and clears Store restoration by Clerk account", () => {
+    const storage = new MemoryStorage();
+    const otherProducer = { ...PRODUCER, userId: "other-producer" };
+    recordRuntimeNavigation(
+      storage,
+      PRODUCER,
+      "/dashboard/store?filter=hidden&search=Mix",
+      10,
+      1,
+    );
+    recordRuntimeNavigation(
+      storage,
+      otherProducer,
+      "/dashboard/store?filter=live&search=Master",
+      20,
+      1,
+    );
+
+    expect(clearAccountPrivateRuntimeState(PRODUCER.userId, storage)).toBe(2);
+    expect(readRuntimeResumeHref(storage, PRODUCER, 1)).toBeNull();
+    expect(readRuntimeResumeHref(storage, otherProducer, 1)).toBe(
+      "/dashboard/store?filter=live&search=Master",
+    );
   });
 
   it("keeps an exact bounded back stack", () => {

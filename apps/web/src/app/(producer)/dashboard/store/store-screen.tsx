@@ -9,7 +9,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { reorderProducts, setPackageActive } from "~/app/(producer)/dashboard/booking/actions";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
@@ -18,7 +18,12 @@ import { useToast } from "~/components/ui/toast";
 import type { TaxMode } from "~/lib/tax-mode";
 
 import { EmptyState } from "./empty-state";
-import { countByFilter, filterAndSearch, type FilterTab } from "./filter-search";
+import {
+  countByFilter,
+  filterAndSearch,
+  parseStoreUrlState,
+  type FilterTab,
+} from "./filter-search";
 import { NewProductButton } from "./new-product-button";
 import { ProductCard, type ProductCardData } from "./product-card";
 import { ProductEditor } from "./product-editor";
@@ -74,11 +79,14 @@ export function StoreScreen({
   producerName = "Your studio",
 }: StoreScreenProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const urlState = parseStoreUrlState(searchParams.toString());
   const { toast } = useToast();
   const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
-  const [filter, setFilter] = useState<FilterTab>("all");
-  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<FilterTab>(urlState.filter);
+  const [search, setSearch] = useState(urlState.search);
   // Editor state. `creating` opens <ProductEditor> in create mode;
   // `editing` opens it in edit mode pre-filled. `removing` opens the
   // lifecycle-aware confirmation for a single product.
@@ -93,6 +101,39 @@ export function StoreScreen({
   const [recentlyAdded, setRecentlyAdded] = useState<string | null>(null);
   const [reorderAnnouncement, setReorderAnnouncement] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const next = parseStoreUrlState(searchParams.toString());
+    setFilter(next.filter);
+    setSearch(next.search);
+  }, [searchParams]);
+
+  function replaceUrlState(
+    key: "filter" | "search",
+    value: string,
+    defaultValue: string,
+  ) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (value === defaultValue) params.delete(key);
+    else params.set(key, value.slice(0, 120));
+    const query = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      `${pathname}${query ? `?${query}` : ""}`,
+    );
+  }
+
+  function updateFilter(next: FilterTab) {
+    setFilter(next);
+    replaceUrlState("filter", next, "all");
+  }
+
+  function updateSearch(next: string) {
+    const bounded = next.slice(0, 120);
+    setSearch(bounded);
+    replaceUrlState("search", bounded, "");
+  }
 
   useLayoutEffect(() => {
     if (!storeDraft.loaded || restoredStoreDraftRef.current) return;
@@ -275,10 +316,10 @@ export function StoreScreen({
       <StoreToolbar
         ref={searchRef}
         filter={filter}
-        onFilterChange={setFilter}
+        onFilterChange={updateFilter}
         counts={counts}
         search={search}
-        onSearchChange={setSearch}
+        onSearchChange={updateSearch}
       />
 
       <p className="sr-only" aria-live="polite" aria-atomic="true">

@@ -648,6 +648,10 @@ function isAllowedRuntimeQuery(
   if (pathname === "/dashboard/settings") {
     return key === "section" && isEnumerated(value, ["profile", "plan", "notif", "int", "region"]);
   }
+  if (pathname === "/dashboard/store") {
+    if (key === "filter") return isEnumerated(value, ["all", "live", "hidden"]);
+    return key === "search";
+  }
   return false;
 }
 

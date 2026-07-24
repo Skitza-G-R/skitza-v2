@@ -5,6 +5,23 @@
 
 export type FilterTab = "all" | "live" | "hidden";
 
+export interface StoreUrlState {
+  filter: FilterTab;
+  search: string;
+}
+
+export function parseStoreUrlState(search: string): StoreUrlState {
+  const params = new URLSearchParams(search);
+  const filter = params.get("filter");
+  return {
+    filter:
+      filter === "live" || filter === "hidden" || filter === "all"
+        ? filter
+        : "all",
+    search: (params.get("search") ?? "").slice(0, 120),
+  };
+}
+
 export interface StoreItem {
   id: string;
   name: string;

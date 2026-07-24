@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   countByFilter,
   filterAndSearch,
+  parseStoreUrlState,
   type FilterTab,
   type StoreItem,
 } from "../filter-search";
@@ -12,6 +13,27 @@ const SAMPLE: StoreItem[] = [
   { id: "b", name: "Beat lease", description: "Single use", active: true },
   { id: "c", name: "Mastering", description: "Loudness pass", active: false },
 ];
+
+describe("parseStoreUrlState", () => {
+  it("restores the Hidden filter and search text", () => {
+    expect(parseStoreUrlState("filter=hidden&search=Mix%20Tape")).toEqual({
+      filter: "hidden",
+      search: "Mix Tape",
+    });
+  });
+
+  it("falls back for an invalid filter and bounds search text", () => {
+    const search = "x".repeat(140);
+    expect(
+      parseStoreUrlState(
+        new URLSearchParams({ filter: "archived", search }).toString(),
+      ),
+    ).toEqual({
+      filter: "all",
+      search: "x".repeat(120),
+    });
+  });
+});
 
 describe("countByFilter", () => {
   it("returns counts for all, live, hidden", () => {

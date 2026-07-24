@@ -32,6 +32,17 @@ describe("StoreScreen shell", () => {
     expect(SRC).toMatch(/HIDDEN/);
   });
 
+  it("restores only bounded Store filter and search URL state", () => {
+    expect(SRC).toContain("usePathname");
+    expect(SRC).toContain("useSearchParams");
+    expect(SRC).toContain("parseStoreUrlState");
+    expect(SRC).toContain("window.history.replaceState");
+    expect(SRC).toContain("next.slice(0, 120)");
+    expect(SRC).toContain("onFilterChange={updateFilter}");
+    expect(SRC).toContain("onSearchChange={updateSearch}");
+    expect(SRC).not.toMatch(/localStorage|sessionStorage/);
+  });
+
   it("no longer uses window.confirm anywhere", () => {
     expect(SRC).not.toMatch(/window\.confirm/);
   });
