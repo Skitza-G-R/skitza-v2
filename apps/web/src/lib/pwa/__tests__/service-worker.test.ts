@@ -15,11 +15,19 @@ type Harness = Readonly<{
   fetch: ReturnType<typeof vi.fn>;
   skipWaiting: ReturnType<typeof vi.fn>;
   deleteCache: ReturnType<typeof vi.fn>;
+  showNotification: ReturnType<typeof vi.fn>;
+  openWindow: ReturnType<typeof vi.fn>;
+  navigate: ReturnType<typeof vi.fn>;
+  focus: ReturnType<typeof vi.fn>;
 }>;
 
 const OWN_ORIGIN = "https://skitza.app";
 const policySource = readFileSync(
   new URL("../../../../public/pwa/cache-policy.js", import.meta.url),
+  "utf8",
+);
+const pushPolicySource = readFileSync(
+  new URL("../../../../public/pwa/push-policy.js", import.meta.url),
   "utf8",
 );
 const workerSource = readFileSync(
@@ -59,18 +67,31 @@ function createHarness(clientSafety: readonly boolean[] = [true]): Harness {
     Promise.reject<Response>(new TypeError("offline")),
   );
   const skipWaiting = vi.fn(() => Promise.resolve(undefined));
-  const clients = clientSafety.map((safe) => ({
-    postMessage: (_message: unknown, transfer: readonly MessagePort[]) => {
-      const reply = transfer[0];
-      reply?.postMessage({ safe });
-      reply?.close();
-    },
-  }));
+  const showNotification = vi.fn(() => Promise.resolve(undefined));
+  const openWindow = vi.fn(() => Promise.resolve(undefined));
+  const navigate = vi.fn();
+  const focus = vi.fn(() => Promise.resolve(undefined));
+  const clients = clientSafety.map((safe) => {
+    const client = {
+      url: `${OWN_ORIGIN}/dashboard`,
+      postMessage: (_message: unknown, transfer: readonly MessagePort[]) => {
+        const reply = transfer[0];
+        reply?.postMessage({ safe });
+        reply?.close();
+      },
+      navigate,
+      focus,
+    };
+    navigate.mockImplementation(() => Promise.resolve(client));
+    return client;
+  });
   const scope: Record<string, unknown> = {
     location: { origin: OWN_ORIGIN },
+    registration: { showNotification },
     clients: {
       claim: vi.fn(() => Promise.resolve(undefined)),
       matchAll: vi.fn(() => Promise.resolve(clients)),
+      openWindow,
     },
     skipWaiting,
     addEventListener: (type: string, listener: ServiceWorkerListener) => {
@@ -92,6 +113,7 @@ function createHarness(clientSafety: readonly boolean[] = [true]): Harness {
   };
 
   runInNewContext(policySource, sandbox);
+  runInNewContext(pushPolicySource, sandbox);
   runInNewContext(workerSource, sandbox);
 
   return {
@@ -104,6 +126,10 @@ function createHarness(clientSafety: readonly boolean[] = [true]): Harness {
     fetch: fetchMock,
     skipWaiting,
     deleteCache,
+    showNotification,
+    openWindow,
+    navigate,
+    focus,
   };
 }
 
@@ -260,5 +286,109 @@ describe("service worker offline and update protocol", () => {
     activationChannel.port1.close();
     activationChannel.port2.close();
     expect(harness.skipWaiting).toHaveBeenCalledOnce();
+  });
+});
+
+describe("service worker push and exact-item navigation", () => {
+  const itemId = "00000000-0000-4000-8000-000000000112";
+  const requestId = "00000000-0000-4000-8000-000000000113";
+
+  it("shows only a validated payload and does not request vibration", async () => {
+    const harness = createHarness();
+    let pushWork: Promise<unknown> | undefined;
+    harness.listener("push")({
+      data: {
+        json: () => ({
+          version: 1,
+          category: "comment",
+          title: "New comment",
+          body: "Open Skitza to review the feedback.",
+          url: `/dashboard/music/${itemId}`,
+        }),
+      },
+      waitUntil(work: Promise<unknown>) {
+        pushWork = work;
+      },
+    });
+    await pushWork;
+
+    expect(harness.showNotification).toHaveBeenCalledWith(
+      "New comment",
+      expect.objectContaining({
+        body: "Open Skitza to review the feedback.",
+        data: { url: `/dashboard/music/${itemId}` },
+        tag: "skitza-comment",
+      }),
+    );
+    expect(harness.showNotification.mock.calls[0]?.[1]).not.toHaveProperty("vibrate");
+  });
+
+  it("drops malformed, invented-category, and external push data", () => {
+    const harness = createHarness();
+    for (const payload of [
+      {
+        version: 1,
+        category: "weekly",
+        title: "Fake",
+        body: "Fake",
+        url: `/dashboard/music/${itemId}`,
+      },
+      {
+        version: 1,
+        category: "comment",
+        title: "Unsafe",
+        body: "Unsafe",
+        url: "https://evil.example/item",
+      },
+      null,
+    ]) {
+      harness.listener("push")({
+        data: { json: () => payload },
+        waitUntil: vi.fn(),
+      });
+    }
+    expect(harness.showNotification).not.toHaveBeenCalled();
+  });
+
+  it("navigates and focuses an open Skitza client only for an exact route", async () => {
+    const harness = createHarness();
+    const close = vi.fn();
+    let clickWork: Promise<unknown> | undefined;
+    harness.listener("notificationclick")({
+      notification: {
+        data: {
+          url: `/artist/purchase/${itemId}/pay?req=${requestId}`,
+        },
+        close,
+      },
+      waitUntil(work: Promise<unknown>) {
+        clickWork = work;
+      },
+    });
+    await clickWork;
+
+    expect(close).toHaveBeenCalledOnce();
+    expect(harness.navigate).toHaveBeenCalledWith(
+      `/artist/purchase/${itemId}/pay?req=${requestId}`,
+    );
+    expect(harness.focus).toHaveBeenCalledOnce();
+    expect(harness.openWindow).not.toHaveBeenCalled();
+  });
+
+  it("closes but never navigates an unsafe notification", () => {
+    const harness = createHarness();
+    const close = vi.fn();
+    const waitUntil = vi.fn();
+    harness.listener("notificationclick")({
+      notification: {
+        data: { url: "//evil.example/dashboard" },
+        close,
+      },
+      waitUntil,
+    });
+    expect(close).toHaveBeenCalledOnce();
+    expect(waitUntil).not.toHaveBeenCalled();
+    expect(harness.navigate).not.toHaveBeenCalled();
+    expect(harness.openWindow).not.toHaveBeenCalled();
   });
 });

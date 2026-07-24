@@ -73,6 +73,7 @@ import {
   presentVersionApprovalHistory,
   VersionApprovalDomainError,
 } from "~/server/domain/version-approval/service";
+import { deliverPushToProducer, deliverPushToVersionProducer } from "~/server/push/delivery";
 
 function purchaseProductName(
   snapshot: PurchaseCommercialSnapshot | null,
@@ -677,6 +678,16 @@ const musicSubrouter = router({
       } catch (error) {
         console.warn("[notify] comment-created failed", error);
       }
+      after(async () => {
+        try {
+          await deliverPushToProducer(ctx.db, project.producerId, {
+            category: "comment",
+            url: `/dashboard/music/${input.trackVersionId}`,
+          });
+        } catch {
+          // Push is best effort and must not expose delivery details.
+        }
+      });
 
       const [producerRow] = await ctx.db
         .select({ email: producers.email, displayName: producers.displayName })
@@ -906,8 +917,9 @@ const musicSubrouter = router({
   approveVersion: artistProcedure
     .input(z.object({ versionId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      let result;
       try {
-        return await approveExactReadyVersion(versionApprovalRepository(ctx.db), {
+        result = await approveExactReadyVersion(versionApprovalRepository(ctx.db), {
           artistClerkUserId: ctx.clerkUserId,
           versionId: input.versionId,
           approvedAt: new Date(),
@@ -915,6 +927,19 @@ const musicSubrouter = router({
       } catch (error) {
         mapVersionApprovalDomainError(error);
       }
+      if (result.changed) {
+        after(async () => {
+          try {
+            await deliverPushToVersionProducer(ctx.db, input.versionId, {
+              category: "song_status",
+              url: `/dashboard/music/${input.versionId}`,
+            });
+          } catch {
+            // Push is best effort and must not expose delivery details.
+          }
+        });
+      }
+      return result;
     }),
 
   // Resolve / re-open a timestamped comment on the artist's project.
@@ -1618,6 +1643,16 @@ const bookSubrouter = router({
         } catch (error) {
           console.warn("[notify] booking-requested failed", error);
         }
+        after(async () => {
+          try {
+            await deliverPushToProducer(ctx.db, result.booking.producerId, {
+              category: "booking",
+              url: `/dashboard/calendar?booking=${result.booking.id}`,
+            });
+          } catch {
+            // Push is best effort and must not expose delivery details.
+          }
+        });
       }
       return {
         id: result.booking.id,
@@ -1789,6 +1824,16 @@ const bookSubrouter = router({
             console.error("[email] artist session cancellation failed", error);
           }
         });
+        after(async () => {
+          try {
+            await deliverPushToProducer(ctx.db, before.booking.producerId, {
+              category: "booking",
+              url: `/dashboard/calendar?booking=${result.booking.id}`,
+            });
+          } catch {
+            // Push is best effort and must not expose delivery details.
+          }
+        });
       }
       return {
         id: result.booking.id,
@@ -1836,6 +1881,16 @@ const bookSubrouter = router({
             });
           } catch (error) {
             console.error("[email] artist session reschedule failed", error);
+          }
+        });
+        after(async () => {
+          try {
+            await deliverPushToProducer(ctx.db, before.booking.producerId, {
+              category: "booking",
+              url: `/dashboard/calendar?booking=${result.booking.id}`,
+            });
+          } catch {
+            // Push is best effort and must not expose delivery details.
           }
         });
       }

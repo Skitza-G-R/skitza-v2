@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { Wordmark } from "~/components/nav/wordmark";
 import { DisconnectProducerButton } from "~/components/artist/disconnect-producer-button";
+import { PushPreferences } from "~/components/push/push-preferences";
 
 // Polished Settings — mirrors the locked design's:
 //   - "Settings." hero
@@ -91,6 +92,8 @@ export default async function ArtistSettingsPage() {
           />
         </div>
       </section>
+
+      <PushPreferences />
 
       {/* Connected producers */}
       <section

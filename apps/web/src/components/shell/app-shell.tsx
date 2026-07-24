@@ -5,6 +5,7 @@ import { ProducerBottomNav } from "~/components/nav/producer-bottom-nav";
 import { ProducerSidebar } from "~/components/nav/producer-sidebar";
 import { RuntimeNavigationBridge } from "~/components/runtime-state/runtime-navigation-bridge";
 import { RuntimeStateProvider } from "~/components/runtime-state/runtime-state-provider";
+import { NativeInstallGuidance } from "~/components/pwa/native-install-guidance";
 import { PUBLIC_BRAND_ORIGIN } from "~/lib/share/public-url";
 import { getShellState } from "~/server/shell-data";
 
@@ -122,6 +123,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
   return (
     <RuntimeStateProvider identity={{ userId, role: "producer", contextId: producerId }}>
       <RuntimeNavigationBridge />
+      <NativeInstallGuidance role="producer" />
       {shell}
     </RuntimeStateProvider>
   );

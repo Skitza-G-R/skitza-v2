@@ -8,6 +8,7 @@ import { ProducerPicker } from "~/components/artist/producer-picker";
 import { PrimaryCta } from "~/components/artist/funnel/funnel-ui";
 import { bookingActionLabel, locationLabel } from "~/components/artist/sessions/book-data";
 import { withArtistStudio } from "~/lib/artist-studio-context";
+import { markMeaningfulInstallAction } from "~/lib/pwa/install-guidance";
 
 import { confirmBookingAction, rescheduleBookingAction } from "./actions";
 import { findPrepaidSessionByAllowance } from "./prepaid-session-selection";
@@ -286,6 +287,7 @@ export function BookingClient({
           });
       setResult(res);
       if (res.ok) {
+        markMeaningfulInstallAction();
         router.push(withArtistStudio(`/artist/sessions?just=${res.id}`, activeStudioId));
       }
     });

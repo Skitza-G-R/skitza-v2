@@ -3,17 +3,13 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
+import { PushPreferences } from "~/components/push/push-preferences";
 import { useToast } from "~/components/ui/toast";
 import { useProducerDisplayNameDraft } from "~/components/runtime-state/use-runtime-state";
 import { PUBLIC_BRAND_ORIGIN, buildJoinUrl } from "~/lib/share/public-url";
+import { markMeaningfulInstallAction } from "~/lib/pwa/install-guidance";
 import { updateProducer } from "./actions";
-import {
-  NOTIFICATION_EVENTS,
-  type NotificationChannel,
-  type NotificationState,
-  type SettingsSectionKey,
-  SUB_NAV,
-} from "./settings-keys";
+import { type SettingsSectionKey, SUB_NAV } from "./settings-keys";
 
 // One screen, five sections, one savebar. The whole flow lives in this
 // client component so the savebar can corral edits across sections
@@ -36,7 +32,6 @@ interface InitialState {
   defaultCurrency: "USD" | "EUR" | "GBP" | "ILS";
   weekStart: "sunday" | "monday";
   plan: "free" | "pro";
-  notifications: NotificationState;
   paymentInstructions: PaymentInstructionsState;
 }
 
@@ -75,7 +70,7 @@ export function SettingsClient({
   // Section state — purely local. Initial value comes from `?section=`
   // URL param (server-resolved) so deep-links still work; subsequent
   // sub-nav clicks update only this state (no URL change) so unsaved
-  // edits in `form` / `notifs` survive a section switch.
+  // edits in `form` survive a section switch.
   const [active, setActive] = useState<SettingsSectionKey>(initialActive);
 
   const initialForm: FormState = {
@@ -98,15 +93,10 @@ export function SettingsClient({
     },
   });
 
-  const [notifs, setNotifs] = useState<NotificationState>(initial.notifications);
-  const [savedNotifs, setSavedNotifs] = useState<NotificationState>(initial.notifications);
-
-  const dirty = useMemo(() => {
-    return (
-      JSON.stringify(form) !== JSON.stringify(savedForm) ||
-      JSON.stringify(notifs) !== JSON.stringify(savedNotifs)
-    );
-  }, [form, savedForm, notifs, savedNotifs]);
+  const dirty = useMemo(
+    () => JSON.stringify(form) !== JSON.stringify(savedForm),
+    [form, savedForm],
+  );
 
   // Per-section dirty breakdown. Drives the small amber dot we paint
   // on each sub-nav button so a producer can see at a glance WHICH
@@ -114,7 +104,6 @@ export function SettingsClient({
   // Fields → section ownership:
   //   displayName              → profile
   //   defaultCurrency, weekStart → region
-  //   notifications matrix     → notif
   //   payment instructions     → int
   // Plan doesn't own savebar-managed fields, so it never appears here.
   const dirtySections = useMemo<Set<SettingsSectionKey>>(() => {
@@ -126,21 +115,17 @@ export function SettingsClient({
     ) {
       out.add("region");
     }
-    if (JSON.stringify(notifs) !== JSON.stringify(savedNotifs)) {
-      out.add("notif");
-    }
     if (
       JSON.stringify(form.paymentInstructions) !== JSON.stringify(savedForm.paymentInstructions)
     ) {
       out.add("int");
     }
     return out;
-  }, [form, savedForm, notifs, savedNotifs]);
+  }, [form, savedForm]);
 
   function onDiscard() {
     displayNameDraft.clearDraft();
     setForm(savedForm);
-    setNotifs(savedNotifs);
   }
 
   function onSave() {
@@ -159,30 +144,12 @@ export function SettingsClient({
     ) {
       patch.paymentInstructions = form.paymentInstructions;
     }
-    if (JSON.stringify(notifs) !== JSON.stringify(savedNotifs)) {
-      // Send only the event keys whose value diverges from saved.
-      // The server's NotificationPrefsInput is a partial map; missing
-      // keys keep their existing column value via the merge logic.
-      const notifPatch: NotificationState = {};
-      for (const ev of NOTIFICATION_EVENTS) {
-        const prev = savedNotifs[ev.key];
-        const next = notifs[ev.key];
-        if (!prev || !next) continue;
-        if (prev.email !== next.email || prev.app !== next.app) {
-          notifPatch[ev.key] = next;
-        }
-      }
-      if (Object.keys(notifPatch).length > 0) {
-        patch.notificationPrefs = notifPatch;
-      }
-    }
-
     startTransition(async () => {
       const res = await updateProducer(patch);
       if (res.ok) {
         displayNameDraft.clearDraft();
         setSavedForm(form);
-        setSavedNotifs(notifs);
+        markMeaningfulInstallAction();
         toast("Settings saved.", "success");
         router.refresh();
       } else {
@@ -196,7 +163,6 @@ export function SettingsClient({
               ? form.paymentInstructions
               : current.paymentInstructions,
           }));
-          if (res.saved.producer) setSavedNotifs(notifs);
           router.refresh();
         }
         toast(res.error, "error");
@@ -226,7 +192,7 @@ export function SettingsClient({
                 // Update the URL bar via the raw History API so the
                 // server page isn't re-fetched (router.replace would
                 // remount SettingsClient and wipe in-flight edits in
-                // `form` / `notifs`). Deep linking + browser back +
+                // `form`). Deep linking + browser back +
                 // sharing now reflect the active section.
                 window.history.replaceState(null, "", `/dashboard/settings?section=${item.key}`);
               }}
@@ -249,7 +215,7 @@ export function SettingsClient({
             <ProfileSection form={form} setForm={setForm} identity={identity} />
           )}
           {active === "plan" && <PlanSection plan={initial.plan} />}
-          {active === "notif" && <NotifSection notifs={notifs} setNotifs={setNotifs} />}
+          {active === "notif" && <NotifSection />}
           {active === "int" && (
             <IntegrationsSection
               paymentInstructions={form.paymentInstructions}
@@ -592,97 +558,16 @@ function UsageCell({
 }
 
 /* ─── Notifications section ────────────────────────────────────────── */
-function NotifSection({
-  notifs,
-  setNotifs,
-}: {
-  notifs: NotificationState;
-  setNotifs: (next: NotificationState) => void;
-}) {
-  function set(eventKey: string, channel: NotificationChannel, value: boolean) {
-    const prev = notifs[eventKey] ?? { email: false, app: false };
-    setNotifs({ ...notifs, [eventKey]: { ...prev, [channel]: value } });
-  }
-
+function NotifSection() {
   return (
     <section className="s-reveal" aria-labelledby="settings-notif-h">
       <header className="s-section-head">
-        <span className="s-section-eyebrow">Inbox</span>
+        <span className="s-section-eyebrow">Device alerts</span>
         <h2 id="settings-notif-h">Notifications</h2>
-        <p>Choose how Skitza pings you about activity in your workspace.</p>
+        <p>Choose the real Skitza updates this browser can send you.</p>
       </header>
-      <div className="s-card">
-        {/* Heads-up callout — lives at the TOP of the card so producers
-            read it on the way IN to the toggles, not buried below.
-            Channels light up feature-by-feature as the underlying
-            sender wiring lands. The producer's preferences save now
-            either way. */}
-        <div className="s-notif-note" role="note">
-          <span className="s-notif-note-dot" aria-hidden />
-          <span>
-            <b>Heads up —</b> toggles save right away. Each channel turns on as the matching feature
-            ships.
-          </span>
-        </div>
-        <div className="s-notif-head" role="row">
-          <div className="s-h s-h-lead">Event</div>
-          <div className="s-h">Email</div>
-          <div className="s-h">In-app</div>
-        </div>
-        {NOTIFICATION_EVENTS.map((ev) => {
-          const cur = notifs[ev.key] ?? ev.defaults;
-          return (
-            <div className="s-notif-row" role="row" key={ev.key}>
-              <div>
-                <div className="s-notif-name">{ev.name}</div>
-                <div className="s-notif-sub">{ev.sub}</div>
-              </div>
-              <div className="s-notif-cell">
-                <Toggle
-                  on={cur.email}
-                  onChange={(v) => {
-                    set(ev.key, "email", v);
-                  }}
-                  ariaLabel={`Email notifications for ${ev.name}`}
-                />
-              </div>
-              <div className="s-notif-cell">
-                <Toggle
-                  on={cur.app}
-                  onChange={(v) => {
-                    set(ev.key, "app", v);
-                  }}
-                  ariaLabel={`In-app notifications for ${ev.name}`}
-                />
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      <PushPreferences />
     </section>
-  );
-}
-
-function Toggle({
-  on,
-  onChange,
-  ariaLabel,
-}: {
-  on: boolean;
-  onChange: (next: boolean) => void;
-  ariaLabel: string;
-}) {
-  return (
-    <button
-      type="button"
-      className="s-toggle"
-      role="switch"
-      aria-checked={on}
-      aria-label={ariaLabel}
-      onClick={() => {
-        onChange(!on);
-      }}
-    />
   );
 }
 

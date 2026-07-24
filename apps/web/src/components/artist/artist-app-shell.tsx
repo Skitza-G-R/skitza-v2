@@ -7,6 +7,7 @@ import { ArtistMobileTopBar } from "~/components/nav/artist-mobile-top-bar";
 import { ArtistTopBar } from "~/components/shell/artist-topbar";
 import { TopBarBreadcrumbProvider } from "~/components/shell/topbar-breadcrumb-context";
 import { ArtistRuntimeStateProvider } from "~/components/runtime-state/artist-runtime-state-provider";
+import { NativeInstallGuidance } from "~/components/pwa/native-install-guidance";
 
 import { ArtistShellChrome } from "./artist-shell-chrome";
 
@@ -61,6 +62,7 @@ export function ArtistAppShell({
       userId={userId}
       studioIds={studios.map((studio) => studio.producerId)}
     >
+      <NativeInstallGuidance role="artist" />
       <div
         className="flex min-h-dvh"
         style={{

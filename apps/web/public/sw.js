@@ -12,8 +12,9 @@
  */
 
 importScripts("/pwa/cache-policy.js");
+importScripts("/pwa/push-policy.js");
 
-const SW_VERSION = "2026-07-24-sk108-1";
+const SW_VERSION = "2026-07-24-sk112-1";
 const CACHE_PREFIX = "skitza-native-";
 const CACHE_NAME = `${CACHE_PREFIX}${SW_VERSION}`;
 const OBSOLETE_CACHE_PREFIX = "skitza-shell-";
@@ -37,6 +38,7 @@ const MESSAGE = {
 const CLIENT_SAFETY_TIMEOUT_MS = 1500;
 
 const policy = self.SkitzaCachePolicy;
+const pushPolicy = self.SkitzaPushPolicy;
 
 function isCacheableResponse(response) {
   if (!response || !response.ok || response.type !== "basic") return false;
@@ -181,6 +183,57 @@ self.addEventListener("fetch", (event) => {
   ) {
     event.respondWith(networkWithOfflineBoundary(request));
   }
+});
+
+self.addEventListener("push", (event) => {
+  let raw;
+  try {
+    raw = event.data ? event.data.json() : null;
+  } catch {
+    return;
+  }
+  const payload = pushPolicy.parsePayload(raw);
+  if (!payload) return;
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      icon: "/icons/skitza-192.png",
+      badge: "/icons/skitza-64.png",
+      tag: `skitza-${payload.category}`,
+      data: { url: payload.url },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = pushPolicy.validateRelativeRoute(
+    event.notification && event.notification.data && event.notification.data.url,
+  );
+  if (!url) return;
+
+  event.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      const existing = windows.find((client) => {
+        try {
+          return new URL(client.url).origin === self.location.origin;
+        } catch {
+          return false;
+        }
+      });
+      if (existing) {
+        const navigated = await existing.navigate(url);
+        await (navigated || existing).focus();
+        return;
+      }
+      await self.clients.openWindow(url);
+    })(),
+  );
 });
 
 self.addEventListener("message", (event) => {

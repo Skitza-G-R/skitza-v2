@@ -82,6 +82,11 @@ import {
   emitPurchaseDeclined,
   emitPurchaseRequested,
 } from "~/server/notifications/emit";
+import {
+  deliverPushToProducer,
+  deliverPushToProjectArtist,
+  deliverPushToPurchaseRequestArtist,
+} from "~/server/push/delivery";
 import { buildPlanOptions } from "~/server/payments/plan-preview";
 import {
   buildStorePurchaseSnapshot,
@@ -570,6 +575,16 @@ export const artistPurchaseRouter = router({
         } catch {
           console.error("[notify] purchase-requested failed");
         }
+        after(async () => {
+          try {
+            await deliverPushToProducer(ctx.db, product.producerId, {
+              category: "purchase_status",
+              url: `/dashboard/requests/${result.request.id}`,
+            });
+          } catch {
+            // Push is best effort and must not expose delivery details.
+          }
+        });
       }
 
       return {
@@ -817,12 +832,23 @@ export const artistPurchaseRouter = router({
           mapStoreAcceptanceError(error);
         }
 
-        if (result.notification) {
+        const notification = result.notification;
+        if (notification) {
           try {
-            await emitAgreementAccepted(ctx.db, result.notification);
+            await emitAgreementAccepted(ctx.db, notification);
           } catch {
             console.error("[notify] agreement-accepted failed");
           }
+          after(async () => {
+            try {
+              await deliverPushToProducer(ctx.db, notification.producerId, {
+                category: "purchase_status",
+                url: `/dashboard/requests/${notification.purchaseRequestId}`,
+              });
+            } catch {
+              // Push is best effort and must not expose delivery details.
+            }
+          });
         }
         return {
           purchaseId: result.purchaseId,
@@ -927,12 +953,23 @@ export const artistPurchaseRouter = router({
         } catch (error) {
           mapPaymentProofError(error);
         }
-        if (result.notification) {
+        const notification = result.notification;
+        if (notification) {
           try {
-            await emitProofSubmitted(ctx.db, result.notification);
+            await emitProofSubmitted(ctx.db, notification);
           } catch {
             console.error("[notify] proof-submitted failed");
           }
+          after(async () => {
+            try {
+              await deliverPushToProducer(ctx.db, notification.producerId, {
+                category: "payment",
+                url: `/dashboard/payments/${notification.proofId}`,
+              });
+            } catch {
+              // Push is best effort and must not expose delivery details.
+            }
+          });
         }
         return {
           ok: true as const,
@@ -1025,6 +1062,16 @@ export const producerPurchaseRouter = router({
             console.error("[email] purchase-approved failed");
           }
         });
+        after(async () => {
+          try {
+            await deliverPushToPurchaseRequestArtist(ctx.db, request.id, {
+              category: "purchase_status",
+              url: `/artist/purchase/${request.productId}/pay?req=${request.id}`,
+            });
+          } catch {
+            // Push is best effort and must not expose delivery details.
+          }
+        });
       }
 
       return {
@@ -1075,6 +1122,16 @@ export const producerPurchaseRouter = router({
             });
           } catch {
             console.error("[email] purchase-declined failed");
+          }
+        });
+        after(async () => {
+          try {
+            await deliverPushToPurchaseRequestArtist(ctx.db, request.id, {
+              category: "purchase_status",
+              url: `/artist/purchase/${request.productId}/sent?req=${request.id}`,
+            });
+          } catch {
+            // Push is best effort and must not expose delivery details.
           }
         });
       }
@@ -1329,6 +1386,18 @@ export const producerPurchaseRouter = router({
           mapPaymentProofError(error);
         }
         const email = result.email;
+        if (result.created) {
+          after(async () => {
+            try {
+              await deliverPushToProjectArtist(ctx.db, result.projectId, {
+                category: "payment",
+                url: `/artist/payments/${result.purchaseId}`,
+              });
+            } catch {
+              // Push is best effort and must not expose delivery details.
+            }
+          });
+        }
         if (email) {
           after(async () => {
             try {
@@ -1362,6 +1431,18 @@ export const producerPurchaseRouter = router({
         }
         const email = result.email;
         const rejectionNote = email?.rejectionNote;
+        if (result.changed) {
+          after(async () => {
+            try {
+              await deliverPushToProjectArtist(ctx.db, result.projectId, {
+                category: "payment",
+                url: `/artist/payments/${result.purchaseId}`,
+              });
+            } catch {
+              // Push is best effort and must not expose delivery details.
+            }
+          });
+        }
         if (email && rejectionNote) {
           after(async () => {
             try {

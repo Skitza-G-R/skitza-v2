@@ -13,6 +13,11 @@ import {
   SW_MESSAGE,
   UPDATE_WAITING_STORAGE_KEY,
 } from "~/lib/pwa/update-coordination";
+import {
+  captureNativeInstallPrompt,
+  markNativeAppInstalled,
+  type NativeInstallPromptEvent,
+} from "~/lib/pwa/install-guidance";
 
 const WORKER_VERSION_TIMEOUT_MS = 1200;
 const ACTIVATION_RESPONSE_TIMEOUT_MS = 2500;
@@ -161,7 +166,21 @@ export function NativeAppRuntime() {
   const router = useRouter();
 
   useEffect(() => {
-    if (!("serviceWorker" in navigator)) return;
+    const onBeforeInstallPrompt = (event: Event) => {
+      captureNativeInstallPrompt(event as NativeInstallPromptEvent);
+    };
+    const onAppInstalled = () => {
+      markNativeAppInstalled();
+    };
+    window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+    window.addEventListener("appinstalled", onAppInstalled);
+
+    if (!("serviceWorker" in navigator)) {
+      return () => {
+        window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+        window.removeEventListener("appinstalled", onAppInstalled);
+      };
+    }
 
     const markerAtBoot = parseWaitingWorkerMarker(
       storageGet(UPDATE_WAITING_STORAGE_KEY),
@@ -363,6 +382,8 @@ export function NativeAppRuntime() {
         "controllerchange",
         onControllerChange,
       );
+      window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", onAppInstalled);
     };
   }, [router]);
 

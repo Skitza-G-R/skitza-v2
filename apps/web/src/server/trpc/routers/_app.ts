@@ -13,6 +13,7 @@ import { producerRouter } from "./producer";
 import { producerExternalLinksRouter } from "./producer-external-links";
 import { producerNotesRouter } from "./producer-notes";
 import { projectRouter } from "./project";
+import { pushRouter } from "./push";
 import { privateOffersRouter } from "./private-offers";
 import { purchaseLedgerRouter } from "./purchase-ledger";
 import { publicProfileRouter } from "./public-profile";
@@ -34,6 +35,7 @@ export const appRouter = router({
   producerExternalLinks: producerExternalLinksRouter,
   producerNotes: producerNotesRouter,
   project: projectRouter,
+  push: pushRouter,
   privateOffers: privateOffersRouter,
   purchaseLedger: purchaseLedgerRouter,
   publicProfile: publicProfileRouter,

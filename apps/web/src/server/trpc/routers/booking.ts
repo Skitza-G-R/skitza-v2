@@ -53,6 +53,7 @@ import {
   rejectSessionBooking,
   SessionBookingDomainError,
 } from "~/server/domain/session-booking/service";
+import { deliverPushToProjectArtist } from "~/server/push/delivery";
 
 function mapStoreProductCommercialError(error: unknown): never {
   if (error instanceof StoreProductCommercialError) {
@@ -1325,6 +1326,16 @@ export const bookingRouter = router({
             console.error("[email] booking confirmation failed");
           }
         });
+        after(async () => {
+          try {
+            await deliverPushToProjectArtist(ctx.db, before.booking.projectId, {
+              category: "booking",
+              url: `/artist/sessions/${result.booking.id}`,
+            });
+          } catch {
+            // Push is best effort and must not expose delivery details.
+          }
+        });
       }
       return { ok: true as const, id: result.booking.id, status: result.booking.status };
     }),
@@ -1369,6 +1380,16 @@ export const bookingRouter = router({
             console.error("[email] booking rejection failed", error);
           }
         });
+        after(async () => {
+          try {
+            await deliverPushToProjectArtist(ctx.db, before.booking.projectId, {
+              category: "booking",
+              url: `/artist/sessions/${result.booking.id}`,
+            });
+          } catch {
+            // Push is best effort and must not expose delivery details.
+          }
+        });
       }
       return { ok: true as const, id: result.booking.id, status: result.booking.status };
     }),
@@ -1411,6 +1432,16 @@ export const bookingRouter = router({
             });
           } catch (error) {
             console.error("[email] producer session cancellation failed", error);
+          }
+        });
+        after(async () => {
+          try {
+            await deliverPushToProjectArtist(ctx.db, before.booking.projectId, {
+              category: "booking",
+              url: `/artist/sessions/${result.booking.id}`,
+            });
+          } catch {
+            // Push is best effort and must not expose delivery details.
           }
         });
       }

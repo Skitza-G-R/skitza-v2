@@ -82,6 +82,23 @@ function productionAdapterApprovalFor() {
   });
 }
 
+function approvedCutoverDirectory(prefix: string): string {
+  const directory = mkdtempSync(join(tmpdir(), prefix));
+  for (const filename of [
+    "0027_purchase_foundation.sql",
+    "0028_stable_client_ownership.sql",
+    "0029_private_offer_recipient_identity.sql",
+    "0030_song_release_state.sql",
+    "0031_purchase_ledger_runtime.sql",
+    "0032_purchase_session_allowance.sql",
+    "0033_purchase_version_download_overrides.sql",
+    "0034_song_public_access.sql",
+  ]) {
+    copyFileSync(join(process.cwd(), "drizzle", filename), join(directory, filename));
+  }
+  return directory;
+}
+
 type Query = { params: unknown[] | undefined; statement: string };
 
 function fakeSql(
@@ -238,8 +255,13 @@ describe("SK-90 migration runner cutover", () => {
         "0000_v3_init.sql",
         "0026_remove_legacy_project_share_token.sql",
         "0028_future.sql",
+        "0035_web_push_subscriptions.sql",
       ]),
-    ).toEqual(["0027_purchase_foundation.sql", "0028_future.sql"]);
+    ).toEqual([
+      "0027_purchase_foundation.sql",
+      "0028_future.sql",
+      "0035_web_push_subscriptions.sql",
+    ]);
     expect(source).toMatch(/const CUTOVER_FLOOR = "0027_purchase_foundation\.sql"/);
     expect(source).toMatch(/filename >= CUTOVER_FLOOR/);
     expect(source).not.toMatch(/localeCompare/);
@@ -579,6 +601,7 @@ describe("SK-90 migration runner cutover", () => {
   });
 
   it("requires an active caller transaction before the production bundle can query migrations", async () => {
+    const directory = approvedCutoverDirectory("skitza-sk104-transaction-required-");
     const queries: Query[] = [];
     const client = {
       query: async (statement: string, params?: unknown[]) => {
@@ -587,20 +610,25 @@ describe("SK-90 migration runner cutover", () => {
       },
     };
 
-    await expect(
-      applyApprovedCutoverBundleInTransaction(
-        client,
-        join(process.cwd(), "drizzle"),
-        productionAdapterApprovalFor(),
-        productionAdapterBinding(),
-      ),
-    ).rejects.toThrow("SKITZA_MIGRATION_CALLER_TRANSACTION_REQUIRED");
-    expect(queries).toHaveLength(1);
-    expect(queries[0]?.statement).toContain("SAVEPOINT");
-    expect(queries[0]?.statement).not.toContain("pg_advisory_xact_lock");
+    try {
+      await expect(
+        applyApprovedCutoverBundleInTransaction(
+          client,
+          directory,
+          productionAdapterApprovalFor(),
+          productionAdapterBinding(),
+        ),
+      ).rejects.toThrow("SKITZA_MIGRATION_CALLER_TRANSACTION_REQUIRED");
+      expect(queries).toHaveLength(1);
+      expect(queries[0]?.statement).toContain("SAVEPOINT");
+      expect(queries[0]?.statement).not.toContain("pg_advisory_xact_lock");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("rejects an SK-90 isolated approval from the production-only bundle before any query", async () => {
+    const directory = approvedCutoverDirectory("skitza-sk104-isolated-rejected-");
     const binding = productionAdapterBinding();
     const isolatedApproval = createSk90AdapterApproval({
       ...binding,
@@ -616,15 +644,14 @@ describe("SK-90 migration runner cutover", () => {
       },
     };
 
-    await expect(
-      applyApprovedCutoverBundleInTransaction(
-        client,
-        join(process.cwd(), "drizzle"),
-        isolatedApproval,
-        binding,
-      ),
-    ).rejects.toThrow("SKITZA_MIGRATION_ADAPTER_APPROVAL_INVALID");
-    expect(queries).toHaveLength(0);
+    try {
+      await expect(
+        applyApprovedCutoverBundleInTransaction(client, directory, isolatedApproval, binding),
+      ).rejects.toThrow("SKITZA_MIGRATION_ADAPTER_APPROVAL_INVALID");
+      expect(queries).toHaveLength(0);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("rejects an unbound or mismatched SK-104 production approval before any query", async () => {
@@ -702,6 +729,21 @@ describe("SK-90 migration runner cutover", () => {
   });
 
   it("applies the exact approved production bundle in one caller transaction", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "skitza-sk104-approved-bundle-"));
+    const approvedFiles = [
+      "0027_purchase_foundation.sql",
+      "0028_stable_client_ownership.sql",
+      "0029_private_offer_recipient_identity.sql",
+      "0030_song_release_state.sql",
+      "0031_purchase_ledger_runtime.sql",
+      "0032_purchase_session_allowance.sql",
+      "0033_purchase_version_download_overrides.sql",
+      "0034_song_public_access.sql",
+    ];
+    for (const filename of approvedFiles) {
+      copyFileSync(join(process.cwd(), "drizzle", filename), join(directory, filename));
+    }
+
     const statements: Query[] = [];
     const ledger = new Map<string, string>();
     const client = {
@@ -718,27 +760,22 @@ describe("SK-90 migration runner cutover", () => {
       },
     };
 
-    const results = await applyApprovedCutoverBundleInTransaction(
-      client,
-      join(process.cwd(), "drizzle"),
-      productionAdapterApprovalFor(),
-      productionAdapterBinding(),
-    );
+    try {
+      const results = await applyApprovedCutoverBundleInTransaction(
+        client,
+        directory,
+        productionAdapterApprovalFor(),
+        productionAdapterBinding(),
+      );
 
-    expect(results.map((result: { filename: string }) => result.filename)).toEqual([
-      "0027_purchase_foundation.sql",
-      "0028_stable_client_ownership.sql",
-      "0029_private_offer_recipient_identity.sql",
-      "0030_song_release_state.sql",
-      "0031_purchase_ledger_runtime.sql",
-      "0032_purchase_session_allowance.sql",
-      "0033_purchase_version_download_overrides.sql",
-      "0034_song_public_access.sql",
-    ]);
-    expect(ledger.size).toBe(8);
-    expect(
-      statements.some((entry) => /^\s*(?:COMMIT|ROLLBACK)\s*;?\s*$/i.test(entry.statement)),
-    ).toBe(false);
+      expect(results.map((result: { filename: string }) => result.filename)).toEqual(approvedFiles);
+      expect(ledger.size).toBe(8);
+      expect(
+        statements.some((entry) => /^\s*(?:COMMIT|ROLLBACK)\s*;?\s*$/i.test(entry.statement)),
+      ).toBe(false);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("executes the same captured migration bytes that produced the approved bundle digest", async () => {

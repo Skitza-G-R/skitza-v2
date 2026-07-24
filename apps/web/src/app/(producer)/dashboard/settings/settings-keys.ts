@@ -1,5 +1,5 @@
-// Settings redesign — section keys + URL routing helpers + notification
-// defaults. Pure module (no React) so the server page and the client
+// Settings redesign — section keys + URL routing helpers. Pure module
+// (no React) so the server page and the client
 // component can both import without crossing the RSC boundary.
 //
 // URL contract: /dashboard/settings?section=<key>. Five live keys
@@ -71,76 +71,3 @@ export const SUB_NAV: readonly NavItem[] = [
   { key: "int", label: "Integrations", iconKey: "plug" },
   { key: "region", label: "Currency & region", iconKey: "globe" },
 ];
-
-// ─── Notification events ──────────────────────────────────────────────
-// Six known events from the design spec, plus their default on/off
-// state for email + in-app channels. The client merges the producer's
-// saved prefs over these defaults so a producer who has never touched
-// the matrix still sees sensible toggles.
-
-export type NotificationChannel = "email" | "app";
-
-export interface NotificationEventMeta {
-  key: string;
-  name: string;
-  sub: string;
-  defaults: Record<NotificationChannel, boolean>;
-}
-
-export const NOTIFICATION_EVENTS: readonly NotificationEventMeta[] = [
-  {
-    key: "booking",
-    name: "New booking request",
-    sub: "When a new artist requests an intro or session",
-    defaults: { email: true, app: true },
-  },
-  {
-    key: "approval",
-    name: "Mix approval / revision",
-    sub: "When a client reviews a version you sent",
-    defaults: { email: true, app: true },
-  },
-  {
-    key: "payment",
-    name: "Payment received",
-    sub: "When an external payment is confirmed",
-    defaults: { email: true, app: true },
-  },
-  {
-    key: "overdue",
-    name: "Overdue balance",
-    sub: "When a client invoice goes 7+ days late",
-    defaults: { email: true, app: true },
-  },
-  {
-    key: "comment",
-    name: "New timestamp comment",
-    sub: "Inline feedback on a song waveform",
-    defaults: { email: false, app: true },
-  },
-  {
-    key: "weekly",
-    name: "Weekly recap",
-    sub: "Friday summary — earnings, sessions, deadlines",
-    defaults: { email: true, app: false },
-  },
-];
-
-export type NotificationState = Record<string, Record<NotificationChannel, boolean>>;
-
-// Merge the producer's stored prefs (may be partial / empty) over the
-// design defaults so every event always has a defined on/off value
-// for both channels.
-export function resolveNotifications(
-  stored: Record<string, { email: boolean; app: boolean }> | null | undefined,
-): NotificationState {
-  const out: NotificationState = {};
-  for (const ev of NOTIFICATION_EVENTS) {
-    const prev = stored?.[ev.key];
-    out[ev.key] = {
-      email: prev?.email ?? ev.defaults.email,
-      app: prev?.app ?? ev.defaults.app,
-    };
-  }
-  return out;
-}
