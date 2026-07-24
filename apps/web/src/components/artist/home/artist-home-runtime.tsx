@@ -1,8 +1,10 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { createContext, useContext, type ReactNode } from "react";
 
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
+import { useRuntimeState } from "~/components/runtime-state/runtime-state-provider";
 import { useRuntimeCachedView } from "~/components/runtime-state/use-runtime-state";
 import type { ArtistHomeSafeView } from "~/lib/runtime-state/runtime-state";
 
@@ -12,6 +14,29 @@ interface ArtistHomeRuntimeValue {
 }
 
 const ArtistHomeRuntimeContext = createContext<ArtistHomeRuntimeValue | null>(null);
+
+export function ArtistHomeSoftNavigationBoundary({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const online = useOnlineStatus();
+  const { identity } = useRuntimeState();
+  const activeStudioId = identity.contextId === "artist-no-studio" ? null : identity.contextId;
+  const route = activeStudioId ? `/artist?studio=${encodeURIComponent(activeStudioId)}` : "/artist";
+  const cachedView = useRuntimeCachedView({
+    slot: "artist.home.safe-view",
+    route,
+    contextId: identity.contextId,
+  });
+
+  if (!online && pathname === "/artist" && cachedView.data) {
+    return (
+      <ArtistHomeRuntime serverView={cachedView.data} activeStudioId={activeStudioId}>
+        {children}
+      </ArtistHomeRuntime>
+    );
+  }
+
+  return children;
+}
 
 export function ArtistHomeRuntime({
   serverView,

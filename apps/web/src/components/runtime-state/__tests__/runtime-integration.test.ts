@@ -27,8 +27,13 @@ const ARTIST_RUNTIME = readFileSync(
   join(__dirname, "../../artist/home/artist-home-runtime.tsx"),
   "utf8",
 );
+const ARTIST_SHELL = readFileSync(join(__dirname, "../../artist/artist-app-shell.tsx"), "utf8");
 const GREETING = readFileSync(join(__dirname, "../../artist/home/greeting-strip.tsx"), "utf8");
 const SONG_PAGE = readFileSync(join(__dirname, "../../music/song-page.tsx"), "utf8");
+const PRODUCER_ROUTE_BOUNDARY = readFileSync(
+  join(__dirname, "../../../app/(producer)/dashboard/producer-native-route-boundary.tsx"),
+  "utf8",
+);
 const NAVIGATION_BRIDGE = readFileSync(
   join(COMPONENT_DIR, "runtime-navigation-bridge.tsx"),
   "utf8",
@@ -186,6 +191,16 @@ describe("cached-first and draft integration contracts", () => {
     expect(GREETING).toContain("runtime?.view.firstName");
     expect(PRODUCER_VIEW).toMatch(/if \(!online\)[\s\S]*Saved studio pulse/);
     expect(ARTIST_RUNTIME).toMatch(/if \(!online\)[\s\S]*Showing saved artist context/);
+  });
+
+  it("keeps warmed Home and Today useful after an offline soft navigation", () => {
+    expect(ARTIST_SHELL).toContain("<ArtistHomeSoftNavigationBoundary>");
+    expect(ARTIST_RUNTIME).toContain("export function ArtistHomeSoftNavigationBoundary");
+    expect(ARTIST_RUNTIME).toMatch(/!online && pathname === "\/artist" && cachedView\.data/);
+    expect(PRODUCER_ROUTE_BOUNDARY).toContain('slot: "producer.overview.safe-view"');
+    expect(PRODUCER_ROUTE_BOUNDARY).toContain('route: "/dashboard"');
+    expect(PRODUCER_ROUTE_BOUNDARY).toMatch(/!online && family === "today" && overview\.data/);
+    expect(PRODUCER_ROUTE_BOUNDARY).toMatch(/live\s+actions need a connection\./);
   });
 
   it("autosaves both role-specific comment drafts and blocks offline submit", () => {

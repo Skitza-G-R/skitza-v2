@@ -9,6 +9,7 @@ import { TopBarBreadcrumbProvider } from "~/components/shell/topbar-breadcrumb-c
 import { ArtistRuntimeStateProvider } from "~/components/runtime-state/artist-runtime-state-provider";
 import { NativeInstallGuidance } from "~/components/pwa/native-install-guidance";
 
+import { ArtistHomeSoftNavigationBoundary } from "./home/artist-home-runtime";
 import { ArtistShellChrome } from "./artist-shell-chrome";
 import { ArtistRouteStatus } from "./artist-route-status";
 
@@ -113,7 +114,7 @@ export function ArtistAppShell({
               className="mx-auto w-full max-w-2xl px-4 pt-6 pb-20 lg:max-w-none lg:px-10 lg:pt-10 lg:pb-12"
             >
               <ArtistRouteStatus />
-              {children}
+              <ArtistHomeSoftNavigationBoundary>{children}</ArtistHomeSoftNavigationBoundary>
             </main>
           </TopBarBreadcrumbProvider>
         </div>

@@ -12,6 +12,7 @@ import {
 } from "~/lib/native/producer-route-family";
 import type {
   ProducerMusicSafeView,
+  ProducerOverviewSafeView,
   ProducerPortfolioSafeView,
   ProducerStoreSafeView,
   ProducerWorkspaceSafeView,
@@ -41,6 +42,50 @@ function savedSummary(
   return null;
 }
 
+function SavedProducerToday({
+  view,
+  source,
+  refreshing,
+}: {
+  view: ProducerOverviewSafeView;
+  source: "unseen" | "cache" | "server";
+  refreshing: boolean;
+}) {
+  const firstName = (view.displayName ?? "").trim().split(/\s+/)[0] || "there";
+
+  return (
+    <div
+      data-runtime-source={source}
+      data-runtime-refreshing={refreshing || undefined}
+      className="sk-page-enter mx-auto flex w-full max-w-[1180px] flex-col gap-4 px-4 pt-5 pb-10 sm:px-6 lg:gap-5 lg:px-8 lg:pt-8 lg:pb-8"
+    >
+      <p
+        role="status"
+        className="rounded-[var(--radius-lg)] border border-[rgb(var(--fg-warning)/0.28)] bg-[rgb(var(--fg-warning)/0.08)] px-3 py-2 text-[12px] font-medium text-[rgb(var(--fg-warning-text))]"
+      >
+        Offline · Showing your saved studio overview. Booking, payment, availability, and other live
+        actions need a connection.
+      </p>
+      <section
+        aria-labelledby="offline-overview-heading"
+        className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 shadow-[var(--shadow-sm)]"
+      >
+        <h1
+          id="offline-overview-heading"
+          className="font-syne text-[28px] leading-tight font-extrabold tracking-[-0.03em] text-[rgb(var(--fg-default))]"
+        >
+          Welcome back, {firstName}.
+        </h1>
+        <p className="mt-3 text-[13px] text-[rgb(var(--fg-muted))]">Saved studio pulse</p>
+        <p className="mt-1 text-2xl font-extrabold text-[rgb(var(--fg-default))]">
+          {String(view.activeProjects)}
+        </p>
+        <p className="text-[12px] text-[rgb(var(--fg-muted))]">Active projects</p>
+      </section>
+    </div>
+  );
+}
+
 export function ProducerNativeRouteBoundary({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -48,6 +93,10 @@ export function ProducerNativeRouteBoundary({ children }: { children: ReactNode 
   const family = producerRouteFamily(pathname);
   const search = searchParams.toString();
   const route = `${pathname}${search ? `?${search}` : ""}`;
+  const overview = useRuntimeCachedView({
+    slot: "producer.overview.safe-view",
+    route: "/dashboard",
+  });
   const workspace = useRuntimeCachedView({
     slot: "producer.workspace.safe-view",
     route,
@@ -90,7 +139,15 @@ export function ProducerNativeRouteBoundary({ children }: { children: ReactNode 
           </span>
         </div>
       ) : null}
-      {children}
+      {!online && family === "today" && overview.data ? (
+        <SavedProducerToday
+          view={overview.data}
+          source={overview.source}
+          refreshing={overview.refreshing}
+        />
+      ) : (
+        children
+      )}
     </div>
   );
 }
