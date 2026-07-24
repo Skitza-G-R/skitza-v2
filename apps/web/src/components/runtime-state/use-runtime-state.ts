@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   readRuntimeState,
@@ -15,10 +15,16 @@ import {
 import {
   clearProducerDisplayNameDraft,
   clearRuntimeTextDraft,
+  clearRuntimeTextDraftForEmptyUserEdit,
+  createRuntimeDraftFlush,
+  flushRuntimeDraftForScope,
+  flushRuntimeDraftOnScopeTransition,
   readProducerDisplayNameDraft,
   readRuntimeTextDraft,
+  registerRuntimeDraftFlushLifecycle,
   writeProducerDisplayNameDraft,
   writeRuntimeTextDraft,
+  type PendingRuntimeDraftFlush,
   type RuntimeTextDraftSlot,
 } from "~/lib/runtime-state/drafts";
 
@@ -31,6 +37,35 @@ export interface RuntimeCachedViewResult<Slot extends SafeViewSlot> {
   data: RuntimePayloadBySlot[Slot] | undefined;
   source: "unseen" | "cache" | "server";
   refreshing: boolean;
+}
+
+function useSynchronousRuntimeDraftFlush(activeScopeKey: string | null) {
+  const activeScopeKeyRef = useRef(activeScopeKey);
+  const pendingDraftFlush = useRef<PendingRuntimeDraftFlush | null>(null);
+
+  const flushPendingDraft = useCallback((expected?: PendingRuntimeDraftFlush) => {
+    const pending = pendingDraftFlush.current;
+    if (!pending || (expected && pending !== expected)) return false;
+    const flushed = flushRuntimeDraftForScope(pending, activeScopeKeyRef.current);
+    if (flushed && pendingDraftFlush.current === pending) pendingDraftFlush.current = null;
+    return flushed;
+  }, []);
+
+  useLayoutEffect(() => {
+    const previousScopeKey = activeScopeKeyRef.current;
+    const pending = pendingDraftFlush.current;
+    const flushed = flushRuntimeDraftOnScopeTransition(pending, previousScopeKey, activeScopeKey);
+    if (flushed && pendingDraftFlush.current === pending) pendingDraftFlush.current = null;
+    activeScopeKeyRef.current = activeScopeKey;
+  }, [activeScopeKey]);
+
+  useEffect(() => {
+    return registerRuntimeDraftFlushLifecycle(window, () => {
+      flushPendingDraft();
+    });
+  }, [flushPendingDraft]);
+
+  return { flushPendingDraft, pendingDraftFlush };
 }
 
 export function useRuntimeCachedView<Slot extends SafeViewSlot>({
@@ -123,7 +158,7 @@ export function useRuntimeTextDraft({
   resourceId: string;
 }) {
   const { identity, privateStateAccessAllowed, storage } = useRuntimeState();
-  const [body, setBody] = useState("");
+  const [body, setBodyState] = useState("");
   const resolvedContextId = contextId ?? identity.contextId;
   const scope = useMemo(
     () => runtimeScope(identity.userId, identity.role, resolvedContextId, route),
@@ -132,6 +167,29 @@ export function useRuntimeTextDraft({
   const scopeKey = scope
     ? `${scope.userId}:${scope.role}:${scope.contextId}:${scope.route}:${slot}`
     : "invalid";
+  const activeScopeKey = privateStateAccessAllowed && storage && scope ? scopeKey : null;
+  const { flushPendingDraft, pendingDraftFlush } = useSynchronousRuntimeDraftFlush(activeScopeKey);
+
+  function createTextDraftFlush(nextBody: string): PendingRuntimeDraftFlush | null {
+    if (!activeScopeKey || !storage || nextBody.trim().length === 0) {
+      return null;
+    }
+    return createRuntimeDraftFlush(activeScopeKey, () =>
+      writeRuntimeTextDraft(storage, {
+        slot,
+        userId: identity.userId,
+        contextId: resolvedContextId,
+        route,
+        resourceId,
+        body: nextBody,
+      }),
+    );
+  }
+
+  function updateBody(nextBody: string) {
+    pendingDraftFlush.current = createTextDraftFlush(nextBody);
+    setBodyState(nextBody);
+  }
 
   useLayoutEffect(() => {
     if (!privateStateAccessAllowed || !storage || !scope) return;
@@ -142,9 +200,11 @@ export function useRuntimeTextDraft({
       route,
       resourceId,
     });
-    setBody(draft?.body ?? "");
+    pendingDraftFlush.current = null;
+    setBodyState(draft?.body ?? "");
   }, [
     identity.userId,
+    pendingDraftFlush,
     privateStateAccessAllowed,
     resolvedContextId,
     resourceId,
@@ -157,15 +217,10 @@ export function useRuntimeTextDraft({
 
   useEffect(() => {
     if (!privateStateAccessAllowed || !storage || !scope || body.trim().length === 0) return;
+    const pending = pendingDraftFlush.current;
+    if (!pending || pending.scopeKey !== activeScopeKey) return;
     const timeout = window.setTimeout(() => {
-      writeRuntimeTextDraft(storage, {
-        slot,
-        userId: identity.userId,
-        contextId: resolvedContextId,
-        route,
-        resourceId,
-        body,
-      });
+      flushPendingDraft(pending);
     }, 250);
     return () => {
       window.clearTimeout(timeout);
@@ -185,10 +240,21 @@ export function useRuntimeTextDraft({
 
   return {
     body,
-    setBody,
+    setBody: updateBody,
+    setBodyFromUser(nextBody: string) {
+      updateBody(nextBody);
+      if (!storage || !activeScopeKey) return;
+      clearRuntimeTextDraftForEmptyUserEdit(storage, {
+        slot,
+        userId: identity.userId,
+        contextId: resolvedContextId,
+        route,
+        body: nextBody,
+      });
+    },
     preserveDraft(nextBody = body) {
       if (!privateStateAccessAllowed || !storage || !scope || nextBody.trim().length === 0) return;
-      writeRuntimeTextDraft(storage, {
+      const persisted = writeRuntimeTextDraft(storage, {
         slot,
         userId: identity.userId,
         contextId: resolvedContextId,
@@ -196,9 +262,11 @@ export function useRuntimeTextDraft({
         resourceId,
         body: nextBody,
       });
+      if (persisted) pendingDraftFlush.current = null;
     },
     clearDraft() {
       if (!privateStateAccessAllowed || !storage || !scope) return;
+      pendingDraftFlush.current = null;
       clearRuntimeTextDraft(storage, {
         slot,
         userId: identity.userId,
@@ -222,6 +290,24 @@ export function useProducerDisplayNameDraft({
   const restore = useRef(onRestore);
   const restoredDraft = useRef(false);
   restore.current = onRestore;
+  const displayNameScope = useMemo(
+    () =>
+      runtimeScope(
+        identity.userId,
+        "producer",
+        identity.contextId,
+        "/dashboard/settings?section=profile",
+      ),
+    [identity.contextId, identity.userId],
+  );
+  const displayNameScopeKey = displayNameScope
+    ? `${displayNameScope.userId}:${displayNameScope.role}:${displayNameScope.contextId}:${displayNameScope.route}:producer.settings.display-name-draft`
+    : null;
+  const activeScopeKey =
+    privateStateAccessAllowed && storage && identity.role === "producer"
+      ? displayNameScopeKey
+      : null;
+  const { flushPendingDraft, pendingDraftFlush } = useSynchronousRuntimeDraftFlush(activeScopeKey);
 
   useLayoutEffect(() => {
     if (!privateStateAccessAllowed || !storage || identity.role !== "producer") return;
@@ -239,6 +325,24 @@ export function useProducerDisplayNameDraft({
     storage,
   ]);
 
+  useLayoutEffect(() => {
+    if (!activeScopeKey || !storage || value === savedValue) {
+      pendingDraftFlush.current = null;
+      return;
+    }
+    pendingDraftFlush.current = createRuntimeDraftFlush(activeScopeKey, () =>
+      writeProducerDisplayNameDraft(storage, identity.userId, identity.contextId, value),
+    );
+  }, [
+    activeScopeKey,
+    identity.contextId,
+    identity.userId,
+    pendingDraftFlush,
+    savedValue,
+    storage,
+    value,
+  ]);
+
   useEffect(() => {
     if (!privateStateAccessAllowed || !storage || identity.role !== "producer") return;
     if (value === savedValue) {
@@ -247,8 +351,10 @@ export function useProducerDisplayNameDraft({
       return;
     }
     restoredDraft.current = false;
+    const pending = pendingDraftFlush.current;
+    if (!pending || pending.scopeKey !== activeScopeKey) return;
     const timeout = window.setTimeout(() => {
-      writeProducerDisplayNameDraft(storage, identity.userId, identity.contextId, value);
+      flushPendingDraft(pending);
     }, 250);
     return () => {
       window.clearTimeout(timeout);
@@ -266,6 +372,7 @@ export function useProducerDisplayNameDraft({
   return {
     clearDraft() {
       if (!privateStateAccessAllowed || !storage || identity.role !== "producer") return;
+      pendingDraftFlush.current = null;
       clearProducerDisplayNameDraft(storage, identity.userId, identity.contextId);
     },
   };

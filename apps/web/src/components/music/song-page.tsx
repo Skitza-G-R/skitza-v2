@@ -1987,7 +1987,7 @@ export function SongPage({
                 className="min-h-11 min-w-0 flex-1 bg-transparent text-[13.5px] outline-none placeholder:text-[rgb(var(--fg-muted))] sm:min-h-0"
                 value={commentDraft.body}
                 onChange={(event) => {
-                  commentDraft.setBody(event.currentTarget.value);
+                  commentDraft.setBodyFromUser(event.currentTarget.value);
                 }}
                 onFocus={handleComposerFocus}
                 onBlur={handleComposerBlur}

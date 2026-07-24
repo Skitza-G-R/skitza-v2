@@ -9,6 +9,7 @@ import {
   type RuntimeRole,
   type StorageLike,
 } from "~/lib/runtime-state/runtime-state";
+import { invalidateRuntimeDraftFlushes } from "~/lib/runtime-state/drafts";
 
 export interface RuntimeIdentity {
   userId: string;
@@ -29,6 +30,7 @@ export function clearRuntimeStateBeforeSignOut<Result>(
   userId: string,
   signOut: () => Result,
 ): Result {
+  invalidateRuntimeDraftFlushes();
   if (storage) clearRuntimeStateForUser(storage, userId);
   return signOut();
 }
@@ -68,7 +70,10 @@ export function RuntimeStateProvider({
     if (!isLoaded) return;
     const currentUserId = clerkUserId ?? null;
     const userIdToClear = runtimeUserToClear(previousUserId.current, currentUserId);
-    if (userIdToClear && storage) clearRuntimeStateForUser(storage, userIdToClear);
+    if (userIdToClear) {
+      invalidateRuntimeDraftFlushes();
+      if (storage) clearRuntimeStateForUser(storage, userIdToClear);
+    }
     previousUserId.current = currentUserId;
   }, [clerkUserId, identity.userId, isLoaded, storage]);
 

@@ -8,6 +8,7 @@ import {
   shouldConcealRuntimeContent,
 } from "../runtime-state-provider";
 import { MemoryStorage } from "~/lib/runtime-state/__tests__/memory-storage";
+import { createRuntimeDraftFlush, flushRuntimeDraftForScope } from "~/lib/runtime-state/drafts";
 import { runtimeScope, writeRuntimeState } from "~/lib/runtime-state/runtime-state";
 
 const COMPONENT_DIR = join(__dirname, "..");
@@ -53,6 +54,16 @@ describe("runtime privacy adapters", () => {
     );
     expect(signOut).toHaveBeenCalledOnce();
   });
+
+  it("invalidates a dirty draft flush before sign-out can unmount the shell", () => {
+    const write = vi.fn(() => true);
+    const pending = createRuntimeDraftFlush("server-user:producer:producer-id", write);
+
+    clearRuntimeStateBeforeSignOut(null, "server-user", () => "signed-out");
+
+    expect(flushRuntimeDraftForScope(pending, "server-user:producer:producer-id")).toBe(false);
+    expect(write).not.toHaveBeenCalled();
+  });
 });
 
 describe("cached-first and draft integration contracts", () => {
@@ -83,6 +94,8 @@ describe("cached-first and draft integration contracts", () => {
     expect(SONG_PAGE).toContain('"producer.song-comment-draft"');
     expect(SONG_PAGE).toContain("commentDraft.preserveDraft(body)");
     expect(SONG_PAGE).toContain("commentDraft.clearDraft()");
+    expect(SONG_PAGE).toContain("commentDraft.setBodyFromUser(event.currentTarget.value)");
+    expect(CACHE_HOOK).toContain("registerRuntimeDraftFlushLifecycle(window");
     expect(SONG_PAGE).toContain("Reconnect to post this comment");
   });
 });

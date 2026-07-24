@@ -3,8 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   clearProducerDisplayNameDraft,
   clearRuntimeTextDraft,
+  clearRuntimeTextDraftForEmptyUserEdit,
+  createRuntimeDraftFlush,
+  flushRuntimeDraftForScope,
+  flushRuntimeDraftOnScopeTransition,
+  invalidateRuntimeDraftFlushes,
   readProducerDisplayNameDraft,
   readRuntimeTextDraft,
+  registerRuntimeDraftFlushLifecycle,
   writeProducerDisplayNameDraft,
   writeRuntimeTextDraft,
 } from "../drafts";
@@ -61,6 +67,140 @@ describe("runtime draft recovery", () => {
 
     clearRuntimeTextDraft(storage, identity);
     expect(readRuntimeTextDraft(storage, input, 20)).toBeNull();
+  });
+
+  it.each([
+    {
+      slot: "producer.song-comment-draft" as const,
+      userId: "producer-user",
+      contextId: "producer-id",
+      route: "/dashboard/music/version-a",
+      clearedBody: "",
+    },
+    {
+      slot: "artist.song-comment-draft" as const,
+      userId: "artist-user",
+      contextId: "studio-id",
+      route: "/artist/music/song/version-a?studio=studio-id",
+      clearedBody: "   ",
+    },
+  ])("keeps the $slot empty after a recovered draft is explicitly cleared", (identity) => {
+    const storage = new MemoryStorage();
+    const input = {
+      ...identity,
+      resourceId: "version-a",
+      body: "Recovered note",
+    };
+    writeRuntimeTextDraft(storage, input, 20);
+    expect(readRuntimeTextDraft(storage, input, 20)?.body).toBe("Recovered note");
+
+    expect(
+      clearRuntimeTextDraftForEmptyUserEdit(storage, {
+        ...identity,
+        body: identity.clearedBody,
+      }),
+    ).toBe(true);
+
+    expect(readRuntimeTextDraft(storage, input, 20)).toBeNull();
+  });
+
+  it("does not remove a recovered text draft for a non-empty user edit", () => {
+    const storage = new MemoryStorage();
+    const input = {
+      slot: "producer.song-comment-draft" as const,
+      userId: "producer-user",
+      contextId: "producer-id",
+      route: "/dashboard/music/version-a",
+      resourceId: "version-a",
+      body: "Recovered note",
+    };
+    writeRuntimeTextDraft(storage, input, 20);
+
+    expect(
+      clearRuntimeTextDraftForEmptyUserEdit(storage, {
+        ...input,
+        body: "Still editing",
+      }),
+    ).toBe(false);
+    expect(readRuntimeTextDraft(storage, input, 20)?.body).toBe("Recovered note");
+  });
+
+  it("flushes only the current draft scope and rejects invalidated account work", () => {
+    let writes = 0;
+    const current = createRuntimeDraftFlush("user-a:producer-a:route-a", () => {
+      writes += 1;
+      return true;
+    });
+    expect(flushRuntimeDraftForScope(current, "user-a:producer-a:route-a")).toBe(true);
+    expect(writes).toBe(1);
+
+    const staleScope = createRuntimeDraftFlush("user-a:producer-a:route-a", () => {
+      writes += 1;
+      return true;
+    });
+    expect(flushRuntimeDraftForScope(staleScope, "user-a:producer-a:route-b")).toBe(false);
+
+    const staleAccount = createRuntimeDraftFlush("user-a:producer-a:route-a", () => {
+      writes += 1;
+      return true;
+    });
+    invalidateRuntimeDraftFlushes();
+    expect(flushRuntimeDraftForScope(staleAccount, "user-a:producer-a:route-a")).toBe(false);
+    expect(writes).toBe(1);
+  });
+
+  it("flushes the previous dirty scope before a reused view adopts the next scope", () => {
+    let writes = 0;
+    const pending = createRuntimeDraftFlush("user-a:producer-a:route-a", () => {
+      writes += 1;
+      return true;
+    });
+
+    expect(
+      flushRuntimeDraftOnScopeTransition(
+        pending,
+        "user-a:producer-a:route-a",
+        "user-a:producer-a:route-b",
+      ),
+    ).toBe(true);
+    expect(writes).toBe(1);
+
+    const invalidated = createRuntimeDraftFlush("user-a:producer-a:route-b", () => {
+      writes += 1;
+      return true;
+    });
+    invalidateRuntimeDraftFlushes();
+    expect(
+      flushRuntimeDraftOnScopeTransition(
+        invalidated,
+        "user-a:producer-a:route-b",
+        "user-b:producer-b:route-c",
+      ),
+    ).toBe(false);
+    expect(writes).toBe(1);
+  });
+
+  it("flushes synchronously on pagehide and lifecycle cleanup", () => {
+    const listeners = new Set<() => void>();
+    const target = {
+      addEventListener(_type: "pagehide", listener: () => void) {
+        listeners.add(listener);
+      },
+      removeEventListener(_type: "pagehide", listener: () => void) {
+        listeners.delete(listener);
+      },
+    };
+    let flushes = 0;
+    const cleanup = registerRuntimeDraftFlushLifecycle(target, () => {
+      flushes += 1;
+    });
+
+    for (const listener of listeners) listener();
+    expect(flushes).toBe(1);
+
+    cleanup();
+    expect(flushes).toBe(2);
+    expect(listeners.size).toBe(0);
   });
 
   it("cannot recover another account, studio, role, or song's draft", () => {

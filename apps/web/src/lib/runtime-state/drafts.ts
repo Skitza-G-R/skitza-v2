@@ -13,6 +13,72 @@ export type RuntimeTextDraftSlot = "producer.song-comment-draft" | "artist.song-
 
 const DISPLAY_NAME_DRAFT_ROUTE = "/dashboard/settings?section=profile";
 
+let runtimeDraftFlushGeneration = 0;
+
+export interface PendingRuntimeDraftFlush {
+  readonly scopeKey: string;
+  readonly generation: number;
+  readonly write: () => boolean;
+}
+
+export interface RuntimeDraftLifecycleTarget {
+  addEventListener(type: "pagehide", listener: () => void): void;
+  removeEventListener(type: "pagehide", listener: () => void): void;
+}
+
+export function createRuntimeDraftFlush(
+  scopeKey: string,
+  write: () => boolean,
+): PendingRuntimeDraftFlush {
+  return {
+    scopeKey,
+    generation: runtimeDraftFlushGeneration,
+    write,
+  };
+}
+
+export function flushRuntimeDraftForScope(
+  pending: PendingRuntimeDraftFlush | null,
+  activeScopeKey: string | null,
+): boolean {
+  if (
+    !pending ||
+    !activeScopeKey ||
+    pending.scopeKey !== activeScopeKey ||
+    pending.generation !== runtimeDraftFlushGeneration
+  ) {
+    return false;
+  }
+  return pending.write();
+}
+
+export function flushRuntimeDraftOnScopeTransition(
+  pending: PendingRuntimeDraftFlush | null,
+  previousScopeKey: string | null,
+  nextScopeKey: string | null,
+): boolean {
+  if (!previousScopeKey || previousScopeKey === nextScopeKey) return false;
+  return flushRuntimeDraftForScope(pending, previousScopeKey);
+}
+
+export function invalidateRuntimeDraftFlushes(): void {
+  runtimeDraftFlushGeneration += 1;
+}
+
+export function registerRuntimeDraftFlushLifecycle(
+  target: RuntimeDraftLifecycleTarget,
+  flush: () => void,
+): () => void {
+  const onPageHide = () => {
+    flush();
+  };
+  target.addEventListener("pagehide", onPageHide);
+  return () => {
+    target.removeEventListener("pagehide", onPageHide);
+    flush();
+  };
+}
+
 export function readProducerDisplayNameDraft(
   storage: StorageLike,
   userId: string,
@@ -124,4 +190,24 @@ export function clearRuntimeTextDraft(
     input.route,
   );
   if (scope) removeRuntimeState(storage, scope, input.slot);
+}
+
+export function clearRuntimeTextDraftForEmptyUserEdit(
+  storage: StorageLike,
+  input: {
+    slot: RuntimeTextDraftSlot;
+    userId: string;
+    contextId: string;
+    route: string;
+    body: string;
+  },
+): boolean {
+  if (input.body.trim().length > 0) return false;
+  clearRuntimeTextDraft(storage, {
+    slot: input.slot,
+    userId: input.userId,
+    contextId: input.contextId,
+    route: input.route,
+  });
+  return true;
 }
