@@ -9,6 +9,7 @@ import {
   unsubscribePushAction,
 } from "~/app/push-actions";
 import { PUSH_CATEGORIES, PUSH_CATEGORY_COPY, type PushCategory } from "~/lib/push/categories";
+import { PUSH_SUBSCRIPTION_CLEARED_EVENT } from "~/lib/push/browser-subscription";
 
 type BrowserState = Readonly<{
   configured: boolean;
@@ -53,7 +54,9 @@ export function PushPreferences() {
 
   useEffect(() => {
     let cancelled = false;
+    let loadVersion = 0;
     async function load() {
+      const version = ++loadVersion;
       if (
         !("serviceWorker" in navigator) ||
         !("PushManager" in window) ||
@@ -70,7 +73,7 @@ export function PushPreferences() {
         const registration = await navigator.serviceWorker.ready;
         const subscription = await registration.pushManager.getSubscription();
         const status = await getPushStatusAction(subscription?.endpoint ?? null);
-        if (cancelled) return;
+        if (cancelled || version !== loadVersion) return;
         if (!status.ok) {
           setError(status.error);
           return;
@@ -89,12 +92,22 @@ export function PushPreferences() {
           setError("Push notification settings could not be loaded.");
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && version === loadVersion) setLoading(false);
       }
     }
+    const onSubscriptionCleared = () => {
+      loadVersion += 1;
+      setBrowser((current) => ({ ...current, subscription: null }));
+      setCategories([]);
+      setError(null);
+      setLoading(true);
+      void load();
+    };
+    window.addEventListener(PUSH_SUBSCRIPTION_CLEARED_EVENT, onSubscriptionCleared);
     void load();
     return () => {
       cancelled = true;
+      window.removeEventListener(PUSH_SUBSCRIPTION_CLEARED_EVENT, onSubscriptionCleared);
     };
   }, []);
 

@@ -9,6 +9,10 @@ const ACCOUNT_EXIT = readFileSync(
   new URL("../../lib/runtime-state/account-exit.ts", import.meta.url),
   "utf8",
 );
+const PUSH_EXIT = readFileSync(
+  new URL("../../lib/push/browser-subscription.ts", import.meta.url),
+  "utf8",
+);
 const PUBLIC_PLAYER = readFileSync(
   new URL("../join/join-mini-player.tsx", import.meta.url),
   "utf8",
@@ -54,18 +58,16 @@ describe("SK-110 root media runtime", () => {
   it("clears private continuity state before preparing media account exit", () => {
     expect(ROOT_RUNTIME).toContain("export async function prepareMediaAccountExit");
     const privateCleanup = ROOT_RUNTIME.indexOf("clearAccountPrivateRuntimeState(accountId)");
-    const mediaCleanup = ROOT_RUNTIME.indexOf(
-      "return prepareMediaAccountExit(accountId)",
-      privateCleanup,
-    );
+    const mediaCleanup = ROOT_RUNTIME.indexOf("prepareMediaAccountExit(accountId)", privateCleanup);
     expect(privateCleanup).toBeGreaterThanOrEqual(0);
     expect(mediaCleanup).toBeGreaterThan(privateCleanup);
     expect(ACCOUNT_EXIT).toContain("storage: StorageLike | null = getBrowserRuntimeStorage()");
+    expect(ROOT_RUNTIME).toContain("clearBrowserPushSubscription(removeOwnedPush)");
   });
 
   it("waits for composed cleanup before explicit app-owned Clerk sign-out", () => {
     const explicitCleanup = ROOT_RUNTIME.indexOf(
-      "if (user?.id) await prepareAppAccountExit(user.id)",
+      "if (user?.id) await prepareAppAccountExit(user.id, unsubscribePushAction)",
     );
     const explicitSignOut = ROOT_RUNTIME.indexOf("await clerk.signOut(options)", explicitCleanup);
     expect(explicitCleanup).toBeGreaterThanOrEqual(0);
@@ -77,7 +79,7 @@ describe("SK-110 root media runtime", () => {
       'data-localization-key="userButtonPopoverActionSignOut"',
     );
     const builtInCleanup = ROOT_RUNTIME.indexOf(
-      "void prepareAppAccountExit(accountId)",
+      "void prepareAppAccountExit(accountId, unsubscribePushAction)",
       builtInCapture,
     );
     const builtInSignOut = ROOT_RUNTIME.indexOf(".then(() => clerk.signOut())", builtInCleanup);
@@ -89,11 +91,12 @@ describe("SK-110 root media runtime", () => {
   it("hides the previous account before running its composed switch cleanup", () => {
     const visibleAccountSwitch = ROOT_RUNTIME.indexOf("setUploadRuntimeAccountId(accountId)");
     const previousAccountCleanup = ROOT_RUNTIME.indexOf(
-      "void prepareAppAccountExit(previous)",
+      "void prepareAppAccountExit(previous, null)",
       visibleAccountSwitch,
     );
     expect(visibleAccountSwitch).toBeGreaterThanOrEqual(0);
     expect(previousAccountCleanup).toBeGreaterThan(visibleAccountSwitch);
+    expect(PUSH_EXIT).toContain("fail-closed server ownership");
   });
 
   it("warns only for an active upload and does not claim close/relaunch continuation", () => {

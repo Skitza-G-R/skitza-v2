@@ -39,6 +39,18 @@ describe("SK-112 contextual push preferences", () => {
     expect(preferences).toContain("await subscription.unsubscribe()");
   });
 
+  it("reloads browser state after account-exit subscription cleanup", () => {
+    expect(preferences).toContain("PUSH_SUBSCRIPTION_CLEARED_EVENT");
+    expect(preferences).toContain(
+      "window.addEventListener(PUSH_SUBSCRIPTION_CLEARED_EVENT, onSubscriptionCleared)",
+    );
+    expect(preferences).toContain(
+      "window.removeEventListener(PUSH_SUBSCRIPTION_CLEARED_EVENT, onSubscriptionCleared)",
+    );
+    expect(preferences).toContain("setBrowser((current) => ({ ...current, subscription: null }))");
+    expect(preferences).toContain("setError(null)");
+  });
+
   it("replaces fake settings switches with the delivery-backed control", () => {
     expect(producerSettings).toContain("<PushPreferences />");
     expect(artistSettings).toContain("<PushPreferences />");

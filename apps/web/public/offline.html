@@ -66,6 +66,28 @@
         line-height: 1.55;
       }
 
+      .saved-context {
+        margin-top: 18px;
+        padding: 14px;
+        border: 1px solid #e6d4a9;
+        border-radius: 12px;
+        background: #fff8e8;
+      }
+
+      .saved-context strong {
+        display: block;
+        margin-bottom: 4px;
+        color: #7b5600;
+        font-size: 13px;
+      }
+
+      .saved-context small {
+        display: block;
+        margin-top: 6px;
+        color: #786e62;
+        font-size: 12px;
+      }
+
       button {
         width: 100%;
         min-height: 48px;
@@ -88,12 +110,40 @@
   <body>
     <main>
       <div class="mark" aria-hidden="true">S</div>
-      <h1>You’re offline.</h1>
-      <p>
-        Your private work stays out of offline storage. Reconnect to refresh
-        bookings, payments, uploads, and audio safely.
+      <h1 id="offline-title">You’re offline.</h1>
+      <p id="offline-message">
+        Reconnect to load live bookings, payments, uploads, and protected audio. Saved account
+        context remains isolated on this device and clears on sign-out.
       </p>
+      <section id="saved-context" class="saved-context" aria-live="polite" hidden>
+        <strong id="saved-context-label">Saved context</strong>
+        <span id="saved-context-summary"></span>
+        <small id="saved-context-updated"></small>
+      </section>
       <button type="button" onclick="window.location.reload()">Try again</button>
     </main>
+    <script src="/pwa/offline-context.js"></script>
+    <script>
+      (() => {
+        try {
+          const saved = window.SkitzaOfflineContext?.readSavedContext(
+            window.localStorage,
+            window.location.href,
+            Date.now(),
+          );
+          if (!saved) return;
+          document.getElementById("offline-title").textContent = saved.title;
+          document.getElementById("offline-message").textContent =
+            "Reconnect to refresh live data and continue actions safely.";
+          document.getElementById("saved-context-label").textContent = saved.label;
+          document.getElementById("saved-context-summary").textContent = saved.summary;
+          document.getElementById("saved-context-updated").textContent =
+            `Saved ${new Date(saved.updatedAt).toLocaleString()}`;
+          document.getElementById("saved-context").hidden = false;
+        } catch {
+          // Restricted or malformed storage keeps the generic boundary.
+        }
+      })();
+    </script>
   </body>
 </html>

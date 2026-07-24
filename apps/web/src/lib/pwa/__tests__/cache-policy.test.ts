@@ -56,6 +56,7 @@ describe("service worker cache policy", () => {
     "/icons/skitza-192.png",
     "/manifest.webmanifest",
     "/offline.html",
+    "/pwa/offline-context.js",
   ])("allows only the explicit static/public resource %s", (path) => {
     expect(policy.classifyRequest(request(path), OWN_ORIGIN)).toEqual({
       action: "cache",

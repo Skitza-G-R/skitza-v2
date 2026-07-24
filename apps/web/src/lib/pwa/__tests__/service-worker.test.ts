@@ -168,6 +168,7 @@ describe("service worker offline and update protocol", () => {
     expect(harness.cache.addAll).toHaveBeenCalledWith(
       expect.arrayContaining([
         "/offline.html",
+        "/pwa/offline-context.js",
         "/manifest.webmanifest",
         "/icons/apple-touch-icon-180.png",
       ]),

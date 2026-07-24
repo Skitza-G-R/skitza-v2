@@ -14,13 +14,14 @@
 importScripts("/pwa/cache-policy.js");
 importScripts("/pwa/push-policy.js");
 
-const SW_VERSION = "2026-07-24-sk112-1";
+const SW_VERSION = "2026-07-24-sk116-1";
 const CACHE_PREFIX = "skitza-native-";
 const CACHE_NAME = `${CACHE_PREFIX}${SW_VERSION}`;
 const OBSOLETE_CACHE_PREFIX = "skitza-shell-";
 const OFFLINE_URL = "/offline.html";
 const PRECACHE_URLS = [
   OFFLINE_URL,
+  "/pwa/offline-context.js",
   "/manifest.webmanifest",
   "/icons/apple-touch-icon-180.png",
   "/icons/skitza-192.png",

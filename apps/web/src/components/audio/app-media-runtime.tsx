@@ -17,6 +17,11 @@ import {
   cancelPersistedUploadsForAccount,
   startMultipartCancellationRecovery,
 } from "~/lib/audio/use-multipart-upload";
+import { unsubscribePushAction } from "~/app/push-actions";
+import {
+  clearBrowserPushSubscription,
+  type OwnedPushRemoval,
+} from "~/lib/push/browser-subscription";
 import { clearAccountPrivateRuntimeState } from "~/lib/runtime-state/account-exit";
 import {
   AppPlaybackRuntime,
@@ -47,9 +52,16 @@ export async function prepareMediaAccountExit(accountId: string): Promise<boolea
   return activeCancelled && journalCancelled;
 }
 
-async function prepareAppAccountExit(accountId: string): Promise<boolean> {
+async function prepareAppAccountExit(
+  accountId: string,
+  removeOwnedPush: OwnedPushRemoval | null,
+): Promise<boolean> {
   clearAccountPrivateRuntimeState(accountId);
-  return prepareMediaAccountExit(accountId);
+  const [mediaResult] = await Promise.all([
+    prepareMediaAccountExit(accountId),
+    clearBrowserPushSubscription(removeOwnedPush),
+  ]);
+  return mediaResult;
 }
 
 /**
@@ -63,7 +75,7 @@ export function useSafeSignOut(): (options?: SignOutOptions) => Promise<void> {
   return useCallback(
     async (options?: SignOutOptions) => {
       try {
-        if (user?.id) await prepareAppAccountExit(user.id);
+        if (user?.id) await prepareAppAccountExit(user.id, unsubscribePushAction);
       } finally {
         await clerk.signOut(options);
       }
@@ -87,7 +99,7 @@ function AppUploadRuntime({ accountId }: { accountId: string | null | undefined 
     previousAccountRef.current = accountId;
 
     if (previous && previous !== accountId) {
-      void prepareAppAccountExit(previous);
+      void prepareAppAccountExit(previous, null);
     }
     if (!accountId) return;
     return startMultipartCancellationRecovery();
@@ -124,7 +136,7 @@ function AppUploadRuntime({ accountId }: { accountId: string | null | undefined 
       event.preventDefault();
       event.stopImmediatePropagation();
       interceptingSignOutRef.current = true;
-      void prepareAppAccountExit(accountId)
+      void prepareAppAccountExit(accountId, unsubscribePushAction)
         .catch(() => {
           // Failed exact cancellation remains in the scoped journal.
         })

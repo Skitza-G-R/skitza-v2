@@ -5,6 +5,7 @@
     "/favicon.ico",
     "/manifest.webmanifest",
     "/offline.html",
+    "/pwa/offline-context.js",
   ]);
   const SAFE_PREFIXES = ["/_next/static/", "/icons/"];
   const SIGNED_QUERY_KEYS = new Set([
