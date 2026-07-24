@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 
 import { RevealOnScroll } from "~/components/landing/reveal-on-scroll";
+import { PublicConnectivityNotice } from "~/components/public/public-connectivity";
 
 import { CtaSection } from "../_components/cta-section";
 import { CursorSpotlight } from "../_components/cursor-spotlight";
@@ -26,10 +27,14 @@ export default async function GetStartedPageHe() {
 
   return (
     <div
+      id="main-content"
+      tabIndex={-1}
+      role="main"
       lang="he"
       dir="rtl"
-      className="landing-v3-root get-started-root"
+      className="landing-v3-root get-started-root focus:outline-none"
     >
+      <PublicConnectivityNotice locale="he" />
       <IsLoadedPing />
       <RevealOnScroll />
       <CursorSpotlight />
@@ -37,7 +42,10 @@ export default async function GetStartedPageHe() {
 
       <header
         className="relative z-20"
-        style={{ padding: "24px 24px 0" }}
+        style={{
+          padding:
+            "max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) 0 max(24px, env(safe-area-inset-left))",
+        }}
       >
         <div className="mx-auto max-w-7xl">
           <StaticLogo variant="dark" size={40} />

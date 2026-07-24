@@ -28,6 +28,7 @@ import {
   playerClose,
 } from "~/components/audio/persistent-player";
 import { usePlaybackSnapshot } from "~/components/audio/playback-runtime";
+import { usePublicOnline } from "~/components/public/public-connectivity";
 
 // Subset of the page's PublicSample so the mini player can compute
 // prev/next without importing the bento's full type surface.
@@ -58,6 +59,7 @@ interface JoinMiniPlayerProps {
 const EASE_LINEAR = "cubic-bezier(0.32,0.72,0,1)";
 
 export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
+  const online = usePublicOnline();
   const state = usePlaybackSnapshot();
   const currentMs = state.currentMs;
   const audioDurationSec = state.audioDurationSec;
@@ -98,7 +100,7 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
     samples && idx >= 0 && idx < samples.length - 1 ? (samples[idx + 1] ?? null) : null;
 
   function dispatchTrack(t: MiniPlaylistTrack) {
-    if (!t.audioUrl) return;
+    if (!online || !t.audioUrl) return;
     playerPlay({
       id: t.id,
       audioUrl: t.audioUrl,
@@ -128,10 +130,12 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
         className="pointer-events-none fixed inset-x-0 z-50 flex justify-center px-4"
         style={{
           bottom: "max(1rem, calc(env(safe-area-inset-bottom) + 0.5rem))",
+          paddingLeft: "max(1rem, env(safe-area-inset-left))",
+          paddingRight: "max(1rem, env(safe-area-inset-right))",
         }}
       >
         <div
-          className="pointer-events-auto grid w-full max-w-[560px] grid-cols-[auto_1fr_auto] items-center gap-3 rounded-[18px] border border-[rgb(var(--fg-primary)/0.12)] bg-[rgb(var(--fg-primary))] px-3 py-2.5 text-[rgb(var(--bg-base))] shadow-[0_18px_48px_rgba(0,0,0,0.28),_0_4px_12px_rgba(0,0,0,0.14)] backdrop-blur-md"
+          className="pointer-events-auto grid w-full max-w-[560px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-[18px] border border-[rgb(var(--fg-primary)/0.12)] bg-[rgb(var(--fg-primary))] px-2 py-2.5 text-[rgb(var(--bg-base))] shadow-[0_18px_48px_rgba(0,0,0,0.28),_0_4px_12px_rgba(0,0,0,0.14)] backdrop-blur-md sm:gap-3 sm:px-3"
           style={{
             transform: "translateY(0)",
             opacity: 1,
@@ -139,15 +143,15 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
           }}
         >
           {/* Transport — prev / play-pause / next. */}
-          <div className="flex items-center gap-1">
+          <div className="flex items-center">
             <button
               type="button"
               onClick={() => {
                 if (prevTrack) dispatchTrack(prevTrack);
               }}
-              disabled={!prevTrack}
+              disabled={!online || !prevTrack?.audioUrl}
               aria-label="Previous track"
-              className="flex h-8 w-8 items-center justify-center rounded-full text-[rgb(var(--bg-base)/0.8)] transition-colors duration-300 hover:bg-[rgb(var(--bg-base)/0.1)] hover:text-[rgb(var(--bg-base))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[rgb(var(--bg-base)/0.8)]"
+              className="sk-press flex h-11 w-11 items-center justify-center rounded-full text-[rgb(var(--bg-base)/0.8)] transition-colors duration-300 hover:bg-[rgb(var(--bg-base)/0.1)] hover:text-[rgb(var(--bg-base))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[rgb(var(--bg-base)/0.8)] motion-reduce:transition-none"
             >
               <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" aria-hidden fill="currentColor">
                 <polygon points="18,5 7,12 18,19" />
@@ -158,10 +162,11 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
             <button
               type="button"
               onClick={() => {
-                playerToggle();
+                if (state.playing || online) playerToggle();
               }}
+              disabled={!state.playing && !online}
               aria-label={state.playing ? "Pause" : "Play"}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-primary))] transition-transform duration-300 hover:scale-105 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))] focus-visible:outline-none active:scale-[0.97]"
+              className="sk-press flex h-11 w-11 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-primary))] transition-transform duration-300 hover:scale-105 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))] focus-visible:outline-none active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transform-none motion-reduce:transition-none"
               style={{ transitionTimingFunction: EASE_LINEAR }}
             >
               {state.playing ? (
@@ -186,9 +191,9 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
               onClick={() => {
                 if (nextTrack) dispatchTrack(nextTrack);
               }}
-              disabled={!nextTrack}
+              disabled={!online || !nextTrack?.audioUrl}
               aria-label="Next track"
-              className="flex h-8 w-8 items-center justify-center rounded-full text-[rgb(var(--bg-base)/0.8)] transition-colors duration-300 hover:bg-[rgb(var(--bg-base)/0.1)] hover:text-[rgb(var(--bg-base))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[rgb(var(--bg-base)/0.8)]"
+              className="sk-press flex h-11 w-11 items-center justify-center rounded-full text-[rgb(var(--bg-base)/0.8)] transition-colors duration-300 hover:bg-[rgb(var(--bg-base)/0.1)] hover:text-[rgb(var(--bg-base))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[rgb(var(--bg-base)/0.8)] motion-reduce:transition-none"
             >
               <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" aria-hidden fill="currentColor">
                 <polygon points="6,5 17,12 6,19" />
@@ -207,17 +212,16 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
                 </p>
               ) : null}
             </div>
-            {/* WCAG 2.5.5: touch target ≥ 24px. Visual bar stays at
-                1.5px but the click region grows to ~28px via vertical
-                padding + negative margin (a "bleeder" — touch area
-                expands without displacing surrounding layout). The
-                visible bar is rendered as an inner span so the
+            {/* Native touch target: 44px. Visual bar stays at 1.5px
+                while min-height + negative margin make the click area
+                finger-sized without displacing surrounding layout.
+                The visible bar is rendered as an inner span so the
                 surrounding hit region is invisible. */}
             <button
               type="button"
               onClick={onScrub}
               aria-label="Seek"
-              className="group relative -my-3 block w-full py-3 focus-visible:outline-none"
+              className="group relative -my-3 flex min-h-11 w-full items-center focus-visible:outline-none"
             >
               <span className="block h-1.5 w-full overflow-hidden rounded-full bg-[rgb(var(--bg-base)/0.18)] group-focus-visible:ring-2 group-focus-visible:ring-[rgb(var(--brand-primary))] group-focus-visible:ring-offset-1 group-focus-visible:ring-offset-[rgb(var(--fg-primary))]">
                 <span
@@ -246,7 +250,7 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
               playerClose();
             }}
             aria-label="Close player"
-            className="flex h-8 w-8 items-center justify-center rounded-full text-[rgb(var(--bg-base)/0.7)] transition-colors duration-300 hover:bg-[rgb(var(--bg-base)/0.1)] hover:text-[rgb(var(--bg-base))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))] focus-visible:outline-none"
+            className="sk-press flex h-11 w-11 items-center justify-center rounded-full text-[rgb(var(--bg-base)/0.7)] transition-colors duration-300 hover:bg-[rgb(var(--bg-base)/0.1)] hover:text-[rgb(var(--bg-base))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))] focus-visible:outline-none motion-reduce:transition-none"
           >
             <svg
               viewBox="0 0 24 24"
@@ -291,11 +295,11 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
           }
         }
         body[data-skitza-dock="1"] [data-join-bento] {
-          padding-bottom: 6.5rem;
+          padding-bottom: max(6.5rem, calc(5.5rem + env(safe-area-inset-bottom)));
         }
         @media (min-width: 640px) {
           body[data-skitza-dock="1"] [data-join-bento] {
-            padding-bottom: 7.5rem;
+            padding-bottom: max(7.5rem, calc(6.5rem + env(safe-area-inset-bottom)));
           }
         }
       `}</style>

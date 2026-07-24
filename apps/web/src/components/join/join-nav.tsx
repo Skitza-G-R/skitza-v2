@@ -36,11 +36,11 @@ export function JoinNav() {
         "bg-[rgb(var(--bg-base)/0.82)] backdrop-blur-md",
       ].join(" ")}
     >
-      <div className="mx-auto flex max-w-6xl items-center px-4 py-2 sm:px-8 sm:py-2.5 lg:px-10">
+      <div className="mx-auto flex max-w-6xl items-center px-4 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 sm:px-8 sm:pt-2.5 sm:pb-2.5 lg:px-10">
         <Link
           href="/"
           aria-label="Skitza home"
-          className="sk-brand-lockup sk-press inline-flex items-center gap-2 rounded-[var(--radius-md)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]"
+          className="sk-brand-lockup sk-press inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-lg)] px-1 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))] focus-visible:outline-none"
         >
           <span className="sk-mark-aura inline-flex">
             <LogoMark size={22} />

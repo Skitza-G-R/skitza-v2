@@ -27,12 +27,16 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
   return (
     <div
       style={LIGHT_TOKENS}
-      className="relative min-h-dvh overflow-hidden bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))]"
+      className="relative min-h-dvh overflow-x-clip bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))]"
     >
-      <div className="grid min-h-dvh grid-cols-1 lg:grid-cols-[1.05fr_1fr]">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="grid min-h-dvh grid-cols-1 focus:outline-none lg:grid-cols-[1.05fr_1fr]"
+      >
         <BrandPanel />
         <FormColumn>{children}</FormColumn>
-      </div>
+      </main>
     </div>
   );
 }
@@ -62,7 +66,7 @@ function BrandPanel() {
   return (
     <aside
       // Mobile: short header band; desktop: full-height column.
-      className="relative overflow-hidden px-6 py-4 text-white sm:px-10 sm:py-7 lg:px-14 lg:py-12"
+      className="relative overflow-hidden px-6 pb-4 pt-[max(1rem,env(safe-area-inset-top))] text-white sm:px-10 sm:pb-7 sm:pt-7 lg:px-14 lg:py-12"
       style={{
         background:
           "linear-gradient(155deg, #100E07 0%, #1d1810 55%, #2c2412 100%)",
@@ -91,7 +95,7 @@ function BrandPanel() {
         {/* Logo */}
         <Link
           href="/"
-          className="group inline-flex items-center gap-2.5 self-start"
+          className="group sk-press inline-flex min-h-11 items-center gap-2.5 self-start rounded-[var(--radius-lg)] px-1"
           aria-label="Skitza home"
         >
           <span
@@ -189,7 +193,7 @@ function BrandPanel() {
 
 function FormColumn({ children }: { children: ReactNode }) {
   return (
-    <section className="relative flex flex-col px-6 py-6 sm:px-10 sm:py-10 lg:px-14 lg:py-12">
+    <section className="relative flex flex-col px-6 pt-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:px-10 sm:pt-10 sm:pb-[max(2.5rem,env(safe-area-inset-bottom))] lg:px-14 lg:pt-12 lg:pb-[max(3rem,env(safe-area-inset-bottom))]">
       {/* The mobile-only marketing eyebrow that used to live here was
           retired now that each page renders its own `<AuthHero>` (see
           apps/web/src/components/auth/auth-hero.tsx). Per-page hero
@@ -215,17 +219,29 @@ function FormColumn({ children }: { children: ReactNode }) {
         className="font-mono mt-8 flex flex-wrap items-center justify-between gap-3 text-[11px] uppercase tracking-[0.14em] lg:mt-10"
         style={{ color: "rgb(var(--fg-muted))" }}
       >
-        <Link href="/" className="hover:text-[rgb(var(--fg-primary))]">
+        <Link
+          href="/"
+          className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-1 hover:text-[rgb(var(--fg-primary))]"
+        >
           ← Back to Skitza
         </Link>
-        <div className="flex gap-4">
-          <Link href="/terms" className="hover:text-[rgb(var(--fg-primary))]">
+        <div className="flex flex-wrap gap-1">
+          <Link
+            href="/terms"
+            className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-2 hover:text-[rgb(var(--fg-primary))]"
+          >
             Terms
           </Link>
-          <Link href="/privacy" className="hover:text-[rgb(var(--fg-primary))]">
+          <Link
+            href="/privacy"
+            className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-2 hover:text-[rgb(var(--fg-primary))]"
+          >
             Privacy
           </Link>
-          <Link href="/about" className="hover:text-[rgb(var(--fg-primary))]">
+          <Link
+            href="/about"
+            className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-2 hover:text-[rgb(var(--fg-primary))]"
+          >
             About
           </Link>
         </div>

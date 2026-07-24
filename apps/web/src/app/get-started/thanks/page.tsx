@@ -3,6 +3,8 @@ import "~/styles/get-started.css";
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 
+import { PublicConnectivityNotice } from "~/components/public/public-connectivity";
+
 import { PostSignupConfetti } from "../_components/post-signup-confetti";
 import { StaticLogo } from "../_components/static-logo";
 
@@ -29,8 +31,16 @@ export default async function ThanksPage({
   const name = sanitizeName(params.n);
 
   return (
-    <main className="get-started-root">
-      <header className="gs-header">
+    <main
+      id="main-content"
+      tabIndex={-1}
+      className="get-started-root focus:outline-none"
+    >
+      <PublicConnectivityNotice />
+      <header
+        className="gs-header"
+        style={{ paddingTop: "max(28px, env(safe-area-inset-top))" }}
+      >
         <div className="container">
           <StaticLogo />
         </div>
@@ -74,7 +84,7 @@ export default async function ThanksPage({
             after the success message instead of a dead-end page. */}
         <a
           href="/get-started"
-          className="btn-primary"
+          className="btn-primary sk-press"
           style={{ marginTop: 32, textDecoration: "none" }}
         >
           ← Back to Skitza

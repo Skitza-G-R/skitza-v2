@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Check, Pause, Play, Radio } from "lucide-react";
 
@@ -11,6 +12,7 @@ import {
 } from "~/components/audio/persistent-player";
 import { Waveform50 } from "~/components/audio/waveform-50";
 import { JoinMiniPlayer } from "~/components/join/join-mini-player";
+import { usePublicOnline } from "~/components/public/public-connectivity";
 
 export type PublicSongVersion = Readonly<{
   id: string;
@@ -52,6 +54,7 @@ export function PublicSongPlayer({
   producerLogoUrl,
   versions,
 }: PublicSongPlayerProps) {
+  const online = usePublicOnline();
   const [selectedId, setSelectedId] = useState(versions[0]?.id ?? "");
   const selected = versions.find((version) => version.id === selectedId) ?? versions[0];
   const nowPlaying = useNowPlaying();
@@ -75,6 +78,11 @@ export function PublicSongPlayer({
 
   function play(version: PublicSongVersion) {
     setSelectedId(version.id);
+    if (nowPlaying.trackId === version.id && nowPlaying.playing) {
+      playerToggle();
+      return;
+    }
+    if (!online) return;
     if (nowPlaying.trackId === version.id) {
       playerToggle();
       return;
@@ -99,16 +107,16 @@ export function PublicSongPlayer({
         }}
       />
 
-      <header className="relative z-10 mx-auto flex w-full max-w-[1180px] items-center justify-between px-5 py-5 sm:px-8 lg:px-10 lg:py-7">
-        <a
-          href="https://skitza.app"
-          className="inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-lg)] px-1 font-display text-lg font-extrabold tracking-[-0.04em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+      <header className="relative z-10 mx-auto flex w-full max-w-[1180px] items-center justify-between px-5 pb-5 pt-[max(1.25rem,env(safe-area-inset-top))] sm:px-8 lg:px-10 lg:pb-7 lg:pt-7">
+        <Link
+          href="/"
+          className="sk-press inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-lg)] px-1 font-display text-lg font-extrabold tracking-[-0.04em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
         >
           <span className="flex h-8 w-8 items-center justify-center rounded-full border border-[rgb(var(--fg-primary)/0.18)] bg-[rgb(var(--fg-primary)/0.06)]">
             <Radio className="h-4 w-4 text-[rgb(var(--brand-primary))]" aria-hidden="true" />
           </span>
           Skitza<span className="text-[rgb(var(--brand-primary))]">.</span>
-        </a>
+        </Link>
 
         <div className="flex min-w-0 items-center gap-2.5">
           {producerLogoUrl ? (
@@ -131,7 +139,11 @@ export function PublicSongPlayer({
         </div>
       </header>
 
-      <main className="relative z-10 mx-auto grid w-full max-w-[1180px] gap-8 px-5 pb-32 pt-5 sm:px-8 lg:grid-cols-[minmax(300px,0.82fr)_minmax(0,1.18fr)] lg:items-center lg:gap-16 lg:px-10 lg:pb-28 lg:pt-10">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="relative z-10 mx-auto grid w-full max-w-[1180px] gap-8 px-5 pb-32 pt-5 focus:outline-none sm:px-8 lg:grid-cols-[minmax(300px,0.82fr)_minmax(0,1.18fr)] lg:items-center lg:gap-16 lg:px-10 lg:pb-28 lg:pt-10"
+      >
         <section aria-label="Now selected" className="mx-auto w-full max-w-[460px] lg:max-w-none">
           <div className="relative aspect-square overflow-hidden rounded-[var(--radius-xl)] border border-[rgb(var(--fg-primary)/0.12)] bg-[rgb(var(--surface-raised))] shadow-[0_34px_90px_rgb(0_0_0/0.34)]">
             <div
@@ -148,8 +160,9 @@ export function PublicSongPlayer({
                 onClick={() => {
                   play(selected);
                 }}
+                disabled={!online && !selectedIsPlaying}
                 aria-label={selectedIsPlaying ? `Pause ${songTitle}` : `Play ${songTitle}`}
-                className="flex h-20 w-20 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-primary))] shadow-[0_16px_40px_rgb(var(--brand-primary)/0.34)] transition-transform duration-300 hover:scale-105 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--fg-primary))] focus-visible:ring-offset-4 focus-visible:ring-offset-[rgb(var(--brand-primary))] motion-reduce:transform-none motion-reduce:transition-none"
+                className="sk-press flex h-20 w-20 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-primary))] shadow-[0_16px_40px_rgb(var(--brand-primary)/0.34)] transition-transform duration-300 hover:scale-105 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--fg-primary))] focus-visible:ring-offset-4 focus-visible:ring-offset-[rgb(var(--brand-primary))] disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transform-none motion-reduce:transition-none"
               >
                 {selectedIsPlaying ? (
                   <Pause className="h-7 w-7" fill="currentColor" aria-hidden="true" />
@@ -201,7 +214,8 @@ export function PublicSongPlayer({
               onClick={() => {
                 play(selected);
               }}
-              className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 text-sm font-bold text-[rgb(var(--fg-primary))] transition-transform hover:-translate-y-px active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--fg-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--brand-primary))] motion-reduce:transform-none motion-reduce:transition-none sm:w-auto"
+              disabled={!online && !selectedIsPlaying}
+              className="sk-press mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 text-sm font-bold text-[rgb(var(--fg-primary))] transition-transform hover:-translate-y-px active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--fg-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--brand-primary))] disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transform-none motion-reduce:transition-none sm:w-auto"
             >
               {selectedIsPlaying ? (
                 <Pause className="h-4 w-4" fill="currentColor" aria-hidden="true" />
@@ -233,10 +247,16 @@ export function PublicSongPlayer({
                       type="button"
                       onClick={() => {
                         setSelectedId(version.id);
-                        if (nowPlaying.trackId && nowPlaying.trackId !== version.id) play(version);
+                        if (
+                          online &&
+                          nowPlaying.trackId &&
+                          nowPlaying.trackId !== version.id
+                        ) {
+                          play(version);
+                        }
                       }}
                       aria-pressed={active}
-                      className={`grid min-h-14 w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-[var(--radius-lg)] border px-3.5 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] motion-reduce:transition-none ${
+                      className={`sk-press grid min-h-14 w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-[var(--radius-lg)] border px-3.5 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] motion-reduce:transition-none ${
                         active
                           ? "border-[rgb(var(--brand-primary)/0.52)] bg-[rgb(var(--brand-primary)/0.1)]"
                           : "border-[rgb(var(--fg-primary)/0.09)] bg-[rgb(var(--fg-primary)/0.025)] hover:bg-[rgb(var(--fg-primary)/0.05)]"

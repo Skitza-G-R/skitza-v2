@@ -29,11 +29,14 @@ describe("WaitlistForm — English", () => {
     expect(html).toMatch(/type="email"/);
     expect(html).toMatch(/required/);
     expect(html).toMatch(/autoComplete|autocomplete="email"/i);
+    expect(html).toMatch(/inputMode|inputmode="email"/i);
+    expect(html).toMatch(/enterKeyHint|enterkeyhint="next"/i);
   });
 
   it("renders a submit button with English label", () => {
     expect(html).toMatch(/type="submit"/);
     expect(html).toMatch(/Get early access/);
+    expect(html).toContain("sk-press");
   });
 
   it("includes a honeypot field with display:none and aria-hidden", () => {

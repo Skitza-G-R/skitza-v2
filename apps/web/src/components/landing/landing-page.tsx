@@ -5,6 +5,7 @@ import { Fragment, useEffect, useState } from "react";
 
 import { LogoMark } from "~/components/brand/logo-mark";
 import { RevealOnScroll } from "~/components/landing/reveal-on-scroll";
+import { PublicConnectivityNotice } from "~/components/public/public-connectivity";
 
 // =============================================================================
 // Skitza Landing — v3 (Phase 3 — docs/qa/phase-3-handoff.md)
@@ -49,24 +50,37 @@ export function LandingPage() {
   useEffect(() => {
     setLoaded(true);
   }, []);
+  useEffect(() => {
+    if (!menuOpen) return;
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setMenuOpen(false);
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [menuOpen]);
 
   return (
     <div
       id="landing-root"
       className={`landing-v3-root scroll-host ${loaded ? "is-loaded" : ""}`}
     >
+      <PublicConnectivityNotice />
       <RevealOnScroll />
 
       <Nav menuOpen={menuOpen} setMenuOpen={setMenuOpen} />
-      <Hero />
-      <StackReplace />
-      <FeaturesSection />
-      <FeatureGrid />
-      <HowSection />
-      <Pricing />
-      <FAQ activeFaq={activeFaq} setActiveFaq={setActiveFaq} />
-      <FounderNote />
-      <FinalCTA />
+      <main id="main-content" tabIndex={-1} className="focus:outline-none">
+        <Hero />
+        <StackReplace />
+        <FeaturesSection />
+        <FeatureGrid />
+        <HowSection />
+        <Pricing />
+        <FAQ activeFaq={activeFaq} setActiveFaq={setActiveFaq} />
+        <FounderNote />
+        <FinalCTA />
+      </main>
       <LandingFooter />
     </div>
   );
@@ -350,9 +364,16 @@ function Nav({
         color: "#F2EDE6",
       }}
     >
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-3.5 sm:px-8">
+      <div
+        className="mx-auto flex max-w-7xl items-center justify-between px-5 pb-3.5 pt-3.5 sm:px-8"
+        style={{ paddingTop: "max(0.875rem, env(safe-area-inset-top))" }}
+      >
         <div className="flex items-center gap-4 sm:gap-9">
-          <Link href="/" className="group inline-flex items-center" aria-label="Skitza home">
+          <Link
+            href="/"
+            className="group sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)]"
+            aria-label="Skitza home"
+          >
             <LogoLockup markSize={30} wordmarkSize={22} />
           </Link>
           <span
@@ -364,28 +385,28 @@ function Nav({
         </div>
         {/* Desktop links */}
         <div className="hidden items-center gap-7 text-[13px] font-medium lg:flex">
-          <a href="#features" style={{ color: "rgb(255 255 255 / 0.75)" }} className="hover:text-white">
+          <a href="#features" style={{ color: "rgb(255 255 255 / 0.75)" }} className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-1 hover:text-white">
             Features
           </a>
-          <a href="#how" style={{ color: "rgb(255 255 255 / 0.75)" }} className="hover:text-white">
+          <a href="#how" style={{ color: "rgb(255 255 255 / 0.75)" }} className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-1 hover:text-white">
             How it works
           </a>
-          <a href="#pricing" style={{ color: "rgb(255 255 255 / 0.75)" }} className="hover:text-white">
+          <a href="#pricing" style={{ color: "rgb(255 255 255 / 0.75)" }} className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-1 hover:text-white">
             Pricing
           </a>
-          <a href="#faq" style={{ color: "rgb(255 255 255 / 0.75)" }} className="hover:text-white">
+          <a href="#faq" style={{ color: "rgb(255 255 255 / 0.75)" }} className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-1 hover:text-white">
             FAQ
           </a>
           <Link
             href="/sign-in"
-            className="text-[12.5px]"
+            className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-1 text-[12.5px]"
             style={{ color: "rgb(255 255 255 / 0.75)" }}
           >
             Sign in
           </Link>
           <Link
             href={SIGNUP_HREF}
-            className="sk-pop rounded-[10px] px-4 py-2 text-[13px] font-bold tracking-tight"
+            className="sk-pop sk-press inline-flex min-h-11 items-center rounded-[10px] px-4 py-2 text-[13px] font-bold tracking-tight"
             style={{
               background: "rgb(var(--brand-primary))",
               color: "#111009",
@@ -399,15 +420,18 @@ function Nav({
         <button
           type="button"
           onClick={() => { setMenuOpen(!menuOpen); }}
-          className="lg:hidden inline-flex h-9 w-9 items-center justify-center rounded-md"
+          className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] lg:hidden"
           style={{ color: "#F2EDE6", background: "rgb(255 255 255 / 0.06)" }}
           aria-label={menuOpen ? "Close menu" : "Open menu"}
+          aria-expanded={menuOpen}
+          aria-controls="landing-mobile-menu"
         >
           <Icon name={menuOpen ? "x" : "menu"} size={18} />
         </button>
       </div>
       {menuOpen && (
         <div
+          id="landing-mobile-menu"
           className="lg:hidden border-t"
           style={{ borderColor: "rgb(255 255 255 / 0.06)" }}
         >
@@ -415,7 +439,7 @@ function Nav({
             <a
               href="#features"
               onClick={() => { setMenuOpen(false); }}
-              className="rounded-md px-3 py-3 text-[14px]"
+              className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-3 py-3 text-[14px]"
               style={{ color: "rgb(255 255 255 / 0.85)" }}
             >
               Features
@@ -423,7 +447,7 @@ function Nav({
             <a
               href="#how"
               onClick={() => { setMenuOpen(false); }}
-              className="rounded-md px-3 py-3 text-[14px]"
+              className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-3 py-3 text-[14px]"
               style={{ color: "rgb(255 255 255 / 0.85)" }}
             >
               How it works
@@ -431,7 +455,7 @@ function Nav({
             <a
               href="#pricing"
               onClick={() => { setMenuOpen(false); }}
-              className="rounded-md px-3 py-3 text-[14px]"
+              className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-3 py-3 text-[14px]"
               style={{ color: "rgb(255 255 255 / 0.85)" }}
             >
               Pricing
@@ -439,21 +463,21 @@ function Nav({
             <a
               href="#faq"
               onClick={() => { setMenuOpen(false); }}
-              className="rounded-md px-3 py-3 text-[14px]"
+              className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-3 py-3 text-[14px]"
               style={{ color: "rgb(255 255 255 / 0.85)" }}
             >
               FAQ
             </a>
             <Link
               href="/sign-in"
-              className="rounded-md px-3 py-3 text-[14px]"
+              className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-3 py-3 text-[14px]"
               style={{ color: "rgb(255 255 255 / 0.85)" }}
             >
               Sign in
             </Link>
             <Link
               href={SIGNUP_HREF}
-              className="mt-2 rounded-[10px] px-4 py-3 text-center text-[14px] font-bold"
+              className="sk-press mt-2 inline-flex min-h-11 items-center justify-center rounded-[10px] px-4 py-3 text-center text-[14px] font-bold"
               style={{
                 background: "rgb(var(--brand-primary))",
                 color: "#111009",
@@ -567,7 +591,7 @@ function Hero() {
           <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
             <Link
               href={SIGNUP_HREF}
-              className="sk-pop inline-flex items-center justify-center gap-2 rounded-[12px] px-[22px] py-4 text-[15px] font-bold tracking-tight sm:py-[14px] sm:text-[14.5px]"
+              className="sk-pop sk-press inline-flex min-h-11 items-center justify-center gap-2 rounded-[12px] px-[22px] py-4 text-[15px] font-bold tracking-tight sm:py-[14px] sm:text-[14.5px]"
               style={{
                 background: "rgb(var(--brand-primary))",
                 color: "#111009",
@@ -579,7 +603,7 @@ function Hero() {
             </Link>
             <a
               href="#how"
-              className="sk-pop inline-flex items-center justify-center gap-2 rounded-[12px] border px-[22px] py-4 text-[15px] font-bold sm:py-[14px] sm:text-[14.5px]"
+              className="sk-pop sk-press inline-flex min-h-11 items-center justify-center gap-2 rounded-[12px] border px-[22px] py-4 text-[15px] font-bold sm:py-[14px] sm:text-[14.5px]"
               style={{
                 background: "transparent",
                 color: "#F2EDE6",
@@ -1772,7 +1796,7 @@ function Pricing() {
 
           <Link
             href={SIGNUP_HREF}
-            className="sk-pop block w-full rounded-xl px-5 py-4 text-center text-[15px] font-bold"
+            className="sk-pop sk-press block min-h-11 w-full rounded-xl px-5 py-4 text-center text-[15px] font-bold"
             style={{ background: "#111009", color: "#fff" }}
           >
             Start free trial →
@@ -1853,7 +1877,7 @@ function FAQ({
                 <button
                   type="button"
                   onClick={() => { setActiveFaq(open ? null : i); }}
-                  className="sk-row flex w-full items-center justify-between px-1 py-5 text-left"
+                  className="sk-row sk-press flex min-h-11 w-full items-center justify-between px-1 py-5 text-left"
                   aria-expanded={open}
                   aria-controls={`faq-panel-${String(i)}`}
                 >
@@ -1920,7 +1944,7 @@ function FinalCTA() {
         </p>
         <Link
           href={SIGNUP_HREF}
-          className="sk-pop mt-8 inline-flex w-full items-center justify-center gap-2.5 rounded-xl px-7 py-4 text-[15px] font-bold sm:w-auto"
+          className="sk-pop sk-press mt-8 inline-flex min-h-11 w-full items-center justify-center gap-2.5 rounded-xl px-7 py-4 text-[15px] font-bold sm:w-auto"
           style={{
             background: "rgb(var(--brand-primary))",
             color: "#111009",
@@ -1951,7 +1975,8 @@ function LandingFooter() {
       style={{
         background: "#0a0905",
         color: "rgb(255 255 255 / 0.5)",
-        padding: "36px 20px",
+        padding:
+          "36px max(20px, env(safe-area-inset-right)) max(36px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left))",
         borderTop: "1px solid rgb(255 255 255 / 0.06)",
         fontSize: 12,
       }}
@@ -1962,13 +1987,13 @@ function LandingFooter() {
           © 2026 · Built for producers, by producers
         </span>
         <div className="flex gap-6 sm:gap-5">
-          <Link href="/privacy" style={{ color: "inherit" }} className="py-1 hover:text-white">
+          <Link href="/privacy" style={{ color: "inherit" }} className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-1 hover:text-white">
             Privacy
           </Link>
-          <Link href="/terms" style={{ color: "inherit" }} className="py-1 hover:text-white">
+          <Link href="/terms" style={{ color: "inherit" }} className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-1 hover:text-white">
             Terms
           </Link>
-          <Link href="/about" style={{ color: "inherit" }} className="py-1 hover:text-white">
+          <Link href="/about" style={{ color: "inherit" }} className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-1 hover:text-white">
             About
           </Link>
         </div>
