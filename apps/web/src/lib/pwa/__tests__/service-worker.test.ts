@@ -4,12 +4,15 @@ import { runInNewContext } from "node:vm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type ServiceWorkerListener = (event: unknown) => void;
+type CacheMatch = ReturnType<
+  typeof vi.fn<(input: unknown) => Promise<Response | undefined>>
+>;
 
 type Harness = Readonly<{
   listener: (type: string) => ServiceWorkerListener;
   cache: {
     addAll: ReturnType<typeof vi.fn>;
-    match: ReturnType<typeof vi.fn>;
+    match: CacheMatch;
     put: ReturnType<typeof vi.fn>;
   };
   fetch: ReturnType<typeof vi.fn>;
@@ -368,6 +371,47 @@ describe("service worker push and exact-item navigation", () => {
         pushWork = work;
       },
     });
+    await pushWork;
+
+    expect(harness.showNotification).not.toHaveBeenCalled();
+  });
+
+  it("re-checks suppression before display when a boundary lands during push work", async () => {
+    const harness = createHarness();
+    let suppressionReads = 0;
+    let finishFinalCheck:
+      | ((response: Response | undefined) => void)
+      | undefined;
+    harness.cache.match.mockImplementation((input: unknown) => {
+      if (input !== "/pwa/push-delivery-suppressed") {
+        return Promise.resolve(undefined);
+      }
+      suppressionReads += 1;
+      if (suppressionReads === 1) return Promise.resolve(undefined);
+      return new Promise<Response | undefined>((resolve) => {
+        finishFinalCheck = resolve;
+      });
+    });
+    let pushWork: Promise<unknown> | undefined;
+    harness.listener("push")({
+      data: {
+        json: () => ({
+          version: 1,
+          category: "comment",
+          title: "New comment",
+          body: "Open Skitza to review the feedback.",
+          url: `/dashboard/music/${itemId}`,
+        }),
+      },
+      waitUntil(work: Promise<unknown>) {
+        pushWork = work;
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(suppressionReads).toBe(2);
+    });
+    finishFinalCheck?.(new Response(null, { status: 204 }));
     await pushWork;
 
     expect(harness.showNotification).not.toHaveBeenCalled();

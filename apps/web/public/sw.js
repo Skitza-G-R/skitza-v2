@@ -214,13 +214,18 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     (async () => {
       if (await browserPushDeliveryIsSuppressed()) return;
-      await self.registration.showNotification(payload.title, {
+      const options = {
         body: payload.body,
         icon: "/icons/skitza-192.png",
         badge: "/icons/skitza-64.png",
         tag: `${SKITZA_NOTIFICATION_TAG_PREFIX}${payload.category}`,
         data: { url: payload.url },
-      });
+      };
+      // A sign-out can establish the durable fence while this push task is
+      // already in flight. Re-read it after every earlier await and immediately
+      // before the synchronous display call.
+      if (await browserPushDeliveryIsSuppressed()) return;
+      await self.registration.showNotification(payload.title, options);
     })(),
   );
 });

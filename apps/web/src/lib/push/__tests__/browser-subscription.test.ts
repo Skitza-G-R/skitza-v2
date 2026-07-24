@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearBrowserPushSubscription,
+  closeDisplayedSkitzaNotifications,
   getPushAccountBoundaryGeneration,
   PushAccountBoundaryError,
   pushAccountBoundaryAllowsDelivery,
@@ -61,6 +62,18 @@ afterEach(() => {
 describe("push account-exit cleanup", () => {
   it("confirms explicit sign-out when browser and owned-row removal both succeed", async () => {
     const test = harness();
+    const timeline: string[] = [];
+    test.adapter.suppressDelivery.mockImplementation(() => {
+      timeline.push("suppression-confirmed");
+      return Promise.resolve(true);
+    });
+    test.adapter.closeDisplayedNotifications.mockImplementation(() => {
+      timeline.push("notifications-closed");
+      return Promise.resolve(true);
+    });
+    test.adapter.notifyCleared.mockImplementation(() => {
+      timeline.push("boundary-confirmed");
+    });
     const removeOwned = vi.fn(() =>
       Promise.resolve({ ok: true as const, removed: true as const }),
     );
@@ -71,9 +84,15 @@ describe("push account-exit cleanup", () => {
 
     expect(removeOwned).toHaveBeenCalledWith(test.subscription.endpoint);
     expect(test.subscription.unsubscribe).toHaveBeenCalledOnce();
+    expect(test.adapter.suppressDelivery).toHaveBeenCalledOnce();
     expect(test.adapter.closeDisplayedNotifications).toHaveBeenCalledOnce();
     expect(test.adapter.notifyBoundary).toHaveBeenCalledOnce();
     expect(test.adapter.notifyCleared).toHaveBeenCalledOnce();
+    expect(timeline).toEqual([
+      "suppression-confirmed",
+      "notifications-closed",
+      "boundary-confirmed",
+    ]);
   });
 
   it("accepts confirmed browser invalidation when owned-row removal rejects", async () => {
@@ -84,7 +103,7 @@ describe("push account-exit cleanup", () => {
       "browser-unsubscribed",
     );
 
-    expect(test.adapter.suppressDelivery).not.toHaveBeenCalled();
+    expect(test.adapter.suppressDelivery).toHaveBeenCalledOnce();
     expect(test.adapter.notifyCleared).toHaveBeenCalledOnce();
   });
 
@@ -206,6 +225,7 @@ describe("push account-exit cleanup", () => {
     );
 
     expect(test.adapter.suppressDelivery).toHaveBeenCalledOnce();
+    expect(test.adapter.closeDisplayedNotifications).not.toHaveBeenCalled();
     expect(test.adapter.notifyCleared).not.toHaveBeenCalled();
   });
 
@@ -217,6 +237,7 @@ describe("push account-exit cleanup", () => {
     );
 
     expect(test.adapter.suppressDelivery).toHaveBeenCalledOnce();
+    expect(test.adapter.closeDisplayedNotifications).not.toHaveBeenCalled();
     expect(test.adapter.notifyCleared).not.toHaveBeenCalled();
   });
 
@@ -228,6 +249,7 @@ describe("push account-exit cleanup", () => {
     );
 
     expect(test.adapter.suppressDelivery).toHaveBeenCalledOnce();
+    expect(test.adapter.closeDisplayedNotifications).not.toHaveBeenCalled();
     expect(test.adapter.notifyCleared).not.toHaveBeenCalled();
   });
 
@@ -267,6 +289,38 @@ describe("push account-exit cleanup", () => {
     expect(deleteMarker).not.toHaveBeenCalled();
   });
 
+  it("resumes delivery only after a new subscription is confirmed", async () => {
+    let suppressed = true;
+    let subscriptionConfirmed = false;
+    const deleteMarker = vi.fn(() => {
+      suppressed = false;
+      return Promise.resolve(true);
+    });
+    vi.stubGlobal("caches", {
+      open: vi.fn(() =>
+        Promise.resolve({
+          delete: deleteMarker,
+          match: vi.fn(() =>
+            Promise.resolve(
+              suppressed ? new Response(null, { status: 204 }) : undefined,
+            ),
+          ),
+        }),
+      ),
+    });
+
+    await expect(
+      resumeBrowserPushDelivery(() => subscriptionConfirmed),
+    ).resolves.toBe(false);
+    expect(deleteMarker).not.toHaveBeenCalled();
+
+    subscriptionConfirmed = true;
+    await expect(
+      resumeBrowserPushDelivery(() => subscriptionConfirmed),
+    ).resolves.toBe(true);
+    expect(deleteMarker).toHaveBeenCalledOnce();
+  });
+
   it("treats an absent browser subscription as a confirmed boundary", async () => {
     const test = harness({ noSubscription: true });
     const removeOwned = vi.fn(() =>
@@ -280,9 +334,23 @@ describe("push account-exit cleanup", () => {
     expect(removeOwned).not.toHaveBeenCalled();
     expect(test.subscription.unsubscribe).not.toHaveBeenCalled();
     expect(test.adapter.closeDisplayedNotifications).toHaveBeenCalledOnce();
-    expect(test.adapter.suppressDelivery).not.toHaveBeenCalled();
+    expect(test.adapter.suppressDelivery).toHaveBeenCalledOnce();
     expect(test.adapter.notifyCleared).toHaveBeenCalledOnce();
   });
+
+  it.each([false, new Error("suppression failed")])(
+    "fails closed when the delivery fence cannot be confirmed",
+    async (suppressDelivery) => {
+      const test = harness({ noSubscription: true, suppressDelivery });
+
+      await expect(clearBrowserPushSubscription(null, test.adapter)).rejects.toBeInstanceOf(
+        PushAccountBoundaryError,
+      );
+
+      expect(test.adapter.closeDisplayedNotifications).not.toHaveBeenCalled();
+      expect(test.adapter.notifyCleared).not.toHaveBeenCalled();
+    },
+  );
 
   it("awaits displayed-notification cleanup before confirming the boundary", async () => {
     let confirmCleanup: ((clean: boolean) => void) | undefined;
@@ -338,7 +406,7 @@ describe("push account-exit cleanup", () => {
       },
     });
 
-    await expect(clearBrowserPushSubscription(null)).resolves.toBe("no-subscription");
+    await expect(closeDisplayedSkitzaNotifications()).resolves.toBe(true);
 
     expect(getNotifications).toHaveBeenCalledTimes(2);
     expect(closeSkitza).toHaveBeenCalledOnce();
@@ -359,9 +427,7 @@ describe("push account-exit cleanup", () => {
       },
     });
 
-    await expect(clearBrowserPushSubscription(null)).rejects.toBeInstanceOf(
-      PushAccountBoundaryError,
-    );
+    await expect(closeDisplayedSkitzaNotifications()).resolves.toBe(false);
 
     expect(close).toHaveBeenCalledOnce();
   });

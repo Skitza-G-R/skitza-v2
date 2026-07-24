@@ -188,7 +188,7 @@ export function resumeBrowserPushDelivery(
   });
 }
 
-async function closeDisplayedSkitzaNotifications(): Promise<boolean> {
+export async function closeDisplayedSkitzaNotifications(): Promise<boolean> {
   if (
     typeof navigator === "undefined" ||
     !("serviceWorker" in navigator) ||
@@ -267,6 +267,8 @@ export async function clearBrowserPushSubscription(
   const confirm = async (
     result: PushBoundaryConfirmation,
   ): Promise<PushBoundaryConfirmation> => {
+    const deliverySuppressed = await adapter.suppressDelivery().catch(() => false);
+    if (!deliverySuppressed) throw new PushAccountBoundaryError();
     const notificationsCleared = await adapter.closeDisplayedNotifications().catch(() => false);
     if (!notificationsCleared) throw new PushAccountBoundaryError();
     completePushAccountBoundary(boundaryGeneration);
