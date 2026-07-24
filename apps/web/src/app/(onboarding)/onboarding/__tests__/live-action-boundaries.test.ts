@@ -10,12 +10,13 @@ const source = (step: string, file: string) =>
 
 const availability = source("availability", "availability-step-client.tsx");
 const studio = source("studio", "page.tsx");
+const services = source("services", "services-step-client.tsx");
 const service = source("service", "service-step-client.tsx");
 const portfolio = source("portfolio", "portfolio-step-client.tsx");
 
 describe("onboarding live-action boundaries", () => {
   it("uses the shared online boundary in every producer write step", () => {
-    for (const step of [availability, studio, service, portfolio]) {
+    for (const step of [availability, studio, services, service, portfolio]) {
       expect(step).toContain("useOnlineStatus");
       expect(step).toMatch(/if \(!online\) \{[\s\S]*?Reconnect to/);
     }
@@ -32,6 +33,18 @@ describe("onboarding live-action boundaries", () => {
   it("keeps studio input recoverable when its action rejects", () => {
     expect(studio).toMatch(
       /function handleContinue\(\) \{[\s\S]*if \(!online\)[\s\S]*try \{[\s\S]*await completeStudio[\s\S]*catch \(err\) \{[\s\S]*setError/,
+    );
+  });
+
+  it("keeps legacy services Continue and Skip behind one guarded save", () => {
+    expect(services).toMatch(
+      /const saveAndAdvance = \([\s\S]*if \(!online\)[\s\S]*try \{[\s\S]*await saveServiceRoles\(\{ roles \}\)[\s\S]*router\.push\(target\)[\s\S]*catch \(err\) \{[\s\S]*setError/,
+    );
+    expect(services).toContain(
+      "saveAndAdvance(selected, nextRouteAfterServices())",
+    );
+    expect(services).toContain(
+      "saveAndAdvance([], routeOnSkipFromServices())",
     );
   });
 

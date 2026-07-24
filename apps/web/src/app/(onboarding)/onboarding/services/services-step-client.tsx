@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import { OnboardingShell } from "~/app/(onboarding)/onboarding/shell";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { cn } from "~/lib/cn";
 
 import { saveServiceRoles } from "../actions";
@@ -28,6 +29,7 @@ export function ServicesStepClient({
   initialRoles: ReadonlyArray<string>;
 }) {
   const router = useRouter();
+  const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string[]>([...initialRoles]);
@@ -41,30 +43,29 @@ export function ServicesStepClient({
     if (error) setError(null);
   };
 
-  const handleContinue = () => {
-    if (!allowContinue) return;
+  const saveAndAdvance = (roles: string[], target: string) => {
     setError(null);
+    if (!online) {
+      setError("Reconnect to save your service roles.");
+      return;
+    }
     startTransition(async () => {
       try {
-        await saveServiceRoles({ roles: selected });
-        router.push(nextRouteAfterServices());
+        await saveServiceRoles({ roles });
+        router.push(target);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Couldn't save — try again.");
       }
     });
   };
 
+  const handleContinue = () => {
+    if (!allowContinue) return;
+    saveAndAdvance(selected, nextRouteAfterServices());
+  };
+
   const handleSkip = () => {
-    setError(null);
-    startTransition(async () => {
-      try {
-        await saveServiceRoles({ roles: [] });
-      } catch {
-        // Skip swallows save errors — the producer chose not to commit
-        // anything; we shouldn't block their forward motion on a write.
-      }
-      router.push(routeOnSkipFromServices());
-    });
+    saveAndAdvance([], routeOnSkipFromServices());
   };
 
   const handleBack = () => {
