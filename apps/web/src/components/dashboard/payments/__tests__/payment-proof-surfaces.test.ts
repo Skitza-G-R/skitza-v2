@@ -65,6 +65,13 @@ describe("producer payment proof surfaces", () => {
     expect(requestsPageSource).not.toMatch(/proofOfPayment|PaymentProof|ProofQueue/);
   });
 
+  it("keeps proof decisions live-only and turns transport failures into local feedback", () => {
+    expect(reviewSource).toContain("useOnlineStatus");
+    expect(reviewSource).toContain("Reconnect to confirm this payment.");
+    expect(reviewSource).toContain("Could not confirm this payment. Please try again.");
+    expect(reviewSource).toContain("Could not reject this proof. Please try again.");
+  });
+
   it("uses a mutation-free dev fixture for the required browser decision flow", () => {
     expect(devFlowSource).toContain('"producer-replacement"');
     expect(devFlowSource).toMatch(/onPreviewSubmit/);

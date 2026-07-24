@@ -31,7 +31,14 @@ import {
 import { useRuntimeState } from "./runtime-state-provider";
 import { useOnlineStatus } from "./online-required-link";
 
-type SafeViewSlot = "producer.overview.safe-view" | "artist.home.safe-view";
+export type SafeViewSlot =
+  | "producer.overview.safe-view"
+  | "producer.workspace.safe-view"
+  | "producer.music.safe-view"
+  | "producer.store.safe-view"
+  | "producer.portfolio.safe-view"
+  | "artist.home.safe-view"
+  | "artist.music.safe-view";
 
 export interface RuntimeCachedViewResult<Slot extends SafeViewSlot> {
   data: RuntimePayloadBySlot[Slot] | undefined;

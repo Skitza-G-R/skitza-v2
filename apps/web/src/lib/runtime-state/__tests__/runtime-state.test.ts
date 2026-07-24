@@ -115,6 +115,40 @@ describe("account-scoped runtime storage", () => {
         audioUrl: "https://signed.example/audio",
       } as never),
     ).toBe(false);
+
+    const producerMusic = requiredScope(
+      "producer-user",
+      "producer",
+      "producer-a",
+      "/dashboard/music?mode=songs&view=table",
+    );
+    expect(
+      writeRuntimeState(storage, producerMusic, "producer.music.safe-view", {
+        projectCount: 2,
+        songCount: 8,
+        archivedSongCount: 1,
+        audioUrl: "https://signed.example/private-audio",
+      } as never),
+    ).toBe(false);
+
+    const artistMusic = requiredScope(
+      "artist-user",
+      "artist",
+      "studio-a",
+      "/artist/music?studio=studio-a",
+    );
+    expect(
+      writeRuntimeState(storage, artistMusic, "artist.music.safe-view", {
+        mode: "songs",
+        view: "table",
+        search: "",
+        sort: "recent",
+        archive: "active",
+        projectCount: 2,
+        songCount: 8,
+        signedUrl: "https://signed.example/private-audio",
+      } as never),
+    ).toBe(false);
     expect(storage.length).toBe(0);
   });
 
@@ -218,12 +252,66 @@ describe("route policy", () => {
   });
 
   it.each([
-    ["/dashboard/calendar", "producer"],
-    ["/dashboard/payments", "producer"],
     ["/artist/book", "artist"],
     ["/artist/payments/purchase-a", "artist"],
     ["/artist/purchase/product-a", "artist"],
+    ["/artist/sessions/session-a", "artist"],
+    ["/artist/offers/offer-a", "artist"],
+    ["/artist/music/no-charge/proposal-a", "artist"],
+    ["/artist/store/product-a", "artist"],
   ] as const)("denies transactional route persistence for %s", (href, role) => {
+    expect(normalizeRuntimeHref(href, role)).toBeNull();
+  });
+
+  it("keeps producer calendar and payments navigation payload-free", () => {
+    expect(
+      normalizeRuntimeHref(
+        "/dashboard/calendar?tab=availability&booking=booking-a&token=secret",
+        "producer",
+      ),
+    ).toBe("/dashboard/calendar?tab=availability");
+    expect(
+      normalizeRuntimeHref(
+        "/dashboard/payments/proof-a?proof=private&signedUrl=secret",
+        "producer",
+      ),
+    ).toBe("/dashboard/payments/proof-a");
+  });
+
+  it.each([
+    ["/dashboard", "producer"],
+    ["/dashboard/calendar?tab=sessions", "producer"],
+    ["/dashboard/clients-projects?filter=urgent&tab=projects", "producer"],
+    ["/dashboard/clients-projects/project-a/songs/song-a", "producer"],
+    ["/dashboard/clients-projects/clients/client-a", "producer"],
+    ["/dashboard/music?mode=songs&sort=notes&view=table", "producer"],
+    ["/dashboard/music/project/project-a", "producer"],
+    ["/dashboard/payments/proof-a", "producer"],
+    ["/dashboard/portfolio", "producer"],
+    ["/dashboard/requests/request-a", "producer"],
+    ["/dashboard/settings?section=region", "producer"],
+    ["/dashboard/store", "producer"],
+    ["/artist?studio=studio-a", "artist"],
+    ["/artist/music?filter=archived&mode=songs&studio=studio-a", "artist"],
+    ["/artist/music/project-a?studio=studio-a", "artist"],
+    ["/artist/music/song/version-a?studio=studio-a", "artist"],
+    ["/artist/store?studio=studio-a", "artist"],
+    ["/artist/settings?studio=studio-a", "artist"],
+  ] as const)("allows the known safe route %s", (href, role) => {
+    expect(normalizeRuntimeHref(href, role)).toBe(href);
+  });
+
+  it.each([
+    ["/dashboard/invented", "producer"],
+    ["/dashboard/music/project", "producer"],
+    ["/dashboard/clients-projects/clients", "producer"],
+    ["/dashboard//music", "producer"],
+    ["/artist/invented", "artist"],
+    ["/artist/music/song", "artist"],
+    ["/artist/listen/token", "artist"],
+    ["/listen/token", "artist"],
+    ["//evil.example/dashboard", "producer"],
+  ] as const)("fails closed for unknown or public route %s", (href, role) => {
     expect(normalizeRuntimeHref(href, role)).toBeNull();
   });
 
@@ -234,6 +322,50 @@ describe("route policy", () => {
         "artist",
       ),
     ).toBe("/artist/music/song/version-a?studio=studio-a");
+  });
+
+  it("isolates safe route views by account, role, context, and exact route", () => {
+    const storage = new MemoryStorage();
+    const owner = requiredScope(
+      "artist-a",
+      "artist",
+      "studio-a",
+      "/artist/music?mode=songs&studio=studio-a",
+    );
+    const payload = {
+      mode: "songs",
+      view: "grid",
+      search: "",
+      sort: "recent",
+      archive: "active",
+      projectCount: 2,
+      songCount: 5,
+    } as const;
+    expect(writeRuntimeState(storage, owner, "artist.music.safe-view", payload)).toBe(true);
+
+    const otherAccount = requiredScope(
+      "artist-b",
+      "artist",
+      "studio-a",
+      "/artist/music?mode=songs&studio=studio-a",
+    );
+    const otherStudio = requiredScope(
+      "artist-a",
+      "artist",
+      "studio-b",
+      "/artist/music?mode=songs&studio=studio-a",
+    );
+    const otherRoute = requiredScope(
+      "artist-a",
+      "artist",
+      "studio-a",
+      "/artist/music?studio=studio-a",
+    );
+
+    expect(readRuntimeState(storage, otherAccount, "artist.music.safe-view")).toBeNull();
+    expect(readRuntimeState(storage, otherStudio, "artist.music.safe-view")).toBeNull();
+    expect(readRuntimeState(storage, otherRoute, "artist.music.safe-view")).toBeNull();
+    expect(readRuntimeState(storage, owner, "artist.music.safe-view")).toEqual(payload);
   });
 
   it("rejects forged navigation filters that are not present in the safe href", () => {

@@ -10,6 +10,7 @@ import { redirect } from "next/navigation";
 
 import { coerceTaxMode } from "~/lib/tax-mode";
 import { PrivateOfferManager } from "~/components/dashboard/offers/private-offer-manager";
+import { ProducerRuntimeSafeView } from "~/components/dashboard/runtime/producer-runtime-safe-view";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { StoreScreen, type StoreProduct } from "./store-screen";
@@ -66,6 +67,13 @@ export default async function StorePage() {
 
   return (
     <>
+      <ProducerRuntimeSafeView
+        slot="producer.store.safe-view"
+        data={{
+          productCount: products.length,
+          liveProductCount: products.filter((product) => product.active).length,
+        }}
+      />
       <div className="mx-auto w-full max-w-[1100px] px-4 pt-6 sm:px-6 sm:pt-10">
         <PrivateOfferManager
           recipients={offerRecipients}

@@ -3,6 +3,7 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent } from "react";
 import { ChevronDown, FolderKanban, LayoutGrid, List, Plus, Search, Users, X } from "lucide-react";
+import { usePathname, useSearchParams } from "next/navigation";
 
 import { ProjectRow, type ProjectRowData } from "~/components/dashboard/projects/project-row";
 import type { ClientCardData } from "~/components/dashboard/clients/client-card";
@@ -74,6 +75,47 @@ type ClientFilter = (typeof CLIENT_FILTERS)[number]["value"];
 
 type Tab = "projects" | "clients";
 type Layout = "cards" | "table";
+
+export interface WorkspaceUrlState {
+  tab: Tab;
+  sort: SortValue;
+  filter: ProjectFilter | ClientFilter;
+  layout: Layout;
+  search: string;
+}
+
+function isOneOf<T extends string>(value: string | null, choices: readonly T[]): value is T {
+  return value !== null && choices.includes(value as T);
+}
+
+export function parseWorkspaceUrlState(search: string): WorkspaceUrlState {
+  const params = new URLSearchParams(search);
+  const tab: Tab = params.get("tab") === "projects" ? "projects" : "clients";
+  const rawFilter = params.get("filter");
+  const filter =
+    tab === "projects"
+      ? isOneOf(rawFilter, ["all", "urgent", "active", "archived"])
+        ? rawFilter
+        : "all"
+      : isOneOf(rawFilter, ["active", "archived"])
+        ? rawFilter
+        : "active";
+  const rawSort = params.get("sort");
+  const sort = isOneOf(
+    rawSort,
+    SORT_OPTIONS.map((option) => option.value),
+  )
+    ? rawSort
+    : "custom";
+
+  return {
+    tab,
+    sort,
+    filter,
+    layout: params.get("view") === "table" ? "table" : "cards",
+    search: (params.get("search") ?? "").slice(0, 120),
+  };
+}
 
 export interface WorkspaceKPIs {
   /** Total earnings in cents; null while purchase payments are unavailable. */
@@ -153,16 +195,90 @@ export function WorkspaceListView({
   onReorderProjects,
 }: WorkspaceListViewProps) {
   const { toast } = useToast();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const urlState = parseWorkspaceUrlState(searchParams.toString());
   // When the page hydrates with `?newProject=1` (the redirect target
   // from the deleted /new route), default to the Projects tab AND
   // open the modal — that's where the legacy route landed the user.
-  const [tab, setTab] = useState<Tab>(initialNewProjectOpen ? "projects" : "clients");
-  const [sort, setSort] = useState<SortValue>("custom");
-  const [projectFilter, setProjectFilter] = useState<ProjectFilter>("all");
-  const [clientFilter, setClientFilter] = useState<ClientFilter>("active");
-  const [layout, setLayout] = useState<Layout>("cards");
-  const [clientSearch, setClientSearch] = useState("");
+  const [tab, setTab] = useState<Tab>(
+    initialNewProjectOpen && !searchParams.has("tab") ? "projects" : urlState.tab,
+  );
+  const [sort, setSort] = useState<SortValue>(urlState.sort);
+  const [projectFilter, setProjectFilter] = useState<ProjectFilter>(
+    urlState.tab === "projects" ? urlState.filter : "all",
+  );
+  const [clientFilter, setClientFilter] = useState<ClientFilter>(
+    urlState.tab === "clients" ? (urlState.filter as ClientFilter) : "active",
+  );
+  const [layout, setLayout] = useState<Layout>(urlState.layout);
+  const [clientSearch, setClientSearch] = useState(urlState.search);
   const deferredClientSearch = useDeferredValue(clientSearch.trim().toLowerCase());
+
+  useEffect(() => {
+    const next = parseWorkspaceUrlState(searchParams.toString());
+    setTab(
+      searchParams.get("newProject") === "1" && !searchParams.has("tab") ? "projects" : next.tab,
+    );
+    setSort(next.sort);
+    setLayout(next.layout);
+    setClientSearch(next.search);
+    if (next.tab === "projects") setProjectFilter(next.filter);
+    else setClientFilter(next.filter as ClientFilter);
+  }, [searchParams]);
+
+  function replaceUrlState(
+    patch: Partial<Record<"tab" | "filter" | "sort" | "view" | "search", string | null>>,
+  ) {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === null || value === "") params.delete(key);
+      else params.set(key, value.slice(0, 120));
+    }
+    const query = params.toString();
+    window.history.replaceState(null, "", `${pathname}${query ? `?${query}` : ""}`);
+  }
+
+  function updateTab(next: Tab) {
+    setTab(next);
+    replaceUrlState({
+      tab: next === "clients" && searchParams.get("newProject") !== "1" ? null : next,
+      filter:
+        next === "clients"
+          ? clientFilter === "active"
+            ? null
+            : clientFilter
+          : projectFilter === "all"
+            ? null
+            : projectFilter,
+    });
+  }
+
+  function updateSort(next: SortValue) {
+    setSort(next);
+    replaceUrlState({ sort: next === "custom" ? null : next });
+  }
+
+  function updateProjectFilter(next: ProjectFilter) {
+    setProjectFilter(next);
+    replaceUrlState({ filter: next === "all" ? null : next });
+  }
+
+  function updateClientFilter(next: ClientFilter) {
+    setClientFilter(next);
+    replaceUrlState({ filter: next === "active" ? null : next });
+  }
+
+  function updateLayout(next: Layout) {
+    setLayout(next);
+    replaceUrlState({ view: next === "cards" ? null : next });
+  }
+
+  function updateClientSearch(next: string) {
+    const bounded = next.slice(0, 120);
+    setClientSearch(bounded);
+    replaceUrlState({ search: bounded || null });
+  }
 
   // Locally-mutable order — drag flushes back to the parent via the
   // reorder callback, but the visual update is optimistic.
@@ -341,7 +457,7 @@ export function WorkspaceListView({
   };
   const applyProjectOrder = (next: ProjectRowData[], previousProjects: ProjectRowData[]) => {
     setOrderedProjects(next);
-    setSort("custom");
+    updateSort("custom");
     persistProjectOrder(next, previousProjects);
   };
   const handleProjectDrop = (_e: DragEvent<HTMLDivElement>, targetId: string) => {
@@ -564,8 +680,9 @@ export function WorkspaceListView({
             type="search"
             value={clientSearch}
             onChange={(event) => {
-              setClientSearch(event.target.value);
+              updateClientSearch(event.target.value);
             }}
+            maxLength={120}
             placeholder="Find client"
             className="min-h-11 w-full rounded-[var(--radius-lg)] border bg-[rgb(var(--bg-elevated))] py-2.5 pr-11 pl-10 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:border-[rgb(var(--focus-ring))] focus:ring-2 focus:ring-[rgb(var(--focus-ring))] focus:outline-none"
             style={{ borderColor: "rgb(var(--border-subtle))" }}
@@ -575,7 +692,7 @@ export function WorkspaceListView({
               type="button"
               aria-label="Clear client search"
               onClick={() => {
-                setClientSearch("");
+                updateClientSearch("");
               }}
               className="absolute top-1/2 right-0 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
             >
@@ -619,7 +736,7 @@ export function WorkspaceListView({
             type="button"
             aria-pressed={tab === "clients"}
             onClick={() => {
-              setTab("clients");
+              updateTab("clients");
             }}
             className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[var(--radius-lg)] px-3 py-2.5 text-[12px] font-semibold transition-[transform,background-color,color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97] sm:min-h-0 sm:py-1.5"
             style={{
@@ -635,7 +752,7 @@ export function WorkspaceListView({
             type="button"
             aria-pressed={tab === "projects"}
             onClick={() => {
-              setTab("projects");
+              updateTab("projects");
             }}
             className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[var(--radius-lg)] px-3 py-2.5 text-[12px] font-semibold transition-[transform,background-color,color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97] sm:min-h-0 sm:py-1.5"
             style={{
@@ -663,7 +780,7 @@ export function WorkspaceListView({
                     key={f.value}
                     type="button"
                     onClick={() => {
-                      setProjectFilter(f.value);
+                      updateProjectFilter(f.value);
                     }}
                     aria-pressed={active}
                     className="inline-flex min-h-[44px] min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border px-3 py-2.5 text-[12px] font-medium whitespace-nowrap transition-[transform,background-color,border-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none active:scale-[0.97] sm:min-h-0 sm:min-w-0 sm:py-1.5"
@@ -691,7 +808,7 @@ export function WorkspaceListView({
                     key={f.value}
                     type="button"
                     onClick={() => {
-                      setClientFilter(f.value);
+                      updateClientFilter(f.value);
                     }}
                     aria-pressed={active}
                     className="inline-flex min-h-[44px] min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border px-3 py-2.5 text-[12px] font-medium whitespace-nowrap transition-[transform,background-color,border-color,color] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-[rgb(var(--border-strong))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none active:scale-[0.97] sm:min-h-0 sm:min-w-0 sm:py-1.5"
@@ -736,7 +853,7 @@ export function WorkspaceListView({
               <button
                 type="button"
                 onClick={() => {
-                  setLayout("cards");
+                  updateLayout("cards");
                 }}
                 aria-pressed={layout === "cards"}
                 aria-label="Card layout"
@@ -751,7 +868,7 @@ export function WorkspaceListView({
               <button
                 type="button"
                 onClick={() => {
-                  setLayout("table");
+                  updateLayout("table");
                 }}
                 aria-pressed={layout === "table"}
                 aria-label="Table layout"
@@ -768,7 +885,7 @@ export function WorkspaceListView({
               <select
                 value={sort}
                 onChange={(e) => {
-                  setSort(e.target.value as SortValue);
+                  updateSort(e.target.value as SortValue);
                 }}
                 className="min-h-[44px] appearance-none rounded-[var(--radius-lg)] border bg-transparent py-2.5 pr-7 pl-3 text-[12px] font-medium focus:outline-none sm:min-h-0 sm:py-1.5"
                 style={{
@@ -815,7 +932,7 @@ export function WorkspaceListView({
         <ProjectEmptyState
           kind={projectFilter}
           onViewActive={() => {
-            setProjectFilter("active");
+            updateProjectFilter("active");
           }}
           onAddProject={() => {
             setNewProjectOpen(true);
@@ -823,7 +940,9 @@ export function WorkspaceListView({
         />
       ) : tab === "projects" ? (
         <div className="flex flex-col gap-2">
-          {layout === "table" ? <ProjectsTableHeader sort={sort} onSortChange={setSort} /> : null}
+          {layout === "table" ? (
+            <ProjectsTableHeader sort={sort} onSortChange={updateSort} />
+          ) : null}
           {filteredProjects.map((p) => (
             <ProjectRow
               key={p.id}
@@ -851,13 +970,13 @@ export function WorkspaceListView({
                 : "active"
           }
           onClearSearch={() => {
-            setClientSearch("");
+            updateClientSearch("");
           }}
           onAddClient={() => {
             setNewClientOpen(true);
           }}
           onViewActive={() => {
-            setClientFilter("active");
+            updateClientFilter("active");
           }}
         />
       ) : (
@@ -892,7 +1011,7 @@ export function WorkspaceListView({
               borderColor: "rgb(var(--border-subtle))",
             }}
           >
-            <ClientsTableHeader sort={sort} onSortChange={setSort} />
+            <ClientsTableHeader sort={sort} onSortChange={updateSort} />
             <div
               role="list"
               aria-label="Clients"

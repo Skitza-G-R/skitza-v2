@@ -51,6 +51,12 @@ describe("ProductEditor orchestrator", () => {
     expect(SRC).toMatch(/createPackage|updatePackage|packages\.create|packages\.update/);
   });
 
+  it("keeps catalog saves live-only and handles transport failures locally", () => {
+    expect(SRC).toContain("useOnlineStatus");
+    expect(SRC).toContain("Reconnect to save this product.");
+    expect(SRC).toContain("Could not save this product. Please try again.");
+  });
+
   it("maps preset type 'consult' to schema kind 'custom' on save (logic in build-package-payload)", () => {
     expect(PAYLOAD_SRC).toMatch(/draft\.type\s*===\s*["']consult["']/);
     expect(PAYLOAD_SRC).toMatch(/["']custom["']\s+as\s+PackageKind/);

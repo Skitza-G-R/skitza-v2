@@ -1,10 +1,16 @@
 "use client";
 
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { Copy, ExternalLink, Link2, RefreshCw, ShieldOff, X } from "lucide-react";
+import { ExternalLink, Link2, RefreshCw, Share2, ShieldOff, X } from "lucide-react";
 import { useEffect, useState, useTransition } from "react";
 
 import { useToast } from "~/components/ui/toast";
+import {
+  shareNative,
+  type NativeSharePayload,
+  type NativeShareResult,
+} from "~/lib/native/share";
+import { PUBLIC_BRAND_ORIGIN } from "~/lib/share/public-url";
 
 export type SongPublicSharingView = Readonly<{
   trackId: string;
@@ -27,9 +33,18 @@ export type SongPublicSharingRefresh = (input: {
   trackId: string;
 }) => Promise<SongPublicSharingRefreshResult>;
 
-export type SongPublicLinkCopyResult =
-  | { ok: true; state: SongPublicSharingView }
-  | { ok: false; error: string; state?: SongPublicSharingView };
+export type SongPublicLinkShareResult =
+  | {
+      ok: true;
+      method: "native" | "clipboard";
+      state: SongPublicSharingView;
+    }
+  | {
+      ok: false;
+      error: string;
+      cancelled?: boolean;
+      state?: SongPublicSharingView;
+    };
 
 export type SongPublicSharingActions = Readonly<{
   publish: (input: { trackId: string; operationKey: string }) => Promise<SongPublicSharingActionResult>;
@@ -48,16 +63,17 @@ function publicStatus(state: SongPublicSharingView): "live" | "disabled" | "unpu
 }
 
 /**
- * Artists re-check the authenticated server state at the moment of copying.
- * This prevents an already-open tab from copying a URL that the producer has
+ * Artists re-check the authenticated server state at the moment of sharing.
+ * This prevents an already-open tab from sharing a URL that the producer has
  * reset or disabled since the page rendered.
  */
-export async function copyAuthoritativePublicSongLink(input: Readonly<{
+export async function shareAuthoritativePublicSongLink(input: Readonly<{
   role: "producer" | "artist";
   state: SongPublicSharingView;
+  title: string;
   refreshLiveState?: SongPublicSharingRefresh;
-  writeText: (value: string) => Promise<void>;
-}>): Promise<SongPublicLinkCopyResult> {
+  shareLink?: (payload: NativeSharePayload) => Promise<NativeShareResult>;
+}>): Promise<SongPublicLinkShareResult> {
   let current = input.state;
   if (input.role === "artist") {
     if (!input.refreshLiveState) {
@@ -87,29 +103,56 @@ export async function copyAuthoritativePublicSongLink(input: Readonly<{
     return { ok: false, error: "This public link is no longer live.", state: current };
   }
 
+  let url: URL;
   try {
-    await input.writeText(current.publicUrl);
-    return { ok: true, state: current };
+    url = new URL(current.publicUrl);
   } catch {
-    return { ok: false, error: "Could not copy the link. Please try again." };
+    return { ok: false, error: "This public link is no longer live.", state: current };
   }
+  if (
+    url.origin !== PUBLIC_BRAND_ORIGIN ||
+    !/^\/listen\/[A-Za-z0-9_-]+$/.test(url.pathname) ||
+    url.search.length > 0 ||
+    url.hash.length > 0
+  ) {
+    return { ok: false, error: "This public link is no longer live.", state: current };
+  }
+
+  let result: NativeShareResult;
+  try {
+    result = await (input.shareLink ?? shareNative)({
+      title: input.title,
+      url: url.toString(),
+      fallbackText: url.toString(),
+    });
+  } catch {
+    return { ok: false, error: "Could not share the link. Please try again.", state: current };
+  }
+  if (result.status === "shared") return { ok: true, method: "native", state: current };
+  if (result.status === "copied") return { ok: true, method: "clipboard", state: current };
+  if (result.status === "cancelled") {
+    return { ok: false, error: "Share cancelled.", cancelled: true, state: current };
+  }
+  return { ok: false, error: "Could not share the link. Please try again.", state: current };
 }
 
 export function SongPublicLinkControls({
   role,
   initialState,
+  shareTitle,
   actions,
   refreshLiveState,
 }: {
   role: "producer" | "artist";
   initialState: SongPublicSharingView;
+  shareTitle: string;
   actions?: SongPublicSharingActions;
   refreshLiveState?: SongPublicSharingRefresh;
 }) {
   const [state, setState] = useState(initialState);
   const [open, setOpen] = useState(false);
   const [confirmation, setConfirmation] = useState<"reset" | "disable" | null>(null);
-  const [copying, setCopying] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [pending, startTransition] = useTransition();
   const { toast } = useToast();
 
@@ -122,18 +165,25 @@ export function SongPublicLinkControls({
   const status = publicStatus(state);
   const canPublish = state.remainingAudioCount > 0;
 
-  async function copyLink() {
-    if (copying || !state.linkEnabled || !state.publicUrl) return;
-    setCopying(true);
-    const result = await copyAuthoritativePublicSongLink({
+  async function shareLink() {
+    if (sharing || !state.linkEnabled || !state.publicUrl) return;
+    setSharing(true);
+    const result = await shareAuthoritativePublicSongLink({
       role,
       state,
+      title: shareTitle,
       ...(refreshLiveState ? { refreshLiveState } : {}),
-      writeText: (value) => navigator.clipboard.writeText(value),
     });
-    setCopying(false);
+    setSharing(false);
     if (result.state) setState(result.state);
-    toast(result.ok ? "Public song link copied" : result.error, result.ok ? "success" : "error");
+    if (result.ok) {
+      toast(
+        result.method === "native" ? "Public song link shared" : "Public song link copied",
+        "success",
+      );
+    } else if (!result.cancelled) {
+      toast(result.error, "error");
+    }
   }
 
   function run(
@@ -167,7 +217,7 @@ export function SongPublicLinkControls({
             aria-hidden="true"
             className={`h-2 w-2 rounded-full ${status === "live" ? "bg-emerald-400 shadow-[0_0_10px_rgb(74_222_128/0.7)]" : "bg-white/35"}`}
           />
-          {role === "artist" ? "Copy public link" : "Public link"}
+          {role === "artist" ? "Share public link" : "Public link"}
         </button>
       </DialogPrimitive.Trigger>
 
@@ -271,11 +321,12 @@ export function SongPublicLinkControls({
                 <div className="grid gap-2 sm:grid-cols-3">
                   <button
                     type="button"
-                    onClick={() => void copyLink()}
-                    disabled={copying}
-                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-bold text-[rgb(var(--fg-primary))]"
+                    onClick={() => void shareLink()}
+                    disabled={sharing}
+                    className="sk-press inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-bold text-[rgb(var(--fg-primary))]"
                   >
-                    <Copy className="h-4 w-4" aria-hidden="true" /> {copying ? "Checking…" : "Copy link"}
+                    <Share2 className="h-4 w-4" aria-hidden="true" />{" "}
+                    {sharing ? "Checking…" : "Share link"}
                   </button>
                   {role === "producer" ? (
                     <>

@@ -27,4 +27,11 @@ describe("useProductRemoval contract", () => {
     expect(SRC).not.toMatch(/target\.action ===/);
     expect(SRC).toMatch(/returned outcome is[\s\S]*authoritative/i);
   });
+
+  it("keeps removal live-only and handles archive and restore transport failures", () => {
+    expect(SRC).toContain("useOnlineStatus");
+    expect(SRC).toContain("Reconnect to remove this product.");
+    expect(SRC).toContain("Could not remove this product. Please try again.");
+    expect(SRC).toContain("Could not restore this product. Please try again.");
+  });
 });

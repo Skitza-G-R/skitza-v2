@@ -1684,6 +1684,7 @@ export function SongPage({
                 <SongPublicLinkControls
                   role={role}
                   initialState={publicSharing}
+                  shareTitle={songTitle}
                   {...(publicSharingActions ? { actions: publicSharingActions } : {})}
                   {...(publicSharingRefresh ? { refreshLiveState: publicSharingRefresh } : {})}
                 />

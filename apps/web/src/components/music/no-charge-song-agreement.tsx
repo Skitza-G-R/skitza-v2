@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 
 import { AgreeCheck, Eyebrow, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
 import { acceptNoChargeSongProposalAction } from "~/app/(artist)/artist/music/no-charge/[proposalId]/actions";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 
 export type NoChargeSongAgreementPreview = Readonly<{
@@ -22,8 +23,28 @@ export type NoChargeSongAgreementPreview = Readonly<{
   snapshotDigest: string;
 }>;
 
+const OFFLINE_AGREEMENT_ERROR = "Reconnect to accept this agreement.";
+
+export async function runNoChargeAgreementAction<
+  Result extends { ok: true } | { ok: false; error: string },
+>({
+  online,
+  execute,
+}: {
+  online: boolean;
+  execute: () => Promise<Result>;
+}): Promise<Result | { ok: false; error: string }> {
+  if (!online) return { ok: false, error: OFFLINE_AGREEMENT_ERROR };
+  try {
+    return await execute();
+  } catch {
+    return { ok: false, error: "Could not accept the agreement. Please try again." };
+  }
+}
+
 export function NoChargeSongAgreement({ preview }: { preview: NoChargeSongAgreementPreview }) {
   const router = useRouter();
+  const online = useOnlineStatus();
   const [accepted, setAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,10 +53,14 @@ export function NoChargeSongAgreement({ preview }: { preview: NoChargeSongAgreem
     if (!accepted || submitting) return;
     setSubmitting(true);
     setError(null);
-    const result = await acceptNoChargeSongProposalAction({
-      proposalToken: preview.proposalToken,
-      expectedSnapshotDigest: preview.snapshotDigest,
-      agreementAccepted: true,
+    const result = await runNoChargeAgreementAction({
+      online,
+      execute: () =>
+        acceptNoChargeSongProposalAction({
+          proposalToken: preview.proposalToken,
+          expectedSnapshotDigest: preview.snapshotDigest,
+          agreementAccepted: true,
+        }),
     });
     if (!result.ok) {
       setSubmitting(false);
@@ -186,11 +211,13 @@ export function NoChargeSongAgreement({ preview }: { preview: NoChargeSongAgreem
             onClick={() => {
               void acceptAgreement();
             }}
-            disabled={!accepted || submitting}
-            glow={accepted && !submitting}
+            disabled={!accepted || submitting || !online}
+            glow={accepted && !submitting && online}
             ariaBusy={submitting}
             sub={
-              accepted
+              !online
+                ? OFFLINE_AGREEMENT_ERROR
+                : accepted
                 ? "Creates one active ₪0 purchase and song space"
                 : "Accept the exact agreement to continue"
             }

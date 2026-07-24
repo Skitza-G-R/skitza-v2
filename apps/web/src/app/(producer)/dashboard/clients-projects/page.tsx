@@ -7,6 +7,7 @@ import {
 } from "~/components/dashboard/clients-projects/workspace-list-view";
 import type { ProjectRowData } from "~/components/dashboard/projects/project-row";
 import type { ClientCardData } from "~/components/dashboard/clients/client-card";
+import { ProducerRuntimeSafeView } from "~/components/dashboard/runtime/producer-runtime-safe-view";
 import { CLIENT_ARCHIVE_BLOCKED_MESSAGE } from "~/server/domain/client-management/service";
 import { appRouter } from "~/server/trpc/routers/_app";
 
@@ -143,6 +144,14 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
         className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[300px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.10)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))]"
       />
       <div className="sk-page-enter mx-auto max-w-[1400px] px-4 pt-4 pb-24 sm:px-6 sm:pt-6 lg:px-8 lg:pt-7">
+        <ProducerRuntimeSafeView
+          slot="producer.workspace.safe-view"
+          data={{
+            clientCount: clientRows.length,
+            projectCount: projectRows.length,
+            needsAttentionCount: needsAttention,
+          }}
+        />
         <WorkspaceListView
           projects={projectRows}
           clients={clientRows}

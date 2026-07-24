@@ -5,6 +5,7 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { createPackage, updatePackage } from "~/app/(producer)/dashboard/booking/actions";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
 import { applyTaxToCents, taxModeFootnote } from "~/lib/tax-mode";
 
@@ -192,6 +193,7 @@ export function ProductEditor({
 }: ProductEditorProps) {
   const router = useRouter();
   const { toast } = useToast();
+  const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
   const mode = product ? "edit" : "new";
   const steps = mode === "edit" ? EDIT_STEPS : NEW_STEPS;
@@ -232,6 +234,11 @@ export function ProductEditor({
   }, [open, product, defaultCurrency]);
 
   function onTaxChange(patch: { taxMode?: import("~/lib/tax-mode").TaxMode; taxRatePct?: number }) {
+    if (!online) {
+      setTaxError("Reconnect to update tax settings.");
+      toast("Reconnect to update tax settings.", "error");
+      return;
+    }
     const previousMode = taxModeLocal;
     const previousRate = taxRateLocal;
     if (patch.taxMode !== undefined) setTaxModeLocal(patch.taxMode);
@@ -360,28 +367,36 @@ export function ProductEditor({
       else if (!validRights) setCurrentStep("rights");
       return;
     }
+    if (!online) {
+      toast("Reconnect to save this product.", "error");
+      return;
+    }
 
     startTransition(async () => {
-      if (product) {
-        const payload = buildPackageUpdatePayload(draft, product.kind);
-        const result = await updatePackage({ id: product.id, ...payload });
-        if (!result.ok) {
-          toast(result.error, "error");
-          return;
+      try {
+        if (product) {
+          const payload = buildPackageUpdatePayload(draft, product.kind);
+          const result = await updatePackage({ id: product.id, ...payload });
+          if (!result.ok) {
+            toast(result.error, "error");
+            return;
+          }
+          toast(`${draft.name.trim()} saved.`, "success");
+        } else {
+          const payload = buildPackagePayload(draft);
+          const result = await createPackage(payload);
+          if (!result.ok) {
+            toast(result.error, "error");
+            return;
+          }
+          onCreated?.(result.data.id);
+          toast(`${draft.name.trim()} created.`, "success");
         }
-        toast(`${draft.name.trim()} saved.`, "success");
-      } else {
-        const payload = buildPackagePayload(draft);
-        const result = await createPackage(payload);
-        if (!result.ok) {
-          toast(result.error, "error");
-          return;
-        }
-        onCreated?.(result.data.id);
-        toast(`${draft.name.trim()} created.`, "success");
+        onOpenChange(false);
+        router.refresh();
+      } catch {
+        toast("Could not save this product. Please try again.", "error");
       }
-      onOpenChange(false);
-      router.refresh();
     });
   }
 

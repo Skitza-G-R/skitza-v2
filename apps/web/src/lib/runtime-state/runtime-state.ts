@@ -28,6 +28,38 @@ export interface ArtistHomeSafeView {
   }>;
 }
 
+export interface ProducerWorkspaceSafeView {
+  clientCount: number;
+  projectCount: number;
+  needsAttentionCount: number;
+}
+
+export interface ProducerMusicSafeView {
+  projectCount: number;
+  songCount: number;
+  archivedSongCount: number;
+}
+
+export interface ProducerStoreSafeView {
+  productCount: number;
+  liveProductCount: number;
+}
+
+export interface ProducerPortfolioSafeView {
+  publishedCount: number;
+  availableCount: number;
+}
+
+export interface ArtistMusicSafeView {
+  mode: "projects" | "songs";
+  view: "grid" | "table";
+  search: string;
+  sort: "recent" | "title" | "notes" | "length";
+  archive: "active" | "archived";
+  projectCount: number;
+  songCount: number;
+}
+
 export interface ProducerDisplayNameDraft {
   displayName: string;
 }
@@ -54,7 +86,12 @@ export interface RuntimeNavigationIndex {
 
 export interface RuntimePayloadBySlot {
   "producer.overview.safe-view": ProducerOverviewSafeView;
+  "producer.workspace.safe-view": ProducerWorkspaceSafeView;
+  "producer.music.safe-view": ProducerMusicSafeView;
+  "producer.store.safe-view": ProducerStoreSafeView;
+  "producer.portfolio.safe-view": ProducerPortfolioSafeView;
   "artist.home.safe-view": ArtistHomeSafeView;
+  "artist.music.safe-view": ArtistMusicSafeView;
   "producer.settings.display-name-draft": ProducerDisplayNameDraft;
   "producer.song-comment-draft": RuntimeTextDraft;
   "artist.song-comment-draft": RuntimeTextDraft;
@@ -82,7 +119,12 @@ interface RuntimeEnvelope<T> {
 
 const SLOT_MAX_AGE_MS: Record<RuntimeSlot, number> = {
   "producer.overview.safe-view": RUNTIME_VIEW_MAX_AGE_MS,
+  "producer.workspace.safe-view": RUNTIME_VIEW_MAX_AGE_MS,
+  "producer.music.safe-view": RUNTIME_VIEW_MAX_AGE_MS,
+  "producer.store.safe-view": RUNTIME_VIEW_MAX_AGE_MS,
+  "producer.portfolio.safe-view": RUNTIME_VIEW_MAX_AGE_MS,
   "artist.home.safe-view": RUNTIME_VIEW_MAX_AGE_MS,
+  "artist.music.safe-view": RUNTIME_VIEW_MAX_AGE_MS,
   "producer.settings.display-name-draft": RUNTIME_DRAFT_MAX_AGE_MS,
   "producer.song-comment-draft": RUNTIME_DRAFT_MAX_AGE_MS,
   "artist.song-comment-draft": RUNTIME_DRAFT_MAX_AGE_MS,
@@ -90,39 +132,46 @@ const SLOT_MAX_AGE_MS: Record<RuntimeSlot, number> = {
   "runtime.navigation.index": RUNTIME_VIEW_MAX_AGE_MS,
 };
 
-const PRODUCER_QUERY_ALLOWLIST = new Set([
-  "filter",
-  "page",
-  "search",
-  "section",
-  "sort",
-  "stage",
-  "status",
-  "tab",
-  "view",
-]);
-
-const ARTIST_QUERY_ALLOWLIST = new Set([
-  "filter",
-  "page",
-  "search",
-  "sort",
-  "status",
-  "studio",
-  "tab",
-  "view",
-]);
-
-const BLOCKED_ROUTE_PREFIXES = [
-  "/api",
-  "/sign-in",
-  "/sign-up",
-  "/dashboard/calendar",
-  "/dashboard/payments",
+const LIVE_ONLY_ARTIST_ROUTE_PREFIXES = [
   "/artist/book",
+  "/artist/offers",
   "/artist/payments",
   "/artist/purchase",
   "/artist/sessions",
+  "/artist/music/no-charge",
+] as const;
+
+const SAFE_ID_SEGMENT = "[A-Za-z0-9_-]{1,128}";
+
+const PRODUCER_ROUTE_PATTERNS = [
+  /^\/dashboard$/,
+  /^\/dashboard\/calendar$/,
+  /^\/dashboard\/clients-projects$/,
+  /^\/dashboard\/clients-projects\/new$/,
+  new RegExp(`^/dashboard/clients-projects/(?!new$|clients$)${SAFE_ID_SEGMENT}$`),
+  new RegExp(`^/dashboard/clients-projects/${SAFE_ID_SEGMENT}/songs/${SAFE_ID_SEGMENT}$`),
+  new RegExp(`^/dashboard/clients-projects/clients/${SAFE_ID_SEGMENT}$`),
+  /^\/dashboard\/music$/,
+  new RegExp(`^/dashboard/music/(?!project$)${SAFE_ID_SEGMENT}$`),
+  new RegExp(`^/dashboard/music/project/${SAFE_ID_SEGMENT}$`),
+  /^\/dashboard\/onboarding$/,
+  /^\/dashboard\/payments$/,
+  new RegExp(`^/dashboard/payments/${SAFE_ID_SEGMENT}$`),
+  /^\/dashboard\/portfolio$/,
+  /^\/dashboard\/profile$/,
+  /^\/dashboard\/requests$/,
+  new RegExp(`^/dashboard/requests/${SAFE_ID_SEGMENT}$`),
+  /^\/dashboard\/settings$/,
+  /^\/dashboard\/store$/,
+] as const;
+
+const ARTIST_ROUTE_PATTERNS = [
+  /^\/artist$/,
+  /^\/artist\/music$/,
+  new RegExp(`^/artist/music/(?!song$|no-charge$)${SAFE_ID_SEGMENT}$`),
+  new RegExp(`^/artist/music/song/${SAFE_ID_SEGMENT}$`),
+  /^\/artist\/store$/,
+  /^\/artist\/settings$/,
 ] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -202,6 +251,69 @@ function isArtistHomeSafeView(value: unknown): value is ArtistHomeSafeView {
   );
 }
 
+function isProducerWorkspaceSafeView(value: unknown): value is ProducerWorkspaceSafeView {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["clientCount", "projectCount", "needsAttentionCount"]) &&
+    isSafeInteger(value.clientCount, 0, 1_000_000) &&
+    isSafeInteger(value.projectCount, 0, 1_000_000) &&
+    isSafeInteger(value.needsAttentionCount, 0, 1_000_000)
+  );
+}
+
+function isProducerMusicSafeView(value: unknown): value is ProducerMusicSafeView {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["projectCount", "songCount", "archivedSongCount"]) &&
+    isSafeInteger(value.projectCount, 0, 1_000_000) &&
+    isSafeInteger(value.songCount, 0, 1_000_000) &&
+    isSafeInteger(value.archivedSongCount, 0, 1_000_000)
+  );
+}
+
+function isProducerStoreSafeView(value: unknown): value is ProducerStoreSafeView {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["productCount", "liveProductCount"]) &&
+    isSafeInteger(value.productCount, 0, 1_000_000) &&
+    isSafeInteger(value.liveProductCount, 0, 1_000_000)
+  );
+}
+
+function isProducerPortfolioSafeView(value: unknown): value is ProducerPortfolioSafeView {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["publishedCount", "availableCount"]) &&
+    isSafeInteger(value.publishedCount, 0, 1_000_000) &&
+    isSafeInteger(value.availableCount, 0, 1_000_000)
+  );
+}
+
+function isArtistMusicSafeView(value: unknown): value is ArtistMusicSafeView {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, [
+      "mode",
+      "view",
+      "search",
+      "sort",
+      "archive",
+      "projectCount",
+      "songCount",
+    ]) &&
+    (value.mode === "projects" || value.mode === "songs") &&
+    (value.view === "grid" || value.view === "table") &&
+    isBoundedString(value.search, 120, true) &&
+    (value.sort === "recent" ||
+      value.sort === "title" ||
+      value.sort === "notes" ||
+      value.sort === "length") &&
+    (value.archive === "active" || value.archive === "archived") &&
+    isSafeInteger(value.projectCount, 0, 1_000_000) &&
+    isSafeInteger(value.songCount, 0, 1_000_000)
+  );
+}
+
 function isProducerDisplayNameDraft(value: unknown): value is ProducerDisplayNameDraft {
   return (
     isRecord(value) &&
@@ -261,7 +373,12 @@ const SLOT_VALIDATORS: {
   [Slot in RuntimeSlot]: (value: unknown) => value is RuntimePayloadBySlot[Slot];
 } = {
   "producer.overview.safe-view": isProducerOverviewSafeView,
+  "producer.workspace.safe-view": isProducerWorkspaceSafeView,
+  "producer.music.safe-view": isProducerMusicSafeView,
+  "producer.store.safe-view": isProducerStoreSafeView,
+  "producer.portfolio.safe-view": isProducerPortfolioSafeView,
   "artist.home.safe-view": isArtistHomeSafeView,
+  "artist.music.safe-view": isArtistMusicSafeView,
   "producer.settings.display-name-draft": isProducerDisplayNameDraft,
   "producer.song-comment-draft": isRuntimeTextDraft,
   "artist.song-comment-draft": isRuntimeTextDraft,
@@ -273,10 +390,74 @@ export function isRuntimeSlot(value: string): value is RuntimeSlot {
   return Object.prototype.hasOwnProperty.call(SLOT_VALIDATORS, value);
 }
 
-function isBlockedRoute(pathname: string): boolean {
-  return BLOCKED_ROUTE_PREFIXES.some(
+function isLiveOnlyArtistRoute(pathname: string): boolean {
+  return LIVE_ONLY_ARTIST_ROUTE_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
+}
+
+function isAllowlistedRuntimePathname(pathname: string, role: RuntimeRole): boolean {
+  const patterns = role === "producer" ? PRODUCER_ROUTE_PATTERNS : ARTIST_ROUTE_PATTERNS;
+  return patterns.some((pattern) => pattern.test(pathname));
+}
+
+function isEnumerated(value: string, allowed: readonly string[]): boolean {
+  return allowed.includes(value);
+}
+
+function isAllowedRuntimeQuery(
+  pathname: string,
+  role: RuntimeRole,
+  key: string,
+  value: string,
+): boolean {
+  if (key.length > 40 || value.length > 120) return false;
+
+  if (role === "artist") {
+    if (key === "studio") return value.trim().length > 0;
+    if (pathname !== "/artist/music") return false;
+    if (key === "mode") return isEnumerated(value, ["projects", "songs"]);
+    if (key === "view") return isEnumerated(value, ["grid", "table"]);
+    if (key === "search") return true;
+    if (key === "sort") return isEnumerated(value, ["recent", "title", "notes", "length"]);
+    if (key === "filter") return isEnumerated(value, ["active", "archived"]);
+    return false;
+  }
+
+  if (pathname === "/dashboard") {
+    return key === "view" && value === "all";
+  }
+  if (pathname === "/dashboard/calendar") {
+    return key === "tab" && isEnumerated(value, ["schedule", "sessions", "availability"]);
+  }
+  if (pathname === "/dashboard/clients-projects") {
+    if (key === "tab") return isEnumerated(value, ["clients", "projects"]);
+    if (key === "filter") return isEnumerated(value, ["all", "urgent", "active", "archived"]);
+    if (key === "sort") {
+      return isEnumerated(value, [
+        "custom",
+        "recent",
+        "deadline",
+        "balance",
+        "progress",
+        "joined",
+        "name",
+      ]);
+    }
+    if (key === "view") return isEnumerated(value, ["cards", "table"]);
+    return key === "search";
+  }
+  if (pathname === "/dashboard/music") {
+    if (key === "mode") return isEnumerated(value, ["projects", "songs"]);
+    if (key === "view") return isEnumerated(value, ["grid", "table"]);
+    if (key === "search") return true;
+    if (key === "sort") return isEnumerated(value, ["recent", "title", "notes", "length"]);
+    return key === "filter" && isEnumerated(value, ["active", "archived"]);
+  }
+  if (pathname === "/dashboard/settings") {
+    return key === "section" && isEnumerated(value, ["profile", "plan", "notif", "int", "region"]);
+  }
+  return false;
 }
 
 function runtimeRoleForHref(href: string): RuntimeRole {
@@ -301,14 +482,12 @@ export function normalizeRuntimeHref(href: string, role: RuntimeRole): string | 
     return null;
   }
 
-  const roleRoot = role === "producer" ? "/dashboard" : "/artist";
-  if (!(url.pathname === roleRoot || url.pathname.startsWith(`${roleRoot}/`))) return null;
-  if (isBlockedRoute(url.pathname)) return null;
+  if (role === "artist" && isLiveOnlyArtistRoute(url.pathname)) return null;
+  if (!isAllowlistedRuntimePathname(url.pathname, role)) return null;
 
-  const allowedQuery = role === "producer" ? PRODUCER_QUERY_ALLOWLIST : ARTIST_QUERY_ALLOWLIST;
   const safeSearch = new URLSearchParams();
   for (const [key, value] of url.searchParams) {
-    if (allowedQuery.has(key) && key.length <= 40 && value.length <= 120 && safeSearch.size < 30) {
+    if (isAllowedRuntimeQuery(url.pathname, role, key, value) && safeSearch.size < 30) {
       safeSearch.append(key, value);
     }
   }
@@ -367,8 +546,18 @@ function isSlotAllowedForScope(scope: RuntimeScope, slot: RuntimeSlot): boolean 
   switch (slot) {
     case "producer.overview.safe-view":
       return scope.role === "producer" && pathname === "/dashboard";
+    case "producer.workspace.safe-view":
+      return scope.role === "producer" && pathname === "/dashboard/clients-projects";
+    case "producer.music.safe-view":
+      return scope.role === "producer" && pathname === "/dashboard/music";
+    case "producer.store.safe-view":
+      return scope.role === "producer" && pathname === "/dashboard/store";
+    case "producer.portfolio.safe-view":
+      return scope.role === "producer" && pathname === "/dashboard/portfolio";
     case "artist.home.safe-view":
       return scope.role === "artist" && pathname === "/artist";
+    case "artist.music.safe-view":
+      return scope.role === "artist" && pathname === "/artist/music";
     case "producer.settings.display-name-draft":
       return scope.role === "producer" && scope.route === "/dashboard/settings?section=profile";
     case "producer.song-comment-draft":

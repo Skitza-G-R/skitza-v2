@@ -12,6 +12,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { reorderProducts, setPackageActive } from "~/app/(producer)/dashboard/booking/actions";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
 import type { TaxMode } from "~/lib/tax-mode";
 
@@ -73,6 +74,7 @@ export function StoreScreen({
 }: StoreScreenProps) {
   const router = useRouter();
   const { toast } = useToast();
+  const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
   const [filter, setFilter] = useState<FilterTab>("all");
   const [search, setSearch] = useState("");
@@ -122,6 +124,10 @@ export function StoreScreen({
 
   function moveProduct(productId: string, targetId: string | undefined) {
     if (!targetId || productId === targetId) return;
+    if (!online) {
+      toast("Reconnect to reorder products.", "error");
+      return;
+    }
     const fromIndex = optimisticProducts.findIndex((product) => product.id === productId);
     const targetIndex = optimisticProducts.findIndex((product) => product.id === targetId);
     if (fromIndex < 0 || targetIndex < 0) return;
@@ -138,13 +144,19 @@ export function StoreScreen({
     setOptimisticProducts(nextProducts);
     setReorderAnnouncement(`Moved ${moving.name} ${direction}.`);
     startTransition(async () => {
-      const res = await reorderProducts({ orderedIds: nextIds });
-      if (!res.ok) {
+      try {
+        const res = await reorderProducts({ orderedIds: nextIds });
+        if (!res.ok) {
+          setOptimisticProducts(products);
+          setReorderAnnouncement(`Could not move ${moving.name}.`);
+          toast(res.error, "error");
+        } else {
+          router.refresh();
+        }
+      } catch {
         setOptimisticProducts(products);
         setReorderAnnouncement(`Could not move ${moving.name}.`);
-        toast(res.error, "error");
-      } else {
-        router.refresh();
+        toast("Could not reorder products. Please try again.", "error");
       }
     });
   }
@@ -198,14 +210,22 @@ export function StoreScreen({
   }, [creating, editing, removing]);
 
   function onToggleVisible(p: StoreProduct) {
+    if (!online) {
+      toast("Reconnect to change product visibility.", "error");
+      return;
+    }
     const next = !p.active;
     startTransition(async () => {
-      const res = await setPackageActive({ id: p.id, active: next });
-      if (res.ok) {
-        toast(next ? `"${p.name}" is now live.` : `"${p.name}" hidden.`, "success");
-        router.refresh();
-      } else {
-        toast(res.error, "error");
+      try {
+        const res = await setPackageActive({ id: p.id, active: next });
+        if (res.ok) {
+          toast(next ? `"${p.name}" is now live.` : `"${p.name}" hidden.`, "success");
+          router.refresh();
+        } else {
+          toast(res.error, "error");
+        }
+      } catch {
+        toast("Could not update product visibility. Please try again.", "error");
       }
     });
   }
@@ -367,6 +387,10 @@ export function StoreScreen({
         action={removing ? productRemovalAction(removing) : "archive"}
         onConfirm={() => {
           if (removing) {
+            if (!online) {
+              toast("Reconnect to remove this product.", "error");
+              return;
+            }
             void removeProduct({
               id: removing.id,
               name: removing.name,

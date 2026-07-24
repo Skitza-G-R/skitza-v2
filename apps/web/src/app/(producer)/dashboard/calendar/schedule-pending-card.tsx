@@ -21,6 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "~/components/ui/dialog";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
 
 import { formatCalendarDate, formatCalendarTime } from "./calendar-time";
@@ -55,6 +56,7 @@ export function SchedulePendingCard({
   const [declineTarget, setDeclineTarget] = useState<PendingRequest | null>(null);
   const [, startTransition] = useTransition();
   const { toast } = useToast();
+  const online = useOnlineStatus();
   const selectedRef = useRef<HTMLLIElement>(null);
 
   useEffect(() => {
@@ -68,23 +70,32 @@ export function SchedulePendingCard({
   }, [selectedBookingId]);
 
   function act(row: PendingRequest, kind: "confirm" | "reject") {
+    if (!online) {
+      toast("Reconnect to update this booking.", "error");
+      return;
+    }
     setPendingIds((current) => new Set(current).add(row.id));
     startTransition(async () => {
-      const res =
-        kind === "confirm"
-          ? await confirmBooking({ id: row.id })
-          : await rejectBooking({ id: row.id });
-      setPendingIds((current) => {
-        const next = new Set(current);
-        next.delete(row.id);
-        return next;
-      });
-      if (!res.ok) {
-        toast(res.error, "error");
-        return;
+      try {
+        const res =
+          kind === "confirm"
+            ? await confirmBooking({ id: row.id })
+            : await rejectBooking({ id: row.id });
+        if (!res.ok) {
+          toast(res.error, "error");
+          return;
+        }
+        setRows((current) => current.filter((candidate) => candidate.id !== row.id));
+        toast(kind === "confirm" ? "Booking confirmed." : "Booking rejected.", "success");
+      } catch {
+        toast("Could not update this booking. Please try again.", "error");
+      } finally {
+        setPendingIds((current) => {
+          const next = new Set(current);
+          next.delete(row.id);
+          return next;
+        });
       }
-      setRows((current) => current.filter((candidate) => candidate.id !== row.id));
-      toast(kind === "confirm" ? "Booking confirmed." : "Booking rejected.", "success");
     });
   }
 
@@ -163,7 +174,7 @@ export function SchedulePendingCard({
             </button>
             <button
               type="button"
-              disabled={!declineTarget || pendingIds.has(declineTarget.id)}
+              disabled={!declineTarget || pendingIds.has(declineTarget.id) || !online}
               onClick={() => {
                 if (!declineTarget) return;
                 const target = declineTarget;

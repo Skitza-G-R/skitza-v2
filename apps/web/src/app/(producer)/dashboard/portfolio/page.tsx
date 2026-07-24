@@ -8,6 +8,7 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
 import { appRouter } from "~/server/trpc/routers/_app";
+import { ProducerRuntimeSafeView } from "~/components/dashboard/runtime/producer-runtime-safe-view";
 
 import {
   PortfolioPanel,
@@ -59,6 +60,13 @@ export default async function PortfolioPage() {
 
   return (
     <div className="sk-page-enter mx-auto max-w-[1180px] px-4 pt-8 pb-24 sm:px-6">
+      <ProducerRuntimeSafeView
+        slot="producer.portfolio.safe-view"
+        data={{
+          publishedCount: portfolioTracks.length,
+          availableCount: libraryRows.length,
+        }}
+      />
       {/* Mobile: title stacks above the CTA. Desktop: original side-by-side row. */}
       <header className="mb-8 flex flex-col items-start gap-5 sm:mb-10 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
         <div>

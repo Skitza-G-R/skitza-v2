@@ -6,6 +6,7 @@ import {
   type PaymentReminderRetryDisposition,
   sendPaymentReminderAction,
 } from "~/app/(producer)/dashboard/payments/reminder-actions";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { Button } from "~/components/ui/button";
 import { useToast } from "~/components/ui/toast";
 
@@ -43,33 +44,42 @@ export function PaymentReminderButton({
   installmentLabel: string;
 }) {
   const { toast } = useToast();
+  const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const retryKey = useRef<string | null>(null);
 
   function sendReminder() {
     if (pending) return;
+    if (!online) {
+      toast("Reconnect to send a payment reminder.", "error");
+      return;
+    }
     retryKey.current = paymentReminderOperationKey(retryKey.current);
     const operationKey = retryKey.current;
     setSuccessMessage(null);
 
     startTransition(async () => {
-      const result = await sendPaymentReminderAction({
-        purchaseId,
-        installmentId,
-        operationKey,
-      });
-      retryKey.current = paymentReminderOperationKeyAfterResult(result, operationKey);
-      if (!result.ok) {
-        toast(result.error, "error");
-        return;
-      }
+      try {
+        const result = await sendPaymentReminderAction({
+          purchaseId,
+          installmentId,
+          operationKey,
+        });
+        retryKey.current = paymentReminderOperationKeyAfterResult(result, operationKey);
+        if (!result.ok) {
+          toast(result.error, "error");
+          return;
+        }
 
-      setSuccessMessage(result.created ? "Reminder sent." : "Reminder already sent.");
-      toast(
-        result.created ? "Payment reminder sent and logged." : "Reminder already sent.",
-        "success",
-      );
+        setSuccessMessage(result.created ? "Reminder sent." : "Reminder already sent.");
+        toast(
+          result.created ? "Payment reminder sent and logged." : "Reminder already sent.",
+          "success",
+        );
+      } catch {
+        toast("Could not send this reminder. Please try again.", "error");
+      }
     });
   }
 
@@ -81,7 +91,7 @@ export function PaymentReminderButton({
         variant="outline"
         aria-label={`Send payment reminder for ${installmentLabel}`}
         className="min-h-11 w-full rounded-[var(--radius-lg)] sm:w-auto"
-        disabled={pending}
+        disabled={pending || !online}
         onClick={sendReminder}
       >
         {pending ? "Sending…" : "Send reminder"}

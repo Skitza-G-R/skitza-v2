@@ -14,4 +14,10 @@ describe("producer cancel session modal wiring", () => {
     expect(modalSource).toMatch(/session use was returned/);
     expect(modalSource).not.toMatch(/coming soon/i);
   });
+
+  it("keeps cancellation live-only and handles transport failures locally", () => {
+    expect(modalSource).toContain("useOnlineStatus");
+    expect(modalSource).toContain("Reconnect to cancel this session.");
+    expect(modalSource).toContain("Could not cancel this session. Please try again.");
+  });
 });

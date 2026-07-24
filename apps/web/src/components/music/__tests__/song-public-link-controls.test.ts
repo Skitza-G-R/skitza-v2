@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
-  copyAuthoritativePublicSongLink,
+  shareAuthoritativePublicSongLink,
   type SongPublicSharingView,
 } from "../song-public-link-controls";
 
@@ -17,12 +17,13 @@ const liveState: SongPublicSharingView = {
   publicUrl: "https://skitza.app/listen/old-token",
 };
 
-describe("artist public-link copy authority", () => {
-  it("copies the freshly authenticated URL instead of stale rendered state", async () => {
-    const writes: string[] = [];
-    const result = await copyAuthoritativePublicSongLink({
+describe("artist public-link share authority", () => {
+  it("shares the freshly authenticated URL instead of stale rendered state", async () => {
+    const shares: Array<{ title?: string; url?: string }> = [];
+    const result = await shareAuthoritativePublicSongLink({
       role: "artist",
       state: liveState,
+      title: "Final mix",
       refreshLiveState: () =>
         Promise.resolve({
           ok: true,
@@ -32,25 +33,36 @@ describe("artist public-link copy authority", () => {
             publicUrl: "https://skitza.app/listen/new-token",
           },
         }),
-      writeText: (value) => {
-        writes.push(value);
-        return Promise.resolve();
+      shareLink: (payload) => {
+        shares.push(payload);
+        return Promise.resolve({ status: "shared", method: "native" });
       },
     });
 
-    expect(result).toMatchObject({ ok: true, state: { tokenVersion: 2 } });
-    expect(writes).toEqual(["https://skitza.app/listen/new-token"]);
+    expect(result).toMatchObject({
+      ok: true,
+      method: "native",
+      state: { tokenVersion: 2 },
+    });
+    expect(shares).toEqual([
+      {
+        title: "Final mix",
+        url: "https://skitza.app/listen/new-token",
+        fallbackText: "https://skitza.app/listen/new-token",
+      },
+    ]);
   });
 
-  it("does not copy after the producer disables the link", async () => {
-    const writes: string[] = [];
-    const result = await copyAuthoritativePublicSongLink({
+  it("does not share after the producer disables the link", async () => {
+    const shares: string[] = [];
+    const result = await shareAuthoritativePublicSongLink({
       role: "artist",
       state: liveState,
+      title: "Final mix",
       refreshLiveState: () => Promise.resolve({ ok: true, state: null }),
-      writeText: (value) => {
-        writes.push(value);
-        return Promise.resolve();
+      shareLink: (payload) => {
+        shares.push(payload.url ?? "");
+        return Promise.resolve({ status: "shared", method: "native" });
       },
     });
 
@@ -59,17 +71,18 @@ describe("artist public-link copy authority", () => {
       error: "This public link is no longer live.",
       state: { ...liveState, linkEnabled: false, publicUrl: null },
     });
-    expect(writes).toEqual([]);
+    expect(shares).toEqual([]);
   });
 
   it("fails closed when the artist authority refresh is unavailable", async () => {
-    const writes: string[] = [];
-    const result = await copyAuthoritativePublicSongLink({
+    const shares: string[] = [];
+    const result = await shareAuthoritativePublicSongLink({
       role: "artist",
       state: liveState,
-      writeText: (value) => {
-        writes.push(value);
-        return Promise.resolve();
+      title: "Final mix",
+      shareLink: (payload) => {
+        shares.push(payload.url ?? "");
+        return Promise.resolve({ status: "shared", method: "native" });
       },
     });
 
@@ -77,18 +90,19 @@ describe("artist public-link copy authority", () => {
       ok: false,
       error: "Could not confirm that this public link is still live.",
     });
-    expect(writes).toEqual([]);
+    expect(shares).toEqual([]);
   });
 
-  it("does not copy when the authority refresh rejects", async () => {
-    const writes: string[] = [];
-    const result = await copyAuthoritativePublicSongLink({
+  it("does not share when the authority refresh rejects", async () => {
+    const shares: string[] = [];
+    const result = await shareAuthoritativePublicSongLink({
       role: "artist",
       state: liveState,
+      title: "Final mix",
       refreshLiveState: () => Promise.reject(new Error("network unavailable")),
-      writeText: (value) => {
-        writes.push(value);
-        return Promise.resolve();
+      shareLink: (payload) => {
+        shares.push(payload.url ?? "");
+        return Promise.resolve({ status: "shared", method: "native" });
       },
     });
 
@@ -96,7 +110,52 @@ describe("artist public-link copy authority", () => {
       ok: false,
       error: "Could not confirm that this public link is still live.",
     });
-    expect(writes).toEqual([]);
+    expect(shares).toEqual([]);
+  });
+
+  it("falls back to the clipboard through the native-share adapter", async () => {
+    await expect(
+      shareAuthoritativePublicSongLink({
+        role: "producer",
+        state: liveState,
+        title: "Final mix",
+        shareLink: () => Promise.resolve({ status: "copied", method: "clipboard" }),
+      }),
+    ).resolves.toMatchObject({ ok: true, method: "clipboard" });
+  });
+
+  it("turns a share-adapter rejection into local failure feedback", async () => {
+    await expect(
+      shareAuthoritativePublicSongLink({
+        role: "producer",
+        state: liveState,
+        title: "Final mix",
+        shareLink: () => Promise.reject(new Error("share unavailable")),
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: "Could not share the link. Please try again.",
+    });
+  });
+
+  it.each([
+    "https://private.example/audio.mp3",
+    "https://skitza.app/listen/public-token?signedUrl=secret",
+    "https://skitza.app/api/private-delivery",
+  ])("never shares a non-canonical public-song URL: %s", async (publicUrl) => {
+    const shares: string[] = [];
+    const result = await shareAuthoritativePublicSongLink({
+      role: "producer",
+      state: { ...liveState, publicUrl },
+      title: "Final mix",
+      shareLink: (payload) => {
+        shares.push(payload.url ?? "");
+        return Promise.resolve({ status: "shared", method: "native" });
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(shares).toEqual([]);
   });
 
   it("is wired through a read-only artist server action", () => {

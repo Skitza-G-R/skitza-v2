@@ -9,9 +9,36 @@ vi.mock("~/app/(artist)/artist/music/no-charge/[proposalId]/actions", () => ({
   acceptNoChargeSongProposalAction: vi.fn(),
 }));
 
-import { NoChargeSongAgreement } from "../no-charge-song-agreement";
+import {
+  NoChargeSongAgreement,
+  runNoChargeAgreementAction,
+} from "../no-charge-song-agreement";
 
 describe("NoChargeSongAgreement", () => {
+  it("blocks offline before calling the live acceptance action", async () => {
+    const execute = vi.fn(() => Promise.resolve({ ok: true as const }));
+
+    await expect(
+      runNoChargeAgreementAction({ online: false, execute }),
+    ).resolves.toEqual({
+      ok: false,
+      error: "Reconnect to accept this agreement.",
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("turns a transport rejection into local failure feedback", async () => {
+    await expect(
+      runNoChargeAgreementAction({
+        online: true,
+        execute: () => Promise.reject(new Error("network unavailable")),
+      }),
+    ).resolves.toEqual({
+      ok: false,
+      error: "Could not accept the agreement. Please try again.",
+    });
+  });
+
   it("shows the exact zero-total project, song, source, and artist acceptance gate", () => {
     const html = renderToStaticMarkup(
       <NoChargeSongAgreement

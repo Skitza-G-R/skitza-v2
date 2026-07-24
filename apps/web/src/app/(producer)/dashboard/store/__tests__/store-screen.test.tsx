@@ -67,6 +67,13 @@ describe("StoreScreen shell", () => {
     expect(SRC).toMatch(/setOptimisticProducts\(products\)/);
   });
 
+  it("keeps catalog mutations live-only and reports transport failures locally", () => {
+    expect(SRC).toContain("useOnlineStatus");
+    expect(SRC).toContain("Reconnect to reorder products.");
+    expect(SRC).toContain("Could not reorder products. Please try again.");
+    expect(SRC).toContain("Could not update product visibility. Please try again.");
+  });
+
   it("passes move-up/down state and handlers into each ProductCard", () => {
     expect(SRC).toMatch(/canMoveUp=\{index > 0\}/);
     expect(SRC).toMatch(/canMoveDown=\{index < (?:live|hidden)\.length - 1\}/);

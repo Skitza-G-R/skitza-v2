@@ -123,13 +123,12 @@ describe("runtime navigation restoration", () => {
     expect(readRuntimeResumeHref(storage, otherAccount, 1)).toBeNull();
   });
 
-  it("retains duplicate safe filters in canonical order", () => {
+  it("retains duplicate safe studio context and drops unrelated home filters", () => {
     expect(
       runtimeFiltersForHref("/artist?view=list&studio=two&studio=one&signedUrl=secret", "artist"),
     ).toEqual([
       { key: "studio", value: "two" },
       { key: "studio", value: "one" },
-      { key: "view", value: "list" },
     ]);
   });
 });

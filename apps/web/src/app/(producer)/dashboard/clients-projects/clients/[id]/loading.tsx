@@ -52,7 +52,7 @@ function Skel({
     <span
       aria-hidden
       className={[
-        "block animate-pulse",
+        "block animate-pulse motion-reduce:animate-none",
         tone === "band"
           ? ""
           : "border border-[rgb(var(--border-subtle))]",

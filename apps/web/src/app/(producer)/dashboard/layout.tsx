@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 
 import { AppShell } from "~/components/shell/app-shell";
 
+import { ProducerNativeRouteBoundary } from "./producer-native-route-boundary";
+
 // Shared layout for every /dashboard/* route. Hosting <AppShell>
 // here instead of in each individual page is what makes the producer
 // dashboard feel like a single-page app: Next.js App Router preserves
@@ -18,5 +20,9 @@ import { AppShell } from "~/components/shell/app-shell";
 // content in <AppShell>. Pinned by
 // apps/web/src/app/(app)/dashboard/__tests__/layout-architecture.test.ts.
 export default function DashboardLayout({ children }: { children: ReactNode }) {
-  return <AppShell>{children}</AppShell>;
+  return (
+    <AppShell>
+      <ProducerNativeRouteBoundary>{children}</ProducerNativeRouteBoundary>
+    </AppShell>
+  );
 }

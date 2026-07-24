@@ -9,6 +9,7 @@ import {
   declinePurchaseRequest,
   undoPurchaseApproval,
 } from "~/app/(producer)/dashboard/requests/actions";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
 import { isApprovalUndoAvailable } from "~/lib/purchase/approval-undo";
 
@@ -36,6 +37,7 @@ export function PurchaseRequestReview({
   canApprove?: boolean;
 }) {
   const router = useRouter();
+  const online = useOnlineStatus();
   const { toast } = useToast();
   const [status, setStatus] = useState(initialStatus);
   const [showDecline, setShowDecline] = useState(false);
@@ -77,6 +79,10 @@ export function PurchaseRequestReview({
   const runApprove = () => {
     if (!canApprove) return;
     setError(null);
+    if (!online) {
+      showActionError("Reconnect to approve this request.");
+      return;
+    }
     startTransition(async () => {
       try {
         const result = await approvePurchaseRequest({ id });
@@ -107,6 +113,10 @@ export function PurchaseRequestReview({
     const nextProjectId = selectedProjectId || null;
     if (nextProjectId === projectId) return;
     setError(null);
+    if (!online) {
+      showActionError("Reconnect to update the purchase target.");
+      return;
+    }
     startTransition(async () => {
       try {
         const result = await correctPurchaseTarget({
@@ -128,6 +138,10 @@ export function PurchaseRequestReview({
 
   const runUndo = () => {
     setError(null);
+    if (!online) {
+      showActionError("Reconnect to undo this approval.");
+      return;
+    }
     startTransition(async () => {
       try {
         const result = await undoPurchaseApproval({ id });
@@ -149,6 +163,10 @@ export function PurchaseRequestReview({
   const runDecline = (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
+    if (!online) {
+      showActionError("Reconnect to decline this request.");
+      return;
+    }
     startTransition(async () => {
       try {
         const reason = declineReason.trim();
@@ -202,15 +220,15 @@ export function PurchaseRequestReview({
               disabled={isPending}
               aria-expanded={showDecline}
               aria-controls="decline-request-form"
-              className="sk-press inline-flex h-10 flex-1 items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] px-4 text-sm font-semibold text-[rgb(var(--fg-secondary))] transition-colors hover:border-[rgb(var(--fg-danger)/0.45)] hover:text-[rgb(var(--fg-danger))] disabled:cursor-wait disabled:opacity-50 sm:flex-none"
+              className="sk-press inline-flex min-h-11 flex-1 items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] px-4 text-sm font-semibold text-[rgb(var(--fg-secondary))] transition-colors hover:border-[rgb(var(--fg-danger)/0.45)] hover:text-[rgb(var(--fg-danger))] disabled:cursor-wait disabled:opacity-50 sm:flex-none"
             >
               Decline
             </button>
             <button
               type="button"
               onClick={runApprove}
-              disabled={isPending || !canApprove}
-              className="sk-press inline-flex h-10 flex-[1.35] items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-bold text-[rgb(var(--bg-sidebar))] transition-[filter] hover:brightness-105 disabled:cursor-wait disabled:opacity-55 sm:flex-none"
+              disabled={isPending || !canApprove || !online}
+              className="sk-press inline-flex min-h-11 flex-[1.35] items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-bold text-[rgb(var(--bg-sidebar))] transition-[filter] hover:brightness-105 disabled:cursor-wait disabled:opacity-55 sm:flex-none"
             >
               {isPending ? "Saving…" : "Approve request"}
             </button>
@@ -219,8 +237,8 @@ export function PurchaseRequestReview({
           <button
             type="button"
             onClick={runUndo}
-            disabled={isPending}
-            className="sk-press inline-flex h-10 w-full shrink-0 items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] px-4 text-sm font-semibold text-[rgb(var(--fg-secondary))] transition-colors hover:border-[rgb(var(--brand-primary)/0.55)] hover:text-[rgb(var(--brand-primary-text))] disabled:cursor-wait disabled:opacity-50 sm:w-auto"
+            disabled={isPending || !online}
+            className="sk-press inline-flex min-h-11 w-full shrink-0 items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] px-4 text-sm font-semibold text-[rgb(var(--fg-secondary))] transition-colors hover:border-[rgb(var(--brand-primary)/0.55)] hover:text-[rgb(var(--brand-primary-text))] disabled:cursor-wait disabled:opacity-50 sm:w-auto"
           >
             {isPending ? "Undoing…" : "Undo recent approval"}
           </button>
@@ -262,7 +280,7 @@ export function PurchaseRequestReview({
             <button
               type="button"
               onClick={runTargetCorrection}
-              disabled={isPending || (selectedProjectId || null) === projectId}
+              disabled={isPending || (selectedProjectId || null) === projectId || !online}
               className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] px-4 text-sm font-semibold text-[rgb(var(--fg-secondary))] hover:border-[rgb(var(--brand-primary)/0.55)] hover:text-[rgb(var(--brand-primary-text))] disabled:cursor-not-allowed disabled:opacity-45"
             >
               {isPending ? "Saving…" : "Save target"}
@@ -311,14 +329,14 @@ export function PurchaseRequestReview({
                 setError(null);
               }}
               disabled={isPending}
-              className="sk-press inline-flex h-10 items-center justify-center rounded-[var(--radius-md)] px-4 text-sm font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] disabled:opacity-50"
+              className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-md)] px-4 text-sm font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={isPending}
-              className="sk-press inline-flex h-10 items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--fg-danger)/0.4)] px-4 text-sm font-semibold text-[rgb(var(--fg-danger))] transition-colors hover:bg-[rgb(var(--fg-danger)/0.08)] disabled:cursor-wait disabled:opacity-50"
+              disabled={isPending || !online}
+              className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--fg-danger)/0.4)] px-4 text-sm font-semibold text-[rgb(var(--fg-danger))] transition-colors hover:bg-[rgb(var(--fg-danger)/0.08)] disabled:cursor-wait disabled:opacity-50"
             >
               {isPending ? "Declining…" : "Confirm decline"}
             </button>

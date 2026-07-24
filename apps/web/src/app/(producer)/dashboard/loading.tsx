@@ -5,20 +5,26 @@ import { Skeleton } from "~/components/ui/skeleton";
 // page's layout so the transition is minimal perceptual shift.
 export default function DashboardLoading() {
   return (
-    <div className="min-h-dvh bg-[rgb(var(--bg-base))]">
-      {/* Mirror the app shell header — same 56px-ish height + same
-          border so the real shell swap-in is imperceptible. */}
-      <div className="h-[57px] border-b border-[rgb(var(--border-subtle))]" />
-      <div className="h-px w-full bg-gradient-to-r from-transparent via-[rgb(var(--brand-primary)/0.45)] to-transparent" />
-      <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-14">
-        <div className="space-y-3">
-          <Skeleton className="h-3 w-24" />
-          <Skeleton className="h-12 w-3/4" />
-          <Skeleton className="h-4 w-2/3" />
-        </div>
-        <div className="mt-10 grid gap-4 md:grid-cols-2">
-          <Skeleton className="h-48" />
-          <Skeleton className="h-48" />
+    <div
+      role="status"
+      aria-label="Loading studio"
+      className="mx-auto w-full max-w-[1400px] px-4 pt-6 pb-24 sm:px-6 sm:pt-8"
+    >
+      <div className="space-y-3">
+        <Skeleton className="h-3 w-24" />
+        <Skeleton className="h-11 w-3/4 max-w-xl" />
+        <Skeleton className="h-4 w-2/3 max-w-lg" />
+      </div>
+      <div className="mt-8 grid grid-cols-2 gap-3 md:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <Skeleton key={index} className="h-24" />
+        ))}
+      </div>
+      <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
+        <Skeleton className="h-72" />
+        <div className="space-y-4">
+          <Skeleton className="h-32" />
+          <Skeleton className="h-32" />
         </div>
       </div>
     </div>
