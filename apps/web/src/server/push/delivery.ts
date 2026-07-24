@@ -17,7 +17,11 @@ import { validatePushDeepLink } from "~/lib/push/deep-link";
 
 import { webPushConfig, type WebPushConfig } from "./config";
 import { DrizzlePushSubscriptionStore } from "./store";
-import type { PushSubscriptionStore, StoredPushSubscription } from "./subscription-service";
+import {
+  normalizePushEndpoint,
+  type PushSubscriptionStore,
+  type StoredPushSubscription,
+} from "./subscription-service";
 
 export type PushEvent = Readonly<{
   category: PushCategory;
@@ -89,9 +93,12 @@ function safePayload(event: PushEvent): string | null {
   });
 }
 
-function browserSubscription(row: StoredPushSubscription): webPush.PushSubscription {
+function browserSubscription(
+  row: StoredPushSubscription,
+  endpoint: string,
+): webPush.PushSubscription {
   return {
-    endpoint: row.endpoint,
+    endpoint,
     keys: {
       p256dh: row.p256dh,
       auth: row.auth,
@@ -123,11 +130,23 @@ export async function deliverPushToUser(
       (row.expiresAt === null || row.expiresAt > now) && row.categories.includes(event.category),
   );
   const sender = options.sender ?? webPush.sendNotification;
+  let attempted = 0;
   let delivered = 0;
 
   for (const row of eligible) {
+    let endpoint: string;
     try {
-      await sender(browserSubscription(row), payload, {
+      endpoint = normalizePushEndpoint(row.endpoint);
+    } catch {
+      if (await store.deleteOwnedById(clerkUserId, row.id).catch(() => false)) {
+        deleted += 1;
+      }
+      continue;
+    }
+
+    attempted += 1;
+    try {
+      await sender(browserSubscription(row, endpoint), payload, {
         TTL: 3600,
         urgency: "normal",
         contentEncoding: "aes128gcm",
@@ -148,7 +167,7 @@ export async function deliverPushToUser(
     }
   }
 
-  return { attempted: eligible.length, delivered, deleted };
+  return { attempted, delivered, deleted };
 }
 
 export async function deliverPushToClerkUser(

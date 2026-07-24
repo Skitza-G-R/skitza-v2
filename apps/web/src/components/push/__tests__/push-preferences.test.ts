@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+import { confirmBrowserPushUnsubscribe } from "~/lib/push/browser-subscription";
 
 const preferences = readFileSync(new URL("../push-preferences.tsx", import.meta.url), "utf8");
 const producerSettings = readFileSync(
@@ -18,6 +20,18 @@ const artistShell = readFileSync(
 );
 
 describe("SK-112 contextual push preferences", () => {
+  it.each([
+    { outcome: "true success", result: true, expected: true },
+    { outcome: "false result", result: false, expected: false },
+    { outcome: "rejection", result: new Error("unsubscribe failed"), expected: false },
+  ])("confirms only a $outcome from browser unsubscribe", async ({ result, expected }) => {
+    const unsubscribe = vi.fn(() =>
+      result instanceof Error ? Promise.reject(result) : Promise.resolve(result),
+    );
+
+    await expect(confirmBrowserPushUnsubscribe({ unsubscribe })).resolves.toBe(expected);
+  });
+
   it("requests permission only inside the deliberate category click path", () => {
     const effectStart = preferences.indexOf("useEffect(() =>");
     const toggleStart = preferences.indexOf("const toggle = useCallback");
@@ -36,7 +50,25 @@ describe("SK-112 contextual push preferences", () => {
     );
     expect(preferences).toContain("if (next.length === 0)");
     expect(preferences).toContain("unsubscribePushAction(subscription.endpoint)");
-    expect(preferences).toContain("await subscription.unsubscribe()");
+    const finalDisableStart = preferences.indexOf("if (next.length === 0)");
+    const finalDisableEnd = preferences.indexOf(
+      "const input = subscriptionInput",
+      finalDisableStart,
+    );
+    const finalDisable = preferences.slice(finalDisableStart, finalDisableEnd);
+    const browserInvalidation = finalDisable.indexOf(
+      "await confirmBrowserPushUnsubscribe(subscription)",
+    );
+    const failedInvalidation = finalDisable.indexOf("if (!browserUnsubscribed)");
+    const clearSubscription = finalDisable.indexOf(
+      "setBrowser((current) => ({ ...current, subscription: null }))",
+    );
+    const clearCategories = finalDisable.indexOf("setCategories([])");
+    expect(browserInvalidation).toBeGreaterThan(-1);
+    expect(failedInvalidation).toBeGreaterThan(browserInvalidation);
+    expect(finalDisable).toContain("Push notifications could not be updated. Try again.");
+    expect(clearSubscription).toBeGreaterThan(failedInvalidation);
+    expect(clearCategories).toBeGreaterThan(failedInvalidation);
   });
 
   it("reloads browser state after account-exit subscription cleanup", () => {

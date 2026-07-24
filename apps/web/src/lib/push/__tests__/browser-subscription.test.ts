@@ -16,6 +16,7 @@ type HarnessOptions = Readonly<{
   noSubscription?: boolean;
   unsubscribe?: boolean | Error;
   suppressDelivery?: boolean | Error;
+  notificationCleanup?: boolean | Error;
 }>;
 
 function harness(options: HarnessOptions = {}) {
@@ -32,6 +33,11 @@ function harness(options: HarnessOptions = {}) {
       ? Promise.reject(options.suppressDelivery)
       : Promise.resolve(options.suppressDelivery ?? true),
   );
+  const closeDisplayedNotifications = vi.fn(() =>
+    options.notificationCleanup instanceof Error
+      ? Promise.reject(options.notificationCleanup)
+      : Promise.resolve(options.notificationCleanup ?? true),
+  );
   return {
     subscription,
     adapter: {
@@ -41,6 +47,7 @@ function harness(options: HarnessOptions = {}) {
           : Promise.resolve(options.noSubscription ? null : subscription),
       ),
       suppressDelivery,
+      closeDisplayedNotifications,
       notifyBoundary: vi.fn(),
       notifyCleared: vi.fn(),
     },
@@ -64,6 +71,7 @@ describe("push account-exit cleanup", () => {
 
     expect(removeOwned).toHaveBeenCalledWith(test.subscription.endpoint);
     expect(test.subscription.unsubscribe).toHaveBeenCalledOnce();
+    expect(test.adapter.closeDisplayedNotifications).toHaveBeenCalledOnce();
     expect(test.adapter.notifyBoundary).toHaveBeenCalledOnce();
     expect(test.adapter.notifyCleared).toHaveBeenCalledOnce();
   });
@@ -271,8 +279,91 @@ describe("push account-exit cleanup", () => {
 
     expect(removeOwned).not.toHaveBeenCalled();
     expect(test.subscription.unsubscribe).not.toHaveBeenCalled();
+    expect(test.adapter.closeDisplayedNotifications).toHaveBeenCalledOnce();
     expect(test.adapter.suppressDelivery).not.toHaveBeenCalled();
     expect(test.adapter.notifyCleared).toHaveBeenCalledOnce();
+  });
+
+  it("awaits displayed-notification cleanup before confirming the boundary", async () => {
+    let confirmCleanup: ((clean: boolean) => void) | undefined;
+    const test = harness();
+    test.adapter.closeDisplayedNotifications.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          confirmCleanup = resolve;
+        }),
+    );
+
+    const exit = clearBrowserPushSubscription(null, test.adapter);
+    await vi.waitFor(() => {
+      expect(test.adapter.closeDisplayedNotifications).toHaveBeenCalledOnce();
+    });
+    expect(test.adapter.notifyCleared).not.toHaveBeenCalled();
+
+    confirmCleanup?.(true);
+    await expect(exit).resolves.toBe("browser-unsubscribed");
+    expect(test.adapter.notifyCleared).toHaveBeenCalledOnce();
+  });
+
+  it.each([false, new Error("notification lookup failed")])(
+    "fails closed when displayed-notification cleanup cannot be confirmed",
+    async (notificationCleanup) => {
+      const test = harness({ noSubscription: true, notificationCleanup });
+
+      await expect(clearBrowserPushSubscription(null, test.adapter)).rejects.toBeInstanceOf(
+        PushAccountBoundaryError,
+      );
+
+      expect(test.adapter.notifyCleared).not.toHaveBeenCalled();
+    },
+  );
+
+  it("closes only displayed notifications with the Skitza tag prefix", async () => {
+    const closeSkitza = vi.fn();
+    const closeOther = vi.fn();
+    const skitzaNotification = { tag: "skitza-comment", close: closeSkitza };
+    const otherNotification = { tag: "calendar-reminder", close: closeOther };
+    const getNotifications = vi
+      .fn()
+      .mockResolvedValueOnce([skitzaNotification, otherNotification])
+      .mockResolvedValueOnce([otherNotification]);
+    vi.stubGlobal("navigator", {
+      serviceWorker: {
+        getRegistration: vi.fn(() =>
+          Promise.resolve({
+            pushManager: { getSubscription: vi.fn(() => Promise.resolve(null)) },
+            getNotifications,
+          }),
+        ),
+      },
+    });
+
+    await expect(clearBrowserPushSubscription(null)).resolves.toBe("no-subscription");
+
+    expect(getNotifications).toHaveBeenCalledTimes(2);
+    expect(closeSkitza).toHaveBeenCalledOnce();
+    expect(closeOther).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a Skitza notification remains displayed after close", async () => {
+    const close = vi.fn();
+    const notification = { tag: "skitza-payment", close };
+    vi.stubGlobal("navigator", {
+      serviceWorker: {
+        getRegistration: vi.fn(() =>
+          Promise.resolve({
+            pushManager: { getSubscription: vi.fn(() => Promise.resolve(null)) },
+            getNotifications: vi.fn(() => Promise.resolve([notification])),
+          }),
+        ),
+      },
+    });
+
+    await expect(clearBrowserPushSubscription(null)).rejects.toBeInstanceOf(
+      PushAccountBoundaryError,
+    );
+
+    expect(close).toHaveBeenCalledOnce();
   });
 });
 

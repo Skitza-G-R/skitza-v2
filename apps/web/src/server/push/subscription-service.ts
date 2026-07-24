@@ -56,13 +56,68 @@ export class InvalidPushSubscriptionError extends Error {
 }
 
 const BASE64URL = /^[A-Za-z0-9_-]+={0,2}$/;
+const PUSH_ENDPOINT_TOKEN = "[A-Za-z0-9._~:-]+";
+// These are the current provider-issued Web Push route families. Delivery
+// performs server-side HTTP, so an arbitrary HTTPS endpoint is never valid.
+const FCM_PATH = new RegExp(`^/(?:fcm/send|wp|preprod/wp)/${PUSH_ENDPOINT_TOKEN}$`);
+const MOZILLA_PATH = new RegExp(`^/wpush/v[12]/${PUSH_ENDPOINT_TOKEN}$`);
+const APPLE_PATH = new RegExp(`^/${PUSH_ENDPOINT_TOKEN}$`);
+
+function hasAsciiControlOrSpace(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (codePoint <= 0x20 || codePoint === 0x7f) return true;
+  }
+  return false;
+}
+
+function isProviderSubdomain(hostname: string, domain: string): boolean {
+  return hostname.endsWith(`.${domain}`);
+}
+
+function isSupportedPushServiceUrl(url: URL): boolean {
+  const hostname = url.hostname.toLowerCase();
+  const hasNoQuery = !url.search && !url.href.includes("?");
+
+  if (hostname === "fcm.googleapis.com") {
+    return hasNoQuery && FCM_PATH.test(url.pathname);
+  }
+
+  if (hostname === "updates.push.services.mozilla.com") {
+    return hasNoQuery && MOZILLA_PATH.test(url.pathname);
+  }
+
+  if (isProviderSubdomain(hostname, "push.apple.com")) {
+    return hasNoQuery && APPLE_PATH.test(url.pathname);
+  }
+
+  if (hostname === "notify.windows.com" || isProviderSubdomain(hostname, "notify.windows.com")) {
+    const keys = [...url.searchParams.keys()];
+    const tokens = url.searchParams.getAll("token");
+    return (
+      url.pathname === "/w/" &&
+      keys.every((key) => key === "token") &&
+      keys.length === 1 &&
+      tokens.length === 1 &&
+      (tokens[0]?.length ?? 0) > 0
+    );
+  }
+
+  return false;
+}
 
 export function pushEndpointHash(endpoint: string): string {
   return `sha256:${createHash("sha256").update(endpoint, "utf8").digest("hex")}`;
 }
 
 export function normalizePushEndpoint(value: string): string {
-  if (value.length === 0 || value.length > 2048 || value.includes("\\")) {
+  if (
+    value.length === 0 ||
+    value.length > 2048 ||
+    value.includes("\\") ||
+    value.includes("#") ||
+    hasAsciiControlOrSpace(value)
+  ) {
     throw new InvalidPushSubscriptionError();
   }
   let url: URL;
@@ -71,7 +126,15 @@ export function normalizePushEndpoint(value: string): string {
   } catch {
     throw new InvalidPushSubscriptionError();
   }
-  if (url.protocol !== "https:" || !url.hostname || url.username || url.password || url.hash) {
+  if (
+    url.protocol !== "https:" ||
+    !url.hostname ||
+    url.username ||
+    url.password ||
+    url.port ||
+    url.hash ||
+    !isSupportedPushServiceUrl(url)
+  ) {
     throw new InvalidPushSubscriptionError();
   }
   return url.href;

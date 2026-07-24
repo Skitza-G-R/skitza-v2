@@ -10,6 +10,7 @@ import {
 } from "~/app/push-actions";
 import { PUSH_CATEGORIES, PUSH_CATEGORY_COPY, type PushCategory } from "~/lib/push/categories";
 import {
+  confirmBrowserPushUnsubscribe,
   getPushAccountBoundaryGeneration,
   PUSH_ACCOUNT_BOUNDARY_EVENT,
   PUSH_SUBSCRIPTION_CLEARED_EVENT,
@@ -192,8 +193,12 @@ export function PushPreferences() {
             setError(result.error);
             return;
           }
-          await subscription.unsubscribe();
+          const browserUnsubscribed = await confirmBrowserPushUnsubscribe(subscription);
           if (!boundaryIsCurrent()) return;
+          if (!browserUnsubscribed) {
+            setError("Push notifications could not be updated. Try again.");
+            return;
+          }
           setBrowser((current) => ({ ...current, subscription: null }));
           setCategories([]);
           return;

@@ -67,7 +67,7 @@ function row(
   return {
     id,
     clerkUserId: USER,
-    endpoint: `https://push.example.test/${id}`,
+    endpoint: `https://fcm.googleapis.com/wp/${id}`,
     endpointHash: `sha256:${id.padEnd(64, "0").slice(0, 64)}`,
     p256dh: "p".repeat(64),
     auth: "a".repeat(24),
@@ -159,6 +159,27 @@ describe("SK-112 Web Push delivery", () => {
     expect(consoleWarn).not.toHaveBeenCalled();
     consoleError.mockRestore();
     consoleWarn.mockRestore();
+  });
+
+  it("deletes an untrusted stored endpoint without sending to it", async () => {
+    const unsafe = {
+      ...row("unsafe", ["comment"]),
+      endpoint: "https://169.254.169.254/latest/meta-data",
+    };
+    const store = new DeliveryStore([unsafe]);
+    const sender = vi.fn();
+
+    await expect(
+      deliverPushToUser(
+        store,
+        USER,
+        { category: "comment", url: `/dashboard/music/${ID}` },
+        { config: CONFIG, now: NOW, sender },
+      ),
+    ).resolves.toEqual({ attempted: 0, delivered: 0, deleted: 1 });
+
+    expect(sender).not.toHaveBeenCalled();
+    expect(store.deleted).toEqual(["unsafe"]);
   });
 });
 

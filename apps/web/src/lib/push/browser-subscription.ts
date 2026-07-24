@@ -2,6 +2,7 @@ export const PUSH_SUBSCRIPTION_CLEARED_EVENT = "skitza:push-subscription-cleared
 export const PUSH_ACCOUNT_BOUNDARY_EVENT = "skitza:push-account-boundary";
 export const PUSH_DELIVERY_CONTROL_CACHE = "skitza-push-control-v1";
 export const PUSH_DELIVERY_SUPPRESSED_URL = "/pwa/push-delivery-suppressed";
+export const SKITZA_NOTIFICATION_TAG_PREFIX = "skitza-";
 
 const PUSH_SUPPRESSION_CAPABILITY_QUERY = "SKITZA_PUSH_SUPPRESSION_CAPABILITY";
 const PUSH_SUPPRESSION_CAPABILITY_RESULT = "SKITZA_PUSH_SUPPRESSION_CAPABILITY_RESULT";
@@ -15,6 +16,7 @@ type ExitPushSubscription = Readonly<{
 type BrowserPushAdapter = Readonly<{
   getSubscription(): Promise<ExitPushSubscription | null>;
   suppressDelivery(): Promise<boolean>;
+  closeDisplayedNotifications(): Promise<boolean>;
   notifyBoundary(): void;
   notifyCleared(): void;
 }>;
@@ -65,6 +67,17 @@ export function runTrackedPushSubscriptionWrite<T>(write: () => Promise<T>): Pro
   });
   inFlightPushSubscriptionWrites.add(tracked);
   return tracked;
+}
+
+export async function confirmBrowserPushUnsubscribe(
+  subscription: Readonly<{ unsubscribe(): Promise<boolean> }>,
+): Promise<boolean> {
+  try {
+    const unsubscribed = await subscription.unsubscribe();
+    return unsubscribed;
+  } catch {
+    return false;
+  }
 }
 
 async function waitForInFlightPushSubscriptionWrites(): Promise<void> {
@@ -175,6 +188,36 @@ export function resumeBrowserPushDelivery(
   });
 }
 
+async function closeDisplayedSkitzaNotifications(): Promise<boolean> {
+  if (
+    typeof navigator === "undefined" ||
+    !("serviceWorker" in navigator) ||
+    typeof navigator.serviceWorker.getRegistration !== "function"
+  ) {
+    return true;
+  }
+
+  try {
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (!registration) return true;
+    if (typeof registration.getNotifications !== "function") return false;
+
+    const displayed = await registration.getNotifications();
+    for (const notification of displayed) {
+      if (notification.tag.startsWith(SKITZA_NOTIFICATION_TAG_PREFIX)) {
+        notification.close();
+      }
+    }
+
+    const remaining = await registration.getNotifications();
+    return !remaining.some((notification) =>
+      notification.tag.startsWith(SKITZA_NOTIFICATION_TAG_PREFIX),
+    );
+  } catch {
+    return false;
+  }
+}
+
 function browserAdapter(): BrowserPushAdapter {
   return {
     async getSubscription() {
@@ -190,6 +233,7 @@ function browserAdapter(): BrowserPushAdapter {
       return registration.pushManager.getSubscription();
     },
     suppressDelivery: suppressBrowserPushDelivery,
+    closeDisplayedNotifications: closeDisplayedSkitzaNotifications,
     notifyBoundary() {
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event(PUSH_ACCOUNT_BOUNDARY_EVENT));
@@ -220,7 +264,11 @@ export async function clearBrowserPushSubscription(
 ): Promise<PushBoundaryConfirmation> {
   const boundaryGeneration = beginPushAccountBoundary();
   adapter.notifyBoundary();
-  const confirm = (result: PushBoundaryConfirmation): PushBoundaryConfirmation => {
+  const confirm = async (
+    result: PushBoundaryConfirmation,
+  ): Promise<PushBoundaryConfirmation> => {
+    const notificationsCleared = await adapter.closeDisplayedNotifications().catch(() => false);
+    if (!notificationsCleared) throw new PushAccountBoundaryError();
     completePushAccountBoundary(boundaryGeneration);
     adapter.notifyCleared();
     return result;
@@ -244,10 +292,7 @@ export async function clearBrowserPushSubscription(
     return confirm("no-subscription");
   }
 
-  const browserUnsubscribe = Promise.resolve()
-    .then(() => subscription.unsubscribe())
-    .then((unsubscribed) => unsubscribed)
-    .catch(() => false);
+  const browserUnsubscribe = confirmBrowserPushUnsubscribe(subscription);
   const serverCleanup = removeOwned
     ? Promise.resolve()
         .then(() => removeOwned(subscription.endpoint))

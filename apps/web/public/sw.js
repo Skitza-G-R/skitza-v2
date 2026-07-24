@@ -21,6 +21,7 @@ const OBSOLETE_CACHE_PREFIX = "skitza-shell-";
 const OFFLINE_URL = "/offline.html";
 const PUSH_DELIVERY_CONTROL_CACHE = "skitza-push-control-v1";
 const PUSH_DELIVERY_SUPPRESSED_URL = "/pwa/push-delivery-suppressed";
+const SKITZA_NOTIFICATION_TAG_PREFIX = "skitza-";
 const PRECACHE_URLS = [
   OFFLINE_URL,
   "/pwa/offline-context.js",
@@ -217,7 +218,7 @@ self.addEventListener("push", (event) => {
         body: payload.body,
         icon: "/icons/skitza-192.png",
         badge: "/icons/skitza-64.png",
-        tag: `skitza-${payload.category}`,
+        tag: `${SKITZA_NOTIFICATION_TAG_PREFIX}${payload.category}`,
         data: { url: payload.url },
       });
     })(),
