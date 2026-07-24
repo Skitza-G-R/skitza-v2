@@ -13,6 +13,7 @@ import {
   Settings2,
 } from "lucide-react";
 import Link from "next/link";
+import { useMemo } from "react";
 
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useRuntimeCachedView } from "~/components/runtime-state/use-runtime-state";
@@ -129,13 +130,17 @@ export function OverviewScreen({
   now,
 }: OverviewScreenProps) {
   const online = useOnlineStatus();
+  const overviewServerData = useMemo(
+    () => ({
+      displayName: serverDisplayName,
+      activeProjects: serverPulseStats.activeProjects,
+    }),
+    [serverDisplayName, serverPulseStats.activeProjects],
+  );
   const cachedView = useRuntimeCachedView({
     slot: "producer.overview.safe-view",
     route: showAllNeedsYou ? "/dashboard?view=all" : "/dashboard",
-    serverData: {
-      displayName: serverDisplayName,
-      activeProjects: serverPulseStats.activeProjects,
-    },
+    serverData: overviewServerData,
   });
   const displayName = cachedView.data?.displayName ?? serverDisplayName;
   const pulseStats = {
