@@ -1,46 +1,149 @@
-/* Skitza app-shell Service Worker (Task M.2).
+/* Skitza installable-web-app service worker.
  *
- * Goal: make the installed Tauri Mac app feel "Spotify-fast" by
- * serving the shell + Next.js static chunks from cache on repeat
- * visits, then revalidating in the background.
+ * This worker deliberately has a very small cache surface:
+ * hash-versioned Next static assets plus a short allowlist of public PWA
+ * resources. Authenticated HTML/RSC/API data, Clerk traffic, action routes,
+ * signed URLs, uploads, and audio are always network-only.
  *
- * Strategy:
- *   - HTML shell routes (/, /sign-in, etc): **network-first**. HTML
- *     references hash-versioned _next/static chunks; a stale HTML
- *     from a previous deploy points at chunks that no longer exist,
- *     which breaks the page with ERR_FAILED on the chunk URLs. So
- *     we always try network first and only fall back to cache when
- *     offline. Under good network this is identical to no SW for
- *     HTML; under bad/no network it gives offline-friendly fallback.
- *   - /_next/static/* assets: stale-while-revalidate. These are
- *     hash-versioned and immutable, so caching aggressively + lazy
- *     revalidate is safe and fast.
- *
- * Everything else (auth, API, tRPC, Clerk) passes through untouched.
- * Non-GET, cross-origin: always bypass.
- *
- * CACHE_NAME is bumped any time the shell caching contract changes
- * so old caches get cleared during `activate`.
+ * A replacement worker never calls skipWaiting during install. It can take
+ * over only after the client observed this exact version before the current
+ * page boot, requests activation from a safe reopen, and every open Skitza
+ * window confirms that it has no active or protected work.
  */
 
-// Bumped 2026-05-06: floating-dock redesign produced a new
-// persistent-player chunk hash; the activate handler evicts caches
-// whose name doesn't match this constant, so bumping forces installed
-// clients to drop the stale dock JS on the next deploy.
-const CACHE_NAME = "skitza-shell-v3";
-const SHELL_URLS = [
-  "/",
-  "/sign-in",
-  "/dashboard/clients",
-  "/dashboard/projects",
-  "/dashboard/library",
+importScripts("/pwa/cache-policy.js");
+
+const SW_VERSION = "2026-07-24-sk108-1";
+const CACHE_PREFIX = "skitza-native-";
+const CACHE_NAME = `${CACHE_PREFIX}${SW_VERSION}`;
+const OBSOLETE_CACHE_PREFIX = "skitza-shell-";
+const OFFLINE_URL = "/offline.html";
+const PRECACHE_URLS = [
+  OFFLINE_URL,
+  "/manifest.webmanifest",
+  "/icons/apple-touch-icon-180.png",
+  "/icons/skitza-192.png",
+  "/icons/skitza-512.png",
+  "/icons/skitza-maskable-192.png",
+  "/icons/skitza-maskable-512.png",
 ];
+const MESSAGE = {
+  activateOnSafeReopen: "SKITZA_ACTIVATE_ON_SAFE_REOPEN",
+  activationResult: "SKITZA_ACTIVATION_RESULT",
+  clientSafetyQuery: "SKITZA_CLIENT_SAFETY_QUERY",
+  getVersion: "SKITZA_GET_VERSION",
+  version: "SKITZA_VERSION",
+};
+const CLIENT_SAFETY_TIMEOUT_MS = 1500;
+
+const policy = self.SkitzaCachePolicy;
+
+function isCacheableResponse(response) {
+  if (!response || !response.ok || response.type !== "basic") return false;
+
+  const cacheControl = (response.headers.get("cache-control") || "").toLowerCase();
+  const vary = (response.headers.get("vary") || "").toLowerCase();
+  const contentType = (response.headers.get("content-type") || "").toLowerCase();
+  const disposition = (
+    response.headers.get("content-disposition") || ""
+  ).toLowerCase();
+
+  return (
+    !/(?:^|,|\s)(?:private|no-store)(?:,|\s|$)/.test(cacheControl) &&
+    vary !== "*" &&
+    !vary.includes("authorization") &&
+    !vary.includes("cookie") &&
+    !contentType.startsWith("audio/") &&
+    !contentType.startsWith("video/") &&
+    !disposition.includes("attachment")
+  );
+}
+
+async function cacheFirst(request) {
+  const cache = await caches.open(CACHE_NAME);
+  const cached = await cache.match(request);
+  if (cached) return cached;
+
+  const response = await fetch(request);
+  if (isCacheableResponse(response)) {
+    await cache.put(request, response.clone());
+  }
+  return response;
+}
+
+async function networkWithOfflineBoundary(request) {
+  try {
+    return await fetch(request);
+  } catch {
+    const cache = await caches.open(CACHE_NAME);
+    const offline = await cache.match(OFFLINE_URL);
+    if (offline) return offline;
+
+    return new Response("Skitza is offline. Reconnect and try again.", {
+      status: 503,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
+  }
+}
+
+function queryClientSafety(client) {
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    const timeout = setTimeout(() => {
+      channel.port1.close();
+      resolve(false);
+    }, CLIENT_SAFETY_TIMEOUT_MS);
+
+    channel.port1.onmessage = (event) => {
+      clearTimeout(timeout);
+      channel.port1.close();
+      resolve(event.data && event.data.safe === true);
+    };
+
+    try {
+      client.postMessage(
+        {
+          type: MESSAGE.clientSafetyQuery,
+          version: SW_VERSION,
+        },
+        [channel.port2],
+      );
+    } catch {
+      clearTimeout(timeout);
+      channel.port1.close();
+      resolve(false);
+    }
+  });
+}
+
+async function allOpenClientsAreSafe() {
+  const clients = await self.clients.matchAll({
+    type: "window",
+    includeUncontrolled: true,
+  });
+  if (clients.length === 0) return false;
+
+  const safety = await Promise.all(clients.map(queryClientSafety));
+  return safety.every(Boolean);
+}
 
 self.addEventListener("install", (event) => {
-  // Pre-warm the static-asset cache only — HTML is network-first so
-  // there's no value in pre-fetching it on install.
-  event.waitUntil(caches.open(CACHE_NAME));
-  self.skipWaiting();
+  event.waitUntil(
+    (async () => {
+      const cache = await caches.open(CACHE_NAME);
+      await cache.addAll(PRECACHE_URLS);
+
+      // The replaced worker cached authenticated shell HTML. Remove that
+      // obsolete cache as soon as the privacy-safe worker is installed,
+      // without forcing the new worker to take over an active session.
+      const keys = await caches.keys();
+      await Promise.all(
+        keys
+          .filter((key) => key.startsWith(OBSOLETE_CACHE_PREFIX))
+          .map((key) => caches.delete(key)),
+      );
+    })(),
+  );
 });
 
 self.addEventListener("activate", (event) => {
@@ -48,7 +151,14 @@ self.addEventListener("activate", (event) => {
     (async () => {
       const keys = await caches.keys();
       await Promise.all(
-        keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)),
+        keys
+          .filter(
+            (key) =>
+              key !== CACHE_NAME &&
+              (key.startsWith(CACHE_PREFIX) ||
+                key.startsWith(OBSOLETE_CACHE_PREFIX)),
+          )
+          .map((key) => caches.delete(key)),
       );
       await self.clients.claim();
     })(),
@@ -56,55 +166,67 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  const req = event.request;
-  if (req.method !== "GET") return;
+  const request = event.request;
+  const decision = policy.classifyRequest(request, self.location.origin);
 
-  const url = new URL(req.url);
-  if (url.origin !== self.location.origin) return;
-
-  const isStaticAsset = url.pathname.startsWith("/_next/static/");
-  const isShellRoute = SHELL_URLS.includes(url.pathname);
-  if (!isStaticAsset && !isShellRoute) return;
-
-  if (isShellRoute) {
-    // Network-first for HTML: deploys swap hashed chunk filenames, so
-    // stale HTML from a previous deploy points at 404 chunks. Always
-    // try network, fall back to cache only on fetch failure.
-    event.respondWith(
-      (async () => {
-        try {
-          const res = await fetch(req);
-          if (res && res.ok && res.type === "basic") {
-            const cache = await caches.open(CACHE_NAME);
-            cache.put(req, res.clone()).catch(() => {});
-          }
-          return res;
-        } catch {
-          const cache = await caches.open(CACHE_NAME);
-          const cached = await cache.match(req);
-          if (cached) return cached;
-          throw new Error("offline");
-        }
-      })(),
-    );
+  if (decision.action === "cache") {
+    event.respondWith(cacheFirst(request));
     return;
   }
 
-  // Stale-while-revalidate for hashed static assets. Safe because
-  // filenames change whenever contents change.
-  event.respondWith(
+  if (
+    request.method === "GET" &&
+    request.mode === "navigate" &&
+    new URL(request.url).origin === self.location.origin
+  ) {
+    event.respondWith(networkWithOfflineBoundary(request));
+  }
+});
+
+self.addEventListener("message", (event) => {
+  const data = event.data;
+
+  if (data && data.type === MESSAGE.getVersion) {
+    const reply = event.ports && event.ports[0];
+    if (reply) {
+      reply.postMessage({
+        type: MESSAGE.version,
+        version: SW_VERSION,
+      });
+    }
+    return;
+  }
+
+  if (
+    !data ||
+    data.type !== MESSAGE.activateOnSafeReopen ||
+    data.safeReopen !== true ||
+    data.version !== SW_VERSION
+  ) {
+    return;
+  }
+
+  const reply = event.ports && event.ports[0];
+  event.waitUntil(
     (async () => {
-      const cache = await caches.open(CACHE_NAME);
-      const cached = await cache.match(req);
-      const network = fetch(req)
-        .then((res) => {
-          if (res && res.ok && res.type === "basic") {
-            cache.put(req, res.clone()).catch(() => {});
-          }
-          return res;
-        })
-        .catch(() => cached);
-      return cached || network;
+      const safe = await allOpenClientsAreSafe();
+      if (!safe) {
+        if (reply) {
+          reply.postMessage({
+            type: MESSAGE.activationResult,
+            activated: false,
+          });
+        }
+        return;
+      }
+
+      if (reply) {
+        reply.postMessage({
+          type: MESSAGE.activationResult,
+          activated: true,
+        });
+      }
+      await self.skipWaiting();
     })(),
   );
 });
