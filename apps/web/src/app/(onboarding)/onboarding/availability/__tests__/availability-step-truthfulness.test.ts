@@ -31,4 +31,16 @@ describe("onboarding availability truthfulness", () => {
     expect(source.match(/copyToAllDays\(day\.weekday\)/g)).toHaveLength(1);
     expect(source).toContain("day.active && activeDayCount > 1");
   });
+
+  it("blocks both forward actions offline and catches rejected availability saves", () => {
+    expect(source).toContain("useOnlineStatus");
+    expect(source).toMatch(/const advance = \(target: string\) => \{\s*if \(!online\)/);
+    expect(source).toContain('toast("Reconnect to save availability.", "error")');
+    expect(source).toMatch(
+      /startTransition\(async \(\) => \{\s*try \{\s*const res = await setAvailabilityWeek/,
+    );
+    expect(source).toContain('toast("Could not save availability. Try again.", "error")');
+    expect(source).toContain("advance(routeOnSkipFromAvailability())");
+    expect(source).toContain("advance(nextRouteAfterAvailability())");
+  });
 });

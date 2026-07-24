@@ -12,6 +12,7 @@ import {
   type ExternalLinksFormState,
   type PortfolioPlatformKey,
 } from "~/components/onboarding/external-links-editor";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 // emptyExternalLinksState is a FUNCTION (not a constant) — invoking it
 // returns a fresh ExternalLinksFormState with all 3 platform keys set
 // to empty url/title strings. Calling it inside handleContinue keeps
@@ -105,6 +106,7 @@ function makeId(): string {
 
 export function PortfolioStepClient() {
   const router = useRouter();
+  const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
   const [rows, setRows] = useState<LinkRow[]>([
     { id: makeId(), type: "spotify", url: "" },
@@ -134,6 +136,10 @@ export function PortfolioStepClient() {
 
   const handleContinue = () => {
     setError(null);
+    if (!online) {
+      setError("Reconnect to save your portfolio links.");
+      return;
+    }
     const formState: ExternalLinksFormState = emptyExternalLinksState();
     for (const row of rows) {
       // Custom links captured locally but NOT yet persisted —

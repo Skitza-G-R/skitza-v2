@@ -7,6 +7,7 @@ import { useMemo, useState, useTransition } from "react";
 import { setAvailabilityWeek } from "~/app/(producer)/dashboard/booking/actions";
 import { WizardChrome } from "~/components/onboarding/wizard-shell/wizard-chrome";
 import { WizardFooter } from "~/components/onboarding/wizard-shell/wizard-footer";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
 import {
   orderByWeekStart,
@@ -133,6 +134,7 @@ export function AvailabilityStepClient({
 }) {
   const router = useRouter();
   const { toast } = useToast();
+  const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
   const [days, setDays] = useState<DayConfig[]>(() =>
     buildInitialDays(blocks),
@@ -247,13 +249,21 @@ export function AvailabilityStepClient({
       );
 
   const advance = (target: string) => {
+    if (!online) {
+      toast("Reconnect to save availability.", "error");
+      return;
+    }
     startTransition(async () => {
-      const res = await setAvailabilityWeek({ blocks: collectBlocks() });
-      if (!res.ok) {
-        toast(`Couldn't save availability: ${res.error}`, "error");
-        return;
+      try {
+        const res = await setAvailabilityWeek({ blocks: collectBlocks() });
+        if (!res.ok) {
+          toast(`Couldn't save availability: ${res.error}`, "error");
+          return;
+        }
+        router.push(target);
+      } catch {
+        toast("Could not save availability. Try again.", "error");
       }
-      router.push(target);
     });
   };
 
