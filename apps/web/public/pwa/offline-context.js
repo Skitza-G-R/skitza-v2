@@ -19,27 +19,36 @@
     "/artist/purchase",
     "/artist/sessions",
   ];
-  const PRODUCER_QUERY_ALLOWLIST = new Set([
-    "filter",
-    "page",
-    "search",
-    "section",
-    "sort",
-    "stage",
-    "status",
-    "tab",
-    "view",
-  ]);
-  const ARTIST_QUERY_ALLOWLIST = new Set([
-    "filter",
-    "page",
-    "search",
-    "sort",
-    "status",
-    "studio",
-    "tab",
-    "view",
-  ]);
+  const SAFE_ID_SEGMENT = "[A-Za-z0-9_-]{1,128}";
+  const PRODUCER_ROUTE_PATTERNS = [
+    /^\/dashboard$/,
+    /^\/dashboard\/calendar$/,
+    /^\/dashboard\/clients-projects$/,
+    /^\/dashboard\/clients-projects\/new$/,
+    new RegExp(`^/dashboard/clients-projects/(?!new$|clients$)${SAFE_ID_SEGMENT}$`),
+    new RegExp(`^/dashboard/clients-projects/${SAFE_ID_SEGMENT}/songs/${SAFE_ID_SEGMENT}$`),
+    new RegExp(`^/dashboard/clients-projects/clients/${SAFE_ID_SEGMENT}$`),
+    /^\/dashboard\/music$/,
+    new RegExp(`^/dashboard/music/(?!project$)${SAFE_ID_SEGMENT}$`),
+    new RegExp(`^/dashboard/music/project/${SAFE_ID_SEGMENT}$`),
+    /^\/dashboard\/onboarding$/,
+    /^\/dashboard\/payments$/,
+    new RegExp(`^/dashboard/payments/${SAFE_ID_SEGMENT}$`),
+    /^\/dashboard\/portfolio$/,
+    /^\/dashboard\/profile$/,
+    /^\/dashboard\/requests$/,
+    new RegExp(`^/dashboard/requests/${SAFE_ID_SEGMENT}$`),
+    /^\/dashboard\/settings$/,
+    /^\/dashboard\/store$/,
+  ];
+  const ARTIST_ROUTE_PATTERNS = [
+    /^\/artist$/,
+    /^\/artist\/music$/,
+    new RegExp(`^/artist/music/(?!song$|no-charge$)${SAFE_ID_SEGMENT}$`),
+    new RegExp(`^/artist/music/song/${SAFE_ID_SEGMENT}$`),
+    /^\/artist\/store$/,
+    /^\/artist\/settings$/,
+  ];
 
   function isRecord(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -73,8 +82,74 @@
     );
   }
 
+  function allowlistedPath(pathname, role) {
+    const patterns = role === "producer" ? PRODUCER_ROUTE_PATTERNS : ARTIST_ROUTE_PATTERNS;
+    return patterns.some((pattern) => pattern.test(pathname));
+  }
+
+  function enumerated(value, allowed) {
+    return allowed.includes(value);
+  }
+
+  function allowedQuery(pathname, role, key, value) {
+    if (key.length > 40 || value.length > 120) return false;
+
+    if (role === "artist") {
+      if (key === "studio") return value.trim().length > 0;
+      if (pathname !== "/artist/music") return false;
+      if (key === "mode") return enumerated(value, ["projects", "songs"]);
+      if (key === "view") return enumerated(value, ["grid", "table"]);
+      if (key === "search") return true;
+      if (key === "sort") return enumerated(value, ["recent", "title", "notes", "length"]);
+      if (key === "filter") return enumerated(value, ["active", "archived"]);
+      return false;
+    }
+
+    if (pathname === "/dashboard") {
+      return key === "view" && value === "all";
+    }
+    if (pathname === "/dashboard/calendar") {
+      return key === "tab" && enumerated(value, ["schedule", "sessions", "availability"]);
+    }
+    if (pathname === "/dashboard/clients-projects") {
+      if (key === "tab") return enumerated(value, ["clients", "projects"]);
+      if (key === "filter") return enumerated(value, ["all", "urgent", "active", "archived"]);
+      if (key === "sort") {
+        return enumerated(value, [
+          "custom",
+          "recent",
+          "deadline",
+          "balance",
+          "progress",
+          "joined",
+          "name",
+        ]);
+      }
+      if (key === "view") return enumerated(value, ["cards", "table"]);
+      return key === "search";
+    }
+    if (pathname === "/dashboard/music") {
+      if (key === "mode") return enumerated(value, ["projects", "songs"]);
+      if (key === "view") return enumerated(value, ["grid", "table"]);
+      if (key === "search") return true;
+      if (key === "sort") return enumerated(value, ["recent", "title", "notes", "length"]);
+      return key === "filter" && enumerated(value, ["active", "archived"]);
+    }
+    if (pathname === "/dashboard/settings") {
+      return key === "section" && enumerated(value, ["profile", "plan", "notif", "int", "region"]);
+    }
+    return false;
+  }
+
   function normalizeRoute(value) {
-    if (typeof value !== "string" || value.length === 0 || value.length > 2048) return null;
+    if (
+      typeof value !== "string" ||
+      !value.startsWith("/") ||
+      value.startsWith("//") ||
+      value.length > 1024
+    ) {
+      return null;
+    }
 
     let url;
     try {
@@ -92,12 +167,11 @@
     } else {
       return null;
     }
-    if (blockedPath(url.pathname)) return null;
+    if (blockedPath(url.pathname) || !allowlistedPath(url.pathname, role)) return null;
 
-    const allowlist = role === "producer" ? PRODUCER_QUERY_ALLOWLIST : ARTIST_QUERY_ALLOWLIST;
     const search = new URLSearchParams();
     for (const [key, entry] of url.searchParams) {
-      if (allowlist.has(key) && key.length <= 40 && entry.length <= 120 && search.size < 30) {
+      if (allowedQuery(url.pathname, role, key, entry) && search.size < 30) {
         search.append(key, entry);
       }
     }

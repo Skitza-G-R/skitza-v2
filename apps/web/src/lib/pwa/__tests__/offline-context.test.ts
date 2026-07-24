@@ -155,21 +155,14 @@ describe("route-aware offline context", () => {
 
   it("uses only the matching route snapshot for a saved nested screen", () => {
     const storage = new MemoryStorage();
-    const scope = requiredScope(
-      "user_producer",
-      "producer",
-      "producer_1",
-      "/dashboard/music/song_private?tab=versions",
-    );
+    const visitedHref = "/dashboard/music/song_private?tab=versions";
+    const scope = requiredScope("user_producer", "producer", "producer_1", visitedHref);
+    expect(scope.route).toBe("/dashboard/music/song_private");
     writeNavigation(storage, scope);
 
-    const saved = offlineContext.readSavedContext(
-      storage,
-      "/dashboard/music/song_private?tab=versions",
-      NOW,
-    );
+    const saved = offlineContext.readSavedContext(storage, visitedHref, NOW);
     expect(saved).toMatchObject({
-      route: "/dashboard/music/song_private?tab=versions",
+      route: "/dashboard/music/song_private",
       label: "Music",
       title: "Saved music context.",
       summary: "This music screen was viewed recently for this account.",
@@ -181,6 +174,7 @@ describe("route-aware offline context", () => {
   it.each([
     "/dashboard/payments/payout_1",
     "/artist/sessions/session_1",
+    "/dashboard/invented",
     "/listen/public-token",
     "/sign-in",
   ])("never restores protected transactional or public route %s", (href) => {
