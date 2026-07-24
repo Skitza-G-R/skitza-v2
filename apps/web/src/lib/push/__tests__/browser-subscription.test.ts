@@ -5,6 +5,7 @@ import {
   clearBrowserPushSubscription,
   closeDisplayedSkitzaNotifications,
   getPushAccountBoundaryGeneration,
+  PUSH_DELIVERY_BOUNDARY_NONCE_HEADER,
   PushAccountBoundaryError,
   pushAccountBoundaryAllowsDelivery,
   resumeBrowserPushDelivery,
@@ -19,6 +20,82 @@ type HarnessOptions = Readonly<{
   suppressDelivery?: boolean | Error;
   notificationCleanup?: boolean | Error;
 }>;
+
+class MockServiceWorker extends EventTarget {
+  state: ServiceWorkerState;
+
+  constructor(
+    state: ServiceWorkerState,
+    readonly postMessage: (
+      message: unknown,
+      transfer?: readonly MessagePort[],
+    ) => void,
+  ) {
+    super();
+    this.state = state;
+  }
+
+  transitionTo(state: ServiceWorkerState): void {
+    this.state = state;
+    this.dispatchEvent(new Event("statechange"));
+  }
+}
+
+const ACTIVE_VERSION = "2026-07-24-sk116-4";
+const BOUNDARY_NONCE = "11111111-2222-4333-8444-555555555555";
+const OTHER_BOUNDARY_NONCE = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+
+function messageRecord(message: unknown): Readonly<Record<string, unknown>> {
+  return typeof message === "object" && message !== null
+    ? (message as Record<string, unknown>)
+    : {};
+}
+
+function createNonceCache(onPut?: () => void) {
+  let marker: Response | undefined;
+  return {
+    cache: {
+      put: vi.fn((_input: unknown, response: Response) => {
+        marker = response;
+        onPut?.();
+        return Promise.resolve(undefined);
+      }),
+      match: vi.fn(() => Promise.resolve(marker)),
+    },
+    marker: () => marker,
+    replaceMarker(nonce: string | null) {
+      marker =
+        nonce === null
+          ? undefined
+          : new Response(null, {
+              status: 204,
+              headers: { [PUSH_DELIVERY_BOUNDARY_NONCE_HEADER]: nonce },
+            });
+    },
+  };
+}
+
+function stubSuppressionBrowser(
+  registration: object,
+  cache: ReturnType<typeof createNonceCache>["cache"],
+  nonce = BOUNDARY_NONCE,
+): EventTarget {
+  const serviceWorkers = new EventTarget() as EventTarget & {
+    getRegistration: ReturnType<typeof vi.fn>;
+  };
+  serviceWorkers.getRegistration = vi.fn(() => Promise.resolve(registration));
+  vi.stubGlobal("MessageChannel", MessageChannel);
+  vi.stubGlobal("crypto", {
+    randomUUID: vi.fn(() => nonce),
+  });
+  vi.stubGlobal("caches", {
+    open: vi.fn(() => Promise.resolve(cache)),
+  });
+  vi.stubGlobal("navigator", {
+    serviceWorker: serviceWorkers,
+  });
+  return serviceWorkers;
+}
 
 function harness(options: HarnessOptions = {}) {
   const subscription = {
@@ -434,181 +511,518 @@ describe("push account-exit cleanup", () => {
 });
 
 describe("service-worker suppression capability", () => {
-  it("accepts a marker only after the active worker proves support", async () => {
-    const cache = {
-      put: vi.fn(() => Promise.resolve(undefined)),
-      match: vi.fn(() => Promise.resolve(new Response(null, { status: 204 }))),
-    };
-    const markerAwareActive = {
-      postMessage: vi.fn((message: unknown, transfer: readonly MessagePort[] = []) => {
-        const type =
-          typeof message === "object" && message !== null && "type" in message
-            ? message.type
-            : null;
+  it("binds the active worker flush to the exact marker nonce and version", async () => {
+    const cacheState = createNonceCache();
+    const messages: unknown[] = [];
+    const active = new MockServiceWorker(
+      "activated",
+      (message: unknown, transfer: readonly MessagePort[] = []) => {
+        messages.push(message);
+        const data = messageRecord(message);
         transfer[0]?.postMessage(
-          type === "SKITZA_PUSH_SUPPRESSION_CAPABILITY"
+          data.type === "SKITZA_PUSH_SUPPRESSION_CAPABILITY"
             ? {
                 type: "SKITZA_PUSH_SUPPRESSION_CAPABILITY_RESULT",
                 supported: true,
                 flushSupported: true,
+                version: ACTIVE_VERSION,
               }
             : {
                 type: "SKITZA_PUSH_SUPPRESSION_FLUSH_RESULT",
                 flushed: true,
+                version: data.version,
+                nonce: data.nonce,
               },
         );
         transfer[0]?.close();
-      }),
-    };
-    vi.stubGlobal("MessageChannel", MessageChannel);
-    vi.stubGlobal("caches", {
-      open: vi.fn(() => Promise.resolve(cache)),
-    });
-    vi.stubGlobal("navigator", {
-      serviceWorker: {
-        getRegistration: vi.fn(() =>
-          Promise.resolve({
-            active: markerAwareActive,
-            waiting: null,
-          }),
-        ),
       },
-    });
+    );
+    const registration = { active, waiting: null };
+    stubSuppressionBrowser(registration, cacheState.cache);
 
     await expect(suppressBrowserPushDelivery(50)).resolves.toBe(true);
 
-    expect(markerAwareActive.postMessage).toHaveBeenCalledTimes(2);
-    expect(cache.put).toHaveBeenCalledOnce();
+    expect(messages).toEqual([
+      { type: "SKITZA_PUSH_SUPPRESSION_CAPABILITY" },
+      {
+        type: "SKITZA_PUSH_SUPPRESSION_FLUSH",
+        version: ACTIVE_VERSION,
+        nonce: BOUNDARY_NONCE,
+      },
+    ]);
+    expect(
+      cacheState
+        .marker()
+        ?.headers.get(PUSH_DELIVERY_BOUNDARY_NONCE_HEADER),
+    ).toBe(BOUNDARY_NONCE);
   });
 
-  it("rejects a marker when the active worker lacks flush capability", async () => {
-    const cache = {
-      put: vi.fn(() => Promise.resolve(undefined)),
-      match: vi.fn(() => Promise.resolve(new Response(null, { status: 204 }))),
-    };
-    const markerOnlyActive = {
-      postMessage: vi.fn((_message: unknown, transfer: readonly MessagePort[] = []) => {
+  it("fails before writing a marker when a marker-only active has no waiting worker", async () => {
+    const cacheState = createNonceCache();
+    const active = new MockServiceWorker(
+      "activated",
+      (_message: unknown, transfer: readonly MessagePort[] = []) => {
         transfer[0]?.postMessage({
           type: "SKITZA_PUSH_SUPPRESSION_CAPABILITY_RESULT",
           supported: true,
+          version: "2026-07-24-sk116-3",
         });
         transfer[0]?.close();
-      }),
-    };
-    vi.stubGlobal("MessageChannel", MessageChannel);
-    vi.stubGlobal("caches", {
-      open: vi.fn(() => Promise.resolve(cache)),
-    });
-    vi.stubGlobal("navigator", {
-      serviceWorker: {
-        getRegistration: vi.fn(() =>
-          Promise.resolve({
-            active: markerOnlyActive,
-            waiting: null,
-          }),
-        ),
       },
-    });
+    );
+    stubSuppressionBrowser({ active, waiting: null }, cacheState.cache);
 
     await expect(suppressBrowserPushDelivery(50)).resolves.toBe(false);
 
-    expect(markerOnlyActive.postMessage).toHaveBeenCalledOnce();
-    expect(cache.put).not.toHaveBeenCalled();
+    expect(cacheState.cache.put).not.toHaveBeenCalled();
   });
 
-  it("fails closed when the active worker does not confirm its flush", async () => {
-    const cache = {
-      put: vi.fn(() => Promise.resolve(undefined)),
-      match: vi.fn(() => Promise.resolve(new Response(null, { status: 204 }))),
+  it("drains an SK116-3 in-flight display before the exact SK116-4 flush", async () => {
+    const timeline: string[] = ["old-display-started"];
+    let finishOldDisplay: (() => void) | undefined;
+    const oldDisplay = new Promise<void>((resolve) => {
+      finishOldDisplay = resolve;
+    });
+    const cacheState = createNonceCache(() => {
+      timeline.push("marker-written");
+    });
+    const oldActive = new MockServiceWorker(
+      "activated",
+      (_message: unknown, transfer: readonly MessagePort[] = []) => {
+        transfer[0]?.postMessage({
+          type: "SKITZA_PUSH_SUPPRESSION_CAPABILITY_RESULT",
+          supported: true,
+          version: "2026-07-24-sk116-3",
+        });
+        transfer[0]?.close();
+      },
+    );
+    type MutableRegistration = {
+      active: MockServiceWorker;
+      waiting: MockServiceWorker | null;
+      pushManager: {
+        getSubscription(): Promise<{
+          endpoint: string;
+          unsubscribe(): Promise<boolean>;
+        }>;
+      };
+      getNotifications(): Promise<never[]>;
     };
-    const unconfirmedFlushActive = {
-      postMessage: vi.fn((message: unknown, transfer: readonly MessagePort[] = []) => {
-        const type =
-          typeof message === "object" && message !== null && "type" in message
-            ? message.type
-            : null;
+    const waitingMessages: unknown[] = [];
+    const waiting = new MockServiceWorker(
+      "installed",
+      (message: unknown, transfer: readonly MessagePort[] = []) => {
+        waitingMessages.push(message);
+        const data = messageRecord(message);
+        if (data.type === "SKITZA_PUSH_SUPPRESSION_CAPABILITY") {
+          transfer[0]?.postMessage({
+            type: "SKITZA_PUSH_SUPPRESSION_CAPABILITY_RESULT",
+            supported: true,
+            flushSupported: true,
+            version: ACTIVE_VERSION,
+          });
+          transfer[0]?.close();
+          return;
+        }
+        if (data.type === "SKITZA_ACTIVATE_FOR_ACCOUNT_EXIT") {
+          timeline.push("exit-activation-requested");
+          transfer[0]?.postMessage({
+            type: "SKITZA_ACCOUNT_EXIT_ACTIVATION_RESULT",
+            activated: true,
+            version: data.version,
+            nonce: data.nonce,
+          });
+          transfer[0]?.close();
+          void oldDisplay.then(() => {
+            timeline.push("old-display-finished");
+            oldActive.transitionTo("redundant");
+            registration.active = waiting;
+            registration.waiting = null;
+            waiting.transitionTo("activated");
+          });
+          return;
+        }
+        if (data.type === "SKITZA_PUSH_SUPPRESSION_FLUSH") {
+          timeline.push("new-worker-flushed");
+          transfer[0]?.postMessage({
+            type: "SKITZA_PUSH_SUPPRESSION_FLUSH_RESULT",
+            flushed: true,
+            version: data.version,
+            nonce: data.nonce,
+          });
+          transfer[0]?.close();
+        }
+      },
+    );
+    const subscription = {
+      endpoint: "https://push.example.test/sk116-3-device",
+      unsubscribe: vi.fn(() => {
+        timeline.push("browser-unsubscribed");
+        return Promise.resolve(true);
+      }),
+    };
+    const registration: MutableRegistration = {
+      active: oldActive,
+      waiting,
+      pushManager: {
+        getSubscription: vi.fn(() => Promise.resolve(subscription)),
+      },
+      getNotifications: vi.fn(() => Promise.resolve([])),
+    };
+    stubSuppressionBrowser(registration, cacheState.cache);
+    const removeOwned = vi.fn(() => {
+      timeline.push("owned-row-removed");
+      return Promise.resolve({ ok: true as const, removed: true as const });
+    });
+
+    let boundaryCompleted = false;
+    const boundary = clearBrowserPushSubscription(removeOwned).then((result) => {
+      boundaryCompleted = true;
+      return result;
+    });
+    await vi.waitFor(() => {
+      expect(timeline).toContain("exit-activation-requested");
+    });
+    expect(boundaryCompleted).toBe(false);
+    expect(timeline.indexOf("browser-unsubscribed")).toBeLessThan(
+      timeline.indexOf("marker-written"),
+    );
+    expect(timeline.indexOf("marker-written")).toBeLessThan(
+      timeline.indexOf("exit-activation-requested"),
+    );
+
+    finishOldDisplay?.();
+    await expect(boundary).resolves.toBe("browser-unsubscribed");
+    expect(timeline.indexOf("old-display-finished")).toBeLessThan(
+      timeline.indexOf("new-worker-flushed"),
+    );
+    expect(subscription.unsubscribe).toHaveBeenCalledOnce();
+    expect(removeOwned).toHaveBeenCalledWith(subscription.endpoint);
+    expect(oldActive.state).toBe("redundant");
+    expect(waiting.state).toBe("activated");
+    expect(registration.active).toBe(waiting);
+    expect(waitingMessages.map((message) => messageRecord(message).type)).toEqual(
+      [
+        "SKITZA_PUSH_SUPPRESSION_CAPABILITY",
+        "SKITZA_ACTIVATE_FOR_ACCOUNT_EXIT",
+        "SKITZA_PUSH_SUPPRESSION_CAPABILITY",
+        "SKITZA_PUSH_SUPPRESSION_FLUSH",
+      ],
+    );
+  });
+
+  it("hands a capability-none legacy active worker to an exact waiting worker", async () => {
+    const timeline: string[] = [];
+    const cacheState = createNonceCache(() => {
+      timeline.push("marker-written");
+    });
+    const oldActive = new MockServiceWorker(
+      "activated",
+      (_message: unknown, transfer: readonly MessagePort[] = []) => {
+        transfer[0]?.close();
+      },
+    );
+    const waitingMessages: unknown[] = [];
+    const waiting = new MockServiceWorker(
+      "installed",
+      (message: unknown, transfer: readonly MessagePort[] = []) => {
+        waitingMessages.push(message);
+        const data = messageRecord(message);
+        if (data.type === "SKITZA_PUSH_SUPPRESSION_CAPABILITY") {
+          transfer[0]?.postMessage({
+            type: "SKITZA_PUSH_SUPPRESSION_CAPABILITY_RESULT",
+            supported: true,
+            flushSupported: true,
+            version: ACTIVE_VERSION,
+          });
+        } else if (data.type === "SKITZA_ACTIVATE_FOR_ACCOUNT_EXIT") {
+          transfer[0]?.postMessage({
+            type: "SKITZA_ACCOUNT_EXIT_ACTIVATION_RESULT",
+            activated: true,
+            version: data.version,
+            nonce: data.nonce,
+          });
+          oldActive.transitionTo("redundant");
+          registration.active = waiting;
+          registration.waiting = null;
+          waiting.transitionTo("activated");
+        } else {
+          transfer[0]?.postMessage({
+            type: "SKITZA_PUSH_SUPPRESSION_FLUSH_RESULT",
+            flushed: true,
+            version: data.version,
+            nonce: data.nonce,
+          });
+        }
+        transfer[0]?.close();
+      },
+    );
+    const registration: {
+      active: MockServiceWorker;
+      waiting: MockServiceWorker | null;
+    } = { active: oldActive, waiting };
+    const test = harness();
+    test.subscription.unsubscribe.mockImplementation(() => {
+      timeline.push("browser-unsubscribed");
+      return Promise.resolve(true);
+    });
+    test.adapter.suppressDelivery.mockImplementation(() =>
+      suppressBrowserPushDelivery(5, 100),
+    );
+    stubSuppressionBrowser(registration, cacheState.cache);
+
+    await expect(
+      clearBrowserPushSubscription(
+        () => Promise.resolve({ ok: true, removed: true }),
+        test.adapter,
+      ),
+    ).resolves.toBe("browser-unsubscribed");
+
+    expect(timeline.indexOf("browser-unsubscribed")).toBeLessThan(
+      timeline.indexOf("marker-written"),
+    );
+    expect(waitingMessages.map((message) => messageRecord(message).type)).toEqual(
+      [
+        "SKITZA_PUSH_SUPPRESSION_CAPABILITY",
+        "SKITZA_ACTIVATE_FOR_ACCOUNT_EXIT",
+        "SKITZA_PUSH_SUPPRESSION_CAPABILITY",
+        "SKITZA_PUSH_SUPPRESSION_FLUSH",
+      ],
+    );
+  });
+
+  it("fails closed when a flush ACK returns another boundary nonce", async () => {
+    const cacheState = createNonceCache();
+    const active = new MockServiceWorker(
+      "activated",
+      (message: unknown, transfer: readonly MessagePort[] = []) => {
+        const data = messageRecord(message);
         transfer[0]?.postMessage(
-          type === "SKITZA_PUSH_SUPPRESSION_CAPABILITY"
+          data.type === "SKITZA_PUSH_SUPPRESSION_CAPABILITY"
             ? {
                 type: "SKITZA_PUSH_SUPPRESSION_CAPABILITY_RESULT",
                 supported: true,
                 flushSupported: true,
+                version: ACTIVE_VERSION,
+              }
+            : {
+                type: "SKITZA_PUSH_SUPPRESSION_FLUSH_RESULT",
+                flushed: true,
+                version: data.version,
+                nonce: OTHER_BOUNDARY_NONCE,
+              },
+        );
+        transfer[0]?.close();
+      },
+    );
+    stubSuppressionBrowser({ active, waiting: null }, cacheState.cache);
+
+    await expect(suppressBrowserPushDelivery(50)).resolves.toBe(false);
+
+    expect(
+      cacheState
+        .marker()
+        ?.headers.get(PUSH_DELIVERY_BOUNDARY_NONCE_HEADER),
+    ).toBe(BOUNDARY_NONCE);
+  });
+
+  it("fails closed when another boundary replaces the marker after an exact flush ACK", async () => {
+    const cacheState = createNonceCache();
+    const active = new MockServiceWorker(
+      "activated",
+      (message: unknown, transfer: readonly MessagePort[] = []) => {
+        const data = messageRecord(message);
+        if (data.type === "SKITZA_PUSH_SUPPRESSION_CAPABILITY") {
+          transfer[0]?.postMessage({
+            type: "SKITZA_PUSH_SUPPRESSION_CAPABILITY_RESULT",
+            supported: true,
+            flushSupported: true,
+            version: ACTIVE_VERSION,
+          });
+        } else {
+          cacheState.replaceMarker(OTHER_BOUNDARY_NONCE);
+          transfer[0]?.postMessage({
+            type: "SKITZA_PUSH_SUPPRESSION_FLUSH_RESULT",
+            flushed: true,
+            version: data.version,
+            nonce: data.nonce,
+          });
+        }
+        transfer[0]?.close();
+      },
+    );
+    stubSuppressionBrowser({ active, waiting: null }, cacheState.cache);
+
+    await expect(suppressBrowserPushDelivery(50)).resolves.toBe(false);
+
+    expect(
+      cacheState
+        .marker()
+        ?.headers.get(PUSH_DELIVERY_BOUNDARY_NONCE_HEADER),
+    ).toBe(OTHER_BOUNDARY_NONCE);
+  });
+
+  it("fails closed when the waiting worker activation version changes", async () => {
+    const cacheState = createNonceCache();
+    const oldActive = new MockServiceWorker(
+      "activated",
+      (_message: unknown, transfer: readonly MessagePort[] = []) => {
+        transfer[0]?.postMessage({
+          type: "SKITZA_PUSH_SUPPRESSION_CAPABILITY_RESULT",
+          supported: true,
+          version: "2026-07-24-sk116-3",
+        });
+        transfer[0]?.close();
+      },
+    );
+    const waitingMessages: unknown[] = [];
+    const waiting = new MockServiceWorker(
+      "installed",
+      (message: unknown, transfer: readonly MessagePort[] = []) => {
+        waitingMessages.push(message);
+        const data = messageRecord(message);
+        transfer[0]?.postMessage(
+          data.type === "SKITZA_PUSH_SUPPRESSION_CAPABILITY"
+            ? {
+                type: "SKITZA_PUSH_SUPPRESSION_CAPABILITY_RESULT",
+                supported: true,
+                flushSupported: true,
+                version: ACTIVE_VERSION,
+              }
+            : {
+                type: "SKITZA_ACCOUNT_EXIT_ACTIVATION_RESULT",
+                activated: true,
+                version: "2026-07-24-sk116-replaced",
+                nonce: data.nonce,
+              },
+        );
+        transfer[0]?.close();
+      },
+    );
+    stubSuppressionBrowser(
+      { active: oldActive, waiting },
+      cacheState.cache,
+    );
+
+    await expect(suppressBrowserPushDelivery(50, 50)).resolves.toBe(false);
+
+    expect(waitingMessages).toHaveLength(2);
+    expect(cacheState.cache.put).toHaveBeenCalledOnce();
+  });
+
+  it("fails immediately when the exact waiting worker becomes redundant", async () => {
+    const cacheState = createNonceCache();
+    const oldActive = new MockServiceWorker(
+      "activated",
+      (_message: unknown, transfer: readonly MessagePort[] = []) => {
+        transfer[0]?.postMessage({
+          type: "SKITZA_PUSH_SUPPRESSION_CAPABILITY_RESULT",
+          supported: true,
+          version: "2026-07-24-sk116-3",
+        });
+        transfer[0]?.close();
+      },
+    );
+    const replacement = new MockServiceWorker("installed", () => undefined);
+    const waitingMessages: unknown[] = [];
+    const waiting = new MockServiceWorker(
+      "installed",
+      (message: unknown, transfer: readonly MessagePort[] = []) => {
+        waitingMessages.push(message);
+        const data = messageRecord(message);
+        if (data.type === "SKITZA_PUSH_SUPPRESSION_CAPABILITY") {
+          transfer[0]?.postMessage({
+            type: "SKITZA_PUSH_SUPPRESSION_CAPABILITY_RESULT",
+            supported: true,
+            flushSupported: true,
+            version: ACTIVE_VERSION,
+          });
+        } else {
+          transfer[0]?.postMessage({
+            type: "SKITZA_ACCOUNT_EXIT_ACTIVATION_RESULT",
+            activated: true,
+            version: data.version,
+            nonce: data.nonce,
+          });
+          registration.waiting = replacement;
+          waiting.transitionTo("redundant");
+        }
+        transfer[0]?.close();
+      },
+    );
+    const registration: {
+      active: MockServiceWorker;
+      waiting: MockServiceWorker | null;
+    } = { active: oldActive, waiting };
+    stubSuppressionBrowser(registration, cacheState.cache);
+
+    await expect(suppressBrowserPushDelivery(50, 500)).resolves.toBe(false);
+
+    expect(waitingMessages).toHaveLength(2);
+    expect(waiting.state).toBe("redundant");
+    expect(registration.active).toBe(oldActive);
+  });
+
+  it("fails closed when the exact active worker cannot verify cleanup", async () => {
+    const cacheState = createNonceCache();
+    const active = new MockServiceWorker(
+      "activated",
+      (message: unknown, transfer: readonly MessagePort[] = []) => {
+        const data = messageRecord(message);
+        transfer[0]?.postMessage(
+          data.type === "SKITZA_PUSH_SUPPRESSION_CAPABILITY"
+            ? {
+                type: "SKITZA_PUSH_SUPPRESSION_CAPABILITY_RESULT",
+                supported: true,
+                flushSupported: true,
+                version: ACTIVE_VERSION,
               }
             : {
                 type: "SKITZA_PUSH_SUPPRESSION_FLUSH_RESULT",
                 flushed: false,
+                version: data.version,
+                nonce: data.nonce,
               },
         );
         transfer[0]?.close();
-      }),
-    };
-    vi.stubGlobal("MessageChannel", MessageChannel);
-    vi.stubGlobal("caches", {
-      open: vi.fn(() => Promise.resolve(cache)),
-    });
-    vi.stubGlobal("navigator", {
-      serviceWorker: {
-        getRegistration: vi.fn(() =>
-          Promise.resolve({
-            active: unconfirmedFlushActive,
-            waiting: null,
-          }),
-        ),
       },
-    });
+    );
+    stubSuppressionBrowser({ active, waiting: null }, cacheState.cache);
 
     await expect(suppressBrowserPushDelivery(50)).resolves.toBe(false);
 
-    expect(unconfirmedFlushActive.postMessage).toHaveBeenCalledTimes(2);
-    expect(cache.put).toHaveBeenCalledOnce();
+    expect(cacheState.cache.put).toHaveBeenCalledOnce();
   });
 
-  it("rejects a marker when only the waiting worker understands suppression", async () => {
-    const test = harness({ unsubscribe: false });
-    const cache = {
-      put: vi.fn(() => Promise.resolve(undefined)),
-      match: vi.fn(() => Promise.resolve(new Response(null, { status: 204 }))),
-    };
-    const oldActive = {
-      postMessage: vi.fn((_message: unknown, transfer: readonly MessagePort[] = []) => {
+  it("rejects a capability-none active when the waiting worker cannot flush", async () => {
+    const cacheState = createNonceCache();
+    const oldActive = new MockServiceWorker(
+      "activated",
+      (_message: unknown, transfer: readonly MessagePort[] = []) => {
         transfer[0]?.close();
-      }),
-    };
-    const markerAwareWaiting = {
-      postMessage: vi.fn((_message: unknown, transfer: readonly MessagePort[] = []) => {
+      },
+    );
+    const waitingMessages: unknown[] = [];
+    const waiting = new MockServiceWorker(
+      "installed",
+      (message: unknown, transfer: readonly MessagePort[] = []) => {
+        waitingMessages.push(message);
         transfer[0]?.postMessage({
           type: "SKITZA_PUSH_SUPPRESSION_CAPABILITY_RESULT",
           supported: true,
+          version: "2026-07-24-sk116-3",
         });
-      }),
-    };
-    vi.stubGlobal("MessageChannel", MessageChannel);
-    vi.stubGlobal("caches", {
-      open: vi.fn(() => Promise.resolve(cache)),
-    });
-    vi.stubGlobal("navigator", {
-      serviceWorker: {
-        getRegistration: vi.fn(() =>
-          Promise.resolve({
-            active: oldActive,
-            waiting: markerAwareWaiting,
-          }),
-        ),
+        transfer[0]?.close();
       },
-    });
+    );
+    stubSuppressionBrowser(
+      { active: oldActive, waiting },
+      cacheState.cache,
+    );
 
-    await expect(
-      clearBrowserPushSubscription(null, {
-        ...test.adapter,
-        suppressDelivery: () => suppressBrowserPushDelivery(0),
-      }),
-    ).rejects.toBeInstanceOf(PushAccountBoundaryError);
+    await expect(suppressBrowserPushDelivery(5, 50)).resolves.toBe(false);
 
-    expect(oldActive.postMessage).toHaveBeenCalledOnce();
-    expect(markerAwareWaiting.postMessage).not.toHaveBeenCalled();
-    expect(cache.put).not.toHaveBeenCalled();
-    expect(test.adapter.notifyCleared).not.toHaveBeenCalled();
-
-    await clearBrowserPushSubscription(null, harness({ noSubscription: true }).adapter);
+    expect(waitingMessages).toHaveLength(1);
+    expect(cacheState.cache.put).not.toHaveBeenCalled();
   });
 });

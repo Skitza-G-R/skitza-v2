@@ -2,13 +2,24 @@ export const PUSH_SUBSCRIPTION_CLEARED_EVENT = "skitza:push-subscription-cleared
 export const PUSH_ACCOUNT_BOUNDARY_EVENT = "skitza:push-account-boundary";
 export const PUSH_DELIVERY_CONTROL_CACHE = "skitza-push-control-v1";
 export const PUSH_DELIVERY_SUPPRESSED_URL = "/pwa/push-delivery-suppressed";
+export const PUSH_DELIVERY_BOUNDARY_NONCE_HEADER =
+  "x-skitza-push-boundary-nonce";
 export const SKITZA_NOTIFICATION_TAG_PREFIX = "skitza-";
 
+const ACCOUNT_EXIT_ACTIVATION = "SKITZA_ACTIVATE_FOR_ACCOUNT_EXIT";
+const ACCOUNT_EXIT_ACTIVATION_RESULT =
+  "SKITZA_ACCOUNT_EXIT_ACTIVATION_RESULT";
 const PUSH_SUPPRESSION_CAPABILITY_QUERY = "SKITZA_PUSH_SUPPRESSION_CAPABILITY";
 const PUSH_SUPPRESSION_CAPABILITY_RESULT = "SKITZA_PUSH_SUPPRESSION_CAPABILITY_RESULT";
 const PUSH_SUPPRESSION_FLUSH = "SKITZA_PUSH_SUPPRESSION_FLUSH";
 const PUSH_SUPPRESSION_FLUSH_RESULT = "SKITZA_PUSH_SUPPRESSION_FLUSH_RESULT";
 const PUSH_SUPPRESSION_CAPABILITY_TIMEOUT_MS = 750;
+const PUSH_ACCOUNT_EXIT_HANDOFF_TIMEOUT_MS = 10_000;
+
+type WorkerSuppressionCapability = Readonly<{
+  mode: "none" | "marker" | "flush";
+  version: string | null;
+}>;
 
 type ExitPushSubscription = Readonly<{
   endpoint: string;
@@ -97,26 +108,49 @@ function runPushControlWork<T>(work: () => Promise<T>): Promise<T> {
   return result;
 }
 
-function queryActiveWorkerPushSuppression(
-  worker: Pick<ServiceWorker, "postMessage">,
-  type: string,
-  accepts: (data: Readonly<Record<string, unknown>>) => boolean,
-  timeoutMs: number,
+function createPushBoundaryNonce(): string | null {
+  if (typeof globalThis.crypto === "undefined") return null;
+
+  try {
+    if (typeof globalThis.crypto.randomUUID === "function") {
+      return globalThis.crypto.randomUUID();
+    }
+    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
+      "",
+    );
+  } catch {
+    return null;
+  }
+}
+
+async function markerMatchesNonce(
+  cache: Cache,
+  nonce: string,
 ): Promise<boolean> {
-  if (typeof MessageChannel === "undefined") return Promise.resolve(false);
+  const marker = await cache.match(PUSH_DELIVERY_SUPPRESSED_URL);
+  return marker?.headers.get(PUSH_DELIVERY_BOUNDARY_NONCE_HEADER) === nonce;
+}
+
+function queryWorker(
+  worker: Pick<ServiceWorker, "postMessage">,
+  message: Readonly<Record<string, unknown>>,
+  timeoutMs: number,
+): Promise<Readonly<Record<string, unknown>> | null> {
+  if (typeof MessageChannel === "undefined") return Promise.resolve(null);
 
   return new Promise((resolve) => {
     const channel = new MessageChannel();
     let settled = false;
-    const finish = (supported: boolean) => {
+    const finish = (data: Readonly<Record<string, unknown>> | null) => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
       channel.port1.close();
-      resolve(supported);
+      resolve(data);
     };
     const timeout = setTimeout(() => {
-      finish(false);
+      finish(null);
     }, timeoutMs);
 
     channel.port1.onmessage = (event: MessageEvent<unknown>) => {
@@ -124,51 +158,135 @@ function queryActiveWorkerPushSuppression(
         typeof event.data === "object" && event.data !== null
           ? (event.data as Record<string, unknown>)
           : null;
-      finish(data !== null && accepts(data));
+      finish(data);
     };
     channel.port1.onmessageerror = () => {
-      finish(false);
+      finish(null);
     };
     channel.port1.start();
 
     try {
-      worker.postMessage({ type }, [channel.port2]);
+      worker.postMessage(message, [channel.port2]);
     } catch {
-      finish(false);
+      finish(null);
     }
   });
 }
 
-function activeWorkerSupportsPushSuppression(
+async function readWorkerPushSuppressionCapability(
   worker: Pick<ServiceWorker, "postMessage">,
   timeoutMs: number,
-): Promise<boolean> {
-  return queryActiveWorkerPushSuppression(
+): Promise<WorkerSuppressionCapability> {
+  const data = await queryWorker(
     worker,
-    PUSH_SUPPRESSION_CAPABILITY_QUERY,
-    (data) =>
-      data.type === PUSH_SUPPRESSION_CAPABILITY_RESULT &&
-      data.supported === true &&
-      data.flushSupported === true,
+    { type: PUSH_SUPPRESSION_CAPABILITY_QUERY },
     timeoutMs,
+  );
+  if (
+    data?.type !== PUSH_SUPPRESSION_CAPABILITY_RESULT ||
+    data.supported !== true
+  ) {
+    return { mode: "none", version: null };
+  }
+  return {
+    mode: data.flushSupported === true ? "flush" : "marker",
+    version: typeof data.version === "string" ? data.version : null,
+  };
+}
+
+async function flushActiveWorkerPushNotifications(
+  worker: Pick<ServiceWorker, "postMessage">,
+  timeoutMs: number,
+  expectedVersion: string,
+  nonce: string,
+): Promise<boolean> {
+  const data = await queryWorker(
+    worker,
+    {
+      type: PUSH_SUPPRESSION_FLUSH,
+      version: expectedVersion,
+      nonce,
+    },
+    timeoutMs,
+  );
+  return (
+    data?.type === PUSH_SUPPRESSION_FLUSH_RESULT &&
+    data.flushed === true &&
+    data.version === expectedVersion &&
+    data.nonce === nonce
   );
 }
 
-function flushActiveWorkerPushNotifications(
+async function requestAccountExitActivation(
   worker: Pick<ServiceWorker, "postMessage">,
+  version: string,
+  nonce: string,
   timeoutMs: number,
 ): Promise<boolean> {
-  return queryActiveWorkerPushSuppression(
+  const data = await queryWorker(
     worker,
-    PUSH_SUPPRESSION_FLUSH,
-    (data) =>
-      data.type === PUSH_SUPPRESSION_FLUSH_RESULT && data.flushed === true,
+    {
+      type: ACCOUNT_EXIT_ACTIVATION,
+      accountExitStarted: true,
+      version,
+      nonce,
+    },
     timeoutMs,
   );
+  return (
+    data?.type === ACCOUNT_EXIT_ACTIVATION_RESULT &&
+    data.activated === true &&
+    data.version === version &&
+    data.nonce === nonce
+  );
+}
+
+function waitForWorkerHandoff(
+  registration: ServiceWorkerRegistration,
+  previousActive: ServiceWorker,
+  nextActive: ServiceWorker,
+  timeoutMs: number,
+): Promise<boolean> {
+  const serviceWorkers = navigator.serviceWorker;
+  const handoffCompleted = () =>
+    previousActive.state === "redundant" &&
+    nextActive.state === "activated" &&
+    registration.active === nextActive;
+
+  if (handoffCompleted()) return Promise.resolve(true);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (completed: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      previousActive.removeEventListener("statechange", check);
+      nextActive.removeEventListener("statechange", check);
+      serviceWorkers.removeEventListener("controllerchange", check);
+      resolve(completed);
+    };
+    const check = () => {
+      if (handoffCompleted()) {
+        finish(true);
+        return;
+      }
+      if (nextActive.state === "redundant") finish(false);
+    };
+    const timeout = setTimeout(() => {
+      finish(false);
+    }, timeoutMs);
+
+    previousActive.addEventListener("statechange", check);
+    nextActive.addEventListener("statechange", check);
+    serviceWorkers.addEventListener("controllerchange", check);
+    check();
+  });
 }
 
 export function suppressBrowserPushDelivery(
   capabilityTimeoutMs = PUSH_SUPPRESSION_CAPABILITY_TIMEOUT_MS,
+  handoffTimeoutMs = PUSH_ACCOUNT_EXIT_HANDOFF_TIMEOUT_MS,
 ): Promise<boolean> {
   return runPushControlWork(async () => {
     if (
@@ -182,22 +300,121 @@ export function suppressBrowserPushDelivery(
     try {
       const registration = await navigator.serviceWorker.getRegistration();
       const active = registration?.active;
+      if (!registration || !active) return false;
+
+      const activeCapability = await readWorkerPushSuppressionCapability(
+        active,
+        capabilityTimeoutMs,
+      );
+
+      const waiting = registration.waiting;
+      const waitingCapability =
+        activeCapability.mode !== "flush" && waiting
+          ? await readWorkerPushSuppressionCapability(
+              waiting,
+              capabilityTimeoutMs,
+            )
+          : null;
       if (
-        !active ||
-        !(await activeWorkerSupportsPushSuppression(active, capabilityTimeoutMs))
+        activeCapability.mode !== "flush" &&
+        (!waiting ||
+          waitingCapability?.mode !== "flush" ||
+          waitingCapability.version === null)
       ) {
         return false;
       }
+      if (
+        registration.active !== active ||
+        (activeCapability.mode !== "flush" &&
+          registration.waiting !== waiting)
+      ) {
+        return false;
+      }
+
+      const nonce = createPushBoundaryNonce();
+      if (nonce === null) return false;
+
       const cache = await caches.open(PUSH_DELIVERY_CONTROL_CACHE);
       await cache.put(
         PUSH_DELIVERY_SUPPRESSED_URL,
         new Response(null, {
           status: 204,
-          headers: { "cache-control": "no-store" },
+          headers: {
+            "cache-control": "no-store",
+            [PUSH_DELIVERY_BOUNDARY_NONCE_HEADER]: nonce,
+          },
         }),
       );
-      if (!(await cache.match(PUSH_DELIVERY_SUPPRESSED_URL))) return false;
-      return await flushActiveWorkerPushNotifications(active, capabilityTimeoutMs);
+      if (!(await markerMatchesNonce(cache, nonce))) return false;
+
+      if (activeCapability.mode === "flush") {
+        if (
+          activeCapability.version === null ||
+          active.state !== "activated" ||
+          registration.active !== active
+        ) {
+          return false;
+        }
+        const flushed = await flushActiveWorkerPushNotifications(
+          active,
+          capabilityTimeoutMs,
+          activeCapability.version,
+          nonce,
+        );
+        return flushed && (await markerMatchesNonce(cache, nonce));
+      }
+
+      if (
+        !waiting ||
+        waitingCapability?.mode !== "flush" ||
+        waitingCapability.version === null
+      ) {
+        return false;
+      }
+      const activationAccepted = await requestAccountExitActivation(
+        waiting,
+        waitingCapability.version,
+        nonce,
+        handoffTimeoutMs,
+      );
+      if (!activationAccepted) return false;
+
+      const handedOff = await waitForWorkerHandoff(
+        registration,
+        active,
+        waiting,
+        handoffTimeoutMs,
+      );
+      if (!handedOff) return false;
+
+      const currentRegistration =
+        await navigator.serviceWorker.getRegistration();
+      if (
+        currentRegistration?.active !== waiting ||
+        waiting.state !== "activated" ||
+        active.state !== "redundant"
+      ) {
+        return false;
+      }
+      const activatedCapability =
+        await readWorkerPushSuppressionCapability(
+          waiting,
+          capabilityTimeoutMs,
+        );
+      if (
+        activatedCapability.mode !== "flush" ||
+        activatedCapability.version !== waitingCapability.version
+      ) {
+        return false;
+      }
+
+      const flushed = await flushActiveWorkerPushNotifications(
+        waiting,
+        capabilityTimeoutMs,
+        waitingCapability.version,
+        nonce,
+      );
+      return flushed && (await markerMatchesNonce(cache, nonce));
     } catch {
       return false;
     }

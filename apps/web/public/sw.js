@@ -5,10 +5,11 @@
  * resources. Authenticated HTML/RSC/API data, Clerk traffic, action routes,
  * signed URLs, uploads, and audio are always network-only.
  *
- * A replacement worker never calls skipWaiting during install. It can take
- * over only after the client observed this exact version before the current
- * page boot, requests activation from a safe reopen, and every open Skitza
- * window confirms that it has no active or protected work.
+ * A replacement worker never calls skipWaiting during install. Normal updates
+ * require a safe reopen after this exact version was observed before boot.
+ * An already-started account exit may request a bounded handoff only after the
+ * durable push fence is nonce-bound. That takeover does not reload clients,
+ * and service-worker activation waits for the old worker's pending events.
  */
 
 importScripts("/pwa/cache-policy.js");
@@ -21,6 +22,8 @@ const OBSOLETE_CACHE_PREFIX = "skitza-shell-";
 const OFFLINE_URL = "/offline.html";
 const PUSH_DELIVERY_CONTROL_CACHE = "skitza-push-control-v1";
 const PUSH_DELIVERY_SUPPRESSED_URL = "/pwa/push-delivery-suppressed";
+const PUSH_DELIVERY_BOUNDARY_NONCE_HEADER =
+  "x-skitza-push-boundary-nonce";
 const SKITZA_NOTIFICATION_TAG_PREFIX = "skitza-";
 const PRECACHE_URLS = [
   OFFLINE_URL,
@@ -33,7 +36,9 @@ const PRECACHE_URLS = [
   "/icons/skitza-maskable-512.png",
 ];
 const MESSAGE = {
+  activateForAccountExit: "SKITZA_ACTIVATE_FOR_ACCOUNT_EXIT",
   activateOnSafeReopen: "SKITZA_ACTIVATE_ON_SAFE_REOPEN",
+  accountExitActivationResult: "SKITZA_ACCOUNT_EXIT_ACTIVATION_RESULT",
   activationResult: "SKITZA_ACTIVATION_RESULT",
   clientSafetyQuery: "SKITZA_CLIENT_SAFETY_QUERY",
   getVersion: "SKITZA_GET_VERSION",
@@ -104,6 +109,28 @@ async function browserPushDeliveryIsSuppressed() {
   } catch {
     // A broken local privacy control fails closed for notification display.
     return true;
+  }
+}
+
+function isPushBoundaryNonce(value) {
+  return (
+    typeof value === "string" &&
+    value.length >= 16 &&
+    value.length <= 128 &&
+    /^[a-zA-Z0-9-]+$/.test(value)
+  );
+}
+
+async function browserPushDeliveryFenceMatches(nonce) {
+  try {
+    const cache = await caches.open(PUSH_DELIVERY_CONTROL_CACHE);
+    const marker = await cache.match(PUSH_DELIVERY_SUPPRESSED_URL);
+    return Boolean(
+      marker &&
+      marker.headers.get(PUSH_DELIVERY_BOUNDARY_NONCE_HEADER) === nonce
+    );
+  } catch {
+    return false;
   }
 }
 
@@ -330,15 +357,60 @@ self.addEventListener("message", (event) => {
 
   if (data && data.type === MESSAGE.pushSuppressionFlush) {
     const reply = event.ports && event.ports[0];
+    const nonce = data.nonce;
     event.waitUntil(
       (async () => {
-        await pushDisplayWork;
-        const flushed = await closeDisplayedSkitzaNotifications();
+        let flushed = false;
+        if (
+          data.version === SW_VERSION &&
+          isPushBoundaryNonce(nonce) &&
+          (await browserPushDeliveryFenceMatches(nonce))
+        ) {
+          await pushDisplayWork;
+          const notificationsClosed =
+            await closeDisplayedSkitzaNotifications();
+          flushed =
+            notificationsClosed &&
+            (await browserPushDeliveryFenceMatches(nonce));
+        }
         if (reply) {
           reply.postMessage({
             type: MESSAGE.pushSuppressionFlushResult,
             flushed,
             version: SW_VERSION,
+            nonce,
+          });
+        }
+      })(),
+    );
+    return;
+  }
+
+  if (data && data.type === MESSAGE.activateForAccountExit) {
+    const reply = event.ports && event.ports[0];
+    const nonce = data.nonce;
+    event.waitUntil(
+      (async () => {
+        let activated = false;
+        if (
+          data.accountExitStarted === true &&
+          data.version === SW_VERSION &&
+          isPushBoundaryNonce(nonce) &&
+          (await browserPushDeliveryFenceMatches(nonce))
+        ) {
+          try {
+            await self.skipWaiting();
+            activated = await browserPushDeliveryFenceMatches(nonce);
+          } catch {
+            activated = false;
+          }
+        }
+        if (reply) {
+          reply.postMessage({
+            type: MESSAGE.accountExitActivationResult,
+            activated,
+            version: SW_VERSION,
+            nonce,
           });
         }
       })(),

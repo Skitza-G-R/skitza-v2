@@ -30,9 +30,14 @@ type Harness = Readonly<{
   openWindow: ReturnType<typeof vi.fn>;
   navigate: ReturnType<typeof vi.fn>;
   focus: ReturnType<typeof vi.fn>;
+  clientMessages: unknown[];
 }>;
 
 const OWN_ORIGIN = "https://skitza.app";
+const SW_VERSION = "2026-07-24-sk116-4";
+const BOUNDARY_NONCE = "11111111-2222-4333-8444-555555555555";
+const OTHER_BOUNDARY_NONCE = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+const BOUNDARY_NONCE_HEADER = "x-skitza-push-boundary-nonce";
 const policySource = readFileSync(
   new URL("../../../../public/pwa/cache-policy.js", import.meta.url),
   "utf8",
@@ -52,7 +57,11 @@ function nextPortMessage(port: MessagePort): Promise<unknown> {
   });
 }
 
-function createHarness(clientSafety: readonly boolean[] = [true], pushSuppressed = false): Harness {
+function createHarness(
+  clientSafety: readonly boolean[] = [true],
+  pushSuppressed = false,
+  clientPath = "/dashboard",
+): Harness {
   const listeners = new Map<string, ServiceWorkerListener[]>();
   const offlineResponse = new Response("<h1>Offline</h1>", {
     headers: { "content-type": "text/html" },
@@ -95,10 +104,12 @@ function createHarness(clientSafety: readonly boolean[] = [true], pushSuppressed
   const openWindow = vi.fn(() => Promise.resolve(undefined));
   const navigate = vi.fn();
   const focus = vi.fn(() => Promise.resolve(undefined));
+  const clientMessages: unknown[] = [];
   const clients = clientSafety.map((safe) => {
     const client = {
-      url: `${OWN_ORIGIN}/dashboard`,
-      postMessage: (_message: unknown, transfer: readonly MessagePort[]) => {
+      url: `${OWN_ORIGIN}${clientPath}`,
+      postMessage: (message: unknown, transfer: readonly MessagePort[]) => {
+        clientMessages.push(message);
         const reply = transfer[0];
         reply?.postMessage({ safe });
         reply?.close();
@@ -155,7 +166,15 @@ function createHarness(clientSafety: readonly boolean[] = [true], pushSuppressed
     openWindow,
     navigate,
     focus,
+    clientMessages,
   };
+}
+
+function boundaryMarker(nonce: string): Response {
+  return new Response(null, {
+    status: 204,
+    headers: { [BOUNDARY_NONCE_HEADER]: nonce },
+  });
 }
 
 function navigationRequest(path: string): Readonly<{
@@ -332,6 +351,100 @@ describe("service worker offline and update protocol", () => {
     activationChannel.port1.close();
     activationChannel.port2.close();
     expect(harness.skipWaiting).toHaveBeenCalledOnce();
+    expect(harness.clientMessages).toEqual([
+      expect.objectContaining({
+        type: "SKITZA_CLIENT_SAFETY_QUERY",
+      }),
+      expect.objectContaining({
+        type: "SKITZA_CLIENT_SAFETY_QUERY",
+      }),
+    ]);
+    expect(harness.clientMessages).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ accountExitStarted: true }),
+      ]),
+    );
+  });
+
+  it("activates a nonce-bound account exit on a protected route without client ACKs", async () => {
+    const harness = createHarness(
+      [false, false],
+      false,
+      "/dashboard/calendar/booking/1",
+    );
+    harness.cache.match.mockImplementation((input: unknown) =>
+      Promise.resolve(
+        input === "/pwa/push-delivery-suppressed"
+          ? boundaryMarker(BOUNDARY_NONCE)
+          : undefined,
+      ),
+    );
+    const message = harness.listener("message");
+    const activationChannel = new MessageChannel();
+    const activationResult = nextPortMessage(activationChannel.port1);
+    let activationWork: Promise<unknown> | undefined;
+    message({
+      data: {
+        type: "SKITZA_ACTIVATE_FOR_ACCOUNT_EXIT",
+        accountExitStarted: true,
+        version: SW_VERSION,
+        nonce: BOUNDARY_NONCE,
+      },
+      ports: [activationChannel.port2],
+      waitUntil(work: Promise<unknown>) {
+        activationWork = work;
+      },
+    });
+    await activationWork;
+
+    await expect(activationResult).resolves.toMatchObject({
+      type: "SKITZA_ACCOUNT_EXIT_ACTIVATION_RESULT",
+      activated: true,
+      version: SW_VERSION,
+      nonce: BOUNDARY_NONCE,
+    });
+    expect(harness.clientMessages).toEqual([]);
+    expect(harness.skipWaiting).toHaveBeenCalledOnce();
+    activationChannel.port1.close();
+    activationChannel.port2.close();
+  });
+
+  it("refuses account-exit takeover when the marker nonce does not match", async () => {
+    const harness = createHarness([false]);
+    harness.cache.match.mockImplementation((input: unknown) =>
+      Promise.resolve(
+        input === "/pwa/push-delivery-suppressed"
+          ? boundaryMarker(OTHER_BOUNDARY_NONCE)
+          : undefined,
+      ),
+    );
+    const activationChannel = new MessageChannel();
+    const activationResult = nextPortMessage(activationChannel.port1);
+    let activationWork: Promise<unknown> | undefined;
+    harness.listener("message")({
+      data: {
+        type: "SKITZA_ACTIVATE_FOR_ACCOUNT_EXIT",
+        accountExitStarted: true,
+        version: SW_VERSION,
+        nonce: BOUNDARY_NONCE,
+      },
+      ports: [activationChannel.port2],
+      waitUntil(work: Promise<unknown>) {
+        activationWork = work;
+      },
+    });
+    await activationWork;
+
+    await expect(activationResult).resolves.toMatchObject({
+      type: "SKITZA_ACCOUNT_EXIT_ACTIVATION_RESULT",
+      activated: false,
+      version: SW_VERSION,
+      nonce: BOUNDARY_NONCE,
+    });
+    expect(harness.clientMessages).toEqual([]);
+    expect(harness.skipWaiting).not.toHaveBeenCalled();
+    activationChannel.port1.close();
+    activationChannel.port2.close();
   });
 });
 
@@ -438,7 +551,7 @@ describe("service worker push and exact-item navigation", () => {
     harness.cache.match.mockImplementation((input: unknown) =>
       Promise.resolve(
         input === "/pwa/push-delivery-suppressed" && suppressed
-          ? new Response(null, { status: 204 })
+          ? boundaryMarker(BOUNDARY_NONCE)
           : undefined,
       ),
     );
@@ -490,7 +603,11 @@ describe("service worker push and exact-item navigation", () => {
     });
     let flushWork: Promise<unknown> | undefined;
     harness.listener("message")({
-      data: { type: "SKITZA_PUSH_SUPPRESSION_FLUSH" },
+      data: {
+        type: "SKITZA_PUSH_SUPPRESSION_FLUSH",
+        version: SW_VERSION,
+        nonce: BOUNDARY_NONCE,
+      },
       ports: [channel.port2],
       waitUntil(work: Promise<unknown>) {
         flushWork = work;
@@ -506,6 +623,8 @@ describe("service worker push and exact-item navigation", () => {
     await expect(flushResult).resolves.toMatchObject({
       type: "SKITZA_PUSH_SUPPRESSION_FLUSH_RESULT",
       flushed: true,
+      version: SW_VERSION,
+      nonce: BOUNDARY_NONCE,
     });
     expect(close).toHaveBeenCalledOnce();
     await expect(harness.getNotifications()).resolves.toEqual([]);
@@ -515,6 +634,13 @@ describe("service worker push and exact-item navigation", () => {
 
   it("fails a suppression flush when a Skitza notification remains displayed", async () => {
     const harness = createHarness();
+    harness.cache.match.mockImplementation((input: unknown) =>
+      Promise.resolve(
+        input === "/pwa/push-delivery-suppressed"
+          ? boundaryMarker(BOUNDARY_NONCE)
+          : undefined,
+      ),
+    );
     const close = vi.fn();
     harness.getNotifications.mockResolvedValue([
       { tag: "skitza-payment", close },
@@ -524,7 +650,11 @@ describe("service worker push and exact-item navigation", () => {
     let flushWork: Promise<unknown> | undefined;
 
     harness.listener("message")({
-      data: { type: "SKITZA_PUSH_SUPPRESSION_FLUSH" },
+      data: {
+        type: "SKITZA_PUSH_SUPPRESSION_FLUSH",
+        version: SW_VERSION,
+        nonce: BOUNDARY_NONCE,
+      },
       ports: [channel.port2],
       waitUntil(work: Promise<unknown>) {
         flushWork = work;
@@ -535,8 +665,65 @@ describe("service worker push and exact-item navigation", () => {
     await expect(flushResult).resolves.toMatchObject({
       type: "SKITZA_PUSH_SUPPRESSION_FLUSH_RESULT",
       flushed: false,
+      version: SW_VERSION,
+      nonce: BOUNDARY_NONCE,
     });
     expect(close).toHaveBeenCalledOnce();
+    channel.port1.close();
+    channel.port2.close();
+  });
+
+  it("fails a flush when another tab replaces the marker nonce during cleanup", async () => {
+    const harness = createHarness();
+    let currentNonce = BOUNDARY_NONCE;
+    harness.cache.match.mockImplementation((input: unknown) =>
+      Promise.resolve(
+        input === "/pwa/push-delivery-suppressed"
+          ? boundaryMarker(currentNonce)
+          : undefined,
+      ),
+    );
+    let finishNotificationLookup:
+      | ((notifications: DisplayedNotification[]) => void)
+      | undefined;
+    harness.getNotifications
+      .mockImplementationOnce(
+        () =>
+          new Promise<DisplayedNotification[]>((resolve) => {
+            finishNotificationLookup = resolve;
+          }),
+      )
+      .mockResolvedValue([]);
+    const channel = new MessageChannel();
+    const flushResult = nextPortMessage(channel.port1);
+    let flushWork: Promise<unknown> | undefined;
+
+    harness.listener("message")({
+      data: {
+        type: "SKITZA_PUSH_SUPPRESSION_FLUSH",
+        version: SW_VERSION,
+        nonce: BOUNDARY_NONCE,
+      },
+      ports: [channel.port2],
+      waitUntil(work: Promise<unknown>) {
+        flushWork = work;
+      },
+    });
+    await vi.waitFor(() => {
+      expect(harness.getNotifications).toHaveBeenCalledOnce();
+    });
+
+    currentNonce = OTHER_BOUNDARY_NONCE;
+    finishNotificationLookup?.([]);
+    await flushWork;
+
+    await expect(flushResult).resolves.toMatchObject({
+      type: "SKITZA_PUSH_SUPPRESSION_FLUSH_RESULT",
+      flushed: false,
+      version: SW_VERSION,
+      nonce: BOUNDARY_NONCE,
+    });
+    expect(harness.getNotifications).toHaveBeenCalledTimes(2);
     channel.port1.close();
     channel.port2.close();
   });
