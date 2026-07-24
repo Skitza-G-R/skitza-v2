@@ -5,9 +5,15 @@ import { Outfit, Syne, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 
 import { SkipToContent } from "~/components/a11y/skip-to-content";
+import { nativeThemeProviderProps } from "~/components/native/native-theme";
+import { NativeViewportSync } from "~/components/native/native-viewport";
 import { PostHogProvider } from "~/components/observability/posthog-provider";
-import { SwRegister } from "~/components/shell/sw-register";
+import { NativeAppRuntime } from "~/components/shell/sw-register";
 import { ToastProvider } from "~/components/ui/toast";
+import {
+  nativeAppMetadata,
+  nativeAppViewport,
+} from "~/lib/pwa/native-app-metadata";
 import "./globals.css";
 
 // Locked typography stack (v3-ui-design, 2026-05-05).
@@ -74,11 +80,11 @@ export const metadata: Metadata = {
     title: "Skitza — Business automation for music producers",
     description: "Stop chasing payments. Just make music. Skitza is the only link you need.",
   },
+  ...nativeAppMetadata,
 };
 
-// Viewport + theme-color — matches the warm cream body so the browser
-// chrome blends in on mobile. :root is light by default; dark mode is
-// an opt-in flip via next-themes.
+// Viewport + theme-color — nativeAppViewport keeps mobile browser chrome
+// aligned with the active light/dark system theme.
 //
 // `viewportFit: "cover"` is required for iOS safe-area insets to
 // resolve to non-zero values inside the notch / home-indicator zones;
@@ -91,13 +97,12 @@ export const metadata: Metadata = {
 // zooming to 200%+. We used to rely on the browser default, but being
 // explicit future-proofs against a Next.js viewport default change.
 export const viewport: Viewport = {
-  themeColor: "#F2EDE6",
-  colorScheme: "light",
   width: "device-width",
   initialScale: 1,
   maximumScale: 5,
   userScalable: true,
   viewportFit: "cover",
+  ...nativeAppViewport,
 };
 
 // Clerk theming via `appearance.variables` — hex values mirror the
@@ -195,31 +200,20 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         suppressHydrationWarning
       >
         <body>
-          {/* ThemeProvider owns the `data-theme` attribute on <html>.
-              - `light: ""` → in light mode the attribute is empty so the
-                 `:root` rules apply unmodified (no class conflict).
-              - `dark:  "chrome-dark"` → matches the existing scoped
-                 selector so dark-mode tokens apply globally.
-              - `enableSystem` respects `prefers-color-scheme` on first
-                 visit.
-              - `disableTransitionOnChange` prevents mid-transition
-                 flicker when flipping themes. */}
-          <ThemeProvider
-            attribute="data-theme"
-            value={{ light: "", dark: "chrome-dark" }}
-            defaultTheme="light"
-            enableSystem
-            disableTransitionOnChange
-          >
+          {/* System theme is the first-visit default. The existing theme
+              toggle remains a persisted explicit light/dark override. */}
+          <ThemeProvider {...nativeThemeProviderProps}>
+            {/* Synchronizes iOS Visual Viewport and keyboard-safe CSS
+                variables before any app shell content mounts. */}
+            <NativeViewportSync />
             {/* Skip-to-content link — keyboard-only users hit Tab on page
                 load, see this first, and jump past the shell navigation
                 straight to the main content. */}
             <SkipToContent />
-            {/* Registers the app-shell Service Worker — makes the
-                installed Tauri Mac app feel near-native on repeat
-                visits by serving the shell + Next.js chunks from
-                cache. Fails open in unsupported environments. */}
-            <SwRegister />
+            {/* Registers the install/update runtime. Only versioned static
+                assets and explicit public resources are cacheable; private
+                app data remains network-only. */}
+            <NativeAppRuntime />
             {/* PostHog product analytics. Mounted INSIDE ClerkProvider
                 so its identify-hook can read `useUser()` without a
                 separate provider boundary. No-ops when
