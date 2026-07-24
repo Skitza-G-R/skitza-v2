@@ -146,26 +146,35 @@ export function RuntimeNavigationBridge({ restoreOnOpen = true }: { restoreOnOpe
     skipPersistHref.current = null;
 
     const existingSnapshot = readRuntimeNavigationSnapshot(storage, navigationIdentity, safeHref);
+    let latestScrollTop = existingSnapshot?.scrollTop ?? currentScrollTop();
     recordRuntimeNavigation(
       storage,
       navigationIdentity,
       safeHref,
-      existingSnapshot?.scrollTop ?? currentScrollTop(),
+      latestScrollTop,
     );
 
     let frame = 0;
     const persist = () => {
-      recordRuntimeNavigation(storage, navigationIdentity, safeHref, currentScrollTop());
+      recordRuntimeNavigation(storage, navigationIdentity, safeHref, latestScrollTop);
+    };
+    const captureCurrentScrollTop = () => {
+      latestScrollTop = currentScrollTop();
     };
     const onScroll = () => {
+      captureCurrentScrollTop();
       window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(persist);
     };
     const onPageHide = () => {
+      captureCurrentScrollTop();
       persist();
     };
     const onVisibilityChange = () => {
-      if (document.visibilityState === "hidden") persist();
+      if (document.visibilityState === "hidden") {
+        captureCurrentScrollTop();
+        persist();
+      }
     };
 
     const unsubscribeScroll = subscribeToScroll(onScroll);
