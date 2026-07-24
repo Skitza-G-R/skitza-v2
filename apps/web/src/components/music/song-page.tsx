@@ -14,6 +14,8 @@ import {
   type PlayerTrack,
 } from "~/components/audio/persistent-player";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
+import { useRuntimeTextDraft } from "~/components/runtime-state/use-runtime-state";
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 import { formatMoney } from "~/lib/format/money";
@@ -594,6 +596,16 @@ export function SongPage({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const draftRef = useRef<HTMLInputElement | null>(null);
+  const online = useOnlineStatus();
+  const commentDraft = useRuntimeTextDraft({
+    slot: role === "artist" ? "artist.song-comment-draft" : "producer.song-comment-draft",
+    route:
+      role === "artist"
+        ? `/artist/music/song/${data.selectedVersionId}`
+        : `/dashboard/music/${data.selectedVersionId}`,
+    ...(role === "artist" && artistStudioId ? { contextId: artistStudioId } : {}),
+    resourceId: activeVersionId,
+  });
 
   // Comments visible right now: server + optimistic for the active
   // version. Resolved comments sink to the BOTTOM (visible but greyed
@@ -667,9 +679,15 @@ export function SongPage({
 
   function handleAddComment() {
     if (!activeVersion || commentsClosed) return;
-    const body = draftRef.current?.value.trim();
+    const body = commentDraft.body.trim();
     if (!body) return;
+    if (!online) {
+      commentDraft.preserveDraft(body);
+      setError("Reconnect to post this comment. Your draft is saved.");
+      return;
+    }
     setError(null);
+    commentDraft.preserveDraft(body);
     const tempId = `tmp-${Math.random().toString(36).slice(2)}`;
     const optimistic: SongPageComment = {
       id: tempId,
@@ -685,7 +703,7 @@ export function SongPage({
       ...prev,
       [activeVersion.id]: [...(prev[activeVersion.id] ?? []), optimistic],
     }));
-    if (draftRef.current) draftRef.current.value = "";
+    commentDraft.setBody("");
 
     // If we paused playback when the composer got focus, resume
     // playback now that the producer's done typing. Pre-flip the
@@ -708,6 +726,7 @@ export function SongPage({
           ...prev,
           [activeVersion.id]: (prev[activeVersion.id] ?? []).filter((c) => c.id !== tempId),
         }));
+        commentDraft.setBody(body);
         setError(res.error);
       } else {
         // Clear optimistic on success too. The server action calls
@@ -719,6 +738,7 @@ export function SongPage({
           ...prev,
           [activeVersion.id]: (prev[activeVersion.id] ?? []).filter((c) => c.id !== tempId),
         }));
+        commentDraft.clearDraft();
       }
     });
   }
@@ -820,9 +840,7 @@ export function SongPage({
     const input = draftRef.current;
     if (!input) return;
     const prefix = `@${authorName} `;
-    if (!input.value.startsWith(prefix)) {
-      input.value = prefix;
-    }
+    if (!commentDraft.body.startsWith(prefix)) commentDraft.setBody(prefix);
     input.focus();
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     input.scrollIntoView({
@@ -1496,6 +1514,7 @@ export function SongPage({
                         key={v.id}
                         type="button"
                         onClick={() => {
+                          commentDraft.preserveDraft();
                           setActiveVersionId(v.id);
                         }}
                         style={{ animationDelay: `${String(120 + i * 50)}ms` }}
@@ -1966,6 +1985,10 @@ export function SongPage({
                 maxLength={2000}
                 placeholder="Add a note at this timestamp…"
                 className="min-h-11 min-w-0 flex-1 bg-transparent text-[13.5px] outline-none placeholder:text-[rgb(var(--fg-muted))] sm:min-h-0"
+                value={commentDraft.body}
+                onChange={(event) => {
+                  commentDraft.setBody(event.currentTarget.value);
+                }}
                 onFocus={handleComposerFocus}
                 onBlur={handleComposerBlur}
                 onKeyDown={(e) => {
@@ -1980,9 +2003,10 @@ export function SongPage({
                 data-test="comment-post"
                 onClick={handleAddComment}
                 disabled={isPending}
+                aria-disabled={!online}
                 className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-sm)] bg-[rgb(var(--fg-default))] px-4 py-1.5 text-[11.5px] font-bold tracking-wide text-[rgb(var(--bg-elevated))] transition-[transform,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:-translate-y-px hover:shadow-[0_8px_20px_-6px_rgb(var(--fg-default)/0.35)] disabled:opacity-60 sm:min-h-0"
               >
-                Post
+                {online ? "Post" : "Offline"}
               </button>
             </div>
           )}

@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 import { PersistentPlayer } from "~/components/audio/persistent-player";
 import { ProducerBottomNav } from "~/components/nav/producer-bottom-nav";
 import { ProducerSidebar } from "~/components/nav/producer-sidebar";
+import { RuntimeNavigationBridge } from "~/components/runtime-state/runtime-navigation-bridge";
+import { RuntimeStateProvider } from "~/components/runtime-state/runtime-state-provider";
 import { PUBLIC_BRAND_ORIGIN } from "~/lib/share/public-url";
 import { getShellState } from "~/server/shell-data";
 
@@ -42,7 +44,8 @@ import { TopBarBreadcrumbProvider } from "./topbar-breadcrumb-context";
 // docs/qa/phase-2-handoff.md under "FloatingPlayer slot".
 
 export async function AppShell({ children }: { children: ReactNode }) {
-  const { slug, displayName, plan, unreadCount, recentNotifications } = await getShellState();
+  const { userId, producerId, slug, displayName, plan, unreadCount, recentNotifications } =
+    await getShellState();
   // Public origin used by the SidebarShareChip to render the
   // /join/<slug> URL. Always the canonical brand origin — share links
   // land in producer bios + socials, so they must always read as
@@ -50,7 +53,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
   // them. See `lib/share/public-url` for the rationale.
   const publicBaseUrl = PUBLIC_BRAND_ORIGIN;
 
-  return (
+  const shell = (
     <div
       className="fixed inset-0 flex overflow-hidden lg:static lg:min-h-dvh lg:overflow-visible"
       style={{
@@ -112,5 +115,14 @@ export async function AppShell({ children }: { children: ReactNode }) {
       <CommandPaletteTrigger />
       <ShortcutsBridge />
     </div>
+  );
+
+  if (!userId || !producerId) return shell;
+
+  return (
+    <RuntimeStateProvider identity={{ userId, role: "producer", contextId: producerId }}>
+      <RuntimeNavigationBridge />
+      {shell}
+    </RuntimeStateProvider>
   );
 }

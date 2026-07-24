@@ -31,7 +31,7 @@ export default async function ArtistLayout({ children }: { children: React.React
 
   return (
     <AppI18nProvider>
-      <ArtistAppShell isProducer={!!producerRow} studios={studios}>
+      <ArtistAppShell userId={userId} isProducer={!!producerRow} studios={studios}>
         {children}
       </ArtistAppShell>
     </AppI18nProvider>

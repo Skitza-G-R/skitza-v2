@@ -1,3 +1,7 @@
+"use client";
+
+import { useArtistHomeRuntime } from "./artist-home-runtime";
+
 // Greeting strip at the very top of the artist home page. Date
 // eyebrow + "Good afternoon, {firstName}." — no search, no CTA.
 // Server component; the date is computed at request time.
@@ -8,6 +12,8 @@ type Props = {
 };
 
 export function GreetingStrip({ firstName, now }: Props) {
+  const runtime = useArtistHomeRuntime();
+  const restoredFirstName = runtime?.view.firstName ?? firstName;
   const date = now ?? new Date();
   const dateLabel = date
     .toLocaleDateString("en-US", {
@@ -17,11 +23,11 @@ export function GreetingStrip({ firstName, now }: Props) {
     })
     .toUpperCase()
     .replace(/,/g, " ·");
-  const greeting = greetingForHour(date.getHours(), firstName);
+  const greeting = greetingForHour(date.getHours(), restoredFirstName);
   return (
     <header className="pb-4">
       <p
-        className="uppercase text-[10.5px] font-semibold tracking-[0.12em] text-[rgb(var(--fg-muted))]"
+        className="text-[10.5px] font-semibold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase"
         style={{ fontFamily: "var(--font-jetbrains-mono)" }}
       >
         {dateLabel}

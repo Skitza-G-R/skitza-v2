@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { useToast } from "~/components/ui/toast";
+import { useProducerDisplayNameDraft } from "~/components/runtime-state/use-runtime-state";
 import { PUBLIC_BRAND_ORIGIN, buildJoinUrl } from "~/lib/share/public-url";
 import { updateProducer } from "./actions";
 import {
@@ -89,6 +90,13 @@ export function SettingsClient({
   // fine here — strings and one string-only nested object, no Dates.)
   const [form, setForm] = useState<FormState>(initialForm);
   const [savedForm, setSavedForm] = useState<FormState>(initialForm);
+  const displayNameDraft = useProducerDisplayNameDraft({
+    value: form.displayName,
+    savedValue: savedForm.displayName,
+    onRestore(draft) {
+      setForm((current) => ({ ...current, displayName: draft.displayName }));
+    },
+  });
 
   const [notifs, setNotifs] = useState<NotificationState>(initial.notifications);
   const [savedNotifs, setSavedNotifs] = useState<NotificationState>(initial.notifications);
@@ -130,6 +138,7 @@ export function SettingsClient({
   }, [form, savedForm, notifs, savedNotifs]);
 
   function onDiscard() {
+    displayNameDraft.clearDraft();
     setForm(savedForm);
     setNotifs(savedNotifs);
   }
@@ -171,12 +180,14 @@ export function SettingsClient({
     startTransition(async () => {
       const res = await updateProducer(patch);
       if (res.ok) {
+        displayNameDraft.clearDraft();
         setSavedForm(form);
         setSavedNotifs(notifs);
         toast("Settings saved.", "success");
         router.refresh();
       } else {
         if (res.saved?.producer || res.saved?.paymentInstructions) {
+          if (res.saved.producer) displayNameDraft.clearDraft();
           setSavedForm((current) => ({
             displayName: res.saved?.producer ? form.displayName : current.displayName,
             defaultCurrency: res.saved?.producer ? form.defaultCurrency : current.defaultCurrency,

@@ -4,15 +4,13 @@ import { describe, expect, it } from "vitest";
 
 import { greetingForHour } from "../greeting-strip";
 
-const SRC = readFileSync(
-  join(__dirname, "../greeting-strip.tsx"),
-  "utf-8",
-);
+const SRC = readFileSync(join(__dirname, "../greeting-strip.tsx"), "utf-8");
 
 describe("GreetingStrip", () => {
-  it("exports a server component", () => {
+  it("renders through the artist cached-view runtime", () => {
     expect(SRC).toMatch(/export\s+function\s+GreetingStrip/);
-    expect(SRC).not.toMatch(/^"use client"/m);
+    expect(SRC).toMatch(/^"use client"/m);
+    expect(SRC).toMatch(/useArtistHomeRuntime/);
   });
 
   it("renders date eyebrow with Mono uppercase styling", () => {

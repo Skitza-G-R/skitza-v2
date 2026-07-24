@@ -1,6 +1,7 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 
 import { BookSessionTiles } from "~/components/artist/home/book-session-tiles";
+import { ArtistHomeRuntime } from "~/components/artist/home/artist-home-runtime";
 import { GreetingStrip } from "~/components/artist/home/greeting-strip";
 import { LastUploadCard } from "~/components/artist/home/last-upload-card";
 import { NextSessionCard } from "~/components/artist/home/next-session-card";
@@ -155,18 +156,23 @@ export default async function ArtistHomePage({ searchParams }: ArtistHomePagePro
 
   return (
     <>
-      <div className="mx-auto flex w-full max-w-[760px] flex-col gap-4 px-7 py-6">
-        <GreetingStrip firstName={firstName} />
-        <PrivateOffersList offers={privateOffers.offers} />
-        {pendingPurchase ? <PurchaseStatusCard {...pendingPurchase} /> : null}
-        <ArtistPaymentActionsCard
-          payments={activePaymentActions}
-          activeStudioId={activeStudioId}
-        />
-        <LastUploadCard latestMix={latestMixForCard} activeStudioId={activeStudioId} />
-        <NextSessionCard nextSession={data.nextSession} activeStudioId={activeStudioId} />
-        <BookSessionTiles studios={studiosForTiles} activeStudioId={activeStudioId} />
-      </div>
+      <ArtistHomeRuntime
+        activeStudioId={activeStudioId}
+        serverView={{ firstName, studios: studiosForTiles }}
+      >
+        <div className="mx-auto flex w-full max-w-[760px] flex-col gap-4 px-7 py-6">
+          <GreetingStrip firstName={firstName} />
+          <PrivateOffersList offers={privateOffers.offers} />
+          {pendingPurchase ? <PurchaseStatusCard {...pendingPurchase} /> : null}
+          <ArtistPaymentActionsCard
+            payments={activePaymentActions}
+            activeStudioId={activeStudioId}
+          />
+          <LastUploadCard latestMix={latestMixForCard} activeStudioId={activeStudioId} />
+          <NextSessionCard nextSession={data.nextSession} activeStudioId={activeStudioId} />
+          <BookSessionTiles studios={studiosForTiles} activeStudioId={activeStudioId} />
+        </div>
+      </ArtistHomeRuntime>
       <WelcomeModal />
     </>
   );
