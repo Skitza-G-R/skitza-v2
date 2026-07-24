@@ -204,6 +204,24 @@ describe("PersistentPlayer source — expand + skip controls", () => {
     expect(playerSrc).toContain('aria-label="Skip back 5%"');
     expect(playerSrc).toContain('aria-label="Skip forward 5%"');
   });
+
+  it("keeps every compact dock transport target at least 44px", () => {
+    const compactDockSrc = playerSrc.slice(
+      playerSrc.indexOf("function DesktopDock"),
+      playerSrc.indexOf("function MobileFullPlayer"),
+    );
+
+    expect(compactDockSrc).not.toMatch(/\bh-[89]\s+w-[89]\b/);
+    expect(compactDockSrc).toMatch(
+      /aria-label="Skip back 5%"[\s\S]{0,220}className="[^"]*min-h-11[^"]*min-w-11/,
+    );
+    expect(compactDockSrc).toMatch(
+      /aria-label="Skip forward 5%"[\s\S]{0,220}className="[^"]*min-h-11[^"]*min-w-11/,
+    );
+    expect(
+      compactDockSrc.match(/aria-label="Close player"[\s\S]{0,240}className="[^"]*h-11[^"]*w-11/g),
+    ).toHaveLength(2);
+  });
 });
 
 describe("PersistentPlayer source — album art cover slot", () => {

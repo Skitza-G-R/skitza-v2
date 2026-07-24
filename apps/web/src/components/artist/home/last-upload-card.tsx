@@ -2,11 +2,7 @@
 
 import Link from "next/link";
 
-import {
-  playerPlay,
-  playerToggle,
-  useNowPlaying,
-} from "~/components/audio/persistent-player";
+import { playerPlay, playerToggle, useNowPlaying } from "~/components/audio/persistent-player";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 
 import { ProducerArt } from "./producer-art";
@@ -43,11 +39,7 @@ export function LastUploadCard({
   return <FilledCard latestMix={latestMix} />;
 }
 
-function FilledCard({
-  latestMix,
-}: {
-  latestMix: NonNullable<LastUploadProps["latestMix"]>;
-}) {
+function FilledCard({ latestMix }: { latestMix: NonNullable<LastUploadProps["latestMix"]> }) {
   const { trackId, playing } = useNowPlaying();
   const isThisPlaying = trackId === latestMix.id && playing;
   const onPlay = () => {
@@ -90,7 +82,7 @@ function FilledCard({
         </button>
         <span
           aria-hidden
-          className="pointer-events-none absolute bottom-1.5 right-1.5 flex size-9 items-center justify-center rounded-full sm:bottom-2.5 sm:right-2.5 sm:size-11"
+          className="pointer-events-none absolute right-1.5 bottom-1.5 flex size-9 items-center justify-center rounded-full sm:right-2.5 sm:bottom-2.5 sm:size-11"
           style={{
             backgroundColor: "rgb(var(--brand-primary))",
             color: "#111009",
@@ -104,20 +96,22 @@ function FilledCard({
       </div>
       <div className="flex items-center justify-between gap-2 self-start">
         <p
-          className="uppercase text-[9.5px] font-semibold tracking-[0.12em] text-[rgb(var(--fg-muted))]"
+          className="text-[9.5px] font-semibold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase"
           style={{ fontFamily: "var(--font-jetbrains-mono)" }}
         >
           LAST UPLOAD
         </p>
         {latestMix.unread && (
           <span
-            className="rounded-full px-1.5 py-0.5 text-[8.5px] font-extrabold uppercase tracking-[0.08em]"
+            className="rounded-full px-1.5 py-0.5 text-[8.5px] font-extrabold tracking-[0.08em] uppercase"
             style={{
               backgroundColor: "rgb(var(--brand-primary))",
               color: "#111009",
               fontFamily: "var(--font-jetbrains-mono)",
             }}
-          >NEW</span>
+          >
+            NEW
+          </span>
         )}
       </div>
       <h2
@@ -140,14 +134,14 @@ function FilledCard({
         <button
           type="button"
           onClick={onPlay}
-          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-[rgb(var(--bg-sidebar))] px-3.5 py-2 text-[13px] font-bold text-[rgb(var(--brand-primary))] transition-transform hover:brightness-110 active:scale-[0.97]"
+          className="sk-press inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sidebar))] px-3.5 py-2 text-[13px] font-bold whitespace-nowrap text-[rgb(var(--brand-primary))] transition-transform hover:brightness-110 active:scale-[0.97]"
         >
           <PlayIcon size={12} />
           {isThisPlaying ? "Pause track" : "Play track"}
         </button>
         <Link
           href={withArtistStudio(`/artist/music/${latestMix.projectId}`, latestMix.producerId)}
-          className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-[rgb(var(--border-subtle))] px-3.5 py-2 text-[12.5px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--bg-background))]"
+          className="sk-press inline-flex min-h-11 items-center gap-1 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] px-3.5 py-2 text-[12.5px] font-semibold whitespace-nowrap text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--bg-background))]"
         >
           Open library →
         </Link>
@@ -168,7 +162,7 @@ function EmptyState({ activeStudioId }: { activeStudioId?: string | null | undef
       <div className="flex min-w-0 flex-1 flex-col justify-between">
         <div>
           <p
-            className="uppercase text-[9.5px] font-semibold tracking-[0.12em] text-[rgb(var(--fg-muted))]"
+            className="text-[9.5px] font-semibold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase"
             style={{ fontFamily: "var(--font-jetbrains-mono)" }}
           >
             LAST UPLOAD
@@ -186,7 +180,7 @@ function EmptyState({ activeStudioId }: { activeStudioId?: string | null | undef
         <div className="pt-4">
           <Link
             href={withArtistStudio("/artist/music", activeStudioId)}
-            className="inline-flex items-center gap-1 rounded-full border border-[rgb(var(--border-subtle))] px-3.5 py-2 text-[12.5px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--bg-background))]"
+            className="sk-press inline-flex min-h-11 items-center gap-1 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] px-3.5 py-2 text-[12.5px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--bg-background))]"
           >
             Open library →
           </Link>
@@ -211,13 +205,7 @@ function relativeFrom(date: Date): string {
 
 function PlayIcon({ size = 16 }: { size?: number }) {
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 16 16"
-      fill="currentColor"
-      aria-hidden
-    >
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" aria-hidden>
       <path d="M4 2.5v11l9-5.5z" />
     </svg>
   );
@@ -225,13 +213,7 @@ function PlayIcon({ size = 16 }: { size?: number }) {
 
 function PauseIcon({ size = 18 }: { size?: number }) {
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 16 16"
-      fill="currentColor"
-      aria-hidden
-    >
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" aria-hidden>
       <rect x="3.5" y="2.5" width="3" height="11" rx="0.5" />
       <rect x="9.5" y="2.5" width="3" height="11" rx="0.5" />
     </svg>
@@ -240,13 +222,7 @@ function PauseIcon({ size = 18 }: { size?: number }) {
 
 function MusicNoteIcon() {
   return (
-    <svg
-      width={28}
-      height={28}
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden
-    >
+    <svg width={28} height={28} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
       <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
     </svg>
   );

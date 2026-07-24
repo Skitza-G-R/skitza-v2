@@ -274,7 +274,7 @@ function DesktopDock({
           href={expandHrefForTrack(track, pathname)}
           aria-label={`Open ${track.title} song page`}
           title="Open song page"
-          className="sk-press flex min-w-0 items-center gap-3 rounded-[14px] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+          className="sk-press flex min-h-11 min-w-0 items-center gap-3 rounded-[14px] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
         >
           <Cover track={track} size={44} />
           <div className="min-w-0 flex-1">
@@ -299,7 +299,7 @@ function DesktopDock({
               onClick={() => {
                 onSkip(-5);
               }}
-              className="sk-press text-white/55 hover:text-white"
+              className="sk-press inline-flex min-h-11 min-w-11 items-center justify-center text-white/55 hover:text-white"
             >
               <SkipBackIcon />
             </button>
@@ -307,7 +307,7 @@ function DesktopDock({
               type="button"
               aria-label={playing ? "Pause" : "Play"}
               onClick={onTogglePlay}
-              className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)] shadow-[0_2px_14px_rgba(255,255,255,0.18)]"
+              className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)] shadow-[0_2px_14px_rgba(255,255,255,0.18)]"
             >
               {playing ? <PauseIcon /> : <PlayIcon />}
             </button>
@@ -317,7 +317,7 @@ function DesktopDock({
               onClick={() => {
                 onSkip(5);
               }}
-              className="sk-press text-white/55 hover:text-white"
+              className="sk-press inline-flex min-h-11 min-w-11 items-center justify-center text-white/55 hover:text-white"
             >
               <SkipForwardIcon />
             </button>
@@ -338,7 +338,7 @@ function DesktopDock({
             type="button"
             aria-label={playing ? "Pause" : "Play"}
             onClick={onTogglePlay}
-            className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)] shadow-[0_2px_14px_rgba(255,255,255,0.18)]"
+            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)] shadow-[0_2px_14px_rgba(255,255,255,0.18)]"
           >
             {playing ? <PauseIcon /> : <PlayIcon />}
           </button>
@@ -353,7 +353,7 @@ function DesktopDock({
             href={expandHrefForTrack(track, pathname)}
             aria-label="Open song page"
             title="Open song page"
-            className="sk-press inline-flex h-8 w-8 items-center justify-center rounded-md text-white/55 hover:text-white"
+            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] text-white/55 hover:text-white"
           >
             <ExpandIcon />
           </Link>
@@ -364,7 +364,7 @@ function DesktopDock({
             onClick={() => {
               playerClose();
             }}
-            className="sk-press inline-flex h-8 w-8 items-center justify-center rounded-md bg-white/[0.06] text-white/70 hover:text-white"
+            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] bg-white/[0.06] text-white/70 hover:text-white"
           >
             <CloseIcon />
           </button>
@@ -471,7 +471,7 @@ function MobileDock({
             }}
             aria-label={`Expand player — ${track.title}`}
             aria-expanded={expanded}
-            className="sk-press flex min-w-0 flex-1 items-center gap-2.5 rounded-lg text-left focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+            className="sk-press flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-[var(--radius-lg)] text-left focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
           >
             <Cover track={track} size={38} />
             <div className="min-w-0 flex-1">
@@ -485,7 +485,7 @@ function MobileDock({
             type="button"
             aria-label={playing ? "Pause" : "Play"}
             onClick={onTogglePlay}
-            className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)]"
+            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)]"
           >
             {playing ? <PauseIcon /> : <PlayIcon />}
           </button>
@@ -496,7 +496,7 @@ function MobileDock({
             onClick={() => {
               setExpanded(true);
             }}
-            className="sk-press inline-flex h-8 w-8 items-center justify-center rounded-md text-white/70 hover:text-white"
+            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] text-white/70 hover:text-white"
           >
             <ExpandIcon />
           </button>
@@ -507,7 +507,7 @@ function MobileDock({
             onClick={() => {
               playerClose();
             }}
-            className="sk-press inline-flex h-8 w-8 items-center justify-center rounded-md bg-white/[0.06] text-white/70 hover:text-white"
+            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] bg-white/[0.06] text-white/70 hover:text-white"
           >
             <CloseIcon />
           </button>

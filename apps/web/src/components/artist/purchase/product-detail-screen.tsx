@@ -5,21 +5,13 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { planKey, requestPlanLabel } from "~/components/checkout/plan-picker-helpers";
-import {
-  ArrowRight,
-  Check,
-  ClockIcon,
-  LockIcon,
-} from "~/components/artist/funnel/funnel-icons";
+import { ArrowRight, Check, ClockIcon, LockIcon } from "~/components/artist/funnel/funnel-icons";
 import { Eyebrow, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
 import { StickyNav } from "~/components/artist/sticky-nav";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 import { royaltyTermsDisplay } from "~/lib/purchase/royalty-terms";
-import {
-  applyTaxToCents,
-  taxModeFootnote,
-  type TaxMode,
-} from "~/lib/tax-mode";
+import { applyTaxToCents, taxModeFootnote, type TaxMode } from "~/lib/tax-mode";
 import { requestToBookAction } from "./actions";
 import {
   coverGradient,
@@ -29,22 +21,15 @@ import {
   type PurchaseProduct,
   type PurchaseTargetProject,
 } from "./purchase-data";
-import {
-  computeSongCountState,
-  SongCountStepper,
-  type SongCountState,
-} from "./song-count-stepper";
+import { computeSongCountState, SongCountStepper, type SongCountState } from "./song-count-stepper";
 
 function planLabel(plan: PaymentPlan, totalCents: number, currency: string): string {
-  return requestPlanLabel(plan, totalCents, (cents) =>
-    formatPurchaseMoney(cents, currency),
-  );
+  return requestPlanLabel(plan, totalCents, (cents) => formatPurchaseMoney(cents, currency));
 }
 
 function projectContext(project: PurchaseTargetProject): string {
   const lifecycle = project.lifecycleStatus === "active" ? "Active" : "Waiting for payment";
-  const stage =
-    project.workflowStage.charAt(0).toUpperCase() + project.workflowStage.slice(1);
+  const stage = project.workflowStage.charAt(0).toUpperCase() + project.workflowStage.slice(1);
   const updated = new Intl.DateTimeFormat("en-GB", {
     day: "numeric",
     month: "short",
@@ -84,6 +69,7 @@ export function ProductDetailScreen({
   previewAgreeHref,
 }: ProductDetailScreenProps) {
   const router = useRouter();
+  const online = useOnlineStatus();
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const operationKeyRef = useRef<string | null>(null);
   const isPerSong = product.pricingModel === "per_song";
@@ -108,6 +94,7 @@ export function ProductDetailScreen({
   const [projectId, setProjectId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requiresLiveRequest = !previewAgreeHref;
   const royalty = royaltyTermsDisplay(product.royaltyTerms);
   const proposalSubtotal = isPerSong ? songState.totalCents : product.priceCents;
   const proposalTotal = applyTaxToCents(proposalSubtotal, taxMode, taxRatePct);
@@ -122,6 +109,10 @@ export function ProductDetailScreen({
     if (previewMode || sending || !targetIsReady) return;
     if (previewAgreeHref) {
       router.push(previewAgreeHref);
+      return;
+    }
+    if (!online) {
+      setError("Reconnect before sending. No purchase request has been created.");
       return;
     }
 
@@ -193,7 +184,7 @@ export function ProductDetailScreen({
         </div>
 
         <main className="flex-1 px-5 pt-[18px] pb-[184px]">
-          <h1 className="sk-rise break-words font-syne text-[26px] leading-[1.1] font-extrabold tracking-[-0.035em] text-[rgb(var(--fg-default))] [overflow-wrap:anywhere] [text-wrap:pretty]">
+          <h1 className="sk-rise font-syne text-[26px] leading-[1.1] font-extrabold tracking-[-0.035em] [text-wrap:pretty] [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-default))]">
             {product.name}
           </h1>
           {product.tagline ? (
@@ -206,7 +197,10 @@ export function ProductDetailScreen({
             className="sk-rise mt-4 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-[18px] py-4 shadow-[var(--shadow-sm)]"
             aria-labelledby="proposal-price-heading"
           >
-            <div id="proposal-price-heading" className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))]">
+            <div
+              id="proposal-price-heading"
+              className="font-mono text-[9.5px] tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase"
+            >
               Current proposal
             </div>
             <div className="font-amount mt-1.5 text-[36px] leading-none font-extrabold tracking-[-0.04em] text-[rgb(var(--fg-default))]">
@@ -217,7 +211,8 @@ export function ProductDetailScreen({
                 {taxFootnote}
                 {taxMode === "tax_added" ? (
                   <span>
-                    {" "}· {formatPurchaseMoney(proposalSubtotal, product.currency)} before tax
+                    {" "}
+                    · {formatPurchaseMoney(proposalSubtotal, product.currency)} before tax
                   </span>
                 ) : null}
               </div>
@@ -236,7 +231,9 @@ export function ProductDetailScreen({
 
           {isPerSong ? (
             <section className="sk-rise mt-4" aria-labelledby="song-count-heading">
-              <h2 id="song-count-heading" className="sr-only">Choose song quantity</h2>
+              <h2 id="song-count-heading" className="sr-only">
+                Choose song quantity
+              </h2>
               <SongCountStepper
                 tiers={volumeTiers}
                 currency={product.currency}
@@ -270,16 +267,14 @@ export function ProductDetailScreen({
             </legend>
             <div className="space-y-2.5">
               <label
-                className="flex min-h-11 cursor-pointer items-start gap-3 rounded-[var(--radius-lg)] border px-4 py-3.5"
+                className="sk-press flex min-h-11 cursor-pointer items-start gap-3 rounded-[var(--radius-lg)] border px-4 py-3.5"
                 style={{
                   background:
                     targetKind === "new"
                       ? "rgb(var(--brand-primary) / 0.08)"
                       : "rgb(var(--bg-elevated))",
                   borderColor:
-                    targetKind === "new"
-                      ? "rgb(var(--focus-ring))"
-                      : "rgb(var(--border-control))",
+                    targetKind === "new" ? "rgb(var(--focus-ring))" : "rgb(var(--border-control))",
                 }}
               >
                 <input
@@ -305,7 +300,7 @@ export function ProductDetailScreen({
 
               {targetProjects.length > 0 ? (
                 <label
-                  className="flex min-h-11 cursor-pointer items-start gap-3 rounded-[var(--radius-lg)] border px-4 py-3.5"
+                  className="sk-press flex min-h-11 cursor-pointer items-start gap-3 rounded-[var(--radius-lg)] border px-4 py-3.5"
                   style={{
                     background:
                       targetKind === "existing"
@@ -347,7 +342,7 @@ export function ProductDetailScreen({
                   return (
                     <label
                       key={project.id}
-                      className="flex min-h-11 cursor-pointer items-start gap-3 rounded-[var(--radius-lg)] border bg-[rgb(var(--bg-elevated))] px-4 py-3"
+                      className="sk-press flex min-h-11 cursor-pointer items-start gap-3 rounded-[var(--radius-lg)] border bg-[rgb(var(--bg-elevated))] px-4 py-3"
                       style={{
                         borderColor: selected
                           ? "rgb(var(--focus-ring))"
@@ -366,7 +361,7 @@ export function ProductDetailScreen({
                         className="mt-0.5 h-5 w-5 shrink-0 accent-[rgb(var(--brand-primary))]"
                       />
                       <span className="min-w-0">
-                        <span className="block break-words text-[13.5px] font-bold text-[rgb(var(--fg-default))] [overflow-wrap:anywhere]">
+                        <span className="block text-[13.5px] font-bold [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-default))]">
                           {project.title}
                         </span>
                         <span className="mt-1 block font-mono text-[10px] leading-relaxed text-[rgb(var(--fg-muted))]">
@@ -426,37 +421,44 @@ export function ProductDetailScreen({
             <dl className="mt-2.5 grid gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] px-4 py-3.5 text-[13px]">
               <div className="grid min-w-0 grid-cols-[5.5rem_minmax(0,1fr)] gap-3">
                 <dt className="font-semibold text-[rgb(var(--fg-muted))]">Master</dt>
-                <dd className="min-w-0 break-words text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+                <dd className="min-w-0 [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-secondary))]">
                   {royalty.master}
                 </dd>
               </div>
               <div className="grid min-w-0 grid-cols-[5.5rem_minmax(0,1fr)] gap-3">
                 <dt className="font-semibold text-[rgb(var(--fg-muted))]">Composition</dt>
-                <dd className="min-w-0 break-words text-[rgb(var(--fg-secondary))] [overflow-wrap:anywhere]">
+                <dd className="min-w-0 [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-secondary))]">
                   {royalty.composition}
                 </dd>
               </div>
             </dl>
             {product.royaltyTerms?.notes ? (
-              <p className="mt-2 whitespace-pre-wrap break-words text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))] [overflow-wrap:anywhere]">
+              <p className="mt-2 text-[12.5px] leading-relaxed [overflow-wrap:anywhere] break-words whitespace-pre-wrap text-[rgb(var(--fg-muted))]">
                 {product.royaltyTerms.notes}
               </p>
             ) : null}
           </section>
 
-          <section className="sk-rise mt-5 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4" aria-labelledby="payment-heading">
+          <section
+            className="sk-rise mt-5 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4"
+            aria-labelledby="payment-heading"
+          >
             <h2 id="payment-heading">
               <Eyebrow>Enabled payment plans</Eyebrow>
             </h2>
             <ul className="mt-3 list-none divide-y divide-[rgb(var(--border-subtle))]">
               {product.paymentPlans.map((plan) => (
-                <li key={planKey(plan)} className="py-2.5 text-[13px] text-[rgb(var(--fg-secondary))] first:pt-0 last:pb-0">
+                <li
+                  key={planKey(plan)}
+                  className="py-2.5 text-[13px] text-[rgb(var(--fg-secondary))] first:pt-0 last:pb-0"
+                >
                   {planLabel(plan, proposalTotal, product.currency)}
                 </li>
               ))}
             </ul>
             <p className="mt-3 text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
-              If the producer approves, you choose one enabled plan before accepting the exact agreement.
+              If the producer approves, you choose one enabled plan before accepting the exact
+              agreement.
             </p>
           </section>
 
@@ -466,34 +468,53 @@ export function ProductDetailScreen({
             </span>
             <span className="text-[12.5px] leading-[1.55]">
               Sending this request moves no money and accepts no agreement. The exact quantity,
-              discount, tax, total, rights, rules, agreement, target, and plan freeze only when
-              you accept after approval.
+              discount, tax, total, rights, rules, agreement, target, and plan freeze only when you
+              accept after approval.
             </span>
           </div>
 
           {error ? (
-            <p role="alert" className="mt-3 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-danger)/0.1)] px-3.5 py-3 text-[12.5px] font-medium text-[rgb(var(--fg-danger-text))]">
+            <p
+              role="alert"
+              className="mt-3 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-danger)/0.1)] px-3.5 py-3 text-[12.5px] font-medium text-[rgb(var(--fg-danger-text))]"
+            >
               {error}
+            </p>
+          ) : null}
+          {!online && !previewMode && requiresLiveRequest ? (
+            <p
+              role="status"
+              className="mt-3 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] px-3.5 py-3 text-[12.5px] text-[rgb(var(--fg-secondary))]"
+            >
+              Reconnect to send this request. Your choices stay on this screen.
             </p>
           ) : null}
         </main>
 
-        <div className="sk-safe-bottom sticky bottom-0 z-10 px-[18px] pt-3.5 pb-3.5" style={{ background: "linear-gradient(180deg, rgb(var(--bg-background) / 0) 0%, rgb(var(--bg-background) / 0.96) 22%)" }}>
+        <div
+          className="sk-safe-bottom sticky bottom-0 z-10 px-[18px] pt-3.5 pb-3.5"
+          style={{
+            background:
+              "linear-gradient(180deg, rgb(var(--bg-background) / 0) 0%, rgb(var(--bg-background) / 0.96) 22%)",
+          }}
+        >
           <PrimaryCta
             onClick={() => {
               void sendRequest();
             }}
-            disabled={previewMode || !targetIsReady || sending}
-            glow={!previewMode && targetIsReady && !sending}
+            disabled={previewMode || (!online && requiresLiveRequest) || !targetIsReady || sending}
+            glow={!previewMode && (online || !requiresLiveRequest) && targetIsReady && !sending}
             ariaBusy={sending}
             sub={
               previewMode
                 ? "Preview only · requests are disabled"
-                : sending
-                ? "Sending your request"
-                : targetIsReady
-                  ? "No payment or acceptance yet"
-                  : "Choose the exact existing project"
+                : !online && requiresLiveRequest
+                  ? "Reconnect to send this live request"
+                  : sending
+                    ? "Sending your request"
+                    : targetIsReady
+                      ? "No payment or acceptance yet"
+                      : "Choose the exact existing project"
             }
           >
             {previewMode ? "Preview only" : sending ? "Sending…" : "Send request"} <ArrowRight />

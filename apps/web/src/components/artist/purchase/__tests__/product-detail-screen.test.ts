@@ -29,7 +29,9 @@ describe("unified artist product detail", () => {
     expect(source).toMatch(/Start a new project/);
     expect(source).toMatch(/Add to an existing project/);
     expect(source).toMatch(/targetKind === "existing" && projectId/);
-    expect(source).toMatch(/disabled=\{previewMode \|\| !targetIsReady \|\| sending\}/);
+    expect(source).toMatch(
+      /disabled=\{\s*previewMode \|\| \(!online && requiresLiveRequest\) \|\| !targetIsReady \|\| sending\s*\}/,
+    );
   });
 
   it("shows enough context for each same-client project", () => {
@@ -70,7 +72,7 @@ describe("unified artist product detail", () => {
   });
 
   it("states the actual acceptance boundary instead of promising a request-time lock", () => {
-    expect(source).toMatch(/freeze only when\s+you accept after approval/);
+    expect(source).toMatch(/freeze only when\s+you\s+accept after approval/);
     expect(source).not.toMatch(/locks at request|price locks now|stays fixed once you request/i);
   });
 
@@ -84,7 +86,9 @@ describe("unified artist product detail", () => {
     expect(source).toMatch(/previewMode\?: boolean/);
     expect(source).toMatch(/onPreviewBack\?: \(\) => void/);
     expect(source).toMatch(/if \(previewMode \|\| sending \|\| !targetIsReady\) return/);
-    expect(source).toMatch(/disabled=\{previewMode \|\| !targetIsReady \|\| sending\}/);
+    expect(source).toMatch(
+      /disabled=\{\s*previewMode \|\| \(!online && requiresLiveRequest\) \|\| !targetIsReady \|\| sending\s*\}/,
+    );
     expect(source).toMatch(/if \(onPreviewBack\)/);
   });
 });

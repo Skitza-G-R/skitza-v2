@@ -10,6 +10,7 @@ import { ArtistRuntimeStateProvider } from "~/components/runtime-state/artist-ru
 import { NativeInstallGuidance } from "~/components/pwa/native-install-guidance";
 
 import { ArtistShellChrome } from "./artist-shell-chrome";
+import { ArtistRouteStatus } from "./artist-route-status";
 
 // Artist app shell — Phase 2 (locked design system).
 //
@@ -111,6 +112,7 @@ export function ArtistAppShell({
               tabIndex={-1}
               className="mx-auto w-full max-w-2xl px-4 pt-6 pb-20 lg:max-w-none lg:px-10 lg:pt-10 lg:pb-12"
             >
+              <ArtistRouteStatus />
               {children}
             </main>
           </TopBarBreadcrumbProvider>

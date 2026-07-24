@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import { disconnectProducerAction } from "~/app/(artist)/artist/settings/actions";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 
 // Small client component for the row-level "Disconnect" affordance on
 // Settings → Connected producers. Uses a native `confirm()` so we
@@ -20,21 +21,30 @@ export function DisconnectProducerButton({
   producerName: string;
 }) {
   const router = useRouter();
+  const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
   const onClick = () => {
+    if (!online) {
+      setError("Reconnect before disconnecting. Nothing has changed.");
+      return;
+    }
     const message = `Disconnect from ${producerName}? You will lose access to all music and history with this studio.`;
     if (!window.confirm(message)) return;
 
     setError(null);
     startTransition(async () => {
-      const result = await disconnectProducerAction({ producerId });
-      if (!result.ok) {
-        setError(result.error);
-        return;
+      try {
+        const result = await disconnectProducerAction({ producerId });
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+        router.refresh();
+      } catch {
+        setError("Couldn’t disconnect this studio. Check your connection and try again.");
       }
-      router.refresh();
     });
   };
 
@@ -44,10 +54,10 @@ export function DisconnectProducerButton({
         type="button"
         aria-label={`Disconnect from ${producerName}`}
         onClick={onClick}
-        disabled={pending}
+        disabled={pending || !online}
         className="sk-press min-h-11 rounded-[var(--radius-lg)] px-3 py-1.5 text-[11px] font-semibold text-[rgb(var(--fg-danger))] transition-colors hover:bg-[rgb(var(--fg-danger)/0.1)] disabled:opacity-50"
       >
-        {pending ? "Disconnecting…" : "Disconnect"}
+        {pending ? "Disconnecting…" : online ? "Disconnect" : "Offline"}
       </button>
       {error ? (
         <p

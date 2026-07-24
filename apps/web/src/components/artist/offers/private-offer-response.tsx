@@ -9,6 +9,7 @@ import {
   acceptPrivateOfferAction,
   rejectPrivateOfferAction,
 } from "~/app/(artist)/artist/offers/actions";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 import {
   createInstallmentSchedule,
@@ -57,6 +58,7 @@ export function PrivateOfferResponse({
   snapshot: PurchaseCommercialSnapshot;
 }) {
   const router = useRouter();
+  const online = useOnlineStatus();
   const firstPlan = snapshot.offeredPaymentPlans[0] ?? null;
   const [selectedKey, setSelectedKey] = useState(firstPlan ? planKey(firstPlan) : "");
   const [agreed, setAgreed] = useState(false);
@@ -97,7 +99,7 @@ export function PrivateOfferResponse({
         </p>
         <Link
           href={withArtistStudio("/artist", studioId)}
-          className="mt-4 inline-flex min-h-10 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-semibold text-[rgb(var(--fg-on-brand))]"
+          className="sk-press mt-4 inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-semibold text-[rgb(var(--fg-on-brand))]"
         >
           Back to Artist Home
         </Link>
@@ -131,7 +133,7 @@ export function PrivateOfferResponse({
             return (
               <label
                 key={key}
-                className="flex min-h-11 cursor-pointer items-center gap-3 rounded-[var(--radius-lg)] border px-3 py-2 text-sm"
+                className="sk-press flex min-h-11 cursor-pointer items-center gap-3 rounded-[var(--radius-lg)] border px-3 py-2 text-sm"
                 style={{
                   borderColor:
                     selectedKey === key ? "rgb(var(--brand-primary))" : "rgb(var(--border-subtle))",
@@ -181,7 +183,7 @@ export function PrivateOfferResponse({
         </p>
       )}
 
-      <label className="mt-4 flex cursor-pointer items-start gap-3 text-sm leading-relaxed text-[rgb(var(--fg-secondary))]">
+      <label className="sk-press mt-4 flex min-h-11 cursor-pointer items-start gap-3 rounded-[var(--radius-lg)] py-2 text-sm leading-relaxed text-[rgb(var(--fg-secondary))]">
         <input
           type="checkbox"
           className="mt-1"
@@ -196,6 +198,15 @@ export function PrivateOfferResponse({
       {error ? (
         <p role="alert" className="mt-3 text-sm text-[rgb(var(--fg-danger-text))]">
           {error}
+        </p>
+      ) : null}
+
+      {!online ? (
+        <p
+          role="status"
+          className="mt-3 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] px-3 py-2.5 text-sm text-[rgb(var(--fg-secondary))]"
+        >
+          Reconnect to accept or reject this offer. Nothing changes while offline.
         </p>
       ) : null}
 
@@ -222,25 +233,29 @@ export function PrivateOfferResponse({
               onClick={() => {
                 setConfirmingReject(false);
               }}
-              className="min-h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] px-4 text-sm font-semibold text-[rgb(var(--fg-default))] disabled:opacity-50"
+              className="sk-press min-h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] px-4 text-sm font-semibold text-[rgb(var(--fg-default))] disabled:opacity-50"
             >
               Keep offer
             </button>
             <button
               type="button"
-              disabled={pending}
+              disabled={pending || !online}
               onClick={() => {
                 setError("");
                 startTransition(async () => {
-                  const response = await rejectPrivateOfferAction(offerId);
-                  if (!response.ok) {
-                    setError(response.error);
-                    return;
+                  try {
+                    const response = await rejectPrivateOfferAction(offerId);
+                    if (!response.ok) {
+                      setError(response.error);
+                      return;
+                    }
+                    setResult({ kind: "rejected" });
+                  } catch {
+                    setError("Couldn’t reject this offer. Check your connection and try again.");
                   }
-                  setResult({ kind: "rejected" });
                 });
               }}
-              className="min-h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--fg-danger)/0.4)] px-4 text-sm font-bold text-[rgb(var(--fg-danger))] disabled:opacity-50"
+              className="sk-press min-h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--fg-danger)/0.4)] px-4 text-sm font-bold text-[rgb(var(--fg-danger))] disabled:opacity-50"
             >
               {pending ? "Rejecting…" : "Confirm rejection"}
             </button>
@@ -255,41 +270,47 @@ export function PrivateOfferResponse({
               setError("");
               setConfirmingReject(true);
             }}
-            className="min-h-11 rounded-[var(--radius-lg)] border px-4 text-sm font-semibold text-[rgb(var(--fg-default))] disabled:opacity-50"
+            className="sk-press min-h-11 rounded-[var(--radius-lg)] border px-4 text-sm font-semibold text-[rgb(var(--fg-default))] disabled:opacity-50"
             style={{ borderColor: "rgb(var(--border-subtle))" }}
           >
             Reject offer
           </button>
           <button
             type="button"
-            disabled={pending || !agreed || (snapshot.totalCents > 0 && selectedPlan === null)}
+            disabled={
+              pending || !online || !agreed || (snapshot.totalCents > 0 && selectedPlan === null)
+            }
             onClick={() => {
               setError("");
               startTransition(async () => {
-                const response = await acceptPrivateOfferAction({
-                  offerId,
-                  expectedUpdatedAt: updatedAt.toISOString(),
-                  expectedTargetProjectTitle: targetProjectTitle,
-                  selectedPaymentPlan: snapshot.totalCents === 0 ? null : selectedPlan,
-                  agreementAccepted: true,
-                });
-                if (!response.ok) {
-                  setError(response.error);
-                  return;
+                try {
+                  const response = await acceptPrivateOfferAction({
+                    offerId,
+                    expectedUpdatedAt: updatedAt.toISOString(),
+                    expectedTargetProjectTitle: targetProjectTitle,
+                    selectedPaymentPlan: snapshot.totalCents === 0 ? null : selectedPlan,
+                    agreementAccepted: true,
+                  });
+                  if (!response.ok) {
+                    setError(response.error);
+                    return;
+                  }
+                  if (response.lifecycleStatus === "waiting_for_payment") {
+                    router.push(
+                      withArtistStudio(
+                        `/artist/payments/${encodeURIComponent(response.purchaseId)}`,
+                        studioId,
+                      ),
+                    );
+                    return;
+                  }
+                  setResult({ kind: "accepted", lifecycleStatus: response.lifecycleStatus });
+                } catch {
+                  setError("Couldn’t accept this offer. Check your connection and try again.");
                 }
-                if (response.lifecycleStatus === "waiting_for_payment") {
-                  router.push(
-                    withArtistStudio(
-                      `/artist/payments/${encodeURIComponent(response.purchaseId)}`,
-                      studioId,
-                    ),
-                  );
-                  return;
-                }
-                setResult({ kind: "accepted", lifecycleStatus: response.lifecycleStatus });
               });
             }}
-            className="min-h-11 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-bold text-[rgb(var(--fg-on-brand))] disabled:opacity-50"
+            className="sk-press min-h-11 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-bold text-[rgb(var(--fg-on-brand))] disabled:opacity-50"
           >
             {pending ? "Saving…" : "Accept offer"}
           </button>

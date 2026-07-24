@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import { ProducerPicker } from "~/components/artist/producer-picker";
 import { PrimaryCta } from "~/components/artist/funnel/funnel-ui";
 import { bookingActionLabel, locationLabel } from "~/components/artist/sessions/book-data";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 import { markMeaningfulInstallAction } from "~/lib/pwa/install-guidance";
 
@@ -152,6 +153,7 @@ export function BookingClient({
   rescheduleSessionId,
 }: Props) {
   const router = useRouter();
+  const online = useOnlineStatus();
   const today = availability.today;
 
   const daysByDate = useMemo(() => {
@@ -226,12 +228,20 @@ export function BookingClient({
   };
 
   const handleSwitchStudio = (id: string) => {
+    if (!online) {
+      setResult({ ok: false, error: "Reconnect to load another studio’s booking times." });
+      return;
+    }
     resetSelection();
     setSelectedSessionAllowanceId(null);
     router.push(`/artist/book?studio=${id}`);
   };
 
   const handlePickAllowance = (id: string) => {
+    if (!online) {
+      setResult({ ok: false, error: "Reconnect to load dates for this purchased session." });
+      return;
+    }
     if (id === selectedSessionAllowanceId) return;
     const selected = activePackages.find((pkg) => pkg.sessionAllowanceId === id);
     if (!selected) return;
@@ -261,34 +271,48 @@ export function BookingClient({
   };
 
   const handleConfirm = () => {
+    if (!online) {
+      setResult({
+        ok: false,
+        error: "Reconnect before booking. No session has been requested.",
+      });
+      return;
+    }
     if (!selectedDate || chosenStart == null || !selectedBlock || !selectedPackage) return;
     startTransition(async () => {
       operationKeyRef.current ??= crypto.randomUUID();
       const operationKey = operationKeyRef.current;
-      const res = rescheduleSessionId
-        ? await rescheduleBookingAction({
-            id: rescheduleSessionId,
-            date: selectedDate,
-            startMin: chosenStart,
-            operationKey,
-          })
-        : await confirmBookingAction({
-            producerId: activeStudioId,
-            date: selectedDate,
-            block: selectedBlock,
-            startMin: chosenStart,
-            durationMin: selectedPackage.durationMin,
-            projectId: null,
-            productId: null,
-            existingProjectId: selectedPackage.projectId,
-            purchaseId: selectedPackage.purchaseId,
-            sessionAllowanceId: selectedPackage.sessionAllowanceId,
-            operationKey,
-          });
-      setResult(res);
-      if (res.ok) {
-        markMeaningfulInstallAction();
-        router.push(withArtistStudio(`/artist/sessions?just=${res.id}`, activeStudioId));
+      try {
+        const res = rescheduleSessionId
+          ? await rescheduleBookingAction({
+              id: rescheduleSessionId,
+              date: selectedDate,
+              startMin: chosenStart,
+              operationKey,
+            })
+          : await confirmBookingAction({
+              producerId: activeStudioId,
+              date: selectedDate,
+              block: selectedBlock,
+              startMin: chosenStart,
+              durationMin: selectedPackage.durationMin,
+              projectId: null,
+              productId: null,
+              existingProjectId: selectedPackage.projectId,
+              purchaseId: selectedPackage.purchaseId,
+              sessionAllowanceId: selectedPackage.sessionAllowanceId,
+              operationKey,
+            });
+        setResult(res);
+        if (res.ok) {
+          markMeaningfulInstallAction();
+          router.push(withArtistStudio(`/artist/sessions?just=${res.id}`, activeStudioId));
+        }
+      } catch {
+        setResult({
+          ok: false,
+          error: "Couldn’t confirm this booking. Check your connection and try again.",
+        });
       }
     });
   };
@@ -426,19 +450,21 @@ export function BookingClient({
       >
         <PrimaryCta
           onClick={handleConfirm}
-          disabled={!showConfirm || isPending || result?.ok === true}
+          disabled={!online || !showConfirm || isPending || result?.ok === true}
           sub={
-            result?.ok
-              ? undefined
-              : selectedPackage == null
-                ? "Choose the purchase that owns this session"
-                : selectedDate == null || chosenStart == null
-                  ? "Pick a date and time to continue"
-                  : rescheduleSessionId
-                    ? "Your old time stays booked until this succeeds"
-                    : selectedPackage.autoConfirm
-                      ? "This time will be confirmed immediately"
-                      : `Holding this time${activeStudio?.name ? ` while ${activeStudio.name} confirms` : ""}`
+            !online
+              ? "Reconnect to confirm this live booking"
+              : result?.ok
+                ? undefined
+                : selectedPackage == null
+                  ? "Choose the purchase that owns this session"
+                  : selectedDate == null || chosenStart == null
+                    ? "Pick a date and time to continue"
+                    : rescheduleSessionId
+                      ? "Your old time stays booked until this succeeds"
+                      : selectedPackage.autoConfirm
+                        ? "This time will be confirmed immediately"
+                        : `Holding this time${activeStudio?.name ? ` while ${activeStudio.name} confirms` : ""}`
           }
         >
           {isPending
@@ -904,7 +930,7 @@ function NavButton({
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="sk-press flex h-11 w-11 items-center justify-center rounded-full text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--bg-overlay))] sm:h-9 sm:w-9"
+      className="sk-press flex h-11 w-11 items-center justify-center rounded-full text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--bg-overlay))]"
     >
       {children}
     </button>

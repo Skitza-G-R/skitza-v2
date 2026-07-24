@@ -86,7 +86,7 @@ export default async function ArtistSettingsPage() {
           <UserButton
             appearance={{
               elements: {
-                avatarBox: "h-9 w-9 ring-1 ring-[rgb(var(--border-subtle))]",
+                avatarBox: "h-11 w-11 ring-1 ring-[rgb(var(--border-subtle))]",
               },
             }}
           />

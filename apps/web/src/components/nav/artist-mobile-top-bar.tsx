@@ -53,7 +53,7 @@ export function ArtistMobileTopBar({ studios }: { studios: Studio[] }) {
         <UserButton
           appearance={{
             elements: {
-              avatarBox: "h-8 w-8 ring-1 ring-[rgb(var(--border-subtle))]",
+              avatarBox: "h-11 w-11 ring-1 ring-[rgb(var(--border-subtle))]",
             },
           }}
         >

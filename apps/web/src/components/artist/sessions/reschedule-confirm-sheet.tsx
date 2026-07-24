@@ -8,6 +8,7 @@ import { useRef, useState } from "react";
 
 import { Check, CloseIcon } from "~/components/artist/funnel/funnel-icons";
 import { cancelSessionAction } from "~/app/(artist)/artist/sessions/actions";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 
 export function RescheduleConfirmSheet({
   sessionId,
@@ -20,12 +21,17 @@ export function RescheduleConfirmSheet({
   onClose: () => void;
   onCancelled: () => void;
 }) {
+  const online = useOnlineStatus();
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const operationKeyRef = useRef<string | null>(null);
 
   async function confirm() {
     if (confirming) return;
+    if (!online) {
+      setError("Reconnect before canceling. Your session is still booked.");
+      return;
+    }
     setConfirming(true);
     setError(null);
     try {
@@ -117,9 +123,9 @@ export function RescheduleConfirmSheet({
             onClick={() => {
               void confirm();
             }}
-            disabled={confirming}
+            disabled={confirming || !online}
             className={`relative flex w-full items-center justify-center gap-[9px] rounded-[var(--radius-lg)] px-[22px] py-[15px] text-[15px] font-semibold ${
-              confirming ? "cursor-not-allowed opacity-80" : "sk-press"
+              confirming || !online ? "cursor-not-allowed opacity-80" : "sk-press"
             }`}
             style={{
               background: "rgb(var(--fg-danger))",
@@ -129,11 +135,13 @@ export function RescheduleConfirmSheet({
             {confirming ? (
               <>
                 <span
-                  className="inline-block h-4 w-4 animate-spin rounded-full border-2"
+                  className="inline-block h-4 w-4 animate-spin rounded-full border-2 motion-reduce:animate-none"
                   style={{ borderColor: "rgb(255 255 255 / 0.35)", borderTopColor: "white" }}
                 />
                 Cancelling…
               </>
+            ) : !online ? (
+              "Reconnect to cancel"
             ) : (
               <>
                 <Check width={16} height={16} /> Yes, cancel it

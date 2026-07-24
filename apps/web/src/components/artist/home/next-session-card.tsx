@@ -1,5 +1,4 @@
-import Link from "next/link";
-
+import { OnlineRequiredLink } from "~/components/runtime-state/online-required-link";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 
 import { ProducerArt } from "./producer-art";
@@ -22,11 +21,7 @@ export function NextSessionCard({ nextSession, activeStudioId }: NextSessionStri
   return (
     <article className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3 sm:flex-row sm:items-center">
       <div className="flex min-w-0 items-center gap-3 sm:flex-1">
-        <ProducerArt
-          producerName={nextSession.producerName}
-          size={36}
-          initialsFontSize={11}
-        />
+        <ProducerArt producerName={nextSession.producerName} size={36} initialsFontSize={11} />
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex items-center gap-2">
             <h3
@@ -37,13 +32,15 @@ export function NextSessionCard({ nextSession, activeStudioId }: NextSessionStri
             </h3>
             {today && (
               <span
-                className="rounded-full px-1.5 py-0.5 text-[8.5px] font-extrabold uppercase tracking-[0.08em]"
+                className="rounded-full px-1.5 py-0.5 text-[8.5px] font-extrabold tracking-[0.08em] uppercase"
                 style={{
                   backgroundColor: "rgb(var(--brand-primary))",
                   color: "#111009",
                   fontFamily: "var(--font-jetbrains-mono)",
                 }}
-              >TODAY</span>
+              >
+                TODAY
+              </span>
             )}
           </div>
           <p
@@ -54,12 +51,13 @@ export function NextSessionCard({ nextSession, activeStudioId }: NextSessionStri
           </p>
         </div>
       </div>
-      <Link
+      <OnlineRequiredLink
         href={withArtistStudio("/artist/book", nextSession.producerId)}
-        className="inline-flex shrink-0 items-center gap-1 self-end rounded-full border border-[rgb(var(--border-subtle))] px-3.5 py-2 text-[12.5px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--bg-background))] sm:self-auto"
+        className="sk-press inline-flex min-h-11 shrink-0 items-center gap-1 self-end rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] px-3.5 py-2 text-[12.5px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--bg-background))] sm:self-auto"
+        offlineMessage="Reconnect to open live booking times."
       >
         Open calendar →
-      </Link>
+      </OnlineRequiredLink>
     </article>
   );
 }
@@ -84,12 +82,13 @@ function EmptyState({ activeStudioId }: { activeStudioId: string | null }) {
           </p>
         </div>
       </div>
-      <Link
+      <OnlineRequiredLink
         href={withArtistStudio("/artist/book", activeStudioId)}
-        className="inline-flex shrink-0 items-center gap-1 self-end rounded-full bg-[rgb(var(--brand-primary))] px-3.5 py-2 text-[12.5px] font-bold text-[#111009] transition-transform hover:brightness-110 active:scale-[0.97] sm:self-auto"
+        className="sk-press inline-flex min-h-11 shrink-0 items-center gap-1 self-end rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-3.5 py-2 text-[12.5px] font-bold text-[#111009] transition-transform hover:brightness-110 active:scale-[0.97] sm:self-auto"
+        offlineMessage="Reconnect to book a session."
       >
         Book a session →
-      </Link>
+      </OnlineRequiredLink>
     </article>
   );
 }

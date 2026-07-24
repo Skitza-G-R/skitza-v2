@@ -108,7 +108,7 @@ export function ArtistDesktopSidebar({ studios }: { studios: Studio[] }): ReactN
                 fontFamily: "var(--font-outfit)",
                 fontSize: 14.5,
                 fontWeight: active ? 600 : 500,
-                minHeight: 40,
+                minHeight: 44,
               }}
             >
               {active && (
@@ -147,7 +147,7 @@ export function ArtistDesktopSidebar({ studios }: { studios: Studio[] }): ReactN
         <UserButton
           appearance={{
             elements: {
-              avatarBox: "h-8 w-8 ring-1 ring-[rgb(var(--border-sidebar))]",
+              avatarBox: "h-11 w-11 ring-1 ring-[rgb(var(--border-sidebar))]",
             },
           }}
         >

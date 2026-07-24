@@ -159,14 +159,16 @@ describe("PurchaseStatusCard (home heartbeat, S6)", () => {
   });
 
   it("has no messaging row or fake buttons (v1 has no messaging)", () => {
-    expect(SRC).not.toMatch(/Message/);
+    expect(SRC).not.toMatch(/>\s*Message\s*</);
+    expect(SRC).not.toMatch(/messageHref|messageAction/);
     expect(SRC).not.toMatch(/<button/);
   });
 
   it("renders the context CTA only when the page passes a real target (BE-2)", () => {
-    // The handoff-S6 action (choose plan / book) is a real <Link>, gated
-    // on actionHref so stages without an action render none.
+    // The handoff-S6 action (choose plan / book) is a real guarded link,
+    // gated on actionHref so stages without an action render none.
     expect(SRC).toMatch(/actionHref && actionLabel \? \(/);
-    expect(SRC).toMatch(/<Link/);
+    expect(SRC).toMatch(/<OnlineRequiredLink/);
+    expect(SRC).toContain("Reconnect to continue this purchase.");
   });
 });

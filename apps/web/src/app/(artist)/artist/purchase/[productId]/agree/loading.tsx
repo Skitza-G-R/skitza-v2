@@ -4,7 +4,7 @@
 function Block({ className }: { className: string }) {
   return (
     <div
-      className={`animate-pulse ${className}`}
+      className={`animate-pulse motion-reduce:animate-none ${className}`}
       style={{ background: "rgb(var(--bg-sunken))" }}
     />
   );

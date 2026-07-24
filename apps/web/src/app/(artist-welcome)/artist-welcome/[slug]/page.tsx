@@ -63,12 +63,11 @@ export default async function JoinedArtistWelcomePage({ params }: Props) {
   // artists arriving at a new producer's link (where the webhook
   // doesn't fire because the Clerk user already exists).
   //
-  // Failure here would be sub-optimal but not catastrophic — the
-  // splash still renders, and the artist could navigate to /artist
-  // and see zero studios. We swallow + log so a transient DB blip
-  // doesn't error-page the welcome surface; observability picks it
-  // up via Sentry on the server.
+  // The success state below is only rendered after this server-side
+  // connection is durable. A transient failure stays local to this
+  // screen and offers a retry without claiming the studio was added.
   const { userId } = await auth();
+  let connectionConfirmed = false;
   if (userId) {
     const user = await currentUser();
     const email = user?.primaryEmailAddress?.emailAddress ?? null;
@@ -87,6 +86,7 @@ export default async function JoinedArtistWelcomePage({ params }: Props) {
           name,
           clerkUserId: userId,
         });
+        connectionConfirmed = true;
       } catch (err) {
         console.error(
           "[artist-welcome] connectVerifiedArtistToProducer failed",
@@ -100,34 +100,53 @@ export default async function JoinedArtistWelcomePage({ params }: Props) {
   const displayName = producer.displayName ?? "this producer";
 
   return (
-    <div className="mx-auto max-w-md px-6 py-16 text-center">
+    <div className="sk-safe-top sk-safe-bottom mx-auto flex min-h-dvh max-w-md flex-col justify-center px-6 py-12 text-center">
       <h1 className="font-display text-3xl tracking-tight">Welcome to Skitza.</h1>
 
-      <p className="mt-4 text-sm text-[rgb(var(--fg-secondary))]">
-        You&apos;re now connected to{" "}
-        <span className="font-semibold text-[rgb(var(--fg-primary))]">
-          {displayName}
-        </span>
-        . Their catalog, booking, and session history will show up in your
-        artist workspace.
-      </p>
+      {connectionConfirmed ? (
+        <>
+          <p className="mt-4 text-sm text-[rgb(var(--fg-secondary))]">
+            You&apos;re now connected to{" "}
+            <span className="font-semibold text-[rgb(var(--fg-primary))]">{displayName}</span>.
+            Their catalog, booking, and session history will show up in your artist workspace.
+          </p>
 
-      <Link
-        href={`/artist?studio=${producer.id}`}
-        className={[
-          "sk-cta-shine mt-10 inline-flex min-h-12 items-center justify-center",
-          "rounded-[var(--radius-md)] bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))]",
-          "px-8 py-3 text-sm font-semibold text-[#0C0A07]",
-          "transition-transform hover:scale-[1.02] hover:-translate-y-[1px] active:translate-y-[1px]",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]",
-        ].join(" ")}
-      >
-        Continue to your studio →
-      </Link>
+          <Link
+            href={`/artist?studio=${producer.id}`}
+            className={[
+              "sk-press sk-cta-shine mt-10 inline-flex min-h-12 items-center justify-center",
+              "rounded-[var(--radius-md)] bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))]",
+              "px-8 py-3 text-sm font-semibold text-[#0C0A07]",
+              "transition-transform hover:-translate-y-[1px] hover:scale-[1.02] active:translate-y-[1px]",
+              "focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))] focus-visible:outline-none",
+            ].join(" ")}
+          >
+            Continue to your studio →
+          </Link>
+        </>
+      ) : (
+        <>
+          <p
+            role="alert"
+            className="mt-4 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-danger)/0.1)] px-4 py-3 text-sm text-[rgb(var(--fg-danger-text))]"
+          >
+            We couldn&apos;t confirm your connection to {displayName}. No studio access was added.
+            Check your connection and try again.
+          </p>
+          <form action={`/artist-welcome/${encodeURIComponent(slug)}`} method="get">
+            <button
+              type="submit"
+              className="sk-press mt-10 inline-flex min-h-12 w-full items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-8 py-3 text-sm font-semibold text-[rgb(var(--fg-on-brand))]"
+            >
+              Try connecting again
+            </button>
+          </form>
+        </>
+      )}
 
       <p className="mt-8 text-xs text-[rgb(var(--fg-muted))]">
-        If you were invited under a different email, ask {displayName} to
-        re-send the invite to the address you used to sign up.
+        If you were invited under a different email, ask {displayName} to re-send the invite to the
+        address you used to sign up.
       </p>
     </div>
   );
