@@ -54,7 +54,9 @@ afterEach(() => {
 describe("push account-exit cleanup", () => {
   it("confirms explicit sign-out when browser and owned-row removal both succeed", async () => {
     const test = harness();
-    const removeOwned = vi.fn(() => Promise.resolve({ ok: true as const }));
+    const removeOwned = vi.fn(() =>
+      Promise.resolve({ ok: true as const, removed: true as const }),
+    );
 
     await expect(clearBrowserPushSubscription(removeOwned, test.adapter)).resolves.toBe(
       "browser-unsubscribed",
@@ -80,7 +82,9 @@ describe("push account-exit cleanup", () => {
 
   it("accepts confirmed server removal when browser unsubscribe returns false", async () => {
     const test = harness({ unsubscribe: false });
-    const removeOwned = vi.fn(() => Promise.resolve({ ok: true as const }));
+    const removeOwned = vi.fn(() =>
+      Promise.resolve({ ok: true as const, removed: true as const }),
+    );
 
     await expect(clearBrowserPushSubscription(removeOwned, test.adapter)).resolves.toBe(
       "server-removed",
@@ -88,6 +92,22 @@ describe("push account-exit cleanup", () => {
 
     expect(test.adapter.suppressDelivery).not.toHaveBeenCalled();
     expect(test.adapter.notifyCleared).toHaveBeenCalledOnce();
+  });
+
+  it("blocks explicit sign-out when the server request succeeds without removing the owned row", async () => {
+    const test = harness({ unsubscribe: false });
+    const removeOwned = vi.fn(() =>
+      Promise.resolve({ ok: true as const, removed: false as const }),
+    );
+
+    await expect(clearBrowserPushSubscription(removeOwned, test.adapter)).rejects.toBeInstanceOf(
+      PushAccountBoundaryError,
+    );
+
+    expect(removeOwned).toHaveBeenCalledWith(test.subscription.endpoint);
+    expect(test.adapter.suppressDelivery).not.toHaveBeenCalled();
+    expect(test.adapter.notifyBoundary).toHaveBeenCalledOnce();
+    expect(test.adapter.notifyCleared).not.toHaveBeenCalled();
   });
 
   it("orders explicit removal after an already-started subscribe write", async () => {
@@ -105,7 +125,7 @@ describe("push account-exit cleanup", () => {
     const test = harness({ unsubscribe: false });
     const removeOwned = vi.fn(() => {
       timeline.push("owned-row-removed");
-      return Promise.resolve({ ok: true as const });
+      return Promise.resolve({ ok: true as const, removed: true as const });
     });
 
     const exit = clearBrowserPushSubscription(removeOwned, test.adapter);
@@ -123,7 +143,9 @@ describe("push account-exit cleanup", () => {
 
   it("blocks explicit sign-out when subscription lookup fails", async () => {
     const test = harness({ lookupError: true });
-    const removeOwned = vi.fn(() => Promise.resolve({ ok: true as const }));
+    const removeOwned = vi.fn(() =>
+      Promise.resolve({ ok: true as const, removed: true as const }),
+    );
 
     await expect(clearBrowserPushSubscription(removeOwned, test.adapter)).rejects.toBeInstanceOf(
       PushAccountBoundaryError,
@@ -137,7 +159,9 @@ describe("push account-exit cleanup", () => {
 
   it("blocks explicit sign-out when unsubscribe rejects and the server returns ok false", async () => {
     const test = harness({ unsubscribe: new Error("unsubscribe failed") });
-    const removeOwned = vi.fn(() => Promise.resolve({ ok: false as const }));
+    const removeOwned = vi.fn(() =>
+      Promise.resolve({ ok: false as const, error: "request failed" }),
+    );
 
     await expect(clearBrowserPushSubscription(removeOwned, test.adapter)).rejects.toBeInstanceOf(
       PushAccountBoundaryError,
@@ -219,7 +243,9 @@ describe("push account-exit cleanup", () => {
 
   it("treats an absent browser subscription as a confirmed boundary", async () => {
     const test = harness({ noSubscription: true });
-    const removeOwned = vi.fn(() => Promise.resolve({ ok: true as const }));
+    const removeOwned = vi.fn(() =>
+      Promise.resolve({ ok: true as const, removed: true as const }),
+    );
 
     await expect(clearBrowserPushSubscription(removeOwned, test.adapter)).resolves.toBe(
       "no-subscription",

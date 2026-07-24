@@ -65,12 +65,14 @@ export async function savePushSubscriptionAction(input: {
   }
 }
 
-export async function unsubscribePushAction(endpoint: string): Promise<{ ok: true } | ActionError> {
+export async function unsubscribePushAction(
+  endpoint: string,
+): Promise<{ ok: true; removed: boolean } | ActionError> {
   const push = await caller();
   if (!push) return { ok: false, error: "Please sign in to continue." };
   try {
-    await push.push.unsubscribe({ endpoint });
-    return { ok: true };
+    const result = await push.push.unsubscribe({ endpoint });
+    return { ok: true, removed: result.removed };
   } catch (error) {
     return { ok: false, error: message(error) };
   }

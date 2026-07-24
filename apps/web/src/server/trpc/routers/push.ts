@@ -109,12 +109,12 @@ export const pushRouter = router({
     .input(z.object({ endpoint: Endpoint }))
     .mutation(async ({ ctx, input }) => {
       try {
-        await unsubscribePushSubscription(
+        const removed = await unsubscribePushSubscription(
           new DrizzlePushSubscriptionStore(ctx.db),
           ctx.clerkUserId,
           input.endpoint,
         );
-        return { ok: true as const };
+        return { removed };
       } catch (error) {
         inputError(error);
       }

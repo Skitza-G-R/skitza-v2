@@ -19,7 +19,9 @@ type BrowserPushAdapter = Readonly<{
   notifyCleared(): void;
 }>;
 
-type OwnedPushRemovalResult = Readonly<{ ok: boolean }>;
+type OwnedPushRemovalResult =
+  | Readonly<{ ok: true; removed: boolean }>
+  | Readonly<{ ok: false; error: string }>;
 
 export type OwnedPushRemoval = (endpoint: string) => Promise<OwnedPushRemovalResult>;
 export type PushBoundaryConfirmation =
@@ -255,7 +257,7 @@ export async function clearBrowserPushSubscription(
   const serverRemoval = removeOwned
     ? Promise.resolve()
         .then(() => removeOwned(subscription.endpoint))
-        .then((result) => result.ok)
+        .then((result) => result.ok && result.removed)
         .catch(() => false)
     : Promise.resolve(false);
   const [browserUnsubscribed, serverRemoved] = await Promise.all([
