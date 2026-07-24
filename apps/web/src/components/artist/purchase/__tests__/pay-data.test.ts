@@ -127,9 +127,11 @@ describe("proofStatusCopy", () => {
     expect(proofStatusCopy("empty").tone).toBe("neutral");
     expect(proofStatusCopy("attached").tone).toBe("neutral");
     expect(proofStatusCopy("uploading").tone).toBe("pending");
+    expect(proofStatusCopy("submitting").tone).toBe("pending");
     expect(proofStatusCopy("awaiting").tone).toBe("pending");
     expect(proofStatusCopy("rejected").tone).toBe("danger");
     expect(proofStatusCopy("paid").tone).toBe("success");
+    expect(proofStatusCopy("submitting").headline).toBe("Sending your proof for review…");
   });
 
   it("weaves the producer name into the awaiting headline", () => {

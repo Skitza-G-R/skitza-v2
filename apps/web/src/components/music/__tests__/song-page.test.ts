@@ -11,8 +11,12 @@ import {
   newestPlayableSongPageVersion,
   playButtonState,
   resolveInitialSongPageVersion,
+  songCommentDraftRoute,
   type SongPageVersion,
 } from "../song-page";
+import { readRuntimeTextDraft, writeRuntimeTextDraft } from "~/lib/runtime-state/drafts";
+import { RUNTIME_DRAFT_MAX_AGE_MS } from "~/lib/runtime-state/runtime-state";
+import { MemoryStorage } from "~/lib/runtime-state/__tests__/memory-storage";
 
 // L3 song-page tests. The L3 hero needs a Play button so producers can
 // actually start playback — the existing implementation had a "deferred"
@@ -651,6 +655,48 @@ describe("song-page.tsx source — truthful comment mutations", () => {
     );
     expect(resolveCommentSource).toMatch(/catch[\s\S]*setResolvedOverrides[\s\S]*currentResolved/);
   });
+});
+
+describe("song-page.tsx — drafts remain separate per active version", () => {
+  it.each(["producer", "artist"] as const)(
+    "recovers version A after switching A → B → A for the %s",
+    (role) => {
+      const storage = new MemoryStorage();
+      const slot = role === "artist" ? "artist.song-comment-draft" : "producer.song-comment-draft";
+      const identity = {
+        slot,
+        userId: `${role}-user`,
+        contextId: role === "artist" ? "studio-id" : "producer-id",
+      } as const;
+      const writtenAt = 1_000;
+      const versionA = {
+        ...identity,
+        route: songCommentDraftRoute(role, "version-a"),
+        resourceId: "version-a",
+        body: "Draft for A",
+      };
+      const versionB = {
+        ...identity,
+        route: songCommentDraftRoute(role, "version-b"),
+        resourceId: "version-b",
+        body: "Draft for B",
+      };
+
+      expect(writeRuntimeTextDraft(storage, versionA, writtenAt)).toBe(true);
+      expect(writeRuntimeTextDraft(storage, versionB, writtenAt + 1)).toBe(true);
+
+      expect(
+        readRuntimeTextDraft(storage, versionA, writtenAt + RUNTIME_DRAFT_MAX_AGE_MS - 1),
+      ).toEqual({
+        resourceId: "version-a",
+        body: "Draft for A",
+      });
+      expect(readRuntimeTextDraft(storage, versionB, writtenAt + 2)).toEqual({
+        resourceId: "version-b",
+        body: "Draft for B",
+      });
+    },
+  );
 });
 
 describe("song-page.tsx source — producer L3 management", () => {

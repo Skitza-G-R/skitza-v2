@@ -119,6 +119,13 @@ export type L3Actions = {
 //     artist wire payload overloads with the producer's display name.
 export type SongPageRole = "producer" | "artist";
 
+export function songCommentDraftRoute(role: SongPageRole, versionId: string): string {
+  const encodedVersionId = encodeURIComponent(versionId);
+  return role === "artist"
+    ? `/artist/music/song/${encodedVersionId}`
+    : `/dashboard/music/${encodedVersionId}`;
+}
+
 // ─── Wire types (Date crosses RSC → client as ISO strings) ───────────
 export type SongPageVersion = {
   id: string;
@@ -607,10 +614,7 @@ export function SongPage({
   const online = useOnlineStatus();
   const commentDraft = useRuntimeTextDraft({
     slot: role === "artist" ? "artist.song-comment-draft" : "producer.song-comment-draft",
-    route:
-      role === "artist"
-        ? `/artist/music/song/${data.selectedVersionId}`
-        : `/dashboard/music/${data.selectedVersionId}`,
+    route: songCommentDraftRoute(role, activeVersionId),
     ...(role === "artist" && artistStudioId ? { contextId: artistStudioId } : {}),
     resourceId: activeVersionId,
   });

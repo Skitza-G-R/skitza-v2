@@ -154,11 +154,14 @@ export function beginManagedUpload(input: {
       }));
     },
     setCompleting() {
+      const current = actions.get(id);
+      if (current) actions.set(id, current.retry ? { retry: current.retry } : {});
       updateRecord(id, (record) => ({
         ...record,
         status: "completing",
         progress: 100,
         error: null,
+        canCancel: false,
       }));
     },
     setCancel(cancel) {
@@ -239,7 +242,7 @@ export async function retryManagedUpload(id: string): Promise<boolean> {
 async function cancelManagedUploadForAccount(id: string, accountId: string): Promise<boolean> {
   const record = records.find((candidate) => candidate.id === id);
   const cancel = actions.get(id)?.cancel;
-  if (!record || record.accountId !== accountId || !cancel) return false;
+  if (!record || record.accountId !== accountId || !record.canCancel || !cancel) return false;
   updateRecord(id, (current) => ({
     ...current,
     status: "cancelling",

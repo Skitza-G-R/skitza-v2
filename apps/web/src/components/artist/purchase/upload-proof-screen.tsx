@@ -19,7 +19,7 @@ import {
   type ProofContentType,
 } from "./actions";
 import { formatPurchaseMoney, type ProofStatus, proofStatusCopy } from "./pay-data";
-import { startManagedPaymentProofUpload } from "./proof-upload-lifecycle";
+import { startManagedPaymentProofUpload, uploadPaymentProofBytes } from "./proof-upload-lifecycle";
 
 export type ArtistProofHistoryItem = Readonly<{
   id: string;
@@ -209,18 +209,18 @@ export function UploadProofScreen({
           ? `Amount cannot exceed ${formatPurchaseMoney(thisProofCents, effectiveCurrency)}.`
           : null;
   const isUploading = status === "uploading";
+  const isSubmitting = status === "submitting";
+  const isBusy = isUploading || isSubmitting;
   const isAwaiting = status === "awaiting";
   const isRejected = status === "rejected";
   const isPaidInFull = status === "paid" || paidCents >= totalCents;
   const canUpload = proofUploadsAvailable && !isAwaiting && !isPaidInFull;
-  const canSend = Boolean(
-    file && !amountError && !isUploading && canUpload && (online || previewOnly),
-  );
+  const canSend = Boolean(file && !amountError && !isBusy && canUpload && (online || previewOnly));
   const paidPct = totalCents <= 0 ? 100 : Math.min(100, Math.round((paidCents / totalCents) * 100));
   const headline = proofStatusCopy(status, producerName);
 
   function pickFile() {
-    if (!canUpload) return;
+    if (!canUpload || isBusy) return;
     if (fileRef.current) fileRef.current.value = "";
     fileRef.current?.click();
   }
@@ -286,11 +286,15 @@ export function UploadProofScreen({
         note: submittedNote,
         presign: presignProofUploadAction,
         submit: submitPaymentProofAction,
-        fetchImpl: fetch,
+        uploadFile: uploadPaymentProofBytes,
         onStart: () => {
           if (!mountedRef.current) return;
           setStatus("uploading");
           setUploadError(null);
+        },
+        onSubmitting: () => {
+          if (!mountedRef.current) return;
+          setStatus("submitting");
         },
         onSuccess: () => {
           if (!mountedRef.current) return;
@@ -436,12 +440,13 @@ export function UploadProofScreen({
                 type="file"
                 accept="image/jpeg,image/png,image/webp,image/heic,.heic,application/pdf"
                 onChange={onFileChange}
+                disabled={isBusy}
                 hidden
               />
               <button
                 type="button"
                 onClick={pickFile}
-                disabled={isUploading}
+                disabled={isBusy}
                 className="sk-press flex min-h-[148px] w-full flex-col items-center justify-center gap-2 rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-control))] bg-[rgb(var(--bg-elevated))] px-4 py-5 text-center disabled:opacity-60"
               >
                 {previewUrl ? (
@@ -616,7 +621,7 @@ export function UploadProofScreen({
               onClick={send}
               disabled={!canSend}
               glow={canSend}
-              ariaBusy={isUploading}
+              ariaBusy={isBusy}
               sub={
                 !online && !previewOnly
                   ? "Reconnect to send this live proof"
@@ -625,8 +630,12 @@ export function UploadProofScreen({
                     : "Attach a file to continue"
               }
             >
-              {isUploading ? (
-                "Uploading…"
+              {isBusy ? (
+                isSubmitting ? (
+                  "Sending…"
+                ) : (
+                  "Uploading…"
+                )
               ) : (
                 <>
                   Send proof <ArrowRight />

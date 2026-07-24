@@ -80,7 +80,7 @@ describe("UploadProofScreen SK-75 wiring", () => {
   it("uses an opaque upload token and never sends storage identity through the client", () => {
     expect(screenSource).toMatch(/startManagedPaymentProofUpload/);
     expect(lifecycleSource).toMatch(/presigned\.uploadToken/);
-    expect(lifecycleSource).toMatch(/fetchImpl\(presigned\.uploadUrl/);
+    expect(lifecycleSource).toMatch(/uploadFile\(\{[\s\S]*uploadUrl: presigned\.uploadUrl/);
     expect(screenSource).toMatch(/submitPaymentProofAction/);
     expect(actionsSource).toMatch(/proofOfPayment\.presign/);
     expect(actionsSource).toMatch(/proofOfPayment\.submit/);
@@ -88,6 +88,21 @@ describe("UploadProofScreen SK-75 wiring", () => {
       /storageKey|objectEtag|storageBucket/,
     );
     expect(actionsSource).not.toMatch(/storageKey|objectEtag|storageBucket/);
+  });
+
+  it("reports real upload bytes and removes Stop before server submission", () => {
+    expect(lifecycleSource).toContain("new XMLHttpRequest()");
+    expect(lifecycleSource).toMatch(
+      /request\.upload\.addEventListener\("progress"[\s\S]*event\.loaded/,
+    );
+    expect(lifecycleSource).toMatch(
+      /onProgress: \(loadedBytes, totalBytes\)[\s\S]*managed\.setUploading/,
+    );
+    expect(lifecycleSource).toMatch(/managed\.setCompleting\(\);[\s\S]*onSubmitting/);
+    expect(screenSource).toContain('setStatus("submitting")');
+    expect(screenSource).toMatch(
+      /isSubmitting\s*\?\s*\(\s*"Sending…"\s*\)\s*:\s*\(\s*"Uploading…"/,
+    );
   });
 
   it("preserves rejected history, shows the producer note, and allows replacement", () => {

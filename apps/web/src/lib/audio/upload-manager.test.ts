@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   beginManagedUpload,
+  cancelManagedUpload,
   cancelManagedUploadsForAccount,
   managedUploadsSnapshot,
   releaseManagedUploadsForAccount,
@@ -81,5 +82,24 @@ describe("app-level upload registry", () => {
 
     await expect(retryManagedUpload(upload.id)).resolves.toBe(false);
     expect(retry).not.toHaveBeenCalled();
+  });
+
+  it("removes Stop once server completion begins", async () => {
+    setUploadRuntimeAccountId(ACCOUNT_A);
+    const cancel = vi.fn(() => Promise.resolve({ ok: true }));
+    const upload = beginManagedUpload({ fileName: "proof.pdf", label: "Payment proof" });
+    upload.setCancel(cancel);
+    upload.setUploading(100);
+
+    upload.setCompleting();
+
+    expect(managedUploadsSnapshot()[0]).toMatchObject({
+      status: "completing",
+      progress: 100,
+      canCancel: false,
+    });
+    await expect(cancelManagedUpload(upload.id)).resolves.toBe(false);
+    expect(cancel).not.toHaveBeenCalled();
+    expect(managedUploadsSnapshot()[0]?.status).toBe("completing");
   });
 });

@@ -11,7 +11,10 @@ import {
   retryManagedUpload,
   setUploadRuntimeAccountId,
 } from "~/lib/audio/upload-manager";
-import { startManagedPaymentProofUpload } from "../proof-upload-lifecycle";
+import {
+  startManagedPaymentProofUpload,
+  type PaymentProofByteUpload,
+} from "../proof-upload-lifecycle";
 
 const ACCOUNT_ID = "artist-user";
 const here = dirname(fileURLToPath(import.meta.url));
@@ -37,7 +40,11 @@ function baseInput(
       uploadToken: "opaque-token",
     }),
     submit: vi.fn().mockResolvedValue({ ok: true, proofId: "proof-1" }),
-    fetchImpl: vi.fn().mockResolvedValue({ ok: true }) as unknown as typeof fetch,
+    uploadFile: vi.fn((request: Parameters<PaymentProofByteUpload>[0]) => {
+      request.onProgress(0, request.file.size);
+      request.onProgress(request.file.size, request.file.size);
+      return Promise.resolve({ ok: true });
+    }),
     ...overrides,
   };
 }
@@ -51,14 +58,14 @@ afterEach(() => {
 describe("managed payment-proof upload", () => {
   it("stays visible in app upload activity until server-confirmed success", async () => {
     setUploadRuntimeAccountId(ACCOUNT_ID);
-    let finishPut: ((response: Pick<Response, "ok">) => void) | undefined;
-    const fetchImpl = vi.fn(
-      () =>
-        new Promise<Pick<Response, "ok">>((resolve) => {
-          finishPut = resolve;
-        }),
-    ) as unknown as typeof fetch;
-    const input = baseInput({ fetchImpl });
+    let finishPut: ((response: { ok: boolean }) => void) | undefined;
+    let reportProgress: ((loadedBytes: number, totalBytes: number) => void) | undefined;
+    const uploadFile: PaymentProofByteUpload = (request) =>
+      new Promise((resolve) => {
+        finishPut = resolve;
+        reportProgress = request.onProgress;
+      });
+    const input = baseInput({ uploadFile });
 
     const upload = startManagedPaymentProofUpload(input);
     await vi.waitFor(() => {
@@ -67,9 +74,18 @@ describe("managed payment-proof upload", () => {
         fileName: "receipt.pdf",
         label: "Payment proof",
         status: "uploading",
+        progress: 0,
         canCancel: true,
         canRetry: true,
       });
+    });
+
+    const halfwayBytes = Math.floor(input.file.size / 2);
+    reportProgress?.(halfwayBytes, input.file.size);
+    await vi.waitFor(() => {
+      expect(managedUploadsSnapshot()[0]?.progress).toBe(
+        Math.round((halfwayBytes / input.file.size) * 100),
+      );
     });
 
     finishPut?.({ ok: true });
@@ -86,17 +102,14 @@ describe("managed payment-proof upload", () => {
   it("aborts an in-flight PUT and never submits after cancellation", async () => {
     setUploadRuntimeAccountId(ACCOUNT_ID);
     let readPutAborted = () => false;
-    const fetchImpl = vi.fn(
-      (_url: string | URL | Request, init?: RequestInit) =>
-        new Promise<Response>((_resolve, reject) => {
-          const putSignal = init?.signal ?? null;
-          readPutAborted = () => putSignal?.aborted ?? false;
-          init?.signal?.addEventListener("abort", () => {
-            reject(new DOMException("Aborted", "AbortError"));
-          });
-        }),
-    ) as unknown as typeof fetch;
-    const input = baseInput({ fetchImpl });
+    const uploadFile: PaymentProofByteUpload = (request) =>
+      new Promise((_resolve, reject) => {
+        readPutAborted = () => request.signal.aborted;
+        request.signal.addEventListener("abort", () => {
+          reject(new DOMException("Aborted", "AbortError"));
+        });
+      });
+    const input = baseInput({ uploadFile });
 
     const upload = startManagedPaymentProofUpload(input);
     await vi.waitFor(() => {
@@ -112,11 +125,11 @@ describe("managed payment-proof upload", () => {
 
   it("reports failure truthfully and retries from a fresh presign", async () => {
     setUploadRuntimeAccountId(ACCOUNT_ID);
-    const fetchImpl = vi
+    const uploadFile = vi
       .fn()
       .mockResolvedValueOnce({ ok: false })
-      .mockResolvedValueOnce({ ok: true }) as unknown as typeof fetch;
-    const input = baseInput({ fetchImpl });
+      .mockResolvedValueOnce({ ok: true }) as unknown as PaymentProofByteUpload;
+    const input = baseInput({ uploadFile });
 
     const upload = startManagedPaymentProofUpload(input);
     await expect(upload.finished).resolves.toBe("failed");
@@ -132,6 +145,78 @@ describe("managed payment-proof upload", () => {
     });
     expect(input.presign).toHaveBeenCalledTimes(2);
     expect(input.submit).toHaveBeenCalledOnce();
+  });
+
+  it("keeps Stop unavailable while a successful server submission settles", async () => {
+    setUploadRuntimeAccountId(ACCOUNT_ID);
+    let finishSubmit: ((result: { ok: true; proofId: string }) => void) | undefined;
+    const submit = vi.fn(
+      () =>
+        new Promise<{ ok: true; proofId: string }>((resolve) => {
+          finishSubmit = resolve;
+        }),
+    );
+    const onSubmitting = vi.fn();
+    const onCancelled = vi.fn();
+    const onSuccess = vi.fn();
+    const input = baseInput({ submit, onSubmitting, onCancelled, onSuccess });
+
+    const upload = startManagedPaymentProofUpload(input);
+    await vi.waitFor(() => {
+      expect(managedUploadsSnapshot()[0]).toMatchObject({
+        status: "completing",
+        canCancel: false,
+      });
+    });
+
+    await expect(cancelManagedUpload(upload.id)).resolves.toBe(false);
+    expect(managedUploadsSnapshot()[0]?.status).toBe("completing");
+    expect(onSubmitting).toHaveBeenCalledOnce();
+    expect(onCancelled).not.toHaveBeenCalled();
+
+    finishSubmit?.({ ok: true, proofId: "proof-1" });
+    await expect(upload.finished).resolves.toBe("succeeded");
+    expect(onSuccess).toHaveBeenCalledOnce();
+    expect(onCancelled).not.toHaveBeenCalled();
+    expect(managedUploadsSnapshot()[0]).toMatchObject({
+      status: "done",
+      canCancel: false,
+    });
+  });
+
+  it("reports a rejected server submission without claiming Stop or durable recovery", async () => {
+    setUploadRuntimeAccountId(ACCOUNT_ID);
+    let finishSubmit: ((result: { ok: false; error: string }) => void) | undefined;
+    const submit = vi.fn(
+      () =>
+        new Promise<{ ok: false; error: string }>((resolve) => {
+          finishSubmit = resolve;
+        }),
+    );
+    const onCancelled = vi.fn();
+    const onFailure = vi.fn();
+    const input = baseInput({ submit, onCancelled, onFailure });
+
+    const upload = startManagedPaymentProofUpload(input);
+    await vi.waitFor(() => {
+      expect(managedUploadsSnapshot()[0]).toMatchObject({
+        status: "completing",
+        canCancel: false,
+      });
+    });
+
+    await expect(cancelManagedUpload(upload.id)).resolves.toBe(false);
+    finishSubmit?.({ ok: false, error: "Could not record the proof." });
+    await expect(upload.finished).resolves.toBe("failed");
+
+    expect(onCancelled).not.toHaveBeenCalled();
+    expect(onFailure).toHaveBeenCalledWith("Could not record the proof.");
+    expect(managedUploadsSnapshot()[0]).toMatchObject({
+      status: "error",
+      error: "Could not record the proof.",
+      canCancel: false,
+    });
+    expect(managedUploadsSnapshot()[0]?.error).not.toMatch(/recovery record/i);
   });
 
   it("keeps proof bytes, signed URLs, and upload tokens out of persistent storage", () => {
