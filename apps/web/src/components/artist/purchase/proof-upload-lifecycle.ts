@@ -59,6 +59,9 @@ export type ManagedPaymentProofUpload = {
 
 type UploadPhase = "preparing" | "uploading" | "submitting";
 
+const OFFLINE_PAYMENT_PROOF_RETRY_MESSAGE =
+  "Reconnect to retry this payment proof. Your selected file is still available.";
+
 function errorMessage(error: unknown): string {
   return error instanceof Error && error.message
     ? error.message
@@ -155,6 +158,10 @@ export function startManagedPaymentProofUpload(
     return { ok: outcome === "cancelled" };
   });
   managed.setRetry(() => {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      input.onFailure?.(OFFLINE_PAYMENT_PROOF_RETRY_MESSAGE);
+      return Promise.reject(new Error(OFFLINE_PAYMENT_PROOF_RETRY_MESSAGE));
+    }
     managed.dismiss();
     startManagedPaymentProofUpload(input);
     return Promise.resolve();

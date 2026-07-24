@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -11,6 +11,7 @@ import {
   newestPlayableSongPageVersion,
   playButtonState,
   resolveInitialSongPageVersion,
+  runOnlineMusicManagement,
   songCommentDraftRoute,
   type SongPageVersion,
 } from "../song-page";
@@ -654,6 +655,34 @@ describe("song-page.tsx source — truthful comment mutations", () => {
       /if \(res\.ok\) return;[\s\S]*setResolvedOverrides[\s\S]*currentResolved/,
     );
     expect(resolveCommentSource).toMatch(/catch[\s\S]*setResolvedOverrides[\s\S]*currentResolved/);
+  });
+});
+
+describe("song-page.tsx — truthful online mutation boundaries", () => {
+  it("does not invoke artist approval or shared management actions while offline", async () => {
+    const action = vi.fn().mockResolvedValue({ ok: true } as const);
+
+    await expect(runOnlineMusicManagement(false, action)).resolves.toEqual({
+      ok: false,
+      error: "Reconnect before making this change. Nothing was changed.",
+    });
+    expect(action).not.toHaveBeenCalled();
+
+    await expect(runOnlineMusicManagement(true, action)).resolves.toEqual({ ok: true });
+    expect(action).toHaveBeenCalledOnce();
+  });
+
+  it("blocks producer ready changes offline and catches transport failures before UI mutation", () => {
+    const readySource = songPageSrc.slice(
+      songPageSrc.indexOf("function handleProducerReadyToggle"),
+      songPageSrc.indexOf("function handleJumpToComment"),
+    );
+    expect(readySource).toMatch(/if \(!online\)[\s\S]*No change was saved/);
+    expect(readySource).toMatch(/try \{[\s\S]*await markReadyAction/);
+    expect(readySource).toMatch(/catch[\s\S]*setError/);
+    expect(readySource.indexOf("await markReadyAction")).toBeLessThan(
+      readySource.indexOf("setProducerReadyOverrides"),
+    );
   });
 });
 

@@ -53,6 +53,7 @@ afterEach(() => {
   releaseManagedUploadsForAccount(ACCOUNT_ID);
   setUploadRuntimeAccountId(null);
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("managed payment-proof upload", () => {
@@ -123,13 +124,14 @@ describe("managed payment-proof upload", () => {
     expect(managedUploadsSnapshot()).toEqual([]);
   });
 
-  it("reports failure truthfully and retries from a fresh presign", async () => {
+  it("retains a failed proof offline, then retries from a fresh presign after reconnecting", async () => {
     setUploadRuntimeAccountId(ACCOUNT_ID);
     const uploadFile = vi
       .fn()
       .mockResolvedValueOnce({ ok: false })
       .mockResolvedValueOnce({ ok: true }) as unknown as PaymentProofByteUpload;
-    const input = baseInput({ uploadFile });
+    const onFailure = vi.fn();
+    const input = baseInput({ uploadFile, onFailure });
 
     const upload = startManagedPaymentProofUpload(input);
     await expect(upload.finished).resolves.toBe("failed");
@@ -139,11 +141,33 @@ describe("managed payment-proof upload", () => {
       error: "The file upload did not finish. Check your connection and try again.",
     });
 
+    const onlineState = { onLine: false };
+    vi.stubGlobal("navigator", onlineState);
+    await expect(retryManagedUpload(upload.id)).resolves.toBe(false);
+    expect(input.presign).toHaveBeenCalledOnce();
+    expect(input.submit).not.toHaveBeenCalled();
+    expect(managedUploadsSnapshot()[0]).toMatchObject({
+      id: upload.id,
+      status: "error",
+      canRetry: true,
+      error: "Reconnect to retry this payment proof. Your selected file is still available.",
+    });
+    expect(onFailure).toHaveBeenLastCalledWith(
+      "Reconnect to retry this payment proof. Your selected file is still available.",
+    );
+
+    onlineState.onLine = true;
     await expect(retryManagedUpload(upload.id)).resolves.toBe(true);
     await vi.waitFor(() => {
       expect(managedUploadsSnapshot()[0]?.status).toBe("done");
     });
     expect(input.presign).toHaveBeenCalledTimes(2);
+    expect(uploadFile).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        file: input.file,
+      }),
+    );
     expect(input.submit).toHaveBeenCalledOnce();
   });
 

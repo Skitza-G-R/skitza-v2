@@ -23,7 +23,9 @@ export type NoChargeSongAgreementPreview = Readonly<{
   snapshotDigest: string;
 }>;
 
-const OFFLINE_AGREEMENT_ERROR = "Reconnect to accept this agreement.";
+const OFFLINE_AGREEMENT_ERROR = "Reconnect to accept this agreement. Nothing was changed.";
+const AGREEMENT_TRANSPORT_ERROR =
+  "Couldn’t confirm acceptance. Check your connection, then refresh before trying again.";
 
 export async function runNoChargeAgreementAction<
   Result extends { ok: true } | { ok: false; error: string },
@@ -38,7 +40,7 @@ export async function runNoChargeAgreementAction<
   try {
     return await execute();
   } catch {
-    return { ok: false, error: "Could not accept the agreement. Please try again." };
+    return { ok: false, error: AGREEMENT_TRANSPORT_ERROR };
   }
 }
 
@@ -51,25 +53,36 @@ export function NoChargeSongAgreement({ preview }: { preview: NoChargeSongAgreem
 
   async function acceptAgreement() {
     if (!accepted || submitting) return;
-    setSubmitting(true);
-    setError(null);
-    const result = await runNoChargeAgreementAction({
-      online,
-      execute: () =>
-        acceptNoChargeSongProposalAction({
-          proposalToken: preview.proposalToken,
-          expectedSnapshotDigest: preview.snapshotDigest,
-          agreementAccepted: true,
-        }),
-    });
-    if (!result.ok) {
-      setSubmitting(false);
-      setError(result.error);
+    if (!online) {
+      setError(OFFLINE_AGREEMENT_ERROR);
       return;
     }
-    router.push(withArtistStudio(`/artist/music/${result.data.projectId}`, preview.producerId));
-    router.refresh();
+    setSubmitting(true);
+    setError(null);
+    try {
+      const result = await runNoChargeAgreementAction({
+        online,
+        execute: () =>
+          acceptNoChargeSongProposalAction({
+            proposalToken: preview.proposalToken,
+            expectedSnapshotDigest: preview.snapshotDigest,
+            agreementAccepted: true,
+          }),
+      });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      router.push(withArtistStudio(`/artist/music/${result.data.projectId}`, preview.producerId));
+      router.refresh();
+    } catch {
+      setError(AGREEMENT_TRANSPORT_ERROR);
+    } finally {
+      setSubmitting(false);
+    }
   }
+
+  const visibleError = online ? error : OFFLINE_AGREEMENT_ERROR;
 
   return (
     <div className="mx-auto w-full max-w-[640px] pb-24" data-testid="no-charge-song-agreement">
@@ -198,12 +211,12 @@ export function NoChargeSongAgreement({ preview }: { preview: NoChargeSongAgreem
           </AgreeCheck>
         </div>
 
-        {error ? (
+        {visibleError ? (
           <p
             role="alert"
             className="mt-3 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-danger)/0.1)] px-3.5 py-3 text-center text-[12.5px] font-medium text-[rgb(var(--fg-danger-text))]"
           >
-            {error}
+            {visibleError}
           </p>
         ) : null}
         <div className="mt-4">
@@ -216,13 +229,13 @@ export function NoChargeSongAgreement({ preview }: { preview: NoChargeSongAgreem
             ariaBusy={submitting}
             sub={
               !online
-                ? OFFLINE_AGREEMENT_ERROR
+                ? "Nothing was changed; reconnect to accept"
                 : accepted
-                ? "Creates one active ₪0 purchase and song space"
-                : "Accept the exact agreement to continue"
+                  ? "Creates one active ₪0 purchase and song space"
+                  : "Accept the exact agreement to continue"
             }
           >
-            {submitting ? "Accepting…" : "Accept and add song"}
+            {!online ? "Reconnect to accept" : submitting ? "Accepting…" : "Accept and add song"}
           </PrimaryCta>
         </div>
       </main>

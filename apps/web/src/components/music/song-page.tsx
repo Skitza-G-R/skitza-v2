@@ -41,6 +41,19 @@ import {
 // `revalidatePath`-targeted variant.
 export type MusicL3ActionResult = { ok: true } | { ok: false; error: string };
 
+export function runOnlineMusicManagement(
+  online: boolean,
+  action: () => Promise<MusicL3ActionResult>,
+): Promise<MusicL3ActionResult> {
+  if (!online) {
+    return Promise.resolve({
+      ok: false,
+      error: "Reconnect before making this change. Nothing was changed.",
+    });
+  }
+  return action();
+}
+
 export type MusicL3DeleteAudioActionResult =
   | {
       ok: true;
@@ -817,22 +830,33 @@ export function SongPage({
   function handleProducerReadyToggle() {
     if (!activeVersion) return;
     if (!actions.markVersionReady || artistApprovalLocked) return;
+    if (!online) {
+      setError("Reconnect to update this version. No change was saved.");
+      return;
+    }
     const isReady = activeVersion.producerMarkedFinalAtIso !== null;
     const markReadyAction = actions.markVersionReady;
+    setError(null);
     startTransition(async () => {
-      const res = await markReadyAction({
-        versionId: activeVersion.id,
-        ready: !isReady,
-      });
-      if (!res.ok) {
-        setError(res.error);
-        return;
+      try {
+        const res = await markReadyAction({
+          versionId: activeVersion.id,
+          ready: !isReady,
+        });
+        if (!res.ok) {
+          setError(res.error);
+          return;
+        }
+        setProducerReadyOverrides(
+          Object.fromEntries(
+            versions.map((version) => [version.id, !isReady && version.id === activeVersion.id]),
+          ),
+        );
+      } catch {
+        setError(
+          "Couldn’t confirm the ready status. Check your connection, then refresh before trying again.",
+        );
       }
-      setProducerReadyOverrides(
-        Object.fromEntries(
-          versions.map((version) => [version.id, !isReady && version.id === activeVersion.id]),
-        ),
-      );
     });
   }
 
@@ -905,7 +929,11 @@ export function SongPage({
     setManagementDialog({ kind, versionId: activeVersion.id });
   }
 
-  async function handleManagementSubmit(value: string): Promise<MusicL3ActionResult> {
+  function handleManagementSubmit(value: string): Promise<MusicL3ActionResult> {
+    return runOnlineMusicManagement(online, () => handleOnlineManagementSubmit(value));
+  }
+
+  async function handleOnlineManagementSubmit(value: string): Promise<MusicL3ActionResult> {
     if (!managementDialog) {
       return { ok: false, error: "Choose an action and try again." };
     }

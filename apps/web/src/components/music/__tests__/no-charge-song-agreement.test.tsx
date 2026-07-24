@@ -1,3 +1,7 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
@@ -9,20 +13,18 @@ vi.mock("~/app/(artist)/artist/music/no-charge/[proposalId]/actions", () => ({
   acceptNoChargeSongProposalAction: vi.fn(),
 }));
 
-import {
-  NoChargeSongAgreement,
-  runNoChargeAgreementAction,
-} from "../no-charge-song-agreement";
+import { NoChargeSongAgreement, runNoChargeAgreementAction } from "../no-charge-song-agreement";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const agreementSource = readFileSync(join(here, "..", "no-charge-song-agreement.tsx"), "utf8");
 
 describe("NoChargeSongAgreement", () => {
   it("blocks offline before calling the live acceptance action", async () => {
     const execute = vi.fn(() => Promise.resolve({ ok: true as const }));
 
-    await expect(
-      runNoChargeAgreementAction({ online: false, execute }),
-    ).resolves.toEqual({
+    await expect(runNoChargeAgreementAction({ online: false, execute })).resolves.toEqual({
       ok: false,
-      error: "Reconnect to accept this agreement.",
+      error: "Reconnect to accept this agreement. Nothing was changed.",
     });
     expect(execute).not.toHaveBeenCalled();
   });
@@ -35,7 +37,8 @@ describe("NoChargeSongAgreement", () => {
       }),
     ).resolves.toEqual({
       ok: false,
-      error: "Could not accept the agreement. Please try again.",
+      error:
+        "Couldn’t confirm acceptance. Check your connection, then refresh before trying again.",
     });
   });
 
@@ -91,5 +94,22 @@ describe("NoChargeSongAgreement", () => {
     expect(html).toContain("I accept this exact ₪0 agreement for one song.");
     expect(html).not.toContain("payment installment");
     expect(html).not.toContain("fixed inset-0");
+  });
+
+  it("blocks offline acceptance and recovers visibly from rejected transport", () => {
+    const acceptanceSource = agreementSource.slice(
+      agreementSource.indexOf("async function acceptAgreement"),
+      agreementSource.indexOf("const visibleError"),
+    );
+
+    expect(agreementSource).toContain("useOnlineStatus()");
+    expect(acceptanceSource.indexOf("if (!online)")).toBeLessThan(
+      acceptanceSource.indexOf("acceptNoChargeSongProposalAction"),
+    );
+    expect(acceptanceSource).toMatch(/catch[\s\S]*setError/);
+    expect(acceptanceSource).toMatch(/finally[\s\S]*setSubmitting\(false\)/);
+    expect(agreementSource).toContain("disabled={!accepted || submitting || !online}");
+    expect(agreementSource).toContain("Reconnect to accept");
+    expect(agreementSource).toContain('role="alert"');
   });
 });
