@@ -37,6 +37,27 @@ const SIGN_OUT_BOUNDARY_ERROR =
 const ACCOUNT_SWITCH_BOUNDARY_ERROR =
   "This account switch couldn’t safely separate browser notifications. Signing out for safety.";
 const AUTH_SIGN_OUT_ERROR = "Couldn’t finish signing out. Close this tab and try again.";
+const CLERK_SIGN_OUT_LOCALIZATION_SELECTOR =
+  '[data-localization-key="userButtonPopoverActionSignOut"]';
+const CLERK_SIGN_OUT_ACTION_SELECTOR = ".cl-userButtonPopoverActionButton__signOut";
+const CLERK_USER_BUTTON_POPOVER_SELECTOR = ".cl-userButtonPopoverCard";
+
+export function isClerkUserButtonSignOutTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  if (
+    target.closest(CLERK_SIGN_OUT_LOCALIZATION_SELECTOR) ||
+    target.closest(CLERK_SIGN_OUT_ACTION_SELECTOR)
+  ) {
+    return true;
+  }
+
+  const button = target.closest("button");
+  return Boolean(
+    button &&
+      button.closest(CLERK_USER_BUTTON_POPOVER_SELECTOR) &&
+      button.textContent.trim() === "Sign out",
+  );
+}
 
 export async function prepareMediaAccountExit(accountId: string): Promise<boolean> {
   // The active in-memory callbacks hold the File and can abort an in-flight
@@ -167,12 +188,7 @@ function AppUploadRuntime({ accountId }: { accountId: string | null | undefined 
   useEffect(() => {
     if (!accountId) return;
     const onClerkSignOut = (event: MouseEvent) => {
-      const target = event.target;
-      if (
-        !(target instanceof Element) ||
-        !target.closest('[data-localization-key="userButtonPopoverActionSignOut"]') ||
-        interceptingSignOutRef.current
-      ) {
+      if (!isClerkUserButtonSignOutTarget(event.target) || interceptingSignOutRef.current) {
         return;
       }
       // Clerk's built-in UserButton otherwise destroys auth immediately. Stop

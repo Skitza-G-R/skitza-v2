@@ -93,12 +93,19 @@ describe("SK-110 root media runtime", () => {
   });
 
   it("intercepts built-in Clerk sign-out and stops before auth exit on boundary failure", () => {
-    const builtInCapture = ROOT_RUNTIME.indexOf(
-      'data-localization-key="userButtonPopoverActionSignOut"',
+    const builtInCapture = ROOT_RUNTIME.indexOf("const onClerkSignOut");
+    const targetMatch = ROOT_RUNTIME.indexOf(
+      "isClerkUserButtonSignOutTarget(event.target)",
+      builtInCapture,
+    );
+    const preventDefault = ROOT_RUNTIME.indexOf("event.preventDefault()", targetMatch);
+    const stopImmediatePropagation = ROOT_RUNTIME.indexOf(
+      "event.stopImmediatePropagation()",
+      preventDefault,
     );
     const builtInCleanup = ROOT_RUNTIME.indexOf(
       "await prepareAppAccountExit(accountId, unsubscribePushAction)",
-      builtInCapture,
+      stopImmediatePropagation,
     );
     const boundaryError = ROOT_RUNTIME.indexOf(
       "toastRef.current(SIGN_OUT_BOUNDARY_ERROR",
@@ -107,10 +114,16 @@ describe("SK-110 root media runtime", () => {
     const blockedReturn = ROOT_RUNTIME.indexOf("return;", boundaryError);
     const builtInSignOut = ROOT_RUNTIME.indexOf("await clerkRef.current.signOut()", blockedReturn);
     expect(builtInCapture).toBeGreaterThanOrEqual(0);
-    expect(builtInCleanup).toBeGreaterThan(builtInCapture);
+    expect(targetMatch).toBeGreaterThan(builtInCapture);
+    expect(preventDefault).toBeGreaterThan(targetMatch);
+    expect(stopImmediatePropagation).toBeGreaterThan(preventDefault);
+    expect(builtInCleanup).toBeGreaterThan(stopImmediatePropagation);
     expect(boundaryError).toBeGreaterThan(builtInCleanup);
     expect(blockedReturn).toBeGreaterThan(boundaryError);
     expect(builtInSignOut).toBeGreaterThan(blockedReturn);
+    expect(ROOT_RUNTIME).toContain(
+      'document.addEventListener("click", onClerkSignOut, true)',
+    );
   });
 
   it("keeps the new account hidden until switch invalidation is confirmed", () => {
