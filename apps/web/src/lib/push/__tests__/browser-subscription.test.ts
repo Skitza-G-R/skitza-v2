@@ -80,18 +80,20 @@ describe("push account-exit cleanup", () => {
     expect(test.adapter.notifyCleared).toHaveBeenCalledOnce();
   });
 
-  it("accepts confirmed server removal when browser unsubscribe returns false", async () => {
+  it("blocks the cross-tab late write race when browser unsubscribe returns false after server removal", async () => {
     const test = harness({ unsubscribe: false });
     const removeOwned = vi.fn(() =>
       Promise.resolve({ ok: true as const, removed: true as const }),
     );
 
-    await expect(clearBrowserPushSubscription(removeOwned, test.adapter)).resolves.toBe(
-      "server-removed",
+    await expect(clearBrowserPushSubscription(removeOwned, test.adapter)).rejects.toBeInstanceOf(
+      PushAccountBoundaryError,
     );
 
+    expect(removeOwned).toHaveBeenCalledWith(test.subscription.endpoint);
     expect(test.adapter.suppressDelivery).not.toHaveBeenCalled();
-    expect(test.adapter.notifyCleared).toHaveBeenCalledOnce();
+    expect(test.adapter.notifyBoundary).toHaveBeenCalledOnce();
+    expect(test.adapter.notifyCleared).not.toHaveBeenCalled();
   });
 
   it("blocks explicit sign-out when the server request succeeds without removing the owned row", async () => {
@@ -134,11 +136,12 @@ describe("push account-exit cleanup", () => {
     expect(removeOwned).not.toHaveBeenCalled();
 
     resolveSave?.({ ok: true });
-    await expect(exit).resolves.toBe("server-removed");
+    await expect(exit).rejects.toBeInstanceOf(PushAccountBoundaryError);
     await expect(trackedSave).resolves.toEqual({ ok: true });
 
     expect(timeline).toEqual(["subscribe-committed", "owned-row-removed"]);
     expect(removeOwned).toHaveBeenCalledWith(test.subscription.endpoint);
+    expect(test.adapter.notifyCleared).not.toHaveBeenCalled();
   });
 
   it("blocks explicit sign-out when subscription lookup fails", async () => {
@@ -172,37 +175,52 @@ describe("push account-exit cleanup", () => {
     expect(test.adapter.notifyCleared).not.toHaveBeenCalled();
   });
 
-  it("uses durable local suppression when account-switch lookup fails", async () => {
+  it("blocks explicit sign-out when unsubscribe rejects after server removal", async () => {
+    const test = harness({ unsubscribe: new Error("unsubscribe failed") });
+    const removeOwned = vi.fn(() =>
+      Promise.resolve({ ok: true as const, removed: true as const }),
+    );
+
+    await expect(clearBrowserPushSubscription(removeOwned, test.adapter)).rejects.toBeInstanceOf(
+      PushAccountBoundaryError,
+    );
+
+    expect(removeOwned).toHaveBeenCalledWith(test.subscription.endpoint);
+    expect(test.adapter.suppressDelivery).not.toHaveBeenCalled();
+    expect(test.adapter.notifyCleared).not.toHaveBeenCalled();
+  });
+
+  it("does not let shared suppression authorize an account switch when lookup fails", async () => {
     const test = harness({ lookupError: true });
 
-    await expect(clearBrowserPushSubscription(null, test.adapter)).resolves.toBe(
-      "delivery-suppressed",
+    await expect(clearBrowserPushSubscription(null, test.adapter)).rejects.toBeInstanceOf(
+      PushAccountBoundaryError,
     );
 
     expect(test.adapter.suppressDelivery).toHaveBeenCalledOnce();
-    expect(test.adapter.notifyCleared).toHaveBeenCalledOnce();
+    expect(test.adapter.notifyCleared).not.toHaveBeenCalled();
   });
 
-  it("uses durable local suppression when account-switch unsubscribe returns false", async () => {
+  it("does not let shared suppression authorize an account switch after unsubscribe returns false", async () => {
     const test = harness({ unsubscribe: false });
 
-    await expect(clearBrowserPushSubscription(null, test.adapter)).resolves.toBe(
-      "delivery-suppressed",
+    await expect(clearBrowserPushSubscription(null, test.adapter)).rejects.toBeInstanceOf(
+      PushAccountBoundaryError,
     );
 
     expect(test.adapter.suppressDelivery).toHaveBeenCalledOnce();
-    expect(test.adapter.notifyCleared).toHaveBeenCalledOnce();
+    expect(test.adapter.notifyCleared).not.toHaveBeenCalled();
   });
 
-  it("uses durable local suppression when account-switch unsubscribe rejects", async () => {
+  it("does not let shared suppression authorize an account switch after unsubscribe rejects", async () => {
     const test = harness({ unsubscribe: new Error("unsubscribe failed") });
 
-    await expect(clearBrowserPushSubscription(null, test.adapter)).resolves.toBe(
-      "delivery-suppressed",
+    await expect(clearBrowserPushSubscription(null, test.adapter)).rejects.toBeInstanceOf(
+      PushAccountBoundaryError,
     );
 
     expect(test.adapter.suppressDelivery).toHaveBeenCalledOnce();
-    expect(test.adapter.notifyCleared).toHaveBeenCalledOnce();
+    expect(test.adapter.notifyCleared).not.toHaveBeenCalled();
   });
 
   it("blocks an account switch when unsubscribe and durable suppression both fail", async () => {
@@ -231,8 +249,8 @@ describe("push account-exit cleanup", () => {
       ),
     });
 
-    await expect(clearBrowserPushSubscription(null, test.adapter)).resolves.toBe(
-      "delivery-suppressed",
+    await expect(clearBrowserPushSubscription(null, test.adapter)).rejects.toBeInstanceOf(
+      PushAccountBoundaryError,
     );
     await expect(
       resumeBrowserPushDelivery(() => pushAccountBoundaryAllowsDelivery(staleGeneration)),

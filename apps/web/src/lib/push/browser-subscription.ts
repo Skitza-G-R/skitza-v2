@@ -24,11 +24,7 @@ type OwnedPushRemovalResult =
   | Readonly<{ ok: false; error: string }>;
 
 export type OwnedPushRemoval = (endpoint: string) => Promise<OwnedPushRemovalResult>;
-export type PushBoundaryConfirmation =
-  | "no-subscription"
-  | "browser-unsubscribed"
-  | "server-removed"
-  | "delivery-suppressed";
+export type PushBoundaryConfirmation = "no-subscription" | "browser-unsubscribed";
 
 export class PushAccountBoundaryError extends Error {
   constructor() {
@@ -211,12 +207,12 @@ function browserAdapter(): BrowserPushAdapter {
  * Removes this origin's browser subscription during an account boundary.
  *
  * Explicit sign-out passes `removeOwned` while Clerk auth is still live, so
- * the server can delete the exact owned row. It advances only after server
- * deletion or browser invalidation is confirmed. An already-completed
- * identity switch omits server deletion: local unsubscribe must succeed, or
- * a durable service-worker suppression marker must be confirmed before the
- * new account can use app-level push/upload state. Fail-closed server
- * ownership still prevents the new account from claiming the old endpoint.
+ * the server can delete the exact owned row as cleanup. Only confirmed browser
+ * invalidation can advance an existing subscription boundary: another tab can
+ * recreate a deleted row or clear a shared service-worker suppression marker.
+ * An absent browser subscription is already safe. Every other path fails
+ * closed so explicit sign-out is blocked and account-switch handling can hide
+ * private state and sign the new account out.
  */
 export async function clearBrowserPushSubscription(
   removeOwned: OwnedPushRemoval | null,
@@ -232,8 +228,8 @@ export async function clearBrowserPushSubscription(
 
   if (removeOwned) {
     // A subscribe action that started before this synchronous boundary marker
-    // may still commit. Drain it first so the authenticated delete is the last
-    // server write for this endpoint.
+    // may still commit in this tab. Drain it first so authenticated cleanup
+    // follows this tab's pending write; another tab can still write later.
     await waitForInFlightPushSubscriptionWrites();
   }
 
@@ -241,9 +237,7 @@ export async function clearBrowserPushSubscription(
   try {
     subscription = await adapter.getSubscription();
   } catch {
-    if (removeOwned === null && (await adapter.suppressDelivery().catch(() => false))) {
-      return confirm("delivery-suppressed");
-    }
+    if (removeOwned === null) await adapter.suppressDelivery().catch(() => false);
     throw new PushAccountBoundaryError();
   }
   if (!subscription) {
@@ -254,24 +248,22 @@ export async function clearBrowserPushSubscription(
     .then(() => subscription.unsubscribe())
     .then((unsubscribed) => unsubscribed)
     .catch(() => false);
-  const serverRemoval = removeOwned
+  const serverCleanup = removeOwned
     ? Promise.resolve()
         .then(() => removeOwned(subscription.endpoint))
-        .then((result) => result.ok && result.removed)
-        .catch(() => false)
-    : Promise.resolve(false);
-  const [browserUnsubscribed, serverRemoved] = await Promise.all([
+        .then(() => undefined)
+        .catch(() => undefined)
+    : Promise.resolve();
+  const [browserUnsubscribed] = await Promise.all([
     browserUnsubscribe,
-    serverRemoval,
+    serverCleanup,
   ]);
 
-  if (browserUnsubscribed || serverRemoved) {
-    return confirm(browserUnsubscribed ? "browser-unsubscribed" : "server-removed");
+  if (browserUnsubscribed) {
+    return confirm("browser-unsubscribed");
   }
 
-  if (removeOwned === null && (await adapter.suppressDelivery().catch(() => false))) {
-    return confirm("delivery-suppressed");
-  }
+  if (removeOwned === null) await adapter.suppressDelivery().catch(() => false);
 
   throw new PushAccountBoundaryError();
 }
