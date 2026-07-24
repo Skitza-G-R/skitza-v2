@@ -151,7 +151,9 @@ describe("SK-110 root media runtime", () => {
     expect(ROOT_RUNTIME).toContain("previous && accountId === null");
     expect(ROOT_RUNTIME).toContain("void clerkRef.current.signOut().catch");
     expect(PUSH_EXIT).toContain("await adapter.suppressDelivery()");
-    expect(PUSH_EXIT).toContain("Fail-closed server");
+    expect(PUSH_EXIT).toContain('if (browserUnsubscribed) {');
+    expect(PUSH_EXIT).not.toContain('"server-removed"');
+    expect(PUSH_EXIT).not.toContain('return confirm("delivery-suppressed")');
   });
 
   it("warns only for an active upload and does not claim close/relaunch continuation", () => {
