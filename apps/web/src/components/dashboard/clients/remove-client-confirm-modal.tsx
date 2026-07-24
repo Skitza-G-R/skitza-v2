@@ -5,6 +5,7 @@ import { AlertTriangle, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { type RefObject, useTransition } from "react";
 
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
 import { removeClientAction } from "~/app/(producer)/dashboard/clients-projects/clients-actions";
 
@@ -37,20 +38,29 @@ export function RemoveClientConfirmModal({
 }: RemoveClientConfirmModalProps) {
   const { toast } = useToast();
   const router = useRouter();
+  const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
 
   const handleRemove = () => {
+    if (!online) {
+      toast("Reconnect to remove this client.", "error");
+      return;
+    }
     startTransition(async () => {
-      const res = await removeClientAction({ id: client.id });
-      if (!res.ok) {
-        toast(res.error, "error");
-        return;
+      try {
+        const res = await removeClientAction({ id: client.id });
+        if (!res.ok) {
+          toast(res.error, "error");
+          return;
+        }
+        toast(`${client.name} permanently deleted`, "success");
+        onRemoved?.();
+        router.push(CLIENTS_PATH);
+        router.refresh();
+        onClose();
+      } catch {
+        toast("Could not remove this client. Try again.", "error");
       }
-      toast(`${client.name} permanently deleted`, "success");
-      onRemoved?.();
-      router.push(CLIENTS_PATH);
-      router.refresh();
-      onClose();
     });
   };
 

@@ -32,6 +32,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 
 import { useToast } from "~/components/ui/toast";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { PlatformIcon } from "~/components/portfolio/platform-icons";
 import {
   pickDurationMs,
@@ -256,6 +257,7 @@ function FeaturedTracksSection({
   const [rows, setRows] = useState<PortfolioTrackRow[]>(initialTracks);
   const router = useRouter();
   const { toast } = useToast();
+  const online = useOnlineStatus();
   const [, startTransition] = useTransition();
   const playback = useNowPlaying();
 
@@ -266,23 +268,32 @@ function FeaturedTracksSection({
   const atCap = rows.length >= TRACK_CAP;
 
   function remove(id: string) {
+    if (!online) {
+      toast("Reconnect to change your featured tracks.", "error");
+      return;
+    }
     const removed = rows.find((row) => row.id === id);
     if (removed && playback.trackId === removed.versionId) {
       playerClose();
     }
     setRows((all) => all.filter((r) => r.id !== id));
     startTransition(async () => {
-      const res = await setPortfolioSongPublished({
-        trackId: id,
-        operationKey: crypto.randomUUID(),
-        published: false,
-      });
-      if (!res.ok) {
-        toast(res.error, "error");
+      try {
+        const res = await setPortfolioSongPublished({
+          trackId: id,
+          operationKey: crypto.randomUUID(),
+          published: false,
+        });
+        if (!res.ok) {
+          toast(res.error, "error");
+          setRows(initialTracks);
+          return;
+        }
+        router.refresh();
+      } catch {
         setRows(initialTracks);
-        return;
+        toast("Could not remove this featured track. Please try again.", "error");
       }
-      router.refresh();
     });
   }
 
@@ -360,9 +371,7 @@ function TrackRow({ row, onRemove }: { row: PortfolioTrackRow; onRemove: () => v
     isCurrent ? runtime.audioDurationSec : null,
   );
   const progress =
-    isCurrent && resolvedDurationMs
-      ? Math.min(1, runtime.currentMs / resolvedDurationMs)
-      : 0;
+    isCurrent && resolvedDurationMs ? Math.min(1, runtime.currentMs / resolvedDurationMs) : 0;
 
   useEffect(() => {
     if (!isCurrent) {
@@ -576,6 +585,7 @@ function SocialLinksSection({ initialLinks }: { initialLinks: ExternalLinkRow[] 
   const [, startTransition] = useTransition();
   const router = useRouter();
   const { toast } = useToast();
+  const online = useOnlineStatus();
 
   useEffect(() => {
     setRows(initialLinks);
@@ -592,17 +602,26 @@ function SocialLinksSection({ initialLinks }: { initialLinks: ExternalLinkRow[] 
     const oldIndex = rows.findIndex((r) => r.id === active.id);
     const newIndex = rows.findIndex((r) => r.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
+    if (!online) {
+      toast("Reconnect to reorder social links.", "error");
+      return;
+    }
     const next = arrayMove(rows, oldIndex, newIndex);
     const orderedIds = next.map((r) => r.id);
     setRows(next);
     startTransition(async () => {
-      const res = await reorderExternalLinks({ orderedIds });
-      if (!res.ok) {
-        toast(res.error, "error");
+      try {
+        const res = await reorderExternalLinks({ orderedIds });
+        if (!res.ok) {
+          toast(res.error, "error");
+          setRows(initialLinks);
+          return;
+        }
+        router.refresh();
+      } catch {
         setRows(initialLinks);
-        return;
+        toast("Could not reorder social links. Please try again.", "error");
       }
-      router.refresh();
     });
   }
 
@@ -610,30 +629,48 @@ function SocialLinksSection({ initialLinks }: { initialLinks: ExternalLinkRow[] 
     e.preventDefault();
     const trimmed = url.trim();
     if (!trimmed) return;
+    if (!online) {
+      setError("Reconnect to add a social link.");
+      return;
+    }
     setError(null);
     setAdding(true);
     startTransition(async () => {
-      const res = await addExternalLink({ url: trimmed });
-      setAdding(false);
-      if (!res.ok) {
-        setError(res.error);
-        return;
+      try {
+        const res = await addExternalLink({ url: trimmed });
+        if (!res.ok) {
+          setError(res.error);
+          return;
+        }
+        setUrl("");
+        router.refresh();
+      } catch {
+        setError("Could not add this social link. Please try again.");
+      } finally {
+        setAdding(false);
       }
-      setUrl("");
-      router.refresh();
     });
   }
 
   function remove(id: string) {
+    if (!online) {
+      toast("Reconnect to remove a social link.", "error");
+      return;
+    }
     setRows((all) => all.filter((r) => r.id !== id));
     startTransition(async () => {
-      const res = await removeExternalLink({ id });
-      if (!res.ok) {
-        toast(res.error, "error");
+      try {
+        const res = await removeExternalLink({ id });
+        if (!res.ok) {
+          toast(res.error, "error");
+          setRows(initialLinks);
+          return;
+        }
+        router.refresh();
+      } catch {
         setRows(initialLinks);
-        return;
+        toast("Could not remove this social link. Please try again.", "error");
       }
-      router.refresh();
     });
   }
 
@@ -820,6 +857,7 @@ function AddFromLibraryButton({
   const [, startTransition] = useTransition();
   const router = useRouter();
   const { toast } = useToast();
+  const online = useOnlineStatus();
 
   useEffect(() => {
     if (!open) return;
@@ -835,20 +873,29 @@ function AddFromLibraryButton({
   function pick(row: LibraryPickRow) {
     if (!row.audioUrl) return;
     if (addedSet.has(row.trackId)) return;
+    if (!online) {
+      toast("Reconnect to publish a featured track.", "error");
+      return;
+    }
     setPendingId(row.trackId);
     startTransition(async () => {
-      const res = await setPortfolioSongPublished({
-        trackId: row.trackId,
-        operationKey: crypto.randomUUID(),
-        published: true,
-      });
-      setPendingId(null);
-      if (!res.ok) {
-        toast(res.error, "error");
-        return;
+      try {
+        const res = await setPortfolioSongPublished({
+          trackId: row.trackId,
+          operationKey: crypto.randomUUID(),
+          published: true,
+        });
+        if (!res.ok) {
+          toast(res.error, "error");
+          return;
+        }
+        setOpen(false);
+        router.refresh();
+      } catch {
+        toast("Could not publish this featured track. Please try again.", "error");
+      } finally {
+        setPendingId(null);
       }
-      setOpen(false);
-      router.refresh();
     });
   }
 

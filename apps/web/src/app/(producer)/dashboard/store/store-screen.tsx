@@ -8,11 +8,12 @@
 
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { reorderProducts, setPackageActive } from "~/app/(producer)/dashboard/booking/actions";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
+import { useProducerStoreProductDraft } from "~/components/runtime-state/use-runtime-state";
 import { useToast } from "~/components/ui/toast";
 import type { TaxMode } from "~/lib/tax-mode";
 
@@ -84,12 +85,31 @@ export function StoreScreen({
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<StoreProduct | null>(null);
   const [removing, setRemoving] = useState<StoreProduct | null>(null);
+  const storeDraft = useProducerStoreProductDraft();
+  const restoredStoreDraftRef = useRef(false);
   // Phase 3 P3-11 — flags the most-recently-created product id so its
   // card gets the `sk-shimmer-glow` className for ~4s. Cleared by the
   // setTimeout in handleCreated below. Holds at most one id at a time.
   const [recentlyAdded, setRecentlyAdded] = useState<string | null>(null);
   const [reorderAnnouncement, setReorderAnnouncement] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
+
+  useLayoutEffect(() => {
+    if (!storeDraft.loaded || restoredStoreDraftRef.current) return;
+    restoredStoreDraftRef.current = true;
+    const saved = storeDraft.record;
+    if (!saved) return;
+    if (saved.mode === "new") {
+      setCreating(true);
+      return;
+    }
+    const product = products.find((item) => item.id === saved.productId);
+    if (product) {
+      setEditing(product);
+      return;
+    }
+    storeDraft.clear();
+  }, [products, storeDraft]);
 
   function handleCreated(id: string) {
     setRecentlyAdded(id);
@@ -351,6 +371,7 @@ export function StoreScreen({
       <ProductEditor
         open={creating}
         onOpenChange={(o) => {
+          if (!o) storeDraft.clear();
           setCreating(o);
         }}
         product={null}
@@ -360,13 +381,18 @@ export function StoreScreen({
         producerName={producerName}
         previewPlacement={counts.live === 0 ? "focal" : "secondary"}
         onCreated={handleCreated}
+        persistedDraft={storeDraft.record}
+        onPersistDraft={storeDraft.save}
       />
 
       {/* Edit modal */}
       <ProductEditor
         open={editing !== null}
         onOpenChange={(o) => {
-          if (!o) setEditing(null);
+          if (!o) {
+            storeDraft.clear();
+            setEditing(null);
+          }
         }}
         product={editing}
         defaultCurrency={defaultCurrency}
@@ -376,6 +402,8 @@ export function StoreScreen({
         previewPlacement={
           editing?.active && editing.id === firstLiveProductId ? "focal" : "secondary"
         }
+        persistedDraft={storeDraft.record}
+        onPersistDraft={storeDraft.save}
       />
 
       <ProductRemovalModal

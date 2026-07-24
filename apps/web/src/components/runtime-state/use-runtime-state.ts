@@ -3,12 +3,15 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
+  pruneRuntimeSafeViews,
   readRuntimeState,
+  removeRuntimeState,
   runtimeScope,
   writeRuntimeState,
   type ArtistHomeSafeView,
   type ProducerDisplayNameDraft,
   type ProducerOverviewSafeView,
+  type ProducerStoreProductDraft,
   type RuntimePayloadBySlot,
   type RuntimeSlot,
 } from "~/lib/runtime-state/runtime-state";
@@ -44,6 +47,21 @@ export interface RuntimeCachedViewResult<Slot extends SafeViewSlot> {
   data: RuntimePayloadBySlot[Slot] | undefined;
   source: "unseen" | "cache" | "server";
   refreshing: boolean;
+}
+
+const RUNTIME_STATE_UPDATED_EVENT = "skitza:runtime-state-updated";
+
+interface RuntimeStateUpdatedDetail {
+  scopeKey: string;
+  slot: RuntimeSlot;
+}
+
+function emitRuntimeStateUpdated(scopeKey: string, slot: RuntimeSlot): void {
+  window.dispatchEvent(
+    new CustomEvent<RuntimeStateUpdatedDetail>(RUNTIME_STATE_UPDATED_EVENT, {
+      detail: { scopeKey, slot },
+    }),
+  );
 }
 
 function useSynchronousRuntimeDraftFlush(activeScopeKey: string | null) {
@@ -121,13 +139,35 @@ export function useRuntimeCachedView<Slot extends SafeViewSlot>({
   }, [privateStateAccessAllowed, scope, scopeKey, serverData, slot, storage]);
 
   useEffect(() => {
+    if (!privateStateAccessAllowed || !storage || !scope) return;
+    const onRuntimeStateUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<RuntimeStateUpdatedDetail>).detail;
+      if (detail.scopeKey !== scopeKey || detail.slot !== slot) return;
+      const cached = readRuntimeState(storage, scope, slot);
+      setData(cached ?? undefined);
+      setSource(cached ? "cache" : "unseen");
+    };
+    window.addEventListener(RUNTIME_STATE_UPDATED_EVENT, onRuntimeStateUpdated);
+    return () => {
+      window.removeEventListener(RUNTIME_STATE_UPDATED_EVENT, onRuntimeStateUpdated);
+    };
+  }, [privateStateAccessAllowed, scope, scopeKey, slot, storage]);
+
+  useEffect(() => {
     if (!privateStateAccessAllowed || !storage || !scope || !serverData) return;
     // Layout effects flush before the browser paints. When an offline launch
     // found a cache, keep that useful snapshot in memory instead of replacing
     // it with the server prop captured before connectivity was lost.
     if (!online && cacheReadBeforePaint.current) return;
     if (!cacheReadBeforePaint.current) {
-      writeRuntimeState(storage, scope, slot, serverData);
+      if (writeRuntimeState(storage, scope, slot, serverData)) {
+        pruneRuntimeSafeViews(storage, {
+          userId: scope.userId,
+          role: scope.role,
+          contextId: scope.contextId,
+        });
+        emitRuntimeStateUpdated(scopeKey, slot);
+      }
       setData(serverData);
       setSource("server");
       return;
@@ -139,7 +179,14 @@ export function useRuntimeCachedView<Slot extends SafeViewSlot>({
     let secondFrame = 0;
     const firstFrame = window.requestAnimationFrame(() => {
       secondFrame = window.requestAnimationFrame(() => {
-        writeRuntimeState(storage, scope, slot, serverData);
+        if (writeRuntimeState(storage, scope, slot, serverData)) {
+          pruneRuntimeSafeViews(storage, {
+            userId: scope.userId,
+            role: scope.role,
+            contextId: scope.contextId,
+          });
+          emitRuntimeStateUpdated(scopeKey, slot);
+        }
         setData(serverData);
         setSource("server");
       });
@@ -151,6 +198,68 @@ export function useRuntimeCachedView<Slot extends SafeViewSlot>({
   }, [online, privateStateAccessAllowed, scope, scopeKey, serverData, slot, storage]);
 
   return { data, source, refreshing: source === "cache" && Boolean(serverData) };
+}
+
+export function useProducerStoreProductDraft() {
+  const { identity, privateStateAccessAllowed, storage } = useRuntimeState();
+  const [record, setRecord] = useState<ProducerStoreProductDraft | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const scope = useMemo(
+    () =>
+      identity.role === "producer"
+        ? runtimeScope(identity.userId, "producer", identity.contextId, "/dashboard/store")
+        : null,
+    [identity.contextId, identity.role, identity.userId],
+  );
+  const scopeKey = scope
+    ? `${scope.userId}:${scope.role}:${scope.contextId}:${scope.route}:producer.store.product-draft`
+    : "invalid";
+
+  const readRecord = useCallback(() => {
+    if (!privateStateAccessAllowed || !storage || !scope) return;
+    setRecord(readRuntimeState(storage, scope, "producer.store.product-draft"));
+    setLoaded(true);
+  }, [privateStateAccessAllowed, scope, storage]);
+
+  useLayoutEffect(() => {
+    readRecord();
+  }, [readRecord, scopeKey]);
+
+  useEffect(() => {
+    if (!privateStateAccessAllowed || !storage || !scope) return;
+    const onRuntimeStateUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<RuntimeStateUpdatedDetail>).detail;
+      if (detail.scopeKey === scopeKey && detail.slot === "producer.store.product-draft") {
+        readRecord();
+      }
+    };
+    window.addEventListener(RUNTIME_STATE_UPDATED_EVENT, onRuntimeStateUpdated);
+    return () => {
+      window.removeEventListener(RUNTIME_STATE_UPDATED_EVENT, onRuntimeStateUpdated);
+    };
+  }, [privateStateAccessAllowed, readRecord, scope, scopeKey, storage]);
+
+  const save = useCallback(
+    (next: ProducerStoreProductDraft) => {
+      if (!privateStateAccessAllowed || !storage || !scope) return false;
+      const written = writeRuntimeState(storage, scope, "producer.store.product-draft", next);
+      if (written) {
+        setRecord(next);
+        emitRuntimeStateUpdated(scopeKey, "producer.store.product-draft");
+      }
+      return written;
+    },
+    [privateStateAccessAllowed, scope, scopeKey, storage],
+  );
+
+  const clear = useCallback(() => {
+    if (!privateStateAccessAllowed || !storage || !scope) return;
+    removeRuntimeState(storage, scope, "producer.store.product-draft");
+    setRecord(null);
+    emitRuntimeStateUpdated(scopeKey, "producer.store.product-draft");
+  }, [privateStateAccessAllowed, scope, scopeKey, storage]);
+
+  return { record, loaded, save, clear };
 }
 
 export function useRuntimeTextDraft({

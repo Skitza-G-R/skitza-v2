@@ -15,6 +15,8 @@ import {
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
+
 export type SongManagementResult = { ok: true } | { ok: false; error: string };
 
 export type RenameSongAction = (input: {
@@ -69,6 +71,7 @@ export function SongManagementControls({
   overlay?: boolean;
 }) {
   const router = useRouter();
+  const online = useOnlineStatus();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<ManagementMode>("menu");
   const [titleDraft, setTitleDraft] = useState(title);
@@ -99,6 +102,10 @@ export function SongManagementControls({
 
   const runAction = async (action: () => Promise<SongManagementResult>) => {
     if (pending) return;
+    if (!online) {
+      setError("Reconnect to update this song.");
+      return;
+    }
     setPending(true);
     setError(null);
     try {

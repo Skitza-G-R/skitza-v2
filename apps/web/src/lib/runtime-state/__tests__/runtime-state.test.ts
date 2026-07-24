@@ -7,9 +7,11 @@ import {
   buildRuntimeStorageKey,
   clearRuntimeStateForUser,
   normalizeRuntimeHref,
+  pruneRuntimeSafeViews,
   readRuntimeState,
   runtimeScope,
   writeRuntimeState,
+  type ProducerStoreProductDraft,
   type RuntimeSlot,
 } from "../runtime-state";
 
@@ -24,6 +26,49 @@ function requiredScope(
   const scope = runtimeScope(userId, role, contextId, href);
   if (!scope) throw new Error("Expected a valid runtime scope");
   return scope;
+}
+
+function storeProductDraft(): ProducerStoreProductDraft {
+  return {
+    open: true,
+    mode: "new",
+    productId: null,
+    currentStep: "rights",
+    draft: {
+      _picked: "production",
+      _legacyAgreementLink: false,
+      name: "Production",
+      tagline: "A complete production",
+      type: "production",
+      price: 2_500,
+      currency: "USD",
+      sessions: 8,
+      unlimitedSessions: false,
+      payment: {
+        full: true,
+        split50: true,
+        monthly: false,
+        monthlyInstallments: 4,
+      },
+      includes: ["Mix", "Master"],
+      duration: "60 min",
+      revisions: 3,
+      unlimitedRevisions: false,
+      agreementMode: "text",
+      agreementText: "Exact terms",
+      royalty: {
+        masterMode: "none",
+        masterPercentage: "",
+        compositionMode: "percentage",
+        compositionPercentage: "10",
+        compositionRole: "composer",
+        collectingSociety: "",
+        notes: "",
+      },
+      pricingModel: "flat",
+      volumeTiers: [],
+    },
+  };
 }
 
 describe("account-scoped runtime storage", () => {
@@ -225,6 +270,91 @@ describe("account-scoped runtime storage", () => {
         draftScope,
         "producer.settings.display-name-draft",
         2 + RUNTIME_DRAFT_MAX_AGE_MS,
+      ),
+    ).toBeNull();
+  });
+
+  it("stores an exact account-scoped product-editor draft for 30 days", () => {
+    const storage = new MemoryStorage();
+    const scope = requiredScope("user-a", "producer", "producer-a", "/dashboard/store");
+    const draft = storeProductDraft();
+
+    expect(writeRuntimeState(storage, scope, "producer.store.product-draft", draft, 1)).toBe(true);
+    expect(
+      readRuntimeState(
+        storage,
+        scope,
+        "producer.store.product-draft",
+        1 + RUNTIME_DRAFT_MAX_AGE_MS,
+      ),
+    ).toEqual(draft);
+    expect(
+      readRuntimeState(
+        storage,
+        scope,
+        "producer.store.product-draft",
+        2 + RUNTIME_DRAFT_MAX_AGE_MS,
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects transaction, URL, token, and extra fields in product-editor drafts", () => {
+    const storage = new MemoryStorage();
+    const scope = requiredScope("user-a", "producer", "producer-a", "/dashboard/store");
+    const draft = storeProductDraft();
+
+    expect(
+      writeRuntimeState(storage, scope, "producer.store.product-draft", {
+        ...draft,
+        paymentIntentId: "secret",
+      } as never),
+    ).toBe(false);
+    expect(
+      writeRuntimeState(storage, scope, "producer.store.product-draft", {
+        ...draft,
+        draft: {
+          ...draft.draft,
+          signedUrl: "https://signed.example/private",
+        },
+      } as never),
+    ).toBe(false);
+    expect(storage.length).toBe(0);
+  });
+
+  it("caps safe views to the 20 newest route states per role and context", () => {
+    const storage = new MemoryStorage();
+    for (let index = 0; index < 21; index += 1) {
+      const scope = requiredScope(
+        "user-a",
+        "producer",
+        "producer-a",
+        `/dashboard/clients-projects?search=${String(index)}`,
+      );
+      expect(
+        writeRuntimeState(
+          storage,
+          scope,
+          "producer.workspace.safe-view",
+          { clientCount: index, projectCount: index, needsAttentionCount: 0 },
+          index + 1,
+        ),
+      ).toBe(true);
+    }
+
+    expect(
+      pruneRuntimeSafeViews(storage, {
+        userId: "user-a",
+        role: "producer",
+        contextId: "producer-a",
+      }),
+    ).toBe(1);
+    expect(storage.length).toBe(20);
+    expect(
+      readRuntimeState(
+        storage,
+        requiredScope("user-a", "producer", "producer-a", "/dashboard/clients-projects?search=0"),
+        "producer.workspace.safe-view",
+        21,
       ),
     ).toBeNull();
   });

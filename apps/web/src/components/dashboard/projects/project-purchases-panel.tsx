@@ -13,6 +13,7 @@ import {
 } from "react";
 
 import { cancelProjectPurchaseAction } from "~/app/(producer)/dashboard/clients-projects/actions";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
 
 export type ProjectPurchaseSourceKind =
@@ -306,6 +307,7 @@ function CancelPurchaseDialog({
 }: CancelPurchaseDialogProps) {
   const router = useRouter();
   const { toast } = useToast();
+  const online = useOnlineStatus();
   const [reason, setReason] = useState("");
   const [touched, setTouched] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -326,22 +328,30 @@ function CancelPurchaseDialog({
       reasonRef.current?.focus();
       return;
     }
+    if (!online) {
+      toast("Reconnect to cancel this purchase.", "error");
+      return;
+    }
 
     startTransition(async () => {
-      const result = await cancelProjectPurchaseAction({
-        projectId,
-        purchaseId: purchase.id,
-        reason: cleanReason,
-      });
-      if (!result.ok) {
-        toast(result.error, "error");
-        return;
-      }
+      try {
+        const result = await cancelProjectPurchaseAction({
+          projectId,
+          purchaseId: purchase.id,
+          reason: cleanReason,
+        });
+        if (!result.ok) {
+          toast(result.error, "error");
+          return;
+        }
 
-      toast(`${purchase.sourceLabel} canceled`, "success");
-      onCanceled?.(purchase.id);
-      router.refresh();
-      onClose();
+        toast(`${purchase.sourceLabel} canceled`, "success");
+        onCanceled?.(purchase.id);
+        router.refresh();
+        onClose();
+      } catch {
+        toast("Could not cancel this purchase. Try again.", "error");
+      }
     });
   };
 

@@ -28,6 +28,18 @@ const ARTIST_RUNTIME = readFileSync(
 );
 const GREETING = readFileSync(join(__dirname, "../../artist/home/greeting-strip.tsx"), "utf8");
 const SONG_PAGE = readFileSync(join(__dirname, "../../music/song-page.tsx"), "utf8");
+const NAVIGATION_BRIDGE = readFileSync(
+  join(COMPONENT_DIR, "runtime-navigation-bridge.tsx"),
+  "utf8",
+);
+const STORE_EDITOR = readFileSync(
+  join(__dirname, "../../../app/(producer)/dashboard/store/product-editor.tsx"),
+  "utf8",
+);
+const STORE_SCREEN = readFileSync(
+  join(__dirname, "../../../app/(producer)/dashboard/store/store-screen.tsx"),
+  "utf8",
+);
 
 describe("runtime privacy adapters", () => {
   it("conceals the old tree as soon as Clerk reports sign-out or another account", () => {
@@ -123,5 +135,35 @@ describe("cached-first and draft integration contracts", () => {
     expect(SONG_PAGE).toContain("commentDraft.setBodyFromUser(event.currentTarget.value)");
     expect(CACHE_HOOK).toContain("registerRuntimeDraftFlushLifecycle(window");
     expect(SONG_PAGE).toContain("Reconnect to post this comment");
+  });
+
+  it("synchronizes same-tab safe-view writers and caps persisted route states", () => {
+    expect(CACHE_HOOK).toContain("RUNTIME_STATE_UPDATED_EVENT");
+    expect(CACHE_HOOK).toContain("emitRuntimeStateUpdated(scopeKey, slot)");
+    expect(CACHE_HOOK).toContain(
+      "window.addEventListener(RUNTIME_STATE_UPDATED_EVENT, onRuntimeStateUpdated)",
+    );
+    expect(CACHE_HOOK).toContain("pruneRuntimeSafeViews(storage");
+  });
+
+  it("recovers and clears the producer store editor record", () => {
+    expect(STORE_SCREEN).toContain("useProducerStoreProductDraft");
+    expect(STORE_SCREEN).toContain("setCreating(true)");
+    expect(STORE_SCREEN).toContain("setEditing(product)");
+    expect(STORE_SCREEN).toContain("storeDraft.clear()");
+    expect(STORE_EDITOR).toContain("persistedDraft?.mode === mode");
+    expect(STORE_EDITOR).toContain("onPersistDraft(nextRecord)");
+    expect(STORE_EDITOR).toContain('window.addEventListener("pagehide", flush)');
+  });
+
+  it("restores streamed-route scroll with a stable container and bounded cleanup", () => {
+    expect(NAVIGATION_BRIDGE).toContain("window.getComputedStyle(main).overflowY");
+    expect(NAVIGATION_BRIDGE).toContain("new ResizeObserver");
+    expect(NAVIGATION_BRIDGE).toContain("frameAttempts < 12");
+    expect(NAVIGATION_BRIDGE).toContain("window.setTimeout(stop, 4_000)");
+    expect(NAVIGATION_BRIDGE).toContain("observer?.disconnect()");
+    expect(NAVIGATION_BRIDGE).toContain(
+      "return snapshot ? restoreScrollTop(snapshot.scrollTop) : undefined",
+    );
   });
 });

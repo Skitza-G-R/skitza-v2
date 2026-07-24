@@ -14,26 +14,69 @@ import { normalizeRuntimeHref } from "~/lib/runtime-state/runtime-state";
 
 import { useRuntimeState } from "./runtime-state-provider";
 
-function currentScrollTop(): number {
+function runtimeScrollTarget(): HTMLElement | Window {
   const main = document.getElementById("main-content");
-  if (main && main.scrollHeight > main.clientHeight) return main.scrollTop;
-  return window.scrollY;
+  if (main) {
+    const overflowY = window.getComputedStyle(main).overflowY;
+    if (overflowY === "auto" || overflowY === "scroll") return main;
+  }
+  return window;
 }
 
-function restoreScrollTop(scrollTop: number): void {
-  window.requestAnimationFrame(() => {
-    const main = document.getElementById("main-content");
-    if (main && main.scrollHeight > main.clientHeight) {
-      main.scrollTo({ top: scrollTop, behavior: "auto" });
+function currentScrollTop(): number {
+  const target = runtimeScrollTarget();
+  return target instanceof HTMLElement ? target.scrollTop : window.scrollY;
+}
+
+function restoreScrollTop(scrollTop: number): () => void {
+  let cancelled = false;
+  let frame = 0;
+  let frameAttempts = 0;
+  let observer: ResizeObserver | null = null;
+  let timeout = 0;
+
+  const stop = () => {
+    if (cancelled) return;
+    cancelled = true;
+    window.cancelAnimationFrame(frame);
+    observer?.disconnect();
+    window.clearTimeout(timeout);
+  };
+
+  const apply = () => {
+    if (cancelled) return;
+    const target = runtimeScrollTarget();
+    if (target instanceof HTMLElement) {
+      target.scrollTo({ top: scrollTop, behavior: "auto" });
+    } else {
+      window.scrollTo({ top: scrollTop, behavior: "auto" });
+    }
+
+    const actual = target instanceof HTMLElement ? target.scrollTop : window.scrollY;
+    if (Math.abs(actual - scrollTop) <= 1) {
+      stop();
       return;
     }
-    window.scrollTo({ top: scrollTop, behavior: "auto" });
-  });
+    if (frameAttempts < 12) {
+      frameAttempts += 1;
+      frame = window.requestAnimationFrame(apply);
+    }
+  };
+
+  timeout = window.setTimeout(stop, 4_000);
+  const main = document.getElementById("main-content");
+  if (main && typeof ResizeObserver !== "undefined") {
+    observer = new ResizeObserver(() => {
+      apply();
+    });
+    observer.observe(main);
+  }
+  frame = window.requestAnimationFrame(apply);
+  return stop;
 }
 
 function subscribeToScroll(onScroll: () => void): () => void {
-  const main = document.getElementById("main-content");
-  const target = main && main.scrollHeight > main.clientHeight ? main : window;
+  const target = runtimeScrollTarget();
   target.addEventListener("scroll", onScroll, { passive: true });
   return () => {
     target.removeEventListener("scroll", onScroll);
@@ -85,7 +128,7 @@ export function RuntimeNavigationBridge({ restoreOnOpen = true }: { restoreOnOpe
     }
 
     const snapshot = readRuntimeNavigationSnapshot(storage, navigationIdentity, safeHref);
-    if (snapshot) restoreScrollTop(snapshot.scrollTop);
+    return snapshot ? restoreScrollTop(snapshot.scrollTop) : undefined;
   }, [
     identity.role,
     identityKey,

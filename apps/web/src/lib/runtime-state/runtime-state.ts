@@ -50,6 +50,59 @@ export interface ProducerPortfolioSafeView {
   availableCount: number;
 }
 
+export type ProducerStoreDraftStep =
+  | "type"
+  | "details"
+  | "price"
+  | "payment"
+  | "delivery"
+  | "rights"
+  | "review";
+
+export interface ProducerStoreProductDraft {
+  open: true;
+  mode: "new" | "edit";
+  productId: string | null;
+  currentStep: ProducerStoreDraftStep;
+  draft: {
+    _picked: "production" | "mix" | "master" | "blank" | null;
+    _legacyAgreementLink: boolean;
+    name: string;
+    tagline: string;
+    type: "production" | "mix" | "master" | "consult";
+    price: number;
+    currency: "USD" | "EUR" | "GBP" | "ILS";
+    sessions: number;
+    unlimitedSessions: boolean;
+    payment: {
+      full: boolean;
+      split50: boolean;
+      monthly: boolean;
+      monthlyInstallments: number;
+    };
+    includes: string[];
+    duration: string;
+    revisions: number;
+    unlimitedRevisions: boolean;
+    agreementMode: "none" | "text";
+    agreementText: string;
+    royalty: {
+      masterMode: "none" | "percentage" | "agreement" | null;
+      masterPercentage: string;
+      compositionMode: "none" | "percentage" | "agreement" | null;
+      compositionPercentage: string;
+      compositionRole: "composer" | "lyricist" | "arranger" | "publisher" | "other" | "";
+      collectingSociety: string;
+      notes: string;
+    };
+    pricingModel: "flat" | "per_song";
+    volumeTiers: Array<{
+      minQty: number;
+      pricePerUnitCents: number;
+    }>;
+  };
+}
+
 export interface ArtistMusicSafeView {
   mode: "projects" | "songs";
   view: "grid" | "table";
@@ -93,6 +146,7 @@ export interface RuntimePayloadBySlot {
   "artist.home.safe-view": ArtistHomeSafeView;
   "artist.music.safe-view": ArtistMusicSafeView;
   "producer.settings.display-name-draft": ProducerDisplayNameDraft;
+  "producer.store.product-draft": ProducerStoreProductDraft;
   "producer.song-comment-draft": RuntimeTextDraft;
   "artist.song-comment-draft": RuntimeTextDraft;
   "runtime.navigation.snapshot": RuntimeNavigationSnapshot;
@@ -126,6 +180,7 @@ const SLOT_MAX_AGE_MS: Record<RuntimeSlot, number> = {
   "artist.home.safe-view": RUNTIME_VIEW_MAX_AGE_MS,
   "artist.music.safe-view": RUNTIME_VIEW_MAX_AGE_MS,
   "producer.settings.display-name-draft": RUNTIME_DRAFT_MAX_AGE_MS,
+  "producer.store.product-draft": RUNTIME_DRAFT_MAX_AGE_MS,
   "producer.song-comment-draft": RUNTIME_DRAFT_MAX_AGE_MS,
   "artist.song-comment-draft": RUNTIME_DRAFT_MAX_AGE_MS,
   "runtime.navigation.snapshot": RUNTIME_VIEW_MAX_AGE_MS,
@@ -194,6 +249,10 @@ function isBoundedString(value: unknown, maxLength: number, allowEmpty = false):
 
 function isSafeInteger(value: unknown, min = 0, max = Number.MAX_SAFE_INTEGER): value is number {
   return Number.isSafeInteger(value) && Number(value) >= min && Number(value) <= max;
+}
+
+function isFiniteNumber(value: unknown, min: number, max: number): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max;
 }
 
 function isRuntimeRole(value: unknown): value is RuntimeRole {
@@ -322,6 +381,119 @@ function isProducerDisplayNameDraft(value: unknown): value is ProducerDisplayNam
   );
 }
 
+function isProducerStorePaymentDraft(
+  value: unknown,
+): value is ProducerStoreProductDraft["draft"]["payment"] {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["full", "split50", "monthly", "monthlyInstallments"]) &&
+    typeof value.full === "boolean" &&
+    typeof value.split50 === "boolean" &&
+    typeof value.monthly === "boolean" &&
+    isSafeInteger(value.monthlyInstallments, 0, 100)
+  );
+}
+
+function isProducerStoreRoyaltyDraft(
+  value: unknown,
+): value is ProducerStoreProductDraft["draft"]["royalty"] {
+  const modes = ["none", "percentage", "agreement", null] as const;
+  const roles = ["composer", "lyricist", "arranger", "publisher", "other", ""] as const;
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, [
+      "masterMode",
+      "masterPercentage",
+      "compositionMode",
+      "compositionPercentage",
+      "compositionRole",
+      "collectingSociety",
+      "notes",
+    ]) &&
+    modes.includes(value.masterMode as (typeof modes)[number]) &&
+    isBoundedString(value.masterPercentage, 16, true) &&
+    modes.includes(value.compositionMode as (typeof modes)[number]) &&
+    isBoundedString(value.compositionPercentage, 16, true) &&
+    roles.includes(value.compositionRole as (typeof roles)[number]) &&
+    isBoundedString(value.collectingSociety, 200, true) &&
+    isBoundedString(value.notes, 4_000, true)
+  );
+}
+
+function isProducerStoreProductDraft(value: unknown): value is ProducerStoreProductDraft {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ["open", "mode", "productId", "currentStep", "draft"]) ||
+    value.open !== true ||
+    (value.mode !== "new" && value.mode !== "edit") ||
+    (value.productId !== null && !isBoundedString(value.productId, 128)) ||
+    (value.mode === "new" ? value.productId !== null : value.productId === null) ||
+    !["type", "details", "price", "payment", "delivery", "rights", "review"].includes(
+      String(value.currentStep),
+    ) ||
+    !isRecord(value.draft) ||
+    !hasExactKeys(value.draft, [
+      "_picked",
+      "_legacyAgreementLink",
+      "name",
+      "tagline",
+      "type",
+      "price",
+      "currency",
+      "sessions",
+      "unlimitedSessions",
+      "payment",
+      "includes",
+      "duration",
+      "revisions",
+      "unlimitedRevisions",
+      "agreementMode",
+      "agreementText",
+      "royalty",
+      "pricingModel",
+      "volumeTiers",
+    ])
+  ) {
+    return false;
+  }
+
+  const draft = value.draft;
+  const picked = ["production", "mix", "master", "blank", null] as const;
+  const types = ["production", "mix", "master", "consult"] as const;
+  const currencies = ["USD", "EUR", "GBP", "ILS"] as const;
+  return (
+    picked.includes(draft._picked as (typeof picked)[number]) &&
+    typeof draft._legacyAgreementLink === "boolean" &&
+    isBoundedString(draft.name, 200, true) &&
+    isBoundedString(draft.tagline, 160, true) &&
+    types.includes(draft.type as (typeof types)[number]) &&
+    isFiniteNumber(draft.price, 0, 100_000_000) &&
+    currencies.includes(draft.currency as (typeof currencies)[number]) &&
+    isSafeInteger(draft.sessions, 0, 10_000) &&
+    typeof draft.unlimitedSessions === "boolean" &&
+    isProducerStorePaymentDraft(draft.payment) &&
+    Array.isArray(draft.includes) &&
+    draft.includes.length <= 100 &&
+    draft.includes.every((item) => isBoundedString(item, 500, true)) &&
+    isBoundedString(draft.duration, 80, true) &&
+    isSafeInteger(draft.revisions, 0, 1_000) &&
+    typeof draft.unlimitedRevisions === "boolean" &&
+    (draft.agreementMode === "none" || draft.agreementMode === "text") &&
+    isBoundedString(draft.agreementText, 20_000, true) &&
+    isProducerStoreRoyaltyDraft(draft.royalty) &&
+    (draft.pricingModel === "flat" || draft.pricingModel === "per_song") &&
+    Array.isArray(draft.volumeTiers) &&
+    draft.volumeTiers.length <= 10 &&
+    draft.volumeTiers.every(
+      (tier) =>
+        isRecord(tier) &&
+        hasExactKeys(tier, ["minQty", "pricePerUnitCents"]) &&
+        isSafeInteger(tier.minQty, 0, 1_000) &&
+        isSafeInteger(tier.pricePerUnitCents, 0, 10_000_000_000),
+    )
+  );
+}
+
 function isRuntimeTextDraft(value: unknown): value is RuntimeTextDraft {
   return (
     isRecord(value) &&
@@ -380,6 +552,7 @@ const SLOT_VALIDATORS: {
   "artist.home.safe-view": isArtistHomeSafeView,
   "artist.music.safe-view": isArtistMusicSafeView,
   "producer.settings.display-name-draft": isProducerDisplayNameDraft,
+  "producer.store.product-draft": isProducerStoreProductDraft,
   "producer.song-comment-draft": isRuntimeTextDraft,
   "artist.song-comment-draft": isRuntimeTextDraft,
   "runtime.navigation.snapshot": isRuntimeNavigationSnapshot,
@@ -560,6 +733,8 @@ function isSlotAllowedForScope(scope: RuntimeScope, slot: RuntimeSlot): boolean 
       return scope.role === "artist" && pathname === "/artist/music";
     case "producer.settings.display-name-draft":
       return scope.role === "producer" && scope.route === "/dashboard/settings?section=profile";
+    case "producer.store.product-draft":
+      return scope.role === "producer" && scope.route === "/dashboard/store";
     case "producer.song-comment-draft":
       return scope.role === "producer" && isSongCommentDraftRoute(pathname, scope.role);
     case "artist.song-comment-draft":
@@ -739,6 +914,70 @@ export function pruneRuntimeStateSlot(
   } catch {
     return 0;
   }
+  for (const key of removeKeys) safelyRemoveStorageItem(storage, key);
+  return removeKeys.length;
+}
+
+const SAFE_VIEW_SLOTS: readonly SafeViewRuntimeSlot[] = [
+  "producer.overview.safe-view",
+  "producer.workspace.safe-view",
+  "producer.music.safe-view",
+  "producer.store.safe-view",
+  "producer.portfolio.safe-view",
+  "artist.home.safe-view",
+  "artist.music.safe-view",
+];
+
+type SafeViewRuntimeSlot =
+  | "producer.overview.safe-view"
+  | "producer.workspace.safe-view"
+  | "producer.music.safe-view"
+  | "producer.store.safe-view"
+  | "producer.portfolio.safe-view"
+  | "artist.home.safe-view"
+  | "artist.music.safe-view";
+
+/**
+ * Safe views are one record per route state. Keep the newest bounded set for
+ * one authorized role/context, independent of the navigation-snapshot slot.
+ */
+export function pruneRuntimeSafeViews(
+  storage: StorageLike,
+  identity: Pick<RuntimeScope, "userId" | "role" | "contextId">,
+  limit = RUNTIME_ROUTE_LIMIT,
+): number {
+  const prefix = [
+    userStoragePrefix(identity.userId).slice(0, -1),
+    `schema=${String(RUNTIME_STATE_SCHEMA_VERSION)}`,
+    `role=${identity.role}`,
+    `context=${encodeKeyPart(identity.contextId)}`,
+  ].join(":");
+  const suffixes = SAFE_VIEW_SLOTS.map((slot) => `:slot=${encodeKeyPart(slot)}`);
+  const entries: Array<{ key: string; updatedAt: number }> = [];
+
+  try {
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (!key?.startsWith(`${prefix}:`) || !suffixes.some((suffix) => key.endsWith(suffix))) {
+        continue;
+      }
+      const raw = storage.getItem(key);
+      if (!raw) continue;
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        const updatedAt =
+          isRecord(parsed) && isSafeInteger(parsed.updatedAt, 0) ? parsed.updatedAt : -1;
+        entries.push({ key, updatedAt });
+      } catch {
+        entries.push({ key, updatedAt: -1 });
+      }
+    }
+  } catch {
+    return 0;
+  }
+
+  entries.sort((left, right) => right.updatedAt - left.updatedAt);
+  const removeKeys = entries.slice(Math.max(0, limit)).map((entry) => entry.key);
   for (const key of removeKeys) safelyRemoveStorageItem(storage, key);
   return removeKeys.length;
 }

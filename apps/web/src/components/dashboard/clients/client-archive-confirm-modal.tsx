@@ -9,6 +9,7 @@ import {
   archiveClientAction,
   restoreClientAction,
 } from "~/app/(producer)/dashboard/clients-projects/clients-actions";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
 
 export interface ClientArchiveConfirmModalProps {
@@ -34,6 +35,7 @@ export function ClientArchiveConfirmModal({
 }: ClientArchiveConfirmModalProps) {
   const router = useRouter();
   const { toast } = useToast();
+  const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
   const [runtimeBlockedReason, setRuntimeBlockedReason] = useState<string | null>(null);
   const isRestore = client.archived;
@@ -46,25 +48,33 @@ export function ClientArchiveConfirmModal({
 
   const handleChange = () => {
     if (archiveIsBlocked) return;
+    if (!online) {
+      toast(`Reconnect to ${isRestore ? "restore" : "archive"} this client.`, "error");
+      return;
+    }
 
     startTransition(async () => {
-      const action = client.archived ? restoreClientAction : archiveClientAction;
-      const result = await action({ id: client.id });
-      if (!result.ok) {
-        if (!isRestore && "code" in result && result.code === "BLOCKING_PROJECT") {
-          setRuntimeBlockedReason(result.error);
-          router.refresh();
+      try {
+        const action = client.archived ? restoreClientAction : archiveClientAction;
+        const result = await action({ id: client.id });
+        if (!result.ok) {
+          if (!isRestore && "code" in result && result.code === "BLOCKING_PROJECT") {
+            setRuntimeBlockedReason(result.error);
+            router.refresh();
+            return;
+          }
+          toast(result.error, "error");
           return;
         }
-        toast(result.error, "error");
-        return;
-      }
 
-      const nextArchived = !client.archived;
-      toast(`${client.name} ${nextArchived ? "archived" : "restored"}`, "success");
-      onChanged?.(nextArchived);
-      router.refresh();
-      onClose();
+        const nextArchived = !client.archived;
+        toast(`${client.name} ${nextArchived ? "archived" : "restored"}`, "success");
+        onChanged?.(nextArchived);
+        router.refresh();
+        onClose();
+      } catch {
+        toast(`Could not ${isRestore ? "restore" : "archive"} this client. Try again.`, "error");
+      }
     });
   };
 

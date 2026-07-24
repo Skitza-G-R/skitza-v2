@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { PushPreferences } from "~/components/push/push-preferences";
 import { useToast } from "~/components/ui/toast";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useProducerDisplayNameDraft } from "~/components/runtime-state/use-runtime-state";
 import { PUBLIC_BRAND_ORIGIN, buildJoinUrl } from "~/lib/share/public-url";
 import { markMeaningfulInstallAction } from "~/lib/pwa/install-guidance";
@@ -65,6 +66,7 @@ export function SettingsClient({
 }) {
   const router = useRouter();
   const { toast } = useToast();
+  const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
 
   // Section state — purely local. Initial value comes from `?section=`
@@ -130,6 +132,10 @@ export function SettingsClient({
 
   function onSave() {
     if (!dirty || pending) return;
+    if (!online) {
+      toast("Reconnect to save settings.", "error");
+      return;
+    }
 
     // Build a minimal patch — only the fields that actually changed.
     // Shipping a smaller payload is cheap-and-friendly, and the
@@ -145,27 +151,31 @@ export function SettingsClient({
       patch.paymentInstructions = form.paymentInstructions;
     }
     startTransition(async () => {
-      const res = await updateProducer(patch);
-      if (res.ok) {
-        displayNameDraft.clearDraft();
-        setSavedForm(form);
-        markMeaningfulInstallAction();
-        toast("Settings saved.", "success");
-        router.refresh();
-      } else {
-        if (res.saved?.producer || res.saved?.paymentInstructions) {
-          if (res.saved.producer) displayNameDraft.clearDraft();
-          setSavedForm((current) => ({
-            displayName: res.saved?.producer ? form.displayName : current.displayName,
-            defaultCurrency: res.saved?.producer ? form.defaultCurrency : current.defaultCurrency,
-            weekStart: res.saved?.producer ? form.weekStart : current.weekStart,
-            paymentInstructions: res.saved?.paymentInstructions
-              ? form.paymentInstructions
-              : current.paymentInstructions,
-          }));
+      try {
+        const res = await updateProducer(patch);
+        if (res.ok) {
+          displayNameDraft.clearDraft();
+          setSavedForm(form);
+          markMeaningfulInstallAction();
+          toast("Settings saved.", "success");
           router.refresh();
+        } else {
+          if (res.saved?.producer || res.saved?.paymentInstructions) {
+            if (res.saved.producer) displayNameDraft.clearDraft();
+            setSavedForm((current) => ({
+              displayName: res.saved?.producer ? form.displayName : current.displayName,
+              defaultCurrency: res.saved?.producer ? form.defaultCurrency : current.defaultCurrency,
+              weekStart: res.saved?.producer ? form.weekStart : current.weekStart,
+              paymentInstructions: res.saved?.paymentInstructions
+                ? form.paymentInstructions
+                : current.paymentInstructions,
+            }));
+            router.refresh();
+          }
+          toast(res.error, "error");
         }
-        toast(res.error, "error");
+      } catch {
+        toast("Could not save settings. Please try again.", "error");
       }
     });
   }
@@ -254,7 +264,7 @@ export function SettingsClient({
             type="button"
             className="s-btn s-btn-amber"
             onClick={onSave}
-            disabled={pending || !dirty}
+            disabled={pending || !dirty || !online}
           >
             {pending ? "Saving…" : "Save changes"}
           </button>
