@@ -59,7 +59,7 @@ const SheetOverlay = forwardRef<
     ref={ref}
     className={cn(
       "fixed inset-0 z-50 bg-[rgb(var(--bg-sidebar)/0.45)] backdrop-blur-sm",
-      "data-[state=open]:animate-[skitza-reveal-up_240ms_cubic-bezier(0.16,1,0.3,1)_both]",
+      "data-[state=open]:animate-[skitza-reveal-up_240ms_cubic-bezier(0.16,1,0.3,1)_both] motion-reduce:animate-none",
       className,
     )}
     {...props}
@@ -93,15 +93,16 @@ const SheetContent = forwardRef<
           "fixed z-50 flex flex-col gap-4 border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-[var(--shadow-lg)]",
           // Side-specific layout
           side === "bottom" &&
-            "inset-x-0 bottom-0 max-h-[88vh] w-full rounded-t-[var(--radius-xl)] p-4 pb-6 sm:p-6",
+            "sk-native-sheet inset-x-0 bottom-[var(--sk-keyboard-inset,0px)] w-full rounded-t-[var(--radius-xl)] p-4 pb-[max(1.5rem,env(safe-area-inset-bottom,0px))] sm:p-6 sm:pb-[max(1.5rem,env(safe-area-inset-bottom,0px))]",
           side === "right" &&
-            "inset-y-0 right-0 h-full w-full max-w-md p-6 sm:rounded-l-[var(--radius-lg)]",
+            "top-[var(--sk-viewport-offset-top,0px)] right-0 h-[var(--sk-viewport-height,100dvh)] max-h-[var(--sk-viewport-height,100dvh)] w-full max-w-md p-6 pt-[max(1.5rem,env(safe-area-inset-top,0px))] pr-[max(1.5rem,env(safe-area-inset-right,0px))] pb-[max(1.5rem,env(safe-area-inset-bottom,0px))] sm:rounded-l-[var(--radius-lg)]",
           // Entrance per data-side. Reduce-motion gated in CSS.
           "sk-sheet-enter",
           // Keyboard focus stays inside the surface
           "focus:outline-none",
           className,
         )}
+        data-native-sheet={side}
         {...props}
       >
         {handle && (

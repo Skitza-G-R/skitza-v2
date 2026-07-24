@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -13,6 +15,8 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "../sheet";
+
+const sheetSource = readFileSync(fileURLToPath(new URL("../sheet.tsx", import.meta.url)), "utf8");
 
 // Sheet primitive — contract tests.
 //
@@ -79,5 +83,19 @@ describe("Sheet primitive — Header / Footer composition", () => {
     // text-center should win over the default text-left via twMerge.
     expect(html).toContain("text-center");
     expect(html).not.toContain("text-left");
+  });
+});
+
+describe("Sheet primitive — native mobile behavior", () => {
+  it("uses the shared safe-area and visual-viewport sheet class", () => {
+    expect(sheetSource).toContain("sk-native-sheet");
+    expect(sheetSource).toContain("data-native-sheet");
+    expect(sheetSource).toContain("--sk-viewport-height");
+    expect(sheetSource).toContain("--sk-keyboard-inset");
+    expect(sheetSource).toContain("safe-area-inset-bottom");
+  });
+
+  it("turns off overlay animation for reduced-motion users", () => {
+    expect(sheetSource).toMatch(/SheetPrimitive\.Overlay[\s\S]*motion-reduce:animate-none/);
   });
 });

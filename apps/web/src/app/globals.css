@@ -180,6 +180,13 @@
     --ease-out-strong: cubic-bezier(0.16, 1, 0.3, 1);          /* entries, hover lifts */
     --ease-in-out-strong: cubic-bezier(0.2, 0.8, 0.2, 1);      /* on-screen movement */
     --ease-press: cubic-bezier(0.34, 1.56, 0.64, 1);           /* press/release with subtle overshoot */
+
+    /* Native viewport sync writes pixel values into these variables when
+       Visual Viewport is available. The CSS fallbacks remain useful before
+       hydration and in browsers without that API. */
+    --sk-viewport-height: 100dvh;
+    --sk-viewport-offset-top: 0px;
+    --sk-keyboard-inset: 0px;
   }
 
   /* Dark mode — `chrome-dark` selector kept for compat; ThemeProvider in
@@ -231,6 +238,7 @@
     color: rgb(var(--fg-default));
     font-family: var(--font-body), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     -webkit-font-smoothing: antialiased;
+    -webkit-text-size-adjust: 100%;
     text-rendering: optimizeLegibility;
   }
 
@@ -328,6 +336,49 @@
   .sk-safe-x {
     padding-left:  env(safe-area-inset-left,  0px);
     padding-right: env(safe-area-inset-right, 0px);
+  }
+  .sk-safe-frame {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-left: env(safe-area-inset-left, 0px);
+  }
+  .sk-native-viewport {
+    min-height: 100svh;
+    min-height: var(--sk-viewport-height, 100dvh);
+  }
+  .sk-native-screen {
+    height: 100svh;
+    height: var(--sk-viewport-height, 100dvh);
+    max-height: var(--sk-viewport-height, 100dvh);
+  }
+  .sk-native-scroll {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scroll-padding-top: calc(env(safe-area-inset-top, 0px) + 1rem);
+    scroll-padding-bottom:
+      calc(env(safe-area-inset-bottom, 0px) + var(--sk-keyboard-inset, 0px) + 5rem);
+    -webkit-overflow-scrolling: touch;
+  }
+  .sk-native-sheet {
+    max-height: min(88dvh, var(--sk-viewport-height, 88dvh));
+    padding-bottom: max(1.5rem, env(safe-area-inset-bottom, 0px));
+    overscroll-behavior-y: contain;
+  }
+  .sk-native-action-dock {
+    bottom: var(--sk-keyboard-inset, 0px);
+    padding-right: max(1rem, env(safe-area-inset-right, 0px));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px));
+    padding-left: max(1rem, env(safe-area-inset-left, 0px));
+  }
+  .sk-native-field {
+    min-height: 44px;
+    scroll-margin-top: calc(env(safe-area-inset-top, 0px) + 1rem);
+    scroll-margin-bottom:
+      calc(env(safe-area-inset-bottom, 0px) + var(--sk-keyboard-inset, 0px) + 6rem);
+    font-size: max(1rem, 1em);
+    line-height: 1.35;
   }
   .sk-scroll-x {
     -webkit-overflow-scrolling: touch;
@@ -441,6 +492,17 @@
   @keyframes skitza-slide-in-right {
     from { transform: translateX(100%); opacity: 0; }
     to   { transform: translateX(0);    opacity: 1; }
+  }
+  @keyframes skitza-native-flow-forward {
+    from { transform: translateX(18px); opacity: 0; }
+    to   { transform: translateX(0);    opacity: 1; }
+  }
+  @keyframes skitza-native-flow-back {
+    from { transform: translateX(-12px); opacity: 0; }
+    to   { transform: translateX(0);     opacity: 1; }
+  }
+  @keyframes skitza-native-spin {
+    to { transform: rotate(360deg); }
   }
   /* New — equalizer bars on the playing track. */
   @keyframes skitza-eq {
@@ -672,12 +734,26 @@
    * Button primitive in apps/web/src/components/ui/button.tsx.
    * ---------------------------------------------------------------- */
   .sk-press {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
     transition: transform 160ms var(--ease-out-strong), filter 150ms ease, background-color 200ms ease;
   }
   @media (hover: hover) {
     .sk-press:hover { filter: brightness(1.05); }
   }
-  .sk-press:active { transform: scale(0.97); filter: brightness(0.96); }
+  .sk-press:active {
+    transform: scale(0.97);
+    filter: brightness(0.96);
+    transition-duration: 60ms;
+  }
+  @media (pointer: coarse) {
+    :where(button, a, [role="button"]).sk-press,
+    :where(button, a, [role="button"]).sk-press-pop,
+    :where(button, a, [role="button"]).sk-press-row {
+      min-width: 44px;
+      min-height: 44px;
+    }
+  }
 
   /* Spring press — the funnel's amber PrimaryCta. Identical contract to
      `.sk-press` but releases on the overshoot curve (--ease-press) so the
@@ -697,13 +773,24 @@
      above, row (.975) for full-width tappable rows. All release on the
      springy overshoot curve. Reduced-motion no-op below. */
   .sk-press-pop {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
     transition: transform 200ms var(--ease-press), filter 150ms ease;
   }
-  .sk-press-pop:active { transform: scale(0.93); filter: brightness(0.96); }
+  .sk-press-pop:active {
+    transform: scale(0.93);
+    filter: brightness(0.96);
+    transition-duration: 60ms;
+  }
   .sk-press-row {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
     transition: transform 200ms var(--ease-press), background-color 200ms ease;
   }
-  .sk-press-row:active { transform: scale(0.975); }
+  .sk-press-row:active {
+    transform: scale(0.975);
+    transition-duration: 60ms;
+  }
 
   /* Eyebrow label — the handoff's recurring mono kicker: 10px uppercase
      JetBrains Mono with wide tracking. Pair with an 18×1px rule span
@@ -819,6 +906,29 @@
   .sk-sheet-enter[data-side="right"] {
     animation: skitza-slide-in-right 0.34s cubic-bezier(0.2, 0.8, 0.2, 1) both;
     transform-origin: right;
+  }
+
+  /* Full-screen task flows use directional movement only at the content
+     layer. The outer surface stays fixed to the visual viewport so the
+     keyboard, notch, and Home Indicator never move the chrome offscreen. */
+  .sk-native-full-screen-flow {
+    top: var(--sk-viewport-offset-top, 0px);
+    height: var(--sk-viewport-height, 100dvh);
+    max-height: var(--sk-viewport-height, 100dvh);
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-left: env(safe-area-inset-left, 0px);
+    touch-action: pan-y;
+  }
+  .sk-native-flow-motion[data-direction="forward"] {
+    animation: skitza-native-flow-forward 220ms var(--ease-out-strong) both;
+  }
+  .sk-native-flow-motion[data-direction="back"] {
+    animation: skitza-native-flow-back 200ms var(--ease-out-strong) both;
+  }
+  .sk-native-spinner {
+    animation: skitza-native-spin 700ms linear infinite;
   }
 
   /* ----------------------------------------------------------------
@@ -1341,6 +1451,8 @@
     .sk-pulse,
     .sk-breathe,
     .animate-slide-up-modal,
+    .sk-native-flow-motion,
+    .sk-native-spinner,
     .sk-gloss::after { animation: none !important; }
     /* Funnel entrance/breathe primitives also force their resting
        (revealed) state so reduced-motion users never see a flash of the
