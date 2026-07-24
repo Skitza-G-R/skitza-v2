@@ -10,6 +10,10 @@ import {
   recordRuntimeNavigation,
   type RuntimeIdentity,
 } from "~/lib/runtime-state/navigation";
+import {
+  captureAccountPrivateWriteGeneration,
+  isAccountPrivateWriteGenerationCurrent,
+} from "~/lib/runtime-state/account-exit";
 import { normalizeRuntimeHref } from "~/lib/runtime-state/runtime-state";
 
 import { useRuntimeState } from "./runtime-state-provider";
@@ -145,19 +149,16 @@ export function RuntimeNavigationBridge({ restoreOnOpen = true }: { restoreOnOpe
     if (skipPersistHref.current === safeHref) return;
     skipPersistHref.current = null;
 
+    const writeGeneration = captureAccountPrivateWriteGeneration(identity.userId);
     const existingSnapshot = readRuntimeNavigationSnapshot(storage, navigationIdentity, safeHref);
     let latestScrollTop = existingSnapshot?.scrollTop ?? currentScrollTop();
-    recordRuntimeNavigation(
-      storage,
-      navigationIdentity,
-      safeHref,
-      latestScrollTop,
-    );
 
     let frame = 0;
     const persist = () => {
+      if (!isAccountPrivateWriteGenerationCurrent(writeGeneration)) return;
       recordRuntimeNavigation(storage, navigationIdentity, safeHref, latestScrollTop);
     };
+    persist();
     const captureCurrentScrollTop = () => {
       latestScrollTop = currentScrollTop();
     };
