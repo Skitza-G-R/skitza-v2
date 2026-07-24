@@ -68,7 +68,9 @@ beforeEach(() => {
 
 describe("RuntimeNavigationBridge scroll persistence", () => {
   it("does not overwrite the previous route after the shared scroll container resets", () => {
-    const main = Object.assign(new EventTarget(), {
+    class MockHTMLElement extends EventTarget {}
+    vi.stubGlobal("HTMLElement", MockHTMLElement);
+    const main = Object.assign(new MockHTMLElement(), {
       clientHeight: 781,
       scrollHeight: 2292,
       scrollTop: 0,
