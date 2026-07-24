@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
+  captureAccountPrivateWriteGeneration,
+  isAccountPrivateWriteGenerationCurrent,
+} from "~/lib/runtime-state/account-exit";
+import {
   pruneRuntimeSafeViews,
   readRuntimeState,
   removeRuntimeState,
@@ -61,6 +65,19 @@ function emitRuntimeStateUpdated(scopeKey: string, slot: RuntimeSlot): void {
     new CustomEvent<RuntimeStateUpdatedDetail>(RUNTIME_STATE_UPDATED_EVENT, {
       detail: { scopeKey, slot },
     }),
+  );
+}
+
+function useAccountPrivateRuntimeDraftWriter(userId: string) {
+  const writeGeneration = useMemo(
+    () => captureAccountPrivateWriteGeneration(userId),
+    [userId],
+  );
+
+  return useCallback(
+    (write: () => boolean) =>
+      isAccountPrivateWriteGenerationCurrent(writeGeneration) && write(),
+    [writeGeneration],
   );
 }
 
@@ -176,9 +193,11 @@ export function useRuntimeCachedView<Slot extends SafeViewSlot>({
     // A layout-effect state update can flush passive effects before the first
     // paint. Two animation frames guarantee the cached snapshot gets one real
     // paint before the current server value replaces it silently.
+    const writeGeneration = captureAccountPrivateWriteGeneration(scope.userId);
     let secondFrame = 0;
     const firstFrame = window.requestAnimationFrame(() => {
       secondFrame = window.requestAnimationFrame(() => {
+        if (!isAccountPrivateWriteGenerationCurrent(writeGeneration)) return;
         if (writeRuntimeState(storage, scope, slot, serverData)) {
           pruneRuntimeSafeViews(storage, {
             userId: scope.userId,
@@ -202,6 +221,7 @@ export function useRuntimeCachedView<Slot extends SafeViewSlot>({
 
 export function useProducerStoreProductDraft() {
   const { identity, privateStateAccessAllowed, storage } = useRuntimeState();
+  const writeRuntimeDraft = useAccountPrivateRuntimeDraftWriter(identity.userId);
   const [record, setRecord] = useState<ProducerStoreProductDraft | null>(null);
   const [loaded, setLoaded] = useState(false);
   const scope = useMemo(
@@ -242,14 +262,16 @@ export function useProducerStoreProductDraft() {
   const save = useCallback(
     (next: ProducerStoreProductDraft) => {
       if (!privateStateAccessAllowed || !storage || !scope) return false;
-      const written = writeRuntimeState(storage, scope, "producer.store.product-draft", next);
+      const written = writeRuntimeDraft(() =>
+        writeRuntimeState(storage, scope, "producer.store.product-draft", next),
+      );
       if (written) {
         setRecord(next);
         emitRuntimeStateUpdated(scopeKey, "producer.store.product-draft");
       }
       return written;
     },
-    [privateStateAccessAllowed, scope, scopeKey, storage],
+    [privateStateAccessAllowed, scope, scopeKey, storage, writeRuntimeDraft],
   );
 
   const clear = useCallback(() => {
@@ -274,6 +296,7 @@ export function useRuntimeTextDraft({
   resourceId: string;
 }) {
   const { identity, privateStateAccessAllowed, storage } = useRuntimeState();
+  const writeRuntimeDraft = useAccountPrivateRuntimeDraftWriter(identity.userId);
   const [body, setBodyState] = useState("");
   const resolvedContextId = contextId ?? identity.contextId;
   const scope = useMemo(
@@ -291,14 +314,16 @@ export function useRuntimeTextDraft({
       return null;
     }
     return createRuntimeDraftFlush(activeScopeKey, () =>
-      writeRuntimeTextDraft(storage, {
-        slot,
-        userId: identity.userId,
-        contextId: resolvedContextId,
-        route,
-        resourceId,
-        body: nextBody,
-      }),
+      writeRuntimeDraft(() =>
+        writeRuntimeTextDraft(storage, {
+          slot,
+          userId: identity.userId,
+          contextId: resolvedContextId,
+          route,
+          resourceId,
+          body: nextBody,
+        }),
+      ),
     );
   }
 
@@ -370,14 +395,16 @@ export function useRuntimeTextDraft({
     },
     preserveDraft(nextBody = body) {
       if (!privateStateAccessAllowed || !storage || !scope || nextBody.trim().length === 0) return;
-      const persisted = writeRuntimeTextDraft(storage, {
-        slot,
-        userId: identity.userId,
-        contextId: resolvedContextId,
-        route,
-        resourceId,
-        body: nextBody,
-      });
+      const persisted = writeRuntimeDraft(() =>
+        writeRuntimeTextDraft(storage, {
+          slot,
+          userId: identity.userId,
+          contextId: resolvedContextId,
+          route,
+          resourceId,
+          body: nextBody,
+        }),
+      );
       if (persisted) pendingDraftFlush.current = null;
     },
     clearDraft() {
@@ -403,6 +430,7 @@ export function useProducerDisplayNameDraft({
   onRestore: (draft: ProducerDisplayNameDraft) => void;
 }) {
   const { identity, privateStateAccessAllowed, storage } = useRuntimeState();
+  const writeRuntimeDraft = useAccountPrivateRuntimeDraftWriter(identity.userId);
   const restore = useRef(onRestore);
   const restoredDraft = useRef(false);
   restore.current = onRestore;
@@ -447,7 +475,9 @@ export function useProducerDisplayNameDraft({
       return;
     }
     pendingDraftFlush.current = createRuntimeDraftFlush(activeScopeKey, () =>
-      writeProducerDisplayNameDraft(storage, identity.userId, identity.contextId, value),
+      writeRuntimeDraft(() =>
+        writeProducerDisplayNameDraft(storage, identity.userId, identity.contextId, value),
+      ),
     );
   }, [
     activeScopeKey,
@@ -457,6 +487,7 @@ export function useProducerDisplayNameDraft({
     savedValue,
     storage,
     value,
+    writeRuntimeDraft,
   ]);
 
   useEffect(() => {
