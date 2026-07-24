@@ -96,19 +96,24 @@ async function prepareAppAccountExit(
  */
 export function useSafeSignOut(): (options?: SignOutOptions) => Promise<void> {
   const clerk = useClerk();
-  const { user } = useUser();
+  const { isLoaded, user } = useUser();
   const { toast } = useToast();
   return useCallback(
     async (options?: SignOutOptions) => {
+      const accountId = isLoaded ? user?.id : undefined;
+      if (!accountId) {
+        toast(SIGN_OUT_BOUNDARY_ERROR, "error", { durationMs: 8000 });
+        throw new Error(SIGN_OUT_BOUNDARY_ERROR);
+      }
       try {
-        if (user?.id) await prepareAppAccountExit(user.id, unsubscribePushAction);
+        await prepareAppAccountExit(accountId, unsubscribePushAction);
       } catch (error) {
         toast(SIGN_OUT_BOUNDARY_ERROR, "error", { durationMs: 8000 });
         throw error;
       }
       await clerk.signOut(options);
     },
-    [clerk, toast, user?.id],
+    [clerk, isLoaded, toast, user?.id],
   );
 }
 

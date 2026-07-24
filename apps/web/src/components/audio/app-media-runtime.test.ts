@@ -77,8 +77,13 @@ describe("SK-110 root media runtime", () => {
     const safeSignOut = ROOT_RUNTIME.indexOf("export function useSafeSignOut");
     const uploadRuntime = ROOT_RUNTIME.indexOf("function AppUploadRuntime", safeSignOut);
     const safeSignOutSource = ROOT_RUNTIME.slice(safeSignOut, uploadRuntime);
+    const missingIdentityGuard = ROOT_RUNTIME.indexOf("if (!accountId)", safeSignOut);
+    const missingIdentityError = ROOT_RUNTIME.indexOf(
+      "throw new Error(SIGN_OUT_BOUNDARY_ERROR)",
+      missingIdentityGuard,
+    );
     const explicitCleanup = ROOT_RUNTIME.indexOf(
-      "if (user?.id) await prepareAppAccountExit(user.id, unsubscribePushAction)",
+      "await prepareAppAccountExit(accountId, unsubscribePushAction)",
       safeSignOut,
     );
     const boundaryError = ROOT_RUNTIME.indexOf(
@@ -86,6 +91,9 @@ describe("SK-110 root media runtime", () => {
       explicitCleanup,
     );
     const explicitSignOut = ROOT_RUNTIME.indexOf("await clerk.signOut(options)", boundaryError);
+    expect(missingIdentityGuard).toBeGreaterThan(safeSignOut);
+    expect(missingIdentityError).toBeGreaterThan(missingIdentityGuard);
+    expect(explicitCleanup).toBeGreaterThan(missingIdentityError);
     expect(explicitCleanup).toBeGreaterThanOrEqual(0);
     expect(boundaryError).toBeGreaterThan(explicitCleanup);
     expect(explicitSignOut).toBeGreaterThan(boundaryError);
