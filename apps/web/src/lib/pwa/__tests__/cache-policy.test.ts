@@ -16,10 +16,7 @@ type RequestLike = Readonly<{
 }>;
 
 type CachePolicy = Readonly<{
-  classifyRequest: (
-    request: RequestLike,
-    ownOrigin: string,
-  ) => CacheDecision;
+  classifyRequest: (request: RequestLike, ownOrigin: string) => CacheDecision;
 }>;
 
 const OWN_ORIGIN = "https://skitza.app";
@@ -75,6 +72,7 @@ describe("service worker cache policy", () => {
     ["/sign-in", "sensitive-path"],
     ["/listen/private-song-token", "sensitive-path"],
     ["/audio/locked-master.wav", "sensitive-path"],
+    ["/media/unlocked/example.mp3", "not-allowlisted"],
     ["/public/store", "not-allowlisted"],
   ])("keeps %s network-only (%s)", (path, reason) => {
     expect(policy.classifyRequest(request(path), OWN_ORIGIN)).toEqual({
@@ -85,10 +83,7 @@ describe("service worker cache policy", () => {
 
   it("rejects RSC payloads even when they target an otherwise safe path", () => {
     expect(
-      policy.classifyRequest(
-        request("/_next/static/chunks/app.js?_rsc=private"),
-        OWN_ORIGIN,
-      ),
+      policy.classifyRequest(request("/_next/static/chunks/app.js?_rsc=private"), OWN_ORIGIN),
     ).toEqual({ action: "network-only", reason: "rsc" });
     expect(
       policy.classifyRequest(
@@ -103,9 +98,7 @@ describe("service worker cache policy", () => {
   it("rejects signed URLs, authorization, range media, and Clerk origins", () => {
     expect(
       policy.classifyRequest(
-        request(
-          "/icons/skitza-192.png?X-Amz-Signature=secret&X-Amz-Expires=60",
-        ),
+        request("/icons/skitza-192.png?X-Amz-Signature=secret&X-Amz-Expires=60"),
         OWN_ORIGIN,
       ),
     ).toEqual({ action: "network-only", reason: "signed-url" });
@@ -139,10 +132,7 @@ describe("service worker cache policy", () => {
 
   it("never caches writes", () => {
     expect(
-      policy.classifyRequest(
-        request("/icons/skitza-192.png", { method: "POST" }),
-        OWN_ORIGIN,
-      ),
+      policy.classifyRequest(request("/icons/skitza-192.png", { method: "POST" }), OWN_ORIGIN),
     ).toEqual({ action: "network-only", reason: "non-get" });
   });
 });

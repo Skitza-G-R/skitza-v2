@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 
-import { afterEach, describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+import { setUploadRuntimeAccountId } from "./upload-manager";
 
 import {
   ACTIVE_UPLOAD_STALE_MS,
@@ -24,8 +25,14 @@ import {
 } from "./use-multipart-upload";
 
 const SOURCE = readFileSync(new URL("./use-multipart-upload.ts", import.meta.url), "utf8");
+const ACCOUNT_ID = "user_test";
+
+beforeEach(() => {
+  setUploadRuntimeAccountId(ACCOUNT_ID);
+});
 
 afterEach(() => {
+  setUploadRuntimeAccountId(null);
   vi.unstubAllGlobals();
 });
 
@@ -72,6 +79,7 @@ describe("multipart upload recovery identity", () => {
 
   it("maps the persisted entry to the exact cancellation identity", () => {
     const entry: ResumableEntry = {
+      accountId: ACCOUNT_ID,
       key: "private-key",
       uploadId: "upload-id",
       trackVersionId: "version-id",
@@ -134,6 +142,7 @@ describe("multipart upload recovery identity", () => {
       },
     });
     const entry: ResumableEntry = {
+      accountId: ACCOUNT_ID,
       key: "private-key",
       uploadId: "upload-id",
       trackVersionId: "version-id",
@@ -178,6 +187,7 @@ describe("multipart upload recovery identity", () => {
 
     requestUploadCancellation(request);
     finishInit?.({
+      accountId: ACCOUNT_ID,
       key: "private-key",
       uploadId: "upload-id",
       trackVersionId: "version-id",
@@ -195,6 +205,7 @@ describe("multipart upload recovery identity", () => {
     const requestedAt = new Date("2026-07-17T12:00:00.000Z");
     const entry = markCancellationRequested(
       {
+        accountId: ACCOUNT_ID,
         key: "private-key",
         uploadId: "upload-id",
         trackVersionId: "version-id",
@@ -244,6 +255,7 @@ describe("multipart upload recovery identity", () => {
       removeItem: () => events.push("remove"),
     });
     const entry: ResumableEntry = {
+      accountId: ACCOUNT_ID,
       key: "private-key",
       uploadId: "upload-id",
       trackVersionId: "version-id",
@@ -285,8 +297,9 @@ describe("multipart upload recovery identity", () => {
   it("skips malformed local recovery identities without persisting them", () => {
     const entries = [
       [
-        "skitza:upload:missing-id",
+        `skitza:upload:${encodeURIComponent(ACCOUNT_ID)}:missing-id`,
         JSON.stringify({
+          accountId: ACCOUNT_ID,
           key: "private-key",
           completionToken: "a".repeat(64),
           trackVersionId: "11111111-1111-4111-8111-111111111111",
@@ -297,8 +310,9 @@ describe("multipart upload recovery identity", () => {
         }),
       ],
       [
-        "skitza:upload:upload-id",
+        `skitza:upload:${encodeURIComponent(ACCOUNT_ID)}:upload-id`,
         JSON.stringify({
+          accountId: ACCOUNT_ID,
           uploadId: "upload-id",
           key: "private-key",
           completionToken: "bad-token",
@@ -320,6 +334,36 @@ describe("multipart upload recovery identity", () => {
 
     expect(resumableUploads()).toEqual([]);
     expect(writes).toEqual([]);
+  });
+
+  it("exposes only the signed-in account's durable journal", () => {
+    const versionId = "11111111-1111-4111-8111-111111111111";
+    const timestamp = "2026-07-17T12:00:00.000Z";
+    const makeEntry = (accountId: string, uploadId: string) => ({
+      accountId,
+      uploadId,
+      key: "private-key",
+      completionToken: "a".repeat(64),
+      trackVersionId: versionId,
+      totalBytes: 123,
+      completed: [],
+      createdAt: timestamp,
+      lastProgressAt: timestamp,
+    });
+    const a = makeEntry(ACCOUNT_ID, "upload-a");
+    const b = makeEntry("user_other", "upload-b");
+    const entries = [
+      [`skitza:upload:${encodeURIComponent(a.accountId)}:${a.uploadId}`, JSON.stringify(a)],
+      [`skitza:upload:${encodeURIComponent(b.accountId)}:${b.uploadId}`, JSON.stringify(b)],
+    ] as const;
+    vi.stubGlobal("localStorage", {
+      length: entries.length,
+      key: (index: number) => entries[index]?.[0] ?? null,
+      getItem: (key: string) => entries.find(([candidate]) => candidate === key)?.[1] ?? null,
+    });
+
+    expect(resumableUploads(ACCOUNT_ID).map((entry) => entry.uploadId)).toEqual(["upload-a"]);
+    expect(resumableUploads("user_other").map((entry) => entry.uploadId)).toEqual(["upload-b"]);
   });
 });
 
@@ -355,6 +399,7 @@ describe("orphan version cleanup recovery", () => {
 
   it("retries a due version cleanup on a later mounted recovery pass", async () => {
     const entry: PendingVersionCleanupEntry = {
+      accountId: ACCOUNT_ID,
       trackVersionId: "11111111-1111-4111-8111-111111111111",
       cleanupRequestedAt: "2026-07-17T12:00:00.000Z",
     };

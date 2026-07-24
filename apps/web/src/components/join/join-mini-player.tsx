@@ -18,19 +18,16 @@
 
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 
 import {
-  PLAYER_EVENTS,
   pickDurationMs,
   playerPlay,
+  playerSeek,
   playerToggle,
   playerClose,
-  publishNowPlaying,
-  type PlayerTrack,
 } from "~/components/audio/persistent-player";
-
-type PlayerState = { track: PlayerTrack | null; playing: boolean };
+import { usePlaybackSnapshot } from "~/components/audio/playback-runtime";
 
 // Subset of the page's PublicSample so the mini player can compute
 // prev/next without importing the bento's full type surface.
@@ -61,55 +58,9 @@ interface JoinMiniPlayerProps {
 const EASE_LINEAR = "cubic-bezier(0.32,0.72,0,1)";
 
 export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
-  const [state, setState] = useState<PlayerState>({ track: null, playing: false });
-  const [currentMs, setCurrentMs] = useState(0);
-  const [audioDurationSec, setAudioDurationSec] = useState<number | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-
-  // ─── Event-bus wiring ───────────────────────────────────────────
-  // Mirrors PersistentPlayer's listener set so we react to the exact
-  // same dispatches.
-  useEffect(() => {
-    function onSet(e: Event) {
-      const track = (e as CustomEvent<PlayerTrack>).detail;
-      setState({ track, playing: true });
-      setCurrentMs(0);
-      setAudioDurationSec(null);
-      publishNowPlaying({ trackId: track.id, playing: true });
-    }
-    function onToggle() {
-      setState((s) => {
-        const next = { ...s, playing: !s.playing };
-        publishNowPlaying({
-          trackId: next.track?.id ?? null,
-          playing: next.playing,
-        });
-        return next;
-      });
-    }
-    function onSeek(e: Event) {
-      const ms = (e as CustomEvent<number>).detail;
-      const el = audioRef.current;
-      if (el) el.currentTime = Math.max(0, ms) / 1000;
-      setCurrentMs(Math.max(0, ms));
-    }
-    function onClose() {
-      setState({ track: null, playing: false });
-      setCurrentMs(0);
-      setAudioDurationSec(null);
-      publishNowPlaying({ trackId: null, playing: false });
-    }
-    window.addEventListener(PLAYER_EVENTS.set, onSet as EventListener);
-    window.addEventListener(PLAYER_EVENTS.toggle, onToggle as EventListener);
-    window.addEventListener(PLAYER_EVENTS.seek, onSeek as EventListener);
-    window.addEventListener(PLAYER_EVENTS.close, onClose as EventListener);
-    return () => {
-      window.removeEventListener(PLAYER_EVENTS.set, onSet as EventListener);
-      window.removeEventListener(PLAYER_EVENTS.toggle, onToggle as EventListener);
-      window.removeEventListener(PLAYER_EVENTS.seek, onSeek as EventListener);
-      window.removeEventListener(PLAYER_EVENTS.close, onClose as EventListener);
-    };
-  }, []);
+  const state = usePlaybackSnapshot();
+  const currentMs = state.currentMs;
+  const audioDurationSec = state.audioDurationSec;
 
   // ─── body data attribute → CSS scopes extra bottom padding ──────
   // Mirror the dashboard's <PersistentPlayer /> contract: when a track
@@ -128,56 +79,9 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
     };
   }, [state.track]);
 
-  // ─── Drive the <audio> element from state ───────────────────────
-  useEffect(() => {
-    const el = audioRef.current;
-    if (!el) return;
-    if (state.playing) {
-      void el.play().catch(() => {
-        setState((s) => ({ ...s, playing: false }));
-      });
-    } else {
-      el.pause();
-    }
-  }, [state.playing, state.track?.id]);
-
-  // ─── Time + ended listeners ─────────────────────────────────────
-  useEffect(() => {
-    const el = audioRef.current;
-    if (!el) return;
-    const onTime = () => {
-      const ms = Math.floor(el.currentTime * 1000);
-      setCurrentMs(ms);
-      window.dispatchEvent(new CustomEvent(PLAYER_EVENTS.time, { detail: ms }));
-    };
-    const onEnded = () => {
-      setState((s) => {
-        publishNowPlaying({
-          trackId: s.track?.id ?? null,
-          playing: false,
-        });
-        return { ...s, playing: false };
-      });
-    };
-    const onLoadedMetadata = () => {
-      setAudioDurationSec(el.duration);
-    };
-    el.addEventListener("timeupdate", onTime);
-    el.addEventListener("ended", onEnded);
-    el.addEventListener("loadedmetadata", onLoadedMetadata);
-    return () => {
-      el.removeEventListener("timeupdate", onTime);
-      el.removeEventListener("ended", onEnded);
-      el.removeEventListener("loadedmetadata", onLoadedMetadata);
-    };
-  }, [state.track?.id]);
-
   if (!state.track) return null;
 
-  const effectiveDurationMs = pickDurationMs(
-    state.track.durationMs,
-    audioDurationSec,
-  );
+  const effectiveDurationMs = pickDurationMs(state.track.durationMs, audioDurationSec);
   const progressPct =
     effectiveDurationMs && effectiveDurationMs > 0
       ? Math.min(100, Math.max(0, (currentMs / effectiveDurationMs) * 100))
@@ -189,12 +93,9 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
   // crashing if a stale track id stays in state).
   const activeId = state.track.id;
   const idx = samples?.findIndex((s) => s.id === activeId) ?? -1;
-  const prevTrack =
-    samples && idx > 0 ? samples[idx - 1] ?? null : null;
+  const prevTrack = samples && idx > 0 ? (samples[idx - 1] ?? null) : null;
   const nextTrack =
-    samples && idx >= 0 && idx < samples.length - 1
-      ? samples[idx + 1] ?? null
-      : null;
+    samples && idx >= 0 && idx < samples.length - 1 ? (samples[idx + 1] ?? null) : null;
 
   function dispatchTrack(t: MiniPlaylistTrack) {
     if (!t.audioUrl) return;
@@ -212,9 +113,7 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
     const rect = e.currentTarget.getBoundingClientRect();
     const pct = ((e.clientX - rect.left) / rect.width) * 100;
     const ms = Math.floor((pct / 100) * effectiveDurationMs);
-    const el = audioRef.current;
-    if (el) el.currentTime = ms / 1000;
-    setCurrentMs(ms);
+    playerSeek(ms);
   }
 
   return (
@@ -226,7 +125,7 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
         // bottom uses max(1rem, env(safe-area-inset-bottom) + 0.5rem)
         // so the dock pill clears the iPhone home indicator in portrait
         // and landscape without crowding non-notched viewports.
-        className="fixed inset-x-0 z-50 flex justify-center px-4 pointer-events-none"
+        className="pointer-events-none fixed inset-x-0 z-50 flex justify-center px-4"
         style={{
           bottom: "max(1rem, calc(env(safe-area-inset-bottom) + 0.5rem))",
         }}
@@ -248,7 +147,7 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
               }}
               disabled={!prevTrack}
               aria-label="Previous track"
-              className="flex h-8 w-8 items-center justify-center rounded-full text-[rgb(var(--bg-base)/0.8)] transition-colors duration-300 hover:bg-[rgb(var(--bg-base)/0.1)] hover:text-[rgb(var(--bg-base))] disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[rgb(var(--bg-base)/0.8)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))]"
+              className="flex h-8 w-8 items-center justify-center rounded-full text-[rgb(var(--bg-base)/0.8)] transition-colors duration-300 hover:bg-[rgb(var(--bg-base)/0.1)] hover:text-[rgb(var(--bg-base))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[rgb(var(--bg-base)/0.8)]"
             >
               <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" aria-hidden fill="currentColor">
                 <polygon points="18,5 7,12 18,19" />
@@ -262,7 +161,7 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
                 playerToggle();
               }}
               aria-label={state.playing ? "Pause" : "Play"}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-primary))] transition-transform duration-300 hover:scale-105 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))]"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-primary))] transition-transform duration-300 hover:scale-105 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))] focus-visible:outline-none active:scale-[0.97]"
               style={{ transitionTimingFunction: EASE_LINEAR }}
             >
               {state.playing ? (
@@ -271,7 +170,12 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
                   <rect x="14" y="5" width="4" height="14" rx="1" />
                 </svg>
               ) : (
-                <svg viewBox="0 0 24 24" className="h-4 w-4 translate-x-[1px]" aria-hidden fill="currentColor">
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4 translate-x-[1px]"
+                  aria-hidden
+                  fill="currentColor"
+                >
                   <polygon points="6,4 20,12 6,20" />
                 </svg>
               )}
@@ -284,7 +188,7 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
               }}
               disabled={!nextTrack}
               aria-label="Next track"
-              className="flex h-8 w-8 items-center justify-center rounded-full text-[rgb(var(--bg-base)/0.8)] transition-colors duration-300 hover:bg-[rgb(var(--bg-base)/0.1)] hover:text-[rgb(var(--bg-base))] disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[rgb(var(--bg-base)/0.8)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))]"
+              className="flex h-8 w-8 items-center justify-center rounded-full text-[rgb(var(--bg-base)/0.8)] transition-colors duration-300 hover:bg-[rgb(var(--bg-base)/0.1)] hover:text-[rgb(var(--bg-base))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[rgb(var(--bg-base)/0.8)]"
             >
               <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" aria-hidden fill="currentColor">
                 <polygon points="6,5 17,12 6,19" />
@@ -294,11 +198,9 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
           </div>
 
           {/* Title + artist + thin scrubbable progress bar + timestamps. */}
-          <div className="min-w-0 flex flex-col gap-1.5">
-            <div className="min-w-0 flex items-baseline gap-2">
-              <p className="truncate text-sm font-bold">
-                {state.track.title}
-              </p>
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <div className="flex min-w-0 items-baseline gap-2">
+              <p className="truncate text-sm font-bold">{state.track.title}</p>
               {state.track.subtitle ? (
                 <p className="truncate text-xs text-[rgb(var(--bg-base)/0.7)]">
                   {state.track.subtitle}
@@ -329,12 +231,10 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
                 />
               </span>
             </button>
-            <div className="flex items-baseline justify-between font-mono text-[0.62rem] tabular-nums text-[rgb(var(--bg-base)/0.6)]">
+            <div className="flex items-baseline justify-between font-mono text-[0.62rem] text-[rgb(var(--bg-base)/0.6)] tabular-nums">
               <span aria-label="Current time">{formatClockMs(currentMs)}</span>
               <span aria-label="Total duration">
-                {effectiveDurationMs !== null
-                  ? formatClockMs(effectiveDurationMs)
-                  : "—"}
+                {effectiveDurationMs !== null ? formatClockMs(effectiveDurationMs) : "—"}
               </span>
             </div>
           </div>
@@ -346,24 +246,23 @@ export function JoinMiniPlayer({ samples, producerName }: JoinMiniPlayerProps) {
               playerClose();
             }}
             aria-label="Close player"
-            className="flex h-8 w-8 items-center justify-center rounded-full text-[rgb(var(--bg-base)/0.7)] transition-colors duration-300 hover:bg-[rgb(var(--bg-base)/0.1)] hover:text-[rgb(var(--bg-base))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))]"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-[rgb(var(--bg-base)/0.7)] transition-colors duration-300 hover:bg-[rgb(var(--bg-base)/0.1)] hover:text-[rgb(var(--bg-base))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--fg-primary))] focus-visible:outline-none"
           >
-            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" aria-hidden fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <svg
+              viewBox="0 0 24 24"
+              className="h-3.5 w-3.5"
+              aria-hidden
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+            >
               <line x1="6" y1="6" x2="18" y2="18" />
               <line x1="6" y1="18" x2="18" y2="6" />
             </svg>
           </button>
         </div>
       </div>
-
-      {/* Audio element drives playback — sr-only since the buttons above
-          announce play/pause state to AT. */}
-      <audio
-        ref={audioRef}
-        src={state.track.audioUrl ?? undefined}
-        preload="auto"
-        className="sr-only"
-      />
 
       {/* Inline keyframes + dock-aware body padding rule. Self-contained
           here so the mini-player can be reused without a globals.css

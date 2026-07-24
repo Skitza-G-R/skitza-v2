@@ -413,14 +413,11 @@ describe("portfolio-panel.tsx — structural invariants", () => {
     expect(publicMatch).toBeGreaterThan(nameMatch);
   });
 
-  it("only one song can play at a time (parent owns playingId state)", () => {
-    // Pin the single-playback invariant: the section reads its
-    // currently-playing id from useState and passes a boolean down to
-    // each row, so any second row's play click flips the first row's
-    // isPlaying prop to false → the row's useEffect pauses it.
-    expect(panelSource).toMatch(/setPlayingId/);
-    expect(panelSource).toMatch(/isPlaying={playingId === row\.id}/);
-    expect(panelSource).toMatch(/computePlayingId/);
+  it("delegates single-song playback to the root playback engine", () => {
+    expect(panelSource).toMatch(/useNowPlaying\(\)/);
+    expect(panelSource).toMatch(/usePlaybackSnapshot\(\)/);
+    expect(panelSource).toMatch(/playerPlay\(\{/);
+    expect(panelSource).not.toMatch(/new Audio\(/);
   });
 
   it("uses real peaks when present, falls back to seededBars", () => {

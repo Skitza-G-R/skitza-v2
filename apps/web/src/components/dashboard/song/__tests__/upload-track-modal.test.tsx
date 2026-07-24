@@ -212,7 +212,9 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     const firstSign = SRC.indexOf("signPartAction", initSuccess);
     expect(persistExact).toBeGreaterThan(initSuccess);
     expect(persistExact).toBeLessThan(firstSign);
-    expect(SRC).toContain("markVersionCleanupRequested(createdVersionId)");
+    expect(SRC).toMatch(
+      /markVersionCleanupRequested\(\s*createdVersionId,\s*new Date\(\),\s*uploadAccountId,?\s*\)/,
+    );
     expect(SRC).toContain("requestExactMultipartCancellation(active, abortMultipartAction)");
     expect(SRC).toContain("await requestVersionCleanup(versionCleanup, deleteVersionAction)");
   });
@@ -220,7 +222,9 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
   it("keeps ambiguous init cleanup durable until deleteVersion confirms success", () => {
     const catchStart = SRC.indexOf("} catch (err) {");
     const catchSource = SRC.slice(catchStart, SRC.indexOf("// Display label", catchStart));
-    const persistCleanup = catchSource.indexOf("markVersionCleanupRequested(createdVersionId)");
+    const persistCleanup = catchSource.search(
+      /markVersionCleanupRequested\(\s*createdVersionId,\s*new Date\(\),\s*uploadAccountId,?\s*\)/,
+    );
     const cleanupAttempt = catchSource.indexOf("requestVersionCleanup(", persistCleanup);
     expect(persistCleanup).toBeGreaterThanOrEqual(0);
     expect(cleanupAttempt).toBeGreaterThan(persistCleanup);
@@ -229,16 +233,20 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
 
   it("persists placeholder cleanup before multipart init and clears it only after attach", () => {
     const versionCreated = SRC.indexOf("if (!vres.ok)");
-    const cleanupPersisted = SRC.indexOf(
-      "versionCleanup = markVersionCleanupRequested(versionId)",
-      versionCreated,
+    const cleanupPersistedOffset = SRC.slice(versionCreated).search(
+      /versionCleanup = markVersionCleanupRequested\(\s*versionId,\s*new Date\(\),\s*uploadAccountId,?\s*\)/,
     );
+    const cleanupPersisted =
+      cleanupPersistedOffset < 0 ? -1 : versionCreated + cleanupPersistedOffset;
     const initStarted = SRC.indexOf("await initMultipartAction", versionCreated);
     expect(cleanupPersisted).toBeGreaterThan(versionCreated);
     expect(cleanupPersisted).toBeLessThan(initStarted);
 
     const attachConfirmed = SRC.indexOf("if (!cres.ok)");
-    const cleanupRemoved = SRC.indexOf("removeVersionCleanupEntry(versionId)", attachConfirmed);
+    const cleanupRemovedOffset = SRC.slice(attachConfirmed).search(
+      /removeVersionCleanupEntry\(\s*versionId,\s*uploadAccountId\s*\)/,
+    );
+    const cleanupRemoved = cleanupRemovedOffset < 0 ? -1 : attachConfirmed + cleanupRemovedOffset;
     expect(cleanupRemoved).toBeGreaterThan(attachConfirmed);
   });
 

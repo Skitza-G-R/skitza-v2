@@ -1,7 +1,7 @@
 "use client";
 
-import { useClerk } from "@clerk/nextjs";
 import { useState } from "react";
+import { useSafeSignOut } from "~/components/audio/app-media-runtime";
 
 // Tiny client island for the producer-already-signed-in branch of
 // /sign-up/join/<slug>. The page is a server component, but signing
@@ -13,7 +13,7 @@ import { useState } from "react";
 // as an artist via the same "Book a session" CTA.
 
 export function SignOutAndReturnButton({ slug }: { slug: string }) {
-  const { signOut } = useClerk();
+  const signOut = useSafeSignOut();
   const [pending, setPending] = useState(false);
 
   const onClick = async () => {
@@ -39,9 +39,9 @@ export function SignOutAndReturnButton({ slug }: { slug: string }) {
         "sk-cta-shine inline-flex min-h-12 w-full items-center justify-center",
         "rounded-[var(--radius-md)] bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))]",
         "px-6 py-3 text-sm font-semibold text-[#0C0A07]",
-        "transition-transform hover:scale-[1.02] hover:-translate-y-[1px] active:translate-y-[1px]",
-        "disabled:opacity-60 disabled:hover:scale-100 disabled:hover:translate-y-0",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]",
+        "transition-transform hover:-translate-y-[1px] hover:scale-[1.02] active:translate-y-[1px]",
+        "disabled:opacity-60 disabled:hover:translate-y-0 disabled:hover:scale-100",
+        "focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))] focus-visible:outline-none",
       ].join(" ")}
     >
       {pending ? "Signing out…" : "Sign out and continue"}

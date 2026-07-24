@@ -1,7 +1,7 @@
 "use client";
 
-import { useClerk } from "@clerk/nextjs";
 import { useState } from "react";
+import { useSafeSignOut } from "~/components/audio/app-media-runtime";
 
 // Tiny client island for /artist-welcome. The page used to render
 // `<Link href="/sign-out">`, but no /sign-out route exists — the
@@ -11,7 +11,7 @@ import { useState } from "react";
 // then lands the user on the public landing page where they can go
 // click the invite from their email.
 export function SignOutLink() {
-  const { signOut } = useClerk();
+  const signOut = useSafeSignOut();
   const [pending, setPending] = useState(false);
 
   const onClick = async () => {
@@ -33,9 +33,7 @@ export function SignOutLink() {
       disabled={pending}
       className="mt-2 inline-block text-sm text-[rgb(var(--brand-primary))] underline decoration-dotted underline-offset-2 disabled:opacity-60"
     >
-      {pending
-        ? "Signing out…"
-        : "Sign out + click the invite from your email"}
+      {pending ? "Signing out…" : "Sign out + click the invite from your email"}
     </button>
   );
 }

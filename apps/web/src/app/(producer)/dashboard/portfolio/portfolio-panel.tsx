@@ -3,7 +3,6 @@
 import {
   useEffect,
   useMemo,
-  useRef,
   useState,
   useTransition,
   type MouseEvent as ReactMouseEvent,
@@ -33,6 +32,13 @@ import { CSS } from "@dnd-kit/utilities";
 
 import { useToast } from "~/components/ui/toast";
 import { PlatformIcon } from "~/components/portfolio/platform-icons";
+import {
+  playerPlay,
+  playerSeek,
+  playerToggle,
+  useNowPlaying,
+} from "~/components/audio/persistent-player";
+import { usePlaybackSnapshot } from "~/components/audio/playback-runtime";
 
 import {
   addExternalLink,
@@ -242,10 +248,6 @@ function FeaturedTracksSection({
   publishedTrackIds: string[];
 }) {
   const [rows, setRows] = useState<PortfolioTrackRow[]>(initialTracks);
-  // The single source of truth for "which track is currently playing".
-  // Lifted from per-row state so clicking play on row B implicitly
-  // pauses row A — see computePlayingId for the state machine.
-  const [playingId, setPlayingId] = useState<string | null>(null);
   const router = useRouter();
   const { toast } = useToast();
   const [, startTransition] = useTransition();
@@ -256,13 +258,7 @@ function FeaturedTracksSection({
 
   const atCap = rows.length >= TRACK_CAP;
 
-  function handlePlayChange(id: string, next: boolean) {
-    setPlayingId((curr) => computePlayingId(curr, id, next));
-  }
-
   function remove(id: string) {
-    // If the row being removed was playing, stop tracking it.
-    setPlayingId((curr) => (curr === id ? null : curr));
     setRows((all) => all.filter((r) => r.id !== id));
     startTransition(async () => {
       const res = await setPortfolioSongPublished({
@@ -318,10 +314,6 @@ function FeaturedTracksSection({
             <TrackRow
               key={row.id}
               row={row}
-              isPlaying={playingId === row.id}
-              onPlayChange={(next) => {
-                handlePlayChange(row.id, next);
-              }}
               onRemove={() => {
                 remove(row.id);
               }}
@@ -346,98 +338,44 @@ function FeaturedTracksEmpty() {
   );
 }
 
-function TrackRow({
-  row,
-  isPlaying,
-  onPlayChange,
-  onRemove,
-}: {
-  row: PortfolioTrackRow;
-  isPlaying: boolean;
-  onPlayChange: (next: boolean) => void;
-  onRemove: () => void;
-}) {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [progress, setProgress] = useState(0);
-
-  function ensureAudio(): HTMLAudioElement | null {
-    if (!row.audioUrl) return null;
-    if (!audioRef.current) {
-      audioRef.current = new Audio(row.audioUrl);
-      audioRef.current.addEventListener("timeupdate", () => {
-        const a = audioRef.current;
-        if (!a || !a.duration) return;
-        setProgress(a.currentTime / a.duration);
-      });
-      audioRef.current.addEventListener("ended", () => {
-        setProgress(0);
-        // Tell the parent that this row finished. The parent will only
-        // clear `playingId` if it still matches this row's id (handled
-        // by computePlayingId).
-        onPlayChange(false);
-      });
-    }
-    return audioRef.current;
-  }
-
-  // Sync the audio element with the parent-controlled isPlaying prop.
-  // This is the mechanism that pauses the previously-playing row when
-  // a different row's play button is clicked: row A's isPlaying flips
-  // from true → false, this effect fires, and audioRef.pause() runs.
-  useEffect(() => {
-    if (isPlaying) {
-      const a = ensureAudio();
-      if (a) {
-        void a.play().catch(() => {
-          // play() can reject on autoplay restrictions or a stale
-          // audioRef. Bubble back to the parent so the UI stays in
-          // sync with reality.
-          onPlayChange(false);
-        });
-      }
-    } else {
-      audioRef.current?.pause();
-    }
-    // Dep array is intentionally narrow: ensureAudio + onPlayChange
-    // are not re-created on every render in a way that affects this
-    // sync — adding them would cause needless re-triggers when the
-    // parent re-renders for an unrelated reason.
-  }, [isPlaying]);
-
-  // Pause + free audio on unmount so a row removed from the list (or
-  // a page that navigates away) doesn't keep playing.
-  useEffect(() => {
-    return () => {
-      audioRef.current?.pause();
-    };
-  }, []);
+function TrackRow({ row, onRemove }: { row: PortfolioTrackRow; onRemove: () => void }) {
+  const playback = useNowPlaying();
+  const isPlaying = playback.trackId === row.id && playback.playing;
+  const runtime = usePlaybackSnapshot();
+  const progress =
+    playback.trackId === row.id && row.durationMs && row.durationMs > 0
+      ? Math.min(1, runtime.currentMs / row.durationMs)
+      : 0;
 
   function togglePlay() {
     if (!row.audioUrl) return;
-    // Just signal intent to the parent — the useEffect above handles
-    // the actual audio.play() / pause() once isPlaying flips.
-    onPlayChange(!isPlaying);
+    if (playback.trackId === row.id) {
+      playerToggle();
+      return;
+    }
+    playerPlay({
+      id: row.id,
+      audioUrl: row.audioUrl,
+      title: row.title,
+      subtitle: row.artist ?? row.versionLabel,
+      durationMs: row.durationMs,
+    });
   }
 
   function seekToFraction(fraction: number) {
     const clamped = Math.max(0, Math.min(1, fraction));
-    const a = ensureAudio();
-    if (!a) return;
-    if (a.duration && Number.isFinite(a.duration)) {
-      a.currentTime = clamped * a.duration;
-      setProgress(clamped);
-    } else {
-      a.addEventListener(
-        "loadedmetadata",
-        () => {
-          a.currentTime = clamped * a.duration;
-          setProgress(clamped);
-        },
-        { once: true },
-      );
+    if (!row.audioUrl) return;
+    if (playback.trackId !== row.id) {
+      playerPlay({
+        id: row.id,
+        audioUrl: row.audioUrl,
+        title: row.title,
+        subtitle: row.artist ?? row.versionLabel,
+        durationMs: row.durationMs,
+      });
     }
-    if (!isPlaying) {
-      onPlayChange(true);
+    if (row.durationMs && row.durationMs > 0) {
+      playerSeek(clamped * row.durationMs);
     }
   }
 
