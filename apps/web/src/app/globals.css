@@ -1622,8 +1622,10 @@
     bottom: 0;
     top: auto;
     /* Tailwind v4's -translate-x-1/2 uses the standalone `translate`
-     * property — resetting `transform` alone leaves the -50% offset. */
-    translate: none;
+     * property — resetting `transform` alone leaves the -50% offset.
+     * Use an explicit zero because production CSS drops the initial
+     * `none` value while the Tailwind translate utility remains. */
+    translate: 0 0;
     transform: none;
     width: 100%;
     max-width: 100%;

@@ -128,4 +128,14 @@ describe("native CSS contracts", () => {
     expect(globalsCss).toContain("min-width: 44px");
     expect(globalsCss).toContain("min-height: 44px");
   });
+
+  it("uses a production-safe zero translate for opted-in mobile sheets", () => {
+    const sheetRule = globalsCss.match(/\.sk-sheet-mobile\s*\{([\s\S]*?)\n\s*\}/)?.[1];
+
+    expect(sheetRule).toBeDefined();
+    expect(sheetRule).toContain("left: 0;");
+    expect(sheetRule).toContain("right: 0;");
+    expect(sheetRule).toContain("translate: 0 0;");
+    expect(sheetRule).not.toContain("translate: none;");
+  });
 });
