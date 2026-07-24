@@ -69,6 +69,16 @@ describe("ProductEditor orchestrator", () => {
     expect(lifecycle).toMatch(/return \(\) => \{[\s\S]*flush\(\);[\s\S]*\};/);
   });
 
+  it("makes a delayed autosave fail closed after successful submit clears its ref", () => {
+    const debounceStart = SRC.indexOf("const timeout = window.setTimeout");
+    const debounceEnd = SRC.indexOf("}, 250)", debounceStart);
+    const debounce = SRC.slice(debounceStart, debounceEnd);
+
+    expect(debounce).toContain("latestPersistedDraftRef.current");
+    expect(debounce).toContain("if (latest) onPersistDraft(latest)");
+    expect(debounce).not.toContain("onPersistDraft(nextRecord)");
+  });
+
   it("keeps the unmount flush available for an ordinary close", () => {
     const handlerStart = SRC.indexOf("function handleEditorOpenChange");
     const handlerEnd = SRC.indexOf("function onTaxChange", handlerStart);

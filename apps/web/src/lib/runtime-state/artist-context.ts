@@ -15,6 +15,14 @@ function artistContextPointerScope(userId: string) {
   );
 }
 
+export function canReadArtistRuntimeStudioContext(
+  clerkLoaded: boolean,
+  clerkUserId: string | null | undefined,
+  serverUserId: string,
+): boolean {
+  return clerkLoaded && clerkUserId === serverUserId;
+}
+
 export function resolveArtistRuntimeStudioContext(
   storage: StorageLike | null,
   userId: string,

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { clearAccountPrivateRuntimeState } from "../account-exit";
 import {
+  canReadArtistRuntimeStudioContext,
   resolveArtistRuntimeStudioContext,
   writeArtistRuntimeStudioContext,
 } from "../artist-context";
@@ -14,6 +15,15 @@ import {
 import { MemoryStorage } from "./memory-storage";
 
 const STUDIOS = ["studio-a", "studio-b"] as const;
+
+class ReadTrackingStorage extends MemoryStorage {
+  reads = 0;
+
+  override getItem(key: string): string | null {
+    this.reads += 1;
+    return super.getItem(key);
+  }
+}
 
 function artistIdentity(userId: string, contextId: string): RuntimeIdentity {
   return {
@@ -95,7 +105,7 @@ describe("artist runtime studio context", () => {
       storage,
       "artist-a",
       STUDIOS,
-      "studio-a",
+      "studio-b",
       1,
     );
     writeArtistRuntimeStudioContext(
@@ -108,18 +118,67 @@ describe("artist runtime studio context", () => {
 
     expect(
       resolveArtistRuntimeStudioContext(storage, "artist-a", STUDIOS, null, 1),
-    ).toBe("studio-a");
+    ).toBe("studio-b");
     expect(
       resolveArtistRuntimeStudioContext(storage, "artist-b", STUDIOS, null, 1),
     ).toBe("studio-b");
 
     expect(clearAccountPrivateRuntimeState("artist-a", storage)).toBe(1);
+    expect(storage.length).toBe(1);
     expect(
       resolveArtistRuntimeStudioContext(storage, "artist-a", STUDIOS, null, 1),
     ).toBe("studio-a");
     expect(
       resolveArtistRuntimeStudioContext(storage, "artist-b", STUDIOS, null, 1),
     ).toBe("studio-b");
+  });
+
+  it("does not read a pointer before Clerk confirms the server account", () => {
+    const storage = new ReadTrackingStorage();
+    writeArtistRuntimeStudioContext(
+      storage,
+      "artist-a",
+      STUDIOS,
+      "studio-b",
+      1,
+    );
+
+    for (const [clerkLoaded, clerkUserId] of [
+      [false, undefined],
+      [true, "artist-b"],
+    ] as const) {
+      const readableStorage = canReadArtistRuntimeStudioContext(
+        clerkLoaded,
+        clerkUserId,
+        "artist-a",
+      )
+        ? storage
+        : null;
+      expect(
+        resolveArtistRuntimeStudioContext(
+          readableStorage,
+          "artist-a",
+          STUDIOS,
+          null,
+          1,
+        ),
+      ).toBe("studio-a");
+    }
+    expect(storage.reads).toBe(0);
+
+    expect(
+      canReadArtistRuntimeStudioContext(true, "artist-a", "artist-a"),
+    ).toBe(true);
+    expect(
+      resolveArtistRuntimeStudioContext(
+        storage,
+        "artist-a",
+        STUDIOS,
+        null,
+        1,
+      ),
+    ).toBe("studio-b");
+    expect(storage.reads).toBe(1);
   });
 
   it("keeps each studio's navigation index isolated", () => {

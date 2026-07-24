@@ -274,7 +274,8 @@ export function ProductEditor({
     };
     latestPersistedDraftRef.current = nextRecord;
     const timeout = window.setTimeout(() => {
-      onPersistDraft(nextRecord);
+      const latest = latestPersistedDraftRef.current;
+      if (latest) onPersistDraft(latest);
     }, 250);
     return () => {
       window.clearTimeout(timeout);

@@ -1,9 +1,11 @@
 "use client";
 
+import { useAuth } from "@clerk/nextjs";
 import { useLayoutEffect, useMemo, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 
 import {
+  canReadArtistRuntimeStudioContext,
   resolveArtistRuntimeStudioContext,
   writeArtistRuntimeStudioContext,
 } from "~/lib/runtime-state/artist-context";
@@ -50,9 +52,16 @@ export function ArtistRuntimeStateProvider({
   studioIds: string[];
   children: ReactNode;
 }) {
+  const { isLoaded, userId: clerkUserId } = useAuth();
   const searchParams = useSearchParams();
   const requestedStudioId = searchParams.get("studio");
-  const storage = getBrowserRuntimeStorage();
+  const storage = canReadArtistRuntimeStudioContext(
+    isLoaded,
+    clerkUserId,
+    userId,
+  )
+    ? getBrowserRuntimeStorage()
+    : null;
   const contextId =
     resolveArtistRuntimeStudioContext(
       storage,
