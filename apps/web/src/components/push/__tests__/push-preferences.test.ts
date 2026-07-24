@@ -56,13 +56,15 @@ describe("SK-112 contextual push preferences", () => {
   });
 
   it("cannot let a pending old-account save resume suppressed delivery", () => {
-    const save = preferences.indexOf("await savePushSubscriptionAction");
+    const trackedSave = preferences.indexOf("await runTrackedPushSubscriptionWrite");
+    const save = preferences.indexOf("savePushSubscriptionAction", trackedSave);
     const staleGuard = preferences.indexOf("if (!boundaryIsCurrent())", save);
     const resume = preferences.indexOf(
       "await resumeBrowserPushDelivery(boundaryIsCurrent)",
       staleGuard,
     );
-    expect(save).toBeGreaterThan(-1);
+    expect(trackedSave).toBeGreaterThan(-1);
+    expect(save).toBeGreaterThan(trackedSave);
     expect(staleGuard).toBeGreaterThan(save);
     expect(resume).toBeGreaterThan(staleGuard);
     expect(preferences).toContain("getPushAccountBoundaryGeneration()");

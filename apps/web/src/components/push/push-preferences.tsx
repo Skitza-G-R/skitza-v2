@@ -15,6 +15,7 @@ import {
   PUSH_SUBSCRIPTION_CLEARED_EVENT,
   pushAccountBoundaryAllowsDelivery,
   resumeBrowserPushDelivery,
+  runTrackedPushSubscriptionWrite,
 } from "~/lib/push/browser-subscription";
 
 type BrowserState = Readonly<{
@@ -198,7 +199,10 @@ export function PushPreferences() {
           return;
         }
 
-        const result = await savePushSubscriptionAction(subscriptionInput(subscription, next));
+        const input = subscriptionInput(subscription, next);
+        const result = await runTrackedPushSubscriptionWrite(() =>
+          savePushSubscriptionAction(input),
+        );
         if (!boundaryIsCurrent()) {
           await discardCreatedSubscription();
           return;

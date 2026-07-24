@@ -7,6 +7,7 @@ import {
   PushAccountBoundaryError,
   pushAccountBoundaryAllowsDelivery,
   resumeBrowserPushDelivery,
+  runTrackedPushSubscriptionWrite,
   suppressBrowserPushDelivery,
 } from "../browser-subscription";
 
@@ -87,6 +88,37 @@ describe("push account-exit cleanup", () => {
 
     expect(test.adapter.suppressDelivery).not.toHaveBeenCalled();
     expect(test.adapter.notifyCleared).toHaveBeenCalledOnce();
+  });
+
+  it("orders explicit removal after an already-started subscribe write", async () => {
+    const timeline: string[] = [];
+    let resolveSave: ((result: { ok: true }) => void) | undefined;
+    const save = new Promise<{ ok: true }>((resolve) => {
+      resolveSave = resolve;
+    });
+    const trackedSave = runTrackedPushSubscriptionWrite(() =>
+      save.then((result) => {
+        timeline.push("subscribe-committed");
+        return result;
+      }),
+    );
+    const test = harness({ unsubscribe: false });
+    const removeOwned = vi.fn(() => {
+      timeline.push("owned-row-removed");
+      return Promise.resolve({ ok: true as const });
+    });
+
+    const exit = clearBrowserPushSubscription(removeOwned, test.adapter);
+    await Promise.resolve();
+    expect(test.adapter.getSubscription).not.toHaveBeenCalled();
+    expect(removeOwned).not.toHaveBeenCalled();
+
+    resolveSave?.({ ok: true });
+    await expect(exit).resolves.toBe("server-removed");
+    await expect(trackedSave).resolves.toEqual({ ok: true });
+
+    expect(timeline).toEqual(["subscribe-committed", "owned-row-removed"]);
+    expect(removeOwned).toHaveBeenCalledWith(test.subscription.endpoint);
   });
 
   it("blocks explicit sign-out when subscription lookup fails", async () => {

@@ -38,6 +38,7 @@ export class PushAccountBoundaryError extends Error {
 let pushAccountBoundaryGeneration = 0;
 let activePushAccountBoundary: number | null = null;
 let pushControlWork: Promise<void> = Promise.resolve();
+const inFlightPushSubscriptionWrites = new Set<Promise<unknown>>();
 
 function beginPushAccountBoundary(): number {
   pushAccountBoundaryGeneration += 1;
@@ -57,6 +58,21 @@ export function getPushAccountBoundaryGeneration(): number {
 
 export function pushAccountBoundaryAllowsDelivery(generation: number): boolean {
   return generation === pushAccountBoundaryGeneration && activePushAccountBoundary === null;
+}
+
+export function runTrackedPushSubscriptionWrite<T>(write: () => Promise<T>): Promise<T> {
+  const operation = write();
+  const tracked = operation.finally(() => {
+    inFlightPushSubscriptionWrites.delete(tracked);
+  });
+  inFlightPushSubscriptionWrites.add(tracked);
+  return tracked;
+}
+
+async function waitForInFlightPushSubscriptionWrites(): Promise<void> {
+  while (inFlightPushSubscriptionWrites.size > 0) {
+    await Promise.allSettled([...inFlightPushSubscriptionWrites]);
+  }
 }
 
 function runPushControlWork<T>(work: () => Promise<T>): Promise<T> {
@@ -211,6 +227,13 @@ export async function clearBrowserPushSubscription(
     adapter.notifyCleared();
     return result;
   };
+
+  if (removeOwned) {
+    // A subscribe action that started before this synchronous boundary marker
+    // may still commit. Drain it first so the authenticated delete is the last
+    // server write for this endpoint.
+    await waitForInFlightPushSubscriptionWrites();
+  }
 
   let subscription: ExitPushSubscription | null;
   try {
