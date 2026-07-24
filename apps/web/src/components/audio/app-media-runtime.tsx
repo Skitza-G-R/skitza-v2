@@ -75,8 +75,23 @@ export async function prepareMediaAccountExit(accountId: string): Promise<boolea
   } catch {
     // A failed identity remains in the account-scoped journal.
   }
-  await clearPlaybackForAccount(accountId);
-  releaseManagedUploadsForAccount(accountId);
+  let cleanupFailed = false;
+  let cleanupFailure: unknown;
+  try {
+    await clearPlaybackForAccount(accountId);
+  } catch (error) {
+    cleanupFailed = true;
+    cleanupFailure = error;
+  }
+  try {
+    releaseManagedUploadsForAccount(accountId);
+  } catch (error) {
+    if (!cleanupFailed) {
+      cleanupFailed = true;
+      cleanupFailure = error;
+    }
+  }
+  if (cleanupFailed) throw cleanupFailure;
   return activeCancelled && journalCancelled;
 }
 
@@ -84,9 +99,38 @@ async function prepareAppAccountExit(
   accountId: string,
   removeOwnedPush: OwnedPushRemoval | null,
 ): Promise<boolean> {
-  await clearBrowserPushSubscription(removeOwnedPush);
-  clearAccountPrivateRuntimeState(accountId);
-  return prepareMediaAccountExit(accountId);
+  let pushFailed = false;
+  let pushFailure: unknown;
+  try {
+    await clearBrowserPushSubscription(removeOwnedPush);
+  } catch (error) {
+    pushFailed = true;
+    pushFailure = error;
+  }
+
+  let privateCleanupFailed = false;
+  let privateCleanupFailure: unknown;
+  try {
+    clearAccountPrivateRuntimeState(accountId);
+  } catch (error) {
+    privateCleanupFailed = true;
+    privateCleanupFailure = error;
+  }
+
+  let mediaCleanupFailed = false;
+  let mediaCleanupFailure: unknown;
+  let mediaCleanupResult = false;
+  try {
+    mediaCleanupResult = await prepareMediaAccountExit(accountId);
+  } catch (error) {
+    mediaCleanupFailed = true;
+    mediaCleanupFailure = error;
+  }
+
+  if (pushFailed) throw pushFailure;
+  if (privateCleanupFailed) throw privateCleanupFailure;
+  if (mediaCleanupFailed) throw mediaCleanupFailure;
+  return mediaCleanupResult;
 }
 
 /**

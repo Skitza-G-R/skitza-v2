@@ -191,6 +191,50 @@ describe("safe explicit sign-out", () => {
       "clerk",
     ]);
   });
+
+  it("runs every non-push cleanup and preserves the push failure", async () => {
+    const pushFailure = new Error("push boundary failed");
+    mocks.useUser.mockReturnValue({
+      isLoaded: true,
+      user: { id: "user_failed_push_boundary" },
+    });
+    mocks.clearBrowserPushSubscription.mockRejectedValue(pushFailure);
+    mocks.clearAccountPrivateRuntimeState.mockImplementation(() => {
+      throw new Error("private cleanup failed");
+    });
+    mocks.cancelManagedUploadsForAccount.mockRejectedValue(
+      new Error("managed cleanup failed"),
+    );
+    mocks.cancelPersistedUploadsForAccount.mockRejectedValue(
+      new Error("persisted cleanup failed"),
+    );
+    mocks.clearPlaybackForAccount.mockRejectedValue(
+      new Error("playback cleanup failed"),
+    );
+    mocks.releaseManagedUploadsForAccount.mockImplementation(() => {
+      throw new Error("release cleanup failed");
+    });
+    const signOut = useSafeSignOut();
+
+    await expect(signOut()).rejects.toBe(pushFailure);
+
+    expect(mocks.clearAccountPrivateRuntimeState).toHaveBeenCalledWith(
+      "user_failed_push_boundary",
+    );
+    expect(mocks.cancelManagedUploadsForAccount).toHaveBeenCalledWith(
+      "user_failed_push_boundary",
+    );
+    expect(mocks.cancelPersistedUploadsForAccount).toHaveBeenCalledWith(
+      "user_failed_push_boundary",
+    );
+    expect(mocks.clearPlaybackForAccount).toHaveBeenCalledWith(
+      "user_failed_push_boundary",
+    );
+    expect(mocks.releaseManagedUploadsForAccount).toHaveBeenCalledWith(
+      "user_failed_push_boundary",
+    );
+    expect(mocks.clerkSignOut).not.toHaveBeenCalled();
+  });
 });
 
 describe("Clerk UserButton sign-out DOM target", () => {
