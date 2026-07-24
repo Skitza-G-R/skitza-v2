@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import tailwindPostcss from "@tailwindcss/postcss";
 import { describe, expect, it } from "vitest";
 
 import { calculateNativeViewportMetrics } from "../native-viewport";
@@ -9,10 +11,23 @@ const globalsCss = readFileSync(
   fileURLToPath(new URL("../../../app/globals.css", import.meta.url)),
   "utf8",
 );
+const webRoot = fileURLToPath(new URL("../../../../", import.meta.url));
+const productionCssPath = fileURLToPath(
+  new URL("../../../app/globals.production-test.css", import.meta.url),
+);
 const flowSource = readFileSync(
   fileURLToPath(new URL("../native-full-screen-flow.tsx", import.meta.url)),
   "utf8",
 );
+const tailwindRequire = createRequire(
+  createRequire(import.meta.url).resolve("@tailwindcss/postcss"),
+);
+const postcss = tailwindRequire("postcss") as (plugins: unknown[]) => {
+  process: (
+    css: string,
+    options: { from: string },
+  ) => Promise<{ css: string }>;
+};
 
 describe("native viewport metrics", () => {
   it("tracks a visible software keyboard", () => {
@@ -129,13 +144,16 @@ describe("native CSS contracts", () => {
     expect(globalsCss).toContain("min-height: 44px");
   });
 
-  it("uses a production-safe zero translate for opted-in mobile sheets", () => {
-    const sheetRule = globalsCss.match(/\.sk-sheet-mobile\s*\{([\s\S]*?)\n\s*\}/)?.[1];
+  it("keeps opted-in mobile sheets centered in optimized production CSS", async () => {
+    const productionCss = await postcss([
+      tailwindPostcss({ base: webRoot, optimize: true }),
+    ]).process(globalsCss, { from: productionCssPath });
+    const sheetRule = productionCss.css.match(/\.sk-sheet-mobile\{([^}]*)\}/)?.[1];
 
     expect(sheetRule).toBeDefined();
-    expect(sheetRule).toContain("left: 0;");
-    expect(sheetRule).toContain("right: 0;");
-    expect(sheetRule).toContain("translate: 0 0;");
-    expect(sheetRule).not.toContain("translate: none;");
+    expect(sheetRule).toContain("position:fixed");
+    expect(sheetRule).toContain("inset:auto 0 0");
+    expect(sheetRule).toContain("width:100%");
+    expect(sheetRule).toContain("translate:var(--sk-sheet-mobile-translate,0px)");
   });
 });
