@@ -1,8 +1,17 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const lifecycleModule = join(process.cwd(), "scripts/r2-proof-staging-lifecycle.mjs");
+const applyScript = readFileSync(
+  join(process.cwd(), "scripts/apply-r2-proof-staging-lifecycle.mjs"),
+  "utf8",
+);
+const checkScript = readFileSync(
+  join(process.cwd(), "scripts/check-r2-proof-staging-lifecycle.mjs"),
+  "utf8",
+);
 
 type LifecycleProbe = Readonly<{
   required: {
@@ -36,6 +45,13 @@ function probeLifecycleModule(input: Array<Record<string, unknown>>): LifecycleP
 }
 
 describe("R2 payment-proof staging lifecycle policy", () => {
+  it("requires the exact docs bucket instead of guessing a target", () => {
+    for (const script of [applyScript, checkScript]) {
+      expect(script).toContain('const bucket = required("R2_BUCKET_DOCS");');
+      expect(script).not.toMatch(/R2_BUCKET_DOCS\s*\?\?/);
+    }
+  });
+
   it("targets only proof-staging objects and expires them after one day", () => {
     const result = probeLifecycleModule([]);
 

@@ -46,7 +46,7 @@ function unrelatedRules(rules) {
 }
 
 async function main() {
-  const bucket = process.env.R2_BUCKET_DOCS ?? "skitza-docs";
+  const bucket = required("R2_BUCKET_DOCS");
   const client = new S3Client({
     region: "auto",
     endpoint: `https://${required("R2_ACCOUNT_ID")}.r2.cloudflarestorage.com`,
