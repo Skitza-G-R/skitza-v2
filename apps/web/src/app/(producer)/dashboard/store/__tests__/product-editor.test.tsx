@@ -57,6 +57,40 @@ describe("ProductEditor orchestrator", () => {
     expect(SRC).toContain("Could not save this product. Please try again.");
   });
 
+  it("flushes an edit synchronously when client navigation unmounts inside the debounce", () => {
+    const debounceStart = SRC.indexOf("const timeout = window.setTimeout");
+    const lifecycleStart = SRC.indexOf("const flush = () =>", debounceStart);
+    const lifecycleEnd = SRC.indexOf("function onTaxChange", lifecycleStart);
+    const lifecycle = SRC.slice(lifecycleStart, lifecycleEnd);
+
+    expect(debounceStart).toBeGreaterThan(-1);
+    expect(SRC.slice(debounceStart, lifecycleStart)).toContain("}, 250)");
+    expect(lifecycle).toContain("latestPersistedDraftRef.current");
+    expect(lifecycle).toMatch(/return \(\) => \{[\s\S]*flush\(\);[\s\S]*\};/);
+  });
+
+  it("suppresses the unmount flush before an explicit discard", () => {
+    const handlerStart = SRC.indexOf("function handleEditorOpenChange");
+    const handlerEnd = SRC.indexOf("function onTaxChange", handlerStart);
+    const handler = SRC.slice(handlerStart, handlerEnd);
+    const clearIndex = handler.indexOf("latestPersistedDraftRef.current = null");
+    const closeIndex = handler.indexOf("onOpenChange(nextOpen)");
+
+    expect(handlerStart).toBeGreaterThan(-1);
+    expect(clearIndex).toBeGreaterThan(-1);
+    expect(closeIndex).toBeGreaterThan(clearIndex);
+    expect(SRC).toContain("onOpenChange={handleEditorOpenChange}");
+  });
+
+  it("uses the discard-safe close path after a successful save", () => {
+    const saveStart = SRC.indexOf("function save()");
+    const saveEnd = SRC.indexOf("const basePriceCents", saveStart);
+    const save = SRC.slice(saveStart, saveEnd);
+
+    expect(save).toContain("handleEditorOpenChange(false)");
+    expect(save).not.toContain("onOpenChange(false)");
+  });
+
   it("maps preset type 'consult' to schema kind 'custom' on save (logic in build-package-payload)", () => {
     expect(PAYLOAD_SRC).toMatch(/draft\.type\s*===\s*["']consult["']/);
     expect(PAYLOAD_SRC).toMatch(/["']custom["']\s+as\s+PackageKind/);

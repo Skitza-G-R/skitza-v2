@@ -293,8 +293,14 @@ export function ProductEditor({
     return () => {
       window.removeEventListener("pagehide", flush);
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      flush();
     };
   }, [onPersistDraft, open]);
+
+  function handleEditorOpenChange(nextOpen: boolean) {
+    if (!nextOpen) latestPersistedDraftRef.current = null;
+    onOpenChange(nextOpen);
+  }
 
   function onTaxChange(patch: { taxMode?: import("~/lib/tax-mode").TaxMode; taxRatePct?: number }) {
     if (!online) {
@@ -455,7 +461,7 @@ export function ProductEditor({
           onCreated?.(result.data.id);
           toast(`${draft.name.trim()} created.`, "success");
         }
-        onOpenChange(false);
+        handleEditorOpenChange(false);
         router.refresh();
       } catch {
         toast("Could not save this product. Please try again.", "error");
@@ -471,7 +477,7 @@ export function ProductEditor({
   return (
     <EditorShell
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={handleEditorOpenChange}
       mode={mode}
       {...(product ? { productName: product.name } : {})}
       steps={steps}
