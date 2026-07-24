@@ -69,26 +69,33 @@ describe("ProductEditor orchestrator", () => {
     expect(lifecycle).toMatch(/return \(\) => \{[\s\S]*flush\(\);[\s\S]*\};/);
   });
 
-  it("suppresses the unmount flush before an explicit discard", () => {
+  it("keeps the unmount flush available for an ordinary close", () => {
     const handlerStart = SRC.indexOf("function handleEditorOpenChange");
     const handlerEnd = SRC.indexOf("function onTaxChange", handlerStart);
     const handler = SRC.slice(handlerStart, handlerEnd);
+    const persistIndex = handler.indexOf("onPersistDraft(latest)");
     const clearIndex = handler.indexOf("latestPersistedDraftRef.current = null");
     const closeIndex = handler.indexOf("onOpenChange(nextOpen)");
 
     expect(handlerStart).toBeGreaterThan(-1);
-    expect(clearIndex).toBeGreaterThan(-1);
+    expect(persistIndex).toBeGreaterThan(-1);
+    expect(clearIndex).toBeGreaterThan(persistIndex);
     expect(closeIndex).toBeGreaterThan(clearIndex);
     expect(SRC).toContain("onOpenChange={handleEditorOpenChange}");
   });
 
-  it("uses the discard-safe close path after a successful save", () => {
+  it("clears the saved draft only after a successful submit", () => {
+    const closeStart = SRC.indexOf("function handleSuccessfulSubmit");
+    const closeEnd = SRC.indexOf("function onTaxChange", closeStart);
+    const close = SRC.slice(closeStart, closeEnd);
     const saveStart = SRC.indexOf("function save()");
     const saveEnd = SRC.indexOf("const basePriceCents", saveStart);
     const save = SRC.slice(saveStart, saveEnd);
 
-    expect(save).toContain("handleEditorOpenChange(false)");
-    expect(save).not.toContain("onOpenChange(false)");
+    expect(close).toContain("latestPersistedDraftRef.current = null");
+    expect(close).toContain("onSubmitted()");
+    expect(close).toContain("onOpenChange(false)");
+    expect(save).toContain("handleSuccessfulSubmit()");
   });
 
   it("maps preset type 'consult' to schema kind 'custom' on save (logic in build-package-payload)", () => {

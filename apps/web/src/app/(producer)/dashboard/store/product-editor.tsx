@@ -93,6 +93,7 @@ interface ProductEditorProps {
   producerName?: string;
   previewPlacement?: "focal" | "secondary";
   onCreated?: (id: string) => void;
+  onSubmitted: () => void;
   persistedDraft: ProducerStoreProductDraft | null;
   onPersistDraft: (draft: ProducerStoreProductDraft) => void;
 }
@@ -189,6 +190,7 @@ export function ProductEditor({
   producerName = "Your studio",
   previewPlacement = "focal",
   onCreated,
+  onSubmitted,
   persistedDraft,
   onPersistDraft,
 }: ProductEditorProps) {
@@ -298,8 +300,18 @@ export function ProductEditor({
   }, [onPersistDraft, open]);
 
   function handleEditorOpenChange(nextOpen: boolean) {
-    if (!nextOpen) latestPersistedDraftRef.current = null;
+    if (!nextOpen) {
+      const latest = latestPersistedDraftRef.current;
+      if (latest) onPersistDraft(latest);
+      latestPersistedDraftRef.current = null;
+    }
     onOpenChange(nextOpen);
+  }
+
+  function handleSuccessfulSubmit() {
+    latestPersistedDraftRef.current = null;
+    onSubmitted();
+    onOpenChange(false);
   }
 
   function onTaxChange(patch: { taxMode?: import("~/lib/tax-mode").TaxMode; taxRatePct?: number }) {
@@ -461,7 +473,7 @@ export function ProductEditor({
           onCreated?.(result.data.id);
           toast(`${draft.name.trim()} created.`, "success");
         }
-        handleEditorOpenChange(false);
+        handleSuccessfulSubmit();
         router.refresh();
       } catch {
         toast("Could not save this product. Please try again.", "error");

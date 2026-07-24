@@ -119,6 +119,21 @@ describe("StoreScreen shell", () => {
     expect(SRC).toMatch(/onCreated=\{handleCreated\}/);
   });
 
+  it("keeps create and edit drafts available after an ordinary close and reopen", () => {
+    const createStart = SRC.indexOf("{/* Create modal */}");
+    const editStart = SRC.indexOf("{/* Edit modal */}");
+    const removalStart = SRC.indexOf("<ProductRemovalModal");
+    const createEditor = SRC.slice(createStart, editStart);
+    const editEditor = SRC.slice(editStart, removalStart);
+
+    for (const editor of [createEditor, editEditor]) {
+      expect(editor).not.toContain("storeDraft.clear()");
+      expect(editor).toContain("persistedDraft={storeDraft.record}");
+      expect(editor).toContain("onPersistDraft={storeDraft.save}");
+      expect(editor).toContain("onSubmitted={storeDraft.clear}");
+    }
+  });
+
   it("passes the real focal or secondary Store placement into each preview", () => {
     expect(SRC).toMatch(/previewPlacement=\{counts\.live === 0 \? "focal" : "secondary"\}/);
     expect(SRC).toMatch(/editing\?\.active && editing\.id === firstLiveProductId/);

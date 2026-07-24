@@ -371,7 +371,6 @@ export function StoreScreen({
       <ProductEditor
         open={creating}
         onOpenChange={(o) => {
-          if (!o) storeDraft.clear();
           setCreating(o);
         }}
         product={null}
@@ -381,6 +380,7 @@ export function StoreScreen({
         producerName={producerName}
         previewPlacement={counts.live === 0 ? "focal" : "secondary"}
         onCreated={handleCreated}
+        onSubmitted={storeDraft.clear}
         persistedDraft={storeDraft.record}
         onPersistDraft={storeDraft.save}
       />
@@ -390,7 +390,6 @@ export function StoreScreen({
         open={editing !== null}
         onOpenChange={(o) => {
           if (!o) {
-            storeDraft.clear();
             setEditing(null);
           }
         }}
@@ -402,6 +401,7 @@ export function StoreScreen({
         previewPlacement={
           editing?.active && editing.id === firstLiveProductId ? "focal" : "secondary"
         }
+        onSubmitted={storeDraft.clear}
         persistedDraft={storeDraft.record}
         onPersistDraft={storeDraft.save}
       />

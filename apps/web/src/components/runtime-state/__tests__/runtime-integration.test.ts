@@ -146,13 +146,14 @@ describe("cached-first and draft integration contracts", () => {
     expect(CACHE_HOOK).toContain("pruneRuntimeSafeViews(storage");
   });
 
-  it("recovers and clears the producer store editor record", () => {
+  it("recovers the producer store editor and clears only after submit", () => {
     expect(STORE_SCREEN).toContain("useProducerStoreProductDraft");
     expect(STORE_SCREEN).toContain("setCreating(true)");
     expect(STORE_SCREEN).toContain("setEditing(product)");
-    expect(STORE_SCREEN).toContain("storeDraft.clear()");
+    expect(STORE_SCREEN).toContain("onSubmitted={storeDraft.clear}");
     expect(STORE_EDITOR).toContain("persistedDraft?.mode === mode");
     expect(STORE_EDITOR).toContain("onPersistDraft(nextRecord)");
+    expect(STORE_EDITOR).toContain("if (latest) onPersistDraft(latest)");
     expect(STORE_EDITOR).toContain('window.addEventListener("pagehide", flush)');
   });
 
