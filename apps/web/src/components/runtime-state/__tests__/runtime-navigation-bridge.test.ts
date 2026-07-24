@@ -81,6 +81,9 @@ describe("RuntimeNavigationBridge scroll persistence", () => {
     };
     const browserWindow = Object.assign(new EventTarget(), {
       scrollY: 0,
+      getComputedStyle() {
+        return { overflowY: "auto" };
+      },
       requestAnimationFrame(callback: FrameRequestCallback) {
         animation.scheduledFrame = callback;
         return 1;
