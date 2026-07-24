@@ -1,10 +1,45 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
+import { useLayoutEffect, useMemo, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 
+import {
+  resolveArtistRuntimeStudioContext,
+  writeArtistRuntimeStudioContext,
+} from "~/lib/runtime-state/artist-context";
+import { getBrowserRuntimeStorage } from "~/lib/runtime-state/runtime-state";
+
 import { RuntimeNavigationBridge } from "./runtime-navigation-bridge";
-import { RuntimeStateProvider } from "./runtime-state-provider";
+import {
+  RuntimeStateProvider,
+  useRuntimeState,
+} from "./runtime-state-provider";
+
+function ArtistRuntimeStudioContextRecorder({
+  studioIds,
+}: {
+  studioIds: readonly string[];
+}) {
+  const { identity, privateStateAccessAllowed, storage } = useRuntimeState();
+
+  useLayoutEffect(() => {
+    if (
+      !privateStateAccessAllowed ||
+      !storage ||
+      identity.role !== "artist"
+    ) {
+      return;
+    }
+    writeArtistRuntimeStudioContext(
+      storage,
+      identity.userId,
+      studioIds,
+      identity.contextId,
+    );
+  }, [identity, privateStateAccessAllowed, storage, studioIds]);
+
+  return null;
+}
 
 export function ArtistRuntimeStateProvider({
   userId,
@@ -17,10 +52,14 @@ export function ArtistRuntimeStateProvider({
 }) {
   const searchParams = useSearchParams();
   const requestedStudioId = searchParams.get("studio");
+  const storage = getBrowserRuntimeStorage();
   const contextId =
-    (requestedStudioId && studioIds.includes(requestedStudioId)
-      ? requestedStudioId
-      : studioIds[0]) ?? "artist-no-studio";
+    resolveArtistRuntimeStudioContext(
+      storage,
+      userId,
+      studioIds,
+      requestedStudioId,
+    ) ?? "artist-no-studio";
   const identity = useMemo(
     () => ({ userId, role: "artist" as const, contextId }),
     [contextId, userId],
@@ -28,6 +67,7 @@ export function ArtistRuntimeStateProvider({
 
   return (
     <RuntimeStateProvider identity={identity}>
+      <ArtistRuntimeStudioContextRecorder studioIds={studioIds} />
       <RuntimeNavigationBridge />
       {children}
     </RuntimeStateProvider>

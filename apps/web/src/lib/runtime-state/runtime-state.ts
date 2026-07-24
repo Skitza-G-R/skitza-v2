@@ -2,6 +2,7 @@ export const RUNTIME_STATE_SCHEMA_VERSION = 1 as const;
 export const RUNTIME_VIEW_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const RUNTIME_DRAFT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 export const RUNTIME_ROUTE_LIMIT = 20;
+export const ARTIST_CONTEXT_POINTER_CONTEXT_ID = "artist-account";
 
 const KEY_NAMESPACE = "skitza:runtime";
 
@@ -26,6 +27,10 @@ export interface ArtistHomeSafeView {
     producerName: string;
     producerSlug: string;
   }>;
+}
+
+export interface ArtistStudioContextPointer {
+  studioId: string;
 }
 
 export interface ProducerWorkspaceSafeView {
@@ -145,6 +150,7 @@ export interface RuntimePayloadBySlot {
   "producer.portfolio.safe-view": ProducerPortfolioSafeView;
   "artist.home.safe-view": ArtistHomeSafeView;
   "artist.music.safe-view": ArtistMusicSafeView;
+  "artist.last-studio-context": ArtistStudioContextPointer;
   "producer.settings.display-name-draft": ProducerDisplayNameDraft;
   "producer.store.product-draft": ProducerStoreProductDraft;
   "producer.song-comment-draft": RuntimeTextDraft;
@@ -179,6 +185,7 @@ const SLOT_MAX_AGE_MS: Record<RuntimeSlot, number> = {
   "producer.portfolio.safe-view": RUNTIME_VIEW_MAX_AGE_MS,
   "artist.home.safe-view": RUNTIME_VIEW_MAX_AGE_MS,
   "artist.music.safe-view": RUNTIME_VIEW_MAX_AGE_MS,
+  "artist.last-studio-context": RUNTIME_VIEW_MAX_AGE_MS,
   "producer.settings.display-name-draft": RUNTIME_DRAFT_MAX_AGE_MS,
   "producer.store.product-draft": RUNTIME_DRAFT_MAX_AGE_MS,
   "producer.song-comment-draft": RUNTIME_DRAFT_MAX_AGE_MS,
@@ -307,6 +314,16 @@ function isArtistHomeSafeView(value: unknown): value is ArtistHomeSafeView {
     Array.isArray(value.studios) &&
     value.studios.length <= 100 &&
     value.studios.every(isArtistStudio)
+  );
+}
+
+function isArtistStudioContextPointer(
+  value: unknown,
+): value is ArtistStudioContextPointer {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["studioId"]) &&
+    isBoundedString(value.studioId, 128)
   );
 }
 
@@ -551,6 +568,7 @@ const SLOT_VALIDATORS: {
   "producer.portfolio.safe-view": isProducerPortfolioSafeView,
   "artist.home.safe-view": isArtistHomeSafeView,
   "artist.music.safe-view": isArtistMusicSafeView,
+  "artist.last-studio-context": isArtistStudioContextPointer,
   "producer.settings.display-name-draft": isProducerDisplayNameDraft,
   "producer.store.product-draft": isProducerStoreProductDraft,
   "producer.song-comment-draft": isRuntimeTextDraft,
@@ -731,6 +749,12 @@ function isSlotAllowedForScope(scope: RuntimeScope, slot: RuntimeSlot): boolean 
       return scope.role === "artist" && pathname === "/artist";
     case "artist.music.safe-view":
       return scope.role === "artist" && pathname === "/artist/music";
+    case "artist.last-studio-context":
+      return (
+        scope.role === "artist" &&
+        scope.contextId === ARTIST_CONTEXT_POINTER_CONTEXT_ID &&
+        scope.route === "/artist"
+      );
     case "producer.settings.display-name-draft":
       return scope.role === "producer" && scope.route === "/dashboard/settings?section=profile";
     case "producer.store.product-draft":
