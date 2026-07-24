@@ -8,7 +8,10 @@ import {
   type RuntimeRole,
   type StorageLike,
 } from "~/lib/runtime-state/runtime-state";
-import { clearAccountPrivateRuntimeState } from "~/lib/runtime-state/account-exit";
+import {
+  clearAccountPrivateRuntimeQuery,
+  clearAccountPrivateRuntimeState,
+} from "~/lib/runtime-state/account-exit";
 
 export interface RuntimeIdentity {
   userId: string;
@@ -49,6 +52,14 @@ export function runtimeUserToClear(
   return previousUserId && previousUserId !== currentUserId ? previousUserId : null;
 }
 
+export function shouldScrubAccountPrivateRuntimeQuery(
+  clerkUserId: string | null,
+  serverUserId: string,
+  userIdToClear: string | null,
+): boolean {
+  return userIdToClear !== null || clerkUserId !== serverUserId;
+}
+
 export function RuntimeStateProvider({
   identity,
   children,
@@ -70,6 +81,14 @@ export function RuntimeStateProvider({
     const userIdToClear = runtimeUserToClear(previousUserId.current, currentUserId);
     if (userIdToClear) {
       clearAccountPrivateRuntimeState(userIdToClear, storage);
+    } else if (
+      shouldScrubAccountPrivateRuntimeQuery(
+        currentUserId,
+        identity.userId,
+        userIdToClear,
+      )
+    ) {
+      clearAccountPrivateRuntimeQuery();
     }
     previousUserId.current = currentUserId;
   }, [clerkUserId, identity.userId, isLoaded, storage]);

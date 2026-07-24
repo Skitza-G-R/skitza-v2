@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   clearRuntimeStateBeforeSignOut,
   runtimeUserToClear,
+  shouldScrubAccountPrivateRuntimeQuery,
   shouldConcealRuntimeContent,
 } from "../runtime-state-provider";
 import { MemoryStorage } from "~/lib/runtime-state/__tests__/memory-storage";
@@ -101,6 +102,66 @@ describe("runtime privacy adapters", () => {
     expect(readRuntimeState(storage, second, "producer.overview.safe-view")).toMatchObject({
       displayName: "Second",
     });
+  });
+
+  it("scrubs old Store query state before or after a same-tab account switch", () => {
+    expect(
+      shouldScrubAccountPrivateRuntimeQuery("next-user", "server-user", null),
+    ).toBe(true);
+    expect(
+      shouldScrubAccountPrivateRuntimeQuery(
+        "next-user",
+        "next-user",
+        "server-user",
+      ),
+    ).toBe(true);
+    expect(
+      shouldScrubAccountPrivateRuntimeQuery(
+        "next-user",
+        "next-user",
+        null,
+      ),
+    ).toBe(false);
+
+    const storage = new MemoryStorage();
+    const scope = runtimeScope(
+      "server-user",
+      "producer",
+      "producer-id",
+      "/dashboard/store?filter=hidden&search=Private",
+    );
+    if (!scope) throw new Error("Expected Store scope");
+    writeRuntimeState(storage, scope, "runtime.navigation.snapshot", {
+      href: scope.route,
+      scrollTop: 12,
+      filters: [
+        { key: "filter", value: "hidden" },
+        { key: "search", value: "Private" },
+      ],
+    });
+    const replaceState = vi.fn();
+    const queryTarget = {
+      location: {
+        pathname: "/dashboard/store",
+        search: "?filter=hidden&search=Private&keep=1",
+        hash: "#catalog",
+      },
+      history: { replaceState },
+    };
+
+    expect(
+      clearAccountPrivateRuntimeState(
+        "server-user",
+        storage,
+        queryTarget,
+      ),
+    ).toBe(1);
+    expect(storage.length).toBe(0);
+    expect(replaceState).toHaveBeenCalledWith(
+      null,
+      "",
+      "/dashboard/store?keep=1#catalog",
+    );
   });
 });
 
