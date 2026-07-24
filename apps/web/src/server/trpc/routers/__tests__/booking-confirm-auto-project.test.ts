@@ -26,6 +26,7 @@ const {
   messageWhereCalls,
   afterCallbacks,
   sendBookingConfirmedEmailMock,
+  deliverPushToProjectArtistMock,
   confirmSessionBookingMock,
   dbMock,
 } = vi.hoisted(() => {
@@ -77,6 +78,7 @@ const {
   const sendBookingConfirmedEmailMock = vi
     .fn<(to: string, props: Record<string, unknown>) => Promise<void>>()
     .mockResolvedValue(undefined);
+  const deliverPushToProjectArtistMock = vi.fn().mockResolvedValue(undefined);
   const confirmSessionBookingMock = vi.fn();
 
   const dbMock = {
@@ -119,6 +121,7 @@ const {
     messageWhereCalls,
     afterCallbacks,
     sendBookingConfirmedEmailMock,
+    deliverPushToProjectArtistMock,
     confirmSessionBookingMock,
     dbMock,
   };
@@ -168,6 +171,10 @@ vi.mock("~/server/email/send", () => ({
   sendBookingConfirmedEmail: sendBookingConfirmedEmailMock,
 }));
 
+vi.mock("~/server/push/delivery", () => ({
+  deliverPushToProjectArtist: deliverPushToProjectArtistMock,
+}));
+
 function findPredicate(where: unknown, columnMarker: unknown): unknown {
   if (!where || typeof where !== "object") return null;
   if ("and" in where && Array.isArray((where as { and: unknown[] }).and)) {
@@ -207,6 +214,7 @@ beforeEach(() => {
   messageWhereCalls.length = 0;
   afterCallbacks.length = 0;
   sendBookingConfirmedEmailMock.mockClear();
+  deliverPushToProjectArtistMock.mockClear();
   confirmSessionBookingMock.mockReset();
   confirmSessionBookingMock.mockResolvedValue({
     changed: true,
@@ -252,23 +260,27 @@ describe("booking.confirm purchase-owned boundary", () => {
     );
   });
 
-  it("sends one best-effort confirmation only after a new transition", async () => {
+  it("sends both best-effort confirmations only after a new transition", async () => {
     seedMessageContext();
     const caller = await buildCaller();
 
     await caller.booking.confirm(confirmInput);
-    expect(afterCallbacks).toHaveLength(1);
-    await afterCallbacks[0]?.();
+    expect(afterCallbacks).toHaveLength(2);
+    await Promise.all(afterCallbacks.map((callback) => callback()));
 
-    expect(sendBookingConfirmedEmailMock).toHaveBeenCalledWith(
-      "artist@example.test",
-      expect.objectContaining({
-        artistName: "Artist",
-        producerName: "Producer",
-        productName: "Purchased vocal session",
-        producerTimezone: "Asia/Jerusalem",
-      }),
-    );
+    expect(sendBookingConfirmedEmailMock).toHaveBeenCalledTimes(1);
+    expect(sendBookingConfirmedEmailMock).toHaveBeenCalledWith("artist@example.test", {
+      artistName: "Artist",
+      producerName: "Producer",
+      productName: "Purchased vocal session",
+      startsAt: new Date("2035-02-03T10:00:00.000Z"),
+      producerTimezone: "Asia/Jerusalem",
+    });
+    expect(deliverPushToProjectArtistMock).toHaveBeenCalledTimes(1);
+    expect(deliverPushToProjectArtistMock).toHaveBeenCalledWith(dbMock, PROJECT_ID, {
+      category: "booking",
+      url: `/artist/sessions/${BOOKING_ID}`,
+    });
   });
 
   it("does not notify again for an idempotent replay", async () => {
@@ -282,6 +294,7 @@ describe("booking.confirm purchase-owned boundary", () => {
 
     expect(afterCallbacks).toEqual([]);
     expect(sendBookingConfirmedEmailMock).not.toHaveBeenCalled();
+    expect(deliverPushToProjectArtistMock).not.toHaveBeenCalled();
   });
 
   it("returns NOT_FOUND without invoking the command when the producer-scoped preload misses", async () => {
