@@ -5,13 +5,9 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 
 import { QrCode } from "~/components/ui/qr-code";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
-import {
-  createFirstPackage,
-  saveIdentity,
-  saveWeeklyHours,
-  type ActionResult,
-} from "./actions";
+import { createFirstPackage, saveIdentity, saveWeeklyHours, type ActionResult } from "./actions";
 
 // Local step type. The wizard is a linear 4-stop stepper — no
 // branching — so a tuple index is enough. Labels live in one array
@@ -51,6 +47,7 @@ export interface OnboardingInitial {
 //     globals.css — no extra work required here.
 export function OnboardingWizard({ initial }: { initial: OnboardingInitial }) {
   const router = useRouter();
+  const online = useOnlineStatus();
   const [step, setStep] = useState<number>(0);
 
   // Step 1 state
@@ -81,6 +78,10 @@ export function OnboardingWizard({ initial }: { initial: OnboardingInitial }) {
 
   function onNext() {
     setError(null);
+    if (step < 3 && !online) {
+      setError("Reconnect to save this setup step.");
+      return;
+    }
     if (step === 0) {
       if (!displayName.trim() || displayName.trim().length < 1) {
         setError("Please enter your display name.");
@@ -91,11 +92,15 @@ export function OnboardingWizard({ initial }: { initial: OnboardingInitial }) {
         return;
       }
       startTransition(() => {
-        void saveIdentity({ displayName: displayName.trim(), slug: identitySlug }).then(
-          onActionResult(() => {
-            setStep(1);
-          }),
-        );
+        void saveIdentity({ displayName: displayName.trim(), slug: identitySlug })
+          .then(
+            onActionResult(() => {
+              setStep(1);
+            }),
+          )
+          .catch(() => {
+            setError("Could not save your studio identity. Try again.");
+          });
       });
       return;
     }
@@ -119,11 +124,15 @@ export function OnboardingWizard({ initial }: { initial: OnboardingInitial }) {
           name: pkgName.trim(),
           durationMin: Math.round(duration),
           priceCents: Math.round(priceDollars * 100),
-        }).then(
-          onActionResult(() => {
-            setStep(2);
-          }),
-        );
+        })
+          .then(
+            onActionResult(() => {
+              setStep(2);
+            }),
+          )
+          .catch(() => {
+            setError("Could not create this package. Try again.");
+          });
       });
       return;
     }
@@ -140,11 +149,15 @@ export function OnboardingWizard({ initial }: { initial: OnboardingInitial }) {
         return;
       }
       startTransition(() => {
-        void saveWeeklyHours({ blocks }).then(
-          onActionResult(() => {
-            setStep(3);
-          }),
-        );
+        void saveWeeklyHours({ blocks })
+          .then(
+            onActionResult(() => {
+              setStep(3);
+            }),
+          )
+          .catch(() => {
+            setError("Could not save these hours. Try again.");
+          });
       });
       return;
     }
@@ -175,7 +188,7 @@ export function OnboardingWizard({ initial }: { initial: OnboardingInitial }) {
   const currentStep = STEPS[step];
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-xl flex-col px-4 pb-[calc(env(safe-area-inset-bottom)+88px)] pt-6 sm:px-6">
+    <div className="mx-auto flex min-h-dvh max-w-xl flex-col px-4 pt-6 pb-[calc(env(safe-area-inset-bottom)+88px)] sm:px-6">
       {/* Top chrome — wordmark eyebrow + skip link.  Mirrors the
           identity strip used on the public landing + auth pages so
           producers feel they're inside the same product. */}
@@ -186,7 +199,7 @@ export function OnboardingWizard({ initial }: { initial: OnboardingInitial }) {
         <button
           type="button"
           onClick={skipAll}
-          className="rounded-[var(--radius-md)] px-2 py-1 font-mono text-[0.7rem] uppercase tracking-[0.14em] text-[rgb(var(--fg-muted))] underline decoration-dotted underline-offset-4 transition-colors hover:text-[rgb(var(--fg-secondary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]"
+          className="rounded-[var(--radius-md)] px-2 py-1 font-mono text-[0.7rem] tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase underline decoration-dotted underline-offset-4 transition-colors hover:text-[rgb(var(--fg-secondary))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))] focus-visible:outline-none"
         >
           Skip — set up later
         </button>
@@ -217,10 +230,10 @@ export function OnboardingWizard({ initial }: { initial: OnboardingInitial }) {
         key={`eyebrow-${currentStep?.key ?? "x"}`}
         className="reveal-up mt-8 flex flex-wrap items-baseline gap-x-3 gap-y-1"
       >
-        <span className="font-mono text-[0.72rem] tabular-nums text-[rgb(var(--fg-muted))]">
+        <span className="font-mono text-[0.72rem] text-[rgb(var(--fg-muted))] tabular-nums">
           {stepNumber} / {totalSteps}
         </span>
-        <span className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
+        <span className="font-mono text-[0.66rem] tracking-[0.2em] text-[rgb(var(--fg-muted))] uppercase">
           {currentStep?.eyebrow}
         </span>
       </div>
@@ -276,7 +289,7 @@ export function OnboardingWizard({ initial }: { initial: OnboardingInitial }) {
               setError(null);
               setStep((s) => Math.max(0, s - 1));
             }}
-            className="min-h-11 rounded-[var(--radius-md)] px-3 text-sm font-medium text-[rgb(var(--fg-secondary))] transition-colors hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]"
+            className="min-h-11 rounded-[var(--radius-md)] px-3 text-sm font-medium text-[rgb(var(--fg-secondary))] transition-colors hover:text-[rgb(var(--fg-primary))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))] focus-visible:outline-none"
           >
             ← Back
           </button>
@@ -287,13 +300,9 @@ export function OnboardingWizard({ initial }: { initial: OnboardingInitial }) {
           type="button"
           onClick={onNext}
           disabled={pending}
-          className="sk-lift sk-cta-shine inline-flex h-14 min-h-11 flex-1 items-center justify-center gap-2 rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-6 text-base font-semibold text-[rgb(var(--fg-inverse))] shadow-[var(--shadow-sm)] transition-[filter,transform,box-shadow] hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))] disabled:cursor-not-allowed disabled:opacity-60 sm:flex-none sm:px-8"
+          className="sk-lift sk-cta-shine inline-flex h-14 min-h-11 flex-1 items-center justify-center gap-2 rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-6 text-base font-semibold text-[rgb(var(--fg-inverse))] shadow-[var(--shadow-sm)] transition-[filter,transform,box-shadow] hover:brightness-110 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 sm:flex-none sm:px-8"
         >
-          {pending
-            ? "Saving…"
-            : step === STEPS.length - 1
-              ? "Go to dashboard →"
-              : "Continue →"}
+          {pending ? "Saving…" : step === STEPS.length - 1 ? "Go to dashboard →" : "Continue →"}
         </button>
       </div>
 
@@ -331,22 +340,14 @@ const FIELD_INPUT =
 // Heading shared by every step — Syne 800 with the amber period
 // micro-accent.  Pinned to one component so a future copy tweak
 // doesn't drift across the four steps.
-function StepHeading({
-  title,
-  subhead,
-}: {
-  title: string;
-  subhead: string;
-}) {
+function StepHeading({ title, subhead }: { title: string; subhead: string }) {
   return (
     <header className="reveal-up">
-      <h1 className="font-display text-[2.25rem] font-extrabold leading-[1.05] tracking-[-0.02em] text-[rgb(var(--fg-primary))] sm:text-[2.75rem]">
+      <h1 className="font-display text-[2.25rem] leading-[1.05] font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-primary))] sm:text-[2.75rem]">
         {title}
         <span className="text-[rgb(var(--brand-primary))]">.</span>
       </h1>
-      <p className="mt-3 text-[0.95rem] leading-7 text-[rgb(var(--fg-secondary))]">
-        {subhead}
-      </p>
+      <p className="mt-3 text-[0.95rem] leading-7 text-[rgb(var(--fg-secondary))]">{subhead}</p>
     </header>
   );
 }
@@ -385,7 +386,7 @@ function IdentityStep({
         <label className="reveal-up reveal-up-delay-2 block">
           <span className={FIELD_LABEL}>Your URL</span>
           <div className="flex items-center overflow-hidden rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] transition-colors focus-within:border-[rgb(var(--brand-primary))]">
-            <span className="select-none px-3 font-mono text-sm text-[rgb(var(--fg-muted))]">
+            <span className="px-3 font-mono text-sm text-[rgb(var(--fg-muted))] select-none">
               skitza.app/join/
             </span>
             <input
@@ -462,9 +463,7 @@ function PackageStep({
             />
           </label>
           <label className="block">
-            <span className={FIELD_LABEL}>
-              Price ({currencySymbol[currency] ?? currency})
-            </span>
+            <span className={FIELD_LABEL}>Price ({currencySymbol[currency] ?? currency})</span>
             <input
               type="number"
               min={0}
@@ -514,9 +513,7 @@ function HoursStep({
     setBlocks(defaultWeek());
   }
   function toggle(weekday: number) {
-    setBlocks(
-      blocks.map((b) => (b.weekday === weekday ? { ...b, enabled: !b.enabled } : b)),
-    );
+    setBlocks(blocks.map((b) => (b.weekday === weekday ? { ...b, enabled: !b.enabled } : b)));
   }
   function setTime(weekday: number, field: "startMin" | "endMin", minutes: number) {
     setBlocks(
@@ -540,7 +537,7 @@ function HoursStep({
         <button
           type="button"
           onClick={applyPreset}
-          className="sk-lift inline-flex min-h-11 items-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-2 text-sm font-medium text-[rgb(var(--fg-primary))] transition-colors hover:border-[rgb(var(--border-strong))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]"
+          className="sk-lift inline-flex min-h-11 items-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-2 text-sm font-medium text-[rgb(var(--fg-primary))] transition-colors hover:border-[rgb(var(--border-strong))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))] focus-visible:outline-none"
         >
           Use Mon–Fri, 10am–6pm
         </button>
@@ -563,10 +560,10 @@ function HoursStep({
                 onChange={() => {
                   toggle(b.weekday);
                 }}
-                className="h-4 w-4 accent-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))]"
+                className="h-4 w-4 accent-[rgb(var(--brand-primary))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))] focus-visible:outline-none"
                 aria-label={`${WEEKDAY_LABELS[b.weekday] ?? ""} enabled`}
               />
-              <span className="w-10 font-mono text-[0.7rem] uppercase tracking-[0.16em] text-[rgb(var(--fg-secondary))]">
+              <span className="w-10 font-mono text-[0.7rem] tracking-[0.16em] text-[rgb(var(--fg-secondary))] uppercase">
                 {WEEKDAY_LABELS[b.weekday]}
               </span>
             </label>
@@ -637,7 +634,7 @@ function ShareStep({ publicUrl }: { publicUrl: string }) {
         <div className="flex items-start gap-4">
           <QrCode value={publicUrl} size={96} className="shrink-0" />
           <div className="min-w-0 flex-1">
-            <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
+            <p className="font-mono text-[0.66rem] tracking-[0.2em] text-[rgb(var(--fg-muted))] uppercase">
               Your link
             </p>
             <p className="mt-1.5 truncate font-mono text-sm text-[rgb(var(--fg-primary))]">
@@ -651,7 +648,7 @@ function ShareStep({ publicUrl }: { publicUrl: string }) {
                     toast("Link copied", "success");
                   });
                 }}
-                className="sk-lift sk-cta-shine inline-flex h-9 min-h-11 items-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-semibold text-[rgb(var(--fg-inverse))] shadow-[var(--shadow-sm)] transition-[filter,transform] hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))]"
+                className="sk-lift sk-cta-shine inline-flex h-9 min-h-11 items-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-semibold text-[rgb(var(--fg-inverse))] shadow-[var(--shadow-sm)] transition-[filter,transform] hover:brightness-110 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))] focus-visible:outline-none"
               >
                 Copy link
               </button>
@@ -659,7 +656,7 @@ function ShareStep({ publicUrl }: { publicUrl: string }) {
                 href={publicUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="sk-lift inline-flex h-9 min-h-11 items-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-4 text-sm font-medium text-[rgb(var(--fg-primary))] transition-colors hover:border-[rgb(var(--border-strong))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))]"
+                className="sk-lift inline-flex h-9 min-h-11 items-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-4 text-sm font-medium text-[rgb(var(--fg-primary))] transition-colors hover:border-[rgb(var(--border-strong))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-elevated))] focus-visible:outline-none"
               >
                 Preview
               </a>

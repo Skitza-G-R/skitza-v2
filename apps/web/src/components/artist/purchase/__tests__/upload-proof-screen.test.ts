@@ -8,6 +8,7 @@ import { parseProofAmountCents } from "../upload-proof-screen";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const screenSource = readFileSync(join(here, "..", "upload-proof-screen.tsx"), "utf8");
+const lifecycleSource = readFileSync(join(here, "..", "proof-upload-lifecycle.ts"), "utf8");
 const actionsSource = readFileSync(join(here, "..", "actions.ts"), "utf8");
 const pageSource = readFileSync(
   join(
@@ -77,13 +78,33 @@ describe("UploadProofScreen SK-75 wiring", () => {
   });
 
   it("uses an opaque upload token and never sends storage identity through the client", () => {
-    expect(screenSource).toMatch(/presigned\.uploadToken/);
-    expect(screenSource).toMatch(/fetch\(presigned\.uploadUrl/);
+    expect(screenSource).toMatch(/startManagedPaymentProofUpload/);
+    expect(lifecycleSource).toMatch(/presigned\.uploadToken/);
+    expect(lifecycleSource).toMatch(/uploadFile\(\{[\s\S]*uploadUrl: presigned\.uploadUrl/);
+    expect(screenSource).toMatch(/cancelPaymentProofUploadAction/);
     expect(screenSource).toMatch(/submitPaymentProofAction/);
     expect(actionsSource).toMatch(/proofOfPayment\.presign/);
+    expect(actionsSource).toMatch(/proofOfPayment\.cancel/);
     expect(actionsSource).toMatch(/proofOfPayment\.submit/);
-    expect(screenSource).not.toMatch(/storageKey|objectEtag|storageBucket/);
+    expect(`${screenSource}\n${lifecycleSource}`).not.toMatch(
+      /storageKey|objectEtag|storageBucket/,
+    );
     expect(actionsSource).not.toMatch(/storageKey|objectEtag|storageBucket/);
+  });
+
+  it("reports real upload bytes and removes Stop before server submission", () => {
+    expect(lifecycleSource).toContain("new XMLHttpRequest()");
+    expect(lifecycleSource).toMatch(
+      /request\.upload\.addEventListener\("progress"[\s\S]*event\.loaded/,
+    );
+    expect(lifecycleSource).toMatch(
+      /onProgress: \(loadedBytes, totalBytes\)[\s\S]*managed\.setUploading/,
+    );
+    expect(lifecycleSource).toMatch(/managed\.setCompleting\(\);[\s\S]*onSubmitting/);
+    expect(screenSource).toContain('setStatus("submitting")');
+    expect(screenSource).toMatch(
+      /isSubmitting\s*\?\s*\(\s*"Sending…"\s*\)\s*:\s*\(\s*"Uploading…"/,
+    );
   });
 
   it("preserves rejected history, shows the producer note, and allows replacement", () => {
@@ -116,9 +137,7 @@ describe("UploadProofScreen SK-75 wiring", () => {
   });
 
   it("keeps the accepted-purchase payment entry usable after submit or rejection", () => {
-    expect(acceptedPurchasePaymentSource).toMatch(
-      /proofOfPayment\.state\(\{ purchaseId \}\)/,
-    );
+    expect(acceptedPurchasePaymentSource).toMatch(/proofOfPayment\.state\(\{ purchaseId \}\)/);
     expect(acceptedPurchasePaymentSource).toMatch(
       /\/artist\/payments\/\$\{encodeURIComponent\(proofState\.purchaseId\)\}\/proof/,
     );
@@ -127,7 +146,9 @@ describe("UploadProofScreen SK-75 wiring", () => {
 
   it("polls only while review is pending and remains usable at narrow widths", () => {
     expect(screenSource).toMatch(/status !== "awaiting" \|\| previewOnly/);
-    expect(screenSource).toMatch(/setInterval\(\(\) => \{[\s\S]*router\.refresh\(\);[\s\S]*\}, 8_000\)/);
+    expect(screenSource).toMatch(
+      /setInterval\(\(\) => \{[\s\S]*router\.refresh\(\);[\s\S]*\}, 8_000\)/,
+    );
     expect(screenSource).toMatch(/max-w-\[440px\]/);
     expect(screenSource).toMatch(/overflow-x-hidden/);
     expect(screenSource).toMatch(/min-\[390px\]:px-5/);

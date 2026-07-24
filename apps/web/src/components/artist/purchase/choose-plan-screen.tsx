@@ -18,6 +18,7 @@ import { useRouter } from "next/navigation";
 
 import { ArrowRight, Check, ShieldIcon } from "~/components/artist/funnel/funnel-icons";
 import { FunnelTopBar, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 import {
   formatPurchaseMoney,
@@ -47,6 +48,8 @@ export function ChoosePlanScreen({
   previewNextHref?: string | undefined;
 }) {
   const router = useRouter();
+  const online = useOnlineStatus();
+  const requiresLivePreview = !previewNextHref;
   const enabledOptions = options.filter(
     (option) =>
       option.choice.kind !== "monthly" ||
@@ -85,6 +88,7 @@ export function ChoosePlanScreen({
   function go() {
     const option = enabledOptions.find((item) => item.id === selected);
     if (!option) return;
+    if (!online && requiresLivePreview) return;
     if (previewNextHref) {
       router.push(previewNextHref);
       return;
@@ -265,8 +269,19 @@ export function ChoosePlanScreen({
           </div>
 
           {enabledOptions.length === 0 ? (
-            <p role="alert" className="mt-4 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-danger)/0.08)] px-4 py-3 text-[12.5px] text-[rgb(var(--fg-danger-text))]">
+            <p
+              role="alert"
+              className="mt-4 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-danger)/0.08)] px-4 py-3 text-[12.5px] text-[rgb(var(--fg-danger-text))]"
+            >
               No enabled payment plan is available for this request.
+            </p>
+          ) : null}
+          {!online && requiresLivePreview ? (
+            <p
+              role="status"
+              className="mt-4 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] px-4 py-3 text-[12.5px] text-[rgb(var(--fg-secondary))]"
+            >
+              Reconnect to load the exact agreement for this plan.
             </p>
           ) : null}
         </div>
@@ -281,9 +296,15 @@ export function ChoosePlanScreen({
         >
           <PrimaryCta
             onClick={go}
-            disabled={!selected}
-            glow={!!selected}
-            sub={selected ? "Next: review the exact agreement" : "Pick a plan to continue"}
+            disabled={!selected || (!online && requiresLivePreview)}
+            glow={Boolean(selected) && (online || !requiresLivePreview)}
+            sub={
+              !online && requiresLivePreview
+                ? "Reconnect to continue"
+                : selected
+                  ? "Next: review the exact agreement"
+                  : "Pick a plan to continue"
+            }
           >
             Continue to agreement <ArrowRight />
           </PrimaryCta>

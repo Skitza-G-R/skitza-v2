@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f2ede6" />
+    <title>Offline — Skitza</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family:
+          Outfit, Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+        background: #f2ede6;
+        color: #111009;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        min-height: 100svh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        padding:
+          max(24px, env(safe-area-inset-top))
+          max(20px, env(safe-area-inset-right))
+          max(24px, env(safe-area-inset-bottom))
+          max(20px, env(safe-area-inset-left));
+      }
+
+      main {
+        width: min(100%, 440px);
+        padding: 28px;
+        border: 1px solid #d8d0c6;
+        border-radius: 18px;
+        background: #fff;
+        box-shadow: 0 18px 50px rgb(17 16 9 / 8%);
+      }
+
+      .mark {
+        display: grid;
+        width: 48px;
+        height: 48px;
+        place-items: center;
+        border-radius: 12px;
+        background: #d4960a;
+        font-size: 28px;
+        font-weight: 800;
+        letter-spacing: -0.06em;
+      }
+
+      h1 {
+        margin: 24px 0 8px;
+        font-size: clamp(28px, 8vw, 40px);
+        line-height: 1;
+        letter-spacing: -0.045em;
+      }
+
+      p {
+        margin: 0;
+        color: #5f574e;
+        font-size: 16px;
+        line-height: 1.55;
+      }
+
+      .saved-context {
+        margin-top: 18px;
+        padding: 14px;
+        border: 1px solid #e6d4a9;
+        border-radius: 12px;
+        background: #fff8e8;
+      }
+
+      .saved-context strong {
+        display: block;
+        margin-bottom: 4px;
+        color: #7b5600;
+        font-size: 13px;
+      }
+
+      .saved-context small {
+        display: block;
+        margin-top: 6px;
+        color: #786e62;
+        font-size: 12px;
+      }
+
+      button {
+        width: 100%;
+        min-height: 48px;
+        margin-top: 24px;
+        border: 0;
+        border-radius: 12px;
+        background: #111009;
+        color: #fff;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      button:focus-visible {
+        outline: 3px solid #d4960a;
+        outline-offset: 3px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="mark" aria-hidden="true">S</div>
+      <h1 id="offline-title">You’re offline.</h1>
+      <p id="offline-message">
+        Reconnect to load live bookings, payments, uploads, and protected audio. Saved account
+        context remains isolated on this device and clears on sign-out.
+      </p>
+      <section id="saved-context" class="saved-context" aria-live="polite" hidden>
+        <strong id="saved-context-label">Saved context</strong>
+        <span id="saved-context-summary"></span>
+        <small id="saved-context-updated"></small>
+      </section>
+      <button type="button" onclick="window.location.reload()">Try again</button>
+    </main>
+    <script src="/pwa/offline-context.js"></script>
+    <script>
+      (() => {
+        try {
+          const saved = window.SkitzaOfflineContext?.readSavedContext(
+            window.localStorage,
+            window.location.href,
+            Date.now(),
+          );
+          if (!saved) return;
+          document.getElementById("offline-title").textContent = saved.title;
+          document.getElementById("offline-message").textContent =
+            "Reconnect to refresh live data and continue actions safely.";
+          document.getElementById("saved-context-label").textContent = saved.label;
+          document.getElementById("saved-context-summary").textContent = saved.summary;
+          document.getElementById("saved-context-updated").textContent =
+            `Saved ${new Date(saved.updatedAt).toLocaleString()}`;
+          document.getElementById("saved-context").hidden = false;
+        } catch {
+          // Restricted or malformed storage keeps the generic boundary.
+        }
+      })();
+    </script>
+  </body>
+</html>

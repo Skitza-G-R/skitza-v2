@@ -6,10 +6,12 @@ import { ArtistDesktopSidebar } from "~/components/nav/artist-desktop-sidebar";
 import { ArtistMobileTopBar } from "~/components/nav/artist-mobile-top-bar";
 import { ArtistTopBar } from "~/components/shell/artist-topbar";
 import { TopBarBreadcrumbProvider } from "~/components/shell/topbar-breadcrumb-context";
+import { ArtistRuntimeStateProvider } from "~/components/runtime-state/artist-runtime-state-provider";
+import { NativeInstallGuidance } from "~/components/pwa/native-install-guidance";
 
-import { ArtistAudioProvider } from "./artist-audio-context";
-import { PersistentMiniPlayer } from "./persistent-mini-player";
+import { ArtistHomeSoftNavigationBoundary } from "./home/artist-home-runtime";
 import { ArtistShellChrome } from "./artist-shell-chrome";
+import { ArtistRouteStatus } from "./artist-route-status";
 
 // Artist app shell — Phase 2 (locked design system).
 //
@@ -32,21 +34,20 @@ import { ArtistShellChrome } from "./artist-shell-chrome";
 // menu is rendered inside the relevant chrome — desktop sidebar bottom
 // for `lg+`, mobile top bar for `<lg` — with the same labelled link.
 //
-// Audio: `ArtistAudioProvider` owns the singleton <audio> element,
-// `PersistentMiniPlayer` renders the visible mini-player. Both are
-// preserved verbatim for Phase 2 (audio system rework lands in Phase
-// 4). The existing player renders above the dark bottom nav on mobile
-// and floats over the bottom-right of main on desktop; visual
-// mismatch is expected per the Phase 2 brief.
+// Audio: AppMediaRuntime owns the singleton app-level engine.
+// PersistentPlayer remains the route-shell presentation for the shared
+// player state and event bus.
 //
 // Per CLAUDE.md the artist platform is mobile-first; the desktop
 // surface is net-new in Phase 2 (the prior implementation rendered
 // the same single-column layout at every viewport).
 export function ArtistAppShell({
+  userId,
   isProducer: _isProducer,
   studios,
   children,
 }: {
+  userId: string;
   isProducer: boolean;
   studios: Studio[];
   children: React.ReactNode;
@@ -59,7 +60,11 @@ export function ArtistAppShell({
   void _isProducer;
 
   return (
-    <ArtistAudioProvider>
+    <ArtistRuntimeStateProvider
+      userId={userId}
+      studioIds={studios.map((studio) => studio.producerId)}
+    >
+      <NativeInstallGuidance role="artist" />
       <div
         className="flex min-h-dvh"
         style={{
@@ -108,23 +113,19 @@ export function ArtistAppShell({
               tabIndex={-1}
               className="mx-auto w-full max-w-2xl px-4 pt-6 pb-20 lg:max-w-none lg:px-10 lg:pt-10 lg:pb-12"
             >
-              {children}
+              <ArtistRouteStatus />
+              <ArtistHomeSoftNavigationBoundary>{children}</ArtistHomeSoftNavigationBoundary>
             </main>
           </TopBarBreadcrumbProvider>
         </div>
 
         <ArtistShellChrome>
-          <PersistentMiniPlayer />
-          {/* SK-27: PersistentPlayer is the producer-side floating dock.
-              It powers the shared Music Library's Play buttons
-              (useNowPlaying / playerPlay event bus) on the artist side.
-              Renders null when no track is loaded, so it sits inert on
-              artist pages that still use ArtistAudio. Both players will
-              be unified in a follow-up — for PR #1 they coexist. */}
+          {/* PersistentPlayer powers the shared Music Library's Play
+              buttons through the app-level playback runtime. */}
           <PersistentPlayer />
           <ArtistBottomNav studios={studios} />
         </ArtistShellChrome>
       </div>
-    </ArtistAudioProvider>
+    </ArtistRuntimeStateProvider>
   );
 }

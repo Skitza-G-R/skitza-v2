@@ -3,12 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "~/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "~/components/ui/dialog";
 
 // One-time explainer shown to artists after first sign-in. Triggered
 // by a ?welcome=1 URL param (set by the Clerk post-signup redirect
@@ -65,9 +60,7 @@ export function WelcomeModal() {
       }}
     >
       <DialogContent className="gap-0 p-6 sm:max-w-md">
-        <DialogTitle className="pr-12 text-xl">
-          Welcome to Skitza.
-        </DialogTitle>
+        <DialogTitle className="pr-12 text-xl">Welcome to Skitza.</DialogTitle>
         <DialogDescription className="mt-2 text-[rgb(var(--fg-secondary))]">
           Your project home. Five tabs, one always-on player.
         </DialogDescription>
@@ -107,7 +100,7 @@ export function WelcomeModal() {
           type="button"
           autoFocus
           onClick={handleDismiss}
-          className="mt-6 min-h-11 w-full rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 py-2 text-sm font-semibold text-[rgb(var(--bg-base))]"
+          className="sk-press mt-6 min-h-11 w-full rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 py-2 text-sm font-semibold text-[rgb(var(--bg-base))]"
         >
           Let&rsquo;s go
         </button>

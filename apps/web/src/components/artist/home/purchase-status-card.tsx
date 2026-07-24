@@ -1,7 +1,6 @@
 import { Fragment } from "react";
-import Link from "next/link";
-
 import { ArrowRight, Check, ClockIcon, LockIcon } from "~/components/artist/funnel/funnel-icons";
+import { OnlineRequiredLink } from "~/components/runtime-state/online-required-link";
 import { formatMoney } from "~/lib/format/money";
 
 import { ProducerArt } from "./producer-art";
@@ -310,26 +309,22 @@ export function PurchaseStatusCard({
             <span>{next.sub}</span>
           </div>
           {actionHref && actionLabel ? (
-            <Link
+            <OnlineRequiredLink
               href={actionHref}
-              className="sk-cta-press mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] px-4 py-3 text-[14.5px] font-bold"
-              style={{
-                background: "rgb(var(--brand-primary))",
-                color: "rgb(var(--fg-on-brand))",
-                boxShadow:
-                  "0 0 0 4px rgb(var(--brand-primary) / 0.16), 0 14px 30px -10px rgb(var(--brand-primary) / 0.7)",
-              }}
+              className="sk-cta-press mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 py-3 text-[14.5px] font-bold text-[rgb(var(--fg-on-brand))] shadow-[0_0_0_4px_rgb(var(--brand-primary)/0.16),0_14px_30px_-10px_rgb(var(--brand-primary)/0.7)]"
+              offlineMessage="Reconnect to continue this purchase."
             >
               {actionLabel} <ArrowRight />
-            </Link>
+            </OnlineRequiredLink>
           ) : null}
           {secondaryActionHref && secondaryActionLabel ? (
-            <Link
+            <OnlineRequiredLink
               href={secondaryActionHref}
-              className="mt-2 flex min-h-11 w-full items-center justify-center rounded-[var(--radius-lg)] px-4 py-2.5 text-[13.5px] font-semibold text-[rgb(var(--brand-primary-text))]"
+              className="sk-press mt-2 flex min-h-11 w-full items-center justify-center rounded-[var(--radius-lg)] px-4 py-2.5 text-[13.5px] font-semibold text-[rgb(var(--brand-primary-text))]"
+              offlineMessage="Reconnect to continue."
             >
               {secondaryActionLabel}
-            </Link>
+            </OnlineRequiredLink>
           ) : null}
         </div>
       </article>

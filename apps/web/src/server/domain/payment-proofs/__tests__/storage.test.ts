@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   assertExpectedProofObjectMetadata,
+  deletePrivateProofStagingUpload,
   finalizePrivateProofUpload,
   ProofStorageError,
 } from "../storage";
@@ -201,5 +202,26 @@ describe("private proof object finalization metadata", () => {
     expect(storage.copyInputs[0]?.IfNoneMatch).toBe("*");
     expect(storage.objects.has(fixture.finalKey)).toBe(true);
     expect(storage.deletedKeys).not.toContain(fixture.finalKey);
+  });
+
+  it("deletes only the token-derived staging object and preserves finalized evidence", async () => {
+    const fixture = proofFixture();
+    const storage = new FakeProofStorage();
+    storage.objects.set(fixture.stagingKey, {
+      body: PDF_BYTES,
+      contentType: "application/pdf",
+      etag: '"staging-etag"',
+    });
+    storage.objects.set(fixture.finalKey, {
+      body: PDF_BYTES,
+      contentType: "application/pdf",
+      etag: '"final-etag"',
+    });
+
+    await deletePrivateProofStagingUpload(SERVER_SECRET, fixture.payload, storage.client());
+
+    expect(storage.deletedKeys).toEqual([fixture.stagingKey]);
+    expect(storage.objects.has(fixture.stagingKey)).toBe(false);
+    expect(storage.objects.get(fixture.finalKey)?.etag).toBe('"final-etag"');
   });
 });

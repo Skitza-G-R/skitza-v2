@@ -8,6 +8,7 @@ import { deriveGradient } from "~/lib/clients/derive-gradient";
 import { heroBg } from "~/lib/clients/hero-bg";
 import { StatTile } from "~/components/dashboard/common/stat-tile";
 import { HeroGlowOrbs } from "~/components/dashboard/common/hero-glow-orbs";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
 import { sendClientInviteAction } from "~/app/(producer)/dashboard/clients-projects/clients-actions";
 
@@ -150,15 +151,24 @@ export function ClientSpaceHero({ client, producerSlug, onInvite }: ClientSpaceH
   // with via='email'; same shape as the InviteToAppModal email path so
   // the producer doesn't have to open the modal just to resend.
   const { toast } = useToast();
+  const online = useOnlineStatus();
   const [resendPending, startResendTransition] = useTransition();
   const handleResend = () => {
+    if (!online) {
+      toast("Reconnect to resend this invite.", "error");
+      return;
+    }
     startResendTransition(async () => {
-      const res = await sendClientInviteAction({ id, via: "email" });
-      if (!res.ok) {
-        toast(res.error, "error");
-        return;
+      try {
+        const res = await sendClientInviteAction({ id, via: "email" });
+        if (!res.ok) {
+          toast(res.error, "error");
+          return;
+        }
+        toast("Invite re-sent", "success");
+      } catch {
+        toast("Could not resend this invite. Try again.", "error");
       }
-      toast("Invite re-sent", "success");
     });
   };
 

@@ -54,7 +54,11 @@ export const metadata: Metadata = {
 
 export default function ChangelogPage() {
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16 md:py-24">
+    <main
+      id="main-content"
+      tabIndex={-1}
+      className="mx-auto max-w-3xl px-6 pb-[max(4rem,env(safe-area-inset-bottom))] pt-16 focus:outline-none md:py-24"
+    >
       <p className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[rgb(var(--fg-muted))]">
         Changelog
       </p>
@@ -195,7 +199,7 @@ export default function ChangelogPage() {
         </p>
         <Link
           href="/sign-up"
-          className="mt-6 inline-flex min-h-12 items-center justify-center rounded-[var(--radius-md)] bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))] px-7 py-3 text-sm font-semibold text-[#0C0A07] shadow-[0_4px_14px_-2px_rgb(var(--brand-primary)/0.35)]"
+          className="sk-press mt-6 inline-flex min-h-12 items-center justify-center rounded-[var(--radius-lg)] bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))] px-7 py-3 text-sm font-semibold text-[#0C0A07] shadow-[0_4px_14px_-2px_rgb(var(--brand-primary)/0.35)]"
         >
           Start free →
         </Link>

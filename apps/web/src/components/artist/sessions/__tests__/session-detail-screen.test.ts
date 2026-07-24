@@ -65,8 +65,8 @@ describe("session-detail-screen.tsx (S12) wiring", () => {
   });
 
   it("gates Reschedule + Cancel independently on the approved policy", () => {
-    expect(screenSrc).toMatch(/disabled=\{!session\.policy\.canReschedule\}/);
-    expect(screenSrc).toMatch(/disabled=\{!session\.policy\.canCancel\}/);
+    expect(screenSrc).toMatch(/disabled=\{!online \|\| !session\.policy\.canReschedule\}/);
+    expect(screenSrc).toMatch(/disabled=\{!online \|\| !session\.policy\.canCancel\}/);
   });
 
   it("shows the PolicyNotice (with the producer's name in the message reason) only when outside policy", () => {

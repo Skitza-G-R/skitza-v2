@@ -107,6 +107,23 @@ export async function presignProofUploadAction(input: {
   }
 }
 
+export async function cancelPaymentProofUploadAction(input: {
+  purchaseId: string;
+  installmentId: string;
+  uploadToken: string;
+}): Promise<{ ok: true } | ActionError> {
+  const { userId } = await auth();
+  if (!userId) return { ok: false, error: "Not signed in" };
+
+  try {
+    const caller = appRouter.createCaller({ userId });
+    await caller.artist.purchase.proofOfPayment.cancel(input);
+    return { ok: true };
+  } catch (error) {
+    return errorResult(error, "Couldn't clean up the stopped upload. Try again.");
+  }
+}
+
 export async function submitPaymentProofAction(input: {
   purchaseId: string;
   installmentId: string;

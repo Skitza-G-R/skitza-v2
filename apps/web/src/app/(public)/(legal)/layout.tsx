@@ -31,22 +31,45 @@ export default function LegalLayout({ children }: { children: ReactNode }) {
   return (
     <div
       style={LIGHT_TOKENS}
-      className="relative min-h-dvh overflow-hidden bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))]"
+      className="relative min-h-dvh overflow-x-clip bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))]"
     >
       <div aria-hidden className="pointer-events-none absolute inset-0">
         <div className="absolute left-1/2 top-[-8rem] h-[28rem] w-[28rem] -translate-x-1/2 rounded-full bg-[rgb(var(--brand-primary)/0.08)] blur-[120px]" />
       </div>
-      <header className="relative z-10 mx-auto flex max-w-4xl items-center justify-between px-6 py-6">
-        <Link href="/" className="font-display text-xl tracking-tight">
+      <header className="relative z-10 mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-2 px-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-6">
+        <Link
+          href="/"
+          className="sk-press font-display inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-2 text-xl tracking-tight"
+        >
           Skitza
         </Link>
-        <nav className="flex items-center gap-4 font-mono text-xs text-[rgb(var(--fg-secondary))]">
-          <Link href="/about" className="hover:text-[rgb(var(--fg-primary))]">About</Link>
-          <Link href="/privacy" className="hover:text-[rgb(var(--fg-primary))]">Privacy</Link>
-          <Link href="/terms" className="hover:text-[rgb(var(--fg-primary))]">Terms</Link>
+        <nav className="flex flex-wrap items-center justify-end gap-1 font-mono text-xs text-[rgb(var(--fg-secondary))]">
+          <Link
+            href="/about"
+            className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-2 hover:text-[rgb(var(--fg-primary))]"
+          >
+            About
+          </Link>
+          <Link
+            href="/privacy"
+            className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-2 hover:text-[rgb(var(--fg-primary))]"
+          >
+            Privacy
+          </Link>
+          <Link
+            href="/terms"
+            className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-2 hover:text-[rgb(var(--fg-primary))]"
+          >
+            Terms
+          </Link>
         </nav>
       </header>
-      <main className="relative z-10 mx-auto max-w-3xl px-6 pb-20">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="relative z-10 mx-auto max-w-3xl px-6 pb-20 focus:outline-none"
+        style={{ paddingBottom: "max(5rem, env(safe-area-inset-bottom))" }}
+      >
         <article className="prose-skitza">{children}</article>
       </main>
     </div>

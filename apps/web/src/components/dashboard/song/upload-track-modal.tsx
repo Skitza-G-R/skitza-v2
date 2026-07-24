@@ -14,6 +14,7 @@ import {
   useTransition,
 } from "react";
 
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
 import { WORKFLOW_STAGES, type WorkflowStage } from "~/lib/clients/workflow-stage";
 import {
@@ -42,6 +43,12 @@ import {
   type UploadCancellationRequest,
   uploadCancellationRequested,
 } from "~/lib/audio/use-multipart-upload";
+import {
+  beginManagedUpload,
+  cancelManagedUpload,
+  requireUploadRuntimeAccountId,
+  type ManagedUploadHandle,
+} from "~/lib/audio/upload-manager";
 
 // UploadTrackModal — single modal that serves all 3 upload entry points
 // (Album Songs tab "+ Add song", Song Space hero "Upload new version",
@@ -72,6 +79,8 @@ import {
 
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
 const NEW_SONG_VALUE = "__new__";
+const OFFLINE_UPLOAD_MESSAGE =
+  "Reconnect to upload. This attempt has not started; your file and form details remain here.";
 
 type ActiveMultipartUpload = ResumableEntry & {
   key: string;
@@ -132,6 +141,7 @@ export function UploadTrackModal({
 }: UploadTrackModalProps) {
   const { toast } = useToast();
   const router = useRouter();
+  const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -147,6 +157,7 @@ export function UploadTrackModal({
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [allocatedNewTrackId, setAllocatedNewTrackId] = useState<string | null>(null);
   const [allocatedNewTrackTitle, setAllocatedNewTrackTitle] = useState<string | null>(null);
 
@@ -156,6 +167,8 @@ export function UploadTrackModal({
   // the Cancel button's destructive label.
   const activeUploadRef = useRef<ActiveMultipartUpload | null>(null);
   const activeCancellationRef = useRef<UploadCancellationRequest | null>(null);
+  const activePutAbortRef = useRef<AbortController | null>(null);
+  const managedUploadRef = useRef<ManagedUploadHandle | null>(null);
   // A new-song submit allocates its purchased song space before the
   // version and audio steps begin. Keep that exact track for retries in
   // this modal session so a later failure cannot consume another space.
@@ -185,11 +198,18 @@ export function UploadTrackModal({
     setDescription("");
     setFile(null);
     setProgress(0);
+    setUploadError(null);
     setIsDragging(false);
     setAllocatedNewTrackTitle(null);
     activeUploadRef.current = null;
     songSpaceOperationKeyRef.current = crypto.randomUUID();
   }, [open, mode, trackId, defaultLabel, tracks]);
+
+  useEffect(() => {
+    if (online) {
+      setUploadError((current) => (current === OFFLINE_UPLOAD_MESSAGE ? null : current));
+    }
+  }, [online]);
 
   // When the user picks a different existing track, auto-bump the
   // default label to V{N+1} for that track. We only do this if the
@@ -210,8 +230,10 @@ export function UploadTrackModal({
   const selectedPublicExposure =
     tracks.find((track) => track.id === selectedTrackId)?.publicExposure ?? "none";
   const needsSongName = isNewSong && newSongName.trim().length === 0;
+  const visibleUploadError = !online ? OFFLINE_UPLOAD_MESSAGE : uploadError;
   const submitDisabled =
     pending ||
+    !online ||
     !file ||
     label.trim().length === 0 ||
     needsSongName ||
@@ -228,6 +250,7 @@ export function UploadTrackModal({
       toast("Please pick an audio file (WAV / MP3).", "error");
       return;
     }
+    setUploadError(null);
     setFile(f);
   };
 
@@ -244,17 +267,33 @@ export function UploadTrackModal({
   };
 
   // ─── Submit / orchestration ────────────────────────────────────────
+  function blockOfflineUpload(): boolean {
+    const currentlyOnline = typeof navigator === "undefined" ? online : navigator.onLine;
+    if (currentlyOnline) return false;
+    setUploadError(OFFLINE_UPLOAD_MESSAGE);
+    return true;
+  }
+
   const handleClose = () => {
     allocatedNewTrackIdRef.current = null;
     setAllocatedNewTrackId(null);
     const cancellation = activeCancellationRef.current;
     if (cancellation) requestUploadCancellation(cancellation);
+    activePutAbortRef.current?.abort();
+    const managed = managedUploadRef.current;
+    if (managed) {
+      void cancelManagedUpload(managed.id);
+    }
     // Publish and reconcile an exact cancellation. Keep the identity in
     // the ref until that finishes so any upload failure can safely await
     // the same idempotent cancellation before deleting its placeholder.
     const active = activeUploadRef.current;
     if (active) {
-      const versionCleanup = markVersionCleanupRequested(active.trackVersionId);
+      const versionCleanup = markVersionCleanupRequested(
+        active.trackVersionId,
+        new Date(),
+        active.accountId,
+      );
       void requestExactMultipartCancellation(active, abortMultipartAction).then(async (result) => {
         if (result.ok) {
           if (activeUploadRef.current === active) activeUploadRef.current = null;
@@ -267,17 +306,51 @@ export function UploadTrackModal({
 
   const handleSubmit = (e: SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (blockOfflineUpload()) return;
     if (submitDisabled) return;
     // submitDisabled already guarantees `file !== null` (one of its
     // disqualifying predicates), so TS has narrowed file to File here.
     // We re-bind via const so the async closure below keeps the
     // narrowed type even after React re-renders.
     const submittedFile = file;
+    startUpload(submittedFile);
+  };
+
+  function startUpload(submittedFile: File) {
+    if (blockOfflineUpload()) return;
+    setUploadError(null);
+    const uploadAccountId = requireUploadRuntimeAccountId();
     const cancellation = createUploadCancellationRequest();
     activeCancellationRef.current = cancellation;
+    const putAbort = new AbortController();
+    activePutAbortRef.current = putAbort;
+    const managed = beginManagedUpload({
+      fileName: submittedFile.name,
+      label: mode === "new-version" ? "Upload new version" : "Add song",
+    });
+    managedUploadRef.current = managed;
+    let finishOperation: () => void = () => {};
+    const operationFinished = new Promise<void>((resolve) => {
+      finishOperation = resolve;
+    });
+    managed.setCancel(async () => {
+      requestUploadCancellation(cancellation);
+      putAbort.abort();
+      await operationFinished;
+      return { ok: activeUploadRef.current === null };
+    });
+    managed.setRetry(() => {
+      if (blockOfflineUpload()) {
+        return Promise.reject(new Error(OFFLINE_UPLOAD_MESSAGE));
+      }
+      managed.dismiss();
+      startUpload(submittedFile);
+      return Promise.resolve();
+    });
 
     startTransition(async () => {
       setProgress(0);
+      managed.setPreparing();
       // Track the version row id outside the try so a catch can clean up
       // the orphan when any later step (R2 init, chunk PUT, finalise)
       // fails. I1 — without this, a failed upload left a permanent
@@ -325,7 +398,7 @@ export function UploadTrackModal({
         if (!vres.ok) throw new Error(vres.error);
         const versionId = vres.data.id;
         createdVersionId = versionId;
-        versionCleanup = markVersionCleanupRequested(versionId);
+        versionCleanup = markVersionCleanupRequested(versionId, new Date(), uploadAccountId);
         if (uploadCancellationRequested(cancellation)) throw new Error("Upload stopped.");
 
         // 3. Init multipart upload on R2.
@@ -340,6 +413,7 @@ export function UploadTrackModal({
         const parts: { partNumber: number; eTag: string }[] = [];
         const recoveryStartedAt = new Date().toISOString();
         const recoveryEntry: ActiveMultipartUpload = {
+          accountId: uploadAccountId,
           key,
           uploadId,
           trackVersionId: versionId,
@@ -352,6 +426,7 @@ export function UploadTrackModal({
         };
         activeUploadRef.current = recoveryEntry;
         persistResumableEntry(recoveryEntry);
+        managed.setUploading(0);
         const initializedCancellation = await cancelInitializedUploadIfRequested(
           cancellation,
           recoveryEntry,
@@ -388,6 +463,7 @@ export function UploadTrackModal({
           const putRes = await fetch(sres.data.url, {
             method: "PUT",
             body: chunk,
+            signal: putAbort.signal,
           });
           if (!putRes.ok) {
             throw new Error(`Part ${String(partNumber)} upload failed: ${String(putRes.status)}`);
@@ -396,7 +472,9 @@ export function UploadTrackModal({
           const eTag = (putRes.headers.get("ETag") ?? "").replaceAll('"', "");
           parts.push({ partNumber, eTag });
           markResumableProgress(recoveryEntry);
-          setProgress(Math.round((parts.length / partCount) * 100));
+          const nextProgress = Math.round((parts.length / partCount) * 100);
+          setProgress(nextProgress);
+          managed.setUploading(nextProgress);
         }
 
         // 5. Best-effort duration probe via <audio> metadata. We never
@@ -411,6 +489,7 @@ export function UploadTrackModal({
         if (uploadCancellationRequested(cancellation)) throw new Error("Upload stopped.");
 
         // 6. Finalise the multipart on R2 + patch the trackVersion row.
+        managed.setCompleting();
         const cres = await completeMultipartAction({
           key,
           uploadId,
@@ -422,9 +501,10 @@ export function UploadTrackModal({
           ...(durationMs ? { durationMs } : {}),
         });
         if (!cres.ok) throw new Error(cres.error);
-        removeResumableEntry(uploadId);
-        removeVersionCleanupEntry(versionId);
+        removeResumableEntry(uploadId, uploadAccountId);
+        removeVersionCleanupEntry(versionId, uploadAccountId);
         activeUploadRef.current = null;
+        managed.succeed();
 
         // 7. Optional stage advance. We treat a stage failure as a soft
         //    error — the upload itself succeeded, we just couldn't
@@ -453,7 +533,11 @@ export function UploadTrackModal({
         // reconciled before its placeholder can be deleted. If cancel
         // fails, leave both the row and identity available for retry.
         if (versionCleanup === null && createdVersionId) {
-          versionCleanup = markVersionCleanupRequested(createdVersionId);
+          versionCleanup = markVersionCleanupRequested(
+            createdVersionId,
+            new Date(),
+            uploadAccountId,
+          );
         }
         const active = activeUploadRef.current;
         let cancellationFinished = active === null;
@@ -469,14 +553,23 @@ export function UploadTrackModal({
         }
         const msg = err instanceof Error ? err.message : "Upload failed. Please retry.";
         toast(msg, "error");
+        setUploadError(msg);
         setProgress(0);
+        managed.fail(msg);
       } finally {
+        finishOperation();
         if (activeCancellationRef.current === cancellation) {
           activeCancellationRef.current = null;
         }
+        if (activePutAbortRef.current === putAbort) {
+          activePutAbortRef.current = null;
+        }
+        if (managedUploadRef.current === managed) {
+          managedUploadRef.current = null;
+        }
       }
     });
-  };
+  }
 
   // Display label for the locked song picker (new-version mode).
   const lockedSongTitle = useMemo(() => {
@@ -599,13 +692,13 @@ export function UploadTrackModal({
                 className="rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.3)] bg-[rgb(var(--brand-primary)/0.1)] px-3.5 py-3 text-[12.5px] leading-relaxed text-[rgb(var(--fg-default))]"
               >
                 <span className="font-semibold">This song is public.</span> When this upload
-                finishes, the new version will appear on its{
-                  selectedPublicExposure === "link"
-                    ? " public link"
-                    : selectedPublicExposure === "portfolio"
-                      ? " portfolio"
-                      : " public link and portfolio"
-                } automatically.
+                finishes, the new version will appear on its
+                {selectedPublicExposure === "link"
+                  ? " public link"
+                  : selectedPublicExposure === "portfolio"
+                    ? " portfolio"
+                    : " public link and portfolio"}{" "}
+                automatically.
               </div>
             ) : null}
 
@@ -772,6 +865,16 @@ export function UploadTrackModal({
               </p>
             ) : null}
 
+            {visibleUploadError ? (
+              <p
+                id="upload-track-error"
+                role="alert"
+                className="text-sm text-[rgb(var(--fg-danger))]"
+              >
+                {visibleUploadError}
+              </p>
+            ) : null}
+
             {/* ─── Action row ─────────────────────────────────── */}
             <div className="sticky bottom-0 -mx-5 mt-1 -mb-5 flex flex-col-reverse gap-2 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-5 py-3 sm:flex-row sm:items-center sm:justify-end">
               <button
@@ -784,10 +887,11 @@ export function UploadTrackModal({
               <button
                 type="submit"
                 disabled={submitDisabled}
+                aria-describedby={visibleUploadError ? "upload-track-error" : undefined}
                 className="sk-press inline-flex min-h-11 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] px-4 py-2 text-[13px] font-semibold text-[rgb(17_16_9)] shadow-[0_4px_14px_-2px_rgb(var(--brand-primary)/0.5)] disabled:opacity-50 disabled:shadow-none sm:min-h-0"
                 style={{ background: "rgb(var(--brand-primary))" }}
               >
-                {pending ? "Uploading…" : "Upload"}
+                {pending ? "Uploading…" : !online ? "Reconnect to upload" : "Upload"}
               </button>
             </div>
           </form>

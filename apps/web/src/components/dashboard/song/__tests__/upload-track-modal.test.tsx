@@ -177,6 +177,48 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     );
   });
 
+  it("blocks offline submit and retry before allocating upload work", () => {
+    expect(SRC).toContain("useOnlineStatus");
+    expect(SRC).toContain("const online = useOnlineStatus()");
+    expect(SRC).toMatch(/const submitDisabled =[\s\S]{0,120}?!online/);
+
+    const submitStart = SRC.indexOf("const handleSubmit");
+    const uploadStart = SRC.indexOf("function startUpload", submitStart);
+    const handleSubmit = SRC.slice(submitStart, uploadStart);
+    expect(handleSubmit.indexOf("blockOfflineUpload()")).toBeGreaterThanOrEqual(0);
+    expect(handleSubmit.indexOf("blockOfflineUpload()")).toBeLessThan(
+      handleSubmit.indexOf("submitDisabled"),
+    );
+
+    const uploadEnd = SRC.indexOf("// Display label", uploadStart);
+    const upload = SRC.slice(uploadStart, uploadEnd);
+    const firstOfflineGate = upload.indexOf("if (blockOfflineUpload()) return;");
+    expect(firstOfflineGate).toBeGreaterThanOrEqual(0);
+    for (const allocation of [
+      "requireUploadRuntimeAccountId()",
+      "beginManagedUpload(",
+      "addTrackAction(",
+      "addVersionAction(",
+      "initMultipartAction(",
+    ]) {
+      expect(firstOfflineGate).toBeLessThan(upload.indexOf(allocation));
+    }
+
+    const retryStart = upload.indexOf("managed.setRetry");
+    const retryEnd = upload.indexOf("startTransition", retryStart);
+    const retry = upload.slice(retryStart, retryEnd);
+    expect(retry).toContain("if (blockOfflineUpload())");
+    expect(retry).toContain("Promise.reject(new Error(OFFLINE_UPLOAD_MESSAGE))");
+    expect(retry.indexOf("blockOfflineUpload()")).toBeLessThan(retry.indexOf("managed.dismiss()"));
+
+    expect(SRC).toContain(
+      "Reconnect to upload. This attempt has not started; your file and form details remain here.",
+    );
+    expect(SRC).toMatch(/visibleUploadError = !online \? OFFLINE_UPLOAD_MESSAGE : uploadError/);
+    expect(SRC).toMatch(/role="alert"[\s\S]{0,180}?\{visibleUploadError\}/);
+    expect(SRC).toMatch(/pending \? "Uploading…" : !online \? "Reconnect to upload" : "Upload"/);
+  });
+
   // I1 — on upload failure, the modal must cleanup the orphan
   // track_versions row created at step 2 of the chain. R2 multipart
   // abort happens for storage cleanup, but the DB row stayed forever
@@ -212,7 +254,9 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     const firstSign = SRC.indexOf("signPartAction", initSuccess);
     expect(persistExact).toBeGreaterThan(initSuccess);
     expect(persistExact).toBeLessThan(firstSign);
-    expect(SRC).toContain("markVersionCleanupRequested(createdVersionId)");
+    expect(SRC).toMatch(
+      /markVersionCleanupRequested\(\s*createdVersionId,\s*new Date\(\),\s*uploadAccountId,?\s*\)/,
+    );
     expect(SRC).toContain("requestExactMultipartCancellation(active, abortMultipartAction)");
     expect(SRC).toContain("await requestVersionCleanup(versionCleanup, deleteVersionAction)");
   });
@@ -220,7 +264,9 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
   it("keeps ambiguous init cleanup durable until deleteVersion confirms success", () => {
     const catchStart = SRC.indexOf("} catch (err) {");
     const catchSource = SRC.slice(catchStart, SRC.indexOf("// Display label", catchStart));
-    const persistCleanup = catchSource.indexOf("markVersionCleanupRequested(createdVersionId)");
+    const persistCleanup = catchSource.search(
+      /markVersionCleanupRequested\(\s*createdVersionId,\s*new Date\(\),\s*uploadAccountId,?\s*\)/,
+    );
     const cleanupAttempt = catchSource.indexOf("requestVersionCleanup(", persistCleanup);
     expect(persistCleanup).toBeGreaterThanOrEqual(0);
     expect(cleanupAttempt).toBeGreaterThan(persistCleanup);
@@ -229,16 +275,20 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
 
   it("persists placeholder cleanup before multipart init and clears it only after attach", () => {
     const versionCreated = SRC.indexOf("if (!vres.ok)");
-    const cleanupPersisted = SRC.indexOf(
-      "versionCleanup = markVersionCleanupRequested(versionId)",
-      versionCreated,
+    const cleanupPersistedOffset = SRC.slice(versionCreated).search(
+      /versionCleanup = markVersionCleanupRequested\(\s*versionId,\s*new Date\(\),\s*uploadAccountId,?\s*\)/,
     );
+    const cleanupPersisted =
+      cleanupPersistedOffset < 0 ? -1 : versionCreated + cleanupPersistedOffset;
     const initStarted = SRC.indexOf("await initMultipartAction", versionCreated);
     expect(cleanupPersisted).toBeGreaterThan(versionCreated);
     expect(cleanupPersisted).toBeLessThan(initStarted);
 
     const attachConfirmed = SRC.indexOf("if (!cres.ok)");
-    const cleanupRemoved = SRC.indexOf("removeVersionCleanupEntry(versionId)", attachConfirmed);
+    const cleanupRemovedOffset = SRC.slice(attachConfirmed).search(
+      /removeVersionCleanupEntry\(\s*versionId,\s*uploadAccountId\s*\)/,
+    );
+    const cleanupRemoved = cleanupRemovedOffset < 0 ? -1 : attachConfirmed + cleanupRemovedOffset;
     expect(cleanupRemoved).toBeGreaterThan(attachConfirmed);
   });
 

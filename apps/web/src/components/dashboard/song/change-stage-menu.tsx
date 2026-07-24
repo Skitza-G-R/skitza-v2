@@ -2,15 +2,10 @@
 
 import { Check, ChevronDown } from "lucide-react";
 import { useRouter } from "next/navigation";
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  useTransition,
-} from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 
 import { setTrackStageAction } from "~/app/(producer)/dashboard/clients-projects/upload-actions";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
 import {
   stageColor,
@@ -42,6 +37,7 @@ interface ChangeStageMenuProps {
 export function ChangeStageMenu({ trackId, current }: ChangeStageMenuProps) {
   const router = useRouter();
   const { toast } = useToast();
+  const online = useOnlineStatus();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   // Optimistic state — flip immediately on click so the trigger label
@@ -58,10 +54,7 @@ export function ChangeStageMenu({ trackId, current }: ChangeStageMenuProps) {
     const handleClick = (e: MouseEvent) => {
       const target = e.target as Node | null;
       if (!target) return;
-      if (
-        menuRef.current?.contains(target) ||
-        triggerRef.current?.contains(target)
-      ) {
+      if (menuRef.current?.contains(target) || triggerRef.current?.contains(target)) {
         return;
       }
       setOpen(false);
@@ -86,24 +79,34 @@ export function ChangeStageMenu({ trackId, current }: ChangeStageMenuProps) {
         setOpen(false);
         return;
       }
+      if (!online) {
+        setOpen(false);
+        toast("Reconnect to change this song’s stage.", "error");
+        return;
+      }
       setOptimistic(next);
       setOpen(false);
       startTransition(async () => {
-        const res = await setTrackStageAction({
-          trackId,
-          workflowStage: next,
-        });
-        if (!res.ok) {
-          // Revert optimistic state on failure.
+        try {
+          const res = await setTrackStageAction({
+            trackId,
+            workflowStage: next,
+          });
+          if (!res.ok) {
+            // Revert optimistic state on failure.
+            setOptimistic(null);
+            toast(res.error, "error");
+            return;
+          }
+          toast(`Stage set to ${stageLabel(next)}`, "success");
+          router.refresh();
+        } catch {
           setOptimistic(null);
-          toast(res.error, "error");
-          return;
+          toast("Could not change this song’s stage. Try again.", "error");
         }
-        toast(`Stage set to ${stageLabel(next)}`, "success");
-        router.refresh();
       });
     },
-    [current, optimistic, toast, trackId, router],
+    [current, online, optimistic, toast, trackId, router],
   );
 
   const displayed: WorkflowStage = optimistic ?? current;
@@ -120,18 +123,14 @@ export function ChangeStageMenu({ trackId, current }: ChangeStageMenuProps) {
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={pending}
-        className="sk-press inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-sm)] border px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest disabled:opacity-60 sm:min-h-0"
+        className="sk-press inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-sm)] border px-2.5 py-1 text-[11px] font-bold tracking-widest uppercase disabled:opacity-60 sm:min-h-0"
         style={{
           color: hue,
           borderColor: hue,
           background: "transparent",
         }}
       >
-        <span
-          aria-hidden
-          className="h-1.5 w-1.5 rounded-full"
-          style={{ background: hue }}
-        />
+        <span aria-hidden className="h-1.5 w-1.5 rounded-full" style={{ background: hue }} />
         {stageLabel(displayed)}
         <ChevronDown size={11} aria-hidden />
       </button>
@@ -147,7 +146,7 @@ export function ChangeStageMenu({ trackId, current }: ChangeStageMenuProps) {
         <div
           ref={menuRef}
           aria-label="Workflow stage options"
-          className="absolute right-0 top-[calc(100%+6px)] z-30 min-w-[200px] overflow-hidden rounded-[10px] border bg-[rgb(var(--bg-background))] py-1 shadow-[0_18px_40px_-12px_rgba(17,16,9,0.32)]"
+          className="absolute top-[calc(100%+6px)] right-0 z-30 min-w-[200px] overflow-hidden rounded-[10px] border bg-[rgb(var(--bg-background))] py-1 shadow-[0_18px_40px_-12px_rgba(17,16,9,0.32)]"
           style={{ borderColor: "rgb(var(--border-subtle))" }}
         >
           {WORKFLOW_STAGES.map((s) => {

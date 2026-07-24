@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { type RefObject, type SyntheticEvent, useEffect, useState, useTransition } from "react";
 
 import { updateProjectAction } from "~/app/(producer)/dashboard/clients-projects/actions";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
 
 import {
@@ -36,6 +37,7 @@ export function EditProjectDialog({
 }: EditProjectDialogProps) {
   const router = useRouter();
   const { toast } = useToast();
+  const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
   const [title, setTitle] = useState(project.title);
   const [deadline, setDeadline] = useState(dateInputValue(project.deadlineAtIso));
@@ -62,6 +64,10 @@ export function EditProjectDialog({
     event.preventDefault();
     setTitleTouched(true);
     if (!cleanTitle || !hasChanges) return;
+    if (!online) {
+      toast("Reconnect to update this project.", "error");
+      return;
+    }
 
     startTransition(async () => {
       const payload: Parameters<typeof updateProjectAction>[0] = {
@@ -70,16 +76,20 @@ export function EditProjectDialog({
         deadlineAtIso: deadline ? new Date(`${deadline}T00:00:00.000Z`).toISOString() : null,
         workflowStage,
       };
-      const result = await updateProjectAction(payload);
-      if (!result.ok) {
-        toast(result.error, "error");
-        return;
-      }
+      try {
+        const result = await updateProjectAction(payload);
+        if (!result.ok) {
+          toast(result.error, "error");
+          return;
+        }
 
-      toast("Project updated", "success");
-      onSaved?.(project.id);
-      router.refresh();
-      onClose();
+        toast("Project updated", "success");
+        onSaved?.(project.id);
+        router.refresh();
+        onClose();
+      } catch {
+        toast("Could not update this project. Try again.", "error");
+      }
     });
   };
 

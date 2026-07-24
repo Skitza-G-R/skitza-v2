@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation";
 
 import { ArrowRight, Check, ShieldIcon } from "~/components/artist/funnel/funnel-icons";
 import { Eyebrow, FunnelTopBar, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 import { formatPurchaseMoney } from "./pay-data";
 
@@ -107,7 +108,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
               ? `Copy manually: ${label}`
               : `Copy ${label}`
         }
-        className="sk-press inline-flex min-h-11 shrink-0 items-center gap-[5px] rounded-full border px-3 font-mono text-[10.5px] font-bold tracking-[0.08em] uppercase transition-colors"
+        className="sk-press inline-flex min-h-11 shrink-0 items-center gap-[5px] rounded-[var(--radius-lg)] border px-3 font-mono text-[10.5px] font-bold tracking-[0.08em] uppercase transition-colors"
         style={
           copyState === "copied"
             ? {
@@ -215,6 +216,8 @@ export function PaymentInstructionsScreen({
   previewProofHref?: string | undefined;
 }) {
   const router = useRouter();
+  const online = useOnlineStatus();
+  const liveProofRoute = !previewProofHref;
   const hasPaymentDetails = Boolean(
     paymentDetails?.bankTransfer?.trim() ||
     paymentDetails?.bitPhone?.trim() ||
@@ -222,6 +225,7 @@ export function PaymentInstructionsScreen({
   );
 
   const goToProof = () => {
+    if (!online && liveProofRoute) return;
     if (previewProofHref) {
       router.push(previewProofHref);
       return;
@@ -236,10 +240,7 @@ export function PaymentInstructionsScreen({
     }
     const query = new URLSearchParams({ purchase: purchaseId, installment: installmentId });
     router.push(
-      withArtistStudio(
-        `/artist/purchase/${productId}/pay/proof?${query.toString()}`,
-        studioId,
-      ),
+      withArtistStudio(`/artist/purchase/${productId}/pay/proof?${query.toString()}`, studioId),
     );
   };
 
@@ -315,9 +316,7 @@ export function PaymentInstructionsScreen({
 
               {paymentDetails.bitPhone ? (
                 <>
-                  <h2
-                    className={paymentDetails.bankTransfer ? "mt-[18px] mb-[9px]" : "mb-[9px]"}
-                  >
+                  <h2 className={paymentDetails.bankTransfer ? "mt-[18px] mb-[9px]" : "mb-[9px]"}>
                     <Eyebrow>Bit</Eyebrow>
                   </h2>
                   <div
@@ -404,6 +403,14 @@ export function PaymentInstructionsScreen({
               move your money.
             </span>
           </div>
+          {!online && liveProofRoute ? (
+            <p
+              role="status"
+              className="mt-3 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] px-3.5 py-3 text-[12.5px] text-[rgb(var(--fg-secondary))]"
+            >
+              Reconnect before opening the live proof form.
+            </p>
+          ) : null}
         </div>
 
         {/* pinned action */}
@@ -416,11 +423,13 @@ export function PaymentInstructionsScreen({
         >
           <PrimaryCta
             onClick={goToProof}
-            disabled={!proofUploadsAvailable}
+            disabled={!proofUploadsAvailable || (!online && liveProofRoute)}
             sub={
-              proofUploadsAvailable
-                ? "Upload a screenshot of your transfer"
-                : `Keep your receipt and send it directly to ${producerName}`
+              !online && liveProofRoute
+                ? "Reconnect to continue"
+                : proofUploadsAvailable
+                  ? "Upload a screenshot of your transfer"
+                  : `Keep your receipt and send it directly to ${producerName}`
             }
           >
             {proofUploadsAvailable ? (

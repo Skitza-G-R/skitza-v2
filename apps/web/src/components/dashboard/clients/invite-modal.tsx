@@ -4,6 +4,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Link2, Mail, X } from "lucide-react";
 import { useTransition } from "react";
 
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
 import { producerInitials } from "~/lib/_phase4-stubs/producer-color";
 import { sendClientInviteAction } from "~/app/(producer)/dashboard/clients-projects/clients-actions";
@@ -47,28 +48,41 @@ export function InviteToAppModal({
   onSent,
 }: InviteToAppModalProps) {
   const { toast } = useToast();
+  const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
   const inviteUrl = buildClientInviteUrl(producerSlug);
   const initials = producerInitials(client.name);
   const hasEmail = client.email !== null && client.email.length > 0;
 
   const handleSendEmail = () => {
+    if (!online) {
+      toast("Reconnect to send this invite.", "error");
+      return;
+    }
     startTransition(async () => {
-      const res = await sendClientInviteAction({
-        id: client.id,
-        via: "email",
-      });
-      if (!res.ok) {
-        toast(res.error, "error");
-        return;
+      try {
+        const res = await sendClientInviteAction({
+          id: client.id,
+          via: "email",
+        });
+        if (!res.ok) {
+          toast(res.error, "error");
+          return;
+        }
+        toast("Invite sent", "success");
+        onSent?.();
+        onClose();
+      } catch {
+        toast("Could not send this invite. Try again.", "error");
       }
-      toast("Invite sent", "success");
-      onSent?.();
-      onClose();
     });
   };
 
   const handleCopyLink = () => {
+    if (!online) {
+      toast("Reconnect to copy and register this invite link.", "error");
+      return;
+    }
     startTransition(async () => {
       try {
         await navigator.clipboard.writeText(inviteUrl);
@@ -76,19 +90,23 @@ export function InviteToAppModal({
         toast("Couldn't copy link — try again", "error");
         return;
       }
-      const res = await sendClientInviteAction({
-        id: client.id,
-        via: "link",
-      });
-      if (!res.ok) {
-        // Link is copied either way; surface the server miss so the
-        // producer knows the LinkPill won't flip.
-        toast(res.error, "error");
-        return;
+      try {
+        const res = await sendClientInviteAction({
+          id: client.id,
+          via: "link",
+        });
+        if (!res.ok) {
+          // Link is copied either way; surface the server miss so the
+          // producer knows the LinkPill won't flip.
+          toast(res.error, "error");
+          return;
+        }
+        toast("Link copied", "success");
+        onSent?.();
+        onClose();
+      } catch {
+        toast("Link copied, but the invite could not be registered. Try again.", "error");
       }
-      toast("Link copied", "success");
-      onSent?.();
-      onClose();
     });
   };
 
@@ -103,7 +121,7 @@ export function InviteToAppModal({
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[rgb(17_16_9/0.42)] backdrop-blur-[3px]" />
         <DialogPrimitive.Content
           aria-describedby="invite-modal-body"
-          className="sk-sheet-mobile fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] max-w-[440px] rounded-[18px] bg-[rgb(var(--bg-background))] p-6 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)]"
+          className="sk-sheet-mobile fixed top-1/2 left-1/2 z-50 w-[calc(100vw-2rem)] max-w-[440px] -translate-x-1/2 -translate-y-1/2 rounded-[18px] bg-[rgb(var(--bg-background))] p-6 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)]"
         >
           <div className="flex items-start gap-3">
             <span
@@ -128,7 +146,7 @@ export function InviteToAppModal({
               <button
                 type="button"
                 aria-label="Close"
-                className="sk-press -mr-2 -mt-2 inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))]"
+                className="sk-press -mt-2 -mr-2 inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))]"
               >
                 <X size={16} strokeWidth={2.2} />
               </button>
@@ -150,10 +168,7 @@ export function InviteToAppModal({
               className="shrink-0 text-[rgb(var(--fg-muted))]"
               aria-hidden
             />
-            <span
-              className="truncate text-[rgb(var(--fg-default))]"
-              data-testid="invite-email-row"
-            >
+            <span className="truncate text-[rgb(var(--fg-default))]" data-testid="invite-email-row">
               {hasEmail ? client.email : "No email on file"}
             </span>
           </div>

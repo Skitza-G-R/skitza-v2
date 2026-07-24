@@ -2,10 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const SRC = readFileSync(
-  join(__dirname, "../next-session-card.tsx"),
-  "utf-8",
-);
+const SRC = readFileSync(join(__dirname, "../next-session-card.tsx"), "utf-8");
 
 describe("NextSessionCard (compact strip)", () => {
   it("is a server component (no client interactivity)", () => {
@@ -19,9 +16,7 @@ describe("NextSessionCard (compact strip)", () => {
 
   it("has a single Open calendar CTA pointing to /artist/book", () => {
     expect(SRC).toMatch(/Open\s*calendar/);
-    expect(SRC).toContain(
-      'href={withArtistStudio("/artist/book", nextSession.producerId)}',
-    );
+    expect(SRC).toContain('href={withArtistStudio("/artist/book", nextSession.producerId)}');
   });
 
   it("uses ProducerArt for the avatar", () => {
@@ -30,7 +25,7 @@ describe("NextSessionCard (compact strip)", () => {
 
   it("renders TODAY badge gated by isToday helper", () => {
     expect(SRC).toMatch(/function\s+isToday/);
-    expect(SRC).toMatch(/>TODAY</);
+    expect(SRC).toMatch(/>\s*TODAY\s*</);
   });
 
   it("renders an empty state with Book a session CTA", () => {

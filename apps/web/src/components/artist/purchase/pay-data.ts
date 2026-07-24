@@ -231,7 +231,14 @@ export function paidProgress(
 
 // ── Proof-of-payment status ─────────────────────────────────────────────────
 
-export type ProofStatus = "empty" | "attached" | "uploading" | "awaiting" | "rejected" | "paid";
+export type ProofStatus =
+  | "empty"
+  | "attached"
+  | "uploading"
+  | "submitting"
+  | "awaiting"
+  | "rejected"
+  | "paid";
 
 export function proofStatusCopy(
   status: ProofStatus,
@@ -244,6 +251,8 @@ export function proofStatusCopy(
       return { headline: "Ready to send for review", tone: "neutral" };
     case "uploading":
       return { headline: "Uploading your proof…", tone: "pending" };
+    case "submitting":
+      return { headline: "Sending your proof for review…", tone: "pending" };
     case "awaiting":
       return { headline: `We sent it to ${producerName}`, tone: "pending" };
     case "rejected":

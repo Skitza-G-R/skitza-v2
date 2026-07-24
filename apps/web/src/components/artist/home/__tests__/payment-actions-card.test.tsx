@@ -43,8 +43,9 @@ describe("ArtistPaymentActionsCard", () => {
     expect(html).toContain('href="/artist/payments/purchase-usd?studio=studio-usd"');
     expect(html).toContain('href="/artist/payments?studio=studio-selected"');
     expect(html).toMatch(
-      /class="[^"]*min-h-11[^"]*min-w-11[^"]*sm:min-h-0[^"]*sm:min-w-0[^"]*" href="\/artist\/payments\?studio=studio-selected">View all/,
+      /class="[^"]*min-h-11[^"]*min-w-11[^"]*"[^>]*href="\/artist\/payments\?studio=studio-selected"[^>]*>View all/,
     );
+    expect(html).toContain('aria-disabled="false"');
     expect(html).not.toContain("Pay all");
     expect(html).not.toContain("/artist/payment/");
   });

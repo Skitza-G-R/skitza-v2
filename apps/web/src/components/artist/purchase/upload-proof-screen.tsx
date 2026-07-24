@@ -11,13 +11,16 @@ import {
   PrimaryCta,
   SecondaryCta,
 } from "~/components/artist/funnel/funnel-ui";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 import {
+  cancelPaymentProofUploadAction,
   presignProofUploadAction,
   submitPaymentProofAction,
   type ProofContentType,
 } from "./actions";
 import { formatPurchaseMoney, type ProofStatus, proofStatusCopy } from "./pay-data";
+import { startManagedPaymentProofUpload, uploadPaymentProofBytes } from "./proof-upload-lifecycle";
 
 export type ArtistProofHistoryItem = Readonly<{
   id: string;
@@ -149,8 +152,10 @@ export function UploadProofScreen({
   onPreviewSubmit?: ((submission: PreviewProofSubmission) => void) | undefined;
 }) {
   const router = useRouter();
+  const online = useOnlineStatus();
   const fileRef = useRef<HTMLInputElement>(null);
   const previewUrlRef = useRef<string | null>(null);
+  const mountedRef = useRef(false);
   const effectiveCurrency = currency ?? "ILS";
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -177,22 +182,23 @@ export function UploadProofScreen({
     if (["empty", "awaiting", "rejected", "paid"].includes(initialStatus)) clearFile();
   }, [initialStatus, thisProofCents]);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
-    },
-    [],
-  );
+    };
+  }, []);
 
   useEffect(() => {
-    if (status !== "awaiting" || previewOnly) return;
+    if (status !== "awaiting" || previewOnly || !online) return;
     const intervalId = window.setInterval(() => {
       router.refresh();
     }, 8_000);
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [previewOnly, router, status]);
+  }, [online, previewOnly, router, status]);
 
   const amountCents = parseProofAmountCents(amount);
   const amountError =
@@ -204,16 +210,18 @@ export function UploadProofScreen({
           ? `Amount cannot exceed ${formatPurchaseMoney(thisProofCents, effectiveCurrency)}.`
           : null;
   const isUploading = status === "uploading";
+  const isSubmitting = status === "submitting";
+  const isBusy = isUploading || isSubmitting;
   const isAwaiting = status === "awaiting";
   const isRejected = status === "rejected";
   const isPaidInFull = status === "paid" || paidCents >= totalCents;
   const canUpload = proofUploadsAvailable && !isAwaiting && !isPaidInFull;
-  const canSend = Boolean(file && !amountError && !isUploading && canUpload);
+  const canSend = Boolean(file && !amountError && !isBusy && canUpload && (online || previewOnly));
   const paidPct = totalCents <= 0 ? 100 : Math.min(100, Math.round((paidCents / totalCents) * 100));
   const headline = proofStatusCopy(status, producerName);
 
   function pickFile() {
-    if (!canUpload) return;
+    if (!canUpload || isBusy) return;
     if (fileRef.current) fileRef.current.value = "";
     fileRef.current?.click();
   }
@@ -239,7 +247,11 @@ export function UploadProofScreen({
     setStatus("attached");
   }
 
-  async function send() {
+  function send() {
+    if (!online && !previewOnly) {
+      setUploadError("Reconnect before uploading. No proof has been sent.");
+      return;
+    }
     if (!file || !canSend || amountCents === null) return;
     const contentType = proofContentType(file);
     const fileError = proofFileError(file);
@@ -263,37 +275,47 @@ export function UploadProofScreen({
       setUploadError("This payment link is incomplete. Return to Payment and try again.");
       return;
     }
-    setStatus("uploading");
-    setUploadError(null);
+    const submittedFile = file;
+    const submittedNote = note.trim() || null;
     try {
-      const presigned = await presignProofUploadAction({
+      startManagedPaymentProofUpload({
+        file: submittedFile,
         purchaseId,
         installmentId,
-        fileName: file.name,
         contentType,
-        sizeBytes: file.size,
-      });
-      if (!presigned.ok) throw new Error(presigned.error);
-      const uploaded = await fetch(presigned.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": contentType },
-        body: file,
-      });
-      if (!uploaded.ok) {
-        throw new Error("The file upload did not finish. Check your connection and try again.");
-      }
-      const submitted = await submitPaymentProofAction({
-        purchaseId,
-        installmentId,
-        uploadToken: presigned.uploadToken,
         amountCents,
-        ...(note.trim() ? { note } : {}),
+        note: submittedNote,
+        presign: presignProofUploadAction,
+        cleanup: cancelPaymentProofUploadAction,
+        submit: submitPaymentProofAction,
+        uploadFile: uploadPaymentProofBytes,
+        onStart: () => {
+          if (!mountedRef.current) return;
+          setStatus("uploading");
+          setUploadError(null);
+        },
+        onSubmitting: () => {
+          if (!mountedRef.current) return;
+          setStatus("submitting");
+        },
+        onSuccess: () => {
+          if (!mountedRef.current) return;
+          clearFile();
+          setNote("");
+          setStatus("awaiting");
+          router.refresh();
+        },
+        onCancelled: () => {
+          if (!mountedRef.current) return;
+          setStatus("attached");
+          setUploadError("Upload stopped. The payment proof was not submitted.");
+        },
+        onFailure: (message) => {
+          if (!mountedRef.current) return;
+          setStatus("attached");
+          setUploadError(message);
+        },
       });
-      if (!submitted.ok) throw new Error(submitted.error);
-      clearFile();
-      setNote("");
-      setStatus("awaiting");
-      router.refresh();
     } catch (error) {
       setStatus("attached");
       setUploadError(error instanceof Error ? error.message : "Could not upload the proof.");
@@ -358,7 +380,7 @@ export function UploadProofScreen({
               <button
                 type="button"
                 onClick={pickFile}
-                className="mt-3 min-h-11 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-danger))] px-4 text-sm font-bold text-white"
+                className="sk-press mt-3 min-h-11 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-danger))] px-4 text-sm font-bold text-white"
               >
                 Choose replacement <ArrowRight width={15} height={15} />
               </button>
@@ -420,13 +442,14 @@ export function UploadProofScreen({
                 type="file"
                 accept="image/jpeg,image/png,image/webp,image/heic,.heic,application/pdf"
                 onChange={onFileChange}
+                disabled={isBusy}
                 hidden
               />
               <button
                 type="button"
                 onClick={pickFile}
-                disabled={isUploading}
-                className="flex min-h-[148px] w-full flex-col items-center justify-center gap-2 rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-control))] bg-[rgb(var(--bg-elevated))] px-4 py-5 text-center disabled:opacity-60"
+                disabled={isBusy}
+                className="sk-press flex min-h-[148px] w-full flex-col items-center justify-center gap-2 rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-control))] bg-[rgb(var(--bg-elevated))] px-4 py-5 text-center disabled:opacity-60"
               >
                 {previewUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -487,6 +510,14 @@ export function UploadProofScreen({
                   {uploadError}
                 </p>
               ) : null}
+              {!online && !previewOnly ? (
+                <p
+                  role="status"
+                  className="rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] p-3 text-center text-xs text-[rgb(var(--fg-secondary))]"
+                >
+                  Reconnect to upload this proof. The server has not received anything.
+                </p>
+              ) : null}
             </section>
           ) : !isAwaiting && !isPaidInFull && !isRejected ? (
             <p className="mt-4 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 text-sm text-[rgb(var(--fg-muted))]">
@@ -540,7 +571,7 @@ export function UploadProofScreen({
                         target="_blank"
                         rel="noopener noreferrer"
                         referrerPolicy="no-referrer"
-                        className="mt-2 inline-flex min-h-11 items-center gap-1.5 text-xs font-bold text-[rgb(var(--brand-primary-text))]"
+                        className="sk-press mt-2 inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] text-xs font-bold text-[rgb(var(--brand-primary-text))]"
                       >
                         Open private evidence <ExternalLink size={13} aria-hidden />
                       </a>
@@ -589,14 +620,24 @@ export function UploadProofScreen({
         >
           {canUpload ? (
             <PrimaryCta
-              onClick={() => void send()}
+              onClick={send}
               disabled={!canSend}
               glow={canSend}
-              ariaBusy={isUploading}
-              sub={file ? `Sends privately to ${producerName}` : "Attach a file to continue"}
+              ariaBusy={isBusy}
+              sub={
+                !online && !previewOnly
+                  ? "Reconnect to send this live proof"
+                  : file
+                    ? `Sends privately to ${producerName}`
+                    : "Attach a file to continue"
+              }
             >
-              {isUploading ? (
-                "Uploading…"
+              {isBusy ? (
+                isSubmitting ? (
+                  "Sending…"
+                ) : (
+                  "Uploading…"
+                )
               ) : (
                 <>
                   Send proof <ArrowRight />
@@ -606,11 +647,13 @@ export function UploadProofScreen({
           ) : bookingHref ? (
             <PrimaryCta
               onClick={() => {
+                if (!online) return;
                 router.push(bookingHref);
               }}
+              disabled={!online}
               glow={false}
             >
-              Book a session <ArrowRight />
+              {online ? "Book a session" : "Reconnect to book"} <ArrowRight />
             </PrimaryCta>
           ) : (
             <SecondaryCta

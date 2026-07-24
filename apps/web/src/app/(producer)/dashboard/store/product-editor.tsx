@@ -1,18 +1,19 @@
 "use client";
 
 import type { PaymentPlan } from "@skitza/db";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { createPackage, updatePackage } from "~/app/(producer)/dashboard/booking/actions";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
+import type {
+  ProducerStoreDraftStep,
+  ProducerStoreProductDraft,
+} from "~/lib/runtime-state/runtime-state";
 import { applyTaxToCents, taxModeFootnote } from "~/lib/tax-mode";
 
-import {
-  buildPackagePayload,
-  buildPackageUpdatePayload,
-  type PackageDraft,
-} from "./build-package-payload";
+import { buildPackagePayload, buildPackageUpdatePayload } from "./build-package-payload";
 import { decodeDescription } from "./description-encoding";
 import { IncludesStep } from "./editor-steps/includes-step";
 import { LogisticsStep } from "./editor-steps/logistics-step";
@@ -40,7 +41,7 @@ import type { StoreProduct } from "./store-screen";
 import { getPreset, type PaymentPlanChoice, type PresetId, type PresetType } from "./type-presets";
 
 type Currency = "USD" | "EUR" | "GBP" | "ILS";
-type StepId = "type" | "details" | "price" | "payment" | "delivery" | "rights" | "review";
+type StepId = ProducerStoreDraftStep;
 
 const NEW_STEPS: readonly StepId[] = [
   "type",
@@ -80,10 +81,7 @@ const STEP_SUBTITLES: Record<StepId, string> = {
   review: "Check every term before this product is created or updated.",
 };
 
-interface Draft extends PackageDraft {
-  _picked: PresetId | null;
-  _legacyAgreementLink: boolean;
-}
+type Draft = ProducerStoreProductDraft["draft"];
 
 interface ProductEditorProps {
   open: boolean;
@@ -95,6 +93,9 @@ interface ProductEditorProps {
   producerName?: string;
   previewPlacement?: "focal" | "secondary";
   onCreated?: (id: string) => void;
+  onSubmitted: () => void;
+  persistedDraft: ProducerStoreProductDraft | null;
+  onPersistDraft: (draft: ProducerStoreProductDraft) => void;
 }
 
 const VALID_CURRENCIES: readonly Currency[] = ["USD", "EUR", "GBP", "ILS"];
@@ -189,9 +190,13 @@ export function ProductEditor({
   producerName = "Your studio",
   previewPlacement = "focal",
   onCreated,
+  onSubmitted,
+  persistedDraft,
+  onPersistDraft,
 }: ProductEditorProps) {
   const router = useRouter();
   const { toast } = useToast();
+  const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
   const mode = product ? "edit" : "new";
   const steps = mode === "edit" ? EDIT_STEPS : NEW_STEPS;
@@ -210,6 +215,8 @@ export function ProductEditor({
     notes: false,
     agreement: false,
   });
+  const initializedEditorRef = useRef<string | null>(null);
+  const latestPersistedDraftRef = useRef<ProducerStoreProductDraft | null>(null);
 
   useEffect(() => {
     setTaxModeLocal(taxMode);
@@ -217,11 +224,27 @@ export function ProductEditor({
   }, [taxMode, taxRatePct]);
 
   useEffect(() => {
-    if (!open) return;
-    setDraft(
-      product ? seedDraftFromProduct(product, defaultCurrency) : emptyDraft(defaultCurrency),
-    );
-    setCurrentStep(product ? "details" : "type");
+    if (!open) {
+      initializedEditorRef.current = null;
+      latestPersistedDraftRef.current = null;
+      return;
+    }
+    const productId = product?.id ?? null;
+    const editorKey = `${mode}:${productId ?? "new"}`;
+    if (initializedEditorRef.current === editorKey) return;
+    initializedEditorRef.current = editorKey;
+    const restored =
+      persistedDraft?.mode === mode && persistedDraft.productId === productId
+        ? persistedDraft
+        : null;
+    const nextDraft =
+      restored?.draft ??
+      (product ? seedDraftFromProduct(product, defaultCurrency) : emptyDraft(defaultCurrency));
+    const fallbackStep: StepId = product ? "details" : "type";
+    const nextStep =
+      restored && steps.includes(restored.currentStep) ? restored.currentStep : fallbackStep;
+    setDraft(nextDraft);
+    setCurrentStep(nextStep);
     setReturnToReview(false);
     setRightsTouched({
       master: false,
@@ -229,9 +252,75 @@ export function ProductEditor({
       notes: false,
       agreement: false,
     });
-  }, [open, product, defaultCurrency]);
+    const nextRecord: ProducerStoreProductDraft = {
+      open: true,
+      mode,
+      productId,
+      currentStep: nextStep,
+      draft: nextDraft,
+    };
+    latestPersistedDraftRef.current = nextRecord;
+    onPersistDraft(nextRecord);
+  }, [defaultCurrency, mode, onPersistDraft, open, persistedDraft, product, steps]);
+
+  useEffect(() => {
+    if (!open || initializedEditorRef.current === null) return;
+    const nextRecord: ProducerStoreProductDraft = {
+      open: true,
+      mode,
+      productId: product?.id ?? null,
+      currentStep,
+      draft,
+    };
+    latestPersistedDraftRef.current = nextRecord;
+    const timeout = window.setTimeout(() => {
+      const latest = latestPersistedDraftRef.current;
+      if (latest) onPersistDraft(latest);
+    }, 250);
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [currentStep, draft, mode, onPersistDraft, open, product?.id]);
+
+  useEffect(() => {
+    if (!open) return;
+    const flush = () => {
+      const next = latestPersistedDraftRef.current;
+      if (next) onPersistDraft(next);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      flush();
+    };
+  }, [onPersistDraft, open]);
+
+  function handleEditorOpenChange(nextOpen: boolean) {
+    if (!nextOpen) {
+      const latest = latestPersistedDraftRef.current;
+      if (latest) onPersistDraft(latest);
+      latestPersistedDraftRef.current = null;
+    }
+    onOpenChange(nextOpen);
+  }
+
+  function handleSuccessfulSubmit() {
+    latestPersistedDraftRef.current = null;
+    onSubmitted();
+    onOpenChange(false);
+  }
 
   function onTaxChange(patch: { taxMode?: import("~/lib/tax-mode").TaxMode; taxRatePct?: number }) {
+    if (!online) {
+      setTaxError("Reconnect to update tax settings.");
+      toast("Reconnect to update tax settings.", "error");
+      return;
+    }
     const previousMode = taxModeLocal;
     const previousRate = taxRateLocal;
     if (patch.taxMode !== undefined) setTaxModeLocal(patch.taxMode);
@@ -360,28 +449,36 @@ export function ProductEditor({
       else if (!validRights) setCurrentStep("rights");
       return;
     }
+    if (!online) {
+      toast("Reconnect to save this product.", "error");
+      return;
+    }
 
     startTransition(async () => {
-      if (product) {
-        const payload = buildPackageUpdatePayload(draft, product.kind);
-        const result = await updatePackage({ id: product.id, ...payload });
-        if (!result.ok) {
-          toast(result.error, "error");
-          return;
+      try {
+        if (product) {
+          const payload = buildPackageUpdatePayload(draft, product.kind);
+          const result = await updatePackage({ id: product.id, ...payload });
+          if (!result.ok) {
+            toast(result.error, "error");
+            return;
+          }
+          toast(`${draft.name.trim()} saved.`, "success");
+        } else {
+          const payload = buildPackagePayload(draft);
+          const result = await createPackage(payload);
+          if (!result.ok) {
+            toast(result.error, "error");
+            return;
+          }
+          onCreated?.(result.data.id);
+          toast(`${draft.name.trim()} created.`, "success");
         }
-        toast(`${draft.name.trim()} saved.`, "success");
-      } else {
-        const payload = buildPackagePayload(draft);
-        const result = await createPackage(payload);
-        if (!result.ok) {
-          toast(result.error, "error");
-          return;
-        }
-        onCreated?.(result.data.id);
-        toast(`${draft.name.trim()} created.`, "success");
+        handleSuccessfulSubmit();
+        router.refresh();
+      } catch {
+        toast("Could not save this product. Please try again.", "error");
       }
-      onOpenChange(false);
-      router.refresh();
     });
   }
 
@@ -393,7 +490,7 @@ export function ProductEditor({
   return (
     <EditorShell
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={handleEditorOpenChange}
       mode={mode}
       {...(product ? { productName: product.name } : {})}
       steps={steps}

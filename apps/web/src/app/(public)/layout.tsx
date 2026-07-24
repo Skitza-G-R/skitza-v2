@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { PublicConnectivityNotice } from "~/components/public/public-connectivity";
+
 // Public route group (`/join/[slug]`, `/m/[token]`, legal pages).
 // The legacy `/p/[slug]` subtree was removed in Story 03 per PRD §6.6.
 //
@@ -19,8 +21,9 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
   return (
     <div
       data-theme="chrome-dark"
-      className="min-h-screen bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))]"
+      className="min-h-dvh overflow-x-clip bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))]"
     >
+      <PublicConnectivityNotice />
       {children}
     </div>
   );

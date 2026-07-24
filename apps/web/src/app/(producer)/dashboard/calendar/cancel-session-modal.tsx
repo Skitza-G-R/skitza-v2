@@ -6,6 +6,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
 
 import { cancelSession } from "./calendar-actions";
@@ -42,6 +43,7 @@ export function CancelSessionModal({
   const [note, setNote] = useState("");
   const [isPending, startTransition] = useTransition();
   const { toast } = useToast();
+  const online = useOnlineStatus();
 
   useEffect(() => {
     if (!open) return;
@@ -51,19 +53,27 @@ export function CancelSessionModal({
 
   function handleSubmit() {
     if (reason === null || isPending) return;
+    if (!online) {
+      toast("Reconnect to cancel this session.", "error");
+      return;
+    }
     const reasonLabel = REASON_OPTIONS.find((option) => option.id === reason)?.label ?? reason;
     startTransition(async () => {
-      const result = await cancelSession({
-        id: session.id,
-        reason: reasonLabel,
-        ...(note.trim() ? { note: note.trim() } : {}),
-      });
-      if (!result.ok) {
-        toast(result.error, "error");
-        return;
+      try {
+        const result = await cancelSession({
+          id: session.id,
+          reason: reasonLabel,
+          ...(note.trim() ? { note: note.trim() } : {}),
+        });
+        if (!result.ok) {
+          toast(result.error, "error");
+          return;
+        }
+        toast("Session cancelled. The artist’s session use was returned.", "success");
+        onOpenChange(false);
+      } catch {
+        toast("Could not cancel this session. Please try again.", "error");
       }
-      toast("Session cancelled. The artist’s session use was returned.", "success");
-      onOpenChange(false);
     });
   }
 
@@ -141,7 +151,7 @@ export function CancelSessionModal({
           </ModalGhostButton>
           <ModalPrimaryButton
             onClick={handleSubmit}
-            disabled={reason === null || isPending}
+            disabled={reason === null || isPending || !online}
             tone="danger"
           >
             {isPending ? "Cancelling…" : "Cancel session"}

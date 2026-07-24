@@ -51,6 +51,63 @@ describe("ProductEditor orchestrator", () => {
     expect(SRC).toMatch(/createPackage|updatePackage|packages\.create|packages\.update/);
   });
 
+  it("keeps catalog saves live-only and handles transport failures locally", () => {
+    expect(SRC).toContain("useOnlineStatus");
+    expect(SRC).toContain("Reconnect to save this product.");
+    expect(SRC).toContain("Could not save this product. Please try again.");
+  });
+
+  it("flushes an edit synchronously when client navigation unmounts inside the debounce", () => {
+    const debounceStart = SRC.indexOf("const timeout = window.setTimeout");
+    const lifecycleStart = SRC.indexOf("const flush = () =>", debounceStart);
+    const lifecycleEnd = SRC.indexOf("function onTaxChange", lifecycleStart);
+    const lifecycle = SRC.slice(lifecycleStart, lifecycleEnd);
+
+    expect(debounceStart).toBeGreaterThan(-1);
+    expect(SRC.slice(debounceStart, lifecycleStart)).toContain("}, 250)");
+    expect(lifecycle).toContain("latestPersistedDraftRef.current");
+    expect(lifecycle).toMatch(/return \(\) => \{[\s\S]*flush\(\);[\s\S]*\};/);
+  });
+
+  it("makes a delayed autosave fail closed after successful submit clears its ref", () => {
+    const debounceStart = SRC.indexOf("const timeout = window.setTimeout");
+    const debounceEnd = SRC.indexOf("}, 250)", debounceStart);
+    const debounce = SRC.slice(debounceStart, debounceEnd);
+
+    expect(debounce).toContain("latestPersistedDraftRef.current");
+    expect(debounce).toContain("if (latest) onPersistDraft(latest)");
+    expect(debounce).not.toContain("onPersistDraft(nextRecord)");
+  });
+
+  it("keeps the unmount flush available for an ordinary close", () => {
+    const handlerStart = SRC.indexOf("function handleEditorOpenChange");
+    const handlerEnd = SRC.indexOf("function onTaxChange", handlerStart);
+    const handler = SRC.slice(handlerStart, handlerEnd);
+    const persistIndex = handler.indexOf("onPersistDraft(latest)");
+    const clearIndex = handler.indexOf("latestPersistedDraftRef.current = null");
+    const closeIndex = handler.indexOf("onOpenChange(nextOpen)");
+
+    expect(handlerStart).toBeGreaterThan(-1);
+    expect(persistIndex).toBeGreaterThan(-1);
+    expect(clearIndex).toBeGreaterThan(persistIndex);
+    expect(closeIndex).toBeGreaterThan(clearIndex);
+    expect(SRC).toContain("onOpenChange={handleEditorOpenChange}");
+  });
+
+  it("clears the saved draft only after a successful submit", () => {
+    const closeStart = SRC.indexOf("function handleSuccessfulSubmit");
+    const closeEnd = SRC.indexOf("function onTaxChange", closeStart);
+    const close = SRC.slice(closeStart, closeEnd);
+    const saveStart = SRC.indexOf("function save()");
+    const saveEnd = SRC.indexOf("const basePriceCents", saveStart);
+    const save = SRC.slice(saveStart, saveEnd);
+
+    expect(close).toContain("latestPersistedDraftRef.current = null");
+    expect(close).toContain("onSubmitted()");
+    expect(close).toContain("onOpenChange(false)");
+    expect(save).toContain("handleSuccessfulSubmit()");
+  });
+
   it("maps preset type 'consult' to schema kind 'custom' on save (logic in build-package-payload)", () => {
     expect(PAYLOAD_SRC).toMatch(/draft\.type\s*===\s*["']consult["']/);
     expect(PAYLOAD_SRC).toMatch(/["']custom["']\s+as\s+PackageKind/);

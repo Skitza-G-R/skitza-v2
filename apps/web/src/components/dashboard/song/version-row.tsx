@@ -119,6 +119,7 @@ export function VersionRow({ version, songTitle, projectName }: VersionRowProps)
       title: songTitle,
       subtitle: `${projectName} · ${versionLabel}`,
       durationMs: version.durationMs,
+      cachePolicy: "account-unlocked",
     });
   };
 

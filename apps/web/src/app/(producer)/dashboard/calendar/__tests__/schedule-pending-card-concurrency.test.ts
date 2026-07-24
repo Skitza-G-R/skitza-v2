@@ -21,6 +21,13 @@ describe("producer pending booking decisions", () => {
     expect(source).not.toMatch(/const snapshot = rows|setRows\(snapshot\)/);
   });
 
+  it("keeps decisions live-only and clears pending state after transport failure", () => {
+    expect(source).toContain("useOnlineStatus");
+    expect(source).toContain("Reconnect to update this booking.");
+    expect(source).toContain("Could not update this booking. Please try again.");
+    expect(source).toMatch(/finally[\s\S]{0,240}next\.delete\(row\.id\)/);
+  });
+
   it("asks for an explicit second click before rejecting a booking", () => {
     const firstClick = source.indexOf("setDeclineTarget(row)");
     const confirmation = source.indexOf("Decline this booking request?");

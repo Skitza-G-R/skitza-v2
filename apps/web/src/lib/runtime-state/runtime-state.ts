@@ -1,0 +1,1041 @@
+export const RUNTIME_STATE_SCHEMA_VERSION = 1 as const;
+export const RUNTIME_VIEW_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+export const RUNTIME_DRAFT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+export const RUNTIME_ROUTE_LIMIT = 20;
+export const ARTIST_CONTEXT_POINTER_CONTEXT_ID = "artist-account";
+
+const KEY_NAMESPACE = "skitza:runtime";
+
+export type RuntimeRole = "producer" | "artist";
+
+export interface RuntimeScope {
+  userId: string;
+  role: RuntimeRole;
+  contextId: string;
+  route: string;
+}
+
+export interface ProducerOverviewSafeView {
+  displayName: string | null;
+  activeProjects: number;
+}
+
+export interface ArtistHomeSafeView {
+  firstName: string;
+  studios: Array<{
+    producerId: string;
+    producerName: string;
+    producerSlug: string;
+  }>;
+}
+
+export interface ArtistStudioContextPointer {
+  studioId: string;
+}
+
+export interface ProducerWorkspaceSafeView {
+  clientCount: number;
+  projectCount: number;
+  needsAttentionCount: number;
+}
+
+export interface ProducerMusicSafeView {
+  projectCount: number;
+  songCount: number;
+  archivedSongCount: number;
+}
+
+export interface ProducerStoreSafeView {
+  productCount: number;
+  liveProductCount: number;
+}
+
+export interface ProducerPortfolioSafeView {
+  publishedCount: number;
+  availableCount: number;
+}
+
+export type ProducerStoreDraftStep =
+  | "type"
+  | "details"
+  | "price"
+  | "payment"
+  | "delivery"
+  | "rights"
+  | "review";
+
+export interface ProducerStoreProductDraft {
+  open: true;
+  mode: "new" | "edit";
+  productId: string | null;
+  currentStep: ProducerStoreDraftStep;
+  draft: {
+    _picked: "production" | "mix" | "master" | "blank" | null;
+    _legacyAgreementLink: boolean;
+    name: string;
+    tagline: string;
+    type: "production" | "mix" | "master" | "consult";
+    price: number;
+    currency: "USD" | "EUR" | "GBP" | "ILS";
+    sessions: number;
+    unlimitedSessions: boolean;
+    payment: {
+      full: boolean;
+      split50: boolean;
+      monthly: boolean;
+      monthlyInstallments: number;
+    };
+    includes: string[];
+    duration: string;
+    revisions: number;
+    unlimitedRevisions: boolean;
+    agreementMode: "none" | "text";
+    agreementText: string;
+    royalty: {
+      masterMode: "none" | "percentage" | "agreement" | null;
+      masterPercentage: string;
+      compositionMode: "none" | "percentage" | "agreement" | null;
+      compositionPercentage: string;
+      compositionRole: "composer" | "lyricist" | "arranger" | "publisher" | "other" | "";
+      collectingSociety: string;
+      notes: string;
+    };
+    pricingModel: "flat" | "per_song";
+    volumeTiers: Array<{
+      minQty: number;
+      pricePerUnitCents: number;
+    }>;
+  };
+}
+
+export interface ArtistMusicSafeView {
+  mode: "projects" | "songs";
+  view: "grid" | "table";
+  search: string;
+  sort: "recent" | "title" | "notes" | "length";
+  archive: "active" | "archived";
+  projectCount: number;
+  songCount: number;
+}
+
+export interface ProducerDisplayNameDraft {
+  displayName: string;
+}
+
+export interface RuntimeTextDraft {
+  resourceId: string;
+  body: string;
+}
+
+export interface RuntimeNavigationSnapshot {
+  href: string;
+  scrollTop: number;
+  filters: Array<{
+    key: string;
+    value: string;
+  }>;
+}
+
+export interface RuntimeNavigationIndex {
+  lastHref: string;
+  backStack: string[];
+  recentRoutes: string[];
+}
+
+export interface RuntimePayloadBySlot {
+  "producer.overview.safe-view": ProducerOverviewSafeView;
+  "producer.workspace.safe-view": ProducerWorkspaceSafeView;
+  "producer.music.safe-view": ProducerMusicSafeView;
+  "producer.store.safe-view": ProducerStoreSafeView;
+  "producer.portfolio.safe-view": ProducerPortfolioSafeView;
+  "artist.home.safe-view": ArtistHomeSafeView;
+  "artist.music.safe-view": ArtistMusicSafeView;
+  "artist.last-studio-context": ArtistStudioContextPointer;
+  "producer.settings.display-name-draft": ProducerDisplayNameDraft;
+  "producer.store.product-draft": ProducerStoreProductDraft;
+  "producer.song-comment-draft": RuntimeTextDraft;
+  "artist.song-comment-draft": RuntimeTextDraft;
+  "runtime.navigation.snapshot": RuntimeNavigationSnapshot;
+  "runtime.navigation.index": RuntimeNavigationIndex;
+}
+
+export type RuntimeSlot = keyof RuntimePayloadBySlot;
+
+export interface StorageLike {
+  readonly length: number;
+  key(index: number): string | null;
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
+interface RuntimeEnvelope<T> {
+  schemaVersion: typeof RUNTIME_STATE_SCHEMA_VERSION;
+  scope: RuntimeScope;
+  slot: RuntimeSlot;
+  updatedAt: number;
+  payload: T;
+}
+
+const SLOT_MAX_AGE_MS: Record<RuntimeSlot, number> = {
+  "producer.overview.safe-view": RUNTIME_VIEW_MAX_AGE_MS,
+  "producer.workspace.safe-view": RUNTIME_VIEW_MAX_AGE_MS,
+  "producer.music.safe-view": RUNTIME_VIEW_MAX_AGE_MS,
+  "producer.store.safe-view": RUNTIME_VIEW_MAX_AGE_MS,
+  "producer.portfolio.safe-view": RUNTIME_VIEW_MAX_AGE_MS,
+  "artist.home.safe-view": RUNTIME_VIEW_MAX_AGE_MS,
+  "artist.music.safe-view": RUNTIME_VIEW_MAX_AGE_MS,
+  "artist.last-studio-context": RUNTIME_VIEW_MAX_AGE_MS,
+  "producer.settings.display-name-draft": RUNTIME_DRAFT_MAX_AGE_MS,
+  "producer.store.product-draft": RUNTIME_DRAFT_MAX_AGE_MS,
+  "producer.song-comment-draft": RUNTIME_DRAFT_MAX_AGE_MS,
+  "artist.song-comment-draft": RUNTIME_DRAFT_MAX_AGE_MS,
+  "runtime.navigation.snapshot": RUNTIME_VIEW_MAX_AGE_MS,
+  "runtime.navigation.index": RUNTIME_VIEW_MAX_AGE_MS,
+};
+
+const LIVE_ONLY_ARTIST_ROUTE_PREFIXES = [
+  "/artist/book",
+  "/artist/offers",
+  "/artist/payments",
+  "/artist/purchase",
+  "/artist/sessions",
+  "/artist/music/no-charge",
+] as const;
+
+const SAFE_ID_SEGMENT = "[A-Za-z0-9_-]{1,128}";
+
+const PRODUCER_ROUTE_PATTERNS = [
+  /^\/dashboard$/,
+  /^\/dashboard\/calendar$/,
+  /^\/dashboard\/clients-projects$/,
+  /^\/dashboard\/clients-projects\/new$/,
+  new RegExp(`^/dashboard/clients-projects/(?!new$|clients$)${SAFE_ID_SEGMENT}$`),
+  new RegExp(`^/dashboard/clients-projects/${SAFE_ID_SEGMENT}/songs/${SAFE_ID_SEGMENT}$`),
+  new RegExp(`^/dashboard/clients-projects/clients/${SAFE_ID_SEGMENT}$`),
+  /^\/dashboard\/music$/,
+  new RegExp(`^/dashboard/music/(?!project$)${SAFE_ID_SEGMENT}$`),
+  new RegExp(`^/dashboard/music/project/${SAFE_ID_SEGMENT}$`),
+  /^\/dashboard\/onboarding$/,
+  /^\/dashboard\/payments$/,
+  new RegExp(`^/dashboard/payments/${SAFE_ID_SEGMENT}$`),
+  /^\/dashboard\/portfolio$/,
+  /^\/dashboard\/profile$/,
+  /^\/dashboard\/requests$/,
+  new RegExp(`^/dashboard/requests/${SAFE_ID_SEGMENT}$`),
+  /^\/dashboard\/settings$/,
+  /^\/dashboard\/store$/,
+] as const;
+
+const ARTIST_ROUTE_PATTERNS = [
+  /^\/artist$/,
+  /^\/artist\/music$/,
+  new RegExp(`^/artist/music/(?!song$|no-charge$)${SAFE_ID_SEGMENT}$`),
+  new RegExp(`^/artist/music/song/${SAFE_ID_SEGMENT}$`),
+  /^\/artist\/store$/,
+  /^\/artist\/settings$/,
+] as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasExactKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  return actual.length === wanted.length && actual.every((key, index) => key === wanted[index]);
+}
+
+function isBoundedString(value: unknown, maxLength: number, allowEmpty = false): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= maxLength &&
+    (allowEmpty || value.trim().length > 0)
+  );
+}
+
+function isSafeInteger(value: unknown, min = 0, max = Number.MAX_SAFE_INTEGER): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= min && Number(value) <= max;
+}
+
+function isFiniteNumber(value: unknown, min: number, max: number): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max;
+}
+
+function isRuntimeRole(value: unknown): value is RuntimeRole {
+  return value === "producer" || value === "artist";
+}
+
+function isRuntimeScope(value: unknown): value is RuntimeScope {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["userId", "role", "contextId", "route"]) &&
+    isBoundedString(value.userId, 512) &&
+    isRuntimeRole(value.role) &&
+    isBoundedString(value.contextId, 512) &&
+    isBoundedString(value.route, 1024) &&
+    normalizeRuntimeHref(value.route, value.role) === value.route
+  );
+}
+
+function matchesScope(left: RuntimeScope, right: RuntimeScope): boolean {
+  return (
+    left.userId === right.userId &&
+    left.role === right.role &&
+    left.contextId === right.contextId &&
+    left.route === right.route
+  );
+}
+
+function isProducerOverviewSafeView(value: unknown): value is ProducerOverviewSafeView {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["displayName", "activeProjects"]) &&
+    (value.displayName === null || isBoundedString(value.displayName, 80, true)) &&
+    isSafeInteger(value.activeProjects, 0, 1_000_000)
+  );
+}
+
+function isArtistStudio(value: unknown): value is ArtistHomeSafeView["studios"][number] {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["producerId", "producerName", "producerSlug"]) &&
+    isBoundedString(value.producerId, 128) &&
+    isBoundedString(value.producerName, 120) &&
+    isBoundedString(value.producerSlug, 80)
+  );
+}
+
+function isArtistHomeSafeView(value: unknown): value is ArtistHomeSafeView {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["firstName", "studios"]) &&
+    isBoundedString(value.firstName, 80) &&
+    Array.isArray(value.studios) &&
+    value.studios.length <= 100 &&
+    value.studios.every(isArtistStudio)
+  );
+}
+
+function isArtistStudioContextPointer(
+  value: unknown,
+): value is ArtistStudioContextPointer {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["studioId"]) &&
+    isBoundedString(value.studioId, 128)
+  );
+}
+
+function isProducerWorkspaceSafeView(value: unknown): value is ProducerWorkspaceSafeView {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["clientCount", "projectCount", "needsAttentionCount"]) &&
+    isSafeInteger(value.clientCount, 0, 1_000_000) &&
+    isSafeInteger(value.projectCount, 0, 1_000_000) &&
+    isSafeInteger(value.needsAttentionCount, 0, 1_000_000)
+  );
+}
+
+function isProducerMusicSafeView(value: unknown): value is ProducerMusicSafeView {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["projectCount", "songCount", "archivedSongCount"]) &&
+    isSafeInteger(value.projectCount, 0, 1_000_000) &&
+    isSafeInteger(value.songCount, 0, 1_000_000) &&
+    isSafeInteger(value.archivedSongCount, 0, 1_000_000)
+  );
+}
+
+function isProducerStoreSafeView(value: unknown): value is ProducerStoreSafeView {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["productCount", "liveProductCount"]) &&
+    isSafeInteger(value.productCount, 0, 1_000_000) &&
+    isSafeInteger(value.liveProductCount, 0, 1_000_000)
+  );
+}
+
+function isProducerPortfolioSafeView(value: unknown): value is ProducerPortfolioSafeView {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["publishedCount", "availableCount"]) &&
+    isSafeInteger(value.publishedCount, 0, 1_000_000) &&
+    isSafeInteger(value.availableCount, 0, 1_000_000)
+  );
+}
+
+function isArtistMusicSafeView(value: unknown): value is ArtistMusicSafeView {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, [
+      "mode",
+      "view",
+      "search",
+      "sort",
+      "archive",
+      "projectCount",
+      "songCount",
+    ]) &&
+    (value.mode === "projects" || value.mode === "songs") &&
+    (value.view === "grid" || value.view === "table") &&
+    isBoundedString(value.search, 120, true) &&
+    (value.sort === "recent" ||
+      value.sort === "title" ||
+      value.sort === "notes" ||
+      value.sort === "length") &&
+    (value.archive === "active" || value.archive === "archived") &&
+    isSafeInteger(value.projectCount, 0, 1_000_000) &&
+    isSafeInteger(value.songCount, 0, 1_000_000)
+  );
+}
+
+function isProducerDisplayNameDraft(value: unknown): value is ProducerDisplayNameDraft {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["displayName"]) &&
+    isBoundedString(value.displayName, 80, true)
+  );
+}
+
+function isProducerStorePaymentDraft(
+  value: unknown,
+): value is ProducerStoreProductDraft["draft"]["payment"] {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["full", "split50", "monthly", "monthlyInstallments"]) &&
+    typeof value.full === "boolean" &&
+    typeof value.split50 === "boolean" &&
+    typeof value.monthly === "boolean" &&
+    isSafeInteger(value.monthlyInstallments, 0, 100)
+  );
+}
+
+function isProducerStoreRoyaltyDraft(
+  value: unknown,
+): value is ProducerStoreProductDraft["draft"]["royalty"] {
+  const modes = ["none", "percentage", "agreement", null] as const;
+  const roles = ["composer", "lyricist", "arranger", "publisher", "other", ""] as const;
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, [
+      "masterMode",
+      "masterPercentage",
+      "compositionMode",
+      "compositionPercentage",
+      "compositionRole",
+      "collectingSociety",
+      "notes",
+    ]) &&
+    modes.includes(value.masterMode as (typeof modes)[number]) &&
+    isBoundedString(value.masterPercentage, 16, true) &&
+    modes.includes(value.compositionMode as (typeof modes)[number]) &&
+    isBoundedString(value.compositionPercentage, 16, true) &&
+    roles.includes(value.compositionRole as (typeof roles)[number]) &&
+    isBoundedString(value.collectingSociety, 200, true) &&
+    isBoundedString(value.notes, 4_000, true)
+  );
+}
+
+function isProducerStoreProductDraft(value: unknown): value is ProducerStoreProductDraft {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ["open", "mode", "productId", "currentStep", "draft"]) ||
+    value.open !== true ||
+    (value.mode !== "new" && value.mode !== "edit") ||
+    (value.productId !== null && !isBoundedString(value.productId, 128)) ||
+    (value.mode === "new" ? value.productId !== null : value.productId === null) ||
+    !["type", "details", "price", "payment", "delivery", "rights", "review"].includes(
+      String(value.currentStep),
+    ) ||
+    !isRecord(value.draft) ||
+    !hasExactKeys(value.draft, [
+      "_picked",
+      "_legacyAgreementLink",
+      "name",
+      "tagline",
+      "type",
+      "price",
+      "currency",
+      "sessions",
+      "unlimitedSessions",
+      "payment",
+      "includes",
+      "duration",
+      "revisions",
+      "unlimitedRevisions",
+      "agreementMode",
+      "agreementText",
+      "royalty",
+      "pricingModel",
+      "volumeTiers",
+    ])
+  ) {
+    return false;
+  }
+
+  const draft = value.draft;
+  const picked = ["production", "mix", "master", "blank", null] as const;
+  const types = ["production", "mix", "master", "consult"] as const;
+  const currencies = ["USD", "EUR", "GBP", "ILS"] as const;
+  return (
+    picked.includes(draft._picked as (typeof picked)[number]) &&
+    typeof draft._legacyAgreementLink === "boolean" &&
+    isBoundedString(draft.name, 200, true) &&
+    isBoundedString(draft.tagline, 160, true) &&
+    types.includes(draft.type as (typeof types)[number]) &&
+    isFiniteNumber(draft.price, 0, 100_000_000) &&
+    currencies.includes(draft.currency as (typeof currencies)[number]) &&
+    isSafeInteger(draft.sessions, 0, 10_000) &&
+    typeof draft.unlimitedSessions === "boolean" &&
+    isProducerStorePaymentDraft(draft.payment) &&
+    Array.isArray(draft.includes) &&
+    draft.includes.length <= 100 &&
+    draft.includes.every((item) => isBoundedString(item, 500, true)) &&
+    isBoundedString(draft.duration, 80, true) &&
+    isSafeInteger(draft.revisions, 0, 1_000) &&
+    typeof draft.unlimitedRevisions === "boolean" &&
+    (draft.agreementMode === "none" || draft.agreementMode === "text") &&
+    isBoundedString(draft.agreementText, 20_000, true) &&
+    isProducerStoreRoyaltyDraft(draft.royalty) &&
+    (draft.pricingModel === "flat" || draft.pricingModel === "per_song") &&
+    Array.isArray(draft.volumeTiers) &&
+    draft.volumeTiers.length <= 10 &&
+    draft.volumeTiers.every(
+      (tier) =>
+        isRecord(tier) &&
+        hasExactKeys(tier, ["minQty", "pricePerUnitCents"]) &&
+        isSafeInteger(tier.minQty, 0, 1_000) &&
+        isSafeInteger(tier.pricePerUnitCents, 0, 10_000_000_000),
+    )
+  );
+}
+
+function isRuntimeTextDraft(value: unknown): value is RuntimeTextDraft {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["resourceId", "body"]) &&
+    isBoundedString(value.resourceId, 128) &&
+    isBoundedString(value.body, 2000)
+  );
+}
+
+function isRuntimeFilter(value: unknown): value is RuntimeNavigationSnapshot["filters"][number] {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["key", "value"]) &&
+    isBoundedString(value.key, 40) &&
+    isBoundedString(value.value, 120, true)
+  );
+}
+
+function isRuntimeNavigationSnapshot(value: unknown): value is RuntimeNavigationSnapshot {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ["href", "scrollTop", "filters"]) ||
+    !isBoundedString(value.href, 1024) ||
+    !isSafeInteger(value.scrollTop, 0, 100_000_000) ||
+    !Array.isArray(value.filters) ||
+    value.filters.length > 30 ||
+    !value.filters.every(isRuntimeFilter)
+  ) {
+    return false;
+  }
+  return value.href === normalizeRuntimeHref(value.href, runtimeRoleForHref(value.href));
+}
+
+function isRuntimeNavigationIndex(value: unknown): value is RuntimeNavigationIndex {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["lastHref", "backStack", "recentRoutes"]) &&
+    isBoundedString(value.lastHref, 1024) &&
+    Array.isArray(value.backStack) &&
+    value.backStack.length <= RUNTIME_ROUTE_LIMIT &&
+    value.backStack.every((href) => isBoundedString(href, 1024)) &&
+    Array.isArray(value.recentRoutes) &&
+    value.recentRoutes.length <= RUNTIME_ROUTE_LIMIT &&
+    value.recentRoutes.every((href) => isBoundedString(href, 1024))
+  );
+}
+
+const SLOT_VALIDATORS: {
+  [Slot in RuntimeSlot]: (value: unknown) => value is RuntimePayloadBySlot[Slot];
+} = {
+  "producer.overview.safe-view": isProducerOverviewSafeView,
+  "producer.workspace.safe-view": isProducerWorkspaceSafeView,
+  "producer.music.safe-view": isProducerMusicSafeView,
+  "producer.store.safe-view": isProducerStoreSafeView,
+  "producer.portfolio.safe-view": isProducerPortfolioSafeView,
+  "artist.home.safe-view": isArtistHomeSafeView,
+  "artist.music.safe-view": isArtistMusicSafeView,
+  "artist.last-studio-context": isArtistStudioContextPointer,
+  "producer.settings.display-name-draft": isProducerDisplayNameDraft,
+  "producer.store.product-draft": isProducerStoreProductDraft,
+  "producer.song-comment-draft": isRuntimeTextDraft,
+  "artist.song-comment-draft": isRuntimeTextDraft,
+  "runtime.navigation.snapshot": isRuntimeNavigationSnapshot,
+  "runtime.navigation.index": isRuntimeNavigationIndex,
+};
+
+export function isRuntimeSlot(value: string): value is RuntimeSlot {
+  return Object.prototype.hasOwnProperty.call(SLOT_VALIDATORS, value);
+}
+
+function isLiveOnlyArtistRoute(pathname: string): boolean {
+  return LIVE_ONLY_ARTIST_ROUTE_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
+
+function isAllowlistedRuntimePathname(pathname: string, role: RuntimeRole): boolean {
+  const patterns = role === "producer" ? PRODUCER_ROUTE_PATTERNS : ARTIST_ROUTE_PATTERNS;
+  return patterns.some((pattern) => pattern.test(pathname));
+}
+
+function isEnumerated(value: string, allowed: readonly string[]): boolean {
+  return allowed.includes(value);
+}
+
+function isAllowedRuntimeQuery(
+  pathname: string,
+  role: RuntimeRole,
+  key: string,
+  value: string,
+): boolean {
+  if (key.length > 40 || value.length > 120) return false;
+
+  if (role === "artist") {
+    if (key === "studio") return value.trim().length > 0;
+    if (pathname !== "/artist/music") return false;
+    if (key === "mode") return isEnumerated(value, ["projects", "songs"]);
+    if (key === "view") return isEnumerated(value, ["grid", "table"]);
+    if (key === "search") return true;
+    if (key === "sort") return isEnumerated(value, ["recent", "title", "notes", "length"]);
+    if (key === "filter") return isEnumerated(value, ["active", "archived"]);
+    return false;
+  }
+
+  if (pathname === "/dashboard") {
+    return key === "view" && value === "all";
+  }
+  if (pathname === "/dashboard/calendar") {
+    return key === "tab" && isEnumerated(value, ["schedule", "sessions", "availability"]);
+  }
+  if (pathname === "/dashboard/clients-projects") {
+    if (key === "tab") return isEnumerated(value, ["clients", "projects"]);
+    if (key === "filter") return isEnumerated(value, ["all", "urgent", "active", "archived"]);
+    if (key === "sort") {
+      return isEnumerated(value, [
+        "custom",
+        "recent",
+        "deadline",
+        "balance",
+        "progress",
+        "joined",
+        "name",
+      ]);
+    }
+    if (key === "view") return isEnumerated(value, ["cards", "table"]);
+    return key === "search";
+  }
+  if (pathname === "/dashboard/music") {
+    if (key === "mode") return isEnumerated(value, ["projects", "songs"]);
+    if (key === "view") return isEnumerated(value, ["grid", "table"]);
+    if (key === "search") return true;
+    if (key === "sort") return isEnumerated(value, ["recent", "title", "notes", "length"]);
+    return key === "filter" && isEnumerated(value, ["active", "archived"]);
+  }
+  if (pathname === "/dashboard/settings") {
+    return key === "section" && isEnumerated(value, ["profile", "plan", "notif", "int", "region"]);
+  }
+  if (pathname === "/dashboard/store") {
+    if (key === "filter") return isEnumerated(value, ["all", "live", "hidden"]);
+    return key === "search";
+  }
+  return false;
+}
+
+function runtimeRoleForHref(href: string): RuntimeRole {
+  return href === "/artist" || href.startsWith("/artist?") || href.startsWith("/artist/")
+    ? "artist"
+    : "producer";
+}
+
+/**
+ * Returns a canonical, same-origin, role-owned href with only explicitly
+ * approved UI filters. Transactional/auth routes are rejected. Music route
+ * metadata may be restored, but no audio or signed-delivery payload slot is
+ * allowlisted.
+ */
+export function normalizeRuntimeHref(href: string, role: RuntimeRole): string | null {
+  if (!href.startsWith("/") || href.startsWith("//") || href.length > 1024) return null;
+
+  let url: URL;
+  try {
+    url = new URL(href, "https://runtime.skitza.invalid");
+  } catch {
+    return null;
+  }
+
+  if (role === "artist" && isLiveOnlyArtistRoute(url.pathname)) return null;
+  if (!isAllowlistedRuntimePathname(url.pathname, role)) return null;
+
+  const safeSearch = new URLSearchParams();
+  for (const [key, value] of url.searchParams) {
+    if (isAllowedRuntimeQuery(url.pathname, role, key, value) && safeSearch.size < 30) {
+      safeSearch.append(key, value);
+    }
+  }
+  safeSearch.sort();
+
+  const query = safeSearch.toString();
+  return `${url.pathname}${query ? `?${query}` : ""}`;
+}
+
+export function runtimeScope(
+  userId: string,
+  role: RuntimeRole,
+  contextId: string,
+  href: string,
+): RuntimeScope | null {
+  const route = normalizeRuntimeHref(href, role);
+  if (!route) return null;
+  const scope = { userId, role, contextId, route };
+  return isRuntimeScope(scope) ? scope : null;
+}
+
+function encodeKeyPart(value: string): string {
+  return encodeURIComponent(value);
+}
+
+function userStoragePrefix(userId: string): string {
+  return `${KEY_NAMESPACE}:user=${encodeKeyPart(userId)}:`;
+}
+
+export function buildRuntimeStorageKey(scope: RuntimeScope, slot: RuntimeSlot): string {
+  if (!isRuntimeScope(scope) || !isRuntimeSlot(slot) || !isSlotAllowedForScope(scope, slot)) {
+    throw new Error("Invalid runtime-state scope or slot.");
+  }
+  return [
+    userStoragePrefix(scope.userId).slice(0, -1),
+    `schema=${String(RUNTIME_STATE_SCHEMA_VERSION)}`,
+    `role=${scope.role}`,
+    `context=${encodeKeyPart(scope.contextId)}`,
+    `route=${encodeKeyPart(scope.route)}`,
+    `slot=${encodeKeyPart(slot)}`,
+  ].join(":");
+}
+
+function pathnameForScope(scope: RuntimeScope): string {
+  return new URL(scope.route, "https://runtime.skitza.invalid").pathname;
+}
+
+function isSongCommentDraftRoute(pathname: string, role: RuntimeRole): boolean {
+  const pattern =
+    role === "producer" ? /^\/dashboard\/music\/[^/]+$/ : /^\/artist\/music\/song\/[^/]+$/;
+  return pattern.test(pathname);
+}
+
+function isSlotAllowedForScope(scope: RuntimeScope, slot: RuntimeSlot): boolean {
+  const pathname = pathnameForScope(scope);
+  switch (slot) {
+    case "producer.overview.safe-view":
+      return scope.role === "producer" && pathname === "/dashboard";
+    case "producer.workspace.safe-view":
+      return scope.role === "producer" && pathname === "/dashboard/clients-projects";
+    case "producer.music.safe-view":
+      return scope.role === "producer" && pathname === "/dashboard/music";
+    case "producer.store.safe-view":
+      return scope.role === "producer" && pathname === "/dashboard/store";
+    case "producer.portfolio.safe-view":
+      return scope.role === "producer" && pathname === "/dashboard/portfolio";
+    case "artist.home.safe-view":
+      return scope.role === "artist" && pathname === "/artist";
+    case "artist.music.safe-view":
+      return scope.role === "artist" && pathname === "/artist/music";
+    case "artist.last-studio-context":
+      return (
+        scope.role === "artist" &&
+        scope.contextId === ARTIST_CONTEXT_POINTER_CONTEXT_ID &&
+        scope.route === "/artist"
+      );
+    case "producer.settings.display-name-draft":
+      return scope.role === "producer" && scope.route === "/dashboard/settings?section=profile";
+    case "producer.store.product-draft":
+      return scope.role === "producer" && scope.route === "/dashboard/store";
+    case "producer.song-comment-draft":
+      return scope.role === "producer" && isSongCommentDraftRoute(pathname, scope.role);
+    case "artist.song-comment-draft":
+      return scope.role === "artist" && isSongCommentDraftRoute(pathname, scope.role);
+    case "runtime.navigation.snapshot":
+      return true;
+    case "runtime.navigation.index":
+      return scope.route === (scope.role === "producer" ? "/dashboard" : "/artist");
+  }
+}
+
+function navigationPayloadMatchesScope(
+  scope: RuntimeScope,
+  slot: RuntimeSlot,
+  payload: unknown,
+): boolean {
+  if (slot === "runtime.navigation.snapshot") {
+    if (!isRuntimeNavigationSnapshot(payload) || payload.href !== scope.route) {
+      return false;
+    }
+    const expectedFilters = Array.from(
+      new URL(scope.route, "https://runtime.skitza.invalid").searchParams,
+      ([key, value]) => ({ key, value }),
+    );
+    return JSON.stringify(payload.filters) === JSON.stringify(expectedFilters);
+  }
+  if (slot === "runtime.navigation.index") {
+    if (!isRuntimeNavigationIndex(payload)) return false;
+    return [payload.lastHref, ...payload.backStack, ...payload.recentRoutes].every(
+      (href) => normalizeRuntimeHref(href, scope.role) === href,
+    );
+  }
+  return true;
+}
+
+function isRuntimeEnvelope<Slot extends RuntimeSlot>(
+  value: unknown,
+  scope: RuntimeScope,
+  slot: Slot,
+): value is RuntimeEnvelope<RuntimePayloadBySlot[Slot]> {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ["schemaVersion", "scope", "slot", "updatedAt", "payload"]) ||
+    value.schemaVersion !== RUNTIME_STATE_SCHEMA_VERSION ||
+    value.slot !== slot ||
+    !isRuntimeScope(value.scope) ||
+    !matchesScope(value.scope, scope) ||
+    !isSafeInteger(value.updatedAt, 0) ||
+    !SLOT_VALIDATORS[slot](value.payload) ||
+    !isSlotAllowedForScope(scope, slot) ||
+    !navigationPayloadMatchesScope(scope, slot, value.payload)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function safelyRemoveStorageItem(storage: StorageLike, key: string): void {
+  try {
+    storage.removeItem(key);
+  } catch {
+    // Runtime persistence is progressive enhancement in restricted storage.
+  }
+}
+
+export function readRuntimeState<Slot extends RuntimeSlot>(
+  storage: StorageLike,
+  scope: RuntimeScope,
+  slot: Slot,
+  now = Date.now(),
+): RuntimePayloadBySlot[Slot] | null {
+  let key: string;
+  try {
+    key = buildRuntimeStorageKey(scope, slot);
+  } catch {
+    return null;
+  }
+
+  let raw: string | null;
+  try {
+    raw = storage.getItem(key);
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRuntimeEnvelope(parsed, scope, slot)) {
+      safelyRemoveStorageItem(storage, key);
+      return null;
+    }
+    if (now - parsed.updatedAt > SLOT_MAX_AGE_MS[slot] || parsed.updatedAt > now + 60_000) {
+      safelyRemoveStorageItem(storage, key);
+      return null;
+    }
+    return parsed.payload;
+  } catch {
+    safelyRemoveStorageItem(storage, key);
+    return null;
+  }
+}
+
+export function writeRuntimeState<Slot extends RuntimeSlot>(
+  storage: StorageLike,
+  scope: RuntimeScope,
+  slot: Slot,
+  payload: RuntimePayloadBySlot[Slot],
+  now = Date.now(),
+): boolean {
+  if (
+    !isRuntimeScope(scope) ||
+    !SLOT_VALIDATORS[slot](payload) ||
+    !isSlotAllowedForScope(scope, slot) ||
+    !navigationPayloadMatchesScope(scope, slot, payload)
+  ) {
+    return false;
+  }
+
+  try {
+    const envelope: RuntimeEnvelope<RuntimePayloadBySlot[Slot]> = {
+      schemaVersion: RUNTIME_STATE_SCHEMA_VERSION,
+      scope,
+      slot,
+      updatedAt: now,
+      payload,
+    };
+    storage.setItem(buildRuntimeStorageKey(scope, slot), JSON.stringify(envelope));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function removeRuntimeState(
+  storage: StorageLike,
+  scope: RuntimeScope,
+  slot: RuntimeSlot,
+): void {
+  try {
+    safelyRemoveStorageItem(storage, buildRuntimeStorageKey(scope, slot));
+  } catch {
+    // Invalid scopes never get a storage key, so there is nothing to remove.
+  }
+}
+
+export function pruneRuntimeStateSlot(
+  storage: StorageLike,
+  identity: Pick<RuntimeScope, "userId" | "role" | "contextId">,
+  slot: RuntimeSlot,
+  keepScopes: RuntimeScope[],
+): number {
+  const identityPrefix = [
+    userStoragePrefix(identity.userId).slice(0, -1),
+    `schema=${String(RUNTIME_STATE_SCHEMA_VERSION)}`,
+    `role=${identity.role}`,
+    `context=${encodeKeyPart(identity.contextId)}`,
+  ].join(":");
+  const slotSuffix = `:slot=${encodeKeyPart(slot)}`;
+  const keepKeys = new Set<string>();
+  for (const scope of keepScopes) {
+    try {
+      keepKeys.add(buildRuntimeStorageKey(scope, slot));
+    } catch {
+      // Invalid keep scopes cannot identify persisted state.
+    }
+  }
+
+  const removeKeys: string[] = [];
+  try {
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (key?.startsWith(`${identityPrefix}:`) && key.endsWith(slotSuffix) && !keepKeys.has(key)) {
+        removeKeys.push(key);
+      }
+    }
+  } catch {
+    return 0;
+  }
+  for (const key of removeKeys) safelyRemoveStorageItem(storage, key);
+  return removeKeys.length;
+}
+
+const SAFE_VIEW_SLOTS: readonly SafeViewRuntimeSlot[] = [
+  "producer.overview.safe-view",
+  "producer.workspace.safe-view",
+  "producer.music.safe-view",
+  "producer.store.safe-view",
+  "producer.portfolio.safe-view",
+  "artist.home.safe-view",
+  "artist.music.safe-view",
+];
+
+type SafeViewRuntimeSlot =
+  | "producer.overview.safe-view"
+  | "producer.workspace.safe-view"
+  | "producer.music.safe-view"
+  | "producer.store.safe-view"
+  | "producer.portfolio.safe-view"
+  | "artist.home.safe-view"
+  | "artist.music.safe-view";
+
+/**
+ * Safe views are one record per route state. Keep the newest bounded set for
+ * one authorized role/context, independent of the navigation-snapshot slot.
+ */
+export function pruneRuntimeSafeViews(
+  storage: StorageLike,
+  identity: Pick<RuntimeScope, "userId" | "role" | "contextId">,
+  limit = RUNTIME_ROUTE_LIMIT,
+): number {
+  const prefix = [
+    userStoragePrefix(identity.userId).slice(0, -1),
+    `schema=${String(RUNTIME_STATE_SCHEMA_VERSION)}`,
+    `role=${identity.role}`,
+    `context=${encodeKeyPart(identity.contextId)}`,
+  ].join(":");
+  const suffixes = SAFE_VIEW_SLOTS.map((slot) => `:slot=${encodeKeyPart(slot)}`);
+  const entries: Array<{ key: string; updatedAt: number }> = [];
+
+  try {
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (!key?.startsWith(`${prefix}:`) || !suffixes.some((suffix) => key.endsWith(suffix))) {
+        continue;
+      }
+      const raw = storage.getItem(key);
+      if (!raw) continue;
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        const updatedAt =
+          isRecord(parsed) && isSafeInteger(parsed.updatedAt, 0) ? parsed.updatedAt : -1;
+        entries.push({ key, updatedAt });
+      } catch {
+        entries.push({ key, updatedAt: -1 });
+      }
+    }
+  } catch {
+    return 0;
+  }
+
+  entries.sort((left, right) => right.updatedAt - left.updatedAt);
+  const removeKeys = entries.slice(Math.max(0, limit)).map((entry) => entry.key);
+  for (const key of removeKeys) safelyRemoveStorageItem(storage, key);
+  return removeKeys.length;
+}
+
+/**
+ * Clears every schema version owned by one Clerk user synchronously. Keys for
+ * other users remain untouched.
+ */
+export function clearRuntimeStateForUser(storage: StorageLike, userId: string): number {
+  const prefix = userStoragePrefix(userId);
+  const keys: string[] = [];
+  try {
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (key?.startsWith(prefix)) keys.push(key);
+    }
+  } catch {
+    return 0;
+  }
+  for (const key of keys) safelyRemoveStorageItem(storage, key);
+  return keys.length;
+}
+
+export function getBrowserRuntimeStorage(): StorageLike | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const storage = window.localStorage;
+    void storage.length;
+    return storage;
+  } catch {
+    return null;
+  }
+}

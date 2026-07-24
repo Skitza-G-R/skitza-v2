@@ -86,6 +86,7 @@ import {
   VersionApprovalDomainError,
 } from "~/server/domain/version-approval/service";
 import { SITE_URL, sendProducerRepliedToCommentEmail } from "~/server/email/send";
+import { deliverPushToProjectArtist, deliverPushToVersionArtist } from "~/server/push/delivery";
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -549,8 +550,14 @@ export const projectRouter = router({
   // Project lifecycle commands remain thin; the domain service owns
   // transitions, graph locks, commercial side effects, and idempotency.
   update: producerProcedure.input(UpdateProjectInput).mutation(async ({ ctx, input }) => {
+    const [before] = await ctx.db
+      .select({ workflowStage: projects.workflowStage })
+      .from(projects)
+      .where(and(eq(projects.id, input.id), eq(projects.producerId, ctx.producerId)))
+      .limit(1);
+    let result;
     try {
-      return await editProject(projectLifecycleRepository(ctx.db), {
+      result = await editProject(projectLifecycleRepository(ctx.db), {
         producerId: ctx.producerId,
         projectId: input.id,
         ...(input.title === undefined ? {} : { title: input.title }),
@@ -563,13 +570,31 @@ export const projectRouter = router({
     } catch (error) {
       mapProjectLifecycleDomainError(error);
     }
+    if (
+      result.changed &&
+      input.workflowStage !== undefined &&
+      before?.workflowStage !== result.project.workflowStage
+    ) {
+      after(async () => {
+        try {
+          await deliverPushToProjectArtist(ctx.db, result.project.id, {
+            category: "project_status",
+            url: `/artist/music/${result.project.id}`,
+          });
+        } catch {
+          // Push is best effort and must not expose delivery details.
+        }
+      });
+    }
+    return result;
   }),
 
   complete: producerProcedure
     .input(z.object({ id: z.string().uuid() }).strict())
     .mutation(async ({ ctx, input }) => {
+      let result;
       try {
-        return await completeProject(projectLifecycleRepository(ctx.db), {
+        result = await completeProject(projectLifecycleRepository(ctx.db), {
           producerId: ctx.producerId,
           projectId: input.id,
           completedAt: new Date(),
@@ -577,14 +602,28 @@ export const projectRouter = router({
       } catch (error) {
         mapProjectLifecycleDomainError(error);
       }
+      if (result.changed) {
+        after(async () => {
+          try {
+            await deliverPushToProjectArtist(ctx.db, result.project.id, {
+              category: "project_status",
+              url: `/artist/music/${result.project.id}`,
+            });
+          } catch {
+            // Push is best effort and must not expose delivery details.
+          }
+        });
+      }
+      return result;
     }),
 
   cancel: producerProcedure
     .input(z.object({ id: z.string().uuid() }).strict())
     .mutation(async ({ ctx, input }) => {
       if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED" });
+      let result;
       try {
-        return await cancelProjectLifecycle(projectLifecycleRepository(ctx.db), {
+        result = await cancelProjectLifecycle(projectLifecycleRepository(ctx.db), {
           producerId: ctx.producerId,
           projectId: input.id,
           actorId: ctx.userId,
@@ -594,13 +633,27 @@ export const projectRouter = router({
       } catch (error) {
         mapProjectLifecycleDomainError(error);
       }
+      if (result.changed) {
+        after(async () => {
+          try {
+            await deliverPushToProjectArtist(ctx.db, result.project.id, {
+              category: "project_status",
+              url: `/artist/music/${result.project.id}`,
+            });
+          } catch {
+            // Push is best effort and must not expose delivery details.
+          }
+        });
+      }
+      return result;
     }),
 
   reopen: producerProcedure
     .input(z.object({ id: z.string().uuid() }).strict())
     .mutation(async ({ ctx, input }) => {
+      let result;
       try {
-        return await reopenProject(projectLifecycleRepository(ctx.db), {
+        result = await reopenProject(projectLifecycleRepository(ctx.db), {
           producerId: ctx.producerId,
           projectId: input.id,
           reopenedAt: new Date(),
@@ -608,6 +661,19 @@ export const projectRouter = router({
       } catch (error) {
         mapProjectLifecycleDomainError(error);
       }
+      if (result.changed) {
+        after(async () => {
+          try {
+            await deliverPushToProjectArtist(ctx.db, result.project.id, {
+              category: "project_status",
+              url: `/artist/music/${result.project.id}`,
+            });
+          } catch {
+            // Push is best effort and must not expose delivery details.
+          }
+        });
+      }
+      return result;
     }),
 
   cancelPurchase: producerProcedure
@@ -622,8 +688,9 @@ export const projectRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED" });
+      let result;
       try {
-        return await cancelProjectPurchase(projectLifecycleRepository(ctx.db), {
+        result = await cancelProjectPurchase(projectLifecycleRepository(ctx.db), {
           producerId: ctx.producerId,
           projectId: input.projectId,
           purchaseId: input.purchaseId,
@@ -634,6 +701,19 @@ export const projectRouter = router({
       } catch (error) {
         mapProjectLifecycleDomainError(error);
       }
+      if (result.changed) {
+        after(async () => {
+          try {
+            await deliverPushToProjectArtist(ctx.db, result.project.id, {
+              category: "purchase_status",
+              url: `/artist/payments/${result.purchase.id}`,
+            });
+          } catch {
+            // Push is best effort and must not expose delivery details.
+          }
+        });
+      }
+      return result;
     }),
 
   deleteEmptyDraft: producerProcedure
@@ -1191,6 +1271,18 @@ export const projectRouter = router({
           ready: input.ready,
           changedAt: new Date(),
         });
+        if (result.changed && input.ready) {
+          after(async () => {
+            try {
+              await deliverPushToVersionArtist(ctx.db, input.versionId, {
+                category: "song_status",
+                url: `/artist/music/song/${input.versionId}`,
+              });
+            } catch {
+              // Push is best effort and must not expose delivery details.
+            }
+          });
+        }
         return { ok: true as const, markedFinalAt: result.markedFinalAt, changed: result.changed };
       } catch (error) {
         mapVersionApprovalDomainError(error);
@@ -1346,6 +1438,16 @@ export const projectRouter = router({
           });
         } catch (err) {
           console.error("[email] producer-replied-to-comment failed", err);
+        }
+      });
+      after(async () => {
+        try {
+          await deliverPushToVersionArtist(ctx.db, input.versionId, {
+            category: "comment",
+            url: `/artist/music/song/${input.versionId}`,
+          });
+        } catch {
+          // Push is best effort and must not expose delivery details.
         }
       });
 

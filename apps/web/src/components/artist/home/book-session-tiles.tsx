@@ -1,7 +1,9 @@
-import Link from "next/link";
+"use client";
 
+import { OnlineRequiredLink } from "~/components/runtime-state/online-required-link";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 
+import { useArtistHomeRuntime } from "./artist-home-runtime";
 import { ProducerArt } from "./producer-art";
 
 export type BookSessionTilesProps = {
@@ -14,6 +16,9 @@ export type BookSessionTilesProps = {
 };
 
 export function BookSessionTiles({ studios, activeStudioId }: BookSessionTilesProps) {
+  const runtime = useArtistHomeRuntime();
+  const restoredStudios = runtime?.view.studios ?? studios;
+
   return (
     <section aria-labelledby="book-session-heading">
       <header className="flex items-baseline justify-between border-b border-[rgb(var(--border-subtle))] pb-2">
@@ -29,31 +34,33 @@ export function BookSessionTiles({ studios, activeStudioId }: BookSessionTilesPr
             className="text-[10.5px] tracking-[0.04em] text-[rgb(var(--fg-muted))] uppercase"
             style={{ fontFamily: "var(--font-jetbrains-mono)" }}
           >
-            {studios.length} IN ROSTER
+            {restoredStudios.length} IN ROSTER
           </span>
         </div>
-        <Link
+        <OnlineRequiredLink
           href={withArtistStudio("/artist/book", activeStudioId)}
           className="text-[12px] font-medium text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-default))]"
+          offlineMessage="Reconnect to browse booking times."
         >
           Browse all →
-        </Link>
+        </OnlineRequiredLink>
       </header>
-      {studios.length === 0 ? (
+      {restoredStudios.length === 0 ? (
         <EmptyState />
       ) : (
         <ul className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
-          {studios.map((s) => (
+          {restoredStudios.map((s) => (
             <li key={s.producerId}>
-              <Link
+              <OnlineRequiredLink
                 href={withArtistStudio("/artist/book", s.producerId)}
                 className="flex items-center gap-2.5 rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-2 transition-colors hover:bg-[rgb(var(--bg-background))]"
+                offlineMessage="Reconnect to book this studio."
               >
                 <ProducerArt producerName={s.producerName} size={44} initialsFontSize={14} />
                 <span className="truncate text-[12.5px] font-semibold text-[rgb(var(--fg-default))]">
                   {s.producerName}
                 </span>
-              </Link>
+              </OnlineRequiredLink>
             </li>
           ))}
         </ul>
@@ -64,11 +71,12 @@ export function BookSessionTiles({ studios, activeStudioId }: BookSessionTilesPr
 
 function EmptyState() {
   return (
-    <Link
+    <OnlineRequiredLink
       href="/artist/book"
       className="mt-3 flex items-center justify-center rounded-[10px] border border-dashed border-[rgb(var(--border-subtle))] px-4 py-6 text-[13px] font-semibold text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-background))]"
+      offlineMessage="Reconnect to find a studio."
     >
       Find a studio →
-    </Link>
+    </OnlineRequiredLink>
   );
 }

@@ -3,12 +3,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import {
-  expandHrefForTrack,
-  fmtTime,
-  pickDurationMs,
-  PLAYER_EVENTS,
-} from "./persistent-player";
+import { expandHrefForTrack, fmtTime, pickDurationMs, PLAYER_EVENTS } from "./persistent-player";
 
 // Source-grep helper — reads persistent-player.tsx so we can pin the
 // floating-dock visual contract (dark sidebar background, rounded
@@ -104,23 +99,19 @@ const baseTrack = {
 
 describe("expandHrefForTrack — link to L3 song page", () => {
   it("on a producer dashboard route → /dashboard/music/<trackId>", () => {
-    expect(expandHrefForTrack(baseTrack, "/dashboard/music"))
-      .toBe("/dashboard/music/v-42");
+    expect(expandHrefForTrack(baseTrack, "/dashboard/music")).toBe("/dashboard/music/v-42");
   });
 
   it("on an artist route → /artist/music/song/<trackId>", () => {
-    expect(expandHrefForTrack(baseTrack, "/artist/music"))
-      .toBe("/artist/music/song/v-42");
+    expect(expandHrefForTrack(baseTrack, "/artist/music")).toBe("/artist/music/song/v-42");
   });
 
   it("on a non-music artist surface (e.g. /artist/book) → still routes to artist L3", () => {
-    expect(expandHrefForTrack(baseTrack, "/artist/book"))
-      .toBe("/artist/music/song/v-42");
+    expect(expandHrefForTrack(baseTrack, "/artist/book")).toBe("/artist/music/song/v-42");
   });
 
   it("null pathname → producer URL (historical default for SSR or pre-mount)", () => {
-    expect(expandHrefForTrack(baseTrack, null))
-      .toBe("/dashboard/music/v-42");
+    expect(expandHrefForTrack(baseTrack, null)).toBe("/dashboard/music/v-42");
   });
 });
 
@@ -179,7 +170,9 @@ describe("PersistentPlayer source — close button (the user complained icons we
     // The mockup screenshot showed an empty circle because the icon
     // font failed to load. We use inline SVG to dodge that class of
     // bug. Pin: the close button's <svg> contains the X path lines.
-    expect(playerSrc).toMatch(/CloseIcon|<svg[^>]*>[\s\S]*<line[^>]*x1="4"[^>]*y1="4"[^>]*x2="12"[^>]*y2="12"/);
+    expect(playerSrc).toMatch(
+      /CloseIcon|<svg[^>]*>[\s\S]*<line[^>]*x1="4"[^>]*y1="4"[^>]*x2="12"[^>]*y2="12"/,
+    );
   });
 });
 
@@ -210,6 +203,24 @@ describe("PersistentPlayer source — expand + skip controls", () => {
   it("renders Skip-back / Skip-forward 5% controls with aria-labels", () => {
     expect(playerSrc).toContain('aria-label="Skip back 5%"');
     expect(playerSrc).toContain('aria-label="Skip forward 5%"');
+  });
+
+  it("keeps every compact dock transport target at least 44px", () => {
+    const compactDockSrc = playerSrc.slice(
+      playerSrc.indexOf("function DesktopDock"),
+      playerSrc.indexOf("function MobileFullPlayer"),
+    );
+
+    expect(compactDockSrc).not.toMatch(/\bh-[89]\s+w-[89]\b/);
+    expect(compactDockSrc).toMatch(
+      /aria-label="Skip back 5%"[\s\S]{0,220}className="[^"]*min-h-11[^"]*min-w-11/,
+    );
+    expect(compactDockSrc).toMatch(
+      /aria-label="Skip forward 5%"[\s\S]{0,220}className="[^"]*min-h-11[^"]*min-w-11/,
+    );
+    expect(
+      compactDockSrc.match(/aria-label="Close player"[\s\S]{0,240}className="[^"]*h-11[^"]*w-11/g),
+    ).toHaveLength(2);
   });
 });
 
@@ -286,6 +297,18 @@ describe("PersistentPlayer source — dock progress visual is a mini waveform, n
     // functional regression. The container needs `cursor-pointer` so
     // the click affordance stays discoverable.
     expect(playerSrc).toMatch(/MiniWaveform[\s\S]*?onClick/);
+  });
+
+  it("keeps a 44px desktop slider target around the compact visual rail", () => {
+    const miniWaveformSrc = playerSrc.slice(
+      playerSrc.indexOf("function MiniWaveform"),
+      playerSrc.indexOf("// ─── Time formatter"),
+    );
+
+    expect(miniWaveformSrc).toContain('tall ? "h-12" : "h-11"');
+    expect(miniWaveformSrc).toContain(
+      'tall ? "inset-0" : "inset-x-0 top-1/2 h-6 -translate-y-1/2"',
+    );
   });
 });
 

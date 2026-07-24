@@ -139,7 +139,7 @@ describe("WorkspaceListView source — compact clients + configurable projects",
 
   it("wires the Clients Joined header to newest-joined-first client sorting", () => {
     expect(SRC).toMatch(/sort\s*===\s*["']joined["'][\s\S]{0,120}compareClientsByJoined/);
-    expect(SRC).toMatch(/<ClientsTableHeader\s+sort=\{sort\}\s+onSortChange=\{setSort\}/);
+    expect(SRC).toMatch(/<ClientsTableHeader\s+sort=\{sort\}\s+onSortChange=\{updateSort\}/);
   });
 
   it("supports both card and table layouts for Projects", () => {
@@ -231,7 +231,16 @@ describe("WorkspaceListView source — compact clients + configurable projects",
     // Phase 1 G7 — the tab default is now conditional on the
     // initialNewProjectOpen prop. The default-when-not-set is still
     // "clients", but the test allows the conditional shape.
-    expect(SRC).toMatch(/initialNewProjectOpen[\s\S]{0,200}["']clients["']/);
+    expect(SRC).toMatch(
+      /initialNewProjectOpen && !searchParams\.has\(["']tab["']\)[\s\S]{0,60}\? ["']projects["']\s*: urlState\.tab/,
+    );
+  });
+
+  it("restores bounded list state from the URL without persisting client or project data", () => {
+    expect(SRC).toContain("parseWorkspaceUrlState");
+    expect(SRC).toContain("window.history.replaceState");
+    expect(SRC).toMatch(/params\.get\("search"\)[\s\S]{0,80}\.slice\(0, 120\)/);
+    expect(SRC).not.toMatch(/localStorage|sessionStorage/);
   });
 
   it("renders the Clients tab button before the Projects tab button", () => {

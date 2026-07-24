@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { type RefObject, useTransition } from "react";
 
 import { deleteEmptyDraftProjectAction } from "~/app/(producer)/dashboard/clients-projects/actions";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
 
 import type { ProjectActionProject } from "./project-action-types";
@@ -27,20 +28,29 @@ export function DeleteEmptyProjectDialog({
 }: DeleteEmptyProjectDialogProps) {
   const router = useRouter();
   const { toast } = useToast();
+  const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
 
   const handleDelete = () => {
+    if (!online) {
+      toast("Reconnect to delete this project.", "error");
+      return;
+    }
     startTransition(async () => {
-      const result = await deleteEmptyDraftProjectAction({ id: project.id });
-      if (!result.ok) {
-        toast(result.error, "error");
-        return;
-      }
+      try {
+        const result = await deleteEmptyDraftProjectAction({ id: project.id });
+        if (!result.ok) {
+          toast(result.error, "error");
+          return;
+        }
 
-      toast(`${project.title} permanently deleted`, "success");
-      onDeleted?.(project.id);
-      router.refresh();
-      onClose();
+        toast(`${project.title} permanently deleted`, "success");
+        onDeleted?.(project.id);
+        router.refresh();
+        onClose();
+      } catch {
+        toast("Could not delete this project. Try again.", "error");
+      }
     });
   };
 

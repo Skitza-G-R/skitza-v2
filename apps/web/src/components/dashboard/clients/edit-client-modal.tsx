@@ -13,6 +13,7 @@ import {
 } from "react";
 
 import { useToast } from "~/components/ui/toast";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import {
   ValidationHint,
   validateDisplayName,
@@ -62,6 +63,7 @@ export function EditClientModal({
 }: EditClientModalProps) {
   const { toast } = useToast();
   const router = useRouter();
+  const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
 
   const [name, setName] = useState(client.name);
@@ -123,6 +125,10 @@ export function EditClientModal({
       if (tagError) setMoreOpen(true);
       return;
     }
+    if (!online) {
+      toast("Reconnect to update this client.", "error");
+      return;
+    }
     startTransition(async () => {
       // Only send fields that actually changed. Avoids hitting the
       // server with no-op patches AND avoids touching emailHash when
@@ -160,21 +166,25 @@ export function EditClientModal({
         onClose();
         return;
       }
-      const res = await updateClientAction(payload);
-      if (!res.ok) {
-        if (res.error.toLowerCase().includes("client with that email already exists")) {
-          setServerEmailError("A client with that email already exists.");
-          setEmailTouched(true);
-          emailRef.current?.focus();
+      try {
+        const res = await updateClientAction(payload);
+        if (!res.ok) {
+          if (res.error.toLowerCase().includes("client with that email already exists")) {
+            setServerEmailError("A client with that email already exists.");
+            setEmailTouched(true);
+            emailRef.current?.focus();
+            return;
+          }
+          toast(res.error, "error");
           return;
         }
-        toast(res.error, "error");
-        return;
+        toast("Client updated", "success");
+        onSaved?.();
+        router.refresh();
+        onClose();
+      } catch {
+        toast("Could not update this client. Please try again.", "error");
       }
-      toast("Client updated", "success");
-      onSaved?.();
-      router.refresh();
-      onClose();
     });
   };
 

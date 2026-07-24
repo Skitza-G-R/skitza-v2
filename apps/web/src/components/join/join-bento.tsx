@@ -26,6 +26,7 @@ import {
   useNowPlaying,
   type PlayerTrack,
 } from "~/components/audio/persistent-player";
+import { usePublicOnline } from "~/components/public/public-connectivity";
 
 import {
   formatGenres,
@@ -83,6 +84,7 @@ export function JoinBento({
   samples,
   lockedCount,
 }: JoinBentoProps) {
+  const online = usePublicOnline();
   const name = producer.displayName ?? "Producer";
   const initials = name
     .split(/\s+/)
@@ -157,7 +159,7 @@ export function JoinBento({
                 target="_blank"
                 rel="noopener noreferrer"
                 className={[
-                  "inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] px-3 py-1.5",
+                  "sk-press inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] px-3 py-1.5",
                   "ring-1 ring-[rgb(var(--fg-primary)/0.12)]",
                   "bg-[rgb(var(--fg-primary)/0.025)]",
                   "text-[0.72rem] font-semibold text-[rgb(var(--fg-primary))]",
@@ -180,7 +182,7 @@ export function JoinBento({
       <div className="reveal-up-delay-3 mt-5 flex flex-col items-center gap-2">
         <Link
           href={`/sign-up/join/${encodeURIComponent(slug)}`}
-          className="group inline-flex min-h-11 items-center gap-3 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-primary))] py-1.5 pl-5 pr-1.5 text-sm font-bold text-[rgb(var(--bg-base))] transition-transform duration-500 hover:-translate-y-[1px] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))]"
+          className="group sk-press inline-flex min-h-11 items-center gap-3 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-primary))] py-1.5 pl-5 pr-1.5 text-sm font-bold text-[rgb(var(--bg-base))] transition-transform duration-500 hover:-translate-y-[1px] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))] motion-reduce:transform-none motion-reduce:transition-none"
           style={{ transitionTimingFunction: EASE_LINEAR }}
         >
           Book a session
@@ -203,6 +205,7 @@ export function JoinBento({
           samples={samples}
           lockedCount={lockedCount}
           slug={slug}
+          online={online}
         />
       </div>
 
@@ -283,6 +286,7 @@ interface SamplesCardProps {
   samples: ReadonlyArray<PublicSample>;
   lockedCount: number;
   slug: string;
+  online: boolean;
 }
 
 function SamplesCard({
@@ -290,6 +294,7 @@ function SamplesCard({
   samples,
   lockedCount,
   slug,
+  online,
 }: SamplesCardProps) {
   if (samples.length === 0) {
     return (
@@ -349,6 +354,7 @@ function SamplesCard({
               sample={sample}
               index={idx}
               producerName={producerName}
+              online={online}
             />
           ))}
 
@@ -356,7 +362,7 @@ function SamplesCard({
             <li className="mt-1 border-t border-[rgb(var(--fg-primary)/0.08)] pt-2">
               <Link
                 href={`/sign-up/join/${encodeURIComponent(slug)}`}
-                className="flex items-center gap-3 rounded-[var(--radius-sm)] px-2 py-2 text-left transition-colors duration-200 hover:bg-[rgb(var(--fg-primary)/0.04)]"
+                className="sk-press flex min-h-11 items-center gap-3 rounded-[var(--radius-lg)] px-2 py-2 text-left transition-colors duration-200 hover:bg-[rgb(var(--fg-primary)/0.04)] motion-reduce:transition-none"
               >
                 <span aria-hidden className="w-6 shrink-0 text-center text-sm">
                   🔒
@@ -379,9 +385,10 @@ interface TrackRowProps {
   sample: PublicSample;
   index: number;
   producerName: string;
+  online: boolean;
 }
 
-function TrackRow({ sample, index, producerName }: TrackRowProps) {
+function TrackRow({ sample, index, producerName, online }: TrackRowProps) {
   const now = useNowPlaying();
   const isActive = now.trackId === sample.id;
   const isPlaying = isActive && now.playing;
@@ -389,12 +396,20 @@ function TrackRow({ sample, index, producerName }: TrackRowProps) {
   // column is null. This is what backfills the row from "—" to "2:43"
   // a beat after first paint on older tracks that never had their
   // duration backfilled at upload time.
-  const resolvedDurationMs = useAudioDuration(sample.audioUrl, sample.durationMs);
+  const resolvedDurationMs = useAudioDuration(
+    online ? sample.audioUrl : null,
+    sample.durationMs,
+  );
 
   function onClick() {
     if (!sample.audioUrl) return;
-    if (isActive) {
+    if (isActive && isPlaying) {
       // Same row clicked again — toggle pause/resume on the mini player.
+      playerToggle();
+      return;
+    }
+    if (!online) return;
+    if (isActive) {
       playerToggle();
       return;
     }
@@ -415,17 +430,19 @@ function TrackRow({ sample, index, producerName }: TrackRowProps) {
       <button
         type="button"
         onClick={onClick}
-        disabled={!sample.audioUrl}
+        disabled={!sample.audioUrl || (!online && !isPlaying)}
         aria-label={
           isPlaying
             ? `Pause ${sample.title}`
-            : isActive
-              ? `Resume ${sample.title}`
-              : `Play ${sample.title}`
+            : !online
+              ? `Connect to the internet to play ${sample.title}`
+              : isActive
+                ? `Resume ${sample.title}`
+                : `Play ${sample.title}`
         }
         className={[
-          "group flex w-full items-center gap-3 rounded-[var(--radius-sm)] px-2 py-2 text-left",
-          "transition-colors duration-200",
+          "group sk-press flex min-h-11 w-full items-center gap-3 rounded-[var(--radius-lg)] px-2 py-2 text-left",
+          "transition-colors duration-200 motion-reduce:transition-none",
           isActive
             ? "bg-[rgb(var(--brand-primary)/0.1)]"
             : "hover:bg-[rgb(var(--fg-primary)/0.04)]",
@@ -622,53 +639,14 @@ function MiniWaveform({
   );
 }
 
-// 3-bar SVG EQ — used as the "currently playing" indicator. Tiny
-// inline animations; cheap to render in every active row.
+// Static three-bar EQ — motion-free so the public listening row also
+// respects reduced-motion preferences without a second rendering path.
 function EqBars() {
   return (
     <svg viewBox="0 0 16 16" className="h-3 w-3" aria-hidden>
-      <rect x="2" y="4" width="2.4" height="8" fill="currentColor">
-        <animate
-          attributeName="height"
-          values="3;9;5;8;3"
-          dur="900ms"
-          repeatCount="indefinite"
-        />
-        <animate
-          attributeName="y"
-          values="6.5;3.5;5.5;4;6.5"
-          dur="900ms"
-          repeatCount="indefinite"
-        />
-      </rect>
-      <rect x="6.8" y="2" width="2.4" height="12" fill="currentColor">
-        <animate
-          attributeName="height"
-          values="6;3;10;4;6"
-          dur="900ms"
-          repeatCount="indefinite"
-        />
-        <animate
-          attributeName="y"
-          values="5;6.5;3;6;5"
-          dur="900ms"
-          repeatCount="indefinite"
-        />
-      </rect>
-      <rect x="11.6" y="5" width="2.4" height="6" fill="currentColor">
-        <animate
-          attributeName="height"
-          values="4;8;5;9;4"
-          dur="900ms"
-          repeatCount="indefinite"
-        />
-        <animate
-          attributeName="y"
-          values="6;4;5.5;3.5;6"
-          dur="900ms"
-          repeatCount="indefinite"
-        />
-      </rect>
+      <rect x="2" y="5" width="2.4" height="6" rx="1" fill="currentColor" />
+      <rect x="6.8" y="2" width="2.4" height="12" rx="1" fill="currentColor" />
+      <rect x="11.6" y="4" width="2.4" height="8" rx="1" fill="currentColor" />
     </svg>
   );
 }

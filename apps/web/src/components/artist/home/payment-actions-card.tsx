@@ -1,5 +1,4 @@
-import Link from "next/link";
-
+import { OnlineRequiredLink } from "~/components/runtime-state/online-required-link";
 import { formatMoney } from "~/lib/format/money";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 
@@ -38,12 +37,13 @@ export function ArtistPaymentActionsCard({
             Payments
           </h2>
         </div>
-        <Link
+        <OnlineRequiredLink
           href={withArtistStudio("/artist/payments", activeStudioId)}
-          className="inline-flex min-h-11 min-w-11 items-center text-[12px] font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-0 sm:min-w-0"
+          className="sk-press inline-flex min-h-11 min-w-11 items-center text-[12px] font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
+          offlineMessage="Reconnect to open payment records."
         >
           View all →
-        </Link>
+        </OnlineRequiredLink>
       </header>
       <ul className="divide-y divide-[rgb(var(--border-subtle))]">
         {payments.slice(0, 3).map((payment) => (
@@ -67,7 +67,7 @@ export function ArtistPaymentActionsCard({
                 />
               </dl>
             </div>
-            <Link
+            <OnlineRequiredLink
               href={withArtistStudio(
                 payment.payNextAvailable
                   ? `/artist/payments/${encodeURIComponent(payment.purchaseId)}`
@@ -75,9 +75,10 @@ export function ArtistPaymentActionsCard({
                 payment.payNextAvailable ? payment.studioId : activeStudioId,
               )}
               className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sidebar))] px-4 text-[12px] font-bold text-[rgb(var(--brand-primary))] hover:brightness-110 focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-w-24"
+              offlineMessage="Reconnect before opening this payment."
             >
               {payment.payNextAvailable ? "Pay next" : "View"}
-            </Link>
+            </OnlineRequiredLink>
           </li>
         ))}
       </ul>

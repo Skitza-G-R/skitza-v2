@@ -8,6 +8,7 @@ import {
   confirmPaymentProofAction,
   rejectPaymentProofAction,
 } from "~/app/(producer)/dashboard/payments/proof-actions";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { formatMoney } from "~/lib/format/money";
 import type { ProducerPaymentProofReview } from "~/server/domain/payment-proofs/service";
 
@@ -41,6 +42,7 @@ export function PaymentProofReview({
   onPreviewDecision?: ((decision: PreviewPaymentProofDecision) => void) | undefined;
 }) {
   const router = useRouter();
+  const online = useOnlineStatus();
   const { proof } = review;
   const [isPending, startTransition] = useTransition();
   const [showConfirm, setShowConfirm] = useState(false);
@@ -50,6 +52,10 @@ export function PaymentProofReview({
 
   function runConfirm() {
     setMessage(null);
+    if (!online) {
+      setMessage({ tone: "error", text: "Reconnect to confirm this payment." });
+      return;
+    }
     startTransition(async () => {
       if (onPreviewDecision) {
         onPreviewDecision({ kind: "confirm" });
@@ -57,14 +63,18 @@ export function PaymentProofReview({
         setShowConfirm(false);
         return;
       }
-      const result = await confirmPaymentProofAction({ proofId: proof.proofId });
-      if (!result.ok) {
-        setMessage({ tone: "error", text: result.error });
-        return;
+      try {
+        const result = await confirmPaymentProofAction({ proofId: proof.proofId });
+        if (!result.ok) {
+          setMessage({ tone: "error", text: result.error });
+          return;
+        }
+        setMessage({ tone: "success", text: "Payment confirmed and recorded once." });
+        setShowConfirm(false);
+        router.refresh();
+      } catch {
+        setMessage({ tone: "error", text: "Could not confirm this payment. Please try again." });
       }
-      setMessage({ tone: "success", text: "Payment confirmed and recorded once." });
-      setShowConfirm(false);
-      router.refresh();
     });
   }
 
@@ -73,6 +83,10 @@ export function PaymentProofReview({
     const note = rejectionNote.trim();
     if (!note) return;
     setMessage(null);
+    if (!online) {
+      setMessage({ tone: "error", text: "Reconnect to reject this proof." });
+      return;
+    }
     startTransition(async () => {
       if (onPreviewDecision) {
         onPreviewDecision({ kind: "reject", note });
@@ -83,17 +97,21 @@ export function PaymentProofReview({
         setShowReject(false);
         return;
       }
-      const result = await rejectPaymentProofAction({ proofId: proof.proofId, note });
-      if (!result.ok) {
-        setMessage({ tone: "error", text: result.error });
-        return;
+      try {
+        const result = await rejectPaymentProofAction({ proofId: proof.proofId, note });
+        if (!result.ok) {
+          setMessage({ tone: "error", text: result.error });
+          return;
+        }
+        setMessage({
+          tone: "success",
+          text: "Proof rejected. The artist can see your note and replace it.",
+        });
+        setShowReject(false);
+        router.refresh();
+      } catch {
+        setMessage({ tone: "error", text: "Could not reject this proof. Please try again." });
       }
-      setMessage({
-        tone: "success",
-        text: "Proof rejected. The artist can see your note and replace it.",
-      });
-      setShowReject(false);
-      router.refresh();
     });
   }
 
@@ -259,7 +277,7 @@ export function PaymentProofReview({
                   onClick={() => {
                     setShowConfirm(true);
                   }}
-                  disabled={isPending}
+                  disabled={isPending || !online}
                   className="min-h-12 w-full rounded-[var(--radius-lg)] bg-[rgb(var(--fg-success))] px-4 text-sm font-bold text-white disabled:opacity-60"
                 >
                   Confirm {formatProofMoney(proof.amountCents, proof.currency)}
@@ -269,7 +287,7 @@ export function PaymentProofReview({
                   onClick={() => {
                     setShowReject(true);
                   }}
-                  disabled={isPending}
+                  disabled={isPending || !online}
                   className="min-h-12 w-full rounded-[var(--radius-lg)] border border-[rgb(var(--fg-danger)/0.38)] px-4 text-sm font-bold text-[rgb(var(--fg-danger-text))] disabled:opacity-60"
                 >
                   Reject proof
@@ -300,7 +318,7 @@ export function PaymentProofReview({
                   <button
                     type="button"
                     onClick={runConfirm}
-                    disabled={isPending}
+                    disabled={isPending || !online}
                     className="min-h-11 flex-1 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-success))] px-3 text-sm font-bold text-white disabled:opacity-60"
                   >
                     {isPending ? "Confirming…" : "Confirm payment"}
@@ -348,7 +366,7 @@ export function PaymentProofReview({
                   </button>
                   <button
                     type="submit"
-                    disabled={isPending || !rejectionNote.trim()}
+                    disabled={isPending || !rejectionNote.trim() || !online}
                     className="min-h-11 flex-1 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-danger))] px-3 text-sm font-bold text-white disabled:opacity-60"
                   >
                     {isPending ? "Rejecting…" : "Send note & reject"}

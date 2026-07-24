@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import { cancelPrivateOfferAction } from "~/app/(producer)/dashboard/store/private-offer-actions";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
 import type { TaxMode } from "~/lib/tax-mode";
 import type { PrivateOfferInput } from "~/server/domain/private-offers/service";
@@ -101,6 +102,7 @@ export function PrivateOfferManager({
 }) {
   const router = useRouter();
   const { toast } = useToast();
+  const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
   const [cancelingId, setCancelingId] = useState<string | null>(null);
   const visibleOffers = lockedClientId
@@ -196,6 +198,10 @@ export function PrivateOfferManager({
                           type="button"
                           disabled={pending && cancelingId === offer.id}
                           onClick={() => {
+                            if (!online) {
+                              toast("Reconnect to cancel this private offer.", "error");
+                              return;
+                            }
                             if (
                               !window.confirm(
                                 "Cancel this private offer? The artist will no longer see it.",
@@ -205,14 +211,19 @@ export function PrivateOfferManager({
                             }
                             setCancelingId(offer.id);
                             startTransition(async () => {
-                              const result = await cancelPrivateOfferAction(offer.id);
-                              if (!result.ok) {
-                                toast(result.error, "error");
-                              } else {
-                                toast("Private offer canceled.", "success");
-                                router.refresh();
+                              try {
+                                const result = await cancelPrivateOfferAction(offer.id);
+                                if (!result.ok) {
+                                  toast(result.error, "error");
+                                } else {
+                                  toast("Private offer canceled.", "success");
+                                  router.refresh();
+                                }
+                              } catch {
+                                toast("Could not cancel this private offer. Try again.", "error");
+                              } finally {
+                                setCancelingId(null);
                               }
-                              setCancelingId(null);
                             });
                           }}
                           className="min-h-11 rounded-[var(--radius-lg)] border px-3 text-xs font-semibold text-[rgb(var(--fg-muted))] disabled:opacity-50"

@@ -2,7 +2,8 @@
 
 import { AudioLines, ChevronDown, Disc3, Grid3x3, List, Play, Plus, Search, X } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 
 import { EqBars } from "~/components/audio/eq-bars";
 import { playerPlay, playerToggle, useNowPlaying } from "~/components/audio/persistent-player";
@@ -128,6 +129,33 @@ type View = "grid" | "table";
 type SongSort = "recent" | "title" | "notes" | "length";
 type ProjectArchiveFilter = "active" | "archived";
 export type SongArchiveFilter = "active" | "archived";
+
+export interface MusicLibraryUrlState {
+  mode: Mode;
+  view: View;
+  search: string;
+  sort: SongSort;
+  archive: "active" | "archived";
+}
+
+function enumerated<T extends string>(
+  value: string | null,
+  values: readonly T[],
+  fallback: T,
+): T {
+  return value !== null && values.includes(value as T) ? (value as T) : fallback;
+}
+
+export function parseMusicLibraryUrlState(search: string): MusicLibraryUrlState {
+  const params = new URLSearchParams(search);
+  return {
+    mode: enumerated(params.get("mode"), ["projects", "songs"], "projects"),
+    view: enumerated(params.get("view"), ["grid", "table"], "grid"),
+    search: (params.get("search") ?? "").slice(0, 120),
+    sort: enumerated(params.get("sort"), ["recent", "title", "notes", "length"], "recent"),
+    archive: enumerated(params.get("filter"), ["active", "archived"], "active"),
+  };
+}
 
 const SORT_LABEL: Record<SongSort, string> = {
   recent: "Most recent",
@@ -334,15 +362,73 @@ export function MusicLibraryScreen({
   setArchived?: SetSongArchivedAction;
   markReleased?: MarkSongReleasedAction;
 }) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const urlState = parseMusicLibraryUrlState(searchParams.toString());
   // "all" is the sentinel for "no artist filter" — any other string is
   // a literal client/artist name from the artist filter pill.
-  const [mode, setMode] = useState<Mode>("projects");
-  const [view, setView] = useState<View>("grid");
-  const [search, setSearch] = useState("");
+  const [mode, setMode] = useState<Mode>(urlState.mode);
+  const [view, setView] = useState<View>(urlState.view);
+  const [search, setSearch] = useState(urlState.search);
   const [artist, setArtist] = useState<string>("all");
-  const [sort, setSort] = useState<SongSort>("recent");
-  const [projectArchiveFilter, setProjectArchiveFilter] = useState<ProjectArchiveFilter>("active");
-  const [songArchiveFilter, setSongArchiveFilter] = useState<SongArchiveFilter>("active");
+  const [sort, setSort] = useState<SongSort>(urlState.sort);
+  const [projectArchiveFilter, setProjectArchiveFilter] =
+    useState<ProjectArchiveFilter>(urlState.archive);
+  const [songArchiveFilter, setSongArchiveFilter] =
+    useState<SongArchiveFilter>(urlState.archive);
+
+  useEffect(() => {
+    const next = parseMusicLibraryUrlState(searchParams.toString());
+    setMode(next.mode);
+    setView(next.view);
+    setSearch(next.search);
+    setSort(next.sort);
+    setProjectArchiveFilter(next.archive);
+    setSongArchiveFilter(next.archive);
+  }, [searchParams]);
+
+  function replaceUrlState(
+    key: "mode" | "view" | "search" | "sort" | "filter",
+    value: string,
+    defaultValue: string,
+  ) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (value === defaultValue) params.delete(key);
+    else params.set(key, value.slice(0, 120));
+    const query = params.toString();
+    window.history.replaceState(null, "", `${pathname}${query ? `?${query}` : ""}`);
+  }
+
+  function updateMode(next: Mode) {
+    setMode(next);
+    replaceUrlState("mode", next, "projects");
+  }
+
+  function updateView(next: View) {
+    setView(next);
+    replaceUrlState("view", next, "grid");
+  }
+
+  function updateSearch(next: string) {
+    const bounded = next.slice(0, 120);
+    setSearch(bounded);
+    replaceUrlState("search", bounded, "");
+  }
+
+  function updateSort(next: SongSort) {
+    setSort(next);
+    replaceUrlState("sort", next, "recent");
+  }
+
+  function updateProjectArchiveFilter(next: ProjectArchiveFilter) {
+    setProjectArchiveFilter(next);
+    replaceUrlState("filter", next, "active");
+  }
+
+  function updateSongArchiveFilter(next: SongArchiveFilter) {
+    setSongArchiveFilter(next);
+    replaceUrlState("filter", next, "active");
+  }
 
   // Unique client/artist names for the filter pill. Order by first
   // appearance so the most-recently-uploaded clients sit near the top.
@@ -512,11 +598,13 @@ export function MusicLibraryScreen({
         >
           <Search size={13} className="text-[rgb(var(--fg-muted))]" />
           <input
-            type="text"
+            type="search"
+            inputMode="search"
             value={search}
             onChange={(e) => {
-              setSearch(e.target.value);
+              updateSearch(e.target.value);
             }}
+            maxLength={120}
             placeholder="Search tracks, artists, projects…"
             aria-label="Search music library"
             className="h-11 min-w-0 flex-1 bg-transparent text-[12.5px] outline-none placeholder:text-[rgb(var(--fg-muted))]"
@@ -526,7 +614,7 @@ export function MusicLibraryScreen({
               type="button"
               aria-label="Clear search"
               onClick={() => {
-                setSearch("");
+                updateSearch("");
               }}
               className="sk-press -mr-2 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
             >
@@ -550,32 +638,35 @@ export function MusicLibraryScreen({
         {/* Mode toggle (Projects / Songs) — pushed to the right on
             desktop; anchors the second row's left edge on phones. */}
         <div className="flex shrink-0 md:ml-auto">
-          <ModeToggle value={mode} onChange={setMode} />
+          <ModeToggle value={mode} onChange={updateMode} />
         </div>
 
         {/* Sorting is a real action only in the songs table. Removing it
             elsewhere keeps phones free of a disabled, dead control. */}
         {mode === "songs" && view === "table" ? (
-          <SortDropdown value={sort} onChange={setSort} />
+          <SortDropdown value={sort} onChange={updateSort} />
         ) : null}
 
         {/* Phones use one compact native menu; desktop keeps the faster
             two-button view switch. Both update the same view state. */}
-        <CompactViewMenu value={view} onChange={setView} />
+        <CompactViewMenu value={view} onChange={updateView} />
         <div className="hidden md:block">
-          <ViewToggle value={view} onChange={setView} />
+          <ViewToggle value={view} onChange={updateView} />
         </div>
       </div>
 
       {role === "artist" && mode === "projects" ? (
         <ProjectArchiveFilterControl
           value={projectArchiveFilter}
-          onChange={setProjectArchiveFilter}
+          onChange={updateProjectArchiveFilter}
         />
       ) : null}
 
       {role === "producer" && mode === "songs" ? (
-        <SongArchiveFilterControl value={songArchiveFilter} onChange={setSongArchiveFilter} />
+        <SongArchiveFilterControl
+          value={songArchiveFilter}
+          onChange={updateSongArchiveFilter}
+        />
       ) : null}
 
       {/* Body — one results region updated by the two pressed-button groups. */}
@@ -587,7 +678,7 @@ export function MusicLibraryScreen({
             role={role}
             addSongHref={addSongHref}
             {...(role === "artist" ? { projectArchiveFilter } : {})}
-            onProjectArchiveFilterChange={setProjectArchiveFilter}
+            onProjectArchiveFilterChange={updateProjectArchiveFilter}
           />
         ) : mode === "projects" ? (
           view === "grid" ? (
@@ -602,7 +693,7 @@ export function MusicLibraryScreen({
             role={role}
             addSongHref={addSongHref}
             {...(role === "producer" ? { songArchiveFilter } : {})}
-            onSongArchiveFilterChange={setSongArchiveFilter}
+            onSongArchiveFilterChange={updateSongArchiveFilter}
           />
         ) : view === "grid" ? (
           <SongsGrid
@@ -1558,6 +1649,7 @@ function SongsTable({
       title: song.trackTitle,
       subtitle: `${song.trackArtist ?? song.clientName ?? song.projectTitle} · ${song.label ?? "No version"}`,
       durationMs: song.durationMs,
+      ...(role === "producer" ? { cachePolicy: "account-unlocked" as const } : {}),
     });
   }
 

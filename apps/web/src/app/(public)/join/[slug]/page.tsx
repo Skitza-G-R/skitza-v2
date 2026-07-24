@@ -77,7 +77,11 @@ export default async function JoinPage({ params }: PageProps) {
     <div className="relative flex min-h-dvh flex-col">
       <JoinNav />
 
-      <main className="relative z-0 flex flex-1 flex-col">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="relative z-0 flex flex-1 flex-col focus:outline-none"
+      >
         {/* SR-only page title — the visible H1 is "Recent work"-adjacent
             inside the bento; this label gives the document a clean
             landmark for screen readers. */}

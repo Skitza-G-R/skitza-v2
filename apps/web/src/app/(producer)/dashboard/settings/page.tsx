@@ -9,7 +9,6 @@ import {
   LEGACY_IN_BRANCH_TO_SECTION,
   LEGACY_IN_SECTION_TO_SECTION,
   LEGACY_OUT_REDIRECTS,
-  resolveNotifications,
   type SettingsSectionKey,
 } from "./settings-keys";
 import "./settings.css";
@@ -123,7 +122,6 @@ export default async function SettingsPage({
           | "ILS",
         weekStart: profile.weekStart === "monday" ? "monday" : "sunday",
         plan: profile.plan === "pro" ? "pro" : "free",
-        notifications: resolveNotifications(profile.notificationPrefs),
         paymentInstructions: {
           bankTransfer: paymentInstructions.bankTransfer ?? "",
           bitPhone: paymentInstructions.bitPhone ?? "",

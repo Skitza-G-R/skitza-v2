@@ -3,6 +3,8 @@ import "~/styles/get-started.css";
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 
+import { PublicConnectivityNotice } from "~/components/public/public-connectivity";
+
 import { PostSignupConfetti } from "../../_components/post-signup-confetti";
 import { StaticLogo } from "../../_components/static-logo";
 
@@ -29,8 +31,19 @@ export default async function ThanksPageHe({
   const name = sanitizeName(params.n);
 
   return (
-    <div lang="he" dir="rtl" className="get-started-root">
-      <header className="gs-header">
+    <div
+      id="main-content"
+      tabIndex={-1}
+      role="main"
+      lang="he"
+      dir="rtl"
+      className="get-started-root focus:outline-none"
+    >
+      <PublicConnectivityNotice locale="he" />
+      <header
+        className="gs-header"
+        style={{ paddingTop: "max(28px, env(safe-area-inset-top))" }}
+      >
         <div className="container">
           <StaticLogo />
         </div>
@@ -57,7 +70,7 @@ export default async function ThanksPageHe({
         </p>
         <a
           href="/get-started/he"
-          className="btn-primary"
+          className="btn-primary sk-press"
           style={{ marginTop: 32, textDecoration: "none" }}
         >
           חזרה לסקיצה →

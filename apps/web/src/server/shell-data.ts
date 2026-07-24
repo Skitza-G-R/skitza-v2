@@ -47,6 +47,8 @@ export interface ShellNotificationCandidate {
 }
 
 export interface ShellState {
+  userId: string | null;
+  producerId: string | null;
   slug: string | null;
   displayName: string | null;
   plan: string;
@@ -114,6 +116,8 @@ export function mergeShellNotificationRows(
 }
 
 const DEFAULT_STATE: ShellState = {
+  userId: null,
+  producerId: null,
   slug: null,
   displayName: null,
   plan: "free",
@@ -194,6 +198,8 @@ export const getShellState = cache(async (): Promise<ShellState> => {
   const recentNotifications = mergeShellNotificationRows(unreadRows, recentReadRows);
 
   return {
+    userId,
+    producerId: row.id,
     slug: row.slug,
     displayName: row.displayName,
     plan: row.plan,

@@ -38,9 +38,7 @@ describe("enabled payment-plan mapping", () => {
       },
     ]);
     expect(options[0]?.choice).toEqual({ kind: "monthly", installments: 3 });
-    expect(options[0]?.schedule.reduce((sum, row) => sum + row.amountCents, 0)).toBe(
-      240001,
-    );
+    expect(options[0]?.schedule.reduce((sum, row) => sum + row.amountCents, 0)).toBe(240001);
   });
 });
 
@@ -63,7 +61,7 @@ describe("choose-plan screen", () => {
 
   it("requires an explicit selection unless only one plan is enabled", () => {
     expect(screen).toMatch(/enabledOptions\.length === 1/);
-    expect(screen).toMatch(/disabled=\{!selected\}/);
+    expect(screen).toMatch(/disabled=\{!selected \|\| \(!online && requiresLivePreview\)\}/);
   });
 
   it("uses an accessible keyboard radio pattern with one tab stop", () => {
@@ -77,6 +75,7 @@ describe("choose-plan screen", () => {
   it("carries the choice to exact review without persisting it", () => {
     expect(screen).toMatch(/paymentPlanAgreementHref/);
     expect(screen).toMatch(/Continue to agreement/);
+    expect(screen).toMatch(/if \(!online && requiresLivePreview\) return/);
     expect(screen).not.toMatch(/choosePaymentPlanAction|paymentPlan\.choose/);
   });
 

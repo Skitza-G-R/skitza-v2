@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 
-import { afterEach, describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+import { setUploadRuntimeAccountId } from "./upload-manager";
 
 import {
   ACTIVE_UPLOAD_STALE_MS,
@@ -11,6 +12,8 @@ import {
   createUploadCancellationRequest,
   markCancellationRequested,
   markVersionCleanupRequested,
+  migrateLegacyUploadJournalForAccount,
+  persistResumableEntry,
   requestExactMultipartCancellation,
   requestUploadCancellation,
   requestVersionCleanup,
@@ -24,8 +27,14 @@ import {
 } from "./use-multipart-upload";
 
 const SOURCE = readFileSync(new URL("./use-multipart-upload.ts", import.meta.url), "utf8");
+const ACCOUNT_ID = "user_test";
+
+beforeEach(() => {
+  setUploadRuntimeAccountId(ACCOUNT_ID);
+});
 
 afterEach(() => {
+  setUploadRuntimeAccountId(null);
   vi.unstubAllGlobals();
 });
 
@@ -72,6 +81,7 @@ describe("multipart upload recovery identity", () => {
 
   it("maps the persisted entry to the exact cancellation identity", () => {
     const entry: ResumableEntry = {
+      accountId: ACCOUNT_ID,
       key: "private-key",
       uploadId: "upload-id",
       trackVersionId: "version-id",
@@ -134,6 +144,7 @@ describe("multipart upload recovery identity", () => {
       },
     });
     const entry: ResumableEntry = {
+      accountId: ACCOUNT_ID,
       key: "private-key",
       uploadId: "upload-id",
       trackVersionId: "version-id",
@@ -178,6 +189,7 @@ describe("multipart upload recovery identity", () => {
 
     requestUploadCancellation(request);
     finishInit?.({
+      accountId: ACCOUNT_ID,
       key: "private-key",
       uploadId: "upload-id",
       trackVersionId: "version-id",
@@ -195,6 +207,7 @@ describe("multipart upload recovery identity", () => {
     const requestedAt = new Date("2026-07-17T12:00:00.000Z");
     const entry = markCancellationRequested(
       {
+        accountId: ACCOUNT_ID,
         key: "private-key",
         uploadId: "upload-id",
         trackVersionId: "version-id",
@@ -244,6 +257,7 @@ describe("multipart upload recovery identity", () => {
       removeItem: () => events.push("remove"),
     });
     const entry: ResumableEntry = {
+      accountId: ACCOUNT_ID,
       key: "private-key",
       uploadId: "upload-id",
       trackVersionId: "version-id",
@@ -285,8 +299,9 @@ describe("multipart upload recovery identity", () => {
   it("skips malformed local recovery identities without persisting them", () => {
     const entries = [
       [
-        "skitza:upload:missing-id",
+        `skitza:upload:${encodeURIComponent(ACCOUNT_ID)}:missing-id`,
         JSON.stringify({
+          accountId: ACCOUNT_ID,
           key: "private-key",
           completionToken: "a".repeat(64),
           trackVersionId: "11111111-1111-4111-8111-111111111111",
@@ -297,8 +312,9 @@ describe("multipart upload recovery identity", () => {
         }),
       ],
       [
-        "skitza:upload:upload-id",
+        `skitza:upload:${encodeURIComponent(ACCOUNT_ID)}:upload-id`,
         JSON.stringify({
+          accountId: ACCOUNT_ID,
           uploadId: "upload-id",
           key: "private-key",
           completionToken: "bad-token",
@@ -320,6 +336,36 @@ describe("multipart upload recovery identity", () => {
 
     expect(resumableUploads()).toEqual([]);
     expect(writes).toEqual([]);
+  });
+
+  it("exposes only the signed-in account's durable journal", () => {
+    const versionId = "11111111-1111-4111-8111-111111111111";
+    const timestamp = "2026-07-17T12:00:00.000Z";
+    const makeEntry = (accountId: string, uploadId: string) => ({
+      accountId,
+      uploadId,
+      key: "private-key",
+      completionToken: "a".repeat(64),
+      trackVersionId: versionId,
+      totalBytes: 123,
+      completed: [],
+      createdAt: timestamp,
+      lastProgressAt: timestamp,
+    });
+    const a = makeEntry(ACCOUNT_ID, "upload-a");
+    const b = makeEntry("user_other", "upload-b");
+    const entries = [
+      [`skitza:upload:${encodeURIComponent(a.accountId)}:${a.uploadId}`, JSON.stringify(a)],
+      [`skitza:upload:${encodeURIComponent(b.accountId)}:${b.uploadId}`, JSON.stringify(b)],
+    ] as const;
+    vi.stubGlobal("localStorage", {
+      length: entries.length,
+      key: (index: number) => entries[index]?.[0] ?? null,
+      getItem: (key: string) => entries.find(([candidate]) => candidate === key)?.[1] ?? null,
+    });
+
+    expect(resumableUploads(ACCOUNT_ID).map((entry) => entry.uploadId)).toEqual(["upload-a"]);
+    expect(resumableUploads("user_other").map((entry) => entry.uploadId)).toEqual(["upload-b"]);
   });
 });
 
@@ -355,6 +401,7 @@ describe("orphan version cleanup recovery", () => {
 
   it("retries a due version cleanup on a later mounted recovery pass", async () => {
     const entry: PendingVersionCleanupEntry = {
+      accountId: ACCOUNT_ID,
       trackVersionId: "11111111-1111-4111-8111-111111111111",
       cleanupRequestedAt: "2026-07-17T12:00:00.000Z",
     };
@@ -369,5 +416,260 @@ describe("orphan version cleanup recovery", () => {
       }),
     ).resolves.toBe(1);
     expect(removed).toEqual([entry.trackVersionId]);
+  });
+});
+
+describe("legacy upload journal privacy migration", () => {
+  const versionId = "11111111-1111-4111-8111-111111111111";
+  const timestamp = "2026-07-17T12:00:00.000Z";
+
+  function installStorage(initial: ReadonlyArray<readonly [string, string]>) {
+    const values = new Map(initial);
+    vi.stubGlobal("localStorage", {
+      get length() {
+        return values.size;
+      },
+      key: (index: number) => [...values.keys()][index] ?? null,
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    });
+    return values;
+  }
+
+  function legacyUpload(uploadId = "legacy-upload") {
+    return {
+      uploadId,
+      key: "producers/private/tracks/version/master.wav",
+      completionToken: "a".repeat(64),
+      trackVersionId: versionId,
+      totalBytes: 123,
+      completed: [],
+      createdAt: timestamp,
+      lastProgressAt: timestamp,
+    };
+  }
+
+  it("attempts exact abort before cleanup, then removes ownerless secrets", async () => {
+    const upload = legacyUpload();
+    const legacyUploadKey = `skitza:upload:${upload.uploadId}`;
+    const legacyCleanupKey = `skitza:upload-version-cleanup:${versionId}`;
+    const values = installStorage([
+      [legacyUploadKey, JSON.stringify(upload)],
+      [
+        legacyCleanupKey,
+        JSON.stringify({
+          trackVersionId: versionId,
+          cleanupRequestedAt: timestamp,
+        }),
+      ],
+    ]);
+    const events: string[] = [];
+
+    await expect(
+      migrateLegacyUploadJournalForAccount(ACCOUNT_ID, {
+        abort: (input) => {
+          events.push(`abort:${input.uploadId}`);
+          return Promise.resolve({ ok: true });
+        },
+        cleanup: ({ id }) => {
+          events.push(`cleanup:${id}`);
+          return Promise.resolve({ ok: true });
+        },
+      }),
+    ).resolves.toEqual({
+      attemptedUploads: 1,
+      attemptedVersionCleanups: 1,
+      removedLocalEntries: 2,
+    });
+
+    expect(events).toEqual([`abort:${upload.uploadId}`, `cleanup:${versionId}`]);
+    expect(values.has(legacyUploadKey)).toBe(false);
+    expect(values.has(legacyCleanupKey)).toBe(false);
+  });
+
+  it("purges unauthorized legacy secrets but never deletes a version before failed abort", async () => {
+    const upload = legacyUpload("foreign-upload");
+    const legacyUploadKey = `skitza:upload:${upload.uploadId}`;
+    const legacyCleanupKey = `skitza:upload-version-cleanup:${versionId}`;
+    const values = installStorage([
+      [legacyUploadKey, JSON.stringify(upload)],
+      [
+        legacyCleanupKey,
+        JSON.stringify({
+          trackVersionId: versionId,
+          cleanupRequestedAt: timestamp,
+        }),
+      ],
+    ]);
+    const cleanup = vi.fn(() => Promise.resolve({ ok: false as const }));
+
+    await migrateLegacyUploadJournalForAccount(ACCOUNT_ID, {
+      abort: () => Promise.resolve({ ok: false as const }),
+      cleanup,
+    });
+
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(values.has(legacyUploadKey)).toBe(false);
+    expect(values.has(legacyCleanupKey)).toBe(false);
+    expect([...values.values()].join("\n")).not.toContain(upload.completionToken);
+  });
+
+  it("never deletes a version when one of multiple legacy uploads still fails abort", async () => {
+    const first = legacyUpload("legacy-first");
+    const second = legacyUpload("legacy-second");
+    const cleanupKey = `skitza:upload-version-cleanup:${versionId}`;
+    const values = installStorage([
+      [`skitza:upload:${first.uploadId}`, JSON.stringify(first)],
+      [`skitza:upload:${second.uploadId}`, JSON.stringify(second)],
+      [
+        cleanupKey,
+        JSON.stringify({
+          trackVersionId: versionId,
+          cleanupRequestedAt: timestamp,
+        }),
+      ],
+    ]);
+    const abort = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true as const })
+      .mockResolvedValueOnce({ ok: false as const });
+    const cleanup = vi.fn(() => Promise.resolve({ ok: true as const }));
+
+    await migrateLegacyUploadJournalForAccount(ACCOUNT_ID, { abort, cleanup });
+
+    expect(abort).toHaveBeenCalledTimes(2);
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(values.has(cleanupKey)).toBe(false);
+    expect([...values.keys()].some((key) => key.startsWith("skitza:upload:"))).toBe(false);
+  });
+
+  it("keeps legacy version deletion blocked while any valid scoped upload exists", async () => {
+    const scoped: ResumableEntry = {
+      ...legacyUpload("scoped-active"),
+      accountId: ACCOUNT_ID,
+    };
+    const scopedKey = `skitza:upload:${encodeURIComponent(ACCOUNT_ID)}:${scoped.uploadId}`;
+    const cleanupKey = `skitza:upload-version-cleanup:${versionId}`;
+    const values = installStorage([
+      [scopedKey, JSON.stringify(scoped)],
+      [
+        cleanupKey,
+        JSON.stringify({
+          trackVersionId: versionId,
+          cleanupRequestedAt: timestamp,
+        }),
+      ],
+    ]);
+    const cleanup = vi.fn(() => Promise.resolve({ ok: true as const }));
+
+    await migrateLegacyUploadJournalForAccount(ACCOUNT_ID, { cleanup });
+
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(values.has(scopedKey)).toBe(true);
+    expect(values.has(cleanupKey)).toBe(false);
+  });
+
+  it("blocks legacy version deletion when a malformed upload sibling still names it", async () => {
+    const malformedUploadKey = "skitza:upload:malformed-sibling";
+    const cleanupKey = `skitza:upload-version-cleanup:${versionId}`;
+    const values = installStorage([
+      [
+        malformedUploadKey,
+        JSON.stringify({
+          ...legacyUpload("malformed-sibling"),
+          completionToken: "not-a-valid-token",
+        }),
+      ],
+      [
+        cleanupKey,
+        JSON.stringify({
+          trackVersionId: versionId,
+          cleanupRequestedAt: timestamp,
+        }),
+      ],
+    ]);
+    const abort = vi.fn(() => Promise.resolve({ ok: true as const }));
+    const cleanup = vi.fn(() => Promise.resolve({ ok: true as const }));
+
+    await migrateLegacyUploadJournalForAccount(ACCOUNT_ID, { abort, cleanup });
+
+    expect(abort).not.toHaveBeenCalled();
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(values.has(malformedUploadKey)).toBe(false);
+    expect(values.has(cleanupKey)).toBe(false);
+  });
+
+  it("purges malformed scoped and legacy records while preserving valid scoped owners", async () => {
+    const validCurrent: ResumableEntry = {
+      ...legacyUpload("current-upload"),
+      accountId: ACCOUNT_ID,
+    };
+    const validOther: ResumableEntry = {
+      ...legacyUpload("other-upload"),
+      accountId: "user_other",
+    };
+    const currentKey = `skitza:upload:${encodeURIComponent(ACCOUNT_ID)}:${validCurrent.uploadId}`;
+    const otherKey = `skitza:upload:${encodeURIComponent(validOther.accountId)}:${validOther.uploadId}`;
+    const malformedCurrentKey = `skitza:upload:${encodeURIComponent(ACCOUNT_ID)}:malformed-current`;
+    const malformedCleanupKey = `skitza:upload-version-cleanup:${encodeURIComponent(ACCOUNT_ID)}:${versionId}`;
+    const malformedLegacyKey = "skitza:upload:malformed-legacy";
+    const malformedLegacyShapeKey = "skitza:upload:malformed-shape";
+    const values = installStorage([
+      [currentKey, JSON.stringify(validCurrent)],
+      [otherKey, JSON.stringify(validOther)],
+      [
+        malformedCurrentKey,
+        JSON.stringify({
+          ...validCurrent,
+          uploadId: "different-id",
+          completionToken: "secret-that-must-not-survive",
+        }),
+      ],
+      [
+        malformedCleanupKey,
+        JSON.stringify({
+          accountId: ACCOUNT_ID,
+          trackVersionId: "not-a-uuid",
+          cleanupRequestedAt: timestamp,
+        }),
+      ],
+      [malformedLegacyKey, "{not-json"],
+      [
+        malformedLegacyShapeKey,
+        JSON.stringify({
+          ...legacyUpload("malformed-shape"),
+          cancellationRequestedAt: "not-an-iso-timestamp",
+        }),
+      ],
+    ]);
+    const abort = vi.fn(() => Promise.resolve({ ok: true as const }));
+    const cleanup = vi.fn(() => Promise.resolve({ ok: true as const }));
+
+    await migrateLegacyUploadJournalForAccount(ACCOUNT_ID, { abort, cleanup });
+
+    expect(abort).not.toHaveBeenCalled();
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(values.has(currentKey)).toBe(true);
+    expect(values.has(otherKey)).toBe(true);
+    expect(values.has(malformedCurrentKey)).toBe(false);
+    expect(values.has(malformedCleanupKey)).toBe(false);
+    expect(values.has(malformedLegacyKey)).toBe(false);
+    expect(values.has(malformedLegacyShapeKey)).toBe(false);
+
+    vi.stubGlobal("localStorage", {
+      get length() {
+        return values.size;
+      },
+      key: (index: number) => [...values.keys()][index] ?? null,
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    });
+    persistResumableEntry(validCurrent);
+    await requestExactMultipartCancellation(validCurrent, () =>
+      Promise.resolve({ ok: false as const }),
+    );
+    expect(values.has(currentKey)).toBe(true);
   });
 });

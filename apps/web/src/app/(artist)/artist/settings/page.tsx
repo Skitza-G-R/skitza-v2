@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { Wordmark } from "~/components/nav/wordmark";
 import { DisconnectProducerButton } from "~/components/artist/disconnect-producer-button";
+import { PushPreferences } from "~/components/push/push-preferences";
 
 // Polished Settings — mirrors the locked design's:
 //   - "Settings." hero
@@ -85,12 +86,14 @@ export default async function ArtistSettingsPage() {
           <UserButton
             appearance={{
               elements: {
-                avatarBox: "h-9 w-9 ring-1 ring-[rgb(var(--border-subtle))]",
+                avatarBox: "h-11 w-11 ring-1 ring-[rgb(var(--border-subtle))]",
               },
             }}
           />
         </div>
       </section>
+
+      <PushPreferences />
 
       {/* Connected producers */}
       <section

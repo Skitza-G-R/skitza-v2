@@ -21,6 +21,7 @@ import {
   updatePrivateOfferAction,
 } from "~/app/(producer)/dashboard/store/private-offer-actions";
 import { TaxModeSegmented } from "~/components/dashboard/tax-mode-segmented";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
 import type { PrivateOfferInput } from "~/server/domain/private-offers/service";
 import type { TaxMode } from "~/lib/tax-mode";
@@ -535,6 +536,7 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
   const formId = useId().replace(/:/g, "");
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
+  const online = useOnlineStatus();
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<ComposerDraft>(() => seedDraft(props));
   const [projectOptionsByClient, setProjectOptionsByClient] = useState<
@@ -588,31 +590,42 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
     ) {
       return;
     }
+    if (!online) {
+      setLoadingProjectClientId(null);
+      setProjectLoadError("Reconnect to load this client’s projects.");
+      return;
+    }
 
     let active = true;
     setLoadingProjectClientId(selectedClientId);
     setProjectLoadError(null);
-    void loadPrivateOfferProjectOptionsAction(selectedClientId).then((result) => {
-      if (!active) return;
-      setLoadingProjectClientId(null);
-      if (!result.ok) {
-        setProjectLoadError(result.error);
-        setProjectOptionsByClient((current) => ({ ...current, [selectedClientId]: [] }));
-        return;
-      }
-      setLoadedProjectClientIds((current) =>
-        current.includes(selectedClientId) ? current : [...current, selectedClientId],
-      );
-      setProjectOptionsByClient((current) => ({
-        ...current,
-        [selectedClientId]: result.data,
-      }));
-    });
+    void loadPrivateOfferProjectOptionsAction(selectedClientId)
+      .then((result) => {
+        if (!active) return;
+        if (!result.ok) {
+          setProjectLoadError(result.error);
+          setProjectOptionsByClient((current) => ({ ...current, [selectedClientId]: [] }));
+          return;
+        }
+        setLoadedProjectClientIds((current) =>
+          current.includes(selectedClientId) ? current : [...current, selectedClientId],
+        );
+        setProjectOptionsByClient((current) => ({
+          ...current,
+          [selectedClientId]: result.data,
+        }));
+      })
+      .catch(() => {
+        if (active) setProjectLoadError("Could not load this client’s projects. Try again.");
+      })
+      .finally(() => {
+        if (active) setLoadingProjectClientId(null);
+      });
 
     return () => {
       active = false;
     };
-  }, [draft.recipientKind, loadedProjectClientIds, open, selectedClientId]);
+  }, [draft.recipientKind, loadedProjectClientIds, online, open, selectedClientId]);
 
   function patch(next: Partial<ComposerDraft>) {
     setDraft((current) => ({ ...current, ...next }));
@@ -629,6 +642,10 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
   function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    if (!online) {
+      setError("Reconnect to send or update this private offer.");
+      return;
+    }
 
     let recipient: PrivateOfferComposerRecipientPayload;
     if (lockedClientId || draft.recipientKind === "existing") {
@@ -1425,7 +1442,7 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
               </DialogPrimitive.Close>
               <button
                 type="submit"
-                disabled={pending}
+                disabled={pending || !online}
                 className="sk-press inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 text-[13px] font-semibold text-[rgb(17_16_9)] shadow-[0_4px_14px_-2px_rgb(var(--brand-primary)/0.5)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
               >
                 <Send className="h-4 w-4" aria-hidden />

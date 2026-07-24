@@ -23,8 +23,15 @@ describe("AvailabilityPanel — truthful booking preferences", () => {
   it("rolls optimistic booking preferences back and locks controls while saving", () => {
     expect(SRC).toContain("runOptimisticPreferenceSave");
     expect(SRC).toContain("rollback:");
-    expect(SRC).toContain("disabled={isSaving}");
+    expect(SRC).toContain("disabled={isSaving || !online}");
     expect(SRC).toContain("weekStartSaving");
+  });
+
+  it("keeps availability mutations live-only and explains reconnect failures locally", () => {
+    expect(SRC).toContain("useOnlineStatus");
+    expect(SRC).toContain("Reconnect to save working hours.");
+    expect(SRC).toContain("Reconnect to block dates.");
+    expect(SRC).toContain("Reconnect to remove a blocked date.");
   });
 
   it("keeps the switch track compact inside a 44px mobile hit target", () => {

@@ -1,3 +1,5 @@
+"use client";
+
 import {
   AudioLines,
   CalendarDays,
@@ -11,7 +13,10 @@ import {
   Settings2,
 } from "lucide-react";
 import Link from "next/link";
+import { useMemo } from "react";
 
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
+import { useRuntimeCachedView } from "~/components/runtime-state/use-runtime-state";
 import { formatMoney } from "~/lib/format/money";
 import type { Stage } from "~/lib/projects/stages";
 import { STAGE_LABEL } from "~/lib/projects/stages";
@@ -102,11 +107,14 @@ export interface OverviewScreenProps {
   now: Date;
 }
 
+const OVERVIEW_SCREEN_CLASS =
+  "sk-page-enter mx-auto flex w-full max-w-[1180px] flex-col gap-4 px-4 pt-5 pb-10 sm:px-6 lg:gap-5 lg:px-8 lg:pt-8 lg:pb-8";
+
 export function OverviewScreen({
-  displayName,
+  displayName: serverDisplayName,
   slug,
   timezone,
-  pulseStats,
+  pulseStats: serverPulseStats,
   paymentProofs,
   paymentBalances,
   purchaseRequests,
@@ -121,6 +129,24 @@ export function OverviewScreen({
   showAllNeedsYou,
   now,
 }: OverviewScreenProps) {
+  const online = useOnlineStatus();
+  const overviewServerData = useMemo(
+    () => ({
+      displayName: serverDisplayName,
+      activeProjects: serverPulseStats.activeProjects,
+    }),
+    [serverDisplayName, serverPulseStats.activeProjects],
+  );
+  const cachedView = useRuntimeCachedView({
+    slot: "producer.overview.safe-view",
+    route: showAllNeedsYou ? "/dashboard?view=all" : "/dashboard",
+    serverData: overviewServerData,
+  });
+  const displayName = cachedView.data?.displayName ?? serverDisplayName;
+  const pulseStats = {
+    ...serverPulseStats,
+    activeProjects: cachedView.data?.activeProjects ?? serverPulseStats.activeProjects,
+  };
   const firstName = (displayName ?? "").trim().split(/\s+/)[0] || "there";
   const needsYouItems = buildNeedsYouQueue({
     paymentProofs,
@@ -134,38 +160,78 @@ export function OverviewScreen({
     showSetupNudge,
   });
 
-  return (
-    <div className="sk-page-enter mx-auto flex w-full max-w-[1180px] flex-col gap-4 px-4 pt-5 pb-10 sm:px-6 lg:gap-5 lg:px-8 lg:pt-8 lg:pb-8">
-      <header className="reveal-up flex min-w-0 items-end justify-between gap-6">
-        <div className="min-w-0">
-          <h1 className="font-syne text-[32px] leading-[0.98] font-extrabold tracking-[-0.03em] [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-default))] lg:text-[38px]">
-            {greetingFor(now, timezone)}, {firstName}.
+  if (!online) {
+    return (
+      <div
+        data-runtime-source={cachedView.source}
+        data-runtime-refreshing={cachedView.refreshing || undefined}
+        className={OVERVIEW_SCREEN_CLASS}
+      >
+        <p
+          role="status"
+          className="rounded-[var(--radius-lg)] border border-[rgb(var(--fg-warning)/0.28)] bg-[rgb(var(--fg-warning)/0.08)] px-3 py-2 text-[12px] font-medium text-[rgb(var(--fg-warning-text))]"
+        >
+          Offline · Showing your saved studio overview. Booking, payment, availability, and other
+          live actions need a connection.
+        </p>
+        <section
+          aria-labelledby="offline-overview-heading"
+          className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 shadow-[var(--shadow-sm)]"
+        >
+          <h1
+            id="offline-overview-heading"
+            className="font-syne text-[28px] leading-tight font-extrabold tracking-[-0.03em] text-[rgb(var(--fg-default))]"
+          >
+            Welcome back, {firstName}.
           </h1>
-          <p className="mt-2 text-[15px] text-[rgb(var(--fg-muted))] lg:text-sm">
-            {needsYouItems.length > 0
-              ? `${String(needsYouItems.length)} ${needsYouItems.length === 1 ? "thing needs" : "things need"} your attention.`
-              : "Here is the pulse of your studio today."}
+          <p className="mt-3 text-[13px] text-[rgb(var(--fg-muted))]">Saved studio pulse</p>
+          <p className="mt-1 text-2xl font-extrabold text-[rgb(var(--fg-default))]">
+            {String(pulseStats.activeProjects)}
           </p>
-        </div>
-        {slug ? <PublicLinkStrip slug={slug} /> : null}
-      </header>
-
-      <NeedsYouPanel
-        items={needsYouItems}
-        showAll={showAllNeedsYou}
-        currency={pulseStats.currency}
-      />
-
-      {todaySession ? <MobileTodayCard session={todaySession} timezone={timezone} /> : null}
-
-      <div className="hidden grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-5 lg:grid">
-        <UrgentProjectsCard projects={urgentProjects} />
-        <LatestUploadsCard uploads={recentUploads.slice(0, 2)} timezone={timezone} />
+          <p className="text-[12px] text-[rgb(var(--fg-muted))]">Active projects</p>
+        </section>
       </div>
+    );
+  }
 
-      <StudioPulse pulseStats={pulseStats} />
+  return (
+    <div
+      data-runtime-source={cachedView.source}
+      data-runtime-refreshing={cachedView.refreshing || undefined}
+      className={OVERVIEW_SCREEN_CLASS}
+    >
+      <div className="flex flex-col gap-4 lg:gap-5">
+        <header className="reveal-up flex min-w-0 items-end justify-between gap-6">
+          <div className="min-w-0">
+            <h1 className="font-syne text-[32px] leading-[0.98] font-extrabold tracking-[-0.03em] [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-default))] lg:text-[38px]">
+              {greetingFor(now, timezone)}, {firstName}.
+            </h1>
+            <p className="mt-2 text-[15px] text-[rgb(var(--fg-muted))] lg:text-sm">
+              {needsYouItems.length > 0
+                ? `${String(needsYouItems.length)} ${needsYouItems.length === 1 ? "thing needs" : "things need"} your attention.`
+                : "Here is the pulse of your studio today."}
+            </p>
+          </div>
+          {slug ? <PublicLinkStrip slug={slug} /> : null}
+        </header>
 
-      <MobileLatestUpload upload={recentUploads[0] ?? null} timezone={timezone} />
+        <NeedsYouPanel
+          items={needsYouItems}
+          showAll={showAllNeedsYou}
+          currency={pulseStats.currency}
+        />
+
+        {todaySession ? <MobileTodayCard session={todaySession} timezone={timezone} /> : null}
+
+        <div className="hidden grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-5 lg:grid">
+          <UrgentProjectsCard projects={urgentProjects} />
+          <LatestUploadsCard uploads={recentUploads.slice(0, 2)} timezone={timezone} />
+        </div>
+
+        <StudioPulse pulseStats={pulseStats} />
+
+        <MobileLatestUpload upload={recentUploads[0] ?? null} timezone={timezone} />
+      </div>
     </div>
   );
 }

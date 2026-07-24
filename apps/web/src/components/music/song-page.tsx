@@ -14,6 +14,8 @@ import {
   type PlayerTrack,
 } from "~/components/audio/persistent-player";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
+import { useRuntimeTextDraft } from "~/components/runtime-state/use-runtime-state";
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 import { formatMoney } from "~/lib/format/money";
@@ -38,6 +40,19 @@ import {
 // /artist/music/song/[versionId] — each with its own
 // `revalidatePath`-targeted variant.
 export type MusicL3ActionResult = { ok: true } | { ok: false; error: string };
+
+export function runOnlineMusicManagement(
+  online: boolean,
+  action: () => Promise<MusicL3ActionResult>,
+): Promise<MusicL3ActionResult> {
+  if (!online) {
+    return Promise.resolve({
+      ok: false,
+      error: "Reconnect before making this change. Nothing was changed.",
+    });
+  }
+  return action();
+}
 
 export type MusicL3DeleteAudioActionResult =
   | {
@@ -116,6 +131,13 @@ export type L3Actions = {
 //   - the breadcrumb middle crumb reads `track.clientName`, which the
 //     artist wire payload overloads with the producer's display name.
 export type SongPageRole = "producer" | "artist";
+
+export function songCommentDraftRoute(role: SongPageRole, versionId: string): string {
+  const encodedVersionId = encodeURIComponent(versionId);
+  return role === "artist"
+    ? `/artist/music/song/${encodedVersionId}`
+    : `/dashboard/music/${encodedVersionId}`;
+}
 
 // ─── Wire types (Date crosses RSC → client as ISO strings) ───────────
 export type SongPageVersion = {
@@ -333,14 +355,22 @@ export function deleteVersionAudioPolicy(input: {
 export function activeVersionToPlayerTrack(
   track: SongPageData["track"],
   version: SongPageVersion,
+  role: SongPageRole,
 ): PlayerTrack {
   const label = track.clientName ?? track.artist ?? track.projectTitle;
+  const accountUnlocked =
+    isSongPageVersionPlayable(version) &&
+    version.delivery.permission !== "audio_deleted" &&
+    (role === "producer" ||
+      version.delivery.permission === "purchase_fully_paid" ||
+      version.delivery.permission === "version_override");
   return {
     id: version.id,
     audioUrl: version.audioUrl,
     title: track.title,
     subtitle: `${label} · ${version.label}`,
     durationMs: version.durationMs,
+    ...(accountUnlocked ? { cachePolicy: "account-unlocked" as const } : {}),
   };
 }
 
@@ -594,6 +624,13 @@ export function SongPage({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const draftRef = useRef<HTMLInputElement | null>(null);
+  const online = useOnlineStatus();
+  const commentDraft = useRuntimeTextDraft({
+    slot: role === "artist" ? "artist.song-comment-draft" : "producer.song-comment-draft",
+    route: songCommentDraftRoute(role, activeVersionId),
+    ...(role === "artist" && artistStudioId ? { contextId: artistStudioId } : {}),
+    resourceId: activeVersionId,
+  });
 
   // Comments visible right now: server + optimistic for the active
   // version. Resolved comments sink to the BOTTOM (visible but greyed
@@ -666,10 +703,16 @@ export function SongPage({
   const commentsClosed = projectArchivedLabel !== null || songArchived;
 
   function handleAddComment() {
-    if (!activeVersion || commentsClosed) return;
-    const body = draftRef.current?.value.trim();
+    if (!activeVersion || commentsClosed || isPending) return;
+    const body = commentDraft.body.trim();
     if (!body) return;
+    if (!online) {
+      commentDraft.preserveDraft(body);
+      setError("Reconnect to post this comment. Your draft is saved.");
+      return;
+    }
     setError(null);
+    commentDraft.preserveDraft(body);
     const tempId = `tmp-${Math.random().toString(36).slice(2)}`;
     const optimistic: SongPageComment = {
       id: tempId,
@@ -685,7 +728,7 @@ export function SongPage({
       ...prev,
       [activeVersion.id]: [...(prev[activeVersion.id] ?? []), optimistic],
     }));
-    if (draftRef.current) draftRef.current.value = "";
+    commentDraft.setBody("");
 
     // If we paused playback when the composer got focus, resume
     // playback now that the producer's done typing. Pre-flip the
@@ -697,28 +740,38 @@ export function SongPage({
     }
 
     startTransition(async () => {
-      const res = await actions.addComment({
-        versionId: activeVersion.id,
-        body,
-        timestampMs: currentMs,
-      });
-      if (!res.ok) {
-        // Roll back optimistic on failure.
+      try {
+        const res = await actions.addComment({
+          versionId: activeVersion.id,
+          body,
+          timestampMs: currentMs,
+        });
+        if (!res.ok) {
+          // Roll back optimistic on a server-confirmed rejection.
+          setOptimisticByVersion((prev) => ({
+            ...prev,
+            [activeVersion.id]: (prev[activeVersion.id] ?? []).filter((c) => c.id !== tempId),
+          }));
+          commentDraft.setBody(body);
+          setError(res.error);
+          return;
+        }
+        // Clear optimistic only after server-confirmed success. The
+        // server action revalidates the canonical row from the DB.
         setOptimisticByVersion((prev) => ({
           ...prev,
           [activeVersion.id]: (prev[activeVersion.id] ?? []).filter((c) => c.id !== tempId),
         }));
-        setError(res.error);
-      } else {
-        // Clear optimistic on success too. The server action calls
-        // revalidatePath, so the next render carries the canonical
-        // row from the DB. Without this filter we'd render BOTH the
-        // optimistic copy AND the server copy → comment appears twice
-        // (the founder reported this as "post twice").
+        commentDraft.clearDraft();
+      } catch {
+        // A rejected transport never counts as success. Restore both
+        // the persisted draft and the visible composer for retry.
         setOptimisticByVersion((prev) => ({
           ...prev,
           [activeVersion.id]: (prev[activeVersion.id] ?? []).filter((c) => c.id !== tempId),
         }));
+        commentDraft.setBody(body);
+        setError("Couldn’t post this comment. Your draft is saved. Try again.");
       }
     });
   }
@@ -747,20 +800,29 @@ export function SongPage({
   }
 
   function handleResolveToggle(comment: SongPageComment) {
+    if (!activeVersion) return;
+    if (!online) {
+      setError("Reconnect to update this comment. No change was saved.");
+      return;
+    }
     const override = resolvedOverrides[comment.id];
     const currentResolved = override !== undefined ? override : comment.resolvedAtIso !== null;
     const next = !currentResolved;
+    setError(null);
     setResolvedOverrides((p) => ({ ...p, [comment.id]: next }));
-    if (!activeVersion) return;
     startTransition(async () => {
-      const res = await actions.resolveComment({
-        versionId: activeVersion.id,
-        id: comment.id,
-        resolved: next,
-      });
-      if (!res.ok) {
+      try {
+        const res = await actions.resolveComment({
+          versionId: activeVersion.id,
+          id: comment.id,
+          resolved: next,
+        });
+        if (res.ok) return;
         setResolvedOverrides((p) => ({ ...p, [comment.id]: currentResolved }));
         setError(res.error);
+      } catch {
+        setResolvedOverrides((p) => ({ ...p, [comment.id]: currentResolved }));
+        setError("Couldn’t update this comment. Try again.");
       }
     });
   }
@@ -768,22 +830,33 @@ export function SongPage({
   function handleProducerReadyToggle() {
     if (!activeVersion) return;
     if (!actions.markVersionReady || artistApprovalLocked) return;
+    if (!online) {
+      setError("Reconnect to update this version. No change was saved.");
+      return;
+    }
     const isReady = activeVersion.producerMarkedFinalAtIso !== null;
     const markReadyAction = actions.markVersionReady;
+    setError(null);
     startTransition(async () => {
-      const res = await markReadyAction({
-        versionId: activeVersion.id,
-        ready: !isReady,
-      });
-      if (!res.ok) {
-        setError(res.error);
-        return;
+      try {
+        const res = await markReadyAction({
+          versionId: activeVersion.id,
+          ready: !isReady,
+        });
+        if (!res.ok) {
+          setError(res.error);
+          return;
+        }
+        setProducerReadyOverrides(
+          Object.fromEntries(
+            versions.map((version) => [version.id, !isReady && version.id === activeVersion.id]),
+          ),
+        );
+      } catch {
+        setError(
+          "Couldn’t confirm the ready status. Check your connection, then refresh before trying again.",
+        );
       }
-      setProducerReadyOverrides(
-        Object.fromEntries(
-          versions.map((version) => [version.id, !isReady && version.id === activeVersion.id]),
-        ),
-      );
     });
   }
 
@@ -797,7 +870,7 @@ export function SongPage({
     if (!isSongPageVersionPlayable(activeVersion)) return;
     const isThisVersionLoaded = nowPlaying.trackId === activeVersion.id;
     if (!isThisVersionLoaded) {
-      playerPlay(activeVersionToPlayerTrack(data.track, activeVersion));
+      playerPlay(activeVersionToPlayerTrack(data.track, activeVersion, role));
     } else if (!nowPlaying.playing) {
       playerToggle();
     }
@@ -820,9 +893,7 @@ export function SongPage({
     const input = draftRef.current;
     if (!input) return;
     const prefix = `@${authorName} `;
-    if (!input.value.startsWith(prefix)) {
-      input.value = prefix;
-    }
+    if (!commentDraft.body.startsWith(prefix)) commentDraft.setBody(prefix);
     input.focus();
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     input.scrollIntoView({
@@ -849,7 +920,7 @@ export function SongPage({
       playerToggle();
       return;
     }
-    playerPlay(activeVersionToPlayerTrack(data.track, activeVersion));
+    playerPlay(activeVersionToPlayerTrack(data.track, activeVersion, role));
   }
 
   function openManagementDialog(kind: OpenSongManagement["kind"]) {
@@ -858,7 +929,11 @@ export function SongPage({
     setManagementDialog({ kind, versionId: activeVersion.id });
   }
 
-  async function handleManagementSubmit(value: string): Promise<MusicL3ActionResult> {
+  function handleManagementSubmit(value: string): Promise<MusicL3ActionResult> {
+    return runOnlineMusicManagement(online, () => handleOnlineManagementSubmit(value));
+  }
+
+  async function handleOnlineManagementSubmit(value: string): Promise<MusicL3ActionResult> {
     if (!managementDialog) {
       return { ok: false, error: "Choose an action and try again." };
     }
@@ -1496,6 +1571,7 @@ export function SongPage({
                         key={v.id}
                         type="button"
                         onClick={() => {
+                          commentDraft.preserveDraft();
                           setActiveVersionId(v.id);
                         }}
                         style={{ animationDelay: `${String(120 + i * 50)}ms` }}
@@ -1657,6 +1733,7 @@ export function SongPage({
                 <SongPublicLinkControls
                   role={role}
                   initialState={publicSharing}
+                  shareTitle={songTitle}
                   {...(publicSharingActions ? { actions: publicSharingActions } : {})}
                   {...(publicSharingRefresh ? { refreshLiveState: publicSharingRefresh } : {})}
                 />
@@ -1709,9 +1786,7 @@ export function SongPage({
                         role="menuitem"
                         disabled
                         title={
-                          activeVersionDeleted
-                            ? "Audio was deleted"
-                            : "Audio is still uploading"
+                          activeVersionDeleted ? "Audio was deleted" : "Audio is still uploading"
                         }
                         className="flex min-h-11 w-full cursor-not-allowed items-center gap-2.5 rounded-[var(--radius-lg)] px-3 py-2 text-left text-[13px] font-semibold opacity-50"
                       >
@@ -1964,8 +2039,13 @@ export function SongPage({
                 type="text"
                 data-test="comment-input"
                 maxLength={2000}
+                disabled={isPending}
                 placeholder="Add a note at this timestamp…"
                 className="min-h-11 min-w-0 flex-1 bg-transparent text-[13.5px] outline-none placeholder:text-[rgb(var(--fg-muted))] sm:min-h-0"
+                value={commentDraft.body}
+                onChange={(event) => {
+                  commentDraft.setBodyFromUser(event.currentTarget.value);
+                }}
                 onFocus={handleComposerFocus}
                 onBlur={handleComposerBlur}
                 onKeyDown={(e) => {
@@ -1980,9 +2060,10 @@ export function SongPage({
                 data-test="comment-post"
                 onClick={handleAddComment}
                 disabled={isPending}
+                aria-disabled={!online}
                 className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-sm)] bg-[rgb(var(--fg-default))] px-4 py-1.5 text-[11.5px] font-bold tracking-wide text-[rgb(var(--bg-elevated))] transition-[transform,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:-translate-y-px hover:shadow-[0_8px_20px_-6px_rgb(var(--fg-default)/0.35)] disabled:opacity-60 sm:min-h-0"
               >
-                Post
+                {online ? "Post" : "Offline"}
               </button>
             </div>
           )}
@@ -2059,7 +2140,7 @@ export function SongPage({
                         onClick={() => {
                           handleJumpToComment(c.timeMs);
                         }}
-                        className="hidden min-h-11 min-w-11 items-center justify-center text-[10px] font-bold tracking-wide text-[rgb(var(--fg-muted))] uppercase group-hover/note:inline-flex hover:text-[rgb(var(--fg-default))] [@media(hover:none)]:inline-flex sm:min-h-0 sm:min-w-0"
+                        className="hidden min-h-11 min-w-11 items-center justify-center text-[10px] font-bold tracking-wide text-[rgb(var(--fg-muted))] uppercase group-hover/note:inline-flex hover:text-[rgb(var(--fg-default))] sm:min-h-0 sm:min-w-0 [@media(hover:none)]:inline-flex"
                       >
                         Jump
                       </button>
@@ -2070,7 +2151,7 @@ export function SongPage({
                           onClick={() => {
                             handleReplyToComment(c.authorName);
                           }}
-                          className="hidden min-h-11 min-w-11 items-center justify-center text-[10px] font-bold tracking-wide text-[rgb(var(--fg-muted))] uppercase group-hover/note:inline-flex hover:text-[rgb(var(--fg-default))] [@media(hover:none)]:inline-flex sm:min-h-0 sm:min-w-0"
+                          className="hidden min-h-11 min-w-11 items-center justify-center text-[10px] font-bold tracking-wide text-[rgb(var(--fg-muted))] uppercase group-hover/note:inline-flex hover:text-[rgb(var(--fg-default))] sm:min-h-0 sm:min-w-0 [@media(hover:none)]:inline-flex"
                         >
                           Reply
                         </button>
@@ -2078,10 +2159,11 @@ export function SongPage({
                       <button
                         type="button"
                         data-test="comment-resolve"
+                        disabled={isPending}
                         onClick={() => {
                           handleResolveToggle(c);
                         }}
-                        className="hidden min-h-11 min-w-11 shrink-0 items-center justify-center text-[10px] font-bold tracking-wide text-[rgb(var(--fg-muted))] uppercase group-hover/note:inline-flex hover:text-[rgb(var(--fg-default))] [@media(hover:none)]:inline-flex sm:min-h-0 sm:min-w-0"
+                        className="hidden min-h-11 min-w-11 shrink-0 items-center justify-center text-[10px] font-bold tracking-wide text-[rgb(var(--fg-muted))] uppercase group-hover/note:inline-flex hover:text-[rgb(var(--fg-default))] sm:min-h-0 sm:min-w-0 [@media(hover:none)]:inline-flex"
                       >
                         Reopen
                       </button>
@@ -2169,6 +2251,7 @@ export function SongPage({
                         <button
                           type="button"
                           data-test="comment-resolve"
+                          disabled={isPending}
                           onClick={() => {
                             handleResolveToggle(c);
                           }}

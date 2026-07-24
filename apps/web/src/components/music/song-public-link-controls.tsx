@@ -1,10 +1,13 @@
 "use client";
 
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { Copy, ExternalLink, Link2, RefreshCw, ShieldOff, X } from "lucide-react";
+import { ExternalLink, Link2, RefreshCw, Share2, ShieldOff, X } from "lucide-react";
 import { useEffect, useState, useTransition } from "react";
 
 import { useToast } from "~/components/ui/toast";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
+import { shareNative, type NativeSharePayload, type NativeShareResult } from "~/lib/native/share";
+import { PUBLIC_BRAND_ORIGIN } from "~/lib/share/public-url";
 
 export type SongPublicSharingView = Readonly<{
   trackId: string;
@@ -27,14 +30,32 @@ export type SongPublicSharingRefresh = (input: {
   trackId: string;
 }) => Promise<SongPublicSharingRefreshResult>;
 
-export type SongPublicLinkCopyResult =
-  | { ok: true; state: SongPublicSharingView }
-  | { ok: false; error: string; state?: SongPublicSharingView };
+export type SongPublicLinkShareResult =
+  | {
+      ok: true;
+      method: "native" | "clipboard";
+      state: SongPublicSharingView;
+    }
+  | {
+      ok: false;
+      error: string;
+      cancelled?: boolean;
+      state?: SongPublicSharingView;
+    };
 
 export type SongPublicSharingActions = Readonly<{
-  publish: (input: { trackId: string; operationKey: string }) => Promise<SongPublicSharingActionResult>;
-  reset: (input: { trackId: string; operationKey: string }) => Promise<SongPublicSharingActionResult>;
-  disable: (input: { trackId: string; operationKey: string }) => Promise<SongPublicSharingActionResult>;
+  publish: (input: {
+    trackId: string;
+    operationKey: string;
+  }) => Promise<SongPublicSharingActionResult>;
+  reset: (input: {
+    trackId: string;
+    operationKey: string;
+  }) => Promise<SongPublicSharingActionResult>;
+  disable: (input: {
+    trackId: string;
+    operationKey: string;
+  }) => Promise<SongPublicSharingActionResult>;
   setPortfolioPublic: (input: {
     trackId: string;
     operationKey: string;
@@ -48,16 +69,19 @@ function publicStatus(state: SongPublicSharingView): "live" | "disabled" | "unpu
 }
 
 /**
- * Artists re-check the authenticated server state at the moment of copying.
- * This prevents an already-open tab from copying a URL that the producer has
+ * Artists re-check the authenticated server state at the moment of sharing.
+ * This prevents an already-open tab from sharing a URL that the producer has
  * reset or disabled since the page rendered.
  */
-export async function copyAuthoritativePublicSongLink(input: Readonly<{
-  role: "producer" | "artist";
-  state: SongPublicSharingView;
-  refreshLiveState?: SongPublicSharingRefresh;
-  writeText: (value: string) => Promise<void>;
-}>): Promise<SongPublicLinkCopyResult> {
+export async function shareAuthoritativePublicSongLink(
+  input: Readonly<{
+    role: "producer" | "artist";
+    state: SongPublicSharingView;
+    title: string;
+    refreshLiveState?: SongPublicSharingRefresh;
+    shareLink?: (payload: NativeSharePayload) => Promise<NativeShareResult>;
+  }>,
+): Promise<SongPublicLinkShareResult> {
   let current = input.state;
   if (input.role === "artist") {
     if (!input.refreshLiveState) {
@@ -87,31 +111,59 @@ export async function copyAuthoritativePublicSongLink(input: Readonly<{
     return { ok: false, error: "This public link is no longer live.", state: current };
   }
 
+  let url: URL;
   try {
-    await input.writeText(current.publicUrl);
-    return { ok: true, state: current };
+    url = new URL(current.publicUrl);
   } catch {
-    return { ok: false, error: "Could not copy the link. Please try again." };
+    return { ok: false, error: "This public link is no longer live.", state: current };
   }
+  if (
+    url.origin !== PUBLIC_BRAND_ORIGIN ||
+    !/^\/listen\/[A-Za-z0-9_-]+$/.test(url.pathname) ||
+    url.search.length > 0 ||
+    url.hash.length > 0
+  ) {
+    return { ok: false, error: "This public link is no longer live.", state: current };
+  }
+
+  let result: NativeShareResult;
+  try {
+    result = await (input.shareLink ?? shareNative)({
+      title: input.title,
+      url: url.toString(),
+      fallbackText: url.toString(),
+    });
+  } catch {
+    return { ok: false, error: "Could not share the link. Please try again.", state: current };
+  }
+  if (result.status === "shared") return { ok: true, method: "native", state: current };
+  if (result.status === "copied") return { ok: true, method: "clipboard", state: current };
+  if (result.status === "cancelled") {
+    return { ok: false, error: "Share cancelled.", cancelled: true, state: current };
+  }
+  return { ok: false, error: "Could not share the link. Please try again.", state: current };
 }
 
 export function SongPublicLinkControls({
   role,
   initialState,
+  shareTitle,
   actions,
   refreshLiveState,
 }: {
   role: "producer" | "artist";
   initialState: SongPublicSharingView;
+  shareTitle: string;
   actions?: SongPublicSharingActions;
   refreshLiveState?: SongPublicSharingRefresh;
 }) {
   const [state, setState] = useState(initialState);
   const [open, setOpen] = useState(false);
   const [confirmation, setConfirmation] = useState<"reset" | "disable" | null>(null);
-  const [copying, setCopying] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [pending, startTransition] = useTransition();
   const { toast } = useToast();
+  const online = useOnlineStatus();
 
   useEffect(() => {
     setState(initialState);
@@ -122,64 +174,82 @@ export function SongPublicLinkControls({
   const status = publicStatus(state);
   const canPublish = state.remainingAudioCount > 0;
 
-  async function copyLink() {
-    if (copying || !state.linkEnabled || !state.publicUrl) return;
-    setCopying(true);
-    const result = await copyAuthoritativePublicSongLink({
+  async function shareLink() {
+    if (sharing || !state.linkEnabled || !state.publicUrl) return;
+    setSharing(true);
+    const result = await shareAuthoritativePublicSongLink({
       role,
       state,
+      title: shareTitle,
       ...(refreshLiveState ? { refreshLiveState } : {}),
-      writeText: (value) => navigator.clipboard.writeText(value),
     });
-    setCopying(false);
+    setSharing(false);
     if (result.state) setState(result.state);
-    toast(result.ok ? "Public song link copied" : result.error, result.ok ? "success" : "error");
+    if (result.ok) {
+      toast(
+        result.method === "native" ? "Public song link shared" : "Public song link copied",
+        "success",
+      );
+    } else if (!result.cancelled) {
+      toast(result.error, "error");
+    }
   }
 
   function run(
     action: (operationKey: string) => Promise<SongPublicSharingActionResult>,
     success: string,
   ) {
+    if (role === "producer" && !online) {
+      toast("Reconnect to change this public song link.", "error");
+      return;
+    }
     startTransition(async () => {
-      const result = await action(crypto.randomUUID());
-      if (!result.ok) {
-        toast(result.error, "error");
-        return;
+      try {
+        const result = await action(crypto.randomUUID());
+        if (!result.ok) {
+          toast(result.error, "error");
+          return;
+        }
+        setState(result.state);
+        setConfirmation(null);
+        toast(success, "success");
+      } catch {
+        toast("Could not update this public song link. Try again.", "error");
       }
-      setState(result.state);
-      setConfirmation(null);
-      toast(success, "success");
     });
   }
 
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={(next) => {
-      setOpen(next);
-      if (!next) setConfirmation(null);
-    }}>
+    <DialogPrimitive.Root
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setConfirmation(null);
+      }}
+    >
       <DialogPrimitive.Trigger asChild>
         <button
           type="button"
           data-test="song-public-link-control"
-          className="sk-press inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-lg)] border border-white/28 bg-white/[0.06] px-4 py-2 text-[12.5px] font-bold text-white transition-[background-color,transform] duration-200 hover:-translate-y-px hover:bg-white/[0.14] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 motion-reduce:transform-none motion-reduce:transition-none"
+          className="sk-press inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-lg)] border border-white/28 bg-white/[0.06] px-4 py-2 text-[12.5px] font-bold text-white transition-[background-color,transform] duration-200 hover:-translate-y-px hover:bg-white/[0.14] focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none motion-reduce:transform-none motion-reduce:transition-none"
         >
           <span
             aria-hidden="true"
             className={`h-2 w-2 rounded-full ${status === "live" ? "bg-emerald-400 shadow-[0_0_10px_rgb(74_222_128/0.7)]" : "bg-white/35"}`}
           />
-          {role === "artist" ? "Copy public link" : "Public link"}
+          {role === "artist" ? "Share public link" : "Public link"}
         </button>
       </DialogPrimitive.Trigger>
 
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-[90] bg-black/55 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out motion-reduce:animate-none" />
-        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-[91] w-[calc(100vw-2rem)] max-w-[520px] -translate-x-1/2 -translate-y-1/2 rounded-[var(--radius-xl)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 text-[rgb(var(--fg-default))] shadow-[0_32px_90px_rgb(0_0_0/0.36)] focus:outline-none sm:p-7">
+        <DialogPrimitive.Overlay className="data-[state=open]:animate-in data-[state=closed]:animate-out fixed inset-0 z-[90] bg-black/55 backdrop-blur-sm motion-reduce:animate-none" />
+        <DialogPrimitive.Content className="fixed top-1/2 left-1/2 z-[91] w-[calc(100vw-2rem)] max-w-[520px] -translate-x-1/2 -translate-y-1/2 rounded-[var(--radius-xl)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 text-[rgb(var(--fg-default))] shadow-[0_32px_90px_rgb(0_0_0/0.36)] focus:outline-none sm:p-7">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[rgb(var(--brand-primary-dark))]">
+              <p className="font-mono text-[10px] font-bold tracking-[0.18em] text-[rgb(var(--brand-primary-dark))] uppercase">
                 Guest listening
               </p>
-              <DialogPrimitive.Title className="mt-2 font-display text-2xl font-bold tracking-[-0.025em]">
+              <DialogPrimitive.Title className="font-display mt-2 text-2xl font-bold tracking-[-0.025em]">
                 Public song link
               </DialogPrimitive.Title>
               <DialogPrimitive.Description className="mt-2 text-sm leading-relaxed text-[rgb(var(--fg-muted))]">
@@ -190,7 +260,7 @@ export function SongPublicLinkControls({
               <button
                 type="button"
                 aria-label="Close public link controls"
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--fg-default)/0.06)] hover:text-[rgb(var(--fg-default))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] motion-reduce:transition-none"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--fg-default)/0.06)] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none motion-reduce:transition-none"
               >
                 <X className="h-4 w-4" aria-hidden="true" />
               </button>
@@ -205,7 +275,11 @@ export function SongPublicLinkControls({
                   aria-hidden="true"
                 />
                 <span className="text-sm font-bold">
-                  {status === "live" ? "Link live" : status === "disabled" ? "Link disabled" : "Not published"}
+                  {status === "live"
+                    ? "Link live"
+                    : status === "disabled"
+                      ? "Link disabled"
+                      : "Not published"}
                 </span>
               </div>
               {state.linkEnabled && state.publicUrl ? (
@@ -213,21 +287,24 @@ export function SongPublicLinkControls({
                   href={state.publicUrl}
                   target="_blank"
                   rel="noreferrer noopener"
-                  className="inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] px-3 text-xs font-bold text-[rgb(var(--brand-primary-dark))] hover:bg-[rgb(var(--brand-primary)/0.1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+                  className="inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] px-3 text-xs font-bold text-[rgb(var(--brand-primary-dark))] hover:bg-[rgb(var(--brand-primary)/0.1)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
                 >
                   Preview <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                 </a>
               ) : null}
             </div>
             {state.linkEnabled && state.publicUrl ? (
-              <p className="mt-3 break-all font-mono text-[11px] leading-relaxed text-[rgb(var(--fg-muted))]">
+              <p className="mt-3 font-mono text-[11px] leading-relaxed break-all text-[rgb(var(--fg-muted))]">
                 {state.publicUrl}
               </p>
             ) : null}
           </div>
 
           {confirmation ? (
-            <div role="alert" className="mt-5 rounded-[var(--radius-lg)] border border-amber-500/30 bg-amber-500/10 p-4">
+            <div
+              role="alert"
+              className="mt-5 rounded-[var(--radius-lg)] border border-amber-500/30 bg-amber-500/10 p-4"
+            >
               <p className="text-sm font-bold">
                 {confirmation === "reset" ? "Replace this public URL?" : "Disable guest access?"}
               </p>
@@ -255,13 +332,18 @@ export function SongPublicLinkControls({
                     run(
                       confirmation === "reset"
                         ? (operationKey) => actions.reset({ trackId: state.trackId, operationKey })
-                        : (operationKey) => actions.disable({ trackId: state.trackId, operationKey }),
+                        : (operationKey) =>
+                            actions.disable({ trackId: state.trackId, operationKey }),
                       confirmation === "reset" ? "New public URL created" : "Public link disabled",
                     );
                   }}
                   className="min-h-11 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-sm font-bold text-[rgb(var(--bg-base))] disabled:opacity-50"
                 >
-                  {pending ? "Working…" : confirmation === "reset" ? "Create new URL" : "Disable link"}
+                  {pending
+                    ? "Working…"
+                    : confirmation === "reset"
+                      ? "Create new URL"
+                      : "Disable link"}
                 </button>
               </div>
             </div>
@@ -271,11 +353,12 @@ export function SongPublicLinkControls({
                 <div className="grid gap-2 sm:grid-cols-3">
                   <button
                     type="button"
-                    onClick={() => void copyLink()}
-                    disabled={copying}
-                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-bold text-[rgb(var(--fg-primary))]"
+                    onClick={() => void shareLink()}
+                    disabled={sharing}
+                    className="sk-press inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-bold text-[rgb(var(--fg-primary))]"
                   >
-                    <Copy className="h-4 w-4" aria-hidden="true" /> {copying ? "Checking…" : "Copy link"}
+                    <Share2 className="h-4 w-4" aria-hidden="true" />{" "}
+                    {sharing ? "Checking…" : "Share link"}
                   </button>
                   {role === "producer" ? (
                     <>
@@ -314,7 +397,11 @@ export function SongPublicLinkControls({
                   className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 text-sm font-bold text-[rgb(var(--fg-primary))] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Link2 className="h-4 w-4" aria-hidden="true" />
-                  {pending ? "Publishing…" : status === "disabled" ? "Publish a new URL" : "Publish public link"}
+                  {pending
+                    ? "Publishing…"
+                    : status === "disabled"
+                      ? "Publish a new URL"
+                      : "Publish public link"}
                 </button>
               ) : null}
 

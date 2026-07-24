@@ -205,6 +205,7 @@ export function ProjectPage({
       title: t.title,
       subtitle: `${artistLabel} · ${t.versionLabel ?? "No version"}`,
       durationMs: t.durationMs,
+      ...(role === "producer" ? { cachePolicy: "account-unlocked" as const } : {}),
     };
   }
 

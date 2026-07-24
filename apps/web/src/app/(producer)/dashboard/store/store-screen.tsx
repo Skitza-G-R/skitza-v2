@@ -8,15 +8,22 @@
 
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { reorderProducts, setPackageActive } from "~/app/(producer)/dashboard/booking/actions";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
+import { useProducerStoreProductDraft } from "~/components/runtime-state/use-runtime-state";
 import { useToast } from "~/components/ui/toast";
 import type { TaxMode } from "~/lib/tax-mode";
 
 import { EmptyState } from "./empty-state";
-import { countByFilter, filterAndSearch, type FilterTab } from "./filter-search";
+import {
+  countByFilter,
+  filterAndSearch,
+  parseStoreUrlState,
+  type FilterTab,
+} from "./filter-search";
 import { NewProductButton } from "./new-product-button";
 import { ProductCard, type ProductCardData } from "./product-card";
 import { ProductEditor } from "./product-editor";
@@ -72,22 +79,78 @@ export function StoreScreen({
   producerName = "Your studio",
 }: StoreScreenProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const urlState = parseStoreUrlState(searchParams.toString());
   const { toast } = useToast();
+  const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
-  const [filter, setFilter] = useState<FilterTab>("all");
-  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<FilterTab>(urlState.filter);
+  const [search, setSearch] = useState(urlState.search);
   // Editor state. `creating` opens <ProductEditor> in create mode;
   // `editing` opens it in edit mode pre-filled. `removing` opens the
   // lifecycle-aware confirmation for a single product.
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<StoreProduct | null>(null);
   const [removing, setRemoving] = useState<StoreProduct | null>(null);
+  const storeDraft = useProducerStoreProductDraft();
+  const restoredStoreDraftRef = useRef(false);
   // Phase 3 P3-11 — flags the most-recently-created product id so its
   // card gets the `sk-shimmer-glow` className for ~4s. Cleared by the
   // setTimeout in handleCreated below. Holds at most one id at a time.
   const [recentlyAdded, setRecentlyAdded] = useState<string | null>(null);
   const [reorderAnnouncement, setReorderAnnouncement] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const next = parseStoreUrlState(searchParams.toString());
+    setFilter(next.filter);
+    setSearch(next.search);
+  }, [searchParams]);
+
+  function replaceUrlState(
+    key: "filter" | "search",
+    value: string,
+    defaultValue: string,
+  ) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (value === defaultValue) params.delete(key);
+    else params.set(key, value.slice(0, 120));
+    const query = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      `${pathname}${query ? `?${query}` : ""}`,
+    );
+  }
+
+  function updateFilter(next: FilterTab) {
+    setFilter(next);
+    replaceUrlState("filter", next, "all");
+  }
+
+  function updateSearch(next: string) {
+    const bounded = next.slice(0, 120);
+    setSearch(bounded);
+    replaceUrlState("search", bounded, "");
+  }
+
+  useLayoutEffect(() => {
+    if (!storeDraft.loaded || restoredStoreDraftRef.current) return;
+    restoredStoreDraftRef.current = true;
+    const saved = storeDraft.record;
+    if (!saved) return;
+    if (saved.mode === "new") {
+      setCreating(true);
+      return;
+    }
+    const product = products.find((item) => item.id === saved.productId);
+    if (product) {
+      setEditing(product);
+      return;
+    }
+    storeDraft.clear();
+  }, [products, storeDraft]);
 
   function handleCreated(id: string) {
     setRecentlyAdded(id);
@@ -122,6 +185,10 @@ export function StoreScreen({
 
   function moveProduct(productId: string, targetId: string | undefined) {
     if (!targetId || productId === targetId) return;
+    if (!online) {
+      toast("Reconnect to reorder products.", "error");
+      return;
+    }
     const fromIndex = optimisticProducts.findIndex((product) => product.id === productId);
     const targetIndex = optimisticProducts.findIndex((product) => product.id === targetId);
     if (fromIndex < 0 || targetIndex < 0) return;
@@ -138,13 +205,19 @@ export function StoreScreen({
     setOptimisticProducts(nextProducts);
     setReorderAnnouncement(`Moved ${moving.name} ${direction}.`);
     startTransition(async () => {
-      const res = await reorderProducts({ orderedIds: nextIds });
-      if (!res.ok) {
+      try {
+        const res = await reorderProducts({ orderedIds: nextIds });
+        if (!res.ok) {
+          setOptimisticProducts(products);
+          setReorderAnnouncement(`Could not move ${moving.name}.`);
+          toast(res.error, "error");
+        } else {
+          router.refresh();
+        }
+      } catch {
         setOptimisticProducts(products);
         setReorderAnnouncement(`Could not move ${moving.name}.`);
-        toast(res.error, "error");
-      } else {
-        router.refresh();
+        toast("Could not reorder products. Please try again.", "error");
       }
     });
   }
@@ -198,14 +271,22 @@ export function StoreScreen({
   }, [creating, editing, removing]);
 
   function onToggleVisible(p: StoreProduct) {
+    if (!online) {
+      toast("Reconnect to change product visibility.", "error");
+      return;
+    }
     const next = !p.active;
     startTransition(async () => {
-      const res = await setPackageActive({ id: p.id, active: next });
-      if (res.ok) {
-        toast(next ? `"${p.name}" is now live.` : `"${p.name}" hidden.`, "success");
-        router.refresh();
-      } else {
-        toast(res.error, "error");
+      try {
+        const res = await setPackageActive({ id: p.id, active: next });
+        if (res.ok) {
+          toast(next ? `"${p.name}" is now live.` : `"${p.name}" hidden.`, "success");
+          router.refresh();
+        } else {
+          toast(res.error, "error");
+        }
+      } catch {
+        toast("Could not update product visibility. Please try again.", "error");
       }
     });
   }
@@ -235,10 +316,10 @@ export function StoreScreen({
       <StoreToolbar
         ref={searchRef}
         filter={filter}
-        onFilterChange={setFilter}
+        onFilterChange={updateFilter}
         counts={counts}
         search={search}
-        onSearchChange={setSearch}
+        onSearchChange={updateSearch}
       />
 
       <p className="sr-only" aria-live="polite" aria-atomic="true">
@@ -340,13 +421,18 @@ export function StoreScreen({
         producerName={producerName}
         previewPlacement={counts.live === 0 ? "focal" : "secondary"}
         onCreated={handleCreated}
+        onSubmitted={storeDraft.clear}
+        persistedDraft={storeDraft.record}
+        onPersistDraft={storeDraft.save}
       />
 
       {/* Edit modal */}
       <ProductEditor
         open={editing !== null}
         onOpenChange={(o) => {
-          if (!o) setEditing(null);
+          if (!o) {
+            setEditing(null);
+          }
         }}
         product={editing}
         defaultCurrency={defaultCurrency}
@@ -356,6 +442,9 @@ export function StoreScreen({
         previewPlacement={
           editing?.active && editing.id === firstLiveProductId ? "focal" : "secondary"
         }
+        onSubmitted={storeDraft.clear}
+        persistedDraft={storeDraft.record}
+        onPersistDraft={storeDraft.save}
       />
 
       <ProductRemovalModal
@@ -367,6 +456,10 @@ export function StoreScreen({
         action={removing ? productRemovalAction(removing) : "archive"}
         onConfirm={() => {
           if (removing) {
+            if (!online) {
+              toast("Reconnect to remove this product.", "error");
+              return;
+            }
             void removeProduct({
               id: removing.id,
               name: removing.name,

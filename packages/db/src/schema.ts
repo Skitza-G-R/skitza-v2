@@ -1081,6 +1081,75 @@ export const notifications = pgTable(
 export type Notification = typeof notifications.$inferSelect;
 export type NewNotification = typeof notifications.$inferInsert;
 
+// ─── Web Push subscriptions (SK-112) ───────────────────────────────
+// One row represents one browser/device subscription. Clerk's stable user id
+// is the ownership boundary because the same signed-in person may be a
+// producer, an artist across several studios, or both. Endpoints remain
+// globally unique by their server-computed SHA-256 digest: a browser endpoint
+// already owned by one account can never be silently reassigned to another.
+//
+// Categories are deliberately limited to real product events with delivery
+// paths. An empty array is the default and means no push is sent until the
+// user explicitly opts in from that browser.
+export type PushSubscriptionCategory =
+  | "booking"
+  | "payment"
+  | "comment"
+  | "project_status"
+  | "song_status"
+  | "purchase_status";
+
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    clerkUserId: text("clerk_user_id").notNull(),
+    endpoint: text("endpoint").notNull(),
+    endpointHash: text("endpoint_hash").notNull(),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    categories: text("categories")
+      .array()
+      .$type<PushSubscriptionCategory[]>()
+      .notNull()
+      .default(sql`'{}'`),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    endpointHashUnique: unique("push_subscriptions_endpoint_hash_unique").on(t.endpointHash),
+    idOwnerUnique: unique("push_subscriptions_id_owner_unique").on(t.id, t.clerkUserId),
+    ownerUpdatedIdx: index("push_subscriptions_owner_updated_idx").on(t.clerkUserId, t.updatedAt),
+    expiresIdx: index("push_subscriptions_expires_idx")
+      .on(t.expiresAt)
+      .where(sql`${t.expiresAt} IS NOT NULL`),
+    endpointIsHttps: check(
+      "push_subscriptions_endpoint_https",
+      sql`${t.endpoint} ~ '^https://[^[:space:]]+$'`,
+    ),
+    endpointHashShape: check(
+      "push_subscriptions_endpoint_hash_shape",
+      sql`${t.endpointHash} ~ '^sha256:[0-9a-f]{64}$'`,
+    ),
+    keyShape: check(
+      "push_subscriptions_key_shape",
+      sql`char_length(${t.p256dh}) BETWEEN 32 AND 256 AND char_length(${t.auth}) BETWEEN 8 AND 128`,
+    ),
+    categoriesAllowlist: check(
+      "push_subscriptions_categories_allowlist",
+      sql`${t.categories} <@ ARRAY['booking', 'payment', 'comment', 'project_status', 'song_status', 'purchase_status']::text[]`,
+    ),
+    futureExpiry: check(
+      "push_subscriptions_future_expiry",
+      sql`${t.expiresAt} IS NULL OR ${t.expiresAt} > ${t.createdAt}`,
+    ),
+  }),
+);
+
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+export type NewPushSubscription = typeof pushSubscriptions.$inferInsert;
+
 // ─── Producer external links (Wave 2 of /join flow) ────────────────
 // PRD §6.2 Section B: the `/join/<slug>` teaser has two audio sections.
 // Section A (portfolioTracks + is_public_sample) holds Skitza-uploaded

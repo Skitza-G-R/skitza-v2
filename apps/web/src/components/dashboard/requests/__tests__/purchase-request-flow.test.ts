@@ -127,7 +127,7 @@ describe("producer purchase request flow", () => {
     expect(producerGet).not.toMatch(
       /request\.status === "canceled" \|\| request\.status === "converted"/,
     );
-    expect(purchaseRouterSource).toMatch(/emitAgreementAccepted\(ctx\.db, result\.notification\)/);
+    expect(purchaseRouterSource).toMatch(/emitAgreementAccepted\(ctx\.db, notification\)/);
   });
 
   it("keeps foreign, missing, and guessed proof ids on the 404 path", () => {
@@ -146,7 +146,9 @@ describe("producer purchase request flow", () => {
     expect(reviewSource).toMatch(/setUndoableUntilIso\(result\.undoableUntilIso\)/);
     expect(reviewSource).toContain("Private note (optional)");
     expect(reviewSource).toContain("The artist receives a generic update.");
-    expect(reviewSource).toMatch(/disabled=\{isPending \|\| !canApprove\}/);
+    expect(reviewSource).toMatch(/disabled=\{isPending \|\| !canApprove \|\| !online\}/);
+    expect(reviewSource).toContain("useOnlineStatus");
+    expect(reviewSource).toContain("Reconnect to approve this request.");
     expect(reviewSource).toContain("artist cannot continue while the Store product is hidden");
     expect(reviewSource).toMatch(/aria-describedby="decline-reason-help"/);
     expect(reviewSource).toMatch(/role=\{error \? "alert" : undefined\}/);

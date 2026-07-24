@@ -32,7 +32,17 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 
 import { useToast } from "~/components/ui/toast";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { PlatformIcon } from "~/components/portfolio/platform-icons";
+import {
+  pickDurationMs,
+  playerClose,
+  playerPlay,
+  playerSeek,
+  playerToggle,
+  useNowPlaying,
+} from "~/components/audio/persistent-player";
+import { usePlaybackSnapshot } from "~/components/audio/playback-runtime";
 
 import {
   addExternalLink,
@@ -45,7 +55,10 @@ import {
 // ─── Public types ───────────────────────────────────────────────────
 
 export type PortfolioTrackRow = {
+  /** Song/track identity used for portfolio publication mutations. */
   id: string;
+  /** Exact latest version identity used by the shared player and expand route. */
+  versionId: string;
   title: string;
   artist: string | null;
   portfolioPublished: true;
@@ -242,13 +255,11 @@ function FeaturedTracksSection({
   publishedTrackIds: string[];
 }) {
   const [rows, setRows] = useState<PortfolioTrackRow[]>(initialTracks);
-  // The single source of truth for "which track is currently playing".
-  // Lifted from per-row state so clicking play on row B implicitly
-  // pauses row A — see computePlayingId for the state machine.
-  const [playingId, setPlayingId] = useState<string | null>(null);
   const router = useRouter();
   const { toast } = useToast();
+  const online = useOnlineStatus();
   const [, startTransition] = useTransition();
+  const playback = useNowPlaying();
 
   useEffect(() => {
     setRows(initialTracks);
@@ -256,26 +267,33 @@ function FeaturedTracksSection({
 
   const atCap = rows.length >= TRACK_CAP;
 
-  function handlePlayChange(id: string, next: boolean) {
-    setPlayingId((curr) => computePlayingId(curr, id, next));
-  }
-
   function remove(id: string) {
-    // If the row being removed was playing, stop tracking it.
-    setPlayingId((curr) => (curr === id ? null : curr));
+    if (!online) {
+      toast("Reconnect to change your featured tracks.", "error");
+      return;
+    }
+    const removed = rows.find((row) => row.id === id);
+    if (removed && playback.trackId === removed.versionId) {
+      playerClose();
+    }
     setRows((all) => all.filter((r) => r.id !== id));
     startTransition(async () => {
-      const res = await setPortfolioSongPublished({
-        trackId: id,
-        operationKey: crypto.randomUUID(),
-        published: false,
-      });
-      if (!res.ok) {
-        toast(res.error, "error");
+      try {
+        const res = await setPortfolioSongPublished({
+          trackId: id,
+          operationKey: crypto.randomUUID(),
+          published: false,
+        });
+        if (!res.ok) {
+          toast(res.error, "error");
+          setRows(initialTracks);
+          return;
+        }
+        router.refresh();
+      } catch {
         setRows(initialTracks);
-        return;
+        toast("Could not remove this featured track. Please try again.", "error");
       }
-      router.refresh();
     });
   }
 
@@ -318,10 +336,6 @@ function FeaturedTracksSection({
             <TrackRow
               key={row.id}
               row={row}
-              isPlaying={playingId === row.id}
-              onPlayChange={(next) => {
-                handlePlayChange(row.id, next);
-              }}
               onRemove={() => {
                 remove(row.id);
               }}
@@ -346,98 +360,65 @@ function FeaturedTracksEmpty() {
   );
 }
 
-function TrackRow({
-  row,
-  isPlaying,
-  onPlayChange,
-  onRemove,
-}: {
-  row: PortfolioTrackRow;
-  isPlaying: boolean;
-  onPlayChange: (next: boolean) => void;
-  onRemove: () => void;
-}) {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [progress, setProgress] = useState(0);
+function TrackRow({ row, onRemove }: { row: PortfolioTrackRow; onRemove: () => void }) {
+  const playback = useNowPlaying();
+  const isCurrent = playback.trackId === row.versionId;
+  const isPlaying = isCurrent && playback.playing;
+  const runtime = usePlaybackSnapshot();
+  const pendingSeekFractionRef = useRef<number | null>(null);
+  const resolvedDurationMs = pickDurationMs(
+    row.durationMs,
+    isCurrent ? runtime.audioDurationSec : null,
+  );
+  const progress =
+    isCurrent && resolvedDurationMs ? Math.min(1, runtime.currentMs / resolvedDurationMs) : 0;
 
-  function ensureAudio(): HTMLAudioElement | null {
-    if (!row.audioUrl) return null;
-    if (!audioRef.current) {
-      audioRef.current = new Audio(row.audioUrl);
-      audioRef.current.addEventListener("timeupdate", () => {
-        const a = audioRef.current;
-        if (!a || !a.duration) return;
-        setProgress(a.currentTime / a.duration);
-      });
-      audioRef.current.addEventListener("ended", () => {
-        setProgress(0);
-        // Tell the parent that this row finished. The parent will only
-        // clear `playingId` if it still matches this row's id (handled
-        // by computePlayingId).
-        onPlayChange(false);
-      });
-    }
-    return audioRef.current;
-  }
-
-  // Sync the audio element with the parent-controlled isPlaying prop.
-  // This is the mechanism that pauses the previously-playing row when
-  // a different row's play button is clicked: row A's isPlaying flips
-  // from true → false, this effect fires, and audioRef.pause() runs.
   useEffect(() => {
-    if (isPlaying) {
-      const a = ensureAudio();
-      if (a) {
-        void a.play().catch(() => {
-          // play() can reject on autoplay restrictions or a stale
-          // audioRef. Bubble back to the parent so the UI stays in
-          // sync with reality.
-          onPlayChange(false);
-        });
-      }
-    } else {
-      audioRef.current?.pause();
+    if (!isCurrent) {
+      pendingSeekFractionRef.current = null;
+      return;
     }
-    // Dep array is intentionally narrow: ensureAudio + onPlayChange
-    // are not re-created on every render in a way that affects this
-    // sync — adding them would cause needless re-triggers when the
-    // parent re-renders for an unrelated reason.
-  }, [isPlaying]);
-
-  // Pause + free audio on unmount so a row removed from the list (or
-  // a page that navigates away) doesn't keep playing.
-  useEffect(() => {
-    return () => {
-      audioRef.current?.pause();
-    };
-  }, []);
+    const pendingFraction = pendingSeekFractionRef.current;
+    if (pendingFraction === null || !resolvedDurationMs) return;
+    pendingSeekFractionRef.current = null;
+    playerSeek(pendingFraction * resolvedDurationMs);
+  }, [isCurrent, resolvedDurationMs]);
 
   function togglePlay() {
     if (!row.audioUrl) return;
-    // Just signal intent to the parent — the useEffect above handles
-    // the actual audio.play() / pause() once isPlaying flips.
-    onPlayChange(!isPlaying);
+    if (isCurrent) {
+      playerToggle();
+      return;
+    }
+    playerPlay({
+      id: row.versionId,
+      audioUrl: row.audioUrl,
+      title: row.title,
+      subtitle: row.artist ?? row.versionLabel,
+      durationMs: row.durationMs,
+      cachePolicy: "account-unlocked",
+    });
   }
 
   function seekToFraction(fraction: number) {
     const clamped = Math.max(0, Math.min(1, fraction));
-    const a = ensureAudio();
-    if (!a) return;
-    if (a.duration && Number.isFinite(a.duration)) {
-      a.currentTime = clamped * a.duration;
-      setProgress(clamped);
-    } else {
-      a.addEventListener(
-        "loadedmetadata",
-        () => {
-          a.currentTime = clamped * a.duration;
-          setProgress(clamped);
-        },
-        { once: true },
-      );
+    if (!row.audioUrl) return;
+    if (!resolvedDurationMs) {
+      pendingSeekFractionRef.current = clamped;
     }
-    if (!isPlaying) {
-      onPlayChange(true);
+    if (!isCurrent) {
+      playerPlay({
+        id: row.versionId,
+        audioUrl: row.audioUrl,
+        title: row.title,
+        subtitle: row.artist ?? row.versionLabel,
+        durationMs: row.durationMs,
+        cachePolicy: "account-unlocked",
+      });
+    }
+    if (resolvedDurationMs) {
+      pendingSeekFractionRef.current = null;
+      playerSeek(clamped * resolvedDurationMs);
     }
   }
 
@@ -533,12 +514,12 @@ function TrackRow({
               <span className="font-mono text-[10px] tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
                 {row.versionLabel}
               </span>
-              {formatDuration(row.durationMs) ? (
+              {formatDuration(resolvedDurationMs) ? (
                 <>
                   {" "}
                   <span className="text-[rgb(var(--fg-muted))]">·</span>{" "}
                   <span className="font-mono text-[rgb(var(--fg-muted))] tabular-nums">
-                    {formatDuration(row.durationMs)}
+                    {formatDuration(resolvedDurationMs)}
                   </span>
                 </>
               ) : null}
@@ -604,6 +585,7 @@ function SocialLinksSection({ initialLinks }: { initialLinks: ExternalLinkRow[] 
   const [, startTransition] = useTransition();
   const router = useRouter();
   const { toast } = useToast();
+  const online = useOnlineStatus();
 
   useEffect(() => {
     setRows(initialLinks);
@@ -620,17 +602,26 @@ function SocialLinksSection({ initialLinks }: { initialLinks: ExternalLinkRow[] 
     const oldIndex = rows.findIndex((r) => r.id === active.id);
     const newIndex = rows.findIndex((r) => r.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
+    if (!online) {
+      toast("Reconnect to reorder social links.", "error");
+      return;
+    }
     const next = arrayMove(rows, oldIndex, newIndex);
     const orderedIds = next.map((r) => r.id);
     setRows(next);
     startTransition(async () => {
-      const res = await reorderExternalLinks({ orderedIds });
-      if (!res.ok) {
-        toast(res.error, "error");
+      try {
+        const res = await reorderExternalLinks({ orderedIds });
+        if (!res.ok) {
+          toast(res.error, "error");
+          setRows(initialLinks);
+          return;
+        }
+        router.refresh();
+      } catch {
         setRows(initialLinks);
-        return;
+        toast("Could not reorder social links. Please try again.", "error");
       }
-      router.refresh();
     });
   }
 
@@ -638,30 +629,48 @@ function SocialLinksSection({ initialLinks }: { initialLinks: ExternalLinkRow[] 
     e.preventDefault();
     const trimmed = url.trim();
     if (!trimmed) return;
+    if (!online) {
+      setError("Reconnect to add a social link.");
+      return;
+    }
     setError(null);
     setAdding(true);
     startTransition(async () => {
-      const res = await addExternalLink({ url: trimmed });
-      setAdding(false);
-      if (!res.ok) {
-        setError(res.error);
-        return;
+      try {
+        const res = await addExternalLink({ url: trimmed });
+        if (!res.ok) {
+          setError(res.error);
+          return;
+        }
+        setUrl("");
+        router.refresh();
+      } catch {
+        setError("Could not add this social link. Please try again.");
+      } finally {
+        setAdding(false);
       }
-      setUrl("");
-      router.refresh();
     });
   }
 
   function remove(id: string) {
+    if (!online) {
+      toast("Reconnect to remove a social link.", "error");
+      return;
+    }
     setRows((all) => all.filter((r) => r.id !== id));
     startTransition(async () => {
-      const res = await removeExternalLink({ id });
-      if (!res.ok) {
-        toast(res.error, "error");
+      try {
+        const res = await removeExternalLink({ id });
+        if (!res.ok) {
+          toast(res.error, "error");
+          setRows(initialLinks);
+          return;
+        }
+        router.refresh();
+      } catch {
         setRows(initialLinks);
-        return;
+        toast("Could not remove this social link. Please try again.", "error");
       }
-      router.refresh();
     });
   }
 
@@ -848,6 +857,7 @@ function AddFromLibraryButton({
   const [, startTransition] = useTransition();
   const router = useRouter();
   const { toast } = useToast();
+  const online = useOnlineStatus();
 
   useEffect(() => {
     if (!open) return;
@@ -863,20 +873,29 @@ function AddFromLibraryButton({
   function pick(row: LibraryPickRow) {
     if (!row.audioUrl) return;
     if (addedSet.has(row.trackId)) return;
+    if (!online) {
+      toast("Reconnect to publish a featured track.", "error");
+      return;
+    }
     setPendingId(row.trackId);
     startTransition(async () => {
-      const res = await setPortfolioSongPublished({
-        trackId: row.trackId,
-        operationKey: crypto.randomUUID(),
-        published: true,
-      });
-      setPendingId(null);
-      if (!res.ok) {
-        toast(res.error, "error");
-        return;
+      try {
+        const res = await setPortfolioSongPublished({
+          trackId: row.trackId,
+          operationKey: crypto.randomUUID(),
+          published: true,
+        });
+        if (!res.ok) {
+          toast(res.error, "error");
+          return;
+        }
+        setOpen(false);
+        router.refresh();
+      } catch {
+        toast("Could not publish this featured track. Please try again.", "error");
+      } finally {
+        setPendingId(null);
       }
-      setOpen(false);
-      router.refresh();
     });
   }
 

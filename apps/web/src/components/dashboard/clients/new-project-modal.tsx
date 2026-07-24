@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { type SyntheticEvent, useEffect, useState, useTransition } from "react";
 
 import { useToast } from "~/components/ui/toast";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import {
   ValidationHint,
   validateDisplayName,
@@ -70,6 +71,7 @@ export function NewProjectModal({
 }: NewProjectModalProps) {
   const { toast } = useToast();
   const router = useRouter();
+  const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
 
   const [title, setTitle] = useState("");
@@ -119,7 +121,7 @@ export function NewProjectModal({
   // - client mode is "existing" but nothing selected (and no lockedClient)
   // - pending (request in flight)
   const submitDisabled = (() => {
-    if (pending) return true;
+    if (pending || !online) return true;
     if (title.trim().length === 0) return true;
     if (!lockedClient) {
       if (clientMode === "existing" && !selectedClientId) return true;
@@ -140,6 +142,10 @@ export function NewProjectModal({
     }
     const finalTitleState = validateDisplayName(title);
     if (finalTitleState.kind !== "valid") {
+      return;
+    }
+    if (!online) {
+      toast("Reconnect to create a project.", "error");
       return;
     }
 
@@ -177,15 +183,19 @@ export function NewProjectModal({
         // so the column rounds cleanly across timezones.
         payload.deadlineAt = new Date(`${deadline}T00:00:00.000Z`).toISOString();
       }
-      const res = await createProjectAction(payload);
-      if (!res.ok) {
-        toast(res.error, "error");
-        return;
+      try {
+        const res = await createProjectAction(payload);
+        if (!res.ok) {
+          toast(res.error, "error");
+          return;
+        }
+        toast("Project created", "success");
+        onCreated?.();
+        router.refresh();
+        onClose();
+      } catch {
+        toast("Could not create this project. Please try again.", "error");
       }
-      toast("Project created", "success");
-      onCreated?.();
-      router.refresh();
-      onClose();
     });
   };
 

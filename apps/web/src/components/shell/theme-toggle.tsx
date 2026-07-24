@@ -18,7 +18,12 @@ export function ThemeToggle() {
 
   if (!mounted) {
     // Placeholder matching the button footprint to avoid layout shift.
-    return <div className="h-9 w-9 rounded-md" aria-hidden />;
+    return (
+      <div
+        className="h-11 w-11 rounded-[var(--radius-lg)] sm:h-9 sm:w-9 sm:rounded-[var(--radius-md)]"
+        aria-hidden
+      />
+    );
   }
 
   const isDark = resolvedTheme === "dark";
@@ -30,7 +35,7 @@ export function ThemeToggle() {
       onClick={() => {
         setTheme(isDark ? "light" : "dark");
       }}
-      className="inline-flex h-9 w-9 items-center justify-center rounded-md text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+      className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-primary))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none sm:h-9 sm:w-9 sm:rounded-[var(--radius-md)]"
     >
       {isDark ? <SunIcon /> : <MoonIcon />}
     </button>

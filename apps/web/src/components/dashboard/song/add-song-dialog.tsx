@@ -10,6 +10,7 @@ import {
   claimSongSpaceAction,
   createNoChargeSongProposalAction,
 } from "~/app/(producer)/dashboard/clients-projects/actions";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
 import { PUBLIC_BRAND_ORIGIN } from "~/lib/share/public-url";
 
@@ -108,6 +109,7 @@ export function AddSongDialog({
 }: AddSongDialogProps) {
   const router = useRouter();
   const { toast } = useToast();
+  const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
   const [projectId, setProjectId] = useState("");
   const [title, setTitle] = useState("");
@@ -156,48 +158,64 @@ export function AddSongDialog({
   const claim = () => {
     const normalizedTitle = title.trim();
     if (!project || !slot || !normalizedTitle || pending) return;
+    if (!online) {
+      toast("Reconnect to add this song.", "error");
+      return;
+    }
     startTransition(async () => {
-      const result = await claimSongSpaceAction({
-        projectId: project.id,
-        purchaseId: slot.purchaseId,
-        operationKey: operationKeyRef.current,
-        title: normalizedTitle,
-        ...(artist.trim() ? { artist: artist.trim() } : {}),
-      });
-      if (!result.ok) {
-        toast(result.error, "error");
+      try {
+        const result = await claimSongSpaceAction({
+          projectId: project.id,
+          purchaseId: slot.purchaseId,
+          operationKey: operationKeyRef.current,
+          title: normalizedTitle,
+          ...(artist.trim() ? { artist: artist.trim() } : {}),
+        });
+        if (!result.ok) {
+          toast(result.error, "error");
+          router.refresh();
+          return;
+        }
+        operationKeyRef.current = "";
+        toast("Song added", "success");
+        onClose();
+        router.push(`/dashboard/clients-projects/${result.data.projectId}/songs/${result.data.id}`);
         router.refresh();
-        return;
+      } catch {
+        toast("Could not add this song. Try again.", "error");
       }
-      operationKeyRef.current = "";
-      toast("Song added", "success");
-      onClose();
-      router.push(`/dashboard/clients-projects/${result.data.projectId}/songs/${result.data.id}`);
-      router.refresh();
     });
   };
 
   const createNoCharge = () => {
     const normalizedTitle = title.trim();
     if (!project || slot || !project.noChargeAvailable || !normalizedTitle || pending) return;
+    if (!online) {
+      toast("Reconnect to create this proposal.", "error");
+      return;
+    }
     startTransition(async () => {
-      const result = await createNoChargeSongProposalAction({
-        projectId: project.id,
-        operationKey: operationKeyRef.current,
-        title: normalizedTitle,
-      });
-      if (!result.ok) {
-        toast(result.error, "error");
-        router.refresh();
-        return;
+      try {
+        const result = await createNoChargeSongProposalAction({
+          projectId: project.id,
+          operationKey: operationKeyRef.current,
+          title: normalizedTitle,
+        });
+        if (!result.ok) {
+          toast(result.error, "error");
+          router.refresh();
+          return;
+        }
+        operationKeyRef.current = "";
+        setNoChargeProposal({
+          proposalToken: result.data.proposalToken,
+          projectTitle: result.data.projectTitle,
+          songTitle: result.data.title,
+        });
+        toast("No charge proposal ready", "success");
+      } catch {
+        toast("Could not create this proposal. Try again.", "error");
       }
-      operationKeyRef.current = "";
-      setNoChargeProposal({
-        proposalToken: result.data.proposalToken,
-        projectTitle: result.data.projectTitle,
-        songTitle: result.data.title,
-      });
-      toast("No charge proposal ready", "success");
     });
   };
 

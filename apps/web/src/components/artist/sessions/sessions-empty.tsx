@@ -28,13 +28,12 @@ export function SessionsEmpty({ studioId }: { studioId: string | null }) {
       <h2 className="font-syne text-[19px] font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
         No sessions yet
       </h2>
-      <p className="mt-1.5 max-w-[260px] text-pretty text-[13.5px] leading-relaxed text-[rgb(var(--fg-secondary))]">
-        Pick a producer&apos;s package first — then you can book your studio
-        time against it.
+      <p className="mt-1.5 max-w-[260px] text-[13.5px] leading-relaxed text-pretty text-[rgb(var(--fg-secondary))]">
+        Pick a producer&apos;s package first — then you can book your studio time against it.
       </p>
       <Link
         href={withArtistStudio("/artist/store", studioId)}
-        className="sk-press mt-5 inline-flex items-center justify-center rounded-[var(--radius-lg)] px-6 py-3 text-[15px] font-semibold"
+        className="sk-press mt-5 inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] px-6 py-3 text-[15px] font-semibold"
         style={{
           background: "rgb(var(--brand-primary))",
           color: "rgb(var(--bg-sidebar))",

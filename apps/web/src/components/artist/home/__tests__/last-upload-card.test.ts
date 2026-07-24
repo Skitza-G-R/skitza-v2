@@ -2,10 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const SRC = readFileSync(
-  join(__dirname, "../last-upload-card.tsx"),
-  "utf-8",
-);
+const SRC = readFileSync(join(__dirname, "../last-upload-card.tsx"), "utf-8");
 
 describe("LastUploadCard", () => {
   it("is a client component (uses player)", () => {
@@ -29,7 +26,7 @@ describe("LastUploadCard", () => {
 
   it("renders a NEW badge gated by unread", () => {
     expect(SRC).toMatch(/unread\s*&&/);
-    expect(SRC).toMatch(/>NEW</);
+    expect(SRC).toMatch(/>\s*NEW\s*</);
   });
 
   it("renders an Open library button linking to the project page", () => {
@@ -41,8 +38,11 @@ describe("LastUploadCard", () => {
     expect(SRC).toMatch(/Nothing\s*new/);
   });
 
-  it("calls playerToggle when the same track is already playing", () => {
-    expect(SRC).toMatch(/import\s*\{[^}]*playerToggle[^}]*\}\s*from\s*["']~\/components\/audio\/persistent-player["']/);
-    expect(SRC).toMatch(/isThisPlaying[\s\S]*?playerToggle\(\)/);
+  it("toggles the already-loaded track whether it is playing or paused", () => {
+    expect(SRC).toMatch(
+      /import\s*\{[^}]*playerToggle[^}]*\}\s*from\s*["']~\/components\/audio\/persistent-player["']/,
+    );
+    expect(SRC).toMatch(/const isThisTrack = trackId === latestMix\.id/);
+    expect(SRC).toMatch(/if \(isThisTrack\) \{[\s\S]{0,120}playerToggle\(\)/);
   });
 });

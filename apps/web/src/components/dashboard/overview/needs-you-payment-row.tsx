@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 
 import { acknowledgePaymentAction } from "~/app/(producer)/dashboard/payment-banner-actions";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { formatMoney } from "~/lib/format/money";
 
 import type { PaymentSource } from "./needs-you";
@@ -19,6 +20,7 @@ export function NeedsYouPaymentRow({
   const [hidden, setHidden] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const online = useOnlineStatus();
 
   if (hidden) return null;
 
@@ -30,6 +32,10 @@ export function NeedsYouPaymentRow({
 
   function dismiss() {
     setError(null);
+    if (!online) {
+      setError("Reconnect to dismiss this payment notice.");
+      return;
+    }
     setHidden(true);
     startTransition(async () => {
       try {

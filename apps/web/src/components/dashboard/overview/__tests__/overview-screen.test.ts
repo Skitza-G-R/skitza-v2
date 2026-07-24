@@ -12,6 +12,15 @@ const PAYMENT_ROW = readFileSync(
 );
 
 describe("Calm Control overview", () => {
+  it("keeps the runtime safe-view server payload stable between renders", () => {
+    expect(OVERVIEW).toContain('import { useMemo } from "react"');
+    expect(OVERVIEW).toMatch(
+      /const overviewServerData = useMemo\([\s\S]*serverDisplayName[\s\S]*serverPulseStats\.activeProjects/,
+    );
+    expect(OVERVIEW).toContain("serverData: overviewServerData");
+    expect(OVERVIEW).not.toMatch(/serverData:\s*\{\s*displayName:/);
+  });
+
   it("renders one Needs You queue with an explicit capped View all path", () => {
     expect(OVERVIEW).toContain('id="needs-you"');
     expect(OVERVIEW).toContain("capNeedsYouQueue(items, showAll)");

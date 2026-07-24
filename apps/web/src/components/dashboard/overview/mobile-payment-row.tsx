@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 
 import { acknowledgePaymentAction } from "~/app/(producer)/dashboard/payment-banner-actions";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
 
 // Mobile-feed variant of the SK-20 payment-received banner row. Same
@@ -39,6 +40,7 @@ function formatAmount(unitPriceCents: number | null, songQty: number | null): st
 
 export function MobilePaymentRow({ booking }: MobilePaymentRowProps) {
   const { toast } = useToast();
+  const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
   const [hidden, setHidden] = useState(false);
 
@@ -50,12 +52,20 @@ export function MobilePaymentRow({ booking }: MobilePaymentRowProps) {
     : "/dashboard/clients-projects";
 
   function onDismiss() {
+    if (!online) {
+      toast("Reconnect to dismiss this payment notice.", "error");
+      return;
+    }
     setHidden(true);
     startTransition(async () => {
-      const res = await acknowledgePaymentAction({ bookingId: booking.id });
-      if (!res.ok) {
+      try {
+        const res = await acknowledgePaymentAction({ bookingId: booking.id });
+        if (res.ok) return;
         setHidden(false);
         toast(res.error, "error");
+      } catch {
+        setHidden(false);
+        toast("Could not dismiss this payment notice. Try again.", "error");
       }
     });
   }
@@ -73,7 +83,7 @@ export function MobilePaymentRow({ booking }: MobilePaymentRowProps) {
           <Banknote size={16} strokeWidth={2.2} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-bold leading-snug text-[rgb(var(--fg-default))]">
+          <p className="text-sm leading-snug font-bold text-[rgb(var(--fg-default))]">
             {amount
               ? `${booking.artistName} paid ${amount}`
               : `${booking.artistName} sent a payment`}
@@ -90,7 +100,7 @@ export function MobilePaymentRow({ booking }: MobilePaymentRowProps) {
         onClick={onDismiss}
         disabled={pending}
         aria-label="Dismiss payment notification"
-        className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-hover))] hover:text-[rgb(var(--fg-default))] disabled:opacity-50"
+        className="absolute top-2 right-2 flex h-8 w-8 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-hover))] hover:text-[rgb(var(--fg-default))] disabled:opacity-50"
       >
         <X size={14} />
       </button>

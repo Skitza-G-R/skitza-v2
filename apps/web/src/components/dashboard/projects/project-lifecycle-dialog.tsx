@@ -10,6 +10,7 @@ import {
   completeProjectAction,
   reopenProjectAction,
 } from "~/app/(producer)/dashboard/clients-projects/actions";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
 
 import type { ProjectActionProject } from "./project-action-types";
@@ -88,11 +89,16 @@ export function ProjectLifecycleDialog({
 }: ProjectLifecycleDialogProps) {
   const router = useRouter();
   const { toast } = useToast();
+  const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
   const copy = COPY[mode];
   const destructive = mode === "cancel";
 
   const handleConfirm = () => {
+    if (!online) {
+      toast(`Reconnect to ${COPY[mode].titleVerb.toLowerCase()} this project.`, "error");
+      return;
+    }
     startTransition(async () => {
       const action =
         mode === "complete"
@@ -100,16 +106,20 @@ export function ProjectLifecycleDialog({
           : mode === "cancel"
             ? cancelProjectAction
             : reopenProjectAction;
-      const result = await action({ id: project.id });
-      if (!result.ok) {
-        toast(result.error, "error");
-        return;
-      }
+      try {
+        const result = await action({ id: project.id });
+        if (!result.ok) {
+          toast(result.error, "error");
+          return;
+        }
 
-      toast(`${project.title} ${copy.toastLabel}`, "success");
-      onChanged?.(project.id);
-      router.refresh();
-      onClose();
+        toast(`${project.title} ${copy.toastLabel}`, "success");
+        onChanged?.(project.id);
+        router.refresh();
+        onClose();
+      } catch {
+        toast("Could not update this project. Try again.", "error");
+      }
     });
   };
 

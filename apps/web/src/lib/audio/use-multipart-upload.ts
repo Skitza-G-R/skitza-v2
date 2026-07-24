@@ -9,6 +9,11 @@ import {
   signAudioPart,
 } from "~/app/(producer)/dashboard/audio-upload-actions";
 import { deleteVersionAction } from "~/app/(producer)/dashboard/clients-projects/upload-actions";
+import {
+  beginManagedUpload,
+  getUploadRuntimeAccountId,
+  requireUploadRuntimeAccountId,
+} from "~/lib/audio/upload-manager";
 
 export type UploadState =
   | { kind: "idle" }
@@ -47,6 +52,7 @@ export const CANCELLATION_RETRY_MS = 61_000;
 export const ACTIVE_UPLOAD_STALE_MS = 31 * 60 * 1_000;
 
 export type ResumableEntry = {
+  accountId: string;
   uploadId: string;
   key: string;
   completionToken: string;
@@ -59,6 +65,7 @@ export type ResumableEntry = {
 };
 
 export type PendingVersionCleanupEntry = {
+  accountId: string;
   trackVersionId: string;
   cleanupRequestedAt: string;
 };
@@ -91,12 +98,22 @@ export function toExactAbortInput(entry: ResumableEntry) {
   };
 }
 
-export function persistResumableEntry(entry: ResumableEntry): void {
-  localStorage.setItem(`${STORAGE_PREFIX}${entry.uploadId}`, JSON.stringify(entry));
+function scopedUploadStorageKey(accountId: string, uploadId: string): string {
+  return `${STORAGE_PREFIX}${encodeURIComponent(accountId)}:${uploadId}`;
 }
 
-export function removeResumableEntry(uploadId: string): void {
-  localStorage.removeItem(`${STORAGE_PREFIX}${uploadId}`);
+export function persistResumableEntry(entry: ResumableEntry): void {
+  localStorage.setItem(
+    scopedUploadStorageKey(entry.accountId, entry.uploadId),
+    JSON.stringify(entry),
+  );
+}
+
+export function removeResumableEntry(
+  uploadId: string,
+  accountId = requireUploadRuntimeAccountId(),
+): void {
+  localStorage.removeItem(scopedUploadStorageKey(accountId, uploadId));
 }
 
 export function markResumableProgress(
@@ -180,7 +197,7 @@ export async function requestExactMultipartCancellation(
     return { ok: false };
   }
   if (result.ok) {
-    removeResumableEntry(entry.uploadId);
+    removeResumableEntry(entry.uploadId, entry.accountId);
   }
   return result;
 }
@@ -232,16 +249,17 @@ export async function runRecoverableUploadPass(
   return completed;
 }
 
-function versionCleanupStorageKey(trackVersionId: string): string {
-  return `${VERSION_CLEANUP_STORAGE_PREFIX}${trackVersionId}`;
+function versionCleanupStorageKey(accountId: string, trackVersionId: string): string {
+  return `${VERSION_CLEANUP_STORAGE_PREFIX}${encodeURIComponent(accountId)}:${trackVersionId}`;
 }
 
 export function markVersionCleanupRequested(
   trackVersionId: string,
   now = new Date(),
+  accountId = requireUploadRuntimeAccountId(),
 ): PendingVersionCleanupEntry {
   if (!Number.isFinite(now.getTime())) throw new Error("Version cleanup time is invalid");
-  const storageKey = versionCleanupStorageKey(trackVersionId);
+  const storageKey = versionCleanupStorageKey(accountId, trackVersionId);
   const existing = localStorage.getItem(storageKey);
   let cleanupRequestedAt = now.toISOString();
   if (existing) {
@@ -253,13 +271,16 @@ export function markVersionCleanupRequested(
       // Replace malformed recovery state with a valid durable request.
     }
   }
-  const entry = { trackVersionId, cleanupRequestedAt };
+  const entry = { accountId, trackVersionId, cleanupRequestedAt };
   localStorage.setItem(storageKey, JSON.stringify(entry));
   return entry;
 }
 
-export function removeVersionCleanupEntry(trackVersionId: string): void {
-  localStorage.removeItem(versionCleanupStorageKey(trackVersionId));
+export function removeVersionCleanupEntry(
+  trackVersionId: string,
+  accountId = requireUploadRuntimeAccountId(),
+): void {
+  localStorage.removeItem(versionCleanupStorageKey(accountId, trackVersionId));
 }
 
 function versionCleanupRetryDue(entry: PendingVersionCleanupEntry, now = new Date()): boolean {
@@ -276,14 +297,17 @@ export async function requestVersionCleanup(
   cleanup: VersionCleanup = deleteVersionAction,
 ): Promise<RecoveryResult> {
   // Re-persist before every attempt so cleanup can never outrun its owner.
-  localStorage.setItem(versionCleanupStorageKey(entry.trackVersionId), JSON.stringify(entry));
+  localStorage.setItem(
+    versionCleanupStorageKey(entry.accountId, entry.trackVersionId),
+    JSON.stringify(entry),
+  );
   let result: RecoveryResult;
   try {
     result = await cleanup({ id: entry.trackVersionId });
   } catch {
     return { ok: false };
   }
-  if (result.ok) removeVersionCleanupEntry(entry.trackVersionId);
+  if (result.ok) removeVersionCleanupEntry(entry.trackVersionId, entry.accountId);
   return result;
 }
 
@@ -317,22 +341,31 @@ let recoveryRunning = false;
 
 async function runScheduledCancellationRecovery(): Promise<void> {
   if (recoveryRunning || recoveryOwners === 0) return;
+  const accountId = getUploadRuntimeAccountId();
+  if (!accountId) return;
   recoveryRunning = true;
   try {
+    await migrateLegacyUploadJournalForAccount(accountId);
     await runRecoverableUploadPass({
-      entries: resumableUploads(),
+      entries: resumableUploads(accountId),
       now: new Date(),
       abort: abortAudioUpload,
-      remove: removeResumableEntry,
+      remove: (uploadId) => {
+        removeResumableEntry(uploadId, accountId);
+      },
     });
-    const stillActiveVersionIds = new Set(resumableUploads().map((entry) => entry.trackVersionId));
+    const stillActiveVersionIds = new Set(
+      resumableUploads(accountId).map((entry) => entry.trackVersionId),
+    );
     await runRequestedVersionCleanupPass({
-      entries: pendingVersionCleanups().filter(
+      entries: pendingVersionCleanups(accountId).filter(
         (entry) => !stillActiveVersionIds.has(entry.trackVersionId),
       ),
       now: new Date(),
       cleanup: deleteVersionAction,
-      remove: removeVersionCleanupEntry,
+      remove: (trackVersionId) => {
+        removeVersionCleanupEntry(trackVersionId, accountId);
+      },
     });
   } finally {
     recoveryRunning = false;
@@ -362,20 +395,22 @@ export function startMultipartCancellationRecovery(): () => void {
   };
 }
 
-// Enumerate in-progress uploads persisted to localStorage. Used by the
-// dashboard to surface a "resume?" prompt on page load. Malformed
+// Enumerate exact multipart identities for cancellation/reconciliation.
+// The browser journal never persists File bytes or a file handle, so it must
+// not claim that an upload continues after iOS terminates the app. Malformed
 // entries are silently skipped rather than blocking the whole read.
-export function resumableUploads(): ResumableEntry[] {
+export function resumableUploads(accountId = getUploadRuntimeAccountId()): ResumableEntry[] {
+  if (!accountId) return [];
   if (typeof localStorage === "undefined") return [];
   const out: ResumableEntry[] = [];
   for (let i = 0; i < localStorage.length; i += 1) {
     const k = localStorage.key(i);
-    if (!k || !k.startsWith(STORAGE_PREFIX)) continue;
+    if (!k || !k.startsWith(`${STORAGE_PREFIX}${encodeURIComponent(accountId)}:`)) continue;
     const raw = localStorage.getItem(k);
     if (!raw) continue;
     try {
       const entry = JSON.parse(raw) as unknown;
-      if (!isResumableEntry(entry, k.slice(STORAGE_PREFIX.length))) continue;
+      if (!isResumableEntry(entry, accountId, k)) continue;
       out.push(entry);
     } catch {
       // ignore malformed entries
@@ -397,13 +432,19 @@ function isUuid(value: unknown): value is string {
   );
 }
 
-function isResumableEntry(value: unknown, storageUploadId: string): value is ResumableEntry {
+function isResumableEntry(
+  value: unknown,
+  accountId: string,
+  storageKey: string,
+): value is ResumableEntry {
   if (typeof value !== "object" || value === null) return false;
   const entry = value as Record<string, unknown>;
   if (
+    accountId.length === 0 ||
+    entry.accountId !== accountId ||
     typeof entry.uploadId !== "string" ||
     entry.uploadId.length === 0 ||
-    entry.uploadId !== storageUploadId ||
+    storageKey !== scopedUploadStorageKey(accountId, entry.uploadId) ||
     typeof entry.key !== "string" ||
     entry.key.length === 0 ||
     !isUuid(entry.trackVersionId) ||
@@ -432,19 +473,25 @@ function isResumableEntry(value: unknown, storageUploadId: string): value is Res
   });
 }
 
-function pendingVersionCleanups(): PendingVersionCleanupEntry[] {
+function pendingVersionCleanups(
+  accountId = getUploadRuntimeAccountId(),
+): PendingVersionCleanupEntry[] {
+  if (!accountId) return [];
   if (typeof localStorage === "undefined") return [];
   const out: PendingVersionCleanupEntry[] = [];
   for (let i = 0; i < localStorage.length; i += 1) {
     const key = localStorage.key(i);
-    if (!key?.startsWith(VERSION_CLEANUP_STORAGE_PREFIX)) continue;
+    if (!key?.startsWith(`${VERSION_CLEANUP_STORAGE_PREFIX}${encodeURIComponent(accountId)}:`)) {
+      continue;
+    }
     const raw = localStorage.getItem(key);
     if (!raw) continue;
     try {
       const entry = JSON.parse(raw) as PendingVersionCleanupEntry;
       if (
+        entry.accountId === accountId &&
         isUuid(entry.trackVersionId) &&
-        key === versionCleanupStorageKey(entry.trackVersionId) &&
+        key === versionCleanupStorageKey(accountId, entry.trackVersionId) &&
         isIsoTimestamp(entry.cleanupRequestedAt)
       ) {
         out.push(entry);
@@ -456,106 +503,419 @@ function pendingVersionCleanups(): PendingVersionCleanupEntry[] {
   return out;
 }
 
+type LegacyResumableEntry = Omit<ResumableEntry, "accountId">;
+type LegacyVersionCleanupEntry = Omit<PendingVersionCleanupEntry, "accountId">;
+
+type LegacyJournalScan = {
+  uploads: Array<{ storageKey: string; entry: LegacyResumableEntry }>;
+  versionCleanups: Array<{
+    storageKey: string;
+    entry: LegacyVersionCleanupEntry;
+  }>;
+  malformedKeys: string[];
+  blockingUploadVersionIds: Set<string>;
+};
+
+function localStorageKeySnapshot(): string[] {
+  if (typeof localStorage === "undefined") return [];
+  try {
+    return Array.from({ length: localStorage.length }, (_, index) =>
+      localStorage.key(index),
+    ).filter((key): key is string => key !== null);
+  } catch {
+    return [];
+  }
+}
+
+function validCompletedParts(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.every((part) => {
+      if (typeof part !== "object" || part === null) return false;
+      const candidate = part as Record<string, unknown>;
+      return (
+        typeof candidate.partNumber === "number" &&
+        Number.isSafeInteger(candidate.partNumber) &&
+        candidate.partNumber > 0 &&
+        typeof candidate.eTag === "string"
+      );
+    })
+  );
+}
+
+function isLegacyResumableEntry(value: unknown, storageKey: string): value is LegacyResumableEntry {
+  if (typeof value !== "object" || value === null) return false;
+  const entry = value as Record<string, unknown>;
+  return (
+    entry.accountId === undefined &&
+    typeof entry.uploadId === "string" &&
+    entry.uploadId.length > 0 &&
+    storageKey === `${STORAGE_PREFIX}${entry.uploadId}` &&
+    typeof entry.key === "string" &&
+    entry.key.length > 0 &&
+    isUuid(entry.trackVersionId) &&
+    typeof entry.completionToken === "string" &&
+    /^[0-9a-f]{64}$/.test(entry.completionToken) &&
+    typeof entry.totalBytes === "number" &&
+    Number.isSafeInteger(entry.totalBytes) &&
+    entry.totalBytes > 0 &&
+    validCompletedParts(entry.completed) &&
+    isIsoTimestamp(entry.createdAt) &&
+    isIsoTimestamp(entry.lastProgressAt) &&
+    new Date(entry.createdAt).getTime() <= new Date(entry.lastProgressAt).getTime() &&
+    (entry.cancellationRequestedAt === undefined || isIsoTimestamp(entry.cancellationRequestedAt))
+  );
+}
+
+function isLegacyVersionCleanupEntry(
+  value: unknown,
+  storageKey: string,
+): value is LegacyVersionCleanupEntry {
+  if (typeof value !== "object" || value === null) return false;
+  const entry = value as Record<string, unknown>;
+  return (
+    entry.accountId === undefined &&
+    isUuid(entry.trackVersionId) &&
+    storageKey === `${VERSION_CLEANUP_STORAGE_PREFIX}${entry.trackVersionId}` &&
+    isIsoTimestamp(entry.cleanupRequestedAt)
+  );
+}
+
+function scanLegacyUploadJournal(): LegacyJournalScan {
+  const scan: LegacyJournalScan = {
+    uploads: [],
+    versionCleanups: [],
+    malformedKeys: [],
+    blockingUploadVersionIds: new Set(),
+  };
+  for (const storageKey of localStorageKeySnapshot()) {
+    const isUpload = storageKey.startsWith(STORAGE_PREFIX);
+    const isVersionCleanup = storageKey.startsWith(VERSION_CLEANUP_STORAGE_PREFIX);
+    if (!isUpload && !isVersionCleanup) continue;
+    let parsed: unknown;
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) {
+        scan.malformedKeys.push(storageKey);
+        continue;
+      }
+      parsed = JSON.parse(raw) as unknown;
+    } catch {
+      scan.malformedKeys.push(storageKey);
+      continue;
+    }
+
+    if (typeof parsed === "object" && parsed !== null) {
+      const parsedAccountId = (parsed as Record<string, unknown>).accountId;
+      if (typeof parsedAccountId === "string") {
+        const validScopedUpload =
+          parsedAccountId.length > 0 &&
+          isUpload &&
+          isResumableEntry(parsed, parsedAccountId, storageKey);
+        const scopedCleanup = parsed as Partial<PendingVersionCleanupEntry>;
+        const validScopedVersionCleanup =
+          parsedAccountId.length > 0 &&
+          isVersionCleanup &&
+          scopedCleanup.accountId === parsedAccountId &&
+          isUuid(scopedCleanup.trackVersionId) &&
+          storageKey === versionCleanupStorageKey(parsedAccountId, scopedCleanup.trackVersionId) &&
+          isIsoTimestamp(scopedCleanup.cleanupRequestedAt);
+        if (!validScopedUpload && !validScopedVersionCleanup) {
+          scan.malformedKeys.push(storageKey);
+        }
+        const scopedUploadVersionId = (parsed as Record<string, unknown>).trackVersionId;
+        if (isUpload && isUuid(scopedUploadVersionId)) {
+          // Scoped uploads are never adopted by legacy migration. Even a
+          // malformed scoped sibling blocks version deletion because its
+          // exact multipart identity could not be safely aborted.
+          scan.blockingUploadVersionIds.add(scopedUploadVersionId);
+        }
+        // Valid scoped journals remain isolated to their explicit owner and
+        // keep their normal retry semantics. Invalid scoped payloads cannot
+        // be recovered and are purged so embedded secrets do not linger.
+        continue;
+      }
+    }
+    if (isUpload && isLegacyResumableEntry(parsed, storageKey)) {
+      scan.uploads.push({ storageKey, entry: parsed });
+    } else if (isVersionCleanup && isLegacyVersionCleanupEntry(parsed, storageKey)) {
+      scan.versionCleanups.push({ storageKey, entry: parsed });
+    } else {
+      if (
+        isUpload &&
+        typeof parsed === "object" &&
+        parsed !== null &&
+        isUuid((parsed as Record<string, unknown>).trackVersionId)
+      ) {
+        scan.blockingUploadVersionIds.add(
+          (parsed as { trackVersionId: string }).trackVersionId,
+        );
+      }
+      scan.malformedKeys.push(storageKey);
+    }
+  }
+  return scan;
+}
+
+function removeLegacyStorageKey(storageKey: string): void {
+  try {
+    localStorage.removeItem(storageKey);
+  } catch {
+    // Best effort: storage may be unavailable during browser teardown.
+  }
+}
+
+/**
+ * Pre-SK-110 journals had no account owner and persisted R2 keys and
+ * completion tokens. The first authenticated recovery gets one fail-closed
+ * server attempt using the current session, then purges every ownerless local
+ * record. A false/unauthorized/transient result is never adopted into the
+ * current account because doing so could expose another account's secret.
+ */
+export async function migrateLegacyUploadJournalForAccount(
+  accountId: string,
+  dependencies: Readonly<{
+    abort?: ExactAbort;
+    cleanup?: VersionCleanup;
+  }> = {},
+): Promise<{
+  attemptedUploads: number;
+  attemptedVersionCleanups: number;
+  removedLocalEntries: number;
+}> {
+  const abort = dependencies.abort ?? abortAudioUpload;
+  const cleanup = dependencies.cleanup ?? deleteVersionAction;
+  const scan = scanLegacyUploadJournal();
+  let removedLocalEntries = 0;
+  for (const storageKey of scan.malformedKeys) {
+    removeLegacyStorageKey(storageKey);
+    removedLocalEntries += 1;
+  }
+
+  const uploadVersionIds = new Set(scan.uploads.map(({ entry }) => entry.trackVersionId));
+  const everyLegacyUploadSafelyAborted = new Map<string, boolean>(
+    [...uploadVersionIds].map((versionId) => [versionId, true]),
+  );
+  for (const { storageKey, entry } of scan.uploads) {
+    try {
+      const result = await abort(
+        toExactAbortInput({
+          ...entry,
+          accountId,
+        }),
+      );
+      if (!result.ok) {
+        everyLegacyUploadSafelyAborted.set(entry.trackVersionId, false);
+      }
+    } catch {
+      everyLegacyUploadSafelyAborted.set(entry.trackVersionId, false);
+      // Treat errors as unauthorized/transient and still purge the unowned
+      // local secret rather than assigning it to the current account.
+    } finally {
+      removeLegacyStorageKey(storageKey);
+      removedLocalEntries += 1;
+    }
+  }
+
+  let attemptedVersionCleanups = 0;
+  for (const { storageKey, entry } of scan.versionCleanups) {
+    const safeToDeleteVersion =
+      !scan.blockingUploadVersionIds.has(entry.trackVersionId) &&
+      (!uploadVersionIds.has(entry.trackVersionId) ||
+        everyLegacyUploadSafelyAborted.get(entry.trackVersionId) === true);
+    if (safeToDeleteVersion) {
+      attemptedVersionCleanups += 1;
+      try {
+        await cleanup({ id: entry.trackVersionId });
+      } catch {
+        // The local legacy record is purged even when current auth rejects it.
+      }
+    }
+    removeLegacyStorageKey(storageKey);
+    removedLocalEntries += 1;
+  }
+
+  return {
+    attemptedUploads: scan.uploads.length,
+    attemptedVersionCleanups,
+    removedLocalEntries,
+  };
+}
+
+export async function cancelPersistedUploadsForAccount(accountId: string): Promise<boolean> {
+  await migrateLegacyUploadJournalForAccount(accountId);
+  let allCancelled = true;
+  for (const entry of resumableUploads(accountId)) {
+    const result = await requestExactMultipartCancellation(entry, abortAudioUpload);
+    if (!result.ok) allCancelled = false;
+  }
+  if (!allCancelled) return false;
+
+  const activeVersionIds = new Set(
+    resumableUploads(accountId).map((entry) => entry.trackVersionId),
+  );
+  for (const entry of pendingVersionCleanups(accountId)) {
+    if (activeVersionIds.has(entry.trackVersionId)) continue;
+    const result = await requestVersionCleanup(entry, deleteVersionAction);
+    if (!result.ok) allCancelled = false;
+  }
+  return allCancelled;
+}
+
 export function useMultipartUpload() {
   const [state, setState] = useState<UploadState>({ kind: "idle" });
 
   useEffect(() => startMultipartCancellationRecovery(), []);
 
-  const upload = useCallback(
-    async (opts: {
-      file: File;
-      trackVersionId: string;
-      onComplete: (r: { url: string; key: string }) => void;
-    }) => {
-      setState({ kind: "signing" });
-      const init = await initAudioUpload({
+  const upload = useCallback(async function runUpload(opts: {
+    file: File;
+    trackVersionId: string;
+    onComplete: (r: { url: string; key: string }) => void;
+  }) {
+    const accountId = requireUploadRuntimeAccountId();
+    const managed = beginManagedUpload({
+      fileName: opts.file.name,
+      label: "Audio upload",
+    });
+    const abortController = new AbortController();
+    let entry: ResumableEntry | null = null;
+    const cancellation = createUploadCancellationRequest();
+    let settleInitialization: (value: ResumableEntry | null) => void = () => {};
+    const initialized = new Promise<ResumableEntry | null>((resolve) => {
+      settleInitialization = resolve;
+    });
+    managed.setCancel(async () => {
+      requestUploadCancellation(cancellation);
+      abortController.abort();
+      const initializedEntry = entry ?? (await initialized);
+      return initializedEntry ? cancelResumableEntry(initializedEntry) : { ok: true };
+    });
+    managed.setRetry(async () => {
+      managed.dismiss();
+      await runUpload(opts);
+    });
+    setState({ kind: "signing" });
+    managed.setPreparing();
+    let init: Awaited<ReturnType<typeof initAudioUpload>>;
+    try {
+      init = await initAudioUpload({
         trackVersionId: opts.trackVersionId,
         filename: opts.file.name,
         sizeBytes: opts.file.size,
         contentType: opts.file.type || "application/octet-stream",
       });
-      if (!init.ok) {
-        setState({ kind: "error", message: init.error });
-        return;
+    } catch (error) {
+      settleInitialization(null);
+      const message = error instanceof Error ? error.message : "Couldn’t prepare the upload.";
+      setState({ kind: "error", message });
+      managed.fail(message);
+      return;
+    }
+    if (!init.ok) {
+      settleInitialization(null);
+      setState({ kind: "error", message: init.error });
+      managed.fail(init.error);
+      return;
+    }
+    const parts = computeParts(opts.file.size, PART_SIZE);
+    const completed: Array<{ partNumber: number; eTag: string }> = [];
+    const startedAt = new Date().toISOString();
+    entry = {
+      accountId,
+      uploadId: init.data.uploadId,
+      key: init.data.key,
+      completionToken: init.data.completionToken,
+      trackVersionId: opts.trackVersionId,
+      completed,
+      totalBytes: opts.file.size,
+      createdAt: startedAt,
+      lastProgressAt: startedAt,
+    };
+    settleInitialization(entry);
+    // Persist the complete server-issued identity before signing or
+    // uploading the first part so every later failure remains recoverable.
+    persistResumableEntry(entry);
+    if (uploadCancellationRequested(cancellation)) {
+      const cancelled = await cancelResumableEntry(entry);
+      if (!cancelled.ok) {
+        managed.fail("Couldn’t stop this upload yet. Skitza kept its recovery record.");
       }
-      const parts = computeParts(opts.file.size, PART_SIZE);
-      const completed: Array<{ partNumber: number; eTag: string }> = [];
-      const startedAt = new Date().toISOString();
-      const entry: ResumableEntry = {
-        uploadId: init.data.uploadId,
-        key: init.data.key,
-        completionToken: init.data.completionToken,
-        trackVersionId: opts.trackVersionId,
-        completed,
-        totalBytes: opts.file.size,
-        createdAt: startedAt,
-        lastProgressAt: startedAt,
-      };
-      // Persist the complete server-issued identity before signing or
-      // uploading the first part so every later failure remains recoverable.
-      persistResumableEntry(entry);
-      setState({ kind: "uploading", progress: 0 });
-      for (const p of parts) {
-        const signed = await signAudioPart({
-          key: init.data.key,
-          uploadId: init.data.uploadId,
-          partNumber: p.partNumber,
-          trackVersionId: opts.trackVersionId,
-        });
-        if (!signed.ok) {
-          await cancelResumableEntry(entry);
-          setState({ kind: "error", message: signed.error });
-          return;
-        }
-        const blob = opts.file.slice(p.start, p.end);
-        let resp: Response;
-        try {
-          resp = await fetch(signed.data.url, { method: "PUT", body: blob });
-        } catch (e) {
-          await cancelResumableEntry(entry);
-          setState({
-            kind: "error",
-            message: e instanceof Error ? e.message : "Network error",
-          });
-          return;
-        }
-        if (!resp.ok) {
-          await cancelResumableEntry(entry);
-          setState({
-            kind: "error",
-            message: `Part ${String(p.partNumber)} failed (HTTP ${String(resp.status)})`,
-          });
-          return;
-        }
-        const eTag = (resp.headers.get("etag") ?? "").replace(/"/g, "");
-        completed.push({ partNumber: p.partNumber, eTag });
-        markResumableProgress(entry);
-        setState({
-          kind: "uploading",
-          progress: Math.round((completed.length / parts.length) * 100),
-        });
-      }
-      setState({ kind: "completing" });
-      const done = await completeAudioUpload({
+      return;
+    }
+    setState({ kind: "uploading", progress: 0 });
+    managed.setUploading(0);
+    for (const p of parts) {
+      const signed = await signAudioPart({
         key: init.data.key,
         uploadId: init.data.uploadId,
-        parts: completed,
+        partNumber: p.partNumber,
         trackVersionId: opts.trackVersionId,
-        sizeBytes: opts.file.size,
-        completionToken: init.data.completionToken,
-        acknowledgePublicExposure: false,
       });
-      if (!done.ok) {
+      if (!signed.ok) {
         await cancelResumableEntry(entry);
-        setState({ kind: "error", message: done.error });
+        setState({ kind: "error", message: signed.error });
+        managed.fail(signed.error);
         return;
       }
-      removeResumableEntry(init.data.uploadId);
-      setState({ kind: "done", url: done.data.url, key: done.data.key });
-      opts.onComplete({ url: done.data.url, key: done.data.key });
-    },
-    [],
-  );
+      const blob = opts.file.slice(p.start, p.end);
+      let resp: Response;
+      try {
+        resp = await fetch(signed.data.url, {
+          method: "PUT",
+          body: blob,
+          signal: abortController.signal,
+        });
+      } catch (e) {
+        await cancelResumableEntry(entry);
+        const message = e instanceof Error ? e.message : "Network error";
+        setState({
+          kind: "error",
+          message,
+        });
+        managed.fail(message);
+        return;
+      }
+      if (!resp.ok) {
+        await cancelResumableEntry(entry);
+        setState({
+          kind: "error",
+          message: `Part ${String(p.partNumber)} failed (HTTP ${String(resp.status)})`,
+        });
+        managed.fail(`Part ${String(p.partNumber)} failed (HTTP ${String(resp.status)})`);
+        return;
+      }
+      const eTag = (resp.headers.get("etag") ?? "").replace(/"/g, "");
+      completed.push({ partNumber: p.partNumber, eTag });
+      markResumableProgress(entry);
+      const progress = Math.round((completed.length / parts.length) * 100);
+      setState({
+        kind: "uploading",
+        progress,
+      });
+      managed.setUploading(progress);
+    }
+    setState({ kind: "completing" });
+    managed.setCompleting();
+    const done = await completeAudioUpload({
+      key: init.data.key,
+      uploadId: init.data.uploadId,
+      parts: completed,
+      trackVersionId: opts.trackVersionId,
+      sizeBytes: opts.file.size,
+      completionToken: init.data.completionToken,
+      acknowledgePublicExposure: false,
+    });
+    if (!done.ok) {
+      await cancelResumableEntry(entry);
+      setState({ kind: "error", message: done.error });
+      managed.fail(done.error);
+      return;
+    }
+    removeResumableEntry(init.data.uploadId, accountId);
+    setState({ kind: "done", url: done.data.url, key: done.data.key });
+    managed.succeed();
+    opts.onComplete({ url: done.data.url, key: done.data.key });
+  }, []);
 
   const cancel = useCallback(async (entry: ResumableEntry) => {
     return cancelResumableEntry(entry);

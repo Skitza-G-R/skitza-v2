@@ -55,6 +55,18 @@ describe("ArtistAppShell + ArtistTopBar wiring", () => {
     expect(SRC).toContain("<ArtistBottomNav studios={studios} />");
   });
 
+  it("retains account-scoped runtime state and one shared player presentation", () => {
+    const providerOpenIdx = SRC.indexOf("<ArtistRuntimeStateProvider");
+    const playerIdx = SRC.indexOf("<PersistentPlayer");
+    const providerCloseIdx = SRC.indexOf("</ArtistRuntimeStateProvider>");
+    expect(providerOpenIdx).toBeGreaterThan(-1);
+    expect(playerIdx).toBeGreaterThan(providerOpenIdx);
+    expect(providerCloseIdx).toBeGreaterThan(playerIdx);
+    expect(SRC.match(/<PersistentPlayer \/>/g)).toHaveLength(1);
+    expect(SRC).not.toContain("ArtistAudioProvider");
+    expect(SRC).not.toContain("PersistentMiniPlayer");
+  });
+
   it("renders the topbar above <main> so it sits at the top of the column", () => {
     // Match the JSX element specifically (`<main`) so we
     // don't pick up the literal `<main>` text in the rationale

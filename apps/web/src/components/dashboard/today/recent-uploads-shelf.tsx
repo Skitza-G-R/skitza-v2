@@ -77,6 +77,7 @@ export function cardPlayDetail(u: RecentUpload): PlayerTrack {
     title: u.title,
     subtitle: `${u.projectClientName} · ${u.versionLabel}`,
     durationMs: u.durationMs,
+    cachePolicy: "account-unlocked",
   };
 }
 

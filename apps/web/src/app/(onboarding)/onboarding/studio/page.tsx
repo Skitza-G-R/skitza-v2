@@ -6,6 +6,7 @@ import { useState, useTransition } from "react";
 
 import { WizardChrome } from "~/components/onboarding/wizard-shell/wizard-chrome";
 import { WizardFooter } from "~/components/onboarding/wizard-shell/wizard-footer";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 
 import { completeStudio } from "../actions";
 
@@ -56,6 +57,7 @@ export function nextRouteAfterStudio(): "/onboarding/service" {
 
 export default function StudioStepPage() {
   const router = useRouter();
+  const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState("");
@@ -65,6 +67,10 @@ export default function StudioStepPage() {
   function handleContinue() {
     if (!allowContinue) return;
     setError(null);
+    if (!online) {
+      setError("Reconnect to save your studio.");
+      return;
+    }
     startTransition(async () => {
       try {
         await completeStudio({

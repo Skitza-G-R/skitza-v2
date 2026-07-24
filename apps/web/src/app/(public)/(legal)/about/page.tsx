@@ -53,7 +53,7 @@ export default function AboutPage() {
         <p className="mt-2 text-[rgb(var(--fg-secondary))]">
           Free to start. No card. Three minutes to your first booking link.
         </p>
-        <Button asChild size="lg" className="mt-5">
+        <Button asChild size="lg" className="mt-5 rounded-[var(--radius-lg)]">
           <Link href="/sign-up?redirect_url=%2Fonboarding">
             Get demo access →
           </Link>

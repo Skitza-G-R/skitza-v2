@@ -39,6 +39,7 @@ import {
 } from "~/app/(producer)/dashboard/store/type-presets";
 import { WizardChrome } from "~/components/onboarding/wizard-shell/wizard-chrome";
 import { WizardFooter } from "~/components/onboarding/wizard-shell/wizard-footer";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
 import type { VolumeTier } from "~/lib/pricing";
 
@@ -166,6 +167,7 @@ export function ServiceStepClient({
 }) {
   const router = useRouter();
   const { toast } = useToast();
+  const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
   const [draft, setDraft] = useState<Draft>(() =>
     emptyDraft(narrowCurrency(defaultCurrency)),
@@ -288,6 +290,10 @@ export function ServiceStepClient({
   function save() {
     if (currentStep !== "review") return;
     if (!allValid) return;
+    if (!online) {
+      toast("Reconnect to save this service.", "error");
+      return;
+    }
 
     // The shared pure mapper keeps onboarding and Store persistence in
     // lockstep. It writes inclusions to deliverables, structures rights,
@@ -296,12 +302,16 @@ export function ServiceStepClient({
     const payload = buildPackagePayload(draft);
 
     startTransition(async () => {
-      const result = await createPackage(payload);
-      if (result.ok) {
-        toast(`${draft.name.trim() || "Service"} saved.`, "success");
-        router.push(nextRouteAfterService());
-      } else {
-        toast(result.error, "error");
+      try {
+        const result = await createPackage(payload);
+        if (result.ok) {
+          toast(`${draft.name.trim() || "Service"} saved.`, "success");
+          router.push(nextRouteAfterService());
+        } else {
+          toast(result.error, "error");
+        }
+      } catch {
+        toast("Could not save this service. Try again.", "error");
       }
     });
   }

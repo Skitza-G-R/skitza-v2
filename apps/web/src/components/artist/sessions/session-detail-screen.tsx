@@ -21,6 +21,7 @@ import { useRouter } from "next/navigation";
 
 import { Check, ClockIcon, CloseIcon } from "~/components/artist/funnel/funnel-icons";
 import { FunnelTopBar } from "~/components/artist/funnel/funnel-ui";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 
 import {
@@ -35,7 +36,9 @@ import { StatusPill } from "./status-pill";
 
 export function SessionDetailScreen({ session }: { session: SessionDetail }) {
   const router = useRouter();
+  const online = useOnlineStatus();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [liveError, setLiveError] = useState<string | null>(null);
 
   const isActive = session.status === "pending_approval" || session.status === "confirmed";
   const canChange = session.policy.canCancel || session.policy.canReschedule;
@@ -43,6 +46,10 @@ export function SessionDetailScreen({ session }: { session: SessionDetail }) {
   const durationLabel = formatDuration(session.durationMin);
 
   function reschedule() {
+    if (!online) {
+      setLiveError("Reconnect before rescheduling. Your current booking is unchanged.");
+      return;
+    }
     if (!session.policy.canReschedule) return;
     const params = new URLSearchParams({
       session: session.id,
@@ -54,6 +61,10 @@ export function SessionDetailScreen({ session }: { session: SessionDetail }) {
   }
 
   function openCancel() {
+    if (!online) {
+      setLiveError("Reconnect before canceling. Your session is still booked.");
+      return;
+    }
     if (!session.policy.canCancel) return;
     setSheetOpen(true);
   }
@@ -164,6 +175,23 @@ export function SessionDetailScreen({ session }: { session: SessionDetail }) {
             </div>
           ) : null}
 
+          {liveError ? (
+            <p
+              role="alert"
+              className="mt-4 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-danger)/0.08)] px-4 py-3 text-sm text-[rgb(var(--fg-danger-text))]"
+            >
+              {liveError}
+            </p>
+          ) : null}
+          {!online ? (
+            <p
+              role="status"
+              className="mt-4 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] px-4 py-3 text-sm text-[rgb(var(--fg-secondary))]"
+            >
+              Reconnect to reschedule or cancel. Your current booking is unchanged.
+            </p>
+          ) : null}
+
           {/* action stack flows right under the policy note (proto-s12) —
               hidden once the session has passed */}
           {isActive ? (
@@ -172,12 +200,14 @@ export function SessionDetailScreen({ session }: { session: SessionDetail }) {
               <button
                 type="button"
                 onClick={reschedule}
-                disabled={!session.policy.canReschedule}
+                disabled={!online || !session.policy.canReschedule}
                 className={`relative flex w-full items-center justify-center gap-[9px] overflow-hidden rounded-[var(--radius-lg)] px-[22px] py-4 text-[16px] font-semibold ${
-                  !session.policy.canReschedule ? "cursor-not-allowed" : "sk-cta-press sk-gloss"
+                  !online || !session.policy.canReschedule
+                    ? "cursor-not-allowed"
+                    : "sk-cta-press sk-gloss"
                 }`}
                 style={
-                  !session.policy.canReschedule
+                  !online || !session.policy.canReschedule
                     ? {
                         background: "rgb(var(--fg-default) / 0.07)",
                         color: "rgb(var(--fg-muted) / 0.8)",
@@ -199,17 +229,18 @@ export function SessionDetailScreen({ session }: { session: SessionDetail }) {
               <button
                 type="button"
                 onClick={openCancel}
-                disabled={!session.policy.canCancel}
+                disabled={!online || !session.policy.canCancel}
                 className={`flex w-full items-center justify-center gap-[8px] rounded-[var(--radius-lg)] px-[22px] py-[15px] text-[15px] font-semibold ${
-                  !session.policy.canCancel ? "cursor-not-allowed" : "sk-press"
+                  !online || !session.policy.canCancel ? "cursor-not-allowed" : "sk-press"
                 }`}
                 style={{
                   background: "rgb(var(--bg-elevated))",
-                  color: !session.policy.canCancel
-                    ? "rgb(var(--fg-muted) / 0.7)"
-                    : "rgb(var(--fg-danger))",
+                  color:
+                    !online || !session.policy.canCancel
+                      ? "rgb(var(--fg-muted) / 0.7)"
+                      : "rgb(var(--fg-danger))",
                   border: `1px solid ${
-                    !session.policy.canCancel
+                    !online || !session.policy.canCancel
                       ? "rgb(var(--border-strong))"
                       : "rgb(var(--fg-danger) / 0.30)"
                   }`,

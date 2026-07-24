@@ -6,6 +6,7 @@ import {
   type MusicLibraryProjectRow,
   type MusicLibraryRow,
 } from "~/components/music/library-screen";
+import { ProducerRuntimeSafeView } from "~/components/dashboard/runtime/producer-runtime-safe-view";
 import { ProducerMusicLibrary } from "~/components/music/producer-music-library";
 import { appRouter } from "~/server/trpc/routers/_app";
 
@@ -132,6 +133,16 @@ export default async function MusicPage({ searchParams }: PageProps) {
         className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[360px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.10)] via-[rgb(var(--bg-background))] to-[rgb(var(--bg-background))]"
       />
       <div className="mx-auto max-w-[1180px] px-4 pt-6 pb-24 sm:px-7 sm:pt-8">
+        <ProducerRuntimeSafeView
+          slot="producer.music.safe-view"
+          data={{
+            projectCount: projectRows.length,
+            songCount: tracks.length,
+            archivedSongCount: tracks.filter(
+              (row) => row.kind !== "empty-slot" && row.archivedAtIso !== null,
+            ).length,
+          }}
+        />
         <ProducerMusicLibrary
           tracks={tracks}
           projectRows={projectRows}

@@ -20,6 +20,13 @@ describe("PaymentReminderButton", () => {
     expect(source).toContain("Reminder already sent.");
   });
 
+  it("keeps reminder delivery live-only and handles transport rejection locally", () => {
+    expect(source).toContain("useOnlineStatus");
+    expect(source).toContain("Reconnect to send a payment reminder.");
+    expect(source).toContain("Could not send this reminder. Please try again.");
+    expect(source).toMatch(/disabled=\{pending \|\| !online\}/);
+  });
+
   it("reuses one operation key while an attempt is in flight", () => {
     const createId = () => "attempt-one";
     const firstKey = paymentReminderOperationKey(null, createId);

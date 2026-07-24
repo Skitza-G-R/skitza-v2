@@ -27,6 +27,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "~/components/ui/dialog";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
 import {
   orderByWeekStart,
@@ -88,6 +89,7 @@ export function AvailabilityPanel({
   initialWeekStart,
 }: AvailabilityPanelProps) {
   const { toast } = useToast();
+  const online = useOnlineStatus();
   const [weekStart, setWeekStart, weekStartSaving] = useWeekStartPref(
     initialWeekStart,
     (message) => {
@@ -105,17 +107,24 @@ export function AvailabilityPanel({
     // anchored.
     <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="flex min-h-0 flex-col overflow-y-auto">
-        <WorkingHoursCard blocks={initialBlocks} orderedDays={orderedDays} />
+        <WorkingHoursCard blocks={initialBlocks} orderedDays={orderedDays} online={online} />
       </div>
       <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
         <BookingPrefsCard
           autoConfirm={settings.autoConfirmBookings}
           cancelHours={settings.cancellationPolicyHours}
           weekStart={weekStart}
-          onWeekStartChange={setWeekStart}
+          onWeekStartChange={(next) => {
+            if (!online) {
+              toast("Reconnect to update availability.", "error");
+              return;
+            }
+            setWeekStart(next);
+          }}
           weekStartSaving={weekStartSaving}
+          online={online}
         />
-        <BlockedDatesCard blackouts={initialBlackouts} />
+        <BlockedDatesCard blackouts={initialBlackouts} online={online} />
       </div>
     </div>
   );
@@ -126,9 +135,11 @@ export function AvailabilityPanel({
 function WorkingHoursCard({
   blocks,
   orderedDays,
+  online,
 }: {
   blocks: readonly Block[];
   orderedDays: readonly DayInfo[];
+  online: boolean;
 }) {
   // Local draft keyed by weekday number; each day has 0+ windows.
   const [draft, setDraft] = useState(() => buildDraft(blocks));
@@ -144,13 +155,21 @@ function WorkingHoursCard({
   const dirty = !sameBlocks(serialiseDraft(draft), [...blocks]);
 
   function handleSave() {
+    if (!online) {
+      toast("Reconnect to save working hours.", "error");
+      return;
+    }
     const serialised = serialiseDraft(draft);
     startTransition(async () => {
-      const res = await setAvailabilityWeek({ blocks: serialised });
-      if (res.ok) {
-        toast("Weekly hours saved.", "success");
-      } else {
-        toast(res.error, "error");
+      try {
+        const res = await setAvailabilityWeek({ blocks: serialised });
+        if (res.ok) {
+          toast("Weekly hours saved.", "success");
+        } else {
+          toast(res.error, "error");
+        }
+      } catch {
+        toast("Could not save working hours. Please try again.", "error");
       }
     });
   }
@@ -260,7 +279,7 @@ function WorkingHoursCard({
         <button
           type="button"
           onClick={handleSave}
-          disabled={!dirty || isPending}
+          disabled={!dirty || isPending || !online}
           className="sk-press inline-flex h-11 items-center justify-center rounded-[10px] bg-[rgb(var(--fg-default))] px-4 text-[12.5px] text-[rgb(var(--fg-inverse))] transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] disabled:cursor-not-allowed disabled:opacity-50 lg:h-9"
           style={{ fontWeight: 700 }}
         >
@@ -486,12 +505,14 @@ function BookingPrefsCard({
   weekStart,
   onWeekStartChange,
   weekStartSaving,
+  online,
 }: {
   autoConfirm: boolean;
   cancelHours: number;
   weekStart: WeekStart;
   onWeekStartChange: (next: WeekStart) => void;
   weekStartSaving: boolean;
+  online: boolean;
 }) {
   const [draftAuto, setDraftAuto] = useState(autoConfirm);
   const [draftCancel, setDraftCancel] = useState(cancelHours);
@@ -517,6 +538,10 @@ function BookingPrefsCard({
     errorLabel: string;
   }) {
     if (saveLock.current.current) return;
+    if (!online) {
+      toast("Reconnect to update booking preferences.", "error");
+      return;
+    }
     apply();
     void runOptimisticPreferenceSave({
       lock: saveLock.current,
@@ -566,7 +591,7 @@ function BookingPrefsCard({
           <PillToggle
             label="Auto-confirm bookings"
             on={draftAuto}
-            disabled={isSaving}
+            disabled={isSaving || !online}
             onChange={(next) => {
               const previous = draftAuto;
               persist({
@@ -607,7 +632,7 @@ function BookingPrefsCard({
                   key={opt}
                   type="button"
                   aria-pressed={isActive}
-                  disabled={weekStartSaving}
+                  disabled={weekStartSaving || !online}
                   onClick={() => {
                     onWeekStartChange(opt);
                   }}
@@ -636,7 +661,7 @@ function BookingPrefsCard({
               label: `${String(h)}h`,
             }))}
             active={draftCancel}
-            disabled={isSaving}
+            disabled={isSaving || !online}
             onChange={(v) => {
               const previous = draftCancel;
               persist({
@@ -711,7 +736,13 @@ function ChipGroup<T extends number | string>({
 
 // ── Blocked dates card ──────────────────────────────────────────────
 
-function BlockedDatesCard({ blackouts }: { blackouts: readonly Blackout[] }) {
+function BlockedDatesCard({
+  blackouts,
+  online,
+}: {
+  blackouts: readonly Blackout[];
+  online: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<Blackout | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -719,14 +750,23 @@ function BlockedDatesCard({ blackouts }: { blackouts: readonly Blackout[] }) {
   const { toast } = useToast();
 
   function handleRemove(id: string) {
+    if (!online) {
+      toast("Reconnect to remove a blocked date.", "error");
+      return;
+    }
     setBusyId(id);
     startTransition(async () => {
-      const res = await removeBlackout({ id });
-      setBusyId(null);
-      if (res.ok) {
-        toast("Blocked date removed.", "success");
-      } else {
-        toast(res.error, "error");
+      try {
+        const res = await removeBlackout({ id });
+        if (res.ok) {
+          toast("Blocked date removed.", "success");
+        } else {
+          toast(res.error, "error");
+        }
+      } catch {
+        toast("Could not remove this blocked date. Please try again.", "error");
+      } finally {
+        setBusyId(null);
       }
     });
   }
@@ -746,10 +786,11 @@ function BlockedDatesCard({ blackouts }: { blackouts: readonly Blackout[] }) {
         </h2>
         <button
           type="button"
+          disabled={!online}
           onClick={() => {
             setOpen(true);
           }}
-          className="sk-press -m-2 p-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[rgb(var(--brand-primary-dark))] transition-opacity hover:opacity-70"
+          className="sk-press -m-2 p-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[rgb(var(--brand-primary-dark))] transition-opacity hover:opacity-70 disabled:opacity-50"
           style={{ fontWeight: 700 }}
         >
           + Block dates
@@ -795,7 +836,7 @@ function BlockedDatesCard({ blackouts }: { blackouts: readonly Blackout[] }) {
         </ul>
       )}
 
-      <BlockDatesModal open={open} onOpenChange={setOpen} />
+      <BlockDatesModal open={open} onOpenChange={setOpen} online={online} />
       <Dialog
         open={removeTarget !== null}
         onOpenChange={(next) => {
@@ -823,7 +864,7 @@ function BlockedDatesCard({ blackouts }: { blackouts: readonly Blackout[] }) {
             </button>
             <button
               type="button"
-              disabled={!removeTarget || busyId === removeTarget.id}
+              disabled={!removeTarget || busyId === removeTarget.id || !online}
               onClick={() => {
                 if (!removeTarget) return;
                 const target = removeTarget;
@@ -844,9 +885,11 @@ function BlockedDatesCard({ blackouts }: { blackouts: readonly Blackout[] }) {
 function BlockDatesModal({
   open,
   onOpenChange,
+  online,
 }: {
   open: boolean;
   onOpenChange: (next: boolean) => void;
+  online: boolean;
 }) {
   const [reason, setReason] = useState("");
   const [from, setFrom] = useState("");
@@ -863,17 +906,25 @@ function BlockDatesModal({
 
   function handleAdd() {
     if (!from) return;
+    if (!online) {
+      toast("Reconnect to block dates.", "error");
+      return;
+    }
     startTransition(async () => {
-      const res = await addBlackout({
-        startDate: from,
-        endDate: to || from,
-        ...(reason.trim() ? { reason: reason.trim() } : {}),
-      });
-      if (res.ok) {
-        toast("Dates blocked.", "success");
-        onOpenChange(false);
-      } else {
-        toast(res.error, "error");
+      try {
+        const res = await addBlackout({
+          startDate: from,
+          endDate: to || from,
+          ...(reason.trim() ? { reason: reason.trim() } : {}),
+        });
+        if (res.ok) {
+          toast("Dates blocked.", "success");
+          onOpenChange(false);
+        } else {
+          toast(res.error, "error");
+        }
+      } catch {
+        toast("Could not block these dates. Please try again.", "error");
       }
     });
   }
@@ -963,7 +1014,7 @@ function BlockDatesModal({
         <button
           type="button"
           onClick={handleAdd}
-          disabled={!from || isPending}
+          disabled={!from || isPending || !online}
           className="sk-press inline-flex h-11 items-center justify-center rounded-[10px] bg-[rgb(var(--fg-default))] px-4 text-[12.5px] text-[rgb(var(--fg-inverse))] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 lg:h-9"
           style={{ fontWeight: 700 }}
         >

@@ -5,6 +5,28 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
+import {
+  PLAYER_EVENTS,
+  playerClose,
+  playerPlay,
+  playerSeek,
+  playerToggle,
+  publishNowPlaying,
+  useNowPlaying,
+  usePlaybackSnapshot,
+  type PlayerTrack,
+} from "./playback-runtime";
+
+export {
+  PLAYER_EVENTS,
+  playerClose,
+  playerPlay,
+  playerSeek,
+  playerToggle,
+  publishNowPlaying,
+  useNowPlaying,
+};
+export type { PlayerTrack };
 
 /** Pathname matcher for the producer Song page (/dashboard/music/<uuid>).
  *  Legacy: the song page used to suppress the dock because its
@@ -12,66 +34,6 @@ import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
  *  That transport has been removed, so the dock is now always
  *  visible across the dashboard. The route-based hide logic was
  *  retired with it. */
-
-// Public read-only state for "what's currently playing" — populated by
-// PersistentPlayer on every set / toggle / ended / close event so any
-// list can flag the active row (e.g. EqBars on the playing track).
-//
-// Implemented as a module-level variable + a small pub-sub so listeners
-// re-render when state changes without coupling them to PersistentPlayer's
-// internal React state.
-let nowPlayingState: { trackId: string | null; playing: boolean } = {
-  trackId: null,
-  playing: false,
-};
-const nowPlayingListeners = new Set<() => void>();
-function setNowPlayingState(next: { trackId: string | null; playing: boolean }) {
-  nowPlayingState = next;
-  nowPlayingListeners.forEach((fn) => {
-    fn();
-  });
-}
-
-/**
- * SK-25: external publish surface — lets a sibling dock component
- * (e.g. the public-page mini player on /join/<slug>) keep
- * `useNowPlaying()` consumers in sync when the dashboard's
- * <PersistentPlayer /> isn't mounted. The two docks never coexist
- * (different layout trees), so this is a single observable with two
- * possible writers, not a race.
- */
-export function publishNowPlaying(next: {
-  trackId: string | null;
-  playing: boolean;
-}): void {
-  setNowPlayingState(next);
-}
-
-/** Subscribe to currently-playing track changes. Returns an unsubscribe fn. */
-function subscribeNowPlaying(cb: () => void): () => void {
-  nowPlayingListeners.add(cb);
-  return () => {
-    nowPlayingListeners.delete(cb);
-  };
-}
-
-/**
- * Read the currently-playing track ID + play state from any client
- * component. Re-renders the consumer whenever the player state changes.
- * SSR-safe: returns the static initial state on the server, hydrates
- * with the live state once mounted.
- */
-export function useNowPlaying(): { trackId: string | null; playing: boolean } {
-  const [state, setState] = useState(nowPlayingState);
-  useEffect(() => {
-    // Sync once on mount in case the player toggled before this consumer mounted.
-    setState(nowPlayingState);
-    return subscribeNowPlaying(() => {
-      setState(nowPlayingState);
-    });
-  }, []);
-  return state;
-}
 
 // PersistentPlayer — the dark rounded floating dock. Mounted once in
 // the dashboard layout (apps/web/src/components/shell/app-shell.tsx)
@@ -88,52 +50,6 @@ export function useNowPlaying(): { trackId: string | null; playing: boolean } {
 //
 // The first four are inputs; the fifth is an output (side-panel
 // waveforms subscribe to keep their playhead aligned with the dock).
-
-export type PlayerTrack = {
-  id: string;
-  audioUrl: string | null;
-  title: string;
-  subtitle: string;
-  durationMs: number | null;
-};
-
-type PlayerState = { track: PlayerTrack | null; playing: boolean };
-
-const EVT_SET = "skitza:player:set";
-const EVT_TOGGLE = "skitza:player:toggle";
-const EVT_SEEK = "skitza:player:seek";
-const EVT_CLOSE = "skitza:player:close";
-const EVT_TIME = "skitza:player:time";
-
-// Imperative helpers so callers don't have to hand-craft CustomEvents.
-export function playerPlay(track: PlayerTrack): void {
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent(EVT_SET, { detail: track }));
-}
-
-export function playerToggle(): void {
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent(EVT_TOGGLE));
-}
-
-export function playerSeek(ms: number): void {
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent(EVT_SEEK, { detail: ms }));
-}
-
-export function playerClose(): void {
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent(EVT_CLOSE));
-}
-
-// Event name exports so listeners stay in sync with dispatchers.
-export const PLAYER_EVENTS = {
-  set: EVT_SET,
-  toggle: EVT_TOGGLE,
-  seek: EVT_SEEK,
-  close: EVT_CLOSE,
-  time: EVT_TIME,
-} as const;
 
 // ─── Pure helpers (exported for direct unit-testing) ─────────────────
 
@@ -156,18 +72,10 @@ export function pickDurationMs(
   dbDurationMs: number | null,
   audioDurationSec: number | null,
 ): number | null {
-  if (
-    dbDurationMs !== null &&
-    Number.isFinite(dbDurationMs) &&
-    dbDurationMs > 0
-  ) {
+  if (dbDurationMs !== null && Number.isFinite(dbDurationMs) && dbDurationMs > 0) {
     return dbDurationMs;
   }
-  if (
-    audioDurationSec !== null &&
-    Number.isFinite(audioDurationSec) &&
-    audioDurationSec > 0
-  ) {
+  if (audioDurationSec !== null && Number.isFinite(audioDurationSec) && audioDurationSec > 0) {
     return Math.round(audioDurationSec * 1000);
   }
   return null;
@@ -187,10 +95,7 @@ export function pickDurationMs(
  * surface that mounts it (producer dashboard, artist app, public
  * /join). Callers don't have to thread a role down.
  */
-export function expandHrefForTrack(
-  track: PlayerTrack,
-  pathname: string | null,
-): string {
+export function expandHrefForTrack(track: PlayerTrack, pathname: string | null): string {
   if (pathname && pathname.startsWith("/artist")) {
     return `/artist/music/song/${track.id}`;
   }
@@ -200,10 +105,9 @@ export function expandHrefForTrack(
 // ─── Component ───────────────────────────────────────────────────────
 
 export function PersistentPlayer() {
-  const [state, setState] = useState<PlayerState>({ track: null, playing: false });
-  const [currentMs, setCurrentMs] = useState(0);
-  const [audioDurationSec, setAudioDurationSec] = useState<number | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const state = usePlaybackSnapshot();
+  const currentMs = state.currentMs;
+  const audioDurationSec = state.audioDurationSec;
   // Reactive pathname — re-renders on navigation. Drives
   // expandHrefForTrack so the dock's title / cover / expand button
   // route to the right L3 (artist vs producer) without each caller
@@ -215,50 +119,6 @@ export function PersistentPlayer() {
   // main#main-content { padding-bottom: 110px }) automatically clears
   // the song-page comments thread from the dock's footprint.
   const dockHidden = false;
-
-  // Wire incoming events once per mount. Downstream dispatchers fire
-  // these from anywhere — library rows, side panels, mobile modals.
-  useEffect(() => {
-    function onSet(e: Event) {
-      const track = (e as CustomEvent<PlayerTrack>).detail;
-      setState({ track, playing: true });
-      setCurrentMs(0);
-      setAudioDurationSec(null); // reset; <audio> onLoadedMetadata refills
-      setNowPlayingState({ trackId: track.id, playing: true });
-    }
-    function onToggle() {
-      setState((s) => {
-        const next = { ...s, playing: !s.playing };
-        setNowPlayingState({
-          trackId: next.track?.id ?? null,
-          playing: next.playing,
-        });
-        return next;
-      });
-    }
-    function onSeek(e: Event) {
-      const ms = (e as CustomEvent<number>).detail;
-      const el = audioRef.current;
-      if (el) el.currentTime = Math.max(0, ms) / 1000;
-      setCurrentMs(Math.max(0, ms));
-    }
-    function onClose() {
-      setState({ track: null, playing: false });
-      setCurrentMs(0);
-      setAudioDurationSec(null);
-      setNowPlayingState({ trackId: null, playing: false });
-    }
-    window.addEventListener(EVT_SET, onSet as EventListener);
-    window.addEventListener(EVT_TOGGLE, onToggle as EventListener);
-    window.addEventListener(EVT_SEEK, onSeek as EventListener);
-    window.addEventListener(EVT_CLOSE, onClose as EventListener);
-    return () => {
-      window.removeEventListener(EVT_SET, onSet as EventListener);
-      window.removeEventListener(EVT_TOGGLE, onToggle as EventListener);
-      window.removeEventListener(EVT_SEEK, onSeek as EventListener);
-      window.removeEventListener(EVT_CLOSE, onClose as EventListener);
-    };
-  }, []);
 
   // Toggle a body data attribute so globals.css can reserve
   // padding-bottom equal to the dock's height on every dashboard
@@ -277,71 +137,6 @@ export function PersistentPlayer() {
     };
   }, [state.track, dockHidden]);
 
-  // Drive the <audio> element imperatively from state. Split out so
-  // setting a new track (id changes) resets the element before play
-  // kicks in.
-  //
-  // Also pause every OTHER <audio> in the document when ours starts.
-  // The artist app currently has two singleton audio elements
-  // mounted side-by-side — this dock's (added in PR1) and the
-  // legacy ArtistAudioProvider's mini-player audio. If both have a
-  // loaded source, hitting Play on one didn't stop the other, so
-  // playback could overlap (or worse, the browser's audio-focus
-  // arbitration would silence ours intermittently → "sometimes
-  // plays, sometimes doesn't"). One-way auto-pause keeps this dock
-  // as the canonical audio source whenever it starts a track; the
-  // full ArtistAudioProvider retirement is a separate ticket.
-  useEffect(() => {
-    const el = audioRef.current;
-    if (!el) return;
-    if (state.playing) {
-      if (typeof document !== "undefined") {
-        document.querySelectorAll("audio").forEach((other) => {
-          if (other !== el && !other.paused) other.pause();
-        });
-      }
-      void el.play().catch(() => {
-        setState((s) => ({ ...s, playing: false }));
-      });
-    } else {
-      el.pause();
-    }
-  }, [state.playing, state.track?.id]);
-
-  // Broadcast time updates so side-panel waveforms stay in sync with
-  // the single source of truth (this element). Also captures
-  // loadedmetadata so we can fall back to <audio>.duration when the
-  // database row didn't carry a recorded duration.
-  useEffect(() => {
-    const el = audioRef.current;
-    if (!el) return;
-    const onTime = () => {
-      const ms = Math.floor(el.currentTime * 1000);
-      setCurrentMs(ms);
-      window.dispatchEvent(new CustomEvent(EVT_TIME, { detail: ms }));
-    };
-    const onEnded = () => {
-      setState((s) => {
-        setNowPlayingState({ trackId: s.track?.id ?? null, playing: false });
-        return { ...s, playing: false };
-      });
-    };
-    const onLoadedMetadata = () => {
-      // `audio.duration` is in seconds; HLS reports Infinity briefly.
-      // pickDurationMs() guards against non-finite values, so we just
-      // pass it through.
-      setAudioDurationSec(el.duration);
-    };
-    el.addEventListener("timeupdate", onTime);
-    el.addEventListener("ended", onEnded);
-    el.addEventListener("loadedmetadata", onLoadedMetadata);
-    return () => {
-      el.removeEventListener("timeupdate", onTime);
-      el.removeEventListener("ended", onEnded);
-      el.removeEventListener("loadedmetadata", onLoadedMetadata);
-    };
-  }, [state.track?.id]);
-
   if (!state.track) return null;
 
   const dbDurationMs = state.track.durationMs;
@@ -354,9 +149,7 @@ export function PersistentPlayer() {
   function onScrub(pct: number) {
     if (!effectiveDurationMs) return;
     const ms = Math.floor((pct / 100) * effectiveDurationMs);
-    const el = audioRef.current;
-    if (el) el.currentTime = ms / 1000;
-    setCurrentMs(ms);
+    playerSeek(ms);
   }
 
   function onSkip(deltaPct: number) {
@@ -364,14 +157,7 @@ export function PersistentPlayer() {
   }
 
   function onTogglePlay() {
-    setState((s) => {
-      const next = { ...s, playing: !s.playing };
-      setNowPlayingState({
-        trackId: next.track?.id ?? null,
-        playing: next.playing,
-      });
-      return next;
-    });
+    playerToggle();
   }
 
   return (
@@ -403,15 +189,6 @@ export function PersistentPlayer() {
         onSkip={onSkip}
         hidden={dockHidden}
         pathname={pathname}
-      />
-      {/* Hidden audio element — sr-only keeps assistive tech from
-          picking it up as a second player (the visible controls above
-          already announce play/pause state). */}
-      <audio
-        ref={audioRef}
-        src={state.track.audioUrl ?? undefined}
-        preload="auto"
-        className="sr-only"
       />
     </>
   );
@@ -497,13 +274,11 @@ function DesktopDock({
           href={expandHrefForTrack(track, pathname)}
           aria-label={`Open ${track.title} song page`}
           title="Open song page"
-          className="sk-press flex min-w-0 items-center gap-3 rounded-[14px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+          className="sk-press flex min-h-11 min-w-0 items-center gap-3 rounded-[14px] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
         >
           <Cover track={track} size={44} />
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[13px] font-bold tracking-[-0.01em]">
-              {track.title}
-            </p>
+            <p className="truncate text-[13px] font-bold tracking-[-0.01em]">{track.title}</p>
             <p className="truncate text-[11px] font-semibold text-[rgb(var(--brand-primary))]">
               {track.subtitle}
             </p>
@@ -524,7 +299,7 @@ function DesktopDock({
               onClick={() => {
                 onSkip(-5);
               }}
-              className="sk-press text-white/55 hover:text-white"
+              className="sk-press inline-flex min-h-11 min-w-11 items-center justify-center text-white/55 hover:text-white"
             >
               <SkipBackIcon />
             </button>
@@ -532,7 +307,7 @@ function DesktopDock({
               type="button"
               aria-label={playing ? "Pause" : "Play"}
               onClick={onTogglePlay}
-              className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)] shadow-[0_2px_14px_rgba(255,255,255,0.18)]"
+              className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)] shadow-[0_2px_14px_rgba(255,255,255,0.18)]"
             >
               {playing ? <PauseIcon /> : <PlayIcon />}
             </button>
@@ -542,7 +317,7 @@ function DesktopDock({
               onClick={() => {
                 onSkip(5);
               }}
-              className="sk-press text-white/55 hover:text-white"
+              className="sk-press inline-flex min-h-11 min-w-11 items-center justify-center text-white/55 hover:text-white"
             >
               <SkipForwardIcon />
             </button>
@@ -550,7 +325,9 @@ function DesktopDock({
           <div className="flex w-full items-center gap-2.5 font-mono text-[10px] text-white/40">
             <span className="w-8 text-right tabular-nums">{fmtTime(currentMs)}</span>
             <MiniWaveform seed={track.id} progressPct={progressPct} onScrub={onScrub} />
-            <span className="w-8 tabular-nums">{durationMs == null ? "—" : fmtTime(durationMs)}</span>
+            <span className="w-8 tabular-nums">
+              {durationMs == null ? "—" : fmtTime(durationMs)}
+            </span>
           </div>
         </div>
 
@@ -561,7 +338,7 @@ function DesktopDock({
             type="button"
             aria-label={playing ? "Pause" : "Play"}
             onClick={onTogglePlay}
-            className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)] shadow-[0_2px_14px_rgba(255,255,255,0.18)]"
+            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)] shadow-[0_2px_14px_rgba(255,255,255,0.18)]"
           >
             {playing ? <PauseIcon /> : <PlayIcon />}
           </button>
@@ -576,7 +353,7 @@ function DesktopDock({
             href={expandHrefForTrack(track, pathname)}
             aria-label="Open song page"
             title="Open song page"
-            className="sk-press inline-flex h-8 w-8 items-center justify-center rounded-md text-white/55 hover:text-white"
+            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] text-white/55 hover:text-white"
           >
             <ExpandIcon />
           </Link>
@@ -587,7 +364,7 @@ function DesktopDock({
             onClick={() => {
               playerClose();
             }}
-            className="sk-press inline-flex h-8 w-8 items-center justify-center rounded-md bg-white/[0.06] text-white/70 hover:text-white"
+            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] bg-white/[0.06] text-white/70 hover:text-white"
           >
             <CloseIcon />
           </button>
@@ -694,13 +471,11 @@ function MobileDock({
             }}
             aria-label={`Expand player — ${track.title}`}
             aria-expanded={expanded}
-            className="sk-press flex min-w-0 flex-1 items-center gap-2.5 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
+            className="sk-press flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-[var(--radius-lg)] text-left focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
           >
             <Cover track={track} size={38} />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[13px] font-bold tracking-[-0.01em]">
-                {track.title}
-              </p>
+              <p className="truncate text-[13px] font-bold tracking-[-0.01em]">{track.title}</p>
               <p className="truncate text-[11px] font-semibold text-[rgb(var(--brand-primary))]">
                 {track.subtitle}
               </p>
@@ -710,7 +485,7 @@ function MobileDock({
             type="button"
             aria-label={playing ? "Pause" : "Play"}
             onClick={onTogglePlay}
-            className="sk-press inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)]"
+            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)]"
           >
             {playing ? <PauseIcon /> : <PlayIcon />}
           </button>
@@ -721,7 +496,7 @@ function MobileDock({
             onClick={() => {
               setExpanded(true);
             }}
-            className="sk-press inline-flex h-8 w-8 items-center justify-center rounded-md text-white/70 hover:text-white"
+            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] text-white/70 hover:text-white"
           >
             <ExpandIcon />
           </button>
@@ -732,7 +507,7 @@ function MobileDock({
             onClick={() => {
               playerClose();
             }}
-            className="sk-press inline-flex h-8 w-8 items-center justify-center rounded-md bg-white/[0.06] text-white/70 hover:text-white"
+            className="sk-press inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] bg-white/[0.06] text-white/70 hover:text-white"
           >
             <CloseIcon />
           </button>
@@ -880,10 +655,10 @@ function MobileFullPlayer({
           <Link
             href={expandHrefForTrack(track, pathname)}
             onClick={onCollapse}
-            className="group min-w-0 flex-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] rounded-md"
+            className="group min-w-0 flex-1 rounded-md focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
             aria-label={`Open ${track.title} song page`}
           >
-            <p className="truncate text-[22px] font-extrabold leading-tight tracking-[-0.015em] group-active:opacity-70">
+            <p className="truncate text-[22px] leading-tight font-extrabold tracking-[-0.015em] group-active:opacity-70">
               {track.title}
             </p>
             <p className="mt-0.5 truncate text-[14px] font-semibold text-[rgb(var(--brand-primary))]">
@@ -904,14 +679,9 @@ function MobileFullPlayer({
         {/* Seek — tall waveform + time stamps. */}
         <div className="mt-4">
           <div className="flex items-center">
-            <MiniWaveform
-              seed={track.id}
-              progressPct={progressPct}
-              onScrub={onScrub}
-              tall
-            />
+            <MiniWaveform seed={track.id} progressPct={progressPct} onScrub={onScrub} tall />
           </div>
-          <div className="mt-1.5 flex items-center justify-between font-mono text-[10.5px] tabular-nums text-white/55">
+          <div className="mt-1.5 flex items-center justify-between font-mono text-[10.5px] text-white/55 tabular-nums">
             <span>{fmtTime(currentMs)}</span>
             <span>{durationMs ? fmtTime(durationMs) : "–:––"}</span>
           </div>
@@ -935,9 +705,7 @@ function MobileFullPlayer({
             onClick={onTogglePlay}
             className="sk-press inline-flex h-16 w-16 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)] shadow-[0_10px_30px_rgba(0,0,0,0.45)]"
           >
-            <span className="scale-[1.45]">
-              {playing ? <PauseIcon /> : <PlayIcon />}
-            </span>
+            <span className="scale-[1.45]">{playing ? <PauseIcon /> : <PlayIcon />}</span>
           </button>
           <button
             type="button"
@@ -962,7 +730,7 @@ function MobileFullPlayer({
               onCollapse();
               playerClose();
             }}
-            className="sk-press inline-flex min-h-[44px] items-center gap-1.5 rounded-full px-4 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-white/45 hover:text-white/80"
+            className="sk-press inline-flex min-h-[44px] items-center gap-1.5 rounded-full px-4 font-mono text-[10px] font-bold tracking-[0.14em] text-white/45 uppercase hover:text-white/80"
           >
             <CloseIcon />
             Close player
@@ -1066,11 +834,16 @@ function MiniWaveform({
         onScrub(pct);
       }}
       className={[
-        "relative flex-1 cursor-pointer touch-none select-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/40",
-        tall ? "h-12" : "h-6",
+        "relative flex-1 cursor-pointer touch-none select-none focus-visible:ring-1 focus-visible:ring-white/40 focus-visible:outline-none",
+        tall ? "h-12" : "h-11",
       ].join(" ")}
     >
-      <div className="absolute inset-0 flex items-center justify-between gap-[2px]">
+      <div
+        className={[
+          "absolute flex items-center justify-between gap-[2px]",
+          tall ? "inset-0" : "inset-x-0 top-1/2 h-6 -translate-y-1/2",
+        ].join(" ")}
+      >
         {heights.map((h, i) => (
           <span
             key={`mb-${String(i)}`}
@@ -1121,7 +894,17 @@ function PauseIcon() {
 
 function SkipBackIcon() {
   return (
-    <svg viewBox="0 0 16 16" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg
+      viewBox="0 0 16 16"
+      width={15}
+      height={15}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
       <polygon points="11 13 5 8 11 3" fill="currentColor" stroke="none" />
       <line x1="3" y1="3" x2="3" y2="13" />
     </svg>
@@ -1130,7 +913,17 @@ function SkipBackIcon() {
 
 function SkipForwardIcon() {
   return (
-    <svg viewBox="0 0 16 16" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg
+      viewBox="0 0 16 16"
+      width={15}
+      height={15}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
       <polygon points="5 3 11 8 5 13" fill="currentColor" stroke="none" />
       <line x1="13" y1="3" x2="13" y2="13" />
     </svg>
@@ -1139,7 +932,17 @@ function SkipForwardIcon() {
 
 function ExpandIcon() {
   return (
-    <svg viewBox="0 0 16 16" width={14} height={14} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg
+      viewBox="0 0 16 16"
+      width={14}
+      height={14}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
       <polyline points="9 3 13 3 13 7" />
       <polyline points="7 13 3 13 3 9" />
       <line x1="13" y1="3" x2="9" y2="7" />
@@ -1150,7 +953,17 @@ function ExpandIcon() {
 
 function CloseIcon() {
   return (
-    <svg viewBox="0 0 16 16" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg
+      viewBox="0 0 16 16"
+      width={15}
+      height={15}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
       <line x1="4" y1="4" x2="12" y2="12" />
       <line x1="12" y1="4" x2="4" y2="12" />
     </svg>

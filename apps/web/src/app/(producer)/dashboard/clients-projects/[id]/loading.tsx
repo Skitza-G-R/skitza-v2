@@ -68,7 +68,7 @@ function Skel({
     <span
       aria-hidden
       className={[
-        "block animate-pulse border border-[rgb(var(--border-subtle))]",
+        "block animate-pulse border border-[rgb(var(--border-subtle))] motion-reduce:animate-none",
         bg,
         className ?? "",
       ].join(" ")}

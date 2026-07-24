@@ -32,6 +32,17 @@ describe("StoreScreen shell", () => {
     expect(SRC).toMatch(/HIDDEN/);
   });
 
+  it("restores only bounded Store filter and search URL state", () => {
+    expect(SRC).toContain("usePathname");
+    expect(SRC).toContain("useSearchParams");
+    expect(SRC).toContain("parseStoreUrlState");
+    expect(SRC).toContain("window.history.replaceState");
+    expect(SRC).toContain("next.slice(0, 120)");
+    expect(SRC).toContain("onFilterChange={updateFilter}");
+    expect(SRC).toContain("onSearchChange={updateSearch}");
+    expect(SRC).not.toMatch(/localStorage|sessionStorage/);
+  });
+
   it("no longer uses window.confirm anywhere", () => {
     expect(SRC).not.toMatch(/window\.confirm/);
   });
@@ -65,6 +76,13 @@ describe("StoreScreen shell", () => {
 
   it("reverts the optimistic state to props on server error", () => {
     expect(SRC).toMatch(/setOptimisticProducts\(products\)/);
+  });
+
+  it("keeps catalog mutations live-only and reports transport failures locally", () => {
+    expect(SRC).toContain("useOnlineStatus");
+    expect(SRC).toContain("Reconnect to reorder products.");
+    expect(SRC).toContain("Could not reorder products. Please try again.");
+    expect(SRC).toContain("Could not update product visibility. Please try again.");
   });
 
   it("passes move-up/down state and handlers into each ProductCard", () => {
@@ -110,6 +128,21 @@ describe("StoreScreen shell", () => {
 
   it("wires onCreated on the create-mode ProductEditor", () => {
     expect(SRC).toMatch(/onCreated=\{handleCreated\}/);
+  });
+
+  it("keeps create and edit drafts available after an ordinary close and reopen", () => {
+    const createStart = SRC.indexOf("{/* Create modal */}");
+    const editStart = SRC.indexOf("{/* Edit modal */}");
+    const removalStart = SRC.indexOf("<ProductRemovalModal");
+    const createEditor = SRC.slice(createStart, editStart);
+    const editEditor = SRC.slice(editStart, removalStart);
+
+    for (const editor of [createEditor, editEditor]) {
+      expect(editor).not.toContain("storeDraft.clear()");
+      expect(editor).toContain("persistedDraft={storeDraft.record}");
+      expect(editor).toContain("onPersistDraft={storeDraft.save}");
+      expect(editor).toContain("onSubmitted={storeDraft.clear}");
+    }
   });
 
   it("passes the real focal or secondary Store placement into each preview", () => {

@@ -62,7 +62,9 @@ describe("exact agreement acceptance", () => {
 
   it("requires explicit acceptance of the exact agreement and plan", () => {
     expect(review).toMatch(/I accept this exact agreement and payment plan/);
-    expect(review).toMatch(/disabled=\{!accepted \|\| sending\}/);
+    expect(review).toMatch(
+      /disabled=\{!accepted \|\| sending \|\| \(!online && isExactReview\(props\)\)\}/,
+    );
     expect(review).toMatch(/agreementAccepted: true/);
     expect(actions).toMatch(/agreementAccepted: true/);
   });

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { type SyntheticEvent, useEffect, useState, useTransition } from "react";
 
 import { useToast } from "~/components/ui/toast";
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import {
   ValidationHint,
   validateDisplayName,
@@ -42,6 +43,7 @@ export interface NewClientModalProps {
 export function NewClientModal({ open, onClose, onCreated }: NewClientModalProps) {
   const { toast } = useToast();
   const router = useRouter();
+  const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
 
   const [name, setName] = useState("");
@@ -68,7 +70,8 @@ export function NewClientModal({ open, onClose, onCreated }: NewClientModalProps
     setEmailTouched(false);
   }, [open]);
 
-  const submitDisabled = pending || name.trim().length === 0 || email.trim().length === 0;
+  const submitDisabled =
+    pending || !online || name.trim().length === 0 || email.trim().length === 0;
 
   const handleSubmit = (e: SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -81,49 +84,57 @@ export function NewClientModal({ open, onClose, onCreated }: NewClientModalProps
       // Inline hints already explain what's wrong; no duplicate toast.
       return;
     }
+    if (!online) {
+      toast("Reconnect to add a client.", "error");
+      return;
+    }
     startTransition(async () => {
-      // exactOptionalPropertyTypes: pass keys only when they have a
-      // value, never as `undefined`.
-      const trimmedPhone = phone.trim();
-      const trimmedNotes = notes.trim();
-      const payload: {
-        name: string;
-        email: string;
-        phone?: string;
-        notes?: string;
-      } = {
-        name: name.trim(),
-        email: email.trim(),
-      };
-      if (trimmedPhone) payload.phone = trimmedPhone;
-      if (trimmedNotes) payload.notes = trimmedNotes;
-      const res = await createClientAction(payload);
-      if (!res.ok) {
-        toast(res.error, "error");
-        return;
-      }
-      if (res.data.existed) {
-        toast("That client already exists — opening their space.", "info");
-        router.push(`/dashboard/clients-projects/clients/${res.data.id}`);
+      try {
+        // exactOptionalPropertyTypes: pass keys only when they have a
+        // value, never as `undefined`.
+        const trimmedPhone = phone.trim();
+        const trimmedNotes = notes.trim();
+        const payload: {
+          name: string;
+          email: string;
+          phone?: string;
+          notes?: string;
+        } = {
+          name: name.trim(),
+          email: email.trim(),
+        };
+        if (trimmedPhone) payload.phone = trimmedPhone;
+        if (trimmedNotes) payload.notes = trimmedNotes;
+        const res = await createClientAction(payload);
+        if (!res.ok) {
+          toast(res.error, "error");
+          return;
+        }
+        if (res.data.existed) {
+          toast("That client already exists — opening their space.", "info");
+          router.push(`/dashboard/clients-projects/clients/${res.data.id}`);
+          onClose();
+          return;
+        }
+        if (res.data.inviteEmailFailed) {
+          // Client row was inserted but the invite email didn't send
+          // (Resend rejection, sandbox limit, etc). Tell the producer
+          // it's saved and they can retry the invite from the client's
+          // space. The LinkPill there shows "Invite to app" because the
+          // procedure never stamped invited_at.
+          toast("Client added — invite email couldn't be sent. Try again from their page.", "info");
+        } else {
+          toast("Client added — invite sent", "success");
+        }
+        onCreated?.();
+        // Server Action already called revalidatePath, but a manual
+        // router.refresh keeps the list in sync if the parent isn't a
+        // server-component boundary.
+        router.refresh();
         onClose();
-        return;
+      } catch {
+        toast("Could not add this client. Please try again.", "error");
       }
-      if (res.data.inviteEmailFailed) {
-        // Client row was inserted but the invite email didn't send
-        // (Resend rejection, sandbox limit, etc). Tell the producer
-        // it's saved and they can retry the invite from the client's
-        // space. The LinkPill there shows "Invite to app" because the
-        // procedure never stamped invited_at.
-        toast("Client added — invite email couldn't be sent. Try again from their page.", "info");
-      } else {
-        toast("Client added — invite sent", "success");
-      }
-      onCreated?.();
-      // Server Action already called revalidatePath, but a manual
-      // router.refresh keeps the list in sync if the parent isn't a
-      // server-component boundary.
-      router.refresh();
-      onClose();
     });
   };
 

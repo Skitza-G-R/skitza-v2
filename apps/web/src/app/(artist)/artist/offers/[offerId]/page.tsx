@@ -34,7 +34,7 @@ export default async function PrivateOfferPage({ params }: PageProps) {
         <div className="min-w-0">
           <Link
             href={withArtistStudio("/artist/store", offer.producerId)}
-            className="text-xs font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
+            className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] text-xs font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
           >
             ← Store
           </Link>
