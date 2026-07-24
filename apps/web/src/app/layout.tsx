@@ -5,6 +5,7 @@ import { Outfit, Syne, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 
 import { SkipToContent } from "~/components/a11y/skip-to-content";
+import { AppMediaRuntime } from "~/components/audio/app-media-runtime";
 import { nativeThemeProviderProps } from "~/components/native/native-theme";
 import { NativeViewportSync } from "~/components/native/native-viewport";
 import { PostHogProvider } from "~/components/observability/posthog-provider";
@@ -214,6 +215,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 assets and explicit public resources are cacheable; private
                 app data remains network-only. */}
             <NativeAppRuntime />
+            <AppMediaRuntime />
             {/* PostHog product analytics. Mounted INSIDE ClerkProvider
                 so its identify-hook can read `useUser()` without a
                 separate provider boundary. No-ops when

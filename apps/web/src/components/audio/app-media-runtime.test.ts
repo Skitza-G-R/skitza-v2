@@ -4,12 +4,23 @@ import { describe, expect, it } from "vitest";
 const ROOT_RUNTIME = readFileSync(new URL("./app-media-runtime.tsx", import.meta.url), "utf8");
 const PLAYBACK_RUNTIME = readFileSync(new URL("./playback-runtime.tsx", import.meta.url), "utf8");
 const PERSISTENT_PLAYER = readFileSync(new URL("./persistent-player.tsx", import.meta.url), "utf8");
+const ROOT_LAYOUT = readFileSync(new URL("../../app/layout.tsx", import.meta.url), "utf8");
+const ACCOUNT_EXIT = readFileSync(
+  new URL("../../lib/runtime-state/account-exit.ts", import.meta.url),
+  "utf8",
+);
 const PUBLIC_PLAYER = readFileSync(
   new URL("../join/join-mini-player.tsx", import.meta.url),
   "utf8",
 );
 
 describe("SK-110 root media runtime", () => {
+  it("mounts one app media runtime immediately after the native runtime", () => {
+    expect(ROOT_LAYOUT.match(/<NativeAppRuntime \/>/g)).toHaveLength(1);
+    expect(ROOT_LAYOUT.match(/<AppMediaRuntime \/>/g)).toHaveLength(1);
+    expect(ROOT_LAYOUT).toMatch(/<NativeAppRuntime \/>\s*<AppMediaRuntime \/>/);
+  });
+
   it("exports one exact root adapter and keeps route players presentation-only", () => {
     expect(ROOT_RUNTIME).toContain("export function AppMediaRuntime");
     expect(ROOT_RUNTIME).toContain("<AppPlaybackRuntime");
@@ -40,19 +51,49 @@ describe("SK-110 root media runtime", () => {
     );
   });
 
-  it("waits for account cleanup before every app-owned Clerk sign-out", () => {
+  it("clears private continuity state before preparing media account exit", () => {
     expect(ROOT_RUNTIME).toContain("export async function prepareMediaAccountExit");
+    const privateCleanup = ROOT_RUNTIME.indexOf("clearAccountPrivateRuntimeState(accountId)");
+    const mediaCleanup = ROOT_RUNTIME.indexOf(
+      "return prepareMediaAccountExit(accountId)",
+      privateCleanup,
+    );
+    expect(privateCleanup).toBeGreaterThanOrEqual(0);
+    expect(mediaCleanup).toBeGreaterThan(privateCleanup);
+    expect(ACCOUNT_EXIT).toContain("storage: StorageLike | null = getBrowserRuntimeStorage()");
+  });
+
+  it("waits for composed cleanup before explicit app-owned Clerk sign-out", () => {
     const explicitCleanup = ROOT_RUNTIME.indexOf(
-      "if (user?.id) await prepareMediaAccountExit(user.id)",
+      "if (user?.id) await prepareAppAccountExit(user.id)",
     );
     const explicitSignOut = ROOT_RUNTIME.indexOf("await clerk.signOut(options)", explicitCleanup);
     expect(explicitCleanup).toBeGreaterThanOrEqual(0);
     expect(explicitSignOut).toBeGreaterThan(explicitCleanup);
+  });
 
-    const builtInCleanup = ROOT_RUNTIME.indexOf("void prepareMediaAccountExit(accountId)");
+  it("intercepts built-in Clerk sign-out and waits for the same composed cleanup", () => {
+    const builtInCapture = ROOT_RUNTIME.indexOf(
+      'data-localization-key="userButtonPopoverActionSignOut"',
+    );
+    const builtInCleanup = ROOT_RUNTIME.indexOf(
+      "void prepareAppAccountExit(accountId)",
+      builtInCapture,
+    );
     const builtInSignOut = ROOT_RUNTIME.indexOf(".then(() => clerk.signOut())", builtInCleanup);
-    expect(ROOT_RUNTIME).toContain('data-localization-key="userButtonPopoverActionSignOut"');
+    expect(builtInCapture).toBeGreaterThanOrEqual(0);
+    expect(builtInCleanup).toBeGreaterThan(builtInCapture);
     expect(builtInSignOut).toBeGreaterThan(builtInCleanup);
+  });
+
+  it("hides the previous account before running its composed switch cleanup", () => {
+    const visibleAccountSwitch = ROOT_RUNTIME.indexOf("setUploadRuntimeAccountId(accountId)");
+    const previousAccountCleanup = ROOT_RUNTIME.indexOf(
+      "void prepareAppAccountExit(previous)",
+      visibleAccountSwitch,
+    );
+    expect(visibleAccountSwitch).toBeGreaterThanOrEqual(0);
+    expect(previousAccountCleanup).toBeGreaterThan(visibleAccountSwitch);
   });
 
   it("warns only for an active upload and does not claim close/relaunch continuation", () => {

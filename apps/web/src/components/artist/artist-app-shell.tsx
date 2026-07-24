@@ -8,8 +8,6 @@ import { ArtistTopBar } from "~/components/shell/artist-topbar";
 import { TopBarBreadcrumbProvider } from "~/components/shell/topbar-breadcrumb-context";
 import { ArtistRuntimeStateProvider } from "~/components/runtime-state/artist-runtime-state-provider";
 
-import { ArtistAudioProvider } from "./artist-audio-context";
-import { PersistentMiniPlayer } from "./persistent-mini-player";
 import { ArtistShellChrome } from "./artist-shell-chrome";
 
 // Artist app shell — Phase 2 (locked design system).
@@ -33,12 +31,9 @@ import { ArtistShellChrome } from "./artist-shell-chrome";
 // menu is rendered inside the relevant chrome — desktop sidebar bottom
 // for `lg+`, mobile top bar for `<lg` — with the same labelled link.
 //
-// Audio: `ArtistAudioProvider` owns the singleton <audio> element,
-// `PersistentMiniPlayer` renders the visible mini-player. Both are
-// preserved verbatim for Phase 2 (audio system rework lands in Phase
-// 4). The existing player renders above the dark bottom nav on mobile
-// and floats over the bottom-right of main on desktop; visual
-// mismatch is expected per the Phase 2 brief.
+// Audio: AppMediaRuntime owns the singleton app-level engine.
+// PersistentPlayer remains the route-shell presentation for the shared
+// player state and event bus.
 //
 // Per CLAUDE.md the artist platform is mobile-first; the desktop
 // surface is net-new in Phase 2 (the prior implementation rendered
@@ -66,28 +61,27 @@ export function ArtistAppShell({
       userId={userId}
       studioIds={studios.map((studio) => studio.producerId)}
     >
-      <ArtistAudioProvider>
-        <div
-          className="flex min-h-dvh"
-          style={{
-            background: "rgb(var(--bg-background))",
-            color: "rgb(var(--fg-default))",
-          }}
-        >
-          {/* Desktop-only left rail. `hidden lg:flex` is set inside the
+      <div
+        className="flex min-h-dvh"
+        style={{
+          background: "rgb(var(--bg-background))",
+          color: "rgb(var(--fg-default))",
+        }}
+      >
+        {/* Desktop-only left rail. `hidden lg:flex` is set inside the
             sidebar component so this fragment stays declarative. */}
-          <ArtistShellChrome>
-            <ArtistDesktopSidebar studios={studios} />
-          </ArtistShellChrome>
+        <ArtistShellChrome>
+          <ArtistDesktopSidebar studios={studios} />
+        </ArtistShellChrome>
 
-          {/* Main column — top bar (mobile only) + content + bottom nav
+        {/* Main column — top bar (mobile only) + content + bottom nav
             (mobile only). Flex-column so the top bar sits flush above
             scrolling content. */}
-          <div className="flex min-w-0 flex-1 flex-col">
-            <ArtistShellChrome>
-              <ArtistMobileTopBar studios={studios} />
-            </ArtistShellChrome>
-            {/* SK-31: replicate the producer top bar on the artist side,
+        <div className="flex min-w-0 flex-1 flex-col">
+          <ArtistShellChrome>
+            <ArtistMobileTopBar studios={studios} />
+          </ArtistShellChrome>
+          {/* SK-31: replicate the producer top bar on the artist side,
               desktop only. The `<TopBarBreadcrumbProvider>` wraps both
               the topbar and `<main>` so deep artist pages can push
               extra crumbs (song title, booking detail, etc.) into the
@@ -96,13 +90,13 @@ export function ArtistAppShell({
               this strip off mobile, where the existing
               `ArtistMobileTopBar` continues to own the top of the
               screen (per Gili's SK-31 decision). */}
-            <TopBarBreadcrumbProvider>
-              <ArtistShellChrome>
-                <div className="hidden lg:block">
-                  <ArtistTopBar />
-                </div>
-              </ArtistShellChrome>
-              {/* `pb-20` reserves space for the mobile bottom nav (56px
+          <TopBarBreadcrumbProvider>
+            <ArtistShellChrome>
+              <div className="hidden lg:block">
+                <ArtistTopBar />
+              </div>
+            </ArtistShellChrome>
+            {/* `pb-20` reserves space for the mobile bottom nav (56px
                 tab row + 8px safe-area buffer). `lg:pb-12` keeps a
                 little vertical breathing room on desktop where there's
                 no bar. `pt-6 lg:pt-10` matches the design's top
@@ -110,29 +104,23 @@ export function ArtistAppShell({
                 column readable at tablet+ widths even on the desktop
                 sidebar layout — Phase 3 pages can opt out by setting
                 their own width. */}
-              <main
-                id="main-content"
-                tabIndex={-1}
-                className="mx-auto w-full max-w-2xl px-4 pt-6 pb-20 lg:max-w-none lg:px-10 lg:pt-10 lg:pb-12"
-              >
-                {children}
-              </main>
-            </TopBarBreadcrumbProvider>
-          </div>
-
-          <ArtistShellChrome>
-            <PersistentMiniPlayer />
-            {/* SK-27: PersistentPlayer is the producer-side floating dock.
-              It powers the shared Music Library's Play buttons
-              (useNowPlaying / playerPlay event bus) on the artist side.
-              Renders null when no track is loaded, so it sits inert on
-              artist pages that still use ArtistAudio. Both players will
-              be unified in a follow-up — for PR #1 they coexist. */}
-            <PersistentPlayer />
-            <ArtistBottomNav studios={studios} />
-          </ArtistShellChrome>
+            <main
+              id="main-content"
+              tabIndex={-1}
+              className="mx-auto w-full max-w-2xl px-4 pt-6 pb-20 lg:max-w-none lg:px-10 lg:pt-10 lg:pb-12"
+            >
+              {children}
+            </main>
+          </TopBarBreadcrumbProvider>
         </div>
-      </ArtistAudioProvider>
+
+        <ArtistShellChrome>
+          {/* PersistentPlayer powers the shared Music Library's Play
+              buttons through the app-level playback runtime. */}
+          <PersistentPlayer />
+          <ArtistBottomNav studios={studios} />
+        </ArtistShellChrome>
+      </div>
     </ArtistRuntimeStateProvider>
   );
 }

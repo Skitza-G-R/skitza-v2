@@ -17,6 +17,7 @@ import {
   cancelPersistedUploadsForAccount,
   startMultipartCancellationRecovery,
 } from "~/lib/audio/use-multipart-upload";
+import { clearAccountPrivateRuntimeState } from "~/lib/runtime-state/account-exit";
 import {
   AppPlaybackRuntime,
   clearPlaybackForAccount,
@@ -46,6 +47,11 @@ export async function prepareMediaAccountExit(accountId: string): Promise<boolea
   return activeCancelled && journalCancelled;
 }
 
+async function prepareAppAccountExit(accountId: string): Promise<boolean> {
+  clearAccountPrivateRuntimeState(accountId);
+  return prepareMediaAccountExit(accountId);
+}
+
 /**
  * Custom sign-out adapter for explicit app buttons. Cleanup is awaited while
  * Clerk still owns the authenticated session; a failed exact cancellation
@@ -57,7 +63,7 @@ export function useSafeSignOut(): (options?: SignOutOptions) => Promise<void> {
   return useCallback(
     async (options?: SignOutOptions) => {
       try {
-        if (user?.id) await prepareMediaAccountExit(user.id);
+        if (user?.id) await prepareAppAccountExit(user.id);
       } finally {
         await clerk.signOut(options);
       }
@@ -81,7 +87,7 @@ function AppUploadRuntime({ accountId }: { accountId: string | null | undefined 
     previousAccountRef.current = accountId;
 
     if (previous && previous !== accountId) {
-      void prepareMediaAccountExit(previous);
+      void prepareAppAccountExit(previous);
     }
     if (!accountId) return;
     return startMultipartCancellationRecovery();
@@ -118,7 +124,7 @@ function AppUploadRuntime({ accountId }: { accountId: string | null | undefined 
       event.preventDefault();
       event.stopImmediatePropagation();
       interceptingSignOutRef.current = true;
-      void prepareMediaAccountExit(accountId)
+      void prepareAppAccountExit(accountId)
         .catch(() => {
           // Failed exact cancellation remains in the scoped journal.
         })

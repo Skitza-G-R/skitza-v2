@@ -8,8 +8,13 @@ import {
   shouldConcealRuntimeContent,
 } from "../runtime-state-provider";
 import { MemoryStorage } from "~/lib/runtime-state/__tests__/memory-storage";
+import { clearAccountPrivateRuntimeState } from "~/lib/runtime-state/account-exit";
 import { createRuntimeDraftFlush, flushRuntimeDraftForScope } from "~/lib/runtime-state/drafts";
-import { runtimeScope, writeRuntimeState } from "~/lib/runtime-state/runtime-state";
+import {
+  readRuntimeState,
+  runtimeScope,
+  writeRuntimeState,
+} from "~/lib/runtime-state/runtime-state";
 
 const COMPONENT_DIR = join(__dirname, "..");
 const CACHE_HOOK = readFileSync(join(COMPONENT_DIR, "use-runtime-state.ts"), "utf8");
@@ -63,6 +68,27 @@ describe("runtime privacy adapters", () => {
 
     expect(flushRuntimeDraftForScope(pending, "server-user:producer:producer-id")).toBe(false);
     expect(write).not.toHaveBeenCalled();
+  });
+
+  it("clears one account directly when no runtime provider is mounted", () => {
+    const storage = new MemoryStorage();
+    const first = runtimeScope("user-a", "producer", "producer-a", "/dashboard");
+    const second = runtimeScope("user-b", "producer", "producer-b", "/dashboard");
+    if (!first || !second) throw new Error("Expected scopes");
+    writeRuntimeState(storage, first, "producer.overview.safe-view", {
+      displayName: "First",
+      activeProjects: 1,
+    });
+    writeRuntimeState(storage, second, "producer.overview.safe-view", {
+      displayName: "Second",
+      activeProjects: 2,
+    });
+
+    expect(clearAccountPrivateRuntimeState("user-a", storage)).toBe(1);
+    expect(readRuntimeState(storage, first, "producer.overview.safe-view")).toBeNull();
+    expect(readRuntimeState(storage, second, "producer.overview.safe-view")).toMatchObject({
+      displayName: "Second",
+    });
   });
 });
 

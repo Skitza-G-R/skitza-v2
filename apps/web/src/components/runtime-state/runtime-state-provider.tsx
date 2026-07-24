@@ -4,12 +4,11 @@ import { useAuth, useClerk } from "@clerk/nextjs";
 import { createContext, useContext, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 
 import {
-  clearRuntimeStateForUser,
   getBrowserRuntimeStorage,
   type RuntimeRole,
   type StorageLike,
 } from "~/lib/runtime-state/runtime-state";
-import { invalidateRuntimeDraftFlushes } from "~/lib/runtime-state/drafts";
+import { clearAccountPrivateRuntimeState } from "~/lib/runtime-state/account-exit";
 
 export interface RuntimeIdentity {
   userId: string;
@@ -30,8 +29,7 @@ export function clearRuntimeStateBeforeSignOut<Result>(
   userId: string,
   signOut: () => Result,
 ): Result {
-  invalidateRuntimeDraftFlushes();
-  if (storage) clearRuntimeStateForUser(storage, userId);
+  clearAccountPrivateRuntimeState(userId, storage);
   return signOut();
 }
 
@@ -71,8 +69,7 @@ export function RuntimeStateProvider({
     const currentUserId = clerkUserId ?? null;
     const userIdToClear = runtimeUserToClear(previousUserId.current, currentUserId);
     if (userIdToClear) {
-      invalidateRuntimeDraftFlushes();
-      if (storage) clearRuntimeStateForUser(storage, userIdToClear);
+      clearAccountPrivateRuntimeState(userIdToClear, storage);
     }
     previousUserId.current = currentUserId;
   }, [clerkUserId, identity.userId, isLoaded, storage]);
