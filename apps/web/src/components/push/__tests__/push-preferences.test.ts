@@ -40,7 +40,11 @@ describe("SK-112 contextual push preferences", () => {
   });
 
   it("reloads browser state after account-exit subscription cleanup", () => {
+    expect(preferences).toContain("PUSH_ACCOUNT_BOUNDARY_EVENT");
     expect(preferences).toContain("PUSH_SUBSCRIPTION_CLEARED_EVENT");
+    expect(preferences).toContain(
+      "window.addEventListener(PUSH_ACCOUNT_BOUNDARY_EVENT, onAccountBoundary)",
+    );
     expect(preferences).toContain(
       "window.addEventListener(PUSH_SUBSCRIPTION_CLEARED_EVENT, onSubscriptionCleared)",
     );
@@ -49,7 +53,22 @@ describe("SK-112 contextual push preferences", () => {
     );
     expect(preferences).toContain("setBrowser((current) => ({ ...current, subscription: null }))");
     expect(preferences).toContain("setError(null)");
-    expect(preferences).toContain("await resumeBrowserPushDelivery()");
+  });
+
+  it("cannot let a pending old-account save resume suppressed delivery", () => {
+    const save = preferences.indexOf("await savePushSubscriptionAction");
+    const staleGuard = preferences.indexOf("if (!boundaryIsCurrent())", save);
+    const resume = preferences.indexOf(
+      "await resumeBrowserPushDelivery(boundaryIsCurrent)",
+      staleGuard,
+    );
+    expect(save).toBeGreaterThan(-1);
+    expect(staleGuard).toBeGreaterThan(save);
+    expect(resume).toBeGreaterThan(staleGuard);
+    expect(preferences).toContain("getPushAccountBoundaryGeneration()");
+    expect(preferences).toContain("pushAccountBoundaryAllowsDelivery(boundaryGeneration)");
+    expect(preferences).toContain("await discardCreatedSubscription()");
+    expect(preferences).toContain("if (boundaryIsCurrent()) setPending(null)");
   });
 
   it("replaces fake settings switches with the delivery-backed control", () => {

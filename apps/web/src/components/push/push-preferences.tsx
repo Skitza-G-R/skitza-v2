@@ -10,7 +10,10 @@ import {
 } from "~/app/push-actions";
 import { PUSH_CATEGORIES, PUSH_CATEGORY_COPY, type PushCategory } from "~/lib/push/categories";
 import {
+  getPushAccountBoundaryGeneration,
+  PUSH_ACCOUNT_BOUNDARY_EVENT,
   PUSH_SUBSCRIPTION_CLEARED_EVENT,
+  pushAccountBoundaryAllowsDelivery,
   resumeBrowserPushDelivery,
 } from "~/lib/push/browser-subscription";
 
@@ -98,6 +101,10 @@ export function PushPreferences() {
         if (!cancelled && version === loadVersion) setLoading(false);
       }
     }
+    const onAccountBoundary = () => {
+      loadVersion += 1;
+      setPending(null);
+    };
     const onSubscriptionCleared = () => {
       loadVersion += 1;
       setBrowser((current) => ({ ...current, subscription: null }));
@@ -106,21 +113,36 @@ export function PushPreferences() {
       setLoading(true);
       void load();
     };
+    window.addEventListener(PUSH_ACCOUNT_BOUNDARY_EVENT, onAccountBoundary);
     window.addEventListener(PUSH_SUBSCRIPTION_CLEARED_EVENT, onSubscriptionCleared);
     void load();
     return () => {
       cancelled = true;
+      window.removeEventListener(PUSH_ACCOUNT_BOUNDARY_EVENT, onAccountBoundary);
       window.removeEventListener(PUSH_SUBSCRIPTION_CLEARED_EVENT, onSubscriptionCleared);
     };
   }, []);
 
   const toggle = useCallback(
     async (category: PushCategory) => {
-      if (pending || !browser.configured || !browser.publicKey) return;
+      const boundaryGeneration = getPushAccountBoundaryGeneration();
+      const boundaryIsCurrent = () => pushAccountBoundaryAllowsDelivery(boundaryGeneration);
+      if (pending || !browser.configured || !browser.publicKey || !boundaryIsCurrent()) {
+        return;
+      }
       setPending(category);
       setError(null);
       const enabling = !categories.includes(category);
       let subscription = browser.subscription;
+      let createdSubscription = false;
+      const discardCreatedSubscription = async () => {
+        if (!createdSubscription || !subscription) return;
+        try {
+          await subscription.unsubscribe();
+        } catch {
+          // The account boundary owns any remaining fail-closed cleanup.
+        }
+      };
 
       try {
         if (enabling) {
@@ -130,19 +152,30 @@ export function PushPreferences() {
             // on a real notification category—never during mount/first launch.
             permission = await Notification.requestPermission();
           }
+          if (!boundaryIsCurrent()) return;
           if (permission !== "granted") {
             setError("Allow notifications in your browser to turn this on.");
             return;
           }
           if (!subscription) {
             const registration = await navigator.serviceWorker.ready;
+            if (!boundaryIsCurrent()) return;
             subscription = await registration.pushManager.subscribe({
               userVisibleOnly: true,
               applicationServerKey: applicationServerKey(browser.publicKey),
             });
+            createdSubscription = true;
+            if (!boundaryIsCurrent()) {
+              await discardCreatedSubscription();
+              return;
+            }
           }
         }
 
+        if (!boundaryIsCurrent()) {
+          await discardCreatedSubscription();
+          return;
+        }
         if (!subscription) {
           setCategories([]);
           return;
@@ -153,34 +186,44 @@ export function PushPreferences() {
           : categories.filter((value) => value !== category);
         if (next.length === 0) {
           const result = await unsubscribePushAction(subscription.endpoint);
+          if (!boundaryIsCurrent()) return;
           if (!result.ok) {
             setError(result.error);
             return;
           }
           await subscription.unsubscribe();
+          if (!boundaryIsCurrent()) return;
           setBrowser((current) => ({ ...current, subscription: null }));
           setCategories([]);
           return;
         }
 
         const result = await savePushSubscriptionAction(subscriptionInput(subscription, next));
-        if (!result.ok) {
-          setError(result.error);
-          if (!browser.subscription && enabling) {
-            await subscription.unsubscribe();
-          }
+        if (!boundaryIsCurrent()) {
+          await discardCreatedSubscription();
           return;
         }
-        if (!(await resumeBrowserPushDelivery())) {
+        if (!result.ok) {
+          setError(result.error);
+          await discardCreatedSubscription();
+          return;
+        }
+        const resumed = await resumeBrowserPushDelivery(boundaryIsCurrent);
+        if (!boundaryIsCurrent()) return;
+        if (!resumed) {
           setError("Push notifications are still paused on this browser. Reload and try again.");
           return;
         }
         setBrowser((current) => ({ ...current, subscription }));
         setCategories(result.categories);
       } catch {
+        if (!boundaryIsCurrent()) {
+          await discardCreatedSubscription();
+          return;
+        }
         setError("Push notifications could not be updated. Try again.");
       } finally {
-        setPending(null);
+        if (boundaryIsCurrent()) setPending(null);
       }
     },
     [browser, categories, pending],
@@ -229,7 +272,12 @@ export function PushPreferences() {
                 role="switch"
                 aria-checked={enabled}
                 aria-label={`${copy.label} push notifications`}
-                disabled={loading || pending !== null || !browser.configured}
+                disabled={
+                  loading ||
+                  pending !== null ||
+                  !browser.configured ||
+                  !pushAccountBoundaryAllowsDelivery(getPushAccountBoundaryGeneration())
+                }
                 onClick={() => {
                   void toggle(category);
                 }}

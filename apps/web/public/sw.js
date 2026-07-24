@@ -14,7 +14,7 @@
 importScripts("/pwa/cache-policy.js");
 importScripts("/pwa/push-policy.js");
 
-const SW_VERSION = "2026-07-24-sk116-2";
+const SW_VERSION = "2026-07-24-sk116-3";
 const CACHE_PREFIX = "skitza-native-";
 const CACHE_NAME = `${CACHE_PREFIX}${SW_VERSION}`;
 const OBSOLETE_CACHE_PREFIX = "skitza-shell-";
@@ -36,6 +36,8 @@ const MESSAGE = {
   activationResult: "SKITZA_ACTIVATION_RESULT",
   clientSafetyQuery: "SKITZA_CLIENT_SAFETY_QUERY",
   getVersion: "SKITZA_GET_VERSION",
+  pushSuppressionCapability: "SKITZA_PUSH_SUPPRESSION_CAPABILITY",
+  pushSuppressionCapabilityResult: "SKITZA_PUSH_SUPPRESSION_CAPABILITY_RESULT",
   version: "SKITZA_VERSION",
 };
 const CLIENT_SAFETY_TIMEOUT_MS = 1500;
@@ -260,6 +262,18 @@ self.addEventListener("message", (event) => {
     if (reply) {
       reply.postMessage({
         type: MESSAGE.version,
+        version: SW_VERSION,
+      });
+    }
+    return;
+  }
+
+  if (data && data.type === MESSAGE.pushSuppressionCapability) {
+    const reply = event.ports && event.ports[0];
+    if (reply) {
+      reply.postMessage({
+        type: MESSAGE.pushSuppressionCapabilityResult,
+        supported: true,
         version: SW_VERSION,
       });
     }

@@ -220,6 +220,24 @@ describe("service worker offline and update protocol", () => {
     expect(harness.cache.put).not.toHaveBeenCalled();
   });
 
+  it("proves to the client that the active worker enforces push suppression", async () => {
+    const harness = createHarness();
+    const channel = new MessageChannel();
+    const result = nextPortMessage(channel.port1);
+
+    harness.listener("message")({
+      data: { type: "SKITZA_PUSH_SUPPRESSION_CAPABILITY" },
+      ports: [channel.port2],
+    });
+
+    await expect(result).resolves.toMatchObject({
+      type: "SKITZA_PUSH_SUPPRESSION_CAPABILITY_RESULT",
+      supported: true,
+    });
+    channel.port1.close();
+    channel.port2.close();
+  });
+
   it("refuses activation when any open client reports unsafe work", async () => {
     const harness = createHarness([true, false]);
     const message = harness.listener("message");
