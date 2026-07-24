@@ -716,6 +716,8 @@ export async function submitArtistPaymentProof(
 ): Promise<SubmitArtistProofResult> {
   const now = input.now ?? new Date();
   let finalized: Awaited<ReturnType<typeof finalizePrivateProofUpload>> | null = null;
+  let verifiedUpload: ReturnType<typeof verifyProofUploadToken> | null = null;
+  let verifiedServerSecret: string | null = null;
   try {
     const serverSecret = requireServerSecret(input.serverSecret);
     const token = verifyProofUploadToken(serverSecret, input.uploadToken, now);
@@ -726,6 +728,8 @@ export async function submitArtistPaymentProof(
     ) {
       throw new PaymentProofDomainError("NOT_FOUND", "Proof upload was not found");
     }
+    verifiedUpload = token;
+    verifiedServerSecret = serverSecret;
     const note = normalizeProofNote(input.note);
     finalized = await finalizePrivateProofUpload(serverSecret, token);
     const proofObject = finalized;
@@ -871,6 +875,13 @@ export async function submitArtistPaymentProof(
         : null,
     });
   } catch (error) {
+    if (verifiedUpload && verifiedServerSecret) {
+      try {
+        await deletePrivateProofStagingUpload(verifiedServerSecret, verifiedUpload);
+      } catch {
+        console.error("[proof-storage] private staging cleanup failed");
+      }
+    }
     if (finalized) {
       let persisted = false;
       try {
