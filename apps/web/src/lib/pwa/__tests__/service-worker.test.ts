@@ -7,6 +7,13 @@ type ServiceWorkerListener = (event: unknown) => void;
 type CacheMatch = ReturnType<
   typeof vi.fn<(input: unknown) => Promise<Response | undefined>>
 >;
+type DisplayedNotification = Readonly<{ tag: string; close(): void }>;
+type GetNotifications = ReturnType<
+  typeof vi.fn<() => Promise<DisplayedNotification[]>>
+>;
+type ShowNotification = ReturnType<
+  typeof vi.fn<(title: string, options: unknown) => Promise<void>>
+>;
 
 type Harness = Readonly<{
   listener: (type: string) => ServiceWorkerListener;
@@ -18,7 +25,8 @@ type Harness = Readonly<{
   fetch: ReturnType<typeof vi.fn>;
   skipWaiting: ReturnType<typeof vi.fn>;
   deleteCache: ReturnType<typeof vi.fn>;
-  showNotification: ReturnType<typeof vi.fn>;
+  showNotification: ShowNotification;
+  getNotifications: GetNotifications;
   openWindow: ReturnType<typeof vi.fn>;
   navigate: ReturnType<typeof vi.fn>;
   focus: ReturnType<typeof vi.fn>;
@@ -78,7 +86,12 @@ function createHarness(clientSafety: readonly boolean[] = [true], pushSuppressed
     Promise.reject<Response>(new TypeError("offline")),
   );
   const skipWaiting = vi.fn(() => Promise.resolve(undefined));
-  const showNotification = vi.fn(() => Promise.resolve(undefined));
+  const showNotification = vi.fn<
+    (title: string, options: unknown) => Promise<void>
+  >(() => Promise.resolve(undefined));
+  const getNotifications = vi.fn<() => Promise<DisplayedNotification[]>>(() =>
+    Promise.resolve([]),
+  );
   const openWindow = vi.fn(() => Promise.resolve(undefined));
   const navigate = vi.fn();
   const focus = vi.fn(() => Promise.resolve(undefined));
@@ -98,7 +111,7 @@ function createHarness(clientSafety: readonly boolean[] = [true], pushSuppressed
   });
   const scope: Record<string, unknown> = {
     location: { origin: OWN_ORIGIN },
-    registration: { showNotification },
+    registration: { showNotification, getNotifications },
     clients: {
       claim: vi.fn(() => Promise.resolve(undefined)),
       matchAll: vi.fn(() => Promise.resolve(clients)),
@@ -138,6 +151,7 @@ function createHarness(clientSafety: readonly boolean[] = [true], pushSuppressed
     skipWaiting,
     deleteCache,
     showNotification,
+    getNotifications,
     openWindow,
     navigate,
     focus,
@@ -236,6 +250,7 @@ describe("service worker offline and update protocol", () => {
     await expect(result).resolves.toMatchObject({
       type: "SKITZA_PUSH_SUPPRESSION_CAPABILITY_RESULT",
       supported: true,
+      flushSupported: true,
     });
     channel.port1.close();
     channel.port2.close();
@@ -415,6 +430,115 @@ describe("service worker push and exact-item navigation", () => {
     await pushWork;
 
     expect(harness.showNotification).not.toHaveBeenCalled();
+  });
+
+  it("drains a pending display before acknowledging a suppression flush", async () => {
+    const harness = createHarness();
+    let suppressed = false;
+    harness.cache.match.mockImplementation((input: unknown) =>
+      Promise.resolve(
+        input === "/pwa/push-delivery-suppressed" && suppressed
+          ? new Response(null, { status: 204 })
+          : undefined,
+      ),
+    );
+    let displayed: DisplayedNotification[] = [];
+    const close = vi.fn(() => {
+      displayed = [];
+    });
+    const notification = { tag: "skitza-comment", close };
+    let finishDisplay: (() => void) | undefined;
+    harness.showNotification.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishDisplay = () => {
+            displayed = [notification];
+            resolve();
+          };
+        }),
+    );
+    harness.getNotifications.mockImplementation(() =>
+      Promise.resolve([...displayed]),
+    );
+
+    let pushWork: Promise<unknown> | undefined;
+    harness.listener("push")({
+      data: {
+        json: () => ({
+          version: 1,
+          category: "comment",
+          title: "New comment",
+          body: "Open Skitza to review the feedback.",
+          url: `/dashboard/music/${itemId}`,
+        }),
+      },
+      waitUntil(work: Promise<unknown>) {
+        pushWork = work;
+      },
+    });
+    await vi.waitFor(() => {
+      expect(harness.showNotification).toHaveBeenCalledOnce();
+    });
+
+    suppressed = true;
+    await expect(harness.getNotifications()).resolves.toEqual([]);
+    const channel = new MessageChannel();
+    let flushAcknowledged = false;
+    const flushResult = nextPortMessage(channel.port1).then((result) => {
+      flushAcknowledged = true;
+      return result;
+    });
+    let flushWork: Promise<unknown> | undefined;
+    harness.listener("message")({
+      data: { type: "SKITZA_PUSH_SUPPRESSION_FLUSH" },
+      ports: [channel.port2],
+      waitUntil(work: Promise<unknown>) {
+        flushWork = work;
+      },
+    });
+    await Promise.resolve();
+    expect(flushAcknowledged).toBe(false);
+
+    finishDisplay?.();
+    await pushWork;
+    await flushWork;
+
+    await expect(flushResult).resolves.toMatchObject({
+      type: "SKITZA_PUSH_SUPPRESSION_FLUSH_RESULT",
+      flushed: true,
+    });
+    expect(close).toHaveBeenCalledOnce();
+    await expect(harness.getNotifications()).resolves.toEqual([]);
+    channel.port1.close();
+    channel.port2.close();
+  });
+
+  it("fails a suppression flush when a Skitza notification remains displayed", async () => {
+    const harness = createHarness();
+    const close = vi.fn();
+    harness.getNotifications.mockResolvedValue([
+      { tag: "skitza-payment", close },
+    ]);
+    const channel = new MessageChannel();
+    const flushResult = nextPortMessage(channel.port1);
+    let flushWork: Promise<unknown> | undefined;
+
+    harness.listener("message")({
+      data: { type: "SKITZA_PUSH_SUPPRESSION_FLUSH" },
+      ports: [channel.port2],
+      waitUntil(work: Promise<unknown>) {
+        flushWork = work;
+      },
+    });
+    await flushWork;
+
+    await expect(flushResult).resolves.toMatchObject({
+      type: "SKITZA_PUSH_SUPPRESSION_FLUSH_RESULT",
+      flushed: false,
+    });
+    expect(close).toHaveBeenCalledOnce();
+    channel.port1.close();
+    channel.port2.close();
   });
 
   it("drops malformed, invented-category, and external push data", () => {

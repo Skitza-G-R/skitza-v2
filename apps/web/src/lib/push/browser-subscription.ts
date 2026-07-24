@@ -6,6 +6,8 @@ export const SKITZA_NOTIFICATION_TAG_PREFIX = "skitza-";
 
 const PUSH_SUPPRESSION_CAPABILITY_QUERY = "SKITZA_PUSH_SUPPRESSION_CAPABILITY";
 const PUSH_SUPPRESSION_CAPABILITY_RESULT = "SKITZA_PUSH_SUPPRESSION_CAPABILITY_RESULT";
+const PUSH_SUPPRESSION_FLUSH = "SKITZA_PUSH_SUPPRESSION_FLUSH";
+const PUSH_SUPPRESSION_FLUSH_RESULT = "SKITZA_PUSH_SUPPRESSION_FLUSH_RESULT";
 const PUSH_SUPPRESSION_CAPABILITY_TIMEOUT_MS = 750;
 
 type ExitPushSubscription = Readonly<{
@@ -95,8 +97,10 @@ function runPushControlWork<T>(work: () => Promise<T>): Promise<T> {
   return result;
 }
 
-function activeWorkerSupportsPushSuppression(
+function queryActiveWorkerPushSuppression(
   worker: Pick<ServiceWorker, "postMessage">,
+  type: string,
+  accepts: (data: Readonly<Record<string, unknown>>) => boolean,
   timeoutMs: number,
 ): Promise<boolean> {
   if (typeof MessageChannel === "undefined") return Promise.resolve(false);
@@ -120,7 +124,7 @@ function activeWorkerSupportsPushSuppression(
         typeof event.data === "object" && event.data !== null
           ? (event.data as Record<string, unknown>)
           : null;
-      finish(data?.type === PUSH_SUPPRESSION_CAPABILITY_RESULT && data.supported === true);
+      finish(data !== null && accepts(data));
     };
     channel.port1.onmessageerror = () => {
       finish(false);
@@ -128,11 +132,39 @@ function activeWorkerSupportsPushSuppression(
     channel.port1.start();
 
     try {
-      worker.postMessage({ type: PUSH_SUPPRESSION_CAPABILITY_QUERY }, [channel.port2]);
+      worker.postMessage({ type }, [channel.port2]);
     } catch {
       finish(false);
     }
   });
+}
+
+function activeWorkerSupportsPushSuppression(
+  worker: Pick<ServiceWorker, "postMessage">,
+  timeoutMs: number,
+): Promise<boolean> {
+  return queryActiveWorkerPushSuppression(
+    worker,
+    PUSH_SUPPRESSION_CAPABILITY_QUERY,
+    (data) =>
+      data.type === PUSH_SUPPRESSION_CAPABILITY_RESULT &&
+      data.supported === true &&
+      data.flushSupported === true,
+    timeoutMs,
+  );
+}
+
+function flushActiveWorkerPushNotifications(
+  worker: Pick<ServiceWorker, "postMessage">,
+  timeoutMs: number,
+): Promise<boolean> {
+  return queryActiveWorkerPushSuppression(
+    worker,
+    PUSH_SUPPRESSION_FLUSH,
+    (data) =>
+      data.type === PUSH_SUPPRESSION_FLUSH_RESULT && data.flushed === true,
+    timeoutMs,
+  );
 }
 
 export function suppressBrowserPushDelivery(
@@ -149,9 +181,10 @@ export function suppressBrowserPushDelivery(
     }
     try {
       const registration = await navigator.serviceWorker.getRegistration();
+      const active = registration?.active;
       if (
-        !registration?.active ||
-        !(await activeWorkerSupportsPushSuppression(registration.active, capabilityTimeoutMs))
+        !active ||
+        !(await activeWorkerSupportsPushSuppression(active, capabilityTimeoutMs))
       ) {
         return false;
       }
@@ -163,7 +196,8 @@ export function suppressBrowserPushDelivery(
           headers: { "cache-control": "no-store" },
         }),
       );
-      return Boolean(await cache.match(PUSH_DELIVERY_SUPPRESSED_URL));
+      if (!(await cache.match(PUSH_DELIVERY_SUPPRESSED_URL))) return false;
+      return await flushActiveWorkerPushNotifications(active, capabilityTimeoutMs);
     } catch {
       return false;
     }

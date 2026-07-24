@@ -14,7 +14,7 @@
 importScripts("/pwa/cache-policy.js");
 importScripts("/pwa/push-policy.js");
 
-const SW_VERSION = "2026-07-24-sk116-3";
+const SW_VERSION = "2026-07-24-sk116-4";
 const CACHE_PREFIX = "skitza-native-";
 const CACHE_NAME = `${CACHE_PREFIX}${SW_VERSION}`;
 const OBSOLETE_CACHE_PREFIX = "skitza-shell-";
@@ -39,12 +39,15 @@ const MESSAGE = {
   getVersion: "SKITZA_GET_VERSION",
   pushSuppressionCapability: "SKITZA_PUSH_SUPPRESSION_CAPABILITY",
   pushSuppressionCapabilityResult: "SKITZA_PUSH_SUPPRESSION_CAPABILITY_RESULT",
+  pushSuppressionFlush: "SKITZA_PUSH_SUPPRESSION_FLUSH",
+  pushSuppressionFlushResult: "SKITZA_PUSH_SUPPRESSION_FLUSH_RESULT",
   version: "SKITZA_VERSION",
 };
 const CLIENT_SAFETY_TIMEOUT_MS = 1500;
 
 const policy = self.SkitzaCachePolicy;
 const pushPolicy = self.SkitzaPushPolicy;
+let pushDisplayWork = Promise.resolve();
 
 function isCacheableResponse(response) {
   if (!response || !response.ok || response.type !== "basic") return false;
@@ -102,6 +105,37 @@ async function browserPushDeliveryIsSuppressed() {
     // A broken local privacy control fails closed for notification display.
     return true;
   }
+}
+
+async function closeDisplayedSkitzaNotifications() {
+  if (typeof self.registration.getNotifications !== "function") return false;
+
+  try {
+    const displayed = await self.registration.getNotifications();
+    for (const notification of displayed) {
+      if (
+        typeof notification.tag === "string" &&
+        notification.tag.startsWith(SKITZA_NOTIFICATION_TAG_PREFIX)
+      ) {
+        notification.close();
+      }
+    }
+
+    const remaining = await self.registration.getNotifications();
+    return !remaining.some(
+      (notification) =>
+        typeof notification.tag === "string" &&
+        notification.tag.startsWith(SKITZA_NOTIFICATION_TAG_PREFIX),
+    );
+  } catch {
+    return false;
+  }
+}
+
+function enqueuePushDisplay(work) {
+  const display = pushDisplayWork.then(work);
+  pushDisplayWork = display.catch(() => undefined);
+  return display;
 }
 
 function queryClientSafety(client) {
@@ -212,7 +246,7 @@ self.addEventListener("push", (event) => {
   if (!payload) return;
 
   event.waitUntil(
-    (async () => {
+    enqueuePushDisplay(async () => {
       if (await browserPushDeliveryIsSuppressed()) return;
       const options = {
         body: payload.body,
@@ -226,7 +260,13 @@ self.addEventListener("push", (event) => {
       // before the synchronous display call.
       if (await browserPushDeliveryIsSuppressed()) return;
       await self.registration.showNotification(payload.title, options);
-    })(),
+      if (
+        (await browserPushDeliveryIsSuppressed()) &&
+        !(await closeDisplayedSkitzaNotifications())
+      ) {
+        throw new Error("Suppressed Skitza notifications could not be closed.");
+      }
+    }),
   );
 });
 
@@ -280,9 +320,29 @@ self.addEventListener("message", (event) => {
       reply.postMessage({
         type: MESSAGE.pushSuppressionCapabilityResult,
         supported: true,
+        flushSupported:
+          typeof self.registration.getNotifications === "function",
         version: SW_VERSION,
       });
     }
+    return;
+  }
+
+  if (data && data.type === MESSAGE.pushSuppressionFlush) {
+    const reply = event.ports && event.ports[0];
+    event.waitUntil(
+      (async () => {
+        await pushDisplayWork;
+        const flushed = await closeDisplayedSkitzaNotifications();
+        if (reply) {
+          reply.postMessage({
+            type: MESSAGE.pushSuppressionFlushResult,
+            flushed,
+            version: SW_VERSION,
+          });
+        }
+      })(),
+    );
     return;
   }
 

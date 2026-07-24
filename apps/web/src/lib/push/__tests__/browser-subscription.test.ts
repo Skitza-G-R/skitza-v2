@@ -440,11 +440,23 @@ describe("service-worker suppression capability", () => {
       match: vi.fn(() => Promise.resolve(new Response(null, { status: 204 }))),
     };
     const markerAwareActive = {
-      postMessage: vi.fn((_message: unknown, transfer: readonly MessagePort[] = []) => {
-        transfer[0]?.postMessage({
-          type: "SKITZA_PUSH_SUPPRESSION_CAPABILITY_RESULT",
-          supported: true,
-        });
+      postMessage: vi.fn((message: unknown, transfer: readonly MessagePort[] = []) => {
+        const type =
+          typeof message === "object" && message !== null && "type" in message
+            ? message.type
+            : null;
+        transfer[0]?.postMessage(
+          type === "SKITZA_PUSH_SUPPRESSION_CAPABILITY"
+            ? {
+                type: "SKITZA_PUSH_SUPPRESSION_CAPABILITY_RESULT",
+                supported: true,
+                flushSupported: true,
+              }
+            : {
+                type: "SKITZA_PUSH_SUPPRESSION_FLUSH_RESULT",
+                flushed: true,
+              },
+        );
         transfer[0]?.close();
       }),
     };
@@ -465,7 +477,89 @@ describe("service-worker suppression capability", () => {
 
     await expect(suppressBrowserPushDelivery(50)).resolves.toBe(true);
 
-    expect(markerAwareActive.postMessage).toHaveBeenCalledOnce();
+    expect(markerAwareActive.postMessage).toHaveBeenCalledTimes(2);
+    expect(cache.put).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a marker when the active worker lacks flush capability", async () => {
+    const cache = {
+      put: vi.fn(() => Promise.resolve(undefined)),
+      match: vi.fn(() => Promise.resolve(new Response(null, { status: 204 }))),
+    };
+    const markerOnlyActive = {
+      postMessage: vi.fn((_message: unknown, transfer: readonly MessagePort[] = []) => {
+        transfer[0]?.postMessage({
+          type: "SKITZA_PUSH_SUPPRESSION_CAPABILITY_RESULT",
+          supported: true,
+        });
+        transfer[0]?.close();
+      }),
+    };
+    vi.stubGlobal("MessageChannel", MessageChannel);
+    vi.stubGlobal("caches", {
+      open: vi.fn(() => Promise.resolve(cache)),
+    });
+    vi.stubGlobal("navigator", {
+      serviceWorker: {
+        getRegistration: vi.fn(() =>
+          Promise.resolve({
+            active: markerOnlyActive,
+            waiting: null,
+          }),
+        ),
+      },
+    });
+
+    await expect(suppressBrowserPushDelivery(50)).resolves.toBe(false);
+
+    expect(markerOnlyActive.postMessage).toHaveBeenCalledOnce();
+    expect(cache.put).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the active worker does not confirm its flush", async () => {
+    const cache = {
+      put: vi.fn(() => Promise.resolve(undefined)),
+      match: vi.fn(() => Promise.resolve(new Response(null, { status: 204 }))),
+    };
+    const unconfirmedFlushActive = {
+      postMessage: vi.fn((message: unknown, transfer: readonly MessagePort[] = []) => {
+        const type =
+          typeof message === "object" && message !== null && "type" in message
+            ? message.type
+            : null;
+        transfer[0]?.postMessage(
+          type === "SKITZA_PUSH_SUPPRESSION_CAPABILITY"
+            ? {
+                type: "SKITZA_PUSH_SUPPRESSION_CAPABILITY_RESULT",
+                supported: true,
+                flushSupported: true,
+              }
+            : {
+                type: "SKITZA_PUSH_SUPPRESSION_FLUSH_RESULT",
+                flushed: false,
+              },
+        );
+        transfer[0]?.close();
+      }),
+    };
+    vi.stubGlobal("MessageChannel", MessageChannel);
+    vi.stubGlobal("caches", {
+      open: vi.fn(() => Promise.resolve(cache)),
+    });
+    vi.stubGlobal("navigator", {
+      serviceWorker: {
+        getRegistration: vi.fn(() =>
+          Promise.resolve({
+            active: unconfirmedFlushActive,
+            waiting: null,
+          }),
+        ),
+      },
+    });
+
+    await expect(suppressBrowserPushDelivery(50)).resolves.toBe(false);
+
+    expect(unconfirmedFlushActive.postMessage).toHaveBeenCalledTimes(2);
     expect(cache.put).toHaveBeenCalledOnce();
   });
 
