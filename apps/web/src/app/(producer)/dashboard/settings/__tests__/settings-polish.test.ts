@@ -108,19 +108,14 @@ describe("Settings polish — Profile shows public-page slug preview", () => {
   });
 });
 
-describe("Settings polish — notif 'saves now, fires later' callout", () => {
-  it("the heads-up callout appears BEFORE the matrix head, not buried below the card", () => {
+describe("Settings polish — truthful browser notifications", () => {
+  it("mounts real push preferences without the removed fake notification matrix", () => {
     const notif = client.match(/function NotifSection[\s\S]*?\n}\s*\n/)?.[0] ?? "";
     expect(notif, "NotifSection block not found").not.toBe("");
-    // Look for a "Heads up" prefix on the explainer — that's the new
-    // pattern that puts the disclaimer up front. We then assert its
-    // position is BEFORE the matrix-head row class so the producer
-    // reads it on the way *into* the toggles, not on the way out.
-    const explainerIdx = notif.indexOf("Heads up");
-    const headIdx = notif.indexOf("s-notif-head");
-    expect(explainerIdx, "Heads-up callout missing").toBeGreaterThan(-1);
-    expect(headIdx, "matrix head missing from NotifSection").toBeGreaterThan(-1);
-    expect(explainerIdx).toBeLessThan(headIdx);
+    expect(notif).toContain("Choose the real Skitza updates this browser can send you.");
+    expect(notif).toContain("<PushPreferences />");
+    expect(notif).not.toContain("Heads up");
+    expect(notif).not.toContain("s-notif-head");
   });
 });
 

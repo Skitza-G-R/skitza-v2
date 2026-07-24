@@ -9,7 +9,10 @@ import {
   unsubscribePushAction,
 } from "~/app/push-actions";
 import { PUSH_CATEGORIES, PUSH_CATEGORY_COPY, type PushCategory } from "~/lib/push/categories";
-import { PUSH_SUBSCRIPTION_CLEARED_EVENT } from "~/lib/push/browser-subscription";
+import {
+  PUSH_SUBSCRIPTION_CLEARED_EVENT,
+  resumeBrowserPushDelivery,
+} from "~/lib/push/browser-subscription";
 
 type BrowserState = Readonly<{
   configured: boolean;
@@ -166,6 +169,10 @@ export function PushPreferences() {
           if (!browser.subscription && enabling) {
             await subscription.unsubscribe();
           }
+          return;
+        }
+        if (!(await resumeBrowserPushDelivery())) {
+          setError("Push notifications are still paused on this browser. Reload and try again.");
           return;
         }
         setBrowser((current) => ({ ...current, subscription }));

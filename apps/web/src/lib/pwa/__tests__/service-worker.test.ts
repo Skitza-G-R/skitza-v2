@@ -41,7 +41,7 @@ function nextPortMessage(port: MessagePort): Promise<unknown> {
   });
 }
 
-function createHarness(clientSafety: readonly boolean[] = [true]): Harness {
+function createHarness(clientSafety: readonly boolean[] = [true], pushSuppressed = false): Harness {
   const listeners = new Map<string, ServiceWorkerListener[]>();
   const offlineResponse = new Response("<h1>Offline</h1>", {
     headers: { "content-type": "text/html" },
@@ -50,7 +50,11 @@ function createHarness(clientSafety: readonly boolean[] = [true]): Harness {
     addAll: vi.fn(() => Promise.resolve(undefined)),
     match: vi.fn((input: unknown) =>
       Promise.resolve(
-        input === "/offline.html" ? offlineResponse : undefined,
+        input === "/offline.html"
+          ? offlineResponse
+          : input === "/pwa/push-delivery-suppressed" && pushSuppressed
+            ? new Response(null, { status: 204 })
+            : undefined,
       ),
     ),
     put: vi.fn(() => Promise.resolve(undefined)),
@@ -59,7 +63,11 @@ function createHarness(clientSafety: readonly boolean[] = [true]): Harness {
   const caches = {
     open: vi.fn(() => Promise.resolve(cache)),
     keys: vi.fn(() =>
-      Promise.resolve(["skitza-shell-v3", "unrelated-cache"]),
+      Promise.resolve([
+        "skitza-shell-v3",
+        "skitza-push-control-v1",
+        "unrelated-cache",
+      ]),
     ),
     delete: deleteCache,
   };
@@ -175,6 +183,7 @@ describe("service worker offline and update protocol", () => {
     );
     expect(harness.skipWaiting).not.toHaveBeenCalled();
     expect(harness.deleteCache).toHaveBeenCalledWith("skitza-shell-v3");
+    expect(harness.deleteCache).not.toHaveBeenCalledWith("skitza-push-control-v1");
     expect(harness.deleteCache).not.toHaveBeenCalledWith("unrelated-cache");
   });
 
@@ -322,6 +331,28 @@ describe("service worker push and exact-item navigation", () => {
       }),
     );
     expect(harness.showNotification.mock.calls[0]?.[1]).not.toHaveProperty("vibrate");
+  });
+
+  it("suppresses a valid push while the durable account-switch boundary is active", async () => {
+    const harness = createHarness([true], true);
+    let pushWork: Promise<unknown> | undefined;
+    harness.listener("push")({
+      data: {
+        json: () => ({
+          version: 1,
+          category: "comment",
+          title: "New comment",
+          body: "Open Skitza to review the feedback.",
+          url: `/dashboard/music/${itemId}`,
+        }),
+      },
+      waitUntil(work: Promise<unknown>) {
+        pushWork = work;
+      },
+    });
+    await pushWork;
+
+    expect(harness.showNotification).not.toHaveBeenCalled();
   });
 
   it("drops malformed, invented-category, and external push data", () => {

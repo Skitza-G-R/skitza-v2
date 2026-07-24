@@ -55,48 +55,82 @@ describe("SK-110 root media runtime", () => {
     );
   });
 
-  it("clears private continuity state before preparing media account exit", () => {
+  it("confirms the push boundary before clearing private account state", () => {
     expect(ROOT_RUNTIME).toContain("export async function prepareMediaAccountExit");
-    const privateCleanup = ROOT_RUNTIME.indexOf("clearAccountPrivateRuntimeState(accountId)");
+    const composedCleanup = ROOT_RUNTIME.indexOf("async function prepareAppAccountExit");
+    const pushBoundary = ROOT_RUNTIME.indexOf(
+      "await clearBrowserPushSubscription(removeOwnedPush)",
+      composedCleanup,
+    );
+    const privateCleanup = ROOT_RUNTIME.indexOf(
+      "clearAccountPrivateRuntimeState(accountId)",
+      pushBoundary,
+    );
     const mediaCleanup = ROOT_RUNTIME.indexOf("prepareMediaAccountExit(accountId)", privateCleanup);
-    expect(privateCleanup).toBeGreaterThanOrEqual(0);
+    expect(pushBoundary).toBeGreaterThan(composedCleanup);
+    expect(privateCleanup).toBeGreaterThan(pushBoundary);
     expect(mediaCleanup).toBeGreaterThan(privateCleanup);
     expect(ACCOUNT_EXIT).toContain("storage: StorageLike | null = getBrowserRuntimeStorage()");
-    expect(ROOT_RUNTIME).toContain("clearBrowserPushSubscription(removeOwnedPush)");
   });
 
-  it("waits for composed cleanup before explicit app-owned Clerk sign-out", () => {
+  it("blocks explicit app-owned Clerk sign-out when the push boundary fails", () => {
+    const safeSignOut = ROOT_RUNTIME.indexOf("export function useSafeSignOut");
+    const uploadRuntime = ROOT_RUNTIME.indexOf("function AppUploadRuntime", safeSignOut);
+    const safeSignOutSource = ROOT_RUNTIME.slice(safeSignOut, uploadRuntime);
     const explicitCleanup = ROOT_RUNTIME.indexOf(
       "if (user?.id) await prepareAppAccountExit(user.id, unsubscribePushAction)",
+      safeSignOut,
     );
-    const explicitSignOut = ROOT_RUNTIME.indexOf("await clerk.signOut(options)", explicitCleanup);
+    const boundaryError = ROOT_RUNTIME.indexOf(
+      'toast(SIGN_OUT_BOUNDARY_ERROR, "error"',
+      explicitCleanup,
+    );
+    const explicitSignOut = ROOT_RUNTIME.indexOf("await clerk.signOut(options)", boundaryError);
     expect(explicitCleanup).toBeGreaterThanOrEqual(0);
-    expect(explicitSignOut).toBeGreaterThan(explicitCleanup);
+    expect(boundaryError).toBeGreaterThan(explicitCleanup);
+    expect(explicitSignOut).toBeGreaterThan(boundaryError);
+    expect(safeSignOutSource).not.toContain("finally");
   });
 
-  it("intercepts built-in Clerk sign-out and waits for the same composed cleanup", () => {
+  it("intercepts built-in Clerk sign-out and stops before auth exit on boundary failure", () => {
     const builtInCapture = ROOT_RUNTIME.indexOf(
       'data-localization-key="userButtonPopoverActionSignOut"',
     );
     const builtInCleanup = ROOT_RUNTIME.indexOf(
-      "void prepareAppAccountExit(accountId, unsubscribePushAction)",
+      "await prepareAppAccountExit(accountId, unsubscribePushAction)",
       builtInCapture,
     );
-    const builtInSignOut = ROOT_RUNTIME.indexOf(".then(() => clerk.signOut())", builtInCleanup);
+    const boundaryError = ROOT_RUNTIME.indexOf(
+      "toastRef.current(SIGN_OUT_BOUNDARY_ERROR",
+      builtInCleanup,
+    );
+    const blockedReturn = ROOT_RUNTIME.indexOf("return;", boundaryError);
+    const builtInSignOut = ROOT_RUNTIME.indexOf("await clerkRef.current.signOut()", blockedReturn);
     expect(builtInCapture).toBeGreaterThanOrEqual(0);
     expect(builtInCleanup).toBeGreaterThan(builtInCapture);
-    expect(builtInSignOut).toBeGreaterThan(builtInCleanup);
+    expect(boundaryError).toBeGreaterThan(builtInCleanup);
+    expect(blockedReturn).toBeGreaterThan(boundaryError);
+    expect(builtInSignOut).toBeGreaterThan(blockedReturn);
   });
 
-  it("hides the previous account before running its composed switch cleanup", () => {
-    const visibleAccountSwitch = ROOT_RUNTIME.indexOf("setUploadRuntimeAccountId(accountId)");
+  it("keeps the new account hidden until switch invalidation is confirmed", () => {
+    const switchBoundary = ROOT_RUNTIME.indexOf("if (previous && previous !== accountId)");
+    const hiddenAccount = ROOT_RUNTIME.indexOf("setUploadRuntimeAccountId(null)", switchBoundary);
     const previousAccountCleanup = ROOT_RUNTIME.indexOf(
       "void prepareAppAccountExit(previous, null)",
-      visibleAccountSwitch,
+      hiddenAccount,
     );
-    expect(visibleAccountSwitch).toBeGreaterThanOrEqual(0);
-    expect(previousAccountCleanup).toBeGreaterThan(visibleAccountSwitch);
-    expect(PUSH_EXIT).toContain("fail-closed server ownership");
+    const visibleAccountSwitch = ROOT_RUNTIME.indexOf(
+      "setUploadRuntimeAccountId(accountId)",
+      previousAccountCleanup,
+    );
+    expect(hiddenAccount).toBeGreaterThan(switchBoundary);
+    expect(previousAccountCleanup).toBeGreaterThan(hiddenAccount);
+    expect(visibleAccountSwitch).toBeGreaterThan(previousAccountCleanup);
+    expect(ROOT_RUNTIME).toContain("previous && accountId === null");
+    expect(ROOT_RUNTIME).toContain("void clerkRef.current.signOut().catch");
+    expect(PUSH_EXIT).toContain("await adapter.suppressDelivery()");
+    expect(PUSH_EXIT).toContain("Fail-closed server");
   });
 
   it("warns only for an active upload and does not claim close/relaunch continuation", () => {

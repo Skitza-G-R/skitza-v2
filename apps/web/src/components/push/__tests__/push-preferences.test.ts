@@ -49,6 +49,7 @@ describe("SK-112 contextual push preferences", () => {
     );
     expect(preferences).toContain("setBrowser((current) => ({ ...current, subscription: null }))");
     expect(preferences).toContain("setError(null)");
+    expect(preferences).toContain("await resumeBrowserPushDelivery()");
   });
 
   it("replaces fake settings switches with the delivery-backed control", () => {

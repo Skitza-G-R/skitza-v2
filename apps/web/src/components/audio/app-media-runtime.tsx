@@ -23,6 +23,7 @@ import {
   type OwnedPushRemoval,
 } from "~/lib/push/browser-subscription";
 import { clearAccountPrivateRuntimeState } from "~/lib/runtime-state/account-exit";
+import { useToast } from "~/components/ui/toast";
 import {
   AppPlaybackRuntime,
   clearPlaybackForAccount,
@@ -30,6 +31,12 @@ import {
 } from "./playback-runtime";
 
 type SignOutOptions = { redirectUrl?: string };
+
+const SIGN_OUT_BOUNDARY_ERROR =
+  "Couldn’t safely sign out because browser notifications are still active. Try again.";
+const ACCOUNT_SWITCH_BOUNDARY_ERROR =
+  "This account switch couldn’t safely separate browser notifications. Signing out for safety.";
+const AUTH_SIGN_OUT_ERROR = "Couldn’t finish signing out. Close this tab and try again.";
 
 export async function prepareMediaAccountExit(accountId: string): Promise<boolean> {
   // The active in-memory callbacks hold the File and can abort an in-flight
@@ -56,51 +63,88 @@ async function prepareAppAccountExit(
   accountId: string,
   removeOwnedPush: OwnedPushRemoval | null,
 ): Promise<boolean> {
+  await clearBrowserPushSubscription(removeOwnedPush);
   clearAccountPrivateRuntimeState(accountId);
-  const [mediaResult] = await Promise.all([
-    prepareMediaAccountExit(accountId),
-    clearBrowserPushSubscription(removeOwnedPush),
-  ]);
-  return mediaResult;
+  return prepareMediaAccountExit(accountId);
 }
 
 /**
  * Custom sign-out adapter for explicit app buttons. Cleanup is awaited while
- * Clerk still owns the authenticated session; a failed exact cancellation
- * remains in the account-scoped durable journal.
+ * Clerk still owns the authenticated session. The auth exit is blocked unless
+ * browser notification delivery or the owned server row was invalidated.
  */
 export function useSafeSignOut(): (options?: SignOutOptions) => Promise<void> {
   const clerk = useClerk();
   const { user } = useUser();
+  const { toast } = useToast();
   return useCallback(
     async (options?: SignOutOptions) => {
       try {
         if (user?.id) await prepareAppAccountExit(user.id, unsubscribePushAction);
-      } finally {
-        await clerk.signOut(options);
+      } catch (error) {
+        toast(SIGN_OUT_BOUNDARY_ERROR, "error", { durationMs: 8000 });
+        throw error;
       }
+      await clerk.signOut(options);
     },
-    [clerk, user?.id],
+    [clerk, toast, user?.id],
   );
 }
 
 function AppUploadRuntime({ accountId }: { accountId: string | null | undefined }) {
   const clerk = useClerk();
+  const { toast } = useToast();
+  const clerkRef = useRef(clerk);
+  const toastRef = useRef(toast);
   const previousAccountRef = useRef<string | null>(null);
   const interceptingSignOutRef = useRef(false);
+
+  useEffect(() => {
+    clerkRef.current = clerk;
+    toastRef.current = toast;
+  }, [clerk, toast]);
 
   useEffect(() => {
     if (accountId === undefined) return;
     const previous = previousAccountRef.current;
 
-    // Change the visible snapshot synchronously. Records from another account
-    // can never flash while its best-effort cleanup continues.
-    setUploadRuntimeAccountId(accountId);
-    previousAccountRef.current = accountId;
+    if (previous && accountId === null) {
+      // Auth has already ended (for example, session expiry). Hide private
+      // runtime state immediately and retain the prior owner so a subsequent
+      // different account still has to cross the confirmed push boundary.
+      setUploadRuntimeAccountId(null);
+      void prepareAppAccountExit(previous, null).catch(() => undefined);
+      return;
+    }
 
     if (previous && previous !== accountId) {
-      void prepareAppAccountExit(previous, null);
+      // Hide both accounts from the shared upload runtime until this browser
+      // has confirmed that the previous account cannot deliver push here.
+      setUploadRuntimeAccountId(null);
+      let disposed = false;
+      let stopRecovery: (() => void) | undefined;
+      void prepareAppAccountExit(previous, null)
+        .then(() => {
+          if (disposed) return;
+          previousAccountRef.current = accountId;
+          setUploadRuntimeAccountId(accountId);
+          if (accountId) stopRecovery = startMultipartCancellationRecovery();
+        })
+        .catch(() => {
+          if (disposed) return;
+          toastRef.current(ACCOUNT_SWITCH_BOUNDARY_ERROR, "error", { durationMs: 8000 });
+          void clerkRef.current.signOut().catch(() => {
+            toastRef.current(AUTH_SIGN_OUT_ERROR, "error", { durationMs: 8000 });
+          });
+        });
+      return () => {
+        disposed = true;
+        stopRecovery?.();
+      };
     }
+
+    previousAccountRef.current = accountId;
+    setUploadRuntimeAccountId(accountId);
     if (!accountId) return;
     return startMultipartCancellationRecovery();
   }, [accountId]);
@@ -136,20 +180,27 @@ function AppUploadRuntime({ accountId }: { accountId: string | null | undefined 
       event.preventDefault();
       event.stopImmediatePropagation();
       interceptingSignOutRef.current = true;
-      void prepareAppAccountExit(accountId, unsubscribePushAction)
-        .catch(() => {
-          // Failed exact cancellation remains in the scoped journal.
-        })
-        .then(() => clerk.signOut())
-        .finally(() => {
-          interceptingSignOutRef.current = false;
-        });
+      void (async () => {
+        try {
+          await prepareAppAccountExit(accountId, unsubscribePushAction);
+        } catch {
+          toastRef.current(SIGN_OUT_BOUNDARY_ERROR, "error", { durationMs: 8000 });
+          return;
+        }
+        try {
+          await clerkRef.current.signOut();
+        } catch {
+          toastRef.current(AUTH_SIGN_OUT_ERROR, "error", { durationMs: 8000 });
+        }
+      })().finally(() => {
+        interceptingSignOutRef.current = false;
+      });
     };
     document.addEventListener("click", onClerkSignOut, true);
     return () => {
       document.removeEventListener("click", onClerkSignOut, true);
     };
-  }, [accountId, clerk]);
+  }, [accountId]);
 
   return <UploadActivityDock />;
 }
