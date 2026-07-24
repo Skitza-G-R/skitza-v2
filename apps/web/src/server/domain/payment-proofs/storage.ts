@@ -222,6 +222,19 @@ export async function finalizePrivateProofUpload(
   }
 }
 
+export async function deletePrivateProofStagingUpload(
+  serverSecret: string,
+  payload: ProofUploadTokenPayload,
+  client = getR2(),
+): Promise<void> {
+  const { stagingKey } = proofObjectKeys(serverSecret, payload.uploadId);
+  try {
+    await client.send(new DeleteObjectCommand({ Bucket: BUCKETS.docs, Key: stagingKey }));
+  } catch {
+    throw new Error("Private proof staging cleanup failed");
+  }
+}
+
 export async function deletePrivateProofObjectQuietly(
   storageKey: string,
   client = getR2(),

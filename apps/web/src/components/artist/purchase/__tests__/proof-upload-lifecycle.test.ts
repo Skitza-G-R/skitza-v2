@@ -39,6 +39,7 @@ function baseInput(
       uploadUrl: "https://private-upload.invalid/signed",
       uploadToken: "opaque-token",
     }),
+    cleanup: vi.fn().mockResolvedValue({ ok: true }),
     submit: vi.fn().mockResolvedValue({ ok: true, proofId: "proof-1" }),
     uploadFile: vi.fn((request: Parameters<PaymentProofByteUpload>[0]) => {
       request.onProgress(0, request.file.size);
@@ -120,6 +121,11 @@ describe("managed payment-proof upload", () => {
     await expect(cancelManagedUpload(upload.id)).resolves.toBe(true);
     await expect(upload.finished).resolves.toBe("cancelled");
     expect(readPutAborted()).toBe(true);
+    expect(input.cleanup).toHaveBeenCalledWith({
+      purchaseId: "purchase-1",
+      installmentId: "installment-1",
+      uploadToken: "opaque-token",
+    });
     expect(input.submit).not.toHaveBeenCalled();
     expect(managedUploadsSnapshot()).toEqual([]);
   });
@@ -135,6 +141,11 @@ describe("managed payment-proof upload", () => {
 
     const upload = startManagedPaymentProofUpload(input);
     await expect(upload.finished).resolves.toBe("failed");
+    expect(input.cleanup).toHaveBeenCalledWith({
+      purchaseId: "purchase-1",
+      installmentId: "installment-1",
+      uploadToken: "opaque-token",
+    });
     expect(managedUploadsSnapshot()[0]).toMatchObject({
       status: "error",
       canRetry: true,
@@ -235,6 +246,7 @@ describe("managed payment-proof upload", () => {
 
     expect(onCancelled).not.toHaveBeenCalled();
     expect(onFailure).toHaveBeenCalledWith("Could not record the proof.");
+    expect(input.cleanup).not.toHaveBeenCalled();
     expect(managedUploadsSnapshot()[0]).toMatchObject({
       status: "error",
       error: "Could not record the proof.",

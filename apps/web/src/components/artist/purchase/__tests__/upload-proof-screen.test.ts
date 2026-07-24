@@ -81,8 +81,10 @@ describe("UploadProofScreen SK-75 wiring", () => {
     expect(screenSource).toMatch(/startManagedPaymentProofUpload/);
     expect(lifecycleSource).toMatch(/presigned\.uploadToken/);
     expect(lifecycleSource).toMatch(/uploadFile\(\{[\s\S]*uploadUrl: presigned\.uploadUrl/);
+    expect(screenSource).toMatch(/cancelPaymentProofUploadAction/);
     expect(screenSource).toMatch(/submitPaymentProofAction/);
     expect(actionsSource).toMatch(/proofOfPayment\.presign/);
+    expect(actionsSource).toMatch(/proofOfPayment\.cancel/);
     expect(actionsSource).toMatch(/proofOfPayment\.submit/);
     expect(`${screenSource}\n${lifecycleSource}`).not.toMatch(
       /storageKey|objectEtag|storageBucket/,

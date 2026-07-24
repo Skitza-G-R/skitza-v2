@@ -42,6 +42,7 @@ import {
 import {
   createPrivateProofUpload,
   deletePrivateProofObjectQuietly,
+  deletePrivateProofStagingUpload,
   finalizePrivateProofUpload,
   ProofStorageError,
 } from "./storage";
@@ -50,6 +51,7 @@ import {
   createProofUploadToken,
   PROOF_EVIDENCE_TTL_SECONDS,
   ProofTokenError,
+  verifyOwnedProofUploadToken,
   verifyProofUploadToken,
 } from "./tokens";
 
@@ -616,6 +618,33 @@ export async function prepareArtistProofUpload(
     );
     const upload = await createPrivateProofUpload(input.serverSecret, signed.payload);
     return { ...upload, uploadToken: signed.token };
+  } catch (error) {
+    asDomainError(error);
+  }
+}
+
+export async function cancelArtistProofUpload(input: {
+  clerkUserId: string;
+  purchaseId: string;
+  installmentId: string;
+  uploadToken: string;
+  serverSecret: string;
+  now?: Date | undefined;
+}): Promise<{ cancelled: true }> {
+  try {
+    const serverSecret = requireServerSecret(input.serverSecret);
+    const token = verifyOwnedProofUploadToken(
+      serverSecret,
+      input.uploadToken,
+      {
+        viewerClerkUserId: input.clerkUserId,
+        purchaseId: input.purchaseId,
+        installmentId: input.installmentId,
+      },
+      input.now,
+    );
+    await deletePrivateProofStagingUpload(serverSecret, token);
+    return { cancelled: true };
   } catch (error) {
     asDomainError(error);
   }

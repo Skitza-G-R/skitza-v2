@@ -32,6 +32,10 @@ describe("accepted-purchase proof API security", () => {
     expect(artistProofRouter).toMatch(/installmentId: z\.string\(\)\.uuid\(\)/);
     expect(artistProofRouter).toMatch(/uploadToken: z\.string\(\)/);
     expect(artistProofRouter).toMatch(/amountCents: z\.number\(\)\.int\(\)\.positive\(\)/);
+    expect(artistProofRouter).toMatch(/cancel: artistProcedure/);
+    expect(artistProofRouter).toMatch(/cancelArtistProofUpload\(\{/);
+    expect(serviceSource).toMatch(/verifyOwnedProofUploadToken/);
+    expect(serviceSource).toMatch(/deletePrivateProofStagingUpload/);
     expect(artistProofRouter).not.toMatch(/purchaseRequestId|storageKey|objectEtag/);
   });
 

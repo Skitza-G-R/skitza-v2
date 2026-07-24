@@ -7,6 +7,7 @@ import type { ProofContentType } from "./actions";
 type ProofPresignResult =
   | { ok: true; uploadUrl: string; uploadToken: string }
   | { ok: false; error: string };
+type ProofCleanupResult = { ok: true } | { ok: false; error: string };
 type ProofSubmitResult = { ok: true; proofId: string } | { ok: false; error: string };
 
 export type ManagedPaymentProofUploadOutcome = "succeeded" | "cancelled" | "failed";
@@ -37,6 +38,11 @@ export type ManagedPaymentProofUploadInput = {
     contentType: ProofContentType;
     sizeBytes: number;
   }) => Promise<ProofPresignResult>;
+  cleanup: (input: {
+    purchaseId: string;
+    installmentId: string;
+    uploadToken: string;
+  }) => Promise<ProofCleanupResult>;
   submit: (input: {
     purchaseId: string;
     installmentId: string;
@@ -61,6 +67,8 @@ type UploadPhase = "preparing" | "uploading" | "submitting";
 
 const OFFLINE_PAYMENT_PROOF_RETRY_MESSAGE =
   "Reconnect to retry this payment proof. Your selected file is still available.";
+const PAYMENT_PROOF_CLEANUP_ERROR =
+  "The upload stopped, but its private staging copy could not be cleaned up. Try again.";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error && error.message
@@ -134,8 +142,9 @@ export function uploadPaymentProofBytes(
 
 /**
  * Keeps only the selected File in the upload manager's in-memory retry
- * closure. Signed URLs and opaque tokens live inside one attempt and are
- * released as soon as it settles.
+ * closure. Signed URLs are released with each attempt; an opaque upload token
+ * stays only long enough to retry a failed staging cleanup and is never
+ * written to browser storage.
  */
 export function startManagedPaymentProofUpload(
   input: ManagedPaymentProofUploadInput,
@@ -146,10 +155,45 @@ export function startManagedPaymentProofUpload(
   });
   const controller = new AbortController();
   let phase: UploadPhase = "preparing";
+  let activeUploadToken: string | null = null;
+  let finalizationStarted = false;
+  let stagingCleanupPending = false;
   let resolveFinished: (outcome: ManagedPaymentProofUploadOutcome) => void = () => {};
   const finished = new Promise<ManagedPaymentProofUploadOutcome>((resolve) => {
     resolveFinished = resolve;
   });
+
+  const cleanupStaging = async (): Promise<string | null> => {
+    if (!activeUploadToken) {
+      stagingCleanupPending = false;
+      return null;
+    }
+    stagingCleanupPending = true;
+    try {
+      const result = await input.cleanup({
+        purchaseId: input.purchaseId,
+        installmentId: input.installmentId,
+        uploadToken: activeUploadToken,
+      });
+      if (!result.ok) return result.error;
+      activeUploadToken = null;
+      stagingCleanupPending = false;
+      return null;
+    } catch {
+      return PAYMENT_PROOF_CLEANUP_ERROR;
+    }
+  };
+  const finishCancelled = async (): Promise<void> => {
+    const cleanupError = await cleanupStaging();
+    if (cleanupError) {
+      managed.fail(cleanupError);
+      input.onFailure?.(cleanupError);
+      resolveFinished("failed");
+      return;
+    }
+    input.onCancelled?.();
+    resolveFinished("cancelled");
+  };
 
   managed.setCancel(async () => {
     if (phase === "submitting") return { ok: false };
@@ -157,14 +201,20 @@ export function startManagedPaymentProofUpload(
     const outcome = await finished;
     return { ok: outcome === "cancelled" };
   });
-  managed.setRetry(() => {
+  managed.setRetry(async () => {
     if (typeof navigator !== "undefined" && !navigator.onLine) {
       input.onFailure?.(OFFLINE_PAYMENT_PROOF_RETRY_MESSAGE);
-      return Promise.reject(new Error(OFFLINE_PAYMENT_PROOF_RETRY_MESSAGE));
+      throw new Error(OFFLINE_PAYMENT_PROOF_RETRY_MESSAGE);
+    }
+    if (stagingCleanupPending) {
+      const cleanupError = await cleanupStaging();
+      if (cleanupError) {
+        input.onFailure?.(cleanupError);
+        throw new Error(cleanupError);
+      }
     }
     managed.dismiss();
     startManagedPaymentProofUpload(input);
-    return Promise.resolve();
   });
 
   void (async () => {
@@ -180,15 +230,14 @@ export function startManagedPaymentProofUpload(
       });
       if (!presigned.ok) {
         if (cancellationRequested(controller)) {
-          input.onCancelled?.();
-          resolveFinished("cancelled");
+          await finishCancelled();
           return;
         }
         throw new Error(presigned.error);
       }
+      activeUploadToken = presigned.uploadToken;
       if (cancellationRequested(controller)) {
-        input.onCancelled?.();
-        resolveFinished("cancelled");
+        await finishCancelled();
         return;
       }
 
@@ -215,21 +264,20 @@ export function startManagedPaymentProofUpload(
       });
       if (!uploaded.ok) {
         if (cancellationRequested(controller)) {
-          input.onCancelled?.();
-          resolveFinished("cancelled");
+          await finishCancelled();
           return;
         }
         throw new Error("The file upload did not finish. Check your connection and try again.");
       }
       if (cancellationRequested(controller)) {
-        input.onCancelled?.();
-        resolveFinished("cancelled");
+        await finishCancelled();
         return;
       }
 
       phase = "submitting";
       managed.setCompleting();
       input.onSubmitting?.();
+      finalizationStarted = true;
       const submitted = await input.submit({
         purchaseId: input.purchaseId,
         installmentId: input.installmentId,
@@ -242,15 +290,18 @@ export function startManagedPaymentProofUpload(
       }
 
       managed.succeed();
+      activeUploadToken = null;
       input.onSuccess?.();
       resolveFinished("succeeded");
     } catch (error) {
-      if (cancellationRequested(controller) && phase !== "submitting") {
-        input.onCancelled?.();
-        resolveFinished("cancelled");
+      if (cancellationRequested(controller) && !finalizationStarted) {
+        await finishCancelled();
         return;
       }
-      const message = errorMessage(error);
+      let message = errorMessage(error);
+      if (!finalizationStarted) {
+        message = (await cleanupStaging()) ?? message;
+      }
       managed.fail(message);
       input.onFailure?.(message);
       resolveFinished("failed");

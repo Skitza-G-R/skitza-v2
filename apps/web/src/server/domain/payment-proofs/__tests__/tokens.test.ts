@@ -6,6 +6,7 @@ import {
   proofObjectKeys,
   ProofTokenError,
   verifyProofEvidenceToken,
+  verifyOwnedProofUploadToken,
   verifyProofUploadToken,
 } from "../tokens";
 
@@ -57,6 +58,39 @@ describe("private proof upload tokens", () => {
       NOW,
     );
     expect(() => verifyProofUploadToken(SECRET, evidence, NOW)).toThrow(ProofTokenError);
+  });
+
+  it("authorizes cleanup only for the token-bound viewer, purchase, and installment", () => {
+    const signed = createProofUploadToken(
+      SECRET,
+      {
+        purchaseId: "purchase-1",
+        installmentId: "installment-1",
+        viewerClerkUserId: "artist-clerk-1",
+        originalFileName: "receipt.pdf",
+        contentType: "application/pdf",
+        sizeBytes: 512,
+      },
+      NOW,
+    );
+    const exactScope = {
+      viewerClerkUserId: "artist-clerk-1",
+      purchaseId: "purchase-1",
+      installmentId: "installment-1",
+    };
+
+    expect(verifyOwnedProofUploadToken(SECRET, signed.token, exactScope, NOW)).toEqual(
+      signed.payload,
+    );
+    for (const wrongScope of [
+      { ...exactScope, viewerClerkUserId: "artist-clerk-2" },
+      { ...exactScope, purchaseId: "purchase-2" },
+      { ...exactScope, installmentId: "installment-2" },
+    ]) {
+      expect(() =>
+        verifyOwnedProofUploadToken(SECRET, signed.token, wrongScope, NOW),
+      ).toThrow(ProofTokenError);
+    }
   });
 
   it("derives opaque server-only object identities without embedding business identifiers", () => {

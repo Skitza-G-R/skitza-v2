@@ -31,6 +31,7 @@ import {
   saveProducerPaymentInstructions,
 } from "~/server/domain/payment-instructions/service";
 import {
+  cancelArtistProofUpload,
   confirmProducerPaymentProof,
   listProducerPaymentProofHistory,
   listProducerPendingPaymentProofs,
@@ -922,6 +923,27 @@ export const artistPurchaseRouter = router({
             originalFileName: input.fileName,
             contentType: input.contentType,
             sizeBytes: input.sizeBytes,
+            serverSecret: proofServerSecret(),
+          });
+        } catch (error) {
+          mapPaymentProofError(error);
+        }
+      }),
+    cancel: artistProcedure
+      .input(
+        z.object({
+          purchaseId: z.string().uuid(),
+          installmentId: z.string().uuid(),
+          uploadToken: z.string().min(1).max(4096),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await cancelArtistProofUpload({
+            clerkUserId: ctx.clerkUserId,
+            purchaseId: input.purchaseId,
+            installmentId: input.installmentId,
+            uploadToken: input.uploadToken,
             serverSecret: proofServerSecret(),
           });
         } catch (error) {

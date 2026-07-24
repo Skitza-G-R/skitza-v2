@@ -14,6 +14,7 @@ import {
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 import {
+  cancelPaymentProofUploadAction,
   presignProofUploadAction,
   submitPaymentProofAction,
   type ProofContentType,
@@ -285,6 +286,7 @@ export function UploadProofScreen({
         amountCents,
         note: submittedNote,
         presign: presignProofUploadAction,
+        cleanup: cancelPaymentProofUploadAction,
         submit: submitPaymentProofAction,
         uploadFile: uploadPaymentProofBytes,
         onStart: () => {

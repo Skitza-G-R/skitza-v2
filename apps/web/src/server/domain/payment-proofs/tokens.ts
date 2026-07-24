@@ -254,6 +254,27 @@ export function verifyProofUploadToken(
   return payload;
 }
 
+export function verifyOwnedProofUploadToken(
+  serverSecret: string,
+  token: string,
+  expected: Readonly<{
+    viewerClerkUserId: string;
+    purchaseId: string;
+    installmentId: string;
+  }>,
+  now = new Date(),
+): ProofUploadTokenPayload {
+  const payload = verifyProofUploadToken(serverSecret, token, now);
+  if (
+    payload.viewerClerkUserId !== expected.viewerClerkUserId ||
+    payload.purchaseId !== expected.purchaseId ||
+    payload.installmentId !== expected.installmentId
+  ) {
+    tokenError();
+  }
+  return payload;
+}
+
 export function createProofEvidenceToken(
   serverSecret: string,
   input: Omit<ProofEvidenceTokenPayload, "version" | "kind" | "expiresAtEpochSeconds">,
