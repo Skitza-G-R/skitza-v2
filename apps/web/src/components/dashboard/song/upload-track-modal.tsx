@@ -828,7 +828,7 @@ export function UploadTrackModal({
                 ref={fileInputRef}
                 id="upload-track-file"
                 type="file"
-                accept="audio/*"
+                accept="audio/*,.mp3,.m4a,.wav,.flac,.aif,.aiff"
                 onChange={handleFileInputChange}
                 className="sr-only"
               />

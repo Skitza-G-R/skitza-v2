@@ -84,9 +84,12 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     expect(SRC).toMatch(/description:\s*trimmedDescription/);
   });
 
-  it("renders an audio-only file input with a click + drop drop zone", () => {
+  it("advertises every supported audio extension to the native file picker", () => {
     expect(SRC).toMatch(/id="upload-track-file"/);
-    expect(SRC).toMatch(/accept="audio\/\*"/);
+    const acceptValue = SRC.match(/id="upload-track-file"[\s\S]{0,200}?accept="([^"]+)"/)?.[1];
+    expect(acceptValue?.split(",")).toEqual(
+      expect.arrayContaining(["audio/*", ".mp3", ".m4a", ".wav", ".flac", ".aif", ".aiff"]),
+    );
     expect(SRC).toContain("onDrop");
     expect(SRC).toContain("onDragOver");
   });
