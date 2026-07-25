@@ -86,6 +86,44 @@ function SavedProducerToday({
   );
 }
 
+function savedRouteTitle(family: ProducerRouteFamily): string {
+  if (family === "workspace") return "Workspace";
+  if (family === "music") return "Music";
+  if (family === "store") return "Store";
+  if (family === "portfolio") return "Portfolio";
+  return "Studio";
+}
+
+function SavedProducerRoute({ family, summary }: { family: ProducerRouteFamily; summary: string }) {
+  const title = savedRouteTitle(family);
+
+  return (
+    <div className="sk-page-enter mx-auto w-full max-w-[1180px] px-4 pt-5 pb-24 sm:px-6 lg:px-8 lg:pt-8">
+      <section
+        aria-labelledby="offline-route-heading"
+        className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 shadow-[var(--shadow-sm)]"
+      >
+        <p className="font-mono text-[10.5px] font-bold tracking-[0.18em] text-[rgb(var(--fg-muted))] uppercase">
+          Saved {title}
+        </p>
+        <h1
+          id="offline-route-heading"
+          className="font-syne mt-2 text-[28px] leading-tight font-extrabold tracking-[-0.03em] text-[rgb(var(--fg-default))]"
+        >
+          {title}
+        </h1>
+        <p className="mt-3 text-[13px] text-[rgb(var(--fg-muted))]">
+          Showing saved {title.toLowerCase()} context from this device.
+        </p>
+        <p className="mt-2 text-lg font-bold text-[rgb(var(--fg-default))]">{summary}</p>
+        <p className="mt-3 text-[12px] text-[rgb(var(--fg-muted))]">
+          Live actions need a connection.
+        </p>
+      </section>
+    </div>
+  );
+}
+
 export function ProducerNativeRouteBoundary({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -145,6 +183,8 @@ export function ProducerNativeRouteBoundary({ children }: { children: ReactNode 
           source={overview.source}
           refreshing={overview.refreshing}
         />
+      ) : !online && family && family !== "today" && summary ? (
+        <SavedProducerRoute family={family} summary={summary} />
       ) : (
         children
       )}

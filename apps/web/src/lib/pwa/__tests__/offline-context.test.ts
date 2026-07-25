@@ -120,6 +120,113 @@ describe("route-aware offline context", () => {
     });
   });
 
+  it.each([
+    {
+      href: "/dashboard/clients-projects",
+      label: "Clients and projects",
+      summary: "Saved workspace: 4 projects · 3 clients · 2 need attention.",
+      write(storage: StorageLike, scope: RuntimeScope) {
+        return writeRuntimeState(
+          storage,
+          scope,
+          "producer.workspace.safe-view",
+          { clientCount: 3, projectCount: 4, needsAttentionCount: 2 },
+          NOW - 1_000,
+        );
+      },
+    },
+    {
+      href: "/dashboard/music",
+      label: "Music",
+      summary: "Saved music: 8 songs · 4 projects · 1 archived.",
+      write(storage: StorageLike, scope: RuntimeScope) {
+        return writeRuntimeState(
+          storage,
+          scope,
+          "producer.music.safe-view",
+          { projectCount: 4, songCount: 8, archivedSongCount: 1 },
+          NOW - 1_000,
+        );
+      },
+    },
+    {
+      href: "/dashboard/store",
+      label: "Store",
+      summary: "Saved store: 2 live · 5 products.",
+      write(storage: StorageLike, scope: RuntimeScope) {
+        return writeRuntimeState(
+          storage,
+          scope,
+          "producer.store.safe-view",
+          { productCount: 5, liveProductCount: 2 },
+          NOW - 1_000,
+        );
+      },
+    },
+    {
+      href: "/dashboard/portfolio",
+      label: "Portfolio",
+      summary: "Saved portfolio: 3 published · 7 available.",
+      write(storage: StorageLike, scope: RuntimeScope) {
+        return writeRuntimeState(
+          storage,
+          scope,
+          "producer.portfolio.safe-view",
+          { publishedCount: 3, availableCount: 7 },
+          NOW - 1_000,
+        );
+      },
+    },
+  ])("restores the warmed $label safe view without requiring navigation metadata", (entry) => {
+    const storage = new MemoryStorage();
+    const scope = requiredScope("user_producer", "producer", "producer_1", entry.href);
+    expect(entry.write(storage, scope)).toBe(true);
+
+    expect(offlineContext.readSavedContext(storage, entry.href, NOW)).toMatchObject({
+      role: "producer",
+      route: entry.href,
+      label: entry.label,
+      summary: entry.summary,
+      updatedAt: NOW - 1_000,
+    });
+  });
+
+  it("fails closed when one account has warmed safe views for multiple producer contexts", () => {
+    const storage = new MemoryStorage();
+    const first = requiredScope(
+      "user_producer",
+      "producer",
+      "producer_1",
+      "/dashboard/music",
+    );
+    const second = requiredScope(
+      "user_producer",
+      "producer",
+      "producer_2",
+      "/dashboard/music",
+    );
+    expect(
+      writeRuntimeState(
+        storage,
+        first,
+        "producer.music.safe-view",
+        { projectCount: 1, songCount: 2, archivedSongCount: 0 },
+        NOW - 2_000,
+      ),
+    ).toBe(true);
+    expect(
+      writeRuntimeState(
+        storage,
+        second,
+        "producer.music.safe-view",
+        { projectCount: 3, songCount: 4, archivedSongCount: 1 },
+        NOW - 1_000,
+      ),
+    ).toBe(true);
+
+    expect(offlineContext.readSavedContext(storage, "/dashboard/music", NOW)).toBeNull();
+  });
+
   it("reads a validated artist home without exposing studio details", () => {
     const storage = new MemoryStorage();
     const scope = requiredScope("user_artist", "artist", "artist_1", "/artist");

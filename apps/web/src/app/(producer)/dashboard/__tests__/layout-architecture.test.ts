@@ -84,3 +84,13 @@ describe("dashboard pages — no per-page AppShell wrappers", () => {
     expect(src).not.toMatch(/<AppShell[\s>]/);
   });
 });
+
+describe("dashboard tabs — preserve the current screen while streaming", () => {
+  it.each([
+    ["Today", join(DASHBOARD_DIR, "loading.tsx")],
+    ["Workspace", join(DASHBOARD_DIR, "clients-projects", "loading.tsx")],
+    ["Music", join(DASHBOARD_DIR, "music", "loading.tsx")],
+  ])("%s does not install a full-page navigation fallback", (_tab, loadingPath) => {
+    expect(existsSync(loadingPath)).toBe(false);
+  });
+});
