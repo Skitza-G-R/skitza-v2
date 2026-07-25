@@ -68,7 +68,7 @@ export function ProducerBottomNav(): ReactNode {
         background: "rgb(var(--bg-sidebar))",
         borderTop: "1px solid rgb(var(--border-sidebar))",
         padding:
-          "6px calc(4px + env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) calc(4px + env(safe-area-inset-left, 0px))",
+          "8px calc(4px + env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) calc(4px + env(safe-area-inset-left, 0px))",
         boxShadow: "0 -4px 20px rgba(0,0,0,0.3)",
       }}
     >
@@ -79,17 +79,17 @@ export function ProducerBottomNav(): ReactNode {
             key={tab.id}
             href={tab.href}
             {...(isActive ? { "aria-current": "page" as const } : {})}
-            className="sk-press relative flex flex-col items-center gap-0.5 rounded-md py-2 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset"
+            className="sk-press relative flex flex-col items-center gap-1 rounded-md py-2.5 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset"
             style={{
               flex: 1,
-              minHeight: 56,
+              minHeight: 68,
               color: isActive ? "rgb(var(--brand-primary))" : "rgb(var(--fg-onsidebar) / 0.55)",
             }}
           >
-            <Icon name={tab.icon} size={20} strokeWidth={isActive ? 2.4 : 2} />
+            <Icon name={tab.icon} size={24} strokeWidth={isActive ? 2.4 : 2} />
             <span
               style={{
-                fontSize: 9.5,
+                fontSize: 11,
                 fontWeight: isActive ? 700 : 500,
                 letterSpacing: "-0.005em",
               }}
@@ -101,9 +101,9 @@ export function ProducerBottomNav(): ReactNode {
                 aria-hidden
                 style={{
                   position: "absolute",
-                  top: -6,
-                  width: 26,
-                  height: 2,
+                  top: -8,
+                  width: 30,
+                  height: 3,
                   borderRadius: 2,
                   background: "rgb(var(--brand-primary))",
                 }}

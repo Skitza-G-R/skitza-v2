@@ -434,7 +434,7 @@ function MobileDock({
         role="region"
         aria-label="Audio player"
         aria-hidden={hidden}
-        // Sits above the producer bottom nav (~62px tall) on <md.
+        // Sits above the producer bottom nav (76px tall) on <md.
         // .persistent-player-dock from globals.css already handles the
         // bottom-nav + safe-area offset; here we just ensure the dock
         // takes the dark pill aesthetic and only renders <md.
