@@ -15,7 +15,7 @@
 importScripts("/pwa/cache-policy.js");
 importScripts("/pwa/push-policy.js");
 
-const SW_VERSION = "2026-07-25-sk117-1";
+const SW_VERSION = "2026-07-25-sk118-1";
 const CACHE_PREFIX = "skitza-native-";
 const CACHE_NAME = `${CACHE_PREFIX}${SW_VERSION}`;
 const OBSOLETE_CACHE_PREFIX = "skitza-shell-";
