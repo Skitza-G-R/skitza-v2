@@ -34,7 +34,7 @@ type Harness = Readonly<{
 }>;
 
 const OWN_ORIGIN = "https://skitza.app";
-const SW_VERSION = "2026-07-25-sk117-1";
+const SW_VERSION = "2026-07-25-sk118-1";
 const BOUNDARY_NONCE = "11111111-2222-4333-8444-555555555555";
 const OTHER_BOUNDARY_NONCE = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 const BOUNDARY_NONCE_HEADER = "x-skitza-push-boundary-nonce";
