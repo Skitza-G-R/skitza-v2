@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
+import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
+import { useToast } from "~/components/ui/toast";
 import { getActiveKey, type ActiveKey } from "~/lib/dashboard/active-key";
 
 import { Icon, type IconName } from "./icons";
@@ -54,6 +56,8 @@ const PROD_TABS: readonly ProducerMobileTab[] = [
 
 export function ProducerBottomNav(): ReactNode {
   const pathname = usePathname();
+  const online = useOnlineStatus();
+  const { toast } = useToast();
   const active = getActiveKey(pathname);
 
   return (
@@ -78,6 +82,16 @@ export function ProducerBottomNav(): ReactNode {
           <Link
             key={tab.id}
             href={tab.href}
+            prefetch={online}
+            aria-disabled={!online}
+            onClick={(event) => {
+              if (online) return;
+              event.preventDefault();
+              toast(
+                "You’re offline. This screen will stay open until you reconnect.",
+                "error",
+              );
+            }}
             {...(isActive ? { "aria-current": "page" as const } : {})}
             className="sk-press relative flex flex-col items-center gap-1 rounded-md py-2.5 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset"
             style={{

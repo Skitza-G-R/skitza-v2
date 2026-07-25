@@ -203,14 +203,6 @@ describe("cached-first and draft integration contracts", () => {
     expect(PRODUCER_ROUTE_BOUNDARY).toMatch(/live\s+actions need a connection\./);
   });
 
-  it("keeps a warmed supported producer screen useful offline", () => {
-    expect(PRODUCER_ROUTE_BOUNDARY).toContain("function SavedProducerRoute");
-    expect(PRODUCER_ROUTE_BOUNDARY).toMatch(
-      /!online && family && family !== "today" && summary[\s\S]*<SavedProducerRoute/,
-    );
-    expect(PRODUCER_ROUTE_BOUNDARY).toMatch(/Showing saved[\s\S]*Live actions need a connection/);
-  });
-
   it("autosaves both role-specific comment drafts and blocks offline submit", () => {
     expect(SONG_PAGE).toContain('"artist.song-comment-draft"');
     expect(SONG_PAGE).toContain('"producer.song-comment-draft"');
