@@ -100,18 +100,18 @@ export function ArtistAppShell({
                 <ArtistTopBar />
               </div>
             </ArtistShellChrome>
-            {/* `pb-20` reserves space for the mobile bottom nav (56px
-                tab row + 8px safe-area buffer). `lg:pb-12` keeps a
-                little vertical breathing room on desktop where there's
-                no bar. `pt-6 lg:pt-10` matches the design's top
-                spacing. `mx-auto max-w-2xl` keeps the artist content
-                column readable at tablet+ widths even on the desktop
-                sidebar layout — Phase 3 pages can opt out by setting
-                their own width. */}
+            {/* The mobile bottom padding reserves the 76px tab bar,
+                iPhone Home Indicator inset, and 16px content buffer.
+                `lg:pb-12` keeps desktop spacing unchanged where there's
+                no bar. `pt-6 lg:pt-10` matches the design's top spacing.
+                `mx-auto max-w-2xl` keeps the artist content column
+                readable at tablet+ widths even on the desktop sidebar
+                layout — Phase 3 pages can opt out by setting their own
+                width. */}
             <main
               id="main-content"
               tabIndex={-1}
-              className="mx-auto w-full max-w-2xl px-4 pt-6 pb-20 lg:max-w-none lg:px-10 lg:pt-10 lg:pb-12"
+              className="mx-auto w-full max-w-2xl px-4 pt-6 pb-[calc(5.75rem+env(safe-area-inset-bottom,0px))] lg:max-w-none lg:px-10 lg:pt-10 lg:pb-12"
             >
               <ArtistRouteStatus />
               <ArtistHomeSoftNavigationBoundary>{children}</ArtistHomeSoftNavigationBoundary>

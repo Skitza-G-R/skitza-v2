@@ -6,6 +6,10 @@
   const MAX_VIEW_AGE_MS = 7 * 24 * 60 * 60 * 1000;
   const NAVIGATION_SLOT = "runtime.navigation.snapshot";
   const PRODUCER_OVERVIEW_SLOT = "producer.overview.safe-view";
+  const PRODUCER_WORKSPACE_SLOT = "producer.workspace.safe-view";
+  const PRODUCER_MUSIC_SLOT = "producer.music.safe-view";
+  const PRODUCER_STORE_SLOT = "producer.store.safe-view";
+  const PRODUCER_PORTFOLIO_SLOT = "producer.portfolio.safe-view";
   const ARTIST_HOME_SLOT = "artist.home.safe-view";
   const VALIDATION_ORIGIN = "https://offline-context.skitza.invalid";
   const BLOCKED_ROUTE_PREFIXES = [
@@ -333,24 +337,120 @@
     }
   }
 
-  function producerSummary(storage, navigation, now) {
-    if (navigation.scope.route !== "/dashboard") return null;
-    const envelope = readEnvelope(storage, navigation.scope, PRODUCER_OVERVIEW_SLOT, now);
-    const payload = envelope && envelope.payload;
+  function producerSafeViewSlot(pathname) {
+    if (pathname === "/dashboard") return PRODUCER_OVERVIEW_SLOT;
+    if (pathname === "/dashboard/clients-projects") return PRODUCER_WORKSPACE_SLOT;
+    if (pathname === "/dashboard/music") return PRODUCER_MUSIC_SLOT;
+    if (pathname === "/dashboard/store") return PRODUCER_STORE_SLOT;
+    if (pathname === "/dashboard/portfolio") return PRODUCER_PORTFOLIO_SLOT;
+    return null;
+  }
+
+  function parseProducerSafeViewEnvelope(raw, key, userId, route, slot, now) {
+    let envelope;
+    try {
+      envelope = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+    const scopeValue = envelope && envelope.scope;
     if (
-      !isRecord(payload) ||
-      !hasExactKeys(payload, ["displayName", "activeProjects"]) ||
-      !(payload.displayName === null || boundedString(payload.displayName, 80, true)) ||
-      !safeInteger(payload.activeProjects, 0, 1_000_000)
+      !baseEnvelopeIsValid(envelope, scopeValue, slot, now) ||
+      scopeValue.userId !== userId ||
+      scopeValue.role !== "producer" ||
+      !boundedString(scopeValue.contextId, 512, false) ||
+      scopeValue.route !== route.href ||
+      key !== storageKey(scopeValue, slot)
     ) {
       return null;
     }
-    const owner =
-      payload.displayName && payload.displayName.trim() ? ` for ${payload.displayName.trim()}` : "";
-    const projects = payload.activeProjects === 1 ? "project" : "projects";
+    return envelope;
+  }
+
+  function uniqueProducerSafeViewEnvelope(storage, userId, route, slot, now) {
+    let match = null;
+    try {
+      for (let index = 0; index < storage.length; index += 1) {
+        const key = storage.key(index);
+        if (!key || !key.endsWith(`:slot=${encodeURIComponent(slot)}`)) continue;
+        const raw = storage.getItem(key);
+        if (!raw) continue;
+        const envelope = parseProducerSafeViewEnvelope(raw, key, userId, route, slot, now);
+        if (!envelope) continue;
+        if (match && match.scope.contextId !== envelope.scope.contextId) return null;
+        if (!match || envelope.updatedAt > match.updatedAt) match = envelope;
+      }
+    } catch {
+      return null;
+    }
+    return match;
+  }
+
+  function producerSummary(storage, userId, route, navigation, now) {
+    const slot = producerSafeViewSlot(route.pathname);
+    if (!slot) return null;
+    const envelope = navigation
+      ? readEnvelope(storage, navigation.scope, slot, now)
+      : uniqueProducerSafeViewEnvelope(storage, userId, route, slot, now);
+    const payload = envelope && envelope.payload;
+    if (!isRecord(payload)) return null;
+
+    let summary;
+    if (slot === PRODUCER_OVERVIEW_SLOT) {
+      if (
+        !hasExactKeys(payload, ["displayName", "activeProjects"]) ||
+        !(payload.displayName === null || boundedString(payload.displayName, 80, true)) ||
+        !safeInteger(payload.activeProjects, 0, 1_000_000)
+      ) {
+        return null;
+      }
+      const owner =
+        payload.displayName && payload.displayName.trim() ? ` for ${payload.displayName.trim()}` : "";
+      const projects = payload.activeProjects === 1 ? "project" : "projects";
+      summary = `Saved overview${owner}: ${String(payload.activeProjects)} active ${projects}.`;
+    } else if (slot === PRODUCER_WORKSPACE_SLOT) {
+      if (
+        !hasExactKeys(payload, ["clientCount", "projectCount", "needsAttentionCount"]) ||
+        !safeInteger(payload.clientCount, 0, 1_000_000) ||
+        !safeInteger(payload.projectCount, 0, 1_000_000) ||
+        !safeInteger(payload.needsAttentionCount, 0, 1_000_000)
+      ) {
+        return null;
+      }
+      summary = `Saved workspace: ${String(payload.projectCount)} projects · ${String(payload.clientCount)} clients · ${String(payload.needsAttentionCount)} need attention.`;
+    } else if (slot === PRODUCER_MUSIC_SLOT) {
+      if (
+        !hasExactKeys(payload, ["projectCount", "songCount", "archivedSongCount"]) ||
+        !safeInteger(payload.projectCount, 0, 1_000_000) ||
+        !safeInteger(payload.songCount, 0, 1_000_000) ||
+        !safeInteger(payload.archivedSongCount, 0, 1_000_000)
+      ) {
+        return null;
+      }
+      summary = `Saved music: ${String(payload.songCount)} songs · ${String(payload.projectCount)} projects · ${String(payload.archivedSongCount)} archived.`;
+    } else if (slot === PRODUCER_STORE_SLOT) {
+      if (
+        !hasExactKeys(payload, ["productCount", "liveProductCount"]) ||
+        !safeInteger(payload.productCount, 0, 1_000_000) ||
+        !safeInteger(payload.liveProductCount, 0, 1_000_000)
+      ) {
+        return null;
+      }
+      summary = `Saved store: ${String(payload.liveProductCount)} live · ${String(payload.productCount)} products.`;
+    } else {
+      if (
+        !hasExactKeys(payload, ["publishedCount", "availableCount"]) ||
+        !safeInteger(payload.publishedCount, 0, 1_000_000) ||
+        !safeInteger(payload.availableCount, 0, 1_000_000)
+      ) {
+        return null;
+      }
+      summary = `Saved portfolio: ${String(payload.publishedCount)} published · ${String(payload.availableCount)} available.`;
+    }
+
     return {
-      summary: `Saved overview${owner}: ${String(payload.activeProjects)} active ${projects}.`,
-      updatedAt: Math.max(navigation.updatedAt, envelope.updatedAt),
+      summary,
+      updatedAt: Math.max(navigation ? navigation.updatedAt : 0, envelope.updatedAt),
     };
   }
 
@@ -416,12 +516,14 @@
     const userId = onlyStoredUserId(storage);
     if (!userId) return null;
     const navigation = latestNavigationEnvelope(storage, userId, route, now);
-    if (!navigation) return null;
-
     const detail =
       route.role === "producer"
-        ? producerSummary(storage, navigation, now)
-        : artistSummary(storage, navigation, now);
+        ? producerSummary(storage, userId, route, navigation, now)
+        : navigation
+          ? artistSummary(storage, navigation, now)
+          : null;
+    if (!navigation && !detail) return null;
+
     const label = routeLabel(route);
     return {
       role: route.role,

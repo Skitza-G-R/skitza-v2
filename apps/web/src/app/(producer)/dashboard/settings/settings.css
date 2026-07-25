@@ -945,14 +945,14 @@
 @media (max-width: 1023px) {
   .s-savebar {
     /* Floating card docked ABOVE the shell's bottom tab bar (fixed,
-       z-30, ~62px tall + safe-area; the shell reserves 80px). The
+       z-30, 76px tall + safe-area). The
        savebar must not slide under it, so it floats with rounded
        corners instead of hugging the viewport edge. The hidden-state
        transform adds the dock offset so the bar fully clears the
        viewport (and the tab bar) when there's nothing to save. */
     left: 12px;
     right: 12px;
-    bottom: calc(70px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(84px + env(safe-area-inset-bottom, 0px));
     border-radius: 16px;
     padding: 12px 14px;
     flex-wrap: wrap;

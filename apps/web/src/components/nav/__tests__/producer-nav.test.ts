@@ -49,6 +49,21 @@ describe("producer nav: Portfolio in sidebar only", () => {
     expect(BOTTOM).not.toMatch(/href:\s*["']\/dashboard\/store["']/);
   });
 
+  it("fully prefetches the dynamic producer tabs", () => {
+    expect(BOTTOM).toMatch(/<Link[\s\S]*href=\{tab\.href\}[\s\S]*prefetch=\{online\}/);
+  });
+
+  it("keeps the warmed producer screen open when a tab is tapped offline", () => {
+    expect(BOTTOM).toContain("useOnlineStatus()");
+    expect(BOTTOM).toContain("useToast()");
+    expect(BOTTOM).toContain("aria-disabled={!online}");
+    expect(BOTTOM).toMatch(
+      /onClick=\{\(event\) => \{[\s\S]*if \(online\) return;[\s\S]*event\.preventDefault\(\);[\s\S]*toast\(/,
+    );
+    expect(BOTTOM).toContain("This screen will stay open until you reconnect.");
+    expect(BOTTOM).not.toMatch(/router\.(?:push|replace)|history\.(?:pushState|replaceState)/);
+  });
+
   it("bottom-nav does NOT contain a Portfolio entry (mobile stays 5 tabs)", () => {
     expect(BOTTOM).not.toMatch(/label:\s*["']Portfolio["']/);
     expect(BOTTOM).not.toMatch(/href:\s*["']\/dashboard\/portfolio["']/);
