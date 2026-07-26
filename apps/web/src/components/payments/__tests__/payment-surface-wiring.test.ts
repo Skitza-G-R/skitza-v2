@@ -16,6 +16,16 @@ const artistPurchasePayment = read(
   "page.tsx",
 );
 const paymentHistory = read("components", "payments", "payment-history.tsx");
+const producerPaymentWorkspace = read(
+  "components",
+  "payments",
+  "producer-payment-workspace.tsx",
+);
+const producerPaymentWorkspaceData = read(
+  "components",
+  "payments",
+  "producer-payment-workspace-data.ts",
+);
 const projectPage = read("app", "(producer)", "dashboard", "clients-projects", "[id]", "page.tsx");
 const songPage = read(
   "app",
@@ -46,12 +56,16 @@ const readDb = read("server", "domain", "purchase-ledger", "read-db.ts");
 describe("SK-69 payment surface wiring", () => {
   it("renders the approved producer and artist buckets from domain-owned classifications", () => {
     for (const bucket of ["needs_review", "due_or_overdue", "upcoming", "history"]) {
-      expect(producerPayments).toContain(`model.producerBuckets.${bucket}`);
+      expect(producerPaymentWorkspaceData).toContain(`id: "${bucket}"`);
     }
     for (const bucket of ["waiting", "active", "history"]) {
       expect(artistPayments).toContain(`model.artistBuckets.${bucket}`);
     }
-    expect(producerPayments).toContain("PaymentHistoryView");
+    expect(producerPayments).toContain(
+      "toProducerPaymentWorkspaceBuckets(model.producerBuckets)",
+    );
+    expect(producerPayments).toContain("ProducerPaymentWorkspace");
+    expect(producerPayments).not.toContain("PaymentHistoryView");
     expect(artistPayments).toContain("PaymentHistoryView");
   });
 
@@ -61,7 +75,10 @@ describe("SK-69 payment surface wiring", () => {
     expect(clientPage).toContain("caller.purchaseLedger.client({ clientContactId: id })");
     expect(projectPage).toContain("paymentHistory={paymentHistory}");
     expect(songPage).toContain("paymentHistory={paymentHistory}");
-    expect(clientPage).toContain("<PaymentHistoryView");
+    expect(clientPage).toContain(
+      "toProducerPaymentWorkspaceBuckets(payments.producerBuckets)",
+    );
+    expect(clientPage).toContain("<ProducerPaymentWorkspace");
   });
 
   it("keeps purchase, proof/payment, and session actions separate on dashboard and Home", () => {
@@ -79,8 +96,8 @@ describe("SK-69 payment surface wiring", () => {
   it("keeps Requests on Gate 1 and proof review only in Payments", () => {
     expect(requestsPage).not.toMatch(/proofOfPayment|PaymentProof/);
     expect(requestDetail).not.toMatch(/proofOfPayment\.(history|view)|PaymentProofReview/);
-    expect(producerPayments).toContain("Needs review");
-    expect(producerPayments).toContain("Requests remains only for new-work decisions");
+    expect(producerPaymentWorkspace).toContain("Needs review");
+    expect(producerPaymentWorkspace).toContain("/dashboard/payments/");
   });
 
   it("uses the canonical ledger in a tenant-safe read-only repository", () => {

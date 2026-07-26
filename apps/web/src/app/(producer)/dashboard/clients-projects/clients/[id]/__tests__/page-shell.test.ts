@@ -75,10 +75,11 @@ describe("clients/[id]/page.tsx — Phase 1 rewrite", () => {
 
   it("maps lifecycle explicitly and renders the currency-separated purchase ledger", () => {
     expect(SRC).toContain("lifecycleStatus");
-    expect(SRC).toContain("PaymentHistoryView");
+    expect(SRC).toContain("ProducerPaymentWorkspace");
+    expect(SRC).toContain("toProducerPaymentWorkspaceBuckets");
     expect(SRC).toContain("purchaseLedger.client");
     expect(SRC).toContain("payments.totals");
-    expect(SRC).toContain("payments.projects");
+    expect(SRC).toContain("payments.producerBuckets");
     expect(SRC).not.toMatch(/<ClientMoneyLedger/);
     expect(SRC).not.toMatch(/depositPct|\.stage\b/);
     for (const label of ["Waiting for payment", "Active", "Paused", "Completed", "Canceled"]) {
