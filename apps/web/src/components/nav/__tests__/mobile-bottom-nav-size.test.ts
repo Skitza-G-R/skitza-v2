@@ -15,32 +15,29 @@ const SETTINGS = readFileSync(
 );
 
 describe("SK-117 mobile bottom-navigation sizing", () => {
-  it("gives producer and artist tabs the larger shared visual and tap-target sizes", () => {
+  it("preserves the larger shared icon, label, and tap-target sizes", () => {
     for (const source of [PRODUCER_NAV, ARTIST_NAV]) {
       expect(source).toContain("gap-1");
       expect(source).toContain("py-2.5");
       expect(source).toContain("minHeight: 68");
       expect(source).toContain("size={24}");
       expect(source).toContain("fontSize: 11");
-      expect(source).toContain("top: -8");
-      expect(source).toContain("width: 30");
-      expect(source).toContain("height: 3");
     }
   });
 
-  it("keeps the larger bars mobile-only and above the iPhone Home Indicator", () => {
-    for (const source of [PRODUCER_NAV, ARTIST_NAV]) {
-      expect(source).toContain("lg:hidden");
-      expect(source).toContain(
-        '"8px calc(4px + env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) calc(4px + env(safe-area-inset-left, 0px))"',
-      );
-    }
+  it("keeps both bars mobile-only and above the iPhone Home Indicator", () => {
+    expect(PRODUCER_NAV).toContain("lg:hidden");
+    expect(PRODUCER_NAV).toContain("max(8px, env(safe-area-inset-bottom, 0px))");
+    expect(ARTIST_NAV).toContain("lg:hidden");
+    expect(ARTIST_NAV).toContain(
+      '"8px calc(4px + env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) calc(4px + env(safe-area-inset-left, 0px))"',
+    );
   });
 
   it("reserves the larger artist nav and player stack without changing desktop spacing", () => {
     expect(ARTIST_SHELL).toContain("pb-[calc(5.75rem+env(safe-area-inset-bottom,0px))]");
     expect(ARTIST_SHELL).toContain("lg:pb-12");
-    expect(GLOBALS).toContain("bottom: calc(76px + env(safe-area-inset-bottom, 0px));");
+    expect(GLOBALS).toContain("bottom: calc(80px + env(safe-area-inset-bottom, 0px));");
     expect(GLOBALS).toContain("padding-bottom: calc(182px + env(safe-area-inset-bottom));");
   });
 

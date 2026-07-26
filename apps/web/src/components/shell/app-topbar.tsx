@@ -134,7 +134,7 @@ export function AppTopBar({
       data-scrolled={scrolled ? "true" : "false"}
       className={
         isProducer
-          ? "sticky top-0 z-40 border-b border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] transition-shadow duration-200 ease-out motion-reduce:transition-none"
+          ? "sk-safe-top sticky top-0 z-40 border-b border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] transition-shadow duration-200 ease-out motion-reduce:transition-none lg:pt-0"
           : "sticky top-0 z-30 backdrop-blur-[60px] transition-[box-shadow,border-color] duration-200 ease-out motion-reduce:transition-none"
       }
       style={

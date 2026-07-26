@@ -94,8 +94,10 @@ describe("AppTopBar (shared)", () => {
     expect(SRC).toContain("data-variant={variant}");
   });
 
-  it("uses an opaque sticky 64px control strip for producers", () => {
+  it("uses an opaque sticky 64px control strip below the producer mobile safe area", () => {
     expect(SRC).toMatch(/sticky[\s\S]{0,40}top-0/);
+    expect(SRC).toContain("sk-safe-top sticky top-0");
+    expect(SRC).toContain("lg:pt-0");
     expect(SRC).toContain("bg-[rgb(var(--bg-elevated))]");
     expect(SRC).toContain("h-16");
     expect(SRC).toContain('variant === "producer"');
