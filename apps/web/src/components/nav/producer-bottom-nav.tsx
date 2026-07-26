@@ -18,9 +18,10 @@ import { Icon, type IconName } from "./icons";
 // producer for v1 (2026-05-05), so this nav is the producer's mobile
 // chrome.
 //
-// Visual: dark `--bg-sidebar` background, amber active-tab colour,
-// 5-column grid. No FAB — the design intentionally simplifies to
-// match the artist nav grammar.
+// Visual: one floating Liquid Glass pill with an amber active lens.
+// The transparent outer frame owns the iOS safe-area spacing, so the
+// glass surface stays compact and close to the Home Indicator instead
+// of reading as a tall opaque footer.
 //
 // Routes are mapped per Gili's approved Payments navigation — five
 // mobile tabs with Store and Settings under the Account menu in the
@@ -61,71 +62,57 @@ export function ProducerBottomNav(): ReactNode {
   const active = getActiveKey(pathname);
 
   return (
-    <nav
-      role="navigation"
-      aria-label="Producer tabs"
-      // The padding includes the iOS safe-area insets so labels clear
-      // the home indicator and landscape sensor housing.
-      // `lg:hidden` — desktop renders the left rail instead.
-      className="relative z-30 flex shrink-0 justify-around lg:hidden"
+    <div
+      // Keep the established shell-footer anchoring from SK-86: the
+      // nav stays attached to the fixed app viewport without relying
+      // on document-level `position: fixed`. Only this transparent
+      // frame occupies the bottom safe area.
+      className="producer-bottom-nav-frame relative z-30 shrink-0 lg:hidden"
       style={{
-        background: "rgb(var(--bg-sidebar))",
-        borderTop: "1px solid rgb(var(--border-sidebar))",
         padding:
-          "8px calc(4px + env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) calc(4px + env(safe-area-inset-left, 0px))",
-        boxShadow: "0 -4px 20px rgba(0,0,0,0.3)",
+          "0 max(12px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px))",
       }}
     >
-      {PROD_TABS.map((tab) => {
-        const isActive = active === tab.id;
-        return (
-          <Link
-            key={tab.id}
-            href={tab.href}
-            prefetch={online}
-            aria-disabled={!online}
-            onClick={(event) => {
-              if (online) return;
-              event.preventDefault();
-              toast(
-                "You’re offline. This screen will stay open until you reconnect.",
-                "error",
-              );
-            }}
-            {...(isActive ? { "aria-current": "page" as const } : {})}
-            className="sk-press relative flex flex-col items-center gap-1 rounded-md py-2.5 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset"
-            style={{
-              flex: 1,
-              minHeight: 68,
-              color: isActive ? "rgb(var(--brand-primary))" : "rgb(var(--fg-onsidebar) / 0.55)",
-            }}
-          >
-            <Icon name={tab.icon} size={24} strokeWidth={isActive ? 2.4 : 2} />
-            <span
+      <nav
+        role="navigation"
+        aria-label="Producer tabs"
+        className="producer-bottom-nav__glass mx-auto grid w-full max-w-[420px] grid-cols-5"
+      >
+        {PROD_TABS.map((tab) => {
+          const isActive = active === tab.id;
+          return (
+            <Link
+              key={tab.id}
+              href={tab.href}
+              prefetch={online}
+              aria-disabled={!online}
+              onClick={(event) => {
+                if (online) return;
+                event.preventDefault();
+                toast("You’re offline. This screen will stay open until you reconnect.", "error");
+              }}
+              {...(isActive ? { "aria-current": "page" as const } : {})}
+              data-active={isActive ? "true" : "false"}
+              className="producer-bottom-nav__tab sk-press relative flex min-w-0 flex-col items-center justify-center gap-1 py-2.5 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset"
               style={{
-                fontSize: 11,
-                fontWeight: isActive ? 700 : 500,
-                letterSpacing: "-0.005em",
+                minHeight: 68,
+                color: isActive ? "rgb(var(--brand-primary))" : "rgb(var(--fg-onsidebar) / 0.68)",
               }}
             >
-              {tab.label}
-            </span>
-            {isActive && (
+              <Icon name={tab.icon} size={24} strokeWidth={isActive ? 2.4 : 2} />
               <span
-                aria-hidden
                 style={{
-                  position: "absolute",
-                  top: -8,
-                  width: 30,
-                  height: 3,
-                  borderRadius: 2,
-                  background: "rgb(var(--brand-primary))",
+                  fontSize: 11,
+                  fontWeight: isActive ? 700 : 500,
+                  letterSpacing: "-0.005em",
                 }}
-              />
-            )}
-          </Link>
-        );
-      })}
-    </nav>
+              >
+                {tab.label}
+              </span>
+            </Link>
+          );
+        })}
+      </nav>
+    </div>
   );
 }
