@@ -10,6 +10,8 @@ import {
   type PaymentHistoryProject,
   type PaymentHistorySectionDescriptor,
 } from "~/components/payments/payment-history-view";
+import { ProducerPaymentWorkspace } from "~/components/payments/producer-payment-workspace";
+import type { PaymentWorkspaceBucket } from "~/components/payments/producer-payment-workspace-model";
 
 type Surface =
   | "producer-payments"
@@ -196,6 +198,102 @@ const SHARED_PROJECT: PaymentHistoryProject = {
   ],
 };
 
+const SHARED_PURCHASE = SHARED_PROJECT.purchases[0];
+
+if (!SHARED_PURCHASE) {
+  throw new Error("The SK-69 safe browser fixture requires its shared purchase.");
+}
+
+const UPCOMING_PROJECT: PaymentHistoryProject = {
+  ...SHARED_PROJECT,
+  id: "project-sk120-upcoming",
+  title: "Neon Rooms",
+  status: { label: "Active", tone: "active" },
+  currencyTotals: [{ currency: "USD", dueNowCents: 0, totalRemainingCents: 180_000 }],
+  purchases: [
+    {
+      ...SHARED_PURCHASE,
+      id: "purchase-sk120-upcoming",
+      reference: "SK-120USD",
+      title: "EP mix package",
+      currency: "USD",
+      status: { label: "Upcoming", tone: "accent" },
+      defaultOpen: false,
+      totalCents: 180_000,
+      paidCents: 0,
+      dueNowCents: 0,
+      totalRemainingCents: 180_000,
+      delivery: {
+        ...SHARED_PURCHASE.delivery,
+        key: "locked",
+        label: "Downloads locked",
+        description: "Downloads and extra deliverables unlock only after full payment.",
+        paidCents: 0,
+        remainingCents: 180_000,
+        overdue: false,
+      },
+      frozenTerms: {
+        ...SHARED_PURCHASE.frozenTerms,
+        productName: "EP mix package",
+        deliverables: ["Four mixed masters", "Instrumentals", "Vocal stems"],
+        lineItems: [
+          {
+            id: "line-sk120-upcoming",
+            label: "EP mix package",
+            quantity: 1,
+            unitPriceCents: 180_000,
+            totalCents: 180_000,
+          },
+        ],
+        subtotalCents: 180_000,
+        totalCents: 180_000,
+      },
+      acceptance: {
+        ...SHARED_PURCHASE.acceptance,
+        acceptedAtIso: "2026-07-22T09:00:00.000Z",
+      },
+      plan: {
+        label: "One payment",
+        description: "The full balance is scheduled before delivery.",
+      },
+      schedule: [
+        {
+          id: "installment-sk120-upcoming",
+          position: 1,
+          label: "Payment 1",
+          amountCents: 180_000,
+          paidCents: 0,
+          waivedCents: 0,
+          remainingCents: 180_000,
+          dueAtIso: "2026-08-12T09:00:00.000Z",
+          trigger: "Before final delivery",
+          status: { label: "Upcoming", tone: "accent" },
+        },
+      ],
+      nextPayment: {
+        amountCents: 180_000,
+        dueAtIso: "2026-08-12T09:00:00.000Z",
+        trigger: "Before final delivery",
+      },
+      showPayNextPayment: false,
+      proofs: [],
+      payments: [],
+      corrections: [],
+      waivers: [],
+      cancellations: [],
+      pauseHistory: [],
+      downloadOverrideHistory: [],
+    },
+  ],
+};
+
+const WORKSPACE_BUCKETS: readonly PaymentWorkspaceBucket[] = [
+  { id: "needs_review", label: "Needs review", projects: [] },
+  { id: "due_or_overdue", label: "Due now", projects: [SHARED_PROJECT] },
+  { id: "upcoming", label: "Upcoming", projects: [UPCOMING_PROJECT] },
+  { id: "history", label: "History", projects: [] },
+];
+
 const SECTIONS: Record<
   Exclude<Surface, "dashboard" | "artist-home" | "requests">,
   PaymentHistorySectionDescriptor
@@ -236,11 +334,7 @@ const SECTIONS: Record<
 
 export function Sk69PaymentsDevScreen() {
   const [surface, setSurface] = useState<Surface>("producer-payments");
-  const paymentSurface =
-    surface === "producer-payments" ||
-    surface === "artist-payments" ||
-    surface === "project" ||
-    surface === "client";
+  const paymentHistorySurface = surface === "artist-payments" || surface === "project";
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-[1180px] px-4 py-5 sm:px-6 sm:py-8">
@@ -278,7 +372,14 @@ export function Sk69PaymentsDevScreen() {
       </div>
 
       <section data-testid={`sk69-surface-${surface}`}>
-        {paymentSurface ? (
+        {surface === "producer-payments" ? (
+          <ProducerPaymentWorkspace
+            buckets={WORKSPACE_BUCKETS}
+            scope="global"
+            defaultView="open"
+          />
+        ) : null}
+        {paymentHistorySurface ? (
           <PaymentHistoryView
             role={surface === "artist-payments" ? "artist" : "producer"}
             data={{
@@ -286,6 +387,14 @@ export function Sk69PaymentsDevScreen() {
               currencyTotals: SHARED_PROJECT.currencyTotals,
               projects: [SHARED_PROJECT],
             }}
+          />
+        ) : null}
+        {surface === "client" ? (
+          <ProducerPaymentWorkspace
+            buckets={WORKSPACE_BUCKETS}
+            scope="client"
+            clientLabel="Maya Cohen"
+            defaultView="all"
           />
         ) : null}
         {surface === "dashboard" ? <DashboardFixture /> : null}
