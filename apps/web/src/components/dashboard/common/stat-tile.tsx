@@ -32,6 +32,8 @@ interface StatTileProps {
   mobileCompact?: boolean;
   /** Tighter desktop spacing for information-dense dashboard strips. */
   dense?: boolean;
+  /** Let an explicitly anchored desktop disclosure escape this tile. */
+  allowDesktopOverflow?: boolean;
 }
 
 function valueColor(variant: StatTileVariant): string {
@@ -61,11 +63,13 @@ export function StatTile({
   glow = "none",
   mobileCompact = false,
   dense = false,
+  allowDesktopOverflow = false,
 }: StatTileProps) {
   const glowBg = glowGradient(glow);
+  const overflowCls = allowDesktopOverflow ? "lg:overflow-visible" : "";
   const boxCls = mobileCompact
-    ? `relative flex flex-col gap-1 overflow-hidden rounded-none border-0 px-3.5 py-3 md:rounded-[var(--radius-md)] md:border ${dense ? "md:gap-1 md:px-4 md:py-3" : "md:gap-1.5 md:px-5 md:py-4"}`
-    : `relative flex flex-col overflow-hidden rounded-[var(--radius-md)] border ${dense ? "gap-1 px-4 py-3" : "gap-1.5 px-5 py-4"}`;
+    ? `relative flex flex-col gap-1 overflow-hidden rounded-none border-0 px-3.5 py-3 md:rounded-[var(--radius-md)] md:border ${dense ? "md:gap-1 md:px-4 md:py-3" : "md:gap-1.5 md:px-5 md:py-4"} ${overflowCls}`
+    : `relative flex flex-col overflow-hidden rounded-[var(--radius-md)] border ${dense ? "gap-1 px-4 py-3" : "gap-1.5 px-5 py-4"} ${overflowCls}`;
   return (
     <div
       className={boxCls}

@@ -4,10 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const SRC = readFileSync(
-  join(here, "..", "song-space-stat-strip.tsx"),
-  "utf-8",
-);
+const SRC = readFileSync(join(here, "..", "song-space-stat-strip.tsx"), "utf-8");
 
 describe("SongSpaceStatStrip — 4 stat tiles for the Song Space hero", () => {
   it("exports a SongSpaceStatStrip component (function)", () => {
@@ -68,6 +65,11 @@ describe("SongSpaceStatStrip — 4 stat tiles for the Song Space hero", () => {
 
   it("renders ChangeStageMenu inside the Status tile when trackId is present (I5)", () => {
     expect(SRC).toMatch(/<ChangeStageMenu\s+trackId=\{trackId\}/);
+  });
+
+  it("opts only the Status tile into desktop overflow for its anchored stage popover", () => {
+    expect(SRC).toMatch(/<StatTile[\s\S]*?allowDesktopOverflow[\s\S]*?label=["']Status["']/);
+    expect(SRC.match(/allowDesktopOverflow/g)).toHaveLength(1);
   });
 
   it("forbids --surface-card", () => {
