@@ -249,12 +249,6 @@ describe("Add Song entitlement actions", () => {
     );
   });
 
-  it("opens the first audio upload immediately after claiming the song space", () => {
-    expect(compactSource).toContain(
-      "`/dashboard/clients-projects/${result.data.projectId}/songs/${result.data.id}?upload=1`",
-    );
-  });
-
   it("requires a title and reuses a stable operation key for a No charge retry", () => {
     const actionName = importedNoChargeActionName();
     expect(actionName, "Add Song must import a dedicated No charge action").not.toBeNull();

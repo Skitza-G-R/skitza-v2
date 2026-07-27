@@ -1,9 +1,9 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Plus } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { playerPlay } from "~/components/audio/persistent-player";
 import type { GradientToken } from "~/lib/clients/derive-gradient";
@@ -102,6 +102,8 @@ export function SongSpace({
   addAnotherSongHref,
 }: SongSpaceProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [active, setActive] = useState<SongTab>("overview");
   const projectActive = actionProject.lifecycleStatus === "active";
   const songArchived = song.archivedAtIso !== null;
@@ -139,6 +141,24 @@ export function SongSpace({
   // instance. mode="new-version" + a locked trackId means the modal's
   // song picker renders as plain text (no "+ New song" option).
   const [uploadOpen, setUploadOpen] = useState(initialUploadOpen && canUpload);
+  const consumedUploadQuery = useRef(false);
+  useEffect(() => {
+    if (
+      consumedUploadQuery.current ||
+      !initialUploadOpen ||
+      searchParams.get("upload") !== "1"
+    ) {
+      return;
+    }
+    consumedUploadQuery.current = true;
+    const nextSearchParams = new URLSearchParams(searchParams.toString());
+    nextSearchParams.delete("upload");
+    const nextQuery = nextSearchParams.toString();
+    const canonicalHref = `${nextQuery ? `${pathname}?${nextQuery}` : pathname}${
+      window.location.hash
+    }`;
+    window.history.replaceState(null, "", canonicalHref);
+  }, [initialUploadOpen, pathname, searchParams]);
   const openUpload = useCallback(() => {
     setUploadOpen(true);
   }, []);

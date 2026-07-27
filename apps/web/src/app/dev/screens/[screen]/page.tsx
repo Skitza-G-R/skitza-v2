@@ -284,9 +284,11 @@ const DEV_ARCHIVED_CLIENT_HERO = {
 } satisfies ClientSpaceHeroData;
 
 function ProjectSpaceDevPreview({
+  firstUpload = false,
   lifecycleStatus,
   purchaseLifecycleStatus,
 }: {
+  firstUpload?: boolean;
   lifecycleStatus: "active" | "completed" | "canceled";
   purchaseLifecycleStatus?: "active" | "canceled";
 }) {
@@ -299,14 +301,14 @@ function ProjectSpaceDevPreview({
           purchaseId: "purchase-lior",
           title: "Midnight Drive",
           archivedAtIso: null,
-          currentVersion: "v3",
-          noteCount: 2,
-          durationMs: 193_000,
+          currentVersion: firstUpload ? "No audio" : "v3",
+          noteCount: firstUpload ? 0 : 2,
+          durationMs: firstUpload ? null : 193_000,
           workflowStage: "mixing",
           progress: 62,
           deadline: "Jul 28",
           isOverdue: false,
-          revisionCount: 2,
+          revisionCount: firstUpload ? 0 : 2,
           publicExposure: "link_and_portfolio",
         }}
         project={{ id: "project-lior", name: "Full production" }}
@@ -340,6 +342,7 @@ function ProjectSpaceDevPreview({
         versions={[]}
         sessions={[]}
         gradientToken={deriveGradient("Midnight Drive")}
+        initialUploadOpen={firstUpload}
       />
     </main>
   );
@@ -943,6 +946,8 @@ export default async function DevScreenPage({ params }: Params) {
       );
     case "project-space":
       return <ProjectSpaceDevPreview lifecycleStatus="active" />;
+    case "sk121-first-song-upload":
+      return <ProjectSpaceDevPreview firstUpload lifecycleStatus="active" />;
     case "project-space-completed":
       return <ProjectSpaceDevPreview lifecycleStatus="completed" />;
     case "project-space-canceled":

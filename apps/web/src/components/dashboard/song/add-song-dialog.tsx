@@ -182,7 +182,6 @@ export function AddSongDialog({
         router.push(
           `/dashboard/clients-projects/${result.data.projectId}/songs/${result.data.id}?upload=1`,
         );
-        router.refresh();
       } catch {
         toast("Could not add this song. Try again.", "error");
       }
