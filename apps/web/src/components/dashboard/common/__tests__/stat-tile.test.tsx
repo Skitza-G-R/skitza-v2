@@ -8,7 +8,9 @@ const SRC = readFileSync(join(here, "..", "stat-tile.tsx"), "utf-8");
 
 describe("StatTile", () => {
   it("exports a typed StatTileVariant of default | danger | ok", () => {
-    expect(SRC).toMatch(/export type StatTileVariant\s*=\s*["']default["']\s*\|\s*["']danger["']\s*\|\s*["']ok["']/);
+    expect(SRC).toMatch(
+      /export type StatTileVariant\s*=\s*["']default["']\s*\|\s*["']danger["']\s*\|\s*["']ok["']/,
+    );
   });
 
   it("declares a StatTileProps with label + value + optional variant + optional sub", () => {
@@ -38,6 +40,12 @@ describe("StatTile", () => {
   it("renders the label as uppercase tracking eyebrow", () => {
     expect(SRC).toMatch(/uppercase/);
     expect(SRC).toMatch(/tracking/);
+  });
+
+  it("keeps overflow clipping by default with an explicit desktop-only opt-in", () => {
+    expect(SRC).toMatch(/allowDesktopOverflow\?:\s*boolean/);
+    expect(SRC).toMatch(/allowDesktopOverflow\s*=\s*false/);
+    expect(SRC).toContain("lg:overflow-visible");
   });
 
   it("forbids non-existent --surface-card token", () => {

@@ -216,11 +216,12 @@ describe("ClientSpaceHero — visible client management actions", () => {
     expect(SRC).toMatch(/setArchiveOpen\(true\)/);
   });
 
-  it("focuses the disclosure and closes it on outside-click + Escape", () => {
+  it("focuses the desktop disclosure and closes it on pointerdown + Escape", () => {
     expect(ACTIONS_SRC).toMatch(/firstActionRef\.current\?\.focus\(\)/);
-    expect(ACTIONS_SRC).toMatch(/addEventListener\(\s*["']mousedown["']/);
+    expect(ACTIONS_SRC).toMatch(/addEventListener\(\s*["']pointerdown["']/);
     expect(ACTIONS_SRC).toMatch(/event\.key\s*!==\s*["']Escape["']/);
     expect(ACTIONS_SRC).toMatch(/triggerRef\.current\?\.focus\(\)/);
+    expect(ACTIONS_SRC).not.toContain("onBlurCapture");
   });
 
   it("uses notes on ClientSpaceHeroData (so the Edit modal can prefill)", () => {
