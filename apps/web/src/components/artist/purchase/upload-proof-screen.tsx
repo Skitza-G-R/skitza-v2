@@ -12,6 +12,7 @@ import {
   SecondaryCta,
 } from "~/components/artist/funnel/funnel-ui";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
+import { useQueueVersionRefresh } from "~/components/runtime-state/queue-version-refresh";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 import {
   cancelPaymentProofUploadAction,
@@ -128,6 +129,7 @@ export function UploadProofScreen({
   bookingHref,
   status: initialStatus = "empty",
   rejectionNote,
+  proofStateVersion,
   previewOnly = false,
   onPreviewSubmit,
 }: {
@@ -146,6 +148,7 @@ export function UploadProofScreen({
   bookingHref?: string | undefined;
   status?: ProofStatus;
   rejectionNote?: string | undefined;
+  proofStateVersion?: string | undefined;
   /** Development gallery only: exercises UI without mutating storage. */
   previewOnly?: boolean | undefined;
   /** Development gallery only: advances a mocked end-to-end review flow. */
@@ -163,6 +166,20 @@ export function UploadProofScreen({
   const [amount, setAmount] = useState(() => amountInputValue(thisProofCents));
   const [note, setNote] = useState("");
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const proofStateEndpoint =
+    purchaseId && installmentId
+      ? `/api/runtime/queue-version?kind=artist-payment-proof&purchaseId=${encodeURIComponent(
+          purchaseId,
+        )}&installmentId=${encodeURIComponent(installmentId)}`
+      : null;
+
+  useQueueVersionRefresh({
+    enabled: status === "awaiting" && !previewOnly && online,
+    endpoint: proofStateEndpoint,
+    initialVersion: proofStateVersion ?? null,
+    intervalMs: 8_000,
+    refreshOnVisibilityChange: true,
+  });
 
   function clearPreview() {
     if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
@@ -189,16 +206,6 @@ export function UploadProofScreen({
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
     };
   }, []);
-
-  useEffect(() => {
-    if (status !== "awaiting" || previewOnly || !online) return;
-    const intervalId = window.setInterval(() => {
-      router.refresh();
-    }, 8_000);
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [online, previewOnly, router, status]);
 
   const amountCents = parseProofAmountCents(amount);
   const amountError =

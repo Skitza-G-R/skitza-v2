@@ -36,6 +36,10 @@ describe("producer mobile account + public-link controls", () => {
     expect(ACTIONS_SRC).toContain('href="/dashboard/store"');
     expect(ACTIONS_SRC).toContain('href="/dashboard/settings"');
     expect(ACTIONS_SRC).toContain('aria-label="Producer account links"');
+    expect(ACTIONS_SRC.match(/prefetch=\{false\}/g)).toHaveLength(2);
+    expect(
+      ACTIONS_SRC.match(/announceRuntimeMainNavigationIntent/g)?.length,
+    ).toBeGreaterThanOrEqual(3);
   });
 
   it("provides a 40px mobile copy target using the existing clipboard behavior", () => {

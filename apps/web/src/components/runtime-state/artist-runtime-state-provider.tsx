@@ -46,10 +46,12 @@ function ArtistRuntimeStudioContextRecorder({
 export function ArtistRuntimeStateProvider({
   userId,
   studioIds,
+  cacheEpoch,
   children,
 }: {
   userId: string;
   studioIds: string[];
+  cacheEpoch: number | string;
   children: ReactNode;
 }) {
   const { isLoaded, userId: clerkUserId } = useAuth();
@@ -77,7 +79,7 @@ export function ArtistRuntimeStateProvider({
   return (
     <RuntimeStateProvider identity={identity}>
       <ArtistRuntimeStudioContextRecorder studioIds={studioIds} />
-      <RuntimeNavigationBridge />
+      <RuntimeNavigationBridge cacheEpoch={cacheEpoch} />
       {children}
     </RuntimeStateProvider>
   );

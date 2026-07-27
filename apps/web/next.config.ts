@@ -52,6 +52,23 @@ const config: NextConfig = {
   // typos in href strings fail the typecheck instead of shipping.
   typedRoutes: true,
 
+  experimental: {
+    // Keep private App Router payloads in the browser's in-memory Router
+    // Cache just long enough for native-feeling tab and back/forward reuse.
+    // The signed-in route warmer uses explicit full prefetches, so its main
+    // destinations get the three-minute window. Ordinary dynamic navigation
+    // remains uncached so deep booking, payment, proof, and audio screens stay
+    // outside this issue's main-menu scope. Existing foreground, reconnect,
+    // live-polling, and mutation refreshes keep server data authoritative;
+    // RuntimeNavigationBridge invalidates its readiness when those refreshes
+    // replace the real cache. This is not durable or service-worker storage
+    // and is cleared by a full page reload.
+    staleTimes: {
+      dynamic: 0,
+      static: 180,
+    },
+  },
+
   // Hide the X-Powered-By banner — one less fingerprinting bit.
   poweredByHeader: false,
 

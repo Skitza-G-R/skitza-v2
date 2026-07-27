@@ -7,6 +7,7 @@ import {
   type RuntimeIdentity,
 } from "~/lib/runtime-state/navigation";
 import { MemoryStorage } from "~/lib/runtime-state/__tests__/memory-storage";
+import { RUNTIME_MAIN_NAVIGATION_INTENT_EVENT } from "~/lib/runtime-state/navigation-cache";
 
 type Effect = () => undefined | (() => void);
 
@@ -55,7 +56,7 @@ vi.mock("../runtime-state-provider", () => ({
   }),
 }));
 
-import { RuntimeNavigationBridge } from "../runtime-navigation-bridge";
+import { afterRuntimeNavigationPaint, RuntimeNavigationBridge } from "../runtime-navigation-bridge";
 
 const PRODUCER: RuntimeIdentity = {
   userId: "producer-user",
@@ -130,6 +131,51 @@ function currentStorage(): MemoryStorage {
   return mocked.storage;
 }
 
+function setupNavigationIntentEnvironment() {
+  const listeners = new Map<string, EventListener>();
+  const root = { dataset: {} as Record<string, string> };
+  const clearTimeout = vi.fn();
+  const timing = {
+    clearMarks: vi.fn(),
+    mark: vi.fn(),
+    measure: vi.fn(),
+  };
+  const browserWindow = {
+    location: {
+      href: "https://skitza.test/dashboard/calendar?tab=availability",
+      origin: "https://skitza.test",
+    },
+    addEventListener(type: string, listener: EventListener) {
+      listeners.set(type, listener);
+    },
+    removeEventListener(type: string, listener: EventListener) {
+      if (listeners.get(type) === listener) listeners.delete(type);
+    },
+    setTimeout() {
+      return 17;
+    },
+    clearTimeout,
+  };
+  const browserDocument = {
+    documentElement: root,
+    visibilityState: "visible",
+  };
+  vi.stubGlobal("window", browserWindow);
+  vi.stubGlobal("document", browserDocument);
+  vi.stubGlobal("performance", timing);
+
+  return {
+    clearTimeout,
+    root,
+    timing,
+    announce(href: string) {
+      listeners.get(RUNTIME_MAIN_NAVIGATION_INTENT_EVENT)?.({
+        detail: { href },
+      } as unknown as Event);
+    },
+  };
+}
+
 describe("RuntimeNavigationBridge scroll persistence", () => {
   it("does not overwrite the previous route after the shared scroll container resets", () => {
     const { animation, main } = setupScrollEnvironment();
@@ -192,5 +238,47 @@ describe("RuntimeNavigationBridge scroll persistence", () => {
     expect(popRuntimeBack(currentStorage(), PRODUCER)).toBe(CALENDAR_HREF);
 
     if (typeof nextCleanup === "function") nextCleanup();
+  });
+});
+
+describe("RuntimeNavigationBridge navigation intent", () => {
+  it("sets pending feedback synchronously and clears every html marker on shell exit", () => {
+    const environment = setupNavigationIntentEnvironment();
+    const effectIndex = mocked.effects.length;
+    RuntimeNavigationBridge({ restoreOnOpen: false });
+
+    const cleanupIntent = mocked.effects[effectIndex + 1]?.();
+    const cleanupShell = mocked.effects[effectIndex + 3]?.();
+    environment.announce("/dashboard/music");
+
+    expect(environment.root.dataset.skNavState).toBe("pending");
+    expect(environment.root.dataset.skNavSource).toBeUndefined();
+    expect(environment.timing.mark).toHaveBeenCalledWith("skitza:navigation:intent");
+
+    environment.root.dataset.skNavSource = "warm";
+    if (typeof cleanupShell === "function") cleanupShell();
+    expect(environment.root.dataset).toEqual({});
+    expect(environment.clearTimeout).toHaveBeenCalledWith(17);
+
+    if (typeof cleanupIntent === "function") cleanupIntent();
+  });
+
+  it("records a route commit only after two painted frames", () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("window", {
+      requestAnimationFrame(callback: FrameRequestCallback) {
+        frames.push(callback);
+        return frames.length;
+      },
+      cancelAnimationFrame: vi.fn(),
+    });
+    const commit = vi.fn();
+
+    afterRuntimeNavigationPaint(commit);
+    expect(frames).toHaveLength(1);
+    frames[0]?.(0);
+    expect(commit).not.toHaveBeenCalled();
+    frames[1]?.(16);
+    expect(commit).toHaveBeenCalledOnce();
   });
 });

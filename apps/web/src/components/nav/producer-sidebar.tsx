@@ -8,6 +8,7 @@ import { UserButton } from "@clerk/nextjs";
 import { useTranslations } from "next-intl";
 
 import { getActiveKey, type ActiveKey } from "~/lib/dashboard/active-key";
+import { announceRuntimeMainNavigationIntent } from "~/lib/runtime-state/navigation-cache";
 
 // LanguageSwitcher intentionally NOT imported in the rail — Skitza is
 // EN-only at v1 per CLAUDE.md §"Language". Re-add when he.json is
@@ -287,6 +288,10 @@ function SidebarBody({
       >
         <Link
           href="/dashboard"
+          prefetch={false}
+          onNavigate={() => {
+            announceRuntimeMainNavigationIntent("/dashboard");
+          }}
           aria-label="Skitza dashboard home"
           className="sk-press flex items-center"
           style={{ gap: 10 }}
@@ -435,6 +440,10 @@ function NavItem({
   return (
     <Link
       href={item.href}
+      prefetch={false}
+      onNavigate={() => {
+        announceRuntimeMainNavigationIntent(item.href);
+      }}
       data-tour-id={`nav-${item.id}`}
       aria-label={collapsed ? label : undefined}
       aria-keyshortcuts={item.shortcut}

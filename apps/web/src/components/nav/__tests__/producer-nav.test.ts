@@ -9,6 +9,7 @@ const SIDEBAR = readFileSync(join(here, "..", "producer-sidebar.tsx"), "utf8");
 const BOTTOM = readFileSync(join(here, "..", "producer-bottom-nav.tsx"), "utf8");
 const APP_SHELL = readFileSync(join(here, "..", "..", "shell", "app-shell.tsx"), "utf8");
 const APP_TOPBAR = readFileSync(join(here, "..", "..", "shell", "app-topbar.tsx"), "utf8");
+const GLOBALS = readFileSync(join(here, "..", "..", "..", "app", "globals.css"), "utf8");
 const EN_MESSAGES = readFileSync(join(here, "..", "..", "..", "..", "messages", "en.json"), "utf8");
 const HE_MESSAGES = readFileSync(join(here, "..", "..", "..", "..", "messages", "he.json"), "utf8");
 
@@ -49,8 +50,11 @@ describe("producer nav: Portfolio in sidebar only", () => {
     expect(BOTTOM).not.toMatch(/href:\s*["']\/dashboard\/store["']/);
   });
 
-  it("fully prefetches the dynamic producer tabs", () => {
-    expect(BOTTOM).toMatch(/<Link[\s\S]*href=\{tab\.href\}[\s\S]*prefetch=\{online\}/);
+  it("leaves primary-route prefetching to the serial runtime warmer", () => {
+    expect(BOTTOM).toMatch(/<Link[\s\S]*href=\{tab\.href\}[\s\S]*prefetch=\{false\}/);
+    expect(SIDEBAR.match(/prefetch=\{false\}/g)).toHaveLength(2);
+    expect(BOTTOM).toContain("announceRuntimeMainNavigationIntent(tab.href)");
+    expect(SIDEBAR.match(/announceRuntimeMainNavigationIntent/g)?.length).toBeGreaterThanOrEqual(3);
   });
 
   it("keeps the warmed producer screen open when a tab is tapped offline", () => {
@@ -93,12 +97,29 @@ describe("producer mobile nav viewport anchoring", () => {
     expect(APP_SHELL).toContain("min-h-0 min-w-0 flex-1 overflow-y-auto");
   });
 
-  it("keeps the mobile nav in the shell footer instead of fixing it to the document viewport", () => {
-    expect(BOTTOM).toContain("relative z-30 flex shrink-0");
+  it("keeps the glass nav in the shell footer instead of fixing it to the document viewport", () => {
+    expect(BOTTOM).toContain("relative z-30 shrink-0");
     expect(BOTTOM).toContain("env(safe-area-inset-bottom, 0px)");
     expect(BOTTOM).not.toContain("safe-area-max-inset-bottom");
     expect(BOTTOM).not.toMatch(/className="[^"]*\bfixed\b/);
     expect(BOTTOM).not.toContain("producerBottomNavViewportStyle");
+  });
+
+  it("renders the producer nav as one compact live glass pill", () => {
+    expect(BOTTOM).toContain("producer-bottom-nav-frame");
+    expect(BOTTOM).toContain("producer-bottom-nav__glass");
+    expect(BOTTOM).toContain('data-active={isActive ? "true" : "false"}');
+    expect(GLOBALS).toContain(".producer-bottom-nav__glass");
+    expect(GLOBALS).toContain("background: rgb(var(--bg-sidebar) / 0.9)");
+    expect(GLOBALS).toContain("backdrop-filter: blur(24px) saturate(170%)");
+    expect(GLOBALS).toContain("-webkit-backdrop-filter: blur(24px) saturate(170%)");
+    expect(GLOBALS).toContain('.producer-bottom-nav__tab[data-active="true"]');
+    expect(GLOBALS).toContain("rgb(var(--bg-sidebar) / 0.52)");
+  });
+
+  it("keeps producer topbar controls below the iPhone status area", () => {
+    expect(APP_TOPBAR).toContain("sk-safe-top sticky top-0");
+    expect(APP_TOPBAR).toContain("lg:pt-0");
   });
 
   it("keeps topbar scroll state connected to the app content scroller", () => {

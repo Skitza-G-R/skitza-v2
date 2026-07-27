@@ -48,6 +48,13 @@ describe("artist studio-aware navigation", () => {
     }
   });
 
+  it("leaves primary-route prefetching to the serial runtime warmer", () => {
+    expect(BOTTOM.match(/prefetch=\{false\}/g)).toHaveLength(1);
+    expect(SIDEBAR.match(/prefetch=\{false\}/g)).toHaveLength(2);
+    expect(BOTTOM).toContain("announceRuntimeMainNavigationIntent(href)");
+    expect(SIDEBAR.match(/announceRuntimeMainNavigationIntent/g)?.length).toBeGreaterThanOrEqual(3);
+  });
+
   it("keeps the switcher trigger usable with a long studio name", () => {
     expect(SWITCHER).toContain("min-h-11");
     expect(SWITCHER).toContain("max-w-full");

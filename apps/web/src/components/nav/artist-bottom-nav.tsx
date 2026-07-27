@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { resolveArtistStudioId, withArtistStudio } from "~/lib/artist-studio-context";
+import { announceRuntimeMainNavigationIntent } from "~/lib/runtime-state/navigation-cache";
 import type { Studio } from "~/server/artist/identity";
 
 import { isArtistNavItemActive } from "./artist-nav-active";
@@ -63,10 +64,15 @@ export function ArtistBottomNav({ studios }: { studios: Studio[] }): ReactNode {
     >
       {TABS.map((tab) => {
         const active = isActive(tab.href);
+        const href = withArtistStudio(tab.href, activeStudioId);
         return (
           <Link
             key={tab.href}
-            href={withArtistStudio(tab.href, activeStudioId)}
+            href={href}
+            prefetch={false}
+            onNavigate={() => {
+              announceRuntimeMainNavigationIntent(href);
+            }}
             {...(active ? { "aria-current": "page" as const } : {})}
             className="sk-press relative flex flex-col items-center gap-1 rounded-md py-2.5 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset"
             style={{

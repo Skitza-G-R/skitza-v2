@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 
 import type { ProofStatus } from "~/components/artist/purchase/pay-data";
 import { UploadProofScreen } from "~/components/artist/purchase/upload-proof-screen";
+import { artistPaymentProofQueueVersion } from "~/server/runtime/queue-version";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = {
@@ -63,6 +64,11 @@ export default async function ArtistPrivateOfferProofPage({ params, searchParams
         }
         status={status}
         rejectionNote={latest?.rejectionNote ?? undefined}
+        proofStateVersion={artistPaymentProofQueueVersion({
+          purchaseId: data.purchaseId,
+          installmentId: data.installmentId,
+          proofs: data.proofs.filter((proof) => proof.installmentId === data.installmentId),
+        })}
       />
     );
   } catch (error) {

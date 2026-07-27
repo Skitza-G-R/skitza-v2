@@ -395,15 +395,117 @@
     min-height: 44px;
   }
 
+  /* Producer mobile Liquid Glass navigation. The frame remains a normal
+   * shell footer (SK-86), while the only visible surface is a compact
+   * translucent pill. A strong opaque fallback keeps the tabs readable
+   * in browsers that do not support backdrop-filter. */
+  .producer-bottom-nav__glass {
+    position: relative;
+    isolation: isolate;
+    min-height: 68px;
+    overflow: hidden;
+    border: 1px solid rgb(var(--fg-onsidebar) / 0.14);
+    border-radius: 24px;
+    background: rgb(var(--bg-sidebar) / 0.94);
+    box-shadow:
+      inset 1.5px 1.5px 1px rgb(var(--fg-onsidebar) / 0.14),
+      inset -1px -1px 1px rgb(var(--fg-onsidebar) / 0.05),
+      0 16px 40px -20px rgb(var(--bg-sidebar) / 0.72),
+      0 4px 12px -6px rgb(var(--bg-sidebar) / 0.52);
+  }
+  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .producer-bottom-nav__glass {
+      background: rgb(var(--bg-sidebar) / 0.9);
+      backdrop-filter: blur(24px) saturate(170%);
+      -webkit-backdrop-filter: blur(24px) saturate(170%);
+    }
+  }
+  .producer-bottom-nav__glass::before {
+    content: "";
+    position: absolute;
+    inset: -55% -18%;
+    z-index: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(circle at 18% 30%, rgb(var(--fg-onsidebar) / 0.17), transparent 29%),
+      linear-gradient(
+        112deg,
+        transparent 31%,
+        rgb(var(--fg-onsidebar) / 0.07) 46%,
+        transparent 61%
+      );
+    opacity: 0.72;
+  }
+  .producer-bottom-nav__glass::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    border-radius: inherit;
+    box-shadow:
+      inset 0 1px 0 rgb(var(--fg-onsidebar) / 0.08),
+      inset 0 -1px 0 rgb(var(--bg-sidebar) / 0.24);
+    pointer-events: none;
+  }
+  .producer-bottom-nav__tab {
+    z-index: 1;
+    border-radius: 20px;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .producer-bottom-nav__tab::before {
+    content: "";
+    position: absolute;
+    inset: 4px 2px;
+    z-index: 0;
+    border: 1px solid transparent;
+    border-radius: 18px;
+    background: transparent;
+    box-shadow: none;
+    opacity: 0;
+    transform: scale(0.96);
+    transition:
+      opacity 180ms var(--ease-out-strong),
+      transform 180ms var(--ease-out-strong),
+      background-color 180ms ease-out,
+      box-shadow 180ms ease-out;
+  }
+  .producer-bottom-nav__tab > * {
+    position: relative;
+    z-index: 1;
+  }
+  .producer-bottom-nav__tab[data-active="true"]::before {
+    border-color: rgb(var(--fg-onsidebar) / 0.1);
+    background: linear-gradient(
+      145deg,
+      rgb(var(--bg-sidebar) / 0.4),
+      rgb(var(--bg-sidebar) / 0.52)
+    );
+    box-shadow:
+      inset 0 1px 0 rgb(var(--fg-onsidebar) / 0.12),
+      0 6px 18px -10px rgb(var(--bg-sidebar) / 0.72);
+    opacity: 1;
+    transform: scale(1);
+  }
+  @keyframes producer-bottom-nav-refraction {
+    from { transform: translate3d(-2.5%, 0, 0) scale(1); }
+    to   { transform: translate3d(2.5%, 1%, 0) scale(1.025); }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .producer-bottom-nav__glass::before {
+      animation: producer-bottom-nav-refraction 9s ease-in-out infinite alternate;
+    }
+  }
+
   /* PersistentPlayer dock — stacks above the producer bottom nav on
    * mobile (<1024px) so the audio dock + tab row never overlap.
-   * The bottom nav measures 68px tab row + 8px top padding + iOS
-   * safe-area inset; we layer 76px + the same inset under the dock.
+   * The glass nav is a 68px row above at least 8px of bottom breathing
+   * room; the dock keeps 80px + safe-area clearance so browsers with
+   * a zero safe-area inset still retain a small visual gap.
    * On lg+ the desktop sidebar replaces the bottom nav, so the dock
    * sits flush at the viewport bottom (Tailwind's `lg:bottom-0`
    * + `lg:sk-safe-bottom` take over via cascade). */
   .persistent-player-dock {
-    bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(80px + env(safe-area-inset-bottom, 0px));
   }
   @media (min-width: 1024px) {
     .persistent-player-dock {
@@ -424,7 +526,7 @@
   }
   @media (max-width: 1023px) {
     body[data-skitza-dock="1"] main#main-content {
-      /* 76px nav + 88px dock + buffer + iPhone home-indicator inset
+      /* 80px nav clearance + 88px dock + buffer + iPhone home-indicator inset
        * (SK-58 — static padding left the last row under the bar). */
       padding-bottom: calc(182px + env(safe-area-inset-bottom));
     }
@@ -836,6 +938,29 @@
     opacity: 0;
     animation: skitza-page-enter 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
     animation-delay: calc(min(var(--i, 0), 12) * 30ms);
+  }
+
+  /* A destination restored from the private in-session Router Cache is
+     already useful content, not a fresh page reveal. The signed-in runtime
+     bridge keeps data-sk-nav-source="warm" on <html> for the arrived screen,
+     including after pending changes to settled, so route-entry motion cannot
+     replay after commit. Scope this to #main-content and only the automatic
+     route/reveal/stagger primitives: cold navigation, marketing scroll
+     reveals, ambient status motion, and tactile interaction feedback keep
+     their normal behavior. Reduced-motion still has the broader permanent
+     guard below. */
+  html[data-sk-nav-source="warm"] #main-content :is(
+    .sk-page-enter,
+    .sk-stagger-item,
+    .reveal-up,
+    .reveal-up-delay-1,
+    .reveal-up-delay-2,
+    .reveal-up-delay-3,
+    .reveal-up-delay-4
+  ) {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
   }
 
   /* SVG line draw-in (revenue trend). */
@@ -1489,6 +1614,11 @@
     .sk-press-row { transition-duration: 0ms !important; }
     .sk-press-pop:active,
     .sk-press-row:active { transform: none !important; filter: none !important; }
+    .producer-bottom-nav__glass::before {
+      animation: none !important;
+      transform: none !important;
+    }
+    .producer-bottom-nav__tab::before { transition: none !important; }
     .sk-sticky-nav-backing { transition: none !important; }
     .sk-sticky-nav-title { transform: none !important; }
     .sk-sidebar-shell { transition-duration: 0ms !important; }

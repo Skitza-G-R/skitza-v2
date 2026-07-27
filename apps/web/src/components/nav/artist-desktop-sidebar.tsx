@@ -8,6 +8,7 @@ import { UserButton } from "@clerk/nextjs";
 import { StudioSwitcher } from "~/components/artist/studio-switcher";
 import { LogoMark } from "~/components/brand/logo-mark";
 import { resolveArtistStudioId, withArtistStudio } from "~/lib/artist-studio-context";
+import { announceRuntimeMainNavigationIntent } from "~/lib/runtime-state/navigation-cache";
 import type { Studio } from "~/server/artist/identity";
 
 import { isArtistNavItemActive } from "./artist-nav-active";
@@ -74,6 +75,12 @@ export function ArtistDesktopSidebar({ studios }: { studios: Studio[] }): ReactN
       {/* Logo lockup — mark + lowercase wordmark, matches producer rail. */}
       <Link
         href={withArtistStudio("/artist", activeStudioId)}
+        prefetch={false}
+        onNavigate={() => {
+          announceRuntimeMainNavigationIntent(
+            withArtistStudio("/artist", activeStudioId),
+          );
+        }}
         aria-label="Skitza artist home"
         className="sk-press flex items-center"
         style={{ gap: 10, padding: "4px 8px 18px" }}
@@ -94,10 +101,15 @@ export function ArtistDesktopSidebar({ studios }: { studios: Studio[] }): ReactN
       <nav aria-label="Primary" className="flex flex-col" style={{ gap: 2 }}>
         {NAV_ITEMS.map((item) => {
           const active = isActive(item.href);
+          const href = withArtistStudio(item.href, activeStudioId);
           return (
             <Link
               key={item.id}
-              href={withArtistStudio(item.href, activeStudioId)}
+              href={href}
+              prefetch={false}
+              onNavigate={() => {
+                announceRuntimeMainNavigationIntent(href);
+              }}
               {...(active ? { "aria-current": "page" as const } : {})}
               className="sk-press relative flex items-center rounded-xl focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset"
               style={{

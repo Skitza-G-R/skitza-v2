@@ -10,6 +10,7 @@ import { copyPublicLink } from "~/components/dashboard/overview/public-link-stri
 import { Icon } from "~/components/nav/icons";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "~/components/ui/sheet";
 import { useToast } from "~/components/ui/toast";
+import { announceRuntimeMainNavigationIntent } from "~/lib/runtime-state/navigation-cache";
 import { buildJoinUrl } from "~/lib/share/public-url";
 
 interface ProducerMobileActionsProps {
@@ -100,6 +101,10 @@ export function ProducerMobileActions({
               >
                 <Link
                   href="/dashboard/store"
+                  prefetch={false}
+                  onNavigate={() => {
+                    announceRuntimeMainNavigationIntent("/dashboard/store");
+                  }}
                   onClick={() => {
                     setAccountOpen(false);
                   }}
@@ -110,6 +115,10 @@ export function ProducerMobileActions({
                 </Link>
                 <Link
                   href="/dashboard/settings"
+                  prefetch={false}
+                  onNavigate={() => {
+                    announceRuntimeMainNavigationIntent("/dashboard/settings");
+                  }}
                   onClick={() => {
                     setAccountOpen(false);
                   }}

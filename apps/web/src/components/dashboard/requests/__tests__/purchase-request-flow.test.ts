@@ -8,6 +8,14 @@ const here = dirname(fileURLToPath(import.meta.url));
 const listSource = readFileSync(join(here, "..", "purchase-requests-list.tsx"), "utf8");
 const reviewSource = readFileSync(join(here, "..", "purchase-request-review.tsx"), "utf8");
 const refreshSource = readFileSync(join(here, "..", "purchase-request-queue-refresh.tsx"), "utf8");
+const sharedRefreshSource = readFileSync(
+  join(here, "..", "..", "..", "runtime-state", "queue-version-refresh.tsx"),
+  "utf8",
+);
+const pollingSource = readFileSync(
+  join(here, "..", "..", "..", "..", "lib", "runtime-state", "queue-version-polling.ts"),
+  "utf8",
+);
 const actionsSource = readFileSync(
   join(here, "..", "..", "..", "..", "app", "(producer)", "dashboard", "requests", "actions.ts"),
   "utf8",
@@ -164,11 +172,16 @@ describe("producer purchase request flow", () => {
   });
 
   it("refreshes externally-created requests and invalidates producer surfaces", () => {
-    expect(refreshSource).toMatch(/setInterval/);
-    expect(refreshSource).toMatch(/visibilitychange/);
-    expect(refreshSource).toMatch(/addEventListener\("focus"/);
-    expect(refreshSource).toMatch(/addEventListener\("pageshow"/);
-    expect(refreshSource).toMatch(/router\.refresh\(\)/);
+    expect(refreshSource).toMatch(/kind=purchase-requests/);
+    expect(refreshSource).toMatch(/refreshOnFocus/);
+    expect(refreshSource).toMatch(/refreshOnPageShow/);
+    expect(refreshSource).toMatch(/refreshOnVisibilityChange/);
+    expect(sharedRefreshSource).toMatch(/setInterval/);
+    expect(sharedRefreshSource).toMatch(/router\.refresh\(\)/);
+    expect(sharedRefreshSource).toMatch(/cache: "no-store"/);
+    expect(pollingSource).toMatch(/nextVersion === acknowledgedVersion/);
+    expect(pollingSource).toMatch(/pendingVersion === nextVersion/);
+    expect(pollingSource).toMatch(/checkedAt - lastNotificationAt < retryAfterMs/);
     expect(artistActionsSource).toMatch(/revalidatePath\("\/dashboard", "layout"\)/);
     expect(artistActionsSource).toMatch(/revalidatePath\("\/dashboard\/requests", "layout"\)/);
   });

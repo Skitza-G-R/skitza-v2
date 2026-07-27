@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { OverviewScreen } from "~/components/dashboard/overview/overview-screen";
 import { dateKeyInTimeZone } from "~/components/dashboard/overview/overview-time";
 import { ProofQueueRefresh } from "~/components/dashboard/payments/proof-queue-refresh";
+import { producerDashboardQueueVersion } from "~/server/runtime/queue-version";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { detectOnboardingState } from "./onboarding/detect";
@@ -32,9 +33,8 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   // "onboarding seen" flag, trapping producers who finished the real
   // wizard but hadn't yet added a package or brand. detectOnboardingState
   // still runs below to power the skipper banner.
-  const onboarding = await detectOnboardingState(userId);
-
   const caller = appRouter.createCaller({ userId });
+  const onboarding = await detectOnboardingState(userId, caller);
 
   // Fan-out across the independent sources that feed the dashboard's
   // Needs You queue, proof review, project/upload shelves, and studio pulse.
@@ -116,6 +116,10 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         purchaseTitle: purchase.commercialSnapshot.productOrOfferName,
       })),
   );
+  const queueVersion = producerDashboardQueueVersion({
+    proofIds: pendingPaymentProofs.proofs.map((proof) => proof.proofId),
+    requestIds: pendingPurchaseRequests.requests.map((request) => request.id),
+  });
 
   return (
     <div className="relative isolate">
@@ -124,7 +128,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[260px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.08)] via-[rgb(var(--bg-base))] to-[rgb(var(--bg-base))]"
       />
       <div className="mx-auto max-w-[1920px]">
-        <ProofQueueRefresh />
+        <ProofQueueRefresh kind="dashboard" initialVersion={queueVersion} />
         <OverviewScreen
           displayName={me.displayName}
           slug={me.slug}

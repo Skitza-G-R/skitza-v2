@@ -47,6 +47,7 @@ import { TopBarBreadcrumbProvider } from "./topbar-breadcrumb-context";
 export async function AppShell({ children }: { children: ReactNode }) {
   const { userId, producerId, slug, displayName, plan, unreadCount, recentNotifications } =
     await getShellState();
+  const runtimeCacheEpoch = Date.now();
   // Public origin used by the SidebarShareChip to render the
   // /join/<slug> URL. Always the canonical brand origin — share links
   // land in producer bios + socials, so they must always read as
@@ -122,7 +123,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <RuntimeStateProvider identity={{ userId, role: "producer", contextId: producerId }}>
-      <RuntimeNavigationBridge />
+      <RuntimeNavigationBridge cacheEpoch={runtimeCacheEpoch} />
       <NativeInstallGuidance role="producer" />
       {shell}
     </RuntimeStateProvider>
