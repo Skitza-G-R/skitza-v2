@@ -12,7 +12,7 @@ import {
 } from "~/lib/runtime-state/navigation";
 import {
   captureAccountPrivateWriteGeneration,
-  isAccountPrivateWriteGenerationCurrent,
+  isAccountPrivateRuntimeWriteAllowed,
 } from "~/lib/runtime-state/account-exit";
 import {
   clearRuntimeMainNavigationPendingTargets,
@@ -31,7 +31,11 @@ import {
   startRuntimeRouteWarming,
   type RuntimeObservedResourceTiming,
 } from "~/lib/runtime-state/route-warming";
-import { normalizeRuntimeHref } from "~/lib/runtime-state/runtime-state";
+import {
+  normalizeRuntimeHref,
+  writeRuntimeLaunchPointer,
+} from "~/lib/runtime-state/runtime-state";
+import { NATIVE_REFRESH_EVENT } from "~/lib/pwa/update-coordination";
 
 import { useRuntimeState } from "./runtime-state-provider";
 
@@ -301,8 +305,10 @@ export function RuntimeNavigationBridge({
 
     let frame = 0;
     const persist = () => {
-      if (!isAccountPrivateWriteGenerationCurrent(writeGeneration)) return;
-      recordRuntimeNavigation(storage, navigationIdentity, safeHref, latestScrollTop);
+      if (!isAccountPrivateRuntimeWriteAllowed(writeGeneration)) return;
+      if (recordRuntimeNavigation(storage, navigationIdentity, safeHref, latestScrollTop)) {
+        writeRuntimeLaunchPointer(storage, navigationIdentity, safeHref);
+      }
     };
     persist();
     const captureCurrentScrollTop = () => {
@@ -385,7 +391,7 @@ export function RuntimeNavigationBridge({
     }
   }, [href, identity.contextId, identity.role, navigationCache, privateStateAccessAllowed]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!privateStateAccessAllowed) return;
 
     const onNavigationIntent = (event: Event) => {
@@ -447,6 +453,37 @@ export function RuntimeNavigationBridge({
   useEffect(() => {
     if (!privateStateAccessAllowed) return;
 
+    const onNativeFreshnessCheck = () => {
+      if (!isRuntimeWarmingActive()) return;
+      const currentSafeHref = normalizeRuntimeHref(
+        currentHrefRef.current,
+        identity.role,
+      );
+      if (
+        currentSafeHref &&
+        runtimeMainDestinationPathname(currentSafeHref, identity.role)
+      ) {
+        router.prefetch(currentSafeHref);
+      }
+    };
+
+    window.addEventListener(NATIVE_REFRESH_EVENT, onNativeFreshnessCheck);
+    return () => {
+      window.removeEventListener(
+        NATIVE_REFRESH_EVENT,
+        onNativeFreshnessCheck,
+      );
+    };
+  }, [
+    identity.contextId,
+    identity.role,
+    privateStateAccessAllowed,
+    router,
+  ]);
+
+  useEffect(() => {
+    if (!privateStateAccessAllowed) return;
+
     const destinations = runtimeMainNavigationDestinations({
       role: identity.role,
       contextId: identity.contextId,
@@ -461,9 +498,9 @@ export function RuntimeNavigationBridge({
       scheduleIdle: scheduleRuntimeIdle,
       subscribeToActivity: subscribeToRuntimeActivity,
       // Next seeds the cold-launch current route as an AUTO entry that its
-      // public prefetch API cannot upgrade. A successful router.refresh()
-      // clears that map and changes the server cache epoch; from then on the
-      // current route can be safely warmed, last, like every other destination.
+      // public prefetch API cannot upgrade. A later authoritative server-shell
+      // replacement changes the cache epoch; from then on the current route
+      // can be safely warmed, last, like every other destination.
       warmCurrent: cacheEpoch !== initialCacheEpoch.current,
       startPrefetch: (destination, onComplete) =>
         startObservedRuntimeRequest({

@@ -34,7 +34,7 @@ type Harness = Readonly<{
 }>;
 
 const OWN_ORIGIN = "https://skitza.app";
-const SW_VERSION = "2026-07-25-sk118-1";
+const SW_VERSION = "2026-07-27-sk128-1";
 const BOUNDARY_NONCE = "11111111-2222-4333-8444-555555555555";
 const OTHER_BOUNDARY_NONCE = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 const BOUNDARY_NONCE_HEADER = "x-skitza-push-boundary-nonce";
@@ -193,6 +193,38 @@ function navigationRequest(path: string): Readonly<{
   };
 }
 
+function launchDocumentResponse(
+  html: string,
+  {
+    cacheControl,
+    publicMarker = true,
+    redirected = false,
+    url = `${OWN_ORIGIN}/launch`,
+    vary,
+  }: {
+    cacheControl?: string;
+    publicMarker?: boolean;
+    redirected?: boolean;
+    url?: string;
+    vary?: string;
+  } = {},
+): Response {
+  const headers = new Headers({
+    "content-type": "text/html; charset=utf-8",
+  });
+  if (publicMarker) headers.set("x-skitza-public-bootstrap", "1");
+  if (cacheControl) headers.set("cache-control", cacheControl);
+  if (vary) headers.set("vary", vary);
+
+  const response = new Response(html, { headers });
+  Object.defineProperties(response, {
+    redirected: { configurable: true, value: redirected },
+    type: { configurable: true, value: "basic" },
+    url: { configurable: true, value: url },
+  });
+  return response;
+}
+
 beforeEach(() => {
   vi.restoreAllMocks();
 });
@@ -217,10 +249,202 @@ describe("service worker offline and update protocol", () => {
         "/icons/apple-touch-icon-180.png",
       ]),
     );
+    expect(harness.cache.addAll.mock.calls[0]?.[0]).not.toContain("/launch");
+    expect(harness.cache.put).not.toHaveBeenCalled();
     expect(harness.skipWaiting).not.toHaveBeenCalled();
     expect(harness.deleteCache).toHaveBeenCalledWith("skitza-shell-v3");
     expect(harness.deleteCache).not.toHaveBeenCalledWith("skitza-push-control-v1");
     expect(harness.deleteCache).not.toHaveBeenCalledWith("unrelated-cache");
+  });
+
+  it("caches validated public launch HTML before extracting only hashed Next static assets", async () => {
+    const harness = createHarness();
+    const launchHtml = [
+      "<!doctype html>",
+      '<link rel="stylesheet" href="/_next/static/css/app-a1b2c3.css">',
+      '<script src="/_next/static/chunks/app/launch/page-d4e5f6.js"></script>',
+      '<script src="/_next/static/chunks/app/launch/page-d4e5f6.js"></script>',
+      '<a href="/dashboard">Private dashboard</a>',
+      '<script src="/api/private-bootstrap"></script>',
+      '<script src="https://other.example/_next/static/chunks/foreign.js"></script>',
+      '<script src="/_next/static/../../api/private-traversal"></script>',
+      '<script src="/_next/static/%2e%2e/%2e%2e/api/private-encoded"></script>',
+    ].join("");
+    harness.fetch.mockResolvedValueOnce(launchDocumentResponse(launchHtml));
+    let installWork: Promise<unknown> | undefined;
+
+    harness.listener("install")({
+      waitUntil(work: Promise<unknown>) {
+        installWork = work;
+      },
+    });
+    await installWork;
+
+    expect(harness.fetch).toHaveBeenCalledWith(`${OWN_ORIGIN}/launch`, {
+      cache: "no-store",
+      credentials: "omit",
+      redirect: "error",
+    });
+    expect(harness.cache.put).toHaveBeenCalledWith(
+      "/launch",
+      expect.any(Response),
+    );
+    expect(harness.cache.addAll).toHaveBeenCalledTimes(2);
+    expect(harness.cache.addAll).toHaveBeenNthCalledWith(2, [
+      "/_next/static/css/app-a1b2c3.css",
+      "/_next/static/chunks/app/launch/page-d4e5f6.js",
+    ]);
+    expect(harness.cache.addAll.mock.invocationCallOrder[1]).toBeLessThan(
+      harness.cache.put.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+    );
+  });
+
+  it("does not commit launch HTML when a required static asset fails", async () => {
+    const harness = createHarness();
+    harness.fetch.mockResolvedValueOnce(
+      launchDocumentResponse(
+        '<script src="/_next/static/chunks/app/launch/page-failed.js"></script>',
+      ),
+    );
+    harness.cache.addAll
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new TypeError("asset offline"));
+    let installWork: Promise<unknown> | undefined;
+
+    harness.listener("install")({
+      waitUntil(work: Promise<unknown>) {
+        installWork = work;
+      },
+    });
+    await installWork;
+
+    expect(harness.cache.put).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: "unmarked response",
+      response: launchDocumentResponse(
+        '<script src="/_next/static/chunks/unmarked.js"></script>',
+        { publicMarker: false },
+      ),
+    },
+    {
+      name: "private cache control",
+      response: launchDocumentResponse(
+        '<script src="/_next/static/chunks/private.js"></script>',
+        { cacheControl: "private, max-age=300" },
+      ),
+    },
+    {
+      name: "cookie-varying response",
+      response: launchDocumentResponse(
+        '<script src="/_next/static/chunks/vary.js"></script>',
+        { vary: "RSC, Cookie" },
+      ),
+    },
+    {
+      name: "redirected response",
+      response: launchDocumentResponse(
+        '<script src="/_next/static/chunks/redirected.js"></script>',
+        { redirected: true },
+      ),
+    },
+    {
+      name: "cross-origin final response",
+      response: launchDocumentResponse(
+        '<script src="/_next/static/chunks/cross-origin.js"></script>',
+        { url: "https://accounts.example/launch" },
+      ),
+    },
+  ])("does not cache $name launch HTML or its assets", async ({ response }) => {
+    const harness = createHarness();
+    harness.fetch.mockResolvedValueOnce(response);
+    let installWork: Promise<unknown> | undefined;
+
+    harness.listener("install")({
+      waitUntil(work: Promise<unknown>) {
+        installWork = work;
+      },
+    });
+    await installWork;
+
+    expect(harness.cache.put).not.toHaveBeenCalled();
+    expect(harness.cache.addAll).toHaveBeenCalledTimes(1);
+    expect(harness.cache.addAll.mock.calls[0]?.[0]).not.toContain("/launch");
+  });
+
+  it("uses the same public-only validation on a launch navigation cache miss", async () => {
+    const harness = createHarness();
+    const launch = launchDocumentResponse(
+      '<main>Opening Skitza</main><script src="/_next/static/chunks/app/launch/page-runtime.js"></script>',
+    );
+    harness.fetch.mockResolvedValueOnce(launch);
+    let responseWork: Promise<Response> | undefined;
+
+    harness.listener("fetch")({
+      request: navigationRequest("/launch"),
+      respondWith(work: Promise<Response>) {
+        responseWork = work;
+      },
+    });
+
+    await expect(responseWork).resolves.toBe(launch);
+    expect(harness.fetch).toHaveBeenCalledWith(`${OWN_ORIGIN}/launch`, {
+      cache: "no-store",
+      credentials: "omit",
+      redirect: "error",
+    });
+    expect(harness.cache.put).toHaveBeenCalledWith(
+      "/launch",
+      expect.any(Response),
+    );
+  });
+
+  it("serves the cached public launch document offline without touching the network", async () => {
+    const harness = createHarness();
+    const cachedLaunch = new Response("<main>Opening Skitza</main>", {
+      headers: { "content-type": "text/html; charset=utf-8" },
+    });
+    harness.cache.match.mockImplementation((input: unknown) => {
+      if (
+        typeof input === "object" &&
+        input !== null &&
+        "url" in input &&
+        input.url === `${OWN_ORIGIN}/launch`
+      ) {
+        return Promise.resolve(cachedLaunch);
+      }
+      return Promise.resolve(undefined);
+    });
+    let responseWork: Promise<Response> | undefined;
+
+    harness.listener("fetch")({
+      request: navigationRequest("/launch"),
+      respondWith(work: Promise<Response>) {
+        responseWork = work;
+      },
+    });
+
+    await expect(responseWork).resolves.toBe(cachedLaunch);
+    expect(harness.fetch).not.toHaveBeenCalled();
+    expect(harness.cache.put).not.toHaveBeenCalled();
+  });
+
+  it("returns the offline boundary instead of a blank page when launch was not cached", async () => {
+    const harness = createHarness();
+    let responseWork: Promise<Response> | undefined;
+
+    harness.listener("fetch")({
+      request: navigationRequest("/launch"),
+      respondWith(work: Promise<Response>) {
+        responseWork = work;
+      },
+    });
+
+    const response = await responseWork;
+    expect(await response?.text()).toBe("<h1>Offline</h1>");
+    expect(harness.cache.put).not.toHaveBeenCalled();
   });
 
   it("returns the public offline boundary for failed navigation without caching HTML", async () => {

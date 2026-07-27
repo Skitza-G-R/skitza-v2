@@ -8,6 +8,8 @@ import {
 import type { ProjectRowData } from "~/components/dashboard/projects/project-row";
 import type { ClientCardData } from "~/components/dashboard/clients/client-card";
 import { ProducerRuntimeSafeView } from "~/components/dashboard/runtime/producer-runtime-safe-view";
+import { RuntimeScreenSafeViewWriter } from "~/components/runtime-state/runtime-screen-view";
+import { mapProducerWorkspaceSafeScreen } from "~/lib/runtime-state/screen-view-mappers";
 import { CLIENT_ARCHIVE_BLOCKED_MESSAGE } from "~/server/domain/client-management/service";
 import { appRouter } from "~/server/trpc/routers/_app";
 
@@ -151,6 +153,14 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
             projectCount: projectRows.length,
             needsAttentionCount: needsAttention,
           }}
+        />
+        <RuntimeScreenSafeViewWriter
+          href="/dashboard/clients-projects"
+          view={mapProducerWorkspaceSafeScreen({
+            projects: projectRows,
+            clients: clientRows,
+            needsAttentionCount: needsAttention,
+          })}
         />
         <WorkspaceListView
           projects={projectRows}

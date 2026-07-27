@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { clearAccountPrivateRuntimeState } from "~/lib/runtime-state/account-exit";
+import {
+  allowAccountPrivateRuntimeWrites,
+  clearAccountPrivateRuntimeState,
+} from "~/lib/runtime-state/account-exit";
 import { MemoryStorage } from "~/lib/runtime-state/__tests__/memory-storage";
 import {
   readRuntimeState,
@@ -108,6 +111,7 @@ function productDraft(name: string): ProducerStoreProductDraft {
 }
 
 beforeEach(() => {
+  allowAccountPrivateRuntimeWrites("producer-user");
   mocked.effects.length = 0;
   mocked.layoutEffects.length = 0;
   mocked.setters.length = 0;
@@ -191,7 +195,7 @@ describe("useRuntimeCachedView account exit", () => {
 });
 
 describe("runtime draft account exit", () => {
-  it("blocks a stale product-editor save but lets a fresh same-account hook save", () => {
+  it("blocks stale and newly mounted saves until Clerk enters a fresh session", () => {
     const storage = mocked.storage;
     if (!storage) throw new Error("Expected runtime storage");
     vi.stubGlobal("window", new EventTarget());
@@ -220,7 +224,12 @@ describe("runtime draft account exit", () => {
     expect(staleRecordSetter).toHaveBeenCalledTimes(setterCallsBeforeClear);
 
     const freshDraft = useProducerStoreProductDraft();
-    expect(freshDraft.save(productDraft("Fresh editor"))).toBe(true);
+    expect(freshDraft.save(productDraft("Blocked during sign-out"))).toBe(false);
+    expect(storage.length).toBe(0);
+
+    allowAccountPrivateRuntimeWrites("producer-user");
+    const signedInDraft = useProducerStoreProductDraft();
+    expect(signedInDraft.save(productDraft("Fresh editor"))).toBe(true);
     expect(
       readRuntimeState(storage, scope, "producer.store.product-draft")?.draft.name,
     ).toBe("Fresh editor");

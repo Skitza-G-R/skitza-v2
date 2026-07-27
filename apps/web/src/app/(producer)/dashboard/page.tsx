@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { OverviewScreen } from "~/components/dashboard/overview/overview-screen";
 import { dateKeyInTimeZone } from "~/components/dashboard/overview/overview-time";
 import { ProofQueueRefresh } from "~/components/dashboard/payments/proof-queue-refresh";
+import { RuntimeScreenSafeViewWriter } from "~/components/runtime-state/runtime-screen-view";
+import { mapProducerOverviewSafeScreen } from "~/lib/runtime-state/screen-view-mappers";
 import { producerDashboardQueueVersion } from "~/server/runtime/queue-version";
 import { appRouter } from "~/server/trpc/routers/_app";
 
@@ -129,6 +131,15 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       />
       <div className="mx-auto max-w-[1920px]">
         <ProofQueueRefresh kind="dashboard" initialVersion={queueVersion} />
+        <RuntimeScreenSafeViewWriter
+          href="/dashboard"
+          view={mapProducerOverviewSafeScreen({
+            displayName: me.displayName,
+            activeProjectCount: today.pulseStats.activeProjects,
+            urgentProjects: urgent.items,
+            recentUploads: today.recentUploads,
+          })}
+        />
         <OverviewScreen
           displayName={me.displayName}
           slug={me.slug}

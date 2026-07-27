@@ -9,6 +9,10 @@ import {
   resolveArtistRuntimeStudioContext,
   writeArtistRuntimeStudioContext,
 } from "~/lib/runtime-state/artist-context";
+import {
+  captureAccountPrivateWriteGeneration,
+  isAccountPrivateRuntimeWriteAllowed,
+} from "~/lib/runtime-state/account-exit";
 import { getBrowserRuntimeStorage } from "~/lib/runtime-state/runtime-state";
 
 import { RuntimeNavigationBridge } from "./runtime-navigation-bridge";
@@ -23,12 +27,17 @@ function ArtistRuntimeStudioContextRecorder({
   studioIds: readonly string[];
 }) {
   const { identity, privateStateAccessAllowed, storage } = useRuntimeState();
+  const writeGeneration = useMemo(
+    () => captureAccountPrivateWriteGeneration(identity.userId),
+    [identity.userId],
+  );
 
   useLayoutEffect(() => {
     if (
       !privateStateAccessAllowed ||
       !storage ||
-      identity.role !== "artist"
+      identity.role !== "artist" ||
+      !isAccountPrivateRuntimeWriteAllowed(writeGeneration)
     ) {
       return;
     }
@@ -38,7 +47,7 @@ function ArtistRuntimeStudioContextRecorder({
       studioIds,
       identity.contextId,
     );
-  }, [identity, privateStateAccessAllowed, storage, studioIds]);
+  }, [identity, privateStateAccessAllowed, storage, studioIds, writeGeneration]);
 
   return null;
 }
@@ -66,7 +75,10 @@ export function ArtistRuntimeStateProvider({
     : null;
   const contextId =
     resolveArtistRuntimeStudioContext(
-      storage,
+      // A queryless server route deterministically renders the first current
+      // studio. Do not let a device-only last-studio pointer give the client
+      // shell a different identity from the server content.
+      requestedStudioId === null ? null : storage,
       userId,
       studioIds,
       requestedStudioId,

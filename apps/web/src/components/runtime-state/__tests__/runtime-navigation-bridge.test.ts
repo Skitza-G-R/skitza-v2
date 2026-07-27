@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { clearAccountPrivateRuntimeState } from "~/lib/runtime-state/account-exit";
+import {
+  allowAccountPrivateRuntimeWrites,
+  clearAccountPrivateRuntimeState,
+} from "~/lib/runtime-state/account-exit";
+import { NATIVE_REFRESH_EVENT } from "~/lib/pwa/update-coordination";
 import {
   popRuntimeBack,
   readRuntimeNavigationSnapshot,
@@ -20,6 +24,12 @@ const mocked = vi.hoisted(() => ({
   refIndex: 0,
   search: "tab=availability",
   storage: null as MemoryStorage | null,
+  router: {
+    back: vi.fn(),
+    prefetch: vi.fn(),
+    push: vi.fn(),
+    replace: vi.fn(),
+  },
 }));
 
 vi.mock("react", async (importOriginal) => {
@@ -48,11 +58,7 @@ vi.mock("react", async (importOriginal) => {
 
 vi.mock("next/navigation", () => ({
   usePathname: () => mocked.pathname,
-  useRouter: () => ({
-    back: vi.fn(),
-    push: vi.fn(),
-    replace: vi.fn(),
-  }),
+  useRouter: () => mocked.router,
   useSearchParams: () => new URLSearchParams(mocked.search),
 }));
 
@@ -86,6 +92,10 @@ beforeEach(() => {
   mocked.refIndex = 0;
   mocked.search = "tab=availability";
   mocked.storage = new MemoryStorage();
+  mocked.router.back.mockReset();
+  mocked.router.prefetch.mockReset();
+  mocked.router.push.mockReset();
+  mocked.router.replace.mockReset();
 });
 
 afterEach(() => {
@@ -196,6 +206,10 @@ function setupNavigationIntentEnvironment() {
       return 17;
     },
     clearTimeout,
+    dispatchEvent(event: Event) {
+      listeners.get(event.type)?.(event);
+      return true;
+    },
   };
   const browserDocument = {
     documentElement: root,
@@ -204,6 +218,7 @@ function setupNavigationIntentEnvironment() {
   };
   vi.stubGlobal("window", browserWindow);
   vi.stubGlobal("document", browserDocument);
+  vi.stubGlobal("navigator", { onLine: true });
   vi.stubGlobal("performance", timing);
 
   return {
@@ -254,6 +269,8 @@ describe("RuntimeNavigationBridge scroll persistence", () => {
   it("does not recreate cleared navigation state from a queued frame or effect cleanup", () => {
     const { animation, main } = setupScrollEnvironment();
     const cleanup = renderBridge();
+    // Live-only Calendar persists navigation history, but cannot replace the
+    // last durable safe-screen launch pointer.
     expect(mocked.storage?.length).toBe(2);
 
     main.scrollTop = 640;
@@ -273,6 +290,7 @@ describe("RuntimeNavigationBridge scroll persistence", () => {
   it("allows a fresh bridge for the same account to persist and restore navigation", () => {
     const { animation, main } = setupScrollEnvironment();
     clearAccountPrivateRuntimeState(PRODUCER.userId, mocked.storage);
+    allowAccountPrivateRuntimeWrites(PRODUCER.userId);
 
     const cleanup = renderBridge();
     main.scrollTop = 420;
@@ -296,10 +314,11 @@ describe("RuntimeNavigationBridge scroll persistence", () => {
 describe("RuntimeNavigationBridge navigation intent", () => {
   it("sets pending feedback synchronously and clears every html marker on shell exit", () => {
     const environment = setupNavigationIntentEnvironment();
+    const layoutEffectIndex = mocked.layoutEffects.length;
     const effectIndex = mocked.effects.length;
     RuntimeNavigationBridge({ restoreOnOpen: false });
 
-    const cleanupIntent = mocked.effects[effectIndex + 1]?.();
+    const cleanupIntent = mocked.layoutEffects[layoutEffectIndex + 2]?.();
     const cleanupShell = mocked.effects[effectIndex + 3]?.();
     environment.announce("/dashboard/music");
 
@@ -319,11 +338,25 @@ describe("RuntimeNavigationBridge navigation intent", () => {
     if (typeof cleanupIntent === "function") cleanupIntent();
   });
 
-  it("clears the exact pending target when a delayed navigation times out", () => {
+  it("quietly re-prefetches only the active main route on foreground freshness", () => {
     const environment = setupNavigationIntentEnvironment();
     const effectIndex = mocked.effects.length;
     RuntimeNavigationBridge({ restoreOnOpen: false });
-    const cleanupIntent = mocked.effects[effectIndex + 1]?.();
+    const cleanupFreshness = mocked.effects[effectIndex + 1]?.();
+
+    window.dispatchEvent(new Event(NATIVE_REFRESH_EVENT));
+
+    expect(mocked.router.prefetch).toHaveBeenCalledOnce();
+    expect(mocked.router.prefetch).toHaveBeenCalledWith(CALENDAR_HREF);
+    if (typeof cleanupFreshness === "function") cleanupFreshness();
+    void environment;
+  });
+
+  it("clears the exact pending target when a delayed navigation times out", () => {
+    const environment = setupNavigationIntentEnvironment();
+    const layoutEffectIndex = mocked.layoutEffects.length;
+    RuntimeNavigationBridge({ restoreOnOpen: false });
+    const cleanupIntent = mocked.layoutEffects[layoutEffectIndex + 2]?.();
 
     environment.announce("/dashboard/music");
     environment.timeout();
@@ -340,9 +373,9 @@ describe("RuntimeNavigationBridge navigation intent", () => {
     mocked.search = "tab=sessions";
     mocked.persistRefs = true;
     mocked.refIndex = 0;
-    const effectIndex = mocked.effects.length;
+    const layoutEffectIndex = mocked.layoutEffects.length;
     RuntimeNavigationBridge({ restoreOnOpen: false });
-    const cleanupIntent = mocked.effects[effectIndex + 1]?.();
+    const cleanupIntent = mocked.layoutEffects[layoutEffectIndex + 2]?.();
 
     environment.announce("/dashboard/music");
     expect(environment.root.dataset.skNavState).toBe("pending");
@@ -391,9 +424,9 @@ describe("RuntimeNavigationBridge navigation intent", () => {
     const environment = setupNavigationIntentEnvironment();
     mocked.persistRefs = true;
     mocked.refIndex = 0;
-    const effectIndex = mocked.effects.length;
+    const intentLayoutEffectIndex = mocked.layoutEffects.length;
     RuntimeNavigationBridge({ restoreOnOpen: false });
-    const cleanupIntent = mocked.effects[effectIndex + 1]?.();
+    const cleanupIntent = mocked.layoutEffects[intentLayoutEffectIndex + 2]?.();
 
     environment.announce("/dashboard/music");
     expect(environment.pendingTarget.getAttribute("data-sk-nav-pending")).toBe("");

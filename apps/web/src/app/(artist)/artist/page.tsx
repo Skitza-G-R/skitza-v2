@@ -8,8 +8,10 @@ import { NextSessionCard } from "~/components/artist/home/next-session-card";
 import { ArtistPaymentActionsCard } from "~/components/artist/home/payment-actions-card";
 import { PurchaseStatusCard } from "~/components/artist/home/purchase-status-card";
 import { PrivateOffersList } from "~/components/artist/offers/private-offers-list";
+import { RuntimeScreenSafeViewWriter } from "~/components/runtime-state/runtime-screen-view";
 import { resolveArtistStudioId } from "~/lib/artist-studio-context";
 import { withArtistStudio } from "~/lib/artist-studio-context";
+import { mapArtistHomeSafeScreen } from "~/lib/runtime-state/screen-view-mappers";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { WelcomeModal } from "./welcome-modal";
@@ -156,6 +158,15 @@ export default async function ArtistHomePage({ searchParams }: ArtistHomePagePro
 
   return (
     <>
+      <RuntimeScreenSafeViewWriter
+        href={withArtistStudio("/artist", activeStudioId)}
+        contextId={activeStudioId ?? "artist-no-studio"}
+        view={mapArtistHomeSafeScreen({
+          firstName,
+          studios: studiosForTiles,
+          latestMix: latestMixForCard,
+        })}
+      />
       <ArtistHomeRuntime
         activeStudioId={activeStudioId}
         serverView={{ firstName, studios: studiosForTiles }}
