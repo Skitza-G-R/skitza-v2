@@ -3,13 +3,18 @@
 import { UserAvatar, UserButton } from "@clerk/nextjs";
 import { Copy } from "lucide-react";
 import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { copyPublicLink } from "~/components/dashboard/overview/public-link-strip";
 import { Icon } from "~/components/nav/icons";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "~/components/ui/sheet";
 import { useToast } from "~/components/ui/toast";
+import {
+  announceRuntimeMainNavigationIntent,
+  captureRuntimeMainNavigationTarget,
+} from "~/lib/runtime-state/navigation-cache";
 import { buildJoinUrl } from "~/lib/share/public-url";
 
 interface ProducerMobileActionsProps {
@@ -20,10 +25,18 @@ export function ProducerMobileActions({
   producerSlug,
 }: ProducerMobileActionsProps) {
   const { toast } = useToast();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const search = searchParams.toString();
+  const currentHref = `${pathname}${search ? `?${search}` : ""}`;
   const tToasts = useTranslations("today.toasts");
   const [accountOpen, setAccountOpen] = useState(false);
   const accountButtonRef = useRef<HTMLButtonElement>(null);
   const accountSheetId = useId();
+
+  useEffect(() => {
+    setAccountOpen(false);
+  }, [currentHref]);
 
   async function copyLink() {
     if (!producerSlug) return;
@@ -100,8 +113,14 @@ export function ProducerMobileActions({
               >
                 <Link
                   href="/dashboard/store"
-                  onClick={() => {
-                    setAccountOpen(false);
+                  data-sk-nav-destination="/dashboard/store"
+                  prefetch={false}
+                  onNavigate={() => {
+                    announceRuntimeMainNavigationIntent("/dashboard/store");
+                    if (currentHref === "/dashboard/store") setAccountOpen(false);
+                  }}
+                  onClick={(event) => {
+                    captureRuntimeMainNavigationTarget(event.currentTarget);
                   }}
                   className="sk-press flex min-h-12 items-center gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3 text-sm font-semibold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
                 >
@@ -110,8 +129,14 @@ export function ProducerMobileActions({
                 </Link>
                 <Link
                   href="/dashboard/settings"
-                  onClick={() => {
-                    setAccountOpen(false);
+                  data-sk-nav-destination="/dashboard/settings"
+                  prefetch={false}
+                  onNavigate={() => {
+                    announceRuntimeMainNavigationIntent("/dashboard/settings");
+                    if (currentHref === "/dashboard/settings") setAccountOpen(false);
+                  }}
+                  onClick={(event) => {
+                    captureRuntimeMainNavigationTarget(event.currentTarget);
                   }}
                   className="sk-press flex min-h-12 items-center gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3 text-sm font-semibold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
                 >

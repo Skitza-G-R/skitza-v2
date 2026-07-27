@@ -843,7 +843,8 @@
   @media (hover: hover) {
     .sk-press:hover { filter: brightness(1.05); }
   }
-  .sk-press:active {
+  .sk-press:active,
+  .sk-press[data-sk-nav-pending] {
     transform: scale(0.97);
     filter: brightness(0.96);
     transition-duration: 60ms;
@@ -938,6 +939,29 @@
     opacity: 0;
     animation: skitza-page-enter 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
     animation-delay: calc(min(var(--i, 0), 12) * 30ms);
+  }
+
+  /* A destination restored from the private in-session Router Cache is
+     already useful content, not a fresh page reveal. The signed-in runtime
+     bridge keeps data-sk-nav-source="warm" on <html> for the arrived screen,
+     including after pending changes to settled, so route-entry motion cannot
+     replay after commit. Scope this to #main-content and only the automatic
+     route/reveal/stagger primitives: cold navigation, marketing scroll
+     reveals, ambient status motion, and tactile interaction feedback keep
+     their normal behavior. Reduced-motion still has the broader permanent
+     guard below. */
+  html[data-sk-nav-source="warm"] #main-content :is(
+    .sk-page-enter,
+    .sk-stagger-item,
+    .reveal-up,
+    .reveal-up-delay-1,
+    .reveal-up-delay-2,
+    .reveal-up-delay-3,
+    .reveal-up-delay-4
+  ) {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
   }
 
   /* SVG line draw-in (revenue trend). */
@@ -1584,7 +1608,8 @@
     .sk-lift { transition-duration: 0ms !important; }
     .sk-lift:hover { transform: none !important; box-shadow: var(--shadow-sm) !important; }
     .sk-press { transition-duration: 0ms !important; }
-    .sk-press:active { transform: none !important; filter: none !important; }
+    .sk-press:active,
+    .sk-press[data-sk-nav-pending] { transform: none !important; filter: none !important; }
     .sk-cta-press { transition-duration: 0ms !important; }
     .sk-cta-press:active { transform: none !important; filter: none !important; }
     .sk-press-pop,

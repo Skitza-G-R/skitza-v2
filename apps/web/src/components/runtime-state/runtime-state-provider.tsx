@@ -45,6 +45,14 @@ export function shouldConcealRuntimeContent(
   return clerkLoaded ? clerkUserId !== serverUserId : serverIdentityWasVerified;
 }
 
+export function shouldHardReloadRuntimeForAccountBoundary(
+  clerkLoaded: boolean,
+  clerkUserId: string | null | undefined,
+  serverUserId: string,
+): boolean {
+  return clerkLoaded && clerkUserId !== serverUserId;
+}
+
 export function runtimeUserToClear(
   previousUserId: string | null,
   currentUserId: string | null,
@@ -69,6 +77,7 @@ export function RuntimeStateProvider({
 }) {
   const { isLoaded, userId: clerkUserId } = useAuth();
   const previousUserId = useRef<string | null>(clerkUserId ?? identity.userId);
+  const reloadedAccountBoundary = useRef<string | null>(null);
   const storage = getBrowserRuntimeStorage();
   const privateStateAccessAllowed = isLoaded && clerkUserId === identity.userId;
   const verifiedServerUserId = useRef<string | null>(
@@ -82,11 +91,7 @@ export function RuntimeStateProvider({
     if (userIdToClear) {
       clearAccountPrivateRuntimeState(userIdToClear, storage);
     } else if (
-      shouldScrubAccountPrivateRuntimeQuery(
-        currentUserId,
-        identity.userId,
-        userIdToClear,
-      )
+      shouldScrubAccountPrivateRuntimeQuery(currentUserId, identity.userId, userIdToClear)
     ) {
       clearAccountPrivateRuntimeQuery();
     }
@@ -96,6 +101,23 @@ export function RuntimeStateProvider({
   useLayoutEffect(() => {
     if (privateStateAccessAllowed) verifiedServerUserId.current = identity.userId;
   }, [identity.userId, privateStateAccessAllowed]);
+
+  useLayoutEffect(() => {
+    if (!shouldHardReloadRuntimeForAccountBoundary(isLoaded, clerkUserId, identity.userId)) {
+      reloadedAccountBoundary.current = null;
+      return;
+    }
+
+    const boundary = `${identity.userId}:${clerkUserId ?? "signed-out"}`;
+    if (reloadedAccountBoundary.current === boundary) return;
+    reloadedAccountBoundary.current = boundary;
+
+    // A hard document reload is the deterministic boundary for Next's private
+    // in-memory Router Cache. Do this while the old server tree is concealed,
+    // before the next account can navigate to a URL prefetched for the prior
+    // account. The service worker never caches this signed-in document.
+    window.location.reload();
+  }, [clerkUserId, identity.userId, isLoaded]);
 
   const value = useMemo<RuntimeStateContextValue>(
     () => ({ identity, privateStateAccessAllowed, storage }),

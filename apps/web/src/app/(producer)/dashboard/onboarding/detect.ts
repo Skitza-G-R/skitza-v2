@@ -1,5 +1,7 @@
 import { appRouter } from "~/server/trpc/routers/_app";
 
+type AppRouterCaller = ReturnType<typeof appRouter.createCaller>;
+
 // Detect whether a freshly-signed-up producer has completed any of
 // the core setup flows. Used by `/dashboard` → redirect to the wizard
 // on first visit, and by the "finish setup" banner for returning
@@ -9,17 +11,20 @@ import { appRouter } from "~/server/trpc/routers/_app";
 // empty (no logo/primary/accent), they haven't started. We do NOT
 // bucket "has availability" here because the wizard can set that; its
 // absence alone isn't a strong first-run signal.
-export async function detectOnboardingState(userId: string): Promise<{
+export async function detectOnboardingState(
+  userId: string,
+  caller: AppRouterCaller = appRouter.createCaller({ userId }),
+): Promise<{
   firstRun: boolean;
   hasPackages: boolean;
   hasAvailability: boolean;
   hasBrand: boolean;
   hasDisplayName: boolean;
 }> {
-  const caller = appRouter.createCaller({ userId });
   // Run in parallel — each is a small indexed SELECT. In the worst
   // case this is three round-trips that the first dashboard paint
-  // would do anyway.
+  // would do anyway. DashboardPage passes its existing caller so all
+  // producer procedures share one request-scoped identity/DB lookup.
   const [me, pkgs, avail] = await Promise.all([
     caller.producer.me(),
     caller.booking.packages.list(),

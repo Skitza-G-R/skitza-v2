@@ -1,25 +1,36 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { QueueVersionRefresh } from "~/components/runtime-state/queue-version-refresh";
 
 const PROOF_QUEUE_REFRESH_MS = 5_000;
 
-export function ProofQueueRefresh({ enabled = true }: { enabled?: boolean }) {
-  const router = useRouter();
-  useEffect(() => {
-    if (!enabled) return;
-    const refreshIfVisible = () => {
-      if (document.visibilityState === "visible") router.refresh();
-    };
-    const intervalId = window.setInterval(refreshIfVisible, PROOF_QUEUE_REFRESH_MS);
-    document.addEventListener("visibilitychange", refreshIfVisible);
-    window.addEventListener("focus", refreshIfVisible);
-    return () => {
-      window.clearInterval(intervalId);
-      document.removeEventListener("visibilitychange", refreshIfVisible);
-      window.removeEventListener("focus", refreshIfVisible);
-    };
-  }, [enabled, router]);
-  return null;
+type ProofQueueRefreshProps =
+  | Readonly<{
+      kind: "dashboard" | "payment-proofs";
+      initialVersion: string;
+      enabled?: boolean;
+    }>
+  | Readonly<{
+      kind: "payment-proof";
+      proofId: string;
+      initialVersion: string;
+      enabled?: boolean;
+    }>;
+
+export function ProofQueueRefresh(props: ProofQueueRefreshProps) {
+  const endpoint =
+    props.kind === "payment-proof"
+      ? `/api/runtime/queue-version?kind=payment-proof&proofId=${encodeURIComponent(props.proofId)}`
+      : `/api/runtime/queue-version?kind=${props.kind}`;
+
+  return (
+    <QueueVersionRefresh
+      enabled={props.enabled ?? true}
+      endpoint={endpoint}
+      initialVersion={props.initialVersion}
+      intervalMs={PROOF_QUEUE_REFRESH_MS}
+      refreshOnFocus
+      refreshOnVisibilityChange
+    />
+  );
 }

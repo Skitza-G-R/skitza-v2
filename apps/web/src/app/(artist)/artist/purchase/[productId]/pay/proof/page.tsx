@@ -6,6 +6,7 @@ import { notFound, redirect } from "next/navigation";
 import type { ProofStatus } from "~/components/artist/purchase/pay-data";
 import { UploadProofScreen } from "~/components/artist/purchase/upload-proof-screen";
 import { withArtistStudio } from "~/lib/artist-studio-context";
+import { artistPaymentProofQueueVersion } from "~/server/runtime/queue-version";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = {
@@ -78,6 +79,11 @@ export default async function PurchaseProofPage({ params, searchParams }: PagePr
         rejectionNote={
           latest?.status === "rejected" ? (latest.rejectionNote ?? undefined) : undefined
         }
+        proofStateVersion={artistPaymentProofQueueVersion({
+          purchaseId: data.purchaseId,
+          installmentId: data.installmentId,
+          proofs: data.proofs.filter((proof) => proof.installmentId === data.installmentId),
+        })}
       />
     );
   } catch (error) {

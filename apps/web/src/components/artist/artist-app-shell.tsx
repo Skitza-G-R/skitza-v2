@@ -58,11 +58,13 @@ export function ArtistAppShell({
   // under design — landing in Phase 3 with the redesigned menu surface).
   // Same data is fetched so re-introduction is a no-op for the layout.
   void _isProducer;
+  const runtimeCacheEpoch = Date.now();
 
   return (
     <ArtistRuntimeStateProvider
       userId={userId}
       studioIds={studios.map((studio) => studio.producerId)}
+      cacheEpoch={runtimeCacheEpoch}
     >
       <NativeInstallGuidance role="artist" />
       <div

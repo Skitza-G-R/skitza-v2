@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { ProofQueueRefresh } from "~/components/dashboard/payments/proof-queue-refresh";
 import { ProducerPaymentWorkspace } from "~/components/payments/producer-payment-workspace";
 import { toProducerPaymentWorkspaceBuckets } from "~/components/payments/producer-payment-workspace-data";
+import { producerPaymentProofQueueVersion } from "~/server/runtime/queue-version";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 export const metadata = { title: "Payments" };
@@ -13,10 +14,18 @@ export default async function PaymentsPage() {
   if (!userId) redirect("/sign-in");
   const model = await appRouter.createCaller({ userId }).purchaseLedger.overview();
   const workspaceBuckets = toProducerPaymentWorkspaceBuckets(model.producerBuckets);
+  const pendingProofIds = model.projects.flatMap((project) =>
+    project.purchases.flatMap((purchase) =>
+      purchase.proofs.filter((proof) => proof.status === "pending").map((proof) => proof.id),
+    ),
+  );
 
   return (
     <main className="mx-auto w-full max-w-[1320px] px-4 py-6 sm:px-6 sm:py-9">
-      <ProofQueueRefresh enabled={model.producerBuckets.needs_review.projects.length > 0} />
+      <ProofQueueRefresh
+        kind="payment-proofs"
+        initialVersion={producerPaymentProofQueueVersion(pendingProofIds)}
+      />
       <header className="mb-7">
         <p className="font-mono text-[10px] font-bold tracking-[0.14em] text-[rgb(var(--brand-primary-text))] uppercase">
           Money workspace

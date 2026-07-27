@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   clearRuntimeStateBeforeSignOut,
   runtimeUserToClear,
+  shouldHardReloadRuntimeForAccountBoundary,
   shouldScrubAccountPrivateRuntimeQuery,
   shouldConcealRuntimeContent,
 } from "../runtime-state-provider";
@@ -57,6 +58,12 @@ describe("runtime privacy adapters", () => {
     expect(runtimeUserToClear("server-user", null)).toBe("server-user");
     expect(runtimeUserToClear("server-user", "next-user")).toBe("server-user");
     expect(runtimeUserToClear("server-user", "server-user")).toBeNull();
+    expect(shouldHardReloadRuntimeForAccountBoundary(false, undefined, "server-user")).toBe(false);
+    expect(shouldHardReloadRuntimeForAccountBoundary(true, "server-user", "server-user")).toBe(
+      false,
+    );
+    expect(shouldHardReloadRuntimeForAccountBoundary(true, null, "server-user")).toBe(true);
+    expect(shouldHardReloadRuntimeForAccountBoundary(true, "next-user", "server-user")).toBe(true);
   });
 
   it("clears private state before invoking Clerk sign-out", async () => {

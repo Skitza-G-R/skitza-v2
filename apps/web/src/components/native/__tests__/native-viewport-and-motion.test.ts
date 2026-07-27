@@ -138,7 +138,9 @@ describe("native CSS contracts", () => {
   });
 
   it("provides immediate coarse-pointer feedback and comfortable targets", () => {
-    expect(globalsCss).toMatch(/\.sk-press:active\s*\{[\s\S]*transition-duration:\s*60ms/);
+    expect(globalsCss).toMatch(
+      /\.sk-press:active,\s*\.sk-press\[data-sk-nav-pending\]\s*\{[\s\S]*transition-duration:\s*60ms/,
+    );
     expect(globalsCss).toContain("@media (pointer: coarse)");
     expect(globalsCss).toContain("min-width: 44px");
     expect(globalsCss).toContain("min-height: 44px");

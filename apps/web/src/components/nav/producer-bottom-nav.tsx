@@ -7,6 +7,10 @@ import type { ReactNode } from "react";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
 import { getActiveKey, type ActiveKey } from "~/lib/dashboard/active-key";
+import {
+  announceRuntimeMainNavigationIntent,
+  captureRuntimeMainNavigationTarget,
+} from "~/lib/runtime-state/navigation-cache";
 
 import { Icon, type IconName } from "./icons";
 
@@ -84,9 +88,14 @@ export function ProducerBottomNav(): ReactNode {
             <Link
               key={tab.id}
               href={tab.href}
-              prefetch={online}
+              data-sk-nav-destination={tab.href}
+              prefetch={false}
+              onNavigate={() => {
+                announceRuntimeMainNavigationIntent(tab.href);
+              }}
               aria-disabled={!online}
               onClick={(event) => {
+                captureRuntimeMainNavigationTarget(event.currentTarget);
                 if (online) return;
                 event.preventDefault();
                 toast("You’re offline. This screen will stay open until you reconnect.", "error");

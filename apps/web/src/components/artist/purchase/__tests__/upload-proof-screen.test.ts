@@ -145,10 +145,12 @@ describe("UploadProofScreen SK-75 wiring", () => {
   });
 
   it("polls only while review is pending and remains usable at narrow widths", () => {
-    expect(screenSource).toMatch(/status !== "awaiting" \|\| previewOnly/);
-    expect(screenSource).toMatch(
-      /setInterval\(\(\) => \{[\s\S]*router\.refresh\(\);[\s\S]*\}, 8_000\)/,
-    );
+    expect(screenSource).toMatch(/enabled: status === "awaiting" && !previewOnly && online/);
+    expect(screenSource).toMatch(/proofStateVersion/);
+    expect(screenSource).toMatch(/intervalMs: 8_000/);
+    expect(screenSource).toMatch(/kind=artist-payment-proof/);
+    expect(screenSource).toMatch(/refreshOnVisibilityChange: true/);
+    expect(screenSource).not.toMatch(/onlyWhenVisible: false/);
     expect(screenSource).toMatch(/max-w-\[440px\]/);
     expect(screenSource).toMatch(/overflow-x-hidden/);
     expect(screenSource).toMatch(/min-\[390px\]:px-5/);
