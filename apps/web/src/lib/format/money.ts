@@ -28,6 +28,11 @@ const CURRENCY_SYMBOL: Record<string, string> = {
   ILS: "₪",
 };
 
+// Server and browser output must be byte-for-byte identical during hydration.
+// Skitza's product language is English, so use its explicit grouping contract
+// instead of inheriting the runtime's locale.
+const MONEY_NUMBER_LOCALE = "en-US";
+
 interface FormatMoneyOptions {
   /** When true, show two decimal places (e.g. `$19.99`). Default: false. */
   withCents?: boolean;
@@ -50,11 +55,11 @@ export function formatMoney(
   const isNegative = cents < 0;
   const major = Math.abs(cents) / 100;
   const formatted = options.withCents
-    ? major.toLocaleString(undefined, {
+    ? major.toLocaleString(MONEY_NUMBER_LOCALE, {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       })
-    : major.toLocaleString(undefined, {
+    : major.toLocaleString(MONEY_NUMBER_LOCALE, {
         maximumFractionDigits: 0,
       });
   // Sign goes outside the currency symbol — `-$50`, not `$-50`.

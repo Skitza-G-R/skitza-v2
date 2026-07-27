@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { currencySymbol, formatMoney } from "../money";
 
@@ -49,6 +49,20 @@ describe("formatMoney", () => {
     expect(formatMoney(1999, "USD", { withCents: true })).toBe("$19.99");
     expect(formatMoney(7500, "USD", { withCents: true })).toBe("$75.00");
     expect(formatMoney(199900, "USD", { withCents: true })).toBe("$1,999.00");
+  });
+
+  it("uses one explicit locale for deterministic server and browser output", () => {
+    const toLocaleString = vi.spyOn(Number.prototype, "toLocaleString");
+
+    expect(formatMoney(987_654_321, "ILS", { withCents: true })).toBe(
+      "₪9,876,543.21",
+    );
+    expect(toLocaleString).toHaveBeenCalledWith("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+
+    toLocaleString.mockRestore();
   });
 
   it("handles zero and negatives", () => {
