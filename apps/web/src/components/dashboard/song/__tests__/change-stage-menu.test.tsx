@@ -4,9 +4,8 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 // Source-grep style tests (no jsdom) for the Phase 4 ChangeStageMenu —
-// the small dropdown that lets the producer advance a track's workflow
-// stage without uploading. No Radix DropdownMenu (not installed in the
-// repo); we implement a tight click-outside + Escape menu.
+// the responsive stage picker that lets the producer advance a track's
+// workflow stage without uploading.
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "change-stage-menu.tsx"), "utf-8");
@@ -38,9 +37,7 @@ describe("ChangeStageMenu — manual stage advance on Song Space", () => {
   });
 
   it("imports setTrackStageAction from the clients-projects upload-actions module", () => {
-    expect(SRC).toMatch(
-      /~\/app\/\(producer\)\/dashboard\/clients-projects\/upload-actions/,
-    );
+    expect(SRC).toMatch(/~\/app\/\(producer\)\/dashboard\/clients-projects\/upload-actions/);
   });
 
   it("uses useTransition for the mutation (pending state)", () => {
@@ -64,13 +61,15 @@ describe("ChangeStageMenu — manual stage advance on Song Space", () => {
     expect(SRC).toMatch(/setOptimistic/);
   });
 
-  it("uses a click-outside-to-close menu (no Radix DropdownMenu dep)", () => {
+  it("keeps a click-outside-to-close anchored desktop popover (no Radix DropdownMenu dep)", () => {
     // No Radix dropdown-menu IMPORT — we own the menu via a document
     // mousedown listener. Source-comment mentions are fine (the comment
     // explains the absence); we only check that no `from "...dropdown-menu"`
     // import line exists.
     expect(SRC).not.toMatch(/from\s+["']@radix-ui\/react-dropdown-menu["']/);
+    expect(SRC).toMatch(/open\s*&&\s*isDesktop/);
     expect(SRC).toMatch(/addEventListener\(["']mousedown["']/);
+    expect(SRC).toContain("absolute top-[calc(100%+6px)] left-0");
   });
 
   it("closes on Escape via a keydown listener", () => {
@@ -78,14 +77,27 @@ describe("ChangeStageMenu — manual stage advance on Song Space", () => {
     expect(SRC).toMatch(/Escape/);
   });
 
-  it("renders the trigger as a button with aria-haspopup=menu", () => {
-    expect(SRC).toMatch(/aria-haspopup=["']menu["']/);
+  it("reports a dialog-backed sheet below 1024px without claiming desktop menu semantics", () => {
+    expect(SRC).toMatch(/aria-haspopup=\{isDesktop\s*\?\s*undefined\s*:\s*["']dialog["']\}/);
     expect(SRC).toMatch(/aria-expanded=\{open\}/);
   });
 
-  it("keeps the trigger and disclosed choices at least 44px tall on phones", () => {
+  it("keeps the trigger and disclosed choices at least 44px tall below the desktop split", () => {
     expect(SRC.match(/min-h-11/g)?.length).toBeGreaterThanOrEqual(2);
-    expect(SRC.match(/sm:min-h-0/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(SRC.match(/lg:min-h-0/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("uses the shared portaled bottom Sheet below the canonical 1024px split", () => {
+    expect(SRC).toContain('const DESKTOP_MEDIA_QUERY = "(min-width: 1024px)"');
+    expect(SRC).toContain('from "~/components/ui/sheet"');
+    expect(SRC).toMatch(/open=\{open\s*&&\s*!isDesktop\}/);
+    expect(SRC).toMatch(/<SheetContent[\s\S]*?side=["']bottom["']/);
+  });
+
+  it("returns focus to the stage trigger when the mobile Sheet closes", () => {
+    expect(SRC).toMatch(
+      /onCloseAutoFocus=\{\(event\)\s*=>\s*\{[\s\S]*?event\.preventDefault\(\);[\s\S]*?triggerRef\.current\?\.focus\(\)/,
+    );
   });
 
   // I3 — we used to declare role="menu" / role="menuitem" without
@@ -99,7 +111,8 @@ describe("ChangeStageMenu — manual stage advance on Song Space", () => {
     expect(SRC).not.toMatch(/role=["']menuitem["']/);
   });
 
-  it("labels the disclosed button group with aria-label", () => {
+  it("exposes and labels the disclosed controls as a button group", () => {
+    expect(SRC).toMatch(/role=["']group["']/);
     expect(SRC).toMatch(/aria-label=["']Workflow stage options["']/);
   });
 

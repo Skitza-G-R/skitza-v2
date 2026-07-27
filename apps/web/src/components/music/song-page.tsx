@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, useTransition, type RefObject } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useTransition, type RefObject } from "react";
 
 import { Waveform50, type WaveformComment } from "~/components/audio/waveform-50";
 import {
@@ -16,6 +16,7 @@ import {
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useRuntimeTextDraft } from "~/components/runtime-state/use-runtime-state";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "~/components/ui/sheet";
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 import { formatMoney } from "~/lib/format/money";
@@ -430,6 +431,8 @@ type OpenSongManagement = {
   versionId: string;
 };
 
+const DESKTOP_MORE_ACTIONS_MEDIA_QUERY = "(min-width: 1024px)";
+
 export function SongPage({
   data,
   role = "producer",
@@ -598,28 +601,57 @@ export function SongPage({
   // closes it. Premium players keep utility actions out of the primary
   // sightline — the menu collapses into a single circular trigger.
   const [overflowOpen, setOverflowOpen] = useState(false);
+  const [isDesktopMoreActions, setIsDesktopMoreActions] = useState(false);
+  const moreActionsPanelId = useId();
   const overflowRef = useRef<HTMLDivElement | null>(null);
   const moreButtonRef = useRef<HTMLButtonElement | null>(null);
+  const openingManagementFromSheetRef = useRef(false);
   const deliveryOverrideButtonRef = useRef<HTMLButtonElement | null>(null);
   const [managementDialog, setManagementDialog] = useState<OpenSongManagement | null>(null);
+
   useEffect(() => {
-    if (!overflowOpen) return;
-    function onDown(e: MouseEvent) {
+    const media = window.matchMedia(DESKTOP_MORE_ACTIONS_MEDIA_QUERY);
+    const update = () => {
+      setIsDesktopMoreActions(media.matches);
+    };
+    update();
+    media.addEventListener("change", update);
+    return () => {
+      media.removeEventListener("change", update);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!overflowOpen || !isDesktopMoreActions) return;
+    function onDown(e: PointerEvent) {
+      const node = overflowRef.current;
+      if (node && !node.contains(e.target as Node)) {
+        setOverflowOpen(false);
+      }
+    }
+    function onFocusIn(e: FocusEvent) {
       const node = overflowRef.current;
       if (node && !node.contains(e.target as Node)) {
         setOverflowOpen(false);
       }
     }
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOverflowOpen(false);
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      setOverflowOpen(false);
+      window.requestAnimationFrame(() => {
+        moreButtonRef.current?.focus();
+      });
     }
-    window.addEventListener("mousedown", onDown);
+    window.addEventListener("pointerdown", onDown);
+    window.addEventListener("focusin", onFocusIn);
     window.addEventListener("keydown", onKey);
     return () => {
-      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("focusin", onFocusIn);
       window.removeEventListener("keydown", onKey);
     };
-  }, [overflowOpen]);
+  }, [isDesktopMoreActions, overflowOpen]);
 
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -927,6 +959,11 @@ export function SongPage({
     if (!activeVersion) return;
     setOverflowOpen(false);
     setManagementDialog({ kind, versionId: activeVersion.id });
+  }
+
+  function openMoreActionsManagementDialog(kind: OpenSongManagement["kind"]) {
+    openingManagementFromSheetRef.current = !isDesktopMoreActions;
+    openManagementDialog(kind);
   }
 
   function handleManagementSubmit(value: string): Promise<MusicL3ActionResult> {
@@ -1367,6 +1404,21 @@ export function SongPage({
     role === "producer"
       ? `/api/download/${activeVersion.id}`
       : `/api/audio/download/${activeVersion.delivery.purchaseId}/${activeVersion.id}`;
+  const moreActionsPanelProps = {
+    role,
+    actions,
+    canUseDownloadAction,
+    downloadHref,
+    activeVersionDeleted,
+    activeVersionPlayable,
+    activeDeliveryBadge: activeDelivery.badge,
+    songArchived,
+    songReleased,
+    onDismiss: () => {
+      setOverflowOpen(false);
+    },
+    onOpenManagement: openMoreActionsManagementDialog,
+  } satisfies Omit<SongMoreActionsPanelProps, "className" | "testId">;
 
   return (
     <main className="sk-page-enter">
@@ -1739,15 +1791,16 @@ export function SongPage({
                 />
               ) : null}
 
-              {/* Overflow — single glass circle for download and producer
-                  management actions. Origin-aware popover scales from this trigger. */}
+              {/* Overflow — one trigger and one shared action panel. Desktop
+                  anchors the panel here; mobile portals it into a bottom sheet. */}
               <div ref={overflowRef} className="relative">
                 <button
                   ref={moreButtonRef}
                   type="button"
                   aria-label="More actions"
-                  aria-haspopup="menu"
+                  aria-haspopup={isDesktopMoreActions ? undefined : "dialog"}
                   aria-expanded={overflowOpen}
+                  aria-controls={overflowOpen ? moreActionsPanelId : undefined}
                   onClick={() => {
                     setOverflowOpen((o) => !o);
                   }}
@@ -1759,146 +1812,45 @@ export function SongPage({
                 >
                   <MoreIcon />
                 </button>
-                {overflowOpen ? (
-                  <div
-                    role="menu"
-                    className="sk-pop absolute top-[calc(100%+8px)] right-0 z-30 max-h-[min(70dvh,520px)] w-64 origin-top-right overflow-y-auto rounded-[18px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 text-[rgb(var(--fg-default))] shadow-[0_30px_60px_-15px_rgba(17,16,9,0.35)] max-[400px]:fixed max-[400px]:inset-x-4 max-[400px]:top-auto max-[400px]:bottom-4 max-[400px]:max-h-[calc(100dvh-2rem)] max-[400px]:w-auto max-[400px]:origin-bottom-right"
-                  >
-                    {canUseDownloadAction ? (
-                      <a
-                        role="menuitem"
-                        aria-label="Download"
-                        href={downloadHref}
-                        download
-                        onClick={() => {
-                          setOverflowOpen(false);
-                        }}
-                        className="flex min-h-11 w-full items-center gap-2.5 rounded-[var(--radius-lg)] px-3 py-2 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
-                      >
-                        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[rgb(var(--fg-default)/0.06)] text-[rgb(var(--fg-default))]">
-                          <DownloadIcon />
-                        </span>
-                        Download audio
-                      </a>
-                    ) : (
-                      <button
-                        type="button"
-                        role="menuitem"
-                        disabled
-                        title={
-                          activeVersionDeleted ? "Audio was deleted" : "Audio is still uploading"
-                        }
-                        className="flex min-h-11 w-full cursor-not-allowed items-center gap-2.5 rounded-[var(--radius-lg)] px-3 py-2 text-left text-[13px] font-semibold opacity-50"
-                      >
-                        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[rgb(var(--fg-default)/0.06)] text-[rgb(var(--fg-default))]">
-                          <DownloadIcon />
-                        </span>
-                        {activeVersionDeleted
-                          ? "Audio deleted"
-                          : activeVersionPlayable
-                            ? activeDelivery.badge
-                            : "Download (uploading…)"}
-                      </button>
-                    )}
-                    {role === "producer" &&
-                    (actions.renameSong ||
-                      actions.editArtist ||
-                      actions.setArchived ||
-                      actions.markReleased ||
-                      actions.renameVersion ||
-                      actions.deleteVersionAudio) ? (
-                      <>
-                        <div
-                          role="separator"
-                          className="mx-2 my-1 h-px bg-[rgb(var(--border-subtle))]"
-                        />
-                        {actions.renameSong ? (
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={() => {
-                              openManagementDialog("rename-song");
-                            }}
-                            className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
-                          >
-                            Rename song
-                          </button>
-                        ) : null}
-                        {actions.editArtist ? (
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={() => {
-                              openManagementDialog("edit-artist");
-                            }}
-                            className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
-                          >
-                            Edit artist credit
-                          </button>
-                        ) : null}
-                        {actions.setArchived ? (
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={() => {
-                              openManagementDialog("set-archived");
-                            }}
-                            className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
-                          >
-                            {songArchived ? "Restore song" : "Archive song"}
-                          </button>
-                        ) : null}
-                        {actions.markReleased && !songReleased ? (
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={() => {
-                              openManagementDialog("mark-released");
-                            }}
-                            className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
-                          >
-                            Mark as Released
-                          </button>
-                        ) : null}
-                        {actions.renameVersion ? (
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={() => {
-                              openManagementDialog("rename-version");
-                            }}
-                            className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
-                          >
-                            Rename version
-                          </button>
-                        ) : null}
-                        {actions.deleteVersionAudio && activeVersionPlayable ? (
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={() => {
-                              openManagementDialog("delete-version-audio");
-                            }}
-                            className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold text-[rgb(var(--fg-danger))] transition-colors hover:bg-[rgb(var(--fg-danger)/0.08)]"
-                          >
-                            Permanently delete audio
-                          </button>
-                        ) : actions.deleteVersionAudio && activeVersionDeleted ? (
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={() => {
-                              openManagementDialog("delete-version-audio");
-                            }}
-                            className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold text-[rgb(var(--fg-danger))] transition-colors hover:bg-[rgb(var(--fg-danger)/0.08)]"
-                          >
-                            Retry storage cleanup
-                          </button>
-                        ) : null}
-                      </>
-                    ) : null}
-                  </div>
+                {overflowOpen && isDesktopMoreActions ? (
+                  <SongMoreActionsPanel
+                    {...moreActionsPanelProps}
+                    id={moreActionsPanelId}
+                    testId="song-more-actions-popover"
+                    className="sk-pop absolute top-[calc(100%+8px)] right-0 z-30 max-h-[min(70dvh,520px)] w-64 origin-top-right overflow-y-auto rounded-[18px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 text-[rgb(var(--fg-default))] shadow-[0_30px_60px_-15px_rgba(17,16,9,0.35)]"
+                  />
                 ) : null}
+                <Sheet
+                  open={overflowOpen && !isDesktopMoreActions}
+                  onOpenChange={(open) => {
+                    if (!open) setOverflowOpen(false);
+                  }}
+                >
+                  <SheetContent
+                    id={moreActionsPanelId}
+                    side="bottom"
+                    data-testid="song-more-actions-sheet"
+                    onCloseAutoFocus={(event) => {
+                      event.preventDefault();
+                      if (openingManagementFromSheetRef.current) {
+                        openingManagementFromSheetRef.current = false;
+                        return;
+                      }
+                      moreButtonRef.current?.focus();
+                    }}
+                    className="max-h-[88dvh] w-full gap-0 overflow-hidden p-0 pb-[env(safe-area-inset-bottom)] sm:p-0"
+                  >
+                    <SheetTitle className="sr-only">Song actions</SheetTitle>
+                    <SheetDescription className="sr-only">
+                      Download this version or manage the song and its audio.
+                    </SheetDescription>
+                    <SongMoreActionsPanel
+                      {...moreActionsPanelProps}
+                      testId="song-more-actions-sheet-panel"
+                      className="overflow-y-auto p-2 pt-3 text-[rgb(var(--fg-default))]"
+                    />
+                  </SheetContent>
+                </Sheet>
               </div>
             </div>
           </div>
@@ -2288,6 +2240,167 @@ export function SongPage({
 }
 
 // ─── Local primitives ────────────────────────────────────────────────
+
+type SongMoreActionsPanelProps = {
+  role: SongPageRole;
+  actions: L3Actions;
+  canUseDownloadAction: boolean;
+  downloadHref: string;
+  activeVersionDeleted: boolean;
+  activeVersionPlayable: boolean;
+  activeDeliveryBadge: string;
+  songArchived: boolean;
+  songReleased: boolean;
+  onDismiss: () => void;
+  onOpenManagement: (kind: OpenSongManagement["kind"]) => void;
+  id?: string;
+  className: string;
+  testId: string;
+};
+
+function SongMoreActionsPanel({
+  role,
+  actions,
+  canUseDownloadAction,
+  downloadHref,
+  activeVersionDeleted,
+  activeVersionPlayable,
+  activeDeliveryBadge,
+  songArchived,
+  songReleased,
+  onDismiss,
+  onOpenManagement,
+  id,
+  className,
+  testId,
+}: SongMoreActionsPanelProps) {
+  const hasProducerManagement =
+    role === "producer" &&
+    Boolean(
+      actions.renameSong ||
+      actions.editArtist ||
+      actions.setArchived ||
+      actions.markReleased ||
+      actions.renameVersion ||
+      actions.deleteVersionAudio,
+    );
+
+  return (
+    <div id={id} role="group" aria-label="Song actions" data-testid={testId} className={className}>
+      {canUseDownloadAction ? (
+        <a
+          aria-label="Download"
+          href={downloadHref}
+          download
+          onClick={onDismiss}
+          className="flex min-h-11 w-full items-center gap-2.5 rounded-[var(--radius-lg)] px-3 py-2 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
+        >
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[rgb(var(--fg-default)/0.06)] text-[rgb(var(--fg-default))]">
+            <DownloadIcon />
+          </span>
+          Download audio
+        </a>
+      ) : (
+        <button
+          type="button"
+          disabled
+          title={activeVersionDeleted ? "Audio was deleted" : "Audio is still uploading"}
+          className="flex min-h-11 w-full cursor-not-allowed items-center gap-2.5 rounded-[var(--radius-lg)] px-3 py-2 text-left text-[13px] font-semibold opacity-50"
+        >
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[rgb(var(--fg-default)/0.06)] text-[rgb(var(--fg-default))]">
+            <DownloadIcon />
+          </span>
+          {activeVersionDeleted
+            ? "Audio deleted"
+            : activeVersionPlayable
+              ? activeDeliveryBadge
+              : "Download (uploading…)"}
+        </button>
+      )}
+      {hasProducerManagement ? (
+        <>
+          <div role="separator" className="mx-2 my-1 h-px bg-[rgb(var(--border-subtle))]" />
+          {actions.renameSong ? (
+            <button
+              type="button"
+              onClick={() => {
+                onOpenManagement("rename-song");
+              }}
+              className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
+            >
+              Rename song
+            </button>
+          ) : null}
+          {actions.editArtist ? (
+            <button
+              type="button"
+              onClick={() => {
+                onOpenManagement("edit-artist");
+              }}
+              className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
+            >
+              Edit artist credit
+            </button>
+          ) : null}
+          {actions.setArchived ? (
+            <button
+              type="button"
+              onClick={() => {
+                onOpenManagement("set-archived");
+              }}
+              className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
+            >
+              {songArchived ? "Restore song" : "Archive song"}
+            </button>
+          ) : null}
+          {actions.markReleased && !songReleased ? (
+            <button
+              type="button"
+              onClick={() => {
+                onOpenManagement("mark-released");
+              }}
+              className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
+            >
+              Mark as Released
+            </button>
+          ) : null}
+          {actions.renameVersion ? (
+            <button
+              type="button"
+              onClick={() => {
+                onOpenManagement("rename-version");
+              }}
+              className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
+            >
+              Rename version
+            </button>
+          ) : null}
+          {actions.deleteVersionAudio && activeVersionPlayable ? (
+            <button
+              type="button"
+              onClick={() => {
+                onOpenManagement("delete-version-audio");
+              }}
+              className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold text-[rgb(var(--fg-danger))] transition-colors hover:bg-[rgb(var(--fg-danger)/0.08)]"
+            >
+              Permanently delete audio
+            </button>
+          ) : actions.deleteVersionAudio && activeVersionDeleted ? (
+            <button
+              type="button"
+              onClick={() => {
+                onOpenManagement("delete-version-audio");
+              }}
+              className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold text-[rgb(var(--fg-danger))] transition-colors hover:bg-[rgb(var(--fg-danger)/0.08)]"
+            >
+              Retry storage cleanup
+            </button>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  );
+}
 
 function VersionDeliveryPanel({
   role,

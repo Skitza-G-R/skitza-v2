@@ -35,6 +35,10 @@ import { MemoryStorage } from "~/lib/runtime-state/__tests__/memory-storage";
 const here = dirname(fileURLToPath(import.meta.url));
 const SONG_PAGE_PATH = join(here, "..", "song-page.tsx");
 const songPageSrc = readFileSync(SONG_PAGE_PATH, "utf8");
+const moreActionsPanelSrc = songPageSrc.slice(
+  songPageSrc.indexOf("function SongMoreActionsPanel"),
+  songPageSrc.indexOf("function VersionDeliveryPanel"),
+);
 const managementDialogSrc = readFileSync(join(here, "..", "song-management-dialog.tsx"), "utf8");
 
 // ─── activeVersionToPlayerTrack ──────────────────────────────────────
@@ -540,20 +544,17 @@ describe("song-page.tsx source — secondary actions and public sharing", () => 
   });
 
   it("uses a truly disabled control with a reason when audio cannot be downloaded", () => {
-    const downloadControlSource = songPageSrc.slice(
-      songPageSrc.indexOf("{canUseDownloadAction ?"),
-      songPageSrc.indexOf(
-        '{role === "producer" &&',
-        songPageSrc.indexOf("{canUseDownloadAction ?"),
-      ),
+    expect(moreActionsPanelSrc).not.toContain("aria-disabled");
+    expect(moreActionsPanelSrc).toContain(
+      'title={activeVersionDeleted ? "Audio was deleted" : "Audio is still uploading"}',
     );
-    expect(downloadControlSource).not.toContain("aria-disabled");
-    expect(downloadControlSource).toContain(
-      "title={\n                          activeVersionDeleted",
-    );
-    expect(downloadControlSource).toContain(
-      'type="button"\n                        role="menuitem"\n                        disabled',
-    );
+    expect(moreActionsPanelSrc).toMatch(/type="button"\s+disabled/);
+  });
+
+  it("uses honest native disclosure semantics instead of an incomplete ARIA menu contract", () => {
+    expect(moreActionsPanelSrc).toContain('role="group"');
+    expect(moreActionsPanelSrc).not.toContain('role="menu"');
+    expect(moreActionsPanelSrc).not.toContain('role="menuitem"');
   });
 
   it("removes the local-only Favorite control", () => {
@@ -770,10 +771,35 @@ describe("song-page.tsx source — producer L3 management", () => {
     expect(songPageSrc).toContain("right-0 z-30");
   });
 
-  it("keeps the More menu inside true phone viewports", () => {
-    expect(songPageSrc).toContain("max-[400px]:fixed");
-    expect(songPageSrc).toContain("max-[400px]:inset-x-4");
-    expect(songPageSrc).toContain("max-[400px]:max-h-[calc(100dvh-2rem)]");
+  it("uses one action-panel component for the desktop popover and mobile sheet", () => {
+    expect(songPageSrc.match(/<SongMoreActionsPanel\s/g)).toHaveLength(2);
+    expect(songPageSrc.match(/\{\.\.\.moreActionsPanelProps\}/g)).toHaveLength(2);
+    expect(moreActionsPanelSrc).toContain("Download audio");
+    expect(moreActionsPanelSrc).toContain('onOpenManagement("rename-song")');
+    expect(moreActionsPanelSrc).toContain('onOpenManagement("edit-artist")');
+    expect(moreActionsPanelSrc).toContain('onOpenManagement("set-archived")');
+    expect(moreActionsPanelSrc).toContain('onOpenManagement("mark-released")');
+    expect(moreActionsPanelSrc).toContain('onOpenManagement("rename-version")');
+    expect(moreActionsPanelSrc).toContain('onOpenManagement("delete-version-audio")');
+  });
+
+  it("ports More actions into the shared bottom sheet below 1024px", () => {
+    expect(songPageSrc).toContain('const DESKTOP_MORE_ACTIONS_MEDIA_QUERY = "(min-width: 1024px)"');
+    expect(songPageSrc).toContain("aria-controls={overflowOpen ? moreActionsPanelId : undefined}");
+    expect(songPageSrc).toContain("open={overflowOpen && !isDesktopMoreActions}");
+    expect(songPageSrc).toMatch(/<SheetContent[\s\S]{0,160}?side="bottom"/);
+    expect(songPageSrc).toContain("openingManagementFromSheetRef.current");
+    expect(songPageSrc).toMatch(
+      /onCloseAutoFocus=\{\(event\) => \{[\s\S]{0,320}?moreButtonRef\.current\?\.focus\(\)/,
+    );
+    expect(songPageSrc).not.toContain("max-[400px]:fixed");
+  });
+
+  it("keeps the anchored popover and click-out dismissal desktop-only", () => {
+    expect(songPageSrc).toContain("overflowOpen && isDesktopMoreActions");
+    expect(songPageSrc).toContain("if (!overflowOpen || !isDesktopMoreActions) return;");
+    expect(songPageSrc).toContain('window.addEventListener("pointerdown", onDown)');
+    expect(songPageSrc).toContain("sk-pop absolute top-[calc(100%+8px)] right-0 z-30");
   });
 
   it("keeps permanent deletion for playable versions and exposes retry for tombstones", () => {
