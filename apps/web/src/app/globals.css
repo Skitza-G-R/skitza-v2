@@ -400,10 +400,14 @@
    * translucent pill. A strong opaque fallback keeps the tabs readable
    * in browsers that do not support backdrop-filter. */
   .producer-bottom-nav__glass {
+    --sk-nav-lens-x: 50%;
+    --sk-nav-lens-y: 34px;
+    --sk-nav-lens-width: clamp(66px, calc(20% - 2px), 82px);
     position: relative;
     isolation: isolate;
     min-height: 68px;
     overflow: hidden;
+    padding-bottom: max(0px, calc(env(safe-area-inset-bottom, 0px) - 8px));
     border: 1px solid rgb(var(--fg-onsidebar) / 0.14);
     border-radius: 24px;
     background: rgb(var(--bg-sidebar) / 0.94);
@@ -412,6 +416,9 @@
       inset -1px -1px 1px rgb(var(--fg-onsidebar) / 0.05),
       0 16px 40px -20px rgb(var(--bg-sidebar) / 0.72),
       0 4px 12px -6px rgb(var(--bg-sidebar) / 0.52);
+    touch-action: pan-y;
+    user-select: none;
+    -webkit-user-select: none;
   }
   @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     .producer-bottom-nav__glass {
@@ -440,14 +447,128 @@
     content: "";
     position: absolute;
     inset: 0;
-    z-index: 3;
+    z-index: 4;
     border-radius: inherit;
     box-shadow:
       inset 0 1px 0 rgb(var(--fg-onsidebar) / 0.08),
       inset 0 -1px 0 rgb(var(--bg-sidebar) / 0.24);
     pointer-events: none;
   }
+  .producer-bottom-nav__lens {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 3;
+    width: var(--sk-nav-lens-width);
+    height: 60px;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate3d(
+      calc(var(--sk-nav-lens-x) - 50%),
+      calc(var(--sk-nav-lens-y) - 50%),
+      0
+    );
+    transition:
+      transform 420ms var(--ease-press),
+      opacity 180ms var(--ease-out-strong);
+  }
+  .producer-bottom-nav__glass[data-lens-ready="true"] .producer-bottom-nav__lens {
+    opacity: 1;
+  }
+  .producer-bottom-nav__lens::before,
+  .producer-bottom-nav__lens::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 21px;
+    pointer-events: none;
+  }
+  .producer-bottom-nav__lens::before {
+    border: 1px solid rgb(var(--fg-onsidebar) / 0.1);
+    background:
+      radial-gradient(
+        circle at 32% 16%,
+        rgb(var(--fg-onsidebar) / 0.24),
+        transparent 38%
+      ),
+      linear-gradient(
+        145deg,
+        rgb(var(--fg-onsidebar) / 0.09),
+        rgb(var(--bg-sidebar) / 0.44)
+      );
+    box-shadow:
+      inset 0 1px 0 rgb(var(--fg-onsidebar) / 0.16),
+      inset 0 -1px 0 rgb(var(--bg-sidebar) / 0.28),
+      0 9px 18px -14px rgb(var(--bg-sidebar) / 0.82);
+    opacity: 0.7;
+    transform: scale(0.9);
+    transition:
+      opacity 180ms var(--ease-out-strong),
+      transform 260ms var(--ease-press),
+      background-color 180ms ease-out;
+  }
+  .producer-bottom-nav__lens::after {
+    inset: 2px;
+    border: 1px solid rgb(var(--brand-primary) / 0.11);
+    box-shadow: inset 0 0 0 0.5px rgb(var(--fg-onsidebar) / 0.05);
+    opacity: 0.66;
+    transform: scale(0.9);
+    transition:
+      opacity 180ms var(--ease-out-strong),
+      transform 260ms var(--ease-press);
+  }
+  .producer-bottom-nav__glass[data-interacting="true"] .producer-bottom-nav__lens {
+    transition: none;
+    will-change: transform;
+  }
+  .producer-bottom-nav__glass[data-interacting="true"] .producer-bottom-nav__lens::before {
+    opacity: 1;
+    transform: scale(1.055);
+  }
+  .producer-bottom-nav__glass[data-interacting="true"] .producer-bottom-nav__lens::after {
+    opacity: 1;
+    transform: scale(1.035);
+  }
+  .producer-bottom-nav__magnifier {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: block;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+    background: rgb(var(--bg-sidebar) / 0.96);
+    visibility: hidden;
+    clip-path: ellipse(
+      calc(var(--sk-nav-lens-width) / 2) 30px at var(--sk-nav-lens-x) var(--sk-nav-lens-y)
+    );
+    transition: opacity 120ms var(--ease-out-strong);
+  }
+  .producer-bottom-nav__magnifier-grid {
+    display: grid;
+    width: 100%;
+    height: 68px;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    filter: brightness(1.05) saturate(1.08);
+    transform: scale(1.13);
+    transform-origin: var(--sk-nav-lens-x) var(--sk-nav-lens-y);
+  }
+  .producer-bottom-nav__glass[data-interacting="true"] .producer-bottom-nav__magnifier {
+    opacity: 1;
+    visibility: visible;
+    will-change: clip-path;
+  }
+  .producer-bottom-nav__glass[data-interacting="true"]
+    .producer-bottom-nav__magnifier-grid {
+    will-change: transform;
+  }
+  .producer-bottom-nav__magnified-tab {
+    --sk-nav-proximity: 0;
+    position: relative;
+    min-height: 68px;
+  }
   .producer-bottom-nav__tab {
+    --sk-nav-proximity: 0;
     z-index: 1;
     border-radius: 20px;
     -webkit-tap-highlight-color: transparent;
@@ -472,6 +593,40 @@
   .producer-bottom-nav__tab > * {
     position: relative;
     z-index: 1;
+  }
+  .producer-bottom-nav__tab > svg,
+  .producer-bottom-nav__magnified-tab > svg {
+    transform: translate3d(
+        0,
+        calc(var(--sk-nav-proximity, 0) * -2.5px),
+        0
+      )
+      scale(calc(1 + var(--sk-nav-proximity, 0) * 0.045));
+    transition: transform 220ms var(--ease-press);
+  }
+  .producer-bottom-nav__tab > .producer-bottom-nav__label,
+  .producer-bottom-nav__magnified-tab > .producer-bottom-nav__label {
+    transform: translate3d(
+        0,
+        calc(var(--sk-nav-proximity, 0) * -1px),
+        0
+      )
+      scale(calc(1 + var(--sk-nav-proximity, 0) * 0.018));
+    transition:
+      transform 220ms var(--ease-press),
+      opacity 180ms var(--ease-out-strong);
+  }
+  .producer-bottom-nav__glass[data-interacting="true"] .producer-bottom-nav__tab > svg,
+  .producer-bottom-nav__glass[data-interacting="true"]
+    .producer-bottom-nav__magnified-tab
+    > svg,
+  .producer-bottom-nav__glass[data-interacting="true"]
+    .producer-bottom-nav__tab
+    > .producer-bottom-nav__label,
+  .producer-bottom-nav__glass[data-interacting="true"]
+    .producer-bottom-nav__magnified-tab
+    > .producer-bottom-nav__label {
+    transition-duration: 70ms;
   }
   .producer-bottom-nav__tab[data-active="true"]::before {
     border-color: rgb(var(--fg-onsidebar) / 0.1);
@@ -499,8 +654,9 @@
   /* PersistentPlayer dock — stacks above the producer bottom nav on
    * mobile (<1024px) so the audio dock + tab row never overlap.
    * The glass nav is a 68px row above at least 8px of bottom breathing
-   * room; the dock keeps 80px + safe-area clearance so browsers with
-   * a zero safe-area inset still retain a small visual gap.
+   * room. The glass now paints through the safe-area inset while its
+   * 68px tab row stays above the Home Indicator; the dock keeps 80px
+   * + safe-area clearance so the two interactive surfaces never overlap.
    * On lg+ the desktop sidebar replaces the bottom nav, so the dock
    * sits flush at the viewport bottom (Tailwind's `lg:bottom-0`
    * + `lg:sk-safe-bottom` take over via cascade). */
@@ -1620,7 +1776,18 @@
       animation: none !important;
       transform: none !important;
     }
-    .producer-bottom-nav__tab::before { transition: none !important; }
+    .producer-bottom-nav__lens,
+    .producer-bottom-nav__magnifier {
+      display: none !important;
+    }
+    .producer-bottom-nav__tab::before,
+    .producer-bottom-nav__tab > svg,
+    .producer-bottom-nav__tab > .producer-bottom-nav__label,
+    .producer-bottom-nav__magnified-tab > svg,
+    .producer-bottom-nav__magnified-tab > .producer-bottom-nav__label {
+      transition: none !important;
+      transform: none !important;
+    }
     .sk-sticky-nav-backing { transition: none !important; }
     .sk-sticky-nav-title { transform: none !important; }
     .sk-sidebar-shell { transition-duration: 0ms !important; }
