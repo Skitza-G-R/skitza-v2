@@ -86,22 +86,25 @@ function MoneyText({
   cents,
   currency,
   danger = false,
+  compactAtDesktop = false,
 }: {
   cents: number;
   currency: string;
   danger?: boolean;
+  compactAtDesktop?: boolean;
 }) {
   return (
     <span
       data-payment-money=""
       className={cn(
-        "inline-block max-w-full min-w-0 font-mono text-[clamp(10px,3vw,12px)] leading-[1.15] font-bold tabular-nums [overflow-wrap:anywhere]",
+        "inline-block max-w-full min-w-0 font-mono text-[clamp(10px,3vw,12px)] leading-[1.15] font-bold tabular-nums [overflow-wrap:anywhere] xl:max-w-none xl:[overflow-wrap:normal]",
+        compactAtDesktop && "xl:text-[11px]",
         danger && cents > 0
           ? "text-[rgb(var(--fg-danger))]"
           : "text-[rgb(var(--fg-default))]",
       )}
     >
-      <span data-payment-money-value="">
+      <span data-payment-money-value="" className="whitespace-nowrap">
         {formatMoney(cents, currency, { withCents: true })}
       </span>{" "}
       <span className="whitespace-nowrap text-[9px] tracking-[0.08em] text-[rgb(var(--fg-muted))]">
@@ -291,7 +294,7 @@ function ResponsivePurchaseRow({
           </p>
           {nextPayment ? (
             <>
-              <p className="mt-1 font-mono text-[11px] font-bold break-words text-[rgb(var(--fg-default))] tabular-nums xl:mt-0">
+              <p className="mt-1 font-mono text-[11px] font-bold break-words text-[rgb(var(--fg-default))] tabular-nums xl:mt-0 xl:whitespace-nowrap xl:[overflow-wrap:normal]">
                 {nextPayment.amount}
               </p>
               <p className="mt-0.5 text-[10px] leading-snug break-words text-[rgb(var(--fg-muted))] xl:mt-1 xl:text-[10.5px]">
@@ -304,15 +307,19 @@ function ResponsivePurchaseRow({
             </span>
           )}
         </td>
-        <td className="order-3 col-span-6 min-w-0 border-y border-[rgb(var(--border-subtle))] py-2.5 pr-1 align-top sm:col-span-4 xl:table-cell xl:border-0 xl:px-4 xl:py-3 xl:text-right">
+        <td className="order-3 col-span-6 min-w-0 border-y border-[rgb(var(--border-subtle))] py-2.5 pr-1 align-top sm:col-span-4 xl:table-cell xl:min-w-[110px] xl:border-0 xl:px-2 xl:py-3 xl:text-right">
           <p className="text-[8.5px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase xl:hidden">
             Paid
           </p>
           <div className="mt-1 xl:mt-0">
-            <MoneyText cents={purchase.paidCents} currency={purchase.currency} />
+            <MoneyText
+              cents={purchase.paidCents}
+              currency={purchase.currency}
+              compactAtDesktop
+            />
           </div>
         </td>
-        <td className="order-4 col-span-6 min-w-0 border-y border-[rgb(var(--border-subtle))] px-1 py-2.5 align-top sm:col-span-4 xl:table-cell xl:border-0 xl:px-4 xl:py-3 xl:text-right">
+        <td className="order-4 col-span-6 min-w-0 border-y border-[rgb(var(--border-subtle))] px-1 py-2.5 align-top sm:col-span-4 xl:table-cell xl:min-w-[110px] xl:border-0 xl:px-2 xl:py-3 xl:text-right">
           <p className="text-[8.5px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase xl:hidden">
             Due now
           </p>
@@ -321,10 +328,11 @@ function ResponsivePurchaseRow({
               cents={purchase.dueNowCents}
               currency={purchase.currency}
               danger
+              compactAtDesktop
             />
           </div>
         </td>
-        <td className="order-5 col-span-12 min-w-0 border-b border-[rgb(var(--border-subtle))] py-2.5 align-top sm:col-span-4 sm:border-y sm:pl-1 xl:table-cell xl:border-0 xl:px-4 xl:py-3 xl:text-right">
+        <td className="order-5 col-span-12 min-w-0 border-b border-[rgb(var(--border-subtle))] py-2.5 align-top sm:col-span-4 sm:border-y sm:pl-1 xl:table-cell xl:min-w-[110px] xl:border-0 xl:px-2 xl:py-3 xl:text-right">
           <p className="text-[8.5px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase xl:hidden">
             Remaining
           </p>
@@ -332,6 +340,7 @@ function ResponsivePurchaseRow({
             <MoneyText
               cents={purchase.totalRemainingCents}
               currency={purchase.currency}
+              compactAtDesktop
             />
           </div>
         </td>
@@ -617,7 +626,7 @@ export function ProducerPaymentWorkspace({
           )}
         </div>
       ) : (
-        <div className="min-w-0 xl:overflow-x-auto xl:rounded-[var(--radius-lg)] xl:border xl:border-[rgb(var(--border-subtle))] xl:bg-[rgb(var(--bg-elevated))]">
+        <div className="min-w-0 max-w-full xl:overflow-x-auto xl:rounded-[var(--radius-lg)] xl:border xl:border-[rgb(var(--border-subtle))] xl:bg-[rgb(var(--bg-elevated))]">
           <table className="block w-full min-w-0 border-collapse text-left xl:table xl:min-w-[980px]">
             <caption className="sr-only">{tableCaption}</caption>
             <thead className="hidden xl:table-header-group">
