@@ -419,25 +419,39 @@ function PurchaseHistory({
         </span>
       </summary>
 
-      <div className="min-w-0 space-y-5 border-t border-[rgb(var(--border-subtle))] p-3 sm:p-4">
-        <PaymentSnapshot purchase={purchase} role={role} />
-        <PurchaseDelivery delivery={purchase.delivery} currency={purchase.currency} />
-        <FrozenAgreement
-          terms={purchase.frozenTerms}
-          currency={purchase.currency}
-          headingId={`purchase-${purchase.id}-frozen-terms`}
-        />
-        <AcceptanceAndPlan acceptance={purchase.acceptance} plan={purchase.plan} />
-        <InstallmentSchedule
-          schedule={purchase.schedule}
-          currency={purchase.currency}
-          purchaseId={purchase.id}
-          purchaseReference={purchase.reference}
-          role={role}
-        />
-        <PurchaseHistories purchase={purchase} role={role} />
-      </div>
+      <PaymentHistoryPurchaseDetails purchase={purchase} role={role} />
     </details>
+  );
+}
+
+export function PaymentHistoryPurchaseDetails({
+  purchase,
+  role,
+  idPrefix = `purchase-${purchase.id}`,
+}: {
+  purchase: PaymentHistoryPurchase;
+  role: PaymentHistoryRole;
+  idPrefix?: string;
+}) {
+  return (
+    <div className="min-w-0 space-y-5 border-t border-[rgb(var(--border-subtle))] p-3 sm:p-4">
+      <PaymentSnapshot purchase={purchase} role={role} />
+      <PurchaseDelivery delivery={purchase.delivery} currency={purchase.currency} />
+      <FrozenAgreement
+        terms={purchase.frozenTerms}
+        currency={purchase.currency}
+        headingId={`${idPrefix}-frozen-terms`}
+      />
+      <AcceptanceAndPlan acceptance={purchase.acceptance} plan={purchase.plan} />
+      <InstallmentSchedule
+        schedule={purchase.schedule}
+        currency={purchase.currency}
+        purchaseId={purchase.id}
+        purchaseReference={purchase.reference}
+        role={role}
+      />
+      <PurchaseHistories purchase={purchase} role={role} />
+    </div>
   );
 }
 

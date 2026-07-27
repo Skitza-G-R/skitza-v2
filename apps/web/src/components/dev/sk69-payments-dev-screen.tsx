@@ -10,6 +10,8 @@ import {
   type PaymentHistoryProject,
   type PaymentHistorySectionDescriptor,
 } from "~/components/payments/payment-history-view";
+import { ProducerPaymentWorkspace } from "~/components/payments/producer-payment-workspace";
+import type { PaymentWorkspaceBucket } from "~/components/payments/producer-payment-workspace-model";
 
 type Surface =
   | "producer-payments"
@@ -196,6 +198,256 @@ const SHARED_PROJECT: PaymentHistoryProject = {
   ],
 };
 
+const SHARED_PURCHASE = SHARED_PROJECT.purchases[0];
+
+if (!SHARED_PURCHASE) {
+  throw new Error("The SK-69 safe browser fixture requires its shared purchase.");
+}
+
+const UPCOMING_PROJECT: PaymentHistoryProject = {
+  ...SHARED_PROJECT,
+  id: "project-sk120-upcoming",
+  title: "Neon Rooms",
+  status: { label: "Active", tone: "active" },
+  currencyTotals: [{ currency: "USD", dueNowCents: 0, totalRemainingCents: 180_000 }],
+  purchases: [
+    {
+      ...SHARED_PURCHASE,
+      id: "purchase-sk120-upcoming",
+      reference: "SK-120USD",
+      title: "EP mix package",
+      currency: "USD",
+      status: { label: "Upcoming", tone: "accent" },
+      defaultOpen: false,
+      totalCents: 180_000,
+      paidCents: 0,
+      dueNowCents: 0,
+      totalRemainingCents: 180_000,
+      delivery: {
+        ...SHARED_PURCHASE.delivery,
+        key: "locked",
+        label: "Downloads locked",
+        description: "Downloads and extra deliverables unlock only after full payment.",
+        paidCents: 0,
+        remainingCents: 180_000,
+        overdue: false,
+      },
+      frozenTerms: {
+        ...SHARED_PURCHASE.frozenTerms,
+        productName: "EP mix package",
+        deliverables: ["Four mixed masters", "Instrumentals", "Vocal stems"],
+        lineItems: [
+          {
+            id: "line-sk120-upcoming",
+            label: "EP mix package",
+            quantity: 1,
+            unitPriceCents: 180_000,
+            totalCents: 180_000,
+          },
+        ],
+        subtotalCents: 180_000,
+        totalCents: 180_000,
+      },
+      acceptance: {
+        ...SHARED_PURCHASE.acceptance,
+        acceptedAtIso: "2026-07-22T09:00:00.000Z",
+      },
+      plan: {
+        label: "One payment",
+        description: "The full balance is scheduled before delivery.",
+      },
+      schedule: [
+        {
+          id: "installment-sk120-upcoming",
+          position: 1,
+          label: "Payment 1",
+          amountCents: 180_000,
+          paidCents: 0,
+          waivedCents: 0,
+          remainingCents: 180_000,
+          dueAtIso: "2026-08-12T09:00:00.000Z",
+          trigger: "Before final delivery",
+          status: { label: "Upcoming", tone: "accent" },
+        },
+      ],
+      nextPayment: {
+        amountCents: 180_000,
+        dueAtIso: "2026-08-12T09:00:00.000Z",
+        trigger: "Before final delivery",
+      },
+      showPayNextPayment: false,
+      proofs: [],
+      payments: [],
+      corrections: [],
+      waivers: [],
+      cancellations: [],
+      pauseHistory: [],
+      downloadOverrideHistory: [],
+    },
+  ],
+};
+
+const EXTREME_MONEY_PROJECT: PaymentHistoryProject = {
+  ...SHARED_PROJECT,
+  id: "project-sk120-extreme-money",
+  title: "Symphonic Album & Global Release Campaign",
+  status: { label: "Active", tone: "active" },
+  currencyTotals: [
+    { currency: "ILS", dueNowCents: 123_456_789, totalRemainingCents: 530_865_309 },
+  ],
+  purchases: [
+    {
+      ...SHARED_PURCHASE,
+      id: "purchase-sk120-extreme-money",
+      reference: "SK-120MAX",
+      title: "12-track album production and spatial masters",
+      currency: "ILS",
+      status: { label: "Due now", tone: "warning" },
+      defaultOpen: false,
+      totalCents: 987_654_321,
+      paidCents: 456_789_012,
+      dueNowCents: 123_456_789,
+      totalRemainingCents: 530_865_309,
+      delivery: {
+        ...SHARED_PURCHASE.delivery,
+        key: "locked",
+        label: "Downloads locked",
+        description: "Downloads and extra deliverables unlock only after full payment.",
+        paidCents: 456_789_012,
+        remainingCents: 530_865_309,
+        overdue: false,
+      },
+      frozenTerms: {
+        ...SHARED_PURCHASE.frozenTerms,
+        frozenAtIso: "2026-07-24T09:00:00.000Z",
+        productName: "12-track album production and spatial masters",
+        deliverables: [
+          "12 mixed masters",
+          "12 instrumental masters",
+          "Dolby Atmos spatial masters",
+        ],
+        lineItems: [
+          {
+            id: "line-sk120-extreme-money",
+            label: "Album production and spatial-master package",
+            quantity: 1,
+            unitPriceCents: 987_654_321,
+            totalCents: 987_654_321,
+          },
+        ],
+        subtotalCents: 987_654_321,
+        totalCents: 987_654_321,
+      },
+      acceptance: {
+        ...SHARED_PURCHASE.acceptance,
+        acceptedAtIso: "2026-07-24T09:00:00.000Z",
+      },
+      plan: {
+        label: "Three milestones",
+        description: "Deposit, orchestral recording lock, and final delivery.",
+      },
+      schedule: [
+        {
+          id: "installment-1-sk120-extreme-money",
+          position: 1,
+          label: "Deposit",
+          amountCents: 456_789_012,
+          paidCents: 456_789_012,
+          waivedCents: 0,
+          remainingCents: 0,
+          dueAtIso: "2026-07-24T09:00:00.000Z",
+          trigger: "At acceptance",
+          status: { label: "Paid", tone: "success" },
+        },
+        {
+          id: "installment-2-sk120-extreme-money",
+          position: 2,
+          label: "Orchestral recording lock",
+          amountCents: 123_456_789,
+          paidCents: 0,
+          waivedCents: 0,
+          remainingCents: 123_456_789,
+          dueAtIso: "2026-07-27T09:00:00.000Z",
+          trigger: "At orchestral recording lock",
+          status: { label: "Due now", tone: "warning" },
+        },
+        {
+          id: "installment-3-sk120-extreme-money",
+          position: 3,
+          label: "Final delivery",
+          amountCents: 407_408_520,
+          paidCents: 0,
+          waivedCents: 0,
+          remainingCents: 407_408_520,
+          dueAtIso: "2026-10-30T09:00:00.000Z",
+          trigger: "Before final delivery",
+          status: { label: "Upcoming", tone: "accent" },
+        },
+      ],
+      nextPayment: {
+        amountCents: 123_456_789,
+        dueAtIso: "2026-07-27T09:00:00.000Z",
+        trigger: "At orchestral recording lock",
+      },
+      showPayNextPayment: false,
+      currentInstructions: {
+        title: "Current producer payment instructions",
+        updatedAtIso: null,
+        fields: [
+          {
+            label: "Bank transfer",
+            value: "Bank Hapoalim · branch 613 · account 12-345678",
+          },
+          { label: "Bit phone", value: "052-000-0000" },
+        ],
+        note: "Include SK-120MAX in the transfer note.",
+      },
+      proofs: [
+        {
+          id: "proof-sk120-extreme-money",
+          installmentLabel: "Deposit",
+          amountCents: 456_789_012,
+          currency: "ILS",
+          status: "confirmed",
+          originalFileName: "album-deposit-transfer.pdf",
+          submittedAtIso: "2026-07-24T09:30:00.000Z",
+          reviewedAtIso: "2026-07-24T09:45:00.000Z",
+          note: "Accepted-purchase deposit transfer.",
+          rejectionNote: null,
+          detailAvailable: false,
+        },
+      ],
+      payments: [
+        {
+          id: "payment-sk120-extreme-money",
+          installmentLabel: "Deposit",
+          amountCents: 456_789_012,
+          currency: "ILS",
+          paidAtIso: "2026-07-24T09:45:00.000Z",
+          sourceLabel: "Confirmed from proof",
+          note: null,
+        },
+      ],
+      corrections: [],
+      waivers: [],
+      cancellations: [],
+      pauseHistory: [],
+      downloadOverrideHistory: [],
+    },
+  ],
+};
+
+const WORKSPACE_BUCKETS: readonly PaymentWorkspaceBucket[] = [
+  { id: "needs_review", label: "Needs review", projects: [] },
+  {
+    id: "due_or_overdue",
+    label: "Due now",
+    projects: [SHARED_PROJECT, EXTREME_MONEY_PROJECT],
+  },
+  { id: "upcoming", label: "Upcoming", projects: [UPCOMING_PROJECT] },
+  { id: "history", label: "History", projects: [] },
+];
+
 const SECTIONS: Record<
   Exclude<Surface, "dashboard" | "artist-home" | "requests">,
   PaymentHistorySectionDescriptor
@@ -236,11 +488,7 @@ const SECTIONS: Record<
 
 export function Sk69PaymentsDevScreen() {
   const [surface, setSurface] = useState<Surface>("producer-payments");
-  const paymentSurface =
-    surface === "producer-payments" ||
-    surface === "artist-payments" ||
-    surface === "project" ||
-    surface === "client";
+  const paymentHistorySurface = surface === "artist-payments" || surface === "project";
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-[1180px] px-4 py-5 sm:px-6 sm:py-8">
@@ -278,7 +526,14 @@ export function Sk69PaymentsDevScreen() {
       </div>
 
       <section data-testid={`sk69-surface-${surface}`}>
-        {paymentSurface ? (
+        {surface === "producer-payments" ? (
+          <ProducerPaymentWorkspace
+            buckets={WORKSPACE_BUCKETS}
+            scope="global"
+            defaultView="open"
+          />
+        ) : null}
+        {paymentHistorySurface ? (
           <PaymentHistoryView
             role={surface === "artist-payments" ? "artist" : "producer"}
             data={{
@@ -286,6 +541,14 @@ export function Sk69PaymentsDevScreen() {
               currencyTotals: SHARED_PROJECT.currencyTotals,
               projects: [SHARED_PROJECT],
             }}
+          />
+        ) : null}
+        {surface === "client" ? (
+          <ProducerPaymentWorkspace
+            buckets={WORKSPACE_BUCKETS}
+            scope="client"
+            clientLabel="Maya Cohen"
+            defaultView="all"
           />
         ) : null}
         {surface === "dashboard" ? <DashboardFixture /> : null}

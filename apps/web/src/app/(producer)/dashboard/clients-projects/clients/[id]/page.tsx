@@ -6,14 +6,11 @@ import {
   type ClientSpaceHeroData,
 } from "~/components/dashboard/clients/client-space-hero";
 import type { ClientMoneyLedgerData } from "~/components/dashboard/clients/client-money-ledger";
-import {
-  allPaymentsBucket,
-  toPaymentHistoryViewData,
-} from "~/components/payments/payment-history-adapter";
-import { PaymentHistoryView } from "~/components/payments/payment-history-view";
 import { ProjectRow, type ProjectRowData } from "~/components/dashboard/projects/project-row";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
 import { PrivateOfferManager } from "~/components/dashboard/offers/private-offer-manager";
+import { ProducerPaymentWorkspace } from "~/components/payments/producer-payment-workspace";
+import { toProducerPaymentWorkspaceBuckets } from "~/components/payments/producer-payment-workspace-data";
 import { coerceTaxMode } from "~/lib/tax-mode";
 import { CLIENT_ARCHIVE_BLOCKED_MESSAGE } from "~/server/domain/client-management/service";
 import type { ClientMoneyHistory } from "~/server/domain/client-money/service";
@@ -69,6 +66,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
   // projects — kept here (preserved helper) rather than inside the
   // hero so the date-comparison logic stays presentational-free.
   const nextSession = pickNextSession(detail.projects);
+  const workspaceBuckets = toProducerPaymentWorkspaceBuckets(payments.producerBuckets);
   const singleCurrencyTotal = payments.totals.length === 1 ? payments.totals[0] : undefined;
 
   // Build the hero payload. linkState reads invitedAt / clerkUserId off
@@ -207,25 +205,29 @@ export default async function ClientDetailPage({ params }: PageProps) {
           ) : null}
         </section>
 
-        <div className="mt-8">
-          <PaymentHistoryView
-            role="producer"
-            data={toPaymentHistoryViewData(
-              allPaymentsBucket(payments.projects, payments.totals),
-              {
-                id: "client-payment-history",
-                eyebrow: "Commercial history",
-                title: "Payments",
-                description:
-                  "Every accepted purchase, payment, and proof grouped by project. Currencies are never combined.",
-                emptyTitle: "No purchases or payments yet",
-                emptyDescription:
-                  "Accepted purchases and their immutable money history will appear here.",
-              },
-              "producer",
-            )}
+        <section className="mt-8" aria-labelledby="client-payments-title">
+          <header className="mb-4">
+            <p className="font-mono text-[10px] font-bold tracking-[0.14em] text-[rgb(var(--brand-primary-text))] uppercase">
+              Commercial history
+            </p>
+            <h2
+              id="client-payments-title"
+              className="font-display mt-1 text-[22px] font-extrabold tracking-[-0.025em] text-[rgb(var(--fg-default))]"
+            >
+              Payments
+            </h2>
+            <p className="mt-1 max-w-[68ch] text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
+              Filter this client&apos;s balances and history by project. Every amount remains tied
+              to its accepted purchase and currency.
+            </p>
+          </header>
+          <ProducerPaymentWorkspace
+            buckets={workspaceBuckets}
+            scope="client"
+            clientLabel={detail.contact.name}
+            defaultView="all"
           />
-        </div>
+        </section>
       </div>
     </main>
   );

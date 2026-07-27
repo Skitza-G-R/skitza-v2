@@ -9,9 +9,9 @@ const source = readFileSync(join(here, "..", "page.tsx"), "utf8");
 
 describe("SK-93 client detail", () => {
   it("renders the complete purchase-owned client ledger", () => {
-    expect(source).toContain("PaymentHistoryView");
+    expect(source).toContain("ProducerPaymentWorkspace");
     expect(source).toMatch(/purchaseLedger\.client/);
-    expect(source).toMatch(/allPaymentsBucket\(payments\.projects, payments\.totals\)/);
+    expect(source).toMatch(/toProducerPaymentWorkspaceBuckets\(payments\.producerBuckets\)/);
     expect(source).not.toMatch(/<ClientMoneyLedger/);
   });
 
@@ -24,6 +24,6 @@ describe("SK-93 client detail", () => {
   it("keeps the project list and money ledger visible for archived clients", () => {
     expect(source).toMatch(/<ClientSpaceHero/);
     expect(source).toMatch(/<ProjectRow/);
-    expect(source).toMatch(/<PaymentHistoryView/);
+    expect(source).toMatch(/<ProducerPaymentWorkspace/);
   });
 });
