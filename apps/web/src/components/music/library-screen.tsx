@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { EqBars } from "~/components/audio/eq-bars";
 import { playerPlay, playerToggle, useNowPlaying } from "~/components/audio/persistent-player";
+import { useTabSwipe } from "~/components/native/use-tab-swipe";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 
 import { ProjectCover } from "./project-cover";
@@ -130,6 +131,8 @@ type SongSort = "recent" | "title" | "notes" | "length";
 type ProjectArchiveFilter = "active" | "archived";
 export type SongArchiveFilter = "active" | "archived";
 
+const MUSIC_LIBRARY_MODES = ["projects", "songs"] as const;
+
 export interface MusicLibraryUrlState {
   mode: Mode;
   view: View;
@@ -149,7 +152,7 @@ function enumerated<T extends string>(
 export function parseMusicLibraryUrlState(search: string): MusicLibraryUrlState {
   const params = new URLSearchParams(search);
   return {
-    mode: enumerated(params.get("mode"), ["projects", "songs"], "projects"),
+    mode: enumerated(params.get("mode"), ["projects", "songs"], "songs"),
     view: enumerated(params.get("view"), ["grid", "table"], "grid"),
     search: (params.get("search") ?? "").slice(0, 120),
     sort: enumerated(params.get("sort"), ["recent", "title", "notes", "length"], "recent"),
@@ -401,8 +404,14 @@ export function MusicLibraryScreen({
 
   function updateMode(next: Mode) {
     setMode(next);
-    replaceUrlState("mode", next, "projects");
+    replaceUrlState("mode", next, "songs");
   }
+
+  const modeSwipeHandlers = useTabSwipe({
+    items: MUSIC_LIBRARY_MODES,
+    value: mode,
+    onChange: updateMode,
+  });
 
   function updateView(next: View) {
     setView(next);
@@ -670,7 +679,14 @@ export function MusicLibraryScreen({
       ) : null}
 
       {/* Body — one results region updated by the two pressed-button groups. */}
-      <div id={RESULTS_PANEL_ID} role="region" aria-label="Library results">
+      <div
+        id={RESULTS_PANEL_ID}
+        role="region"
+        aria-label="Library results"
+        className="[touch-action:pan-y_pinch-zoom]"
+        data-tab-swipe-surface
+        {...modeSwipeHandlers}
+      >
         {mode === "projects" && visibleProjects.length === 0 ? (
           <EmptyResult
             hasQuery={Boolean(search.trim()) || artist !== "all"}
@@ -1068,10 +1084,7 @@ function ProjectsGrid({
     // auto-fill behavior applies unchanged.
     <ul
       role="list"
-      className={[
-        "grid gap-3.5 sm:grid-cols-[repeat(auto-fill,minmax(196px,1fr))] sm:gap-[22px]",
-        role === "producer" ? "grid-cols-1" : "grid-cols-2",
-      ].join(" ")}
+      className="grid grid-cols-2 gap-3.5 sm:grid-cols-[repeat(auto-fill,minmax(196px,1fr))] sm:gap-[22px]"
     >
       {projects.map((p, i) => (
         // Featured span applies from sm: up only — below 640px the

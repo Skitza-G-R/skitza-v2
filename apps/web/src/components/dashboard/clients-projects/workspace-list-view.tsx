@@ -14,6 +14,7 @@ import { NewProjectModal } from "~/components/dashboard/clients/new-project-moda
 import { EditClientModal } from "~/components/dashboard/clients/edit-client-modal";
 import { ClientArchiveConfirmModal } from "~/components/dashboard/clients/client-archive-confirm-modal";
 import { StatTile } from "~/components/dashboard/common/stat-tile";
+import { useTabSwipe } from "~/components/native/use-tab-swipe";
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 import { ClientCompactRow } from "~/components/dashboard/clients/client-compact-row";
 import { useToast } from "~/components/ui/toast";
@@ -75,6 +76,8 @@ type ClientFilter = (typeof CLIENT_FILTERS)[number]["value"];
 
 type Tab = "projects" | "clients";
 type Layout = "cards" | "table";
+
+const WORKSPACE_TABS = ["clients", "projects"] as const;
 
 export interface WorkspaceUrlState {
   tab: Tab;
@@ -253,6 +256,12 @@ export function WorkspaceListView({
             : projectFilter,
     });
   }
+
+  const tabSwipeHandlers = useTabSwipe({
+    items: WORKSPACE_TABS,
+    value: tab,
+    onChange: updateTab,
+  });
 
   function updateSort(next: SortValue) {
     setSort(next);
@@ -927,111 +936,117 @@ export function WorkspaceListView({
           : `Clients · ${String(filteredClients.length)}`}
       </p>
 
-      {/* The list — G18 wires layout switching for both tabs */}
-      {tab === "projects" && filteredProjects.length === 0 ? (
-        <ProjectEmptyState
-          kind={projectFilter}
-          onViewActive={() => {
-            updateProjectFilter("active");
-          }}
-          onAddProject={() => {
-            setNewProjectOpen(true);
-          }}
-        />
-      ) : tab === "projects" ? (
-        <div className="flex flex-col gap-2">
-          {layout === "table" ? (
-            <ProjectsTableHeader sort={sort} onSortChange={updateSort} />
-          ) : null}
-          {filteredProjects.map((p) => (
-            <ProjectRow
-              key={p.id}
-              row={p}
-              {...(onReorderProjects
-                ? {
-                    onDragStart: handleProjectDragStart,
-                    onDragOver: handleProjectDragOver,
-                    onDrop: handleProjectDrop,
-                    onMove: handleProjectMove,
-                  }
-                : {})}
-            />
-          ))}
-        </div>
-      ) : filteredClients.length === 0 ? (
-        <ClientEmptyState
-          kind={
-            deferredClientSearch.length > 0
-              ? clientFilter === "archived"
-                ? "archived-search"
-                : "active-search"
-              : clientFilter === "archived"
-                ? "archived"
-                : "active"
-          }
-          onClearSearch={() => {
-            updateClientSearch("");
-          }}
-          onAddClient={() => {
-            setNewClientOpen(true);
-          }}
-          onViewActive={() => {
-            updateClientFilter("active");
-          }}
-        />
-      ) : (
-        <>
-          {/* The client roster chooses its responsive density automatically:
-              two-line rows on phones and one aligned compact list on desktop. */}
-          <div
-            role="list"
-            aria-label="Clients"
-            className="rounded-[var(--radius-md)] border md:hidden"
-            style={{
-              background: "rgb(var(--bg-elevated))",
-              borderColor: "rgb(var(--border-subtle))",
+      <div
+        className="[touch-action:pan-y_pinch-zoom]"
+        data-tab-swipe-surface
+        {...tabSwipeHandlers}
+      >
+        {/* The list — G18 wires layout switching for both tabs */}
+        {tab === "projects" && filteredProjects.length === 0 ? (
+          <ProjectEmptyState
+            kind={projectFilter}
+            onViewActive={() => {
+              updateProjectFilter("active");
             }}
-          >
-            {filteredClients.map((c, i) => (
-              <MobileClientRow
-                key={c.id}
-                client={c}
-                onInvite={handleInviteClient}
-                onEdit={setEditTarget}
-                onArchive={setArchiveTarget}
-                onActionStart={rememberClientActionTrigger}
-                divider={i < filteredClients.length - 1}
+            onAddProject={() => {
+              setNewProjectOpen(true);
+            }}
+          />
+        ) : tab === "projects" ? (
+          <div className="flex flex-col gap-2">
+            {layout === "table" ? (
+              <ProjectsTableHeader sort={sort} onSortChange={updateSort} />
+            ) : null}
+            {filteredProjects.map((p) => (
+              <ProjectRow
+                key={p.id}
+                row={p}
+                {...(onReorderProjects
+                  ? {
+                      onDragStart: handleProjectDragStart,
+                      onDragOver: handleProjectDragOver,
+                      onDrop: handleProjectDrop,
+                      onMove: handleProjectMove,
+                    }
+                  : {})}
               />
             ))}
           </div>
-          <div
-            className="hidden rounded-[var(--radius-md)] border md:block"
-            style={{
-              background: "rgb(var(--bg-elevated))",
-              borderColor: "rgb(var(--border-subtle))",
+        ) : filteredClients.length === 0 ? (
+          <ClientEmptyState
+            kind={
+              deferredClientSearch.length > 0
+                ? clientFilter === "archived"
+                  ? "archived-search"
+                  : "active-search"
+                : clientFilter === "archived"
+                  ? "archived"
+                  : "active"
+            }
+            onClearSearch={() => {
+              updateClientSearch("");
             }}
-          >
-            <ClientsTableHeader sort={sort} onSortChange={updateSort} />
+            onAddClient={() => {
+              setNewClientOpen(true);
+            }}
+            onViewActive={() => {
+              updateClientFilter("active");
+            }}
+          />
+        ) : (
+          <>
+            {/* The client roster chooses its responsive density automatically:
+                two-line rows on phones and one aligned compact list on desktop. */}
             <div
               role="list"
               aria-label="Clients"
-              className="flex flex-col"
-              data-testid="clients-table-body"
+              className="rounded-[var(--radius-md)] border md:hidden"
+              style={{
+                background: "rgb(var(--bg-elevated))",
+                borderColor: "rgb(var(--border-subtle))",
+              }}
             >
-              {filteredClients.map((c) => (
-                <ClientCompactRow
+              {filteredClients.map((c, i) => (
+                <MobileClientRow
                   key={c.id}
                   client={c}
                   onInvite={handleInviteClient}
                   onEdit={setEditTarget}
                   onArchive={setArchiveTarget}
                   onActionStart={rememberClientActionTrigger}
+                  divider={i < filteredClients.length - 1}
                 />
               ))}
             </div>
-          </div>
-        </>
-      )}
+            <div
+              className="hidden rounded-[var(--radius-md)] border md:block"
+              style={{
+                background: "rgb(var(--bg-elevated))",
+                borderColor: "rgb(var(--border-subtle))",
+              }}
+            >
+              <ClientsTableHeader sort={sort} onSortChange={updateSort} />
+              <div
+                role="list"
+                aria-label="Clients"
+                className="flex flex-col"
+                data-testid="clients-table-body"
+              >
+                {filteredClients.map((c) => (
+                  <ClientCompactRow
+                    key={c.id}
+                    client={c}
+                    onInvite={handleInviteClient}
+                    onEdit={setEditTarget}
+                    onArchive={setArchiveTarget}
+                    onActionStart={rememberClientActionTrigger}
+                  />
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
 
       {inviteTarget ? (
         <InviteToAppModal
