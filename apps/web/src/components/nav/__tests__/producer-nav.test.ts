@@ -55,6 +55,10 @@ describe("producer nav: Portfolio in sidebar only", () => {
     expect(SIDEBAR.match(/prefetch=\{false\}/g)).toHaveLength(2);
     expect(BOTTOM).toContain("announceRuntimeMainNavigationIntent(tab.href)");
     expect(SIDEBAR.match(/announceRuntimeMainNavigationIntent/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(BOTTOM).toContain("data-sk-nav-destination={tab.href}");
+    expect(SIDEBAR.match(/data-sk-nav-destination=/g)).toHaveLength(2);
+    expect(BOTTOM).toContain("captureRuntimeMainNavigationTarget(event.currentTarget)");
+    expect(SIDEBAR.match(/captureRuntimeMainNavigationTarget/g)?.length).toBeGreaterThanOrEqual(3);
   });
 
   it("keeps the warmed producer screen open when a tab is tapped offline", () => {

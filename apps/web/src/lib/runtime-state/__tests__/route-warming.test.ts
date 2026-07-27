@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createRuntimeNavigationSessionCache } from "../navigation-cache";
 import {
+  markRuntimeNavigationIntent,
+  RUNTIME_NAVIGATION_COMMIT_MARK,
+  RUNTIME_NAVIGATION_COMMIT_MEASURE,
+  RUNTIME_NAVIGATION_INTENT_MARK,
   runtimeResourceCompletionForHref,
   scheduleRuntimeIdleFallback,
   startObservedRuntimeRequest,
@@ -60,6 +64,7 @@ describe("runtime RSC completion matching", () => {
       runtimeResourceCompletionForHref(
         {
           name: `${origin}/artist/music?_rsc=abc&studio=studio-1`,
+          responseStatusSupported: true,
           responseStatus: 200,
         },
         "/artist/music?studio=studio-1",
@@ -70,6 +75,7 @@ describe("runtime RSC completion matching", () => {
       runtimeResourceCompletionForHref(
         {
           name: `${origin}/artist/music?studio=studio-1&_rsc=abc&view=grid`,
+          responseStatusSupported: true,
           responseStatus: 200,
         },
         "/artist/music?studio=studio-1",
@@ -80,6 +86,7 @@ describe("runtime RSC completion matching", () => {
       runtimeResourceCompletionForHref(
         {
           name: `${origin}/artist/music?_rsc=abc&studio=studio-2`,
+          responseStatusSupported: true,
           responseStatus: 200,
         },
         "/artist/music?studio=studio-1",
@@ -90,6 +97,7 @@ describe("runtime RSC completion matching", () => {
       runtimeResourceCompletionForHref(
         {
           name: `${origin}/artist/music?studio=studio-1`,
+          responseStatusSupported: true,
           responseStatus: 200,
         },
         "/artist/music?studio=studio-1",
@@ -102,6 +110,7 @@ describe("runtime RSC completion matching", () => {
     const origin = "https://skitza.test";
     const resource = (responseStatus?: number): RuntimeObservedResourceTiming => ({
       name: `${origin}/dashboard/music?_rsc=ready`,
+      responseStatusSupported: true,
       responseStatus,
     });
 
@@ -117,6 +126,21 @@ describe("runtime RSC completion matching", () => {
     expect(runtimeResourceCompletionForHref(resource(), "/dashboard/music", origin)).toBe(
       "unverified",
     );
+  });
+
+  it("uses a distinct UX-only completion when Safari has no responseStatus property", () => {
+    const origin = "https://skitza.test";
+
+    expect(
+      runtimeResourceCompletionForHref(
+        {
+          name: `${origin}/dashboard/music?_rsc=ready`,
+          responseStatusSupported: false,
+        },
+        "/dashboard/music",
+        origin,
+      ),
+    ).toBe("safari-compatible");
   });
 });
 
@@ -151,8 +175,11 @@ describe("observed runtime requests", () => {
       cancel,
       clearTimeout,
       onComplete,
-      resource: (name: string, responseStatus?: number) =>
-        resourceListener?.({ name, responseStatus }),
+      resource: (
+        name: string,
+        responseStatus?: number,
+        responseStatusSupported = true,
+      ) => resourceListener?.({ name, responseStatus, responseStatusSupported }),
       start,
       timeout: () => timeoutCallback?.(),
     };
@@ -182,6 +209,16 @@ describe("observed runtime requests", () => {
       expect(request.onComplete).toHaveBeenCalledWith(expected);
     },
   );
+
+  it("settles with the Safari-compatible result only when responseStatus is unsupported", () => {
+    const request = setupObservedRequest();
+    request.resource(
+      "https://skitza.test/dashboard/music?_rsc=ready",
+      undefined,
+      false,
+    );
+    expect(request.onComplete).toHaveBeenCalledWith("safari-compatible");
+  });
 
   it("settles as an error when router.prefetch throws", () => {
     const onComplete = vi.fn<(completion: RuntimePrefetchCompletion) => void>();
@@ -292,24 +329,27 @@ describe("serial runtime route warming", () => {
     };
   }
 
-  it("starts one destination and waits for completion before scheduling the next", () => {
-    const scheduler = setupScheduler();
-    expect(scheduler.idleCallbacks).toHaveLength(1);
+  it.each(["success", "safari-compatible"] as const)(
+    "marks a destination ready after %s completion and then schedules the next",
+    (completion) => {
+      const scheduler = setupScheduler();
+      expect(scheduler.idleCallbacks).toHaveLength(1);
 
-    scheduler.runNextIdle();
-    expect(scheduler.prefetches.map(({ href }) => href)).toEqual(["/dashboard/music"]);
-    expect(scheduler.idleCallbacks).toHaveLength(1);
-    expect(scheduler.cache.isReady("/dashboard/music")).toBe(false);
+      scheduler.runNextIdle();
+      expect(scheduler.prefetches.map(({ href }) => href)).toEqual(["/dashboard/music"]);
+      expect(scheduler.idleCallbacks).toHaveLength(1);
+      expect(scheduler.cache.isReady("/dashboard/music")).toBe(false);
 
-    scheduler.completePrefetch(0, "success");
-    expect(scheduler.cache.isReady("/dashboard/music")).toBe(true);
-    expect(scheduler.idleCallbacks).toHaveLength(2);
-    scheduler.runNextIdle();
-    expect(scheduler.prefetches.map(({ href }) => href)).toEqual([
-      "/dashboard/music",
-      "/dashboard/payments",
-    ]);
-  });
+      scheduler.completePrefetch(0, completion);
+      expect(scheduler.cache.isReady("/dashboard/music")).toBe(true);
+      expect(scheduler.idleCallbacks).toHaveLength(2);
+      scheduler.runNextIdle();
+      expect(scheduler.prefetches.map(({ href }) => href)).toEqual([
+        "/dashboard/music",
+        "/dashboard/payments",
+      ]);
+    },
+  );
 
   it.each(["http-failure", "unverified", "error", "timeout"] as const)(
     "does not mark ready after %s and advances to the next serial destination",
@@ -396,5 +436,31 @@ describe("serial runtime route warming", () => {
     duringPrefetch.runNextIdle();
     duringPrefetch.cancel();
     expect(duringPrefetch.prefetches[0]?.cancelled).toBe(true);
+  });
+});
+
+describe("runtime navigation timing", () => {
+  it("clears the prior intent-to-commit measure before marking a new intent", () => {
+    const calls: string[] = [];
+
+    markRuntimeNavigationIntent({
+      clearMarks(name) {
+        calls.push(`clear mark:${name ?? "<all>"}`);
+      },
+      clearMeasures(name) {
+        calls.push(`clear measure:${name ?? "<all>"}`);
+      },
+      mark(name) {
+        calls.push(`mark:${name}`);
+        return {} as PerformanceMark;
+      },
+    });
+
+    expect(calls).toEqual([
+      `clear measure:${RUNTIME_NAVIGATION_COMMIT_MEASURE}`,
+      `clear mark:${RUNTIME_NAVIGATION_INTENT_MARK}`,
+      `clear mark:${RUNTIME_NAVIGATION_COMMIT_MARK}`,
+      `mark:${RUNTIME_NAVIGATION_INTENT_MARK}`,
+    ]);
   });
 });

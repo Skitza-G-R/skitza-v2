@@ -15,6 +15,7 @@ import {
   isAccountPrivateWriteGenerationCurrent,
 } from "~/lib/runtime-state/account-exit";
 import {
+  clearRuntimeMainNavigationPendingTargets,
   createRuntimeNavigationSessionCache,
   resolveRuntimeMainNavigationHref,
   RUNTIME_MAIN_NAVIGATION_INTENT_EVENT,
@@ -191,6 +192,7 @@ function subscribeToRuntimeResources(
       callback({
         name: resource.name,
         responseStatus: resource.responseStatus,
+        responseStatusSupported: "responseStatus" in resource,
       });
     }
   });
@@ -212,6 +214,7 @@ function subscribeToRuntimeResources(
 function clearNavigationElementState(root: HTMLElement): void {
   delete root.dataset.skNavSource;
   delete root.dataset.skNavState;
+  clearRuntimeMainNavigationPendingTargets(root);
 }
 
 export function afterRuntimeNavigationPaint(callback: () => void): () => void {
@@ -351,6 +354,7 @@ export function RuntimeNavigationBridge({
         window.clearTimeout(pending.timeout);
         pendingNavigation.current = null;
         root.dataset.skNavState = "settled";
+        clearRuntimeMainNavigationPendingTargets();
         markRuntimeNavigationCommit();
 
         if (pending.warm) {
@@ -369,6 +373,7 @@ export function RuntimeNavigationBridge({
         window.clearTimeout(pending.timeout);
         pendingNavigation.current = null;
         root.dataset.skNavState = "settled";
+        clearRuntimeMainNavigationPendingTargets();
         delete root.dataset.skNavSource;
         warmSourcePathname.current = null;
       });
@@ -391,7 +396,10 @@ export function RuntimeNavigationBridge({
         role: identity.role,
         contextId: identity.contextId,
       });
-      if (!targetHref || targetHref === currentHrefRef.current) return;
+      if (!targetHref || targetHref === currentHrefRef.current) {
+        clearRuntimeMainNavigationPendingTargets();
+        return;
+      }
 
       const previous = pendingNavigation.current;
       if (previous) {
@@ -420,6 +428,7 @@ export function RuntimeNavigationBridge({
         if (pendingNavigation.current !== pending) return;
         pendingNavigation.current = null;
         root.dataset.skNavState = "settled";
+        clearRuntimeMainNavigationPendingTargets();
         delete root.dataset.skNavSource;
         warmSourcePathname.current = null;
       }, 10_000);
@@ -429,6 +438,7 @@ export function RuntimeNavigationBridge({
     window.addEventListener(RUNTIME_MAIN_NAVIGATION_INTENT_EVENT, onNavigationIntent);
     return () => {
       window.removeEventListener(RUNTIME_MAIN_NAVIGATION_INTENT_EVENT, onNavigationIntent);
+      clearRuntimeMainNavigationPendingTargets();
     };
   }, [identity.contextId, identity.role, navigationCache, privateStateAccessAllowed]);
 

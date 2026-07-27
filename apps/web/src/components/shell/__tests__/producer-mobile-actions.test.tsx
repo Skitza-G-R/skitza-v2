@@ -40,6 +40,26 @@ describe("producer mobile account + public-link controls", () => {
     expect(
       ACTIONS_SRC.match(/announceRuntimeMainNavigationIntent/g)?.length,
     ).toBeGreaterThanOrEqual(3);
+    expect(ACTIONS_SRC.match(/data-sk-nav-destination=/g)).toHaveLength(2);
+    expect(
+      ACTIONS_SRC.match(/captureRuntimeMainNavigationTarget/g)?.length,
+    ).toBeGreaterThanOrEqual(3);
+  });
+
+  it("keeps the accepted target mounted until the pathname actually commits", () => {
+    expect(ACTIONS_SRC).toContain("const pathname = usePathname()");
+    expect(ACTIONS_SRC).toMatch(
+      /useEffect\(\(\) => \{\s*setAccountOpen\(false\);\s*\}, \[pathname\]\)/,
+    );
+    expect(ACTIONS_SRC).not.toMatch(
+      /onClick=\{\(event\) => \{\s*captureRuntimeMainNavigationTarget\(event\.currentTarget\);[\s\S]{0,80}setAccountOpen\(false\)/,
+    );
+    expect(ACTIONS_SRC).toContain(
+      'if (pathname === "/dashboard/store") setAccountOpen(false)',
+    );
+    expect(ACTIONS_SRC).toContain(
+      'if (pathname === "/dashboard/settings") setAccountOpen(false)',
+    );
   });
 
   it("provides a 40px mobile copy target using the existing clipboard behavior", () => {

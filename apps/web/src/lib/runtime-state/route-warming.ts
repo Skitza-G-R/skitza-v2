@@ -13,6 +13,7 @@ type Cancel = () => void;
 
 export type RuntimePrefetchCompletion =
   | "success"
+  | "safari-compatible"
   | "http-failure"
   | "unverified"
   | "error"
@@ -20,6 +21,7 @@ export type RuntimePrefetchCompletion =
 
 export interface RuntimeObservedResourceTiming {
   name: string;
+  responseStatusSupported: boolean;
   responseStatus?: number | undefined;
 }
 
@@ -71,6 +73,11 @@ function exactTransportFreeQuery(url: URL): string {
  * Next App Router RSC prefetches keep the destination pathname/query and add
  * the private `_rsc` transport parameter. A matching URL identifies the queue
  * position, while the response status proves whether it is safe to mark warm.
+ *
+ * Safari versions without `PerformanceResourceTiming.responseStatus` can only
+ * prove that the exact RSC resource completed. That compatibility result marks
+ * UX readiness only: Next still owns its payload/cache, and this code never
+ * trusts or serves response data.
  */
 export function runtimeResourceCompletionForHref(
   resourceTiming: RuntimeObservedResourceTiming,
@@ -87,6 +94,10 @@ export function runtimeResourceCompletionForHref(
       exactTransportFreeQuery(resource) === exactTransportFreeQuery(target);
     if (!exactDestination) return null;
 
+    if (!resourceTiming.responseStatusSupported) {
+      return "safari-compatible";
+    }
+
     const status = resourceTiming.responseStatus;
     if (typeof status !== "number" || !Number.isFinite(status) || status === 0) {
       return "unverified";
@@ -99,9 +110,11 @@ export function runtimeResourceCompletionForHref(
 
 /**
  * `router.prefetch()` is fire-and-forget in Next 15.5. This adapter observes
- * the completed RSC resource before advancing. Missing status support, HTTP
- * failure, exceptions, and timeouts all fail closed without blocking later
- * serial queue positions.
+ * the completed RSC resource before advancing. Browsers with status support
+ * require a finite 2xx response. Safari without that property can emit the
+ * separate UX-only compatibility result described above. HTTP failures,
+ * unverified supported statuses, exceptions, and timeouts do not mark ready
+ * and do not block later serial queue positions.
  */
 export function startObservedRuntimeRequest({
   completionTimeoutMs = RUNTIME_PREFETCH_COMPLETION_TIMEOUT_MS,
@@ -254,7 +267,9 @@ export function startRuntimeRouteWarming({
         } else {
           cancelPrefetch = null;
         }
-        if (completion === "success") cache.markReady(href);
+        if (completion === "success" || completion === "safari-compatible") {
+          cache.markReady(href);
+        }
         index += 1;
         pump();
       };
@@ -298,9 +313,10 @@ export function startRuntimeRouteWarming({
 }
 
 export function markRuntimeNavigationIntent(
-  timing: Pick<Performance, "clearMarks" | "mark"> = performance,
+  timing: Pick<Performance, "clearMarks" | "clearMeasures" | "mark"> = performance,
 ): void {
   try {
+    timing.clearMeasures(RUNTIME_NAVIGATION_COMMIT_MEASURE);
     timing.clearMarks(RUNTIME_NAVIGATION_INTENT_MARK);
     timing.clearMarks(RUNTIME_NAVIGATION_COMMIT_MARK);
     timing.mark(RUNTIME_NAVIGATION_INTENT_MARK);

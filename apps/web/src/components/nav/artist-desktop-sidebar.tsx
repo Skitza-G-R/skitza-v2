@@ -8,7 +8,10 @@ import { UserButton } from "@clerk/nextjs";
 import { StudioSwitcher } from "~/components/artist/studio-switcher";
 import { LogoMark } from "~/components/brand/logo-mark";
 import { resolveArtistStudioId, withArtistStudio } from "~/lib/artist-studio-context";
-import { announceRuntimeMainNavigationIntent } from "~/lib/runtime-state/navigation-cache";
+import {
+  announceRuntimeMainNavigationIntent,
+  captureRuntimeMainNavigationTarget,
+} from "~/lib/runtime-state/navigation-cache";
 import type { Studio } from "~/server/artist/identity";
 
 import { isArtistNavItemActive } from "./artist-nav-active";
@@ -75,7 +78,11 @@ export function ArtistDesktopSidebar({ studios }: { studios: Studio[] }): ReactN
       {/* Logo lockup — mark + lowercase wordmark, matches producer rail. */}
       <Link
         href={withArtistStudio("/artist", activeStudioId)}
+        data-sk-nav-destination={withArtistStudio("/artist", activeStudioId)}
         prefetch={false}
+        onClick={(event) => {
+          captureRuntimeMainNavigationTarget(event.currentTarget);
+        }}
         onNavigate={() => {
           announceRuntimeMainNavigationIntent(
             withArtistStudio("/artist", activeStudioId),
@@ -106,7 +113,11 @@ export function ArtistDesktopSidebar({ studios }: { studios: Studio[] }): ReactN
             <Link
               key={item.id}
               href={href}
+              data-sk-nav-destination={href}
               prefetch={false}
+              onClick={(event) => {
+                captureRuntimeMainNavigationTarget(event.currentTarget);
+              }}
               onNavigate={() => {
                 announceRuntimeMainNavigationIntent(href);
               }}

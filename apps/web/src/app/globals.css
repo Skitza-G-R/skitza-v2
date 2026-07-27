@@ -843,7 +843,8 @@
   @media (hover: hover) {
     .sk-press:hover { filter: brightness(1.05); }
   }
-  .sk-press:active {
+  .sk-press:active,
+  .sk-press[data-sk-nav-pending] {
     transform: scale(0.97);
     filter: brightness(0.96);
     transition-duration: 60ms;
@@ -1607,7 +1608,8 @@
     .sk-lift { transition-duration: 0ms !important; }
     .sk-lift:hover { transform: none !important; box-shadow: var(--shadow-sm) !important; }
     .sk-press { transition-duration: 0ms !important; }
-    .sk-press:active { transform: none !important; filter: none !important; }
+    .sk-press:active,
+    .sk-press[data-sk-nav-pending] { transform: none !important; filter: none !important; }
     .sk-cta-press { transition-duration: 0ms !important; }
     .sk-cta-press:active { transform: none !important; filter: none !important; }
     .sk-press-pop,

@@ -5,7 +5,10 @@ import { usePathname, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { resolveArtistStudioId, withArtistStudio } from "~/lib/artist-studio-context";
-import { announceRuntimeMainNavigationIntent } from "~/lib/runtime-state/navigation-cache";
+import {
+  announceRuntimeMainNavigationIntent,
+  captureRuntimeMainNavigationTarget,
+} from "~/lib/runtime-state/navigation-cache";
 import type { Studio } from "~/server/artist/identity";
 
 import { isArtistNavItemActive } from "./artist-nav-active";
@@ -69,7 +72,11 @@ export function ArtistBottomNav({ studios }: { studios: Studio[] }): ReactNode {
           <Link
             key={tab.href}
             href={href}
+            data-sk-nav-destination={href}
             prefetch={false}
+            onClick={(event) => {
+              captureRuntimeMainNavigationTarget(event.currentTarget);
+            }}
             onNavigate={() => {
               announceRuntimeMainNavigationIntent(href);
             }}

@@ -90,6 +90,29 @@ describe("SK-122 warm-arrival motion policy", () => {
   });
 });
 
+describe("SK-122 accepted-target feedback", () => {
+  it("reuses the existing pressed treatment only for the accepted pending link", () => {
+    expect(GLOBALS_CSS).toMatch(
+      /\.sk-press:active,\s*\.sk-press\[data-sk-nav-pending\]\s*\{[\s\S]*?transform:\s*scale\(0\.97\);[\s\S]*?filter:\s*brightness\(0\.96\);/,
+    );
+  });
+
+  it("removes pending transforms and filters when reduced motion is requested", () => {
+    const reducedMotion = GLOBALS_CSS.match(
+      /@media \(prefers-reduced-motion: reduce\)\s*\{([\s\S]*?)\n {2}\}/,
+    );
+    expect(reducedMotion?.[1]).toContain(".sk-press[data-sk-nav-pending]");
+    expect(reducedMotion?.[1]).toContain("transform: none !important");
+    expect(reducedMotion?.[1]).toContain("filter: none !important");
+  });
+
+  it("clears accepted-link feedback on commit, fallback, timeout, and bridge cleanup", () => {
+    expect(
+      RUNTIME_NAVIGATION_BRIDGE.match(/clearRuntimeMainNavigationPendingTargets/g),
+    ).toHaveLength(7);
+  });
+});
+
 describe("SK-122 dashboard caller reuse", () => {
   it("uses one tRPC caller for onboarding and the dashboard fan-out", () => {
     expect(DASHBOARD_PAGE.match(/appRouter\.createCaller/g)).toHaveLength(1);

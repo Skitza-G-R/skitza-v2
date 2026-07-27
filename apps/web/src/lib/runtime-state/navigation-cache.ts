@@ -8,6 +8,8 @@ import type { RuntimeRole } from "./runtime-state";
 export const RUNTIME_MAIN_NAVIGATION_LINK_PREFETCH = false as const;
 export const RUNTIME_NAVIGATION_READY_MAX_AGE_MS = 150_000;
 export const RUNTIME_MAIN_NAVIGATION_INTENT_EVENT = "skitza:runtime-main-navigation-intent";
+export const RUNTIME_MAIN_NAVIGATION_DESTINATION_ATTRIBUTE = "data-sk-nav-destination";
+export const RUNTIME_MAIN_NAVIGATION_PENDING_ATTRIBUTE = "data-sk-nav-pending";
 
 export const PRODUCER_MAIN_NAVIGATION_DESTINATIONS = [
   "/dashboard",
@@ -51,6 +53,18 @@ export interface RuntimeNavigationSessionCacheOptions {
 export interface RuntimeMainNavigationIntentDetail {
   href: string;
 }
+
+interface RuntimeMainNavigationTarget {
+  getAttribute(name: string): string | null;
+  removeAttribute(name: string): void;
+  setAttribute(name: string, value: string): void;
+}
+
+interface RuntimeMainNavigationTargetRoot {
+  querySelectorAll(selectors: string): Iterable<RuntimeMainNavigationTarget>;
+}
+
+let capturedRuntimeMainNavigationTarget: RuntimeMainNavigationTarget | null = null;
 
 function canonicalRelativeHref(href: string): string | null {
   if (!href.startsWith("/") || href.startsWith("//")) return null;
@@ -174,11 +188,55 @@ export function createRuntimeNavigationSessionCache({
 }
 
 /**
+ * Records the exact Link that initiated a click. Next calls the Link's
+ * `onNavigate` only after it accepts the client navigation, so the target is
+ * not made visually pending until `announceRuntimeMainNavigationIntent`.
+ */
+export function captureRuntimeMainNavigationTarget(target: EventTarget | null): void {
+  const candidate = target as Partial<RuntimeMainNavigationTarget> | null;
+  capturedRuntimeMainNavigationTarget =
+    candidate &&
+    typeof candidate.getAttribute === "function" &&
+    typeof candidate.setAttribute === "function" &&
+    typeof candidate.removeAttribute === "function" &&
+    candidate.getAttribute(RUNTIME_MAIN_NAVIGATION_DESTINATION_ATTRIBUTE)
+      ? (candidate as RuntimeMainNavigationTarget)
+      : null;
+}
+
+export function clearRuntimeMainNavigationPendingTargets(
+  root?: RuntimeMainNavigationTargetRoot,
+): void {
+  capturedRuntimeMainNavigationTarget = null;
+  const targetRoot =
+    root ??
+    (typeof document === "undefined"
+      ? null
+      : (document as unknown as RuntimeMainNavigationTargetRoot));
+  if (!targetRoot) return;
+
+  for (const target of targetRoot.querySelectorAll(
+    `[${RUNTIME_MAIN_NAVIGATION_PENDING_ATTRIBUTE}]`,
+  )) {
+    target.removeAttribute(RUNTIME_MAIN_NAVIGATION_PENDING_ATTRIBUTE);
+    if (target.getAttribute("aria-busy") === "true") {
+      target.removeAttribute("aria-busy");
+    }
+  }
+}
+
+/**
  * Called from Next Link's `onNavigate`. Unlike a document click listener this
  * runs only when Next accepted the client navigation.
  */
 export function announceRuntimeMainNavigationIntent(href: string): void {
   if (typeof window === "undefined") return;
+  const target = capturedRuntimeMainNavigationTarget;
+  clearRuntimeMainNavigationPendingTargets();
+  if (target?.getAttribute(RUNTIME_MAIN_NAVIGATION_DESTINATION_ATTRIBUTE) === href) {
+    target.setAttribute(RUNTIME_MAIN_NAVIGATION_PENDING_ATTRIBUTE, "");
+    target.setAttribute("aria-busy", "true");
+  }
   window.dispatchEvent(
     new CustomEvent<RuntimeMainNavigationIntentDetail>(RUNTIME_MAIN_NAVIGATION_INTENT_EVENT, {
       detail: { href },

@@ -3,12 +3,16 @@ import { describe, expect, it } from "vitest";
 import {
   announceRuntimeMainNavigationIntent,
   ARTIST_MAIN_NAVIGATION_DESTINATIONS,
+  captureRuntimeMainNavigationTarget,
+  clearRuntimeMainNavigationPendingTargets,
   createRuntimeNavigationSessionCache,
   isSameRuntimeMainNavigationCacheKey,
   PRODUCER_MAIN_NAVIGATION_DESTINATIONS,
   resolveRuntimeMainNavigationHref,
+  RUNTIME_MAIN_NAVIGATION_DESTINATION_ATTRIBUTE,
   RUNTIME_MAIN_NAVIGATION_INTENT_EVENT,
   RUNTIME_MAIN_NAVIGATION_LINK_PREFETCH,
+  RUNTIME_MAIN_NAVIGATION_PENDING_ATTRIBUTE,
   runtimeMainNavigationDestinations,
 } from "../navigation-cache";
 
@@ -127,6 +131,86 @@ describe("runtime main navigation destinations", () => {
     expect((dispatched[0] as CustomEvent).detail).toEqual({
       href: "/dashboard/music",
     });
+  });
+
+  it("marks only the accepted target before one frame and clears on replacement, commit, or timeout", () => {
+    class Target {
+      readonly attributes = new Map<string, string>();
+
+      constructor(href: string) {
+        this.attributes.set(RUNTIME_MAIN_NAVIGATION_DESTINATION_ATTRIBUTE, href);
+      }
+
+      getAttribute(name: string) {
+        return this.attributes.get(name) ?? null;
+      }
+
+      removeAttribute(name: string) {
+        this.attributes.delete(name);
+      }
+
+      setAttribute(name: string, value: string) {
+        this.attributes.set(name, value);
+      }
+    }
+
+    const music = new Target("/dashboard/music");
+    const payments = new Target("/dashboard/payments");
+    const targets = [music, payments];
+    const root = {
+      querySelectorAll() {
+        return targets.filter((target) =>
+          target.attributes.has(RUNTIME_MAIN_NAVIGATION_PENDING_ATTRIBUTE),
+        );
+      },
+    };
+    const originalDocument = globalThis.document;
+    const originalWindow = globalThis.window;
+    const firstFrame = { callback: null as FrameRequestCallback | null };
+    Object.assign(globalThis, {
+      document: root,
+      window: {
+        dispatchEvent() {
+          return true;
+        },
+        requestAnimationFrame(callback: FrameRequestCallback) {
+          firstFrame.callback = callback;
+          return 1;
+        },
+      },
+    });
+
+    try {
+      captureRuntimeMainNavigationTarget(music as unknown as EventTarget);
+      announceRuntimeMainNavigationIntent("/dashboard/music");
+
+      expect(music.getAttribute(RUNTIME_MAIN_NAVIGATION_PENDING_ATTRIBUTE)).toBe("");
+      expect(music.getAttribute("aria-busy")).toBe("true");
+      expect(payments.getAttribute(RUNTIME_MAIN_NAVIGATION_PENDING_ATTRIBUTE)).toBeNull();
+      expect(firstFrame.callback).toBeNull();
+
+      captureRuntimeMainNavigationTarget(payments as unknown as EventTarget);
+      announceRuntimeMainNavigationIntent("/dashboard/payments");
+      expect(music.getAttribute(RUNTIME_MAIN_NAVIGATION_PENDING_ATTRIBUTE)).toBeNull();
+      expect(music.getAttribute("aria-busy")).toBeNull();
+      expect(payments.getAttribute(RUNTIME_MAIN_NAVIGATION_PENDING_ATTRIBUTE)).toBe("");
+
+      // Commit and timeout both use the same target-only settlement helper.
+      clearRuntimeMainNavigationPendingTargets(root);
+      expect(payments.getAttribute(RUNTIME_MAIN_NAVIGATION_PENDING_ATTRIBUTE)).toBeNull();
+      expect(payments.getAttribute("aria-busy")).toBeNull();
+
+      captureRuntimeMainNavigationTarget(music as unknown as EventTarget);
+      announceRuntimeMainNavigationIntent("/dashboard/music");
+      clearRuntimeMainNavigationPendingTargets(root);
+      expect(music.getAttribute(RUNTIME_MAIN_NAVIGATION_PENDING_ATTRIBUTE)).toBeNull();
+      expect(music.getAttribute("aria-busy")).toBeNull();
+    } finally {
+      Object.assign(globalThis, {
+        document: originalDocument,
+        window: originalWindow,
+      });
+    }
   });
 });
 

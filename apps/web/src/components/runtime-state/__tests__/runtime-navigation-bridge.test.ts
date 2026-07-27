@@ -15,6 +15,9 @@ const mocked = vi.hoisted(() => ({
   effects: [] as Effect[],
   layoutEffects: [] as Effect[],
   pathname: "/dashboard/calendar",
+  persistentRefs: [] as Array<{ current: unknown }>,
+  persistRefs: false,
+  refIndex: 0,
   search: "tab=availability",
   storage: null as MemoryStorage | null,
 }));
@@ -30,7 +33,16 @@ vi.mock("react", async (importOriginal) => {
       mocked.layoutEffects.push(effect);
     },
     useMemo: <Value>(factory: () => Value) => factory(),
-    useRef: <Value>(initialValue: Value) => ({ current: initialValue }),
+    useRef: <Value>(initialValue: Value) => {
+      if (!mocked.persistRefs) return { current: initialValue };
+      const index = mocked.refIndex;
+      mocked.refIndex += 1;
+      const existing = mocked.persistentRefs[index];
+      if (existing) return existing as { current: Value };
+      const created = { current: initialValue };
+      mocked.persistentRefs[index] = created;
+      return created;
+    },
   };
 });
 
@@ -69,6 +81,9 @@ beforeEach(() => {
   mocked.effects.length = 0;
   mocked.layoutEffects.length = 0;
   mocked.pathname = "/dashboard/calendar";
+  mocked.persistentRefs.length = 0;
+  mocked.persistRefs = false;
+  mocked.refIndex = 0;
   mocked.search = "tab=availability";
   mocked.storage = new MemoryStorage();
 });
@@ -133,10 +148,30 @@ function currentStorage(): MemoryStorage {
 
 function setupNavigationIntentEnvironment() {
   const listeners = new Map<string, EventListener>();
-  const root = { dataset: {} as Record<string, string> };
+  const targetAttributes = new Map<string, string>();
+  const pendingTarget = {
+    getAttribute(name: string) {
+      return targetAttributes.get(name) ?? null;
+    },
+    removeAttribute(name: string) {
+      targetAttributes.delete(name);
+    },
+    setAttribute(name: string, value: string) {
+      targetAttributes.set(name, value);
+    },
+  };
+  const pendingTargets = () =>
+    targetAttributes.has("data-sk-nav-pending") ? [pendingTarget] : [];
+  const root = {
+    dataset: {} as Record<string, string>,
+    querySelectorAll: pendingTargets,
+  };
   const clearTimeout = vi.fn();
+  const frames: FrameRequestCallback[] = [];
+  let timeoutCallback: (() => void) | null = null;
   const timing = {
     clearMarks: vi.fn(),
+    clearMeasures: vi.fn(),
     mark: vi.fn(),
     measure: vi.fn(),
   };
@@ -151,13 +186,20 @@ function setupNavigationIntentEnvironment() {
     removeEventListener(type: string, listener: EventListener) {
       if (listeners.get(type) === listener) listeners.delete(type);
     },
-    setTimeout() {
+    requestAnimationFrame(callback: FrameRequestCallback) {
+      frames.push(callback);
+      return frames.length;
+    },
+    cancelAnimationFrame: vi.fn(),
+    setTimeout(callback: () => void) {
+      timeoutCallback = callback;
       return 17;
     },
     clearTimeout,
   };
   const browserDocument = {
     documentElement: root,
+    querySelectorAll: pendingTargets,
     visibilityState: "visible",
   };
   vi.stubGlobal("window", browserWindow);
@@ -166,12 +208,22 @@ function setupNavigationIntentEnvironment() {
 
   return {
     clearTimeout,
+    pendingTarget,
     root,
     timing,
     announce(href: string) {
+      pendingTarget.setAttribute("data-sk-nav-pending", "");
+      pendingTarget.setAttribute("aria-busy", "true");
       listeners.get(RUNTIME_MAIN_NAVIGATION_INTENT_EVENT)?.({
         detail: { href },
       } as unknown as Event);
+    },
+    runCommitFrames() {
+      frames[0]?.(0);
+      frames[1]?.(16);
+    },
+    timeout() {
+      timeoutCallback?.();
     },
   };
 }
@@ -253,12 +305,63 @@ describe("RuntimeNavigationBridge navigation intent", () => {
 
     expect(environment.root.dataset.skNavState).toBe("pending");
     expect(environment.root.dataset.skNavSource).toBeUndefined();
+    expect(environment.pendingTarget.getAttribute("data-sk-nav-pending")).toBe("");
+    expect(environment.pendingTarget.getAttribute("aria-busy")).toBe("true");
     expect(environment.timing.mark).toHaveBeenCalledWith("skitza:navigation:intent");
 
     environment.root.dataset.skNavSource = "warm";
     if (typeof cleanupShell === "function") cleanupShell();
     expect(environment.root.dataset).toEqual({});
+    expect(environment.pendingTarget.getAttribute("data-sk-nav-pending")).toBeNull();
+    expect(environment.pendingTarget.getAttribute("aria-busy")).toBeNull();
     expect(environment.clearTimeout).toHaveBeenCalledWith(17);
+
+    if (typeof cleanupIntent === "function") cleanupIntent();
+  });
+
+  it("clears the exact pending target when a delayed navigation times out", () => {
+    const environment = setupNavigationIntentEnvironment();
+    const effectIndex = mocked.effects.length;
+    RuntimeNavigationBridge({ restoreOnOpen: false });
+    const cleanupIntent = mocked.effects[effectIndex + 1]?.();
+
+    environment.announce("/dashboard/music");
+    environment.timeout();
+
+    expect(environment.root.dataset.skNavState).toBe("settled");
+    expect(environment.pendingTarget.getAttribute("data-sk-nav-pending")).toBeNull();
+    expect(environment.pendingTarget.getAttribute("aria-busy")).toBeNull();
+
+    if (typeof cleanupIntent === "function") cleanupIntent();
+  });
+
+  it("clears the exact pending target after the destination commits and paints", () => {
+    const environment = setupNavigationIntentEnvironment();
+    mocked.persistRefs = true;
+    mocked.refIndex = 0;
+    const effectIndex = mocked.effects.length;
+    RuntimeNavigationBridge({ restoreOnOpen: false });
+    const cleanupIntent = mocked.effects[effectIndex + 1]?.();
+
+    environment.announce("/dashboard/music");
+    expect(environment.pendingTarget.getAttribute("data-sk-nav-pending")).toBe("");
+
+    mocked.pathname = "/dashboard/music";
+    mocked.search = "";
+    mocked.refIndex = 0;
+    const layoutEffectIndex = mocked.layoutEffects.length;
+    RuntimeNavigationBridge({ restoreOnOpen: false });
+    mocked.layoutEffects[layoutEffectIndex + 1]?.();
+    environment.runCommitFrames();
+
+    expect(environment.root.dataset.skNavState).toBe("settled");
+    expect(environment.pendingTarget.getAttribute("data-sk-nav-pending")).toBeNull();
+    expect(environment.pendingTarget.getAttribute("aria-busy")).toBeNull();
+    expect(environment.timing.measure).toHaveBeenCalledWith(
+      "skitza:navigation:intent-to-commit",
+      "skitza:navigation:intent",
+      "skitza:navigation:commit",
+    );
 
     if (typeof cleanupIntent === "function") cleanupIntent();
   });
