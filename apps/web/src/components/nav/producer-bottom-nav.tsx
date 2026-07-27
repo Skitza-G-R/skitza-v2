@@ -45,9 +45,9 @@ type ProducerMobileTab = {
 };
 
 const PROD_TABS: readonly ProducerMobileTab[] = [
-  { id: "today", label: "Today", href: "/dashboard", icon: "home" },
-  { id: "clients-projects", label: "Clients", href: "/dashboard/clients-projects", icon: "users" },
   { id: "music", label: "Music", href: "/dashboard/music", icon: "music" },
+  { id: "clients-projects", label: "Clients", href: "/dashboard/clients-projects", icon: "users" },
+  { id: "today", label: "Today", href: "/dashboard", icon: "home" },
   // SK-56: phones land on the Sessions tab — the week-grid Schedule
   // tab is desktop-only (useless at 390px, per Gili's mobile audit).
   // Active-state detection is pathname-based, so the query is inert.
