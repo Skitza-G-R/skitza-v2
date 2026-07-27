@@ -109,7 +109,10 @@ describe("SK-122 accepted-target feedback", () => {
   it("clears accepted-link feedback on commit, fallback, timeout, and bridge cleanup", () => {
     expect(
       RUNTIME_NAVIGATION_BRIDGE.match(/clearRuntimeMainNavigationPendingTargets/g),
-    ).toHaveLength(7);
+    ).toHaveLength(6);
+    expect(RUNTIME_NAVIGATION_BRIDGE).toMatch(
+      /if \(!targetHref \|\| targetHref === currentHrefRef\.current\) \{\s*clearNavigationElementState\(root\);\s*warmSourcePathname\.current = null;/,
+    );
   });
 });
 

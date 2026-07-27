@@ -396,17 +396,19 @@ export function RuntimeNavigationBridge({
         role: identity.role,
         contextId: identity.contextId,
       });
-      if (!targetHref || targetHref === currentHrefRef.current) {
-        clearRuntimeMainNavigationPendingTargets();
-        return;
-      }
-
       const previous = pendingNavigation.current;
       if (previous) {
         window.clearTimeout(previous.timeout);
+        pendingNavigation.current = null;
       }
 
       const root = document.documentElement;
+      if (!targetHref || targetHref === currentHrefRef.current) {
+        clearNavigationElementState(root);
+        warmSourcePathname.current = null;
+        return;
+      }
+
       const warm = navigationCache.isReady(targetHref);
       root.dataset.skNavState = "pending";
       if (warm) {

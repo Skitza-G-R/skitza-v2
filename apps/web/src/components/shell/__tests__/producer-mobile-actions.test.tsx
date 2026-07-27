@@ -46,19 +46,26 @@ describe("producer mobile account + public-link controls", () => {
     ).toBeGreaterThanOrEqual(3);
   });
 
-  it("keeps the accepted target mounted until the pathname actually commits", () => {
+  it("keeps the accepted target mounted until the exact href actually commits", () => {
     expect(ACTIONS_SRC).toContain("const pathname = usePathname()");
+    expect(ACTIONS_SRC).toContain("const searchParams = useSearchParams()");
+    expect(ACTIONS_SRC).toContain(
+      'const currentHref = `${pathname}${search ? `?${search}` : ""}`',
+    );
     expect(ACTIONS_SRC).toMatch(
-      /useEffect\(\(\) => \{\s*setAccountOpen\(false\);\s*\}, \[pathname\]\)/,
+      /useEffect\(\(\) => \{\s*setAccountOpen\(false\);\s*\}, \[currentHref\]\)/,
     );
     expect(ACTIONS_SRC).not.toMatch(
       /onClick=\{\(event\) => \{\s*captureRuntimeMainNavigationTarget\(event\.currentTarget\);[\s\S]{0,80}setAccountOpen\(false\)/,
     );
-    expect(ACTIONS_SRC).toContain(
-      'if (pathname === "/dashboard/store") setAccountOpen(false)',
+    expect(ACTIONS_SRC).not.toMatch(
+      /if \(pathname === "\/dashboard\/(?:store|settings)"\) setAccountOpen\(false\)/,
     );
     expect(ACTIONS_SRC).toContain(
-      'if (pathname === "/dashboard/settings") setAccountOpen(false)',
+      'if (currentHref === "/dashboard/store") setAccountOpen(false)',
+    );
+    expect(ACTIONS_SRC).toContain(
+      'if (currentHref === "/dashboard/settings") setAccountOpen(false)',
     );
   });
 

@@ -3,7 +3,7 @@
 import { UserAvatar, UserButton } from "@clerk/nextjs";
 import { Copy } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useEffect, useId, useRef, useState } from "react";
 
@@ -26,6 +26,9 @@ export function ProducerMobileActions({
 }: ProducerMobileActionsProps) {
   const { toast } = useToast();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const search = searchParams.toString();
+  const currentHref = `${pathname}${search ? `?${search}` : ""}`;
   const tToasts = useTranslations("today.toasts");
   const [accountOpen, setAccountOpen] = useState(false);
   const accountButtonRef = useRef<HTMLButtonElement>(null);
@@ -33,7 +36,7 @@ export function ProducerMobileActions({
 
   useEffect(() => {
     setAccountOpen(false);
-  }, [pathname]);
+  }, [currentHref]);
 
   async function copyLink() {
     if (!producerSlug) return;
@@ -114,7 +117,7 @@ export function ProducerMobileActions({
                   prefetch={false}
                   onNavigate={() => {
                     announceRuntimeMainNavigationIntent("/dashboard/store");
-                    if (pathname === "/dashboard/store") setAccountOpen(false);
+                    if (currentHref === "/dashboard/store") setAccountOpen(false);
                   }}
                   onClick={(event) => {
                     captureRuntimeMainNavigationTarget(event.currentTarget);
@@ -130,7 +133,7 @@ export function ProducerMobileActions({
                   prefetch={false}
                   onNavigate={() => {
                     announceRuntimeMainNavigationIntent("/dashboard/settings");
-                    if (pathname === "/dashboard/settings") setAccountOpen(false);
+                    if (currentHref === "/dashboard/settings") setAccountOpen(false);
                   }}
                   onClick={(event) => {
                     captureRuntimeMainNavigationTarget(event.currentTarget);

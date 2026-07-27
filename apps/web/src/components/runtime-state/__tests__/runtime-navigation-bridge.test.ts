@@ -335,6 +335,58 @@ describe("RuntimeNavigationBridge navigation intent", () => {
     if (typeof cleanupIntent === "function") cleanupIntent();
   });
 
+  it("fully aborts a pending destination when the current or an invalid target is announced", () => {
+    const environment = setupNavigationIntentEnvironment();
+    mocked.search = "tab=sessions";
+    mocked.persistRefs = true;
+    mocked.refIndex = 0;
+    const effectIndex = mocked.effects.length;
+    RuntimeNavigationBridge({ restoreOnOpen: false });
+    const cleanupIntent = mocked.effects[effectIndex + 1]?.();
+
+    environment.announce("/dashboard/music");
+    expect(environment.root.dataset.skNavState).toBe("pending");
+    environment.root.dataset.skNavSource = "warm";
+    const warmSourceRef = mocked.persistentRefs[5];
+    if (!warmSourceRef) throw new Error("Expected the warm source ref");
+    warmSourceRef.current = "/dashboard/music";
+
+    environment.announce("/dashboard/calendar?tab=sessions");
+
+    expect(environment.clearTimeout).toHaveBeenCalledWith(17);
+    expect(mocked.persistentRefs[2]?.current).toBeNull();
+    expect(warmSourceRef.current).toBeNull();
+    expect(environment.root.dataset).toEqual({});
+    expect(environment.pendingTarget.getAttribute("data-sk-nav-pending")).toBeNull();
+    expect(environment.pendingTarget.getAttribute("aria-busy")).toBeNull();
+    expect(environment.timing.mark).toHaveBeenCalledTimes(1);
+    expect(environment.timing.measure).not.toHaveBeenCalled();
+
+    environment.timeout();
+    expect(environment.root.dataset).toEqual({});
+
+    environment.announce("/dashboard/store");
+    expect(environment.root.dataset.skNavState).toBe("pending");
+    expect(environment.root.dataset.skNavSource).toBeUndefined();
+    expect(environment.pendingTarget.getAttribute("data-sk-nav-pending")).toBe("");
+    expect(environment.pendingTarget.getAttribute("aria-busy")).toBe("true");
+    expect(
+      (mocked.persistentRefs[2]?.current as { href?: string } | null)?.href,
+    ).toBe("/dashboard/store");
+    expect(environment.timing.mark).toHaveBeenCalledTimes(2);
+
+    environment.announce("/dashboard/not-main");
+    expect(mocked.persistentRefs[2]?.current).toBeNull();
+    expect(environment.root.dataset).toEqual({});
+    expect(environment.pendingTarget.getAttribute("data-sk-nav-pending")).toBeNull();
+    expect(environment.pendingTarget.getAttribute("aria-busy")).toBeNull();
+    expect(environment.timing.measure).not.toHaveBeenCalled();
+    environment.timeout();
+    expect(environment.root.dataset).toEqual({});
+
+    if (typeof cleanupIntent === "function") cleanupIntent();
+  });
+
   it("clears the exact pending target after the destination commits and paints", () => {
     const environment = setupNavigationIntentEnvironment();
     mocked.persistRefs = true;
