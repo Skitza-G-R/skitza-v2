@@ -439,7 +439,7 @@ describe("ProducerPaymentWorkspace", () => {
     expect(html).not.toContain("FULL DOSSIER SENTINEL");
   });
 
-  it("keeps every digit of extreme monetary values in wrappable money text", () => {
+  it("keeps extreme monetary values atomic inside responsive containment", () => {
     const extremePurchase: PaymentHistoryPurchase = {
       ...ilsPurchase,
       id: "purchase-extreme",
@@ -485,7 +485,24 @@ describe("ProducerPaymentWorkspace", () => {
       expect(html).toContain(amount);
     }
     expect(html).toContain("[overflow-wrap:anywhere]");
-    expect(html).not.toContain('data-payment-money-value="" class="whitespace-nowrap');
+    expect(
+      count(
+        html,
+        /data-payment-money-value="" class="whitespace-nowrap"/g,
+      ),
+    ).toBe(6);
+    expect(
+      count(
+        html,
+        /data-payment-money="" class="[^"]*xl:max-w-none[^"]*xl:\[overflow-wrap:normal\][^"]*"/g,
+      ),
+    ).toBe(6);
+    expect(html).toMatch(
+      /class="[^"]*xl:whitespace-nowrap xl:\[overflow-wrap:normal\][^"]*">₪1,234,567\.89 ILS<\/p>/,
+    );
+    expect(count(html, /xl:min-w-\[110px\]/g)).toBe(3);
+    expect(html).toContain("min-w-0 max-w-full xl:overflow-x-auto");
+    expect(html).toContain("xl:min-w-[980px]");
     expect(html).toContain("grid-cols-2 gap-x-3 gap-y-3 sm:grid-cols-3");
     expect(html).toContain("order-3 col-span-6");
     expect(html).toContain("order-5 col-span-12");
