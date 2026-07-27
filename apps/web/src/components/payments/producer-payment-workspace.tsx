@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useId, useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 
 import { PaymentHistoryPurchaseDetails } from "~/components/payments/payment-history";
 import {
@@ -93,14 +93,15 @@ function MoneyText({
 }) {
   return (
     <span
+      data-payment-money=""
       className={cn(
-        "font-mono text-[12px] font-bold tabular-nums",
+        "inline-block max-w-full min-w-0 font-mono text-[clamp(10px,3vw,12px)] leading-[1.15] font-bold tabular-nums [overflow-wrap:anywhere]",
         danger && cents > 0
           ? "text-[rgb(var(--fg-danger))]"
           : "text-[rgb(var(--fg-default))]",
       )}
     >
-      <span className="whitespace-nowrap">
+      <span data-payment-money-value="">
         {formatMoney(cents, currency, { withCents: true })}
       </span>{" "}
       <span className="whitespace-nowrap text-[9px] tracking-[0.08em] text-[rgb(var(--fg-muted))]">
@@ -113,22 +114,15 @@ function MoneyText({
 function ProjectBand({
   row,
   purchaseCount,
-  mobile = false,
 }: {
   row: PaymentWorkspaceRow;
   purchaseCount: number;
-  mobile?: boolean;
 }) {
   const project = row.project;
 
   return (
     <div
-      className={cn(
-        "min-w-0 gap-3 border-l-[3px] border-l-[rgb(var(--brand-copper))] bg-[rgb(var(--bg-sunken))]",
-        mobile
-          ? "flex flex-col items-stretch px-3 py-3"
-          : "flex items-center justify-between px-4 py-2.5",
-      )}
+      className="flex min-w-0 flex-col items-stretch gap-3 border-l-[3px] border-l-[rgb(var(--brand-copper))] bg-[rgb(var(--bg-sunken))] px-3 py-3 xl:flex-row xl:items-center xl:justify-between xl:px-4 xl:py-2.5"
     >
       <div className="min-w-0">
         <p className="font-mono text-[9px] font-bold tracking-[0.13em] text-[rgb(var(--fg-muted))] uppercase">
@@ -141,12 +135,7 @@ function ProjectBand({
           {project.title}
         </Link>
       </div>
-      <div
-        className={cn(
-          "flex shrink-0 items-center gap-2",
-          mobile && "justify-between",
-        )}
-      >
+      <div className="flex shrink-0 items-center justify-between gap-2 xl:justify-start">
         <span className="font-mono text-[10px] text-[rgb(var(--fg-muted))]">
           {pluralize(purchaseCount, "purchase")}
         </span>
@@ -207,8 +196,8 @@ function SummaryPanel({
                   {pluralize(total.purchaseCount, "purchase")}
                 </p>
               </div>
-              <dl className="grid min-w-0 grid-cols-3 gap-2 sm:gap-5">
-                <div className="min-w-0">
+              <dl className="grid min-w-0 grid-cols-2 gap-x-3 gap-y-3 sm:grid-cols-3 sm:gap-5">
+                <div className="col-span-2 min-w-0 sm:col-span-1">
                   <dt className="text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
                     Paid to date
                   </dt>
@@ -252,7 +241,7 @@ function SummaryPanel({
   );
 }
 
-function DesktopPurchaseRow({
+function ResponsivePurchaseRow({
   row,
   scope,
   expanded,
@@ -271,60 +260,88 @@ function DesktopPurchaseRow({
 
   return (
     <>
-      <tr className="border-b border-[rgb(var(--border-subtle))] last:border-b-0">
-        <th scope="row" className="min-w-[180px] px-4 py-3 text-left align-top">
-          <p className="text-[12.5px] font-extrabold break-words text-[rgb(var(--fg-default))]">
+      <tr className="grid min-w-0 grid-cols-12 border-b border-[rgb(var(--border-subtle))] px-3 py-3 last:border-b-0 xl:table-row xl:p-0">
+        <th
+          scope="row"
+          className="order-1 col-span-8 min-w-0 pr-2 pb-2 text-left align-top xl:table-cell xl:min-w-[180px] xl:px-4 xl:py-3"
+        >
+          <p className="text-[13px] font-extrabold break-words text-[rgb(var(--fg-default))] xl:text-[12.5px]">
             {purchase.title}
           </p>
           <p className="mt-1 font-mono text-[9.5px] font-semibold tracking-[0.07em] break-all text-[rgb(var(--fg-muted))]">
+            {purchase.counterpartyLabel ? (
+              <span className="font-sans tracking-normal xl:hidden">
+                {purchase.counterpartyLabel} ·{" "}
+              </span>
+            ) : null}
             {purchase.reference}
           </p>
         </th>
         {scope === "global" ? (
-          <td className="min-w-[130px] px-4 py-3 align-top text-[12px] font-semibold break-words text-[rgb(var(--fg-secondary))]">
+          <td className="hidden min-w-[130px] px-4 py-3 align-top text-[12px] font-semibold break-words text-[rgb(var(--fg-secondary))] xl:table-cell">
             {purchase.counterpartyLabel ?? "Client unavailable"}
           </td>
         ) : null}
-        <td className="px-4 py-3 align-top">
+        <td className="order-2 col-span-4 flex justify-end pb-2 align-top xl:table-cell xl:px-4 xl:py-3">
           <Badge variant={purchase.status.tone}>{purchase.status.label}</Badge>
         </td>
-        <td className="min-w-[150px] px-4 py-3 align-top">
+        <td className="order-6 col-span-5 min-w-0 pt-2.5 pr-2 align-top xl:table-cell xl:min-w-[150px] xl:px-4 xl:py-3">
+          <p className="text-[8.5px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase xl:hidden">
+            Next payment
+          </p>
           {nextPayment ? (
             <>
-              <p className="font-mono text-[11px] font-bold text-[rgb(var(--fg-default))] tabular-nums">
+              <p className="mt-1 font-mono text-[11px] font-bold break-words text-[rgb(var(--fg-default))] tabular-nums xl:mt-0">
                 {nextPayment.amount}
               </p>
-              <p className="mt-1 text-[10.5px] leading-snug text-[rgb(var(--fg-muted))]">
+              <p className="mt-0.5 text-[10px] leading-snug break-words text-[rgb(var(--fg-muted))] xl:mt-1 xl:text-[10.5px]">
                 {nextPayment.timing}
               </p>
             </>
           ) : (
-            <span className="text-[11px] text-[rgb(var(--fg-muted))]">None scheduled</span>
+            <span className="mt-1 block text-[10.5px] text-[rgb(var(--fg-muted))] xl:mt-0 xl:text-[11px]">
+              None scheduled
+            </span>
           )}
         </td>
-        <td className="px-4 py-3 text-right align-top">
-          <MoneyText cents={purchase.paidCents} currency={purchase.currency} />
+        <td className="order-3 col-span-6 min-w-0 border-y border-[rgb(var(--border-subtle))] py-2.5 pr-1 align-top sm:col-span-4 xl:table-cell xl:border-0 xl:px-4 xl:py-3 xl:text-right">
+          <p className="text-[8.5px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase xl:hidden">
+            Paid
+          </p>
+          <div className="mt-1 xl:mt-0">
+            <MoneyText cents={purchase.paidCents} currency={purchase.currency} />
+          </div>
         </td>
-        <td className="px-4 py-3 text-right align-top">
-          <MoneyText
-            cents={purchase.dueNowCents}
-            currency={purchase.currency}
-            danger
-          />
+        <td className="order-4 col-span-6 min-w-0 border-y border-[rgb(var(--border-subtle))] px-1 py-2.5 align-top sm:col-span-4 xl:table-cell xl:border-0 xl:px-4 xl:py-3 xl:text-right">
+          <p className="text-[8.5px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase xl:hidden">
+            Due now
+          </p>
+          <div className="mt-1 xl:mt-0">
+            <MoneyText
+              cents={purchase.dueNowCents}
+              currency={purchase.currency}
+              danger
+            />
+          </div>
         </td>
-        <td className="px-4 py-3 text-right align-top">
-          <MoneyText
-            cents={purchase.totalRemainingCents}
-            currency={purchase.currency}
-          />
+        <td className="order-5 col-span-12 min-w-0 border-b border-[rgb(var(--border-subtle))] py-2.5 align-top sm:col-span-4 sm:border-y sm:pl-1 xl:table-cell xl:border-0 xl:px-4 xl:py-3 xl:text-right">
+          <p className="text-[8.5px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase xl:hidden">
+            Remaining
+          </p>
+          <div className="mt-1 xl:mt-0">
+            <MoneyText
+              cents={purchase.totalRemainingCents}
+              currency={purchase.currency}
+            />
+          </div>
         </td>
-        <td className="px-4 py-2 text-right align-top">
-          <div className="flex min-w-[112px] flex-col items-stretch gap-1.5">
+        <td className="order-7 col-span-7 pt-2.5 text-right align-top xl:table-cell xl:px-4 xl:py-2">
+          <div className="flex min-w-0 items-center justify-end gap-2 xl:min-w-[112px] xl:flex-col xl:items-stretch xl:gap-1.5">
             {proof ? (
               <Link
                 href={`/dashboard/payments/${encodeURIComponent(proof.id)}`}
                 aria-label={`Review proof for ${purchase.title}`}
-                className="sk-press inline-flex min-h-9 items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--brand-copper)/0.35)] bg-[rgb(var(--brand-copper)/0.08)] px-2.5 text-[11px] font-bold text-[rgb(var(--brand-copper))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))]"
+                className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--brand-copper)/0.35)] bg-[rgb(var(--brand-copper)/0.08)] px-3 text-[11px] font-bold text-[rgb(var(--brand-copper))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] xl:min-h-9 xl:rounded-[var(--radius-md)] xl:px-2.5"
               >
                 Review proof
               </Link>
@@ -335,7 +352,7 @@ function DesktopPurchaseRow({
               aria-controls={detailsId}
               aria-label={`${expanded ? "Hide" : "Show"} details for ${purchase.title}`}
               onClick={onToggle}
-              className="sk-press inline-flex min-h-9 items-center justify-center rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-2.5 text-[11px] font-bold text-[rgb(var(--fg-default))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))]"
+              className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-3 text-[11px] font-bold text-[rgb(var(--fg-default))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] xl:min-h-9 xl:rounded-[var(--radius-md)] xl:px-2.5"
             >
               {expanded ? "Hide details" : "Details"}
             </button>
@@ -343,9 +360,9 @@ function DesktopPurchaseRow({
         </td>
       </tr>
       {expanded ? (
-        <tr>
-          <td colSpan={scope === "global" ? 8 : 7} className="p-0">
-            <div id={detailsId}>
+        <tr className="block xl:table-row">
+          <td colSpan={scope === "global" ? 8 : 7} className="block p-0 xl:table-cell">
+            <div id={detailsId} className="border-t border-[rgb(var(--border-subtle))]">
               <PaymentHistoryPurchaseDetails
                 purchase={purchase}
                 role="producer"
@@ -356,130 +373,6 @@ function DesktopPurchaseRow({
         </tr>
       ) : null}
     </>
-  );
-}
-
-function MobilePurchaseRow({
-  row,
-  expanded,
-  detailsId,
-  onToggle,
-}: {
-  row: PaymentWorkspaceRow;
-  expanded: boolean;
-  detailsId: string;
-  onToggle: () => void;
-}) {
-  const purchase = row.purchase;
-  const nextPayment = nextPaymentCopy(row);
-  const proof = pendingProof(row);
-
-  return (
-    <article className="border-b border-[rgb(var(--border-subtle))] last:border-b-0">
-      <div className="min-w-0 px-3 py-3">
-        <div className="flex min-w-0 items-start justify-between gap-3">
-          <h3 className="min-w-0 text-[13px] font-extrabold break-words text-[rgb(var(--fg-default))]">
-            {purchase.title}
-          </h3>
-          <Badge className="shrink-0" variant={purchase.status.tone}>
-            {purchase.status.label}
-          </Badge>
-        </div>
-
-        <p className="mt-1.5 text-[10.5px] break-words text-[rgb(var(--fg-muted))]">
-          {purchase.counterpartyLabel ? `${purchase.counterpartyLabel} · ` : ""}
-          <span className="font-mono tracking-[0.06em]">{purchase.reference}</span>
-        </p>
-
-        <dl className="mt-3 grid min-w-0 grid-cols-3 gap-2 border-y border-[rgb(var(--border-subtle))] py-2.5">
-          <div className="min-w-0">
-            <dt className="text-[8.5px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
-              Paid
-            </dt>
-            <dd className="mt-1">
-              <MoneyText cents={purchase.paidCents} currency={purchase.currency} />
-            </dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="text-[8.5px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
-              Due now
-            </dt>
-            <dd className="mt-1">
-              <MoneyText
-                cents={purchase.dueNowCents}
-                currency={purchase.currency}
-                danger
-              />
-            </dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="text-[8.5px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
-              Remaining
-            </dt>
-            <dd className="mt-1">
-              <MoneyText
-                cents={purchase.totalRemainingCents}
-                currency={purchase.currency}
-              />
-            </dd>
-          </div>
-        </dl>
-
-        <div className="mt-2.5 flex min-w-0 items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[8.5px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
-              Next payment
-            </p>
-            {nextPayment ? (
-              <>
-                <p className="mt-1 font-mono text-[11px] font-bold text-[rgb(var(--fg-default))]">
-                  {nextPayment.amount}
-                </p>
-                <p className="mt-0.5 text-[10px] leading-snug text-[rgb(var(--fg-muted))]">
-                  {nextPayment.timing}
-                </p>
-              </>
-            ) : (
-              <p className="mt-1 text-[10.5px] text-[rgb(var(--fg-muted))]">
-                None scheduled
-              </p>
-            )}
-          </div>
-
-          <div className="flex shrink-0 items-center gap-2">
-            {proof ? (
-              <Link
-                href={`/dashboard/payments/${encodeURIComponent(proof.id)}`}
-                aria-label={`Review proof for ${purchase.title}`}
-                className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--brand-copper)/0.35)] bg-[rgb(var(--brand-copper)/0.08)] px-3 text-[11px] font-bold text-[rgb(var(--brand-copper))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))]"
-              >
-                Review proof
-              </Link>
-            ) : null}
-            <button
-              type="button"
-              aria-expanded={expanded}
-              aria-controls={detailsId}
-              aria-label={`${expanded ? "Hide" : "Show"} details for ${purchase.title}`}
-              onClick={onToggle}
-              className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-3 text-[11px] font-bold text-[rgb(var(--fg-default))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))]"
-            >
-              {expanded ? "Hide details" : "Details"}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {expanded ? (
-        <div id={detailsId} className="border-t border-[rgb(var(--border-subtle))]">
-          <PaymentHistoryPurchaseDetails
-            purchase={purchase}
-            role="producer"
-            idPrefix={`${detailsId}-content`}
-          />
-        </div>
-      ) : null}
-    </article>
   );
 }
 
@@ -724,131 +617,93 @@ export function ProducerPaymentWorkspace({
           )}
         </div>
       ) : (
-        <>
-          <div className="hidden min-w-0 overflow-x-auto rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] xl:block">
-            <table className="w-full min-w-[980px] border-collapse text-left">
-              <caption className="sr-only">{tableCaption}</caption>
-              <thead>
-                <tr className="border-b border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-background))]">
+        <div className="min-w-0 xl:overflow-x-auto xl:rounded-[var(--radius-lg)] xl:border xl:border-[rgb(var(--border-subtle))] xl:bg-[rgb(var(--bg-elevated))]">
+          <table className="block w-full min-w-0 border-collapse text-left xl:table xl:min-w-[980px]">
+            <caption className="sr-only">{tableCaption}</caption>
+            <thead className="hidden xl:table-header-group">
+              <tr className="border-b border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-background))]">
+                <th
+                  scope="col"
+                  className="px-4 py-2.5 text-[9px] font-bold tracking-[0.11em] text-[rgb(var(--fg-muted))] uppercase"
+                >
+                  Purchase
+                </th>
+                {scope === "global" ? (
                   <th
                     scope="col"
                     className="px-4 py-2.5 text-[9px] font-bold tracking-[0.11em] text-[rgb(var(--fg-muted))] uppercase"
                   >
-                    Purchase
+                    Client
                   </th>
-                  {scope === "global" ? (
-                    <th
-                      scope="col"
-                      className="px-4 py-2.5 text-[9px] font-bold tracking-[0.11em] text-[rgb(var(--fg-muted))] uppercase"
-                    >
-                      Client
-                    </th>
-                  ) : null}
+                ) : null}
+                <th
+                  scope="col"
+                  className="px-4 py-2.5 text-[9px] font-bold tracking-[0.11em] text-[rgb(var(--fg-muted))] uppercase"
+                >
+                  Status
+                </th>
+                <th
+                  scope="col"
+                  className="px-4 py-2.5 text-[9px] font-bold tracking-[0.11em] text-[rgb(var(--fg-muted))] uppercase"
+                >
+                  Next payment
+                </th>
+                {["Paid", "Due now", "Remaining"].map((label) => (
                   <th
-                    scope="col"
-                    className="px-4 py-2.5 text-[9px] font-bold tracking-[0.11em] text-[rgb(var(--fg-muted))] uppercase"
-                  >
-                    Status
-                  </th>
-                  <th
-                    scope="col"
-                    className="px-4 py-2.5 text-[9px] font-bold tracking-[0.11em] text-[rgb(var(--fg-muted))] uppercase"
-                  >
-                    Next payment
-                  </th>
-                  {["Paid", "Due now", "Remaining"].map((label) => (
-                    <th
-                      key={label}
-                      scope="col"
-                      className="px-4 py-2.5 text-right text-[9px] font-bold tracking-[0.11em] text-[rgb(var(--fg-muted))] uppercase"
-                    >
-                      {label}
-                    </th>
-                  ))}
-                  <th
+                    key={label}
                     scope="col"
                     className="px-4 py-2.5 text-right text-[9px] font-bold tracking-[0.11em] text-[rgb(var(--fg-muted))] uppercase"
                   >
-                    Details
+                    {label}
                   </th>
-                </tr>
-              </thead>
-              {groups.map((group) => {
-                const firstRow = group.rows[0];
-                if (!firstRow) return null;
-
-                return (
-                  <tbody key={group.project.id}>
-                    <tr>
-                      <th
-                        scope="rowgroup"
-                        colSpan={scope === "global" ? 8 : 7}
-                        className="p-0 text-left"
-                      >
-                        <ProjectBand row={firstRow} purchaseCount={group.rows.length} />
-                      </th>
-                    </tr>
-                    {group.rows.map((row) => {
-                      const expanded = expandedPurchaseId === row.id;
-                      const detailsId = `${instanceId}-desktop-details-${safeDomId(row.id)}`;
-                      return (
-                        <Fragment key={row.id}>
-                          <DesktopPurchaseRow
-                            row={row}
-                            scope={scope}
-                            expanded={expanded}
-                            detailsId={detailsId}
-                            onToggle={() => {
-                              toggleDetails(row.id);
-                            }}
-                          />
-                        </Fragment>
-                      );
-                    })}
-                  </tbody>
-                );
-              })}
-            </table>
-          </div>
-
-          <div className="min-w-0 space-y-4 xl:hidden">
+                ))}
+                <th
+                  scope="col"
+                  className="px-4 py-2.5 text-right text-[9px] font-bold tracking-[0.11em] text-[rgb(var(--fg-muted))] uppercase"
+                >
+                  Details
+                </th>
+              </tr>
+            </thead>
             {groups.map((group) => {
               const firstRow = group.rows[0];
               if (!firstRow) return null;
 
               return (
-                <section
+                <tbody
                   key={group.project.id}
-                  aria-label={`${group.project.title} payments`}
-                  className="min-w-0 overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
+                  className="mb-4 block min-w-0 overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] last:mb-0 xl:table-row-group xl:border-0"
                 >
-                  <ProjectBand
-                    row={firstRow}
-                    purchaseCount={group.rows.length}
-                    mobile
-                  />
-                  <div className="min-w-0">
-                    {group.rows.map((row) => {
-                      const expanded = expandedPurchaseId === row.id;
-                      const detailsId = `${instanceId}-mobile-details-${safeDomId(row.id)}`;
-                      return (
-                        <MobilePurchaseRow
-                          key={row.id}
-                          row={row}
-                          expanded={expanded}
-                          detailsId={detailsId}
-                          onToggle={() => {
-                            toggleDetails(row.id);
-                          }}
-                        />
-                      );
-                    })}
-                  </div>
-                </section>
+                  <tr className="block xl:table-row">
+                    <th
+                      scope="rowgroup"
+                      colSpan={scope === "global" ? 8 : 7}
+                      className="block p-0 text-left xl:table-cell"
+                    >
+                      <ProjectBand row={firstRow} purchaseCount={group.rows.length} />
+                    </th>
+                  </tr>
+                  {group.rows.map((row) => {
+                    const expanded = expandedPurchaseId === row.id;
+                    const detailsId = `${instanceId}-desktop-details-${safeDomId(row.id)}`;
+                    return (
+                      <ResponsivePurchaseRow
+                        key={row.id}
+                        row={row}
+                        scope={scope}
+                        expanded={expanded}
+                        detailsId={detailsId}
+                        onToggle={() => {
+                          toggleDetails(row.id);
+                        }}
+                      />
+                    );
+                  })}
+                </tbody>
               );
             })}
-          </div>
-        </>
+          </table>
+        </div>
       )}
     </div>
   );
