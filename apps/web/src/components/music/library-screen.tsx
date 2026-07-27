@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { EqBars } from "~/components/audio/eq-bars";
 import { playerPlay, playerToggle, useNowPlaying } from "~/components/audio/persistent-player";
+import { useTabSwipe } from "~/components/native/use-tab-swipe";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 
 import { ProjectCover } from "./project-cover";
@@ -129,6 +130,8 @@ type View = "grid" | "table";
 type SongSort = "recent" | "title" | "notes" | "length";
 type ProjectArchiveFilter = "active" | "archived";
 export type SongArchiveFilter = "active" | "archived";
+
+const MUSIC_LIBRARY_MODES = ["projects", "songs"] as const;
 
 export interface MusicLibraryUrlState {
   mode: Mode;
@@ -404,6 +407,12 @@ export function MusicLibraryScreen({
     replaceUrlState("mode", next, "songs");
   }
 
+  const modeSwipeHandlers = useTabSwipe({
+    items: MUSIC_LIBRARY_MODES,
+    value: mode,
+    onChange: updateMode,
+  });
+
   function updateView(next: View) {
     setView(next);
     replaceUrlState("view", next, "grid");
@@ -670,7 +679,14 @@ export function MusicLibraryScreen({
       ) : null}
 
       {/* Body — one results region updated by the two pressed-button groups. */}
-      <div id={RESULTS_PANEL_ID} role="region" aria-label="Library results">
+      <div
+        id={RESULTS_PANEL_ID}
+        role="region"
+        aria-label="Library results"
+        className="[touch-action:pan-y_pinch-zoom]"
+        data-tab-swipe-surface
+        {...modeSwipeHandlers}
+      >
         {mode === "projects" && visibleProjects.length === 0 ? (
           <EmptyResult
             hasQuery={Boolean(search.trim()) || artist !== "all"}

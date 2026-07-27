@@ -63,6 +63,18 @@ describe("mobile library toolbar", () => {
     expect(source).not.toContain('role="tabpanel"');
   });
 
+  it("swipes the results surface through the existing URL-synced mode updater", () => {
+    expect(source).toContain('import { useTabSwipe } from "~/components/native/use-tab-swipe"');
+    expect(source).toMatch(
+      /useTabSwipe\(\{\s*items:\s*MUSIC_LIBRARY_MODES,\s*value:\s*mode,\s*onChange:\s*updateMode,\s*\}\)/,
+    );
+    expect(source).toMatch(
+      /id=\{RESULTS_PANEL_ID\}[\s\S]{0,180}data-tab-swipe-surface[\s\S]{0,100}\{\.\.\.modeSwipeHandlers\}/,
+    );
+    expect(source).toContain('className="[touch-action:pan-y_pinch-zoom]"');
+    expect(source.match(/data-tab-swipe-surface/g)).toHaveLength(1);
+  });
+
   it("makes the actual search input a 44px target", () => {
     expect(source).toMatch(/aria-label="Search music library"[\s\S]{0,180}className="h-11/);
   });

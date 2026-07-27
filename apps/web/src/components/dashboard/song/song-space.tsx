@@ -6,6 +6,7 @@ import { Plus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { playerPlay } from "~/components/audio/persistent-player";
+import { useTabSwipe } from "~/components/native/use-tab-swipe";
 import type { GradientToken } from "~/lib/clients/derive-gradient";
 import type { WorkflowStage } from "~/lib/clients/workflow-stage";
 import type { LinkPillState } from "~/components/dashboard/clients/link-pill";
@@ -31,6 +32,8 @@ import {
   PaymentHistoryView,
   type PaymentHistoryViewData,
 } from "~/components/payments/payment-history-view";
+
+const SONG_TAB_ORDER: readonly SongTab[] = ["overview", "versions", "sessions"];
 
 // SongSpace — top-level shell for the new Song Space (and Single
 // Space). Owns the active-tab state, composes SongSpaceHero +
@@ -105,6 +108,11 @@ export function SongSpace({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [active, setActive] = useState<SongTab>("overview");
+  const tabSwipeHandlers = useTabSwipe({
+    items: SONG_TAB_ORDER,
+    value: active,
+    onChange: setActive,
+  });
   const projectActive = actionProject.lifecycleStatus === "active";
   const songArchived = song.archivedAtIso !== null;
   const songReleased = song.releasedAtIso != null;
@@ -284,33 +292,39 @@ export function SongSpace({
 
       <SongTabs active={active} onChange={setActive} versionsCount={versions.length} />
 
-      {active === "overview" ? (
-        <OverviewTab
-          song={{ workflowStage: song.workflowStage, title: song.title }}
-          project={{ name: project.name }}
-          latestVersions={versions}
-          client={client}
-          mode={mode}
-          emptyVersionsMessage={
-            canUpload
-              ? "No versions yet — upload the first one to get started."
-              : newWorkBlockedReason
-          }
-          onShowAllVersions={() => {
-            setActive("versions");
-          }}
-        />
-      ) : null}
-      {active === "versions" ? (
-        <VersionsTab
-          song={{ title: song.title }}
-          project={{ name: project.name }}
-          versions={versions}
-          blockedReason={newWorkBlockedReason}
-          {...(canUpload ? { onAddVersion: openUpload } : {})}
-        />
-      ) : null}
-      {active === "sessions" ? <SessionsTab sessions={sessions} /> : null}
+      <div
+        data-tab-swipe-surface
+        className="[touch-action:pan-y_pinch-zoom]"
+        {...tabSwipeHandlers}
+      >
+        {active === "overview" ? (
+          <OverviewTab
+            song={{ workflowStage: song.workflowStage, title: song.title }}
+            project={{ name: project.name }}
+            latestVersions={versions}
+            client={client}
+            mode={mode}
+            emptyVersionsMessage={
+              canUpload
+                ? "No versions yet — upload the first one to get started."
+                : newWorkBlockedReason
+            }
+            onShowAllVersions={() => {
+              setActive("versions");
+            }}
+          />
+        ) : null}
+        {active === "versions" ? (
+          <VersionsTab
+            song={{ title: song.title }}
+            project={{ name: project.name }}
+            versions={versions}
+            blockedReason={newWorkBlockedReason}
+            {...(canUpload ? { onAddVersion: openUpload } : {})}
+          />
+        ) : null}
+        {active === "sessions" ? <SessionsTab sessions={sessions} /> : null}
+      </div>
       {paymentHistory ? <PaymentHistoryView role="producer" data={paymentHistory} /> : null}
       <ProjectPurchasesPanel projectId={project.id} purchases={purchases} />
       {/* Phase 4: shared Upload Track modal — fired from SongSpaceHero's

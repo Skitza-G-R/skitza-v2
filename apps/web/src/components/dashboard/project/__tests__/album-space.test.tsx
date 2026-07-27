@@ -44,6 +44,16 @@ describe("AlbumSpace — composes hero + strip + tabs + active panel", () => {
     expect(SRC).not.toMatch(/active\s*===\s*["']payments["']/);
   });
 
+  it("swipes only the active panel through the ordered local tab state", () => {
+    expect(SRC).toMatch(/ALBUM_TAB_ORDER[\s\S]*?["']songs["'][\s\S]*?["']log["']/);
+    expect(SRC).toContain("useTabSwipe");
+    expect(SRC).toContain("onChange: setActive");
+    expect(SRC).toContain('className="[touch-action:pan-y_pinch-zoom]"');
+    expect(SRC).toMatch(
+      /<div[\s\S]*?data-tab-swipe-surface[\s\S]*?\{\.\.\.tabSwipeHandlers\}[\s\S]*?active\s*===\s*["']songs["'][\s\S]*?active\s*===\s*["']log["'][\s\S]*?<\/div>[\s\S]*?<PaymentHistoryView/,
+    );
+  });
+
   it("forwards project + tracks + studioLog props to the panels", () => {
     expect(SRC).toContain("project");
     expect(SRC).toContain("tracks");

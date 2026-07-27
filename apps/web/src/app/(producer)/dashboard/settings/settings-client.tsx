@@ -9,8 +9,13 @@ import { useOnlineStatus } from "~/components/runtime-state/online-required-link
 import { useProducerDisplayNameDraft } from "~/components/runtime-state/use-runtime-state";
 import { PUBLIC_BRAND_ORIGIN, buildJoinUrl } from "~/lib/share/public-url";
 import { markMeaningfulInstallAction } from "~/lib/pwa/install-guidance";
+import { useTabSwipe } from "~/components/native/use-tab-swipe";
 import { updateProducer } from "./actions";
-import { type SettingsSectionKey, SUB_NAV } from "./settings-keys";
+import {
+  SETTINGS_SECTION_KEYS,
+  type SettingsSectionKey,
+  SUB_NAV,
+} from "./settings-keys";
 
 // One screen, five sections, one savebar. The whole flow lives in this
 // client component so the savebar can corral edits across sections
@@ -74,6 +79,20 @@ export function SettingsClient({
   // sub-nav clicks update only this state (no URL change) so unsaved
   // edits in `form` survive a section switch.
   const [active, setActive] = useState<SettingsSectionKey>(initialActive);
+
+  function changeSection(next: SettingsSectionKey) {
+    setActive(next);
+    // Update the URL bar via the raw History API so the server page
+    // isn't re-fetched (router.replace would remount SettingsClient
+    // and wipe in-flight edits in `form`).
+    window.history.replaceState(null, "", `/dashboard/settings?section=${next}`);
+  }
+
+  const tabSwipeHandlers = useTabSwipe({
+    items: SETTINGS_SECTION_KEYS,
+    value: active,
+    onChange: changeSection,
+  });
 
   const initialForm: FormState = {
     displayName: initial.displayName,
@@ -198,13 +217,7 @@ export function SettingsClient({
               className={isActive ? "s-active" : ""}
               aria-current={isActive ? "page" : undefined}
               onClick={() => {
-                setActive(item.key);
-                // Update the URL bar via the raw History API so the
-                // server page isn't re-fetched (router.replace would
-                // remount SettingsClient and wipe in-flight edits in
-                // `form`). Deep linking + browser back +
-                // sharing now reflect the active section.
-                window.history.replaceState(null, "", `/dashboard/settings?section=${item.key}`);
+                changeSection(item.key);
               }}
             >
               <Icon />
@@ -219,7 +232,11 @@ export function SettingsClient({
 
       {/* Right content — single section mounted at a time so the
           reveal animation re-runs on every switch (key={active}). */}
-      <div className="s-content">
+      <div
+        className="s-content [touch-action:pan-y_pinch-zoom]"
+        data-tab-swipe-surface
+        {...tabSwipeHandlers}
+      >
         <div className="s-content-inner" key={active}>
           {active === "profile" && (
             <ProfileSection form={form} setForm={setForm} identity={identity} />

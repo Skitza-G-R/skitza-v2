@@ -14,6 +14,7 @@ import {
 } from "./album-tabs/studio-log-tab";
 import type { TrackRowData } from "./track-row";
 import { playerPlay } from "~/components/audio/persistent-player";
+import { useTabSwipe } from "~/components/native/use-tab-swipe";
 import {
   ProjectActionControls,
   type ProjectActionProject,
@@ -26,6 +27,8 @@ import {
   PaymentHistoryView,
   type PaymentHistoryViewData,
 } from "~/components/payments/payment-history-view";
+
+const ALBUM_TAB_ORDER: readonly AlbumTab[] = ["songs", "log"];
 
 // AlbumSpace — the top-level shell for the new Album Page. Owns the
 // active-tab state and composes AlbumHero + AlbumStatStrip + AlbumTabs
@@ -91,6 +94,11 @@ export function AlbumSpace({
 }: AlbumSpaceProps) {
   const router = useRouter();
   const [active, setActive] = useState<AlbumTab>("songs");
+  const tabSwipeHandlers = useTabSwipe({
+    items: ALBUM_TAB_ORDER,
+    value: active,
+    onChange: setActive,
+  });
   const projectActive = actionProject.lifecycleStatus === "active";
   const canAddSong = projectActive;
   const archived =
@@ -189,26 +197,32 @@ export function AlbumSpace({
 
       <AlbumTabs active={active} onChange={setActive} songsCount={project.songsCount} />
 
-      {active === "songs" ? (
-        <SongsTab
-          projectId={project.id}
-          tracks={tracks}
-          emptySlots={emptySlots}
-          canAddSong={canAddSong}
-          blockedReason={newWorkBlockedReason}
-          {...(canAddSong ? { onAddSong: handleAddSong } : {})}
-        />
-      ) : null}
-      {active === "log" ? (
-        <StudioLogTab
-          sessionsCount={studioLog.sessionsCount}
-          studioHours={studioLog.studioHours}
-          thisMonthCount={studioLog.thisMonthCount}
-          lastSessionDate={studioLog.lastSessionDate}
-          activities={studioLog.activities}
-          sessions={studioLog.sessions}
-        />
-      ) : null}
+      <div
+        data-tab-swipe-surface
+        className="[touch-action:pan-y_pinch-zoom]"
+        {...tabSwipeHandlers}
+      >
+        {active === "songs" ? (
+          <SongsTab
+            projectId={project.id}
+            tracks={tracks}
+            emptySlots={emptySlots}
+            canAddSong={canAddSong}
+            blockedReason={newWorkBlockedReason}
+            {...(canAddSong ? { onAddSong: handleAddSong } : {})}
+          />
+        ) : null}
+        {active === "log" ? (
+          <StudioLogTab
+            sessionsCount={studioLog.sessionsCount}
+            studioHours={studioLog.studioHours}
+            thisMonthCount={studioLog.thisMonthCount}
+            lastSessionDate={studioLog.lastSessionDate}
+            activities={studioLog.activities}
+            sessions={studioLog.sessions}
+          />
+        ) : null}
+      </div>
 
       {paymentHistory ? <PaymentHistoryView role="producer" data={paymentHistory} /> : null}
       <ProjectPurchasesPanel projectId={project.id} purchases={purchases} />

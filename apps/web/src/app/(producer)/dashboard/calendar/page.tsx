@@ -6,6 +6,7 @@ import { appRouter } from "~/server/trpc/routers/_app";
 import { AvailabilityPanel } from "./availability-panel";
 
 import { CalendarTabs } from "./calendar-tabs";
+import { CalendarSwipeSurface } from "./calendar-swipe-surface";
 import { resolveCalendarTabForBooking } from "./calendar-tab-key";
 import { normalizeCalendarTimeZone } from "./calendar-time";
 import type { ScheduleAvailabilityBlock } from "./schedule-hours";
@@ -284,13 +285,7 @@ export default async function CalendarPage({
           </div>
         </header>
 
-        <div
-          key={active}
-          id={`calendar-panel-${active}`}
-          role="tabpanel"
-          aria-labelledby={`calendar-tab-${active}`}
-          className="reveal-up flex min-h-0 flex-1 flex-col"
-        >
+        <CalendarSwipeSurface key={active} active={active}>
           {active === "schedule" && (
             <>
               {/* Desktop keeps the full week-grid schedule. */}
@@ -386,7 +381,7 @@ export default async function CalendarPage({
               initialWeekStart={availabilityWeekStart}
             />
           )}
-        </div>
+        </CalendarSwipeSurface>
       </div>
     </div>
   );

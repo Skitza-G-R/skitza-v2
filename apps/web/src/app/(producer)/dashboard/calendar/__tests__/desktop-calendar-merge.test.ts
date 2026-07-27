@@ -8,6 +8,7 @@ const readCalendarFile = (name: string) => readFileSync(join(here, "..", name), 
 
 const PAGE = readCalendarFile("page.tsx");
 const TABS = readCalendarFile("calendar-tabs.tsx");
+const SWIPE = readCalendarFile("calendar-swipe-surface.tsx");
 const SCHEDULE = readCalendarFile("schedule-panel.tsx");
 const GRID = readCalendarFile("schedule-week-grid.tsx");
 const COMPACT = readCalendarFile("schedule-sessions-card.tsx");
@@ -16,6 +17,18 @@ describe("desktop Calendar schedule and sessions merge", () => {
   it("keeps Sessions as the mobile tab and Schedule as the desktop tab", () => {
     expect(TABS).toMatch(/tab\.id === "schedule"[\s\S]*\? "hidden lg:inline-flex"/);
     expect(TABS).toMatch(/tab\.id === "sessions"[\s\S]*\? "inline-flex lg:hidden"/);
+  });
+
+  it("swipes across the two distinct responsive calendar surfaces", () => {
+    expect(PAGE).toContain("<CalendarSwipeSurface");
+    expect(SWIPE).toContain('["sessions", "availability"]');
+    expect(SWIPE).toContain(
+      'active === "availability" ? "availability" : "sessions"',
+    );
+    expect(SWIPE).toContain("useTabSwipe");
+    expect(SWIPE).toContain("data-tab-swipe-surface");
+    expect(SWIPE).toContain("[touch-action:pan-y_pinch-zoom]");
+    expect(SWIPE).toContain("{ scroll: false }");
   });
 
   it("hydrates the merged desktop schedule for both meeting URLs", () => {
