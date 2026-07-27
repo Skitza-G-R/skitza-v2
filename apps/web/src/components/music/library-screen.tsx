@@ -149,7 +149,7 @@ function enumerated<T extends string>(
 export function parseMusicLibraryUrlState(search: string): MusicLibraryUrlState {
   const params = new URLSearchParams(search);
   return {
-    mode: enumerated(params.get("mode"), ["projects", "songs"], "projects"),
+    mode: enumerated(params.get("mode"), ["projects", "songs"], "songs"),
     view: enumerated(params.get("view"), ["grid", "table"], "grid"),
     search: (params.get("search") ?? "").slice(0, 120),
     sort: enumerated(params.get("sort"), ["recent", "title", "notes", "length"], "recent"),
@@ -401,7 +401,7 @@ export function MusicLibraryScreen({
 
   function updateMode(next: Mode) {
     setMode(next);
-    replaceUrlState("mode", next, "projects");
+    replaceUrlState("mode", next, "songs");
   }
 
   function updateView(next: View) {
@@ -1068,10 +1068,7 @@ function ProjectsGrid({
     // auto-fill behavior applies unchanged.
     <ul
       role="list"
-      className={[
-        "grid gap-3.5 sm:grid-cols-[repeat(auto-fill,minmax(196px,1fr))] sm:gap-[22px]",
-        role === "producer" ? "grid-cols-1" : "grid-cols-2",
-      ].join(" ")}
+      className="grid grid-cols-2 gap-3.5 sm:grid-cols-[repeat(auto-fill,minmax(196px,1fr))] sm:gap-[22px]"
     >
       {projects.map((p, i) => (
         // Featured span applies from sm: up only — below 640px the

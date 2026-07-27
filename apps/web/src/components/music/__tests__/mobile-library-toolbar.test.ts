@@ -3,10 +3,36 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+import { parseMusicLibraryUrlState } from "../library-screen";
+
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, "..", "library-screen.tsx"), "utf8");
 
 describe("mobile library toolbar", () => {
+  it("opens on Songs by default while preserving an explicit Projects mode", () => {
+    expect(parseMusicLibraryUrlState("").mode).toBe("songs");
+    expect(parseMusicLibraryUrlState("mode=projects").mode).toBe("projects");
+    expect(source).toContain('replaceUrlState("mode", next, "songs")');
+  });
+
+  it("uses the same compact two-column phone grid for Projects and Songs", () => {
+    const projectsGrid = source.slice(
+      source.indexOf("function ProjectsGrid"),
+      source.indexOf("function ProjectCard"),
+    );
+    const songsGrid = source.slice(
+      source.indexOf("function SongsGrid"),
+      source.indexOf("function SongCard"),
+    );
+
+    for (const grid of [projectsGrid, songsGrid]) {
+      expect(grid).toContain(
+        "grid grid-cols-2 gap-3.5 sm:grid-cols-[repeat(auto-fill,minmax(196px,1fr))] sm:gap-[22px]",
+      );
+    }
+    expect(projectsGrid).not.toContain('role === "producer" ? "grid-cols-1"');
+  });
+
   it("removes the inapplicable sort control instead of rendering it disabled", () => {
     expect(source).toMatch(
       /mode === "songs" && view === "table"\s*\?\s*\(\s*<SortDropdown/,
