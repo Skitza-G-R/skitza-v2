@@ -103,7 +103,10 @@ describe("producer mobile nav viewport anchoring", () => {
 
   it("keeps the glass nav in the shell footer instead of fixing it to the document viewport", () => {
     expect(BOTTOM).toContain("relative z-30 shrink-0");
-    expect(BOTTOM).toContain("env(safe-area-inset-bottom, 0px)");
+    expect(BOTTOM).toContain(") 8px max(12px, env(safe-area-inset-left, 0px))");
+    expect(GLOBALS).toContain(
+      "padding-bottom: max(0px, calc(env(safe-area-inset-bottom, 0px) - 8px));",
+    );
     expect(BOTTOM).not.toContain("safe-area-max-inset-bottom");
     expect(BOTTOM).not.toMatch(/className="[^"]*\bfixed\b/);
     expect(BOTTOM).not.toContain("producerBottomNavViewportStyle");
@@ -119,6 +122,34 @@ describe("producer mobile nav viewport anchoring", () => {
     expect(GLOBALS).toContain("-webkit-backdrop-filter: blur(24px) saturate(170%)");
     expect(GLOBALS).toContain('.producer-bottom-nav__tab[data-active="true"]');
     expect(GLOBALS).toContain("rgb(var(--bg-sidebar) / 0.52)");
+  });
+
+  it("tracks one real magnifying lens from pointer movement without React render-loop state", () => {
+    expect(BOTTOM).toContain("producer-bottom-nav__lens");
+    expect(BOTTOM).toContain("producer-bottom-nav__magnifier");
+    expect(BOTTOM).toContain("producer-bottom-nav__magnifier-grid");
+    expect(BOTTOM).toContain("requestAnimationFrame(flushPendingLensPoint)");
+    expect(BOTTOM).toContain('style.setProperty("--sk-nav-lens-x"');
+    expect(BOTTOM).toContain('style.setProperty("--sk-nav-lens-y"');
+    expect(BOTTOM).toContain('style.setProperty("--sk-nav-proximity"');
+    expect(BOTTOM).toContain("onPointerDown={handlePointerDown}");
+    expect(BOTTOM).toContain("onPointerMove={handlePointerMove}");
+    expect(BOTTOM).toContain("onPointerUp={handlePointerEnd}");
+    expect(BOTTOM).toContain("onPointerCancel={handlePointerEnd}");
+    expect(BOTTOM).not.toContain("useState");
+
+    expect(GLOBALS).toContain(".producer-bottom-nav__lens");
+    expect(GLOBALS).toContain(".producer-bottom-nav__magnifier");
+    expect(GLOBALS).toContain("calc(var(--sk-nav-lens-width) / 2) 30px");
+    expect(GLOBALS).toContain("transform: scale(1.13)");
+    expect(GLOBALS).toContain("touch-action: pan-y");
+  });
+
+  it("keeps a static active treatment when reduced motion is requested", () => {
+    expect(GLOBALS).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.producer-bottom-nav__lens,[\s\S]*\.producer-bottom-nav__magnifier[\s\S]*display: none !important/,
+    );
+    expect(GLOBALS).toContain('.producer-bottom-nav__tab[data-active="true"]');
   });
 
   it("keeps producer topbar controls below the iPhone status area", () => {

@@ -27,7 +27,12 @@ describe("SK-117 mobile bottom-navigation sizing", () => {
 
   it("keeps both bars mobile-only and above the iPhone Home Indicator", () => {
     expect(PRODUCER_NAV).toContain("lg:hidden");
-    expect(PRODUCER_NAV).toContain("max(8px, env(safe-area-inset-bottom, 0px))");
+    expect(PRODUCER_NAV).toContain(
+      '"0 max(12px, env(safe-area-inset-right, 0px)) 8px max(12px, env(safe-area-inset-left, 0px))"',
+    );
+    expect(GLOBALS).toContain(
+      "padding-bottom: max(0px, calc(env(safe-area-inset-bottom, 0px) - 8px));",
+    );
     expect(ARTIST_NAV).toContain("lg:hidden");
     expect(ARTIST_NAV).toContain(
       '"8px calc(4px + env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) calc(4px + env(safe-area-inset-left, 0px))"',
