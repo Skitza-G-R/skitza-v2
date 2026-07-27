@@ -179,7 +179,9 @@ export function AddSongDialog({
         operationKeyRef.current = "";
         toast("Song added", "success");
         onClose();
-        router.push(`/dashboard/clients-projects/${result.data.projectId}/songs/${result.data.id}`);
+        router.push(
+          `/dashboard/clients-projects/${result.data.projectId}/songs/${result.data.id}?upload=1`,
+        );
         router.refresh();
       } catch {
         toast("Could not add this song. Try again.", "error");
