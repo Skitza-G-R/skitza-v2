@@ -605,6 +605,7 @@ export function SongPage({
   const moreActionsPanelId = useId();
   const overflowRef = useRef<HTMLDivElement | null>(null);
   const moreButtonRef = useRef<HTMLButtonElement | null>(null);
+  const openingManagementFromSheetRef = useRef(false);
   const deliveryOverrideButtonRef = useRef<HTMLButtonElement | null>(null);
   const [managementDialog, setManagementDialog] = useState<OpenSongManagement | null>(null);
 
@@ -628,13 +629,26 @@ export function SongPage({
         setOverflowOpen(false);
       }
     }
+    function onFocusIn(e: FocusEvent) {
+      const node = overflowRef.current;
+      if (node && !node.contains(e.target as Node)) {
+        setOverflowOpen(false);
+      }
+    }
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOverflowOpen(false);
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      setOverflowOpen(false);
+      window.requestAnimationFrame(() => {
+        moreButtonRef.current?.focus();
+      });
     }
     window.addEventListener("pointerdown", onDown);
+    window.addEventListener("focusin", onFocusIn);
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("focusin", onFocusIn);
       window.removeEventListener("keydown", onKey);
     };
   }, [isDesktopMoreActions, overflowOpen]);
@@ -945,6 +959,11 @@ export function SongPage({
     if (!activeVersion) return;
     setOverflowOpen(false);
     setManagementDialog({ kind, versionId: activeVersion.id });
+  }
+
+  function openMoreActionsManagementDialog(kind: OpenSongManagement["kind"]) {
+    openingManagementFromSheetRef.current = !isDesktopMoreActions;
+    openManagementDialog(kind);
   }
 
   function handleManagementSubmit(value: string): Promise<MusicL3ActionResult> {
@@ -1398,7 +1417,7 @@ export function SongPage({
     onDismiss: () => {
       setOverflowOpen(false);
     },
-    onOpenManagement: openManagementDialog,
+    onOpenManagement: openMoreActionsManagementDialog,
   } satisfies Omit<SongMoreActionsPanelProps, "className" | "testId">;
 
   return (
@@ -1779,7 +1798,7 @@ export function SongPage({
                   ref={moreButtonRef}
                   type="button"
                   aria-label="More actions"
-                  aria-haspopup={isDesktopMoreActions ? "menu" : "dialog"}
+                  aria-haspopup={isDesktopMoreActions ? undefined : "dialog"}
                   aria-expanded={overflowOpen}
                   aria-controls={overflowOpen ? moreActionsPanelId : undefined}
                   onClick={() => {
@@ -1813,6 +1832,10 @@ export function SongPage({
                     data-testid="song-more-actions-sheet"
                     onCloseAutoFocus={(event) => {
                       event.preventDefault();
+                      if (openingManagementFromSheetRef.current) {
+                        openingManagementFromSheetRef.current = false;
+                        return;
+                      }
                       moreButtonRef.current?.focus();
                     }}
                     className="max-h-[88dvh] w-full gap-0 overflow-hidden p-0 pb-[env(safe-area-inset-bottom)] sm:p-0"
@@ -2263,10 +2286,9 @@ function SongMoreActionsPanel({
     );
 
   return (
-    <div id={id} role="menu" aria-label="Song actions" data-testid={testId} className={className}>
+    <div id={id} role="group" aria-label="Song actions" data-testid={testId} className={className}>
       {canUseDownloadAction ? (
         <a
-          role="menuitem"
           aria-label="Download"
           href={downloadHref}
           download
@@ -2281,7 +2303,6 @@ function SongMoreActionsPanel({
       ) : (
         <button
           type="button"
-          role="menuitem"
           disabled
           title={activeVersionDeleted ? "Audio was deleted" : "Audio is still uploading"}
           className="flex min-h-11 w-full cursor-not-allowed items-center gap-2.5 rounded-[var(--radius-lg)] px-3 py-2 text-left text-[13px] font-semibold opacity-50"
@@ -2302,7 +2323,6 @@ function SongMoreActionsPanel({
           {actions.renameSong ? (
             <button
               type="button"
-              role="menuitem"
               onClick={() => {
                 onOpenManagement("rename-song");
               }}
@@ -2314,7 +2334,6 @@ function SongMoreActionsPanel({
           {actions.editArtist ? (
             <button
               type="button"
-              role="menuitem"
               onClick={() => {
                 onOpenManagement("edit-artist");
               }}
@@ -2326,7 +2345,6 @@ function SongMoreActionsPanel({
           {actions.setArchived ? (
             <button
               type="button"
-              role="menuitem"
               onClick={() => {
                 onOpenManagement("set-archived");
               }}
@@ -2338,7 +2356,6 @@ function SongMoreActionsPanel({
           {actions.markReleased && !songReleased ? (
             <button
               type="button"
-              role="menuitem"
               onClick={() => {
                 onOpenManagement("mark-released");
               }}
@@ -2350,7 +2367,6 @@ function SongMoreActionsPanel({
           {actions.renameVersion ? (
             <button
               type="button"
-              role="menuitem"
               onClick={() => {
                 onOpenManagement("rename-version");
               }}
@@ -2362,7 +2378,6 @@ function SongMoreActionsPanel({
           {actions.deleteVersionAudio && activeVersionPlayable ? (
             <button
               type="button"
-              role="menuitem"
               onClick={() => {
                 onOpenManagement("delete-version-audio");
               }}
@@ -2373,7 +2388,6 @@ function SongMoreActionsPanel({
           ) : actions.deleteVersionAudio && activeVersionDeleted ? (
             <button
               type="button"
-              role="menuitem"
               onClick={() => {
                 onOpenManagement("delete-version-audio");
               }}

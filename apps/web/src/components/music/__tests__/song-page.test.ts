@@ -548,7 +548,13 @@ describe("song-page.tsx source — secondary actions and public sharing", () => 
     expect(moreActionsPanelSrc).toContain(
       'title={activeVersionDeleted ? "Audio was deleted" : "Audio is still uploading"}',
     );
-    expect(moreActionsPanelSrc).toMatch(/type="button"\s+role="menuitem"\s+disabled/);
+    expect(moreActionsPanelSrc).toMatch(/type="button"\s+disabled/);
+  });
+
+  it("uses honest native disclosure semantics instead of an incomplete ARIA menu contract", () => {
+    expect(moreActionsPanelSrc).toContain('role="group"');
+    expect(moreActionsPanelSrc).not.toContain('role="menu"');
+    expect(moreActionsPanelSrc).not.toContain('role="menuitem"');
   });
 
   it("removes the local-only Favorite control", () => {
@@ -782,8 +788,9 @@ describe("song-page.tsx source — producer L3 management", () => {
     expect(songPageSrc).toContain("aria-controls={overflowOpen ? moreActionsPanelId : undefined}");
     expect(songPageSrc).toContain("open={overflowOpen && !isDesktopMoreActions}");
     expect(songPageSrc).toMatch(/<SheetContent[\s\S]{0,160}?side="bottom"/);
+    expect(songPageSrc).toContain("openingManagementFromSheetRef.current");
     expect(songPageSrc).toMatch(
-      /onCloseAutoFocus=\{\(event\) => \{[\s\S]{0,160}?moreButtonRef\.current\?\.focus\(\)/,
+      /onCloseAutoFocus=\{\(event\) => \{[\s\S]{0,320}?moreButtonRef\.current\?\.focus\(\)/,
     );
     expect(songPageSrc).not.toContain("max-[400px]:fixed");
   });

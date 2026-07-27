@@ -42,6 +42,7 @@ export function ClientActionsMenu({
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const firstActionRef = useRef<HTMLButtonElement>(null);
+  const actionChosenFromSheetRef = useRef(false);
 
   useEffect(() => {
     const media = window.matchMedia(DESKTOP_MEDIA_QUERY);
@@ -73,6 +74,10 @@ export function ClientActionsMenu({
       if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
     }
 
+    function handleFocusIn(event: FocusEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    }
+
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
       event.preventDefault();
@@ -80,9 +85,11 @@ export function ClientActionsMenu({
     }
 
     document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("focusin", handleFocusIn);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("focusin", handleFocusIn);
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [closeWithFocusReturn, isDesktop, open]);
@@ -90,6 +97,7 @@ export function ClientActionsMenu({
   if (!onEdit && !onArchive && !onDelete) return null;
 
   const choose = (action: (() => void) | undefined) => {
+    actionChosenFromSheetRef.current = !isDesktop;
     setOpen(false);
     // The disclosed item unmounts as its controlled dialog opens. Put
     // focus on the stable trigger first so Radix can return there when
@@ -200,13 +208,17 @@ export function ClientActionsMenu({
           data-testid="client-actions-sheet"
           onCloseAutoFocus={(event) => {
             event.preventDefault();
+            if (actionChosenFromSheetRef.current) {
+              actionChosenFromSheetRef.current = false;
+              return;
+            }
             triggerRef.current?.focus();
           }}
           className="max-h-[88dvh] w-full gap-0 overflow-y-auto p-0 pb-[env(safe-area-inset-bottom)] sm:p-0"
         >
           <SheetTitle className="sr-only">Actions for {name}</SheetTitle>
           <SheetDescription className="sr-only">
-            Edit, archive, restore, or delete this client.
+            Choose an available action for this client.
           </SheetDescription>
           <div role="group" aria-label={`Actions for ${name}`} className="w-full py-2 text-sm">
             {actionButtons()}

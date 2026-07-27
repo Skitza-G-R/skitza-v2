@@ -63,6 +63,14 @@ export function ChangeStageMenu({ trackId, current }: ChangeStageMenuProps) {
     };
   }, []);
 
+  const closeWithFocusReturn = useCallback(() => {
+    setOpen(false);
+    triggerRef.current?.focus();
+    window.requestAnimationFrame(() => {
+      triggerRef.current?.focus();
+    });
+  }, []);
+
   // The anchored desktop popover owns outside-click and Escape handling.
   // The mobile Sheet handles backdrop dismissal, Escape, focus trapping,
   // and focus return through the shared Radix primitive.
@@ -76,33 +84,43 @@ export function ChangeStageMenu({ trackId, current }: ChangeStageMenuProps) {
       }
       setOpen(false);
     };
+    const handleFocusIn = (e: FocusEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (menuRef.current?.contains(target) || triggerRef.current?.contains(target)) {
+        return;
+      }
+      setOpen(false);
+    };
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        setOpen(false);
-        triggerRef.current?.focus();
+        e.preventDefault();
+        closeWithFocusReturn();
       }
     };
     document.addEventListener("mousedown", handleClick);
+    document.addEventListener("focusin", handleFocusIn);
     document.addEventListener("keydown", handleKey);
     return () => {
       document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("focusin", handleFocusIn);
       document.removeEventListener("keydown", handleKey);
     };
-  }, [isDesktop, open]);
+  }, [closeWithFocusReturn, isDesktop, open]);
 
   const handlePick = useCallback(
     (next: WorkflowStage) => {
       if (next === (optimistic ?? current)) {
-        setOpen(false);
+        closeWithFocusReturn();
         return;
       }
       if (!online) {
-        setOpen(false);
+        closeWithFocusReturn();
         toast("Reconnect to change this song’s stage.", "error");
         return;
       }
       setOptimistic(next);
-      setOpen(false);
+      closeWithFocusReturn();
       startTransition(async () => {
         try {
           const res = await setTrackStageAction({
@@ -123,7 +141,7 @@ export function ChangeStageMenu({ trackId, current }: ChangeStageMenuProps) {
         }
       });
     },
-    [current, online, optimistic, toast, trackId, router],
+    [closeWithFocusReturn, current, online, optimistic, toast, trackId, router],
   );
 
   const displayed: WorkflowStage = optimistic ?? current;
@@ -164,13 +182,14 @@ export function ChangeStageMenu({ trackId, current }: ChangeStageMenuProps) {
         ref={triggerRef}
         type="button"
         onClick={() => {
+          if (pending) return;
           setOpen((v) => !v);
         }}
         aria-haspopup={isDesktop ? undefined : "dialog"}
         aria-expanded={open}
         aria-controls={open ? disclosureId : undefined}
-        disabled={pending}
-        className="sk-press inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-sm)] border px-2.5 py-1 text-[11px] font-bold tracking-widest uppercase disabled:opacity-60 lg:min-h-0"
+        aria-disabled={pending}
+        className="sk-press inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-sm)] border px-2.5 py-1 text-[11px] font-bold tracking-widest uppercase aria-disabled:opacity-60 lg:min-h-0"
         style={{
           color: hue,
           borderColor: hue,
@@ -192,6 +211,7 @@ export function ChangeStageMenu({ trackId, current }: ChangeStageMenuProps) {
         <div
           ref={menuRef}
           id={disclosureId}
+          role="group"
           aria-label="Workflow stage options"
           className="absolute top-[calc(100%+6px)] left-0 z-30 min-w-[200px] overflow-hidden rounded-[10px] border bg-[rgb(var(--bg-background))] py-1 shadow-[0_18px_40px_-12px_rgba(17,16,9,0.32)]"
           style={{ borderColor: "rgb(var(--border-subtle))" }}
@@ -221,6 +241,7 @@ export function ChangeStageMenu({ trackId, current }: ChangeStageMenuProps) {
           </SheetDescription>
           <div className="w-full p-4 pt-2">
             <div
+              role="group"
               aria-label="Workflow stage options"
               className="overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
             >

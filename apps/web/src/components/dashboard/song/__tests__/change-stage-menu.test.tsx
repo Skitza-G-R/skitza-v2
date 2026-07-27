@@ -111,7 +111,8 @@ describe("ChangeStageMenu — manual stage advance on Song Space", () => {
     expect(SRC).not.toMatch(/role=["']menuitem["']/);
   });
 
-  it("labels the disclosed button group with aria-label", () => {
+  it("exposes and labels the disclosed controls as a button group", () => {
+    expect(SRC).toMatch(/role=["']group["']/);
     expect(SRC).toMatch(/aria-label=["']Workflow stage options["']/);
   });
 
