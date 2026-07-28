@@ -23,7 +23,8 @@ describe("SK-44 private Music delivery wiring", () => {
     const producerActions = read("src/app/(producer)/dashboard/music/[versionId]/actions.ts");
     const sharedSongPage = read("src/components/music/song-page.tsx");
 
-    expect(producerPage).toContain("caller.audioDelivery.overrideState");
+    expect(producerPage).toContain("loadProducerSongSupplements");
+    expect(producerPage).not.toContain("caller.audioDelivery.overrideState");
     expect(producerPage).toContain("setDownloadOverride: l3SetDownloadOverride");
     expect(producerActions).toContain("c.caller.audioDelivery.setDownloadOverride");
     expect(sharedSongPage).toContain("versionId: targetVersion.id");

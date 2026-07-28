@@ -86,6 +86,7 @@ const {
     __table: "track_comments",
     id: { __column: "track_comments.id" },
     versionId: { __column: "track_comments.version_id" },
+    producerId: { __column: "track_comments.producer_id" },
     timestampMs: { __column: "track_comments.timestamp_ms" },
     body: { __column: "track_comments.body" },
     fromProducer: { __column: "track_comments.from_producer" },
@@ -238,7 +239,7 @@ vi.mock("@skitza/db", () => ({
   sql: () => ({ sql: true }),
 }));
 
-// Re-import so the auth-boundary test asserts against the same column
+// Re-import so the auth-boundary tests assert against the same column
 // markers the router imports from.
 import { projects, trackVersions, trackComments } from "@skitza/db";
 
@@ -475,12 +476,11 @@ describe("producer.music.list", () => {
 });
 
 describe("producer.music.detail", () => {
-  // The detail procedure executes 3 SELECTs in order:
+  // The detail procedure executes 4 SELECTs:
   //   1. head: trackVersions ⋈ projectTracks ⋈ projects (auth-scoped)
   //   2. version stack: trackVersions WHERE trackId = head.trackId
-  //   3. comments: trackComments WHERE versionId IN (...)
-  // Tests enqueue mocks for each in order and assert the response shape
-  // and auth-scope predicates.
+  //   3–4. approvals + comments start together after the version IDs exist.
+  // Tests enqueue mocks and assert the response shape and auth predicates.
 
   it("throws NOT_FOUND when no version matches under this producer", async () => {
     const headWhereSpy = vi.fn<(arg: unknown) => void>();
@@ -630,6 +630,11 @@ describe("producer.music.detail", () => {
     const commentsWhere = commentsSpy.mock.calls[0]?.[0];
     const cPred = findPredicate(commentsWhere, "inArray", trackComments.versionId);
     expect(cPred).not.toBeNull();
+    const commentProducerPred = findPredicate(commentsWhere, "eq", trackComments.producerId);
+    expect(commentProducerPred).not.toBeNull();
+    if (Array.isArray(commentProducerPred)) {
+      expect(commentProducerPred[1]).toBe(PRODUCER_ID);
+    }
   });
 
   it("keeps deleted versions as redacted history and selects the newest playable audio", async () => {
