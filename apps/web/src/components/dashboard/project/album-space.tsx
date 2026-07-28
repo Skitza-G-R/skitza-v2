@@ -202,6 +202,7 @@ export function AlbumSpace({
         className="[touch-action:pan-y_pinch-zoom]"
         {...tabSwipeHandlers}
       >
+        <div data-tab-swipe-panel>
         {active === "songs" ? (
           <SongsTab
             projectId={project.id}
@@ -222,6 +223,7 @@ export function AlbumSpace({
             sessions={studioLog.sessions}
           />
         ) : null}
+        </div>
       </div>
 
       {paymentHistory ? <PaymentHistoryView role="producer" data={paymentHistory} /> : null}

@@ -1209,6 +1209,26 @@
   .sk-native-flow-motion[data-direction="back"] {
     animation: skitza-native-flow-back 200ms var(--ease-out-strong) both;
   }
+  /* Inner-tab panels follow a horizontal touch gesture directly. The hook
+     writes only the CSS variable and state attribute, keeping large lists
+     out of React's pointer-move render path. Idle panels have no transform,
+     so sticky descendants and desktop layout keep their normal containing
+     blocks. */
+  [data-tab-swipe-state="dragging"],
+  [data-tab-swipe-state="settling"] {
+    transform: translate3d(var(--sk-tab-swipe-x, 0px), 0, 0);
+    will-change: transform;
+    backface-visibility: hidden;
+  }
+  [data-tab-swipe-state="dragging"] {
+    transition: none;
+  }
+  [data-tab-swipe-state="settling"] {
+    transition: transform 160ms var(--ease-out-strong);
+  }
+  body:has([data-tab-swipe-state]) {
+    overflow-x: clip;
+  }
   .sk-native-spinner {
     animation: skitza-native-spin 700ms linear infinite;
   }
@@ -1736,6 +1756,10 @@
     .sk-native-flow-motion,
     .sk-native-spinner,
     .sk-gloss::after { animation: none !important; }
+    [data-tab-swipe-state] {
+      transform: none !important;
+      transition: none !important;
+    }
     /* Funnel entrance/breathe primitives also force their resting
        (revealed) state so reduced-motion users never see a flash of the
        pre-animation frame. */

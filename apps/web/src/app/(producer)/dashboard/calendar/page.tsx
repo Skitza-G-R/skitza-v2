@@ -285,7 +285,7 @@ export default async function CalendarPage({
           </div>
         </header>
 
-        <CalendarSwipeSurface key={active} active={active}>
+        <CalendarSwipeSurface active={active}>
           {active === "schedule" && (
             <>
               {/* Desktop keeps the full week-grid schedule. */}

@@ -297,6 +297,7 @@ export function SongSpace({
         className="[touch-action:pan-y_pinch-zoom]"
         {...tabSwipeHandlers}
       >
+        <div data-tab-swipe-panel>
         {active === "overview" ? (
           <OverviewTab
             song={{ workflowStage: song.workflowStage, title: song.title }}
@@ -324,6 +325,7 @@ export function SongSpace({
           />
         ) : null}
         {active === "sessions" ? <SessionsTab sessions={sessions} /> : null}
+        </div>
       </div>
       {paymentHistory ? <PaymentHistoryView role="producer" data={paymentHistory} /> : null}
       <ProjectPurchasesPanel projectId={project.id} purchases={purchases} />
