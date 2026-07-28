@@ -522,6 +522,7 @@ export function useTabSwipe<T extends string>({
   const onLostPointerCapture: PointerEventHandler<HTMLDivElement> = (event) => {
     const start = startRef.current;
     if (!start || start.pointerId !== event.pointerId) return;
+    if (event.target !== event.currentTarget) return;
     startRef.current = null;
     if (start.intent === "horizontal") {
       suppressReleaseClick();
