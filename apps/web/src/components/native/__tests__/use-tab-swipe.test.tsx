@@ -564,6 +564,35 @@ describe("useTabSwipe", () => {
     expect(screen.getByTestId("value").textContent).toBe("first");
   });
 
+  it("continues after capture transfers away from the pressed descendant", () => {
+    const onButtonClick = vi.fn();
+    const onValueChange = vi.fn();
+    render(<Harness onButtonClick={onButtonClick} onValueChange={onValueChange} />);
+    const surface = screen.getByTestId("surface");
+    const button = screen.getByRole("button", { name: "Row action" });
+    const panel = screen.getByTestId("panel");
+
+    startSwipe(button);
+    moveSwipe(surface, 50);
+    fireEvent.lostPointerCapture(button, {
+      pointerId: 1,
+      pointerType: "touch",
+      isPrimary: true,
+      clientX: 50,
+      clientY: 24,
+    });
+
+    expect(panel.getAttribute("data-tab-swipe-state")).toBe("dragging");
+
+    endSwipe(surface, 40);
+    fireEvent.click(button);
+
+    expect(onValueChange).toHaveBeenCalledOnce();
+    expect(onValueChange).toHaveBeenCalledWith("second");
+    expect(onButtonClick).not.toHaveBeenCalled();
+    expect(screen.getByTestId("value").textContent).toBe("second");
+  });
+
   it("keeps functional switching but removes gesture motion for reduced-motion users", () => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
