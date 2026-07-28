@@ -268,14 +268,6 @@ export function PushPreferences() {
           const enabled = categories.includes(category);
           return (
             <div key={category} className="flex min-h-14 items-center gap-3 px-4 py-2.5">
-              <div className="min-w-0 flex-1">
-                <p className="text-[13px] font-semibold text-[rgb(var(--fg-default))]">
-                  {copy.label}
-                </p>
-                <p className="text-[11px] leading-4 text-[rgb(var(--fg-muted))]">
-                  {copy.description}
-                </p>
-              </div>
               <button
                 type="button"
                 role="switch"
@@ -299,12 +291,20 @@ export function PushPreferences() {
                   }`}
                 >
                   <span
-                    className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform motion-reduce:transition-none ${
+                    className={`absolute top-1 left-0 h-4 w-4 rounded-full bg-white shadow-sm transition-transform motion-reduce:transition-none ${
                       enabled ? "translate-x-5" : "translate-x-1"
                     }`}
                   />
                 </span>
               </button>
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+                  {copy.label}
+                </p>
+                <p className="text-[11px] leading-4 text-[rgb(var(--fg-muted))]">
+                  {copy.description}
+                </p>
+              </div>
             </div>
           );
         })}

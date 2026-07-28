@@ -103,13 +103,25 @@ describe("producer mobile nav viewport anchoring", () => {
 
   it("keeps the glass nav in the shell footer instead of fixing it to the document viewport", () => {
     expect(BOTTOM).toContain("relative z-30 shrink-0");
-    expect(BOTTOM).toContain(") 8px max(12px, env(safe-area-inset-left, 0px))");
-    expect(GLOBALS).toContain(
+    expect(BOTTOM).toContain(
+      ") max(8px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px))",
+    );
+    expect(GLOBALS).toMatch(
+      /\.producer-bottom-nav__glass\s*\{[\s\S]*?height:\s*68px;[\s\S]*?padding-bottom:\s*0;/,
+    );
+    expect(GLOBALS).not.toContain(
       "padding-bottom: max(0px, calc(env(safe-area-inset-bottom, 0px) - 8px));",
     );
     expect(BOTTOM).not.toContain("safe-area-max-inset-bottom");
     expect(BOTTOM).not.toMatch(/className="[^"]*\bfixed\b/);
     expect(BOTTOM).not.toContain("producerBottomNavViewportStyle");
+  });
+
+  it("centers the tab row, magnified copy, and lens in the same compact glass height", () => {
+    expect(BOTTOM.match(/minHeight:\s*68/g)).toHaveLength(2);
+    expect(GLOBALS).toContain("--sk-nav-lens-y: 34px");
+    expect(GLOBALS).toContain("height: 60px");
+    expect(GLOBALS).toMatch(/\.producer-bottom-nav__magnifier-grid\s*\{[\s\S]*?height:\s*68px;/);
   });
 
   it("renders the producer nav as one compact live glass pill", () => {
@@ -136,6 +148,7 @@ describe("producer mobile nav viewport anchoring", () => {
     expect(BOTTOM).toContain("onPointerMove={handlePointerMove}");
     expect(BOTTOM).toContain("onPointerUp={handlePointerEnd}");
     expect(BOTTOM).toContain("onPointerCancel={handlePointerEnd}");
+    expect(BOTTOM).toContain("draggable={false}");
     expect(BOTTOM).not.toContain("useState");
 
     expect(GLOBALS).toContain(".producer-bottom-nav__lens");
