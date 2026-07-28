@@ -546,11 +546,6 @@
     font-size: 0.83rem;
     line-height: 1.5;
   }
-
-  .mfa-profile {
-    width: min(100%, 58rem);
-    margin: 2rem auto 0;
-  }
 }
 
 @media (max-width: 760px) {

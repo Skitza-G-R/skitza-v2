@@ -4,7 +4,6 @@ import {
   SKITZA_ADMIN_ROLE_METADATA_KEY,
   SKITZA_FOUNDER_ROLE,
   decideFounderAuthorization,
-  hasRecentMultiFactorVerification,
   type FounderAuthorizationFacts,
 } from "./founder-authorization";
 
@@ -12,13 +11,12 @@ function founderFacts(
   overrides: Partial<FounderAuthorizationFacts> = {},
 ): FounderAuthorizationFacts {
   return {
+    accessIdentityMatches: true,
     isImpersonated: false,
     userId: "user_founder",
     privateMetadata: {
       [SKITZA_ADMIN_ROLE_METADATA_KEY]: SKITZA_FOUNDER_ROLE,
     },
-    mfaEnrolled: true,
-    secondFactorAge: 0,
     ...overrides,
   };
 }
@@ -59,73 +57,22 @@ describe("decideFounderAuthorization", () => {
     },
   );
 
-  it("requires MFA enrollment even when the founder role is present", () => {
+  it("requires the Access identity to match a verified Clerk email", () => {
     expect(
-      decideFounderAuthorization(founderFacts({ mfaEnrolled: false })),
+      decideFounderAuthorization(
+        founderFacts({ accessIdentityMatches: false }),
+      ),
     ).toEqual({
       allowed: false,
-      reason: "mfa-enrollment-required",
+      reason: "access-identity-mismatch",
     });
   });
 
-  it.each([null, -1, Number.NaN, Number.POSITIVE_INFINITY])(
-    "requires proof that the current session completed a second factor",
-    (secondFactorAge) => {
-      expect(
-        decideFounderAuthorization(founderFacts({ secondFactorAge })),
-      ).toEqual({
-        allowed: false,
-        reason: "second-factor-required",
-      });
-    },
-  );
-
-  it.each([0, 1, 30, 0.5])(
-    "allows only the founder with enrolled MFA and nonnegative second-factor proof",
-    (secondFactorAge) => {
-      expect(
-        decideFounderAuthorization(founderFacts({ secondFactorAge })),
-      ).toEqual({
-        allowed: true,
-        role: SKITZA_FOUNDER_ROLE,
-        userId: "user_founder",
-      });
-    },
-  );
-});
-
-describe("hasRecentMultiFactorVerification", () => {
-  it("does not accept Clerk's graceful fallback without second-factor proof", () => {
-    expect(
-      hasRecentMultiFactorVerification({
-        clerkReverificationSatisfied: true,
-        factorVerificationAge: [0, -1],
-        mfaEnrolled: true,
-      }),
-    ).toBe(false);
-  });
-
-  it("requires enrollment, Clerk reverification, and nonnegative factor age", () => {
-    expect(
-      hasRecentMultiFactorVerification({
-        clerkReverificationSatisfied: true,
-        factorVerificationAge: [0, 0],
-        mfaEnrolled: true,
-      }),
-    ).toBe(true);
-    expect(
-      hasRecentMultiFactorVerification({
-        clerkReverificationSatisfied: false,
-        factorVerificationAge: [0, 0],
-        mfaEnrolled: true,
-      }),
-    ).toBe(false);
-    expect(
-      hasRecentMultiFactorVerification({
-        clerkReverificationSatisfied: true,
-        factorVerificationAge: [0, 0],
-        mfaEnrolled: false,
-      }),
-    ).toBe(false);
+  it("allows only the matching Access and Clerk founder identities", () => {
+    expect(decideFounderAuthorization(founderFacts())).toEqual({
+      allowed: true,
+      role: SKITZA_FOUNDER_ROLE,
+      userId: "user_founder",
+    });
   });
 });

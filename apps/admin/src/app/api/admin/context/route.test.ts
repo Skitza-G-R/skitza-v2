@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AdminAccessError,
   requireActiveAdminAccess,
+  type FounderIdentity,
 } from "~/server/auth/access";
 import { GET } from "./route";
 
@@ -18,6 +19,14 @@ vi.mock("~/server/auth/access", async (importOriginal) => {
 const ORIGINAL_LIVE_URL = process.env.ADMIN_LIVE_DATABASE_URL;
 const ORIGINAL_TEST_URL = process.env.ADMIN_TEST_DATABASE_URL;
 const mockedRequireActiveAdminAccess = vi.mocked(requireActiveAdminAccess);
+const FOUNDER_IDENTITY: FounderIdentity = {
+  accessEmail: "founder@example.test",
+  accessIssuedAt: 1_800_000_000,
+  accessSubject: "access-founder",
+  accessTokenFingerprint: "a".repeat(43),
+  sessionId: "sess_founder",
+  userId: "user_founder",
+};
 
 describe("protected admin context API", () => {
   beforeEach(() => {
@@ -57,11 +66,7 @@ describe("protected admin context API", () => {
   });
 
   it("returns only the sanitized server-selected environment to an authorized founder", async () => {
-    mockedRequireActiveAdminAccess.mockResolvedValue({
-      hasRecentMultiFactorVerification: true,
-      sessionId: "sess_founder",
-      userId: "user_founder",
-    });
+    mockedRequireActiveAdminAccess.mockResolvedValue(FOUNDER_IDENTITY);
 
     const response = await GET(
       new Request(

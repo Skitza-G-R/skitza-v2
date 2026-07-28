@@ -22,20 +22,12 @@ export function adminApiErrorResponse(error: unknown): NextResponse {
         { status: 401, headers: PRIVATE_HEADERS },
       );
     case "founder-role-required":
+    case "access-identity-mismatch":
+    case "access-proof-required":
     case "impersonated-session":
       return NextResponse.json(
         { error: "not_found" },
         { status: 404, headers: PRIVATE_HEADERS },
-      );
-    case "mfa-enrollment-required":
-      return NextResponse.json(
-        { error: "mfa_enrollment_required" },
-        { status: 403, headers: PRIVATE_HEADERS },
-      );
-    case "second-factor-required":
-      return NextResponse.json(
-        { error: "mfa_verification_required" },
-        { status: 403, headers: PRIVATE_HEADERS },
       );
     case "activity-lock-required":
       return NextResponse.json(

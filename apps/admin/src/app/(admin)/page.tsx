@@ -63,7 +63,8 @@ export default async function AdminHomePage({
           </p>
           <p className="foundation-caption">
             The browser and every protected server request enforce the same
-            session lock. Secure re-entry requires Clerk MFA.
+            session lock. Secure re-entry requires a fresh Cloudflare Access
+            MFA login.
           </p>
         </article>
 
@@ -86,9 +87,10 @@ export default async function AdminHomePage({
                 ✓
               </span>
               <div>
-                <p className="check-title">Current-session MFA</p>
+                <p className="check-title">Independent MFA gateway</p>
                 <p className="check-copy">
-                  Enrollment and second-factor proof are required.
+                  Cloudflare Access proof is validated before Clerk and again
+                  at every protected server boundary.
                 </p>
               </div>
             </li>

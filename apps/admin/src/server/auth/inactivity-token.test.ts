@@ -9,50 +9,94 @@ import {
 
 const SECRET = "test-only-admin-inactivity-secret-32-bytes";
 const SESSION_ID = "sess_founder";
+const ACCESS_SUBJECT = "access-founder-subject";
 const START_MS = 1_800_000;
+const ACCESS_ISSUED_AT_SEC = 1_700_000_000;
 
 function tokenFor(
   overrides: Partial<{
     sessionId: string;
+    accessSubject: string;
     secret: string;
     lastActivityAtMs: number;
+    minimumAccessIssuedAtSec: number;
   }> = {},
 ): string {
   return createInactivityToken({
     sessionId: SESSION_ID,
+    accessSubject: ACCESS_SUBJECT,
     secret: SECRET,
     lastActivityAtMs: START_MS,
+    minimumAccessIssuedAtSec: ACCESS_ISSUED_AT_SEC,
     ...overrides,
   });
 }
 
 describe("admin inactivity token", () => {
-  it("round-trips a signed timestamp without embedding the Clerk session ID", () => {
+  it("round-trips signed activity and Access freshness without embedding identities", () => {
     const token = tokenFor();
 
     expect(token).not.toContain(SESSION_ID);
+    expect(token).not.toContain(ACCESS_SUBJECT);
     expect(
       verifyInactivityToken({
         token,
         sessionId: SESSION_ID,
+        accessSubject: ACCESS_SUBJECT,
         secret: SECRET,
       }),
-    ).toEqual({ valid: true, lastActivityAtMs: START_MS });
+    ).toEqual({
+      valid: true,
+      lastActivityAtMs: START_MS,
+      minimumAccessIssuedAtSec: ACCESS_ISSUED_AT_SEC,
+    });
   });
 
   it("rejects a timestamp changed without a new signature", () => {
     const token = tokenFor();
-    const [, , signature] = token.split(".");
+    const [, , rawAccessIssuedAt, signature] = token.split(".");
+    expect(rawAccessIssuedAt).toBeDefined();
     expect(signature).toBeDefined();
-    if (!signature) {
-      throw new Error("Expected a token signature");
+    if (!rawAccessIssuedAt || !signature) {
+      throw new Error("Expected signed token fields");
     }
-    const tampered = ["v1", String(START_MS + 1), signature].join(".");
+    const tampered = [
+      "v2",
+      String(START_MS + 1),
+      rawAccessIssuedAt,
+      signature,
+    ].join(".");
 
     expect(
       verifyInactivityToken({
         token: tampered,
         sessionId: SESSION_ID,
+        accessSubject: ACCESS_SUBJECT,
+        secret: SECRET,
+      }),
+    ).toEqual({ valid: false, reason: "invalid-signature" });
+  });
+
+  it("rejects an Access issued-at floor changed without a new signature", () => {
+    const token = tokenFor();
+    const [, rawTimestamp, , signature] = token.split(".");
+    expect(rawTimestamp).toBeDefined();
+    expect(signature).toBeDefined();
+    if (!rawTimestamp || !signature) {
+      throw new Error("Expected signed token fields");
+    }
+    const tampered = [
+      "v2",
+      rawTimestamp,
+      String(ACCESS_ISSUED_AT_SEC + 1),
+      signature,
+    ].join(".");
+
+    expect(
+      verifyInactivityToken({
+        token: tampered,
+        sessionId: SESSION_ID,
+        accessSubject: ACCESS_SUBJECT,
         secret: SECRET,
       }),
     ).toEqual({ valid: false, reason: "invalid-signature" });
@@ -63,6 +107,18 @@ describe("admin inactivity token", () => {
       verifyInactivityToken({
         token: tokenFor(),
         sessionId: "sess_other",
+        accessSubject: ACCESS_SUBJECT,
+        secret: SECRET,
+      }),
+    ).toEqual({ valid: false, reason: "invalid-signature" });
+  });
+
+  it("rejects a token presented by a different Access subject", () => {
+    expect(
+      verifyInactivityToken({
+        token: tokenFor(),
+        sessionId: SESSION_ID,
+        accessSubject: "access-other-subject",
         secret: SECRET,
       }),
     ).toEqual({ valid: false, reason: "invalid-signature" });
@@ -73,6 +129,26 @@ describe("admin inactivity token", () => {
       verifyInactivityToken({
         token: "not-a-token",
         sessionId: SESSION_ID,
+        accessSubject: ACCESS_SUBJECT,
+        secret: SECRET,
+      }),
+    ).toEqual({ valid: false, reason: "malformed" });
+  });
+
+  it("rejects legacy and non-canonical numeric token fields", () => {
+    expect(
+      verifyInactivityToken({
+        token: "v1.1800000.signature",
+        sessionId: SESSION_ID,
+        accessSubject: ACCESS_SUBJECT,
+        secret: SECRET,
+      }),
+    ).toEqual({ valid: false, reason: "malformed" });
+    expect(
+      verifyInactivityToken({
+        token: `v2.1800000.01700000000.${"a".repeat(43)}`,
+        sessionId: SESSION_ID,
+        accessSubject: ACCESS_SUBJECT,
         secret: SECRET,
       }),
     ).toEqual({ valid: false, reason: "malformed" });
@@ -126,5 +202,17 @@ describe("admin inactivity token", () => {
     } catch (error) {
       expect(String(error)).not.toContain(weakSecret);
     }
+  });
+
+  it("rejects invalid identity and timestamp inputs", () => {
+    expect(() => tokenFor({ accessSubject: "" })).toThrow(
+      "Cloudflare Access subject is invalid",
+    );
+    expect(() =>
+      tokenFor({ minimumAccessIssuedAtSec: Number.NaN }),
+    ).toThrow("Cloudflare Access issued-at floor is invalid");
+    expect(() => tokenFor({ lastActivityAtMs: -1 })).toThrow(
+      "Admin activity timestamp is invalid",
+    );
   });
 });

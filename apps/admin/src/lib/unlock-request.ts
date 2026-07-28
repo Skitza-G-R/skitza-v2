@@ -5,26 +5,77 @@ export type AdminUnlockFetch = (
 
 export type AdminUnlockResult =
   | Readonly<{ unlocked: true }>
-  | Readonly<Record<string, unknown>>;
+  | Readonly<{
+      accessLoginRequired: true;
+      unlocked: false;
+    }>
+  | Readonly<{
+      logoutPath: "/cdn-cgi/access/logout";
+      reauthenticationRequired: true;
+      unlocked: false;
+    }>
+  | Readonly<{
+      failed: true;
+      unlocked: false;
+    }>;
 
-/**
- * Parses both successful responses and Clerk's 403 reverification hint.
- * useReverification inspects the returned JSON, opens its MFA flow when the
- * hint is present, and then retries this function.
- */
 export async function requestAdminUnlock(
   fetcher: AdminUnlockFetch = fetch,
 ): Promise<AdminUnlockResult> {
   const response = await fetcher("/api/admin/session/unlock", {
     method: "POST",
     credentials: "same-origin",
-    headers: { Accept: "application/json" },
+    headers: {
+      Accept: "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+    },
   });
-  return (await response.json()) as AdminUnlockResult;
+
+  const contentType = response.headers.get("content-type") ?? "";
+  if (
+    response.status === 401 ||
+    response.redirected ||
+    !contentType.toLowerCase().includes("application/json")
+  ) {
+    return { accessLoginRequired: true, unlocked: false };
+  }
+
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return { failed: true, unlocked: false };
+  }
+
+  if (
+    response.ok &&
+    typeof body === "object" &&
+    body !== null &&
+    Reflect.get(body, "unlocked") === true
+  ) {
+    return { unlocked: true };
+  }
+
+  if (
+    response.status === 409 &&
+    typeof body === "object" &&
+    body !== null &&
+    Reflect.get(body, "error") ===
+      "cloudflare_reauthentication_required" &&
+    Reflect.get(body, "logoutPath") === "/cdn-cgi/access/logout"
+  ) {
+    return {
+      logoutPath: "/cdn-cgi/access/logout",
+      reauthenticationRequired: true,
+      unlocked: false,
+    };
+  }
+
+  return { failed: true, unlocked: false };
 }
 
 export function isSuccessfulAdminUnlock(
   result: AdminUnlockResult,
 ): result is Readonly<{ unlocked: true }> {
-  return result.unlocked === true;
+  return result.unlocked;
 }

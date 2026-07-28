@@ -2,19 +2,10 @@
 
 import { useEffect, useState } from "react";
 
+import { requestAdminContext } from "~/lib/admin-api-requests";
 import type { AdminEnvironmentId } from "~/server/environment";
 
 type ApiState = "checking" | "failed" | "ready";
-
-function isMatchingContext(
-  value: unknown,
-  environment: AdminEnvironmentId,
-): boolean {
-  if (typeof value !== "object" || value === null) return false;
-  const context = (value as { environment?: unknown }).environment;
-  if (typeof context !== "object" || context === null) return false;
-  return (context as { id?: unknown }).id === environment;
-}
 
 export function AdminContextStatus({
   environment,
@@ -28,31 +19,17 @@ export function AdminContextStatus({
 
     async function checkContext() {
       try {
-        const response = await fetch(
-          `/api/admin/context?environment=${environment}`,
-          {
-            cache: "no-store",
-            credentials: "same-origin",
-            signal: controller.signal,
-          },
-        );
-        if (!response.ok) {
-          setState("failed");
+        const result = await requestAdminContext(environment, {
+          signal: controller.signal,
+        });
+        if (result === "access-login-required") {
+          window.location.assign(window.location.href);
           return;
         }
-
-        const payload: unknown = await response.json();
-        setState(
-          isMatchingContext(payload, environment) ? "ready" : "failed",
-        );
-      } catch (error) {
-        if (
-          typeof error === "object" &&
-          error !== null &&
-          Reflect.get(error, "name") === "AbortError"
-        ) {
-          return;
-        }
+        if (controller.signal.aborted) return;
+        setState(result === "ready" ? "ready" : "failed");
+      } catch {
+        if (controller.signal.aborted) return;
         setState("failed");
       }
     }

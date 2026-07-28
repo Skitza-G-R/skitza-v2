@@ -6,62 +6,202 @@ import {
   type AdminUnlockFetch,
 } from "./unlock-request";
 
+const UNLOCK_ENDPOINT = "/api/admin/session/unlock";
+const ACCESS_LOGOUT_PATH = "/cdn-cgi/access/logout";
+
+function redirectedResponse(
+  body: BodyInit | null,
+  init: ResponseInit,
+): Response {
+  const response = new Response(body, init);
+  Object.defineProperty(response, "redirected", { value: true });
+  return response;
+}
+
 describe("admin unlock request", () => {
-  it("returns Clerk's reverification hint for useReverification to inspect", async () => {
-    const hint = {
-      clerk_error: {
-        metadata: { reverification: "strict_mfa" },
-        reason: "reverification-error",
-        type: "forbidden",
+  it("posts a same-origin JSON request marked as AJAX", async () => {
+    const fetcher = vi
+      .fn<AdminUnlockFetch>()
+      .mockResolvedValue(Response.json({ unlocked: true }));
+
+    await requestAdminUnlock(fetcher);
+
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher).toHaveBeenCalledWith(UNLOCK_ENDPOINT, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "X-Requested-With": "XMLHttpRequest",
       },
-    };
-    const reverificationResponse = new Response(
-      JSON.stringify(hint),
-      { status: 403 },
-    );
-    const fetcher = vi.fn<AdminUnlockFetch>().mockResolvedValue(
-      reverificationResponse,
-    );
+    });
+  });
+
+  it("accepts the exact 200 JSON success response", async () => {
+    const fetcher = vi
+      .fn<AdminUnlockFetch>()
+      .mockResolvedValue(
+        Response.json({ unlocked: true }, { status: 200 }),
+      );
 
     const result = await requestAdminUnlock(fetcher);
 
-    expect(result).toEqual(hint);
+    expect(result).toEqual({ unlocked: true });
+    expect(isSuccessfulAdminUnlock(result)).toBe(true);
+  });
+
+  it("accepts only the exact Cloudflare reauthentication contract", async () => {
+    const fetcher = vi
+      .fn<AdminUnlockFetch>()
+      .mockResolvedValue(
+        Response.json(
+          {
+            error: "cloudflare_reauthentication_required",
+            logoutPath: ACCESS_LOGOUT_PATH,
+          },
+          { status: 409 },
+        ),
+      );
+
+    const result = await requestAdminUnlock(fetcher);
+
+    expect(result).toEqual({
+      logoutPath: ACCESS_LOGOUT_PATH,
+      reauthenticationRequired: true,
+      unlocked: false,
+    });
     expect(isSuccessfulAdminUnlock(result)).toBe(false);
   });
 
-  it("recognizes the successful response returned after Clerk retries", async () => {
-    const successResponse = Response.json({ unlocked: true });
-    const fetcher = vi.fn<AdminUnlockFetch>().mockResolvedValue(successResponse);
-
-    const response = await requestAdminUnlock(fetcher);
-
-    expect(isSuccessfulAdminUnlock(response)).toBe(true);
-  });
-
-  it("preserves the hint and recognizes the successful automatic retry", async () => {
+  it.each([
+    "https://attacker.example/logout",
+    "/another/logout",
+    `${ACCESS_LOGOUT_PATH}?returnTo=/`,
+  ])("rejects an untrusted reauthentication logout path: %s", async (logoutPath) => {
     const fetcher = vi
       .fn<AdminUnlockFetch>()
-      .mockResolvedValueOnce(
+      .mockResolvedValue(
         Response.json(
           {
-            clerk_error: {
-              metadata: { reverification: "strict_mfa" },
-              reason: "reverification-error",
-              type: "forbidden",
-            },
+            error: "cloudflare_reauthentication_required",
+            logoutPath,
           },
-          { status: 403 },
+          { status: 409 },
         ),
-      )
-      .mockResolvedValueOnce(Response.json({ unlocked: true }));
+      );
 
-    const hint = await requestAdminUnlock(fetcher);
-    const retried = await requestAdminUnlock(fetcher);
+    await expect(requestAdminUnlock(fetcher)).resolves.toEqual({
+      failed: true,
+      unlocked: false,
+    });
+  });
 
-    expect(hint).toHaveProperty(
-      "clerk_error.metadata.reverification",
-      "strict_mfa",
-    );
-    expect(isSuccessfulAdminUnlock(retried)).toBe(true);
+  it("treats a 401 Access HTML response as requiring top-level Access login", async () => {
+    const fetcher = vi
+      .fn<AdminUnlockFetch>()
+      .mockResolvedValue(
+        new Response("<html>Cloudflare Access</html>", {
+          status: 401,
+          headers: { "Content-Type": "text/html" },
+        }),
+      );
+
+    await expect(requestAdminUnlock(fetcher)).resolves.toEqual({
+      accessLoginRequired: true,
+      unlocked: false,
+    });
+  });
+
+  it("treats redirected 200 HTML as requiring top-level Access login", async () => {
+    const fetcher = vi
+      .fn<AdminUnlockFetch>()
+      .mockResolvedValue(
+        redirectedResponse("<html>Cloudflare Access</html>", {
+          status: 200,
+          headers: { "Content-Type": "text/html" },
+        }),
+      );
+
+    await expect(requestAdminUnlock(fetcher)).resolves.toEqual({
+      accessLoginRequired: true,
+      unlocked: false,
+    });
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["text/plain", "text/plain"],
+    ["text/html", "text/html; charset=utf-8"],
+  ])(
+    "does not parse a success body with %s content type",
+    async (_label, contentType) => {
+      const responseInit: ResponseInit = contentType
+        ? {
+            status: 200,
+            headers: { "Content-Type": contentType },
+          }
+        : { status: 200 };
+      const fetcher = vi
+        .fn<AdminUnlockFetch>()
+        .mockResolvedValue(
+          new Response(
+            new TextEncoder().encode(JSON.stringify({ unlocked: true })),
+            responseInit,
+          ),
+        );
+
+      await expect(requestAdminUnlock(fetcher)).resolves.toEqual({
+        accessLoginRequired: true,
+        unlocked: false,
+      });
+    },
+  );
+
+  it("fails safely when an application/json body is malformed", async () => {
+    const fetcher = vi
+      .fn<AdminUnlockFetch>()
+      .mockResolvedValue(
+        new Response("{", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+    await expect(requestAdminUnlock(fetcher)).resolves.toEqual({
+      failed: true,
+      unlocked: false,
+    });
+  });
+
+  it.each([400, 403, 404, 409, 422, 429, 500, 502, 503])(
+    "fails safely for unexpected JSON status %s",
+    async (status) => {
+      const fetcher = vi
+        .fn<AdminUnlockFetch>()
+        .mockResolvedValue(
+          Response.json({ error: "unexpected" }, { status }),
+        );
+
+      const result = await requestAdminUnlock(fetcher);
+
+      expect(result).toEqual({ failed: true, unlocked: false });
+      expect(isSuccessfulAdminUnlock(result)).toBe(false);
+    },
+  );
+
+  it.each([
+    {},
+    { unlocked: false },
+    { unlocked: "true" },
+    { error: "cloudflare_reauthentication_required" },
+  ])("fails safely for an unexpected 200 JSON body", async (body) => {
+    const fetcher = vi
+      .fn<AdminUnlockFetch>()
+      .mockResolvedValue(Response.json(body, { status: 200 }));
+
+    await expect(requestAdminUnlock(fetcher)).resolves.toEqual({
+      failed: true,
+      unlocked: false,
+    });
   });
 });

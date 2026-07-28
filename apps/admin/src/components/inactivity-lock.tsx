@@ -6,6 +6,10 @@ import {
   ADMIN_ACTIVITY_REFRESH_INTERVAL_MS,
   ADMIN_INACTIVITY_TIMEOUT_MS,
 } from "~/lib/admin-session";
+import {
+  requestAdminActivity,
+  requestAdminLock,
+} from "~/lib/admin-api-requests";
 
 const ACTIVITY_EVENTS = [
   "keydown",
@@ -16,21 +20,6 @@ const ACTIVITY_EVENTS = [
 ] as const;
 
 const SHARED_ACTIVITY_STORAGE_KEY = "skitza-admin:last-activity";
-
-function readRetryAfterMs(value: unknown): number | null {
-  if (typeof value !== "object" || value === null) return null;
-  const retryAfterMs = (value as { retryAfterMs?: unknown })
-    .retryAfterMs;
-  if (
-    typeof retryAfterMs !== "number" ||
-    !Number.isFinite(retryAfterMs) ||
-    retryAfterMs <= 0 ||
-    retryAfterMs > ADMIN_INACTIVITY_TIMEOUT_MS
-  ) {
-    return null;
-  }
-  return retryAfterMs;
-}
 
 export function InactivityLock() {
   useEffect(() => {
@@ -43,22 +32,23 @@ export function InactivityLock() {
       if (locking) return;
       locking = true;
       try {
-        const response = await fetch("/api/admin/session/lock", {
-          method: "POST",
-          credentials: "same-origin",
-          keepalive: true,
-        });
-        if (response.status === 409) {
-          const retryAfterMs = readRetryAfterMs(await response.json());
-          if (retryAfterMs !== null) {
-            if (timeoutId !== undefined) clearTimeout(timeoutId);
-            timeoutId = setTimeout(() => {
-              void lock();
-            }, retryAfterMs);
-            locking = false;
-            return;
-          }
+        const result = await requestAdminLock();
+        if (result.status === "access-login-required") {
+          locking = false;
+          window.location.assign(window.location.href);
+          return;
         }
+        if (result.status === "retry") {
+          if (timeoutId !== undefined) clearTimeout(timeoutId);
+          timeoutId = setTimeout(() => {
+            void lock();
+          }, result.retryAfterMs);
+          locking = false;
+          return;
+        }
+      } catch {
+        // Unexpected request-layer failures lock below without creating an
+        // unhandled client rejection.
       } finally {
         if (locking) {
           window.location.replace("/unlock?reason=inactive");
@@ -81,12 +71,12 @@ export function InactivityLock() {
 
     const refreshServerActivity = async () => {
       try {
-        const response = await fetch("/api/admin/session/activity", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { Accept: "application/json" },
-        });
-        if (!response.ok) await lock();
+        const result = await requestAdminActivity();
+        if (result === "access-login-required") {
+          window.location.assign(window.location.href);
+          return;
+        }
+        if (result === "lock-required") await lock();
       } catch {
         await lock();
       }

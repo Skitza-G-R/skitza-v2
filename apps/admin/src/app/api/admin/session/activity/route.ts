@@ -11,16 +11,16 @@ import {
 import { isSameOriginMutation } from "~/server/auth/request-security";
 
 export async function POST(request: Request) {
-  if (!isSameOriginMutation(request)) {
-    return NextResponse.json(
-      { error: "forbidden" },
-      { status: 403, headers: privateAdminResponseHeaders() },
-    );
-  }
-
   try {
     const identity = await requireActiveAdminAccess();
-    await refreshAdminActivity(identity.sessionId);
+    if (!isSameOriginMutation(request)) {
+      return NextResponse.json(
+        { error: "forbidden" },
+        { status: 403, headers: privateAdminResponseHeaders() },
+      );
+    }
+
+    await refreshAdminActivity(identity);
     return new NextResponse(null, {
       status: 204,
       headers: privateAdminResponseHeaders(),

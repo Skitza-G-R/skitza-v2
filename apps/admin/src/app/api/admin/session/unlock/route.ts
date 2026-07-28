@@ -1,4 +1,3 @@
-import { reverificationErrorResponse } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
 import {
@@ -6,29 +5,32 @@ import {
   privateAdminResponseHeaders,
 } from "~/server/auth/api-access";
 import {
-  refreshAdminActivity,
-  requireFounderWithMfaEnrollment,
+  requireFounderRole,
+  unlockAdminSession,
 } from "~/server/auth/access";
 import { isSameOriginMutation } from "~/server/auth/request-security";
 
 export async function POST(request: Request) {
-  if (!isSameOriginMutation(request)) {
-    return NextResponse.json(
-      { error: "forbidden" },
-      { status: 403, headers: privateAdminResponseHeaders() },
-    );
-  }
-
   try {
-    const identity = await requireFounderWithMfaEnrollment();
-    if (!identity.hasRecentMultiFactorVerification) {
-      const response = reverificationErrorResponse("strict_mfa");
-      response.headers.set("Cache-Control", "private, no-store, max-age=0");
-      response.headers.set("Vary", "Cookie");
-      return response;
+    const identity = await requireFounderRole();
+    if (!isSameOriginMutation(request)) {
+      return NextResponse.json(
+        { error: "forbidden" },
+        { status: 403, headers: privateAdminResponseHeaders() },
+      );
     }
 
-    await refreshAdminActivity(identity.sessionId);
+    const decision = await unlockAdminSession(identity);
+    if (!decision.unlocked) {
+      return NextResponse.json(
+        {
+          error: "cloudflare_reauthentication_required",
+          logoutPath: decision.logoutPath,
+        },
+        { status: 409, headers: privateAdminResponseHeaders() },
+      );
+    }
+
     return NextResponse.json(
       { unlocked: true },
       { headers: privateAdminResponseHeaders() },

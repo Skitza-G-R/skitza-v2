@@ -6,6 +6,7 @@ export default tseslint.config(
   {
     ignores: [
       ".next/**",
+      ".vercel/**",
       "node_modules/**",
       "coverage/**",
       "next-env.d.ts",

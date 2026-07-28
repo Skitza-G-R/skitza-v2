@@ -2,19 +2,17 @@ export const SKITZA_ADMIN_ROLE_METADATA_KEY = "skitzaAdminRole" as const;
 export const SKITZA_FOUNDER_ROLE = "founder" as const;
 
 export type FounderAuthorizationFacts = Readonly<{
+  accessIdentityMatches: boolean;
   isImpersonated: boolean;
   userId: string | null;
   privateMetadata: Readonly<Record<string, unknown>> | null;
-  mfaEnrolled: boolean;
-  secondFactorAge: number | null;
 }>;
 
 export type FounderAuthorizationDenialReason =
   | "signed-out"
   | "impersonated-session"
   | "founder-role-required"
-  | "mfa-enrollment-required"
-  | "second-factor-required";
+  | "access-identity-mismatch";
 
 export type FounderAuthorizationDecision =
   | Readonly<{
@@ -27,27 +25,13 @@ export type FounderAuthorizationDecision =
       reason: FounderAuthorizationDenialReason;
     }>;
 
-export function hasRecentMultiFactorVerification(input: Readonly<{
-  clerkReverificationSatisfied: boolean;
-  factorVerificationAge: readonly [number, number] | null;
-  mfaEnrolled: boolean;
-}>): boolean {
-  const secondFactorAge = input.factorVerificationAge?.[1];
-  return (
-    input.mfaEnrolled &&
-    input.clerkReverificationSatisfied &&
-    secondFactorAge !== undefined &&
-    Number.isFinite(secondFactorAge) &&
-    secondFactorAge >= 0
-  );
-}
-
 /**
  * Pure authorization policy for the admin boundary.
  *
  * The caller is responsible for sourcing `privateMetadata` from Clerk's
- * server-only Backend User object. No browser-controlled metadata belongs in
- * this decision.
+ * server-only Backend User object and for cryptographically validating the
+ * Cloudflare Access application token before this decision. No
+ * browser-controlled metadata belongs in this policy.
  */
 export function decideFounderAuthorization(
   facts: FounderAuthorizationFacts,
@@ -67,16 +51,8 @@ export function decideFounderAuthorization(
     return { allowed: false, reason: "founder-role-required" };
   }
 
-  if (!facts.mfaEnrolled) {
-    return { allowed: false, reason: "mfa-enrollment-required" };
-  }
-
-  if (
-    facts.secondFactorAge === null ||
-    !Number.isFinite(facts.secondFactorAge) ||
-    facts.secondFactorAge < 0
-  ) {
-    return { allowed: false, reason: "second-factor-required" };
+  if (!facts.accessIdentityMatches) {
+    return { allowed: false, reason: "access-identity-mismatch" };
   }
 
   return {
