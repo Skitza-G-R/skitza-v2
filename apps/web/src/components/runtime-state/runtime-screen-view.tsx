@@ -22,6 +22,7 @@ import {
   captureRuntimeMainNavigationTarget,
   RUNTIME_MAIN_NAVIGATION_DESTINATION_ATTRIBUTE,
   RUNTIME_MAIN_NAVIGATION_INTENT_EVENT,
+  RUNTIME_MAIN_NAVIGATION_RELEASE_GUARD_UNTIL_ATTRIBUTE,
   resolveRuntimeMainNavigationHref,
   type RuntimeMainNavigationIntentDetail,
 } from "~/lib/runtime-state/navigation-cache";
@@ -381,6 +382,15 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
       );
       const requestedHref = link?.getAttribute(RUNTIME_MAIN_NAVIGATION_DESTINATION_ATTRIBUTE);
       if (!link || !requestedHref) return;
+
+      const releaseGuardDeadline = Number(
+        link.getAttribute(RUNTIME_MAIN_NAVIGATION_RELEASE_GUARD_UNTIL_ATTRIBUTE),
+      );
+      if (Number.isFinite(releaseGuardDeadline) && Date.now() <= releaseGuardDeadline) {
+        event.preventDefault();
+        return;
+      }
+      link.removeAttribute(RUNTIME_MAIN_NAVIGATION_RELEASE_GUARD_UNTIL_ATTRIBUTE);
 
       const targetHref = resolveRuntimeMainNavigationHref(requestedHref, {
         role: identity.role,

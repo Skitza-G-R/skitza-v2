@@ -10,6 +10,7 @@ import { getActiveKey, type ActiveKey } from "~/lib/dashboard/active-key";
 import {
   announceRuntimeMainNavigationIntent,
   captureRuntimeMainNavigationTarget,
+  RUNTIME_MAIN_NAVIGATION_RELEASE_GUARD_UNTIL_ATTRIBUTE,
 } from "~/lib/runtime-state/navigation-cache";
 
 import { Icon, type IconName } from "./icons";
@@ -223,24 +224,40 @@ export function ProducerBottomNav(): ReactNode {
   const suppressClickRef = useRef(false);
   const releaseClickGuardUntilRef = useRef(0);
   const releaseClickDestinationsRef = useRef<readonly string[]>([]);
+  const releaseClickTargetsRef = useRef<readonly HTMLElement[]>([]);
+  const offlineGestureNoticeShownRef = useRef(false);
   const lensFrameRef = useRef<number | null>(null);
   const settleFrameRef = useRef<number | null>(null);
 
   const clearReleaseClickGuard = (): void => {
+    for (const target of releaseClickTargetsRef.current) {
+      target.removeAttribute(RUNTIME_MAIN_NAVIGATION_RELEASE_GUARD_UNTIL_ATTRIBUTE);
+    }
     suppressClickRef.current = false;
     releaseClickGuardUntilRef.current = 0;
     releaseClickDestinationsRef.current = [];
+    releaseClickTargetsRef.current = [];
   };
 
   const armReleaseClickGuard = (): void => {
-    const destinations = [
-      pressedTabRef.current?.dataset.skNavDestination,
-      navigatedTabRef.current?.dataset.skNavDestination,
-    ].filter((destination): destination is string => Boolean(destination));
+    const targets = [...new Set([pressedTabRef.current, navigatedTabRef.current])].filter(
+      (target): target is HTMLElement => target !== null,
+    );
+    const destinations = targets
+      .map((target) => target.dataset.skNavDestination)
+      .filter((destination): destination is string => Boolean(destination));
+    const deadline = Date.now() + RELEASE_CLICK_GUARD_MS;
 
     suppressClickRef.current = destinations.length > 0;
-    releaseClickGuardUntilRef.current = Date.now() + RELEASE_CLICK_GUARD_MS;
+    releaseClickGuardUntilRef.current = deadline;
     releaseClickDestinationsRef.current = [...new Set(destinations)];
+    releaseClickTargetsRef.current = targets;
+    for (const target of targets) {
+      target.setAttribute(
+        RUNTIME_MAIN_NAVIGATION_RELEASE_GUARD_UNTIL_ATTRIBUTE,
+        String(deadline),
+      );
+    }
   };
 
   const cancelLensFrame = (): void => {
@@ -275,6 +292,7 @@ export function ProducerBottomNav(): ReactNode {
     gestureIntentRef.current = "pending";
     navRectRef.current = null;
     activePointerIdRef.current = null;
+    offlineGestureNoticeShownRef.current = false;
     nav.dataset.interacting = "false";
     resetTabProximities(nav);
 
@@ -309,6 +327,7 @@ export function ProducerBottomNav(): ReactNode {
     crossedDestinationRef.current = pressedTabRef.current?.dataset.skNavDestination ?? null;
     navigatedTabRef.current = null;
     gestureIntentRef.current = "pending";
+    offlineGestureNoticeShownRef.current = false;
     clearReleaseClickGuard();
     nav.dataset.interacting = "true";
     setLensFromPointer(nav, navRectRef.current, event);
@@ -358,6 +377,10 @@ export function ProducerBottomNav(): ReactNode {
       if (destinationTab && destination && destination !== crossedDestinationRef.current) {
         crossedDestinationRef.current = destination;
         navigatedTabRef.current = destinationTab;
+        // An earlier offline crossing can arm the release guard while the
+        // pointer is still held. Clear it before the next intentional live
+        // crossing so reversal remains immediate.
+        clearReleaseClickGuard();
         liveDragClickRef.current = true;
         try {
           destinationTab.click();
@@ -432,6 +455,7 @@ export function ProducerBottomNav(): ReactNode {
         settleFrameRef.current = null;
       }
       resetTabProximities(nav);
+      clearReleaseClickGuard();
     };
   }, []);
 
@@ -501,6 +525,11 @@ export function ProducerBottomNav(): ReactNode {
               draggable={false}
               data-sk-nav-destination={tab.href}
               prefetch={false}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  clearReleaseClickGuard();
+                }
+              }}
               onNavigate={() => {
                 announceRuntimeMainNavigationIntent(tab.href);
               }}
@@ -526,9 +555,22 @@ export function ProducerBottomNav(): ReactNode {
                 captureRuntimeMainNavigationTarget(event.currentTarget);
                 if (online) return;
                 event.preventDefault();
-                if (isLiveDragClick) armReleaseClickGuard();
-                if (navRef.current) settleLens(navRef.current);
-                toast("You’re offline. This screen will stay open until you reconnect.", "error");
+                if (isLiveDragClick) {
+                  armReleaseClickGuard();
+                  if (!offlineGestureNoticeShownRef.current) {
+                    offlineGestureNoticeShownRef.current = true;
+                    toast(
+                      "You’re offline. This screen will stay open until you reconnect.",
+                      "error",
+                    );
+                  }
+                } else {
+                  if (navRef.current) settleLens(navRef.current);
+                  toast(
+                    "You’re offline. This screen will stay open until you reconnect.",
+                    "error",
+                  );
+                }
               }}
               {...(isActive ? { "aria-current": "page" as const } : {})}
               data-active={isActive ? "true" : "false"}
