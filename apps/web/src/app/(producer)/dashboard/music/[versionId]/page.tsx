@@ -22,6 +22,7 @@ import {
   l3ResolveComment,
   l3SetDownloadOverride,
 } from "./actions";
+import { loadProducerSongSupplements } from "./song-detail-supplements";
 import {
   disablePublicSongLink,
   publishPublicSongLink,
@@ -61,7 +62,7 @@ export default async function ProducerSongPage({ params }: PageProps) {
     }
     throw e;
   }
-  const sharing = await caller.songPublication.producerState({ trackId: data.track.id });
+  const { sharing, overrideByVersion } = await loadProducerSongSupplements(caller, data);
   const publicSharing: SongPublicSharingView = {
     trackId: sharing.trackId,
     linkEnabled: sharing.linkEnabled,
@@ -70,17 +71,6 @@ export default async function ProducerSongPage({ params }: PageProps) {
     tokenVersion: sharing.tokenVersion,
     publicUrl: sharing.publicUrl ? `${PUBLIC_BRAND_ORIGIN}${sharing.publicUrl}` : null,
   };
-
-  const overrideEntries = await Promise.all(
-    data.versions.map(async (version) => {
-      const state = await caller.audioDelivery.overrideState({
-        purchaseId: version.purchaseId,
-        versionId: version.id,
-      });
-      return [version.id, state] as const;
-    }),
-  );
-  const overrideByVersion = new Map(overrideEntries);
 
   // Cross the RSC → client boundary as plain JSON (Date → ISO).
   const wire: SongPageData = {
