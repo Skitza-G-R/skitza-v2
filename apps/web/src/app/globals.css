@@ -749,6 +749,14 @@
     from { transform: translateY(100%); opacity: 0; }
     to   { transform: translateY(0);    opacity: 1; }
   }
+  @keyframes skitza-account-sheet-down {
+    from { transform: translateY(0);    opacity: 1; }
+    to   { transform: translateY(100%); opacity: 0.72; }
+  }
+  @keyframes skitza-account-sheet-overlay-out {
+    from { opacity: 1; }
+    to   { opacity: 0; }
+  }
   /* Side-anchored sheet (right drawer) — paired with the
      bottom-sheet keyframe above; selected per data-side on the
      <SheetContent> element. */
@@ -1193,6 +1201,17 @@
   .sk-sheet-enter[data-side="right"] {
     animation: skitza-slide-in-right 0.34s cubic-bezier(0.2, 0.8, 0.2, 1) both;
     transform-origin: right;
+  }
+  .sk-account-sheet-motion[data-state="open"] {
+    animation: skitza-slide-up-modal 0.38s cubic-bezier(0.16, 1, 0.3, 1) both;
+    transform-origin: bottom;
+  }
+  .sk-account-sheet-motion[data-state="closed"] {
+    animation: skitza-account-sheet-down 0.26s cubic-bezier(0.4, 0, 1, 1) both;
+    transform-origin: bottom;
+  }
+  .sk-account-sheet-overlay-motion[data-state="closed"] {
+    animation: skitza-account-sheet-overlay-out 0.26s ease-out both;
   }
 
   /* Full-screen task flows use directional movement only at the content
@@ -1738,6 +1757,8 @@
     .slide-up-modal,
     .sk-dialog-enter,
     .sk-sheet-enter,
+    .sk-account-sheet-motion,
+    .sk-account-sheet-overlay-motion,
     .sk-toast-in,
     .sk-soft-pulse,
     .sk-float,

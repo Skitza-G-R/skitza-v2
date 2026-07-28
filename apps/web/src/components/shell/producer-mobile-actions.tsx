@@ -5,7 +5,14 @@ import { Copy } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { useEffect, useId, useRef, useState } from "react";
+import {
+  type PointerEvent as ReactPointerEvent,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 
 import { copyPublicLink } from "~/components/dashboard/overview/public-link-strip";
 import { Icon } from "~/components/nav/icons";
@@ -17,9 +24,27 @@ import {
 } from "~/lib/runtime-state/navigation-cache";
 import { buildJoinUrl } from "~/lib/share/public-url";
 
+import {
+  ACCOUNT_SHEET_UPWARD_OVERSCAN_PX,
+  accountSheetDragOffset,
+  accountSheetReleaseVelocity,
+  shouldDismissAccountSheet,
+} from "./account-sheet-drag";
+
 interface ProducerMobileActionsProps {
   producerSlug: string | null;
 }
+
+const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+const ACCOUNT_SHEET_SETTLE_MS = 240;
+
+type AccountSheetDragState = {
+  pointerId: number;
+  startY: number;
+  lastY: number;
+  lastTime: number;
+  velocityPxPerMs: number;
+};
 
 export function ProducerMobileActions({
   producerSlug,
@@ -32,11 +57,168 @@ export function ProducerMobileActions({
   const tToasts = useTranslations("today.toasts");
   const [accountOpen, setAccountOpen] = useState(false);
   const accountButtonRef = useRef<HTMLButtonElement>(null);
+  const accountSheetRef = useRef<HTMLDivElement>(null);
+  const accountSheetDragRef = useRef<AccountSheetDragState | null>(null);
+  const accountSheetSettleTimerRef = useRef<number | null>(null);
   const accountSheetId = useId();
 
-  useEffect(() => {
+  const requestAccountSheetClose = useCallback(() => {
+    const sheet = accountSheetRef.current;
+    if (accountSheetSettleTimerRef.current !== null) {
+      window.clearTimeout(accountSheetSettleTimerRef.current);
+      accountSheetSettleTimerRef.current = null;
+    }
+    accountSheetDragRef.current = null;
+    sheet?.style.removeProperty("animation");
+    sheet?.style.removeProperty("transition");
+    sheet?.style.removeProperty("transform");
+    sheet?.style.removeProperty("will-change");
+    sheet?.style.removeProperty("pointer-events");
     setAccountOpen(false);
-  }, [currentHref]);
+  }, []);
+
+  useEffect(() => {
+    requestAccountSheetClose();
+  }, [currentHref, requestAccountSheetClose]);
+
+  useEffect(
+    () => () => {
+      if (accountSheetSettleTimerRef.current !== null) {
+        window.clearTimeout(accountSheetSettleTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  const settleAccountSheetDrag = useCallback((dismiss: boolean) => {
+    const sheet = accountSheetRef.current;
+    if (!sheet) return;
+
+    if (accountSheetSettleTimerRef.current !== null) {
+      window.clearTimeout(accountSheetSettleTimerRef.current);
+    }
+
+    const reducedMotion = window.matchMedia(REDUCED_MOTION_QUERY).matches;
+    if (reducedMotion) {
+      sheet.style.transform = "translate3d(0, 0, 0)";
+      sheet.style.removeProperty("transition");
+      sheet.style.removeProperty("will-change");
+      if (dismiss) setAccountOpen(false);
+      return;
+    }
+
+    sheet.style.transition = `transform ${String(ACCOUNT_SHEET_SETTLE_MS)}ms cubic-bezier(0.32, 0.72, 0, 1)`;
+    sheet.style.transform = dismiss ? "translate3d(0, 100%, 0)" : "translate3d(0, 0, 0)";
+    if (dismiss) sheet.style.pointerEvents = "none";
+
+    accountSheetSettleTimerRef.current = window.setTimeout(() => {
+      accountSheetSettleTimerRef.current = null;
+      if (dismiss) {
+        setAccountOpen(false);
+        return;
+      }
+      sheet.style.removeProperty("transition");
+      sheet.style.removeProperty("transform");
+      sheet.style.removeProperty("will-change");
+    }, ACCOUNT_SHEET_SETTLE_MS);
+  }, []);
+
+  const handleAccountSheetPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (!event.isPrimary || (event.pointerType === "mouse" && event.button !== 0)) return;
+      const sheet = accountSheetRef.current;
+      if (!sheet) return;
+
+      if (accountSheetSettleTimerRef.current !== null) {
+        window.clearTimeout(accountSheetSettleTimerRef.current);
+        accountSheetSettleTimerRef.current = null;
+      }
+      accountSheetDragRef.current = {
+        pointerId: event.pointerId,
+        startY: event.clientY,
+        lastY: event.clientY,
+        lastTime: event.timeStamp,
+        velocityPxPerMs: 0,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      sheet.style.animation = "none";
+      sheet.style.transition = "none";
+      sheet.style.willChange = "transform";
+    },
+    [],
+  );
+
+  const handleAccountSheetPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const drag = accountSheetDragRef.current;
+      const sheet = accountSheetRef.current;
+      if (!drag || !sheet || drag.pointerId !== event.pointerId) return;
+
+      const elapsed = Math.max(1, event.timeStamp - drag.lastTime);
+      drag.velocityPxPerMs = (event.clientY - drag.lastY) / elapsed;
+      drag.lastY = event.clientY;
+      drag.lastTime = event.timeStamp;
+
+      const distance = accountSheetDragOffset(event.clientY - drag.startY);
+      sheet.style.transform = `translate3d(0, ${String(distance)}px, 0)`;
+      event.preventDefault();
+    },
+    [],
+  );
+
+  const finishAccountSheetDrag = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>, canceled: boolean) => {
+      const drag = accountSheetDragRef.current;
+      const sheet = accountSheetRef.current;
+      if (!drag || !sheet || drag.pointerId !== event.pointerId) return;
+
+      accountSheetDragRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      const distance = event.clientY - drag.startY;
+      const releaseVelocity = accountSheetReleaseVelocity({
+        previousVelocityPxPerMs: drag.velocityPxPerMs,
+        lastY: drag.lastY,
+        lastTime: drag.lastTime,
+        releaseY: event.clientY,
+        releaseTime: event.timeStamp,
+      });
+      settleAccountSheetDrag(
+        !canceled &&
+          shouldDismissAccountSheet({
+            distancePx: distance,
+            velocityPxPerMs: releaseVelocity,
+            sheetHeightPx: sheet.getBoundingClientRect().height,
+          }),
+      );
+    },
+    [settleAccountSheetDrag],
+  );
+
+  const handleAccountSheetPointerUp = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      finishAccountSheetDrag(event, false);
+    },
+    [finishAccountSheetDrag],
+  );
+
+  const handleAccountSheetPointerCancel = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      finishAccountSheetDrag(event, true);
+    },
+    [finishAccountSheetDrag],
+  );
+
+  const handleAccountSheetLostPointerCapture = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.target !== event.currentTarget) return;
+      const drag = accountSheetDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      finishAccountSheetDrag(event, true);
+    },
+    [finishAccountSheetDrag],
+  );
 
   async function copyLink() {
     if (!producerSlug) return;
@@ -91,17 +273,47 @@ export function ProducerMobileActions({
             />
           </button>
 
-          <Sheet open={accountOpen} onOpenChange={setAccountOpen}>
+          <Sheet
+            open={accountOpen}
+            onOpenChange={(nextOpen) => {
+              if (nextOpen) {
+                setAccountOpen(true);
+                return;
+              }
+              requestAccountSheetClose();
+            }}
+          >
             <SheetContent
+              ref={accountSheetRef}
               side="bottom"
+              showHandle={false}
+              overlayClassName="sk-account-sheet-overlay-motion"
               id={accountSheetId}
               data-testid="account-sheet"
               onCloseAutoFocus={(event) => {
                 event.preventDefault();
                 accountButtonRef.current?.focus();
               }}
-              className="max-h-[88dvh] w-full gap-0 overflow-y-auto p-0 pb-[env(safe-area-inset-bottom)] sm:p-0"
+              className="sk-account-sheet-motion max-h-[88dvh] w-full gap-0 overflow-visible p-0 pb-[env(safe-area-inset-bottom)] sm:p-0"
             >
+              <div
+                aria-hidden
+                data-testid="account-sheet-bottom-backing"
+                className="pointer-events-none absolute inset-x-0 top-full bg-[rgb(var(--bg-elevated))]"
+                style={{ height: ACCOUNT_SHEET_UPWARD_OVERSCAN_PX }}
+              />
+              <div
+                aria-hidden
+                data-testid="account-sheet-handle"
+                onPointerDown={handleAccountSheetPointerDown}
+                onPointerMove={handleAccountSheetPointerMove}
+                onPointerUp={handleAccountSheetPointerUp}
+                onPointerCancel={handleAccountSheetPointerCancel}
+                onLostPointerCapture={handleAccountSheetLostPointerCapture}
+                className="flex h-8 shrink-0 cursor-grab touch-none items-center justify-center active:cursor-grabbing"
+              >
+                <span className="h-1 w-11 rounded-full bg-[rgb(var(--border-subtle))]" />
+              </div>
               <SheetTitle className="sr-only">Account</SheetTitle>
               <SheetDescription className="sr-only">
                 Open your store or settings, manage your account, or sign out.
@@ -117,7 +329,7 @@ export function ProducerMobileActions({
                   prefetch={false}
                   onNavigate={() => {
                     announceRuntimeMainNavigationIntent("/dashboard/store");
-                    if (currentHref === "/dashboard/store") setAccountOpen(false);
+                    if (currentHref === "/dashboard/store") requestAccountSheetClose();
                   }}
                   onClick={(event) => {
                     captureRuntimeMainNavigationTarget(event.currentTarget);
@@ -133,7 +345,7 @@ export function ProducerMobileActions({
                   prefetch={false}
                   onNavigate={() => {
                     announceRuntimeMainNavigationIntent("/dashboard/settings");
-                    if (currentHref === "/dashboard/settings") setAccountOpen(false);
+                    if (currentHref === "/dashboard/settings") requestAccountSheetClose();
                   }}
                   onClick={(event) => {
                     captureRuntimeMainNavigationTarget(event.currentTarget);
@@ -144,11 +356,11 @@ export function ProducerMobileActions({
                   Settings
                 </Link>
               </nav>
-              <div className="w-full p-4 pt-2">
+              <div className="min-h-0 w-full flex-1 overflow-y-auto overscroll-contain p-4 pt-2">
                 <UserButton.__experimental_Outlet
                   defaultOpen
                   __experimental_asStandalone={(opened) => {
-                    if (!opened) setAccountOpen(false);
+                    if (!opened) requestAccountSheetClose();
                   }}
                   appearance={{
                     elements: {

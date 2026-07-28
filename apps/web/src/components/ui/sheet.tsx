@@ -71,12 +71,13 @@ interface SheetContentProps
   extends ComponentPropsWithoutRef<typeof SheetPrimitive.Content> {
   side?: SheetSide;
   showHandle?: boolean;
+  overlayClassName?: string;
 }
 
 const SheetContent = forwardRef<
   ComponentRef<typeof SheetPrimitive.Content>,
   SheetContentProps
->(({ className, children, side = "bottom", showHandle, ...props }, ref) => {
+>(({ className, children, side = "bottom", showHandle, overlayClassName, ...props }, ref) => {
   // Drag handle is the design drop's distinctive bottom-sheet
   // affordance. Default ON for `bottom`, OFF for `right` (desktop
   // drawer pattern doesn't need it).
@@ -84,7 +85,7 @@ const SheetContent = forwardRef<
 
   return (
     <SheetPortal>
-      <SheetOverlay />
+      <SheetOverlay className={overlayClassName} />
       <SheetPrimitive.Content
         ref={ref}
         data-side={side}
