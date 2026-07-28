@@ -31,8 +31,9 @@ import { useTopBarBreadcrumb } from "./topbar-breadcrumb-context";
 //
 // Sticky-position lives here (not in the parent shell) so the bar can
 // use `usePathname` as a client component without forcing the whole
-// shell into client-side rendering. Parent shells mount this at the
-// top of <main>, above the page's content container.
+// shell into client-side rendering. The producer shell mounts this as
+// a non-shrinking sibling immediately before its mobile scroll surface;
+// the artist shell preserves the original in-flow placement.
 
 interface Section {
   path: string;
@@ -134,7 +135,7 @@ export function AppTopBar({
       data-scrolled={scrolled ? "true" : "false"}
       className={
         isProducer
-          ? "sk-safe-top sticky top-0 z-40 border-b border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] transition-shadow duration-200 ease-out motion-reduce:transition-none lg:pt-0"
+          ? "sk-safe-top sticky top-0 z-40 shrink-0 border-b border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] transition-shadow duration-200 ease-out motion-reduce:transition-none lg:pt-0"
           : "sticky top-0 z-30 backdrop-blur-[60px] transition-[box-shadow,border-color] duration-200 ease-out motion-reduce:transition-none"
       }
       style={

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import manifest from "../manifest";
@@ -34,6 +34,24 @@ function readPngDimensionsAt(file: URL): {
 }
 
 describe("native app manifest", () => {
+  it("enters through the public recovery route when no producer parent fallback exists", () => {
+    const value = manifest();
+    const producerLoading = new URL("../(producer)/loading.tsx", import.meta.url);
+    const launchPage = readFileSync(
+      new URL("../launch/page.tsx", import.meta.url),
+      "utf8",
+    );
+
+    // The producer route-group fallback used to replace the persistent
+    // AppShell during every soft navigation. Once that fallback is absent,
+    // an installed cold/offline reopen must enter through the separately
+    // cached, no-data launch document rather than a protected dashboard URL.
+    expect(existsSync(producerLoading)).toBe(false);
+    expect(value.start_url).toBe("/launch");
+    expect(launchPage).toMatch(/dynamic\s*=\s*["']force-static["']/);
+    expect(launchPage).toMatch(/<RuntimeResumeBoundary\s+navigate\s*\/>/);
+  });
+
   it("describes one standalone app with regular and maskable install icons", () => {
     const value = manifest();
 
@@ -41,7 +59,7 @@ describe("native app manifest", () => {
       id: "/",
       name: "Skitza",
       short_name: "Skitza",
-      start_url: "/dashboard",
+      start_url: "/launch",
       scope: "/",
       display: "standalone",
       background_color: "#F2EDE6",

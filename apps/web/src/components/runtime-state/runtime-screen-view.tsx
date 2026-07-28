@@ -35,6 +35,7 @@ import {
   type RuntimeScreenSafeView,
 } from "~/lib/runtime-state/runtime-state";
 
+import { useOnlineStatus } from "./online-required-link";
 import { useRuntimeState } from "./runtime-state-provider";
 
 const PREVIEW_TIMEOUT_MS = 15_000;
@@ -194,23 +195,24 @@ function RuntimeScreenSafeViewWriterAtHref({
 export function RuntimeScreenPreview({
   view,
   source = "cache",
+  refreshing,
 }: {
   view: RuntimeScreenSafeView;
   source?: "cache" | "resume";
+  refreshing: boolean;
 }) {
   return (
     <div
       aria-label={`${view.title} saved view`}
+      aria-busy={refreshing || undefined}
       data-runtime-screen-source={source}
       className="mx-auto flex w-full max-w-[1180px] flex-col gap-4 px-4 pt-5 pb-24 sm:px-6 lg:gap-5 lg:px-8 lg:pt-8"
     >
-      <div
-        role="status"
-        className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-xs font-semibold text-[rgb(var(--fg-secondary))]"
-      >
-        Showing the last saved view while fresh data loads. Live actions wait for the current
-        server response.
-      </div>
+      {refreshing ? (
+        <p role="status" className="sr-only">
+          Updating {view.title}
+        </p>
+      ) : null}
 
       <header>
         <h1 className="font-syne text-[32px] leading-none font-extrabold tracking-[-0.035em] text-[rgb(var(--fg-default))] lg:text-[38px]">
@@ -341,6 +343,7 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const online = useOnlineStatus();
   const { identity, privateStateAccessAllowed, storage } = useRuntimeState();
   const [pending, setPending] = useState<PendingRuntimeScreen | null>(null);
   const timeoutRef = useRef<number | null>(null);
@@ -536,7 +539,10 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
 
   if (!visiblePending) return children;
   return visiblePending.view ? (
-    <RuntimeScreenPreview view={visiblePending.view} />
+    <RuntimeScreenPreview
+      view={visiblePending.view}
+      refreshing={online && !visiblePending.localOnly}
+    />
   ) : (
     <RuntimeDestinationScaffold
       href={visiblePending.href}
@@ -613,6 +619,7 @@ export function RuntimeResumeBoundary({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const online = useOnlineStatus();
   const [resume, setResume] = useState<ResumeState | null>(null);
   const [resolvedIdentity, setResolvedIdentity] = useState(false);
   const requestedHref = hrefFromLocation(pathname, searchParams);
@@ -678,6 +685,7 @@ export function RuntimeResumeBoundary({
       href={presentedHref}
       role={activeResume?.target.role ?? fallbackRole}
       view={presentedView}
+      refreshing={online}
     />
   );
 }
@@ -686,10 +694,12 @@ function RuntimeResumeShell({
   href,
   role,
   view,
+  refreshing,
 }: {
   href: string;
   role: RuntimeRole;
   view: RuntimeScreenSafeView | null;
+  refreshing: boolean;
 }) {
   const nav = role === "producer" ? PRODUCER_NAV : ARTIST_NAV;
   return (
@@ -725,12 +735,16 @@ function RuntimeResumeShell({
         <header className="flex h-16 shrink-0 items-center border-b border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-4 lg:px-8">
           <span className="font-syne text-lg font-extrabold lg:hidden">Skitza</span>
           <span className="ml-auto text-xs font-semibold text-[rgb(var(--fg-muted))]">
-            Restoring your last screen…
+            Opening Skitza…
           </span>
         </header>
         <main className="min-h-0 min-w-0 flex-1 overflow-y-auto">
           {view ? (
-            <RuntimeScreenPreview view={view} source="resume" />
+            <RuntimeScreenPreview
+              view={view}
+              source="resume"
+              refreshing={refreshing}
+            />
           ) : (
             <RuntimeDestinationScaffold href={href} role={role} />
           )}

@@ -3,10 +3,9 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-// Pins that AppShell mounts the DashboardTopBar at the top of <main>.
-// If a future refactor moves the topbar (or accidentally removes it),
-// this test catches the regression before navigation visibly breaks
-// for the producer.
+// Pins that AppShell mounts the DashboardTopBar immediately before the
+// mobile scroll surface. The two remain inside one breadcrumb provider,
+// but the topbar must not be a child of the elastic iOS scroller.
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "app-shell.tsx"), "utf-8");
@@ -18,17 +17,32 @@ describe("AppShell + DashboardTopBar wiring", () => {
     );
   });
 
-  it("renders <DashboardTopBar> inside <main>", () => {
-    // Crude but effective: the topbar JSX must appear after <main> in
-    // the source and before {children}. We don't try to parse JSX —
-    // a source-level positional check is enough to catch the most
-    // common regression (forgetting to render the new chrome).
+  it("renders <DashboardTopBar> before and outside the mobile scroll surface", () => {
     const mainIdx = SRC.indexOf("<main");
     const topbarIdx = SRC.indexOf("<DashboardTopBar");
     const childrenIdx = SRC.indexOf("{children}");
     expect(mainIdx).toBeGreaterThan(-1);
-    expect(topbarIdx).toBeGreaterThan(mainIdx);
-    expect(childrenIdx).toBeGreaterThan(topbarIdx);
+    expect(topbarIdx).toBeGreaterThan(-1);
+    expect(topbarIdx).toBeLessThan(mainIdx);
+    expect(childrenIdx).toBeGreaterThan(mainIdx);
+  });
+
+  it("keeps the topbar and routed page inside one breadcrumb provider", () => {
+    const providerOpenIdx = SRC.indexOf("<TopBarBreadcrumbProvider>");
+    const topbarIdx = SRC.indexOf("<DashboardTopBar");
+    const mainIdx = SRC.indexOf("<main");
+    const providerCloseIdx = SRC.indexOf("</TopBarBreadcrumbProvider>");
+
+    expect(providerOpenIdx).toBeGreaterThan(-1);
+    expect(topbarIdx).toBeGreaterThan(providerOpenIdx);
+    expect(mainIdx).toBeGreaterThan(topbarIdx);
+    expect(providerCloseIdx).toBeGreaterThan(mainIdx);
+  });
+
+  it("keeps main-content as the only elastic mobile scroll surface", () => {
+    expect(SRC).toMatch(
+      /<main[\s\S]{0,180}id="main-content"[\s\S]{0,220}overflow-y-auto[\s\S]{0,100}overscroll-y-contain/,
+    );
   });
 
   it("threads unreadCount into the topbar (matches the bell dot guard)", () => {

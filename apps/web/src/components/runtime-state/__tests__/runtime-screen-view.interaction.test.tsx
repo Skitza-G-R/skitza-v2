@@ -212,9 +212,30 @@ describe("instant runtime screen transitions", () => {
     expect(screen.getByText("Midnight")).toBeTruthy();
     expect(screen.queryByTestId("current-server-screen")).toBeNull();
     expect(
-      document.querySelector('[data-runtime-screen-source="cache"]'),
-    ).toBeTruthy();
+      document
+        .querySelector('[data-runtime-screen-source="cache"]')
+        ?.getAttribute("aria-busy"),
+    ).toBe("true");
+    expect(document.querySelector("[data-runtime-resume-shell]")).toBeNull();
+    expect(screen.queryByText(/Restoring your last screen/i)).toBeNull();
     expect(document.documentElement.dataset.skScreenSource).toBe("cache");
+    expect(
+      screen.queryByText(/Showing the last saved view while fresh data loads/i),
+    ).toBeNull();
+    expect(
+      screen.getByText("Updating Saved music library").classList.contains("sr-only"),
+    ).toBe(true);
+
+    mocked.online = false;
+    act(() => {
+      window.dispatchEvent(new Event("offline"));
+    });
+    expect(
+      document
+        .querySelector('[data-runtime-screen-source="cache"]')
+        ?.hasAttribute("aria-busy"),
+    ).toBe(false);
+    expect(screen.queryByText("Updating Saved music library")).toBeNull();
   });
 
   it("shows a destination-shaped scaffold synchronously for a never-seen screen", () => {
@@ -293,6 +314,11 @@ describe("instant runtime screen transitions", () => {
 
     announceNavigation("/dashboard/music");
     expect(screen.getByText("Offline music library")).toBeTruthy();
+    const offlinePreview = document.querySelector(
+      '[data-runtime-screen-source="cache"]',
+    );
+    expect(offlinePreview?.hasAttribute("aria-busy")).toBe(false);
+    expect(screen.queryByText("Updating Offline music library")).toBeNull();
     expect(mocked.router.push).not.toHaveBeenCalled();
 
     act(() => {
@@ -305,6 +331,12 @@ describe("instant runtime screen transitions", () => {
     act(() => {
       window.dispatchEvent(new Event("online"));
     });
+    expect(
+      document
+        .querySelector('[data-runtime-screen-source="cache"]')
+        ?.getAttribute("aria-busy"),
+    ).toBe("true");
+    expect(screen.getByText("Updating Offline music library")).toBeTruthy();
     expect(mocked.router.push).toHaveBeenCalledOnce();
     expect(mocked.router.push).toHaveBeenCalledWith("/dashboard/music");
   });
@@ -459,8 +491,17 @@ describe("close and reopen runtime restore", () => {
     expect(
       document.querySelector('[data-runtime-screen-source="resume"]'),
     ).toBeTruthy();
+    const offlineResume = document.querySelector(
+      '[data-runtime-screen-source="resume"]',
+    );
+    expect(offlineResume?.hasAttribute("aria-busy")).toBe(false);
+    expect(screen.queryByText("Updating Reopened music library")).toBeNull();
     expect(screen.getByText("Reopened music library")).toBeTruthy();
     expect(screen.getByText("Midnight")).toBeTruthy();
+    expect(screen.getByText("Opening Skitza…")).toBeTruthy();
+    expect(
+      screen.queryByText(/Showing the last saved view while fresh data loads/i),
+    ).toBeNull();
     expect(mocked.router.replace).not.toHaveBeenCalled();
 
     cleanup();
@@ -511,6 +552,13 @@ describe("close and reopen runtime restore", () => {
     });
 
     expect(within(container).getByText("Hydrated offline library")).toBeTruthy();
+    const hydratedResume = container.querySelector(
+      '[data-runtime-screen-source="resume"]',
+    );
+    expect(hydratedResume?.hasAttribute("aria-busy")).toBe(false);
+    expect(
+      within(container).queryByText("Updating Hydrated offline library"),
+    ).toBeNull();
     expect(errors).toEqual([]);
 
     act(() => {
