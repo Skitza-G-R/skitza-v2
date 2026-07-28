@@ -663,6 +663,9 @@
   .persistent-player-dock {
     bottom: calc(80px + env(safe-area-inset-bottom, 0px));
   }
+  .mobile-full-player-sheet {
+    transition: transform 340ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
   @media (min-width: 1024px) {
     .persistent-player-dock {
       bottom: 0;
@@ -1834,6 +1837,9 @@
     .persistent-player-dock {
       transition: none !important;
       filter: none !important;
+    }
+    .mobile-full-player-sheet {
+      transition: none !important;
     }
     .reveal-up,
     .reveal-up-delay-1,
