@@ -647,9 +647,18 @@ export function MobileFullPlayer({
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.preventDefault();
     const offsetY = pointerOffset(event.clientY);
-    const elapsed = Math.max(1, event.timeStamp - drag.lastAt);
-    const instantaneousVelocity = (event.clientY - drag.lastY) / elapsed;
-    drag.velocityY = drag.velocityY * 0.45 + instantaneousVelocity * 0.55;
+    const moveDeltaY = event.clientY - drag.lastY;
+    const rawElapsedSinceLastMove = event.timeStamp - drag.lastAt;
+    const elapsedSinceLastMove = Math.max(0, rawElapsedSinceLastMove);
+    const instantaneousVelocity = moveDeltaY / Math.max(1, elapsedSinceLastMove);
+    const hasImmediateCoordinate =
+      rawElapsedSinceLastMove <= 0 && moveDeltaY !== 0;
+    const velocityRetention = hasImmediateCoordinate
+      ? 0
+      : Math.pow(0.45, elapsedSinceLastMove / 16);
+    drag.velocityY =
+      drag.velocityY * velocityRetention +
+      instantaneousVelocity * (1 - velocityRetention);
     drag.lastY = event.clientY;
     drag.lastAt = event.timeStamp;
     drag.moved ||= Math.abs(event.clientY - drag.startY) >= 5;
@@ -661,9 +670,21 @@ export function MobileFullPlayer({
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.preventDefault();
     const offsetY = pointerOffset(event.clientY);
-    const elapsed = Math.max(1, event.timeStamp - drag.lastAt);
-    const releaseVelocity = (event.clientY - drag.lastY) / elapsed;
-    const velocityY = drag.velocityY * 0.45 + releaseVelocity * 0.55;
+    const releaseDeltaY = event.clientY - drag.lastY;
+    const rawElapsedSinceLastMove = event.timeStamp - drag.lastAt;
+    const elapsedSinceLastMove = Math.max(0, rawElapsedSinceLastMove);
+    const releaseVelocity = releaseDeltaY / Math.max(1, elapsedSinceLastMove);
+    const hasImmediateFinalCoordinate =
+      rawElapsedSinceLastMove <= 0 && releaseDeltaY !== 0;
+    // Keep the existing 45/55 velocity blend at a normal 16ms frame,
+    // but let a stationary hold decay the old sample before release.
+    // If timestamps tie or go backwards, a changed final coordinate
+    // is the only fresh direction sample and must take ownership.
+    const velocityRetention = hasImmediateFinalCoordinate
+      ? 0
+      : Math.pow(0.45, elapsedSinceLastMove / 16);
+    const velocityY =
+      drag.velocityY * velocityRetention + releaseVelocity * (1 - velocityRetention);
     const moved = drag.moved || Math.abs(event.clientY - drag.startY) >= 5;
     dragRef.current = null;
     setDragging(false);
@@ -760,6 +781,7 @@ export function MobileFullPlayer({
             finishHandleDrag(event, true);
           }}
           onLostPointerCapture={(event) => {
+            if (event.target !== event.currentTarget) return;
             if (dragRef.current?.pointerId === event.pointerId) {
               finishHandleDrag(event, true);
             }
@@ -1044,6 +1066,7 @@ export function MiniWaveform({
         stopPreview();
       }}
       onLostPointerCapture={(event) => {
+        if (event.target !== event.currentTarget) return;
         if (activePointerIdRef.current === event.pointerId) stopPreview();
       }}
       className={[

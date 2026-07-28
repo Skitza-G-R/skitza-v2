@@ -43,15 +43,22 @@ const track: PlayerTrack = {
 
 function dispatchPointer(
   target: Element,
-  type: "pointercancel" | "pointerdown" | "pointermove" | "pointerup",
+  type:
+    | "lostpointercapture"
+    | "pointercancel"
+    | "pointerdown"
+    | "pointermove"
+    | "pointerup",
   {
     clientX = 20,
     clientY,
     pointerId = 1,
+    timeStamp,
   }: {
     clientX?: number;
     clientY: number;
     pointerId?: number;
+    timeStamp?: number;
   },
 ): void {
   const event = new MouseEvent(type, {
@@ -64,6 +71,7 @@ function dispatchPointer(
     isPrimary: { value: true },
     pointerId: { value: pointerId },
     pointerType: { value: "touch" },
+    ...(timeStamp === undefined ? {} : { timeStamp: { value: timeStamp } }),
   });
   fireEvent(target, event);
 }
@@ -112,14 +120,31 @@ describe("full player direct manipulation", () => {
     const dialog = screen.getByRole("dialog", { name: "Now playing — Lama" });
     const handle = screen.getByRole("button", { name: "Minimize player" });
 
-    dispatchPointer(handle, "pointerdown", { clientY: 60 });
-    dispatchPointer(handle, "pointermove", { clientY: 260 });
+    dispatchPointer(handle, "pointerdown", { clientY: 60, timeStamp: 1_000 });
+    dispatchPointer(handle, "pointermove", { clientY: 260, timeStamp: 1_016 });
     expect(dialog.style.transform).toBe("translateY(200px)");
 
-    dispatchPointer(handle, "pointermove", { clientY: 120 });
+    dispatchPointer(handle, "pointermove", { clientY: 120, timeStamp: 1_032 });
     expect(dialog.style.transform).toBe("translateY(60px)");
 
-    dispatchPointer(handle, "pointerup", { clientY: 120 });
+    dispatchPointer(handle, "pointerup", { clientY: 120, timeStamp: 1_040 });
+    fireEvent.click(handle);
+
+    expect(dialog.style.transform).toBe("translateY(0px)");
+    expect(onCollapse).not.toHaveBeenCalled();
+  });
+
+  it("honors a final upward coordinate when pointerup shares the last move timestamp", () => {
+    const onCollapse = vi.fn();
+    renderFullPlayer({ onCollapse });
+    const dialog = screen.getByRole("dialog", { name: "Now playing — Lama" });
+    const handle = screen.getByRole("button", { name: "Minimize player" });
+
+    dispatchPointer(handle, "pointerdown", { clientY: 40, timeStamp: 1_000 });
+    dispatchPointer(handle, "pointermove", { clientY: 240, timeStamp: 1_016 });
+    expect(dialog.style.transform).toBe("translateY(200px)");
+
+    dispatchPointer(handle, "pointerup", { clientY: 88, timeStamp: 1_016 });
     fireEvent.click(handle);
 
     expect(dialog.style.transform).toBe("translateY(0px)");
@@ -136,6 +161,91 @@ describe("full player direct manipulation", () => {
     dispatchPointer(handle, "pointerup", { clientY: 300 });
 
     expect(onCollapse).toHaveBeenCalledTimes(1);
+  });
+
+  it("settles by position after a quick short move is held stationary before release", () => {
+    const onCollapse = vi.fn();
+    renderFullPlayer({ onCollapse });
+    const dialog = screen.getByRole("dialog", { name: "Now playing — Lama" });
+    const handle = screen.getByRole("button", { name: "Minimize player" });
+
+    dispatchPointer(handle, "pointerdown", { clientY: 40, timeStamp: 1_000 });
+    dispatchPointer(handle, "pointermove", { clientY: 88, timeStamp: 1_016 });
+    expect(dialog.style.transform).toBe("translateY(48px)");
+
+    dispatchPointer(handle, "pointerup", { clientY: 88, timeStamp: 1_300 });
+    fireEvent.click(handle);
+
+    expect(dialog.style.transform).toBe("translateY(0px)");
+    expect(onCollapse).not.toHaveBeenCalled();
+  });
+
+  it("drops stale downward velocity when a paused drag ends with a tiny upward move", () => {
+    const onCollapse = vi.fn();
+    renderFullPlayer({ onCollapse });
+    const dialog = screen.getByRole("dialog", { name: "Now playing — Lama" });
+    const handle = screen.getByRole("button", { name: "Minimize player" });
+
+    dispatchPointer(handle, "pointerdown", { clientY: 40, timeStamp: 1_000 });
+    dispatchPointer(handle, "pointermove", { clientY: 88, timeStamp: 1_016 });
+    expect(dialog.style.transform).toBe("translateY(48px)");
+
+    dispatchPointer(handle, "pointermove", { clientY: 87, timeStamp: 1_300 });
+    expect(dialog.style.transform).toBe("translateY(47px)");
+
+    dispatchPointer(handle, "pointerup", { clientY: 87, timeStamp: 1_300 });
+    fireEvent.click(handle);
+
+    expect(dialog.style.transform).toBe("translateY(0px)");
+    expect(onCollapse).not.toHaveBeenCalled();
+  });
+
+  it("preserves a genuinely fresh downward flick", () => {
+    const onCollapse = vi.fn();
+    renderFullPlayer({ onCollapse });
+    const handle = screen.getByRole("button", { name: "Minimize player" });
+
+    dispatchPointer(handle, "pointerdown", { clientY: 40, timeStamp: 1_000 });
+    dispatchPointer(handle, "pointermove", { clientY: 88, timeStamp: 1_016 });
+    dispatchPointer(handle, "pointerup", { clientY: 88, timeStamp: 1_024 });
+
+    expect(onCollapse).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores descendant capture loss and completes the handle gesture on its owning button", () => {
+    const onCollapse = vi.fn();
+    renderFullPlayer({ onCollapse });
+    const handle = screen.getByRole("button", { name: "Minimize player" });
+    const grip = handle.querySelector("span");
+    expect(grip).not.toBeNull();
+    if (!grip) return;
+
+    dispatchPointer(grip, "pointerdown", { clientY: 40, timeStamp: 1_000 });
+    dispatchPointer(grip, "pointermove", { clientY: 300, timeStamp: 1_016 });
+    dispatchPointer(grip, "lostpointercapture", { clientY: 300, timeStamp: 1_020 });
+    dispatchPointer(handle, "pointerup", { clientY: 300, timeStamp: 1_024 });
+
+    expect(onCollapse).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels the handle gesture when its owning button actually loses capture", () => {
+    const onCollapse = vi.fn();
+    renderFullPlayer({ onCollapse });
+    const dialog = screen.getByRole("dialog", { name: "Now playing — Lama" });
+    const handle = screen.getByRole("button", { name: "Minimize player" });
+    const grip = handle.querySelector("span");
+    expect(grip).not.toBeNull();
+    if (!grip) return;
+
+    dispatchPointer(grip, "pointerdown", { clientY: 40, timeStamp: 1_000 });
+    dispatchPointer(grip, "pointermove", { clientY: 180, timeStamp: 1_016 });
+    expect(dialog.style.transform).toBe("translateY(140px)");
+
+    dispatchPointer(handle, "lostpointercapture", { clientY: 180, timeStamp: 1_020 });
+    dispatchPointer(handle, "pointerup", { clientY: 180, timeStamp: 1_024 });
+
+    expect(dialog.style.transform).toBe("translateY(0px)");
+    expect(onCollapse).not.toHaveBeenCalled();
   });
 
   it("uses position or downward velocity to decide the release destination", () => {
@@ -234,6 +344,71 @@ describe("full player waveform scrubbing", () => {
 
     fireEvent.keyDown(waveform, { key: "ArrowRight" });
     expect(onScrub).toHaveBeenLastCalledWith(25);
+  });
+
+  it("ignores descendant capture loss and completes waveform scrubbing on its owning slider", () => {
+    const onScrub = vi.fn();
+    render(<MiniWaveform seed="version-1" progressPct={20} onScrub={onScrub} tall />);
+    const waveform = screen.getByRole("slider", { name: "Seek" });
+    const bar = waveform.querySelector("span");
+    expect(bar).not.toBeNull();
+    if (!bar) return;
+    Object.defineProperty(waveform, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        x: 10,
+        y: 0,
+        left: 10,
+        top: 0,
+        right: 210,
+        bottom: 48,
+        width: 200,
+        height: 48,
+        toJSON: () => ({}),
+      }),
+    });
+
+    dispatchPointer(bar, "pointerdown", { clientX: 50, clientY: 20 });
+    dispatchPointer(bar, "lostpointercapture", { clientX: 50, clientY: 20 });
+    dispatchPointer(waveform, "pointermove", { clientX: 170, clientY: 20 });
+    expect(waveform.getAttribute("aria-valuenow")).toBe("80");
+
+    dispatchPointer(waveform, "pointerup", { clientX: 190, clientY: 20 });
+    expect(onScrub).toHaveBeenCalledTimes(1);
+    expect(onScrub).toHaveBeenCalledWith(90);
+  });
+
+  it("cancels waveform scrubbing when its owning slider actually loses capture", () => {
+    const onScrub = vi.fn();
+    render(<MiniWaveform seed="version-1" progressPct={20} onScrub={onScrub} tall />);
+    const waveform = screen.getByRole("slider", { name: "Seek" });
+    const bar = waveform.querySelector("span");
+    expect(bar).not.toBeNull();
+    if (!bar) return;
+    Object.defineProperty(waveform, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        x: 10,
+        y: 0,
+        left: 10,
+        top: 0,
+        right: 210,
+        bottom: 48,
+        width: 200,
+        height: 48,
+        toJSON: () => ({}),
+      }),
+    });
+
+    dispatchPointer(bar, "pointerdown", { clientX: 50, clientY: 20 });
+    dispatchPointer(waveform, "pointermove", { clientX: 110, clientY: 20 });
+    expect(waveform.getAttribute("aria-valuenow")).toBe("50");
+
+    dispatchPointer(waveform, "lostpointercapture", { clientX: 110, clientY: 20 });
+    dispatchPointer(waveform, "pointerup", { clientX: 190, clientY: 20 });
+
+    expect(waveform.getAttribute("aria-valuenow")).toBe("20");
+    expect(onScrub).not.toHaveBeenCalled();
   });
 });
 
