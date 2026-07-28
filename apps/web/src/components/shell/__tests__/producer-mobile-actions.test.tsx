@@ -65,7 +65,7 @@ describe("producer mobile account + public-link controls", () => {
       "min-h-0 w-full flex-1 overflow-y-auto overscroll-contain",
     );
     expect(ACTIONS_SRC).toContain('data-testid="account-sheet-bottom-backing"');
-    expect(ACTIONS_SRC).toContain("style={{ height: ACCOUNT_SHEET_UPWARD_OVERSCAN_PX }}");
+    expect(ACTIONS_SRC).toContain("style={{ height: ACCOUNT_SHEET_BOTTOM_BACKING_PX }}");
   });
 
   it("animates both sheet directions and removes motion when requested", () => {

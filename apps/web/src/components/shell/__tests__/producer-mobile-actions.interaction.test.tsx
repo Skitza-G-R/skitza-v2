@@ -311,11 +311,17 @@ describe("ProducerMobileActions account sheet interaction", () => {
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("backs the Home Indicator area through the maximum upward drag", () => {
+  it.each([
+    { height: 800, width: 360 },
+    { height: 844, width: 390 },
+  ])("backs the viewport bottom at $width×$height through the maximum upward drag", ({
+    height: viewportBottom,
+    width: viewportWidth,
+  }) => {
     render(<ProducerMobileActions producerSlug={null} />);
     const { handle, sheet } = openAccountSheet();
     const backing = screen.getByTestId("account-sheet-bottom-backing");
-    const viewportBottom = 844;
+    const sheetBorderWidth = 1;
 
     Object.defineProperty(sheet, "getBoundingClientRect", {
       configurable: true,
@@ -326,7 +332,10 @@ describe("ProducerMobileActions account sheet interaction", () => {
         return {
           bottom: viewportBottom + offset,
           height: 600,
+          left: 0,
+          right: viewportWidth,
           top: viewportBottom + offset - 600,
+          width: viewportWidth,
         };
       },
     });
@@ -335,10 +344,14 @@ describe("ProducerMobileActions account sheet interaction", () => {
       value: () => {
         const sheetBottom = sheet.getBoundingClientRect().bottom;
         const backingHeight = Number.parseFloat(backing.style.height);
+        const backingTop = sheetBottom - sheetBorderWidth;
         return {
-          bottom: sheetBottom + backingHeight,
+          bottom: backingTop + backingHeight,
           height: backingHeight,
-          top: sheetBottom,
+          left: 0,
+          right: viewportWidth,
+          top: backingTop,
+          width: viewportWidth,
         };
       },
     });
@@ -348,7 +361,8 @@ describe("ProducerMobileActions account sheet interaction", () => {
 
     expect(sheet.style.transform).toBe("translate3d(0, -24px, 0)");
     expect(sheet.getBoundingClientRect().bottom).toBe(viewportBottom - 24);
-    expect(backing.getBoundingClientRect().height).toBe(24);
+    expect(sheet.getBoundingClientRect().width).toBe(viewportWidth);
+    expect(backing.getBoundingClientRect().width).toBe(viewportWidth);
     expect(backing.getBoundingClientRect().bottom).toBeGreaterThanOrEqual(viewportBottom);
 
     dispatchPointer(handle, "pointercancel", { clientY: -400, timeStamp: 120 });

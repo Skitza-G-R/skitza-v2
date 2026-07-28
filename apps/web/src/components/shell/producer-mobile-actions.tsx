@@ -37,6 +37,9 @@ interface ProducerMobileActionsProps {
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 const ACCOUNT_SHEET_SETTLE_MS = 240;
+const ACCOUNT_SHEET_BORDER_WIDTH_PX = 1;
+const ACCOUNT_SHEET_BOTTOM_BACKING_PX =
+  ACCOUNT_SHEET_UPWARD_OVERSCAN_PX + ACCOUNT_SHEET_BORDER_WIDTH_PX;
 
 type AccountSheetDragState = {
   pointerId: number;
@@ -300,7 +303,7 @@ export function ProducerMobileActions({
                 aria-hidden
                 data-testid="account-sheet-bottom-backing"
                 className="pointer-events-none absolute inset-x-0 top-full bg-[rgb(var(--bg-elevated))]"
-                style={{ height: ACCOUNT_SHEET_UPWARD_OVERSCAN_PX }}
+                style={{ height: ACCOUNT_SHEET_BOTTOM_BACKING_PX }}
               />
               <div
                 aria-hidden
