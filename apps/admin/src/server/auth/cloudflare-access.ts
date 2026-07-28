@@ -149,6 +149,7 @@ function normalizeCanonicalHost(value: string | undefined): string {
     candidate.includes("/") ||
     candidate.includes("\\") ||
     candidate.includes(",") ||
+    candidate.endsWith(".") ||
     /\s/.test(candidate)
   ) {
     return stop("configuration-invalid");
@@ -309,6 +310,7 @@ function requireCanonicalRequestHost(
     candidate.includes("/") ||
     candidate.includes("\\") ||
     candidate.includes(",") ||
+    candidate.endsWith(".") ||
     /\s/.test(candidate)
   ) {
     return stop("token-invalid");

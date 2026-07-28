@@ -140,6 +140,8 @@ describe("Cloudflare Access configuration", () => {
   it.each([
     { [ADMIN_CANONICAL_HOST_ENV]: " " },
     { [ADMIN_CANONICAL_HOST_ENV]: "admin-preview.vercel.app" },
+    { [ADMIN_CANONICAL_HOST_ENV]: "admin-preview.vercel.app." },
+    { [ADMIN_CANONICAL_HOST_ENV]: "vercel.app." },
     { [CLOUDFLARE_ACCESS_AUDIENCE_ENV]: " " },
     { [CLOUDFLARE_ACCESS_FOUNDER_SUBJECT_ENV]: " " },
     { [CLOUDFLARE_ACCESS_TEAM_DOMAIN_ENV]: " " },
@@ -322,6 +324,33 @@ describe("Cloudflare Access JWT verification", () => {
       });
     }
   });
+
+  it.each([
+    "skitza-admin.vercel.app.",
+    "deployment-hash.vercel.app.",
+  ])(
+    "rejects a matching trailing-dot raw Vercel host replay even with a valid token",
+    async (host) => {
+      const token = await signAccessToken();
+
+      await expect(
+        verifyCloudflareAccessHeaders(
+          new Headers({
+            host,
+            [CLOUDFLARE_ACCESS_JWT_HEADER]: token,
+          }),
+          {
+            ...verificationOptions(),
+            environment: environment({
+              [ADMIN_CANONICAL_HOST_ENV]: host,
+            }),
+          },
+        ),
+      ).rejects.toMatchObject({
+        reason: "configuration-invalid",
+      });
+    },
+  );
 
   it.each([
     { type: "service-token" },
