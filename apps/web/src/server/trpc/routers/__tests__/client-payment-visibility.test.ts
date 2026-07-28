@@ -33,7 +33,7 @@ describe("producer client payment visibility", () => {
     expect(clientContacts).toMatch(/clientContactId:\s*projects\.clientContactId/);
     expect(clientContacts).toMatch(/contactById\.get\(p\.clientContactId\)/);
     expect(clientContacts).toMatch(/byClientContactId\.get\(c\.id\)/);
-    expect(clientContacts).toMatch(/eq\(projects\.clientContactId, input\.id\)/);
+    expect(clientContacts).toMatch(/eq\(projects\.clientContactId, (?:input\.id|clientId)\)/);
     expect(clientContacts).not.toMatch(/emailMatchesProject|contactByEmail|byEmail/);
   });
 

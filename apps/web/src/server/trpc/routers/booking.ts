@@ -1262,13 +1262,16 @@ export const bookingRouter = router({
               "no_show",
             ])
             .optional(),
+          projectId: z.string().uuid().optional(),
         })
         .optional(),
     )
     .query(async ({ ctx, input }) => {
-      const filter = input?.status
-        ? and(eq(bookings.producerId, ctx.producerId), eq(bookings.status, input.status))
-        : eq(bookings.producerId, ctx.producerId);
+      const filter = and(
+        eq(bookings.producerId, ctx.producerId),
+        input?.projectId ? eq(bookings.projectId, input.projectId) : undefined,
+        input?.status ? eq(bookings.status, input.status) : undefined,
+      );
       const rows = await ctx.db
         .select({ booking: bookings, commercialSnapshot: purchases.commercialSnapshot })
         .from(bookings)
