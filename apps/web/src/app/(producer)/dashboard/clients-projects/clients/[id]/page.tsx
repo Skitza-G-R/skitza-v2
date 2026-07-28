@@ -39,26 +39,23 @@ export default async function ClientDetailPage({ params }: PageProps) {
   const { id } = await params;
   const caller = appRouter.createCaller({ userId });
 
-  // Detail is the canonical client+projects payload; producer.me() is
-  // consumed for the invite-link slug.
-  let detail;
-  try {
-    detail = await caller.clientContacts.detail({ id });
-  } catch {
+  // These producer-scoped reads are independent. Start them together
+  // so Client Space waits for the slowest required snapshot rather
+  // than serially paying for all three.
+  const [detailResult, paymentsResult, producerProfileResult] = await Promise.allSettled([
+    caller.clientContacts.clientSpaceDetail({ id }),
+    caller.purchaseLedger.client({ clientContactId: id }),
+    caller.producer.me(),
+  ]);
+  if (detailResult.status === "rejected" || paymentsResult.status === "rejected") {
     notFound();
   }
-  let payments;
-  try {
-    payments = await caller.purchaseLedger.client({ clientContactId: id });
-  } catch {
-    notFound();
-  }
-
-  let producerProfile: Awaited<ReturnType<typeof caller.producer.me>> | null = null;
-  try {
-    producerProfile = await caller.producer.me();
-  } catch (err) {
-    console.warn("[clients/detail] producer.me failed", err);
+  const detail = detailResult.value;
+  const payments = paymentsResult.value;
+  const producerProfile =
+    producerProfileResult.status === "fulfilled" ? producerProfileResult.value : null;
+  if (producerProfileResult.status === "rejected") {
+    console.warn("[clients/detail] producer.me failed", producerProfileResult.reason);
   }
   const producerSlug = producerProfile?.slug ?? "";
 

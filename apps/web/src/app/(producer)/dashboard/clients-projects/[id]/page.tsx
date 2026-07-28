@@ -63,18 +63,15 @@ export default async function ProjectDetail({ params }: PageProps) {
 
   const caller = appRouter.createCaller({ userId });
 
-  let data;
-  try {
-    data = await caller.project.detail({ id });
-  } catch {
+  const [detailResult, paymentResult] = await Promise.allSettled([
+    caller.project.detail({ id }),
+    caller.purchaseLedger.project({ projectId: id }),
+  ]);
+  if (detailResult.status === "rejected" || paymentResult.status === "rejected") {
     notFound();
   }
-  let paymentModel;
-  try {
-    paymentModel = await caller.purchaseLedger.project({ projectId: id });
-  } catch {
-    notFound();
-  }
+  const data = detailResult.value;
+  const paymentModel = paymentResult.value;
 
   // Single-Space rule (DESIGN.md §2 + Phase 3 plan, decision 4) —
   // when a project has exactly one purchased space and it has been named,
@@ -89,19 +86,9 @@ export default async function ProjectDetail({ params }: PageProps) {
     redirect(`/dashboard/clients-projects/${id}/songs/${data.tracks[0].id}`);
   }
 
-  // Parallel: sessions list (filtered to this project) + the
-  // contacts list (used ONLY to resolve a client_contacts.id for the
-  // topbar breadcrumb client crumb — matches the song-page pattern in
-  // ac4a112 so the client crumb is clickable when we can resolve it).
-  const [bookingsResult, clientsResult] = await Promise.allSettled([
-    caller.booking.list(),
-    caller.clientContacts.listWithProjects({ view: "by-client" }),
-  ]);
-
-  const projectBookings =
-    bookingsResult.status === "fulfilled"
-      ? bookingsResult.value.filter((b) => b.projectId === data.project.id)
-      : [];
+  // Sessions are needed only by Album Space. Keep this scoped read after
+  // the Single-Space redirect so it cannot delay Song Space navigation.
+  const projectBookings = await caller.booking.list({ projectId: id }).catch(() => []);
 
   // Sessions count + studio hours derived from this project's bookings.
   const sessionsList: StudioLogSession[] = projectBookings.map((b) => ({
@@ -297,31 +284,14 @@ export default async function ProjectDetail({ params }: PageProps) {
       })()
     : null;
 
-  // Client crumb derivation (matches ac4a112 song-page pattern).
-  // Path reads: Clients & Projects › <client> › <project>. The crumb
-  // links to the client page when we resolved a matching contact;
-  // legacy projects whose email never matched a contact still render
-  // the label as plain text so the producer sees the artist in context.
+  // Stable ownership makes the producer-scoped client id authoritative.
+  // Avoid rebuilding the entire Clients workspace just to recover it
+  // from an email snapshot.
   const breadcrumbClientName = data.project.clientName ?? data.project.artistName;
-  const breadcrumbClientEmail: string = data.project.clientEmail ?? data.project.artistEmail;
-  let breadcrumbClientContactId = "";
-  if (
-    clientsResult.status === "fulfilled" &&
-    clientsResult.value.view === "by-client" &&
-    breadcrumbClientEmail
-  ) {
-    const lower = breadcrumbClientEmail.toLowerCase();
-    const contact = clientsResult.value.clients.find((c) => c.email.toLowerCase() === lower);
-    if (contact) {
-      breadcrumbClientContactId = contact.id;
-    }
-  }
-  const breadcrumbClientCrumb = breadcrumbClientContactId
-    ? {
-        label: breadcrumbClientName,
-        href: `/dashboard/clients-projects/clients/${breadcrumbClientContactId}`,
-      }
-    : { label: breadcrumbClientName };
+  const breadcrumbClientCrumb = {
+    label: breadcrumbClientName,
+    href: `/dashboard/clients-projects/clients/${data.project.clientContactId}`,
+  };
 
   return (
     <main className="sk-page-enter mx-auto max-w-[1600px] px-4 py-6 sm:px-6">

@@ -31,6 +31,28 @@ describe("clients-projects/[id]/page.tsx — Phase 2 rewrite to AlbumSpace", () 
     expect(SRC).not.toContain("project.money");
   });
 
+  it("starts detail and canonical payments together, then scopes Album Space bookings", () => {
+    const detailAt = SRC.indexOf("project.detail({ id })");
+    const paymentsAt = SRC.indexOf("purchaseLedger.project({ projectId: id })");
+    const bookingsAt = SRC.indexOf("booking.list({ projectId: id })");
+    const settledStart = SRC.lastIndexOf("Promise.allSettled", detailAt);
+    const settledEnd = SRC.indexOf("]);", paymentsAt);
+    const redirectAt = SRC.indexOf("redirect(`/dashboard/clients-projects/", settledEnd);
+
+    expect(settledStart).toBeGreaterThan(-1);
+    expect(detailAt).toBeGreaterThan(settledStart);
+    expect(paymentsAt).toBeGreaterThan(detailAt);
+    expect(settledEnd).toBeGreaterThan(paymentsAt);
+    expect(redirectAt).toBeGreaterThan(settledEnd);
+    expect(bookingsAt).toBeGreaterThan(redirectAt);
+  });
+
+  it("uses the stable clientContactId for the breadcrumb without a global client list", () => {
+    expect(SRC).not.toContain("clientContacts.listWithProjects");
+    expect(SRC).toContain("data.project.clientContactId");
+    expect(SRC).not.toContain("breadcrumbClientEmail");
+  });
+
   it("drops the import of the old ProjectHeader", () => {
     expect(SRC).not.toContain("ProjectHeader");
     expect(SRC).not.toContain("project-header");

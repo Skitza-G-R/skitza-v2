@@ -46,12 +46,26 @@ describe("clients/[id]/page.tsx — Phase 1 rewrite", () => {
     expect(SRC).toContain("appRouter.createCaller");
   });
 
-  it("calls clientContacts.detail for the page payload", () => {
-    expect(SRC).toContain("clientContacts.detail");
+  it("uses the lean Client Space projection", () => {
+    expect(SRC).toContain("clientContacts.clientSpaceDetail({ id })");
   });
 
   it("calls producer.me for slug + defaultCurrency", () => {
     expect(SRC).toContain("producer.me");
+  });
+
+  it("starts detail, canonical payments, and producer profile together", () => {
+    const detailAt = SRC.indexOf("clientContacts.clientSpaceDetail({ id })");
+    const paymentsAt = SRC.indexOf("purchaseLedger.client({ clientContactId: id })");
+    const producerAt = SRC.indexOf("producer.me()");
+    const promiseAllStart = SRC.lastIndexOf("Promise.all", detailAt);
+    const promiseAllEnd = SRC.indexOf("]);", producerAt);
+
+    expect(promiseAllStart).toBeGreaterThan(-1);
+    expect(detailAt).toBeGreaterThan(promiseAllStart);
+    expect(paymentsAt).toBeGreaterThan(detailAt);
+    expect(producerAt).toBeGreaterThan(paymentsAt);
+    expect(promiseAllEnd).toBeGreaterThan(producerAt);
   });
 
   it("preserves the pickNextSession helper for the hero's next session", () => {
