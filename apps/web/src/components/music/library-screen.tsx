@@ -687,6 +687,7 @@ export function MusicLibraryScreen({
         data-tab-swipe-surface
         {...modeSwipeHandlers}
       >
+        <div data-tab-swipe-panel>
         {mode === "projects" && visibleProjects.length === 0 ? (
           <EmptyResult
             hasQuery={Boolean(search.trim()) || artist !== "all"}
@@ -732,6 +733,7 @@ export function MusicLibraryScreen({
             {...(markReleased ? { markReleased } : {})}
           />
         )}
+        </div>
       </div>
     </div>
   );

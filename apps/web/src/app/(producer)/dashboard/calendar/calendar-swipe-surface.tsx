@@ -41,7 +41,9 @@ export function CalendarSwipeSurface({
       aria-labelledby={`calendar-tab-${active}`}
       className="reveal-up flex min-h-0 flex-1 [touch-action:pan-y_pinch-zoom] flex-col"
     >
-      {children}
+      <div className="flex min-h-0 flex-1 flex-col" data-tab-swipe-panel>
+        {children}
+      </div>
     </div>
   );
 }

@@ -230,14 +230,14 @@ export function SettingsClient({
         })}
       </nav>
 
-      {/* Right content — single section mounted at a time so the
-          reveal animation re-runs on every switch (key={active}). */}
+      {/* Right content — one stable swipe panel with a single section
+          mounted at a time so each section still enters independently. */}
       <div
         className="s-content [touch-action:pan-y_pinch-zoom]"
         data-tab-swipe-surface
         {...tabSwipeHandlers}
       >
-        <div className="s-content-inner" key={active}>
+        <div className="s-content-inner" data-tab-swipe-panel>
           {active === "profile" && (
             <ProfileSection form={form} setForm={setForm} identity={identity} />
           )}

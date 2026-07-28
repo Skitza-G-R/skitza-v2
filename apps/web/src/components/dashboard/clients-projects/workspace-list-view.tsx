@@ -941,6 +941,7 @@ export function WorkspaceListView({
         data-tab-swipe-surface
         {...tabSwipeHandlers}
       >
+        <div data-tab-swipe-panel>
         {/* The list — G18 wires layout switching for both tabs */}
         {tab === "projects" && filteredProjects.length === 0 ? (
           <ProjectEmptyState
@@ -1046,6 +1047,7 @@ export function WorkspaceListView({
             </div>
           </>
         )}
+        </div>
       </div>
 
       {inviteTarget ? (
