@@ -22,9 +22,10 @@ import { Icon, type IconName } from "./icons";
 // producer for v1 (2026-05-05), so this nav is the producer's mobile
 // chrome.
 //
-// Visual: one floating Liquid Glass pill with an amber active lens.
-// The glass paints through the iOS safe area while its 68px tab row
-// stays above the Home Indicator, avoiding a detached blank footer.
+// Visual: one compact Liquid Glass pill with an amber active lens.
+// The transparent frame owns the iOS safe-area clearance so the
+// visible glass and its 68px tab row stay centered above the Home
+// Indicator without a dark empty footer.
 //
 // Routes are mapped per Gili's approved Payments navigation — five
 // mobile tabs with Store and Settings under the Account menu in the
@@ -62,11 +63,17 @@ const NAV_ROW_HEIGHT = 68;
 const LENS_MIN_HALF_WIDTH = 33;
 const LENS_MAX_HALF_WIDTH = 41;
 const TAP_SLOP = 10;
+const INTENT_DOMINANCE = 1.15;
+const TAB_SWITCH_HYSTERESIS = 8;
+const NAV_Y_BAND_PADDING = 12;
+const RELEASE_CLICK_GUARD_MS = 350;
 
 type LensPoint = {
   clientX: number;
   clientY: number;
 };
+
+type GestureIntent = "horizontal" | "pending" | "vertical";
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), maximum);
@@ -139,6 +146,36 @@ function positionLensOnActiveTab(nav: HTMLElement): void {
   if (activeTab) positionLensOnTab(nav, activeTab);
 }
 
+function findStableTabAtPointer(
+  nav: HTMLElement,
+  navRect: DOMRect,
+  { clientX, clientY }: LensPoint,
+): HTMLElement | null {
+  if (
+    clientY < navRect.top - NAV_Y_BAND_PADDING ||
+    clientY > navRect.bottom + NAV_Y_BAND_PADDING
+  ) {
+    return null;
+  }
+
+  const tabs = [...nav.querySelectorAll<HTMLElement>("[data-producer-nav-tab]")]
+    .map((tab) => ({ rect: tab.getBoundingClientRect(), tab }))
+    .sort((left, right) => left.rect.left - right.rect.left);
+  const targetIndex = tabs.findIndex(
+    ({ rect }) => clientX >= rect.left && clientX <= rect.right,
+  );
+  if (targetIndex < 0) return null;
+
+  const target = tabs[targetIndex];
+  if (!target) return null;
+  const inset = Math.min(TAB_SWITCH_HYSTERESIS, target.rect.width / 4);
+  const stableLeft = target.rect.left + (targetIndex === 0 ? 0 : inset);
+  const stableRight =
+    target.rect.right + (targetIndex === tabs.length - 1 ? 0 : -inset);
+
+  return clientX >= stableLeft && clientX <= stableRight ? target.tab : null;
+}
+
 function ProducerTabVisual({
   tab,
   isActive,
@@ -179,9 +216,32 @@ export function ProducerBottomNav(): ReactNode {
   const pendingPointRef = useRef<LensPoint | null>(null);
   const pointerStartRef = useRef<LensPoint | null>(null);
   const pressedTabRef = useRef<HTMLElement | null>(null);
+  const crossedDestinationRef = useRef<string | null>(null);
+  const navigatedTabRef = useRef<HTMLElement | null>(null);
+  const gestureIntentRef = useRef<GestureIntent>("pending");
+  const liveDragClickRef = useRef(false);
   const suppressClickRef = useRef(false);
+  const releaseClickGuardUntilRef = useRef(0);
+  const releaseClickDestinationsRef = useRef<readonly string[]>([]);
   const lensFrameRef = useRef<number | null>(null);
   const settleFrameRef = useRef<number | null>(null);
+
+  const clearReleaseClickGuard = (): void => {
+    suppressClickRef.current = false;
+    releaseClickGuardUntilRef.current = 0;
+    releaseClickDestinationsRef.current = [];
+  };
+
+  const armReleaseClickGuard = (): void => {
+    const destinations = [
+      pressedTabRef.current?.dataset.skNavDestination,
+      navigatedTabRef.current?.dataset.skNavDestination,
+    ].filter((destination): destination is string => Boolean(destination));
+
+    suppressClickRef.current = destinations.length > 0;
+    releaseClickGuardUntilRef.current = Date.now() + RELEASE_CLICK_GUARD_MS;
+    releaseClickDestinationsRef.current = [...new Set(destinations)];
+  };
 
   const cancelLensFrame = (): void => {
     if (lensFrameRef.current === null) return;
@@ -210,6 +270,9 @@ export function ProducerBottomNav(): ReactNode {
     pendingPointRef.current = null;
     pointerStartRef.current = null;
     pressedTabRef.current = null;
+    crossedDestinationRef.current = null;
+    navigatedTabRef.current = null;
+    gestureIntentRef.current = "pending";
     navRectRef.current = null;
     activePointerIdRef.current = null;
     nav.dataset.interacting = "false";
@@ -243,7 +306,10 @@ export function ProducerBottomNav(): ReactNode {
       event.target instanceof Element
         ? event.target.closest<HTMLElement>("[data-producer-nav-tab]")
         : null;
-    suppressClickRef.current = false;
+    crossedDestinationRef.current = pressedTabRef.current?.dataset.skNavDestination ?? null;
+    navigatedTabRef.current = null;
+    gestureIntentRef.current = "pending";
+    clearReleaseClickGuard();
     nav.dataset.interacting = "true";
     setLensFromPointer(nav, navRectRef.current, event);
   };
@@ -251,12 +317,60 @@ export function ProducerBottomNav(): ReactNode {
   const handlePointerMove = (event: ReactPointerEvent<HTMLElement>): void => {
     if (activePointerIdRef.current !== event.pointerId) return;
     const start = pointerStartRef.current;
-    if (
-      start &&
-      Math.hypot(event.clientX - start.clientX, event.clientY - start.clientY) > TAP_SLOP
-    ) {
+    if (!start) return;
+
+    const deltaX = event.clientX - start.clientX;
+    const deltaY = event.clientY - start.clientY;
+    const distance = Math.hypot(deltaX, deltaY);
+
+    if (distance > TAP_SLOP) {
       suppressClickRef.current = true;
+      if (gestureIntentRef.current === "pending") {
+        const horizontalDistance = Math.abs(deltaX);
+        const verticalDistance = Math.abs(deltaY);
+        if (horizontalDistance > verticalDistance * INTENT_DOMINANCE) {
+          gestureIntentRef.current = "horizontal";
+          try {
+            event.currentTarget.setPointerCapture(event.pointerId);
+          } catch {
+            // A coalesced move can arrive after pointer cancellation.
+            // The release-click guard below still protects that fallback.
+          }
+        } else if (verticalDistance > horizontalDistance * INTENT_DOMINANCE) {
+          gestureIntentRef.current = "vertical";
+          cancelLensFrame();
+          pendingPointRef.current = null;
+          event.currentTarget.dataset.interacting = "false";
+          resetTabProximities(event.currentTarget);
+          positionLensOnActiveTab(event.currentTarget);
+        }
+      }
     }
+
+    if (gestureIntentRef.current === "vertical") return;
+
+    if (gestureIntentRef.current === "horizontal") {
+      const navRect = navRectRef.current;
+      const destinationTab = navRect
+        ? findStableTabAtPointer(event.currentTarget, navRect, event)
+        : null;
+      const destination = destinationTab?.dataset.skNavDestination;
+      if (destinationTab && destination && destination !== crossedDestinationRef.current) {
+        crossedDestinationRef.current = destination;
+        navigatedTabRef.current = destinationTab;
+        liveDragClickRef.current = true;
+        try {
+          destinationTab.click();
+        } finally {
+          liveDragClickRef.current = false;
+          // Re-arm suppression so the browser's physical post-drag click
+          // cannot navigate a second time, even when it reports detail=0.
+          suppressClickRef.current = true;
+        }
+        if (activePointerIdRef.current !== event.pointerId) return;
+      }
+    }
+
     queueLensPoint(event);
   };
 
@@ -266,14 +380,33 @@ export function ProducerBottomNav(): ReactNode {
     const moved =
       !start || Math.hypot(event.clientX - start.clientX, event.clientY - start.clientY) > TAP_SLOP;
     const isTap = event.type === "pointerup" && !moved && !suppressClickRef.current;
-    const destinationTab = isTap ? pressedTabRef.current : null;
-    suppressClickRef.current ||= !isTap;
+    const destinationTab = isTap
+      ? pressedTabRef.current
+      : gestureIntentRef.current === "horizontal"
+        ? navigatedTabRef.current
+        : null;
+    if (event.type === "pointerup" && !isTap) {
+      armReleaseClickGuard();
+    } else {
+      clearReleaseClickGuard();
+    }
     settleLens(event.currentTarget, destinationTab);
   };
 
   const handlePointerLeave = (event: ReactPointerEvent<HTMLElement>): void => {
     if (event.pointerType !== "mouse" || activePointerIdRef.current !== event.pointerId) return;
-    settleLens(event.currentTarget);
+    settleLens(
+      event.currentTarget,
+      gestureIntentRef.current === "horizontal" ? navigatedTabRef.current : null,
+    );
+  };
+
+  const handleLostPointerCapture = (event: ReactPointerEvent<HTMLElement>): void => {
+    // Touch and pen start with implicit capture on the pressed Link.
+    // Transferring a horizontal drag to the nav can bubble that child's
+    // lost-capture event; only loss owned by the nav ends the gesture.
+    if (event.target !== event.currentTarget) return;
+    handlePointerEnd(event);
   };
 
   useEffect(() => {
@@ -312,12 +445,12 @@ export function ProducerBottomNav(): ReactNode {
     <div
       // Keep the established shell-footer anchoring from SK-86: the
       // nav stays attached to the fixed app viewport without relying
-      // on document-level `position: fixed`. Only this transparent
-      // frame occupies the bottom safe area.
+      // on document-level `position: fixed`. This transparent frame
+      // keeps the compact glass above the bottom safe area.
       className="producer-bottom-nav-frame relative z-30 shrink-0 lg:hidden"
       style={{
         padding:
-          "0 max(12px, env(safe-area-inset-right, 0px)) 8px max(12px, env(safe-area-inset-left, 0px))",
+          "0 max(12px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px))",
       }}
     >
       <nav
@@ -330,7 +463,7 @@ export function ProducerBottomNav(): ReactNode {
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerEnd}
         onPointerCancel={handlePointerEnd}
-        onLostPointerCapture={handlePointerEnd}
+        onLostPointerCapture={handleLostPointerCapture}
         onPointerLeave={handlePointerLeave}
         className="producer-bottom-nav__glass mx-auto grid w-full max-w-[420px] grid-cols-5"
       >
@@ -365,6 +498,7 @@ export function ProducerBottomNav(): ReactNode {
             <Link
               key={tab.id}
               href={tab.href}
+              draggable={false}
               data-sk-nav-destination={tab.href}
               prefetch={false}
               onNavigate={() => {
@@ -372,16 +506,27 @@ export function ProducerBottomNav(): ReactNode {
               }}
               aria-disabled={!online}
               onClick={(event) => {
-                if (suppressClickRef.current && event.detail !== 0) {
+                const isLiveDragClick = liveDragClickRef.current;
+                const isGuardedReleaseClick =
+                  suppressClickRef.current &&
+                  !isLiveDragClick &&
+                  Date.now() <= releaseClickGuardUntilRef.current &&
+                  releaseClickDestinationsRef.current.includes(tab.href);
+                if (isGuardedReleaseClick) {
                   event.preventDefault();
-                  suppressClickRef.current = false;
+                  clearReleaseClickGuard();
                   if (navRef.current) settleLens(navRef.current);
                   return;
                 }
-                suppressClickRef.current = false;
+                if (!isLiveDragClick) {
+                  clearReleaseClickGuard();
+                } else {
+                  suppressClickRef.current = false;
+                }
                 captureRuntimeMainNavigationTarget(event.currentTarget);
                 if (online) return;
                 event.preventDefault();
+                if (isLiveDragClick) armReleaseClickGuard();
                 if (navRef.current) settleLens(navRef.current);
                 toast("You’re offline. This screen will stay open until you reconnect.", "error");
               }}

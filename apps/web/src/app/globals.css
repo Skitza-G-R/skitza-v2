@@ -405,10 +405,11 @@
     --sk-nav-lens-width: clamp(66px, calc(20% - 2px), 82px);
     position: relative;
     isolation: isolate;
+    height: 68px;
     min-height: 68px;
     overflow: hidden;
-    padding-bottom: max(0px, calc(env(safe-area-inset-bottom, 0px) - 8px));
-    border: 1px solid rgb(var(--fg-onsidebar) / 0.14);
+    padding-bottom: 0;
+    border: 0;
     border-radius: 24px;
     background: rgb(var(--bg-sidebar) / 0.94);
     box-shadow:
@@ -448,6 +449,7 @@
     position: absolute;
     inset: 0;
     z-index: 4;
+    border: 1px solid rgb(var(--fg-onsidebar) / 0.14);
     border-radius: inherit;
     box-shadow:
       inset 0 1px 0 rgb(var(--fg-onsidebar) / 0.08),
@@ -654,9 +656,9 @@
   /* PersistentPlayer dock — stacks above the producer bottom nav on
    * mobile (<1024px) so the audio dock + tab row never overlap.
    * The glass nav is a 68px row above at least 8px of bottom breathing
-   * room. The glass now paints through the safe-area inset while its
-   * 68px tab row stays above the Home Indicator; the dock keeps 80px
-   * + safe-area clearance so the two interactive surfaces never overlap.
+   * room. Its transparent frame owns the safe-area inset so no empty
+   * dark glass sits below the centered row; the dock keeps 80px +
+   * safe-area clearance so the two interactive surfaces never overlap.
    * On lg+ the desktop sidebar replaces the bottom nav, so the dock
    * sits flush at the viewport bottom (Tailwind's `lg:bottom-0`
    * + `lg:sk-safe-bottom` take over via cascade). */
