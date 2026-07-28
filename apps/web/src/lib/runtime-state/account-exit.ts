@@ -6,6 +6,7 @@ import {
 } from "./runtime-state";
 
 const accountPrivateWriteGenerations = new Map<string, number>();
+const accountPrivateWritesBlocked = new Set<string>();
 
 export interface AccountPrivateRuntimeQueryTarget {
   readonly location: {
@@ -36,6 +37,19 @@ export function isAccountPrivateWriteGenerationCurrent(
   captured: AccountPrivateWriteGeneration,
 ): boolean {
   return (accountPrivateWriteGenerations.get(captured.userId) ?? 0) === captured.generation;
+}
+
+export function isAccountPrivateRuntimeWriteAllowed(
+  captured: AccountPrivateWriteGeneration,
+): boolean {
+  return (
+    !accountPrivateWritesBlocked.has(captured.userId) &&
+    isAccountPrivateWriteGenerationCurrent(captured)
+  );
+}
+
+export function allowAccountPrivateRuntimeWrites(userId: string): void {
+  accountPrivateWritesBlocked.delete(userId);
 }
 
 function invalidateAccountPrivateWriteGeneration(userId: string): void {
@@ -90,6 +104,7 @@ export function clearAccountPrivateRuntimeState(
 ): number {
   invalidateRuntimeDraftFlushes();
   invalidateAccountPrivateWriteGeneration(userId);
+  accountPrivateWritesBlocked.add(userId);
   clearAccountPrivateRuntimeQuery(queryTarget);
   return storage ? clearRuntimeStateForUser(storage, userId) : 0;
 }

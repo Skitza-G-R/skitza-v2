@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import {
   captureAccountPrivateWriteGeneration,
-  isAccountPrivateWriteGenerationCurrent,
+  isAccountPrivateRuntimeWriteAllowed,
 } from "~/lib/runtime-state/account-exit";
 import {
   pruneRuntimeSafeViews,
@@ -76,7 +76,7 @@ function useAccountPrivateRuntimeDraftWriter(userId: string) {
 
   return useCallback(
     (write: () => boolean) =>
-      isAccountPrivateWriteGenerationCurrent(writeGeneration) && write(),
+      isAccountPrivateRuntimeWriteAllowed(writeGeneration) && write(),
     [writeGeneration],
   );
 }
@@ -136,6 +136,10 @@ export function useRuntimeCachedView<Slot extends SafeViewSlot>({
     ? `${scope.userId}:${scope.role}:${scope.contextId}:${scope.route}:${slot}`
     : "invalid";
   const cacheReadBeforePaint = useRef(false);
+  const safeViewWriteGeneration = useMemo(
+    () => captureAccountPrivateWriteGeneration(identity.userId),
+    [identity.userId],
+  );
 
   useLayoutEffect(() => {
     if (!privateStateAccessAllowed || !storage || !scope) return;
@@ -171,7 +175,15 @@ export function useRuntimeCachedView<Slot extends SafeViewSlot>({
   }, [privateStateAccessAllowed, scope, scopeKey, slot, storage]);
 
   useEffect(() => {
-    if (!privateStateAccessAllowed || !storage || !scope || !serverData) return;
+    if (
+      !privateStateAccessAllowed ||
+      !storage ||
+      !scope ||
+      !serverData ||
+      !isAccountPrivateRuntimeWriteAllowed(safeViewWriteGeneration)
+    ) {
+      return;
+    }
     // Layout effects flush before the browser paints. When an offline launch
     // found a cache, keep that useful snapshot in memory instead of replacing
     // it with the server prop captured before connectivity was lost.
@@ -193,11 +205,11 @@ export function useRuntimeCachedView<Slot extends SafeViewSlot>({
     // A layout-effect state update can flush passive effects before the first
     // paint. Two animation frames guarantee the cached snapshot gets one real
     // paint before the current server value replaces it silently.
-    const writeGeneration = captureAccountPrivateWriteGeneration(scope.userId);
+    const writeGeneration = safeViewWriteGeneration;
     let secondFrame = 0;
     const firstFrame = window.requestAnimationFrame(() => {
       secondFrame = window.requestAnimationFrame(() => {
-        if (!isAccountPrivateWriteGenerationCurrent(writeGeneration)) return;
+        if (!isAccountPrivateRuntimeWriteAllowed(writeGeneration)) return;
         if (writeRuntimeState(storage, scope, slot, serverData)) {
           pruneRuntimeSafeViews(storage, {
             userId: scope.userId,
@@ -214,7 +226,16 @@ export function useRuntimeCachedView<Slot extends SafeViewSlot>({
       window.cancelAnimationFrame(firstFrame);
       window.cancelAnimationFrame(secondFrame);
     };
-  }, [online, privateStateAccessAllowed, scope, scopeKey, serverData, slot, storage]);
+  }, [
+    online,
+    privateStateAccessAllowed,
+    safeViewWriteGeneration,
+    scope,
+    scopeKey,
+    serverData,
+    slot,
+    storage,
+  ]);
 
   return { data, source, refreshing: source === "cache" && Boolean(serverData) };
 }

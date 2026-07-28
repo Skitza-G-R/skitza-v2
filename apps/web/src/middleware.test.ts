@@ -40,8 +40,8 @@ describe("resolveLegacyRedirect", () => {
 });
 
 describe("pre-launch access gate", () => {
-  it.each(["/listen", "/listen/live-song-token"])(
-    "keeps producer-published guest listening public: %s",
+  it.each(["/listen", "/listen/live-song-token", "/launch"])(
+    "keeps intentionally public no-data routes reachable: %s",
     (pathname) => {
       expect(isAccessGated(pathname)).toBe(false);
     },
@@ -50,6 +50,7 @@ describe("pre-launch access gate", () => {
   it("does not broaden the exemption to lookalike or authenticated paths", () => {
     expect(isAccessGated("/listener/live-song-token")).toBe(true);
     expect(isAccessGated("/listen-private/live-song-token")).toBe(true);
+    expect(isAccessGated("/launch/resolve")).toBe(true);
     expect(isAccessGated("/dashboard/music/song-id")).toBe(true);
   });
 });

@@ -39,15 +39,22 @@ const RUNTIME_NAVIGATION_BRIDGE = readFileSync(
   ),
   "utf8",
 );
+const NATIVE_APP_RUNTIME = readFileSync(
+  fileURLToPath(
+    new URL("../../components/shell/sw-register.tsx", import.meta.url),
+  ),
+  "utf8",
+);
 
 describe("SK-122 client Router Cache policy", () => {
   it("keeps ordinary dynamic reuse short and explicit warm routes bounded", () => {
     expect(NEXT_CONFIG).toMatch(/staleTimes:\s*\{\s*dynamic:\s*0,\s*static:\s*180,\s*\}/);
   });
 
-  it("documents that a warm payload is session-only and server-refreshable", () => {
-    expect(NEXT_CONFIG).toContain("Existing foreground, reconnect");
-    expect(NEXT_CONFIG).toContain("RuntimeNavigationBridge invalidates its readiness");
+  it("documents that foreground checks preserve the session-only warm payload", () => {
+    expect(NEXT_CONFIG).toContain("Foreground and reconnect checks");
+    expect(NEXT_CONFIG).toContain("preserve the warm Router Cache");
+    expect(NEXT_CONFIG).toContain("RuntimeNavigationBridge replaces its readiness");
     expect(NEXT_CONFIG).toContain("not durable or");
     expect(NEXT_CONFIG).toContain("cleared by a full page reload");
   });
@@ -127,6 +134,34 @@ describe("SK-122 dashboard caller reuse", () => {
 });
 
 describe("SK-122 Router Cache invalidation contract", () => {
+  it("marks only the public launch bootstrap for durable document caching", () => {
+    expect(NEXT_CONFIG).toContain('source: "/launch"');
+    expect(NEXT_CONFIG).toContain('key: "X-Skitza-Public-Bootstrap"');
+    expect(NEXT_CONFIG).toContain('value: "1"');
+  });
+
+  it("does not discard the full warm cache on foreground or reconnect", () => {
+    expect(NATIVE_APP_RUNTIME).toContain("NATIVE_REFRESH_EVENT");
+    expect(NATIVE_APP_RUNTIME).toContain("registration?.update()");
+    expect(NATIVE_APP_RUNTIME).not.toContain("router.refresh()");
+    expect(NATIVE_APP_RUNTIME).not.toContain("useRouter");
+  });
+
+  it("keeps the artist studio recorder behind the account-exit write fence", () => {
+    expect(ARTIST_RUNTIME_PROVIDER).toContain(
+      "captureAccountPrivateWriteGeneration",
+    );
+    expect(ARTIST_RUNTIME_PROVIDER).toContain(
+      "isAccountPrivateRuntimeWriteAllowed(writeGeneration)",
+    );
+  });
+
+  it("keeps a queryless artist shell on the server's first-studio fallback", () => {
+    expect(ARTIST_RUNTIME_PROVIDER).toMatch(
+      /requestedStudioId === null \? null : storage,[\s\S]*requestedStudioId,/,
+    );
+  });
+
   it("uses the full producer proof scope for the Payments polling revision", () => {
     expect(PAYMENTS_PAGE).toMatch(/pendingProofIds = model\.projects\.flatMap/);
     expect(PAYMENTS_PAGE).not.toMatch(
