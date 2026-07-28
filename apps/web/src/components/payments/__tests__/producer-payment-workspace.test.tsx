@@ -3,10 +3,7 @@ import type { ChangeEvent, ReactElement, ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import type {
-  PaymentHistoryProject,
-  PaymentHistoryPurchase,
-} from "../payment-history-view";
+import type { PaymentHistoryProject, PaymentHistoryPurchase } from "../payment-history-view";
 import {
   ProducerPaymentWorkspace,
   type ProducerPaymentWorkspaceProps,
@@ -130,9 +127,7 @@ const usdProject: PaymentHistoryProject = {
   id: "project-usd",
   title: "Maya debut EP",
   status: { label: "Active", tone: "active" },
-  currencyTotals: [
-    { currency: "USD", dueNowCents: 25_000, totalRemainingCents: 50_000 },
-  ],
+  currencyTotals: [{ currency: "USD", dueNowCents: 25_000, totalRemainingCents: 50_000 }],
   purchases: [usdPurchase],
 };
 
@@ -140,10 +135,51 @@ const ilsProject: PaymentHistoryProject = {
   id: "project-ils",
   title: "Noa single",
   status: { label: "Active", tone: "active" },
-  currencyTotals: [
-    { currency: "ILS", dueNowCents: 0, totalRemainingCents: 100_000 },
-  ],
+  currencyTotals: [{ currency: "ILS", dueNowCents: 0, totalRemainingCents: 100_000 }],
   purchases: [ilsPurchase],
+};
+
+const duePurchase: PaymentHistoryPurchase = {
+  ...usdPurchase,
+  id: "purchase-due",
+  reference: "SK-DUE-303",
+  title: "Overdue final master",
+  status: { label: "Overdue", tone: "danger" },
+  proofs: [],
+};
+
+const dueProject: PaymentHistoryProject = {
+  ...usdProject,
+  id: "project-due",
+  title: "Overdue album",
+  purchases: [duePurchase],
+};
+
+const historyPurchase: PaymentHistoryPurchase = {
+  ...usdPurchase,
+  id: "purchase-history",
+  reference: "SK-HISTORY-404",
+  title: "Completed single",
+  status: { label: "Paid", tone: "success" },
+  defaultOpen: false,
+  paidCents: 150_000,
+  dueNowCents: 0,
+  totalRemainingCents: 0,
+  delivery: {
+    ...usdPurchase.delivery,
+    paidCents: 150_000,
+    remainingCents: 0,
+  },
+  nextPayment: null,
+  proofs: [],
+};
+
+const historyProject: PaymentHistoryProject = {
+  ...usdProject,
+  id: "project-history",
+  title: "Finished release",
+  currencyTotals: [{ currency: "USD", dueNowCents: 0, totalRemainingCents: 0 }],
+  purchases: [historyPurchase],
 };
 
 const buckets: readonly PaymentWorkspaceBucket[] = [
@@ -151,6 +187,13 @@ const buckets: readonly PaymentWorkspaceBucket[] = [
   { id: "due_or_overdue", label: "Due now", projects: [] },
   { id: "upcoming", label: "Upcoming", projects: [ilsProject] },
   { id: "history", label: "History", projects: [] },
+];
+
+const clientTabBuckets: readonly PaymentWorkspaceBucket[] = [
+  { id: "history", label: "History", projects: [historyProject] },
+  { id: "upcoming", label: "Upcoming", projects: [ilsProject] },
+  { id: "due_or_overdue", label: "Due now", projects: [dueProject] },
+  { id: "needs_review", label: "Needs review", projects: [usdProject] },
 ];
 
 function longLedgerBuckets(purchaseCount: number): readonly PaymentWorkspaceBucket[] {
@@ -193,9 +236,7 @@ type HookDispatcher = {
   useId(): string;
   useMemo<T>(factory: () => T): T;
   useRef<T>(initialValue: T): { current: T };
-  useState<T>(
-    initialValue: T | (() => T),
-  ): [T, (update: T | ((current: T) => T)) => void];
+  useState<T>(initialValue: T | (() => T)): [T, (update: T | ((current: T) => T)) => void];
 };
 
 type ReactClientInternals = {
@@ -237,22 +278,16 @@ function createInteractionHarness(props: ProducerPaymentWorkspaceProps) {
     useRef<T>(initialValue: T): { current: T } {
       return slot(() => ({ current: initialValue })).value;
     },
-    useState<T>(
-      initialValue: T | (() => T),
-    ): [T, (update: T | ((current: T) => T)) => void] {
+    useState<T>(initialValue: T | (() => T)): [T, (update: T | ((current: T) => T)) => void] {
       const state = slot<T>(() =>
-        typeof initialValue === "function"
-          ? (initialValue as () => T)()
-          : initialValue,
+        typeof initialValue === "function" ? (initialValue as () => T)() : initialValue,
       );
       return [
         state.value,
         (update) => {
           const current = slots[state.index] as T;
           slots[state.index] =
-            typeof update === "function"
-              ? (update as (value: T) => T)(current)
-              : update;
+            typeof update === "function" ? (update as (value: T) => T)(current) : update;
         },
       ];
     },
@@ -319,8 +354,7 @@ function clickButton(tree: ReactElement, label: string): void {
 function changeSelect(tree: ReactElement, ariaLabel: string, value: string): void {
   const select = findElement(
     tree,
-    (element) =>
-      element.type === "select" && element.props["aria-label"] === ariaLabel,
+    (element) => element.type === "select" && element.props["aria-label"] === ariaLabel,
   );
   expect(select, `select "${ariaLabel}"`).not.toBeNull();
   const onChange = select?.props.onChange;
@@ -343,9 +377,7 @@ function changeSearch(tree: ReactElement, value: string): void {
 
 function togglePurchaseDetails(tree: ReactElement, purchaseId: string): void {
   const row = findElement(tree, (element) => {
-    const candidate = element.props.row as
-      | { id?: string }
-      | undefined;
+    const candidate = element.props.row as { id?: string } | undefined;
     return (
       candidate?.id === purchaseId &&
       typeof element.props.onToggle === "function" &&
@@ -374,9 +406,7 @@ describe("ProducerPaymentWorkspace", () => {
     expect(html).toContain("ILS");
     expect(html).toContain("₪2,000.00");
 
-    const projectLinkIndex = html.indexOf(
-      'href="/dashboard/clients-projects/project-usd"',
-    );
+    const projectLinkIndex = html.indexOf('href="/dashboard/clients-projects/project-usd"');
     const purchaseRowIndex = html.indexOf("Mix &amp; master", projectLinkIndex);
     expect(projectLinkIndex).toBeGreaterThan(-1);
     expect(purchaseRowIndex).toBeGreaterThan(projectLinkIndex);
@@ -396,11 +426,7 @@ describe("ProducerPaymentWorkspace", () => {
 
   it("exposes client-only all-records and project filters", () => {
     const html = renderToStaticMarkup(
-      <ProducerPaymentWorkspace
-        buckets={buckets}
-        scope="client"
-        clientLabel="Maya Stone"
-      />,
+      <ProducerPaymentWorkspace buckets={buckets} scope="client" clientLabel="Maya Stone" />,
     );
 
     expect(html).toContain("All records");
@@ -408,6 +434,83 @@ describe("ProducerPaymentWorkspace", () => {
     expect(html).toContain("<option");
     expect(html).toContain("Maya debut EP");
     expect(html).toContain("Noa single");
+  });
+
+  it("prioritizes outstanding money and action-first open rows in client-tab presentation", () => {
+    const html = renderToStaticMarkup(
+      <ProducerPaymentWorkspace
+        buckets={clientTabBuckets}
+        defaultView="all"
+        scope="client"
+        clientLabel="Maya Stone"
+        presentation="client-tab"
+      />,
+    );
+
+    const outstandingIndex = html.indexOf("Outstanding");
+    const dueNowIndex = html.indexOf("Due now", outstandingIndex);
+    const paidIndex = html.indexOf("Paid to date", dueNowIndex);
+    expect(outstandingIndex).toBeGreaterThan(-1);
+    expect(dueNowIndex).toBeGreaterThan(outstandingIndex);
+    expect(paidIndex).toBeGreaterThan(dueNowIndex);
+
+    const proofIndex = html.indexOf('href="/dashboard/payments/proof-pending"');
+    const dueIndex = html.indexOf("Overdue final master");
+    const upcomingIndex = html.indexOf("Vocal production");
+    expect(proofIndex).toBeGreaterThan(-1);
+    expect(dueIndex).toBeGreaterThan(proofIndex);
+    expect(upcomingIndex).toBeGreaterThan(dueIndex);
+
+    expect(html).not.toContain("All records");
+    expect(html).toContain('data-payment-history-disclosure=""');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain(">1 record</span>");
+    expect(html).not.toContain("Completed single");
+  });
+
+  it("reveals and collapses canonical history through an accessible disclosure", () => {
+    const harness = createInteractionHarness({
+      buckets: clientTabBuckets,
+      defaultView: "all",
+      scope: "client",
+      clientLabel: "Maya Stone",
+      presentation: "client-tab",
+    });
+
+    const collapsedHtml = harness.html();
+    expect(collapsedHtml).toContain(
+      'aria-controls="payment-workspace-interaction-history-records"',
+    );
+    expect(collapsedHtml).not.toContain("Completed single");
+
+    clickButton(harness.renderTree(), "History");
+    const expandedHtml = harness.html();
+    expect(expandedHtml).toContain('aria-expanded="true"');
+    expect(expandedHtml).toContain('id="payment-workspace-interaction-history-records"');
+    expect(expandedHtml).toContain("Completed single");
+    expect(expandedHtml).toContain("Maya Stone payment history grouped by project");
+
+    clickButton(harness.renderTree(), "History");
+    const collapsedAgainHtml = harness.html();
+    expect(collapsedAgainHtml).toContain('aria-expanded="false"');
+    expect(collapsedAgainHtml).not.toContain("Completed single");
+  });
+
+  it("keeps the existing client workspace presentation unchanged when the opt-in is omitted", () => {
+    const html = renderToStaticMarkup(
+      <ProducerPaymentWorkspace
+        buckets={clientTabBuckets}
+        defaultView="all"
+        scope="client"
+        clientLabel="Maya Stone"
+      />,
+    );
+
+    expect(html).toContain("All records");
+    expect(html).toContain("Completed single");
+    expect(html).not.toContain('data-payment-history-disclosure=""');
+    expect(html.indexOf("Paid to date")).toBeLessThan(html.indexOf("Total remaining"));
+    expect(html).not.toContain(">Outstanding</dt>");
   });
 
   it("offers history instead of an inert clear action when no payments are open", () => {
@@ -429,10 +532,7 @@ describe("ProducerPaymentWorkspace", () => {
 
   it("renders one collapsed record tree per purchase in a 100-row ledger", () => {
     const html = renderToStaticMarkup(
-      <ProducerPaymentWorkspace
-        buckets={longLedgerBuckets(100)}
-        scope="global"
-      />,
+      <ProducerPaymentWorkspace buckets={longLedgerBuckets(100)} scope="global" />,
     );
 
     expect(count(html, /aria-label="Show details for Long ledger purchase/g)).toBe(100);
@@ -477,20 +577,11 @@ describe("ProducerPaymentWorkspace", () => {
       <ProducerPaymentWorkspace buckets={extremeBuckets} scope="global" />,
     );
 
-    for (const amount of [
-      "₪4,567,890.12",
-      "₪1,234,567.89",
-      "₪5,308,653.09",
-    ]) {
+    for (const amount of ["₪4,567,890.12", "₪1,234,567.89", "₪5,308,653.09"]) {
       expect(html).toContain(amount);
     }
     expect(html).toContain("[overflow-wrap:anywhere]");
-    expect(
-      count(
-        html,
-        /data-payment-money-value="" class="whitespace-nowrap"/g,
-      ),
-    ).toBe(6);
+    expect(count(html, /data-payment-money-value="" class="whitespace-nowrap"/g)).toBe(6);
     expect(
       count(
         html,
@@ -498,10 +589,10 @@ describe("ProducerPaymentWorkspace", () => {
       ),
     ).toBe(6);
     expect(html).toMatch(
-      /class="[^"]*xl:whitespace-nowrap xl:\[overflow-wrap:normal\][^"]*">₪1,234,567\.89 ILS<\/p>/,
+      /class="(?=[^"]*xl:whitespace-nowrap)(?=[^"]*xl:\[overflow-wrap:normal\])[^"]*">₪1,234,567\.89 ILS<\/p>/,
     );
     expect(count(html, /xl:min-w-\[110px\]/g)).toBe(3);
-    expect(html).toContain("min-w-0 max-w-full xl:overflow-x-auto");
+    expect(html).toContain("max-w-full min-w-0 xl:overflow-x-auto");
     expect(html).toContain("xl:min-w-[980px]");
     expect(html).toContain("grid-cols-2 gap-x-3 gap-y-3 sm:grid-cols-3");
     expect(html).toContain("order-3 col-span-6");
@@ -523,11 +614,7 @@ describe("ProducerPaymentWorkspace", () => {
       buckets,
       scope: "global",
     });
-    changeSelect(
-      currencyHarness.renderTree(),
-      "Filter by currency",
-      "USD",
-    );
+    changeSelect(currencyHarness.renderTree(), "Filter by currency", "USD");
     const currencyHtml = currencyHarness.html();
     expect(currencyHtml).toContain("Mix &amp; master");
     expect(currencyHtml).not.toContain("Vocal production");

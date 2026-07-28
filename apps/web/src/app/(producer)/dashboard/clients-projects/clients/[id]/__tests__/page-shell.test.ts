@@ -1,146 +1,107 @@
-import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-// Source-grep test for the new Client Space page shell. Phase 1 Task
-// 17 rewrote this page to drop the 4-tab structure and render the
-// single-page ClientSpaceHero + ProjectRow list.
+import { describe, expect, it } from "vitest";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const SRC = readFileSync(join(here, "..", "page.tsx"), "utf-8");
+const source = readFileSync(join(here, "..", "page.tsx"), "utf8");
+const compactSource = source.replace(/\s+/g, " ");
 
-describe("clients/[id]/page.tsx — Phase 1 rewrite", () => {
-  it("imports ClientSpaceHero", () => {
-    expect(SRC).toContain("ClientSpaceHero");
-    expect(SRC).toContain("~/components/dashboard/clients/client-space-hero");
+describe("SK-146 Client Space server shell", () => {
+  it("keeps authentication ahead of every producer-scoped read", () => {
+    expect(compactSource).toContain(
+      'const { userId } = await auth(); if (!userId) redirect("/sign-in");',
+    );
+    expect(source.indexOf("await auth()")).toBeLessThan(
+      source.indexOf("appRouter.createCaller({ userId })"),
+    );
   });
 
-  it("imports ProjectRow for the project list below the hero", () => {
-    expect(SRC).toContain("ProjectRow");
-    expect(SRC).toContain("~/components/dashboard/projects/project-row");
+  it("preserves SK-145's exact three concurrent Client Space reads", () => {
+    expect(compactSource).toContain(
+      "const [detailResult, paymentsResult, producerProfileResult] = await Promise.allSettled([ caller.clientContacts.clientSpaceDetail({ id }), caller.purchaseLedger.client({ clientContactId: id }), caller.producer.me(), ]);",
+    );
+    expect(source.match(/Promise\.allSettled/g)).toHaveLength(1);
+    expect(source).not.toContain("clientContacts.detail({ id })");
   });
 
-  // ClientSpaceHero owns the gradient derivation internally (it calls
-  // deriveGradient + heroBg itself). The page passes the contact name
-  // through; the hero hashes it. Asserting the page doesn't pull
-  // deriveGradient in keeps the layering clean.
-  it("does not re-import deriveGradient (hero derives gradient internally)", () => {
-    expect(SRC).not.toContain("deriveGradient");
+  it("turns a rejected detail or canonical ledger read into notFound", () => {
+    expect(compactSource).toContain(
+      'if (detailResult.status === "rejected" || paymentsResult.status === "rejected") { notFound(); }',
+    );
   });
 
-  it("renders <ClientSpaceHero ... /> at the top of the page", () => {
-    expect(SRC).toMatch(/<ClientSpaceHero/);
+  it("degrades a rejected producer profile without hiding the client", () => {
+    expect(compactSource).toContain(
+      'const producerProfile = producerProfileResult.status === "fulfilled" ? producerProfileResult.value : null;',
+    );
+    expect(compactSource).toContain(
+      'if (producerProfileResult.status === "rejected") { console.warn("[clients/detail] producer.me failed", producerProfileResult.reason); }',
+    );
+
+    const producerFallback = source.slice(
+      source.indexOf("const producerProfile ="),
+      source.indexOf("const paymentBuckets ="),
+    );
+    expect(producerFallback).not.toContain("notFound");
   });
 
-  it("renders <ProjectRow ... /> rows for each project", () => {
-    expect(SRC).toMatch(/<ProjectRow/);
+  it("maps the canonical ledger into the client workspace", () => {
+    expect(source).toContain('from "~/components/dashboard/clients/client-space-workspace"');
+    expect(source).toContain("toProducerPaymentWorkspaceBuckets(payments.producerBuckets)");
+    expect(compactSource).toContain(
+      "const paymentTotals: ClientSpacePaymentTotal[] = payments.totals.map((total) => ({ currency: total.currency, dueNowCents: total.dueNowCents, totalRemainingCents: total.totalRemainingCents, }));",
+    );
+    expect(compactSource).toContain(
+      'purchase.proofs.filter((proof) => proof.status === "pending").length',
+    );
+    expect(compactSource).toMatch(
+      /<ClientSpaceWorkspace key=\{detail\.contact\.id\} client=\{client\} projects=\{projects\} paymentBuckets=\{paymentBuckets\} paymentTotals=\{paymentTotals\} needsReviewCount=\{needsReviewCount\}/,
+    );
+    expect(source).not.toMatch(/<ProducerPaymentWorkspace/);
+    expect(source).not.toMatch(/<ClientMoneyLedger/);
   });
 
-  it("passes producerSlug to ClientSpaceHero", () => {
-    expect(SRC).toMatch(/producerSlug=\{/);
+  it("keeps private offers lazy behind the client workspace", () => {
+    expect(source).not.toContain("loadClientPrivateOffersAction");
+    expect(source).not.toContain("PrivateOfferManager");
+    expect(source).not.toMatch(/caller\.[\w.]*privateOffers?/);
+    expect(source).not.toMatch(/privateOffers?\.(list|history|client)/);
   });
 
-  it("preserves the auth + caller scaffolding", () => {
-    expect(SRC).toContain("@clerk/nextjs/server");
-    expect(SRC).toContain("appRouter.createCaller");
-  });
-
-  it("uses the lean Client Space projection", () => {
-    expect(SRC).toContain("clientContacts.clientSpaceDetail({ id })");
-  });
-
-  it("calls producer.me for slug + defaultCurrency", () => {
-    expect(SRC).toContain("producer.me");
-  });
-
-  it("starts detail, canonical payments, and producer profile together", () => {
-    const detailAt = SRC.indexOf("clientContacts.clientSpaceDetail({ id })");
-    const paymentsAt = SRC.indexOf("purchaseLedger.client({ clientContactId: id })");
-    const producerAt = SRC.indexOf("producer.me()");
-    const promiseAllStart = SRC.lastIndexOf("Promise.all", detailAt);
-    const promiseAllEnd = SRC.indexOf("]);", producerAt);
-
-    expect(promiseAllStart).toBeGreaterThan(-1);
-    expect(detailAt).toBeGreaterThan(promiseAllStart);
-    expect(paymentsAt).toBeGreaterThan(detailAt);
-    expect(producerAt).toBeGreaterThan(paymentsAt);
-    expect(promiseAllEnd).toBeGreaterThan(producerAt);
-  });
-
-  it("preserves the pickNextSession helper for the hero's next session", () => {
-    expect(SRC).toContain("pickNextSession");
-  });
-
-  // Phase 1 G7 — the hero's "+ New project" pill no longer routes to
-  // the legacy /new page with prefilled query params; it opens the
-  // floating NewProjectModal in lockedClient mode. The query-string
-  // wiring is gone and shouldn't come back.
-  it("does NOT pre-fill a legacy /new link with clientEmail / clientName (modal handles it now)", () => {
-    expect(SRC).not.toContain("clientEmail=");
-    expect(SRC).not.toContain("clientName=");
-    expect(SRC).not.toContain("/clients-projects/new?");
-  });
-
-  it("fetches products list for the hero's NewProjectModal picker", () => {
-    expect(SRC).not.toContain("booking.products.list");
-    expect(SRC).not.toMatch(/products=\{products\}/);
-  });
-
-  it("maps lifecycle explicitly and renders the currency-separated purchase ledger", () => {
-    expect(SRC).toContain("lifecycleStatus");
-    expect(SRC).toContain("ProducerPaymentWorkspace");
-    expect(SRC).toContain("toProducerPaymentWorkspaceBuckets");
-    expect(SRC).toContain("purchaseLedger.client");
-    expect(SRC).toContain("payments.totals");
-    expect(SRC).toContain("payments.producerBuckets");
-    expect(SRC).not.toMatch(/<ClientMoneyLedger/);
-    expect(SRC).not.toMatch(/depositPct|\.stage\b/);
+  it("maps all project lifecycle states without reviving the legacy detail shell", () => {
+    expect(source).toContain("detail.projects.map");
     for (const label of ["Waiting for payment", "Active", "Paused", "Completed", "Canceled"]) {
-      expect(SRC).toContain(label);
+      expect(source).toContain(label);
+    }
+    for (const legacy of [
+      "ClientSpaceHero",
+      "ProjectRow",
+      "ClientDetailHeader",
+      "ClientDetailTabs",
+      "ClientOverviewPanel",
+      "ClientPaymentsPanel",
+      "ClientProjectsPanel",
+      "ClientNotesPanel",
+      "resolveClientDetailTab",
+    ]) {
+      expect(source).not.toContain(legacy);
     }
   });
 
-  it("removes the import of ClientDetailHeader", () => {
-    expect(SRC).not.toContain("ClientDetailHeader");
-    expect(SRC).not.toContain("client-detail-header");
-  });
+  it("releases the route entry transform after animation without changing the shared primitive", () => {
+    expect(compactSource).toContain(
+      '<main className="sk-page-enter" style={{ animationFillMode: "backwards" }}>',
+    );
 
-  it("removes the import of ClientDetailTabs", () => {
-    expect(SRC).not.toContain("ClientDetailTabs");
-    expect(SRC).not.toContain("client-detail-tabs");
-  });
+    const routeRootStart = source.indexOf('<main className="sk-page-enter"');
+    const routeRootEnd = source.indexOf(">", routeRootStart);
+    expect(routeRootStart).toBeGreaterThanOrEqual(0);
+    expect(routeRootEnd).toBeGreaterThan(routeRootStart);
 
-  it("removes the import of ClientOverviewPanel", () => {
-    expect(SRC).not.toContain("ClientOverviewPanel");
-    expect(SRC).not.toContain("client-overview-panel");
-  });
-
-  it("removes the import of ClientPaymentsPanel", () => {
-    expect(SRC).not.toContain("ClientPaymentsPanel");
-    expect(SRC).not.toContain("client-payments-panel");
-  });
-
-  it("removes the import of ClientProjectsPanel", () => {
-    expect(SRC).not.toContain("ClientProjectsPanel");
-    expect(SRC).not.toContain("client-projects-panel");
-  });
-
-  it("removes the import of ClientNotesPanel", () => {
-    expect(SRC).not.toContain("ClientNotesPanel");
-    expect(SRC).not.toContain("client-notes-panel");
-  });
-
-  it("removes the resolveClientDetailTab import", () => {
-    expect(SRC).not.toContain("resolveClientDetailTab");
-    expect(SRC).not.toContain("client-detail-tab-key");
-  });
-
-  it("forbids non-existent CSS tokens", () => {
-    expect(SRC).not.toContain("--surface-card");
-    expect(SRC).not.toContain("--text-muted");
-    expect(SRC).not.toContain("--text-strong");
-    expect(SRC).not.toContain("--surface-hover");
-    expect(SRC).not.toContain("--brand-primary-on");
+    const routeRoot = source.slice(routeRootStart, routeRootEnd + 1);
+    expect(routeRoot).toContain('animationFillMode: "backwards"');
+    expect(routeRoot).not.toMatch(/animationFillMode:\s*"(?:both|forwards)"/);
   });
 });

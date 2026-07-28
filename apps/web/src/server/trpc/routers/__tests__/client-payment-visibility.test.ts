@@ -42,7 +42,12 @@ describe("producer client payment visibility", () => {
     expect(purchase).toMatch(/listProducerPaymentProofHistory/);
     expect(clientContacts).toContain("clientMoneyRepository");
     expect(clientContacts).toContain("getClientMoneyLedger");
-    expect(clientPage).toContain("ClientMoneyLedger");
+    expect(clientPage).toContain("caller.purchaseLedger.client({ clientContactId: id })");
+    expect(clientPage).toContain("toProducerPaymentWorkspaceBuckets(payments.producerBuckets)");
+    expect(clientPage).toMatch(
+      /<ClientSpaceWorkspace[\s\S]*?paymentBuckets=\{paymentBuckets\}[\s\S]*?needsReviewCount=\{needsReviewCount\}/,
+    );
+    expect(clientPage).not.toContain("ClientMoneyLedger");
     expect(clientPage).not.toMatch(/proofOfPayment\.history|<ClientPaymentProofs/);
   });
 
