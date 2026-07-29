@@ -2036,18 +2036,18 @@
   }
 }
 
-/* iOS standalone mode can resolve `position: fixed; inset: 0` against a
- * rectangle shortened by the translucent status-bar safe area, leaving the
- * shell, player dock, and full player one top inset above the physical
- * bottom. Give the installed producer shell an explicit classic viewport
- * height, then anchor its fixed player chrome to that shell. Keep this
+/* iOS standalone mode can place the fixed shell below the translucent
+ * status-bar safe area while classic `100vh` still spans the full screen.
+ * That combination pushes the shell footer below the physical bottom. Size
+ * the installed producer shell to the measured visual viewport, then anchor
+ * its fixed player chrome to that shell. Keep this
  * unlayered so it wins over Tailwind's layered `fixed` utility only in the
  * affected standalone mobile mode. */
 @media (display-mode: standalone) and (max-width: 1023px) {
   .sk-producer-app-shell {
     inset: 0 0 auto;
-    height: 100vh;
-    max-height: 100vh;
+    height: var(--sk-viewport-height, 100dvh);
+    max-height: var(--sk-viewport-height, 100dvh);
   }
 
   .sk-producer-app-shell .persistent-player-dock,

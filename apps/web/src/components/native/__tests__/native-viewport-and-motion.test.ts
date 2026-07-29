@@ -130,16 +130,25 @@ describe("native CSS contracts", () => {
     expect(globalsCss).toContain(".sk-native-action-dock");
   });
 
-  it("anchors standalone producer chrome to one full-height shell", async () => {
+  it("anchors standalone producer chrome to the measured visual viewport", async () => {
     expect(appShellSource).toContain("sk-producer-app-shell");
 
     const productionCss = await postcss([
       tailwindPostcss({ base: webRoot, optimize: true }),
     ]).process(globalsCss, { from: productionCssPath });
+    const standaloneShellRule = productionCss.css.match(
+      /\.sk-producer-app-shell\{([^}]*)\}/,
+    )?.[1];
 
     expect(productionCss.css).toContain("display-mode:standalone");
-    expect(productionCss.css).toContain(".sk-producer-app-shell");
-    expect(productionCss.css).toContain("height:100vh");
+    expect(standaloneShellRule).toBeDefined();
+    expect(standaloneShellRule).toContain(
+      "height:var(--sk-viewport-height,100dvh)",
+    );
+    expect(standaloneShellRule).toContain(
+      "max-height:var(--sk-viewport-height,100dvh)",
+    );
+    expect(standaloneShellRule).not.toContain("height:100vh");
     expect(productionCss.css).toContain(
       ".sk-producer-app-shell .persistent-player-dock",
     );
