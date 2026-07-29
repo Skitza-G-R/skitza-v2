@@ -395,7 +395,14 @@ export function noChargeProposalRepository(db: Db): NoChargeProposalRepository {
                 ...(songSpace.artist ? { artist: songSpace.artist } : {}),
                 position: songSpace.position,
               })
-              .returning();
+              .returning({
+                id: projectTracks.id,
+                projectId: projectTracks.projectId,
+                purchaseId: projectTracks.purchaseId,
+                title: projectTracks.title,
+                artist: projectTracks.artist,
+                position: projectTracks.position,
+              });
             if (!row) {
               throw new SongSpaceDomainError(
                 "INTEGRITY_ERROR",
