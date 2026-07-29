@@ -668,6 +668,13 @@ export const projectTracks = pgTable(
     artist: text("artist"),
     position: integer("position").notNull().default(0),
     workflowStage: workflowStage("workflow_stage").notNull().default("brief"),
+    // Optional, private per-song cover identity. The browser only receives a
+    // same-origin authenticated route; raw R2 keys and object metadata stay on
+    // the server. All four fields transition together (migration 0037).
+    artworkR2Key: text("artwork_r2_key"),
+    artworkContentType: text("artwork_content_type"),
+    artworkSizeBytes: bigint("artwork_size_bytes", { mode: "number" }),
+    artworkObjectEtag: text("artwork_object_etag"),
     // Release is a producer-confirmed product state, separate from creative
     // progress (Done / Delivered). Once set, application code treats it as
     // irreversible because protected audio may be permanently deleted.
@@ -688,6 +695,27 @@ export const projectTracks = pgTable(
     projectPortfolioPublishedIdx: index("project_tracks_project_portfolio_published_idx")
       .on(t.projectId, t.portfolioPublishedAt.desc(), t.id)
       .where(sql`${t.portfolioPublishedAt} IS NOT NULL`),
+    artworkIdentityShape: check(
+      "project_tracks_artwork_identity_shape",
+      sql`(
+        (
+          ${t.artworkR2Key} IS NULL
+          AND ${t.artworkContentType} IS NULL
+          AND ${t.artworkSizeBytes} IS NULL
+          AND ${t.artworkObjectEtag} IS NULL
+        )
+        OR
+        (
+          NULLIF(btrim(${t.artworkR2Key}), '') IS NOT NULL
+          AND char_length(${t.artworkR2Key}) <= 1024
+          AND ${t.artworkContentType} IN ('image/jpeg', 'image/png', 'image/webp')
+          AND ${t.artworkSizeBytes} > 0
+          AND ${t.artworkSizeBytes} <= 5242880
+          AND NULLIF(btrim(${t.artworkObjectEtag}), '') IS NOT NULL
+          AND char_length(${t.artworkObjectEtag}) <= 512
+        )
+      ) IS TRUE`,
+    ),
   }),
 );
 export type ProjectTrack = typeof projectTracks.$inferSelect;

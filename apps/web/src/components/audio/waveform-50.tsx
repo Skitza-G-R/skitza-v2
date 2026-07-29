@@ -26,11 +26,7 @@ export function pickWaveformTime(input: {
   liveMs: number;
   internalMs: number;
 }): number {
-  if (
-    input.isLive &&
-    Number.isFinite(input.liveMs) &&
-    input.liveMs >= 0
-  ) {
+  if (input.isLive && Number.isFinite(input.liveMs) && input.liveMs >= 0) {
     return input.liveMs;
   }
   return input.internalMs;
@@ -55,6 +51,20 @@ export function pickWaveformTime(input: {
 // audio envelope, like Samply / SoundCloud — not a stylized chip.
 const BAR_COUNT = 200;
 const GLOW_RANGE = 6;
+const STUDIO_MOBILE_BAR_COUNT = 96;
+const MIN_BAR_COUNT = 24;
+const MAX_BAR_COUNT = 320;
+
+export type WaveformAppearance = "default" | "studio";
+
+export interface WaveformResponsiveDensity {
+  /** Bar count below the desktop `lg` breakpoint. */
+  mobile: number;
+  /** Bar count from the desktop `lg` breakpoint upward. */
+  desktop: number;
+}
+
+export type WaveformDensity = number | WaveformResponsiveDensity;
 
 export interface WaveformComment {
   id: string;
@@ -62,9 +72,11 @@ export interface WaveformComment {
   timeMs: number;
   /** Amber for producer, muted for artist. */
   fromProducer: boolean;
+  /** Studio markers use amber for open notes and grey for resolved notes. */
+  resolved?: boolean;
 }
 
-interface Waveform50Props {
+export interface Waveform50Props {
   /** Total track duration in ms. Required for tooltip + marker placement. */
   durationMs: number;
   /** Optional comment markers. */
@@ -104,10 +116,85 @@ interface Waveform50Props {
   onProgress?: (ms: number) => void;
   /** Fires once per click-to-seek action (terminates a drag, too). */
   onSeek?: (ms: number) => void;
+  /** Fires when an accessible note marker is selected. */
+  onCommentSelect?: (comment: WaveformComment) => void;
+  /**
+   * Opt in to the precise studio treatment. The default keeps the
+   * existing public-player glow, pulse, and time pill unchanged.
+   */
+  appearance?: WaveformAppearance;
+  /**
+   * Bar count, or responsive mobile/desktop bar counts. Studio mode
+   * defaults to 96 bars on mobile and 200 on desktop.
+   */
+  density?: WaveformDensity;
   /** Visual height in px (default 112 — fits the L3 hero card). */
   height?: number;
   /** Optional className passthrough. */
   className?: string;
+}
+
+function normalizeBarCount(value: number, fallback: number): number {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(MAX_BAR_COUNT, Math.max(MIN_BAR_COUNT, Math.round(value)));
+}
+
+export function resolveWaveformDensity(
+  density: WaveformDensity | undefined,
+  appearance: WaveformAppearance,
+): WaveformResponsiveDensity {
+  const fallback = appearance === "studio" ? STUDIO_MOBILE_BAR_COUNT : BAR_COUNT;
+
+  if (typeof density === "number") {
+    const count = normalizeBarCount(density, fallback);
+    return { mobile: count, desktop: count };
+  }
+
+  if (density) {
+    return {
+      mobile: normalizeBarCount(density.mobile, fallback),
+      desktop: normalizeBarCount(density.desktop, BAR_COUNT),
+    };
+  }
+
+  return {
+    mobile: fallback,
+    desktop: BAR_COUNT,
+  };
+}
+
+/**
+ * Resize a peak envelope without changing its overall shape. Linear
+ * interpolation keeps the responsive mobile and desktop layers aligned.
+ */
+export function resampleWaveformHeights(heights: readonly number[], barCount: number): number[] {
+  const targetCount = Number.isFinite(barCount)
+    ? Math.min(MAX_BAR_COUNT, Math.max(1, Math.round(barCount)))
+    : BAR_COUNT;
+  if (heights.length === 0) {
+    return Array.from({ length: targetCount }, () => 0.12);
+  }
+  if (heights.length === targetCount) return [...heights];
+  if (heights.length === 1) {
+    return Array.from({ length: targetCount }, () => heights[0] ?? 0.12);
+  }
+
+  return Array.from({ length: targetCount }, (_, index) => {
+    const position = targetCount === 1 ? 0 : (index / (targetCount - 1)) * (heights.length - 1);
+    const leftIndex = Math.floor(position);
+    const rightIndex = Math.min(heights.length - 1, Math.ceil(position));
+    const mix = position - leftIndex;
+    const left = heights[leftIndex] ?? 0.12;
+    const right = heights[rightIndex] ?? left;
+    return left + (right - left) * mix;
+  });
+}
+
+export function clampWaveformInitialMs(initialMs: number, durationMs: number): number {
+  if (!Number.isFinite(initialMs) || !Number.isFinite(durationMs) || durationMs <= 0) {
+    return 0;
+  }
+  return Math.min(durationMs, Math.max(0, initialMs));
 }
 
 // ─── Real-peak decoding (client-side fallback) ───────────────────────
@@ -193,9 +280,7 @@ function useAudioPeaks(
         // fetch. Defaults are 'same-origin' but explicit is safer.
         const res = await fetch(url, { credentials: "same-origin" });
         if (!res.ok) {
-          console.warn(
-            `[waveform peaks] fetch ${String(res.status)} for ${url}`,
-          );
+          console.warn(`[waveform peaks] fetch ${String(res.status)} for ${url}`);
           return;
         }
         const buf = await res.arrayBuffer();
@@ -282,22 +367,32 @@ export function Waveform50({
   initialMs = 0,
   onProgress,
   onSeek,
+  onCommentSelect,
+  appearance = "default",
+  density,
   height = 112,
   className,
 }: Waveform50Props) {
-  const [internalMs, setInternalMs] = useState(initialMs);
-  const [liveMs, setLiveMs] = useState(0);
+  const startingMs = clampWaveformInitialMs(initialMs, durationMs);
+  const initialMsRef = useRef(startingMs);
+  initialMsRef.current = startingMs;
+  const [internalMs, setInternalMs] = useState(startingMs);
+  const [liveMs, setLiveMs] = useState(startingMs);
   const [hoverPct, setHoverPct] = useState<number | null>(null);
   const [hoveredCommentId, setHoveredCommentId] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const onProgressRef = useRef(onProgress);
   const onSeekRef = useRef(onSeek);
+  const onCommentSelectRef = useRef(onCommentSelect);
   useEffect(() => {
     onProgressRef.current = onProgress;
   }, [onProgress]);
   useEffect(() => {
     onSeekRef.current = onSeek;
   }, [onSeek]);
+  useEffect(() => {
+    onCommentSelectRef.current = onCommentSelect;
+  }, [onCommentSelect]);
 
   // Live mode — when this waveform's seed (== version-id) is the track
   // currently playing in the dock, the playhead follows the dock. Click
@@ -322,12 +417,15 @@ export function Waveform50({
     };
   }, []);
 
-  // Reset both timers when the seed (active version) changes — same
-  // pattern as wavesurfer cleaning up between sources.
+  // Re-seed both timers from the caller's starting position when the
+  // active version changes. Reading from a ref means `initialMs` can
+  // update alongside `seed` without turning later prop updates into
+  // unwanted playhead resets.
   useEffect(() => {
-    setInternalMs(0);
-    setLiveMs(0);
-    onProgressRef.current?.(0);
+    const nextMs = initialMsRef.current;
+    setInternalMs(nextMs);
+    setLiveMs(nextMs);
+    onProgressRef.current?.(nextMs);
   }, [seed]);
 
   const currentMs = pickWaveformTime({ isLive, liveMs, internalMs });
@@ -341,24 +439,38 @@ export function Waveform50({
   //   3. seeded fallback — no peaks AND no decodable URL (audio still
   //      uploading). Stable pseudo-envelope so the bars never read as
   //      dead.
-  const seededFallback = useMemo(() => seededHeights(seed, BAR_COUNT), [seed]);
+  const responsiveDensity = resolveWaveformDensity(density, appearance);
+  const sourceBarCount = Math.max(responsiveDensity.mobile, responsiveDensity.desktop);
+  const seededFallback = useMemo(() => seededHeights(seed, sourceBarCount), [seed, sourceBarCount]);
   const flatBaseline = useMemo(
-    () => Array.from({ length: BAR_COUNT }, () => 0.12),
-    [],
+    () => Array.from({ length: sourceBarCount }, () => 0.12),
+    [sourceBarCount],
   );
   const hasInitialPeaks = Array.isArray(initialPeaks) && initialPeaks.length > 0;
   // When pre-computed peaks are present we skip the decode hook
   // entirely — passing `null` shorts the effect inside useAudioPeaks
   // and keeps the dependency list stable.
   const decodeUrl = hasInitialPeaks ? null : (peaksUrl ?? null);
-  const initialHeights = hasInitialPeaks
-    ? initialPeaks
-    : peaksUrl
-      ? flatBaseline
-      : seededFallback;
-  const heights = useAudioPeaks(decodeUrl, BAR_COUNT, initialHeights);
-  const progressPct = durationMs > 0 ? Math.min(100, Math.max(0, (currentMs / durationMs) * 100)) : 0;
-  const playedBars = Math.floor((progressPct / 100) * BAR_COUNT);
+  const initialHeights = hasInitialPeaks ? initialPeaks : peaksUrl ? flatBaseline : seededFallback;
+  const heights = useAudioPeaks(decodeUrl, sourceBarCount, initialHeights);
+  const keepDefaultSourceDensity = appearance === "default" && density === undefined;
+  const mobileHeights = useMemo(
+    () =>
+      keepDefaultSourceDensity
+        ? heights
+        : resampleWaveformHeights(heights, responsiveDensity.mobile),
+    [heights, keepDefaultSourceDensity, responsiveDensity.mobile],
+  );
+  const desktopHeights = useMemo(
+    () =>
+      keepDefaultSourceDensity
+        ? heights
+        : resampleWaveformHeights(heights, responsiveDensity.desktop),
+    [heights, keepDefaultSourceDensity, responsiveDensity.desktop],
+  );
+  const hasResponsiveDensity = responsiveDensity.mobile !== responsiveDensity.desktop;
+  const progressPct =
+    durationMs > 0 ? Math.min(100, Math.max(0, (currentMs / durationMs) * 100)) : 0;
 
   const pctFromClientX = useCallback((clientX: number): number => {
     const el = containerRef.current;
@@ -435,21 +547,81 @@ export function Waveform50({
 
   const hoverMs = hoverPct !== null ? Math.round((hoverPct / 100) * durationMs) : 0;
 
+  function renderBars(barHeights: readonly number[], layerClassName: string) {
+    const barCount = barHeights.length;
+    const playedBars = Math.floor((progressPct / 100) * barCount);
+    const hoverBar = hoverPct !== null ? Math.floor((hoverPct / 100) * barCount) : -1;
+
+    return (
+      <div
+        aria-hidden
+        data-waveform-bars={appearance}
+        className={["absolute inset-0 items-center justify-between gap-px", layerClassName].join(
+          " ",
+        )}
+      >
+        {barHeights.map((barHeight, index) => {
+          const isPlayed = index < playedBars;
+          const distFromPlayhead = playedBars - index;
+          const glowStrength =
+            appearance === "default" &&
+            isPlayed &&
+            distFromPlayhead > 0 &&
+            distFromPlayhead <= GLOW_RANGE
+              ? (GLOW_RANGE - distFromPlayhead + 1) / GLOW_RANGE
+              : 0;
+          const isUnderHover = hoverBar >= 0 && index >= playedBars && index <= hoverBar;
+
+          return (
+            <span
+              key={`b-${String(index)}`}
+              className={[
+                "block flex-1 rounded-[1px]",
+                appearance === "studio"
+                  ? "transition-[background-color,height,opacity] duration-150 ease-out motion-reduce:transition-none"
+                  : "transition-[background-color,box-shadow,opacity,height] duration-[280ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
+                isPlayed
+                  ? "bg-[rgb(var(--brand-primary))]"
+                  : isUnderHover
+                    ? appearance === "studio"
+                      ? "bg-[rgb(var(--fg-muted)/0.36)]"
+                      : "bg-[rgb(var(--brand-primary)/0.4)]"
+                    : appearance === "studio"
+                      ? "bg-[rgb(var(--fg-muted)/0.28)]"
+                      : "bg-[rgb(var(--fg-muted)/0.22)]",
+              ].join(" ")}
+              style={{
+                height: `${String(Math.max(2, barHeight * 100))}%`,
+                minHeight: "2px",
+                boxShadow:
+                  glowStrength > 0
+                    ? `0 0 ${String(glowStrength * 10)}px rgb(var(--brand-primary) / ${String(glowStrength * 0.4)})`
+                    : undefined,
+              }}
+            />
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
-    <div className={["w-full", className ?? ""].join(" ")}>
+    <div data-waveform-appearance={appearance} className={["w-full", className ?? ""].join(" ")}>
       {/* Top rail — holds comment markers ABOVE the bar surface so they
           don't crowd the audio envelope. Height matches the marker hit
           target so hover popovers anchor cleanly. */}
       {comments && comments.length > 0 && durationMs > 0 ? (
-        <div aria-hidden className="relative mb-1.5 h-4">
+        <div role="group" aria-label="Timeline notes" className="relative mb-1.5 h-4">
           {comments.map((c) => {
             const pct = (c.timeMs / durationMs) * 100;
             if (pct < 0 || pct > 100) return null;
             const isHovered = hoveredCommentId === c.id;
+            const isResolved = c.resolved === true;
             return (
               <button
                 key={c.id}
                 type="button"
+                data-comment-status={isResolved ? "resolved" : "open"}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (isLive) {
@@ -460,6 +632,7 @@ export function Waveform50({
                   }
                   onProgressRef.current?.(c.timeMs);
                   onSeekRef.current?.(c.timeMs);
+                  onCommentSelectRef.current?.(c);
                 }}
                 onMouseEnter={() => {
                   setHoveredCommentId(c.id);
@@ -467,29 +640,41 @@ export function Waveform50({
                 onMouseLeave={() => {
                   setHoveredCommentId((p) => (p === c.id ? null : p));
                 }}
-                aria-label={`Jump to ${fmt(c.timeMs)}`}
+                aria-label={
+                  appearance === "studio"
+                    ? `${isResolved ? "Resolved" : "Open"} note at ${fmt(c.timeMs)}`
+                    : `Jump to ${fmt(c.timeMs)}`
+                }
                 className={[
-                  "sk-press pointer-events-auto absolute bottom-0 z-10 -translate-x-1/2 rounded-full",
-                  // Invisible tap zone — the visual tick is 2×12px,
-                  // effectively untappable on touch. A centered 28×44px
-                  // pseudo-element clears the 44px floor. Width is kept
-                  // at 28px so the zone only shadows a thin strip of
-                  // the seek surface directly under each marker —
-                  // clicking between markers still seeks. z-10 keeps
-                  // that strip above the slider div (a later positioned
-                  // sibling that would otherwise win the hit-test).
-                  "before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-7 before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']",
-                  "transition-[height,width,opacity] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)]",
-                  isHovered ? "h-4 w-[3px] opacity-100" : "h-3 w-[2px] opacity-90",
-                  c.fromProducer
-                    ? "bg-[rgb(var(--brand-primary))]"
-                    : "bg-[rgb(var(--fg-muted))]",
+                  "sk-press pointer-events-auto absolute top-1/2 z-10 h-11 w-11 -translate-x-1/2 -translate-y-1/2 bg-transparent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[rgb(var(--brand-primary))]",
+                  // Keep the interactive marker at the full 44px touch
+                  // target while drawing the precise studio tick with a
+                  // centered pseudo-element.
+                  "after:pointer-events-none after:absolute after:top-1/2 after:left-1/2 after:-translate-x-1/2 after:-translate-y-1/2 after:content-['']",
+                  appearance === "studio"
+                    ? [
+                        "after:h-3 after:w-px after:rounded-[1px] after:transition-opacity after:duration-150 motion-reduce:after:transition-none",
+                        isHovered ? "after:opacity-100" : "after:opacity-80",
+                        isResolved
+                          ? "after:bg-[rgb(var(--fg-muted))]"
+                          : "after:bg-[rgb(var(--brand-primary))]",
+                      ].join(" ")
+                    : [
+                        "after:rounded-full after:transition-[height,width,opacity] after:duration-200 after:ease-[cubic-bezier(0.23,1,0.32,1)]",
+                        isHovered
+                          ? "after:h-4 after:w-[3px] after:opacity-100"
+                          : "after:h-3 after:w-[2px] after:opacity-90",
+                        c.fromProducer
+                          ? "after:bg-[rgb(var(--brand-primary))]"
+                          : "after:bg-[rgb(var(--fg-muted))]",
+                      ].join(" "),
                 ].join(" ")}
                 style={{
                   left: `${pct.toFixed(2)}%`,
-                  boxShadow: c.fromProducer
-                    ? `0 0 ${isHovered ? "10px" : "6px"} rgb(var(--brand-primary) / ${isHovered ? "0.55" : "0.35"})`
-                    : "none",
+                  filter:
+                    appearance === "default" && c.fromProducer
+                      ? `drop-shadow(0 0 ${isHovered ? "10px" : "6px"} rgb(var(--brand-primary) / ${isHovered ? "0.55" : "0.35"}))`
+                      : undefined,
                 }}
               />
             );
@@ -515,54 +700,16 @@ export function Waveform50({
         className="group relative min-h-11 w-full cursor-pointer touch-none select-none focus-visible:rounded-[8px] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-4 focus-visible:ring-offset-[rgb(var(--bg-elevated))] focus-visible:outline-none sm:min-h-0"
         style={{ height }}
       >
-        {/* Bars layer — Samply/SoundCloud-density: 200 thin sharp bars
-            at 1px gap so the envelope reads as a continuous audio
-            silhouette, not a row of pills. */}
-        <div className="absolute inset-0 flex items-center justify-between gap-px">
-          {heights.map((h, i) => {
-            const isPlayed = i < playedBars;
-            const distFromPlayhead = playedBars - i;
-            // Bars within GLOW_RANGE of the playhead get a soft amber halo;
-            // intensity decays linearly out, so the cluster reads as "lit"
-            // rather than uniformly painted. Spotify uses the same trick.
-            const glowStrength =
-              isPlayed && distFromPlayhead > 0 && distFromPlayhead <= GLOW_RANGE
-                ? (GLOW_RANGE - distFromPlayhead + 1) / GLOW_RANGE
-                : 0;
-            // Hovered bars (not yet played) get a subtle ghost amber to
-            // preview the seek target — visible only while scrubbing.
-            const hoverBar = hoverPct !== null ? Math.floor((hoverPct / 100) * BAR_COUNT) : -1;
-            const isUnderHover = hoverBar >= 0 && i >= playedBars && i <= hoverBar;
-            return (
-              <span
-                key={`b-${String(i)}`}
-                aria-hidden
-                className={[
-                  "block flex-1 rounded-[1px]",
-                  "transition-[background-color,box-shadow,opacity,height] duration-[280ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
-                  isPlayed
-                    ? "bg-[rgb(var(--brand-primary))]"
-                    : isUnderHover
-                      ? "bg-[rgb(var(--brand-primary)/0.4)]"
-                      : "bg-[rgb(var(--fg-muted)/0.22)]",
-                ].join(" ")}
-                style={{
-                  // Lower floor (4% → 2%) gives REAL silent sections
-                  // proper headroom — at 200 bars even tiny slivers
-                  // read as the envelope dipping rather than a chip.
-                  height: `${String(Math.max(2, h * 100))}%`,
-                  minHeight: "2px",
-                  // Glow halo around the playhead — softer now so it
-                  // doesn't drown the dense bar layer.
-                  boxShadow:
-                    glowStrength > 0
-                      ? `0 0 ${String(glowStrength * 10)}px rgb(var(--brand-primary) / ${String(glowStrength * 0.4)})`
-                      : "none",
-                }}
-              />
-            );
-          })}
-        </div>
+        {/* Studio mode can render a lighter mobile envelope and swap to
+            the denser desktop layer at the shared `lg` breakpoint. */}
+        {hasResponsiveDensity ? (
+          <>
+            {renderBars(mobileHeights, "flex lg:hidden")}
+            {renderBars(desktopHeights, "hidden lg:flex")}
+          </>
+        ) : (
+          renderBars(desktopHeights, "flex")
+        )}
 
         {/* Hover scrub ghost — only visible while pointer is over and we
             aren't already at the same position as the live playhead. */}
@@ -572,65 +719,104 @@ export function Waveform50({
             className="pointer-events-none absolute top-0 bottom-0 z-10"
             style={{ left: `${hoverPct.toFixed(2)}%` }}
           >
-            <div className="absolute inset-y-2 left-0 w-px bg-[rgb(var(--fg-default)/0.35)]" />
-            <span className="absolute -bottom-7 left-0 -translate-x-1/2 whitespace-nowrap rounded-[var(--radius-sm)] bg-[rgb(var(--bg-elevated)/0.92)] px-2 py-0.5 font-mono text-[10.5px] font-semibold tabular-nums text-[rgb(var(--fg-muted))] shadow-[var(--shadow-sm)] ring-1 ring-[rgb(var(--border-subtle))] backdrop-blur-md">
+            <div
+              className={[
+                "absolute inset-y-2 left-0 w-px",
+                appearance === "studio"
+                  ? "bg-[rgb(var(--fg-onsidebar)/0.38)]"
+                  : "bg-[rgb(var(--fg-default)/0.35)]",
+              ].join(" ")}
+            />
+            <span
+              className={[
+                "absolute -bottom-7 left-0 -translate-x-1/2 rounded-[var(--radius-sm)] px-2 py-0.5 font-mono text-[10.5px] font-semibold whitespace-nowrap tabular-nums",
+                appearance === "studio"
+                  ? "bg-[rgb(var(--bg-sidebar))] text-[rgb(var(--fg-onsidebar)/0.72)] ring-1 ring-[rgb(var(--fg-onsidebar)/0.14)]"
+                  : "bg-[rgb(var(--bg-elevated)/0.92)] text-[rgb(var(--fg-muted))] ring-1 shadow-[var(--shadow-sm)] ring-[rgb(var(--border-subtle))] backdrop-blur-md",
+              ].join(" ")}
+            >
               {fmt(hoverMs)}
             </span>
           </div>
         ) : null}
 
-        {/* Playhead — gradient line + glowing dot + glass time pill */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute top-0 bottom-0 z-20"
-          style={{ left: `${progressPct.toFixed(2)}%` }}
-        >
-          {/* Vertical line — soft top, solid amber bottom */}
+        {appearance === "studio" ? (
+          /* Studio playhead — one precise amber rule, with no dot, halo,
+             pulse, gradient, or floating glass time pill. */
           <div
-            className="absolute inset-y-1 left-0 w-px"
-            style={{
-              background:
-                "linear-gradient(to bottom, rgb(var(--brand-primary) / 0) 0%, rgb(var(--brand-primary) / 0.6) 30%, rgb(var(--brand-primary)) 100%)",
-            }}
-          />
-          {/* Glow dot — wrapped so the breathing ring lives on the parent
-              while the dot keeps its static halo + inner highlight. */}
-          <div className="absolute top-1/2 left-0 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full">
-            {isPlaying ? (
-              <span
-                aria-hidden
-                className="skitza-playing-glow absolute inset-0 rounded-full"
-              />
-            ) : null}
+            aria-hidden
+            data-waveform-playhead="studio"
+            className="pointer-events-none absolute top-0 bottom-0 z-20"
+            style={{ left: `${progressPct.toFixed(2)}%` }}
+          >
             <div
-              className="relative h-full w-full rounded-full bg-[rgb(var(--brand-primary))]"
-              style={{
-                boxShadow:
-                  "0 0 0 3px rgb(var(--bg-elevated)), 0 0 22px 4px rgb(var(--brand-primary) / 0.5), 0 0 4px 1px rgb(var(--brand-primary))",
-              }}
+              data-waveform-playhead-line
+              className="absolute inset-y-0 left-0 w-px bg-[rgb(var(--brand-primary))]"
             />
           </div>
-          {/* Time pill — glass with backdrop-blur + stronger amber ring.
-              Bumped from 11px → 12px so it's readable at a glance even
-              while scrubbing on smaller laptops. */}
-          <span
-            className="absolute -top-10 left-0 -translate-x-1/2 whitespace-nowrap rounded-[var(--radius-sm)] px-3 py-1 font-mono text-[12px] font-bold tabular-nums backdrop-blur-md"
-            style={{
-              background: "rgb(var(--bg-elevated) / 0.95)",
-              color: "rgb(var(--fg-default))",
-              boxShadow:
-                "0 0 0 1.5px rgb(var(--brand-primary) / 0.45), 0 10px 32px -10px rgb(var(--brand-primary) / 0.55), 0 2px 8px -2px rgba(0,0,0,0.12)",
-            }}
+        ) : (
+          /* Default public-player playhead — unchanged glow, pulse, and
+             glass time pill. */
+          <div
+            aria-hidden
+            data-waveform-playhead="default"
+            className="pointer-events-none absolute top-0 bottom-0 z-20"
+            style={{ left: `${progressPct.toFixed(2)}%` }}
           >
-            {fmt(currentMs)}
-          </span>
-        </div>
+            <div
+              className="absolute inset-y-1 left-0 w-px"
+              style={{
+                background:
+                  "linear-gradient(to bottom, rgb(var(--brand-primary) / 0) 0%, rgb(var(--brand-primary) / 0.6) 30%, rgb(var(--brand-primary)) 100%)",
+              }}
+            />
+            <div className="absolute top-1/2 left-0 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full">
+              {isPlaying ? (
+                <span aria-hidden className="skitza-playing-glow absolute inset-0 rounded-full" />
+              ) : null}
+              <div
+                className="relative h-full w-full rounded-full bg-[rgb(var(--brand-primary))]"
+                style={{
+                  boxShadow:
+                    "0 0 0 3px rgb(var(--bg-elevated)), 0 0 22px 4px rgb(var(--brand-primary) / 0.5), 0 0 4px 1px rgb(var(--brand-primary))",
+                }}
+              />
+            </div>
+            <span
+              className="absolute -top-10 left-0 -translate-x-1/2 rounded-[var(--radius-sm)] px-3 py-1 font-mono text-[12px] font-bold whitespace-nowrap tabular-nums backdrop-blur-md"
+              style={{
+                background: "rgb(var(--bg-elevated) / 0.95)",
+                color: "rgb(var(--fg-default))",
+                boxShadow:
+                  "0 0 0 1.5px rgb(var(--brand-primary) / 0.45), 0 10px 32px -10px rgb(var(--brand-primary) / 0.55), 0 2px 8px -2px rgba(0,0,0,0.12)",
+              }}
+            >
+              {fmt(currentMs)}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Time labels — bottom rail */}
       <div className="mt-3 flex items-center justify-between font-mono text-[10.5px] tabular-nums">
-        <span className="text-[rgb(var(--fg-muted))]">{fmt(currentMs)}</span>
-        <span className="text-[rgb(var(--fg-muted))]">{fmt(durationMs)}</span>
+        <span
+          className={
+            appearance === "studio"
+              ? "text-[rgb(var(--fg-onsidebar)/0.6)]"
+              : "text-[rgb(var(--fg-muted))]"
+          }
+        >
+          {fmt(currentMs)}
+        </span>
+        <span
+          className={
+            appearance === "studio"
+              ? "text-[rgb(var(--fg-onsidebar)/0.6)]"
+              : "text-[rgb(var(--fg-muted))]"
+          }
+        >
+          {fmt(durationMs)}
+        </span>
       </div>
     </div>
   );

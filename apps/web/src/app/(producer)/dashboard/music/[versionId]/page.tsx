@@ -17,7 +17,9 @@ import {
 } from "../actions";
 import {
   l3AddComment,
+  completeArtwork,
   l3MarkVersionReady,
+  prepareArtwork,
   l3ReopenApprovedSong,
   l3ResolveComment,
   l3SetDownloadOverride,
@@ -81,6 +83,7 @@ export default async function ProducerSongPage({ params }: PageProps) {
       projectId: data.track.projectId,
       projectTitle: data.track.projectTitle,
       clientName: data.track.clientName,
+      artworkUrl: data.track.artworkUrl,
       archivedAtIso: data.track.archivedAt?.toISOString() ?? null,
       releasedAtIso: data.track.releasedAt?.toISOString() ?? null,
       workflowStage: data.track.workflowStage,
@@ -154,6 +157,8 @@ export default async function ProducerSongPage({ params }: PageProps) {
         markVersionReady: l3MarkVersionReady,
         reopenSong: l3ReopenApprovedSong,
         setDownloadOverride: l3SetDownloadOverride,
+        prepareArtwork,
+        completeArtwork,
         renameSong: renameMusicSong,
         editArtist: editMusicSongArtist,
         setArchived: setMusicSongArchived,

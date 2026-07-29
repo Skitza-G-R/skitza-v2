@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  clampSeekMs,
   normalizePlayerTrack,
+  playbackSetCommandFromDetail,
   persistPlaybackSnapshotForAccount,
   reducePlaybackSnapshot,
   restorePlaybackForAccount,
@@ -69,6 +71,7 @@ describe("playback restoration", () => {
       playing: false,
       currentMs: 0,
       audioDurationSec: null,
+      volume: 1,
     });
   });
 
@@ -116,6 +119,7 @@ describe("playback restoration", () => {
       playing: true,
       currentMs: 5_000,
       audioDurationSec: 20,
+      volume: 1,
     };
     vi.stubGlobal("localStorage", {
       setItem: (key: string, value: string) => values.set(key, value),
@@ -165,6 +169,7 @@ describe("playback restoration", () => {
       playing: true,
       currentMs: 2_000,
       audioDurationSec: 20,
+      volume: 1,
     };
     vi.stubGlobal("localStorage", {
       getItem: (key: string) => values.get(key) ?? null,
@@ -246,6 +251,7 @@ describe("playback event reducer", () => {
     playing: false,
     currentMs: 0,
     audioDurationSec: null,
+    volume: 1,
   };
   const track: PlayerTrack = {
     id: VERSION_ID,
@@ -280,5 +286,115 @@ describe("playback event reducer", () => {
       reducePlaybackSnapshot({ ...noAudio, currentMs: 100 }, { kind: "seek", currentMs: -500 })
         .currentMs,
     ).toBe(0);
+  });
+
+  it("loads a replacement track at an exact position and preserves its pause state", () => {
+    const pausedAtPosition = reducePlaybackSnapshot(empty, {
+      kind: "set",
+      track,
+      currentMs: 7_500,
+      playing: false,
+    });
+    const playingAtPosition = reducePlaybackSnapshot(empty, {
+      kind: "set",
+      track,
+      currentMs: 12_500,
+      playing: true,
+    });
+
+    expect(pausedAtPosition).toMatchObject({
+      track,
+      playing: false,
+      currentMs: 7_500,
+      volume: 1,
+    });
+    expect(playingAtPosition).toMatchObject({
+      track,
+      playing: true,
+      currentMs: 12_500,
+      volume: 1,
+    });
+  });
+
+  it("clamps a structured load to the target duration and never plays missing audio", () => {
+    expect(
+      reducePlaybackSnapshot(empty, {
+        kind: "set",
+        track,
+        currentMs: 25_000,
+        playing: true,
+      }).currentMs,
+    ).toBe(20_000);
+    expect(
+      reducePlaybackSnapshot(empty, {
+        kind: "set",
+        track: { ...track, audioUrl: null },
+        currentMs: 5_000,
+        playing: true,
+      }),
+    ).toMatchObject({ playing: false, currentMs: 5_000 });
+  });
+
+  it("preserves and clamps volume across track loads and close", () => {
+    const quiet = reducePlaybackSnapshot(empty, { kind: "volume", volume: 0.35 });
+    const loaded = reducePlaybackSnapshot(quiet, { kind: "set", track });
+    const closed = reducePlaybackSnapshot(loaded, { kind: "close" });
+
+    expect(quiet.volume).toBe(0.35);
+    expect(loaded.volume).toBe(0.35);
+    expect(closed.volume).toBe(0.35);
+    expect(reducePlaybackSnapshot(quiet, { kind: "volume", volume: -2 }).volume).toBe(0);
+    expect(reducePlaybackSnapshot(quiet, { kind: "volume", volume: 4 }).volume).toBe(1);
+    expect(reducePlaybackSnapshot(quiet, { kind: "volume", volume: Number.NaN }).volume).toBe(0.35);
+    expect(SOURCE).toContain("audio.volume = snapshot.volume");
+  });
+});
+
+describe("structured set-event compatibility", () => {
+  const track: PlayerTrack = {
+    id: VERSION_ID,
+    audioUrl: `/api/audio/stream/${VERSION_ID}`,
+    title: "Version comparison",
+    subtitle: "Artist",
+    durationMs: 20_000,
+  };
+
+  it("continues accepting the legacy raw PlayerTrack detail", () => {
+    expect(playbackSetCommandFromDetail(track)).toEqual({ kind: "set", track });
+  });
+
+  it("accepts a structured load with exact time and playing state", () => {
+    expect(
+      playbackSetCommandFromDetail({
+        track,
+        currentMs: 8_000,
+        playing: false,
+      }),
+    ).toEqual({
+      kind: "set",
+      track,
+      currentMs: 8_000,
+      playing: false,
+    });
+  });
+
+  it("rejects malformed structured load details", () => {
+    expect(
+      playbackSetCommandFromDetail({ track, currentMs: Number.NaN, playing: true }),
+    ).toBeNull();
+    expect(playbackSetCommandFromDetail({ track, currentMs: 1_000, playing: "yes" })).toBeNull();
+  });
+});
+
+describe("clampSeekMs", () => {
+  it("uses fixed millisecond deltas and clamps at both ends", () => {
+    expect(clampSeekMs(5_000, -15_000, 201_000)).toBe(0);
+    expect(clampSeekMs(60_000, 15_000, 201_000)).toBe(75_000);
+    expect(clampSeekMs(195_000, 15_000, 201_000)).toBe(201_000);
+  });
+
+  it("keeps a non-negative result when duration is not known", () => {
+    expect(clampSeekMs(60_000, 15_000, null)).toBe(75_000);
+    expect(clampSeekMs(Number.NaN, Number.NaN, null)).toBe(0);
   });
 });

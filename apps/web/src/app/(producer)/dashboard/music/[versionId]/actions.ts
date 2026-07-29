@@ -7,6 +7,10 @@ import { revalidatePath } from "next/cache";
 import { ZodError } from "zod";
 
 import { appRouter } from "~/server/trpc/routers/_app";
+import {
+  SONG_ARTWORK_CONTENT_TYPES,
+  type SongArtworkContentType,
+} from "~/server/domain/song-artwork/policy";
 
 // Server actions used by the L3 song page. Thin wrappers over the
 // existing project tRPC mutations (resolveComment, addProducerComment,
@@ -147,6 +151,60 @@ export async function l3SetDownloadOverride(input: {
     revalidatePath(pathDetail(input.versionId));
     revalidatePath(`/artist/music/song/${input.versionId}`);
     return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function prepareArtwork(input: {
+  trackId: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+}): Promise<
+  { ok: true; data: { uploadUrl: string; uploadToken: string } } | { ok: false; error: string }
+> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  if (!SONG_ARTWORK_CONTENT_TYPES.includes(input.contentType as SongArtworkContentType)) {
+    return { ok: false, error: "Choose a JPG, PNG, or WebP image." };
+  }
+  try {
+    const result = await c.caller.songArtwork.prepare({
+      trackId: input.trackId,
+      fileName: input.fileName,
+      contentType: input.contentType as SongArtworkContentType,
+      sizeBytes: input.sizeBytes,
+    });
+    return {
+      ok: true,
+      data: {
+        uploadUrl: result.uploadUrl,
+        uploadToken: result.uploadToken,
+      },
+    };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function completeArtwork(input: {
+  trackId: string;
+  versionId: string;
+  uploadToken: string;
+  objectEtag: string;
+}): Promise<{ ok: true; data: { artworkUrl: string } } | { ok: false; error: string }> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const result = await c.caller.songArtwork.complete({
+      trackId: input.trackId,
+      uploadToken: input.uploadToken,
+      objectEtag: input.objectEtag,
+    });
+    revalidatePath(pathDetail(input.versionId));
+    revalidatePath(`/artist/music/song/${input.versionId}`);
+    return { ok: true, data: { artworkUrl: result.artworkUrl } };
   } catch (err) {
     return { ok: false, error: toMessage(err) };
   }

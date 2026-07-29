@@ -1,72 +1,51 @@
 import { Skeleton } from "~/components/ui/skeleton";
 
-// Route-segment loading state for /artist/music/song/[versionId]
-// (L3 Song page). Mirrors the shared SongPage's shape: gradient hero
-// band with the album-art glyph + title + meta + action rail, then
-// the waveform card and a comments thread.
 export default function ArtistSongLoading() {
   return (
-    <div className="-mx-4 -mt-6 lg:-mx-10 lg:-mt-10">
-      {/* Hero band */}
-      <header className="relative isolate overflow-hidden bg-[rgb(var(--bg-elevated))] text-white">
-        <div className="relative mx-auto max-w-[1120px] px-4 pt-3 pb-4 sm:px-6 sm:pt-4 sm:pb-5">
-          <div className="mb-4 flex justify-end">
-            <Skeleton className="h-7 w-44 rounded-[var(--radius-sm)]" />
+    <div className="-mx-4 -mt-6 min-h-dvh bg-[rgb(var(--bg-sidebar))] px-4 pt-4 text-white lg:mx-0 lg:mt-0 lg:min-h-0 lg:bg-[rgb(var(--bg-background))] lg:p-4">
+      <div className="mx-auto grid max-w-[1480px] lg:h-[calc(100dvh-114px)] lg:min-h-[680px] lg:grid-cols-[minmax(0,1.82fr)_minmax(330px,1fr)] lg:gap-4">
+        <section className="flex min-w-0 flex-col">
+          <div className="flex min-h-11 items-center justify-between">
+            <Skeleton className="h-4 w-40 bg-white/10 lg:bg-[rgb(var(--fg-default)/0.07)]" />
+            <Skeleton className="h-11 w-11 rounded-full bg-white/10 lg:bg-[rgb(var(--fg-default)/0.07)]" />
           </div>
 
-          <div className="flex flex-col gap-4 md:flex-row md:items-end md:gap-5">
-            {/* Album-art tile */}
-            <Skeleton className="h-[88px] w-[88px] shrink-0 rounded-[20px]" />
-
-            {/* Title block */}
-            <div className="min-w-0 flex-1 space-y-2">
-              <Skeleton className="h-3 w-32" />
-              <Skeleton className="h-8 w-2/3" />
-              <Skeleton className="h-3.5 w-1/2" />
-            </div>
-
-            {/* Action rail */}
-            <div className="flex shrink-0 flex-wrap items-center gap-2.5">
-              <Skeleton className="h-11 w-24 rounded-[var(--radius-md)]" />
-              <Skeleton className="h-10 w-10 rounded-full" />
+          <div className="flex flex-col items-center gap-5 pt-4 pb-5 lg:flex-row lg:items-start">
+            <Skeleton className="aspect-square w-[min(calc(100vw-48px),420px)] rounded-[12px] bg-white/10 lg:h-[132px] lg:w-[132px] lg:bg-[rgb(var(--fg-default)/0.07)]" />
+            <div className="w-full space-y-3 pt-1">
+              <Skeleton className="mx-auto h-8 w-2/3 bg-white/10 lg:mx-0 lg:bg-[rgb(var(--fg-default)/0.07)]" />
+              <Skeleton className="mx-auto h-4 w-32 bg-white/10 lg:mx-0 lg:bg-[rgb(var(--fg-default)/0.07)]" />
+              <Skeleton className="mx-auto h-11 w-40 rounded-[var(--radius-lg)] bg-white/10 lg:mx-0 lg:bg-[rgb(var(--fg-default)/0.07)]" />
             </div>
           </div>
-        </div>
-      </header>
 
-      {/* Waveform card */}
-      <section className="mx-auto max-w-[1120px] px-4 py-4 sm:px-6 sm:py-5">
-        <Skeleton className="h-[88px] w-full rounded-[20px]" />
+          <div className="flex min-h-[238px] flex-1 flex-col justify-center rounded-[12px] border border-white/[0.08] bg-[rgb(28_26_20)] px-4 py-6">
+            <Skeleton className="h-24 w-full bg-white/[0.08]" />
+            <div className="mt-6 flex justify-center gap-8">
+              <Skeleton className="h-12 w-12 rounded-full bg-white/[0.08]" />
+              <Skeleton className="h-[68px] w-[68px] rounded-full bg-[rgb(var(--brand-primary)/0.35)]" />
+              <Skeleton className="h-12 w-12 rounded-full bg-white/[0.08]" />
+            </div>
+          </div>
+        </section>
 
-        {/* Notes header */}
-        <div className="mt-5 flex items-baseline justify-between">
-          <Skeleton className="h-5 w-20" />
-        </div>
-
-        {/* Composer */}
-        <div className="mt-2.5">
-          <Skeleton className="h-9 w-full rounded-[var(--radius-sm)]" />
-        </div>
-
-        {/* Comments list */}
-        <ul className="mt-2.5 flex flex-col gap-1.5">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <li
-              key={i}
-              className="flex items-start gap-2.5 rounded-[12px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2.5 py-2"
-            >
-              <Skeleton className="mt-0.5 h-7 w-7 shrink-0 rounded-full" />
-              <div className="min-w-0 flex-1 space-y-1.5">
-                <div className="flex gap-2">
-                  <Skeleton className="h-3 w-20" />
-                  <Skeleton className="h-3 w-14" />
-                </div>
-                <Skeleton className="h-3 w-3/4" />
+        <aside className="hidden min-h-0 rounded-[12px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 lg:block">
+          <div className="flex items-center justify-between border-b border-[rgb(var(--border-subtle))] pb-4">
+            <Skeleton className="h-5 w-20" />
+            <Skeleton className="h-4 w-10" />
+          </div>
+          <div className="space-y-5 py-5">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <div key={index} className="border-b border-[rgb(var(--border-subtle))] pb-5">
+                <Skeleton className="h-3 w-28" />
+                <Skeleton className="mt-2 h-3 w-full" />
+                <Skeleton className="mt-1.5 h-3 w-3/4" />
               </div>
-            </li>
-          ))}
-        </ul>
-      </section>
+            ))}
+          </div>
+          <Skeleton className="mt-auto h-12 w-full rounded-[12px]" />
+        </aside>
+      </div>
     </div>
   );
 }

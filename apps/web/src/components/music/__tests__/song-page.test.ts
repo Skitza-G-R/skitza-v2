@@ -387,18 +387,13 @@ describe("deleteVersionAudioPolicy — pre-Released protection and Released warn
 
 // ─── Source-grep — wiring ────────────────────────────────────────────
 
-describe("song-page.tsx — composer is at the TOP of the comments thread (founder feedback)", () => {
-  it("renders the composer block BEFORE the visibleComments .map iterator", () => {
-    // Founder asked to flip the layout: the new-comment input should
-    // be the first thing producers see when they scroll to the
-    // comments. Pin via source ordering — the composer's marker
-    // ("Add a note at this timestamp") must appear before the
-    // visibleComments mapping.
-    const composerIdx = songPageSrc.indexOf("Add a note at this timestamp");
+describe("song-page.tsx — composer is pinned below the professional note timeline", () => {
+  it("renders the composer block AFTER the visibleComments .map iterator", () => {
+    const composerIdx = songPageSrc.indexOf("Add a note at this time");
     const listIdx = songPageSrc.indexOf("visibleComments.map");
     expect(composerIdx).toBeGreaterThan(0);
     expect(listIdx).toBeGreaterThan(0);
-    expect(composerIdx).toBeLessThan(listIdx);
+    expect(composerIdx).toBeGreaterThan(listIdx);
   });
 });
 
@@ -599,7 +594,7 @@ describe("song-page.tsx source — passes pre-computed peaks to the waveform", (
     // Both props ride together — peaks=null falls back to peaksUrl,
     // and a missing audioUrl skips both (audio still uploading).
     expect(songPageSrc).toMatch(
-      /peaksUrl=\{activeVersionPlayable\s*\?\s*\(activeVersion\.audioUrl\s*\?\?\s*undefined\)/,
+      /peaksUrl=\{\s*activeVersionPlayable\s*\?\s*\(activeVersion\.audioUrl\s*\?\?\s*undefined\)/,
     );
   });
 });
@@ -767,8 +762,8 @@ describe("song-page.tsx source — producer L3 management", () => {
   });
 
   it("keeps the More menu above the later song body so every action remains clickable", () => {
-    expect(songPageSrc).toMatch(/<header className="[^"]*\bisolate\b[^"]*\bz-10\b[^"]*"/);
-    expect(songPageSrc).toContain("right-0 z-30");
+    expect(songPageSrc).toContain("right-0 z-50");
+    expect(songPageSrc).toContain("origin-top-right");
   });
 
   it("uses one action-panel component for the desktop popover and mobile sheet", () => {
@@ -799,7 +794,7 @@ describe("song-page.tsx source — producer L3 management", () => {
     expect(songPageSrc).toContain("overflowOpen && isDesktopMoreActions");
     expect(songPageSrc).toContain("if (!overflowOpen || !isDesktopMoreActions) return;");
     expect(songPageSrc).toContain('window.addEventListener("pointerdown", onDown)');
-    expect(songPageSrc).toContain("sk-pop absolute top-[calc(100%+8px)] right-0 z-30");
+    expect(songPageSrc).toContain("sk-pop absolute top-[calc(100%+8px)] right-0 z-50");
   });
 
   it("keeps permanent deletion for playable versions and exposes retry for tombstones", () => {
@@ -810,7 +805,7 @@ describe("song-page.tsx source — producer L3 management", () => {
 
   it("blocks archived-song comments with restore guidance without hiding playback/history", () => {
     expect(songPageSrc).toMatch(/songArchived/);
-    expect(songPageSrc).toMatch(/Restore this song.*comments|restore.*add comments/i);
+    expect(songPageSrc).toMatch(/Restore it to add notes|restore.*add notes/i);
     expect(songPageSrc).toContain("isSongPageVersionPlayable(activeVersion)");
   });
 });
@@ -910,37 +905,37 @@ describe("L3 project breadcrumb href is role-aware", () => {
 });
 
 describe("song-page.tsx source — phone touch targets", () => {
-  it("keeps the project-room link and comment Post button 44px tall on phones only", () => {
+  it("keeps project navigation and the comment composer at least 44px tall", () => {
     expect(songPageSrc).toMatch(
-      /data-test="project-room-link"[\s\S]{0,350}?className="[^"]*min-h-11[^"]*sm:min-h-0[^"]*"/,
+      /aria-label=\{"Back to "[\s\S]{0,350}?className="[^"]*min-h-11[^"]*"/,
     );
     expect(songPageSrc).toMatch(
-      /data-test="comment-post"[\s\S]{0,350}?className="[^"]*min-h-11[^"]*sm:min-h-0[^"]*"/,
+      /data-test="comment-post"[\s\S]{0,350}?className="[^"]*min-h-11[^"]*"/,
     );
     expect(songPageSrc).toMatch(
-      /data-test="comment-input"[\s\S]{0,350}?className="[^"]*min-h-11[^"]*sm:min-h-0[^"]*"/,
+      /data-test="comment-input"[\s\S]{0,350}?className="[^"]*min-h-11[^"]*"/,
     );
   });
 
-  it("gives both resolved and active note actions real 44px phone hit boxes", () => {
+  it("gives the shared resolved/active note actions real 44px phone hit boxes", () => {
     for (const control of ["timestamp", "jump", "reply", "resolve"]) {
       const matches = songPageSrc.match(
         new RegExp(
-          `data-test="comment-${control}"[\\s\\S]{0,350}?className="[^"]*min-h-11[^"]*sm:min-h-0[^"]*"`,
+          `data-test="comment-${control}"[\\s\\S]{0,350}?className="[^"]*min-h-11[^"]*lg:min-h-8[^"]*"`,
           "g",
         ),
       );
-      expect(matches, `${control} controls`).toHaveLength(2);
+      expect(matches, `${control} controls`).toHaveLength(1);
     }
 
     for (const control of ["timestamp", "jump", "reply", "resolve"]) {
       const matches = songPageSrc.match(
         new RegExp(
-          `data-test="comment-${control}"[\\s\\S]{0,350}?className="[^"]*min-w-11[^"]*sm:min-w-0[^"]*"`,
+          `data-test="comment-${control}"[\\s\\S]{0,350}?className="[^"]*min-w-11[^"]*lg:min-w-0[^"]*"`,
           "g",
         ),
       );
-      expect(matches, `${control} control widths`).toHaveLength(2);
+      expect(matches, `${control} control widths`).toHaveLength(1);
     }
   });
 });
