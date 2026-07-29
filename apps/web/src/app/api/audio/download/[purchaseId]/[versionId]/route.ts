@@ -1,7 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { createDb } from "@skitza/db";
 
-import { fetchUserRole } from "~/server/auth/role";
 import { audioDeliveryRepository } from "~/server/domain/audio-delivery/db";
 import {
   audioDeliveryErrorResponse,
@@ -22,8 +21,6 @@ export async function GET(
   if (!userId) return audioNotFoundResponse();
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error("Missing DATABASE_URL");
-  const role = await fetchUserRole({ dbUrl: databaseUrl, userId });
-  if (role.kind !== "artist") return audioNotFoundResponse();
   const db = createDb(databaseUrl);
   try {
     return await deliverArtistDownload(

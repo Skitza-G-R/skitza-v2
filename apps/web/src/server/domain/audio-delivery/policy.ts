@@ -297,6 +297,35 @@ export function authorizePrivateStream(
   return requireAuthorizedStoredAudio(context);
 }
 
+/**
+ * Private playback is authorized against the exact resource owner, not the
+ * account's preferred platform. A Clerk account may genuinely own producer
+ * resources and be the artist on another producer's resources; either exact
+ * graph grants playback while archived artist links and cross-tenant graphs
+ * continue to fail closed.
+ */
+export function authorizePrivateStreamForAccount(
+  context: AudioDeliveryContext,
+  clerkUserId: string,
+): AuthorizedStoredAudio {
+  const producerViewer: AudioDeliveryViewer = {
+    role: "producer",
+    clerkUserId,
+  };
+  const artistViewer: AudioDeliveryViewer = {
+    role: "artist",
+    clerkUserId,
+  };
+  if (
+    !ownershipGraphMatches(context) ||
+    (!exactProducerOwner(context, producerViewer) &&
+      !exactArtistOwner(context, artistViewer))
+  ) {
+    throw new AudioDeliveryDomainError("NOT_FOUND", "Audio was not found");
+  }
+  return requireAuthorizedStoredAudio(context);
+}
+
 export function authorizeProducerDownload(
   context: AudioDeliveryContext,
   viewer: AudioDeliveryViewer,

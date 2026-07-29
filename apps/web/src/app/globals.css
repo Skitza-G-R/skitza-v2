@@ -1944,6 +1944,513 @@
 }
 
 /* ----------------------------------------------------------------
+ * Auth surfaces — focused sign-in + marketing-led sign-up (SK-152).
+ *
+ * The parent `(public)` layout intentionally pins its own wrapper to
+ * `chrome-dark`. Auth is different: it follows next-themes on <html>, so this
+ * local token boundary must explicitly reset every canonical colour that the
+ * public wrapper would otherwise pass down. The root selector below mirrors
+ * the saved/system theme without a client mount gate or a flash of the wrong
+ * palette.
+ * ---------------------------------------------------------------- */
+.sk-auth-shell {
+  --bg-background: 242 237 230;
+  --bg-elevated: 255 255 255;
+  --bg-sidebar: 17 16 9;
+  --bg-overlay: 247 243 235;
+  --bg-sunken: 232 225 212;
+
+  --fg-default: 17 16 9;
+  --fg-secondary: 61 55 48;
+  --fg-muted: 107 99 89;
+  --fg-faint: 156 148 138;
+  --fg-inverse: 242 237 230;
+  --fg-success: 34 197 94;
+  --fg-danger: 220 38 38;
+  --fg-warning: 245 158 11;
+  --fg-success-text: 15 105 50;
+  --fg-danger-text: 174 25 25;
+  --fg-warning-text: 128 76 0;
+  --fg-on-success: 255 255 255;
+
+  --brand-primary: 212 150 10;
+  --brand-primary-soft: 212 150 10;
+  --brand-primary-dark: 161 113 6;
+  --brand-primary-text: 120 80 0;
+  --brand-copper: 176 104 48;
+  --fg-on-brand: 26 20 7;
+
+  --border-subtle: 232 225 212;
+  --border-strong: 200 192 178;
+  --border-control: 107 99 89;
+  --focus-ring: 150 104 0;
+  --shadow-sm: 0 1px 2px 0 rgb(17 16 9 / 0.05);
+  --shadow-md: 0 4px 12px -2px rgb(17 16 9 / 0.08);
+  --shadow-lg: 0 16px 40px -8px rgb(17 16 9 / 0.12);
+
+  --bg-base: var(--bg-background);
+  --bg-default: var(--bg-elevated);
+  --fg-primary: var(--fg-default);
+  --brand-accent: var(--brand-copper);
+  --brand-accent-soft: var(--brand-copper);
+  --border-default: var(--border-strong);
+  --accent: var(--brand-primary);
+
+  min-height: 100svh;
+  min-height: var(--sk-viewport-height, 100dvh);
+  isolation: isolate;
+  color-scheme: light;
+  background:
+    radial-gradient(circle at 50% 42%, rgb(var(--brand-primary) / 0.055), transparent 31rem),
+    rgb(var(--bg-background));
+}
+
+html[data-theme="chrome-dark"] .sk-auth-shell,
+html[data-theme="dark"] .sk-auth-shell {
+  --bg-background: 17 16 9;
+  --bg-elevated: 28 26 20;
+  --bg-sidebar: 9 8 4;
+  --bg-overlay: 42 36 32;
+  --bg-sunken: 13 11 9;
+
+  --fg-default: 242 237 230;
+  --fg-secondary: 215 206 194;
+  --fg-muted: 168 154 139;
+  --fg-faint: 107 99 89;
+  --fg-inverse: 17 16 9;
+  --fg-success: 120 200 140;
+  --fg-danger: 230 110 90;
+  --fg-warning: 245 180 60;
+  --fg-success-text: 134 227 161;
+  --fg-danger-text: 255 154 136;
+  --fg-warning-text: 255 208 128;
+  --fg-on-success: 17 16 9;
+
+  --brand-primary: 229 163 36;
+  --brand-primary-soft: 229 163 36;
+  --brand-primary-dark: 212 150 10;
+  --brand-primary-text: 240 184 78;
+  --brand-copper: 201 122 66;
+  --fg-on-brand: 26 20 7;
+
+  --border-subtle: 40 38 32;
+  --border-strong: 60 56 48;
+  --border-control: 168 154 139;
+  --focus-ring: 240 184 78;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+  --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.5);
+  --shadow-lg: 0 16px 40px -8px rgb(0 0 0 / 0.6);
+
+  color-scheme: dark;
+}
+
+.sk-auth-main {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  min-height: 100svh;
+  min-height: var(--sk-viewport-height, 100dvh);
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.sk-auth-theme-control {
+  position: absolute;
+  z-index: 30;
+  top: max(1rem, env(safe-area-inset-top, 0px));
+  right: max(1rem, env(safe-area-inset-right, 0px));
+}
+
+.sk-auth-brand-panel {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  padding:
+    max(1rem, env(safe-area-inset-top, 0px))
+    max(5rem, calc(1.5rem + env(safe-area-inset-right, 0px)))
+    1rem
+    max(1.5rem, env(safe-area-inset-left, 0px));
+  color: white;
+  background: linear-gradient(155deg, #100e07 0%, #1d1810 55%, #2c2412 100%);
+}
+
+.sk-auth-brand-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  min-height: 44px;
+  flex-direction: column;
+}
+
+.sk-auth-brand-glow {
+  position: absolute;
+  pointer-events: none;
+  display: block;
+  border-radius: 9999px;
+}
+
+.sk-auth-brand-glow-top {
+  top: -11rem;
+  right: -7rem;
+  width: 23rem;
+  height: 23rem;
+  background: radial-gradient(circle, rgb(212 150 10 / 0.3) 0%, transparent 70%);
+}
+
+.sk-auth-brand-glow-bottom {
+  bottom: -14rem;
+  left: -10rem;
+  width: 30rem;
+  height: 30rem;
+  background: radial-gradient(circle, rgb(176 104 48 / 0.2) 0%, transparent 70%);
+}
+
+.sk-auth-wordmark {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 44px;
+  align-items: center;
+  gap: 0.625rem;
+  border-radius: var(--radius-lg);
+  padding-inline: 0.25rem;
+  color: inherit;
+}
+
+.sk-auth-wordmark-mark {
+  display: flex;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  background: rgb(var(--brand-primary));
+  color: #100e07;
+  font-family: var(--font-syne), sans-serif;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
+.sk-auth-standalone-only,
+.sk-auth-marketing,
+.sk-auth-trust-copy {
+  display: none;
+}
+
+.sk-auth-form-column {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding:
+    1.25rem
+    max(1.5rem, env(safe-area-inset-right, 0px))
+    max(1.5rem, env(safe-area-inset-bottom, 0px))
+    max(1.5rem, env(safe-area-inset-left, 0px));
+  background: rgb(var(--bg-background));
+}
+
+.sk-auth-form-stage {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.sk-auth-page {
+  width: 100%;
+  min-width: 0;
+}
+
+.sk-auth-form .cl-formButtonPrimary {
+  color: rgb(var(--fg-on-brand)) !important;
+}
+
+.sk-auth-footer {
+  display: flex;
+  margin-top: 1.5rem;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+/* Sign-in is an app entrance, so its brand row belongs to the active theme
+ * instead of inheriting the sign-up marketing panel. */
+.sk-auth-main:has(
+  [data-auth-page="sign-in"],
+  [data-auth-page="role-choice"]
+) {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.sk-auth-main:has(
+  [data-auth-page="sign-in"],
+  [data-auth-page="role-choice"]
+) .sk-auth-brand-panel {
+  overflow: visible;
+  padding-bottom: 0;
+  color: rgb(var(--fg-default));
+  background: transparent;
+}
+
+.sk-auth-main:has(
+  [data-auth-page="sign-in"],
+  [data-auth-page="role-choice"]
+) .sk-auth-brand-glow {
+  display: none;
+}
+
+.sk-auth-main:has(
+  [data-auth-page="sign-in"],
+  [data-auth-page="role-choice"]
+) .sk-auth-form-column {
+  padding-top: 0.75rem;
+}
+
+/* Real workflow preview: a restrained studio-style signal path, not
+ * unsupported vanity metrics or decorative city names. */
+.sk-auth-workflow {
+  margin-top: 2rem;
+  max-width: 30rem;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: var(--radius-xl);
+  background: rgb(255 255 255 / 0.055);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.06),
+    0 24px 64px rgb(0 0 0 / 0.22);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.sk-auth-workflow-list {
+  position: relative;
+  margin: 0;
+  padding: 0.375rem 1.25rem 0.375rem 1.375rem;
+  list-style: none;
+}
+
+.sk-auth-workflow-list::before {
+  position: absolute;
+  top: 1.55rem;
+  bottom: 1.55rem;
+  left: 1.675rem;
+  width: 1px;
+  content: "";
+  background: linear-gradient(
+    to bottom,
+    rgb(var(--brand-primary) / 0.12),
+    rgb(var(--brand-primary) / 0.7),
+    rgb(var(--brand-primary) / 0.12)
+  );
+}
+
+.sk-auth-workflow-step {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.875rem;
+  padding-block: 0.875rem;
+}
+
+.sk-auth-workflow-step + .sk-auth-workflow-step {
+  border-top: 1px solid rgb(255 255 255 / 0.08);
+}
+
+.sk-auth-workflow-node {
+  position: relative;
+  z-index: 1;
+  width: 0.625rem;
+  height: 0.625rem;
+  flex: 0 0 auto;
+  border: 2px solid #1d1810;
+  border-radius: 9999px;
+  background: rgb(var(--brand-primary));
+  box-shadow: 0 0 0 3px rgb(var(--brand-primary) / 0.13);
+}
+
+@media (max-width: 1023px) {
+  /* The compact sign-up header remains dark; keep the theme control legible
+   * while its setting still changes the form surface below. */
+  .sk-auth-shell:not(:has(
+    [data-auth-page="sign-in"],
+    [data-auth-page="role-choice"]
+  )) .sk-auth-theme-control {
+    --fg-muted: 215 206 194;
+    --fg-primary: 242 237 230;
+    --fg-default: 242 237 230;
+    --bg-overlay: 255 255 255;
+  }
+
+  /* Sign-in is integrated into the phone surface. The width and padding
+   * safeguards below remain intact; only desktop receives explicit card
+   * chrome. */
+  .sk-auth-main:has([data-auth-page="sign-in"]) .cl-card,
+  .sk-auth-main:has([data-auth-page="sign-in"]) .cl-cardBox {
+    border-color: transparent !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  /* Clerk renders its action + security/development labels in a separate
+   * footer surface. Fold that chrome into the same native phone canvas while
+   * keeping every footer link and label visible. */
+  .sk-auth-main:has([data-auth-page="sign-in"]) .sk-auth-form .cl-footer,
+  .sk-auth-main:has([data-auth-page="sign-in"]) .sk-auth-form .cl-footerAction,
+  .sk-auth-main:has([data-auth-page="sign-in"]) .sk-auth-form .cl-footerPages,
+  .sk-auth-main:has([data-auth-page="sign-in"]) .sk-auth-form .cl-footerPagesRoot {
+    border-color: transparent !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .sk-auth-main:has([data-auth-page="sign-in"]) .sk-auth-form .cl-footer::before,
+  .sk-auth-main:has([data-auth-page="sign-in"]) .sk-auth-form .cl-footer::after,
+  .sk-auth-main:has([data-auth-page="sign-in"]) .sk-auth-form .cl-footerPages::before,
+  .sk-auth-main:has([data-auth-page="sign-in"]) .sk-auth-form .cl-footerPages::after {
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+}
+
+@media (min-width: 640px) {
+  .sk-auth-brand-panel {
+    padding-left: max(2.5rem, env(safe-area-inset-left, 0px));
+  }
+
+  .sk-auth-form-column {
+    padding-right: max(2.5rem, env(safe-area-inset-right, 0px));
+    padding-bottom: max(2.5rem, env(safe-area-inset-bottom, 0px));
+    padding-left: max(2.5rem, env(safe-area-inset-left, 0px));
+  }
+}
+
+@media (min-width: 1024px) {
+  /* The dedicated invite flow intentionally stays compact instead of
+   * inheriting producer sign-up marketing, so its top control remains over
+   * the short dark brand band. */
+  .sk-auth-shell:not(:has([data-auth-page])) .sk-auth-theme-control {
+    --fg-muted: 215 206 194;
+    --fg-primary: 242 237 230;
+    --fg-default: 242 237 230;
+    --bg-overlay: 255 255 255;
+  }
+
+  .sk-auth-main:has([data-auth-page="sign-up"]) {
+    grid-template-columns: minmax(0, 1.05fr) minmax(27rem, 1fr);
+  }
+
+  .sk-auth-main:has([data-auth-page="sign-up"]) .sk-auth-brand-panel {
+    min-height: var(--sk-viewport-height, 100dvh);
+    padding:
+      max(3rem, env(safe-area-inset-top, 0px))
+      3.5rem
+      max(3rem, env(safe-area-inset-bottom, 0px))
+      max(3.5rem, env(safe-area-inset-left, 0px));
+  }
+
+  .sk-auth-main:has([data-auth-page="sign-up"]) .sk-auth-brand-inner {
+    height: 100%;
+    min-height: calc(var(--sk-viewport-height, 100dvh) - 6rem);
+    justify-content: space-between;
+    gap: 2.5rem;
+  }
+
+  .sk-auth-main:has([data-auth-page="sign-up"]) .sk-auth-marketing {
+    display: block;
+    margin-block: auto;
+  }
+
+  .sk-auth-main:has([data-auth-page="sign-up"]) .sk-auth-trust-copy {
+    display: block;
+    max-width: 32rem;
+    color: rgb(255 255 255 / 0.48);
+    font-family: var(--font-mono), monospace;
+    font-size: 10px;
+    line-height: 1.55;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .sk-auth-form-column {
+    padding:
+      max(3rem, env(safe-area-inset-top, 0px))
+      max(3.5rem, env(safe-area-inset-right, 0px))
+      max(3rem, env(safe-area-inset-bottom, 0px))
+      3.5rem;
+  }
+
+  .sk-auth-form-stage {
+    align-items: center;
+  }
+
+  .sk-auth-main:has(
+    [data-auth-page="sign-in"],
+    [data-auth-page="role-choice"]
+  ) .sk-auth-brand-panel {
+    padding:
+      max(2rem, env(safe-area-inset-top, 0px))
+      max(5rem, calc(2rem + env(safe-area-inset-right, 0px)))
+      0
+      max(2rem, env(safe-area-inset-left, 0px));
+  }
+
+  .sk-auth-main:has(
+    [data-auth-page="sign-in"],
+    [data-auth-page="role-choice"]
+  ) .sk-auth-form-column {
+    padding-top: 0;
+  }
+
+  /* The approved desktop Clerk card stays explicit and bounded. These
+   * unlayered declarations intentionally beat Clerk's runtime stylesheet. */
+  .sk-auth-main:has([data-auth-page="sign-in"]) .sk-auth-form .cl-rootBox,
+  .sk-auth-main:has([data-auth-page="sign-in"]) .sk-auth-form .cl-cardBox {
+    width: 100% !important;
+    max-width: 420px !important;
+  }
+
+  .sk-auth-main:has([data-auth-page="sign-in"]) .sk-auth-form .cl-card {
+    border: 1px solid rgb(var(--border-subtle)) !important;
+    border-radius: var(--radius-xl) !important;
+    background: rgb(var(--bg-elevated)) !important;
+    box-shadow: var(--shadow-lg) !important;
+  }
+
+  [data-auth-page="role-choice"] {
+    border: 1px solid rgb(var(--border-subtle));
+    border-radius: var(--radius-xl);
+    padding: 1.75rem;
+    background: rgb(var(--bg-elevated));
+    box-shadow: var(--shadow-lg);
+  }
+}
+
+@media (display-mode: standalone) {
+  .sk-auth-browser-only {
+    display: none !important;
+  }
+
+  .sk-auth-standalone-only {
+    display: inline-flex;
+  }
+
+  .sk-auth-footer {
+    justify-content: flex-end;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sk-auth-shell *,
+  .sk-auth-shell *::before,
+  .sk-auth-shell *::after {
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ----------------------------------------------------------------
  * Auth surfaces — compact the Clerk card on phones (SK-52).
  *
  * Clerk's <SignIn>/<SignUp> white card IS the approved look (Gili
@@ -1975,6 +2482,14 @@
   }
   .sk-auth-form .cl-card {
     padding: 20px 18px !important;
+  }
+  .sk-auth-form .cl-formFieldInput {
+    min-height: 44px !important;
+    font-size: 16px !important;
+  }
+  .sk-auth-form .cl-formButtonPrimary,
+  .sk-auth-form .cl-socialButtonsBlockButton {
+    min-height: 44px !important;
   }
   /* Clerk's internal stack gaps are desktop-scale; tighten so the
      full sign-up (band -> CTA -> "Secured by Clerk") lands inside

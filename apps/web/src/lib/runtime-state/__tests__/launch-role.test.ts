@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { runtimeLaunchHrefForRole } from "../launch-role";
+import {
+  runtimeLaunchHrefForMemberships,
+  runtimeLaunchHrefForRole,
+} from "../launch-role";
 
 describe("runtime launch role resolver", () => {
   it.each([
@@ -68,5 +71,77 @@ describe("runtime launch role resolver", () => {
     expect(runtimeLaunchHrefForRole(producer, "/artist/music")).toBe(
       "/dashboard",
     );
+  });
+});
+
+describe("membership-aware runtime launch resolver", () => {
+  const completeProducer = {
+    kind: "producer-complete" as const,
+    producer: {
+      id: "producer-a",
+      displayName: "Producer",
+      slug: "producer",
+      email: "producer@example.com",
+    },
+  };
+
+  it("asks a genuine dual account which safe workspace to resume", () => {
+    expect(
+      runtimeLaunchHrefForMemberships(
+        {
+          primaryRole: completeProducer,
+          hasArtistAccount: true,
+        },
+        "/artist/music?studio=studio-a&mode=songs",
+      ),
+    ).toBe(
+      "/choose-role?next=%2Fartist%2Fmusic%3Fmode%3Dsongs%26studio%3Dstudio-a",
+    );
+  });
+
+  it("resumes a disconnected artist in the artist workspace", () => {
+    expect(
+      runtimeLaunchHrefForMemberships(
+        {
+          primaryRole: { kind: "orphan" },
+          hasArtistAccount: true,
+        },
+        "/artist/music?mode=projects",
+      ),
+    ).toBe("/artist/music?mode=projects");
+  });
+
+  it("carries only an allowlisted saved screen through an expired session", () => {
+    const unauthenticated = {
+      primaryRole: { kind: "unauthenticated" as const },
+      hasArtistAccount: false,
+    };
+
+    expect(
+      runtimeLaunchHrefForMemberships(
+        unauthenticated,
+        "/dashboard/music?mode=songs&search=demo",
+      ),
+    ).toBe(
+      "/sign-in?redirect_url=%2Fdashboard%2Fmusic%3Fmode%3Dsongs%26search%3Ddemo",
+    );
+    expect(
+      runtimeLaunchHrefForMemberships(
+        unauthenticated,
+        "/artist/payments/purchase-1",
+      ),
+    ).toBe("/sign-in");
+  });
+
+  it("keeps a producer-only account on the producer platform", () => {
+    expect(
+      runtimeLaunchHrefForMemberships(
+        {
+          primaryRole: completeProducer,
+          hasArtistAccount: false,
+        },
+        "/artist/music",
+      ),
+    ).toBe("/dashboard");
   });
 });
