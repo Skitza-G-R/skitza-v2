@@ -35,7 +35,7 @@ function state(versionId: string): DownloadOverrideState {
 }
 
 describe("loadProducerSongSupplements", () => {
-  it("starts publication and one delivery batch together for every version", async () => {
+  it("waits for publication to release its locks before starting one delivery batch", async () => {
     const publication = deferred<typeof sharing>();
     const delivery = deferred<{ states: DownloadOverrideState[] }>();
     const producerState = vi.fn(() => publication.promise);
@@ -58,14 +58,18 @@ describe("loadProducerSongSupplements", () => {
 
     await Promise.resolve();
     expect(producerState).toHaveBeenCalledOnce();
-    expect(overrideStates).toHaveBeenCalledOnce();
+    expect(overrideStates).not.toHaveBeenCalled();
+
+    publication.resolve(sharing);
+    await vi.waitFor(() => {
+      expect(overrideStates).toHaveBeenCalledOnce();
+    });
     expect(overrideStates).toHaveBeenCalledWith({
       purchaseId: "purchase-1",
       trackId: "track-1",
       versionIds: ["version-1", "version-2", "version-3"],
     });
 
-    publication.resolve(sharing);
     delivery.resolve({
       states: [state("version-1"), state("version-2"), state("version-3")],
     });
