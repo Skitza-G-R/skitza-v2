@@ -284,10 +284,32 @@ describeWithTestDatabase("SK-92 song-space allocation — separate CI test datab
         "artist" text,
         "position" integer not null default 0,
         "workflow_stage" text not null default 'brief',
+        "artwork_r2_key" text,
+        "artwork_content_type" text,
+        "artwork_size_bytes" bigint,
+        "artwork_object_etag" text,
         "released_at" timestamptz,
         "archived_at" timestamptz,
         "portfolio_published_at" timestamptz,
         "created_at" timestamptz not null default now(),
+        constraint "project_tracks_artwork_identity_shape" check ((
+          (
+            "artwork_r2_key" is null
+            and "artwork_content_type" is null
+            and "artwork_size_bytes" is null
+            and "artwork_object_etag" is null
+          )
+          or
+          (
+            nullif(btrim("artwork_r2_key"), '') is not null
+            and char_length("artwork_r2_key") <= 1024
+            and "artwork_content_type" in ('image/jpeg', 'image/png', 'image/webp')
+            and "artwork_size_bytes" > 0
+            and "artwork_size_bytes" <= 5242880
+            and nullif(btrim("artwork_object_etag"), '') is not null
+            and char_length("artwork_object_etag") <= 512
+          )
+        ) is true),
         constraint "project_tracks_purchase_project_fk" foreign key ("purchase_id", "project_id")
           references ${schema}."purchases"("id", "project_id") on delete restrict
       )`,
