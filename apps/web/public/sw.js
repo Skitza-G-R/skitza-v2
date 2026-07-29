@@ -15,11 +15,12 @@
 importScripts("/pwa/cache-policy.js");
 importScripts("/pwa/push-policy.js");
 
-const SW_VERSION = "2026-07-25-sk118-1";
+const SW_VERSION = "2026-07-27-sk128-1";
 const CACHE_PREFIX = "skitza-native-";
 const CACHE_NAME = `${CACHE_PREFIX}${SW_VERSION}`;
 const OBSOLETE_CACHE_PREFIX = "skitza-shell-";
 const OFFLINE_URL = "/offline.html";
+const PUBLIC_LAUNCH_HEADER = "x-skitza-public-bootstrap";
 const PUSH_DELIVERY_CONTROL_CACHE = "skitza-push-control-v1";
 const PUSH_DELIVERY_SUPPRESSED_URL = "/pwa/push-delivery-suppressed";
 const PUSH_DELIVERY_BOUNDARY_NONCE_HEADER =
@@ -80,25 +81,129 @@ async function cacheFirst(request) {
   const cached = await cache.match(request);
   if (cached) return cached;
 
-  const response = await fetch(request);
-  if (isCacheableResponse(response)) {
+  const requestUrl = new URL(request.url);
+  const isLaunchDocument =
+    requestUrl.origin === self.location.origin &&
+    requestUrl.pathname === "/launch" &&
+    requestUrl.search === "";
+  let response;
+  try {
+    response = isLaunchDocument
+      ? await fetchPublicLaunchDocument()
+      : await fetch(request);
+  } catch (error) {
+    if (isLaunchDocument) return offlineBoundaryResponse();
+    throw error;
+  }
+  if (isLaunchDocument) {
+    try {
+      await cacheLaunchDocumentAndStaticAssets(
+        cache,
+        response,
+        new URL("/launch", self.location.origin),
+      );
+    } catch {
+      // The online public document can still render. It becomes durable only
+      // after every required static asset is safely available offline.
+    }
+  } else if (isCacheableResponse(response)) {
     await cache.put(request, response.clone());
   }
   return response;
+}
+
+function isCacheableLaunchDocument(response, launchUrl) {
+  if (
+    !isCacheableResponse(response) ||
+    response.redirected ||
+    response.headers.get(PUBLIC_LAUNCH_HEADER) !== "1" ||
+    !response.headers
+      .get("content-type")
+      ?.toLowerCase()
+      .includes("text/html")
+  ) {
+    return false;
+  }
+
+  try {
+    const responseUrl = new URL(response.url);
+    return (
+      responseUrl.origin === self.location.origin &&
+      responseUrl.href === launchUrl.href
+    );
+  } catch {
+    return false;
+  }
+}
+
+function fetchPublicLaunchDocument() {
+  return fetch(new URL("/launch", self.location.origin).href, {
+    cache: "no-store",
+    credentials: "omit",
+    redirect: "error",
+  });
+}
+
+async function cacheLaunchDocumentAndStaticAssets(cache, launch, launchUrl) {
+  if (!isCacheableLaunchDocument(launch, launchUrl)) return false;
+
+  const html = await launch.clone().text();
+  const assets = new Set();
+  const attributePattern = /(?:src|href)=["']([^"']+)["']/g;
+  let match;
+  while ((match = attributePattern.exec(html)) !== null) {
+    const candidate = match[1];
+    if (typeof candidate !== "string") continue;
+
+    const decodedCandidate = candidate.replace(/&amp;/g, "&");
+    if (!decodedCandidate.startsWith("/_next/static/")) continue;
+
+    try {
+      const assetUrl = new URL(decodedCandidate, self.location.origin);
+      if (
+        assetUrl.origin === self.location.origin &&
+        assetUrl.pathname.startsWith("/_next/static/")
+      ) {
+        assets.add(`${assetUrl.pathname}${assetUrl.search}`);
+      }
+    } catch {
+      // Malformed launch markup never broadens the static cache allowlist.
+    }
+  }
+
+  if (assets.size === 0) return false;
+  await cache.addAll(Array.from(assets));
+  await cache.put("/launch", launch.clone());
+  return true;
+}
+
+async function precacheLaunchDocumentAndStaticAssets(cache) {
+  try {
+    const launchUrl = new URL("/launch", self.location.origin);
+    const launch = await fetchPublicLaunchDocument();
+    await cacheLaunchDocumentAndStaticAssets(cache, launch, launchUrl);
+  } catch {
+    // A launch response that cannot be completely verified and cached stays
+    // network-only. Public chunks still use the normal cache-first path.
+  }
+}
+
+async function offlineBoundaryResponse() {
+  const cache = await caches.open(CACHE_NAME);
+  const offline = await cache.match(OFFLINE_URL);
+  if (offline) return offline;
+
+  return new Response("Skitza is offline. Reconnect and try again.", {
+    status: 503,
+    headers: { "content-type": "text/plain; charset=utf-8" },
+  });
 }
 
 async function networkWithOfflineBoundary(request) {
   try {
     return await fetch(request);
   } catch {
-    const cache = await caches.open(CACHE_NAME);
-    const offline = await cache.match(OFFLINE_URL);
-    if (offline) return offline;
-
-    return new Response("Skitza is offline. Reconnect and try again.", {
-      status: 503,
-      headers: { "content-type": "text/plain; charset=utf-8" },
-    });
+    return offlineBoundaryResponse();
   }
 }
 
@@ -211,6 +316,7 @@ self.addEventListener("install", (event) => {
     (async () => {
       const cache = await caches.open(CACHE_NAME);
       await cache.addAll(PRECACHE_URLS);
+      await precacheLaunchDocumentAndStaticAssets(cache);
 
       // The replaced worker cached authenticated shell HTML. Remove that
       // obsolete cache as soon as the privacy-safe worker is installed,

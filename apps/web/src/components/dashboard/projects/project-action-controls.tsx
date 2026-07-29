@@ -1,7 +1,7 @@
 "use client";
 
 import { Archive, ArchiveRestore, Ban, Pencil, Trash2 } from "lucide-react";
-import { type MouseEvent, useEffect, useRef, useState } from "react";
+import { type MouseEvent, type RefObject, useEffect, useRef, useState } from "react";
 
 import { DeleteEmptyProjectDialog } from "./delete-empty-project-dialog";
 import { EditProjectDialog } from "./edit-project-dialog";
@@ -25,6 +25,8 @@ export interface ProjectActionControlsProps extends ProjectActionCallbacks {
   /** Surface is for regular rows/cards; hero uses high-contrast glass controls. */
   appearance?: "surface" | "hero" | undefined;
   className?: string | undefined;
+  /** Stable destination control used after lifecycle changes unmount this row. */
+  lifecycleSuccessFocusRef?: RefObject<HTMLElement | null> | undefined;
 }
 
 /**
@@ -37,11 +39,12 @@ export function ProjectActionControls({
   project,
   appearance = "surface",
   className,
+  lifecycleSuccessFocusRef,
   onChanged,
   onDeleted,
 }: ProjectActionControlsProps) {
   const [dialog, setDialog] = useState<ProjectDialog | null>(null);
-  const returnFocusRef = useRef<HTMLButtonElement | null>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     setDialog(null);
@@ -59,6 +62,14 @@ export function ProjectActionControls({
     event.stopPropagation();
     returnFocusRef.current = event.currentTarget;
     setDialog(nextDialog);
+  };
+
+  const handleLifecycleChanged = (projectId: string) => {
+    const fallback = lifecycleSuccessFocusRef?.current;
+    if (fallback?.isConnected) {
+      returnFocusRef.current = fallback;
+    }
+    onChanged?.(projectId);
   };
 
   const commonClass =
@@ -173,7 +184,7 @@ export function ProjectActionControls({
           }}
           project={project}
           mode={dialog}
-          onChanged={onChanged}
+          onChanged={handleLifecycleChanged}
           returnFocusRef={returnFocusRef}
         />
       ) : null}

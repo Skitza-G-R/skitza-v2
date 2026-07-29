@@ -128,6 +128,22 @@ describe("Phase 4 Sheet primitive motion", () => {
   });
 });
 
+describe("inner-tab direct manipulation motion", () => {
+  it("tracks the gesture without a transition and settles with the shared easing", () => {
+    expect(GLOBALS_CSS).toMatch(/\[data-tab-swipe-state="dragging"\][\s\S]*?transition:\s*none/);
+    expect(GLOBALS_CSS).toMatch(
+      /\[data-tab-swipe-state="settling"\][\s\S]*?transition:\s*transform 160ms var\(--ease-out-strong\)/,
+    );
+    expect(GLOBALS_CSS).toContain("transform: translate3d(var(--sk-tab-swipe-x, 0px), 0, 0)");
+  });
+
+  it("neutralises tab-settle motion for reduced-motion users", () => {
+    expect(GLOBALS_CSS).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\[data-tab-swipe-state\][\s\S]*?transition:\s*none !important/,
+    );
+  });
+});
+
 // Landing CSS (Phase 3 v3) is a slim companion to globals.css —
 // the v3 landing leans almost entirely on token-bound Tailwind
 // arbitrary values + the motion primitives in globals.css. The only

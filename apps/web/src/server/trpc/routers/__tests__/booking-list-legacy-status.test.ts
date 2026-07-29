@@ -33,6 +33,14 @@ describe("canonical booking list status and purchase projection", () => {
     expect(bookingList).not.toContain("bookings.status}::text");
   });
 
+  it("optionally bounds the read to one producer-owned project", () => {
+    expect(bookingList).toContain("projectId: z.string().uuid().optional()");
+    expect(bookingList).toContain("eq(bookings.projectId, input.projectId)");
+    expect(bookingList).toMatch(
+      /and\(\s*eq\(bookings\.producerId, ctx\.producerId\),[\s\S]*?eq\(bookings\.projectId, input\.projectId\)/,
+    );
+  });
+
   it("joins the purchase on purchase, project, and producer identity", () => {
     expect(bookingList).toMatch(
       /\.innerJoin\(\s*purchases,\s*and\(\s*eq\(purchases\.id, bookings\.purchaseId\),\s*eq\(purchases\.projectId, bookings\.projectId\),\s*eq\(purchases\.producerId, bookings\.producerId\),/,

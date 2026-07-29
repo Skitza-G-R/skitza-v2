@@ -58,11 +58,12 @@ const config: NextConfig = {
     // The signed-in route warmer uses explicit full prefetches, so its main
     // destinations get the three-minute window. Ordinary dynamic navigation
     // remains uncached so deep booking, payment, proof, and audio screens stay
-    // outside this issue's main-menu scope. Existing foreground, reconnect,
-    // live-polling, and mutation refreshes keep server data authoritative;
-    // RuntimeNavigationBridge invalidates its readiness when those refreshes
-    // replace the real cache. This is not durable or service-worker storage
-    // and is cleared by a full page reload.
+    // outside this issue's main-menu scope. Foreground and reconnect checks
+    // preserve the warm Router Cache; normal navigation, live polling, and
+    // successful mutations still fetch authoritative server data.
+    // RuntimeNavigationBridge replaces its readiness only when a persistent
+    // server shell actually changes. This is not durable or service-worker
+    // storage and is cleared by a full page reload.
     staleTimes: {
       dynamic: 0,
       static: 180,
@@ -112,6 +113,18 @@ const config: NextConfig = {
         // headers by default.
         source: "/:path*",
         headers: SECURITY_HEADERS,
+      },
+      {
+        // The service worker accepts only this force-static public bootstrap
+        // document for durable navigation caching. It never marks a signed-in
+        // dashboard, RSC payload, API response, or live-action route.
+        source: "/launch",
+        headers: [
+          {
+            key: "X-Skitza-Public-Bootstrap",
+            value: "1",
+          },
+        ],
       },
       {
         // Then override for /landing/* — Next.js applies header rules

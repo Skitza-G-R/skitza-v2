@@ -1,10 +1,13 @@
 import { auth } from "@clerk/nextjs/server";
+import { Suspense } from "react";
 
 import {
   MusicLibraryScreen,
   type MusicLibraryProjectRow,
   type MusicLibraryRow,
 } from "~/components/music/library-screen";
+import { RuntimeScreenSafeViewWriter } from "~/components/runtime-state/runtime-screen-view";
+import { mapArtistMusicSafeScreen } from "~/lib/runtime-state/screen-view-mappers";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 // Music library — Library view (L1).
@@ -122,6 +125,14 @@ export default async function MusicPage() {
         className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[360px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.10)] to-transparent"
       />
       <div className="mx-auto mt-10 max-w-[1180px] px-4 pt-6 pb-24 sm:px-7 sm:pt-8 lg:mt-0">
+        <Suspense fallback={null}>
+          <RuntimeScreenSafeViewWriter
+            view={mapArtistMusicSafeScreen({
+              projects: projectRows,
+              tracks: rows,
+            })}
+          />
+        </Suspense>
         <MusicLibraryScreen tracks={rows} projectRows={projectRows} role="artist" />
       </div>
     </div>

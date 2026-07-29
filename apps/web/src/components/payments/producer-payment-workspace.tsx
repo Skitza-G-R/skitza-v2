@@ -11,6 +11,7 @@ import {
   summarizePaymentWorkspaceRows,
   workspaceViewCount,
   type PaymentWorkspaceBucket,
+  type PaymentWorkspaceGroup,
   type PaymentWorkspaceRow,
   type PaymentWorkspaceView,
 } from "~/components/payments/producer-payment-workspace-model";
@@ -24,6 +25,7 @@ export interface ProducerPaymentWorkspaceProps {
   defaultView?: PaymentWorkspaceView;
   scope: "global" | "client";
   clientLabel?: string;
+  presentation?: "client-tab";
 }
 
 interface ViewOption {
@@ -97,43 +99,33 @@ function MoneyText({
     <span
       data-payment-money=""
       className={cn(
-        "inline-block max-w-full min-w-0 font-mono text-[clamp(10px,3vw,12px)] leading-[1.15] font-bold tabular-nums [overflow-wrap:anywhere] xl:max-w-none xl:[overflow-wrap:normal]",
+        "inline-block max-w-full min-w-0 font-mono text-[clamp(10px,3vw,12px)] leading-[1.15] font-bold [overflow-wrap:anywhere] tabular-nums xl:max-w-none xl:[overflow-wrap:normal]",
         compactAtDesktop && "xl:text-[11px]",
-        danger && cents > 0
-          ? "text-[rgb(var(--fg-danger))]"
-          : "text-[rgb(var(--fg-default))]",
+        danger && cents > 0 ? "text-[rgb(var(--fg-danger))]" : "text-[rgb(var(--fg-default))]",
       )}
     >
       <span data-payment-money-value="" className="whitespace-nowrap">
         {formatMoney(cents, currency, { withCents: true })}
       </span>{" "}
-      <span className="whitespace-nowrap text-[9px] tracking-[0.08em] text-[rgb(var(--fg-muted))]">
+      <span className="text-[9px] tracking-[0.08em] whitespace-nowrap text-[rgb(var(--fg-muted))]">
         {currency}
       </span>
     </span>
   );
 }
 
-function ProjectBand({
-  row,
-  purchaseCount,
-}: {
-  row: PaymentWorkspaceRow;
-  purchaseCount: number;
-}) {
+function ProjectBand({ row, purchaseCount }: { row: PaymentWorkspaceRow; purchaseCount: number }) {
   const project = row.project;
 
   return (
-    <div
-      className="flex min-w-0 flex-col items-stretch gap-3 border-l-[3px] border-l-[rgb(var(--brand-copper))] bg-[rgb(var(--bg-sunken))] px-3 py-3 xl:flex-row xl:items-center xl:justify-between xl:px-4 xl:py-2.5"
-    >
+    <div className="flex min-w-0 flex-col items-stretch gap-3 border-l-[3px] border-l-[rgb(var(--brand-copper))] bg-[rgb(var(--bg-sunken))] px-3 py-3 xl:flex-row xl:items-center xl:justify-between xl:px-4 xl:py-2.5">
       <div className="min-w-0">
         <p className="font-mono text-[9px] font-bold tracking-[0.13em] text-[rgb(var(--fg-muted))] uppercase">
           Project
         </p>
         <Link
           href={`/dashboard/clients-projects/${encodeURIComponent(project.id)}`}
-          className="mt-0.5 inline-block max-w-full truncate text-[13px] font-extrabold text-[rgb(var(--fg-default))] underline-offset-4 hover:underline focus-visible:rounded-[var(--radius-sm)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))]"
+          className="mt-0.5 inline-block max-w-full truncate text-[13px] font-extrabold text-[rgb(var(--fg-default))] underline-offset-4 hover:underline focus-visible:rounded-[var(--radius-sm)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
         >
           {project.title}
         </Link>
@@ -153,11 +145,13 @@ function SummaryPanel({
   openCount,
   needsReviewCount,
   headingId,
+  outstandingFirst = false,
 }: {
   rows: readonly PaymentWorkspaceRow[];
   openCount: number;
   needsReviewCount: number;
   headingId: string;
+  outstandingFirst?: boolean;
 }) {
   const summary = summarizePaymentWorkspaceRows(rows);
 
@@ -200,37 +194,65 @@ function SummaryPanel({
                 </p>
               </div>
               <dl className="grid min-w-0 grid-cols-2 gap-x-3 gap-y-3 sm:grid-cols-3 sm:gap-5">
-                <div className="col-span-2 min-w-0 sm:col-span-1">
-                  <dt className="text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
-                    Paid to date
-                  </dt>
-                  <dd className="mt-1">
-                    <MoneyText cents={total.paidCents} currency={total.currency} />
-                  </dd>
-                </div>
-                <div className="min-w-0">
-                  <dt className="text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
-                    Due now
-                  </dt>
-                  <dd className="mt-1">
-                    <MoneyText
-                      cents={total.dueNowCents}
-                      currency={total.currency}
-                      danger
-                    />
-                  </dd>
-                </div>
-                <div className="min-w-0">
-                  <dt className="text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
-                    Total remaining
-                  </dt>
-                  <dd className="mt-1">
-                    <MoneyText
-                      cents={total.totalRemainingCents}
-                      currency={total.currency}
-                    />
-                  </dd>
-                </div>
+                {outstandingFirst ? (
+                  <>
+                    <div className="col-span-2 min-w-0 sm:col-span-1">
+                      <dt className="text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
+                        Outstanding
+                      </dt>
+                      <dd className="mt-1">
+                        <MoneyText
+                          cents={total.totalRemainingCents}
+                          currency={total.currency}
+                          danger
+                        />
+                      </dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
+                        Due now
+                      </dt>
+                      <dd className="mt-1">
+                        <MoneyText cents={total.dueNowCents} currency={total.currency} danger />
+                      </dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
+                        Paid to date
+                      </dt>
+                      <dd className="mt-1">
+                        <MoneyText cents={total.paidCents} currency={total.currency} />
+                      </dd>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="col-span-2 min-w-0 sm:col-span-1">
+                      <dt className="text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
+                        Paid to date
+                      </dt>
+                      <dd className="mt-1">
+                        <MoneyText cents={total.paidCents} currency={total.currency} />
+                      </dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
+                        Due now
+                      </dt>
+                      <dd className="mt-1">
+                        <MoneyText cents={total.dueNowCents} currency={total.currency} danger />
+                      </dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
+                        Total remaining
+                      </dt>
+                      <dd className="mt-1">
+                        <MoneyText cents={total.totalRemainingCents} currency={total.currency} />
+                      </dd>
+                    </div>
+                  </>
+                )}
               </dl>
             </div>
           ))}
@@ -294,7 +316,7 @@ function ResponsivePurchaseRow({
           </p>
           {nextPayment ? (
             <>
-              <p className="mt-1 font-mono text-[11px] font-bold break-words text-[rgb(var(--fg-default))] tabular-nums xl:mt-0 xl:whitespace-nowrap xl:[overflow-wrap:normal]">
+              <p className="mt-1 font-mono text-[11px] font-bold break-words text-[rgb(var(--fg-default))] tabular-nums xl:mt-0 xl:[overflow-wrap:normal] xl:whitespace-nowrap">
                 {nextPayment.amount}
               </p>
               <p className="mt-0.5 text-[10px] leading-snug break-words text-[rgb(var(--fg-muted))] xl:mt-1 xl:text-[10.5px]">
@@ -312,11 +334,7 @@ function ResponsivePurchaseRow({
             Paid
           </p>
           <div className="mt-1 xl:mt-0">
-            <MoneyText
-              cents={purchase.paidCents}
-              currency={purchase.currency}
-              compactAtDesktop
-            />
+            <MoneyText cents={purchase.paidCents} currency={purchase.currency} compactAtDesktop />
           </div>
         </td>
         <td className="order-4 col-span-6 min-w-0 border-y border-[rgb(var(--border-subtle))] px-1 py-2.5 align-top sm:col-span-4 xl:table-cell xl:min-w-[110px] xl:border-0 xl:px-2 xl:py-3 xl:text-right">
@@ -350,7 +368,7 @@ function ResponsivePurchaseRow({
               <Link
                 href={`/dashboard/payments/${encodeURIComponent(proof.id)}`}
                 aria-label={`Review proof for ${purchase.title}`}
-                className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--brand-copper)/0.35)] bg-[rgb(var(--brand-copper)/0.08)] px-3 text-[11px] font-bold text-[rgb(var(--brand-copper))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] xl:min-h-9 xl:rounded-[var(--radius-md)] xl:px-2.5"
+                className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--brand-copper)/0.35)] bg-[rgb(var(--brand-copper)/0.08)] px-3 text-[11px] font-bold text-[rgb(var(--brand-copper))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none xl:min-h-9 xl:rounded-[var(--radius-md)] xl:px-2.5"
               >
                 Review proof
               </Link>
@@ -361,7 +379,7 @@ function ResponsivePurchaseRow({
               aria-controls={detailsId}
               aria-label={`${expanded ? "Hide" : "Show"} details for ${purchase.title}`}
               onClick={onToggle}
-              className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-3 text-[11px] font-bold text-[rgb(var(--fg-default))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] xl:min-h-9 xl:rounded-[var(--radius-md)] xl:px-2.5"
+              className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-3 text-[11px] font-bold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none xl:min-h-9 xl:rounded-[var(--radius-md)] xl:px-2.5"
             >
               {expanded ? "Hide details" : "Details"}
             </button>
@@ -385,18 +403,132 @@ function ResponsivePurchaseRow({
   );
 }
 
+function renderPaymentRecordsTable({
+  groups,
+  scope,
+  tableCaption,
+  instanceId,
+  detailsIdSegment,
+  expandedPurchaseId,
+  onToggleDetails,
+}: {
+  groups: readonly PaymentWorkspaceGroup[];
+  scope: ProducerPaymentWorkspaceProps["scope"];
+  tableCaption: string;
+  instanceId: string;
+  detailsIdSegment?: string;
+  expandedPurchaseId: string | null;
+  onToggleDetails: (purchaseId: string) => void;
+}) {
+  return (
+    <div className="max-w-full min-w-0 xl:overflow-x-auto xl:rounded-[var(--radius-lg)] xl:border xl:border-[rgb(var(--border-subtle))] xl:bg-[rgb(var(--bg-elevated))]">
+      <table className="block w-full min-w-0 border-collapse text-left xl:table xl:min-w-[980px]">
+        <caption className="sr-only">{tableCaption}</caption>
+        <thead className="hidden xl:table-header-group">
+          <tr className="border-b border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-background))]">
+            <th
+              scope="col"
+              className="px-4 py-2.5 text-[9px] font-bold tracking-[0.11em] text-[rgb(var(--fg-muted))] uppercase"
+            >
+              Purchase
+            </th>
+            {scope === "global" ? (
+              <th
+                scope="col"
+                className="px-4 py-2.5 text-[9px] font-bold tracking-[0.11em] text-[rgb(var(--fg-muted))] uppercase"
+              >
+                Client
+              </th>
+            ) : null}
+            <th
+              scope="col"
+              className="px-4 py-2.5 text-[9px] font-bold tracking-[0.11em] text-[rgb(var(--fg-muted))] uppercase"
+            >
+              Status
+            </th>
+            <th
+              scope="col"
+              className="px-4 py-2.5 text-[9px] font-bold tracking-[0.11em] text-[rgb(var(--fg-muted))] uppercase"
+            >
+              Next payment
+            </th>
+            {["Paid", "Due now", "Remaining"].map((label) => (
+              <th
+                key={label}
+                scope="col"
+                className="px-4 py-2.5 text-right text-[9px] font-bold tracking-[0.11em] text-[rgb(var(--fg-muted))] uppercase"
+              >
+                {label}
+              </th>
+            ))}
+            <th
+              scope="col"
+              className="px-4 py-2.5 text-right text-[9px] font-bold tracking-[0.11em] text-[rgb(var(--fg-muted))] uppercase"
+            >
+              Details
+            </th>
+          </tr>
+        </thead>
+        {groups.map((group) => {
+          const firstRow = group.rows[0];
+          if (!firstRow) return null;
+
+          return (
+            <tbody
+              key={group.project.id}
+              className="mb-4 block min-w-0 overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] last:mb-0 xl:table-row-group xl:border-0"
+            >
+              <tr className="block xl:table-row">
+                <th
+                  scope="rowgroup"
+                  colSpan={scope === "global" ? 8 : 7}
+                  className="block p-0 text-left xl:table-cell"
+                >
+                  <ProjectBand row={firstRow} purchaseCount={group.rows.length} />
+                </th>
+              </tr>
+              {group.rows.map((row) => {
+                const expanded = expandedPurchaseId === row.id;
+                const detailsId = `${instanceId}${
+                  detailsIdSegment ? `-${detailsIdSegment}` : ""
+                }-desktop-details-${safeDomId(row.id)}`;
+                return (
+                  <ResponsivePurchaseRow
+                    key={row.id}
+                    row={row}
+                    scope={scope}
+                    expanded={expanded}
+                    detailsId={detailsId}
+                    onToggle={() => {
+                      onToggleDetails(row.id);
+                    }}
+                  />
+                );
+              })}
+            </tbody>
+          );
+        })}
+      </table>
+    </div>
+  );
+}
+
 export function ProducerPaymentWorkspace({
   buckets,
   defaultView = "open",
   scope,
   clientLabel,
+  presentation,
 }: ProducerPaymentWorkspaceProps) {
   const instanceId = safeDomId(useId());
   const search = useListSearch();
-  const [view, setView] = useState<PaymentWorkspaceView>(defaultView);
+  const clientTabPresentation = presentation === "client-tab";
+  const initialView: PaymentWorkspaceView = clientTabPresentation ? "open" : defaultView;
+  const [view, setView] = useState<PaymentWorkspaceView>(initialView);
   const [currency, setCurrency] = useState("all");
   const [projectId, setProjectId] = useState("all");
   const [expandedPurchaseId, setExpandedPurchaseId] = useState<string | null>(null);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
 
   const allRows = useMemo(() => buildPaymentWorkspaceRows(buckets), [buckets]);
   const allSummary = useMemo(() => summarizePaymentWorkspaceRows(allRows), [allRows]);
@@ -423,10 +555,27 @@ export function ProducerPaymentWorkspace({
     [allRows, currency, projectId, search.value, view],
   );
   const groups = useMemo(() => groupPaymentWorkspaceRows(filteredRows), [filteredRows]);
+  const historyRows = useMemo(
+    () =>
+      clientTabPresentation
+        ? filterPaymentWorkspaceRows(allRows, {
+            view: "history",
+            query: search.value,
+            currency,
+            projectId,
+          })
+        : [],
+    [allRows, clientTabPresentation, currency, projectId, search.value],
+  );
+  const historyGroups = useMemo(() => groupPaymentWorkspaceRows(historyRows), [historyRows]);
 
-  const viewOptions = scope === "client" ? [ALL_VIEW, ...CORE_VIEWS] : CORE_VIEWS;
+  const viewOptions = clientTabPresentation
+    ? CORE_VIEWS.filter((option) => option.value !== "history")
+    : scope === "client"
+      ? [ALL_VIEW, ...CORE_VIEWS]
+      : CORE_VIEWS;
   const filtersChanged =
-    view !== defaultView ||
+    view !== initialView ||
     search.value.trim().length > 0 ||
     currency !== "all" ||
     projectId !== "all";
@@ -437,11 +586,12 @@ export function ProducerPaymentWorkspace({
       : "Payment records grouped by project and client";
 
   function clearFilters() {
-    setView(defaultView);
+    setView(initialView);
     search.setValue("");
     setCurrency("all");
     setProjectId("all");
     setExpandedPurchaseId(null);
+    setHistoryExpanded(false);
   }
 
   function toggleDetails(purchaseId: string) {
@@ -455,6 +605,7 @@ export function ProducerPaymentWorkspace({
         openCount={allSummary.openCount}
         needsReviewCount={allSummary.needsReviewCount}
         headingId={`${instanceId}-money-summary`}
+        outstandingFirst={clientTabPresentation}
       />
 
       <section
@@ -482,7 +633,7 @@ export function ProducerPaymentWorkspace({
                   setExpandedPurchaseId(null);
                 }}
                 className={cn(
-                  "sk-press inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border px-3 text-[11px] font-bold whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] sm:min-h-9 sm:min-w-0 sm:rounded-[var(--radius-md)]",
+                  "sk-press inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border px-3 text-[11px] font-bold whitespace-nowrap focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:min-w-0 sm:rounded-[var(--radius-md)]",
                   active
                     ? "border-[rgb(var(--fg-default))] bg-[rgb(var(--fg-default))] text-[rgb(var(--bg-elevated))]"
                     : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-secondary))]",
@@ -493,9 +644,7 @@ export function ProducerPaymentWorkspace({
                   aria-label={`${String(workspaceViewCount(allRows, option.value))} records`}
                   className={cn(
                     "font-mono text-[9.5px]",
-                    active
-                      ? "text-[rgb(var(--bg-elevated)/0.72)]"
-                      : "text-[rgb(var(--fg-muted))]",
+                    active ? "text-[rgb(var(--bg-elevated)/0.72)]" : "text-[rgb(var(--fg-muted))]",
                   )}
                 >
                   {String(workspaceViewCount(allRows, option.value))}
@@ -527,7 +676,7 @@ export function ProducerPaymentWorkspace({
                 setExpandedPurchaseId(null);
               }}
               aria-label="Filter by currency"
-              className="min-h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[12px] font-semibold text-[rgb(var(--fg-default))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] sm:min-h-9 sm:rounded-[var(--radius-md)]"
+              className="min-h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[12px] font-semibold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)]"
             >
               <option value="all">All currencies</option>
               {currencyOptions.map((option) => (
@@ -546,7 +695,7 @@ export function ProducerPaymentWorkspace({
                 setExpandedPurchaseId(null);
               }}
               aria-label="Filter by project"
-              className="min-h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[12px] font-semibold text-[rgb(var(--fg-default))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] sm:min-h-9 sm:rounded-[var(--radius-md)]"
+              className="min-h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[12px] font-semibold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)]"
             >
               <option value="all">All projects</option>
               {projectOptions.map((project) => (
@@ -561,7 +710,7 @@ export function ProducerPaymentWorkspace({
             <button
               type="button"
               onClick={clearFilters}
-              className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-transparent px-3 text-[11px] font-bold text-[rgb(var(--fg-default))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] sm:min-h-9 sm:rounded-[var(--radius-md)]"
+              className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-transparent px-3 text-[11px] font-bold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)]"
             >
               Clear filters
             </button>
@@ -586,8 +735,8 @@ export function ProducerPaymentWorkspace({
             No accepted purchases yet
           </p>
           <p className="mx-auto mt-1 max-w-[46ch] text-[12px] leading-relaxed text-[rgb(var(--fg-muted))]">
-            Accepted purchases{clientLabel ? ` for ${clientLabel}` : ""} will appear here with
-            their payment schedule and current balance.
+            Accepted purchases{clientLabel ? ` for ${clientLabel}` : ""} will appear here with their
+            payment schedule and current balance.
           </p>
         </div>
       ) : filteredRows.length === 0 ? (
@@ -596,124 +745,97 @@ export function ProducerPaymentWorkspace({
           className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-9 text-center"
         >
           <p className="text-[14px] font-extrabold text-[rgb(var(--fg-default))]">
-            {emptyDefaultView && view === "open"
-              ? "No open payments"
-              : "No payment records match"}
+            {emptyDefaultView && view === "open" ? "No open payments" : "No payment records match"}
           </p>
           <p className="mt-1 text-[12px] text-[rgb(var(--fg-muted))]">
             {emptyDefaultView && view === "open"
               ? "Everything is settled or already in payment history."
               : "Clear the filters to return to the default payment view."}
           </p>
-          {emptyDefaultView && workspaceViewCount(allRows, "history") > 0 ? (
+          {!clientTabPresentation &&
+          emptyDefaultView &&
+          workspaceViewCount(allRows, "history") > 0 ? (
             <button
               type="button"
               onClick={() => {
                 setView("history");
               }}
-              className="sk-press mt-3 inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-4 text-[12px] font-bold text-[rgb(var(--fg-default))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))]"
+              className="sk-press mt-3 inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-4 text-[12px] font-bold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
             >
               View history
             </button>
-          ) : (
+          ) : clientTabPresentation && emptyDefaultView ? null : (
             <button
               type="button"
               onClick={clearFilters}
-              className="sk-press mt-3 inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-4 text-[12px] font-bold text-[rgb(var(--fg-default))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))]"
+              className="sk-press mt-3 inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-4 text-[12px] font-bold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
             >
               Clear filters
             </button>
           )}
         </div>
       ) : (
-        <div className="min-w-0 max-w-full xl:overflow-x-auto xl:rounded-[var(--radius-lg)] xl:border xl:border-[rgb(var(--border-subtle))] xl:bg-[rgb(var(--bg-elevated))]">
-          <table className="block w-full min-w-0 border-collapse text-left xl:table xl:min-w-[980px]">
-            <caption className="sr-only">{tableCaption}</caption>
-            <thead className="hidden xl:table-header-group">
-              <tr className="border-b border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-background))]">
-                <th
-                  scope="col"
-                  className="px-4 py-2.5 text-[9px] font-bold tracking-[0.11em] text-[rgb(var(--fg-muted))] uppercase"
-                >
-                  Purchase
-                </th>
-                {scope === "global" ? (
-                  <th
-                    scope="col"
-                    className="px-4 py-2.5 text-[9px] font-bold tracking-[0.11em] text-[rgb(var(--fg-muted))] uppercase"
-                  >
-                    Client
-                  </th>
-                ) : null}
-                <th
-                  scope="col"
-                  className="px-4 py-2.5 text-[9px] font-bold tracking-[0.11em] text-[rgb(var(--fg-muted))] uppercase"
-                >
-                  Status
-                </th>
-                <th
-                  scope="col"
-                  className="px-4 py-2.5 text-[9px] font-bold tracking-[0.11em] text-[rgb(var(--fg-muted))] uppercase"
-                >
-                  Next payment
-                </th>
-                {["Paid", "Due now", "Remaining"].map((label) => (
-                  <th
-                    key={label}
-                    scope="col"
-                    className="px-4 py-2.5 text-right text-[9px] font-bold tracking-[0.11em] text-[rgb(var(--fg-muted))] uppercase"
-                  >
-                    {label}
-                  </th>
-                ))}
-                <th
-                  scope="col"
-                  className="px-4 py-2.5 text-right text-[9px] font-bold tracking-[0.11em] text-[rgb(var(--fg-muted))] uppercase"
-                >
-                  Details
-                </th>
-              </tr>
-            </thead>
-            {groups.map((group) => {
-              const firstRow = group.rows[0];
-              if (!firstRow) return null;
-
-              return (
-                <tbody
-                  key={group.project.id}
-                  className="mb-4 block min-w-0 overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] last:mb-0 xl:table-row-group xl:border-0"
-                >
-                  <tr className="block xl:table-row">
-                    <th
-                      scope="rowgroup"
-                      colSpan={scope === "global" ? 8 : 7}
-                      className="block p-0 text-left xl:table-cell"
-                    >
-                      <ProjectBand row={firstRow} purchaseCount={group.rows.length} />
-                    </th>
-                  </tr>
-                  {group.rows.map((row) => {
-                    const expanded = expandedPurchaseId === row.id;
-                    const detailsId = `${instanceId}-desktop-details-${safeDomId(row.id)}`;
-                    return (
-                      <ResponsivePurchaseRow
-                        key={row.id}
-                        row={row}
-                        scope={scope}
-                        expanded={expanded}
-                        detailsId={detailsId}
-                        onToggle={() => {
-                          toggleDetails(row.id);
-                        }}
-                      />
-                    );
-                  })}
-                </tbody>
-              );
-            })}
-          </table>
-        </div>
+        renderPaymentRecordsTable({
+          groups,
+          scope,
+          tableCaption,
+          instanceId,
+          expandedPurchaseId,
+          onToggleDetails: toggleDetails,
+        })
       )}
+
+      {clientTabPresentation && historyRows.length > 0 ? (
+        <section
+          aria-labelledby={`${instanceId}-history-heading`}
+          data-payment-history-disclosure=""
+          className="overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
+        >
+          <h2 id={`${instanceId}-history-heading`}>
+            <button
+              type="button"
+              aria-expanded={historyExpanded}
+              aria-controls={`${instanceId}-history-records`}
+              onClick={() => {
+                setHistoryExpanded((current) => !current);
+                setExpandedPurchaseId(null);
+              }}
+              className="sk-press flex min-h-12 w-full min-w-0 items-center justify-between gap-3 px-4 py-3 text-left focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset"
+            >
+              <span className="min-w-0">
+                <span className="block text-[13px] font-extrabold text-[rgb(var(--fg-default))]">
+                  History
+                </span>
+                <span className="mt-0.5 block text-[10.5px] font-normal text-[rgb(var(--fg-muted))]">
+                  Completed and closed payment records
+                </span>
+              </span>
+              <span className="shrink-0 font-mono text-[10px] font-bold text-[rgb(var(--fg-muted))]">
+                {pluralize(historyRows.length, "record")}
+              </span>
+            </button>
+          </h2>
+          {historyExpanded ? (
+            <div
+              id={`${instanceId}-history-records`}
+              className="border-t border-[rgb(var(--border-subtle))] p-3"
+            >
+              {renderPaymentRecordsTable({
+                groups: historyGroups,
+                scope,
+                tableCaption:
+                  scope === "client"
+                    ? `${clientLabel ?? "Client"} payment history grouped by project`
+                    : "Payment history grouped by project and client",
+                instanceId,
+                detailsIdSegment: "history",
+                expandedPurchaseId,
+                onToggleDetails: toggleDetails,
+              })}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
     </div>
   );
 }

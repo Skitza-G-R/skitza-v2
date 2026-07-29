@@ -3,6 +3,7 @@
 
   const SAFE_EXACT_PATHS = new Set([
     "/favicon.ico",
+    "/launch",
     "/manifest.webmanifest",
     "/offline.html",
     "/pwa/offline-context.js",
@@ -106,6 +107,9 @@
     }
     if (isSensitivePath(url.pathname)) {
       return { action: "network-only", reason: "sensitive-path" };
+    }
+    if (url.pathname === "/launch" && url.search.length > 0) {
+      return { action: "network-only", reason: "not-allowlisted" };
     }
     if (isExplicitlySafePath(url.pathname)) {
       return { action: "cache", reason: "explicit-safe-resource" };

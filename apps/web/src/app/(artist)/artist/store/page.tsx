@@ -4,6 +4,9 @@ import { FocalProductCard } from "~/components/artist/store/focal-product-card";
 import { ProducerHero } from "~/components/artist/store/producer-hero";
 import { QuietProductList } from "~/components/artist/store/quiet-product-list";
 import { PrivateOffersList } from "~/components/artist/offers/private-offers-list";
+import { RuntimeScreenSafeViewWriter } from "~/components/runtime-state/runtime-screen-view";
+import { withArtistStudio } from "~/lib/artist-studio-context";
+import { mapArtistStoreSafeScreen } from "~/lib/runtime-state/screen-view-mappers";
 import { coerceTaxMode } from "~/lib/tax-mode";
 import { appRouter } from "~/server/trpc/routers/_app";
 
@@ -32,6 +35,14 @@ export default async function StorePage({ searchParams }: PageProps) {
   if (studios.length === 0) {
     return (
       <div className="reveal-up mx-auto w-full max-w-[600px] space-y-5 lg:max-w-[760px]">
+        <RuntimeScreenSafeViewWriter
+          href="/artist/store"
+          contextId="artist-no-studio"
+          view={mapArtistStoreSafeScreen({
+            studioName: null,
+            products: [],
+          })}
+        />
         <StoreEyebrow />
         <EmptyStudios />
       </div>
@@ -61,6 +72,14 @@ export default async function StorePage({ searchParams }: PageProps) {
 
   return (
     <div className="mx-auto w-full max-w-[600px] space-y-6 lg:max-w-[760px]">
+      <RuntimeScreenSafeViewWriter
+        href={withArtistStudio("/artist/store", activeStudio.producerId)}
+        contextId={activeStudio.producerId}
+        view={mapArtistStoreSafeScreen({
+          studioName: activeStudio.name,
+          products,
+        })}
+      />
       <StoreEyebrow />
       <PrivateOffersList offers={privateOffers.offers} />
       <ProducerHero producerName={activeStudio.name} producerLogoUrl={activeStudio.logoUrl} />

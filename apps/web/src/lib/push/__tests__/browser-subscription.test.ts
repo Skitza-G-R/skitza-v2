@@ -415,6 +415,28 @@ describe("push account-exit cleanup", () => {
     expect(test.adapter.notifyCleared).toHaveBeenCalledOnce();
   });
 
+  it("does not block sign-out when this browser cannot support push notifications", async () => {
+    const removeOwned = vi.fn(() =>
+      Promise.resolve({ ok: true as const, removed: true as const }),
+    );
+    const getRegistration = vi.fn(() => Promise.resolve({}));
+    const openCache = vi.fn();
+    vi.stubGlobal("caches", { open: openCache });
+    vi.stubGlobal("navigator", {
+      serviceWorker: {
+        getRegistration,
+      },
+    });
+
+    await expect(clearBrowserPushSubscription(removeOwned)).resolves.toBe(
+      "no-subscription",
+    );
+
+    expect(getRegistration).toHaveBeenCalledOnce();
+    expect(openCache).not.toHaveBeenCalled();
+    expect(removeOwned).not.toHaveBeenCalled();
+  });
+
   it.each([false, new Error("suppression failed")])(
     "fails closed when the delivery fence cannot be confirmed",
     async (suppressDelivery) => {

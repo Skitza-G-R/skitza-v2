@@ -50,8 +50,9 @@ describe("producer nav: Portfolio in sidebar only", () => {
     expect(BOTTOM).not.toMatch(/href:\s*["']\/dashboard\/store["']/);
   });
 
-  it("leaves primary-route prefetching to the serial runtime warmer", () => {
-    expect(BOTTOM).toMatch(/<Link[\s\S]*href=\{tab\.href\}[\s\S]*prefetch=\{false\}/);
+  it("fully prefetches the five persistent mobile routes while keeping desktop warming serial", () => {
+    expect(BOTTOM).toMatch(/<Link[\s\S]*href=\{tab\.href\}[\s\S]*prefetch=\{true\}/);
+    expect(BOTTOM.match(/prefetch=\{true\}/g)).toHaveLength(1);
     expect(SIDEBAR.match(/prefetch=\{false\}/g)).toHaveLength(2);
     expect(BOTTOM).toContain("announceRuntimeMainNavigationIntent(tab.href)");
     expect(SIDEBAR.match(/announceRuntimeMainNavigationIntent/g)?.length).toBeGreaterThanOrEqual(3);
@@ -103,10 +104,25 @@ describe("producer mobile nav viewport anchoring", () => {
 
   it("keeps the glass nav in the shell footer instead of fixing it to the document viewport", () => {
     expect(BOTTOM).toContain("relative z-30 shrink-0");
-    expect(BOTTOM).toContain("env(safe-area-inset-bottom, 0px)");
+    expect(BOTTOM).toContain(
+      ") max(8px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px))",
+    );
+    expect(GLOBALS).toMatch(
+      /\.producer-bottom-nav__glass\s*\{[\s\S]*?height:\s*68px;[\s\S]*?padding-bottom:\s*0;/,
+    );
+    expect(GLOBALS).not.toContain(
+      "padding-bottom: max(0px, calc(env(safe-area-inset-bottom, 0px) - 8px));",
+    );
     expect(BOTTOM).not.toContain("safe-area-max-inset-bottom");
     expect(BOTTOM).not.toMatch(/className="[^"]*\bfixed\b/);
     expect(BOTTOM).not.toContain("producerBottomNavViewportStyle");
+  });
+
+  it("centers the tab row, magnified copy, and lens in the same compact glass height", () => {
+    expect(BOTTOM.match(/minHeight:\s*68/g)).toHaveLength(2);
+    expect(GLOBALS).toContain("--sk-nav-lens-y: 34px");
+    expect(GLOBALS).toContain("height: 60px");
+    expect(GLOBALS).toMatch(/\.producer-bottom-nav__magnifier-grid\s*\{[\s\S]*?height:\s*68px;/);
   });
 
   it("renders the producer nav as one compact live glass pill", () => {
@@ -119,6 +135,35 @@ describe("producer mobile nav viewport anchoring", () => {
     expect(GLOBALS).toContain("-webkit-backdrop-filter: blur(24px) saturate(170%)");
     expect(GLOBALS).toContain('.producer-bottom-nav__tab[data-active="true"]');
     expect(GLOBALS).toContain("rgb(var(--bg-sidebar) / 0.52)");
+  });
+
+  it("tracks one real magnifying lens from pointer movement without React render-loop state", () => {
+    expect(BOTTOM).toContain("producer-bottom-nav__lens");
+    expect(BOTTOM).toContain("producer-bottom-nav__magnifier");
+    expect(BOTTOM).toContain("producer-bottom-nav__magnifier-grid");
+    expect(BOTTOM).toContain("requestAnimationFrame(flushPendingLensPoint)");
+    expect(BOTTOM).toContain('style.setProperty("--sk-nav-lens-x"');
+    expect(BOTTOM).toContain('style.setProperty("--sk-nav-lens-y"');
+    expect(BOTTOM).toContain('style.setProperty("--sk-nav-proximity"');
+    expect(BOTTOM).toContain("onPointerDown={handlePointerDown}");
+    expect(BOTTOM).toContain("onPointerMove={handlePointerMove}");
+    expect(BOTTOM).toContain("onPointerUp={handlePointerEnd}");
+    expect(BOTTOM).toContain("onPointerCancel={handlePointerEnd}");
+    expect(BOTTOM).toContain("draggable={false}");
+    expect(BOTTOM).not.toContain("useState");
+
+    expect(GLOBALS).toContain(".producer-bottom-nav__lens");
+    expect(GLOBALS).toContain(".producer-bottom-nav__magnifier");
+    expect(GLOBALS).toContain("calc(var(--sk-nav-lens-width) / 2) 30px");
+    expect(GLOBALS).toContain("transform: scale(1.13)");
+    expect(GLOBALS).toContain("touch-action: pan-y");
+  });
+
+  it("keeps a static active treatment when reduced motion is requested", () => {
+    expect(GLOBALS).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.producer-bottom-nav__lens,[\s\S]*\.producer-bottom-nav__magnifier[\s\S]*display: none !important/,
+    );
+    expect(GLOBALS).toContain('.producer-bottom-nav__tab[data-active="true"]');
   });
 
   it("keeps producer topbar controls below the iPhone status area", () => {

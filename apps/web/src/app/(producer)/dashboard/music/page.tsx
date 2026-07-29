@@ -2,12 +2,14 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
 import type { AddSongProjectOption } from "~/components/dashboard/song/add-song-dialog";
+import { RuntimeScreenSafeViewWriter } from "~/components/runtime-state/runtime-screen-view";
 import {
   type MusicLibraryProjectRow,
   type MusicLibraryRow,
 } from "~/components/music/library-screen";
 import { ProducerRuntimeSafeView } from "~/components/dashboard/runtime/producer-runtime-safe-view";
 import { ProducerMusicLibrary } from "~/components/music/producer-music-library";
+import { mapProducerMusicSafeScreen } from "~/lib/runtime-state/screen-view-mappers";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import {
@@ -142,6 +144,13 @@ export default async function MusicPage({ searchParams }: PageProps) {
               (row) => row.kind !== "empty-slot" && row.archivedAtIso !== null,
             ).length,
           }}
+        />
+        <RuntimeScreenSafeViewWriter
+          href="/dashboard/music"
+          view={mapProducerMusicSafeScreen({
+            projects: projectRows,
+            tracks,
+          })}
         />
         <ProducerMusicLibrary
           tracks={tracks}

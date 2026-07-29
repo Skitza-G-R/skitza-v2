@@ -57,7 +57,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
 
   const shell = (
     <div
-      className="fixed inset-0 flex overflow-hidden lg:static lg:min-h-dvh lg:overflow-visible"
+      className="sk-producer-app-shell fixed inset-0 flex overflow-hidden lg:static lg:min-h-dvh lg:overflow-visible"
       style={{
         background: "rgb(var(--bg-background))",
         color: "rgb(var(--fg-default))",
@@ -69,38 +69,30 @@ export async function AppShell({ children }: { children: ReactNode }) {
         displayName={displayName}
         plan={plan}
       />
-      {/* Mobile behaves as one native-style viewport: page content is
-          the only scrolling region and the tab bar is a non-scrolling
-          footer. Long nested routes therefore cannot turn html/body into
-          a different scroll viewport and detach the nav from the visible
-          phone edge. Desktop keeps its existing document-scroll layout. */}
+      {/* Mobile behaves as one native-style viewport: the topbar and tab
+          bar are non-scrolling chrome while page content is the only
+          scrolling region. Keeping the topbar outside that elastic
+          scroller prevents iOS rubber-band from pulling the breadcrumb
+          away from the physical viewport edge. Desktop keeps its existing
+          document-scroll layout. */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <main
-          id="main-content"
-          tabIndex={-1}
-          className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain lg:overflow-visible lg:overscroll-auto"
-        >
-          {/* Sticky topbar from the HTML mockup: breadcrumb · search
-              trigger · notifications bell. Sits at the top of <main> so
-              it spans the content area (not the sidebar), and uses
-              position:sticky so it stays pinned during scroll without
-              stealing focus order from the page below. Wrapped in the
-              TopBarBreadcrumb provider so deep pages can publish their
-              own crumbs (client name, project title, song title) to the
-              single topbar surface instead of rendering a duplicate
-              breadcrumb of their own.
-
-              SK-76 makes this an opaque 64px strip, so content follows it
-              in normal flow with no negative overlap. */}
-          <TopBarBreadcrumbProvider>
-            <DashboardTopBar
-              producerSlug={slug}
-              unreadCount={unreadCount}
-              recentNotifications={recentNotifications}
-            />
+        {/* The provider emits no DOM, so the topbar and main remain direct
+            sibling flex items. Deep pages can still publish client,
+            project, and song crumbs to the single topbar surface. */}
+        <TopBarBreadcrumbProvider>
+          <DashboardTopBar
+            producerSlug={slug}
+            unreadCount={unreadCount}
+            recentNotifications={recentNotifications}
+          />
+          <main
+            id="main-content"
+            tabIndex={-1}
+            className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain lg:overflow-visible lg:overscroll-auto"
+          >
             {children}
-          </TopBarBreadcrumbProvider>
-        </main>
+          </main>
+        </TopBarBreadcrumbProvider>
 
         <ProducerBottomNav />
       </div>

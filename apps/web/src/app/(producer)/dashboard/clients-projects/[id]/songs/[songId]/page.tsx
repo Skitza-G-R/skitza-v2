@@ -276,9 +276,9 @@ export default async function SongDetail({ params, searchParams }: PageProps) {
   // CTA based on versions[0].audioUrl presence.
 
   // Breadcrumb extras pushed to the sticky topbar (which always prepends
-  // the "Clients & Projects" section root). Path reads:
-  //   Clients & Projects › <client> › <project> › <song>   (album mode)
-  //   Clients & Projects › <client> › <song>               (single mode)
+  // the "Clients & Projects" section root). Project Space stays reachable
+  // for both one-song and multi-song projects:
+  //   Clients & Projects › <client> › <project> › <song>
   // The client crumb only links to the client page when we resolved a
   // matching client_contacts row. If the projection is unavailable,
   // keep the label visible without inventing a link.
@@ -288,17 +288,11 @@ export default async function SongDetail({ params, searchParams }: PageProps) {
         href: `/dashboard/clients-projects/clients/${clientContactId}`,
       }
     : { label: clientName };
-  const breadcrumbExtras =
-    mode === "album"
-      ? [
-          clientCrumb,
-          {
-            label: data.project.title,
-            href: `/dashboard/clients-projects/${data.project.id}`,
-          },
-          { label: song.title },
-        ]
-      : [clientCrumb, { label: song.title }];
+  const projectCrumb = {
+    label: data.project.title,
+    href: `/dashboard/clients-projects/${data.project.id}`,
+  };
+  const breadcrumbExtras = [clientCrumb, projectCrumb, { label: song.title }];
 
   return (
     <main className="sk-page-enter mx-auto max-w-[1600px] px-4 py-6 sm:px-6">

@@ -5,7 +5,9 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Send, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
+  type ReactElement,
   type ReactNode,
+  type RefObject,
   type SyntheticEvent,
   useEffect,
   useId,
@@ -80,6 +82,11 @@ export interface PrivateOfferComposerProps {
   taxRatePct: number;
   defaultCurrency: PrivateOfferCurrency;
   initialOffer?: PrivateOfferComposerInitialOffer;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  onCreated?: (offerId: string) => void;
+  trigger?: ReactElement | null;
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }
 
 type RoyaltyMode = "none" | "percentage" | "agreement";
@@ -530,11 +537,17 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
     taxMode,
     taxRatePct,
     defaultCurrency,
+    open: controlledOpen,
+    onOpenChange,
+    onCreated,
+    trigger,
+    returnFocusRef,
   } = props;
   const { toast } = useToast();
   const router = useRouter();
   const formId = useId().replace(/:/g, "");
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
   const [pending, startTransition] = useTransition();
   const online = useOnlineStatus();
   const [error, setError] = useState<string | null>(null);
@@ -547,6 +560,11 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
   const [projectLoadError, setProjectLoadError] = useState<string | null>(null);
   const lockedClientId = lockedClientIdProp ?? initialOffer?.clientContactId;
   const editing = initialOffer !== undefined;
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (controlledOpen === undefined) setUncontrolledOpen(nextOpen);
+    onOpenChange?.(nextOpen);
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -725,8 +743,9 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
         } else {
           toast(editing ? "Private offer updated." : "Private offer sent.", "success");
         }
-        setOpen(false);
-        router.refresh();
+        if (!editing) onCreated?.(result.data.id);
+        handleOpenChange(false);
+        if (editing || !onCreated) router.refresh();
       } catch {
         const message = editing
           ? "The offer couldn’t be updated. Try again."
@@ -740,20 +759,32 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
   const id = (name: string) => `${formId}-${name}`;
 
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
-      <DialogPrimitive.Trigger asChild>
-        <button
-          type="button"
-          className="sk-press inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-elevated))] shadow-sm transition-opacity hover:opacity-90"
-        >
-          <Send className="h-4 w-4" aria-hidden />
-          {editing ? "Edit private offer" : "Send custom offer"}
-        </button>
-      </DialogPrimitive.Trigger>
+    <DialogPrimitive.Root open={open} onOpenChange={handleOpenChange}>
+      {trigger !== null ? (
+        <DialogPrimitive.Trigger asChild>
+          {trigger ?? (
+            <button
+              type="button"
+              className="sk-press inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-elevated))] shadow-sm transition-opacity hover:opacity-90"
+            >
+              <Send className="h-4 w-4" aria-hidden />
+              {editing ? "Edit private offer" : "Send custom offer"}
+            </button>
+          )}
+        </DialogPrimitive.Trigger>
+      ) : null}
 
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[rgb(17_16_9/0.56)] backdrop-blur-[3px]" />
-        <DialogPrimitive.Content className="fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[760px] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[var(--radius-xl)] bg-[rgb(var(--bg-background))] shadow-2xl max-sm:top-auto max-sm:right-0 max-sm:bottom-0 max-sm:left-0 max-sm:max-h-[94dvh] max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-t-[var(--radius-xl)] max-sm:rounded-b-none">
+        <DialogPrimitive.Content
+          onCloseAutoFocus={(event) => {
+            const target = returnFocusRef?.current;
+            if (!target?.isConnected) return;
+            event.preventDefault();
+            target.focus();
+          }}
+          className="fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[760px] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[var(--radius-xl)] bg-[rgb(var(--bg-background))] shadow-2xl max-sm:top-auto max-sm:right-0 max-sm:bottom-0 max-sm:left-0 max-sm:max-h-[94dvh] max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-t-[var(--radius-xl)] max-sm:rounded-b-none"
+        >
           <header className="flex shrink-0 items-start justify-between gap-3 border-b border-[rgb(var(--border-subtle))] px-5 py-4 sm:px-6">
             <div className="min-w-0 flex-1">
               <DialogPrimitive.Title className="font-display text-[20px] font-extrabold tracking-[-0.025em] text-[rgb(var(--fg-default))] sm:text-[24px]">

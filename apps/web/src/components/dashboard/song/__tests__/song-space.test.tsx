@@ -43,6 +43,18 @@ describe("SongSpace — composes hero + strip + tabs + active panel", () => {
     expect(SRC).not.toMatch(/active\s*===\s*["']payments["']/);
   });
 
+  it("swipes only the active panel through the ordered local tab state", () => {
+    expect(SRC).toMatch(
+      /SONG_TAB_ORDER[\s\S]*?["']overview["'][\s\S]*?["']versions["'][\s\S]*?["']sessions["']/,
+    );
+    expect(SRC).toContain("useTabSwipe");
+    expect(SRC).toContain("onChange: setActive");
+    expect(SRC).toContain('className="[touch-action:pan-y_pinch-zoom]"');
+    expect(SRC).toMatch(
+      /<div[\s\S]*?data-tab-swipe-surface[\s\S]*?\{\.\.\.tabSwipeHandlers\}[\s\S]*?active\s*===\s*["']overview["'][\s\S]*?active\s*===\s*["']versions["'][\s\S]*?active\s*===\s*["']sessions["'][\s\S]*?<\/div>[\s\S]*?<PaymentHistoryView/,
+    );
+  });
+
   it("forwards mode to SongSpaceHero without coupling tabs to commercial state", () => {
     expect(SRC).toMatch(/SongSpaceHero[^>]*mode/);
     expect(SRC).not.toMatch(/<SongTabs[^>]*\bmode=/);

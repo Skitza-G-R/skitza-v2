@@ -32,6 +32,7 @@ import { describe, expect, it } from "vitest";
 // a URL but readdirSync needs an unencoded filesystem path. Same
 // hazard would bite any path containing `()`, spaces, or unicode.
 const DASHBOARD_DIR = fileURLToPath(new URL("..", import.meta.url));
+const PRODUCER_DIR = fileURLToPath(new URL("../..", import.meta.url));
 
 function findAllPageFiles(dir: string): string[] {
   const out: string[] = [];
@@ -86,6 +87,10 @@ describe("dashboard pages — no per-page AppShell wrappers", () => {
 });
 
 describe("dashboard tabs — preserve the current screen while streaming", () => {
+  it("does not install a producer route-group fallback above the persistent shell", () => {
+    expect(existsSync(join(PRODUCER_DIR, "loading.tsx"))).toBe(false);
+  });
+
   it.each([
     ["Today", join(DASHBOARD_DIR, "loading.tsx")],
     ["Workspace", join(DASHBOARD_DIR, "clients-projects", "loading.tsx")],

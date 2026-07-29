@@ -3,6 +3,15 @@ export const RUNTIME_VIEW_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const RUNTIME_DRAFT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 export const RUNTIME_ROUTE_LIMIT = 20;
 export const ARTIST_CONTEXT_POINTER_CONTEXT_ID = "artist-account";
+export const RUNTIME_LAUNCH_CONTEXT_ID = "runtime-launch";
+export const RUNTIME_SCREEN_MAX_METRICS = 4;
+export const RUNTIME_SCREEN_MAX_SECTIONS = 3;
+export const RUNTIME_SCREEN_MAX_ITEMS_PER_SECTION = 40;
+export const RUNTIME_SCREEN_MAX_ITEMS = 80;
+export const RUNTIME_SCREEN_KEY_MAX_LENGTH = 160;
+export const RUNTIME_SCREEN_LABEL_MAX_LENGTH = 120;
+export const RUNTIME_SCREEN_TITLE_MAX_LENGTH = 200;
+export const RUNTIME_SCREEN_DETAIL_MAX_LENGTH = 300;
 
 const KEY_NAMESPACE = "skitza:runtime";
 
@@ -142,6 +151,47 @@ export interface RuntimeNavigationIndex {
   recentRoutes: string[];
 }
 
+export type RuntimeScreenSafeViewKind =
+  | "producer-overview"
+  | "producer-workspace"
+  | "producer-music"
+  | "artist-home"
+  | "artist-music"
+  | "artist-store";
+
+export interface RuntimeScreenSafeView {
+  kind: RuntimeScreenSafeViewKind;
+  title: string;
+  subtitle: string | null;
+  metrics: Array<{
+    label: string;
+    value: string;
+  }>;
+  sections: Array<{
+    label: string;
+    items: Array<{
+      key: string;
+      title: string;
+      detail: string | null;
+      badge: string | null;
+    }>;
+  }>;
+}
+
+export interface RuntimeLaunchPointer {
+  contextId: string;
+  href: string;
+}
+
+export interface RuntimeLaunchTarget extends RuntimeLaunchPointer {
+  role: RuntimeRole;
+}
+
+export type RuntimeStateIdentity = Pick<
+  RuntimeScope,
+  "userId" | "role" | "contextId"
+>;
+
 export interface RuntimePayloadBySlot {
   "producer.overview.safe-view": ProducerOverviewSafeView;
   "producer.workspace.safe-view": ProducerWorkspaceSafeView;
@@ -157,6 +207,8 @@ export interface RuntimePayloadBySlot {
   "artist.song-comment-draft": RuntimeTextDraft;
   "runtime.navigation.snapshot": RuntimeNavigationSnapshot;
   "runtime.navigation.index": RuntimeNavigationIndex;
+  "runtime.screen.safe-view": RuntimeScreenSafeView;
+  "runtime.launch.pointer": RuntimeLaunchPointer;
 }
 
 export type RuntimeSlot = keyof RuntimePayloadBySlot;
@@ -192,6 +244,8 @@ const SLOT_MAX_AGE_MS: Record<RuntimeSlot, number> = {
   "artist.song-comment-draft": RUNTIME_DRAFT_MAX_AGE_MS,
   "runtime.navigation.snapshot": RUNTIME_VIEW_MAX_AGE_MS,
   "runtime.navigation.index": RUNTIME_VIEW_MAX_AGE_MS,
+  "runtime.screen.safe-view": RUNTIME_VIEW_MAX_AGE_MS,
+  "runtime.launch.pointer": RUNTIME_VIEW_MAX_AGE_MS,
 };
 
 const LIVE_ONLY_ARTIST_ROUTE_PREFIXES = [
@@ -558,6 +612,86 @@ function isRuntimeNavigationIndex(value: unknown): value is RuntimeNavigationInd
   );
 }
 
+function isRuntimeScreenMetric(
+  value: unknown,
+): value is RuntimeScreenSafeView["metrics"][number] {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["label", "value"]) &&
+    isBoundedString(value.label, RUNTIME_SCREEN_LABEL_MAX_LENGTH) &&
+    isBoundedString(value.value, RUNTIME_SCREEN_LABEL_MAX_LENGTH)
+  );
+}
+
+function isRuntimeScreenItem(
+  value: unknown,
+): value is RuntimeScreenSafeView["sections"][number]["items"][number] {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["key", "title", "detail", "badge"]) &&
+    isBoundedString(value.key, RUNTIME_SCREEN_KEY_MAX_LENGTH) &&
+    isBoundedString(value.title, RUNTIME_SCREEN_TITLE_MAX_LENGTH) &&
+    (value.detail === null ||
+      isBoundedString(value.detail, RUNTIME_SCREEN_DETAIL_MAX_LENGTH)) &&
+    (value.badge === null ||
+      isBoundedString(value.badge, RUNTIME_SCREEN_LABEL_MAX_LENGTH))
+  );
+}
+
+function isRuntimeScreenSection(
+  value: unknown,
+): value is RuntimeScreenSafeView["sections"][number] {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["label", "items"]) &&
+    isBoundedString(value.label, RUNTIME_SCREEN_LABEL_MAX_LENGTH) &&
+    Array.isArray(value.items) &&
+    value.items.length <= RUNTIME_SCREEN_MAX_ITEMS_PER_SECTION &&
+    value.items.every(isRuntimeScreenItem)
+  );
+}
+
+function isRuntimeScreenSafeView(value: unknown): value is RuntimeScreenSafeView {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ["kind", "title", "subtitle", "metrics", "sections"]) ||
+    ![
+      "producer-overview",
+      "producer-workspace",
+      "producer-music",
+      "artist-home",
+      "artist-music",
+      "artist-store",
+    ].includes(String(value.kind)) ||
+    !isBoundedString(value.title, RUNTIME_SCREEN_TITLE_MAX_LENGTH) ||
+    (value.subtitle !== null &&
+      !isBoundedString(value.subtitle, RUNTIME_SCREEN_DETAIL_MAX_LENGTH)) ||
+    !Array.isArray(value.metrics) ||
+    value.metrics.length > RUNTIME_SCREEN_MAX_METRICS ||
+    !value.metrics.every(isRuntimeScreenMetric) ||
+    !Array.isArray(value.sections) ||
+    value.sections.length > RUNTIME_SCREEN_MAX_SECTIONS ||
+    !value.sections.every(isRuntimeScreenSection)
+  ) {
+    return false;
+  }
+
+  return (
+    value.sections.reduce((total, section) => total + section.items.length, 0) <=
+    RUNTIME_SCREEN_MAX_ITEMS
+  );
+}
+
+function isRuntimeLaunchPointer(value: unknown): value is RuntimeLaunchPointer {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["contextId", "href"]) &&
+    isBoundedString(value.contextId, 512) &&
+    value.contextId !== RUNTIME_LAUNCH_CONTEXT_ID &&
+    isBoundedString(value.href, 1024)
+  );
+}
+
 const SLOT_VALIDATORS: {
   [Slot in RuntimeSlot]: (value: unknown) => value is RuntimePayloadBySlot[Slot];
 } = {
@@ -575,6 +709,8 @@ const SLOT_VALIDATORS: {
   "artist.song-comment-draft": isRuntimeTextDraft,
   "runtime.navigation.snapshot": isRuntimeNavigationSnapshot,
   "runtime.navigation.index": isRuntimeNavigationIndex,
+  "runtime.screen.safe-view": isRuntimeScreenSafeView,
+  "runtime.launch.pointer": isRuntimeLaunchPointer,
 };
 
 export function isRuntimeSlot(value: string): value is RuntimeSlot {
@@ -692,6 +828,36 @@ export function normalizeRuntimeHref(href: string, role: RuntimeRole): string | 
   return `${url.pathname}${query ? `?${query}` : ""}`;
 }
 
+const RUNTIME_SCREEN_KIND_BY_PATHNAME: {
+  [Role in RuntimeRole]: Readonly<Partial<Record<string, RuntimeScreenSafeViewKind>>>;
+} = {
+  producer: {
+    "/dashboard": "producer-overview",
+    "/dashboard/clients-projects": "producer-workspace",
+    "/dashboard/music": "producer-music",
+  },
+  artist: {
+    "/artist": "artist-home",
+    "/artist/music": "artist-music",
+    "/artist/store": "artist-store",
+  },
+};
+
+/**
+ * Reduces an allowlisted screen href to its canonical pathname. Query state is
+ * intentionally excluded so one bounded display model can cover each main
+ * destination without crossing a role or studio context.
+ */
+export function canonicalRuntimeScreenPathname(
+  href: string,
+  role: RuntimeRole,
+): string | null {
+  const safeHref = normalizeRuntimeHref(href, role);
+  if (!safeHref) return null;
+  const pathname = new URL(safeHref, "https://runtime.skitza.invalid").pathname;
+  return RUNTIME_SCREEN_KIND_BY_PATHNAME[role][pathname] ? pathname : null;
+}
+
 export function runtimeScope(
   userId: string,
   role: RuntimeRole,
@@ -771,10 +937,20 @@ function isSlotAllowedForScope(scope: RuntimeScope, slot: RuntimeSlot): boolean 
       return true;
     case "runtime.navigation.index":
       return scope.route === (scope.role === "producer" ? "/dashboard" : "/artist");
+    case "runtime.screen.safe-view":
+      return (
+        scope.route === pathname &&
+        RUNTIME_SCREEN_KIND_BY_PATHNAME[scope.role][pathname] !== undefined
+      );
+    case "runtime.launch.pointer":
+      return (
+        scope.contextId === RUNTIME_LAUNCH_CONTEXT_ID &&
+        scope.route === (scope.role === "producer" ? "/dashboard" : "/artist")
+      );
   }
 }
 
-function navigationPayloadMatchesScope(
+function runtimePayloadMatchesScope(
   scope: RuntimeScope,
   slot: RuntimeSlot,
   payload: unknown,
@@ -795,6 +971,28 @@ function navigationPayloadMatchesScope(
       (href) => normalizeRuntimeHref(href, scope.role) === href,
     );
   }
+  if (slot === "runtime.screen.safe-view") {
+    if (!isRuntimeScreenSafeView(payload) || scope.route !== pathnameForScope(scope)) {
+      return false;
+    }
+    return RUNTIME_SCREEN_KIND_BY_PATHNAME[scope.role][scope.route] === payload.kind;
+  }
+  if (slot === "runtime.launch.pointer") {
+    if (!isRuntimeLaunchPointer(payload)) return false;
+    const safeHref = normalizeRuntimeHref(payload.href, scope.role);
+    if (safeHref !== payload.href) return false;
+    if (!canonicalRuntimeScreenPathname(safeHref, scope.role)) return false;
+    if (scope.role === "artist") {
+      const studio = new URL(
+        payload.href,
+        "https://runtime.skitza.invalid",
+      ).searchParams.get("studio");
+      return payload.contextId === "artist-no-studio"
+        ? studio === null
+        : studio === payload.contextId;
+    }
+    return true;
+  }
   return true;
 }
 
@@ -813,7 +1011,7 @@ function isRuntimeEnvelope<Slot extends RuntimeSlot>(
     !isSafeInteger(value.updatedAt, 0) ||
     !SLOT_VALIDATORS[slot](value.payload) ||
     !isSlotAllowedForScope(scope, slot) ||
-    !navigationPayloadMatchesScope(scope, slot, value.payload)
+    !runtimePayloadMatchesScope(scope, slot, value.payload)
   ) {
     return false;
   }
@@ -877,7 +1075,7 @@ export function writeRuntimeState<Slot extends RuntimeSlot>(
     !isRuntimeScope(scope) ||
     !SLOT_VALIDATORS[slot](payload) ||
     !isSlotAllowedForScope(scope, slot) ||
-    !navigationPayloadMatchesScope(scope, slot, payload)
+    !runtimePayloadMatchesScope(scope, slot, payload)
   ) {
     return false;
   }
@@ -895,6 +1093,147 @@ export function writeRuntimeState<Slot extends RuntimeSlot>(
   } catch {
     return false;
   }
+}
+
+export function readRuntimeScreenSafeView(
+  storage: StorageLike,
+  identity: RuntimeStateIdentity,
+  href: string,
+  now = Date.now(),
+): RuntimeScreenSafeView | null {
+  if (identity.role === "artist") {
+    const safeHref = normalizeRuntimeHref(href, identity.role);
+    if (!safeHref) return null;
+    const requestedStudio = new URL(
+      safeHref,
+      "https://runtime.skitza.invalid",
+    ).searchParams.get("studio");
+    if (
+      identity.contextId === "artist-no-studio"
+        ? requestedStudio !== null
+        : requestedStudio !== identity.contextId
+    ) {
+      return null;
+    }
+  }
+  const pathname = canonicalRuntimeScreenPathname(href, identity.role);
+  if (!pathname) return null;
+  const scope = runtimeScope(
+    identity.userId,
+    identity.role,
+    identity.contextId,
+    pathname,
+  );
+  return scope
+    ? readRuntimeState(storage, scope, "runtime.screen.safe-view", now)
+    : null;
+}
+
+export function writeRuntimeScreenSafeView(
+  storage: StorageLike,
+  identity: RuntimeStateIdentity,
+  href: string,
+  payload: RuntimeScreenSafeView,
+  now = Date.now(),
+): boolean {
+  if (identity.role === "artist") {
+    const safeHref = normalizeRuntimeHref(href, identity.role);
+    if (!safeHref) return false;
+    const requestedStudio = new URL(
+      safeHref,
+      "https://runtime.skitza.invalid",
+    ).searchParams.get("studio");
+    if (
+      identity.contextId === "artist-no-studio"
+        ? requestedStudio !== null
+        : requestedStudio !== identity.contextId
+    ) {
+      return false;
+    }
+  }
+  const pathname = canonicalRuntimeScreenPathname(href, identity.role);
+  if (!pathname) return false;
+  const scope = runtimeScope(
+    identity.userId,
+    identity.role,
+    identity.contextId,
+    pathname,
+  );
+  return scope
+    ? writeRuntimeState(storage, scope, "runtime.screen.safe-view", payload, now)
+    : false;
+}
+
+function runtimeLaunchScope(
+  userId: string,
+  role: RuntimeRole,
+): RuntimeScope | null {
+  return runtimeScope(
+    userId,
+    role,
+    RUNTIME_LAUNCH_CONTEXT_ID,
+    role === "producer" ? "/dashboard" : "/artist",
+  );
+}
+
+export function writeRuntimeLaunchPointer(
+  storage: StorageLike,
+  identity: RuntimeStateIdentity,
+  href: string,
+  now = Date.now(),
+): boolean {
+  const safeHref = normalizeRuntimeHref(href, identity.role);
+  if (!safeHref) return false;
+  if (!canonicalRuntimeScreenPathname(safeHref, identity.role)) return false;
+  if (identity.role === "artist") {
+    const url = new URL(safeHref, "https://runtime.skitza.invalid");
+    const requestedStudio = url.searchParams.get("studio");
+    if (identity.contextId === "artist-no-studio") {
+      if (requestedStudio !== null) return false;
+    } else if (requestedStudio !== identity.contextId) {
+      return false;
+    }
+  }
+  const scope = runtimeLaunchScope(identity.userId, identity.role);
+  if (!scope) return false;
+  return writeRuntimeState(
+    storage,
+    scope,
+    "runtime.launch.pointer",
+    {
+      contextId: identity.contextId,
+      href: safeHref,
+    },
+    now,
+  );
+}
+
+function readRuntimeLaunchPointerForRole(
+  storage: StorageLike,
+  userId: string,
+  role: RuntimeRole,
+  now: number,
+): RuntimeLaunchPointer | null {
+  const scope = runtimeLaunchScope(userId, role);
+  return scope
+    ? readRuntimeState(storage, scope, "runtime.launch.pointer", now)
+    : null;
+}
+
+/**
+ * Product-role precedence mirrors the signed-in role resolver: if one Clerk
+ * user has both roles, their producer destination is the deterministic launch.
+ */
+export function readRuntimeLaunchTarget(
+  storage: StorageLike,
+  userId: string,
+  now = Date.now(),
+): RuntimeLaunchTarget | null {
+  for (const role of ["producer", "artist"] as const) {
+    const pointer = readRuntimeLaunchPointerForRole(storage, userId, role, now);
+    if (pointer) return { role, ...pointer };
+  }
+  return null;
 }
 
 export function removeRuntimeState(
@@ -954,6 +1293,7 @@ const SAFE_VIEW_SLOTS: readonly SafeViewRuntimeSlot[] = [
   "producer.portfolio.safe-view",
   "artist.home.safe-view",
   "artist.music.safe-view",
+  "runtime.screen.safe-view",
 ];
 
 type SafeViewRuntimeSlot =
@@ -963,7 +1303,8 @@ type SafeViewRuntimeSlot =
   | "producer.store.safe-view"
   | "producer.portfolio.safe-view"
   | "artist.home.safe-view"
-  | "artist.music.safe-view";
+  | "artist.music.safe-view"
+  | "runtime.screen.safe-view";
 
 /**
  * Safe views are one record per route state. Keep the newest bounded set for
@@ -1008,6 +1349,37 @@ export function pruneRuntimeSafeViews(
   const removeKeys = entries.slice(Math.max(0, limit)).map((entry) => entry.key);
   for (const key of removeKeys) safelyRemoveStorageItem(storage, key);
   return removeKeys.length;
+}
+
+/**
+ * Returns an offline fallback owner only when the namespace contains exactly
+ * one decodable Clerk user. Ambiguous or malformed private-state ownership
+ * never gets guessed.
+ */
+export function findOnlyRuntimeStateUserId(storage: StorageLike): string | null {
+  const prefix = `${KEY_NAMESPACE}:user=`;
+  const users = new Set<string>();
+  try {
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (!key?.startsWith(prefix)) continue;
+      const schemaIndex = key.indexOf(":schema=", prefix.length);
+      if (schemaIndex < 0) return null;
+      const encodedUserId = key.slice(prefix.length, schemaIndex);
+      let userId: string;
+      try {
+        userId = decodeURIComponent(encodedUserId);
+      } catch {
+        return null;
+      }
+      if (!isBoundedString(userId, 512)) return null;
+      users.add(userId);
+      if (users.size > 1) return null;
+    }
+  } catch {
+    return null;
+  }
+  return users.values().next().value ?? null;
 }
 
 /**

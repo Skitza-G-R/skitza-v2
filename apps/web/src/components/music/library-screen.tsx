@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { EqBars } from "~/components/audio/eq-bars";
 import { playerPlay, playerToggle, useNowPlaying } from "~/components/audio/persistent-player";
+import { useTabSwipe } from "~/components/native/use-tab-swipe";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 
 import { ProjectCover } from "./project-cover";
@@ -130,6 +131,8 @@ type SongSort = "recent" | "title" | "notes" | "length";
 type ProjectArchiveFilter = "active" | "archived";
 export type SongArchiveFilter = "active" | "archived";
 
+const MUSIC_LIBRARY_MODES = ["projects", "songs"] as const;
+
 export interface MusicLibraryUrlState {
   mode: Mode;
   view: View;
@@ -149,7 +152,7 @@ function enumerated<T extends string>(
 export function parseMusicLibraryUrlState(search: string): MusicLibraryUrlState {
   const params = new URLSearchParams(search);
   return {
-    mode: enumerated(params.get("mode"), ["projects", "songs"], "projects"),
+    mode: enumerated(params.get("mode"), ["projects", "songs"], "songs"),
     view: enumerated(params.get("view"), ["grid", "table"], "grid"),
     search: (params.get("search") ?? "").slice(0, 120),
     sort: enumerated(params.get("sort"), ["recent", "title", "notes", "length"], "recent"),
@@ -401,8 +404,14 @@ export function MusicLibraryScreen({
 
   function updateMode(next: Mode) {
     setMode(next);
-    replaceUrlState("mode", next, "projects");
+    replaceUrlState("mode", next, "songs");
   }
+
+  const modeSwipeHandlers = useTabSwipe({
+    items: MUSIC_LIBRARY_MODES,
+    value: mode,
+    onChange: updateMode,
+  });
 
   function updateView(next: View) {
     setView(next);
@@ -670,7 +679,15 @@ export function MusicLibraryScreen({
       ) : null}
 
       {/* Body — one results region updated by the two pressed-button groups. */}
-      <div id={RESULTS_PANEL_ID} role="region" aria-label="Library results">
+      <div
+        id={RESULTS_PANEL_ID}
+        role="region"
+        aria-label="Library results"
+        className="[touch-action:pan-y_pinch-zoom]"
+        data-tab-swipe-surface
+        {...modeSwipeHandlers}
+      >
+        <div data-tab-swipe-panel>
         {mode === "projects" && visibleProjects.length === 0 ? (
           <EmptyResult
             hasQuery={Boolean(search.trim()) || artist !== "all"}
@@ -716,6 +733,7 @@ export function MusicLibraryScreen({
             {...(markReleased ? { markReleased } : {})}
           />
         )}
+        </div>
       </div>
     </div>
   );
@@ -1068,10 +1086,7 @@ function ProjectsGrid({
     // auto-fill behavior applies unchanged.
     <ul
       role="list"
-      className={[
-        "grid gap-3.5 sm:grid-cols-[repeat(auto-fill,minmax(196px,1fr))] sm:gap-[22px]",
-        role === "producer" ? "grid-cols-1" : "grid-cols-2",
-      ].join(" ")}
+      className="grid grid-cols-2 gap-3.5 sm:grid-cols-[repeat(auto-fill,minmax(196px,1fr))] sm:gap-[22px]"
     >
       {projects.map((p, i) => (
         // Featured span applies from sm: up only — below 640px the
@@ -1311,7 +1326,7 @@ function ProjectsTable({
   );
 }
 
-function SongsGrid({
+export function SongsGrid({
   songs,
   role,
   addSongHref,
@@ -1329,6 +1344,24 @@ function SongsGrid({
   markReleased?: MarkSongReleasedAction;
 }) {
   const nowPlaying = useNowPlaying();
+
+  function handlePlay(song: MusicLibraryTrackRow) {
+    const versionId = latestVersionIdForLibraryTrack(song);
+    if (!isMusicLibraryTrackPlayable(song) || !song.audioUrl || !versionId) return;
+    if (nowPlaying.trackId === versionId) {
+      playerToggle();
+      return;
+    }
+    playerPlay({
+      id: versionId,
+      audioUrl: song.audioUrl,
+      title: song.trackTitle,
+      subtitle: `${song.trackArtist ?? song.clientName ?? song.projectTitle} · ${song.label ?? "No version"}`,
+      durationMs: song.durationMs,
+      ...(role === "producer" ? { cachePolicy: "account-unlocked" as const } : {}),
+    });
+  }
+
   return (
     // Same phone treatment as ProjectsGrid: explicit 2 columns below
     // sm, original auto-fill from sm up.
@@ -1354,6 +1387,7 @@ function SongsGrid({
               isPlaying={
                 nowPlaying.trackId === latestVersionIdForLibraryTrack(song) && nowPlaying.playing
               }
+              onPlay={handlePlay}
               role={role}
               {...(renameSong ? { renameSong } : {})}
               {...(editArtist ? { editArtist } : {})}
@@ -1370,6 +1404,7 @@ function SongsGrid({
 function SongCard({
   song,
   isPlaying,
+  onPlay,
   role,
   renameSong,
   editArtist,
@@ -1378,6 +1413,7 @@ function SongCard({
 }: {
   song: MusicLibraryTrackRow;
   isPlaying: boolean;
+  onPlay: (song: MusicLibraryTrackRow) => void;
   role: MusicLibraryRole;
   renameSong?: RenameSongAction;
   editArtist?: EditSongArtistAction;
@@ -1400,13 +1436,6 @@ function SongCard({
       className="sk-lift group relative flex flex-col gap-3"
       data-music-row={canPlay ? "allocated-playable" : "allocated-no-audio"}
     >
-      {detailHref ? (
-        <Link
-          href={detailHref}
-          aria-label={`Open ${song.trackTitle} song page`}
-          className="absolute inset-0 z-0 rounded-[12px] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-background))] focus-visible:outline-none"
-        />
-      ) : null}
       {role === "producer" && renameSong && editArtist && setArchived ? (
         <span className="pointer-events-auto absolute top-1.5 left-1.5 z-30">
           <SongManagementControls
@@ -1424,7 +1453,7 @@ function SongCard({
           />
         </span>
       ) : null}
-      <div className="pointer-events-none relative z-10" style={{ willChange: "transform" }}>
+      <div className="relative z-10" style={{ willChange: "transform" }}>
         <ProjectCover
           seed={song.projectId}
           gradient={gradient}
@@ -1435,25 +1464,44 @@ function SongCard({
           shadow="hero"
           className="aspect-[1.3/1] w-full"
         />
-        <span className="absolute top-2.5 right-2.5 z-10 rounded-[4px] bg-[rgb(17_16_9)/0.38] px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wide text-white uppercase backdrop-blur-sm">
+        {detailHref ? (
+          <Link
+            href={detailHref}
+            prefetch={role === "producer" ? true : null}
+            data-song-artwork-link="true"
+            aria-label={`Open ${song.trackTitle} song page`}
+            className="absolute inset-0 z-10 rounded-[12px] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-background))] focus-visible:outline-none"
+          />
+        ) : null}
+        <span className="pointer-events-none absolute top-2.5 right-2.5 z-20 rounded-[4px] bg-[rgb(17_16_9)/0.38] px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wide text-white uppercase backdrop-blur-sm">
           {song.label ?? "No version"}
         </span>
         {canPlay ? (
-          <span
-            aria-hidden
-            className="sk-trans absolute bottom-3 left-3 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)] shadow-[0_6px_14px_rgba(17,16,9,0.28)] group-hover:scale-105"
+          <button
+            type="button"
+            aria-label={isPlaying ? "Pause" : "Play"}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onPlay(song);
+            }}
+            className="sk-press sk-trans absolute bottom-3 left-3 z-30 flex h-11 w-11 items-center justify-center rounded-full bg-white text-[rgb(17_16_9)] shadow-[0_6px_14px_rgba(17,16,9,0.28)] group-hover:scale-105 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
           >
-            <Play size={13} strokeWidth={2.6} fill="currentColor" />
-          </span>
+            {isPlaying ? (
+              <EqBars playing size={13} />
+            ) : (
+              <Play size={13} strokeWidth={2.6} fill="currentColor" />
+            )}
+          </button>
         ) : (
-          <span className="absolute bottom-3 left-3 z-10 rounded-[var(--radius-sm)] border border-white/30 bg-[rgb(17_16_9)/0.38] px-2 py-1 font-mono text-[9px] font-bold tracking-[0.08em] text-white uppercase backdrop-blur-sm">
+          <span className="pointer-events-none absolute bottom-3 left-3 z-20 rounded-[var(--radius-sm)] border border-white/30 bg-[rgb(17_16_9)/0.38] px-2 py-1 font-mono text-[9px] font-bold tracking-[0.08em] text-white uppercase backdrop-blur-sm">
             {audioDeleted ? "Audio deleted" : "Awaiting audio"}
           </span>
         )}
         {isPlaying && canPlay ? (
           <span
             aria-label="Now playing"
-            className="absolute right-3 bottom-3 z-10 inline-flex h-[18px] w-[18px] items-center justify-center text-white"
+            className="pointer-events-none absolute right-3 bottom-3 z-20 inline-flex h-[18px] w-[18px] items-center justify-center text-white"
             style={{ opacity: 0.92 }}
           >
             <EqBars playing size={13} />

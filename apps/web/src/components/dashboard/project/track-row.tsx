@@ -1,75 +1,59 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Pause, Play } from "lucide-react";
+import type { MouseEvent } from "react";
 
+import { playerPlay, playerToggle, useNowPlaying } from "~/components/audio/persistent-player";
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
-import {
-  stageColor,
-  stageLabel,
-  type WorkflowStage,
-} from "~/lib/clients/workflow-stage";
+import { stageColor, stageLabel, type WorkflowStage } from "~/lib/clients/workflow-stage";
 
-// The Album Page tracklist row.
-//
-// Grid columns (verbatim from BUILD-NOTES §6.4):
-//   30px · 38px · minmax(0,1fr) · 130px · 180px · 22px
-//   ──── ──── ─────────────── ───── ───── ───
-//   idx  cover  title + meta  stage pill  progress  chevron
-//
-// The semantic Link is the row container, so every visible desktop and
-// mobile cell — including whitespace — has the same navigation target.
-// Reorder UI stays absent until a persisted album-track ordering
-// contract exists.
+export interface TrackRowPlayback {
+  versionId: string;
+  audioUrl: string;
+  versionLabel: string;
+  projectName: string;
+  durationMs?: number;
+}
 
 export interface TrackRowData {
   id: string;
   title: string;
-  /** Optional artist credit shown to listeners. */
   artist: string | null;
   workflowStage: WorkflowStage;
-  /** 0..100 — drives the trailing progress bar. */
   progress: number;
-  /** Latest version label (e.g. "v3", "Master") — optional. */
   currentVersion?: string;
-  /** Number of unresolved comments across all versions — optional. */
   noteCount?: number;
-  /** Duration of the latest version in ms — optional. */
   durationMs?: number;
-  /**
-   * Total number of versions for this track. Drives the auto-bumped
-   * default version label in the UploadTrackModal (v{N+1}). Defaults
-   * to 0 if the parent doesn't supply it.
-   */
   versionCount?: number;
+  playback?: TrackRowPlayback;
 }
 
 export interface TrackRowProps {
   projectId: string;
   track: TrackRowData;
-  /** 1-based row index (rendered as "01", "02"…). */
   index: number;
 }
 
-// Inline mm:ss formatter — duplicated from persistent-player's
-// `fmtTime` because that module is "use client" and pulls a heavy
-// dependency tree we don't need here for a 4-line formatter.
 function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "0:00";
   const totalSec = Math.floor(ms / 1000);
-  const m = Math.floor(totalSec / 60);
-  const s = totalSec % 60;
-  return `${String(m)}:${String(s).padStart(2, "0")}`;
+  const minutes = Math.floor(totalSec / 60);
+  const seconds = totalSec % 60;
+  return `${String(minutes)}:${String(seconds).padStart(2, "0")}`;
 }
 
 export function TrackRow({ projectId, track, index }: TrackRowProps) {
+  const nowPlaying = useNowPlaying();
   const indexLabel = String(index).padStart(2, "0");
   const coverBg = producerGradient(track.title);
   const stageHue = stageColor(track.workflowStage);
   const clampedProgress = Math.max(0, Math.min(100, Math.round(track.progress)));
+  const playback = track.playback;
+  const isPlaying = playback
+    ? nowPlaying.trackId === playback.versionId && nowPlaying.playing
+    : false;
 
-  // Meta line — version · notes · duration. Each segment is optional;
-  // a track with no version yet (no audio uploaded) shows just the title.
   const metaParts: string[] = [];
   if (track.artist) metaParts.push(track.artist);
   if (track.currentVersion) metaParts.push(track.currentVersion);
@@ -81,155 +65,97 @@ export function TrackRow({ projectId, track, index }: TrackRowProps) {
   }
   const meta = metaParts.join(" · ");
 
+  function handlePlay(event: MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!playback) return;
+    if (nowPlaying.trackId === playback.versionId) {
+      playerToggle();
+      return;
+    }
+    playerPlay({
+      id: playback.versionId,
+      audioUrl: playback.audioUrl,
+      title: track.title,
+      subtitle: `${playback.projectName} · ${playback.versionLabel}`,
+      durationMs: playback.durationMs ?? null,
+      cachePolicy: "account-unlocked",
+    });
+  }
+
   return (
-    <Link
-      href={`/dashboard/clients-projects/${projectId}/songs/${track.id}`}
-      className="group relative block rounded-[var(--radius-md)] border transition-colors hover:bg-[rgb(var(--bg-elevated))] active:bg-[rgb(var(--bg-elevated))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
-      style={{
-        borderColor: "rgb(var(--border-subtle))",
-        background: "rgb(var(--bg-background))",
-      }}
-      aria-label={`Open ${track.title}`}
-    >
-      {/* Desktop (md+) — six-column grid. Hidden below md because the
-          fixed tracks (~420px) pushed phones to a 521px layout and
-          crushed the minmax(0,1fr) title column to 0px. */}
-      <div
-        className="hidden items-center gap-3 px-3 py-2 md:grid"
-        style={{
-          gridTemplateColumns: "30px 38px minmax(0,1fr) 130px 180px 22px",
-        }}
+    <article className="group flex min-w-0 items-center overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] transition-colors hover:bg-[rgb(var(--bg-elevated))]">
+      <Link
+        href={`/dashboard/clients-projects/${projectId}/songs/${track.id}`}
+        aria-label={`Open ${track.title}`}
+        className="flex min-h-[68px] min-w-0 flex-1 items-center gap-3 px-3 py-2.5 focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset sm:px-4"
       >
-        {/* 1 — Index (mono "01", "02"…) */}
-        <span
-          className="font-mono text-[12px] tabular-nums"
-          style={{ color: "rgb(var(--fg-muted))" }}
-        >
+        <span className="hidden w-6 shrink-0 font-mono text-[11px] text-[rgb(var(--fg-muted))] tabular-nums sm:block">
           {indexLabel}
         </span>
 
-      {/* 2 — 38px gradient cover tile */}
-      <span
-        aria-hidden
-        className="h-[38px] w-[38px] shrink-0 rounded-[var(--radius-sm)]"
-        style={{ background: coverBg }}
-      />
-
-      {/* 3 — Title + meta (truncates) */}
-      <div className="min-w-0">
-        <p
-          className="truncate text-[14px] font-medium leading-tight transition-colors group-hover:text-[rgb(var(--brand-primary))]"
-          style={{ color: "rgb(var(--fg-default))" }}
-        >
-          {track.title}
-        </p>
-        {meta ? (
-          <p
-            className="mt-0.5 truncate text-[11px]"
-            style={{ color: "rgb(var(--fg-muted))" }}
-          >
-            {meta}
-          </p>
-        ) : null}
-      </div>
-
-      {/* 4 — Stage pill (colored dot + label) */}
-      <span
-        className="inline-flex items-center gap-1.5 self-center justify-self-start rounded-[var(--radius-sm)] border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest"
-        style={{
-          color: stageHue,
-          borderColor: stageHue,
-          background: "transparent",
-        }}
-      >
         <span
           aria-hidden
-          className="h-1.5 w-1.5 rounded-full"
-          style={{ background: stageHue }}
-        />
-        {stageLabel(track.workflowStage)}
-      </span>
-
-      {/* 5 — Progress bar + % */}
-      <div className="flex items-center gap-2">
-        <div
-          className="relative h-1.5 flex-1 overflow-hidden rounded-full"
-          style={{ background: "rgb(var(--border-subtle))" }}
-        >
-          <div
-            className="absolute inset-y-0 left-0 rounded-full"
-            style={{
-              width: `${String(clampedProgress)}%`,
-              background: "rgb(var(--brand-primary))",
-            }}
-          />
-        </div>
-        <span
-          className="font-mono text-[11px] tabular-nums"
-          style={{ color: "rgb(var(--fg-muted))" }}
-        >
-          {clampedProgress}%
-        </span>
-      </div>
-
-      {/* 6 — Chevron (decorative — the whole row is the link) */}
-      <span
-        aria-hidden
-        className="flex h-5 w-5 items-center justify-center"
-        style={{ color: "rgb(var(--fg-muted))" }}
-      >
-        <ChevronRight size={16} />
-      </span>
-      </div>
-
-      {/* Mobile (<md) — Spotify-style 64px two-line row. */}
-      <div
-        aria-hidden
-        className="flex min-h-[64px] items-center gap-3 px-3 py-2.5 md:hidden"
-      >
-        <span
-          className="h-11 w-11 shrink-0 rounded-[var(--radius-sm)]"
+          className="h-11 w-11 shrink-0 rounded-[var(--radius-md)]"
           style={{ background: coverBg }}
         />
+
         <span className="min-w-0 flex-1">
-          <span
-            className="block truncate text-[15px] font-medium leading-tight"
-            style={{ color: "rgb(var(--fg-default))" }}
-          >
+          <span className="block truncate text-[14.5px] leading-tight font-bold text-[rgb(var(--fg-default))] transition-colors group-hover:text-[rgb(var(--brand-primary-dark))]">
             {track.title}
           </span>
-          <span
-            className="mt-0.5 flex items-center gap-1.5 text-[12px]"
-            style={{ color: "rgb(var(--fg-muted))" }}
-          >
+          <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[11.5px] text-[rgb(var(--fg-muted))]">
             <span
+              aria-hidden
               className="h-1.5 w-1.5 shrink-0 rounded-full"
               style={{ background: stageHue }}
             />
-            <span className="min-w-0 truncate">
+            <span className="truncate">
               {stageLabel(track.workflowStage)}
               {meta ? ` · ${meta}` : ""}
             </span>
           </span>
           <span
-            className="mt-1.5 block h-[2px] max-w-[180px] overflow-hidden rounded-full"
-            style={{ background: "rgb(var(--border-subtle))" }}
+            role="progressbar"
+            aria-label={`${track.title} progress`}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={clampedProgress}
+            aria-valuetext={`${String(clampedProgress)}% complete`}
+            className="mt-2 block h-[2px] max-w-[220px] overflow-hidden rounded-full bg-[rgb(var(--border-subtle))]"
           >
             <span
-              className="block h-full rounded-full"
-              style={{
-                width: `${String(clampedProgress)}%`,
-                background: "rgb(var(--brand-primary))",
-              }}
+              className="block h-full rounded-full bg-[rgb(var(--brand-primary))]"
+              style={{ width: `${String(clampedProgress)}%` }}
             />
           </span>
         </span>
+
         <ChevronRight
           size={16}
-          className="shrink-0"
-          style={{ color: "rgb(var(--fg-muted))" }}
+          strokeWidth={2.1}
+          className="hidden shrink-0 text-[rgb(var(--fg-muted))] sm:block"
+          aria-hidden
         />
-      </div>
-    </Link>
+      </Link>
+
+      <button
+        type="button"
+        onClick={handlePlay}
+        disabled={!playback}
+        aria-label={
+          playback
+            ? `${isPlaying ? "Pause" : "Play"} ${track.title}`
+            : `No playable audio for ${track.title}`
+        }
+        className="sk-press mr-3 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--fg-default))] text-[rgb(var(--bg-background))] shadow-[var(--shadow-sm)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:cursor-not-allowed disabled:bg-[rgb(var(--fg-default)/0.08)] disabled:text-[rgb(var(--fg-muted))] disabled:shadow-none sm:mr-4"
+      >
+        {isPlaying ? (
+          <Pause size={14} fill="currentColor" aria-hidden />
+        ) : (
+          <Play size={14} fill="currentColor" aria-hidden />
+        )}
+      </button>
+    </article>
   );
 }

@@ -9,6 +9,7 @@ import {
   type StorageLike,
 } from "~/lib/runtime-state/runtime-state";
 import {
+  allowAccountPrivateRuntimeWrites,
   clearAccountPrivateRuntimeQuery,
   clearAccountPrivateRuntimeState,
 } from "~/lib/runtime-state/account-exit";
@@ -87,6 +88,7 @@ export function RuntimeStateProvider({
   useLayoutEffect(() => {
     if (!isLoaded) return;
     const currentUserId = clerkUserId ?? null;
+    const previousClerkUserId = previousUserId.current;
     const userIdToClear = runtimeUserToClear(previousUserId.current, currentUserId);
     if (userIdToClear) {
       clearAccountPrivateRuntimeState(userIdToClear, storage);
@@ -94,6 +96,9 @@ export function RuntimeStateProvider({
       shouldScrubAccountPrivateRuntimeQuery(currentUserId, identity.userId, userIdToClear)
     ) {
       clearAccountPrivateRuntimeQuery();
+    }
+    if (currentUserId && previousClerkUserId !== currentUserId) {
+      allowAccountPrivateRuntimeWrites(currentUserId);
     }
     previousUserId.current = currentUserId;
   }, [clerkUserId, identity.userId, isLoaded, storage]);
