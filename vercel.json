@@ -1,3 +1,8 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json"
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "giasraf/sk-148-integrate-rejected-item-fixes-into-one-verified-preview": false
+    }
+  }
 }
