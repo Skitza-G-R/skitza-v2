@@ -362,6 +362,7 @@ export function RuntimeNavigationBridge({
         root.dataset.skNavState = "settled";
         clearRuntimeMainNavigationPendingTargets();
         markRuntimeNavigationCommit();
+        navigationCache.markReady(currentMainHref);
 
         if (pending.warm) {
           root.dataset.skNavSource = "warm";

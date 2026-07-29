@@ -14,12 +14,14 @@ vi.mock("next/link", () => ({
   default: ({
     href,
     children,
+    prefetch,
     ...props
   }: AnchorHTMLAttributes<HTMLAnchorElement> & {
     href: string;
     children: ReactNode;
+    prefetch?: boolean | null;
   }) => (
-    <a href={href} {...props}>
+    <a href={href} data-next-prefetch={prefetch == null ? "auto" : String(prefetch)} {...props}>
       {children}
     </a>
   ),
@@ -100,6 +102,7 @@ describe("Music library grid player controls", () => {
     const artworkLink = screen.getByRole("link", { name: "Open Lama song page" });
     expect(artworkLink.getAttribute("href")).toBe("/dashboard/music/version-1");
     expect(artworkLink.getAttribute("data-song-artwork-link")).toBe("true");
+    expect(artworkLink.getAttribute("data-next-prefetch")).toBe("true");
     expect(screen.getByText("Lama").closest("a")).toBeNull();
   });
 

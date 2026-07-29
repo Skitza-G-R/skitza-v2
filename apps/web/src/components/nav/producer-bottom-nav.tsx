@@ -524,7 +524,7 @@ export function ProducerBottomNav(): ReactNode {
               href={tab.href}
               draggable={false}
               data-sk-nav-destination={tab.href}
-              prefetch={false}
+              prefetch={true}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   clearReleaseClickGuard();

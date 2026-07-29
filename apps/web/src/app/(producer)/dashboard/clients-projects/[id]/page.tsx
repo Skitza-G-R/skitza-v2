@@ -20,9 +20,9 @@ type PageProps = {
   params: Promise<{ id: string }>;
 };
 
-// Multi-song Project Space server component. The route keeps canonical
-// project/payment reads and the Single-Space redirect server-side, then
-// shapes the compact four-tab workspace for AlbumSpace.
+// Project Space server component. The route keeps canonical project,
+// payment, and session reads server-side, then shapes the compact
+// four-tab workspace for AlbumSpace.
 //
 // This server component:
 //   1. Verifies auth.
@@ -55,32 +55,17 @@ export default async function ProjectDetail({ params }: PageProps) {
 
   const caller = appRouter.createCaller({ userId });
 
-  const [detailResult, paymentResult] = await Promise.allSettled([
+  const [detailResult, paymentResult, bookingsResult] = await Promise.allSettled([
     caller.project.detail({ id }),
     caller.purchaseLedger.project({ projectId: id }),
+    caller.booking.list({ projectId: id }),
   ]);
   if (detailResult.status === "rejected" || paymentResult.status === "rejected") {
     notFound();
   }
   const data = detailResult.value;
   const paymentModel = paymentResult.value;
-
-  // Single-Space rule (DESIGN.md §2 + Phase 3 plan, decision 4) —
-  // when a project has exactly one purchased space and it has been named,
-  // the project IS that song. A still-empty paid single stays on this page
-  // so its purchased space remains visible and actionable before audio.
-  // We redirect the album route to the song route server-side so EVERY
-  // entry point (clients list, client space, deep link, breadcrumb)
-  // collapses to the same Song Space surface. Implemented BEFORE any
-  // rendering so the AlbumSpace shell never lights up for single-song
-  // projects.
-  if (data.songSpaces.mode === "single" && data.tracks.length === 1 && data.tracks[0]) {
-    redirect(`/dashboard/clients-projects/${id}/songs/${data.tracks[0].id}`);
-  }
-
-  // Sessions are needed only by Album Space. Keep this scoped read after
-  // the Single-Space redirect so it cannot delay Song Space navigation.
-  const projectBookings = await caller.booking.list({ projectId: id }).catch(() => []);
+  const projectBookings = bookingsResult.status === "fulfilled" ? bookingsResult.value : [];
 
   const sessionEntries: StudioLogEntry[] = projectBookings.map((booking) => ({
     id: `session-${booking.id}`,

@@ -1467,6 +1467,7 @@ function SongCard({
         {detailHref ? (
           <Link
             href={detailHref}
+            prefetch={role === "producer" ? true : null}
             data-song-artwork-link="true"
             aria-label={`Open ${song.trackTitle} song page`}
             className="absolute inset-0 z-10 rounded-[12px] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-background))] focus-visible:outline-none"

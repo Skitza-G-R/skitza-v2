@@ -31,20 +31,19 @@ describe("clients-projects/[id]/page.tsx — Phase 2 rewrite to AlbumSpace", () 
     expect(SRC).not.toContain("project.money");
   });
 
-  it("starts detail and canonical payments together, then scopes Album Space bookings", () => {
+  it("starts detail, canonical payments, and scoped Album Space bookings together", () => {
     const detailAt = SRC.indexOf("project.detail({ id })");
     const paymentsAt = SRC.indexOf("purchaseLedger.project({ projectId: id })");
     const bookingsAt = SRC.indexOf("booking.list({ projectId: id })");
     const settledStart = SRC.lastIndexOf("Promise.allSettled", detailAt);
-    const settledEnd = SRC.indexOf("]);", paymentsAt);
-    const redirectAt = SRC.indexOf("redirect(`/dashboard/clients-projects/", settledEnd);
+    const settledEnd = SRC.indexOf("]);", bookingsAt);
 
     expect(settledStart).toBeGreaterThan(-1);
     expect(detailAt).toBeGreaterThan(settledStart);
     expect(paymentsAt).toBeGreaterThan(detailAt);
-    expect(settledEnd).toBeGreaterThan(paymentsAt);
-    expect(redirectAt).toBeGreaterThan(settledEnd);
-    expect(bookingsAt).toBeGreaterThan(redirectAt);
+    expect(bookingsAt).toBeGreaterThan(paymentsAt);
+    expect(settledEnd).toBeGreaterThan(bookingsAt);
+    expect(SRC).toContain('bookingsResult.status === "fulfilled" ? bookingsResult.value : []');
   });
 
   it("uses the stable clientContactId for the breadcrumb without a global client list", () => {
@@ -114,14 +113,12 @@ describe("clients-projects/[id]/page.tsx — Phase 2 rewrite to AlbumSpace", () 
     expect(SRC).not.toContain("upcomingCount");
   });
 
-  it("redirects an allocated one-space project to its Song Space", () => {
-    expect(SRC).toContain('data.songSpaces.mode === "single"');
-    expect(SRC).toContain("data.tracks.length === 1");
-    // Allow multi-line redirect call. Check the template literal
-    // shape includes the dashboard + songs path with two interpolations.
-    expect(SRC).toMatch(
+  it("renders the compact Project Space for one-song and multi-song projects", () => {
+    expect(SRC).not.toContain('data.songSpaces.mode === "single"');
+    expect(SRC).not.toMatch(
       /redirect\([\s\S]*?`\/dashboard\/clients-projects\/\$\{[^}]+\}\/songs\/\$\{[^}]+\}`[\s\S]*?\)/,
     );
+    expect(SRC).toMatch(/<AlbumSpace/);
   });
 
   it("maps artist credit into AlbumSpace rows", () => {

@@ -50,8 +50,9 @@ describe("producer nav: Portfolio in sidebar only", () => {
     expect(BOTTOM).not.toMatch(/href:\s*["']\/dashboard\/store["']/);
   });
 
-  it("leaves primary-route prefetching to the serial runtime warmer", () => {
-    expect(BOTTOM).toMatch(/<Link[\s\S]*href=\{tab\.href\}[\s\S]*prefetch=\{false\}/);
+  it("fully prefetches the five persistent mobile routes while keeping desktop warming serial", () => {
+    expect(BOTTOM).toMatch(/<Link[\s\S]*href=\{tab\.href\}[\s\S]*prefetch=\{true\}/);
+    expect(BOTTOM.match(/prefetch=\{true\}/g)).toHaveLength(1);
     expect(SIDEBAR.match(/prefetch=\{false\}/g)).toHaveLength(2);
     expect(BOTTOM).toContain("announceRuntimeMainNavigationIntent(tab.href)");
     expect(SIDEBAR.match(/announceRuntimeMainNavigationIntent/g)?.length).toBeGreaterThanOrEqual(3);

@@ -95,6 +95,10 @@ describe("SK-122 warm-arrival motion policy", () => {
     expect(GLOBALS_CSS).toMatch(/\.sk-page-enter\s*\{\s*animation:\s*skitza-page-enter 240ms/);
     expect(GLOBALS_CSS).toMatch(/\.reveal-up\s*\{\s*animation:\s*skitza-reveal-up 0\.6s/);
   });
+
+  it("remembers a completed main-route visit as warm for the next switch", () => {
+    expect(RUNTIME_NAVIGATION_BRIDGE).toContain("navigationCache.markReady(currentMainHref)");
+  });
 });
 
 describe("SK-122 accepted-target feedback", () => {
