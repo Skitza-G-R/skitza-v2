@@ -1,228 +1,147 @@
-import { Mic, Users } from "lucide-react";
+import { MessageSquare, Mic2, Sparkles, Upload } from "lucide-react";
 
-import { StatTile } from "~/components/dashboard/common/stat-tile";
+export type StudioLogBookingStatus =
+  | "pending_approval"
+  | "confirmed"
+  | "rejected"
+  | "cancelled"
+  | "completed"
+  | "no_show";
 
-// StudioLogTab — Studio Log panel for the new Album Page (DESIGN.md
-// §4.3, BUILD-NOTES §5.3). 4 insight tiles up top + a vertical
-// activity timeline + a sessions list. Album-only — Phase 3 Song Space
-// does NOT have a Studio Log tab.
-//
-// We don't reuse the legacy SessionsSubTab here for two reasons:
-//  1) That component is shaped around a single 1:1 booking (its v1
-//     constraint). The new Album Page needs an N-session list.
-//  2) The legacy component bakes "Reschedule / Cancel" stubs that
-//     don't belong on the album view.
-// Inline rendering keeps this panel decoupled from the legacy data
-// shape so Phase 4+ can swap in real session-list data without
-// touching that file.
-
-export interface StudioLogActivity {
+export interface StudioLogActivityEntry {
   id: string;
-  kind: string;
+  kind: "created" | "version" | "comment";
   ts: Date;
   description: string;
 }
 
-export interface StudioLogSession {
+export interface StudioLogSessionEntry {
   id: string;
-  date: Date;
+  kind: "session";
+  ts: Date;
   durationMinutes: number;
   attendees: string[];
+  status: StudioLogBookingStatus;
   notes?: string;
 }
 
-export interface StudioLogTabProps {
-  sessionsCount: number;
-  studioHours: number;
-  thisMonthCount: number;
-  lastSessionDate: Date | null;
-  activities: StudioLogActivity[];
-  sessions: StudioLogSession[];
+export type StudioLogEntry = StudioLogActivityEntry | StudioLogSessionEntry;
+
+interface StudioLogTabProps {
+  entries: readonly StudioLogEntry[];
 }
 
-function formatDate(d: Date | null): string {
-  if (!d) return "—";
-  try {
-    return new Intl.DateTimeFormat("en-US", {
-      month: "short",
-      day: "numeric",
-    }).format(d);
-  } catch {
-    return d.toISOString().slice(0, 10);
-  }
+export function sortStudioLogEntries(entries: readonly StudioLogEntry[]): StudioLogEntry[] {
+  return [...entries].sort(
+    (left, right) => right.ts.getTime() - left.ts.getTime() || left.id.localeCompare(right.id),
+  );
 }
 
-function formatDateTime(d: Date): string {
+function formatDateTime(date: Date): string {
   try {
     return new Intl.DateTimeFormat("en-US", {
       month: "short",
       day: "numeric",
       hour: "numeric",
       minute: "2-digit",
-    }).format(d);
+    }).format(date);
   } catch {
-    return d.toISOString();
+    return date.toISOString();
   }
 }
 
-function formatDuration(min: number): string {
-  if (min < 60) return `${String(min)} min`;
-  const h = Math.floor(min / 60);
-  const r = min % 60;
-  if (r === 0) return `${String(h)}h`;
-  return `${String(h)}h ${String(r)}m`;
+function formatDuration(minutes: number): string {
+  if (minutes < 60) return `${String(minutes)} min`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder === 0 ? `${String(hours)}h` : `${String(hours)}h ${String(remainder)}m`;
 }
 
-export function StudioLogTab({
-  sessionsCount,
-  studioHours,
-  thisMonthCount,
-  lastSessionDate,
-  activities,
-  sessions,
-}: StudioLogTabProps) {
+function sessionStatusLabel(status: StudioLogBookingStatus): string {
+  if (status === "pending_approval") return "Pending approval";
+  if (status === "no_show") return "No-show";
+  if (status === "cancelled") return "Canceled";
+  return `${status.slice(0, 1).toUpperCase()}${status.slice(1)}`;
+}
+
+function ActivityIcon({ kind }: { kind: StudioLogActivityEntry["kind"] }) {
+  if (kind === "version") return <Upload size={15} strokeWidth={2.2} aria-hidden />;
+  if (kind === "comment") {
+    return <MessageSquare size={15} strokeWidth={2.2} aria-hidden />;
+  }
+  return <Sparkles size={15} strokeWidth={2.2} aria-hidden />;
+}
+
+export function StudioLogTab({ entries }: StudioLogTabProps) {
+  const ordered = sortStudioLogEntries(entries);
+
   return (
-    <section
-      role="tabpanel"
-      id="panel-log"
-      aria-labelledby="tab-log"
-      className="space-y-6"
-    >
-      {/* 4 insight tiles */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <StatTile label="Sessions logged" value={sessionsCount} />
-        <StatTile
-          label="Studio hours"
-          value={<span className="tabular-nums">{studioHours.toFixed(1)}</span>}
-        />
-        <StatTile label="This month" value={thisMonthCount} />
-        <StatTile
-          label="Last session"
-          value={formatDate(lastSessionDate)}
-        />
+    <section role="tabpanel" id="panel-log" aria-labelledby="tab-log" className="space-y-3">
+      <div>
+        <h2 className="font-display text-[18px] font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
+          Studio Log
+        </h2>
+        <p className="mt-1 text-[12px] text-[rgb(var(--fg-muted))]">
+          Sessions and project activity, newest first.
+        </p>
       </div>
 
-      {/* Activity timeline */}
-      <div>
-        <h3
-          className="font-syne text-[18px] font-bold"
-          style={{ color: "rgb(var(--fg-default))" }}
-        >
-          Activity
-        </h3>
-        {activities.length === 0 ? (
-          <p
-            className="mt-3 rounded-[var(--radius-md)] border border-dashed px-4 py-6 text-[13px]"
-            style={{
-              borderColor: "rgb(var(--border-subtle))",
-              color: "rgb(var(--fg-muted))",
-            }}
-          >
-            No activity yet — uploads, comments, and stage changes show up here.
-          </p>
-        ) : (
-          <ol className="mt-3 space-y-2">
-            {activities.map((a) => (
+      {ordered.length === 0 ? (
+        <p className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-8 text-center text-[13px] text-[rgb(var(--fg-muted))]">
+          No studio activity yet.
+        </p>
+      ) : (
+        <ol className="relative space-y-2 before:absolute before:top-6 before:bottom-6 before:left-[21px] before:w-px before:bg-[rgb(var(--border-subtle))]">
+          {ordered.map((entry) => {
+            const session = entry.kind === "session";
+            return (
               <li
-                key={a.id}
-                className="flex items-start gap-3 rounded-[var(--radius-md)] border px-4 py-3"
-                style={{
-                  background: "rgb(var(--bg-elevated))",
-                  borderColor: "rgb(var(--border-subtle))",
-                }}
+                key={entry.id}
+                className="relative flex min-w-0 items-start gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-3 sm:px-4"
               >
                 <span
                   aria-hidden
-                  className="mt-1 inline-block h-2 w-2 shrink-0 rounded-full"
-                  style={{ background: "rgb(var(--brand-primary))" }}
-                />
-                <div className="min-w-0 flex-1">
-                  <p
-                    className="text-[13px] font-medium"
-                    style={{ color: "rgb(var(--fg-default))" }}
-                  >
-                    {a.description}
-                  </p>
-                </div>
-                <span
-                  className="whitespace-nowrap font-mono text-[11px]"
-                  style={{ color: "rgb(var(--fg-muted))" }}
+                  className="relative z-[1] inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] text-[rgb(var(--brand-primary-dark))]"
                 >
-                  {formatDateTime(a.ts)}
+                  {session ? (
+                    <Mic2 size={15} strokeWidth={2.2} />
+                  ) : (
+                    <ActivityIcon kind={entry.kind} />
+                  )}
                 </span>
-              </li>
-            ))}
-          </ol>
-        )}
-      </div>
 
-      {/* Sessions list */}
-      <div>
-        <h3
-          className="font-syne text-[18px] font-bold"
-          style={{ color: "rgb(var(--fg-default))" }}
-        >
-          Sessions
-        </h3>
-        {sessions.length === 0 ? (
-          <p
-            className="mt-3 rounded-[var(--radius-md)] border border-dashed px-4 py-6 text-[13px]"
-            style={{
-              borderColor: "rgb(var(--border-subtle))",
-              color: "rgb(var(--fg-muted))",
-            }}
-          >
-            No sessions on the books yet — sessions you book against this project show up here.
-          </p>
-        ) : (
-          <ol className="mt-3 space-y-2">
-            {sessions.map((s) => (
-              <li
-                key={s.id}
-                className="flex items-center gap-3 rounded-[var(--radius-md)] border px-4 py-3"
-                style={{
-                  background: "rgb(var(--bg-elevated))",
-                  borderColor: "rgb(var(--border-subtle))",
-                }}
-              >
-                <span
-                  aria-hidden
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)]"
-                  style={{
-                    background: "rgb(var(--brand-primary) / 0.12)",
-                    color: "rgb(var(--brand-primary))",
-                  }}
-                >
-                  <Mic size={14} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p
-                    className="text-[13px] font-medium"
-                    style={{ color: "rgb(var(--fg-default))" }}
-                  >
-                    {formatDateTime(s.date)}
-                  </p>
-                  {s.attendees.length > 0 ? (
-                    <p
-                      className="mt-0.5 inline-flex items-center gap-1 text-[11px]"
-                      style={{ color: "rgb(var(--fg-muted))" }}
-                    >
-                      <Users size={10} />
-                      {s.attendees.join(", ")}
-                    </p>
+                <span className="min-w-0 flex-1">
+                  <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="min-w-0 text-[13px] font-bold text-[rgb(var(--fg-default))]">
+                      {session ? "Studio session" : entry.description}
+                    </span>
+                    {session ? (
+                      <span className="rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default)/0.055)] px-2 py-0.5 text-[10px] font-bold text-[rgb(var(--fg-muted))]">
+                        {sessionStatusLabel(entry.status)}
+                      </span>
+                    ) : null}
+                  </span>
+
+                  {session ? (
+                    <span className="mt-1 block text-[11.5px] text-[rgb(var(--fg-muted))]">
+                      {formatDuration(entry.durationMinutes)}
+                      {entry.attendees.length > 0 ? ` · ${entry.attendees.join(", ")}` : ""}
+                      {entry.notes ? ` · ${entry.notes}` : ""}
+                    </span>
                   ) : null}
-                </div>
-                <span
-                  className="whitespace-nowrap font-mono text-[12px] tabular-nums"
-                  style={{ color: "rgb(var(--fg-muted))" }}
-                >
-                  {formatDuration(s.durationMinutes)}
                 </span>
+
+                <time
+                  dateTime={entry.ts.toISOString()}
+                  className="shrink-0 font-mono text-[10.5px] text-[rgb(var(--fg-muted))]"
+                >
+                  {formatDateTime(entry.ts)}
+                </time>
               </li>
-            ))}
-          </ol>
-        )}
-      </div>
+            );
+          })}
+        </ol>
+      )}
     </section>
   );
 }

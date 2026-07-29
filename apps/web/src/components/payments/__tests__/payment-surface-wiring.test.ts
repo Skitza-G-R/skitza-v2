@@ -73,7 +73,10 @@ describe("SK-69 payment surface wiring", () => {
     expect(projectPage).toContain("caller.purchaseLedger.project({ projectId: id })");
     expect(songPage).toContain("caller.purchaseLedger.project({ projectId: id })");
     expect(clientPage).toContain("caller.purchaseLedger.client({ clientContactId: id })");
-    expect(projectPage).toContain("paymentHistory={paymentHistory}");
+    expect(projectPage).toContain("payments={payments}");
+    expect(projectPage).toContain("paymentModel.producerBuckets.needs_review");
+    expect(projectPage).toContain("paymentModel.producerBuckets.due_or_overdue");
+    expect(projectPage).toContain("paymentModel.producerBuckets.history");
     expect(songPage).toContain("paymentHistory={paymentHistory}");
     expect(clientPage).toContain("toProducerPaymentWorkspaceBuckets(payments.producerBuckets)");
     expect(clientPage).toContain("<ClientSpaceWorkspace");

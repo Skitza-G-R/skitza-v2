@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "album-tabs.tsx"), "utf-8");
 
-describe("AlbumTabs — purchase-safe segmented control", () => {
+describe("AlbumTabs — compact four-section Project Space control", () => {
   it("exports an AlbumTabs component (function)", () => {
     expect(SRC).toMatch(/export function AlbumTabs/);
   });
@@ -15,18 +15,20 @@ describe("AlbumTabs — purchase-safe segmented control", () => {
     expect(SRC).toMatch(/export type AlbumTab/);
   });
 
-  it("supports only real songs and studio-log surfaces", () => {
+  it("supports the four locked Project Space surfaces", () => {
     expect(SRC).toContain('"songs"');
+    expect(SRC).toContain('"payments"');
     expect(SRC).toContain('"log"');
+    expect(SRC).toContain('"details"');
     expect(SRC).not.toContain('"files"');
-    expect(SRC).not.toContain('"payments"');
   });
 
-  it("renders Songs and Studio Log only", () => {
+  it("renders Songs, Payments, Studio Log, and Details", () => {
     expect(SRC).toContain("Songs");
+    expect(SRC).toContain('"Payments"');
     expect(SRC).toContain('"Studio Log"');
+    expect(SRC).toContain('"Details"');
     expect(SRC).not.toContain('"Files"');
-    expect(SRC).not.toContain('"Payments"');
   });
 
   it("uses role=tablist + role=tab + aria-selected for accessibility", () => {
@@ -98,7 +100,7 @@ describe("AlbumTabs — purchase-safe segmented control", () => {
     // or a static string form
     //   id="tab-songs" aria-controls="panel-songs"
     // for each remaining tab key.
-    for (const key of ["songs", "log"]) {
+    for (const key of ["songs", "payments", "log", "details"]) {
       const idStatic = new RegExp(`id=["']tab-${key}["']`);
       const idDynamic = /id=\{`tab-\$\{[^}]+\}`\}/;
       const ctrlStatic = new RegExp(`aria-controls=["']panel-${key}["']`);

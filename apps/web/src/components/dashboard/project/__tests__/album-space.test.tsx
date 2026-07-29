@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "album-space.tsx"), "utf-8");
 
-describe("AlbumSpace — composes hero + strip + tabs + active panel", () => {
+describe("AlbumSpace — compact four-tab workspace", () => {
   it("exports an AlbumSpace component (function)", () => {
     expect(SRC).toMatch(/export function AlbumSpace/);
   });
@@ -15,17 +15,19 @@ describe("AlbumSpace — composes hero + strip + tabs + active panel", () => {
     expect(SRC).toMatch(/^["']use client["']/);
   });
 
-  it("imports AlbumHero + AlbumStatStrip + AlbumTabs", () => {
-    expect(SRC).toContain("AlbumHero");
-    expect(SRC).toContain("AlbumStatStrip");
+  it("uses the compact header and removes the large hero/stat strip", () => {
+    expect(SRC).toContain("ProjectCompactHeader");
     expect(SRC).toContain("AlbumTabs");
+    expect(SRC).not.toContain("AlbumHero");
+    expect(SRC).not.toContain("AlbumStatStrip");
   });
 
-  it("imports only the real creative-work panels", () => {
+  it("imports the four locked workspace panels", () => {
     expect(SRC).toContain("SongsTab");
+    expect(SRC).toContain("PaymentsTab");
     expect(SRC).toContain("StudioLogTab");
+    expect(SRC).toContain("DetailsTab");
     expect(SRC).not.toContain("FilesTab");
-    expect(SRC).not.toContain("PaymentsTab");
   });
 
   it("uses useState for the active tab", () => {
@@ -37,26 +39,29 @@ describe("AlbumSpace — composes hero + strip + tabs + active panel", () => {
   });
 
   it("renders each tab panel conditionally based on active tab", () => {
-    // The body conditionally renders based on the active tab key.
     expect(SRC).toMatch(/active\s*===\s*["']songs["']/);
+    expect(SRC).toMatch(/active\s*===\s*["']payments["']/);
     expect(SRC).toMatch(/active\s*===\s*["']log["']/);
+    expect(SRC).toMatch(/active\s*===\s*["']details["']/);
     expect(SRC).not.toMatch(/active\s*===\s*["']files["']/);
-    expect(SRC).not.toMatch(/active\s*===\s*["']payments["']/);
   });
 
-  it("swipes only the active panel through the ordered local tab state", () => {
-    expect(SRC).toMatch(/ALBUM_TAB_ORDER[\s\S]*?["']songs["'][\s\S]*?["']log["']/);
+  it("swipes the stable direct panel through the locked local tab order", () => {
+    expect(SRC).toMatch(
+      /ALBUM_TAB_ORDER[\s\S]*?["']songs["'][\s\S]*?["']payments["'][\s\S]*?["']log["'][\s\S]*?["']details["']/,
+    );
     expect(SRC).toContain("useTabSwipe");
     expect(SRC).toContain("onChange: setActive");
     expect(SRC).toContain('className="[touch-action:pan-y_pinch-zoom]"');
     expect(SRC).toMatch(
-      /<div[\s\S]*?data-tab-swipe-surface[\s\S]*?\{\.\.\.tabSwipeHandlers\}[\s\S]*?active\s*===\s*["']songs["'][\s\S]*?active\s*===\s*["']log["'][\s\S]*?<\/div>[\s\S]*?<PaymentHistoryView/,
+      /data-tab-swipe-surface[\s\S]*?\{\.\.\.tabSwipeHandlers\}[\s\S]*?<div data-tab-swipe-panel>[\s\S]*?active\s*===\s*["']songs["'][\s\S]*?active\s*===\s*["']payments["'][\s\S]*?active\s*===\s*["']log["'][\s\S]*?active\s*===\s*["']details["']/,
     );
   });
 
-  it("forwards project + tracks + studioLog props to the panels", () => {
+  it("forwards project, tracks, payments, and studioLog to their panels", () => {
     expect(SRC).toContain("project");
     expect(SRC).toContain("tracks");
+    expect(SRC).toContain("payments");
     expect(SRC).toContain("studioLog");
     expect(SRC).not.toContain("milestones");
   });
@@ -81,15 +86,14 @@ describe("AlbumSpace — composes hero + strip + tabs + active panel", () => {
     expect(SRC).not.toContain("--brand-primary-on");
   });
 
-  it("wires AlbumHero's Add Song CTA for active projects", () => {
+  it("wires the header quick action for active projects", () => {
     expect(SRC).toContain("const canAddSong = projectActive");
-    expect(SRC).toMatch(/canAddSong[\s\S]*?onAddSong:\s*handleAddSong/);
     expect(SRC).toContain("canAddSong={canAddSong}");
+    expect(SRC).toMatch(/<ProjectCompactHeader[\s\S]*?onAddSong=\{\(\) =>/);
   });
 
   it("explains why reopened work with only canceled purchases cannot add songs", () => {
     expect(SRC).toContain("New work requires an active purchase or accepted offer.");
-    expect(SRC).toContain("uploadDisabledReason={newWorkBlockedReason}");
     expect(SRC).toContain("blockedReason={newWorkBlockedReason}");
   });
 
@@ -102,10 +106,23 @@ describe("AlbumSpace — composes hero + strip + tabs + active panel", () => {
     expect(SRC).toContain("emptySlots={emptySlots}");
   });
 
-  it("accepts a playLatest prop and threads onPlayLatest to AlbumHero when present", () => {
-    // G1 second half — when page.tsx supplies a playable version, the
-    // hero's "Play latest" CTA must wire through playerPlay.
-    expect(SRC).toMatch(/playLatest/);
-    expect(SRC).toMatch(/playerPlay/);
+  it("keeps the sticky tab rail outside the moving swipe panel", () => {
+    const railAt = SRC.indexOf("sticky top-0 z-30");
+    const surfaceAt = SRC.indexOf("data-tab-swipe-surface");
+
+    expect(railAt).toBeGreaterThan(-1);
+    expect(SRC).toContain("lg:top-16");
+    expect(surfaceAt).toBeGreaterThan(railAt);
+  });
+
+  it("routes the conditional payment alert to Payments", () => {
+    expect(SRC).toMatch(/onOpenPayments=\{\(\) =>[\s\S]*?setActive\(["']payments["']\)/);
+  });
+
+  it("omits hero playback and the stopped Add Session behavior", () => {
+    expect(SRC).not.toContain("playLatest");
+    expect(SRC).not.toContain("playerPlay");
+    expect(SRC).not.toContain("Add Session");
+    expect(SRC).not.toContain("/artist/book");
   });
 });

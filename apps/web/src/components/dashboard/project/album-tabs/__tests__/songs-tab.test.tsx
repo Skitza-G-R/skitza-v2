@@ -16,12 +16,13 @@ describe("SongsTab — Songs panel for the album page", () => {
     expect(SRC).toContain("~/components/dashboard/project/track-row");
   });
 
-  it("renders a Tracklist header above the rows", () => {
-    expect(SRC).toMatch(/Tracklist/);
+  it("renders a level-two Songs heading above the rows", () => {
+    expect(SRC).toMatch(/<h2[\s\S]*?>\s*Songs\s*<\/h2>/);
   });
 
-  it("renders an 'Add song' button in the panel header", () => {
-    expect(SRC).toMatch(/Add\s*song/);
+  it("leaves the one generic Add Song action in the compact header sheet", () => {
+    expect(SRC).not.toContain("handleAddSong();");
+    expect(SRC).toContain("Use the project + button");
   });
 
   it("renders an empty state when the tracks list is empty", () => {

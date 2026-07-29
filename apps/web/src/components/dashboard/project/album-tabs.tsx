@@ -1,23 +1,21 @@
 "use client";
 
-import { Music, Notebook } from "lucide-react";
-import type { ComponentType, SVGProps } from "react";
+import { CircleDollarSign, Info, Music, Notebook } from "lucide-react";
+import { useEffect, useRef, type ComponentType, type SVGProps } from "react";
 
 import { nextTabIndex } from "~/lib/keyboard/tab-navigation";
 
 // AlbumTabs — pill-shaped segmented control for the Album
 // Page (DESIGN.md §5.9, BUILD-NOTES §5.3).
 //
-// Tabs (in order): Songs (n) · Studio Log. Purchase-grouped payment
-// UI lands separately; the removed project invoice/Milestone model is absent.
-// Default tab = "songs" (the album page has no "Overview" tab — the
-// hero + stat strip already serves that role).
+// Tabs (in order): Songs · Payments · Studio Log · Details.
+// Default tab ownership lives in AlbumSpace.
 //
 // Active tab paints `bg-sidebar` (near-black) + white text to match
 // the design prototype — the dark-fill pill is the "you are here"
 // signal. Each tab carries a leading icon for visual scan.
 
-export type AlbumTab = "songs" | "log";
+export type AlbumTab = "songs" | "payments" | "log" | "details";
 
 interface AlbumTabsProps {
   active: AlbumTab;
@@ -34,13 +32,39 @@ interface TabEntry {
 }
 
 export function AlbumTabs({ active, onChange, songsCount }: AlbumTabsProps) {
+  const tablistRef = useRef<HTMLDivElement | null>(null);
+  const activeTabRef = useRef<HTMLButtonElement | null>(null);
   const entries: TabEntry[] = [
     { key: "songs", label: `Songs (${String(songsCount)})`, icon: Music },
+    { key: "payments", label: "Payments", icon: CircleDollarSign },
     { key: "log", label: "Studio Log", icon: Notebook },
+    { key: "details", label: "Details", icon: Info },
   ];
+
+  useEffect(() => {
+    const tablist = tablistRef.current;
+    const activeTab = activeTabRef.current;
+    if (!tablist || !activeTab || typeof activeTab.scrollIntoView !== "function") return;
+
+    const tablistRect = tablist.getBoundingClientRect();
+    const activeTabRect = activeTab.getBoundingClientRect();
+    const clipped =
+      activeTabRect.left < tablistRect.left || activeTabRect.right > tablistRect.right;
+    if (!clipped) return;
+
+    const reduceMotion =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    activeTab.scrollIntoView({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "nearest",
+      inline: "nearest",
+    });
+  }, [active]);
 
   return (
     <div
+      ref={tablistRef}
       // <md: pills scroll sideways inside the rail (never wrap — a
       // wrapped "Studio Log" pill turned into a 2-line blob and the
       // rail pushed the page to 408px). md+: original inline-flex.
@@ -50,7 +74,7 @@ export function AlbumTabs({ active, onChange, songsCount }: AlbumTabsProps) {
         borderColor: "rgb(var(--border-subtle))",
       }}
       role="tablist"
-      aria-label="Album section"
+      aria-label="Project sections"
     >
       {entries.map((t) => {
         const isActive = active === t.key;
@@ -58,6 +82,7 @@ export function AlbumTabs({ active, onChange, songsCount }: AlbumTabsProps) {
         return (
           <button
             key={t.key}
+            ref={isActive ? activeTabRef : undefined}
             type="button"
             role="tab"
             id={`tab-${t.key}`}

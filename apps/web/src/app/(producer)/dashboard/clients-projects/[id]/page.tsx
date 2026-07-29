@@ -4,7 +4,6 @@ import { auth } from "@clerk/nextjs/server";
 import {
   AlbumSpace,
   type AlbumSpaceProject,
-  type AlbumSpacePlayLatest,
   type AlbumSpaceStudioLog,
 } from "~/components/dashboard/project/album-space";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
@@ -12,25 +11,18 @@ import type { WorkflowStage } from "~/lib/clients/workflow-stage";
 import type { TrackRowData } from "~/components/dashboard/project/track-row";
 import type { ProjectActionProject } from "~/components/dashboard/projects/project-action-controls";
 import type { ProjectPurchaseSummary } from "~/components/dashboard/projects/project-purchases-panel";
-import {
-  allPaymentsBucket,
-  toPaymentHistoryViewData,
-} from "~/components/payments/payment-history-adapter";
-import type {
-  StudioLogActivity,
-  StudioLogSession,
-} from "~/components/dashboard/project/album-tabs/studio-log-tab";
+import { toPaymentHistoryViewData } from "~/components/payments/payment-history-adapter";
+import type { StudioLogEntry } from "~/components/dashboard/project/album-tabs/studio-log-tab";
+import { buildProjectActivityEntries } from "~/components/dashboard/project/album-tabs/studio-log-activity";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = {
   params: Promise<{ id: string }>;
 };
 
-// Phase 2 — Album Page server component. The 5-sub-tab legacy stack
-// (header + room-hero + stat-strip + sub-tabs + Overview/Music/Notes/
-// Sessions/Files) has been replaced by a single <AlbumSpace> shell
-// that owns the new IA: AlbumHero · AlbumStatStrip · AlbumTabs
-// (Songs / Files / Payments / Studio Log).
+// Multi-song Project Space server component. The route keeps canonical
+// project/payment reads and the Single-Space redirect server-side, then
+// shapes the compact four-tab workspace for AlbumSpace.
 //
 // This server component:
 //   1. Verifies auth.
@@ -90,26 +82,14 @@ export default async function ProjectDetail({ params }: PageProps) {
   // the Single-Space redirect so it cannot delay Song Space navigation.
   const projectBookings = await caller.booking.list({ projectId: id }).catch(() => []);
 
-  // Sessions count + studio hours derived from this project's bookings.
-  const sessionsList: StudioLogSession[] = projectBookings.map((b) => ({
-    id: b.id,
-    date: b.startsAt,
-    durationMinutes: b.durationMin,
-    attendees: [b.artistName],
+  const sessionEntries: StudioLogEntry[] = projectBookings.map((booking) => ({
+    id: `session-${booking.id}`,
+    kind: "session",
+    ts: booking.startsAt,
+    durationMinutes: booking.durationMin,
+    attendees: [booking.artistName],
+    status: booking.status,
   }));
-  const studioHours = projectBookings.reduce((sum, b) => sum + b.durationMin, 0) / 60;
-  const now = new Date();
-  const thisMonthCount = projectBookings.filter((b) => {
-    const d = b.startsAt;
-    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-  }).length;
-  // "Last session" must reflect a session that has actually happened —
-  // not the max across future-scheduled bookings. booking.list returns
-  // bookings ordered ascending by startsAt, so the last past booking
-  // is the freshest historical session.
-  const pastBookings = projectBookings.filter((b) => b.startsAt < now);
-  const lastPast = pastBookings[pastBookings.length - 1];
-  const lastSessionDate: Date | null = lastPast ? lastPast.startsAt : null;
 
   // Build the TrackRow data from the project.detail payload. For each
   // track we derive:
@@ -137,6 +117,16 @@ export default async function ProjectDetail({ params }: PageProps) {
     if (latest?.label) base.currentVersion = latest.label;
     if (noteCount > 0) base.noteCount = noteCount;
     if (latest?.durationMs) base.durationMs = latest.durationMs;
+    const playable = trackVersions.find((version) => version.audioUrl !== null);
+    if (playable?.audioUrl) {
+      base.playback = {
+        versionId: playable.id,
+        audioUrl: playable.audioUrl,
+        versionLabel: playable.label,
+        projectName: data.project.title,
+        ...(typeof playable.durationMs === "number" ? { durationMs: playable.durationMs } : {}),
+      };
+    }
     // versionCount feeds the UploadTrackModal's "v{N+1}" default label.
     // Always set, even at 0, so the modal can pick "v1" deterministically.
     base.versionCount = trackVersions.length;
@@ -147,49 +137,32 @@ export default async function ProjectDetail({ params }: PageProps) {
   // producer edits this exact value from the project lifecycle controls;
   // individual song stages remain visible inside each Song Space.
   const projectStage: WorkflowStage = data.project.workflowStage;
-  const projectProgress = progressForStage(projectStage);
-
   // Activity timeline — distilled from the project's event ledger.
   // We don't currently have a normalized activity table, so we
   // synthesize a small list from the strongest signals: project
   // creation, version uploads (newest 5), and resolved/unresolved
   // comments (newest 5). Phase 4 may persist a real `project_events`
   // log; this is enough for v1.
-  const activities: StudioLogActivity[] = [];
-  activities.push({
-    id: `created-${data.project.id}`,
-    kind: "created",
-    ts: data.project.createdAt,
-    description: "Project created",
+  const activities = buildProjectActivityEntries({
+    projectId: data.project.id,
+    projectCreatedAt: data.project.createdAt,
+    versions: data.versions,
+    comments: data.comments,
   });
-  for (const v of data.versions.slice(0, 5)) {
-    activities.push({
-      id: `version-${v.id}`,
-      kind: "version",
-      ts: v.uploadedAt,
-      description: `New version uploaded — ${v.label}`,
-    });
-  }
-  for (const c of data.comments.slice(0, 5)) {
-    activities.push({
-      id: `comment-${c.id}`,
-      kind: "comment",
-      ts: c.createdAt,
-      description: `${c.authorName} left a note`,
-    });
-  }
-  activities.sort((a, b) => b.ts.getTime() - a.ts.getTime());
-  const trimmedActivities = activities.slice(0, 10);
+  const studioLogEntries = [...activities, ...sessionEntries].sort(
+    (left, right) => right.ts.getTime() - left.ts.getTime() || left.id.localeCompare(right.id),
+  );
 
   const deadline = data.project.deadlineAt
     ? new Intl.DateTimeFormat("en-US", {
         month: "short",
         day: "numeric",
       }).format(data.project.deadlineAt)
-    : "—";
+    : "No deadline";
+  const now = new Date();
   const isOverdue =
     data.project.deadlineAt !== null &&
-    data.project.deadlineAt < new Date() &&
+    data.project.deadlineAt < now &&
     data.project.lifecycleStatus !== "completed" &&
     data.project.lifecycleStatus !== "canceled";
 
@@ -198,14 +171,10 @@ export default async function ProjectDetail({ params }: PageProps) {
     name: data.project.title,
     clientName: data.project.clientName ?? data.project.artistName,
     songsCount: data.songSpaces.visibleCount,
-    sessionsCount: projectBookings.length,
-    totalCents: null,
-    currency: null,
     workflowStage: projectStage,
-    progress: projectProgress,
     deadline,
     isOverdue,
-    outstandingCents: null,
+    paymentAttention: null,
   };
   const actionProject: ProjectActionProject = {
     id: data.project.id,
@@ -236,53 +205,63 @@ export default async function ProjectDetail({ params }: PageProps) {
         })),
       })),
   );
-  const paymentHistory = toPaymentHistoryViewData(
-    allPaymentsBucket(paymentModel.projects, paymentModel.totals),
-    {
-      id: "project-payment-history",
-      eyebrow: "Accepted purchase record",
-      title: "Payments",
-      description:
-        "Every agreement, installment, payment, correction, proof, waiver, cancellation, and download override for this project.",
-      emptyTitle: "No accepted purchases yet",
-      emptyDescription: "Accepted purchases and their immutable payment history will appear here.",
-    },
-    "producer",
+  const paymentBucketPurchaseCount = (
+    bucket: (typeof paymentModel.producerBuckets)["needs_review"],
+  ) =>
+    bucket.projects.reduce((count, paymentProject) => count + paymentProject.purchases.length, 0);
+  const needsReviewPurchaseCount = paymentBucketPurchaseCount(
+    paymentModel.producerBuckets.needs_review,
   );
+  const dueOrOverduePurchaseCount = paymentBucketPurchaseCount(
+    paymentModel.producerBuckets.due_or_overdue,
+  );
+  project.paymentAttention =
+    needsReviewPurchaseCount + dueOrOverduePurchaseCount > 0
+      ? { needsReviewPurchaseCount, dueOrOverduePurchaseCount }
+      : null;
 
-  const studioLog: AlbumSpaceStudioLog = {
-    sessionsCount: projectBookings.length,
-    studioHours,
-    thisMonthCount,
-    lastSessionDate,
-    activities: trimmedActivities,
-    sessions: sessionsList,
+  const payments = {
+    needsReview: toPaymentHistoryViewData(
+      paymentModel.producerBuckets.needs_review,
+      {
+        id: "project-payment-needs-review",
+        eyebrow: "Action needed",
+        title: "Pending proofs",
+        description: "Review payment proofs waiting on this project.",
+        emptyTitle: "No proofs waiting",
+        emptyDescription: "New payment proofs will appear here.",
+      },
+      "producer",
+    ),
+    dueOrOverdue: toPaymentHistoryViewData(
+      paymentModel.producerBuckets.due_or_overdue,
+      {
+        id: "project-payment-outstanding",
+        eyebrow: "Action needed",
+        title: "Outstanding payments",
+        description: "Due and overdue payments for this project.",
+        emptyTitle: "Nothing due",
+        emptyDescription: "Due and overdue payments will appear here.",
+      },
+      "producer",
+    ),
+    history: toPaymentHistoryViewData(
+      paymentModel.producerBuckets.history,
+      {
+        id: "project-payment-history",
+        eyebrow: "Completed record",
+        title: "Payment history",
+        description: "Completed agreements, payments, corrections, waivers, and cancellations.",
+        emptyTitle: "No completed history",
+        emptyDescription: "Completed payment records will appear here.",
+      },
+      "producer",
+    ),
   };
 
-  // Newest playable version across the project — feeds the AlbumHero
-  // "Play latest" CTA. data.versions arrives newest-first, so the
-  // first row with a non-null audioUrl is the freshest playable one.
-  // The hero stays disabled with a no-playable-audio reason when this
-  // is null (the album has no uploaded audio yet).
-  const playableVersion = data.versions.find((v) => v.audioUrl !== null);
-  const playLatest: AlbumSpacePlayLatest | null = playableVersion
-    ? (() => {
-        const track = data.tracks.find((t) => t.id === playableVersion.trackId);
-        const songTitle = track?.title ?? data.project.title;
-        const out: AlbumSpacePlayLatest = {
-          versionId: playableVersion.id,
-          // audioUrl was checked non-null above; narrow for TS.
-          audioUrl: playableVersion.audioUrl as string,
-          songTitle,
-          versionLabel: playableVersion.label,
-          projectName: data.project.title,
-        };
-        if (typeof playableVersion.durationMs === "number") {
-          out.durationMs = playableVersion.durationMs;
-        }
-        return out;
-      })()
-    : null;
+  const studioLog: AlbumSpaceStudioLog = {
+    entries: studioLogEntries,
+  };
 
   // Stable ownership makes the producer-scoped client id authoritative.
   // Avoid rebuilding the entire Clients workspace just to recover it
@@ -294,14 +273,16 @@ export default async function ProjectDetail({ params }: PageProps) {
   };
 
   return (
-    <main className="sk-page-enter mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
+    <div
+      className="sk-page-enter mx-auto max-w-[1600px] px-4 py-4 sm:px-6 sm:py-6"
+      style={{ animationFillMode: "backwards" }}
+    >
       <SetTopBarBreadcrumb crumbs={[breadcrumbClientCrumb, { label: data.project.title }]} />
       <AlbumSpace
-        mode={data.songSpaces.mode === "single" ? "single" : "album"}
         project={project}
         actionProject={actionProject}
         purchases={purchaseSummaries}
-        paymentHistory={paymentHistory}
+        payments={payments}
         tracks={tracks}
         emptySlots={data.songSpaces.emptySlots.map((slot) => ({
           id: slot.id,
@@ -310,8 +291,7 @@ export default async function ProjectDetail({ params }: PageProps) {
         }))}
         addSongHref={`/dashboard/music?addSong=1&projectId=${data.project.id}&lockProject=1`}
         studioLog={studioLog}
-        playLatest={playLatest}
       />
-    </main>
+    </div>
   );
 }
