@@ -429,9 +429,14 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
       });
       if (!targetHref || targetHref === currentHref) return;
 
+      const localOnly = detail.localOnly === true || !navigator.onLine;
+      if (!localOnly) {
+        clearPending();
+        return;
+      }
+
       if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current);
       const view = readRuntimeScreenSafeView(storage, identity, targetHref);
-      const localOnly = detail.localOnly === true || !navigator.onLine;
       document.documentElement.dataset.skScreenSource = view ? "cache" : "scaffold";
       flushSync(() => {
         setPending({
@@ -442,9 +447,6 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
           view,
         });
       });
-      if (!localOnly) {
-        timeoutRef.current = window.setTimeout(clearPending, PREVIEW_TIMEOUT_MS);
-      }
     };
 
     window.addEventListener(RUNTIME_MAIN_NAVIGATION_INTENT_EVENT, onIntent);
@@ -452,6 +454,7 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
       window.removeEventListener(RUNTIME_MAIN_NAVIGATION_INTENT_EVENT, onIntent);
     };
   }, [
+    clearPending,
     currentHref,
     identityKey,
     identity,

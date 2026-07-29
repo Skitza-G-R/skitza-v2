@@ -8,9 +8,6 @@ const DEFAULT_MIN_VELOCITY = 0.55;
 const HORIZONTAL_INTENT_RATIO = 1.25;
 const DRAG_INTENT_DISTANCE = 12;
 const DRAG_INTENT_RATIO = 1.1;
-const DIRECT_DRAG_DISTANCE = 64;
-const MAX_DRAG_OFFSET = 132;
-const DRAG_OVERFLOW_RESISTANCE = 0.5;
 const MAX_BOUNDARY_OFFSET = 24;
 const BOUNDARY_RESISTANCE = 0.2;
 const SETTLE_CLEANUP_MS = 190;
@@ -125,8 +122,8 @@ export function resolveTabSwipeReleaseTargetIndex({
 }
 
 /**
- * Keeps valid drags visibly attached to the finger without exposing a blank
- * full-width panel. Outward boundary movement uses a tighter rubber band.
+ * Keeps valid adjacent drags attached to the finger one-to-one. Only an
+ * outward movement at the first or last tab uses a rubber band.
  */
 export function resolveTabSwipeDragOffset({
   activeIndex,
@@ -150,17 +147,7 @@ export function resolveTabSwipeDragOffset({
     return Math.max(-MAX_BOUNDARY_OFFSET, Math.min(MAX_BOUNDARY_OFFSET, resisted));
   }
 
-  const direction = Math.sign(deltaX);
-  const distance = Math.abs(deltaX);
-  const trackedDistance =
-    distance <= DIRECT_DRAG_DISTANCE
-      ? distance
-      : Math.min(
-          MAX_DRAG_OFFSET,
-          DIRECT_DRAG_DISTANCE +
-            (distance - DIRECT_DRAG_DISTANCE) * DRAG_OVERFLOW_RESISTANCE,
-        );
-  return direction * trackedDistance;
+  return deltaX;
 }
 
 function hasNestedSwipeSurface(target: Element, surface: Element): boolean {
@@ -382,11 +369,7 @@ export function useTabSwipe<T extends string>({
     if (elapsed > 100) {
       start.velocityX = 0;
       start.hasVelocitySample = false;
-    } else if (
-      elapsed > 0 &&
-      x !== start.lastX &&
-      (allowFirstSample || start.hasVelocitySample)
-    ) {
+    } else if (elapsed > 0 && x !== start.lastX && (allowFirstSample || start.hasVelocitySample)) {
       const instantVelocity = (x - start.lastX) / elapsed;
       start.velocityX =
         start.velocityX === 0 ? instantVelocity : start.velocityX * 0.35 + instantVelocity * 0.65;

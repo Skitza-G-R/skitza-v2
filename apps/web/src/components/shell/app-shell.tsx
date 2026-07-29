@@ -57,7 +57,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
 
   const shell = (
     <div
-      className="fixed inset-0 flex overflow-hidden lg:static lg:min-h-dvh lg:overflow-visible"
+      className="sk-producer-app-shell fixed inset-0 flex overflow-hidden lg:static lg:min-h-dvh lg:overflow-visible"
       style={{
         background: "rgb(var(--bg-background))",
         color: "rgb(var(--fg-default))",

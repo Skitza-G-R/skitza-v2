@@ -1250,6 +1250,36 @@
   [data-tab-swipe-state="settling"] {
     transition: transform 160ms var(--ease-out-strong);
   }
+  /* Calendar keeps both real destinations beside one another so a server
+     search-param update can never leave the released gesture waiting on old
+     content. The hook writes the same one-to-one offset to the track; these
+     stable children combine it with their active-tab base position. */
+  [data-calendar-swipe-track][data-tab-swipe-state] {
+    transform: none;
+    will-change: auto;
+    backface-visibility: visible;
+  }
+  [data-calendar-swipe-track] > [data-calendar-swipe-item] {
+    --sk-calendar-swipe-base: 0%;
+    transform: translate3d(calc(var(--sk-calendar-swipe-base) + var(--sk-tab-swipe-x, 0px)), 0, 0);
+    backface-visibility: hidden;
+  }
+  [data-calendar-swipe-track][data-calendar-swipe-active="sessions"]
+    > [data-calendar-swipe-item="availability"] {
+    --sk-calendar-swipe-base: 100%;
+  }
+  [data-calendar-swipe-track][data-calendar-swipe-active="availability"]
+    > [data-calendar-swipe-item="sessions"] {
+    --sk-calendar-swipe-base: -100%;
+  }
+  [data-calendar-swipe-track][data-tab-swipe-state="dragging"] > [data-calendar-swipe-item] {
+    transition: none;
+    will-change: transform;
+  }
+  [data-calendar-swipe-track][data-tab-swipe-state="settling"] > [data-calendar-swipe-item] {
+    transition: transform 160ms var(--ease-out-strong);
+    will-change: transform;
+  }
   body:has([data-tab-swipe-state]) {
     overflow-x: clip;
   }
@@ -2003,5 +2033,25 @@
     .sk-sheet-mobile {
       animation: none;
     }
+  }
+}
+
+/* iOS standalone mode can resolve `position: fixed; inset: 0` against a
+ * rectangle shortened by the translucent status-bar safe area, leaving the
+ * shell, player dock, and full player one top inset above the physical
+ * bottom. Give the installed producer shell an explicit classic viewport
+ * height, then anchor its fixed player chrome to that shell. Keep this
+ * unlayered so it wins over Tailwind's layered `fixed` utility only in the
+ * affected standalone mobile mode. */
+@media (display-mode: standalone) and (max-width: 1023px) {
+  .sk-producer-app-shell {
+    inset: 0 0 auto;
+    height: 100vh;
+    max-height: 100vh;
+  }
+
+  .sk-producer-app-shell .persistent-player-dock,
+  .sk-producer-app-shell .mobile-full-player-sheet {
+    position: absolute;
   }
 }

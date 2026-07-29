@@ -102,6 +102,16 @@ function workspaceView(title = "Saved client workspace"): RuntimeScreenSafeView 
   };
 }
 
+function overviewView(title = "Saved studio overview"): RuntimeScreenSafeView {
+  return {
+    kind: "producer-overview",
+    title,
+    subtitle: "Saved studio activity",
+    metrics: [{ label: "Active projects", value: "4" }],
+    sections: [],
+  };
+}
+
 function announceNavigation(href: string, localOnly = false): void {
   act(() => {
     window.dispatchEvent(
@@ -194,7 +204,71 @@ describe("instant runtime screen transitions", () => {
     expect(window.localStorage.length).toBe(0);
   });
 
-  it("shows a cached destination synchronously in the navigation-intent frame", () => {
+  it.each([
+    {
+      label: "Today",
+      origin: "/dashboard/music",
+      destination: "/dashboard",
+      cachedView: overviewView(),
+    },
+    {
+      label: "Clients",
+      origin: "/dashboard",
+      destination: "/dashboard/clients-projects",
+      cachedView: workspaceView(),
+    },
+    {
+      label: "Music",
+      origin: "/dashboard",
+      destination: "/dashboard/music",
+      cachedView: musicView(),
+    },
+  ])(
+    "keeps the current real screen online while $label navigation commits",
+    ({ origin, destination, cachedView }) => {
+      mocked.pathname = origin;
+      expect(
+        writeRuntimeScreenSafeView(
+          window.localStorage,
+          PRODUCER,
+          destination,
+          cachedView,
+        ),
+      ).toBe(true);
+      renderTransitionBoundary();
+
+      announceNavigation(destination);
+
+      expect(screen.getByTestId("current-server-screen")).toBeTruthy();
+      expect(screen.queryByText(cachedView.title)).toBeNull();
+      expect(
+        document.querySelector('[data-runtime-screen-source="cache"]'),
+      ).toBeNull();
+      expect(
+        document.querySelector('[data-runtime-screen-source="scaffold"]'),
+      ).toBeNull();
+      expect(document.documentElement.dataset.skScreenSource).toBeUndefined();
+    },
+  );
+
+  it("keeps the current real screen online for a never-seen destination", () => {
+    renderTransitionBoundary();
+
+    announceNavigation("/dashboard/calendar");
+
+    expect(screen.getByTestId("current-server-screen")).toBeTruthy();
+    expect(screen.queryByLabelText("Loading Calendar")).toBeNull();
+    expect(
+      document.querySelector('[data-runtime-screen-source="cache"]'),
+    ).toBeNull();
+    expect(
+      document.querySelector('[data-runtime-screen-source="scaffold"]'),
+    ).toBeNull();
+    expect(document.documentElement.dataset.skScreenSource).toBeUndefined();
+  });
+
+  it("shows a cached destination synchronously for an offline navigation", () => {
+    mocked.online = false;
     expect(
       writeRuntimeScreenSafeView(
         window.localStorage,
@@ -205,7 +279,6 @@ describe("instant runtime screen transitions", () => {
     ).toBe(true);
     renderTransitionBoundary();
 
-    expect(screen.getByTestId("current-server-screen")).toBeTruthy();
     announceNavigation("/dashboard/music");
 
     expect(screen.getByText("Saved music library")).toBeTruthy();
@@ -214,31 +287,19 @@ describe("instant runtime screen transitions", () => {
     expect(
       document
         .querySelector('[data-runtime-screen-source="cache"]')
-        ?.getAttribute("aria-busy"),
-    ).toBe("true");
+        ?.hasAttribute("aria-busy"),
+    ).toBe(false);
     expect(document.querySelector("[data-runtime-resume-shell]")).toBeNull();
     expect(screen.queryByText(/Restoring your last screen/i)).toBeNull();
     expect(document.documentElement.dataset.skScreenSource).toBe("cache");
     expect(
       screen.queryByText(/Showing the last saved view while fresh data loads/i),
     ).toBeNull();
-    expect(
-      screen.getByText("Updating Saved music library").classList.contains("sr-only"),
-    ).toBe(true);
-
-    mocked.online = false;
-    act(() => {
-      window.dispatchEvent(new Event("offline"));
-    });
-    expect(
-      document
-        .querySelector('[data-runtime-screen-source="cache"]')
-        ?.hasAttribute("aria-busy"),
-    ).toBe(false);
     expect(screen.queryByText("Updating Saved music library")).toBeNull();
   });
 
-  it("shows a destination-shaped scaffold synchronously for a never-seen screen", () => {
+  it("shows a destination-shaped scaffold synchronously for an offline never-seen screen", () => {
+    mocked.online = false;
     renderTransitionBoundary();
 
     announceNavigation("/dashboard/calendar");
@@ -250,6 +311,9 @@ describe("instant runtime screen transitions", () => {
       document.querySelector('[data-runtime-screen-source="scaffold"]'),
     ).toBeTruthy();
     expect(document.documentElement.dataset.skScreenSource).toBe("scaffold");
+    expect(
+      screen.getByText("Reconnect to load the latest calendar data."),
+    ).toBeTruthy();
   });
 
   it("never renders a cached view from another account or artist studio", () => {
@@ -278,6 +342,7 @@ describe("instant runtime screen transitions", () => {
     };
     mocked.pathname = "/artist";
     mocked.search = "studio=studio-b";
+    mocked.online = false;
     renderTransitionBoundary();
     announceNavigation("/artist/music?studio=studio-b");
 
@@ -402,6 +467,7 @@ describe("instant runtime screen transitions", () => {
     mocked.identity = studioA;
     mocked.pathname = "/artist";
     mocked.search = "studio=studio-a";
+    mocked.online = false;
     expect(
       writeRuntimeScreenSafeView(
         window.localStorage,
@@ -438,6 +504,7 @@ describe("instant runtime screen transitions", () => {
   });
 
   it("drops a pending preview when the route commits somewhere else", () => {
+    mocked.online = false;
     expect(
       writeRuntimeScreenSafeView(
         window.localStorage,

@@ -44,15 +44,31 @@ afterEach(() => {
 });
 
 describe("CalendarSwipeSurface", () => {
-  it("navigates immediately and preserves the moving panel when server content resolves", () => {
+  it("shows the adjacent destination immediately and does not freeze while server navigation resolves", () => {
+    vi.useFakeTimers();
     const { rerender } = render(
-      <CalendarSwipeSurface active="sessions">
-        <p>Sessions content</p>
-      </CalendarSwipeSurface>,
+      <CalendarSwipeSurface
+        active="sessions"
+        eyebrows={{
+          schedule: "THIS WEEK",
+          sessions: "2 SESSIONS",
+          availability: "8H OPEN PER WEEK",
+        }}
+        scheduleEyebrow="THIS WEEK"
+        sessionsContent={<p>Sessions content</p>}
+        availabilityContent={<p>Availability content</p>}
+      />,
     );
     const surface = screen.getByRole("tabpanel");
-    const panel = surface.querySelector<HTMLElement>("[data-tab-swipe-panel]");
-    expect(panel).not.toBeNull();
+    const track = surface.parentElement;
+    expect(track?.getAttribute("data-calendar-swipe-active")).toBe("sessions");
+    expect(track?.hasAttribute("data-tab-swipe-panel")).toBe(true);
+    expect(
+      screen
+        .getByText("Availability content")
+        .closest("[role='tabpanel']")
+        ?.getAttribute("aria-hidden"),
+    ).toBe("true");
 
     fireEvent.pointerDown(surface, {
       pointerId: 1,
@@ -69,7 +85,8 @@ describe("CalendarSwipeSurface", () => {
       clientY: 22,
     });
 
-    expect(panel?.getAttribute("data-tab-swipe-state")).toBe("dragging");
+    expect(track?.getAttribute("data-tab-swipe-state")).toBe("dragging");
+    expect(track?.style.getPropertyValue("--sk-tab-swipe-x")).toBe("-80px");
 
     fireEvent.pointerUp(surface, {
       pointerId: 1,
@@ -84,16 +101,36 @@ describe("CalendarSwipeSurface", () => {
       scroll: false,
     });
 
+    expect(track?.getAttribute("data-calendar-swipe-active")).toBe("availability");
+    expect(screen.getByRole("tabpanel").textContent).toContain("Availability content");
+    expect(
+      screen
+        .getByText("Sessions content")
+        .closest("[role='tabpanel']")
+        ?.getAttribute("aria-hidden"),
+    ).toBe("true");
+
+    // The destination remains selected after the old 190ms cleanup window,
+    // even though the server-owned `active` prop has not resolved yet.
+    vi.advanceTimersByTime(250);
+    expect(track?.getAttribute("data-calendar-swipe-active")).toBe("availability");
+    expect(screen.getByRole("tabpanel").textContent).toContain("Availability content");
+
     rerender(
-      <CalendarSwipeSurface active="availability">
-        <p>Availability content</p>
-      </CalendarSwipeSurface>,
+      <CalendarSwipeSurface
+        active="availability"
+        eyebrows={{
+          schedule: "THIS WEEK",
+          sessions: "2 SESSIONS",
+          availability: "8H OPEN PER WEEK",
+        }}
+        scheduleEyebrow="THIS WEEK"
+        sessionsContent={<p>Sessions content</p>}
+        availabilityContent={<p>Availability content</p>}
+      />,
     );
 
-    const resolvedSurface = screen.getByRole("tabpanel");
-    const resolvedPanel = resolvedSurface.querySelector<HTMLElement>("[data-tab-swipe-panel]");
-    expect(resolvedPanel).toBe(panel);
-    expect(resolvedPanel?.textContent).toContain("Availability content");
-    expect(resolvedPanel?.getAttribute("data-tab-swipe-state")).toBe("settling");
+    expect(screen.getByRole("tabpanel").textContent).toContain("Availability content");
+    expect(screen.getByText("8H OPEN PER WEEK").textContent).toBe("8H OPEN PER WEEK");
   });
 });

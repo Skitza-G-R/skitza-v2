@@ -5,7 +5,6 @@ import { appRouter } from "~/server/trpc/routers/_app";
 
 import { AvailabilityPanel } from "./availability-panel";
 
-import { CalendarTabs } from "./calendar-tabs";
 import { CalendarSwipeSurface } from "./calendar-swipe-surface";
 import { resolveCalendarTabForBooking } from "./calendar-tab-key";
 import { normalizeCalendarTimeZone } from "./calendar-time";
@@ -13,10 +12,7 @@ import type { ScheduleAvailabilityBlock } from "./schedule-hours";
 import { buildWeek, weekEyebrow } from "./calendar-week";
 import { SchedulePanel } from "./schedule-panel";
 import type { ScheduleSession } from "./schedule-week-grid";
-import {
-  SchedulePendingCard,
-  type PendingRequest,
-} from "./schedule-pending-card";
+import { SchedulePendingCard, type PendingRequest } from "./schedule-pending-card";
 import { SessionsPanel } from "./sessions-panel";
 import type { SessionListItem } from "./session-row";
 
@@ -33,161 +29,128 @@ export default async function CalendarPage({
 
   const resolved = await searchParams;
   const selectedBookingId = Array.isArray(resolved.booking)
-    ? resolved.booking[0] ?? null
-    : resolved.booking ?? null;
+    ? (resolved.booking[0] ?? null)
+    : (resolved.booking ?? null);
 
   const caller = appRouter.createCaller({ userId });
   // A retained booking notification may be opened after its request was
   // approved, rejected, cancelled, or completed. Resolve against the current
   // tenant-scoped row so the bare ?booking= link chooses a surface that can
   // actually select it. Reuse the list below if Sessions is selected.
-  const selectedBookingRows = selectedBookingId
-    ? await caller.booking.list()
-    : null;
+  const selectedBookingRows = selectedBookingId ? await caller.booking.list() : null;
   const selectedBooking =
-    selectedBookingRows?.find((booking) => booking.id === selectedBookingId) ??
-    null;
-  const selectedBookingIsPending =
-    selectedBooking?.status === "pending_approval";
-  const active = resolveCalendarTabForBooking(
-    resolved.tab,
-    selectedBooking?.status ?? null,
-  );
+    selectedBookingRows?.find((booking) => booking.id === selectedBookingId) ?? null;
+  const selectedBookingIsPending = selectedBooking?.status === "pending_approval";
+  const active = resolveCalendarTabForBooking(resolved.tab, selectedBooking?.status ?? null);
 
-  // -------- Schedule tab data --------
-  let scheduleSessions: ScheduleSession[] = [];
-  let scheduleAvailabilityBlocks: ScheduleAvailabilityBlock[] = [];
-  let pendingRequests: PendingRequest[] = [];
-  let scheduleAutoConfirm = false;
-  let allSessions: SessionListItem[] = [];
+  // Calendar swipes are an in-place interaction, so both mobile destinations
+  // must already be available under the finger. Keep the existing reads but
+  // start their union together; the active route still chooses which panel is
+  // exposed to assistive technology and which deep-link is recorded.
+  const [list, upcoming, settings, workingHours, profile, blackouts] = await Promise.all([
+    selectedBookingRows ?? caller.booking.list(),
+    caller.booking.upcoming({ days: 21 }),
+    caller.booking.availability.getSettings(),
+    caller.booking.availability.list(),
+    caller.producer.me(),
+    caller.booking.blackouts.list(),
+  ]);
+  const pending = list.filter((b) => b.status === "pending_approval");
+  const scheduleAutoConfirm = settings.autoConfirmBookings;
+  const calendarTimeZone = normalizeCalendarTimeZone(profile.timezone);
+  const scheduleAvailabilityBlocks: ScheduleAvailabilityBlock[] = workingHours.map((block) => ({
+    startMin: block.startMin,
+    endMin: block.endMin,
+  }));
+  const pendingRequests: PendingRequest[] = pending.map((b) => ({
+    id: b.id,
+    artistName: b.artistName,
+    artistEmail: b.artistEmail,
+    startsAt: b.startsAt.toISOString(),
+    durationMin: b.durationMin,
+    packageName: b.packageNameSnapshot,
+    message: b.notes,
+    receivedAtIso: b.createdAt.toISOString(),
+  }));
+  const scheduleSessions: ScheduleSession[] = [
+    ...pending.map<ScheduleSession>((b) => ({
+      id: b.id,
+      startsAt: b.startsAt.toISOString(),
+      durationMin: b.durationMin,
+      artistName: b.artistName,
+      artistEmail: b.artistEmail,
+      packageName: b.packageNameSnapshot,
+      status: "pending_approval",
+    })),
+    ...upcoming.map<ScheduleSession>((b) => ({
+      id: b.id,
+      startsAt: b.startsAt.toISOString(),
+      durationMin: b.durationMin,
+      artistName: b.artistName,
+      artistEmail: b.artistEmail,
+      packageName: b.packageName,
+      status: "confirmed",
+    })),
+  ];
   // SK-56 — sessions-first mobile view for the schedule tab (the week
   // grid is desktop-only). Pending + the 21-day upcoming window mapped
   // into the SessionsPanel's row shape.
-  let scheduleMobileSessions: SessionListItem[] = [];
-  let calendarTimeZone = "UTC";
+  const scheduleMobileSessions: SessionListItem[] = [
+    ...pending.map<SessionListItem>((b) => ({
+      id: b.id,
+      artistName: b.artistName,
+      artistEmail: b.artistEmail,
+      startsAt: b.startsAt.toISOString(),
+      durationMin: b.durationMin,
+      packageName: b.packageNameSnapshot,
+      status: "pending_approval",
+    })),
+    ...upcoming.map<SessionListItem>((b) => ({
+      id: b.id,
+      artistName: b.artistName,
+      artistEmail: b.artistEmail,
+      startsAt: b.startsAt.toISOString(),
+      durationMin: b.durationMin,
+      packageName: b.packageName,
+      status: "confirmed",
+    })),
+  ];
+  const allSessions: SessionListItem[] = list.map((b) => ({
+    id: b.id,
+    artistName: b.artistName,
+    artistEmail: b.artistEmail,
+    startsAt: b.startsAt.toISOString(),
+    durationMin: b.durationMin,
+    packageName: b.packageNameSnapshot,
+    status: b.status,
+  }));
   const initialNow = new Date();
-  if (active === "schedule" || active === "sessions") {
-    const [list, upcoming, settings, workingHours, profile] = await Promise.all([
-      selectedBookingRows ?? caller.booking.list(),
-      caller.booking.upcoming({ days: 21 }),
-      caller.booking.availability.getSettings(),
-      caller.booking.availability.list(),
-      caller.producer.me(),
-    ]);
-    const pending = list.filter((b) => b.status === "pending_approval");
-
-    scheduleAutoConfirm = settings.autoConfirmBookings;
-    calendarTimeZone = normalizeCalendarTimeZone(profile.timezone);
-    scheduleAvailabilityBlocks = workingHours.map((block) => ({
-      startMin: block.startMin,
-      endMin: block.endMin,
-    }));
-
-    pendingRequests = pending.map((b) => ({
-      id: b.id,
-      artistName: b.artistName,
-      artistEmail: b.artistEmail,
-      startsAt: b.startsAt.toISOString(),
-      durationMin: b.durationMin,
-      packageName: b.packageNameSnapshot,
-      message: b.notes,
-      receivedAtIso: b.createdAt.toISOString(),
-    }));
-
-    scheduleSessions = [
-      ...pending.map<ScheduleSession>((b) => ({
-        id: b.id,
-        startsAt: b.startsAt.toISOString(),
-        durationMin: b.durationMin,
-        artistName: b.artistName,
-        artistEmail: b.artistEmail,
-        packageName: b.packageNameSnapshot,
-        status: "pending_approval",
-      })),
-      ...upcoming.map<ScheduleSession>((b) => ({
-        id: b.id,
-        startsAt: b.startsAt.toISOString(),
-        durationMin: b.durationMin,
-        artistName: b.artistName,
-        artistEmail: b.artistEmail,
-        packageName: b.packageName,
-        status: "confirmed",
-      })),
-    ];
-
-    scheduleMobileSessions = [
-      ...pending.map<SessionListItem>((b) => ({
-        id: b.id,
-        artistName: b.artistName,
-        artistEmail: b.artistEmail,
-        startsAt: b.startsAt.toISOString(),
-        durationMin: b.durationMin,
-        packageName: b.packageNameSnapshot,
-        status: "pending_approval",
-      })),
-      ...upcoming.map<SessionListItem>((b) => ({
-        id: b.id,
-        artistName: b.artistName,
-        artistEmail: b.artistEmail,
-        startsAt: b.startsAt.toISOString(),
-        durationMin: b.durationMin,
-        packageName: b.packageName,
-        status: "confirmed",
-      })),
-    ];
-    allSessions = list.map((b) => ({
-      id: b.id,
-      artistName: b.artistName,
-      artistEmail: b.artistEmail,
-      startsAt: b.startsAt.toISOString(),
-      durationMin: b.durationMin,
-      packageName: b.packageNameSnapshot,
-      status: b.status,
-    }));
-  }
-
-  // -------- Availability tab data --------
-  let availabilityBlocks: { weekday: number; startMin: number; endMin: number }[] = [];
-  let availabilityBlackouts: {
+  const availabilityBlocks = workingHours.map((block) => ({
+    weekday: block.weekday,
+    startMin: block.startMin,
+    endMin: block.endMin,
+  }));
+  const availabilityBlackouts: {
     id: string;
     startDate: string;
     endDate: string;
     reason: string | null;
-  }[] = [];
-  let availabilitySettings = {
-    autoConfirmBookings: false,
-    cancellationPolicyHours: 24,
+  }[] = blackouts.map((blackout) => ({
+    id: blackout.id,
+    startDate: blackout.startDate,
+    endDate: blackout.endDate,
+    reason: blackout.reason,
+  }));
+  const availabilitySettings = {
+    autoConfirmBookings: settings.autoConfirmBookings,
+    cancellationPolicyHours: settings.cancellationPolicyHours,
   };
   // Week-start preference (DB-backed since the Settings redesign). The
   // panel renders a Sunday/Monday toggle that writes back to the same
   // column, so the value here drives both the initial render and the
   // post-toggle persisted state.
-  let availabilityWeekStart: "sunday" | "monday" = "sunday";
-  if (active === "availability") {
-    const [blocks, blackouts, settings, profile] = await Promise.all([
-      caller.booking.availability.list(),
-      caller.booking.blackouts.list(),
-      caller.booking.availability.getSettings(),
-      caller.producer.me(),
-    ]);
-    availabilityBlocks = blocks.map((b) => ({
-      weekday: b.weekday,
-      startMin: b.startMin,
-      endMin: b.endMin,
-    }));
-    availabilityBlackouts = blackouts.map((b) => ({
-      id: b.id,
-      startDate: b.startDate,
-      endDate: b.endDate,
-      reason: b.reason,
-    }));
-    availabilitySettings = {
-      autoConfirmBookings: settings.autoConfirmBookings,
-      cancellationPolicyHours: settings.cancellationPolicyHours,
-    };
-    availabilityWeekStart =
-      profile.weekStart === "monday" ? "monday" : "sunday";
-  }
+  const availabilityWeekStart: "sunday" | "monday" =
+    profile.weekStart === "monday" ? "monday" : "sunday";
 
   // Tab-aware eyebrow — gives the section dynamic context. Schedule
   // shows the current week date; Sessions shows totals; Availability
@@ -196,40 +159,36 @@ export default async function CalendarPage({
   // the navigated week's range readout instead.
   const scheduleWeek = buildWeek(initialNow, 0, calendarTimeZone);
   const scheduleEyebrow = weekEyebrow(scheduleWeek[0] ?? initialNow);
-  let eyebrow = "PRODUCER CALENDAR";
-  if (active === "schedule") {
-    eyebrow = scheduleEyebrow;
-  } else if (active === "sessions") {
-    const total = allSessions.length;
-    const upcomingCount = allSessions.filter((s) => {
-      const start = new Date(s.startsAt);
-      const endMs = start.getTime() + s.durationMin * 60_000;
-      const isCancelled =
-        s.status === "cancelled" ||
-        s.status === "rejected" ||
-        s.status === "completed" ||
-        s.status === "no_show";
-      return !isCancelled && endMs > initialNow.getTime();
-    }).length;
-    eyebrow =
-      total === 0
-        ? "NO SESSIONS YET"
-        : `${String(total)} SESSION${total === 1 ? "" : "S"} · ${String(upcomingCount)} UPCOMING`;
-  } else {
-    // active === "availability" by exhaustive narrowing.
-    const totalMin = availabilityBlocks.reduce(
-      (acc, b) => acc + (b.endMin - b.startMin),
-      0,
-    );
-    const hours = Math.round((totalMin / 60) * 10) / 10;
-    const hoursLabel = Number.isInteger(hours)
-      ? String(hours)
-      : hours.toFixed(1).replace(/\.0$/, "");
-    eyebrow =
-      hours === 0
-        ? "AVAILABILITY NOT SET"
-        : `${hoursLabel}H OPEN PER WEEK`;
-  }
+  const totalSessions = allSessions.length;
+  const upcomingCount = allSessions.filter((session) => {
+    const start = new Date(session.startsAt);
+    const endMs = start.getTime() + session.durationMin * 60_000;
+    const isCancelled =
+      session.status === "cancelled" ||
+      session.status === "rejected" ||
+      session.status === "completed" ||
+      session.status === "no_show";
+    return !isCancelled && endMs > initialNow.getTime();
+  }).length;
+  const sessionsEyebrow =
+    totalSessions === 0
+      ? "NO SESSIONS YET"
+      : `${String(totalSessions)} SESSION${totalSessions === 1 ? "" : "S"} · ${String(upcomingCount)} UPCOMING`;
+  const totalAvailabilityMin = availabilityBlocks.reduce(
+    (acc, block) => acc + (block.endMin - block.startMin),
+    0,
+  );
+  const availabilityHours = Math.round((totalAvailabilityMin / 60) * 10) / 10;
+  const availabilityHoursLabel = Number.isInteger(availabilityHours)
+    ? String(availabilityHours)
+    : availabilityHours.toFixed(1).replace(/\.0$/, "");
+  const availabilityEyebrow =
+    availabilityHours === 0 ? "AVAILABILITY NOT SET" : `${availabilityHoursLabel}H OPEN PER WEEK`;
+  const eyebrows = {
+    schedule: scheduleEyebrow,
+    sessions: sessionsEyebrow,
+    availability: availabilityEyebrow,
+  };
 
   return (
     // lg+: viewport-locked layout — the page is sized to exactly the
@@ -245,143 +204,97 @@ export default async function CalendarPage({
       {/* sm+ surfaces an elevated card; mobile drops the chrome to
           maximise usable width. */}
       <div className="flex min-h-0 flex-1 flex-col rounded-none border-0 bg-transparent p-0 sm:rounded-[var(--radius-2xl)] sm:border sm:border-[rgb(var(--border-strong))] sm:bg-[rgb(var(--bg-elevated))] sm:px-4 sm:py-3 lg:px-5 lg:py-4">
-        {/* One compact row: 800-weight "Calendar", a thin mono eyebrow
-            riding the H1's baseline for context, and the segmented
-            tabs to the right. The per-tab subline is gone — the
-            eyebrow + tab label already say which section we're in. */}
-        <header className="reveal-up mb-2 shrink-0 sm:mb-3">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
-            <div className="flex min-w-0 items-baseline gap-3">
-              <h1
-                className="reveal-up font-display leading-[0.95]"
-                style={{
-                  fontSize: "clamp(22px, 2.6vw, 30px)",
-                  fontWeight: 800,
-                  letterSpacing: "-0.03em",
-                }}
-              >
-                Calendar
-              </h1>
-              <p
-                key={`eyebrow-${active}`}
-                className={[
-                  "reveal-up truncate font-mono text-[10px] tracking-[0.16em] text-[rgb(var(--fg-muted))]",
-                  active === "sessions" ? "lg:hidden" : "",
-                ].join(" ")}
-                style={{ fontWeight: 700 }}
-              >
-                {eyebrow}
-              </p>
-              {active === "sessions" ? (
-                <p
-                  className="reveal-up hidden truncate font-mono text-[10px] tracking-[0.16em] text-[rgb(var(--fg-muted))] lg:block"
-                  style={{ fontWeight: 700 }}
-                >
-                  {scheduleEyebrow}
-                </p>
-              ) : null}
-            </div>
-            <CalendarTabs active={active} />
-          </div>
-        </header>
-
-        <CalendarSwipeSurface active={active}>
-          {active === "schedule" && (
-            <>
-              {/* Desktop keeps the full week-grid schedule. */}
-              <div className="hidden min-h-0 flex-1 flex-col lg:flex">
-                <SchedulePanel
-                  sessions={scheduleSessions}
-                  desktopSessions={allSessions}
-                  availabilityBlocks={scheduleAvailabilityBlocks}
-                  pending={pendingRequests}
-                  autoConfirm={scheduleAutoConfirm}
-                  initialNow={initialNow.toISOString()}
-                  timeZone={calendarTimeZone}
-                  selectedBookingId={
-                    selectedBookingIsPending ? selectedBookingId : null
-                  }
-                />
-              </div>
-              {/* SK-56 — phones never show the week grid. Direct hits
+        <CalendarSwipeSurface
+          active={active}
+          eyebrows={eyebrows}
+          scheduleEyebrow={scheduleEyebrow}
+          sessionsContent={
+            active === "schedule" ? (
+              <>
+                {/* Desktop keeps the full week-grid schedule. */}
+                <div className="hidden min-h-0 flex-1 flex-col lg:flex">
+                  <SchedulePanel
+                    sessions={scheduleSessions}
+                    desktopSessions={allSessions}
+                    availabilityBlocks={scheduleAvailabilityBlocks}
+                    pending={pendingRequests}
+                    autoConfirm={scheduleAutoConfirm}
+                    initialNow={initialNow.toISOString()}
+                    timeZone={calendarTimeZone}
+                    selectedBookingId={selectedBookingIsPending ? selectedBookingId : null}
+                  />
+                </div>
+                {/* SK-56 — phones never show the week grid. Direct hits
                   on ?tab=schedule (or the bare URL) render the same
                   sessions-first view the mobile Sessions tab owns:
                   pending requests on top, then the sessions list
                   (pending + the 21-day upcoming window). */}
-              <div className="flex min-h-0 flex-1 flex-col gap-3 lg:hidden">
-                <div className="shrink-0">
-                  <SchedulePendingCard
-                    initial={pendingRequests}
-                    autoConfirm={scheduleAutoConfirm}
+                <div className="flex min-h-0 flex-1 flex-col gap-3 lg:hidden">
+                  <div className="shrink-0">
+                    <SchedulePendingCard
+                      initial={pendingRequests}
+                      autoConfirm={scheduleAutoConfirm}
+                      initialNow={initialNow.toISOString()}
+                      timeZone={calendarTimeZone}
+                      selectedBookingId={selectedBookingIsPending ? selectedBookingId : null}
+                    />
+                  </div>
+                  <SessionsPanel
+                    sessions={scheduleMobileSessions}
                     initialNow={initialNow.toISOString()}
                     timeZone={calendarTimeZone}
-                    selectedBookingId={
-                      selectedBookingIsPending ? selectedBookingId : null
-                    }
+                    selectedBookingId={selectedBookingIsPending ? null : selectedBookingId}
                   />
                 </div>
-                <SessionsPanel
-                  sessions={scheduleMobileSessions}
-                  initialNow={initialNow.toISOString()}
-                  timeZone={calendarTimeZone}
-                  selectedBookingId={
-                    selectedBookingIsPending ? null : selectedBookingId
-                  }
-                />
-              </div>
-            </>
-          )}
-          {active === "sessions" && (
-            <>
-              {/* SK-85 — desktop folds Sessions into the schedule rail.
+              </>
+            ) : (
+              <>
+                {/* SK-85 — desktop folds Sessions into the schedule rail.
                   The retained ?tab=sessions URL remains the mobile
                   entry point and renders the existing list below lg. */}
-              <div className="hidden min-h-0 flex-1 flex-col lg:flex">
-                <SchedulePanel
-                  sessions={scheduleSessions}
-                  desktopSessions={allSessions}
-                  availabilityBlocks={scheduleAvailabilityBlocks}
-                  pending={pendingRequests}
-                  autoConfirm={scheduleAutoConfirm}
-                  initialNow={initialNow.toISOString()}
-                  timeZone={calendarTimeZone}
-                  selectedBookingId={selectedBookingId}
-                />
-              </div>
-              {/* SK-56 — pending requests live here on phones (the
-                  Schedule tab that used to own them is desktop-only). */}
-              <div className="flex min-h-0 flex-1 flex-col lg:hidden">
-                <div className="shrink-0 pb-3">
-                  <SchedulePendingCard
-                    initial={pendingRequests}
+                <div className="hidden min-h-0 flex-1 flex-col lg:flex">
+                  <SchedulePanel
+                    sessions={scheduleSessions}
+                    desktopSessions={allSessions}
+                    availabilityBlocks={scheduleAvailabilityBlocks}
+                    pending={pendingRequests}
                     autoConfirm={scheduleAutoConfirm}
                     initialNow={initialNow.toISOString()}
                     timeZone={calendarTimeZone}
-                    selectedBookingId={
-                      selectedBookingIsPending ? selectedBookingId : null
-                    }
+                    selectedBookingId={selectedBookingId}
                   />
                 </div>
-                <SessionsPanel
-                  sessions={allSessions}
-                  initialNow={initialNow.toISOString()}
-                  timeZone={calendarTimeZone}
-                  selectedBookingId={
-                    selectedBookingIsPending ? null : selectedBookingId
-                  }
-                />
-              </div>
-            </>
-          )}
-          {active === "availability" && (
+                {/* SK-56 — pending requests live here on phones (the
+                  Schedule tab that used to own them is desktop-only). */}
+                <div className="flex min-h-0 flex-1 flex-col lg:hidden">
+                  <div className="shrink-0 pb-3">
+                    <SchedulePendingCard
+                      initial={pendingRequests}
+                      autoConfirm={scheduleAutoConfirm}
+                      initialNow={initialNow.toISOString()}
+                      timeZone={calendarTimeZone}
+                      selectedBookingId={selectedBookingIsPending ? selectedBookingId : null}
+                    />
+                  </div>
+                  <SessionsPanel
+                    sessions={allSessions}
+                    initialNow={initialNow.toISOString()}
+                    timeZone={calendarTimeZone}
+                    selectedBookingId={selectedBookingIsPending ? null : selectedBookingId}
+                  />
+                </div>
+              </>
+            )
+          }
+          availabilityContent={
             <AvailabilityPanel
               blocks={availabilityBlocks}
               blackouts={availabilityBlackouts}
               settings={availabilitySettings}
               initialWeekStart={availabilityWeekStart}
             />
-          )}
-        </CalendarSwipeSurface>
+          }
+        />
       </div>
     </div>
   );

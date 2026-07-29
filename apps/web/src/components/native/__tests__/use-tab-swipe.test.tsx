@@ -150,21 +150,20 @@ describe("resolveTabSwipeReleaseTargetIndex", () => {
 });
 
 describe("resolveTabSwipeDragOffset", () => {
-  it("tracks a valid neighbor beyond the commit threshold and rubber-bands at a boundary", () => {
-    expect(
-      resolveTabSwipeDragOffset({
-        activeIndex: 1,
-        itemCount: 3,
-        deltaX: -96,
-      }),
-    ).toBe(-80);
-    expect(
-      resolveTabSwipeDragOffset({
-        activeIndex: 1,
-        itemCount: 3,
-        deltaX: -200,
-      }),
-    ).toBe(-132);
+  it.each([-80, -180, -280])(
+    "tracks a valid neighbor one-to-one across a 390px surface at %ipx",
+    (deltaX) => {
+      expect(
+        resolveTabSwipeDragOffset({
+          activeIndex: 1,
+          itemCount: 3,
+          deltaX,
+        }),
+      ).toBe(deltaX);
+    },
+  );
+
+  it("rubber-bands only at an outward boundary", () => {
     expect(
       resolveTabSwipeDragOffset({
         activeIndex: 0,
@@ -406,6 +405,22 @@ describe("useTabSwipe", () => {
     expect(panel.style.getPropertyValue("--sk-tab-swipe-x")).toBe("");
   });
 
+  it("never plateaus behind a finger moving across a 390px surface", () => {
+    render(<Harness initialValue="second" />);
+    const surface = screen.getByTestId("surface");
+    const panel = screen.getByTestId("panel");
+
+    startSwipe(surface, 380, 20);
+    moveSwipe(surface, 300, 22);
+    expect(panel.style.getPropertyValue("--sk-tab-swipe-x")).toBe("-80px");
+
+    moveSwipe(surface, 200, 22);
+    expect(panel.style.getPropertyValue("--sk-tab-swipe-x")).toBe("-180px");
+
+    moveSwipe(surface, 100, 22);
+    expect(panel.style.getPropertyValue("--sk-tab-swipe-x")).toBe("-280px");
+  });
+
   it("locks to vertical scrolling and never changes its mind later", () => {
     render(<Harness />);
     const surface = screen.getByTestId("surface");
@@ -428,10 +443,10 @@ describe("useTabSwipe", () => {
 
     startSwipe(surface, 120, 20);
     moveSwipe(surface, 35, 22);
-    expect(panel.style.getPropertyValue("--sk-tab-swipe-x")).toBe("-74.5px");
+    expect(panel.style.getPropertyValue("--sk-tab-swipe-x")).toBe("-85px");
 
     moveSwipe(surface, 195, 22);
-    expect(panel.style.getPropertyValue("--sk-tab-swipe-x")).toBe("69.5px");
+    expect(panel.style.getPropertyValue("--sk-tab-swipe-x")).toBe("75px");
     endSwipe(surface, 195, 22);
 
     expect(onValueChange).toHaveBeenCalledOnce();

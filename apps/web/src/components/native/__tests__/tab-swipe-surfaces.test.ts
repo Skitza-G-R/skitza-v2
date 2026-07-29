@@ -46,7 +46,7 @@ describe("inner-tab swipe surfaces", () => {
       ),
       "utf8",
     );
-    expect(pageSource).toContain("<CalendarSwipeSurface active={active}>");
+    expect(pageSource).toMatch(/<CalendarSwipeSurface\s+active=\{active\}/);
     expect(pageSource).not.toContain("<CalendarSwipeSurface key={active}");
   });
 });
