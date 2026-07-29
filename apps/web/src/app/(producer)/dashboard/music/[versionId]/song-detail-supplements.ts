@@ -51,9 +51,11 @@ function exactBatchScope(data: ProducerSongSupplementData): {
 }
 
 /**
- * Loads the two authenticated song-page supplements on one parallel branch.
- * Delivery is one exact-track batch, so adding versions cannot add page-level
- * tRPC calls or repeat the same purchase-ledger read.
+ * Loads the two authenticated song-page supplements in one deterministic lock
+ * order. Both procedures take transaction-scoped locks across the same song,
+ * purchase, project, and producer graph; overlapping them can deadlock the
+ * server render. Delivery remains one exact-track batch, so adding versions
+ * cannot add page-level tRPC calls or repeat the same purchase-ledger read.
  */
 export async function loadProducerSongSupplements(
   caller: ProducerSongSupplementCaller,
@@ -63,19 +65,16 @@ export async function loadProducerSongSupplements(
   overrideByVersion: ReadonlyMap<string, DownloadOverrideState>;
 }> {
   const batchScope = exactBatchScope(data);
-  const sharingPromise = caller.songPublication.producerState({ trackId: data.track.id });
+  const sharing = await caller.songPublication.producerState({ trackId: data.track.id });
 
   if (!batchScope) {
     return {
-      sharing: await sharingPromise,
+      sharing,
       overrideByVersion: new Map(),
     };
   }
 
-  const [sharing, delivery] = await Promise.all([
-    sharingPromise,
-    caller.audioDelivery.overrideStates(batchScope),
-  ]);
+  const delivery = await caller.audioDelivery.overrideStates(batchScope);
   const requested = new Set(batchScope.versionIds);
   const overrideByVersion = new Map<string, DownloadOverrideState>();
   for (const state of delivery.states) {
