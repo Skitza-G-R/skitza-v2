@@ -1,5 +1,6 @@
 import { createFixtureAdminRepository } from "~/features/dashboard/demo-repository";
-import { parsePaymentView, PaymentsView } from "~/features/dashboard/payments-view";
+import { parsePaymentView } from "~/features/dashboard/operations-demo";
+import { PaymentsView } from "~/features/dashboard/payments-view";
 import { requireRouteEnvironment } from "~/features/dashboard/route-environment";
 
 export default async function AdminPaymentsPage({

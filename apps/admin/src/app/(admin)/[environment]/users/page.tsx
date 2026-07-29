@@ -1,6 +1,7 @@
 import { createFixtureAdminRepository } from "~/features/dashboard/demo-repository";
 import { requireRouteEnvironment } from "~/features/dashboard/route-environment";
-import { parseUserRoleFilter, UsersDirectoryView } from "~/features/dashboard/users-view";
+import { parseUserRoleFilter } from "~/features/dashboard/user-demo-workflows";
+import { UsersDirectoryView } from "~/features/dashboard/users-view";
 
 export default async function AdminUsersPage({
   params,

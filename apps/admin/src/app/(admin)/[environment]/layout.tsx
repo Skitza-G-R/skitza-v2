@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { notFound } from "next/navigation";
 
 import { AdminShell } from "~/components/admin-shell";
+import { DashboardInteractionProvider } from "~/features/dashboard/dashboard-interactions";
 import { requireActiveAdminPage } from "~/server/auth/page-access";
 import { AdminEnvironmentConfigurationError, resolveAdminEnvironment } from "~/server/environment";
 
@@ -28,5 +29,9 @@ export default async function AdminEnvironmentLayout({
     throw error;
   }
 
-  return <AdminShell environment={resolved.publicContext}>{children}</AdminShell>;
+  return (
+    <AdminShell environment={resolved.publicContext}>
+      <DashboardInteractionProvider>{children}</DashboardInteractionProvider>
+    </AdminShell>
+  );
 }

@@ -764,8 +764,8 @@
 
   .admin-mobile-menu summary {
     display: grid;
-    width: 2.65rem;
-    height: 2.65rem;
+    width: 2.75rem;
+    height: 2.75rem;
     cursor: pointer;
     place-content: center;
     gap: 0.28rem;

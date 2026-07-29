@@ -2,7 +2,8 @@ import { notFound } from "next/navigation";
 
 import { createFixtureAdminRepository } from "~/features/dashboard/demo-repository";
 import { requireRouteEnvironment } from "~/features/dashboard/route-environment";
-import { parseProfileTab, UserProfileView } from "~/features/dashboard/users-view";
+import { parseProfileTab } from "~/features/dashboard/user-demo-workflows";
+import { UserProfileView } from "~/features/dashboard/users-view";
 
 export default async function AdminUserProfilePage({
   params,

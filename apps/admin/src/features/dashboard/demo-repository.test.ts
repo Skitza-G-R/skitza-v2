@@ -51,6 +51,29 @@ describe("fixture admin repository", () => {
     );
   });
 
+  it("allows retry only on the explicitly supported payment failure fixture", async () => {
+    const payments = await createFixtureAdminRepository("live").listPayments("live");
+    const retryable = payments.payments.filter((payment) => payment.retrySupported);
+
+    expect(retryable).toHaveLength(1);
+    expect(retryable[0]?.state).toBe("Proof rejected");
+    expect(payments.payments.find((payment) => payment.state === "Approved")?.retrySupported).toBe(
+      false,
+    );
+  });
+
+  it("links every payment to its producer and preserves an immutable event timeline", async () => {
+    const repository = createFixtureAdminRepository("live");
+    const directory = await repository.searchUsers("live");
+    const payments = await repository.listPayments("live");
+
+    for (const payment of payments.payments) {
+      expect(directory.users.some((user) => user.id === payment.producerUserId)).toBe(true);
+      expect(payment.timeline.length).toBeGreaterThan(0);
+      expect(payment.timeline.every((entry) => entry.id.startsWith("demo_live_"))).toBe(true);
+    }
+  });
+
   it("keeps every mutation capability inert in demo mode", async () => {
     const repository = createFixtureAdminRepository("test");
     const users = await repository.searchUsers("test");

@@ -42,6 +42,8 @@ function createDataset(environment: AdminEnvironmentId): DemoDataset {
       activation: "Activated" as const,
       joinedAt: live ? "18 Jul 2026" : "22 Jul 2026",
       lastActivity: live ? "12 min ago" : "46 min ago",
+      publicPage: "Visible" as const,
+      emailDelivery: "Delivered" as const,
     },
     {
       id: `${prefix}_user_noah`,
@@ -54,6 +56,8 @@ function createDataset(environment: AdminEnvironmentId): DemoDataset {
       activation: "Window open" as const,
       joinedAt: live ? "27 Jul 2026" : "24 Jul 2026",
       lastActivity: live ? "Yesterday" : "3 hours ago",
+      publicPage: "Visible" as const,
+      emailDelivery: "Failed" as const,
     },
     {
       id: `${prefix}_user_lina`,
@@ -66,6 +70,8 @@ function createDataset(environment: AdminEnvironmentId): DemoDataset {
       activation: "Not activated" as const,
       joinedAt: live ? "03 Jul 2026" : "09 Jul 2026",
       lastActivity: live ? "2 days ago" : "5 days ago",
+      publicPage: "Hidden" as const,
+      emailDelivery: "Delivered" as const,
     },
     {
       id: `${prefix}_user_eli`,
@@ -78,6 +84,8 @@ function createDataset(environment: AdminEnvironmentId): DemoDataset {
       activation: "Not activated" as const,
       joinedAt: live ? "28 Jun 2026" : "02 Jul 2026",
       lastActivity: live ? "16 days ago" : "12 days ago",
+      publicPage: "Hidden" as const,
+      emailDelivery: "Failed" as const,
     },
   ] as const;
 
@@ -108,35 +116,89 @@ function createDataset(environment: AdminEnvironmentId): DemoDataset {
   const payments = [
     {
       id: `${prefix}_payment_amber`,
+      producerUserId: users[0].id,
       producer: users[0].name,
       artist: "Ari Stone",
       project: "Midnight Echoes",
       amount: live ? "₪2,400" : "₪1,200",
       currency: "ILS" as const,
       state: "Proof submitted" as const,
+      retrySupported: false,
       attentionReason: "Payment proof is waiting for producer approval.",
       updatedAt: "12 min ago",
+      timeline: [
+        {
+          id: `${prefix}_payment_amber_proof`,
+          label: "Payment proof submitted",
+          detail: "Artist uploaded a bank-transfer receipt.",
+          occurredAt: "12 min ago",
+          tone: "warning" as const,
+        },
+        {
+          id: `${prefix}_payment_amber_created`,
+          label: "Payment request created",
+          detail: `${users[0].name} requested payment.`,
+          occurredAt: "Yesterday",
+          tone: "info" as const,
+        },
+      ],
     },
     {
       id: `${prefix}_payment_blue`,
+      producerUserId: users[1].id,
       producer: users[1].name,
       artist: "Jamie North",
       project: "First Light",
       amount: live ? "$680" : "$340",
       currency: "USD" as const,
       state: "Proof rejected" as const,
+      retrySupported: true,
       attentionReason: "Rejected proof is waiting for a new upload.",
       updatedAt: "3 hours ago",
+      timeline: [
+        {
+          id: `${prefix}_payment_blue_rejected`,
+          label: "Payment proof rejected",
+          detail: "Producer requested a clearer receipt.",
+          occurredAt: "3 hours ago",
+          tone: "danger" as const,
+        },
+        {
+          id: `${prefix}_payment_blue_proof`,
+          label: "Payment proof submitted",
+          detail: "Artist uploaded a payment receipt.",
+          occurredAt: "5 hours ago",
+          tone: "warning" as const,
+        },
+      ],
     },
     {
       id: `${prefix}_payment_green`,
+      producerUserId: users[0].id,
       producer: users[0].name,
       artist: "Dani Fox",
       project: "Soft Static",
       amount: live ? "₪1,800" : "₪900",
       currency: "ILS" as const,
       state: "Approved" as const,
+      retrySupported: false,
       updatedAt: "Yesterday",
+      timeline: [
+        {
+          id: `${prefix}_payment_green_approved`,
+          label: "Payment proof approved",
+          detail: `${users[0].name} verified the payment proof.`,
+          occurredAt: "Yesterday",
+          tone: "success" as const,
+        },
+        {
+          id: `${prefix}_payment_green_created`,
+          label: "Payment request created",
+          detail: "Payment request opened for the project.",
+          occurredAt: "2 days ago",
+          tone: "info" as const,
+        },
+      ],
     },
   ] as const;
 
@@ -290,6 +352,24 @@ function createDataset(environment: AdminEnvironmentId): DemoDataset {
           environment,
           updatedAt,
           user,
+          supportDisplayName: user.name,
+          supportTags:
+            user.status === "Needs attention"
+              ? ["onboarding", "email follow-up"]
+              : user.status === "Suspended"
+                ? ["manual review"]
+                : [],
+          supportNotes:
+            user.status === "Needs attention"
+              ? [
+                  {
+                    id: `${user.id}_support_note_1`,
+                    body: "Follow up after the next onboarding attempt.",
+                    author: "Founder",
+                    addedAt: "28 Jul 2026 · 15:20",
+                  },
+                ]
+              : [],
           summary: [
             { label: "Clerk identity", value: user.id },
             { label: "Environment", value: environment === "live" ? "Live" : "Test" },

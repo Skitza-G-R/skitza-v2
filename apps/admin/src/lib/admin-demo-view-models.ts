@@ -76,6 +76,8 @@ export type DemoUserSummary = Readonly<{
   activation: "Activated" | "Not activated" | "Window open";
   joinedAt: string;
   lastActivity: string;
+  publicPage: "Hidden" | "Visible";
+  emailDelivery: "Delivered" | "Failed";
 }>;
 
 export type DemoProfileFact = Readonly<{
@@ -83,10 +85,20 @@ export type DemoProfileFact = Readonly<{
   value: string;
 }>;
 
+export type DemoSupportNote = Readonly<{
+  id: string;
+  body: string;
+  author: string;
+  addedAt: string;
+}>;
+
 export type DemoUserProfile = Readonly<{
   environment: AdminEnvironmentId;
   updatedAt: string;
   user: DemoUserSummary;
+  supportDisplayName: string;
+  supportTags: readonly string[];
+  supportNotes: readonly DemoSupportNote[];
   summary: readonly DemoProfileFact[];
   activity: readonly DemoActivity[];
   business: readonly DemoProfileFact[];
@@ -102,14 +114,17 @@ export type DemoUserDirectory = Readonly<{
 
 export type DemoPayment = Readonly<{
   id: string;
+  producerUserId: string;
   producer: string;
   artist: string;
   project: string;
   amount: string;
   currency: "ILS" | "USD";
   state: "Approved" | "Needs producer approval" | "Proof rejected" | "Proof submitted";
+  retrySupported: boolean;
   attentionReason?: string;
   updatedAt: string;
+  timeline: readonly DemoActivity[];
 }>;
 
 export type DemoPayments = Readonly<{

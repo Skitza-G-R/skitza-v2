@@ -24,7 +24,7 @@ export function AdminShell({
         {environment.id === "live" ? "Live" : "Test"} environment
         <span aria-hidden="true">·</span>
         <span>
-          demo only <span className="environment-ribbon-actions">· actions off</span>
+          simulations on <span className="environment-ribbon-actions">· external actions off</span>
         </span>
       </div>
 

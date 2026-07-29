@@ -6,6 +6,7 @@ import type {
   DemoProvider,
   StatusTone,
 } from "~/lib/admin-demo-view-models";
+import { Breadcrumbs, SimulatedNotice } from "./dashboard-interactions";
 import styles from "./dashboard.module.css";
 
 export function PageHeader({
@@ -22,6 +23,7 @@ export function PageHeader({
   return (
     <header className={styles.pageHeader}>
       <div className={styles.pageHeading}>
+        <Breadcrumbs recordLabel={title} />
         <p className={styles.eyebrow}>{eyebrow}</p>
         <h1 className={styles.title}>{title}</h1>
         <p className={styles.subtitle}>{description}</p>
@@ -35,12 +37,7 @@ export function PageHeader({
 }
 
 export function DemoNotice() {
-  return (
-    <span className={styles.demoNotice}>
-      <span className={styles.demoDot} aria-hidden="true" />
-      Demo data · no actions connected
-    </span>
-  );
+  return <SimulatedNotice />;
 }
 
 export function MetricLedger({
