@@ -1,13 +1,13 @@
 const OPTIONS = [
   {
-    copy: "Real customer context. The red banner remains visible on every screen.",
+    copy: "Demo of the future Live workspace. No customer data or actions are connected.",
     id: "live",
-    title: "Open Live",
+    title: "Preview Live",
   },
   {
-    copy: "Isolated test context. No Live data or action can enter this view.",
+    copy: "Demo of the future Test workspace. No real data or actions are connected.",
     id: "test",
-    title: "Open Test",
+    title: "Preview Test",
   },
 ] as const;
 
@@ -20,20 +20,13 @@ export function EnvironmentChoice() {
           Live and Test never mix.
         </h1>
         <p className="shell-subtitle">
-          Select an explicit environment before the protected admin context is
-          opened.
+          Choose which future environment to review. Both views currently use demo data and
+          disconnected actions.
         </p>
         <div className="environment-choice-grid">
           {OPTIONS.map((option) => (
-            <a
-              className="environment-choice-option"
-              href={`/?environment=${option.id}`}
-              key={option.id}
-            >
-              <span
-                className="choice-label"
-                data-environment={option.id}
-              >
+            <a className="environment-choice-option" href={`/${option.id}`} key={option.id}>
+              <span className="choice-label" data-environment={option.id}>
                 {option.id}
               </span>
               <h2 className="choice-title">{option.title}</h2>
