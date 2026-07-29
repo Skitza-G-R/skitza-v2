@@ -31,6 +31,27 @@ describe("clients-projects/[id]/page.tsx — Phase 2 rewrite to AlbumSpace", () 
     expect(SRC).not.toContain("project.money");
   });
 
+  it("starts detail, canonical payments, and scoped Album Space bookings together", () => {
+    const detailAt = SRC.indexOf("project.detail({ id })");
+    const paymentsAt = SRC.indexOf("purchaseLedger.project({ projectId: id })");
+    const bookingsAt = SRC.indexOf("booking.list({ projectId: id })");
+    const settledStart = SRC.lastIndexOf("Promise.allSettled", detailAt);
+    const settledEnd = SRC.indexOf("]);", bookingsAt);
+
+    expect(settledStart).toBeGreaterThan(-1);
+    expect(detailAt).toBeGreaterThan(settledStart);
+    expect(paymentsAt).toBeGreaterThan(detailAt);
+    expect(bookingsAt).toBeGreaterThan(paymentsAt);
+    expect(settledEnd).toBeGreaterThan(bookingsAt);
+    expect(SRC).toContain('bookingsResult.status === "fulfilled" ? bookingsResult.value : []');
+  });
+
+  it("uses the stable clientContactId for the breadcrumb without a global client list", () => {
+    expect(SRC).not.toContain("clientContacts.listWithProjects");
+    expect(SRC).toContain("data.project.clientContactId");
+    expect(SRC).not.toContain("breadcrumbClientEmail");
+  });
+
   it("drops the import of the old ProjectHeader", () => {
     expect(SRC).not.toContain("ProjectHeader");
     expect(SRC).not.toContain("project-header");
@@ -69,18 +90,35 @@ describe("clients-projects/[id]/page.tsx — Phase 2 rewrite to AlbumSpace", () 
     expect(SRC).not.toContain("--brand-primary-on");
   });
 
-  it("filters past bookings for the 'last session' computation", () => {
-    expect(SRC).toMatch(/startsAt\s*<\s*now|startsAt\s*<=\s*now|past\s*[Bb]ookings/);
+  it("combines scoped sessions and project activity into one newest-first Studio Log", () => {
+    expect(SRC).toContain("const sessionEntries: StudioLogEntry[]");
+    expect(SRC).toContain("status: booking.status");
+    expect(SRC).toContain("buildProjectActivityEntries");
+    expect(SRC).toContain("[...activities, ...sessionEntries].sort");
+    expect(SRC).toContain("right.ts.getTime() - left.ts.getTime()");
   });
 
-  it("redirects an allocated one-space project to its Song Space", () => {
-    expect(SRC).toContain('data.songSpaces.mode === "single"');
-    expect(SRC).toContain("data.tracks.length === 1");
-    // Allow multi-line redirect call. Check the template literal
-    // shape includes the dashboard + songs path with two interpolations.
-    expect(SRC).toMatch(
+  it("derives row playback from the newest playable version id", () => {
+    expect(SRC).toContain("trackVersions.find((version) => version.audioUrl !== null)");
+    expect(SRC).toContain("versionId: playable.id");
+    expect(SRC).toContain("audioUrl: playable.audioUrl");
+  });
+
+  it("uses canonical producer payment buckets without merging currencies", () => {
+    expect(SRC).toContain("paymentModel.producerBuckets.needs_review");
+    expect(SRC).toContain("paymentModel.producerBuckets.due_or_overdue");
+    expect(SRC).toContain("paymentModel.producerBuckets.history");
+    expect(SRC).toContain("needsReviewPurchaseCount + dueOrOverduePurchaseCount");
+    expect(SRC).not.toContain("allPaymentsBucket");
+    expect(SRC).not.toContain("upcomingCount");
+  });
+
+  it("renders the compact Project Space for one-song and multi-song projects", () => {
+    expect(SRC).not.toContain('data.songSpaces.mode === "single"');
+    expect(SRC).not.toMatch(
       /redirect\([\s\S]*?`\/dashboard\/clients-projects\/\$\{[^}]+\}\/songs\/\$\{[^}]+\}`[\s\S]*?\)/,
     );
+    expect(SRC).toMatch(/<AlbumSpace/);
   });
 
   it("maps artist credit into AlbumSpace rows", () => {
@@ -89,5 +127,15 @@ describe("clients-projects/[id]/page.tsx — Phase 2 rewrite to AlbumSpace", () 
 
   it("locks project-room Add Song to the project being viewed", () => {
     expect(SRC).toContain("&lockProject=1");
+  });
+
+  it("lets AppShell own the main landmark and omits the stopped Add Session flow", () => {
+    expect(SRC).not.toContain("<main");
+    expect(SRC).not.toContain("Add Session");
+    expect(SRC).not.toContain("/artist/book");
+  });
+
+  it("releases the page-enter transform after entry so sticky tabs keep the viewport", () => {
+    expect(SRC).toContain('animationFillMode: "backwards"');
   });
 });

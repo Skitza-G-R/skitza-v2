@@ -38,6 +38,18 @@ describe("WorkspaceListView source — compact clients + configurable projects",
     expect(SRC).toContain("Clients");
   });
 
+  it("swipes the workspace surface through the existing URL-synced tab updater", () => {
+    expect(SRC).toContain('import { useTabSwipe } from "~/components/native/use-tab-swipe"');
+    expect(SRC).toContain('const WORKSPACE_TABS = ["clients", "projects"] as const');
+    expect(SRC).toMatch(
+      /useTabSwipe\(\{\s*items:\s*WORKSPACE_TABS,\s*value:\s*tab,\s*onChange:\s*updateTab,\s*\}\)/,
+    );
+    expect(SRC).toMatch(
+      /className="\[touch-action:pan-y_pinch-zoom\]"[\s\S]{0,100}data-tab-swipe-surface[\s\S]{0,100}\{\.\.\.tabSwipeHandlers\}/,
+    );
+    expect(SRC.match(/data-tab-swipe-surface/g)).toHaveLength(1);
+  });
+
   it("keeps all seven sort options for Projects", () => {
     expect(SRC).toContain('"custom"');
     expect(SRC).toContain('"recent"');

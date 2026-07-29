@@ -128,6 +128,15 @@ describe("Settings polish — sub-nav click updates URL", () => {
     // links / browser back still work, in-flight edits survive.
     expect(client).toMatch(/window\.history\.replaceState[\s\S]{0,120}section=/);
   });
+
+  it("uses one local section transition for clicks and content swipes", () => {
+    expect(client).toContain("useTabSwipe");
+    expect(client).toContain("items: SETTINGS_SECTION_KEYS");
+    expect(client).toContain("onChange: changeSection");
+    expect(client).toContain("changeSection(item.key)");
+    expect(client).toContain("data-tab-swipe-surface");
+    expect(client).toContain("s-content [touch-action:pan-y_pinch-zoom]");
+  });
 });
 
 describe("Settings polish — dead Plan CTAs removed (Free view)", () => {

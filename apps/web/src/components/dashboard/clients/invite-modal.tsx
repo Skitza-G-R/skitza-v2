@@ -2,7 +2,7 @@
 
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Link2, Mail, X } from "lucide-react";
-import { useTransition } from "react";
+import { type RefObject, useTransition } from "react";
 
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
@@ -38,6 +38,8 @@ export interface InviteToAppModalProps {
   producerSlug: string;
   /** Optional callback fired after a successful send. */
   onSent?: () => void;
+  /** Stable trigger that receives focus after a controlled launch closes. */
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }
 
 export function InviteToAppModal({
@@ -46,6 +48,7 @@ export function InviteToAppModal({
   client,
   producerSlug,
   onSent,
+  returnFocusRef,
 }: InviteToAppModalProps) {
   const { toast } = useToast();
   const online = useOnlineStatus();
@@ -121,6 +124,12 @@ export function InviteToAppModal({
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[rgb(17_16_9/0.42)] backdrop-blur-[3px]" />
         <DialogPrimitive.Content
           aria-describedby="invite-modal-body"
+          onCloseAutoFocus={(event) => {
+            const target = returnFocusRef?.current;
+            if (!target?.isConnected) return;
+            event.preventDefault();
+            target.focus();
+          }}
           className="sk-sheet-mobile fixed top-1/2 left-1/2 z-50 w-[calc(100vw-2rem)] max-w-[440px] -translate-x-1/2 -translate-y-1/2 rounded-[18px] bg-[rgb(var(--bg-background))] p-6 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)]"
         >
           <div className="flex items-start gap-3">

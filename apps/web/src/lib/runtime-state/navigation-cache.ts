@@ -10,6 +10,8 @@ export const RUNTIME_NAVIGATION_READY_MAX_AGE_MS = 150_000;
 export const RUNTIME_MAIN_NAVIGATION_INTENT_EVENT = "skitza:runtime-main-navigation-intent";
 export const RUNTIME_MAIN_NAVIGATION_DESTINATION_ATTRIBUTE = "data-sk-nav-destination";
 export const RUNTIME_MAIN_NAVIGATION_PENDING_ATTRIBUTE = "data-sk-nav-pending";
+export const RUNTIME_MAIN_NAVIGATION_RELEASE_GUARD_UNTIL_ATTRIBUTE =
+  "data-sk-nav-release-guard-until";
 
 export const PRODUCER_MAIN_NAVIGATION_DESTINATIONS = [
   "/dashboard",
@@ -52,6 +54,7 @@ export interface RuntimeNavigationSessionCacheOptions {
 
 export interface RuntimeMainNavigationIntentDetail {
   href: string;
+  localOnly?: boolean;
 }
 
 interface RuntimeMainNavigationTarget {
@@ -229,7 +232,10 @@ export function clearRuntimeMainNavigationPendingTargets(
  * Called from Next Link's `onNavigate`. Unlike a document click listener this
  * runs only when Next accepted the client navigation.
  */
-export function announceRuntimeMainNavigationIntent(href: string): void {
+export function announceRuntimeMainNavigationIntent(
+  href: string,
+  options: { localOnly?: boolean } = {},
+): void {
   if (typeof window === "undefined") return;
   const target = capturedRuntimeMainNavigationTarget;
   clearRuntimeMainNavigationPendingTargets();
@@ -239,7 +245,10 @@ export function announceRuntimeMainNavigationIntent(href: string): void {
   }
   window.dispatchEvent(
     new CustomEvent<RuntimeMainNavigationIntentDetail>(RUNTIME_MAIN_NAVIGATION_INTENT_EVENT, {
-      detail: { href },
+      detail: {
+        href,
+        ...(options.localOnly ? { localOnly: true } : {}),
+      },
     }),
   );
 }

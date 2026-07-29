@@ -3,7 +3,7 @@ import type { Metadata, Viewport } from "next";
 export const NATIVE_APP_NAME = "Skitza";
 export const NATIVE_APP_DESCRIPTION =
   "The business workspace for independent music producers and their artists.";
-export const NATIVE_APP_START_URL = "/dashboard";
+export const NATIVE_APP_START_URL = "/launch";
 
 export const nativeAppMetadata = {
   manifest: "/manifest.webmanifest",

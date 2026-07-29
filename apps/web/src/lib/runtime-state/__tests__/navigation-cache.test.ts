@@ -133,6 +133,32 @@ describe("runtime main navigation destinations", () => {
     });
   });
 
+  it("marks a cached offline navigation as local-only in the same event", () => {
+    const dispatched: Event[] = [];
+    const originalWindow = globalThis.window;
+    Object.assign(globalThis, {
+      window: {
+        dispatchEvent(event: Event) {
+          dispatched.push(event);
+          return true;
+        },
+      },
+    });
+
+    try {
+      announceRuntimeMainNavigationIntent("/dashboard/music", {
+        localOnly: true,
+      });
+    } finally {
+      Object.assign(globalThis, { window: originalWindow });
+    }
+
+    expect((dispatched[0] as CustomEvent).detail).toEqual({
+      href: "/dashboard/music",
+      localOnly: true,
+    });
+  });
+
   it("marks only the accepted target before one frame and clears on replacement, commit, or timeout", () => {
     class Target {
       readonly attributes = new Map<string, string>();

@@ -8,6 +8,8 @@ import {
 import type { ProjectRowData } from "~/components/dashboard/projects/project-row";
 import type { ClientCardData } from "~/components/dashboard/clients/client-card";
 import { ProducerRuntimeSafeView } from "~/components/dashboard/runtime/producer-runtime-safe-view";
+import { RuntimeScreenSafeViewWriter } from "~/components/runtime-state/runtime-screen-view";
+import { mapProducerWorkspaceSafeScreen } from "~/lib/runtime-state/screen-view-mappers";
 import { CLIENT_ARCHIVE_BLOCKED_MESSAGE } from "~/server/domain/client-management/service";
 import { appRouter } from "~/server/trpc/routers/_app";
 
@@ -20,13 +22,10 @@ import { reorderProjectsAction } from "./clients-actions";
 // handlers. The old tabs + list-screen composition was replaced as
 // part of the big-bang visual rebuild.
 //
-// Two parallel fetches keep the wire-shape lean:
-//   • listWithProjects({ view: "all-projects" }) — flat project rows
-//     enriched with client identity (used for both project rows AND
-//     KPI math: earnings / outstanding / needsAttention / next
-//     deadline).
-//   • listWithProjects({ view: "by-client" }) — per-client aggregates
-//     for the Clients tab cards.
+// One combined producer-scoped workspace fetch returns both the flat
+// project rows and per-client aggregates. The router loads the shared
+// project/comment/contact inputs once instead of repeating them for
+// two separate views.
 //   • producer.me() — consumed for `slug` (so the Invite modal can
 //     build the verified artist signup URL) and the display currency.
 
@@ -47,58 +46,55 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
 
   const caller = appRouter.createCaller({ userId });
 
-  // Two producer-scoped folds plus the producer display settings.
-  const [projectsResult, clientsResult, me] = await Promise.all([
-    caller.clientContacts.listWithProjects({ view: "all-projects" }),
-    caller.clientContacts.listWithProjects({ view: "by-client" }),
+  const [workspaceResult, me] = await Promise.all([
+    caller.clientContacts.listWithProjects({ view: "workspace" }),
     safeMe(caller),
   ]);
+  if (workspaceResult.view !== "workspace") {
+    throw new Error("Clients & Projects workspace projection was unavailable");
+  }
 
   const producerSlug = me.slug ?? "";
   const producerCurrency = me.defaultCurrency;
 
   // ── Map project rows to the ProjectRowData shape ────────────────
-  const projectRows: ProjectRowData[] =
-    projectsResult.view === "all-projects" ? projectsResult.projects.map(toProjectRowData) : [];
+  const projectRows: ProjectRowData[] = workspaceResult.projects.map(toProjectRowData);
 
   // ── Map client rows to the ClientCardData shape ─────────────────
-  const clientRows: ClientCardData[] =
-    clientsResult.view === "by-client"
-      ? clientsResult.clients.map((c) => ({
-          id: c.id,
-          name: c.name,
-          email: c.email,
-          phone: c.phone,
-          notes: c.notes,
-          tags: c.tags,
-          archived: c.producerArchivedAt !== null,
-          archiveBlockedReason:
-            c.producerArchivedAt === null && c.archiveBlockingProjectCount > 0
-              ? CLIENT_ARCHIVE_BLOCKED_MESSAGE
-              : null,
-          // clerkUserId set ⇒ the artist signed up via the invite link
-          // ("active"). Otherwise, invitedAt set ⇒ "pending" (amber
-          // pulsing pill). Otherwise ⇒ "none" (the Invite-to-app CTA).
-          linkState: c.clerkUserId
-            ? ("active" as const)
-            : c.invitedAt
-              ? ("pending" as const)
-              : ("none" as const),
-          projects: c.activeProjectCount,
-          lifetime: c.commercial.lifetimeCents,
-          owed: c.commercial.outstandingCents,
-          needsAttention: c.needsAttention,
-          currency: producerCurrency,
-          lastActivityIso:
-            c.lastActivity instanceof Date
-              ? c.lastActivity.toISOString()
-              : new Date(c.lastActivity).toISOString(),
-          joinedAtIso:
-            c.firstSeenAt instanceof Date
-              ? c.firstSeenAt.toISOString()
-              : new Date(c.firstSeenAt).toISOString(),
-        }))
-      : [];
+  const clientRows: ClientCardData[] = workspaceResult.clients.map((c) => ({
+    id: c.id,
+    name: c.name,
+    email: c.email,
+    phone: c.phone,
+    notes: c.notes,
+    tags: c.tags,
+    archived: c.producerArchivedAt !== null,
+    archiveBlockedReason:
+      c.producerArchivedAt === null && c.archiveBlockingProjectCount > 0
+        ? CLIENT_ARCHIVE_BLOCKED_MESSAGE
+        : null,
+    // clerkUserId set ⇒ the artist signed up via the invite link
+    // ("active"). Otherwise, invitedAt set ⇒ "pending" (amber
+    // pulsing pill). Otherwise ⇒ "none" (the Invite-to-app CTA).
+    linkState: c.clerkUserId
+      ? ("active" as const)
+      : c.invitedAt
+        ? ("pending" as const)
+        : ("none" as const),
+    projects: c.activeProjectCount,
+    lifetime: c.commercial.lifetimeCents,
+    owed: c.commercial.outstandingCents,
+    needsAttention: c.needsAttention,
+    currency: producerCurrency,
+    lastActivityIso:
+      c.lastActivity instanceof Date
+        ? c.lastActivity.toISOString()
+        : new Date(c.lastActivity).toISOString(),
+    joinedAtIso:
+      c.firstSeenAt instanceof Date
+        ? c.firstSeenAt.toISOString()
+        : new Date(c.firstSeenAt).toISOString(),
+  }));
 
   // ── KPIs ────────────────────────────────────────────────────────
   // Commercial totals fail closed until purchase payments provides the
@@ -108,18 +104,16 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
   let needsAttention = 0;
   let nextDeadlineAt: Date | null = null;
   let nextDeadlineProjectTitle: string | null = null;
-  if (projectsResult.view === "all-projects") {
-    for (const p of projectsResult.projects) {
-      if (p.isActive && p.unresolvedComments > 0) {
-        needsAttention += 1;
-      }
-      if (p.deadlineAt && p.isActive) {
-        const at = p.deadlineAt instanceof Date ? p.deadlineAt : new Date(p.deadlineAt);
-        if (!Number.isNaN(at.getTime())) {
-          if (!nextDeadlineAt || at < nextDeadlineAt) {
-            nextDeadlineAt = at;
-            nextDeadlineProjectTitle = p.title;
-          }
+  for (const p of workspaceResult.projects) {
+    if (p.isActive && p.unresolvedComments > 0) {
+      needsAttention += 1;
+    }
+    if (p.deadlineAt && p.isActive) {
+      const at = p.deadlineAt instanceof Date ? p.deadlineAt : new Date(p.deadlineAt);
+      if (!Number.isNaN(at.getTime())) {
+        if (!nextDeadlineAt || at < nextDeadlineAt) {
+          nextDeadlineAt = at;
+          nextDeadlineProjectTitle = p.title;
         }
       }
     }
@@ -151,6 +145,14 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
             projectCount: projectRows.length,
             needsAttentionCount: needsAttention,
           }}
+        />
+        <RuntimeScreenSafeViewWriter
+          href="/dashboard/clients-projects"
+          view={mapProducerWorkspaceSafeScreen({
+            projects: projectRows,
+            clients: clientRows,
+            needsAttentionCount: needsAttention,
+          })}
         />
         <WorkspaceListView
           projects={projectRows}

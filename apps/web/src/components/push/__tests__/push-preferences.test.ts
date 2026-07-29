@@ -110,6 +110,25 @@ describe("SK-112 contextual push preferences", () => {
     expect(artistSettings).toContain("<PushPreferences />");
     expect(producerSettings).not.toMatch(/notificationPrefs|notifyEmail|notifyInApp/);
   });
+
+  it("places each accessible switch before its flexible copy on the left without overflow", () => {
+    const rowsStart = preferences.indexOf("{PUSH_CATEGORIES.map");
+    const rowsEnd = preferences.indexOf("{error ?", rowsStart);
+    const rows = preferences.slice(rowsStart, rowsEnd);
+    const switchPosition = rows.indexOf('role="switch"');
+    const copyPosition = rows.indexOf('<div className="min-w-0 flex-1">');
+
+    expect(rowsStart).toBeGreaterThan(-1);
+    expect(rowsEnd).toBeGreaterThan(rowsStart);
+    expect(switchPosition).toBeGreaterThan(-1);
+    expect(copyPosition).toBeGreaterThan(switchPosition);
+    expect(rows).toContain("flex min-h-14 items-center gap-3 px-4 py-2.5");
+    expect(rows).toContain("h-11 w-12 shrink-0");
+    expect(rows).toContain("absolute top-1 left-0 h-4 w-4");
+    expect(rows).toContain("aria-checked={enabled}");
+    expect(rows).toContain("disabled={");
+    expect(rows).toContain("void toggle(category)");
+  });
 });
 
 describe("SK-112 signed-in install-guidance mounts", () => {

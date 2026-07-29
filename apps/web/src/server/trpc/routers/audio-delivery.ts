@@ -1,11 +1,15 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import { audioDeliveryRepository } from "~/server/domain/audio-delivery/db";
+import {
+  audioDeliveryRepository,
+  producerDownloadStateRepository,
+} from "~/server/domain/audio-delivery/db";
 import { AudioDeliveryDomainError } from "~/server/domain/audio-delivery/policy";
 import {
   readArtistDownloadEntitlement,
   readDownloadOverrideState,
+  readDownloadOverrideStates,
   setDownloadOverride,
 } from "~/server/domain/audio-delivery/service";
 
@@ -17,6 +21,19 @@ const OverrideScope = z
   .object({
     purchaseId: z.string().uuid(),
     versionId: z.string().uuid(),
+  })
+  .strict();
+
+const OverrideBatchScope = z
+  .object({
+    purchaseId: z.string().uuid(),
+    trackId: z.string().uuid(),
+    versionIds: z
+      .array(z.string().uuid())
+      .min(1)
+      .refine((versionIds) => new Set(versionIds).size === versionIds.length, {
+        message: "Version ids must be unique",
+      }),
   })
   .strict();
 
@@ -59,6 +76,22 @@ export const audioDeliveryRouter = router({
         purchaseId: input.purchaseId,
         versionId: input.versionId,
       });
+    } catch (error) {
+      mapAudioDeliveryError(error);
+    }
+  }),
+
+  overrideStates: producerProcedure.input(OverrideBatchScope).query(async ({ ctx, input }) => {
+    if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED" });
+    try {
+      const states = await readDownloadOverrideStates(producerDownloadStateRepository(ctx.db), {
+        producerId: ctx.producerId,
+        actorClerkUserId: ctx.userId,
+        purchaseId: input.purchaseId,
+        trackId: input.trackId,
+        versionIds: input.versionIds,
+      });
+      return { states };
     } catch (error) {
       mapAudioDeliveryError(error);
     }

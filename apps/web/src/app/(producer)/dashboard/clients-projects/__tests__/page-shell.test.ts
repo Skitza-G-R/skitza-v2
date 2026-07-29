@@ -13,9 +13,7 @@ const SRC = readFileSync(join(here, "..", "page.tsx"), "utf-8");
 describe("clients-projects/page.tsx — Phase 1 rewrite", () => {
   it("imports the new WorkspaceListView", () => {
     expect(SRC).toContain("WorkspaceListView");
-    expect(SRC).toContain(
-      "~/components/dashboard/clients-projects/workspace-list-view",
-    );
+    expect(SRC).toContain("~/components/dashboard/clients-projects/workspace-list-view");
   });
 
   it("renders <WorkspaceListView ... /> at the top level", () => {
@@ -52,10 +50,11 @@ describe("clients-projects/page.tsx — Phase 1 rewrite", () => {
     expect(SRC).toContain("appRouter.createCaller");
   });
 
-  it("fetches listWithProjects for both views (all-projects + by-client)", () => {
-    expect(SRC).toContain("all-projects");
-    expect(SRC).toContain("by-client");
-    expect(SRC).toContain("clientContacts.listWithProjects");
+  it("fetches the combined workspace projection once", () => {
+    expect(SRC).toContain('clientContacts.listWithProjects({ view: "workspace" })');
+    expect(SRC.match(/clientContacts\.listWithProjects/g)).toHaveLength(1);
+    expect(SRC).not.toContain('view: "all-projects"');
+    expect(SRC).not.toContain('view: "by-client"');
   });
 
   it("fetches the producer's slug via producer.me()", () => {

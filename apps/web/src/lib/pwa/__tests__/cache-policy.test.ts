@@ -54,6 +54,7 @@ describe("service worker cache policy", () => {
     "/_next/static/chunks/app-a1b2c3.js",
     "/_next/static/css/app-a1b2c3.css",
     "/icons/skitza-192.png",
+    "/launch",
     "/manifest.webmanifest",
     "/offline.html",
     "/pwa/offline-context.js",
@@ -66,6 +67,8 @@ describe("service worker cache policy", () => {
 
   it.each([
     ["/dashboard", "sensitive-path"],
+    ["/launch/resolve", "not-allowlisted"],
+    ["/launch?next=%2Fdashboard", "not-allowlisted"],
     ["/dashboard/clients", "sensitive-path"],
     ["/artist/payments/purchase-1", "sensitive-path"],
     ["/api/trpc/project.list", "sensitive-path"],
@@ -129,6 +132,50 @@ describe("service worker cache policy", () => {
         OWN_ORIGIN,
       ),
     ).toEqual({ action: "network-only", reason: "cross-origin" });
+  });
+
+  it.each([
+    [
+      "authenticated HTML",
+      request("/dashboard", {
+        destination: "document",
+        headers: { Accept: "text/html" },
+      }),
+      "sensitive-path",
+    ],
+    [
+      "authenticated RSC",
+      request("/dashboard?_rsc=private-tree", {
+        headers: { Accept: "text/x-component" },
+      }),
+      "rsc",
+    ],
+    ["same-site API", request("/api/trpc/clientContacts.list"), "sensitive-path"],
+    [
+      "signed launch URL",
+      request("/launch?X-Amz-Signature=secret&X-Amz-Expires=60"),
+      "signed-url",
+    ],
+    [
+      "media-shaped static request",
+      request("/_next/static/chunks/app-a1b2c3.js", {
+        destination: "audio",
+        headers: { Accept: "audio/mpeg" },
+      }),
+      "media",
+    ],
+    ["booking action route", request("/artist/book?studio=studio-a"), "sensitive-path"],
+    ["protected music route", request("/dashboard/music"), "sensitive-path"],
+    [
+      "live mutation",
+      request("/api/trpc/project.update", { method: "POST" }),
+      "non-get",
+    ],
+  ])("keeps %s network-only", (_label, candidate, reason) => {
+    expect(policy.classifyRequest(candidate, OWN_ORIGIN)).toEqual({
+      action: "network-only",
+      reason,
+    });
   });
 
   it("never caches writes", () => {

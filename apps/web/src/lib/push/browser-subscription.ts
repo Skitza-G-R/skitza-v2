@@ -26,8 +26,14 @@ type ExitPushSubscription = Readonly<{
   unsubscribe(): Promise<boolean>;
 }>;
 
+const PUSH_NOT_AVAILABLE = Symbol("push-not-available");
+type PushSubscriptionLookup =
+  | ExitPushSubscription
+  | null
+  | typeof PUSH_NOT_AVAILABLE;
+
 type BrowserPushAdapter = Readonly<{
-  getSubscription(): Promise<ExitPushSubscription | null>;
+  getSubscription(): Promise<PushSubscriptionLookup>;
   suppressDelivery(): Promise<boolean>;
   closeDisplayedNotifications(): Promise<boolean>;
   notifyBoundary(): void;
@@ -477,10 +483,12 @@ function browserAdapter(): BrowserPushAdapter {
         !("serviceWorker" in navigator) ||
         typeof navigator.serviceWorker.getRegistration !== "function"
       ) {
-        return null;
+        return PUSH_NOT_AVAILABLE;
       }
       const registration = await navigator.serviceWorker.getRegistration();
-      if (!registration || !("pushManager" in registration)) return null;
+      if (!registration || !("pushManager" in registration)) {
+        return PUSH_NOT_AVAILABLE;
+      }
       return registration.pushManager.getSubscription();
     },
     suppressDelivery: suppressBrowserPushDelivery,
@@ -515,6 +523,13 @@ export async function clearBrowserPushSubscription(
 ): Promise<PushBoundaryConfirmation> {
   const boundaryGeneration = beginPushAccountBoundary();
   adapter.notifyBoundary();
+  const complete = (
+    result: PushBoundaryConfirmation,
+  ): PushBoundaryConfirmation => {
+    completePushAccountBoundary(boundaryGeneration);
+    adapter.notifyCleared();
+    return result;
+  };
   const confirm = async (
     result: PushBoundaryConfirmation,
   ): Promise<PushBoundaryConfirmation> => {
@@ -522,9 +537,7 @@ export async function clearBrowserPushSubscription(
     if (!deliverySuppressed) throw new PushAccountBoundaryError();
     const notificationsCleared = await adapter.closeDisplayedNotifications().catch(() => false);
     if (!notificationsCleared) throw new PushAccountBoundaryError();
-    completePushAccountBoundary(boundaryGeneration);
-    adapter.notifyCleared();
-    return result;
+    return complete(result);
   };
 
   if (removeOwned) {
@@ -534,12 +547,19 @@ export async function clearBrowserPushSubscription(
     await waitForInFlightPushSubscriptionWrites();
   }
 
-  let subscription: ExitPushSubscription | null;
+  let subscription: PushSubscriptionLookup;
   try {
     subscription = await adapter.getSubscription();
   } catch {
     if (removeOwned === null) await adapter.suppressDelivery().catch(() => false);
     throw new PushAccountBoundaryError();
+  }
+  if (subscription === PUSH_NOT_AVAILABLE) {
+    // Regular iPhone Safari and other non-push contexts cannot own or display
+    // a subscription for this service-worker registration. There is no push
+    // delivery to fence, so requiring notification-only APIs would make
+    // ordinary account sign-out impossible.
+    return complete("no-subscription");
   }
   if (!subscription) {
     return confirm("no-subscription");

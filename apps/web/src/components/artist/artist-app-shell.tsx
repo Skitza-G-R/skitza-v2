@@ -7,6 +7,7 @@ import { ArtistMobileTopBar } from "~/components/nav/artist-mobile-top-bar";
 import { ArtistTopBar } from "~/components/shell/artist-topbar";
 import { TopBarBreadcrumbProvider } from "~/components/shell/topbar-breadcrumb-context";
 import { ArtistRuntimeStateProvider } from "~/components/runtime-state/artist-runtime-state-provider";
+import { RuntimeScreenTransitionBoundary } from "~/components/runtime-state/runtime-screen-view";
 import { NativeInstallGuidance } from "~/components/pwa/native-install-guidance";
 
 import { ArtistHomeSoftNavigationBoundary } from "./home/artist-home-runtime";
@@ -116,7 +117,9 @@ export function ArtistAppShell({
               className="mx-auto w-full max-w-2xl px-4 pt-6 pb-[calc(5.75rem+env(safe-area-inset-bottom,0px))] lg:max-w-none lg:px-10 lg:pt-10 lg:pb-12"
             >
               <ArtistRouteStatus />
-              <ArtistHomeSoftNavigationBoundary>{children}</ArtistHomeSoftNavigationBoundary>
+              <RuntimeScreenTransitionBoundary>
+                <ArtistHomeSoftNavigationBoundary>{children}</ArtistHomeSoftNavigationBoundary>
+              </RuntimeScreenTransitionBoundary>
             </main>
           </TopBarBreadcrumbProvider>
         </div>

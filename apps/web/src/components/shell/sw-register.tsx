@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
 
 import {
   createWaitingWorkerMarker,
@@ -163,8 +162,6 @@ export function blockNativeUpdateForCurrentPage(): void {
  * mount while forms and protected actions remain independent.
  */
 export function NativeAppRuntime() {
-  const router = useRouter();
-
   useEffect(() => {
     const onBeforeInstallPrompt = (event: Event) => {
       captureNativeInstallPrompt(event as NativeInstallPromptEvent);
@@ -289,9 +286,8 @@ export function NativeAppRuntime() {
           detail: { reason, at: now },
         }),
       );
-      router.refresh();
       void registration?.update().catch(() => {
-        // Refresh remains useful even when the update check is unavailable.
+        // The active route keeps its visible data when an update check is unavailable.
       });
     };
 
@@ -385,7 +381,7 @@ export function NativeAppRuntime() {
       window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
       window.removeEventListener("appinstalled", onAppInstalled);
     };
-  }, [router]);
+  }, []);
 
   return null;
 }

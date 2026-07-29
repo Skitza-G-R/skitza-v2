@@ -17,6 +17,12 @@ import {
   type PublicAudioDeliveryContext,
 } from "./policy";
 
+export {
+  readProducerDownloadOverrideStates as readDownloadOverrideStates,
+  type ProducerDownloadStateBatchRepository,
+  type ProducerDownloadStateBatchScope,
+} from "./producer-download-state";
+
 export type DownloadOverrideEvent = Readonly<{
   id: string;
   purchaseId: string;

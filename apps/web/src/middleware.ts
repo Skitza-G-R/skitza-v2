@@ -102,6 +102,9 @@ export function isAccessGated(pathname: string): boolean {
   if (pathname.startsWith("/trpc/") || pathname === "/trpc") return false;
   // /get-started is the public funnel entry — always reachable without the gate.
   if (pathname === "/get-started" || pathname.startsWith("/get-started/")) return false;
+  // /launch is a force-static, no-data bootstrap used by the installed app.
+  // Its authenticated resolver remains gated and network-only.
+  if (pathname === "/launch") return false;
   // Producer-published song URLs are intentionally guest-listenable. The
   // unguessable, resettable song token is the authorization boundary; the
   // pre-launch site gate must never turn a live share into a private app URL.

@@ -16,11 +16,7 @@ const artistPurchasePayment = read(
   "page.tsx",
 );
 const paymentHistory = read("components", "payments", "payment-history.tsx");
-const producerPaymentWorkspace = read(
-  "components",
-  "payments",
-  "producer-payment-workspace.tsx",
-);
+const producerPaymentWorkspace = read("components", "payments", "producer-payment-workspace.tsx");
 const producerPaymentWorkspaceData = read(
   "components",
   "payments",
@@ -46,6 +42,12 @@ const clientPage = read(
   "[id]",
   "page.tsx",
 );
+const clientSpaceWorkspace = read(
+  "components",
+  "dashboard",
+  "clients",
+  "client-space-workspace.tsx",
+);
 const dashboardPage = read("app", "(producer)", "dashboard", "page.tsx");
 const artistHome = read("app", "(artist)", "artist", "page.tsx");
 const requestsPage = read("app", "(producer)", "dashboard", "requests", "page.tsx");
@@ -61,9 +63,7 @@ describe("SK-69 payment surface wiring", () => {
     for (const bucket of ["waiting", "active", "history"]) {
       expect(artistPayments).toContain(`model.artistBuckets.${bucket}`);
     }
-    expect(producerPayments).toContain(
-      "toProducerPaymentWorkspaceBuckets(model.producerBuckets)",
-    );
+    expect(producerPayments).toContain("toProducerPaymentWorkspaceBuckets(model.producerBuckets)");
     expect(producerPayments).toContain("ProducerPaymentWorkspace");
     expect(producerPayments).not.toContain("PaymentHistoryView");
     expect(artistPayments).toContain("PaymentHistoryView");
@@ -73,12 +73,32 @@ describe("SK-69 payment surface wiring", () => {
     expect(projectPage).toContain("caller.purchaseLedger.project({ projectId: id })");
     expect(songPage).toContain("caller.purchaseLedger.project({ projectId: id })");
     expect(clientPage).toContain("caller.purchaseLedger.client({ clientContactId: id })");
-    expect(projectPage).toContain("paymentHistory={paymentHistory}");
+    expect(projectPage).toContain("payments={payments}");
+    expect(projectPage).toContain("paymentModel.producerBuckets.needs_review");
+    expect(projectPage).toContain("paymentModel.producerBuckets.due_or_overdue");
+    expect(projectPage).toContain("paymentModel.producerBuckets.history");
     expect(songPage).toContain("paymentHistory={paymentHistory}");
-    expect(clientPage).toContain(
-      "toProducerPaymentWorkspaceBuckets(payments.producerBuckets)",
+    expect(clientPage).toContain("toProducerPaymentWorkspaceBuckets(payments.producerBuckets)");
+    expect(clientPage).toContain("<ClientSpaceWorkspace");
+    expect(clientPage).not.toContain("<ProducerPaymentWorkspace");
+    expect(clientSpaceWorkspace).toContain(
+      'import { ProducerPaymentWorkspace } from "~/components/payments/producer-payment-workspace"',
     );
-    expect(clientPage).toContain("<ProducerPaymentWorkspace");
+
+    const compactClientWorkspace = clientSpaceWorkspace.replace(/\s+/g, " ");
+    expect(compactClientWorkspace).toContain(
+      '<ProducerPaymentWorkspace buckets={paymentBuckets} scope="client" clientLabel={clientName} defaultView="open" presentation="client-tab" />',
+    );
+    expect(clientSpaceWorkspace.match(/<ProducerPaymentWorkspace/g)).toHaveLength(1);
+  });
+
+  it("does not add a second client proof queue beside the canonical workspace", () => {
+    for (const clientSurface of [clientPage, clientSpaceWorkspace]) {
+      expect(clientSurface).not.toContain("ClientPaymentProofs");
+      expect(clientSurface).not.toContain("client-payment-proofs");
+      expect(clientSurface).not.toMatch(/proofOfPayment\.(history|view)/);
+      expect(clientSurface).not.toContain("<PaymentProofReview");
+    }
   });
 
   it("keeps purchase, proof/payment, and session actions separate on dashboard and Home", () => {

@@ -56,6 +56,14 @@ describe("songs/[songId]/page.tsx — Phase 3 Song Space page", () => {
     expect(SRC).toMatch(/["']album["'][\s\S]{0,40}["']single["']|["']single["'][\s\S]{0,40}["']album["']/);
   });
 
+  it("keeps the compact Project Space reachable from every Song Space breadcrumb", () => {
+    expect(SRC).toContain("const projectCrumb =");
+    expect(SRC).toContain("href: `/dashboard/clients-projects/${data.project.id}`");
+    expect(SRC).toContain(
+      "const breadcrumbExtras = [clientCrumb, projectCrumb, { label: song.title }]",
+    );
+  });
+
   it("filters bookings to the current song id (per-song sessions)", () => {
     // Per-song sessions filter: b.songId === songId (the schema has
     // bookings.song_id, exposed as songId via select()).

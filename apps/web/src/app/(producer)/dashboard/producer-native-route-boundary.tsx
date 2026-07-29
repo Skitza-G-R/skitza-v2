@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
+import { RuntimeScreenTransitionBoundary } from "~/components/runtime-state/runtime-screen-view";
 import { useRuntimeCachedView } from "~/components/runtime-state/use-runtime-state";
 import {
   producerRouteFamily,
@@ -139,15 +140,17 @@ export function ProducerNativeRouteBoundary({ children }: { children: ReactNode 
           </span>
         </div>
       ) : null}
-      {!online && family === "today" && overview.data ? (
-        <SavedProducerToday
-          view={overview.data}
-          source={overview.source}
-          refreshing={overview.refreshing}
-        />
-      ) : (
-        children
-      )}
+      <RuntimeScreenTransitionBoundary>
+        {!online && family === "today" && overview.data ? (
+          <SavedProducerToday
+            view={overview.data}
+            source={overview.source}
+            refreshing={overview.refreshing}
+          />
+        ) : (
+          children
+        )}
+      </RuntimeScreenTransitionBoundary>
     </div>
   );
 }

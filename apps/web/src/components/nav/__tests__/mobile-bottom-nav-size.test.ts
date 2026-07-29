@@ -27,11 +27,35 @@ describe("SK-117 mobile bottom-navigation sizing", () => {
 
   it("keeps both bars mobile-only and above the iPhone Home Indicator", () => {
     expect(PRODUCER_NAV).toContain("lg:hidden");
-    expect(PRODUCER_NAV).toContain("max(8px, env(safe-area-inset-bottom, 0px))");
+    expect(PRODUCER_NAV).toContain(
+      '"0 max(12px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px))"',
+    );
+    expect(GLOBALS).toContain("padding-bottom: 0;");
+    expect(GLOBALS).not.toContain("calc(env(safe-area-inset-bottom, 0px) - 8px)");
     expect(ARTIST_NAV).toContain("lg:hidden");
     expect(ARTIST_NAV).toContain(
       '"8px calc(4px + env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) calc(4px + env(safe-area-inset-left, 0px))"',
     );
+  });
+
+  it("keeps the producer 68px tab row inside a true 68px bordered surface", () => {
+    const glassBlock = GLOBALS.match(
+      /\.producer-bottom-nav__glass \{([\s\S]*?)\n\s{2}\}/,
+    )?.[1];
+    const borderOverlayBlock = GLOBALS.match(
+      /\.producer-bottom-nav__glass::after \{([\s\S]*?)\n\s{2}\}/,
+    )?.[1];
+
+    expect(glassBlock).toContain("height: 68px;");
+    expect(glassBlock).toContain("min-height: 68px;");
+    expect(glassBlock).toContain("border: 0;");
+    expect(borderOverlayBlock).toContain(
+      "border: 1px solid rgb(var(--fg-onsidebar) / 0.14);",
+    );
+    expect(GLOBALS).toMatch(
+      /\.producer-bottom-nav__magnifier-grid\s*\{[\s\S]*?height:\s*68px;/,
+    );
+    expect(PRODUCER_NAV.match(/minHeight:\s*68/g)).toHaveLength(2);
   });
 
   it("reserves the larger artist nav and player stack without changing desktop spacing", () => {

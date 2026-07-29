@@ -32,6 +32,16 @@ export type PrivateOfferProjectOption = Readonly<{
   balances: readonly Readonly<{ currency: string; remainingCents: number }>[];
 }>;
 
+export type ClientPrivateOfferSummary = Readonly<{
+  id: string;
+  status: "draft" | "sent" | "accepted" | "declined" | "expired" | "canceled";
+  name: string;
+  totalCents: number;
+  currency: string;
+  targetProjectTitle: string | null;
+  expiresAtIso: string;
+}>;
+
 function safeDate(raw: string): Date | null {
   const value = new Date(raw);
   return Number.isNaN(value.getTime()) ? null : value;
@@ -70,6 +80,37 @@ export async function loadPrivateOfferProjectOptionsAction(
     };
   } catch (error) {
     return actionFailure(error);
+  }
+}
+
+export async function loadClientPrivateOffersAction(
+  clientContactId: string,
+): Promise<ActionSuccess<ClientPrivateOfferSummary[]> | ActionFailure> {
+  const { userId } = await auth();
+  if (!userId) return { ok: false, error: "Not signed in" };
+
+  try {
+    const caller = appRouter.createCaller({ userId });
+    const result = await caller.privateOffers.producerList();
+    return {
+      ok: true,
+      data: result.offers
+        .filter((offer) => offer.clientContactId === clientContactId)
+        .map((offer) => ({
+          id: offer.id,
+          status: offer.status,
+          name: offer.commercialDraft.productOrOfferName,
+          totalCents: offer.commercialDraft.totalCents,
+          currency: offer.commercialDraft.currency,
+          targetProjectTitle: offer.targetProjectTitle,
+          expiresAtIso: offer.expiresAt.toISOString(),
+        })),
+    };
+  } catch (error) {
+    if (error instanceof TRPCError) {
+      return { ok: false, error: error.message || "Could not load private offers." };
+    }
+    return { ok: false, error: "Could not load private offers. Try again." };
   }
 }
 
