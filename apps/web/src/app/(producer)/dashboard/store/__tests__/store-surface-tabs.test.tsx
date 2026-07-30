@@ -41,9 +41,12 @@ describe("StoreSurfaceTabs", () => {
     expect(SRC).toMatch(/min-h-\[44px\]/);
   });
 
-  it("uses the high-contrast brand text token for the selected count", () => {
-    expect(SRC).toContain("brand-primary-text");
-    expect(SRC).not.toContain("brand-primary-dark");
+  it("uses one solid Skitza-orange selected state without a second underline", () => {
+    expect(SRC).toContain("bg-[rgb(var(--brand-primary))]");
+    expect(SRC).toContain("text-[rgb(var(--fg-on-brand))]");
+    expect(SRC).not.toContain("-bottom-1 h-0.5");
+    expect(SRC).not.toContain("shadow-[");
+    expect(SRC).not.toContain("brand-primary-text");
   });
 
   it("supports the standard horizontal-tab arrow keys", () => {
@@ -63,5 +66,6 @@ describe("StoreSurfaceTabs", () => {
     fireEvent.click(offers);
     expect(products.getAttribute("aria-selected")).toBe("false");
     expect(offers.getAttribute("aria-selected")).toBe("true");
+    expect(offers.className).toContain("bg-[rgb(var(--brand-primary))]");
   });
 });

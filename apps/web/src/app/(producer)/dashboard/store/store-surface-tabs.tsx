@@ -78,9 +78,9 @@ export function StoreSurfaceTabs({
               }
             }}
             className={[
-              "sk-press relative inline-flex min-h-[44px] min-w-0 items-center justify-center gap-2 rounded-[var(--radius-md)] px-3 py-2 text-[13px] font-semibold transition-[background-color,color,box-shadow]",
+              "sk-press inline-flex min-h-[44px] min-w-0 items-center justify-center gap-2 rounded-[var(--radius-md)] px-3 py-2 text-[13px] font-semibold transition-[background-color,color]",
               selected
-                ? "bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] shadow-[0_1px_2px_rgb(17_16_9/0.08),0_7px_18px_-14px_rgb(17_16_9/0.5)]"
+                ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-on-brand))]"
                 : "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
             ].join(" ")}
           >
@@ -90,18 +90,12 @@ export function StoreSurfaceTabs({
               className={[
                 "inline-flex min-w-5 shrink-0 items-center justify-center rounded-[var(--radius-sm)] px-1.5 py-0.5 font-mono text-[10px] font-bold tabular-nums",
                 selected
-                  ? "bg-[rgb(var(--brand-primary)/0.18)] text-[rgb(var(--brand-primary-text))]"
+                  ? "bg-[rgb(var(--fg-on-brand)/0.12)] text-[rgb(var(--fg-on-brand))]"
                   : "bg-[rgb(var(--fg-muted)/0.1)] text-[rgb(var(--fg-muted))]",
               ].join(" ")}
             >
               {count}
             </span>
-            {selected ? (
-              <span
-                aria-hidden
-                className="absolute inset-x-4 -bottom-1 h-0.5 rounded-full bg-[rgb(var(--brand-primary))]"
-              />
-            ) : null}
           </button>
         );
       })}

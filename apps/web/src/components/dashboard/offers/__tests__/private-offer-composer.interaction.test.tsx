@@ -193,7 +193,7 @@ describe("PrivateOfferComposer compatibility", () => {
 
     render(<PrivateOfferComposer {...composerProps()} />);
 
-    await user.click(screen.getByRole("button", { name: "Send custom offer" }));
+    await user.click(screen.getByRole("button", { name: "New private offer" }));
     const dialog = await screen.findByRole("dialog", { name: "Send a private offer" });
     await fillValidCreateForm(user);
     await user.click(within(dialog).getByRole("button", { name: "Send private offer" }));
@@ -203,7 +203,7 @@ describe("PrivateOfferComposer compatibility", () => {
       expect(mocks.refresh).toHaveBeenCalledOnce();
     });
     expect(mocks.sendOffer).toHaveBeenCalledOnce();
-    expect(screen.getByRole("button", { name: "Send custom offer" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "New private offer" })).not.toBeNull();
   });
 
   it("keeps an uncontrolled Store edit refreshing without calling onCreated", async () => {
