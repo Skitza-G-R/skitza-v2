@@ -22,16 +22,13 @@ import { AuthHero } from "~/components/auth/auth-hero";
 // `SignUpScreen` ("Build your hall." + the no-card-needed blurb).
 export default function Page() {
   return (
-    <div className="space-y-5 sm:space-y-6">
+    <div className="sk-auth-page" data-auth-page="sign-up">
       <AuthHero
         eyebrow="Join Skitza"
         title="Build your hall"
         blurb="Free to start. No card. Three minutes to your first booking link."
       />
-      <SignUp
-        signInUrl="/sign-in"
-        fallbackRedirectUrl="/dashboard"
-      />
+      <SignUp signInUrl="/sign-in" fallbackRedirectUrl="/dashboard" />
     </div>
   );
 }

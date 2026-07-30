@@ -1,12 +1,21 @@
 import { auth } from "@clerk/nextjs/server";
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
-import { runtimeLaunchHrefForMemberships } from "~/lib/runtime-state/launch-role";
+import { postSignInDestination } from "~/server/auth/post-sign-in";
 import { fetchUserAccountMemberships } from "~/server/auth/role";
 
 export const dynamic = "force-dynamic";
 
-export default async function ResolveLaunchRolePage({
+export const metadata: Metadata = {
+  title: "Opening Skitza",
+  robots: {
+    index: false,
+    follow: false,
+  },
+};
+
+export default async function AuthResolvePage({
   searchParams,
 }: {
   searchParams: Promise<{ next?: string | string[] }>;
@@ -16,8 +25,9 @@ export default async function ResolveLaunchRolePage({
   if (!dbUrl) throw new Error("missing DATABASE_URL");
 
   const query = await searchParams;
-  const requestedHref =
+  const requestedTarget =
     typeof query.next === "string" ? query.next : null;
   const memberships = await fetchUserAccountMemberships({ dbUrl, userId });
-  redirect(runtimeLaunchHrefForMemberships(memberships, requestedHref));
+
+  redirect(postSignInDestination(memberships, requestedTarget));
 }

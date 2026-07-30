@@ -4,6 +4,7 @@ import {
   audioIdentityFingerprint,
   authorizeArtistDownload,
   authorizePrivateStream,
+  authorizePrivateStreamForAccount,
   authorizeProducerDownload,
   authorizePublicPortfolioStream,
   paymentShortfallCents,
@@ -172,6 +173,44 @@ describe("SK-40 stored-audio and tenant authorization", () => {
     expect(() => authorizeProducerDownload(context, artistViewer())).toThrow(
       expect.objectContaining({ code: "NOT_FOUND" }),
     );
+  });
+
+  it("authorizes a dual account through the exact ownership it has for each resource", () => {
+    const dualClerkUserId = "clerk-dual";
+    const artistOwned = makeAudioDeliveryContext({
+      producerClerkUserId: "clerk-other-producer",
+      artistClerkUserId: dualClerkUserId,
+    });
+    const producerOwned = makeAudioDeliveryContext({
+      producerClerkUserId: dualClerkUserId,
+      artistClerkUserId: "clerk-other-artist",
+    });
+
+    expect(
+      authorizePrivateStreamForAccount(artistOwned, dualClerkUserId),
+    ).toMatchObject({ key: artistOwned.storedAudio.key });
+    expect(
+      authorizePrivateStreamForAccount(producerOwned, dualClerkUserId),
+    ).toMatchObject({ key: producerOwned.storedAudio.key });
+    expect(() =>
+      authorizePrivateStreamForAccount(artistOwned, "clerk-unrelated"),
+    ).toThrow(expect.objectContaining({ code: "NOT_FOUND" }));
+  });
+
+  it("does not let dual-account routing revive an archived artist relationship", () => {
+    const dualClerkUserId = "clerk-dual";
+    const archivedArtistOwned = makeAudioDeliveryContext({
+      producerClerkUserId: "clerk-other-producer",
+      artistClerkUserId: dualClerkUserId,
+      artistArchivedAt: new Date("2026-07-20T10:00:00.000Z"),
+    });
+
+    expect(() =>
+      authorizePrivateStreamForAccount(
+        archivedArtistOwned,
+        dualClerkUserId,
+      ),
+    ).toThrow(expect.objectContaining({ code: "NOT_FOUND" }));
   });
 
   it("denies archived artists and cross-tenant graph mismatches without revealing audio", () => {
