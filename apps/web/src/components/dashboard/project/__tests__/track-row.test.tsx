@@ -19,16 +19,13 @@ describe("TrackRow — album-page tracklist row", () => {
     expect(SRC).not.toContain("30px 38px minmax(0,1fr) 130px 180px 22px");
   });
 
-  it("wraps the row in a Next.js Link for whole-row click navigation", () => {
+  it("wraps the selector in a Next.js Link for same-page song selection", () => {
     expect(SRC).toContain('from "next/link"');
   });
 
-  it("the Link href targets the Song Space at /clients-projects/[id]/songs/[songId]", () => {
-    // Build the href using template strings — search whitespace-tolerant
-    // so prettier --write can't break this assertion.
-    expect(SRC).toMatch(
-      /\/dashboard\/clients-projects\/\$\{[^}]*projectId[^}]*\}\/songs\/\$\{[^}]*track\.id[^}]*\}/,
-    );
+  it("the Link selects the song on canonical Project Space without a nested route", () => {
+    expect(SRC).toContain("projectSongWorkspaceHref");
+    expect(SRC).not.toMatch(/\/songs\/\$\{[^}]*track\.id/);
   });
 
   it("does not advertise drag/reorder before persistence exists", () => {
@@ -47,6 +44,7 @@ describe("TrackRow — album-page tracklist row", () => {
       <TrackRow
         projectId="project-1"
         index={1}
+        selected
         track={{
           id: "song-1",
           title: "Whole row song",
@@ -63,6 +61,7 @@ describe("TrackRow — album-page tracklist row", () => {
     const linkHtml = html.slice(linkStart, linkEnd);
     expect(linkStart).toBeGreaterThanOrEqual(0);
     expect(html.match(/<a /g)).toHaveLength(1);
+    expect(linkHtml).toContain('aria-current="true"');
     expect(linkHtml).toContain("Whole row song");
     expect(linkHtml).toContain("Mixing");
     expect(linkHtml).toContain("64% complete");

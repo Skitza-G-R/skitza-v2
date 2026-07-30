@@ -14,6 +14,7 @@ import { PaymentsTab, type ProjectPaymentsTabData } from "./album-tabs/project-p
 import { SongsTab, type EmptySongSpaceRowData } from "./album-tabs/songs-tab";
 import { StudioLogTab, type StudioLogEntry } from "./album-tabs/studio-log-tab";
 import { ProjectCompactHeader, type ProjectPaymentAttention } from "./project-compact-header";
+import { ProjectSongWorkspace, type ProjectSongWorkspaceData } from "./project-song-workspace";
 import type { TrackRowData } from "./track-row";
 
 const ALBUM_TAB_ORDER: readonly AlbumTab[] = ["songs", "payments", "log", "details"];
@@ -39,6 +40,8 @@ interface AlbumSpaceProps {
   purchases: readonly ProjectPurchaseSummary[];
   payments: ProjectPaymentsTabData;
   tracks: TrackRowData[];
+  selectedSongWorkspace?: ProjectSongWorkspaceData | null;
+  initialUploadOpen?: boolean;
   emptySlots?: readonly EmptySongSpaceRowData[];
   addSongHref: string;
   studioLog: AlbumSpaceStudioLog;
@@ -50,6 +53,8 @@ export function AlbumSpace({
   purchases,
   payments,
   tracks,
+  selectedSongWorkspace = null,
+  initialUploadOpen = false,
   emptySlots = [],
   addSongHref,
   studioLog,
@@ -114,8 +119,20 @@ export function AlbumSpace({
               emptySlots={emptySlots}
               canAddSong={canAddSong}
               blockedReason={newWorkBlockedReason}
+              {...(selectedSongWorkspace ? { selectedSongId: selectedSongWorkspace.song.id } : {})}
               {...(canAddSong ? { onAddSong: handleAddSong } : {})}
-            />
+            >
+              {selectedSongWorkspace ? (
+                <ProjectSongWorkspace
+                  key={selectedSongWorkspace.song.id}
+                  project={{ id: project.id, name: project.name }}
+                  actionProject={actionProject}
+                  purchases={purchases}
+                  data={selectedSongWorkspace}
+                  initialUploadOpen={initialUploadOpen}
+                />
+              ) : null}
+            </SongsTab>
           ) : null}
           {active === "payments" ? (
             <PaymentsTab projectId={project.id} payments={payments} purchases={purchases} />

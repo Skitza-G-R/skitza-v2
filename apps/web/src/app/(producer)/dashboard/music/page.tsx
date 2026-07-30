@@ -10,6 +10,7 @@ import {
 import { ProducerRuntimeSafeView } from "~/components/dashboard/runtime/producer-runtime-safe-view";
 import { ProducerMusicLibrary } from "~/components/music/producer-music-library";
 import { mapProducerMusicSafeScreen } from "~/lib/runtime-state/screen-view-mappers";
+import { projectSongWorkspaceHref } from "~/lib/clients/project-song-workspace-href";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import {
@@ -74,7 +75,7 @@ export default async function MusicPage({ searchParams }: PageProps) {
           project.lifecycleStatus === "active" &&
           song.purchaseLifecycleStatus === "active" &&
           song.archivedAt === null
-            ? `/dashboard/clients-projects/${project.id}/songs/${song.id}?upload=1`
+            ? projectSongWorkspaceHref(project.id, song.id, { upload: true })
             : null,
       }),
     ),
@@ -162,8 +163,8 @@ export default async function MusicPage({ searchParams }: PageProps) {
           {...(params.purchaseId ? { initialPurchaseId: params.purchaseId } : {})}
           renameSong={renameMusicSong}
           editArtist={editMusicSongArtist}
-      setArchived={setMusicSongArchived}
-      markReleased={markMusicSongReleased}
+          setArchived={setMusicSongArchived}
+          markReleased={markMusicSongReleased}
         />
       </div>
     </div>

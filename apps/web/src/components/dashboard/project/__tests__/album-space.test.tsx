@@ -30,6 +30,14 @@ describe("AlbumSpace — compact four-tab workspace", () => {
     expect(SRC).not.toContain("FilesTab");
   });
 
+  it("renders the selected song controls inside the Songs panel", () => {
+    expect(SRC).toContain("ProjectSongWorkspace");
+    expect(SRC).toContain("selectedSongWorkspace");
+    expect(SRC).toMatch(
+      /<SongsTab[\s\S]*?selectedSongId:\s*selectedSongWorkspace\.song\.id[\s\S]*?<ProjectSongWorkspace/,
+    );
+  });
+
   it("uses useState for the active tab", () => {
     expect(SRC).toContain("useState");
   });

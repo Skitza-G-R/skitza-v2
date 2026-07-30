@@ -6,6 +6,7 @@ import type { MouseEvent } from "react";
 
 import { playerPlay, playerToggle, useNowPlaying } from "~/components/audio/persistent-player";
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
+import { projectSongWorkspaceHref } from "~/lib/clients/project-song-workspace-href";
 import { stageColor, stageLabel, type WorkflowStage } from "~/lib/clients/workflow-stage";
 
 export interface TrackRowPlayback {
@@ -33,6 +34,7 @@ export interface TrackRowProps {
   projectId: string;
   track: TrackRowData;
   index: number;
+  selected?: boolean;
 }
 
 function formatDuration(ms: number): string {
@@ -43,7 +45,7 @@ function formatDuration(ms: number): string {
   return `${String(minutes)}:${String(seconds).padStart(2, "0")}`;
 }
 
-export function TrackRow({ projectId, track, index }: TrackRowProps) {
+export function TrackRow({ projectId, track, index, selected = false }: TrackRowProps) {
   const nowPlaying = useNowPlaying();
   const indexLabel = String(index).padStart(2, "0");
   const coverBg = producerGradient(track.title);
@@ -84,10 +86,19 @@ export function TrackRow({ projectId, track, index }: TrackRowProps) {
   }
 
   return (
-    <article className="group flex min-w-0 items-center overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] transition-colors hover:bg-[rgb(var(--bg-elevated))]">
+    <article
+      className={`group flex min-w-0 items-center overflow-hidden rounded-[var(--radius-lg)] border transition-colors ${
+        selected
+          ? "border-[rgb(var(--brand-primary)/0.55)] bg-[rgb(var(--brand-primary)/0.06)] shadow-[var(--shadow-sm)]"
+          : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] hover:bg-[rgb(var(--bg-elevated))]"
+      }`}
+    >
       <Link
-        href={`/dashboard/clients-projects/${projectId}/songs/${track.id}`}
-        aria-label={`Open ${track.title}`}
+        href={projectSongWorkspaceHref(projectId, track.id)}
+        replace
+        scroll={false}
+        aria-label={`View ${track.title} in this project`}
+        aria-current={selected ? "true" : undefined}
         className="flex min-h-[68px] min-w-0 flex-1 items-center gap-3 px-3 py-2.5 focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset sm:px-4"
       >
         <span className="hidden w-6 shrink-0 font-mono text-[11px] text-[rgb(var(--fg-muted))] tabular-nums sm:block">

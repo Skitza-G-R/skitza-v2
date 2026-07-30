@@ -114,11 +114,28 @@ describe("clients-projects/[id]/page.tsx — Phase 2 rewrite to AlbumSpace", () 
   });
 
   it("renders the compact Project Space for one-song and multi-song projects", () => {
-    expect(SRC).not.toContain('data.songSpaces.mode === "single"');
     expect(SRC).not.toMatch(
       /redirect\([\s\S]*?`\/dashboard\/clients-projects\/\$\{[^}]+\}\/songs\/\$\{[^}]+\}`[\s\S]*?\)/,
     );
     expect(SRC).toMatch(/<AlbumSpace/);
+  });
+
+  it("resolves the selected song and all of its controls on canonical Project Space", () => {
+    expect(SRC).toMatch(/searchParams\?:\s*Promise<\{[\s\S]*?song\?:\s*string/);
+    expect(SRC).toMatch(/searchParams\?:\s*Promise<\{[\s\S]*?upload\?:\s*string/);
+    expect(SRC).toContain("const selectedTrack =");
+    expect(SRC).toContain("selectedSongWorkspace");
+    expect(SRC).toContain("songVersions");
+    expect(SRC).toContain("songComments");
+    expect(SRC).toContain("songSessions");
+    expect(SRC).toContain('data.songSpaces.mode === "single"');
+    expect(SRC).toContain("classifySongUploadPublicExposure");
+    expect(SRC).toContain("selectedSongWorkspace={selectedSongWorkspace}");
+    expect(SRC).toContain('initialUploadOpen={query.upload === "1"}');
+  });
+
+  it("rejects a selected song that is not part of the producer-scoped project", () => {
+    expect(SRC).toMatch(/if\s*\(\s*query\.song\s*&&\s*!selectedTrack\s*\)[\s\S]*?notFound\(\)/);
   });
 
   it("maps artist credit into AlbumSpace rows", () => {

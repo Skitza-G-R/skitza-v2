@@ -309,6 +309,13 @@ Permanently delete only an empty draft project with no purchase, agreement, paym
 
 Never hard-delete a historical project or orphan its records.
 
+### 6.7 Producer project workspace
+
+- `/dashboard/clients-projects/[id]` is the canonical producer workspace for both one-song and multi-song projects.
+- Song rows select a song inside that same page. The selected song's workflow, version history, Upload new version action, and sessions appear inline.
+- Do not create a second nested producer Song Space layer. Old nested song URLs may remain only as compatibility redirects back to the canonical project workspace.
+- The project header `+` opens Add Song directly. Do not show an intermediate menu when Add Song is the only action.
+
 ## 7. Songs, versions, Library, and Artist Music
 
 ### 7.1 Add Song and purchase assignment

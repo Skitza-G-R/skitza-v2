@@ -13,7 +13,18 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("../album-tabs/songs-tab", () => ({
-  SongsTab: () => <div>Songs panel</div>,
+  SongsTab: ({ children }: { children?: React.ReactNode }) => (
+    <div>
+      Songs panel
+      {children}
+    </div>
+  ),
+}));
+
+vi.mock("../project-song-workspace", () => ({
+  ProjectSongWorkspace: ({ data }: { data: { song: { title: string } } }) => (
+    <div>{`${data.song.title} inline workspace`}</div>
+  ),
 }));
 
 vi.mock("../album-tabs/project-payments-tab", () => ({
@@ -71,6 +82,23 @@ const PROPS = {
     history: EMPTY_PAYMENT_VIEW,
   },
   tracks: [],
+  selectedSongWorkspace: {
+    song: {
+      id: "song-1",
+      purchaseId: "purchase-1",
+      title: "Night Drive",
+      archivedAtIso: null,
+      currentVersion: "V1",
+      workflowStage: "mixing" as const,
+      progress: 60,
+      deadline: "Aug 12",
+      isOverdue: false,
+      revisionCount: 0,
+      publicExposure: "none" as const,
+    },
+    versions: [],
+    sessions: [],
+  },
   emptySlots: [],
   addSongHref: "/dashboard/music?addSong=1&projectId=project-1&lockProject=1",
   studioLog: { entries: [] },
@@ -86,11 +114,13 @@ describe("AlbumSpace interactions", () => {
     const first = render(<AlbumSpace {...PROPS} />);
 
     expect(screen.getByText("Songs panel")).not.toBeNull();
+    expect(screen.getByText("Night Drive inline workspace")).not.toBeNull();
     expect(screen.queryByText("Payments panel")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: /Payment needs attention/i }));
     expect(screen.getByText("Payments panel")).not.toBeNull();
     expect(screen.queryByText("Songs panel")).toBeNull();
+    expect(screen.queryByText("Night Drive inline workspace")).toBeNull();
 
     first.unmount();
     render(<AlbumSpace {...PROPS} />);

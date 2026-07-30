@@ -57,12 +57,13 @@ afterEach(() => {
 });
 
 describe("TrackRow interactions", () => {
-  it("keeps Song Space navigation separate from the Play button", async () => {
+  it("selects the song on the canonical Project Space and keeps Play separate", async () => {
     const user = userEvent.setup();
-    render(<TrackRow projectId="project-1" track={PLAYABLE_TRACK} index={1} />);
+    render(<TrackRow projectId="project-1" track={PLAYABLE_TRACK} index={1} selected />);
 
-    const rowLink = screen.getByRole("link", { name: "Open Night Drive" });
-    expect(rowLink.getAttribute("href")).toBe("/dashboard/clients-projects/project-1/songs/song-1");
+    const rowLink = screen.getByRole("link", { name: "View Night Drive in this project" });
+    expect(rowLink.getAttribute("href")).toBe("/dashboard/clients-projects/project-1?song=song-1");
+    expect(rowLink.getAttribute("aria-current")).toBe("true");
     const progress = screen.getByRole("progressbar", {
       name: "Night Drive progress",
     });

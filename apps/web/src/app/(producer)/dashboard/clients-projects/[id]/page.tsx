@@ -6,6 +6,9 @@ import {
   type AlbumSpaceProject,
   type AlbumSpaceStudioLog,
 } from "~/components/dashboard/project/album-space";
+import type { ProjectSongWorkspaceData } from "~/components/dashboard/project/project-song-workspace";
+import type { SessionsTabSession } from "~/components/dashboard/song/song-tabs/sessions-tab";
+import type { VersionRowVersionData } from "~/components/dashboard/song/version-row";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
 import type { WorkflowStage } from "~/lib/clients/workflow-stage";
 import type { TrackRowData } from "~/components/dashboard/project/track-row";
@@ -14,10 +17,12 @@ import type { ProjectPurchaseSummary } from "~/components/dashboard/projects/pro
 import { toPaymentHistoryViewData } from "~/components/payments/payment-history-adapter";
 import type { StudioLogEntry } from "~/components/dashboard/project/album-tabs/studio-log-tab";
 import { buildProjectActivityEntries } from "~/components/dashboard/project/album-tabs/studio-log-activity";
+import { classifySongUploadPublicExposure } from "~/server/domain/song-publication/upload-exposure";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{ song?: string; upload?: string }>;
 };
 
 // Project Space server component. The route keeps canonical project,
@@ -48,10 +53,11 @@ function progressForStage(stage: WorkflowStage): number {
   return STAGE_PROGRESS[stage];
 }
 
-export default async function ProjectDetail({ params }: PageProps) {
+export default async function ProjectDetail({ params, searchParams }: PageProps) {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
   const { id } = await params;
+  const query = (await searchParams) ?? {};
 
   const caller = appRouter.createCaller({ userId });
 
@@ -66,6 +72,12 @@ export default async function ProjectDetail({ params }: PageProps) {
   const data = detailResult.value;
   const paymentModel = paymentResult.value;
   const projectBookings = bookingsResult.status === "fulfilled" ? bookingsResult.value : [];
+  const selectedTrack = query.song
+    ? data.tracks.find((track) => track.id === query.song)
+    : data.tracks[0];
+  if (query.song && !selectedTrack) {
+    notFound();
+  }
 
   const sessionEntries: StudioLogEntry[] = projectBookings.map((booking) => ({
     id: `session-${booking.id}`,
@@ -170,6 +182,66 @@ export default async function ProjectDetail({ params }: PageProps) {
     deadlineAtIso: data.project.deadlineAt?.toISOString() ?? null,
     canDeleteEmptyDraft: data.canPermanentlyDelete,
   };
+
+  let selectedSongWorkspace: ProjectSongWorkspaceData | null = null;
+  if (selectedTrack) {
+    const songVersions = data.versions.filter((version) => version.trackId === selectedTrack.id);
+    const songVersionIds = new Set(songVersions.map((version) => version.id));
+    const songComments = data.comments.filter((comment) => songVersionIds.has(comment.versionId));
+    const versions: VersionRowVersionData[] = songVersions.map((version) => ({
+      id: version.id,
+      versionLabel: version.label,
+      audioUrl: version.audioUrl,
+      audioDeletedAtIso: version.audioDeletedAt?.toISOString() ?? null,
+      uploadedAtIso: version.uploadedAt.toISOString(),
+      uploadedBy: "You",
+      changelog: "",
+      durationMs: version.durationMs,
+      noteCount: songComments.filter(
+        (comment) => comment.versionId === version.id && comment.resolvedAt === null,
+      ).length,
+    }));
+    const isSingleProject = data.songSpaces.mode === "single";
+    const songSessions: SessionsTabSession[] = projectBookings
+      .filter(
+        (booking) =>
+          booking.songId === selectedTrack.id || (isSingleProject && booking.songId === null),
+      )
+      .map((booking) => ({
+        id: booking.id,
+        startsAt: booking.startsAt,
+        durationMinutes: booking.durationMin,
+        name: `Session with ${booking.artistName}`,
+        attendees: [booking.artistName],
+      }));
+    const latestVersion = songVersions.find(
+      (version) => version.audioDeletedAt === null && version.audioUrl !== null,
+    );
+    const sharing = await caller.songPublication.producerState({
+      trackId: selectedTrack.id,
+    });
+    const stage: WorkflowStage = selectedTrack.workflowStage;
+    const versionBoost = Math.min(10, songVersions.length > 0 ? songVersions.length * 2 : 0);
+
+    selectedSongWorkspace = {
+      song: {
+        id: selectedTrack.id,
+        purchaseId: selectedTrack.purchaseId,
+        title: selectedTrack.title,
+        archivedAtIso: selectedTrack.archivedAt?.toISOString() ?? null,
+        currentVersion: latestVersion?.label ?? "No audio",
+        workflowStage: stage,
+        progress: Math.min(100, progressForStage(stage) + versionBoost),
+        deadline,
+        isOverdue,
+        revisionCount: Math.max(0, songVersions.length - 1),
+        publicExposure: classifySongUploadPublicExposure(sharing),
+      },
+      versions,
+      sessions: songSessions,
+    };
+  }
+
   const purchaseSummaries: ProjectPurchaseSummary[] = paymentModel.projects.flatMap(
     (paymentProject) =>
       paymentProject.purchases.map((purchase) => ({
@@ -269,6 +341,8 @@ export default async function ProjectDetail({ params }: PageProps) {
         purchases={purchaseSummaries}
         payments={payments}
         tracks={tracks}
+        selectedSongWorkspace={selectedSongWorkspace}
+        initialUploadOpen={query.upload === "1"}
         emptySlots={data.songSpaces.emptySlots.map((slot) => ({
           id: slot.id,
           purchaseId: slot.purchaseId,

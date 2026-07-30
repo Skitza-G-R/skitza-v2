@@ -12,6 +12,7 @@ import {
 } from "~/app/(producer)/dashboard/clients-projects/actions";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
+import { projectSongWorkspaceHref } from "~/lib/clients/project-song-workspace-href";
 import { PUBLIC_BRAND_ORIGIN } from "~/lib/share/public-url";
 
 export interface PaidExtraProductOption {
@@ -180,7 +181,7 @@ export function AddSongDialog({
         toast("Song added", "success");
         onClose();
         router.push(
-          `/dashboard/clients-projects/${result.data.projectId}/songs/${result.data.id}?upload=1`,
+          projectSongWorkspaceHref(result.data.projectId, result.data.id, { upload: true }),
         );
       } catch {
         toast("Could not add this song. Try again.", "error");

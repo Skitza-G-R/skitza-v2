@@ -119,11 +119,7 @@ vi.mock("~/components/dashboard/projects/project-upload-access", () => ({
 }));
 
 vi.mock("../song-space-hero", () => ({
-  SongSpaceHero: ({
-    onUploadNewVersion,
-  }: {
-    onUploadNewVersion?: (() => void) | undefined;
-  }) => (
+  SongSpaceHero: ({ onUploadNewVersion }: { onUploadNewVersion?: (() => void) | undefined }) => (
     <button type="button" data-testid="hero-upload" onClick={onUploadNewVersion}>
       Upload new version
     </button>
@@ -333,8 +329,7 @@ describe("first song upload journey", () => {
     await user.type(screen.getByPlaceholderText("Untitled song"), "First Song");
     await user.click(screen.getByRole("button", { name: "Add Song" }));
 
-    const claimedHref =
-      "/dashboard/clients-projects/project-first/songs/song-first?upload=1";
+    const claimedHref = "/dashboard/clients-projects/project-first?song=song-first&upload=1";
     await waitFor(() => {
       expect(mocked.router.push).toHaveBeenCalledWith(claimedHref);
     });
@@ -376,14 +371,14 @@ describe("first song upload journey", () => {
     ).toBeNull();
     expect(screen.getByLabelText(/^Audio file/)).toBeInstanceOf(HTMLInputElement);
     expect(screen.getByLabelText<HTMLInputElement>(/^Version label/).value).toBe("V1");
-    const canonicalHref = `${destination.pathname}?view=versions#versions`;
+    const canonicalHref = `${destination.pathname}?song=song-first&view=versions#versions`;
     await waitFor(() => {
       expect(historyReplace).toHaveBeenCalledWith(null, "", canonicalHref);
     });
     expect(historyReplace).toHaveBeenCalledTimes(1);
-    expect(
-      `${window.location.pathname}${window.location.search}${window.location.hash}`,
-    ).toBe(canonicalHref);
+    expect(`${window.location.pathname}${window.location.search}${window.location.hash}`).toBe(
+      canonicalHref,
+    );
     expect(mocked.router.replace).not.toHaveBeenCalled();
     expect(mocked.router.refresh).not.toHaveBeenCalled();
     expect(mocked.addVersionAction).not.toHaveBeenCalled();
