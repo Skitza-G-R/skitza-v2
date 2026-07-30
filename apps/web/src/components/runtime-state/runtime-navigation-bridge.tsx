@@ -258,6 +258,7 @@ export function RuntimeNavigationBridge({
     [identity.contextId, identity.role, identity.userId],
   );
   const search = searchParams.toString();
+  const preserveRequestedRoot = searchParams.get("storeTip") === "1";
   const href = `${pathname}${search ? `?${search}` : ""}`;
   const safeHref = normalizeRuntimeHref(href, identity.role);
   const identityKey = `${identity.userId}:${identity.role}:${identity.contextId}`;
@@ -272,12 +273,14 @@ export function RuntimeNavigationBridge({
 
     if (restoreOnOpen && openedForIdentity.current !== identityKey) {
       openedForIdentity.current = identityKey;
-      const root = identity.role === "producer" ? "/dashboard" : "/artist";
-      const resumeHref = readRuntimeResumeHref(storage, navigationIdentity);
-      if (safeHref === root && resumeHref && resumeHref !== root) {
-        skipPersistHref.current = safeHref;
-        router.replace(resumeHref);
-        return;
+      if (!preserveRequestedRoot) {
+        const root = identity.role === "producer" ? "/dashboard" : "/artist";
+        const resumeHref = readRuntimeResumeHref(storage, navigationIdentity);
+        if (safeHref === root && resumeHref && resumeHref !== root) {
+          skipPersistHref.current = safeHref;
+          router.replace(resumeHref);
+          return;
+        }
       }
     }
 
@@ -288,6 +291,7 @@ export function RuntimeNavigationBridge({
     identityKey,
     navigationIdentity,
     privateStateAccessAllowed,
+    preserveRequestedRoot,
     restoreOnOpen,
     router,
     safeHref,
