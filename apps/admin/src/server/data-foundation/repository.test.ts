@@ -125,6 +125,7 @@ describe("SK-132 repository environment boundary", () => {
       action: "sensitive_content.reveal",
       contentKind: "payment_proof",
       reason: "support_investigation",
+      targetAccountClerkUserId: "user-42",
       targetId: "user-42",
       targetType: "registered_account",
     };
@@ -179,6 +180,7 @@ describe("SK-132 repository environment boundary", () => {
       reason: "safety_issue",
       safeAfterState: null,
       safeBeforeState: null,
+      targetAccountClerkUserId: "user-42",
       targetId: "user-42",
       targetType: "registered_account",
     };
@@ -232,6 +234,7 @@ describe("SK-132 repository environment boundary", () => {
       reason: "support_investigation",
       safeAfterState: null,
       safeBeforeState: null,
+      targetAccountClerkUserId: "user-42",
       targetId: "user-42",
       targetType: "registered_account",
     };
@@ -275,6 +278,7 @@ describe("SK-132 repository environment boundary", () => {
       reason: "support_investigation",
       safeAfterState: null,
       safeBeforeState: null,
+      targetAccountClerkUserId: "user-42",
       targetId: "user-42",
       targetType: "registered_account",
     };
