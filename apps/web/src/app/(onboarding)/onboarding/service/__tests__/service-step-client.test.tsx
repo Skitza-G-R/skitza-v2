@@ -4,102 +4,54 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { buildPackagePayload } from "~/app/(producer)/dashboard/store/build-package-payload";
-import { decodeDescription } from "~/app/(producer)/dashboard/store/description-encoding";
-
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, "..", "service-step-client.tsx"), "utf8");
+const editorSource = readFileSync(
+  join(here, "..", "..", "..", "..", "(producer)", "dashboard", "store", "product-editor.tsx"),
+  "utf8",
+);
+const shellSource = readFileSync(
+  join(here, "..", "..", "..", "..", "(producer)", "dashboard", "store", "editor-shell.tsx"),
+  "utf8",
+);
 
-describe("onboarding first-service commercial terms", () => {
-  it("uses the seven-step Store flow and saves only from Review", () => {
-    expect(source).toMatch(
-      /const STEPS:[\s\S]*"type",[\s\S]*"details",[\s\S]*"price",[\s\S]*"payment",[\s\S]*"delivery",[\s\S]*"rights",[\s\S]*"review"/,
+describe("onboarding first-product editor", () => {
+  it("mounts the canonical Store ProductEditor instead of copying its steps", () => {
+    expect(source).toContain("<ProductEditor");
+    expect(source).toContain('newProductFlow="onboarding"');
+    expect(source).not.toContain("<TypeStep");
+    expect(source).not.toContain("<PricingStep");
+    expect(source).not.toContain("<ReviewStep");
+  });
+
+  it("preserves the exact seven-step Store flow and runtime draft", () => {
+    expect(editorSource).toMatch(
+      /const NEW_STEPS[\s\S]*"type"[\s\S]*"details"[\s\S]*"price"[\s\S]*"payment"[\s\S]*"delivery"[\s\S]*"rights"[\s\S]*"review"/,
     );
-    expect(source).toMatch(/<PaymentStep/);
-    expect(source).toMatch(/<RightsAgreementStep/);
-    expect(source).toMatch(/<ReviewStep/);
-    expect(source).toMatch(/if \(currentStep !== "review"\) return/);
-    expect(source).not.toMatch(/showPaymentPlans/);
-    expect(source).toMatch(/allowPerSong=\{false\}/);
-    expect(source).toMatch(/showTypeEdit=\{true\}/);
-    expect(source).toMatch(/setReturnToReview\(true\)/);
-    expect(source).toMatch(/setCurrentStep\("review"\)/);
+    expect(source).toContain("useProducerStoreProductDraft");
+    expect(source).toContain("persistedDraft={storeDraft.record}");
+    expect(source).toContain("onPersistDraft={storeDraft.save}");
   });
 
-  it("uses multi-plan and explicit royalty draft helpers", () => {
-    expect(source).toMatch(/PaymentSelectionDraft/);
-    expect(source).toMatch(/ProductRoyaltyDraft/);
-    expect(source).toMatch(/buildPaymentPlans/);
-    expect(source).toMatch(/hasPaymentOption/);
-    expect(source).toMatch(/validateRoyaltyDraft\(draft\.royalty, true\)/);
-    expect(source).toMatch(/royaltyDraftToTerms/);
+  it("creates hidden during onboarding and publishes only at final review", () => {
+    expect(editorSource).toContain('newProductFlow?: "store" | "onboarding"');
+    expect(shellSource).toContain("Continue setup");
+    expect(shellSource).toContain(
+      "This stays hidden until you publish your page at the end of setup.",
+    );
+    expect(shellSource).toMatch(/newProductFlow === "onboarding"[\s\S]*onClick=\{onSaveHidden\}/);
   });
 
-  it("keeps tagline and positive cash validation in parity with Store authoring", () => {
-    expect(source).toMatch(/productTaglineError\(draft\.tagline\)/);
-    expect(source).toMatch(/productCashPriceError\(draft\)/);
-    expect(source).toMatch(/paymentPlanFeasibilityError\(draft\)/);
-    expect(source).toMatch(/tagline=\{draft\.tagline\}/);
-    expect(source).toMatch(/priceError=\{priceError\}/);
+  it("routes by whether the saved product includes bookable sessions", () => {
+    expect(source).toContain(
+      'includesSessions ? "/onboarding/availability" : "/onboarding/review"',
+    );
   });
 
-  it("builds the onboarding payload with dedicated agreement and deliverables", () => {
-    const payload = buildPackagePayload({
-      name: "First production",
-      tagline: "From demo to master.",
-      type: "production",
-      price: 2_500,
-      currency: "USD",
-      sessions: 8,
-      unlimitedSessions: false,
-      payment: {
-        full: true,
-        split50: true,
-        monthly: true,
-        monthlyInstallments: 6,
-      },
-      includes: ["Tracking", "Mix", "Master"],
-      duration: "60 min",
-      revisions: 3,
-      unlimitedRevisions: false,
-      agreementMode: "text",
-      agreementText: "Credit and delivery terms.",
-      royalty: {
-        masterMode: "percentage",
-        masterPercentage: "2.5",
-        compositionMode: "percentage",
-        compositionPercentage: "12.5",
-        compositionRole: "composer",
-        collectingSociety: "ACUM",
-        notes: "Headline terms only.",
-      },
-      pricingModel: "flat",
-      volumeTiers: [],
-    });
-
-    expect(payload.paymentPlans).toEqual([
-      { kind: "full" },
-      { kind: "split_50_50" },
-      { kind: "monthly", installments: 6 },
-    ]);
-    expect(payload.deliverables).toEqual(["Tracking", "Mix", "Master"]);
-    expect(payload.royaltyTerms).toEqual({
-      master: { mode: "percentage", bps: 250 },
-      composition: {
-        mode: "percentage",
-        bps: 1250,
-        role: "composer",
-        collectingSociety: "ACUM",
-      },
-      notes: "Headline terms only.",
-    });
-    expect(payload.agreementText).toBe("Credit and delivery terms.");
-    expect(payload.contractUrl).toBeNull();
-    expect(decodeDescription(payload.description)).toEqual({
-      tagline: "From demo to master.",
-      revisions: 3,
-      unlimitedRevisions: false,
-      contractText: "",
-    });
+  it("keeps the development walkthrough write-free", () => {
+    expect(source).toContain("previewMode={previewMode}");
+    expect(editorSource).toMatch(
+      /if \(previewMode\) \{[\s\S]*handleSuccessfulSubmit\(\);[\s\S]*return;/,
+    );
   });
 });

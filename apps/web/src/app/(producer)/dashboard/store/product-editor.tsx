@@ -97,9 +97,14 @@ interface ProductEditorProps {
   previewPlacement?: "focal" | "secondary";
   onCreated?: (id: string) => void;
   onSubmitted: () => void;
+  onSubmittedResult?: (result: { includesSessions: boolean }) => void;
   onDiscardDraft?: () => void;
   persistedDraft: ProducerStoreProductDraft | null;
   onPersistDraft: (draft: ProducerStoreProductDraft) => boolean;
+  /** Onboarding always creates hidden, then publishes at its final review. */
+  newProductFlow?: "store" | "onboarding";
+  /** Development-only visual walkthrough: preserve editor behavior without writes. */
+  previewMode?: boolean;
 }
 
 const VALID_CURRENCIES: readonly Currency[] = ["USD", "EUR", "GBP", "ILS"];
@@ -204,9 +209,12 @@ export function ProductEditor({
   previewPlacement = "focal",
   onCreated,
   onSubmitted,
+  onSubmittedResult,
   onDiscardDraft,
   persistedDraft,
   onPersistDraft,
+  newProductFlow = "store",
+  previewMode = false,
 }: ProductEditorProps) {
   const router = useRouter();
   const { toast } = useToast();
@@ -323,6 +331,7 @@ export function ProductEditor({
   function handleSuccessfulSubmit() {
     latestPersistedDraftRef.current = null;
     onSubmitted();
+    onSubmittedResult?.({ includesSessions: draft.includesSessions });
     onOpenChange(false);
   }
 
@@ -439,6 +448,14 @@ export function ProductEditor({
       else if (!validRights) setCurrentStep("rights");
       return;
     }
+    if (previewMode) {
+      const previewId = product?.id ?? "onboarding-preview-product";
+      if (!product) {
+        onCreated?.(previewId);
+      }
+      handleSuccessfulSubmit();
+      return;
+    }
     if (!online) {
       toast("Reconnect to save this product.", "error");
       return;
@@ -512,6 +529,7 @@ export function ProductEditor({
       pending={pending}
       {...(savingAction ? { pendingAction: savingAction } : {})}
       draftSaved={draftSaved}
+      newProductFlow={newProductFlow}
     >
       <div key={currentStep} className="sk-step-enter">
         {currentStep === "type" ? <TypeStep picked={draft._picked} onPick={onPickPreset} /> : null}

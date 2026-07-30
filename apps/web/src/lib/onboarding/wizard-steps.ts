@@ -1,95 +1,70 @@
 /**
- * Single source of truth for the 5 numbered steps shown in the
- * producer onboarding rail (Step 1..Step 5).
+ * The five durable setup milestones shown around producer onboarding.
  *
- * Welcome (the pre-step) and Done (post-step) are intentionally NOT
- * in this list — they don't appear in the rail and have their own
- * standalone shells.
- *
- * Used by:
- *   - StepRail (renders one row per record)
- *   - OnboardingChrome (computes "Step N of 5" from `position`)
- *   - Per-step page.tsx files (back/skip/continue route from the
- *     step's neighbours in this list — no string-typed routes)
- *
- * The redesign collapsed the legacy `services` chip-multi-select step
- * into the `service` template-picker step (Decision #4 — drop service
- * roles entirely). That's why this list has 5 entries, not 6.
- *
- * Tested in wizard-steps.test.ts.
+ * Product authoring temporarily hides this outer progress system and shows
+ * only the shared Store editor's seven steps.
  */
 
-export type WizardStepId =
-  | "studio"
-  | "service"
-  | "availability"
-  | "portfolio"
-  | "payment";
+export type WizardStepId = "account" | "identity" | "product" | "availability" | "publish";
 
 export interface WizardStep {
-  /** Stable URL/state identifier — never displayed to producers. */
   id: WizardStepId;
-  /** 1-indexed position used for the active-row highlight + "Step N of 5". */
   position: 1 | 2 | 3 | 4 | 5;
-  /** Rail row label as shown to the producer (matches design copy). */
   label: string;
-  /** Meta line under the label, format "Required · 30s" or "Optional · 20s". */
   meta: string;
-  /** Required steps gate Continue; optional steps show a Skip button. */
-  required: boolean;
-  /** Absolute path the rail row + back/next handlers route to. */
-  route: `/onboarding/${WizardStepId}`;
+  route:
+    | "/onboarding/studio"
+    | "/onboarding/service"
+    | "/onboarding/availability"
+    | "/onboarding/review"
+    | null;
+  /** Account creation is a true completed milestone on first paint. */
+  state?: "complete";
 }
 
 export const WIZARD_STEPS: ReadonlyArray<WizardStep> = [
   {
-    id: "studio",
+    id: "account",
     position: 1,
-    label: "Your hall",
-    meta: "Required · 30s",
-    required: true,
+    label: "Account created",
+    meta: "Done",
+    route: null,
+    state: "complete",
+  },
+  {
+    id: "identity",
+    position: 2,
+    label: "Public page",
+    meta: "Your name and link",
     route: "/onboarding/studio",
   },
   {
-    id: "service",
-    position: 2,
-    label: "First service",
-    meta: "Required · 40s",
-    required: true,
+    id: "product",
+    position: 3,
+    label: "First product",
+    meta: "What artists can request",
     route: "/onboarding/service",
   },
   {
     id: "availability",
-    position: 3,
-    label: "When you work",
-    meta: "Required · 20s",
-    required: true,
+    position: 4,
+    label: "Working hours",
+    meta: "Only when sessions need them",
     route: "/onboarding/availability",
   },
   {
-    id: "portfolio",
-    position: 4,
-    label: "A taste",
-    meta: "Optional · 20s",
-    required: false,
-    route: "/onboarding/portfolio",
-  },
-  {
-    id: "payment",
+    id: "publish",
     position: 5,
-    label: "Get paid",
-    meta: "Optional · 15s",
-    required: false,
-    route: "/onboarding/payment",
+    label: "Review & publish",
+    meta: "Check before sharing",
+    route: "/onboarding/review",
   },
 ] as const;
 
-export function getStepByPosition(
-  position: number,
-): WizardStep | undefined {
-  return WIZARD_STEPS.find((s) => s.position === position);
+export function getStepByPosition(position: number): WizardStep | undefined {
+  return WIZARD_STEPS.find((step) => step.position === position);
 }
 
 export function getStepById(id: string): WizardStep | undefined {
-  return WIZARD_STEPS.find((s) => s.id === id);
+  return WIZARD_STEPS.find((step) => step.id === id);
 }

@@ -116,20 +116,16 @@ describe("pricing-step.tsx source", () => {
     expect(source).toMatch(/from\s+['"]~\/lib\/pricing['"]/);
   });
 
-  it("renders the 'Sessions per song' eyebrow on the per-song panel", () => {
-    expect(source).toMatch(/sessions per song/i);
-  });
-
-  it("renders an 'Unlimited' toggle inside the per-song panel (not just flat)", () => {
-    // Both panels share the same control labels, so we expect ≥2 hits.
-    const matches = source.match(/Unlimited/g) ?? [];
-    expect(matches.length).toBeGreaterThanOrEqual(2);
+  it("keeps session scope in the dedicated Delivery step", () => {
+    expect(source).not.toMatch(/sessions per song/i);
+    expect(source).not.toMatch(/Unlimited/);
   });
 
   it("renders the shared global-tax section in both pricing branches", () => {
     const matches = source.match(/<ProductTaxSection/g) ?? [];
     expect(matches).toHaveLength(2);
-    expect(source).toMatch(/Applies to all products/);
+    expect(source).toContain('href="/dashboard/settings?section=region"');
+    expect(source).toContain("Edit in Settings");
   });
 
   it("stacks per-song ladder rows on mobile instead of forcing four columns", () => {
@@ -144,7 +140,10 @@ describe("pricing-step.tsx source", () => {
     expect(source).toMatch(
       /aria-label=\{`Discount tier[\s\S]*?price per song`\}[\s\S]*?className="[^"]*h-11[^"]*sm:h-full/,
     );
-    expect(source).toContain("[&>button]:min-h-11");
+    expect(source).toMatch(/aria-label="Currency"[\s\S]*?className="[^"]*h-11[^"]*sm:h-8/);
+    expect(source).toMatch(
+      /href="\/dashboard\/settings\?section=region"[\s\S]*?className="[^"]*h-11[^"]*sm:h-9/,
+    );
   });
 
   it("does not carry the removed duplicate payment controls", () => {

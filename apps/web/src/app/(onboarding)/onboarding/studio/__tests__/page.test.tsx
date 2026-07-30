@@ -15,20 +15,19 @@ import {
 // Repo runs vitest in `node` env (no jsdom) so we pin pure constants
 // + helpers, no JSX.
 
-describe("Step 1 (studio / 'Your hall') page contract", () => {
+describe("Public identity page contract", () => {
   describe("constants", () => {
-    it("renders as Step 1 of the 5-step rail", () => {
-      expect(STUDIO_STEP_INDEX).toBe(1);
+    it("renders after the already-complete account milestone", () => {
+      expect(STUDIO_STEP_INDEX).toBe(2);
     });
 
-    it("title leads with the redesign's 'hall' phrasing", () => {
-      expect(STUDIO_STEP_TITLE.toLowerCase()).toMatch(/hall|studio/);
+    it("uses plain public-page language", () => {
+      expect(STUDIO_STEP_TITLE.toLowerCase()).toMatch(/public|name/);
+      expect(STUDIO_STEP_TITLE.toLowerCase()).not.toContain("hall");
     });
 
     it("subtitle reassures the producer that the choice is reversible", () => {
-      expect(STUDIO_STEP_SUBTITLE.toLowerCase()).toMatch(
-        /later|edit|change|editable/,
-      );
+      expect(STUDIO_STEP_SUBTITLE.toLowerCase()).toMatch(/later|edit|change|editable/);
     });
   });
 
@@ -58,7 +57,7 @@ describe("Step 1 (studio / 'Your hall') page contract", () => {
     });
   });
 
-  describe("nextRouteAfterStudio (Step 1 → Step 2)", () => {
+  describe("nextRouteAfterStudio", () => {
     it("returns /onboarding/service (skipping legacy /services chip step)", () => {
       expect(nextRouteAfterStudio()).toBe("/onboarding/service");
     });

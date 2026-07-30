@@ -22,9 +22,11 @@ import type { UserRole } from "~/server/auth/role";
 const onConflictDoUpdateMock = vi
   .fn<(arg: { target: unknown; set: Record<string, unknown> }) => Promise<void>>()
   .mockResolvedValue(undefined);
-const valuesMock = vi.fn<(values: Record<string, unknown>) => {
-  onConflictDoUpdate: typeof onConflictDoUpdateMock;
-}>(() => ({ onConflictDoUpdate: onConflictDoUpdateMock }));
+const valuesMock = vi.fn<
+  (values: Record<string, unknown>) => {
+    onConflictDoUpdate: typeof onConflictDoUpdateMock;
+  }
+>(() => ({ onConflictDoUpdate: onConflictDoUpdateMock }));
 const insertMock = vi.fn(() => ({ values: valuesMock }));
 const dbMock = { insert: insertMock };
 
@@ -72,8 +74,7 @@ vi.mock("~/server/auth/role", () => ({
 vi.mock("next/headers", () => ({
   headers: () =>
     Promise.resolve({
-      get: (name: string) =>
-        name === "x-vercel-ip-country" ? mockCountryHeader : null,
+      get: (name: string) => (name === "x-vercel-ip-country" ? mockCountryHeader : null),
     }),
 }));
 vi.mock("node:crypto", async () => {
@@ -153,6 +154,14 @@ describe("completeStudio — happy path + invariant carryover", () => {
 });
 
 describe("completeStudio — currency derivation from x-vercel-ip-country", () => {
+  it("uses the producer's confirmed currency when provided", async () => {
+    mockCountryHeader = "GB";
+    const { completeStudio } = await import("../actions");
+    await completeStudio({ ...validInput, currency: "ILS" });
+    const valuesArg = valuesMock.mock.calls[0]?.[0];
+    expect(valuesArg?.defaultCurrency).toBe("ILS");
+  });
+
   it("uses GBP when header is GB", async () => {
     mockCountryHeader = "GB";
     const { completeStudio } = await import("../actions");
@@ -183,6 +192,28 @@ describe("completeStudio — currency derivation from x-vercel-ip-country", () =
     await completeStudio(validInput);
     const valuesArg = valuesMock.mock.calls[0]?.[0];
     expect(valuesArg?.defaultCurrency).toBe("USD");
+  });
+});
+
+describe("completeStudio — safe re-entry", () => {
+  it("preserves an established public slug when the producer edits identity", async () => {
+    mockRole = {
+      kind: "producer-complete",
+      producer: {
+        id: "producer-complete-1",
+        displayName: "Ada",
+        slug: "ada-produces",
+        email: "ada@example.com",
+      },
+    };
+
+    const { completeStudio } = await import("../actions");
+    await completeStudio({ ...validInput, displayName: "Ada Studio" });
+
+    const valuesArg = valuesMock.mock.calls[0]?.[0];
+    const updateArg = onConflictDoUpdateMock.mock.calls[0]?.[0];
+    expect(valuesArg?.slug).toBe("ada-produces");
+    expect(updateArg?.set.slug).toBe("ada-produces");
   });
 });
 
@@ -223,9 +254,7 @@ describe("completeStudio — slug retry loop on uniqueness conflict", () => {
       .mockRejectedValueOnce(conflict);
 
     const { completeStudio } = await import("../actions");
-    await expect(completeStudio(validInput)).rejects.toThrow(
-      /could not allocate slug/,
-    );
+    await expect(completeStudio(validInput)).rejects.toThrow(/could not allocate slug/);
     // Action attempted exactly 3 times before giving up.
     expect(insertMock).toHaveBeenCalledTimes(3);
   });
@@ -316,8 +345,8 @@ describe("completeStudio — input validation", () => {
 
   it("throws ZodError when timezone is empty", async () => {
     const { completeStudio } = await import("../actions");
-    await expect(
-      completeStudio({ displayName: "Ada", timezone: "" }),
-    ).rejects.toBeInstanceOf(ZodError);
+    await expect(completeStudio({ displayName: "Ada", timezone: "" })).rejects.toBeInstanceOf(
+      ZodError,
+    );
   });
 });

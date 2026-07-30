@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { AppI18nProvider } from "~/i18n/app-i18n-provider";
 import { fetchUserRole } from "~/server/auth/role";
 import { decideOnboardingRedirect, stepFromPath } from "./decide-redirect";
+import { OnboardingRuntimeBoundary } from "./runtime-boundary";
 
 // Onboarding is a signed-in surface (the gate in (app)/layout.tsx
 // redirects profile-incomplete users here) so it shares the same
@@ -48,7 +49,11 @@ export default async function OnboardingLayout({ children }: { children: ReactNo
   // producer signup. See lib/onboarding/dev-preview.ts for the gate
   // logic + tests; middleware.ts is what writes this header.
   if (reqHeaders.get("x-onboarding-preview-bypass") === "1") {
-    return <AppI18nProvider>{children}</AppI18nProvider>;
+    return (
+      <AppI18nProvider>
+        <OnboardingRuntimeBoundary preview>{children}</OnboardingRuntimeBoundary>
+      </AppI18nProvider>
+    );
   }
 
   const { userId } = await auth();
@@ -62,5 +67,20 @@ export default async function OnboardingLayout({ children }: { children: ReactNo
   const redirectTo = decideOnboardingRedirect(role, currentStep);
   if (redirectTo) redirect(redirectTo);
 
-  return <AppI18nProvider>{children}</AppI18nProvider>;
+  const identity =
+    role.kind === "producer-complete" || role.kind === "producer-incomplete"
+      ? {
+          userId: userId ?? "",
+          role: "producer" as const,
+          contextId: role.producer.id,
+        }
+      : undefined;
+
+  return (
+    <AppI18nProvider>
+      <OnboardingRuntimeBoundary {...(identity ? { identity } : {})}>
+        {children}
+      </OnboardingRuntimeBoundary>
+    </AppI18nProvider>
+  );
 }

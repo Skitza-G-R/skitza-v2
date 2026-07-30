@@ -1,13 +1,57 @@
+import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
-// May 2026 redesign — /onboarding now redirects to /onboarding/welcome
-// (the new pre-step entry screen) instead of straight to
-// /onboarding/studio. Welcome sets expectations ("about 2 minutes ·
-// 5 short steps · come back later") before the producer commits.
-//
-// The (onboarding)/layout.tsx role gate runs first, so unauthorised
-// or already-complete producers never reach this redirect; only
-// producer-incomplete + orphan callers fall through to /onboarding/welcome.
-export default function OnboardingIndexPage() {
-  redirect("/onboarding/welcome");
+import { isDevPreviewBypass } from "~/lib/onboarding/dev-preview";
+import { resolveOnboardingResume } from "~/lib/onboarding/resume";
+import { fetchUserRole } from "~/server/auth/role";
+import { appRouter } from "~/server/trpc/routers/_app";
+
+export default async function OnboardingIndexPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
+  if (isDevPreviewBypass(params)) {
+    redirect("/onboarding/welcome?__preview=1");
+  }
+
+  const { userId } = await auth();
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) throw new Error("missing DATABASE_URL");
+
+  const role = await fetchUserRole({ dbUrl, userId });
+  if (role.kind === "unauthenticated") redirect("/sign-in");
+  if (role.kind === "artist") redirect("/artist");
+
+  const identityComplete = role.kind === "producer-complete";
+  if (!identityComplete || !userId) {
+    redirect(
+      resolveOnboardingResume({
+        identityComplete: false,
+        firstNonArchivedProduct: null,
+        availabilityCount: 0,
+      }),
+    );
+  }
+
+  const caller = appRouter.createCaller({ userId });
+  const [products, availability] = await Promise.all([
+    caller.booking.packages.list(),
+    caller.booking.availability.list(),
+  ]);
+  const firstProduct = products[0] ?? null;
+
+  redirect(
+    resolveOnboardingResume({
+      identityComplete: true,
+      firstNonArchivedProduct: firstProduct
+        ? {
+            active: firstProduct.active,
+            durationMin: firstProduct.durationMin,
+          }
+        : null,
+      availabilityCount: availability.length,
+    }),
+  );
 }

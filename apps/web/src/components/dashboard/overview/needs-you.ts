@@ -234,7 +234,7 @@ export function buildNeedsYouQueue(sources: NeedsYouSources): NeedsYouItem[] {
       kind: "setup",
       title: "Finish studio setup",
       meta: "Add a service and your available hours",
-      href: "/dashboard/onboarding",
+      href: "/onboarding",
       actionLabel: "Finish setup",
       priority: 70,
     });

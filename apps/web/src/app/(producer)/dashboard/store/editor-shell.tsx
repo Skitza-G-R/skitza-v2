@@ -57,6 +57,7 @@ interface EditorShellProps {
   pending?: boolean;
   pendingAction?: "publish" | "hidden" | "edit";
   draftSaved?: boolean;
+  newProductFlow?: "store" | "onboarding";
 }
 
 export function EditorShell({
@@ -82,6 +83,7 @@ export function EditorShell({
   pending = false,
   pendingAction,
   draftSaved = false,
+  newProductFlow = "store",
 }: EditorShellProps) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const currentIdx = Math.max(0, steps.indexOf(current));
@@ -171,7 +173,9 @@ export function EditorShell({
               {isLastStep ? (
                 <p className="mb-2 text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
                   {mode === "new"
-                    ? "Publishing makes this visible to connected artists immediately."
+                    ? newProductFlow === "onboarding"
+                      ? "This stays hidden until you publish your page at the end of setup."
+                      : "Publishing makes this visible to connected artists immediately."
                     : productActive
                       ? "Artists will see this update immediately."
                       : "This product stays hidden after you save."}
@@ -198,7 +202,16 @@ export function EditorShell({
                   </button>
                 </div>
                 <div className="flex items-center gap-2 max-sm:w-full max-sm:justify-end">
-                  {isLastStep && mode === "new" ? (
+                  {isLastStep && mode === "new" && newProductFlow === "onboarding" ? (
+                    <button
+                      type="button"
+                      onClick={onSaveHidden}
+                      disabled={!canContinue || pending}
+                      className="sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 text-[13px] font-semibold text-[rgb(var(--bg-sidebar))] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 max-sm:flex-1 sm:h-10 sm:rounded-[var(--radius-md)]"
+                    >
+                      {pending && pendingAction === "hidden" ? "Saving…" : "Continue setup"}
+                    </button>
+                  ) : isLastStep && mode === "new" ? (
                     <>
                       <button
                         type="button"

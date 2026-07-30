@@ -145,6 +145,7 @@ export async function deactivatePackage(input: { id: string }): Promise<ActionRe
 export async function setPackageActive(input: {
   id: string;
   active: boolean;
+  requireAvailability?: boolean;
 }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;

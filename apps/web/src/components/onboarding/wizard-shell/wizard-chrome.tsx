@@ -1,110 +1,154 @@
+import Link from "next/link";
 import type { ReactNode } from "react";
+
+import { WIZARD_STEPS } from "~/lib/onboarding/wizard-steps";
 
 import { StepRail } from "./step-rail";
 import { TipCard } from "./tip-card";
 import { Wordmark } from "./wordmark";
 
-// Desktop wizard shell — the warm-canvas frame the producer lives
-// inside for the entire onboarding flow.
-//
-// Layout (per redesign README §"Shell — desktop layout"):
-//
-//   ┌────────────────────────────────────────────────────────────┐
-//   │ HEADER  64px  — wordmark · "Step N of 5" · Save & exit     │
-//   ├──────────┬─────────────────────────────────────────────────┤
-//   │  RAIL    │  MAIN  (centered, max-width 540px, scrollable)  │
-//   │  260px   │                                                 │
-//   │          │                                                 │
-//   │  Tip     │                                                 │
-//   ├──────────┴─────────────────────────────────────────────────┤
-//   │ FOOTER  pinned absolute bottom (optional — Welcome omits)  │
-//   └────────────────────────────────────────────────────────────┘
-//
-// The shell is server-rendered. Children fill the main area. Footer
-// is opt-in — Welcome omits it (no Continue/Back yet). Subsequent
-// step pages will pass a footer slot.
-//
-// Mobile layout is intentionally NOT handled here — Skitza's producer
-// platform is desktop-first per CLAUDE.md ("Desktop only for producer.
-// Artist song page has dedicated mobile UI."). A separate mobile
-// shell will land if/when the producer wizard becomes mobile-supported.
-
 export function WizardChrome({
   activePosition,
-  completedCount = 0,
+  completedCount = 1,
   stepIndicator,
   tip,
   children,
   footer,
+  hoursNotNeeded = false,
+  hideOuterProgress = false,
+  canExit = false,
+  previewMode = false,
 }: {
-  /** Which rail row to highlight as active (1..5). */
   activePosition: 1 | 2 | 3 | 4 | 5;
-  /** Steps strictly before activePosition that are "done" (gold + check). */
   completedCount?: number;
-  /**
-   * Right-of-header copy. Defaults to "Setup" for Welcome; step pages
-   * pass "Step 2 of 5" etc. Pinned at the call site so the wizard
-   * data flow stays one-direction (parent → chrome) and the chrome
-   * doesn't need to look up the active step's position itself.
-   */
   stepIndicator?: string;
-  /** Tip card body. Defaults to the welcome reassurance copy. */
   tip?: ReactNode;
-  /** Main column content. Centered + max-width 540 by the shell. */
   children: ReactNode;
-  /** Optional sticky footer (Continue / Back / Skip). Welcome omits. */
   footer?: ReactNode;
+  hoursNotNeeded?: boolean;
+  hideOuterProgress?: boolean;
+  canExit?: boolean;
+  previewMode?: boolean;
 }) {
+  const activeStep = WIZARD_STEPS[activePosition - 1];
+  const progress = Math.max(1, completedCount, activePosition);
+
   return (
-    <div className="relative flex h-dvh flex-col overflow-hidden bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))]">
-      {/* Header — 64px, wordmark left, indicator + Save & exit right. */}
-      <header className="flex h-16 flex-shrink-0 items-center justify-between border-b border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-7">
+    <div className="relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-[rgb(var(--bg-base))] text-[rgb(var(--fg-primary))]">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-72 overflow-hidden"
+      >
+        <div className="absolute top-[-10rem] left-1/2 h-80 w-80 -translate-x-1/2 rounded-full bg-[rgb(var(--brand-primary)/0.10)] blur-[100px] lg:left-[62%] lg:h-[30rem] lg:w-[30rem]" />
+      </div>
+
+      <header className="relative z-20 flex h-16 flex-shrink-0 items-center justify-between border-b border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base)/0.92)] px-4 backdrop-blur-xl sm:px-6 lg:h-[72px] lg:px-8">
         <Wordmark size={22} href="/" />
-        <div className="flex items-center gap-3.5">
-          <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-[rgb(var(--fg-muted))]">
-            {stepIndicator ?? "Setup"}
+        <div className="flex items-center gap-3">
+          <span className="hidden font-mono text-[11px] tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase sm:inline">
+            {stepIndicator ?? activeStep?.label ?? "Setup"}
           </span>
-          <button
-            type="button"
-            className="sk-pop text-[12.5px] font-semibold text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
-          >
-            Save &amp; exit
-          </button>
+          {canExit ? (
+            <Link
+              href="/dashboard"
+              className="inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-3 text-[13px] font-semibold text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-elevated))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+            >
+              Save &amp; exit
+            </Link>
+          ) : (
+            <span className="text-[12px] font-medium text-[rgb(var(--fg-muted))]">
+              Progress saves here
+            </span>
+          )}
         </div>
       </header>
 
-      {/* Body grid: 260px rail + flexible main. */}
-      <div className="grid min-h-0 flex-1 grid-cols-[260px_1fr]">
-        <aside className="flex flex-col gap-4 border-r border-[rgb(var(--border-subtle))] bg-[rgb(255,255,255,0.4)] px-4 py-7">
-          <div>
-            <div className="mb-2.5 font-mono text-[10px] font-bold uppercase tracking-[0.22em] text-[rgb(var(--fg-muted))]">
-              Setup
+      <div className="relative z-10 grid min-h-0 flex-1 lg:grid-cols-[288px_minmax(0,1fr)]">
+        {!hideOuterProgress ? (
+          <aside className="hidden flex-col border-r border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background)/0.56)] px-5 py-7 backdrop-blur-sm lg:flex">
+            <div className="mb-3 px-3 font-mono text-[10px] font-bold tracking-[0.2em] text-[rgb(var(--fg-muted))] uppercase">
+              Your public page
             </div>
             <StepRail
               activePosition={activePosition}
               completedCount={completedCount}
+              hoursNotNeeded={hoursNotNeeded}
+              previewMode={previewMode}
             />
-          </div>
-          <div className="flex-1" />
-          <TipCard>
-            {tip ?? (
-              <>
-                Don&apos;t overthink it. You can change every single thing
-                later — even your link.
-              </>
-            )}
-          </TipCard>
-        </aside>
+            <div className="flex-1" />
+            <TipCard>
+              {tip ?? (
+                <>Your work is saved as you go. You can safely finish later from the dashboard.</>
+              )}
+            </TipCard>
+          </aside>
+        ) : null}
 
-        <main className="custom-scrollbar overflow-y-auto overflow-x-hidden px-6 py-4 pb-[80px]">
-          <div className="mx-auto w-full max-w-[540px]">{children}</div>
+        <main
+          id="onboarding-main"
+          className={`custom-scrollbar min-w-0 overflow-x-hidden overflow-y-auto ${
+            hideOuterProgress ? "lg:col-span-2" : ""
+          }`}
+        >
+          {!hideOuterProgress ? (
+            <div className="border-b border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background)/0.72)] px-4 py-3 backdrop-blur-sm sm:px-6 lg:hidden">
+              <div className="flex items-center justify-between gap-3">
+                <span className="truncate text-[12px] font-bold text-[rgb(var(--fg-default))]">
+                  {activeStep?.label}
+                </span>
+                <span className="flex-shrink-0 font-mono text-[10px] tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
+                  {progress} of {WIZARD_STEPS.length}
+                </span>
+              </div>
+              <div
+                role="progressbar"
+                aria-label="Onboarding progress"
+                aria-valuenow={progress}
+                aria-valuemin={1}
+                aria-valuemax={WIZARD_STEPS.length}
+                className="mt-2.5 grid grid-cols-5 gap-1.5"
+              >
+                {WIZARD_STEPS.map((step) => {
+                  const done =
+                    step.state === "complete" ||
+                    step.position < activePosition ||
+                    (step.id === "availability" && hoursNotNeeded);
+                  const active = step.position === activePosition;
+                  return (
+                    <span
+                      key={step.id}
+                      className={`h-1 rounded-full ${
+                        done || active
+                          ? "bg-[rgb(var(--brand-primary))]"
+                          : "bg-[rgb(var(--border-subtle))]"
+                      }`}
+                    />
+                  );
+                })}
+              </div>
+              <p className="mt-2 text-[11px] text-[rgb(var(--fg-muted))]">
+                Account created <span aria-hidden>✓</span>
+              </p>
+            </div>
+          ) : null}
+
+          <div
+            className={`mx-auto w-full px-4 py-6 sm:px-6 sm:py-8 ${
+              hideOuterProgress ? "max-w-4xl" : "max-w-[620px]"
+            } ${footer ? "pb-28 lg:pb-24" : "pb-10"}`}
+          >
+            {children}
+          </div>
         </main>
       </div>
 
-      {/* Optional sticky footer — anchored to bottom of the main column. */}
       {footer ? (
-        <div className="absolute bottom-0 left-[260px] right-0 z-10 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base))] px-8 py-3.5">
-          {footer}
+        <div
+          className={`relative z-20 flex-shrink-0 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-base)/0.96)] px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-xl sm:px-6 lg:px-8 ${
+            hideOuterProgress ? "" : "lg:pl-[calc(288px+2rem)]"
+          }`}
+        >
+          <div className="mx-auto w-full max-w-[620px]">{footer}</div>
         </div>
       ) : null}
     </div>

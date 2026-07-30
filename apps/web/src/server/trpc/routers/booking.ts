@@ -873,9 +873,20 @@ const productsRouter = router({
   // products. Distinct from `archive`, which moves the row
   // to a soft-deleted state and removes it from the dashboard list.
   setActive: producerProcedure
-    .input(z.object({ id: z.string().uuid(), active: z.boolean() }))
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        active: z.boolean(),
+        requireAvailability: z.boolean().optional().default(false),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       return ctx.db.transaction(async (tx) => {
+        if (input.active && input.requireAvailability) {
+          await tx.execute(
+            sql`select pg_advisory_xact_lock(hashtextextended(${sessionBookingScheduleAdvisoryLockKey(ctx.producerId)}, 0))`,
+          );
+        }
         const [existing] = await tx
           .select()
           .from(products)
@@ -883,6 +894,19 @@ const productsRouter = router({
           .limit(1)
           .for("update");
         if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+        if (input.active && input.requireAvailability && existing.durationMin > 0) {
+          const [availability] = await tx
+            .select({ id: availabilityBlocks.id })
+            .from(availabilityBlocks)
+            .where(eq(availabilityBlocks.producerId, ctx.producerId))
+            .limit(1);
+          if (!availability) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Add working hours before publishing this product.",
+            });
+          }
+        }
         try {
           mergeAndValidateStoreProduct(existing as StoreProductCommercialInput, {
             active: input.active,

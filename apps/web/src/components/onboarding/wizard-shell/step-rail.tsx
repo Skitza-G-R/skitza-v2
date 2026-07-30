@@ -1,71 +1,74 @@
 import { Check } from "lucide-react";
+import Link from "next/link";
 
 import { WIZARD_STEPS } from "~/lib/onboarding/wizard-steps";
 
-// 260px-wide vertical rail (desktop only) showing the 5 numbered
-// steps plus a "Tip" card slotted at the bottom. Active row gets a
-// white fill + dark filled circle with a light number; completed
-// rows get a gold filled circle with a checkmark; future rows are
-// flat with an outlined circle and a dark number.
-//
-// Welcome passes activePosition=1 to pre-highlight Step 1 as the
-// "next thing" while the producer is still on the welcome screen.
-// Each step page passes its own position. completedCount drives the
-// gold-with-check state for any row strictly before the active row.
-//
-// Server component — no jump handlers wired yet (jump-back becomes
-// relevant once Step 2+ exist). When that lands, this component will
-// take an `onJump?: (position: number) => void` prop and turn rows
-// into <Link> for reachable positions.
-
 export function StepRail({
   activePosition,
-  completedCount = 0,
+  completedCount = 1,
+  hoursNotNeeded = false,
+  previewMode = false,
 }: {
-  /** 1..5 — the rail row that should render in the active state. */
   activePosition: 1 | 2 | 3 | 4 | 5;
-  /** How many steps have been completed (drives the green-check state). */
   completedCount?: number;
+  hoursNotNeeded?: boolean;
+  previewMode?: boolean;
 }) {
   return (
     <ol className="flex flex-col gap-1.5">
       {WIZARD_STEPS.map((step) => {
         const isActive = step.position === activePosition;
-        const isComplete = step.position <= completedCount && !isActive;
+        const isComplete =
+          step.state === "complete" ||
+          (step.position <= completedCount && !isActive) ||
+          (step.id === "availability" && hoursNotNeeded);
+        const meta =
+          step.id === "availability" && hoursNotNeeded ? "Not needed for this product" : step.meta;
 
-        const circleClasses = isActive
-          ? "bg-[rgb(var(--bg-sidebar))] text-[rgb(var(--fg-inverse))]"
-          : isComplete
-            ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))]"
-            : "border border-[rgb(var(--border-subtle))] bg-transparent text-[rgb(var(--fg-default))]";
-
-        const rowClasses = isActive
-          ? "bg-[rgb(var(--bg-elevated))] border border-[rgb(var(--border-subtle))]"
-          : "border border-transparent";
-
-        return (
-          <li
-            key={step.id}
-            className={`flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors duration-200 ${rowClasses}${
-              isActive
-                ? ""
-                : " hover:bg-[rgb(var(--bg-elevated)/0.6)]"
-            }`}
-          >
+        const row = (
+          <>
             <span
               aria-hidden
-              className={`ob-rail-circle flex h-[26px] w-[26px] flex-shrink-0 items-center justify-center rounded-full text-[12px] font-bold ${circleClasses}`}
+              className={`ob-rail-circle flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-[12px] font-bold ${
+                isActive
+                  ? "bg-[rgb(var(--bg-sidebar))] text-[rgb(var(--fg-inverse))]"
+                  : isComplete
+                    ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))]"
+                    : "border border-[rgb(var(--border-subtle))] text-[rgb(var(--fg-muted))]"
+              }`}
             >
               {isComplete ? <Check size={14} strokeWidth={3} /> : step.position}
             </span>
-            <span className="flex flex-col leading-tight">
-              <span className="text-[13px] font-bold text-[rgb(var(--fg-default))]">
+            <span className="min-w-0 leading-tight">
+              <span className="block text-[13px] font-bold text-[rgb(var(--fg-default))]">
                 {step.label}
               </span>
-              <span className="font-mono text-[10.5px] font-bold uppercase tracking-[0.04em] text-[rgb(var(--fg-muted))]">
-                {step.meta}
-              </span>
+              <span className="mt-0.5 block text-[11px] text-[rgb(var(--fg-muted))]">{meta}</span>
             </span>
+          </>
+        );
+
+        const className = `flex min-h-14 items-center gap-3 rounded-[var(--radius-lg)] border px-3 py-2.5 transition-colors ${
+          isActive
+            ? "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-[0_10px_30px_rgb(var(--bg-sidebar)/0.06)]"
+            : "border-transparent"
+        }`;
+
+        return (
+          <li key={step.id}>
+            {step.route && (isComplete || isActive) ? (
+              <Link
+                href={`${step.route}${previewMode ? "?__preview=1" : ""}`}
+                aria-current={isActive ? "step" : undefined}
+                className={`${className} focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none`}
+              >
+                {row}
+              </Link>
+            ) : (
+              <div aria-current={isActive ? "step" : undefined} className={className}>
+                {row}
+              </div>
+            )}
           </li>
         );
       })}
