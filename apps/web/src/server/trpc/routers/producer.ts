@@ -1282,6 +1282,7 @@ export const producerRouter = router({
           .select({
             id: trackVersions.id,
             purchaseId: trackVersions.purchaseId,
+            purchaseLifecycleStatus: purchases.lifecycleStatus,
             purchaseTotalCents: purchases.totalCents,
             purchaseCurrency: purchases.currency,
             label: trackVersions.label,

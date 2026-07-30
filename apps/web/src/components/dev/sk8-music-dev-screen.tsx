@@ -82,6 +82,22 @@ export function Sk8SongDevScreen({
     >
       <SongPage
         role={role}
+        {...(role === "producer"
+          ? {
+              producerProjectHref: "/dashboard/clients-projects/project-sk8-live",
+              ...(archived
+                ? {}
+                : {
+                    versionUpload: {
+                      projectId: "project-sk8-live",
+                      trackId: "track-sk8-live",
+                      defaultLabel: "V3",
+                      versionCount: 2,
+                      publicExposure: "link_and_portfolio" as const,
+                    },
+                  }),
+            }
+          : {})}
         publicSharing={publicSharing}
         {...(role === "producer"
           ? {
@@ -113,7 +129,7 @@ export function Sk8SongDevScreen({
             releasedAtIso: archived ? null : "2026-07-18T12:00:00.000Z",
             workflowStage: archived ? "mixing" : "done",
             projectLifecycleStatus: "active",
-            artistApprovalLocked: true,
+            artistApprovalLocked: role === "artist",
           },
           versions: [
             {

@@ -64,6 +64,25 @@ vi.mock("~/components/runtime-state/use-runtime-state", () => ({
   }),
 }));
 
+vi.mock("~/components/dashboard/song/upload-track-modal", () => ({
+  UploadTrackModal: (props: {
+    open: boolean;
+    projectId: string;
+    trackId?: string;
+    defaultLabel?: string;
+  }) =>
+    props.open ? (
+      <div
+        role="dialog"
+        aria-label="Upload new version"
+        data-project-id={props.projectId}
+        data-track-id={props.trackId}
+      >
+        {props.defaultLabel}
+      </div>
+    ) : null,
+}));
+
 function installMatchMedia(matches: boolean) {
   vi.stubGlobal(
     "matchMedia",
@@ -168,6 +187,39 @@ afterEach(async () => {
 });
 
 describe("SongPage professional player interactions", () => {
+  it("keeps a project-origin return link and opens the next-version uploader", async () => {
+    installMatchMedia(true);
+    const user = userEvent.setup();
+
+    render(
+      <SongPage
+        data={songData(false)}
+        actions={songActions()}
+        producerProjectHref="/dashboard/clients-projects/project-1"
+        versionUpload={{
+          projectId: "project-1",
+          trackId: "track-1",
+          defaultLabel: "V2",
+          versionCount: 1,
+          publicExposure: "none",
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByRole("link", {
+        name: "Open After the Rain — Single project",
+      }).getAttribute("href"),
+    ).toBe("/dashboard/clients-projects/project-1");
+
+    await user.click(screen.getByRole("button", { name: "Upload V2 for After the Rain" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Upload new version" });
+    expect(dialog.getAttribute("data-project-id")).toBe("project-1");
+    expect(dialog.getAttribute("data-track-id")).toBe("track-1");
+    expect(dialog.textContent).toContain("V2");
+  });
+
   it("uses fixed 15 second transport controls", async () => {
     installMatchMedia(false);
     const user = userEvent.setup();

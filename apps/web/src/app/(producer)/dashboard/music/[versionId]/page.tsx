@@ -5,6 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { SongPage, type SongPageData } from "~/components/music/song-page";
 import type { SongPublicSharingView } from "~/components/music/song-public-link-controls";
 import { PUBLIC_BRAND_ORIGIN } from "~/lib/share/public-url";
+import { classifySongUploadPublicExposure } from "~/server/domain/song-publication/upload-exposure";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import {
@@ -26,13 +27,20 @@ import {
 } from "./actions";
 import { loadProducerSongSupplements } from "./song-detail-supplements";
 import {
+  canUploadProducerSongVersion,
+  producerProjectOriginHref,
+} from "./project-origin";
+import {
   disablePublicSongLink,
   publishPublicSongLink,
   resetPublicSongLink,
   setSongPortfolioPublic,
 } from "../public-link-actions";
 
-type PageProps = { params: Promise<{ versionId: string }> };
+type PageProps = {
+  params: Promise<{ versionId: string }>;
+  searchParams?: Promise<{ from?: string }>;
+};
 
 // L3 song page — full waveform + timestamped comments + version
 // switcher + producer-ready/reopen controls. Routed at /dashboard/music/<versionId>
@@ -43,8 +51,9 @@ type PageProps = { params: Promise<{ versionId: string }> };
 // /artist/music/[projectId]/page.tsx already uses. We don't differentiate
 // "doesn't exist" from "not yours" so we don't leak the existence of
 // other producers' track-versions.
-export default async function ProducerSongPage({ params }: PageProps) {
+export default async function ProducerSongPage({ params, searchParams }: PageProps) {
   const { versionId } = await params;
+  const query = (await searchParams) ?? {};
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
 
@@ -73,6 +82,24 @@ export default async function ProducerSongPage({ params }: PageProps) {
     tokenVersion: sharing.tokenVersion,
     publicUrl: sharing.publicUrl ? `${PUBLIC_BRAND_ORIGIN}${sharing.publicUrl}` : null,
   };
+  const producerProjectHref = producerProjectOriginHref(data.track.projectId, query.from);
+  const uploadPurchase = data.versions[0];
+  const versionUpload =
+    uploadPurchase &&
+    canUploadProducerSongVersion({
+      projectLifecycleStatus: data.track.projectLifecycleStatus,
+      purchaseLifecycleStatus: uploadPurchase.purchaseLifecycleStatus,
+      trackArchived: data.track.archivedAt !== null,
+      artistApprovalLocked: data.track.artistApprovalLocked,
+    })
+      ? {
+          projectId: data.track.projectId,
+          trackId: data.track.id,
+          defaultLabel: `V${String(data.versions.length + 1)}`,
+          versionCount: data.versions.length,
+          publicExposure: classifySongUploadPublicExposure(sharing),
+        }
+      : undefined;
 
   // Cross the RSC → client boundary as plain JSON (Date → ISO).
   const wire: SongPageData = {
@@ -144,6 +171,8 @@ export default async function ProducerSongPage({ params }: PageProps) {
     <SongPage
       data={wire}
       role="producer"
+      producerProjectHref={producerProjectHref}
+      versionUpload={versionUpload}
       publicSharing={publicSharing}
       publicSharingActions={{
         publish: publishPublicSongLink,

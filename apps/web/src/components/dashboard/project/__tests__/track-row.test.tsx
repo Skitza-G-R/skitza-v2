@@ -23,6 +23,10 @@ describe("TrackRow — album-page tracklist row", () => {
     expect(SRC).toContain('from "next/link"');
   });
 
+  it("fully prefetches the protected Song Page before a project-row click", () => {
+    expect(SRC).toMatch(/<Link[\s\S]{0,180}?prefetch=\{true\}/);
+  });
+
   it("uses the server-provided player or upload destination without a nested Song Space", () => {
     expect(SRC).toContain("detailHref");
     expect(SRC).not.toContain("projectSongWorkspaceHref");
