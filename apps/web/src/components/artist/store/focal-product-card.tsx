@@ -54,7 +54,7 @@ export function FocalProductCard({
   } else {
     meta.push(planLabel(product.pricingModel).toUpperCase());
   }
-  if (product.sessionCount === 0) {
+  if (product.durationMin && product.sessionCount === 0) {
     meta.push("UNLIMITED SESSIONS");
   } else if (product.sessionCount && product.sessionCount > 0) {
     meta.push(

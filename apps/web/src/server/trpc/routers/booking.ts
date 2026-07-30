@@ -256,6 +256,9 @@ const ProductInputShape = {
   // accepted so an editor can clear the legacy column without a migration.
   contractUrl: z.null().optional(),
   agreementText: z.string().max(20_000).nullable().optional(),
+  // Visibility is part of creation so "Save hidden" never exposes a product
+  // between two mutations. Existing callers omit it and stay live by default.
+  active: z.boolean().default(true),
 };
 
 const ProductInput = z.object(ProductInputShape).superRefine((val, ctx) => {
@@ -657,7 +660,7 @@ const productsRouter = router({
         paymentPlans: values.paymentPlans ?? [{ kind: "full" }],
         royaltyTerms: values.royaltyTerms ?? null,
         agreementText: values.agreementText ?? null,
-        active: true,
+        active: values.active,
         archivedAt: null,
       });
     } catch (error) {

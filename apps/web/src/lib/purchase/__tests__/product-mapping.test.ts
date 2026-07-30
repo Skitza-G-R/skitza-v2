@@ -52,6 +52,10 @@ describe("durationLabel", () => {
   it("does not turn an unlimited session allowance into a single session", () => {
     expect(durationLabel(0, 90)).toBe("Unlimited sessions · 1h 30m each");
   });
+
+  it("describes duration zero as no bookable sessions, never unlimited", () => {
+    expect(durationLabel(0, 0)).toBe("No bookable sessions included");
+  });
 });
 
 describe("toPurchaseProduct", () => {
@@ -104,6 +108,17 @@ describe("toPurchaseProduct", () => {
     expect(product.durationLabel).toBe("Unlimited sessions · 2h each");
     expect(product.unlimitedSessions).toBe(true);
     expect(product.unlimitedRevisions).toBe(true);
+  });
+
+  it("does not treat a pure-delivery product as unlimited sessions", () => {
+    const product = toPurchaseProduct({
+      ...ROW,
+      durationMin: 0,
+      sessionCount: 0,
+    });
+
+    expect(product.durationLabel).toBe("No bookable sessions included");
+    expect(product.unlimitedSessions).toBe(false);
   });
 });
 

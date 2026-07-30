@@ -24,7 +24,8 @@ describe("TypeStep", () => {
     expect(SRC).toMatch(/onPick\s*\(\s*p\.id|onPick\(preset\.id/);
   });
 
-  it("renders the Blank preset with a dashed border to mark it as start-from-scratch", () => {
+  it("renders the internally-compatible blank preset as Custom with a dashed border", () => {
     expect(SRC).toMatch(/p\.id\s*===\s*["']blank["'][\s\S]{0,200}border-dashed/);
+    expect(SRC).not.toMatch(/>\s*Blank\s*</);
   });
 });

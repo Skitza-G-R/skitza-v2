@@ -14,6 +14,7 @@ function flatDraft(overrides: Partial<PackageDraft> = {}): PackageDraft {
     type: "mix",
     price: 200,
     currency: "USD",
+    includesSessions: true,
     sessions: 1,
     unlimitedSessions: false,
     payment: {
@@ -185,5 +186,19 @@ describe("buildPackagePayload", () => {
     expect(payload).not.toHaveProperty("depositPct");
     expect(payload).not.toHaveProperty("depositModel");
     expect(payload).not.toHaveProperty("milestones");
+  });
+
+  it("stores a pure-delivery product without creating an unlimited session allowance", () => {
+    const payload = buildPackagePayload(
+      flatDraft({
+        includesSessions: false,
+        sessions: 8,
+        unlimitedSessions: true,
+        duration: "180 min",
+      }),
+    );
+
+    expect(payload.durationMin).toBe(0);
+    expect(payload.sessionCount).toBe(0);
   });
 });

@@ -21,6 +21,7 @@ interface ArtistProductPreviewProps {
   currency: string;
   pricingModel: "flat" | "per_song";
   volumeTiers: VolumeTier[];
+  includesSessions?: boolean;
   sessions: number;
   unlimitedSessions: boolean;
   duration: string;
@@ -53,6 +54,7 @@ export function ArtistProductPreview({
   currency,
   pricingModel,
   volumeTiers,
+  includesSessions = true,
   sessions,
   unlimitedSessions,
   duration,
@@ -68,8 +70,8 @@ export function ArtistProductPreview({
 }: ArtistProductPreviewProps) {
   const [showDetails, setShowDetails] = useState(false);
   const previewTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const durationMin = parseDurationMinutes(duration);
-  const sessionCount = unlimitedSessions ? 0 : sessions;
+  const durationMin = includesSessions ? parseDurationMinutes(duration) : 0;
+  const sessionCount = !includesSessions ? 0 : unlimitedSessions ? 0 : sessions;
   const displayName = producerName.trim() || "Your studio";
   const previewId = "artist-product-preview";
 
@@ -82,7 +84,7 @@ export function ArtistProductPreview({
     includes,
     tagline: tagline || null,
     sessions: sessionCount,
-    unlimitedSessions,
+    unlimitedSessions: includesSessions && unlimitedSessions,
     revisions: unlimitedRevisions ? 0 : revisions,
     unlimitedRevisions,
     paymentPlans,
@@ -104,8 +106,8 @@ export function ArtistProductPreview({
     currency,
     pricingModel,
     volumeTiers,
-    sessionCount,
-    durationMin,
+    sessionCount: includesSessions ? sessionCount : null,
+    durationMin: includesSessions ? durationMin : null,
   };
 
   function openDetails(trigger: HTMLButtonElement) {

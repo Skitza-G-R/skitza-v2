@@ -36,6 +36,8 @@ interface PaymentInstructionsState {
 interface InitialState {
   displayName: string;
   defaultCurrency: "USD" | "EUR" | "GBP" | "ILS";
+  taxMode: "tax_free" | "tax_included" | "tax_added";
+  taxRatePct: number;
   weekStart: "sunday" | "monday";
   plan: "free" | "pro";
   paymentInstructions: PaymentInstructionsState;
@@ -56,6 +58,8 @@ interface IdentityState {
 interface FormState {
   displayName: string;
   defaultCurrency: "USD" | "EUR" | "GBP" | "ILS";
+  taxMode: "tax_free" | "tax_included" | "tax_added";
+  taxRatePct: number;
   weekStart: "sunday" | "monday";
   paymentInstructions: PaymentInstructionsState;
 }
@@ -97,6 +101,8 @@ export function SettingsClient({
   const initialForm: FormState = {
     displayName: initial.displayName,
     defaultCurrency: initial.defaultCurrency,
+    taxMode: initial.taxMode,
+    taxRatePct: initial.taxRatePct,
     weekStart: initial.weekStart,
     paymentInstructions: initial.paymentInstructions,
   };
@@ -124,7 +130,7 @@ export function SettingsClient({
   // section has unsaved edits, not just THAT something is unsaved.
   // Fields → section ownership:
   //   displayName              → profile
-  //   defaultCurrency, weekStart → region
+  //   defaultCurrency, taxMode, taxRatePct, weekStart → region
   //   payment instructions     → int
   // Plan doesn't own savebar-managed fields, so it never appears here.
   const dirtySections = useMemo<Set<SettingsSectionKey>>(() => {
@@ -132,6 +138,8 @@ export function SettingsClient({
     if (form.displayName !== savedForm.displayName) out.add("profile");
     if (
       form.defaultCurrency !== savedForm.defaultCurrency ||
+      form.taxMode !== savedForm.taxMode ||
+      form.taxRatePct !== savedForm.taxRatePct ||
       form.weekStart !== savedForm.weekStart
     ) {
       out.add("region");
@@ -163,6 +171,8 @@ export function SettingsClient({
     if (form.displayName !== savedForm.displayName) patch.displayName = form.displayName;
     if (form.defaultCurrency !== savedForm.defaultCurrency)
       patch.defaultCurrency = form.defaultCurrency;
+    if (form.taxMode !== savedForm.taxMode) patch.taxMode = form.taxMode;
+    if (form.taxRatePct !== savedForm.taxRatePct) patch.taxRatePct = form.taxRatePct;
     if (form.weekStart !== savedForm.weekStart) patch.weekStart = form.weekStart;
     if (
       JSON.stringify(form.paymentInstructions) !== JSON.stringify(savedForm.paymentInstructions)
@@ -184,6 +194,8 @@ export function SettingsClient({
             setSavedForm((current) => ({
               displayName: res.saved?.producer ? form.displayName : current.displayName,
               defaultCurrency: res.saved?.producer ? form.defaultCurrency : current.defaultCurrency,
+              taxMode: res.saved?.producer ? form.taxMode : current.taxMode,
+              taxRatePct: res.saved?.producer ? form.taxRatePct : current.taxRatePct,
               weekStart: res.saved?.producer ? form.weekStart : current.weekStart,
               paymentInstructions: res.saved?.paymentInstructions
                 ? form.paymentInstructions
@@ -714,7 +726,7 @@ function RegionSection({ form, setForm }: { form: FormState; setForm: (next: For
       <header className="s-section-head">
         <span className="s-section-eyebrow">Localization</span>
         <h2 id="settings-region-h">Currency &amp; region</h2>
-        <p>Defaults for storefront pricing and the calendar week.</p>
+        <p>Defaults for Store pricing, tax, and the calendar week.</p>
       </header>
       <div className="s-card">
         <div className="s-row">
@@ -743,6 +755,66 @@ function RegionSection({ form, setForm }: { form: FormState; setForm: (next: For
             </select>
           </div>
         </div>
+        <div className="s-row">
+          <div>
+            <label className="s-row-label" htmlFor="settings-tax-treatment">
+              Tax treatment
+            </label>
+            <div className="s-row-hint">
+              Applied to Store products and used as the default for new private offers.
+            </div>
+          </div>
+          <div className="s-row-field" style={{ maxWidth: 260 }}>
+            <select
+              id="settings-tax-treatment"
+              className="s-select"
+              value={form.taxMode}
+              onChange={(event) => {
+                setForm({
+                  ...form,
+                  taxMode: event.target.value as FormState["taxMode"],
+                });
+              }}
+            >
+              <option value="tax_free">Tax-free</option>
+              <option value="tax_included">Included in price</option>
+              <option value="tax_added">Added at checkout</option>
+            </select>
+          </div>
+        </div>
+        {form.taxMode === "tax_free" ? null : (
+          <div className="s-row">
+            <div>
+              <label className="s-row-label" htmlFor="settings-tax-rate">
+                Tax rate
+              </label>
+              <div className="s-row-hint">
+                Use a whole-number percentage, such as 18%.
+              </div>
+            </div>
+            <div className="s-row-field" style={{ maxWidth: 160 }}>
+              <input
+                id="settings-tax-rate"
+                className="s-input"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={100}
+                step={1}
+                value={form.taxRatePct}
+                onChange={(event) => {
+                  const next = Number.parseInt(event.target.value, 10);
+                  setForm({
+                    ...form,
+                    taxRatePct: Number.isFinite(next)
+                      ? Math.max(0, Math.min(100, next))
+                      : 0,
+                  });
+                }}
+              />
+            </div>
+          </div>
+        )}
         <div className="s-row">
           <div>
             <div className="s-row-label">Week starts on</div>

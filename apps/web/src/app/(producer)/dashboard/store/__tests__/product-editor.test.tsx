@@ -51,7 +51,7 @@ describe("ProductEditor orchestrator", () => {
     expect(SRC).toMatch(/createPackage|updatePackage|packages\.create|packages\.update/);
   });
 
-  it("keeps catalog saves live-only and handles transport failures locally", () => {
+  it("keeps catalog saves online-only and handles transport failures locally", () => {
     expect(SRC).toContain("useOnlineStatus");
     expect(SRC).toContain("Reconnect to save this product.");
     expect(SRC).toContain("Could not save this product. Please try again.");
@@ -60,7 +60,7 @@ describe("ProductEditor orchestrator", () => {
   it("flushes an edit synchronously when client navigation unmounts inside the debounce", () => {
     const debounceStart = SRC.indexOf("const timeout = window.setTimeout");
     const lifecycleStart = SRC.indexOf("const flush = () =>", debounceStart);
-    const lifecycleEnd = SRC.indexOf("function onTaxChange", lifecycleStart);
+    const lifecycleEnd = SRC.indexOf("function handleEditorOpenChange", lifecycleStart);
     const lifecycle = SRC.slice(lifecycleStart, lifecycleEnd);
 
     expect(debounceStart).toBeGreaterThan(-1);
@@ -75,13 +75,13 @@ describe("ProductEditor orchestrator", () => {
     const debounce = SRC.slice(debounceStart, debounceEnd);
 
     expect(debounce).toContain("latestPersistedDraftRef.current");
-    expect(debounce).toContain("if (latest) onPersistDraft(latest)");
+    expect(debounce).toContain("latest && onPersistDraft(latest)");
     expect(debounce).not.toContain("onPersistDraft(nextRecord)");
   });
 
   it("keeps the unmount flush available for an ordinary close", () => {
     const handlerStart = SRC.indexOf("function handleEditorOpenChange");
-    const handlerEnd = SRC.indexOf("function onTaxChange", handlerStart);
+    const handlerEnd = SRC.indexOf("function handleSuccessfulSubmit", handlerStart);
     const handler = SRC.slice(handlerStart, handlerEnd);
     const persistIndex = handler.indexOf("onPersistDraft(latest)");
     const clearIndex = handler.indexOf("latestPersistedDraftRef.current = null");
@@ -96,9 +96,9 @@ describe("ProductEditor orchestrator", () => {
 
   it("clears the saved draft only after a successful submit", () => {
     const closeStart = SRC.indexOf("function handleSuccessfulSubmit");
-    const closeEnd = SRC.indexOf("function onTaxChange", closeStart);
+    const closeEnd = SRC.indexOf("function handleDiscardDraft", closeStart);
     const close = SRC.slice(closeStart, closeEnd);
-    const saveStart = SRC.indexOf("function save()");
+    const saveStart = SRC.indexOf("function save(active: boolean)");
     const saveEnd = SRC.indexOf("const basePriceCents", saveStart);
     const save = SRC.slice(saveStart, saveEnd);
 
@@ -167,5 +167,30 @@ describe("ProductEditor orchestrator", () => {
     expect(SRC).toMatch(/paymentPlanFeasibilityError\(draft\)/);
     expect(SRC).toMatch(/tagline=\{draft\.tagline\}/);
     expect(SRC).toMatch(/priceError=\{priceError\}/);
+  });
+
+  it("creates live and hidden products atomically through the same create call", () => {
+    expect(SRC).toMatch(/createPackage\(\{\s*\.\.\.payload,\s*active\s*\}/);
+    expect(SRC).toMatch(/onPublish/);
+    expect(SRC).toMatch(/onSaveHidden/);
+  });
+
+  it("models bookable sessions independently from the product type", () => {
+    expect(SRC).toMatch(/includesSessions/);
+    expect(SRC).toMatch(/product\.durationMin\s*>\s*0/);
+    expect(SRC).toMatch(/includesSessions=\{draft\.includesSessions\}/);
+    expect(SRC).not.toMatch(/draft\.type\s*===\s*"mix"[\s\S]{0,120}includesSessions/);
+  });
+
+  it("shows actual draft persistence and supports an explicit discard", () => {
+    expect(SRC).toMatch(/draftSaved=\{draftSaved\}/);
+    expect(SRC).toMatch(/onDiscardDraft/);
+    expect(SRC).toMatch(/onDiscard=/);
+  });
+
+  it("uses read-only global tax state in the product flow", () => {
+    expect(SRC).not.toMatch(/function onTaxChange/);
+    expect(SRC).not.toMatch(/updateProducer/);
+    expect(SRC).not.toMatch(/onTaxChange=/);
   });
 });
