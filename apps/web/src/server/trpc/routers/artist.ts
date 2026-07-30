@@ -82,6 +82,7 @@ import {
   VersionApprovalDomainError,
 } from "~/server/domain/version-approval/service";
 import { deliverPushToProducer, deliverPushToVersionProducer } from "~/server/push/delivery";
+import { privateSongArtworkPath } from "~/server/domain/song-artwork/urls";
 
 function purchaseProductName(
   snapshot: PurchaseCommercialSnapshot | null,
@@ -776,6 +777,7 @@ const musicSubrouter = router({
           trackTitle: projectTracks.title,
           trackArtist: projectTracks.artist,
           trackWorkflowStage: projectTracks.workflowStage,
+          trackArtworkR2Key: projectTracks.artworkR2Key,
           trackArchivedAt: projectTracks.archivedAt,
           trackReleasedAt: projectTracks.releasedAt,
           projectId: projects.id,
@@ -918,6 +920,7 @@ const musicSubrouter = router({
           title: head.trackTitle,
           artist: head.trackArtist,
           workflowStage: head.trackWorkflowStage,
+          artworkUrl: head.trackArtworkR2Key ? privateSongArtworkPath(head.trackId) : null,
           archivedAt: head.trackArchivedAt,
           releasedAt: head.trackReleasedAt,
           projectId: head.projectId,

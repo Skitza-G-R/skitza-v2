@@ -46,44 +46,30 @@ describe("Past-studio exact historical access contract", () => {
     expect(historySource).toContain(
       'eq(artistHistoricalAccessGrants.resourceType, "track_version")',
     );
-    expect(historySource).toContain(
-      "eq(artistHistoricalAccessGrants.resourceId, input.versionId)",
-    );
+    expect(historySource).toContain("eq(artistHistoricalAccessGrants.resourceId, input.versionId)");
     expect(historySource).toContain(
       'eq(artistHistoricalAccessGrants.resourceType, "payment_proof")',
     );
-    expect(historySource).toContain(
-      "eq(artistHistoricalAccessGrants.resourceId, input.proofId)",
-    );
-    expect(historySource).toContain(
-      'eq(artistHistoricalAccessGrants.resourceType, "booking")',
-    );
-    expect(historySource).toContain(
-      "eq(artistHistoricalAccessGrants.resourceId, input.sessionId)",
-    );
+    expect(historySource).toContain("eq(artistHistoricalAccessGrants.resourceId, input.proofId)");
+    expect(historySource).toContain('eq(artistHistoricalAccessGrants.resourceType, "booking")');
+    expect(historySource).toContain("eq(artistHistoricalAccessGrants.resourceId, input.sessionId)");
   });
 
   it("separates playback grants from exact-version download grants", () => {
-    expect(historySource).toContain(
-      'resourceType: "track_version_download"',
-    );
+    expect(historySource).toContain('resourceType: "track_version_download"');
     expect(historySource).toMatch(
       /input\.download[\s\S]*resourceType: "track_version_download"[\s\S]*resourceId: row\.versionId/,
     );
     expect(versionPage).toContain(
       'controlsList={data.version.downloadUrl ? undefined : "nodownload"}',
     );
-    expect(versionPage).toMatch(
-      /data\.version\.downloadUrl \?[\s\S]*Download this version/,
-    );
+    expect(versionPage).toMatch(/data\.version\.downloadUrl \?[\s\S]*Download this version/);
   });
 
   it("keeps every detail standing and mutation-free with an exact Past-studio Back link", () => {
     for (const source of [versionPage, proofPage, sessionPage]) {
       expect(source).toContain("<PastStudioRecordShell");
-      expect(source).toContain(
-        "`/artist/settings/studios/${encodeURIComponent(producerId)}`",
-      );
+      expect(source).toContain("`/artist/settings/studios/${encodeURIComponent(producerId)}`");
       expect(source).not.toMatch(/mutation|server action|Upload|Reschedule|Cancel session/);
     }
     expect(pastStudioPage).toContain("/music/${encodeURIComponent(song.id)}/versions/");
@@ -92,13 +78,10 @@ describe("Past-studio exact historical access contract", () => {
   });
 
   it("keeps zero-active-studio history reachable without creating a switcher studio", () => {
-    expect(roleSource).toContain("pastStudioGrant");
-    expect(roleSource).toContain(
-      "contact !== undefined || pastStudioGrant !== undefined",
-    );
-    expect(roleSource).not.toMatch(
-      /pastStudioGrant[\s\S]{0,180}(initialStudioId|artist\.studios)/,
-    );
+    expect(roleSource).toContain("hasAnyClientContacts");
+    expect(roleSource).toContain(".where(eq(clientContacts.clerkUserId, params.userId))");
+    expect(roleSource).toMatch(/hasArtistAccount:[\s\S]{0,180}hasAnyClientContacts/);
+    expect(roleSource).not.toContain("artistHistoricalAccessGrants");
   });
 
   it("rechecks the exact historical proof and studio grants before private evidence", () => {

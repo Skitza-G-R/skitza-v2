@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
-  decideRoleAccessRedirect,
+  decideAccountMembershipRedirect,
   decideRoleRedirect,
-  resolveUserAccess,
   type ProducerRow,
+  type UserAccountMemberships,
   type UserRole,
 } from "../role";
 
@@ -95,33 +95,42 @@ describe("decideRoleRedirect — artist policy", () => {
   });
 });
 
-describe("decideRoleAccessRedirect — dual-role capability policy", () => {
-  it("allows a complete producer with an active artist relationship into either app", () => {
-    const access = resolveUserAccess({
-      userId: "user_dual",
-      producerRow: completeProducer,
-      hasClientContacts: true,
-    });
-    expect(decideRoleAccessRedirect(access, "producer")).toBeNull();
-    expect(decideRoleAccessRedirect(access, "artist")).toBeNull();
+describe("decideAccountMembershipRedirect", () => {
+  it("allows a dual-role account through either route family", () => {
+    const dual: UserAccountMemberships = {
+      primaryRole: proComplete,
+      hasArtistAccount: true,
+    };
+
+    expect(decideAccountMembershipRedirect(dual, "producer")).toBeNull();
+    expect(decideAccountMembershipRedirect(dual, "artist")).toBeNull();
   });
 
-  it("keeps a producer-only account out of the artist app", () => {
-    const access = resolveUserAccess({
-      userId: "user_producer_only",
-      producerRow: completeProducer,
-      hasClientContacts: false,
-    });
-    expect(decideRoleAccessRedirect(access, "artist")).toBe("/dashboard");
+  it("allows a disconnected artist account into the empty artist platform", () => {
+    const disconnectedArtist: UserAccountMemberships = {
+      primaryRole: orphan,
+      hasArtistAccount: true,
+    };
+
+    expect(decideAccountMembershipRedirect(disconnectedArtist, "artist")).toBeNull();
   });
 
-  it("allows an artist capability while an optional producer profile is incomplete", () => {
-    const access = resolveUserAccess({
-      userId: "user_dual_incomplete",
-      producerRow: incompleteProducer,
-      hasClientContacts: true,
-    });
-    expect(decideRoleAccessRedirect(access, "artist")).toBeNull();
-    expect(decideRoleAccessRedirect(access, "producer")).toBe("/onboarding");
+  it("preserves strict rejection for a producer without artist membership", () => {
+    const producerOnlyMemberships: UserAccountMemberships = {
+      primaryRole: proComplete,
+      hasArtistAccount: false,
+    };
+
+    expect(decideAccountMembershipRedirect(producerOnlyMemberships, "artist")).toBe("/dashboard");
+  });
+
+  it("allows artist access while keeping an incomplete producer in onboarding", () => {
+    const incompleteDual: UserAccountMemberships = {
+      primaryRole: proIncomplete,
+      hasArtistAccount: true,
+    };
+
+    expect(decideAccountMembershipRedirect(incompleteDual, "artist")).toBeNull();
+    expect(decideAccountMembershipRedirect(incompleteDual, "producer")).toBe("/onboarding");
   });
 });

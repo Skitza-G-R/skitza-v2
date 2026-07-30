@@ -1,5 +1,22 @@
 import { SignUp } from "@clerk/nextjs";
+import { auth } from "@clerk/nextjs/server";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+
 import { AuthHero } from "~/components/auth/auth-hero";
+import {
+  RETURNING_DEVICE_COOKIE,
+  shouldRedirectReturningDeviceToSignIn,
+  signInSwitchHref,
+} from "~/server/auth/returning-device";
+
+type Props = {
+  params: Promise<{ "sign-up"?: string[] }>;
+  searchParams: Promise<{
+    intent?: string | string[];
+    redirect_url?: string | string[];
+  }>;
+};
 
 // Default producer sign-up. The landing-page CTAs + direct /sign-up
 // visits end up here. Post-signup we want the new Producer on the
@@ -20,18 +37,38 @@ import { AuthHero } from "~/components/auth/auth-hero";
 //
 // AuthHero copy mirrors `/tmp/skitza-design/tabs/auth.jsx`
 // `SignUpScreen` ("Build your hall." + the no-card-needed blurb).
-export default function Page() {
+export default async function Page({ params, searchParams }: Props) {
+  const [route, query, session, cookieStore] = await Promise.all([
+    params,
+    searchParams,
+    auth(),
+    cookies(),
+  ]);
+  const requestedHref =
+    typeof query.redirect_url === "string" ? query.redirect_url : null;
+  const intent = typeof query.intent === "string" ? query.intent : undefined;
+
+  if (
+    shouldRedirectReturningDeviceToSignIn({
+      userId: session.userId,
+      cookieValue: cookieStore.get(RETURNING_DEVICE_COOKIE)?.value,
+      intent,
+      routeSegments: route["sign-up"],
+    })
+  ) {
+    redirect(signInSwitchHref(requestedHref));
+  }
+
+  const signInHref = signInSwitchHref(requestedHref);
+
   return (
-    <div className="space-y-5 sm:space-y-6">
+    <div className="sk-auth-page" data-auth-page="sign-up">
       <AuthHero
         eyebrow="Join Skitza"
         title="Build your hall"
         blurb="Free to start. No card. Three minutes to your first booking link."
       />
-      <SignUp
-        signInUrl="/sign-in"
-        fallbackRedirectUrl="/dashboard"
-      />
+      <SignUp signInUrl={signInHref} fallbackRedirectUrl="/dashboard" />
     </div>
   );
 }

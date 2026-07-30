@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveUserAccess, resolveUserRole, type ProducerRow } from "../role";
+import { resolveUserAccountMemberships, resolveUserRole, type ProducerRow } from "../role";
 import { emailToSlug } from "~/lib/slug";
 
 // Tests for the pure role-resolution function used across every
@@ -131,25 +131,42 @@ describe("resolveUserRole", () => {
   });
 });
 
-describe("resolveUserAccess", () => {
-  it("keeps producer as the launch role while granting explicit artist access", () => {
-    const access = resolveUserAccess({
+describe("resolveUserAccountMemberships", () => {
+  it("keeps producer precedence while exposing a genuine dual role", () => {
+    const memberships = resolveUserAccountMemberships({
       userId: "user_dual",
       producerRow: completeProducer,
-      hasClientContacts: true,
+      hasActiveClientContacts: true,
+      hasAnyClientContacts: true,
     });
-    expect(access.role.kind).toBe("producer-complete");
-    expect(access.hasProducerProfile).toBe(true);
-    expect(access.hasProducerAccess).toBe(true);
-    expect(access.hasArtistAccess).toBe(true);
+
+    expect(memberships.primaryRole.kind).toBe("producer-complete");
+    expect(memberships.hasArtistAccount).toBe(true);
   });
 
-  it("does not invent artist access from a producer profile alone", () => {
-    const access = resolveUserAccess({
-      userId: "user_pro",
-      producerRow: completeProducer,
-      hasClientContacts: false,
+  it("preserves artist identity after the last studio is disconnected", () => {
+    const memberships = resolveUserAccountMemberships({
+      userId: "user_disconnected_artist",
+      producerRow: null,
+      hasActiveClientContacts: false,
+      hasAnyClientContacts: true,
     });
-    expect(access.hasArtistAccess).toBe(false);
+
+    expect(memberships.primaryRole.kind).toBe("orphan");
+    expect(memberships.hasArtistAccount).toBe(true);
+  });
+
+  it("does not infer artist membership for an unauthenticated request", () => {
+    const memberships = resolveUserAccountMemberships({
+      userId: null,
+      producerRow: null,
+      hasActiveClientContacts: true,
+      hasAnyClientContacts: true,
+    });
+
+    expect(memberships).toEqual({
+      primaryRole: { kind: "unauthenticated" },
+      hasArtistAccount: false,
+    });
   });
 });

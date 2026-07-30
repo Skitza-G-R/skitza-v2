@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { runtimeLaunchHrefForRole } from "../launch-role";
+import {
+  runtimeLaunchHrefForMemberships,
+  runtimeLaunchHrefForRole,
+} from "../launch-role";
 
 describe("runtime launch role resolver", () => {
   it.each([
@@ -30,7 +33,7 @@ describe("runtime launch role resolver", () => {
       "/onboarding",
     ],
     [{ kind: "orphan" as const }, "/onboarding"],
-    [{ kind: "unauthenticated" as const }, "/sign-in"],
+    [{ kind: "unauthenticated" as const }, "/sign-up"],
   ])("routes %o to %s", (role, expected) => {
     expect(runtimeLaunchHrefForRole(role)).toBe(expected);
   });
@@ -68,5 +71,86 @@ describe("runtime launch role resolver", () => {
     expect(runtimeLaunchHrefForRole(producer, "/artist/music")).toBe(
       "/dashboard",
     );
+  });
+});
+
+describe("membership-aware runtime launch resolver", () => {
+  const completeProducer = {
+    kind: "producer-complete" as const,
+    producer: {
+      id: "producer-a",
+      displayName: "Producer",
+      slug: "producer",
+      email: "producer@example.com",
+    },
+  };
+
+  it("asks a genuine dual account which safe workspace to resume", () => {
+    expect(
+      runtimeLaunchHrefForMemberships(
+        {
+          primaryRole: completeProducer,
+          hasArtistAccount: true,
+        },
+        "/artist/music?studio=studio-a&mode=songs",
+      ),
+    ).toBe(
+      "/choose-role?next=%2Fartist%2Fmusic%3Fmode%3Dsongs%26studio%3Dstudio-a",
+    );
+  });
+
+  it("resumes a disconnected artist in the artist workspace", () => {
+    expect(
+      runtimeLaunchHrefForMemberships(
+        {
+          primaryRole: { kind: "orphan" },
+          hasArtistAccount: true,
+        },
+        "/artist/music?mode=projects",
+      ),
+    ).toBe("/artist/music?mode=projects");
+  });
+
+  it("sends an unknown signed-out launch to sign-up marketing", () => {
+    expect(
+      runtimeLaunchHrefForMemberships({
+        primaryRole: { kind: "unauthenticated" },
+        hasArtistAccount: false,
+      }),
+    ).toBe("/sign-up");
+  });
+
+  it("carries only an allowlisted saved screen into new-user sign-up", () => {
+    const unauthenticated = {
+      primaryRole: { kind: "unauthenticated" as const },
+      hasArtistAccount: false,
+    };
+
+    expect(
+      runtimeLaunchHrefForMemberships(
+        unauthenticated,
+        "/dashboard/music?mode=songs&search=demo",
+      ),
+    ).toBe(
+      "/sign-up?redirect_url=%2Fdashboard%2Fmusic%3Fmode%3Dsongs%26search%3Ddemo",
+    );
+    expect(
+      runtimeLaunchHrefForMemberships(
+        unauthenticated,
+        "/artist/payments/purchase-1",
+      ),
+    ).toBe("/sign-up");
+  });
+
+  it("keeps a producer-only account on the producer platform", () => {
+    expect(
+      runtimeLaunchHrefForMemberships(
+        {
+          primaryRole: completeProducer,
+          hasArtistAccount: false,
+        },
+        "/artist/music",
+      ),
+    ).toBe("/dashboard");
   });
 });

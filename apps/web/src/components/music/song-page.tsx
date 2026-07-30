@@ -1,23 +1,36 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useId, useMemo, useRef, useState, useTransition, type RefObject } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+  type ReactNode,
+  type RefObject,
+} from "react";
 
 import { Waveform50, type WaveformComment } from "~/components/audio/waveform-50";
 import {
   PLAYER_EVENTS,
+  clampSeekMs,
   playerClose,
+  playerLoad,
   playerPlay,
   playerSeek,
+  playerSetVolume,
   playerToggle,
   useNowPlaying,
+  usePlaybackSnapshot,
   type PlayerTrack,
 } from "~/components/audio/persistent-player";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useRuntimeTextDraft } from "~/components/runtime-state/use-runtime-state";
+import { Card } from "~/components/ui/card";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "~/components/ui/sheet";
-import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 import { formatMoney } from "~/lib/format/money";
 
@@ -26,6 +39,8 @@ import {
   type VersionDeliveryPermission,
   type VersionDeliveryState,
 } from "./delivery-state";
+import { gradientForSeed } from "./lib";
+import { ProjectCover } from "./project-cover";
 import { SongManagementDialog, type SongManagementDialogConfig } from "./song-management-dialog";
 import {
   SongPublicLinkControls,
@@ -61,6 +76,25 @@ export type MusicL3DeleteAudioActionResult =
       nextPlaybackVersionId?: string | null;
       removedPortfolioEntry?: boolean;
       disabledPublicLink?: boolean;
+    }
+  | { ok: false; error: string };
+
+export type MusicL3PrepareArtworkActionResult =
+  | {
+      ok: true;
+      data: {
+        uploadUrl: string;
+        uploadToken: string;
+      };
+    }
+  | { ok: false; error: string };
+
+export type MusicL3CompleteArtworkActionResult =
+  | {
+      ok: true;
+      data: {
+        artworkUrl: string;
+      };
     }
   | { ok: false; error: string };
 
@@ -120,6 +154,18 @@ export type L3Actions = {
     enabled: boolean;
     expectedUnpaidAmountCents: number;
   }) => Promise<MusicL3ActionResult>;
+  prepareArtwork?: (input: {
+    trackId: string;
+    fileName: string;
+    contentType: string;
+    sizeBytes: number;
+  }) => Promise<MusicL3PrepareArtworkActionResult>;
+  completeArtwork?: (input: {
+    trackId: string;
+    versionId: string;
+    uploadToken: string;
+    objectEtag: string;
+  }) => Promise<MusicL3CompleteArtworkActionResult>;
 };
 
 // Which side of the app is rendering this screen. Default = "producer"
@@ -185,6 +231,7 @@ export type SongPageData = {
     projectId: string;
     projectTitle: string;
     clientName: string | null;
+    artworkUrl?: string | null;
     archivedAtIso: string | null;
     releasedAtIso: string | null;
     workflowStage: "brief" | "production" | "mixing" | "mastering" | "done";
@@ -371,6 +418,16 @@ export function activeVersionToPlayerTrack(
     title: track.title,
     subtitle: `${label} · ${version.label}`,
     durationMs: version.durationMs,
+    ...(track.artworkUrl
+      ? {
+          artwork: [
+            {
+              src: track.artworkUrl,
+              sizes: "512x512",
+            },
+          ],
+        }
+      : {}),
     ...(accountUnlocked ? { cachePolicy: "account-unlocked" as const } : {}),
   };
 }
@@ -452,6 +509,7 @@ export function SongPage({
 }) {
   const [songTitleOverride, setSongTitleOverride] = useState<string | undefined>();
   const [artistOverride, setArtistOverride] = useState<string | null | undefined>();
+  const [artworkUrlOverride, setArtworkUrlOverride] = useState<string | null | undefined>();
   const [archivedOverride, setArchivedOverride] = useState<boolean | null>(null);
   const [releasedOverride, setReleasedOverride] = useState<boolean | null>(null);
   const [versionLabelOverrides, setVersionLabelOverrides] = useState<Record<string, string>>({});
@@ -565,6 +623,7 @@ export function SongPage({
   // play button to "Pause" when the active version is the one playing,
   // and lets the click handler decide between starting fresh vs toggling
   // the existing <audio> element in PersistentPlayer.
+  const playbackSnapshot = usePlaybackSnapshot();
   const nowPlaying = useNowPlaying();
 
   // Storage reconciliation can fail after the database tombstone commits.
@@ -589,24 +648,38 @@ export function SongPage({
   useEffect(() => {
     function onTime(e: Event) {
       const ms = (e as CustomEvent<number>).detail;
-      if (Number.isFinite(ms) && ms >= 0) setCurrentMs(ms);
+      if (
+        Number.isFinite(ms) &&
+        ms >= 0 &&
+        (playbackSnapshot.track === null || playbackSnapshot.track.id === activeVersionId)
+      ) {
+        setCurrentMs(ms);
+      }
     }
     window.addEventListener(PLAYER_EVENTS.time, onTime as EventListener);
     return () => {
       window.removeEventListener(PLAYER_EVENTS.time, onTime as EventListener);
     };
-  }, []);
+  }, [activeVersionId, playbackSnapshot.track]);
 
   // Secondary actions overflow menu. Click-out
   // closes it. Premium players keep utility actions out of the primary
   // sightline — the menu collapses into a single circular trigger.
   const [overflowOpen, setOverflowOpen] = useState(false);
+  const [versionMenuOpen, setVersionMenuOpen] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
   const [isDesktopMoreActions, setIsDesktopMoreActions] = useState(false);
   const moreActionsPanelId = useId();
+  const versionPanelId = useId();
   const overflowRef = useRef<HTMLDivElement | null>(null);
+  const versionRef = useRef<HTMLDivElement | null>(null);
   const moreButtonRef = useRef<HTMLButtonElement | null>(null);
+  const versionButtonRef = useRef<HTMLButtonElement | null>(null);
   const openingManagementFromSheetRef = useRef(false);
   const deliveryOverrideButtonRef = useRef<HTMLButtonElement | null>(null);
+  const artworkInputRef = useRef<HTMLInputElement | null>(null);
+  const notesDragStartYRef = useRef<number | null>(null);
+  const [artworkUploading, setArtworkUploading] = useState(false);
   const [managementDialog, setManagementDialog] = useState<OpenSongManagement | null>(null);
 
   useEffect(() => {
@@ -652,6 +725,28 @@ export function SongPage({
       window.removeEventListener("keydown", onKey);
     };
   }, [isDesktopMoreActions, overflowOpen]);
+
+  useEffect(() => {
+    if (!versionMenuOpen || !isDesktopMoreActions) return;
+    function onDown(e: PointerEvent) {
+      const node = versionRef.current;
+      if (node && !node.contains(e.target as Node)) setVersionMenuOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      setVersionMenuOpen(false);
+      window.requestAnimationFrame(() => {
+        versionButtonRef.current?.focus();
+      });
+    }
+    window.addEventListener("pointerdown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [isDesktopMoreActions, versionMenuOpen]);
 
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -713,17 +808,28 @@ export function SongPage({
         const isResolved = override !== undefined ? override : c.resolvedAtIso !== null;
         return showResolved ? true : !isResolved;
       })
-      .map((c) => ({
-        id: c.id,
-        timeMs: c.timeMs,
-        fromProducer: c.fromProducer,
-      }));
+      .map((c) => {
+        const override = resolvedOverrides[c.id];
+        return {
+          id: c.id,
+          timeMs: c.timeMs,
+          fromProducer: c.fromProducer,
+          resolved: override !== undefined ? override : c.resolvedAtIso !== null,
+        };
+      });
   }, [activeVersion?.durationMs, allCommentsForVersion, resolvedOverrides, showResolved]);
 
   const songTitle = songTitleOverride ?? data.track.title;
   const songArtist = artistOverride !== undefined ? artistOverride : data.track.artist;
+  const artworkUrl =
+    artworkUrlOverride !== undefined ? artworkUrlOverride : (data.track.artworkUrl ?? null);
   const clientLabel = data.track.clientName ?? songArtist ?? data.track.projectTitle;
-  const heroBg = producerGradient(clientLabel);
+  const playbackTrackData: SongPageData["track"] = {
+    ...data.track,
+    title: songTitle,
+    artist: songArtist,
+    artworkUrl,
+  };
   const projectArchivedLabel =
     data.track.projectLifecycleStatus === "completed"
       ? "Archived · Completed"
@@ -902,7 +1008,7 @@ export function SongPage({
     if (!isSongPageVersionPlayable(activeVersion)) return;
     const isThisVersionLoaded = nowPlaying.trackId === activeVersion.id;
     if (!isThisVersionLoaded) {
-      playerPlay(activeVersionToPlayerTrack(data.track, activeVersion, role));
+      playerPlay(activeVersionToPlayerTrack(playbackTrackData, activeVersion, role));
     } else if (!nowPlaying.playing) {
       playerToggle();
     }
@@ -952,7 +1058,125 @@ export function SongPage({
       playerToggle();
       return;
     }
-    playerPlay(activeVersionToPlayerTrack(data.track, activeVersion, role));
+    playerPlay(activeVersionToPlayerTrack(playbackTrackData, activeVersion, role));
+  }
+
+  function handleVersionSelect(version: SongPageVersion) {
+    commentDraft.preserveDraft();
+    const thisSongIsLoaded =
+      playbackSnapshot.track !== null &&
+      versions.some((candidate) => candidate.id === playbackSnapshot.track?.id);
+    if (thisSongIsLoaded && isSongPageVersionPlayable(version)) {
+      const preservedMs = clampSeekMs(playbackSnapshot.currentMs, 0, version.durationMs);
+      playerLoad(activeVersionToPlayerTrack(playbackTrackData, version, role), {
+        currentMs: preservedMs,
+        playing: playbackSnapshot.playing,
+      });
+      setCurrentMs(preservedMs);
+    } else if (!thisSongIsLoaded) {
+      setCurrentMs(0);
+    }
+    setActiveVersionId(version.id);
+    setVersionMenuOpen(false);
+  }
+
+  function handleSkip(deltaMs: number) {
+    if (!activeVersion || !isSongPageVersionPlayable(activeVersion)) return;
+    const isLoaded = playbackSnapshot.track?.id === activeVersion.id;
+    const sourceMs = isLoaded ? playbackSnapshot.currentMs : currentMs;
+    const nextMs = clampSeekMs(sourceMs, deltaMs, activeVersion.durationMs);
+    if (isLoaded) {
+      playerSeek(nextMs);
+    } else {
+      playerLoad(activeVersionToPlayerTrack(playbackTrackData, activeVersion, role), {
+        currentMs: nextMs,
+        playing: false,
+      });
+    }
+    setCurrentMs(nextMs);
+  }
+
+  function closeNotes() {
+    commentDraft.preserveDraft();
+    setNotesOpen(false);
+  }
+
+  function handleArtistApprove() {
+    if (
+      !activeVersion ||
+      !actions.approveVersion ||
+      activeVersionDeleted ||
+      isPending ||
+      activeVersion.producerMarkedFinalAtIso === null
+    ) {
+      return;
+    }
+    if (!online) {
+      setError("Reconnect to approve this version. No change was saved.");
+      return;
+    }
+    setError(null);
+    startTransition(async () => {
+      try {
+        const result = await actions.approveVersion?.({ versionId: activeVersion.id });
+        if (!result) return;
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+        setArtistApprovalVersionOverride(activeVersion.id);
+      } catch {
+        setError("Couldn’t approve this version. Check your connection and try again.");
+      }
+    });
+  }
+
+  async function handleArtworkFile(file: File) {
+    if (!actions.prepareArtwork || !actions.completeArtwork || artworkUploading) return;
+    setArtworkUploading(true);
+    setError(null);
+    try {
+      const prepared = await actions.prepareArtwork({
+        trackId: data.track.id,
+        fileName: file.name,
+        contentType: file.type,
+        sizeBytes: file.size,
+      });
+      if (!prepared.ok) {
+        setError(prepared.error);
+        return;
+      }
+      const upload = await fetch(prepared.data.uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!upload.ok) {
+        setError("Couldn’t upload this cover. Try again.");
+        return;
+      }
+      const objectEtag = upload.headers.get("etag");
+      if (!objectEtag) {
+        setError("The cover uploaded, but it could not be verified. Try again.");
+        return;
+      }
+      const completed = await actions.completeArtwork({
+        trackId: data.track.id,
+        versionId: activeVersionId,
+        uploadToken: prepared.data.uploadToken,
+        objectEtag,
+      });
+      if (!completed.ok) {
+        setError(completed.error);
+        return;
+      }
+      setArtworkUrlOverride(completed.data.artworkUrl);
+    } catch {
+      setError("Couldn’t change this cover. Check your connection and try again.");
+    } finally {
+      setArtworkUploading(false);
+      if (artworkInputRef.current) artworkInputRef.current.value = "";
+    }
   }
 
   function openManagementDialog(kind: OpenSongManagement["kind"]) {
@@ -1384,6 +1608,7 @@ export function SongPage({
     );
   }
 
+  const renderedVersion = activeVersion;
   const isProducerReady = activeVersion.producerMarkedFinalAtIso !== null;
   const isExactArtistApproved = activeVersion.artistApprovedAtIso !== null;
   const wasPreviouslyArtistApproved = activeVersion.previouslyArtistApprovedAtIso !== null;
@@ -1396,7 +1621,6 @@ export function SongPage({
       : { audioDeletedAtIso: activeVersion.audioDeletedAtIso }),
     nowPlaying,
   });
-  const newestPlayableVersion = newestPlayableSongPageVersion(versions);
   const isPlayingThis = playState.action === "toggle" && playState.label === "Pause";
   const canUseDownloadAction =
     activeVersionPlayable && (role === "producer" || activeDelivery.canDownload);
@@ -1414,577 +1638,487 @@ export function SongPage({
     activeDeliveryBadge: activeDelivery.badge,
     songArchived,
     songReleased,
+    artistApprovalLocked,
+    artworkUploading,
+    onChangeCover: () => {
+      artworkInputRef.current?.click();
+    },
+    publicSharingControl: publicSharing ? (
+      <SongPublicLinkControls
+        role={role}
+        initialState={publicSharing}
+        shareTitle={songTitle}
+        triggerStyle="menu"
+        {...(publicSharingActions ? { actions: publicSharingActions } : {})}
+        {...(publicSharingRefresh ? { refreshLiveState: publicSharingRefresh } : {})}
+      />
+    ) : null,
     onDismiss: () => {
       setOverflowOpen(false);
     },
     onOpenManagement: openMoreActionsManagementDialog,
   } satisfies Omit<SongMoreActionsPanelProps, "className" | "testId">;
 
-  return (
-    <main className="sk-page-enter">
-      {/* ───── Hero band ─────────────────────────────────────────────
-          Editorial-luxury treatment: gradient backdrop bleeds out via
-          a deep radial mask + two-stop linear fade, so the band feels
-          like the OPENING of a record sleeve rather than a card glued
-          to the top of the page. */}
-      <header className="relative isolate z-10 text-white" style={{ background: heroBg }}>
-        {/* Atmosphere — soft highlight at top-left + ambient bottom fade
-            so the gradient melts into the canvas with no hard edge. */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0"
-          style={{
-            background:
-              "radial-gradient(120% 80% at 12% 8%, rgba(255,255,255,0.22), transparent 55%), radial-gradient(80% 60% at 88% 0%, rgba(255,255,255,0.08), transparent 60%), linear-gradient(180deg, rgba(17,16,9,0) 0%, rgba(17,16,9,0.18) 60%, rgb(var(--bg-background)) 100%)",
+  const effectiveDurationMs =
+    activeVersion.durationMs ??
+    (playbackSnapshot.track?.id === activeVersion.id && playbackSnapshot.audioDurationSec !== null
+      ? Math.round(playbackSnapshot.audioDurationSec * 1000)
+      : null);
+  const displayedCurrentMs =
+    playbackSnapshot.track?.id === activeVersion.id ? playbackSnapshot.currentMs : currentMs;
+  function renderArtwork(className: string, compact = false) {
+    return (
+      <div
+        data-test={artworkUrl ? "song-artwork" : "song-artwork-fallback"}
+        className={[
+          "relative shrink-0 overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] shadow-[var(--shadow-md)]",
+          className,
+        ].join(" ")}
+      >
+        {artworkUrl ? (
+          // Private, same-origin artwork is intentionally served without the
+          // Next image optimizer so its authenticated response is never shared.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={artworkUrl} alt={`${songTitle} cover`} className="h-full w-full object-cover" />
+        ) : (
+          <ProjectCover
+            seed={data.track.projectId}
+            gradient={gradientForSeed(data.track.projectId)}
+            kind={null}
+            showKind={false}
+            wordmark={!compact}
+            radius="inherit"
+            shadow="none"
+            className="h-full w-full"
+          />
+        )}
+      </div>
+    );
+  }
+
+  function renderVersionOptions() {
+    return (
+      <div className="divide-y divide-[rgb(var(--border-subtle))]">
+        {versions.map((version) => {
+          const selected = version.id === renderedVersion.id;
+          const delivery = presentVersionDelivery(version.delivery);
+          const state =
+            version.audioDeletedAtIso !== null
+              ? "Audio deleted"
+              : version.artistApprovedAtIso
+                ? "Artist approved"
+                : version.producerMarkedFinalAtIso
+                  ? "Ready"
+                  : version.previouslyArtistApprovedAtIso
+                    ? "Previously approved"
+                    : delivery.badge;
+          return (
+            <button
+              key={version.id}
+              type="button"
+              aria-current={selected ? "true" : undefined}
+              onClick={() => {
+                handleVersionSelect(version);
+              }}
+              className={[
+                "flex min-h-14 w-full items-center justify-between gap-4 px-3 py-2.5 text-left transition-colors",
+                selected
+                  ? "bg-[rgb(var(--brand-primary)/0.1)]"
+                  : "hover:bg-[rgb(var(--fg-default)/0.04)]",
+              ].join(" ")}
+            >
+              <span className="min-w-0">
+                <span className="block truncate font-mono text-[12px] font-bold text-[rgb(var(--fg-default))]">
+                  {version.label}
+                </span>
+                <span className="mt-0.5 block truncate text-[11px] text-[rgb(var(--fg-muted))]">
+                  {fmtRelativeIso(version.uploadedAtIso)} ·{" "}
+                  {version.durationMs ? fmtMs(version.durationMs) : "Duration pending"}
+                </span>
+              </span>
+              <span
+                className={[
+                  "shrink-0 text-[11px] font-semibold",
+                  version.artistApprovedAtIso
+                    ? "text-[rgb(var(--fg-success-text))]"
+                    : selected
+                      ? "text-[rgb(var(--brand-primary-dark))]"
+                      : "text-[rgb(var(--fg-muted))]",
+                ].join(" ")}
+              >
+                {selected ? "Selected" : state}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function renderVersionControl() {
+    return (
+      <div ref={versionRef} className="relative">
+        <button
+          ref={versionButtonRef}
+          type="button"
+          aria-label={`Choose version. ${renderedVersion.label} selected`}
+          aria-expanded={versionMenuOpen}
+          aria-controls={versionMenuOpen ? versionPanelId : undefined}
+          onClick={() => {
+            setVersionMenuOpen((open) => !open);
           }}
-        />
-        {/* Subtle film-grain hint — adds physical texture without
-            cooking the gradient. Only at very low opacity. */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-[0.035] mix-blend-overlay"
-          style={{
-            backgroundImage: "radial-gradient(rgb(255 255 255) 1px, transparent 1px)",
-            backgroundSize: "3px 3px",
-          }}
-        />
-
-        <div className="relative mx-auto max-w-[1120px] px-4 pt-3 pb-4 sm:px-6 sm:pt-4 sm:pb-5">
-          {/* Publishes Music › <client>? › <project> › <song> to the
-              sticky topbar (see topbarCrumbs above). Replaces the
-              "← Library" back-pill that used to live on this row —
-              clicking "Music" in the topbar does the same thing now.
-              The project crumb links to the Music project page (same
-              section), not the clients-projects album page; the latter
-              is still reachable via the cross-link pill on the right
-              of this row. */}
-          <SetTopBarBreadcrumb crumbs={topbarCrumbs} />
-
-          {/* Cross-section link row — only the project-room pill
-              remains. It jumps to clients-projects (a DIFFERENT
-              workflow surface), so it isn't redundant with anything in
-              the topbar. `justify-end` keeps it right-aligned where it
-              already lived. Hidden on artist — no clients-projects
-              surface exists for the artist app — and the wrapper row
-              collapses with it, so the artist hero doesn't carry a
-              dead 16px spacer at the top. */}
-          {role === "producer" ? (
-            <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
-              <Link
-                href={`/dashboard/clients-projects/${data.track.projectId}?tab=music&version=${activeVersion.id}`}
-                data-test="project-room-link"
-                className="sk-press group inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-sm)] border border-white/20 bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white/90 backdrop-blur-md transition-colors duration-200 hover:bg-white/[0.14] sm:min-h-0"
-              >
-                <span>Open in project room</span>
-                <ChevronRightIcon />
-              </Link>
-            </div>
-          ) : null}
-
-          <div className="flex flex-col gap-4 md:flex-row md:items-end md:gap-5">
-            {/* Album-art tile — Double-bezel: glass outer ring + inner
-                gradient core with reflection + a centered audio glyph.
-                Reads as physical hardware, not a placeholder box. */}
-            <div className="reveal-up shrink-0">
-              {/* `max-md:w-fit` — in the stacked (mobile) hero the
-                  flex-col stretches this block to the full viewport
-                  width, leaving the 88px art core stranded inside a
-                  wide empty glass slab. Hug the content below md; at
-                  md+ the shrink-0 row item already hugs. */}
-              <div
-                aria-hidden
-                className="relative rounded-[20px] p-[2px] max-md:w-fit"
-                style={{
-                  background:
-                    "linear-gradient(135deg, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0.08) 40%, rgba(255,255,255,0.18) 100%)",
-                  boxShadow:
-                    "0 18px 48px -16px rgba(0,0,0,0.5), 0 2px 0 0 rgba(255,255,255,0.18) inset",
-                }}
-              >
-                <div
-                  className="relative flex h-[88px] w-[88px] items-center justify-center overflow-hidden rounded-[18px] text-white"
-                  style={{
-                    background:
-                      "linear-gradient(155deg, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.1) 60%, rgba(255,255,255,0.06) 100%)",
-                    boxShadow:
-                      "inset 0 1px 0 0 rgba(255,255,255,0.18), inset 0 -28px 40px -16px rgba(0,0,0,0.4)",
-                  }}
-                >
-                  <WaveformGlyph />
-                  {/* Reflection slash — a subtle diagonal highlight. */}
-                  <div
-                    aria-hidden
-                    className="pointer-events-none absolute inset-0"
-                    style={{
-                      background:
-                        "linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.10) 45%, transparent 55%)",
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Title block + meta */}
-            <div className="reveal-up reveal-up-delay-1 min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-[10px] font-bold tracking-[0.18em] text-white/65 uppercase">
-                  Song · {data.track.projectTitle}
-                </span>
-                {projectArchivedLabel ? (
-                  <span className="inline-flex rounded-[var(--radius-sm)] border border-white/25 bg-white/12 px-2 py-0.5 font-mono text-[9.5px] font-bold tracking-[0.08em] text-white/90 uppercase backdrop-blur-sm">
-                    {projectArchivedLabel}
-                  </span>
-                ) : null}
-                {songArchived ? (
-                  <span className="inline-flex rounded-[var(--radius-sm)] border border-white/25 bg-white/12 px-2 py-0.5 font-mono text-[9.5px] font-bold tracking-[0.08em] text-white/90 uppercase backdrop-blur-sm">
-                    Song archived
-                  </span>
-                ) : null}
-                {songReleased ? (
-                  <span className="inline-flex rounded-[var(--radius-sm)] border border-white/35 bg-white/90 px-2 py-0.5 font-mono text-[9.5px] font-bold tracking-[0.08em] text-[rgb(17_16_9)] uppercase">
-                    Released
-                  </span>
-                ) : null}
-              </div>
-              <h1
-                className="font-display mt-1 line-clamp-2 text-[clamp(24px,3.4vw,38px)] leading-[1.05] font-extrabold tracking-[-0.03em] [overflow-wrap:anywhere]"
-                style={{ textShadow: "0 2px 14px rgba(0,0,0,0.2)" }}
-              >
-                {songTitle}
-              </h1>
-              <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12px] text-white/80">
-                {clientLabel ? <span className="font-medium">{clientLabel}</span> : null}
-                {songArtist && songArtist !== clientLabel ? (
-                  <>
-                    <span aria-hidden className="text-white/40">
-                      ·
-                    </span>
-                    <span className="text-white/75">Artist: {songArtist}</span>
-                  </>
-                ) : null}
-                {activeVersion.durationMs ? (
-                  <>
-                    <span aria-hidden className="text-white/40">
-                      ·
-                    </span>
-                    <span className="font-mono tabular-nums">
-                      {fmtMs(activeVersion.durationMs)}
-                    </span>
-                  </>
-                ) : null}
-                <span aria-hidden className="text-white/40">
-                  ·
-                </span>
-                <span className="text-white/70">
-                  uploaded {fmtRelativeIso(activeVersion.uploadedAtIso)}
-                </span>
-                {activeVersionDeleted ? (
-                  <>
-                    <span aria-hidden className="text-white/40">
-                      ·
-                    </span>
-                    <span className="inline-flex rounded-[var(--radius-sm)] border border-white/20 bg-white/[0.08] px-2 py-0.5 font-mono text-[9.5px] font-bold tracking-[0.1em] text-white/65 uppercase">
-                      Audio deleted
-                    </span>
-                  </>
-                ) : null}
-                {isExactArtistApproved || isProducerReady || wasPreviouslyArtistApproved ? (
-                  <>
-                    <span aria-hidden className="text-white/40">
-                      ·
-                    </span>
-                    <span className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] bg-white/90 px-2 py-0.5 text-[10px] font-bold tracking-[0.16em] text-[rgb(17_16_9)] uppercase">
-                      {isExactArtistApproved ? <CheckIcon /> : null}
-                      {isExactArtistApproved
-                        ? "Artist approved"
-                        : isProducerReady
-                          ? role === "artist"
-                            ? "Ready to approve"
-                            : "Ready for artist"
-                          : "Previously approved"}
-                    </span>
-                  </>
-                ) : null}
-              </div>
-
-              {/* Version pills — magnetic hover, monospace labels */}
-              {versions.length > 1 ? (
-                <div className="mt-3 flex flex-wrap items-center gap-x-1 gap-y-2">
-                  <span className="mr-1 font-mono text-[9px] font-bold tracking-[0.16em] text-white/55 uppercase">
-                    Version
-                  </span>
-                  {versions.map((v, i) => {
-                    const isActive = v.id === activeVersion.id;
-                    const isDeleted = v.audioDeletedAtIso != null;
-                    const isLatest = v.id === newestPlayableVersion?.id;
-                    const versionDelivery = presentVersionDelivery(v.delivery);
-                    return (
-                      <button
-                        key={v.id}
-                        type="button"
-                        onClick={() => {
-                          commentDraft.preserveDraft();
-                          setActiveVersionId(v.id);
-                        }}
-                        style={{ animationDelay: `${String(120 + i * 50)}ms` }}
-                        className={[
-                          "sk-press reveal-up relative inline-flex min-h-11 items-center gap-1 rounded-[var(--radius-sm)] border px-2.5 py-2 font-mono text-[10.5px] font-bold tracking-wide",
-                          "transition-[background-color,border-color,transform] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
-                          isActive
-                            ? isDeleted
-                              ? "border-white/30 bg-white/[0.08] text-white/70"
-                              : "border-white bg-white text-[rgb(17_16_9)] shadow-[0_6px_18px_-6px_rgba(255,255,255,0.45)]"
-                            : isDeleted
-                              ? "border-white/12 bg-white/[0.04] text-white/50 hover:bg-white/[0.08]"
-                              : "border-white/22 bg-white/[0.08] text-white/85 hover:-translate-y-px hover:bg-white/[0.16]",
-                        ].join(" ")}
-                      >
-                        {/* Active version: tiny amber dot — the visual
-                            "you are here" cue. Beats text " · current"
-                            because the producer scans for color, not copy. */}
-                        {isActive ? (
-                          <span
-                            aria-hidden
-                            className="inline-block h-1.5 w-1.5 rounded-full bg-[rgb(var(--brand-primary))] shadow-[0_0_6px_rgb(var(--brand-primary)/0.6)]"
-                          />
-                        ) : null}
-                        <span>{v.label}</span>
-                        {isDeleted ? (
-                          <span className="text-[8.5px] font-semibold tracking-normal normal-case">
-                            · Audio deleted
-                          </span>
-                        ) : null}
-                        {!isDeleted ? (
-                          <span className="text-[8.5px] font-semibold tracking-normal normal-case">
-                            · {versionDelivery.badge}
-                          </span>
-                        ) : null}
-                        {isActive && isLatest ? (
-                          <span className="text-[rgb(17_16_9)/0.55]">· current</span>
-                        ) : null}
-                        {v.artistApprovedAtIso ? (
-                          <span title="Artist approved">✓</span>
-                        ) : v.producerMarkedFinalAtIso ? (
-                          <span className="text-[8.5px] font-semibold tracking-normal normal-case">
-                            · Ready
-                          </span>
-                        ) : v.previouslyArtistApprovedAtIso ? (
-                          <span className="text-[8.5px] font-semibold tracking-normal normal-case">
-                            · Previously approved
-                          </span>
-                        ) : null}
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : null}
-            </div>
-
-            {/* Action rail — ONE confident Play CTA + a single secondary
-                overflow trigger + a quiet producer-final action. */}
-            <div className="reveal-up reveal-up-delay-2 flex shrink-0 flex-wrap items-center gap-2.5">
-              {/* Play CTA — primary, magnetic, glow when playing. The
-                  data-test pin lives here now — the in-card transport
-                  bar was removed so the floating PersistentPlayer dock
-                  at the bottom of the screen handles inline controls. */}
-              {activeVersionDeleted ? (
-                <span
-                  role="status"
-                  className="inline-flex min-h-11 items-center rounded-[var(--radius-lg)] border border-white/20 bg-white/[0.08] px-4 text-[12.5px] font-bold text-white/65"
-                >
-                  Audio deleted
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  data-test="waveform-play-button"
-                  onClick={handlePlayToggle}
-                  disabled={playState.disabled}
-                  aria-label={playState.label}
-                  title={playState.disabled ? "Audio is still uploading" : playState.label}
-                  className={[
-                    "sk-press group relative inline-flex items-center gap-2 rounded-[var(--radius-md)] py-2 pr-5 pl-2 text-[13px] font-bold",
-                    "transition-[transform,box-shadow] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
-                    "bg-white text-[rgb(17_16_9)] disabled:cursor-not-allowed disabled:opacity-50",
-                    isPlayingThis
-                      ? "shadow-[0_10px_30px_-8px_rgba(255,255,255,0.5),0_0_0_1px_rgba(255,255,255,0.4)]"
-                      : "shadow-[0_8px_24px_-6px_rgba(0,0,0,0.35)] hover:-translate-y-px hover:shadow-[0_14px_36px_-8px_rgba(0,0,0,0.4)]",
-                  ].join(" ")}
-                >
-                  <span
-                    className={[
-                      "flex h-8 w-8 items-center justify-center rounded-full",
-                      "transition-transform duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] group-hover:scale-[1.05]",
-                      isPlayingThis
-                        ? "bg-[rgb(var(--brand-primary))] text-white"
-                        : "bg-[rgb(17_16_9)] text-white",
-                    ].join(" ")}
-                  >
-                    {isPlayingThis ? <PauseIcon /> : <PlayIcon />}
-                  </span>
-                  <span className="tracking-[-0.005em]">{playState.label}</span>
-                </button>
-              )}
-
-              {role === "producer" && artistApprovalLocked ? (
-                <button
-                  type="button"
-                  data-test="reopen-approved-song"
-                  onClick={() => {
-                    openManagementDialog("reopen-approved-song");
-                  }}
-                  disabled={isPending}
-                  title="Reopen approved song"
-                  aria-label="Reopen approved song"
-                  className="sk-press inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-md)] border border-white/28 bg-white/[0.06] px-4 py-2 text-[12.5px] font-bold text-white transition-[background-color,transform] duration-[220ms] hover:-translate-y-px hover:bg-white/[0.14] disabled:opacity-60"
-                >
-                  <CheckIcon /> Artist approved · Reopen
-                </button>
-              ) : role === "producer" ? (
-                <button
-                  type="button"
-                  data-test="mark-version-ready"
-                  onClick={handleProducerReadyToggle}
-                  disabled={isPending || !actions.markVersionReady || activeVersionDeleted}
-                  title={isProducerReady ? "Remove ready status" : "Mark exact version ready"}
-                  aria-label={isProducerReady ? "Remove ready status" : "Mark exact version ready"}
-                  className={[
-                    "sk-press inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-md)] px-4 py-2 text-[12.5px] font-bold",
-                    "transition-[background-color,border-color,box-shadow,transform] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
-                    isProducerReady
-                      ? "border border-white/0 bg-white/95 text-[rgb(17_16_9)] shadow-[0_6px_20px_-6px_rgba(255,255,255,0.45)]"
-                      : "border border-white/28 bg-white/[0.06] text-white hover:-translate-y-px hover:bg-white/[0.14]",
-                    "disabled:opacity-60",
-                  ].join(" ")}
-                >
-                  <CheckIcon /> {isProducerReady ? "Ready for artist" : "Mark ready"}
-                </button>
-              ) : isExactArtistApproved ? (
-                <span
-                  data-test="artist-approved-status"
-                  role="status"
-                  className="inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-md)] bg-white/95 px-4 py-2 text-[12.5px] font-bold text-[rgb(17_16_9)]"
-                >
-                  <CheckIcon /> Approved
-                </span>
-              ) : isProducerReady && !artistApprovalLocked ? (
-                <button
-                  type="button"
-                  data-test="approve-final-version"
-                  onClick={() => {
-                    openManagementDialog("approve-version");
-                  }}
-                  disabled={isPending || !actions.approveVersion || activeVersionDeleted}
-                  className="sk-press inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-md)] bg-white px-4 py-2 text-[12.5px] font-bold text-[rgb(17_16_9)] shadow-[0_6px_20px_-6px_rgba(255,255,255,0.45)] transition-transform duration-[220ms] hover:-translate-y-px disabled:opacity-60"
-                >
-                  <CheckIcon /> Approve final version
-                </button>
-              ) : null}
-
-              {publicSharing ? (
-                <SongPublicLinkControls
-                  role={role}
-                  initialState={publicSharing}
-                  shareTitle={songTitle}
-                  {...(publicSharingActions ? { actions: publicSharingActions } : {})}
-                  {...(publicSharingRefresh ? { refreshLiveState: publicSharingRefresh } : {})}
-                />
-              ) : null}
-
-              {/* Overflow — one trigger and one shared action panel. Desktop
-                  anchors the panel here; mobile portals it into a bottom sheet. */}
-              <div ref={overflowRef} className="relative">
-                <button
-                  ref={moreButtonRef}
-                  type="button"
-                  aria-label="More actions"
-                  aria-haspopup={isDesktopMoreActions ? undefined : "dialog"}
-                  aria-expanded={overflowOpen}
-                  aria-controls={overflowOpen ? moreActionsPanelId : undefined}
-                  onClick={() => {
-                    setOverflowOpen((o) => !o);
-                  }}
-                  className={[
-                    "sk-press inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/22",
-                    "transition-[background-color,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)]",
-                    overflowOpen ? "bg-white/[0.22]" : "bg-white/[0.08] hover:bg-white/[0.16]",
-                  ].join(" ")}
-                >
-                  <MoreIcon />
-                </button>
-                {overflowOpen && isDesktopMoreActions ? (
-                  <SongMoreActionsPanel
-                    {...moreActionsPanelProps}
-                    id={moreActionsPanelId}
-                    testId="song-more-actions-popover"
-                    className="sk-pop absolute top-[calc(100%+8px)] right-0 z-30 max-h-[min(70dvh,520px)] w-64 origin-top-right overflow-y-auto rounded-[18px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 text-[rgb(var(--fg-default))] shadow-[0_30px_60px_-15px_rgba(17,16,9,0.35)]"
-                  />
-                ) : null}
-                <Sheet
-                  open={overflowOpen && !isDesktopMoreActions}
-                  onOpenChange={(open) => {
-                    if (!open) setOverflowOpen(false);
-                  }}
-                >
-                  <SheetContent
-                    id={moreActionsPanelId}
-                    side="bottom"
-                    data-testid="song-more-actions-sheet"
-                    onCloseAutoFocus={(event) => {
-                      event.preventDefault();
-                      if (openingManagementFromSheetRef.current) {
-                        openingManagementFromSheetRef.current = false;
-                        return;
-                      }
-                      moreButtonRef.current?.focus();
-                    }}
-                    className="max-h-[88dvh] w-full gap-0 overflow-hidden p-0 pb-[env(safe-area-inset-bottom)] sm:p-0"
-                  >
-                    <SheetTitle className="sr-only">Song actions</SheetTitle>
-                    <SheetDescription className="sr-only">
-                      Download this version or manage the song and its audio.
-                    </SheetDescription>
-                    <SongMoreActionsPanel
-                      {...moreActionsPanelProps}
-                      testId="song-more-actions-sheet-panel"
-                      className="overflow-y-auto p-2 pt-3 text-[rgb(var(--fg-default))]"
-                    />
-                  </SheetContent>
-                </Sheet>
-              </div>
-            </div>
+          className="sk-press inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 font-mono text-[11px] font-bold text-[rgb(var(--fg-default))] transition-colors hover:border-[rgb(var(--border-strong))] hover:bg-[rgb(var(--bg-overlay))] lg:min-h-10 lg:rounded-[var(--radius-md)]"
+        >
+          <span>{renderedVersion.label}</span>
+          <ChevronDownIcon />
+        </button>
+        {versionMenuOpen && isDesktopMoreActions ? (
+          <div
+            id={versionPanelId}
+            role="group"
+            aria-label="Version history"
+            className="sk-pop absolute top-[calc(100%+8px)] left-0 z-40 max-h-[min(62dvh,480px)] w-[330px] overflow-y-auto rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 text-[rgb(var(--fg-default))] shadow-[var(--shadow-lg)]"
+          >
+            {renderVersionOptions()}
           </div>
-        </div>
-      </header>
-
-      <section className="mx-auto max-w-[1120px] px-4 pt-4 sm:px-6 sm:pt-5">
-        <VersionDeliveryPanel
-          role={role}
-          artistStudioId={artistStudioId}
-          version={activeVersion}
-          delivery={activeDelivery}
-          downloadHref={downloadHref}
-          canUseDownloadAction={canUseDownloadAction}
-          canManageOverride={Boolean(actions.setDownloadOverride)}
-          overrideButtonRef={deliveryOverrideButtonRef}
-          onManageOverride={() => {
-            openManagementDialog("download-override");
-          }}
-        />
-      </section>
-
-      {/* ───── Body ──────────────────────────────────────────────────
-          Waveform first, then comments. The waveform card uses the
-          double-bezel pattern — an outer hairline sheath + inner core
-          with a soft inset highlight, so it sits on the page like a
-          piece of polished hardware instead of a flat content rectangle. */}
-      <section className="mx-auto max-w-[1120px] px-4 py-4 sm:px-6 sm:py-5">
-        {/* Waveform — Double-Bezel card */}
-        <div
-          className="reveal-up rounded-[20px] p-[1.5px]"
-          style={{
-            background:
-              "linear-gradient(180deg, rgb(var(--fg-default) / 0.08) 0%, rgb(var(--fg-default) / 0.02) 60%, rgb(var(--brand-primary) / 0.18) 100%)",
-            boxShadow: "var(--shadow-md)",
+        ) : null}
+        <Sheet
+          open={versionMenuOpen && !isDesktopMoreActions}
+          onOpenChange={(open) => {
+            setVersionMenuOpen(open);
           }}
         >
-          <div
-            className="rounded-[18px] bg-[rgb(var(--bg-elevated))] p-3 sm:p-4"
-            style={{
-              boxShadow:
-                "inset 0 1px 0 0 rgb(255 255 255 / 0.4), inset 0 -1px 0 0 rgb(var(--fg-default) / 0.04)",
-            }}
+          <SheetContent
+            id={versionPanelId}
+            side="bottom"
+            className="max-h-[78dvh] gap-0 overflow-hidden p-0 pb-[env(safe-area-inset-bottom)] sm:p-0"
           >
-            {activeVersionDeleted ? (
-              <div
-                role="status"
-                className="flex min-h-[92px] flex-col items-center justify-center rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-4 text-center"
-              >
-                <p className="text-[13px] font-bold text-[rgb(var(--fg-muted))]">Audio deleted</p>
-                <p className="mt-1 text-[11.5px] text-[rgb(var(--fg-faint))]">
-                  Version name, upload date, and comment history remain available.
-                </p>
-              </div>
-            ) : (
-              <Waveform50
-                durationMs={activeVersion.durationMs ?? 240_000}
-                comments={waveformComments}
-                seed={activeVersion.id}
-                // Pre-computed peaks from track_versions.peaks ride down
-                // with the page payload — Waveform50 renders the real
-                // envelope on first frame, no client-side decode.
-                initialPeaks={activeVersion.peaks}
-                // Fallback decode path for legacy versions (peaks=null)
-                // OR formats audio-decode missed server-side. Reuse the
-                // authorized private stream so this works for both roles.
-                peaksUrl={activeVersionPlayable ? (activeVersion.audioUrl ?? undefined) : undefined}
-                onProgress={setCurrentMs}
-                height={68}
-              />
-            )}
-          </div>
-        </div>
-
-        {/* ───── Comments thread ─────────────────────────────────────
-            Header → Composer → List. Composer floats at the top so the
-            primary action (drop a note at the playhead) is the first
-            thing a producer sees after the waveform. */}
-        <div className="reveal-up reveal-up-delay-2 mt-5">
-          <div className="mb-2 flex items-baseline justify-between">
-            <div className="flex items-baseline gap-2">
-              <h2 className="font-display text-[15px] font-bold tracking-[-0.018em] text-[rgb(var(--fg-default))]">
-                Notes
-              </h2>
-              <span className="font-mono text-[10.5px] font-bold text-[rgb(var(--fg-muted))] tabular-nums">
-                {String(visibleComments.length)}
-                {visibleComments.length !== allCommentsForVersion.length
-                  ? ` of ${String(allCommentsForVersion.length)}`
-                  : ""}
-              </span>
+            <div className="border-b border-[rgb(var(--border-subtle))] px-4 pt-2 pb-3">
+              <SheetTitle>Version history</SheetTitle>
+              <SheetDescription>Choose the audio version to review.</SheetDescription>
             </div>
+            <div className="overflow-y-auto p-2">{renderVersionOptions()}</div>
+          </SheetContent>
+        </Sheet>
+      </div>
+    );
+  }
+
+  function renderWorkflowControl() {
+    if (role === "producer" && artistApprovalLocked) {
+      return (
+        <span
+          data-test="artist-approved-status"
+          role="status"
+          className="inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--fg-success-text)/0.24)] bg-[rgb(var(--fg-success-text)/0.1)] px-4 text-[12px] font-bold text-[rgb(var(--fg-success-text))]"
+        >
+          <CheckIcon /> Artist approved
+        </span>
+      );
+    }
+    if (role === "producer") {
+      return (
+        <button
+          type="button"
+          data-test="mark-version-ready"
+          onClick={handleProducerReadyToggle}
+          disabled={isPending || !actions.markVersionReady || activeVersionDeleted}
+          title={isProducerReady ? "Remove ready status" : "Mark exact version ready"}
+          aria-label={isProducerReady ? "Remove ready status" : "Mark exact version ready"}
+          className={[
+            "inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-lg)] border px-4 text-[12px] font-bold transition-colors disabled:opacity-50",
+            isProducerReady
+              ? "border-[rgb(var(--brand-primary)/0.45)] bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-primary))]"
+              : "border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] hover:bg-[rgb(var(--bg-overlay))]",
+          ].join(" ")}
+        >
+          <CheckIcon /> {isProducerReady ? "Ready for artist" : "Mark ready"}
+        </button>
+      );
+    }
+    if (isExactArtistApproved) {
+      return (
+        <span
+          data-test="artist-approved-status"
+          role="status"
+          className="inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--fg-success-text)/0.24)] bg-[rgb(var(--fg-success-text)/0.1)] px-4 text-[12px] font-bold text-[rgb(var(--fg-success-text))]"
+        >
+          <CheckIcon /> Approved
+        </span>
+      );
+    }
+    if (isProducerReady && !artistApprovalLocked) {
+      return (
+        <button
+          type="button"
+          data-test="approve-final-version"
+          onClick={handleArtistApprove}
+          disabled={isPending || !actions.approveVersion || activeVersionDeleted}
+          className="inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-[12px] font-bold text-[rgb(var(--fg-primary))] transition-colors hover:bg-[rgb(var(--brand-primary-hover))] disabled:opacity-50"
+        >
+          <CheckIcon /> Approve this version
+        </button>
+      );
+    }
+    return (
+      <span className="inline-flex min-h-11 items-center text-[12px] font-semibold text-[rgb(var(--fg-muted))]">
+        Waiting for producer
+      </span>
+    );
+  }
+
+  function renderMoreControl() {
+    return (
+      <div ref={overflowRef} className="relative">
+        <button
+          ref={moreButtonRef}
+          type="button"
+          aria-label="More actions"
+          aria-haspopup={isDesktopMoreActions ? undefined : "dialog"}
+          aria-expanded={overflowOpen}
+          aria-controls={overflowOpen ? moreActionsPanelId : undefined}
+          onClick={() => {
+            setOverflowOpen((open) => !open);
+          }}
+          className={[
+            "sk-press inline-flex h-11 w-11 items-center justify-center rounded-full border transition-colors",
+            "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] shadow-[var(--shadow-sm)] hover:border-[rgb(var(--border-strong))] hover:bg-[rgb(var(--bg-overlay))]",
+          ].join(" ")}
+        >
+          <MoreIcon />
+        </button>
+        {overflowOpen && isDesktopMoreActions ? (
+          <SongMoreActionsPanel
+            {...moreActionsPanelProps}
+            id={moreActionsPanelId}
+            testId="song-more-actions-popover"
+            className="sk-pop absolute top-[calc(100%+8px)] right-0 z-50 max-h-[min(72dvh,560px)] w-72 origin-top-right overflow-y-auto rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 text-[rgb(var(--fg-default))] shadow-[var(--shadow-lg)]"
+          />
+        ) : null}
+        <Sheet
+          open={overflowOpen && !isDesktopMoreActions}
+          onOpenChange={(open) => {
+            if (!open) setOverflowOpen(false);
+          }}
+        >
+          <SheetContent
+            id={moreActionsPanelId}
+            side="bottom"
+            data-testid="song-more-actions-sheet"
+            onCloseAutoFocus={(event) => {
+              event.preventDefault();
+              if (openingManagementFromSheetRef.current) {
+                openingManagementFromSheetRef.current = false;
+                return;
+              }
+              moreButtonRef.current?.focus();
+            }}
+            className="max-h-[88dvh] w-full gap-0 overflow-hidden p-0 pb-[env(safe-area-inset-bottom)] sm:p-0"
+          >
+            <SheetTitle className="sr-only">Song actions</SheetTitle>
+            <SheetDescription className="sr-only">
+              Share, download, or manage this song.
+            </SheetDescription>
+            <SongMoreActionsPanel
+              {...moreActionsPanelProps}
+              testId="song-more-actions-sheet-panel"
+              className="overflow-y-auto p-2 pt-3 text-[rgb(var(--fg-default))]"
+            />
+          </SheetContent>
+        </Sheet>
+      </div>
+    );
+  }
+
+  function renderNotesPanel(surface: "desktop" | "sheet") {
+    const desktop = surface === "desktop";
+    return (
+      <Card
+        className={[
+          "flex min-h-0 flex-1 flex-col bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))]",
+          desktop ? "rounded-[var(--radius-lg)]" : "rounded-none border-0 shadow-none",
+        ].join(" ")}
+      >
+        <div className="flex shrink-0 items-center justify-between border-b border-[rgb(var(--border-subtle))] px-5 py-4">
+          <div className="flex items-baseline gap-2">
+            <h2 className="font-display text-[18px] font-bold tracking-[-0.02em]">Notes</h2>
+            <span className="font-mono text-[10px] font-bold text-[rgb(var(--fg-muted))] tabular-nums">
+              {String(visibleComments.length)}
+              {visibleComments.length !== allCommentsForVersion.length
+                ? ` of ${String(allCommentsForVersion.length)}`
+                : ""}
+            </span>
+          </div>
+          <div className="flex items-center gap-1">
             {hasResolvedComments ? (
               <button
                 type="button"
                 onClick={() => {
-                  setShowResolved((s) => !s);
+                  setShowResolved((shown) => !shown);
                 }}
-                className="sk-press relative rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-1 font-mono text-[10px] font-bold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase transition-colors before:absolute before:-inset-x-1 before:-inset-y-3 before:content-[''] hover:bg-[rgb(var(--fg-default)/0.04)] hover:text-[rgb(var(--fg-default))]"
+                className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-3 text-[11px] font-bold text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))] lg:min-h-9 lg:rounded-[var(--radius-md)]"
               >
                 {showResolved ? "Hide resolved" : "Show resolved"}
               </button>
             ) : null}
+            {!desktop ? (
+              <button
+                type="button"
+                aria-label="Close Notes"
+                onClick={closeNotes}
+                className="inline-flex h-11 w-11 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--fg-default)/0.05)]"
+              >
+                <ChevronDownIcon />
+              </button>
+            ) : null}
           </div>
+        </div>
 
-          {error ? (
-            <p
-              role="alert"
-              className="mb-4 rounded-[14px] border border-[rgb(var(--fg-danger)/0.3)] bg-[rgb(var(--fg-danger)/0.08)] px-3 py-2 text-[12px] text-[rgb(var(--fg-danger))]"
+        {surface === "sheet" ? (
+          <div className="flex shrink-0 items-center gap-3 border-b border-[rgb(var(--border-subtle))] px-4 py-3">
+            {renderArtwork("h-12 w-12 rounded-[8px]!", true)}
+            <button
+              type="button"
+              onClick={handlePlayToggle}
+              disabled={playState.disabled}
+              aria-label={playState.label}
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--fg-default))] text-white disabled:opacity-45"
             >
-              {error}
-            </p>
-          ) : null}
+              {isPlayingThis ? <PauseIcon /> : <PlayIcon />}
+            </button>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] font-bold">{songTitle}</p>
+              <p className="truncate font-mono text-[10px] text-[rgb(var(--fg-muted))]">
+                {fmtMs(displayedCurrentMs)} /{" "}
+                {effectiveDurationMs ? fmtMs(effectiveDurationMs) : "—"}
+              </p>
+            </div>
+          </div>
+        ) : null}
 
-          {commentsClosed ? (
-            <div
-              role="status"
-              className="mb-2.5 rounded-[var(--radius-sm)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] px-3 py-2.5 text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))]"
-            >
-              {songArchived
-                ? "This song is archived. Restore this song to add comments. Listening and comment history remain available."
-                : "This project is archived. New comments are closed, but listening and comment history remain available."}
+        {error ? (
+          <p
+            role="alert"
+            className="mx-4 mt-3 shrink-0 rounded-[10px] border border-[rgb(var(--fg-danger)/0.28)] bg-[rgb(var(--fg-danger)/0.07)] px-3 py-2 text-[12px] text-[rgb(var(--fg-danger))]"
+          >
+            {error}
+          </p>
+        ) : null}
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-5">
+          {visibleComments.length === 0 ? (
+            <div className="flex min-h-40 items-center justify-center text-center">
+              <p className="max-w-[28ch] text-[13px] leading-relaxed text-[rgb(var(--fg-muted))]">
+                {commentsClosed
+                  ? songArchived
+                    ? "No notes were added before this song was archived."
+                    : "No notes were added before this project was archived."
+                  : "No notes yet. Add one at the current time."}
+              </p>
             </div>
           ) : (
-            /* Composer — premium pill, focus-state with amber ring. */
-            <div
-              className={[
-                "group/composer mb-2.5 flex items-center gap-2 rounded-[var(--radius-sm)] border bg-[rgb(var(--bg-elevated))] py-1 pr-1 pl-2",
-                "border-[rgb(var(--border-subtle))]",
-                "transition-[border-color,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)]",
-                "focus-within:border-[rgb(var(--brand-primary)/0.5)] focus-within:shadow-[0_0_0_4px_rgb(var(--brand-primary)/0.12)]",
-              ].join(" ")}
-            >
-              <span className="shrink-0 rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary)/0.14)] px-2.5 py-1 font-mono text-[10.5px] font-bold text-[rgb(var(--brand-primary-dark))] tabular-nums">
-                @{fmtMs(currentMs)}
+            <ul className="divide-y divide-[rgb(var(--border-subtle))]">
+              {visibleComments.map((c) => {
+                const override = resolvedOverrides[c.id];
+                const resolved = override !== undefined ? override : c.resolvedAtIso !== null;
+                return (
+                  <li
+                    key={c.id}
+                    id={`song-note-${c.id}`}
+                    data-song-comment={c.id}
+                    className={["py-4", resolved ? "text-[rgb(var(--fg-muted))]" : ""].join(" ")}
+                  >
+                    <div className="flex items-start gap-3">
+                      <span
+                        aria-hidden
+                        className={[
+                          "mt-1 h-2 w-2 shrink-0 rounded-full",
+                          resolved
+                            ? "bg-[rgb(var(--fg-muted)/0.5)]"
+                            : "bg-[rgb(var(--brand-primary))]",
+                        ].join(" ")}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className="text-[13px] font-bold">{c.authorName}</span>
+                          <button
+                            type="button"
+                            data-test="comment-timestamp"
+                            onClick={() => {
+                              handleJumpToComment(c.timeMs);
+                            }}
+                            aria-label={`Jump to ${fmtMs(c.timeMs)}`}
+                            className="inline-flex min-h-11 min-w-11 items-center justify-center font-mono text-[10px] font-bold text-[rgb(var(--brand-primary-dark))] tabular-nums lg:min-h-8 lg:min-w-0"
+                          >
+                            {fmtMs(c.timeMs)}
+                          </button>
+                          <span className="font-mono text-[9px] text-[rgb(var(--fg-faint))]">
+                            {fmtRelativeIso(c.createdAtIso)}
+                          </span>
+                        </div>
+                        <p
+                          className={[
+                            "mt-0.5 text-[13.5px] leading-[1.5]",
+                            resolved ? "text-[rgb(var(--fg-muted))]" : "",
+                          ].join(" ")}
+                        >
+                          {c.body}
+                        </p>
+                        <div className="mt-1 flex flex-wrap gap-3 text-[10px] font-bold text-[rgb(var(--fg-muted))]">
+                          <button
+                            type="button"
+                            data-test="comment-jump"
+                            onClick={() => {
+                              handleJumpToComment(c.timeMs);
+                            }}
+                            className="inline-flex min-h-11 min-w-11 items-center justify-center hover:text-[rgb(var(--fg-default))] lg:min-h-8 lg:min-w-0"
+                          >
+                            Jump
+                          </button>
+                          {!commentsClosed ? (
+                            <button
+                              type="button"
+                              data-test="comment-reply"
+                              onClick={() => {
+                                handleReplyToComment(c.authorName);
+                              }}
+                              className="inline-flex min-h-11 min-w-11 items-center justify-center hover:text-[rgb(var(--fg-default))] lg:min-h-8 lg:min-w-0"
+                            >
+                              Reply
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            data-test="comment-resolve"
+                            disabled={isPending}
+                            onClick={() => {
+                              handleResolveToggle(c);
+                            }}
+                            className="inline-flex min-h-11 min-w-11 items-center justify-center hover:text-[rgb(var(--fg-default))] disabled:opacity-50 lg:min-h-8 lg:min-w-0"
+                          >
+                            {resolved ? "Reopen" : "Resolve"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+
+        <div className="shrink-0 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4">
+          {commentsClosed ? (
+            <p role="status" className="text-[12px] leading-relaxed text-[rgb(var(--fg-muted))]">
+              {songArchived
+                ? "This song is archived. Restore it to add notes."
+                : "This project is archived. New comments are closed."}
+            </p>
+          ) : (
+            <div className="flex items-center gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-sunken))] p-1 focus-within:border-[rgb(var(--brand-primary))]">
+              <span className="shrink-0 px-2 font-mono text-[10px] font-bold text-[rgb(var(--brand-primary-dark))] tabular-nums">
+                {fmtMs(displayedCurrentMs)}
               </span>
               <input
                 ref={draftRef}
@@ -1992,17 +2126,17 @@ export function SongPage({
                 data-test="comment-input"
                 maxLength={2000}
                 disabled={isPending}
-                placeholder="Add a note at this timestamp…"
-                className="min-h-11 min-w-0 flex-1 bg-transparent text-[13.5px] outline-none placeholder:text-[rgb(var(--fg-muted))] sm:min-h-0"
+                placeholder="Add a note at this time…"
+                className="min-h-11 min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-[rgb(var(--fg-muted))]"
                 value={commentDraft.body}
                 onChange={(event) => {
                   commentDraft.setBodyFromUser(event.currentTarget.value);
                 }}
                 onFocus={handleComposerFocus}
                 onBlur={handleComposerBlur}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
                     handleAddComment();
                   }
                 }}
@@ -2013,213 +2147,302 @@ export function SongPage({
                 onClick={handleAddComment}
                 disabled={isPending}
                 aria-disabled={!online}
-                className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-sm)] bg-[rgb(var(--fg-default))] px-4 py-1.5 text-[11.5px] font-bold tracking-wide text-[rgb(var(--bg-elevated))] transition-[transform,box-shadow] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:-translate-y-px hover:shadow-[0_8px_20px_-6px_rgb(var(--fg-default)/0.35)] disabled:opacity-60 sm:min-h-0"
+                className="inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[11px] font-bold text-white disabled:opacity-50"
               >
                 {online ? "Post" : "Offline"}
               </button>
             </div>
           )}
-
-          {visibleComments.length === 0 ? (
-            <div className="rounded-[14px] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-7 text-center text-[12.5px] text-[rgb(var(--fg-muted))]">
-              <ArrowUpHint />
-              <p className="mt-2">
-                {commentsClosed
-                  ? songArchived
-                    ? "No notes were added before this song was archived."
-                    : "No notes were added before this project was archived."
-                  : "No notes yet. Type one above to drop it at the current playhead."}
-              </p>
-            </div>
-          ) : (
-            <ul className="flex flex-col gap-1.5">
-              {visibleComments.map((c, i) => {
-                const override = resolvedOverrides[c.id];
-                const isResolved = override !== undefined ? override : c.resolvedAtIso !== null;
-                // Stagger entry by index, capped at 5 (after that the cascade
-                // gets noticeably slow without adding polish).
-                const staggerMs = Math.min(i, 5) * 50;
-
-                // ─── Resolved → compact single-line variant ──────────
-                // Greyed out, half-height of an active note. Just the
-                // author + timestamp + body preview. Hover reveals the
-                // "Reopen" action. Saves a lot of vertical space when
-                // a producer has 10+ resolved notes on a track.
-                if (isResolved) {
-                  // Collapsed by default — single greyed line. On
-                  // hover, the row expands: body un-truncates onto a
-                  // second line + padding grows + actions slide in.
-                  // Producer can re-read context without reopening.
-                  return (
-                    <li
-                      key={c.id}
-                      className="group/note reveal-up flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--fg-default)/0.02)] px-2.5 py-1 text-[12px] opacity-65 transition-[opacity,padding] duration-200 hover:py-2 hover:opacity-100"
-                      style={{ animationDelay: `${String(staggerMs)}ms` }}
-                    >
-                      <span
-                        aria-hidden
-                        className="font-mono text-[10px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase"
-                      >
-                        ✓
-                      </span>
-                      <button
-                        type="button"
-                        data-test="comment-timestamp"
-                        onClick={() => {
-                          handleJumpToComment(c.timeMs);
-                        }}
-                        aria-label={`Jump to ${fmtMs(c.timeMs)}`}
-                        className="sk-press inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-[rgb(var(--fg-default)/0.05)] px-1.5 py-0 font-mono text-[10px] font-bold text-[rgb(var(--fg-muted))] tabular-nums hover:bg-[rgb(var(--fg-default)/0.1)] sm:min-h-0 sm:min-w-0"
-                      >
-                        @{fmtMs(c.timeMs)}
-                      </button>
-                      <span className="shrink-0 text-[11.5px] font-semibold text-[rgb(var(--fg-muted))]">
-                        {c.authorName}
-                      </span>
-                      {/* Body: truncated single line by default; on
-                          row hover, basis grows + line-clamp lifts so
-                          the full body wraps onto subsequent lines. */}
-                      <span className="min-w-0 flex-1 basis-0 truncate text-[11.5px] text-[rgb(var(--fg-muted))] transition-[max-height,color] duration-200 group-hover:text-[rgb(var(--fg-default))] group-hover/note:whitespace-normal">
-                        {c.body}
-                      </span>
-                      {/* Hover-revealed on desktop; touch devices have
-                          no hover, so `[@media(hover:none)]:inline-flex`
-                          keeps the affordance permanently visible
-                          there with a real 44px-tall hit box. */}
-                      <button
-                        type="button"
-                        data-test="comment-jump"
-                        onClick={() => {
-                          handleJumpToComment(c.timeMs);
-                        }}
-                        className="hidden min-h-11 min-w-11 items-center justify-center text-[10px] font-bold tracking-wide text-[rgb(var(--fg-muted))] uppercase group-hover/note:inline-flex hover:text-[rgb(var(--fg-default))] sm:min-h-0 sm:min-w-0 [@media(hover:none)]:inline-flex"
-                      >
-                        Jump
-                      </button>
-                      {!commentsClosed ? (
-                        <button
-                          type="button"
-                          data-test="comment-reply"
-                          onClick={() => {
-                            handleReplyToComment(c.authorName);
-                          }}
-                          className="hidden min-h-11 min-w-11 items-center justify-center text-[10px] font-bold tracking-wide text-[rgb(var(--fg-muted))] uppercase group-hover/note:inline-flex hover:text-[rgb(var(--fg-default))] sm:min-h-0 sm:min-w-0 [@media(hover:none)]:inline-flex"
-                        >
-                          Reply
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        data-test="comment-resolve"
-                        disabled={isPending}
-                        onClick={() => {
-                          handleResolveToggle(c);
-                        }}
-                        className="hidden min-h-11 min-w-11 shrink-0 items-center justify-center text-[10px] font-bold tracking-wide text-[rgb(var(--fg-muted))] uppercase group-hover/note:inline-flex hover:text-[rgb(var(--fg-default))] sm:min-h-0 sm:min-w-0 [@media(hover:none)]:inline-flex"
-                      >
-                        Reopen
-                      </button>
-                    </li>
-                  );
-                }
-
-                // ─── Active note — full card ─────────────────────────
-                return (
-                  <li
-                    key={c.id}
-                    className={[
-                      "group/note reveal-up",
-                      "flex items-start gap-2.5 rounded-[12px] border px-2.5 py-2",
-                      "transition-[transform,box-shadow,background-color,border-color] duration-[260ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
-                      c.fromProducer
-                        ? "border-[rgb(var(--brand-primary)/0.22)] bg-[rgb(var(--brand-primary)/0.05)]"
-                        : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]",
-                      "hover:-translate-y-px hover:shadow-[0_10px_28px_-12px_rgb(var(--fg-default)/0.16)]",
-                    ].join(" ")}
-                    style={{ animationDelay: `${String(staggerMs)}ms` }}
-                  >
-                    <span
-                      aria-hidden
-                      className={[
-                        "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold tracking-wider text-white uppercase",
-                        c.fromProducer
-                          ? "bg-[rgb(var(--brand-primary))] shadow-[0_2px_8px_-2px_rgb(var(--brand-primary)/0.55)]"
-                          : "bg-[rgb(var(--fg-muted))]",
-                      ].join(" ")}
-                    >
-                      {initials(c.authorName)}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-[13px] font-bold text-[rgb(var(--fg-default))]">
-                          {c.authorName}
-                        </span>
-                        <button
-                          type="button"
-                          data-test="comment-timestamp"
-                          onClick={() => {
-                            handleJumpToComment(c.timeMs);
-                          }}
-                          aria-label={`Jump to ${fmtMs(c.timeMs)}`}
-                          className="sk-press inline-flex min-h-11 min-w-11 items-center justify-center rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary)/0.14)] px-2 py-0.5 font-mono text-[10px] font-bold text-[rgb(var(--brand-primary-dark))] tabular-nums transition-colors duration-200 hover:bg-[rgb(var(--brand-primary)/0.24)] sm:min-h-0 sm:min-w-0"
-                        >
-                          @{fmtMs(c.timeMs)}
-                        </button>
-                        <span className="font-mono text-[10px] text-[rgb(var(--fg-muted))]">
-                          {fmtRelativeIso(c.createdAtIso)}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-[13px] leading-snug text-[rgb(var(--fg-default))]">
-                        {c.body}
-                      </p>
-                      {/* Touch devices have no hover to lift the 60%
-                          dim — render the actions at full opacity when
-                          the device can't hover. Phone buttons get a
-                          real 44px height; desktop keeps the compact
-                          text-row treatment. */}
-                      <div className="mt-1 flex gap-2.5 text-[10px] font-bold tracking-wide opacity-60 transition-opacity duration-200 group-hover/note:opacity-100 [@media(hover:none)]:opacity-100">
-                        <button
-                          type="button"
-                          data-test="comment-jump"
-                          onClick={() => {
-                            handleJumpToComment(c.timeMs);
-                          }}
-                          className="inline-flex min-h-11 min-w-11 items-center justify-center text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] sm:min-h-0 sm:min-w-0"
-                        >
-                          Jump to
-                        </button>
-                        {!commentsClosed ? (
-                          <button
-                            type="button"
-                            data-test="comment-reply"
-                            onClick={() => {
-                              handleReplyToComment(c.authorName);
-                            }}
-                            className="inline-flex min-h-11 min-w-11 items-center justify-center text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] sm:min-h-0 sm:min-w-0"
-                          >
-                            Reply
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          data-test="comment-resolve"
-                          disabled={isPending}
-                          onClick={() => {
-                            handleResolveToggle(c);
-                          }}
-                          className="inline-flex min-h-11 min-w-11 items-center justify-center text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))] sm:min-h-0 sm:min-w-0"
-                        >
-                          Resolve
-                        </button>
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
         </div>
-      </section>
+      </Card>
+    );
+  }
+
+  return (
+    <main
+      data-test="professional-song-page"
+      className="sk-page-enter relative isolate min-h-full overflow-x-clip bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-default))]"
+    >
+      <SetTopBarBreadcrumb crumbs={topbarCrumbs} />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[320px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.09)] via-[rgb(var(--bg-background)/0.72)] to-[rgb(var(--bg-background))]"
+      />
+
+      {role === "producer" && actions.prepareArtwork && actions.completeArtwork ? (
+        <input
+          ref={artworkInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          className="sr-only"
+          aria-label="Choose song cover"
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            if (file) void handleArtworkFile(file);
+          }}
+        />
+      ) : null}
+
+      <div className="relative z-10 mx-auto w-full max-w-[1120px] px-4 py-4 pb-24 sm:px-6 sm:py-6 lg:py-8 lg:pb-10">
+        <header className="mb-4">
+          <Card className="relative grid grid-cols-[88px_minmax(0,1fr)] items-start gap-x-3 p-4 sm:grid-cols-[108px_minmax(0,1fr)] sm:gap-x-5 sm:p-5 lg:grid-cols-[120px_minmax(0,1fr)]">
+            {renderArtwork("h-[88px] w-[88px] sm:h-[108px] sm:w-[108px] lg:h-[120px] lg:w-[120px]")}
+            <div className="min-w-0 pt-0.5">
+              <Link
+                href={projectHref}
+                aria-label={"Open " + data.track.projectTitle + " project"}
+                className="inline-flex min-h-11 max-w-[calc(100%-3rem)] items-center text-[11.5px] font-semibold text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-default))]"
+              >
+                <span className="truncate">{data.track.projectTitle}</span>
+              </Link>
+              <h1 className="font-display mt-1 line-clamp-2 text-[26px] leading-[1.02] font-extrabold tracking-[-0.035em] text-[rgb(var(--fg-default))] sm:text-[30px] lg:text-[34px]">
+                {songTitle}
+              </h1>
+              {(songArtist ?? clientLabel) ? (
+                <p className="mt-1.5 truncate text-[13px] font-medium text-[rgb(var(--fg-muted))]">
+                  {songArtist ?? clientLabel}
+                </p>
+              ) : null}
+            </div>
+            <div className="absolute top-4 right-4 sm:top-5 sm:right-5">{renderMoreControl()}</div>
+
+            <div className="col-span-2 mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-[rgb(var(--fg-muted))] lg:col-span-1 lg:col-start-2 lg:mt-2">
+              <span className="font-mono tabular-nums">
+                {effectiveDurationMs ? fmtMs(effectiveDurationMs) : "Duration pending"}
+              </span>
+              <span aria-hidden>·</span>
+              <span>
+                Uploaded{" "}
+                <span className="font-mono">{fmtRelativeIso(activeVersion.uploadedAtIso)}</span>
+              </span>
+              {songReleased ? (
+                <>
+                  <span aria-hidden>·</span>
+                  <span>Released</span>
+                </>
+              ) : null}
+              {songArchived || projectArchivedLabel ? (
+                <>
+                  <span aria-hidden>·</span>
+                  <span>{songArchived ? "Song archived" : projectArchivedLabel}</span>
+                </>
+              ) : null}
+              {activeVersionDeleted ? (
+                <>
+                  <span aria-hidden>·</span>
+                  <span>Audio deleted</span>
+                </>
+              ) : null}
+              {wasPreviouslyArtistApproved && !isExactArtistApproved ? (
+                <>
+                  <span aria-hidden>·</span>
+                  <span>Previously approved</span>
+                </>
+              ) : null}
+            </div>
+            <div className="col-span-2 mt-4 flex flex-wrap items-center gap-2 lg:col-span-1 lg:col-start-2 lg:mt-3">
+              {renderVersionControl()}
+              {renderWorkflowControl()}
+            </div>
+          </Card>
+        </header>
+
+        {error && !notesOpen ? (
+          <p
+            role="alert"
+            className="mb-4 rounded-[var(--radius-md)] border border-[rgb(var(--fg-danger)/0.28)] bg-[rgb(var(--fg-danger)/0.07)] px-3 py-2 text-[12px] text-[rgb(var(--fg-danger))]"
+          >
+            {error}
+          </p>
+        ) : null}
+
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.7fr)_minmax(320px,1fr)] lg:items-stretch">
+          <section className="flex min-w-0 flex-col gap-4">
+            <div className="rounded-[var(--radius-xl)] border border-[rgb(var(--fg-onsidebar)/0.1)] bg-[rgb(var(--bg-sidebar))] px-4 py-5 text-[rgb(var(--fg-onsidebar))] shadow-[var(--shadow-md)] [--fg-muted:200_192_178] sm:px-5 lg:px-6 lg:py-6">
+              {activeVersionDeleted ? (
+                <div
+                  role="status"
+                  className="flex min-h-[184px] flex-col items-center justify-center border-y border-[rgb(var(--fg-onsidebar)/0.1)] text-center"
+                >
+                  <p className="text-[13px] font-bold text-[rgb(var(--fg-onsidebar)/0.74)]">
+                    Audio deleted
+                  </p>
+                  <p className="mt-1 text-[11px] text-[rgb(var(--fg-onsidebar)/0.5)]">
+                    The version details and notes remain available.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <Waveform50
+                    appearance="studio"
+                    density={{ mobile: 96, desktop: 200 }}
+                    durationMs={effectiveDurationMs ?? 240_000}
+                    comments={waveformComments}
+                    seed={activeVersion.id}
+                    initialMs={displayedCurrentMs}
+                    initialPeaks={activeVersion.peaks}
+                    peaksUrl={
+                      activeVersionPlayable ? (activeVersion.audioUrl ?? undefined) : undefined
+                    }
+                    onProgress={setCurrentMs}
+                    onSeek={(ms) => {
+                      setCurrentMs(ms);
+                      if (
+                        playbackSnapshot.track?.id !== activeVersion.id &&
+                        isSongPageVersionPlayable(activeVersion)
+                      ) {
+                        playerLoad(
+                          activeVersionToPlayerTrack(playbackTrackData, activeVersion, role),
+                          {
+                            currentMs: ms,
+                            playing: false,
+                          },
+                        );
+                      }
+                    }}
+                    onCommentSelect={(comment) => {
+                      handleJumpToComment(comment.timeMs);
+                      if (!isDesktopMoreActions) setNotesOpen(true);
+                      window.setTimeout(() => {
+                        document
+                          .getElementById("song-note-" + comment.id)
+                          ?.scrollIntoView({ block: "center" });
+                      }, 0);
+                    }}
+                    height={isDesktopMoreActions ? 142 : 104}
+                  />
+                </>
+              )}
+
+              <div className="mt-5 grid grid-cols-[1fr_auto_1fr] items-center">
+                <span aria-hidden />
+                <div className="flex items-center justify-center gap-4 sm:gap-6">
+                  <button
+                    type="button"
+                    aria-label="Back 15 seconds"
+                    onClick={() => {
+                      handleSkip(-15_000);
+                    }}
+                    disabled={!activeVersionPlayable}
+                    className="sk-press inline-flex h-12 w-12 flex-col items-center justify-center rounded-full text-[rgb(var(--fg-onsidebar)/0.72)] transition-colors hover:bg-[rgb(var(--fg-onsidebar)/0.07)] hover:text-[rgb(var(--fg-onsidebar))] disabled:opacity-35"
+                  >
+                    <SkipBackIcon />
+                    <span className="mt-0.5 font-mono text-[10px]">15</span>
+                  </button>
+                  <button
+                    type="button"
+                    data-test="waveform-play-button"
+                    onClick={handlePlayToggle}
+                    disabled={playState.disabled}
+                    aria-label={playState.label}
+                    className="sk-press inline-flex h-[60px] w-[60px] items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-primary))] shadow-[0_8px_24px_rgb(var(--brand-primary)/0.22)] transition-colors hover:bg-[rgb(var(--brand-primary-hover))] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {isPlayingThis ? <PauseIcon size={18} /> : <PlayIcon size={18} />}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Forward 15 seconds"
+                    onClick={() => {
+                      handleSkip(15_000);
+                    }}
+                    disabled={!activeVersionPlayable}
+                    className="sk-press inline-flex h-12 w-12 flex-col items-center justify-center rounded-full text-[rgb(var(--fg-onsidebar)/0.72)] transition-colors hover:bg-[rgb(var(--fg-onsidebar)/0.07)] hover:text-[rgb(var(--fg-onsidebar))] disabled:opacity-35"
+                  >
+                    <SkipForwardIcon />
+                    <span className="mt-0.5 font-mono text-[10px]">15</span>
+                  </button>
+                </div>
+
+                <div className="hidden items-center justify-end gap-3 text-[rgb(var(--fg-onsidebar)/0.58)] xl:flex">
+                  <VolumeIcon />
+                  <label className="sr-only" htmlFor="song-player-volume">
+                    Player volume
+                  </label>
+                  <input
+                    id="song-player-volume"
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    value={playbackSnapshot.volume}
+                    onChange={(event) => {
+                      playerSetVolume(Number(event.currentTarget.value));
+                    }}
+                    className="h-11 w-28 accent-[rgb(var(--brand-primary))]"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="lg:hidden">
+              <button
+                type="button"
+                aria-label={"Open Notes, " + String(allCommentsForVersion.length) + " notes"}
+                onClick={() => {
+                  setNotesOpen(true);
+                }}
+                className="sk-press flex min-h-14 w-full items-center justify-between rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 text-[13px] font-bold text-[rgb(var(--fg-default))] shadow-[var(--shadow-sm)] transition-colors hover:border-[rgb(var(--border-strong))] hover:bg-[rgb(var(--bg-overlay))]"
+              >
+                <span>Notes</span>
+                <span className="rounded-[var(--radius-sm)] bg-[rgb(var(--bg-sunken))] px-2 py-1 font-mono text-[11px] text-[rgb(var(--fg-muted))]">
+                  {String(allCommentsForVersion.length)}
+                </span>
+              </button>
+            </div>
+
+            <div>
+              <VersionDeliveryPanel
+                role={role}
+                artistStudioId={artistStudioId}
+                version={activeVersion}
+                delivery={activeDelivery}
+                downloadHref={downloadHref}
+                canUseDownloadAction={canUseDownloadAction}
+                canManageOverride={Boolean(actions.setDownloadOverride)}
+                overrideButtonRef={deliveryOverrideButtonRef}
+                onManageOverride={() => {
+                  openManagementDialog("download-override");
+                }}
+              />
+            </div>
+          </section>
+
+          {isDesktopMoreActions ? (
+            <aside className="flex min-h-[420px]" aria-label="Song notes">
+              {renderNotesPanel("desktop")}
+            </aside>
+          ) : null}
+        </div>
+      </div>
+
+      <Sheet
+        open={notesOpen && !isDesktopMoreActions}
+        onOpenChange={(open) => {
+          if (!open) closeNotes();
+        }}
+      >
+        <SheetContent
+          side="bottom"
+          aria-describedby="song-notes-description"
+          onPointerDown={(event) => {
+            const top = event.currentTarget.getBoundingClientRect().top;
+            notesDragStartYRef.current = event.clientY - top <= 84 ? event.clientY : null;
+          }}
+          onPointerUp={(event) => {
+            const start = notesDragStartYRef.current;
+            notesDragStartYRef.current = null;
+            if (start !== null && event.clientY - start > 80) closeNotes();
+          }}
+          className="w-full gap-0 overflow-hidden px-0 pt-2 pb-[env(safe-area-inset-bottom)] sm:px-0 sm:pt-2 sm:pb-[env(safe-area-inset-bottom)]"
+        >
+          <SheetTitle className="sr-only">Song notes</SheetTitle>
+          <SheetDescription id="song-notes-description" className="sr-only">
+            Review timestamped notes and add a note at the current playback time.
+          </SheetDescription>
+          {renderNotesPanel("sheet")}
+        </SheetContent>
+      </Sheet>
+
       {managementConfig ? (
         <SongManagementDialog
           open={managementDialog !== null}
@@ -2251,6 +2474,10 @@ type SongMoreActionsPanelProps = {
   activeDeliveryBadge: string;
   songArchived: boolean;
   songReleased: boolean;
+  artistApprovalLocked: boolean;
+  artworkUploading: boolean;
+  onChangeCover: () => void;
+  publicSharingControl: ReactNode;
   onDismiss: () => void;
   onOpenManagement: (kind: OpenSongManagement["kind"]) => void;
   id?: string;
@@ -2268,6 +2495,10 @@ function SongMoreActionsPanel({
   activeDeliveryBadge,
   songArchived,
   songReleased,
+  artistApprovalLocked,
+  artworkUploading,
+  onChangeCover,
+  publicSharingControl,
   onDismiss,
   onOpenManagement,
   id,
@@ -2287,6 +2518,7 @@ function SongMoreActionsPanel({
 
   return (
     <div id={id} role="group" aria-label="Song actions" data-testid={testId} className={className}>
+      {publicSharingControl}
       {canUseDownloadAction ? (
         <a
           aria-label="Download"
@@ -2317,6 +2549,31 @@ function SongMoreActionsPanel({
               : "Download (uploading…)"}
         </button>
       )}
+      {role === "producer" && actions.prepareArtwork && actions.completeArtwork ? (
+        <button
+          type="button"
+          disabled={artworkUploading}
+          onClick={() => {
+            onDismiss();
+            onChangeCover();
+          }}
+          className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)] disabled:opacity-50"
+        >
+          {artworkUploading ? "Uploading cover…" : "Change cover"}
+        </button>
+      ) : null}
+      {role === "producer" && artistApprovalLocked && actions.reopenSong ? (
+        <button
+          type="button"
+          data-test="reopen-approved-song"
+          onClick={() => {
+            onOpenManagement("reopen-approved-song");
+          }}
+          className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold transition-colors hover:bg-[rgb(var(--fg-default)/0.04)]"
+        >
+          Reopen approved song
+        </button>
+      ) : null}
       {hasProducerManagement ? (
         <>
           <div role="separator" className="mx-2 my-1 h-px bg-[rgb(var(--border-subtle))]" />
@@ -2530,25 +2787,20 @@ function fmtRelativeIso(iso: string): string {
   return new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).slice(0, 2);
-  return parts.map((p) => p.charAt(0).toUpperCase()).join("") || "·";
-}
-
-function ChevronRightIcon() {
+function ChevronDownIcon() {
   return (
     <svg
-      width="11"
-      height="11"
+      width="14"
+      height="14"
       viewBox="0 0 16 16"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
+      strokeWidth="1.8"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden
     >
-      <polyline points="6 4 10 8 6 12" />
+      <path d="m4 6 4 4 4-4" />
     </svg>
   );
 }
@@ -2571,40 +2823,17 @@ function CheckIcon() {
   );
 }
 
-function WaveformGlyph() {
+function PlayIcon({ size = 13 }: { size?: number }) {
   return (
-    <svg
-      width="56"
-      height="56"
-      viewBox="0 0 32 32"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.3"
-      strokeLinecap="round"
-      aria-hidden
-    >
-      <line x1="4" y1="14" x2="4" y2="18" opacity="0.7" />
-      <line x1="8" y1="11" x2="8" y2="21" opacity="0.8" />
-      <line x1="12" y1="7" x2="12" y2="25" opacity="0.95" />
-      <line x1="16" y1="3" x2="16" y2="29" />
-      <line x1="20" y1="7" x2="20" y2="25" opacity="0.95" />
-      <line x1="24" y1="11" x2="24" y2="21" opacity="0.8" />
-      <line x1="28" y1="14" x2="28" y2="18" opacity="0.7" />
-    </svg>
-  );
-}
-
-function PlayIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
+    <svg width={size} height={size} viewBox="0 0 12 12" fill="currentColor" aria-hidden>
       <path d="M3.5 2.5v7L9.5 6z" />
     </svg>
   );
 }
 
-function PauseIcon() {
+function PauseIcon({ size = 13 }: { size?: number }) {
   return (
-    <svg width="13" height="13" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
+    <svg width={size} height={size} viewBox="0 0 12 12" fill="currentColor" aria-hidden>
       <rect x="3" y="2.5" width="2" height="7" rx="0.5" />
       <rect x="7" y="2.5" width="2" height="7" rx="0.5" />
     </svg>
@@ -2641,24 +2870,61 @@ function MoreIcon() {
   );
 }
 
-// Empty-state hint pointing UP to the composer pill so producers
-// immediately see where to start their first note.
-function ArrowUpHint() {
+function SkipBackIcon() {
   return (
     <svg
-      width="18"
-      height="18"
+      width="20"
+      height="20"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.6"
+      strokeWidth="1.8"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="mx-auto opacity-60"
       aria-hidden
     >
-      <path d="M12 19V5" />
-      <polyline points="6 11 12 5 18 11" />
+      <path d="M4 7v5h5" />
+      <path d="M5.4 16.7A8 8 0 1 0 6 6.3L4 8" />
+    </svg>
+  );
+}
+
+function SkipForwardIcon() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M20 7v5h-5" />
+      <path d="M18.6 16.7A8 8 0 1 1 18 6.3L20 8" />
+    </svg>
+  );
+}
+
+function VolumeIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="text-white/52"
+      aria-hidden
+    >
+      <path d="M11 5 6 9H3v6h3l5 4V5Z" />
+      <path d="M15 9a4 4 0 0 1 0 6" />
+      <path d="M18 6a8 8 0 0 1 0 12" />
     </svg>
   );
 }

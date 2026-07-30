@@ -2,6 +2,11 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
 import { isDevPreviewBypass } from "~/lib/onboarding/dev-preview";
+import {
+  RETURNING_DEVICE_COOKIE,
+  returningDeviceCookieOptions,
+  shouldStampReturningDeviceCookie,
+} from "~/server/auth/returning-device";
 
 const isProtected = createRouteMatcher([
   "/dashboard(.*)",
@@ -113,6 +118,24 @@ export function isAccessGated(pathname: string): boolean {
 }
 
 const clerk = clerkMiddleware(async (auth, req) => {
+  const { userId } = await auth();
+  const returningDeviceCookie = req.cookies.get(RETURNING_DEVICE_COOKIE)?.value;
+  const finalizeResponse = (response: NextResponse) => {
+    if (
+      shouldStampReturningDeviceCookie({
+        userId,
+        cookieValue: returningDeviceCookie,
+      })
+    ) {
+      response.cookies.set(
+        RETURNING_DEVICE_COOKIE,
+        "1",
+        returningDeviceCookieOptions(process.env.NODE_ENV === "production"),
+      );
+    }
+    return response;
+  };
+
   // the target is always inside /dashboard which is also protected.
   const legacy = resolveLegacyRedirect(req.nextUrl.pathname);
   if (legacy !== null) {
@@ -123,7 +146,7 @@ const clerk = clerkMiddleware(async (auth, req) => {
     if (!url.search && req.nextUrl.search) {
       url.search = req.nextUrl.search;
     }
-    return NextResponse.redirect(url, 301);
+    return finalizeResponse(NextResponse.redirect(url, 301));
   }
 
   // Dev-only bypass for visual review of the onboarding wizard. Gated
@@ -174,10 +197,12 @@ const clerk = clerkMiddleware(async (auth, req) => {
     if (isOnboardingPreview) {
       requestHeaders.set("x-onboarding-preview-bypass", "1");
     }
-    return NextResponse.next({ request: { headers: requestHeaders } });
+    return finalizeResponse(
+      NextResponse.next({ request: { headers: requestHeaders } }),
+    );
   }
 
-  return NextResponse.next();
+  return finalizeResponse(NextResponse.next());
 });
 
 export default async function middleware(

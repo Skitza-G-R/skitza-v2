@@ -7,9 +7,12 @@ import { useEffect, useRef, useState } from "react";
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 import {
   PLAYER_EVENTS,
+  clampSeekMs,
   playerClose,
+  playerLoad,
   playerPlay,
   playerSeek,
+  playerSetVolume,
   playerToggle,
   publishNowPlaying,
   useNowPlaying,
@@ -19,36 +22,44 @@ import {
 
 export {
   PLAYER_EVENTS,
+  clampSeekMs,
   playerClose,
+  playerLoad,
   playerPlay,
   playerSeek,
+  playerSetVolume,
   playerToggle,
   publishNowPlaying,
   useNowPlaying,
+  usePlaybackSnapshot,
 };
-export type { PlayerTrack };
+export type { PlayerLoadOptions, PlayerTrack } from "./playback-runtime";
 
-/** Pathname matcher for the producer Song page (/dashboard/music/<uuid>).
- *  Legacy: the song page used to suppress the dock because its
- *  in-card transport bar (Skip / Play / Skip) was the playback UI.
- *  That transport has been removed, so the dock is now always
- *  visible across the dashboard. The route-based hide logic was
- *  retired with it. */
+const UUID_PATH_SEGMENT = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const PRODUCER_SHARED_SONG_PATH = new RegExp(`^/dashboard/music/${UUID_PATH_SEGMENT}/?$`, "i");
+const ARTIST_SHARED_SONG_PATH = new RegExp(`^/artist/music/song/${UUID_PATH_SEGMENT}/?$`, "i");
+
+/** True only for the two routes that render the shared Music SongPage. */
+export function isSharedSongPagePathname(pathname: string | null): boolean {
+  if (!pathname) return false;
+  return PRODUCER_SHARED_SONG_PATH.test(pathname) || ARTIST_SHARED_SONG_PATH.test(pathname);
+}
 
 // PersistentPlayer — the dark rounded floating dock. Mounted once in
 // the dashboard layout (apps/web/src/components/shell/app-shell.tsx)
 // so it survives client-side navigation between sibling routes.
 //
 // Communication with the rest of the app happens over a tiny custom-
-// event bus on `window`, five events total:
+// event bus on `window`:
 //
-//   skitza:player:set    CustomEvent<PlayerTrack>  — load + play a track
+//   skitza:player:set    CustomEvent<PlayerTrack | structured load>
 //   skitza:player:toggle CustomEvent<void>          — pause / resume
 //   skitza:player:seek   CustomEvent<number>        — jump to ms offset
+//   skitza:player:volume CustomEvent<number>        — set volume from 0..1
 //   skitza:player:close  CustomEvent<void>          — unload + hide dock
 //   skitza:player:time   CustomEvent<number>        — BROADCAST: current ms
 //
-// The first four are inputs; the fifth is an output (side-panel
+// The first five are inputs; the last is an output (side-panel
 // waveforms subscribe to keep their playhead aligned with the dock).
 
 // ─── Pure helpers (exported for direct unit-testing) ─────────────────
@@ -133,12 +144,9 @@ export function PersistentPlayer() {
   // route to the right L3 (artist vs producer) without each caller
   // having to pass a role prop.
   const pathname = usePathname();
-  // Dock is always visible across the dashboard now (legacy song-page
-  // hide was retired with the in-card transport). The body-data-
-  // attribute padding rule in globals.css (body[data-skitza-dock="1"]
-  // main#main-content { padding-bottom: 110px }) automatically clears
-  // the song-page comments thread from the dock's footprint.
-  const dockHidden = false;
+  // SongPage supplies its own full transport. Hide only the dock chrome
+  // there; AppPlaybackRuntime remains mounted so playback continues.
+  const dockHidden = isSharedSongPagePathname(pathname);
 
   // Toggle a body data attribute so globals.css can reserve
   // padding-bottom equal to the dock's height on every dashboard
@@ -147,7 +155,7 @@ export function PersistentPlayer() {
   // for a dock that isn't visible.
   useEffect(() => {
     if (typeof document === "undefined") return;
-    if (state.track) {
+    if (state.track && !dockHidden) {
       document.body.dataset.skitzaDock = "1";
     } else {
       delete document.body.dataset.skitzaDock;
@@ -172,8 +180,8 @@ export function PersistentPlayer() {
     playerSeek(ms);
   }
 
-  function onSkip(deltaPct: number) {
-    onScrub(Math.min(100, Math.max(0, progressPct + deltaPct)));
+  function onSkip(deltaMs: number) {
+    playerSeek(clampSeekMs(currentMs, deltaMs, effectiveDurationMs));
   }
 
   function onTogglePlay() {
@@ -235,7 +243,7 @@ function DesktopDock({
   progressPct: number;
   onTogglePlay: () => void;
   onScrub: (pct: number) => void;
-  onSkip: (deltaPct: number) => void;
+  onSkip: (deltaMs: number) => void;
   hidden?: boolean;
   pathname: string | null;
 }) {
@@ -244,6 +252,7 @@ function DesktopDock({
       role="region"
       aria-label="Audio player"
       aria-hidden={hidden}
+      inert={hidden}
       // Floats with margin from the sidebar (lg+) and from the right
       // edge — feels like a tactile dock, not a full-width bar. The
       // .persistent-player-dock class in globals.css contributes the
@@ -315,9 +324,9 @@ function DesktopDock({
           <div className="flex items-center justify-center gap-4">
             <button
               type="button"
-              aria-label="Skip back 5%"
+              aria-label="Back 15 seconds"
               onClick={() => {
-                onSkip(-5);
+                onSkip(-15_000);
               }}
               className="sk-press inline-flex min-h-11 min-w-11 items-center justify-center text-white/55 hover:text-white"
             >
@@ -333,9 +342,9 @@ function DesktopDock({
             </button>
             <button
               type="button"
-              aria-label="Skip forward 5%"
+              aria-label="Forward 15 seconds"
               onClick={() => {
-                onSkip(5);
+                onSkip(15_000);
               }}
               className="sk-press inline-flex min-h-11 min-w-11 items-center justify-center text-white/55 hover:text-white"
             >
@@ -415,7 +424,7 @@ function MobileDock({
   progressPct: number;
   onTogglePlay: () => void;
   onScrub: (pct: number) => void;
-  onSkip: (deltaPct: number) => void;
+  onSkip: (deltaMs: number) => void;
   hidden?: boolean;
   pathname: string | null;
 }) {
@@ -454,6 +463,7 @@ function MobileDock({
         role="region"
         aria-label="Audio player"
         aria-hidden={hidden}
+        inert={hidden}
         // Sits above the producer Liquid Glass nav on <md.
         // .persistent-player-dock from globals.css already handles the
         // bottom-nav + safe-area offset; here we just ensure the dock
@@ -543,7 +553,7 @@ function MobileDock({
         onTogglePlay={onTogglePlay}
         onScrub={onScrub}
         onSkip={onSkip}
-        expanded={expanded}
+        expanded={expanded && !hidden}
         onCollapse={() => {
           setExpanded(false);
         }}
@@ -584,7 +594,7 @@ export function MobileFullPlayer({
   progressPct: number;
   onTogglePlay: () => void;
   onScrub: (pct: number) => void;
-  onSkip: (deltaPct: number) => void;
+  onSkip: (deltaMs: number) => void;
   expanded: boolean;
   onCollapse: () => void;
   collapseBtnRef: React.RefObject<HTMLButtonElement | null>;
@@ -651,14 +661,12 @@ export function MobileFullPlayer({
     const rawElapsedSinceLastMove = event.timeStamp - drag.lastAt;
     const elapsedSinceLastMove = Math.max(0, rawElapsedSinceLastMove);
     const instantaneousVelocity = moveDeltaY / Math.max(1, elapsedSinceLastMove);
-    const hasImmediateCoordinate =
-      rawElapsedSinceLastMove <= 0 && moveDeltaY !== 0;
+    const hasImmediateCoordinate = rawElapsedSinceLastMove <= 0 && moveDeltaY !== 0;
     const velocityRetention = hasImmediateCoordinate
       ? 0
       : Math.pow(0.45, elapsedSinceLastMove / 16);
     drag.velocityY =
-      drag.velocityY * velocityRetention +
-      instantaneousVelocity * (1 - velocityRetention);
+      drag.velocityY * velocityRetention + instantaneousVelocity * (1 - velocityRetention);
     drag.lastY = event.clientY;
     drag.lastAt = event.timeStamp;
     drag.moved ||= Math.abs(event.clientY - drag.startY) >= 5;
@@ -674,8 +682,7 @@ export function MobileFullPlayer({
     const rawElapsedSinceLastMove = event.timeStamp - drag.lastAt;
     const elapsedSinceLastMove = Math.max(0, rawElapsedSinceLastMove);
     const releaseVelocity = releaseDeltaY / Math.max(1, elapsedSinceLastMove);
-    const hasImmediateFinalCoordinate =
-      rawElapsedSinceLastMove <= 0 && releaseDeltaY !== 0;
+    const hasImmediateFinalCoordinate = rawElapsedSinceLastMove <= 0 && releaseDeltaY !== 0;
     // Keep the existing 45/55 velocity blend at a normal 16ms frame,
     // but let a stationary hold decay the old sample before release.
     // If timestamps tie or go backwards, a changed final coordinate
@@ -729,6 +736,7 @@ export function MobileFullPlayer({
       aria-modal={expanded}
       aria-label={`Now playing — ${track.title}`}
       aria-hidden={!expanded}
+      inert={!expanded}
       className={[
         "mobile-full-player-sheet fixed inset-0 z-50 flex flex-col md:hidden",
         expanded ? "" : "pointer-events-none",
@@ -861,13 +869,13 @@ export function MobileFullPlayer({
           </div>
         </div>
 
-        {/* Transport — 64px play/pause flanked by ±10% skips. */}
+        {/* Transport — 64px play/pause flanked by fixed ±15 second skips. */}
         <div className="mt-2 flex items-center justify-center gap-9">
           <button
             type="button"
-            aria-label="Skip back"
+            aria-label="Back 15 seconds"
             onClick={() => {
-              onSkip(-10);
+              onSkip(-15_000);
             }}
             className="sk-press inline-flex h-12 w-12 items-center justify-center rounded-full text-white/85 hover:text-white"
           >
@@ -883,9 +891,9 @@ export function MobileFullPlayer({
           </button>
           <button
             type="button"
-            aria-label="Skip forward"
+            aria-label="Forward 15 seconds"
             onClick={() => {
-              onSkip(10);
+              onSkip(15_000);
             }}
             className="sk-press inline-flex h-12 w-12 items-center justify-center rounded-full text-white/85 hover:text-white"
           >

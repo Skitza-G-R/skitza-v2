@@ -422,7 +422,7 @@ export function PricingStep({
                   aria-label="Price"
                   aria-invalid={priceError !== null}
                   aria-describedby={priceError ? "pricing-step-error" : undefined}
-                  className="font-display h-full min-w-0 flex-1 border-none bg-transparent px-2 py-1 text-[19px] font-bold text-[rgb(var(--fg-default))] tabular-nums outline-none placeholder:text-[rgb(var(--fg-faint))]"
+                  className="font-display h-full min-w-0 flex-1 border-none bg-transparent px-2 py-1 text-[19px] font-bold text-[rgb(var(--fg-default))] tabular-nums outline-none [--sk-mobile-control-font-size:19px] placeholder:text-[rgb(var(--fg-faint))]"
                 />
                 <div className="flex h-7 shrink-0 items-center border-l border-[rgb(var(--border-subtle))] px-2.5">
                   <select

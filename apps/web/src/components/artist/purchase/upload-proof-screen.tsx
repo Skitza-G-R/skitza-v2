@@ -190,12 +190,7 @@ export function UploadProofScreen({
       },
       onSuccess: (proofId) => {
         clearProofOperation(purchaseId, installmentId);
-        router.push(
-          withArtistStudio(
-            `/artist/payments/${purchaseId}/proof/${proofId}`,
-            studioId,
-          ),
-        );
+        router.push(withArtistStudio(`/artist/payments/${purchaseId}/proof/${proofId}`, studioId));
       },
       onCancelled: () => {
         setPhase("idle");

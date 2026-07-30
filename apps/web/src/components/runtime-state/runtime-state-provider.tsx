@@ -152,6 +152,27 @@ export function RuntimeStateProvider({
   return <RuntimeStateContext.Provider value={value}>{children}</RuntimeStateContext.Provider>;
 }
 
+/**
+ * Development-only fixture boundary for authenticated screen previews.
+ * Dev screens do not have a real Clerk identity, but they still need the same
+ * scoped draft behavior as the signed-in shells.
+ */
+export function RuntimeStatePreviewProvider({
+  identity,
+  children,
+}: {
+  identity: RuntimeIdentity;
+  children: ReactNode;
+}) {
+  const storage = getBrowserRuntimeStorage();
+  const value = useMemo<RuntimeStateContextValue>(
+    () => ({ identity, privateStateAccessAllowed: true, storage }),
+    [identity, storage],
+  );
+
+  return <RuntimeStateContext.Provider value={value}>{children}</RuntimeStateContext.Provider>;
+}
+
 export function useRuntimeState(): RuntimeStateContextValue {
   const value = useContext(RuntimeStateContext);
   if (!value) {

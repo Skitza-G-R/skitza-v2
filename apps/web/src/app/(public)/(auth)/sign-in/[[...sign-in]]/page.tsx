@@ -1,26 +1,28 @@
 import { SignIn } from "@clerk/nextjs";
-import { AuthHero } from "~/components/auth/auth-hero";
 
-// Producer + artist sign-in surface. The split-screen chrome lives in
-// `(public)/(auth)/layout.tsx`; this page just stacks the locked-
-// design hero on top of Clerk's `<SignIn>` widget.
-//
-// `forceRedirectUrl="/dashboard"` is preserved (a known producer-vs-
-// artist limitation tracked in CLAUDE.md — out of scope for the polish
-// pass). The AuthHero copy mirrors `/tmp/skitza-design/tabs/auth.jsx`
-// `SignInScreen`.
-export default function Page() {
+import { AuthHero } from "~/components/auth/auth-hero";
+import { signUpSwitchHref } from "~/server/auth/returning-device";
+import { postSignInResolverHref } from "~/server/auth/post-sign-in";
+
+type Props = {
+  searchParams: Promise<{ redirect_url?: string | string[] }>;
+};
+
+// Shared producer + artist app entrance. The route marker lets the auth shell
+// stay focused here while `/sign-up` keeps its marketing-led desktop layout.
+export default async function Page({ searchParams }: Props) {
+  const query = await searchParams;
+  const requestedHref = typeof query.redirect_url === "string" ? query.redirect_url : null;
+  const resolverHref = postSignInResolverHref(requestedHref);
+  const signUpHref = signUpSwitchHref(requestedHref);
+
   return (
-    <div className="space-y-5 sm:space-y-6">
-      <AuthHero
-        eyebrow="Sign in"
-        title="Welcome back"
-        blurb="Pick up where you left off — your hall is exactly as you left it."
-      />
+    <div className="sk-auth-page" data-auth-page="sign-in">
+      <AuthHero eyebrow="Sign in" title="Welcome back" blurb="Sign in to continue to Skitza." />
       <SignIn
-        signUpUrl="/sign-up"
-        fallbackRedirectUrl="/dashboard"
-        forceRedirectUrl="/dashboard"
+        signUpUrl={signUpHref}
+        fallbackRedirectUrl={resolverHref}
+        forceRedirectUrl={resolverHref}
       />
     </div>
   );

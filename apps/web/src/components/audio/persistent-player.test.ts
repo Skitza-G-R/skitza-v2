@@ -3,7 +3,14 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { expandHrefForTrack, fmtTime, pickDurationMs, PLAYER_EVENTS } from "./persistent-player";
+import {
+  PLAYER_EVENTS,
+  clampSeekMs,
+  expandHrefForTrack,
+  fmtTime,
+  isSharedSongPagePathname,
+  pickDurationMs,
+} from "./persistent-player";
 
 // Source-grep helper — reads persistent-player.tsx so we can pin the
 // floating-dock visual contract (dark sidebar background, rounded
@@ -115,6 +122,39 @@ describe("expandHrefForTrack — link to L3 song page", () => {
   });
 });
 
+describe("isSharedSongPagePathname — hide the dock only on shared SongPage routes", () => {
+  const versionId = "10000000-0000-4000-8000-000000000001";
+
+  it.each([
+    `/dashboard/music/${versionId}`,
+    `/dashboard/music/${versionId}/`,
+    `/artist/music/song/${versionId}`,
+    `/artist/music/song/${versionId}/`,
+  ])("matches %s", (pathname) => {
+    expect(isSharedSongPagePathname(pathname)).toBe(true);
+  });
+
+  it.each([
+    null,
+    "/dashboard/music",
+    `/dashboard/music/project/${versionId}`,
+    `/dashboard/clients-projects/${versionId}/songs/${versionId}`,
+    `/artist/music/${versionId}`,
+    "/artist/music/song/not-a-version-id",
+    `/listen/${versionId}`,
+  ])("does not match %s", (pathname) => {
+    expect(isSharedSongPagePathname(pathname)).toBe(false);
+  });
+});
+
+describe("clampSeekMs — fixed 15 second transport", () => {
+  it("clamps fixed millisecond jumps to the track boundaries", () => {
+    expect(clampSeekMs(8_000, -15_000, 180_000)).toBe(0);
+    expect(clampSeekMs(60_000, 15_000, 180_000)).toBe(75_000);
+    expect(clampSeekMs(175_000, 15_000, 180_000)).toBe(180_000);
+  });
+});
+
 // ─── PLAYER_EVENTS — close event added ───────────────────────────────
 describe("PLAYER_EVENTS contract", () => {
   it("exposes a 'close' event so any component can dismiss the dock", () => {
@@ -125,6 +165,7 @@ describe("PLAYER_EVENTS contract", () => {
     expect(PLAYER_EVENTS.set).toBe("skitza:player:set");
     expect(PLAYER_EVENTS.toggle).toBe("skitza:player:toggle");
     expect(PLAYER_EVENTS.seek).toBe("skitza:player:seek");
+    expect(PLAYER_EVENTS.volume).toBe("skitza:player:volume");
     expect(PLAYER_EVENTS.time).toBe("skitza:player:time");
   });
 });
@@ -200,9 +241,11 @@ describe("PersistentPlayer source — expand + skip controls", () => {
     expect(playerSrc).toContain("expandHrefForTrack(");
   });
 
-  it("renders Skip-back / Skip-forward 5% controls with aria-labels", () => {
-    expect(playerSrc).toContain('aria-label="Skip back 5%"');
-    expect(playerSrc).toContain('aria-label="Skip forward 5%"');
+  it("renders fixed 15-second back / forward controls with aria-labels", () => {
+    expect(playerSrc).toContain('aria-label="Back 15 seconds"');
+    expect(playerSrc).toContain('aria-label="Forward 15 seconds"');
+    expect(playerSrc).toContain("onSkip(-15_000)");
+    expect(playerSrc).toContain("onSkip(15_000)");
   });
 
   it("keeps every compact dock transport target at least 44px", () => {
@@ -213,10 +256,10 @@ describe("PersistentPlayer source — expand + skip controls", () => {
 
     expect(compactDockSrc).not.toMatch(/\bh-[89]\s+w-[89]\b/);
     expect(compactDockSrc).toMatch(
-      /aria-label="Skip back 5%"[\s\S]{0,220}className="[^"]*min-h-11[^"]*min-w-11/,
+      /aria-label="Back 15 seconds"[\s\S]{0,220}className="[^"]*min-h-11[^"]*min-w-11/,
     );
     expect(compactDockSrc).toMatch(
-      /aria-label="Skip forward 5%"[\s\S]{0,220}className="[^"]*min-h-11[^"]*min-w-11/,
+      /aria-label="Forward 15 seconds"[\s\S]{0,220}className="[^"]*min-h-11[^"]*min-w-11/,
     );
     expect(
       compactDockSrc.match(/aria-label="Close player"[\s\S]{0,240}className="[^"]*h-11[^"]*w-11/g),
@@ -236,14 +279,20 @@ describe("PersistentPlayer source — album art cover slot", () => {
 });
 
 describe("PersistentPlayer source — reserves bottom padding so the dock doesn't hide page content", () => {
-  it("toggles a body data attribute when a track is loaded so global CSS can apply padding-bottom", () => {
+  it("reserves dock padding only when a visible dock has a loaded track", () => {
     // Founder reported: the dock overlaps the bottom of the comments
     // thread on the song page. The fix is global — every page mounted
     // under AppShell needs to reserve the dock's height when audio
     // is loaded. We toggle a data attribute on <body> so a single
     // CSS selector in globals.css adds the padding without each page
     // having to opt in.
+    expect(playerSrc).toContain("state.track && !dockHidden");
     expect(playerSrc).toMatch(/document\.body[^;]*(?:dataset|setAttribute|classList)/);
+  });
+
+  it("makes hidden dock chrome inert as well as aria-hidden", () => {
+    expect(playerSrc.match(/inert=\{hidden\}/g)).toHaveLength(2);
+    expect(playerSrc).toContain("expanded={expanded && !hidden}");
   });
 });
 

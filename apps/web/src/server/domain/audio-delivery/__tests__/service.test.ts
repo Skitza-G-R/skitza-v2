@@ -4,6 +4,7 @@ import type { AudioDeliveryContext } from "../policy";
 import {
   deliverArtistDownload,
   deliverPrivateStream,
+  deliverPrivateStreamForAccount,
   deliverProducerDownload,
   readArtistDownloadEntitlement,
   readDownloadOverrideState,
@@ -234,6 +235,45 @@ describe("SK-40 atomic audio delivery", () => {
         open,
       ),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("streams for a dual account through its exact resource ownership", async () => {
+    const dualClerkUserId = "clerk-dual";
+    const artistRepository = new MemoryAudioDeliveryRepository(
+      makeAudioDeliveryContext({
+        producerClerkUserId: "clerk-other-producer",
+        artistClerkUserId: dualClerkUserId,
+      }),
+    );
+    const producerRepository = new MemoryAudioDeliveryRepository(
+      makeAudioDeliveryContext({
+        producerClerkUserId: dualClerkUserId,
+        artistClerkUserId: "clerk-other-artist",
+      }),
+    );
+    const open = vi.fn(() => Promise.resolve("opened"));
+
+    await expect(
+      deliverPrivateStreamForAccount(
+        artistRepository,
+        {
+          viewerClerkUserId: dualClerkUserId,
+          versionId: AUDIO_DELIVERY_IDS.versionId,
+        },
+        open,
+      ),
+    ).resolves.toBe("opened");
+    await expect(
+      deliverPrivateStreamForAccount(
+        producerRepository,
+        {
+          viewerClerkUserId: dualClerkUserId,
+          versionId: AUDIO_DELIVERY_IDS.versionId,
+        },
+        open,
+      ),
+    ).resolves.toBe("opened");
+    expect(open).toHaveBeenCalledTimes(2);
   });
 
   it("keeps the producer endpoint exclusive to the exact producer owner", async () => {

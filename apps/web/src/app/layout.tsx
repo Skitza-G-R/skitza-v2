@@ -106,22 +106,21 @@ export const viewport: Viewport = {
   ...nativeAppViewport,
 };
 
-// Clerk theming via `appearance.variables` — hex values mirror the
-// locked design system tokens (#D4960A amber on #FFFFFF cards over the
-// #F2EDE6 canvas). Clerk doesn't accept rgb space-separated channel
-// syntax in `variables`, so each value is duplicated in hex form here.
-// NOTE: Clerk initialises once with these values; a future client-side
-// ClerkProvider wrapper could swap on next-themes toggle. Out of scope.
+// Clerk theming via `appearance.variables`. Full CSS color expressions keep
+// Clerk's secure prebuilt flow on the same semantic token boundary as the
+// surrounding app. Because these expressions resolve where Clerk renders,
+// auth recovery/verification/error steps follow the saved/system theme
+// without a client-only ClerkProvider wrapper.
 //
 // Phase 3 (v3) — `elements` extended for the split-screen auth shell
 // (`apps/web/src/app/(public)/(auth)/layout.tsx`). The locked design
-// (`/tmp/skitza-design/tabs/auth.jsx`) renders the form INLINE on the
-// FormColumn — no card border, no shadow, no Clerk-supplied header.
+// (`/tmp/skitza-design/tabs/auth.jsx`) keeps Clerk's internals intact while
+// the route shell supplies the page-level title and layout.
 // The hero copy ("Welcome back.", "Build your hall.") is provided by
 // `apps/web/src/components/auth/auth-hero.tsx`, which sits ABOVE the
 // `<SignIn>` / `<SignUp>` widget on each page. Therefore:
-// - `card` strips border/shadow/padding so Clerk's form blends into
-//   the column,
+// - `card` stays explicitly bounded on desktop; the sign-in shell removes
+//   only its phone chrome so it reads as one native surface,
 // - `header` is hidden so Clerk's default "Sign in" / "Create your
 //   account" titles don't double up with the AuthHero,
 // - everything else (social buttons, divider, form fields, primary
@@ -129,30 +128,29 @@ export const viewport: Viewport = {
 //   internals still match the design source.
 const clerkAppearance = {
   variables: {
-    colorPrimary: "#D4960A",
-    colorBackground: "#FFFFFF",
-    colorInputBackground: "#FFFFFF",
-    colorInputText: "#111009",
-    colorText: "#111009",
-    colorTextSecondary: "#3D3730",
-    colorNeutral: "#6B6359",
-    colorDanger: "#DC2626",
-    colorSuccess: "#22C55E",
-    colorWarning: "#F59E0B",
-    borderRadius: "0.625rem",
+    colorPrimary: "rgb(var(--brand-primary))",
+    colorBackground: "rgb(var(--bg-elevated))",
+    colorInputBackground: "rgb(var(--bg-elevated))",
+    colorInputText: "rgb(var(--fg-default))",
+    colorText: "rgb(var(--fg-default))",
+    colorTextSecondary: "rgb(var(--fg-secondary))",
+    colorNeutral: "rgb(var(--fg-muted))",
+    colorDanger: "rgb(var(--fg-danger))",
+    colorSuccess: "rgb(var(--fg-success))",
+    colorWarning: "rgb(var(--fg-warning))",
+    borderRadius: "0.75rem",
     fontFamily: "var(--font-body)",
     fontFamilyButtons: "var(--font-body)",
   },
   elements: {
     rootBox: "w-full",
-    // Inline the form into the FormColumn — no card chrome.
-    card: "bg-transparent border-0 shadow-none rounded-none p-0",
+    card: "rounded-[var(--radius-xl)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-[var(--shadow-lg)]",
     // Hide Clerk's default header — AuthHero replaces it.
     header: "hidden",
     headerTitle: "hidden",
     headerSubtitle: "hidden",
     socialButtonsBlockButton:
-      "border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-primary))] hover:bg-[rgb(var(--bg-overlay))]",
+      "sk-press min-h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-primary))] hover:bg-[rgb(var(--bg-overlay))]",
     socialButtonsBlockButtonText: "text-[13px] font-semibold text-[rgb(var(--fg-primary))]",
     socialButtonsProviderIcon: "h-4 w-4",
     dividerLine: "bg-[rgb(var(--border-subtle))]",
@@ -160,11 +158,11 @@ const clerkAppearance = {
       "text-[11px] font-semibold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]",
     formFieldLabel: "text-[11px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]",
     formFieldInput:
-      "bg-[rgb(var(--bg-elevated))] border border-[rgb(var(--border-subtle))] text-[rgb(var(--fg-primary))] focus:border-[rgb(var(--brand-primary))] focus:ring-[rgb(var(--brand-primary)/0.15)]",
+      "min-h-11 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-elevated))] border border-[rgb(var(--border-subtle))] text-[rgb(var(--fg-primary))] focus:border-[rgb(var(--brand-primary))] focus:ring-[rgb(var(--brand-primary)/0.15)]",
     formFieldErrorText: "text-[12px] text-[rgb(var(--fg-danger))]",
     formFieldSuccessText: "text-[12px] text-[rgb(var(--fg-success))]",
     formButtonPrimary:
-      "bg-[rgb(var(--brand-primary))] hover:bg-[rgb(var(--brand-primary)/0.92)] text-white normal-case font-bold text-[13.5px] tracking-tight",
+      "sk-press min-h-11 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] hover:bg-[rgb(var(--brand-primary)/0.92)] text-[rgb(var(--fg-on-brand))] normal-case font-bold text-[13.5px] tracking-tight",
     footerActionText: "text-[12.5px] text-[rgb(var(--fg-secondary))]",
     footerActionLink:
       "text-[12.5px] font-bold text-[rgb(var(--brand-primary))] hover:text-[rgb(var(--brand-primary)/0.85)]",
@@ -172,7 +170,7 @@ const clerkAppearance = {
     identityPreviewEditButton: "text-[12px] font-semibold text-[rgb(var(--brand-primary))]",
     formResendCodeLink: "text-[12px] font-bold text-[rgb(var(--brand-primary))]",
     otpCodeFieldInput:
-      "font-mono text-[22px] font-extrabold border border-[rgb(var(--border-subtle))] focus:border-[rgb(var(--brand-primary))]",
+      "font-mono text-[22px] font-extrabold border border-[rgb(var(--border-subtle))] [--sk-mobile-control-font-size:22px] focus:border-[rgb(var(--brand-primary))]",
     alert:
       "bg-[rgb(var(--fg-danger)/0.08)] border border-[rgb(var(--fg-danger)/0.2)] text-[rgb(var(--fg-danger))]",
   },
