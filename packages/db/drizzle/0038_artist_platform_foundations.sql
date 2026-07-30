@@ -169,6 +169,13 @@ ALTER TABLE "products"
 ALTER TABLE "purchase_session_allowances"
   ADD COLUMN "booking_enabled_snapshot" boolean NOT NULL DEFAULT false;
 
+-- Migration 0027 already owns this trigger, and its closed-allowance guard
+-- intentionally rejects every update to an already-closed allowance. Remove
+-- it before the one-time legacy snapshot backfill, then recreate the stronger
+-- guard below in this same migration transaction.
+DROP TRIGGER IF EXISTS "purchase_session_allowances_protect_terms"
+  ON "purchase_session_allowances";
+
 UPDATE "purchase_session_allowances" AS "allowance"
 SET "booking_enabled_snapshot" = true
 WHERE EXISTS (
@@ -181,12 +188,6 @@ WHERE EXISTS (
     AND "booking"."producer_id" = "allowance"."producer_id"
     AND "event"."to_status" = 'confirmed'
 );
-
--- Migration 0027 already owns this trigger. Replace it deliberately so this
--- migration cannot collide with the existing trigger name while extending the
--- same guard with the accepted booking-eligibility snapshot.
-DROP TRIGGER IF EXISTS "purchase_session_allowances_protect_terms"
-  ON "purchase_session_allowances";
 
 CREATE OR REPLACE FUNCTION "protect_session_allowance_terms"()
 RETURNS trigger AS $function$

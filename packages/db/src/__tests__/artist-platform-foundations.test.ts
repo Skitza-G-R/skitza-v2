@@ -127,12 +127,16 @@ describe("artist platform foundations", () => {
     const dropTrigger = migration.indexOf(
       'DROP TRIGGER IF EXISTS "purchase_session_allowances_protect_terms"',
     );
+    const legacyBackfill = migration.indexOf(
+      'UPDATE "purchase_session_allowances" AS "allowance"',
+    );
     const createTrigger = migration.indexOf(
       'CREATE TRIGGER "purchase_session_allowances_protect_terms"',
     );
 
     expect(dropTrigger).toBeGreaterThanOrEqual(0);
-    expect(createTrigger).toBeGreaterThan(dropTrigger);
+    expect(legacyBackfill).toBeGreaterThan(dropTrigger);
+    expect(createTrigger).toBeGreaterThan(legacyBackfill);
     expect(migration).toContain(
       'CREATE OR REPLACE FUNCTION "protect_session_allowance_terms"()',
     );
