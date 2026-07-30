@@ -19,6 +19,8 @@ describe("SK-152 auth presentation contract", () => {
     expect(signInSource).toContain("Sign in to continue to Skitza.");
     expect(signInSource).not.toMatch(/your hall/i);
     expect(signInSource).toContain("postSignInResolverHref(requestedHref)");
+    expect(signInSource).toContain("signUpSwitchHref(requestedHref)");
+    expect(signInSource).toContain("signUpUrl={signUpHref}");
     expect(signInSource).toContain("fallbackRedirectUrl={resolverHref}");
     expect(signInSource).toContain("forceRedirectUrl={resolverHref}");
     expect(globalsSource).toContain(
@@ -31,6 +33,9 @@ describe("SK-152 auth presentation contract", () => {
 
   it("marks producer sign-up for the intentional desktop marketing layout", () => {
     expect(signUpSource).toContain('data-auth-page="sign-up"');
+    expect(signUpSource).toContain("shouldRedirectReturningDeviceToSignIn");
+    expect(signUpSource).toContain("signInSwitchHref(requestedHref)");
+    expect(signUpSource).toContain("signInUrl={signInHref}");
     expect(globalsSource).toContain('.sk-auth-main:has([data-auth-page="sign-up"])');
     expect(globalsSource).toContain("grid-template-columns: minmax(0, 1.05fr) minmax(27rem, 1fr)");
   });
