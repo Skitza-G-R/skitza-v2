@@ -2,7 +2,7 @@
 
 import type { PaymentPlan, ProductRoyaltyTerms } from "@skitza/db";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { Send, X } from "lucide-react";
+import { Pencil, Plus, Send, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   type ReactElement,
@@ -765,10 +765,19 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
           {trigger ?? (
             <button
               type="button"
-              className="sk-press inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-elevated))] shadow-sm transition-opacity hover:opacity-90"
+              className={[
+                "sk-press inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-lg)] px-4 text-[13px] font-semibold transition-[filter,opacity]",
+                editing
+                  ? "border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] hover:border-[rgb(var(--border-strong))]"
+                  : "border border-transparent bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-on-brand))] shadow-[0_8px_24px_-18px_rgb(var(--brand-primary)/0.75)] hover:brightness-105",
+              ].join(" ")}
             >
-              <Send className="h-4 w-4" aria-hidden />
-              {editing ? "Edit private offer" : "Send custom offer"}
+              {editing ? (
+                <Pencil className="h-4 w-4" aria-hidden />
+              ) : (
+                <Plus className="h-4 w-4" aria-hidden />
+              )}
+              {editing ? "Edit private offer" : "New private offer"}
             </button>
           )}
         </DialogPrimitive.Trigger>

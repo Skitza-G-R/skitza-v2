@@ -26,7 +26,8 @@ describe("PrivateOfferComposer", () => {
     expect(SRC).toMatch(/onOpenChange\?\.\(nextOpen\)/);
     expect(SRC).toMatch(/<DialogPrimitive\.Root open=\{open\} onOpenChange=\{handleOpenChange\}>/);
     expect(SRC).toMatch(/trigger !== null/);
-    expect(SRC).toMatch(/trigger \?\? \([\s\S]*?Send custom offer/);
+    expect(SRC).toMatch(/trigger \?\? \([\s\S]*?New private offer/);
+    expect(SRC).toContain("bg-[rgb(var(--brand-primary))]");
   });
 
   it("lets a controlled caller refresh only after a successful create", () => {
