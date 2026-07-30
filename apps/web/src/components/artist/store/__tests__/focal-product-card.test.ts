@@ -51,17 +51,19 @@ describe("FocalProductCard", () => {
     expect(source).toMatch(/\[overflow-wrap:anywhere\]/);
   });
 
-  it("uses the sidebar surface for the primary CTA", () => {
+  it("uses the Skitza dark surface with an amber primary CTA", () => {
     expect(source).toMatch(/var\(--bg-sidebar\)/);
-    expect(source).toMatch(/var\(--fg-onsidebar\)/);
+    expect(source).toMatch(/var\(--brand-primary\)/);
+    expect(source).toMatch(/var\(--fg-on-brand\)/);
   });
 
-  it("uses rounded-[var(--radius-lg)] on the card (not rounded-full)", () => {
-    expect(source).toMatch(/rounded-\[var\(--radius-lg\)\]/);
+  it("uses the expressive card radius without turning the card into a pill", () => {
+    expect(source).toMatch(/rounded-\[var\(--radius-xl\)\]/);
   });
 
-  it("avoids decorative boutique treatments", () => {
-    expect(source).not.toMatch(/Signature|coverGradient|producerHue|shadow-md/);
+  it("keeps the signature record-groove treatment inside the focal card", () => {
+    expect(source).toMatch(/inset 0 0 0 24px/);
+    expect(source).not.toMatch(/Signature|coverGradient|producerHue/);
     expect(source).not.toMatch(/Stripe|Tranzila|Pay by card|payments soon/i);
     expect(source).toMatch(/borderColor/);
   });

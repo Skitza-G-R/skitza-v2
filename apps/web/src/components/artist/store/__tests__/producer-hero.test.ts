@@ -18,10 +18,11 @@ describe("ProducerHero", () => {
     expect(source).toMatch(/producerLogoUrl/);
   });
 
-  it("uses a compact neutral bordered studio header", () => {
-    expect(source).toMatch(/rounded-\[var\(--radius-lg\)\] border/);
+  it("uses a compact translucent bordered studio header", () => {
+    expect(source).toMatch(/rounded-\[var\(--radius-xl\)\] border/);
     expect(source).toMatch(/var\(--border-subtle\)/);
     expect(source).not.toMatch(/gradient|brand-copper/);
+    expect(source).toMatch(/backdrop-blur-xl/);
   });
 
   it("renders the producer name in font-display", () => {
@@ -47,6 +48,6 @@ describe("ProducerHero", () => {
   });
 
   it("does not use overlapping or floating-logo positioning", () => {
-    expect(source).not.toMatch(/absolute|-top-|ring-4|shadow-/);
+    expect(source).not.toMatch(/absolute|-top-|ring-4/);
   });
 });

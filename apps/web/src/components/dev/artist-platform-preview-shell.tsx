@@ -1,13 +1,21 @@
+"use client";
+
 import Link from "next/link";
 import { Suspense, type ReactNode } from "react";
 
+import { ArtistNotificationBell } from "~/components/artist/artist-notification-bell";
 import { StudioSwitcher } from "~/components/artist/studio-switcher";
 import { LogoMark } from "~/components/brand/logo-mark";
 import { Icon, type IconName } from "~/components/nav/icons";
+import {
+  LiquidGlassBottomNav,
+  type LiquidGlassBottomNavTab,
+} from "~/components/nav/liquid-glass-bottom-nav";
 import { Wordmark } from "~/components/nav/wordmark";
 
 import {
   DEV_ARTIST_NOTIFICATIONS,
+  DEV_ARTIST_NOW_ISO,
   DEV_ARTIST_SECOND_STUDIO_ID,
   DEV_ARTIST_STUDIO_ID,
   DEV_ARTIST_STUDIOS,
@@ -64,10 +72,6 @@ const DESTINATION_LABELS: Readonly<Record<ArtistPlatformPreviewDestination, stri
   notifications: "Notifications",
 };
 
-const PREVIEW_UNREAD_COUNT = DEV_ARTIST_NOTIFICATIONS.filter(
-  (notification) => notification.readAtIso === null,
-).length;
-
 function PreviewStudioIdentity({ inverse = false }: { inverse?: boolean }) {
   return (
     <Suspense
@@ -89,41 +93,10 @@ function PreviewStudioIdentity({ inverse = false }: { inverse?: boolean }) {
           initialStudioId={DEV_ARTIST_STUDIO_ID}
           notificationStudioDotIds={[DEV_ARTIST_STUDIO_ID, DEV_ARTIST_SECOND_STUDIO_ID]}
           previewOnly
+          inverse={inverse}
         />
       </div>
     </Suspense>
-  );
-}
-
-function PreviewNotificationLink({
-  activeDestination,
-  dark = false,
-}: {
-  activeDestination: ArtistPlatformPreviewDestination;
-  dark?: boolean;
-}) {
-  const active = activeDestination === "notifications";
-  const badge = PREVIEW_UNREAD_COUNT > 99 ? "99+" : String(PREVIEW_UNREAD_COUNT);
-
-  return (
-    <Link
-      href="/dev/screens/artist-notifications"
-      prefetch={false}
-      aria-label={`Notifications, ${badge} unread`}
-      {...(active ? { "aria-current": "page" as const } : {})}
-      className={`sk-press relative inline-flex h-11 w-11 items-center justify-center rounded-full focus-visible:ring-2 focus-visible:outline-none ${
-        active
-          ? "bg-[rgb(var(--brand-primary)/0.14)] text-[rgb(var(--brand-primary))]"
-          : dark
-            ? "text-[rgb(var(--fg-onsidebar)/0.62)] hover:bg-[rgb(var(--fg-onsidebar)/0.08)]"
-            : "text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))]"
-      } focus-visible:ring-[rgb(var(--focus-ring))]`}
-    >
-      <Icon name="bell" size={19} strokeWidth={1.8} />
-      <span className="absolute -top-0.5 -right-0.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary))] px-1 font-mono text-[9px] font-bold text-[rgb(var(--fg-on-brand))] ring-2 ring-[rgb(var(--bg-elevated))]">
-        {badge}
-      </span>
-    </Link>
   );
 }
 
@@ -155,7 +128,7 @@ function PreviewArtistAvatar({
   );
 }
 
-function PreviewMobileTopBar({
+function PreviewTopBar({
   activeDestination,
 }: {
   activeDestination: ArtistPlatformPreviewDestination;
@@ -163,29 +136,48 @@ function PreviewMobileTopBar({
   return (
     <header
       aria-label="Artist preview top bar"
-      className="sk-safe-top sk-safe-x sticky top-0 z-30 flex items-center justify-between gap-3 backdrop-blur lg:hidden"
+      className="sk-safe-top sticky top-0 z-30 border-b border-[rgb(var(--border-subtle)/0.72)] backdrop-blur-2xl"
       style={{
-        background: "rgb(var(--bg-background) / 0.92)",
-        borderBottom: "1px solid rgb(var(--border-subtle))",
-        padding: "12px 16px",
+        background: "rgb(var(--bg-background) / 0.76)",
+        boxShadow: "0 10px 30px -24px rgb(var(--bg-sidebar) / 0.45)",
+        WebkitBackdropFilter: "blur(28px) saturate(145%)",
       }}
     >
-      <div className="flex min-w-0 flex-1 items-center gap-3">
-        <Link
-          href="/dev/screens/artist-home"
-          prefetch={false}
-          aria-label="Skitza artist home"
-          className="sk-press shrink-0 rounded-[var(--radius-sm)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
-        >
-          <Wordmark size={18} />
-        </Link>
-        <div className="min-w-0 flex-1">
-          <PreviewStudioIdentity />
+      <div
+        className="flex min-h-[68px] items-center gap-3 py-2 lg:min-h-[52px] lg:px-4 lg:py-1"
+        style={{
+          paddingInlineStart: "max(16px, env(safe-area-inset-left, 0px))",
+          paddingInlineEnd: "max(16px, env(safe-area-inset-right, 0px))",
+        }}
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-3 lg:hidden">
+          <Link
+            href="/dev/screens/artist-home"
+            prefetch={false}
+            aria-label="Skitza artist home"
+            className="sk-press shrink-0 rounded-[var(--radius-sm)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
+          >
+            <Wordmark size={18} />
+          </Link>
+          <div className="min-w-0 flex-1">
+            <PreviewStudioIdentity />
+          </div>
         </div>
-      </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <PreviewNotificationLink activeDestination={activeDestination} />
-        <PreviewArtistAvatar activeDestination={activeDestination} />
+        <span className="font-display hidden text-sm font-semibold text-[rgb(var(--fg-default))] lg:block">
+          {DESTINATION_LABELS[activeDestination]}
+        </span>
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          <ArtistNotificationBell
+            preview={{
+              items: DEV_ARTIST_NOTIFICATIONS,
+              initialOpen: activeDestination === "notifications",
+              relativeNow: new Date(DEV_ARTIST_NOW_ISO),
+            }}
+          />
+          <span className="lg:hidden">
+            <PreviewArtistAvatar activeDestination={activeDestination} />
+          </span>
+        </div>
       </div>
     </header>
   );
@@ -233,26 +225,26 @@ function PreviewDesktopSidebar({
               href={item.href}
               prefetch={false}
               {...(active ? { "aria-current": "page" as const } : {})}
-              className="sk-press relative flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset"
+              className="sk-press relative flex min-h-11 items-center gap-3 rounded-[10px] px-3 py-2.5 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset"
               style={{
-                background: active ? "rgb(var(--fg-onsidebar) / 0.08)" : "transparent",
-                color: active ? "rgb(var(--fg-onsidebar))" : "rgb(var(--fg-onsidebar) / 0.62)",
-                fontFamily: "var(--font-outfit)",
-                fontSize: 14.5,
-                fontWeight: active ? 600 : 500,
+                background: active ? "rgb(var(--fg-onsidebar) / 0.10)" : "transparent",
+                color: active ? "rgb(var(--fg-onsidebar))" : "rgb(var(--fg-onsidebar) / 0.65)",
+                fontSize: 13.5,
+                fontWeight: active ? 700 : 500,
+                letterSpacing: "-0.005em",
               }}
             >
               {active ? (
                 <span
                   aria-hidden
-                  className="absolute top-2 bottom-2 -left-4 w-0.5 rounded-full bg-[rgb(var(--brand-primary))]"
+                  className="absolute top-2 bottom-2 -left-[5px] w-[3px] rounded-[2px] bg-[rgb(var(--brand-primary))]"
                 />
               ) : null}
               <span className="flex h-5 w-5 items-center justify-center">
                 <Icon
                   name={item.icon === "store" ? "tag" : item.icon}
-                  size={20}
-                  strokeWidth={1.7}
+                  size={16}
+                  strokeWidth={2.3}
                 />
               </span>
               <span className="flex-1">{item.label}</span>
@@ -285,82 +277,29 @@ function PreviewDesktopSidebar({
   );
 }
 
-function PreviewDesktopTopBar({
-  activeDestination,
-}: {
-  activeDestination: ArtistPlatformPreviewDestination;
-}) {
-  return (
-    <header
-      aria-label="Page navigation"
-      className="sticky top-0 z-30 hidden border-b border-[rgb(var(--border-subtle)/0.6)] backdrop-blur-[60px] lg:block"
-      style={{
-        background: "rgb(var(--bg-background) / 0.88)",
-        WebkitBackdropFilter: "blur(60px)",
-      }}
-    >
-      <div className="flex min-h-[52px] w-full items-center gap-3 px-4">
-        <span className="font-display text-sm font-semibold text-[rgb(var(--fg-default))]">
-          {DESTINATION_LABELS[activeDestination]}
-        </span>
-        <div className="ml-auto">
-          <PreviewNotificationLink activeDestination={activeDestination} />
-        </div>
-      </div>
-    </header>
-  );
-}
-
 function PreviewBottomNav({
   activeDestination,
 }: {
   activeDestination: ArtistPlatformPreviewDestination;
 }) {
+  const visibleDestination = activeDestination === "notifications" ? "home" : activeDestination;
+  const tabs: readonly LiquidGlassBottomNavTab<PreviewNavItem["destination"]>[] =
+    PREVIEW_NAV_ITEMS.map((item) => ({
+      id: item.destination,
+      label: item.label,
+      href: item.href,
+      icon: item.icon,
+      active: visibleDestination === item.destination,
+      prefetch: false,
+    }));
+
   return (
-    <nav
-      aria-label="Artist preview tabs"
-      className="fixed inset-x-0 bottom-0 z-30 flex justify-around lg:hidden"
-      style={{
-        background: "rgb(var(--bg-sidebar))",
-        borderTop: "1px solid rgb(var(--border-sidebar))",
-        padding:
-          "8px calc(4px + env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) calc(4px + env(safe-area-inset-left, 0px))",
-        boxShadow: "0 -4px 20px rgba(0,0,0,0.3)",
-      }}
-    >
-      {PREVIEW_NAV_ITEMS.map((item) => {
-        const active = activeDestination === item.destination;
-        return (
-          <Link
-            key={item.destination}
-            href={item.href}
-            prefetch={false}
-            {...(active ? { "aria-current": "page" as const } : {})}
-            className="sk-press relative flex min-h-[68px] flex-1 flex-col items-center gap-1 rounded-md py-2.5 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset"
-            style={{
-              color: active ? "rgb(var(--brand-primary))" : "rgb(var(--fg-onsidebar) / 0.55)",
-            }}
-          >
-            <Icon name={item.icon} size={24} strokeWidth={active ? 2.4 : 2} />
-            <span
-              className="text-[11px]"
-              style={{
-                fontWeight: active ? 700 : 500,
-                letterSpacing: "-0.005em",
-              }}
-            >
-              {item.label}
-            </span>
-            {active ? (
-              <span
-                aria-hidden
-                className="absolute -top-2 h-[3px] w-[30px] rounded-[2px] bg-[rgb(var(--brand-primary))]"
-              />
-            ) : null}
-          </Link>
-        );
-      })}
-    </nav>
+    <LiquidGlassBottomNav
+      ariaLabel="Artist preview tabs"
+      tabs={tabs}
+      position="fixed"
+      frameClassName="artist-preview-bottom-nav-frame"
+    />
   );
 }
 
@@ -379,11 +318,15 @@ export function ArtistPlatformPreviewShell({
       data-artist-platform-preview-destination={activeDestination}
       data-artist-platform-preview-screen={screenLabel}
       className="flex min-h-dvh bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-default))]"
+      style={{
+        backgroundColor: "rgb(var(--bg-background))",
+        backgroundImage:
+          "radial-gradient(circle at 88% -6%, rgb(var(--brand-primary) / 0.11), transparent 30rem), radial-gradient(circle at 5% 92%, rgb(var(--brand-copper) / 0.07), transparent 34rem)",
+      }}
     >
       <PreviewDesktopSidebar activeDestination={activeDestination} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <PreviewMobileTopBar activeDestination={activeDestination} />
-        <PreviewDesktopTopBar activeDestination={activeDestination} />
+        <PreviewTopBar activeDestination={activeDestination} />
         <div className="min-w-0 flex-1 pb-[calc(5.75rem+env(safe-area-inset-bottom,0px))] lg:pb-0">
           {children}
         </div>

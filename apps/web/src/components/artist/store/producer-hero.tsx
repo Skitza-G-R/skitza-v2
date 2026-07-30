@@ -10,9 +10,9 @@ export function ProducerHero({
   return (
     <section
       aria-label={`${producerName} storefront`}
-      className="reveal-up flex items-center gap-3 rounded-[var(--radius-lg)] border px-4 py-3.5 sm:px-5"
+      className="reveal-up flex items-center gap-3 rounded-[var(--radius-xl)] border px-4 py-3.5 shadow-[var(--shadow-sm)] backdrop-blur-xl sm:px-5"
       style={{
-        background: "rgb(var(--bg-elevated))",
+        background: "rgb(var(--bg-elevated) / 0.82)",
         borderColor: "rgb(var(--border-subtle))",
       }}
     >
@@ -27,7 +27,7 @@ export function ProducerHero({
       ) : (
         <div
           aria-hidden
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--bg-sidebar))] font-display text-base font-bold text-[rgb(var(--fg-onsidebar))] sm:h-12 sm:w-12"
+          className="font-display flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--bg-sidebar))] text-base font-bold text-[rgb(var(--fg-onsidebar))] sm:h-12 sm:w-12"
         >
           {initial}
         </div>
@@ -36,7 +36,7 @@ export function ProducerHero({
         <p className="font-mono text-[9px] font-semibold tracking-[0.16em] text-[rgb(var(--fg-muted))] uppercase">
           Services from
         </p>
-        <h2 className="mt-0.5 truncate font-display text-[18px] leading-tight font-bold tracking-[-0.02em] text-[rgb(var(--fg-default))] sm:text-[20px]">
+        <h2 className="font-display mt-0.5 truncate text-[18px] leading-tight font-bold tracking-[-0.02em] text-[rgb(var(--fg-default))] sm:text-[20px]">
           {producerName}
         </h2>
       </div>

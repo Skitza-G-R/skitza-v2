@@ -27,12 +27,14 @@ export function StudioSwitcher({
   initialStudioId,
   notificationStudioDotIds,
   previewOnly = false,
+  inverse = false,
 }: {
   studios: Studio[];
   userId: string;
   initialStudioId: string | null;
   notificationStudioDotIds: readonly string[];
   previewOnly?: boolean;
+  inverse?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
@@ -46,7 +48,9 @@ export function StudioSwitcher({
     return (
       <div
         role="status"
-        className="flex min-h-11 w-full min-w-0 items-center rounded-[var(--radius-lg)] px-2 py-1 text-sm text-[rgb(var(--fg-muted))]"
+        className={`flex min-h-11 w-full min-w-0 items-center rounded-[var(--radius-lg)] px-2 py-1 text-sm ${
+          inverse ? "text-[rgb(var(--fg-onsidebar)/0.64)]" : "text-[rgb(var(--fg-muted))]"
+        }`}
       >
         No active studio
       </div>
@@ -55,7 +59,11 @@ export function StudioSwitcher({
 
   if (studios.length === 1) {
     return (
-      <div className="flex min-h-11 w-full max-w-full min-w-0 items-center gap-2 rounded-[var(--radius-lg)] px-2 py-1">
+      <div
+        className={`flex min-h-11 w-full max-w-full min-w-0 items-center gap-2 rounded-[var(--radius-lg)] px-2 py-1 ${
+          inverse ? "text-[rgb(var(--fg-onsidebar))]" : "text-[rgb(var(--fg-default))]"
+        }`}
+      >
         <StudioAvatar studio={active} />
         <span className="font-display min-w-0 flex-1 truncate text-start text-sm tracking-tight">
           {active.name}
@@ -82,14 +90,23 @@ export function StudioSwitcher({
       <DialogTrigger asChild>
         <button
           type="button"
-          className="sk-press flex min-h-11 w-full max-w-full min-w-0 items-center gap-2 rounded-[var(--radius-lg)] px-2 py-1 transition-colors hover:bg-[rgb(var(--bg-sunken))]"
+          className={`sk-press flex min-h-11 w-full max-w-full min-w-0 items-center gap-2 rounded-[var(--radius-lg)] border px-2 py-1 transition-colors ${
+            inverse
+              ? "border-[rgb(var(--border-sidebar))] bg-[rgb(var(--fg-onsidebar)/0.04)] text-[rgb(var(--fg-onsidebar))] hover:bg-[rgb(var(--fg-onsidebar)/0.09)]"
+              : "border-transparent text-[rgb(var(--fg-default))] hover:bg-[rgb(var(--bg-sunken))]"
+          }`}
         >
           <StudioAvatar studio={active} />
           <span className="font-display min-w-0 flex-1 truncate text-start text-sm tracking-tight">
             {active.name}
           </span>
           <StudioActivityDot visible={studiosWithActivity.has(active.producerId)} />
-          <span aria-hidden className="shrink-0 text-xs text-[rgb(var(--fg-muted))]">
+          <span
+            aria-hidden
+            className={`shrink-0 text-xs ${
+              inverse ? "text-[rgb(var(--fg-onsidebar)/0.5)]" : "text-[rgb(var(--fg-muted))]"
+            }`}
+          >
             ▾
           </span>
         </button>

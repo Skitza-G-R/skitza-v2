@@ -15,7 +15,7 @@ const settings = readFileSync(join(artistDir, "settings", "artist-settings-clien
 describe("artist notification surface", () => {
   it("provides desktop dialog and mobile sheet presentations", () => {
     expect(bell).toContain('role="dialog"');
-    expect(bell).toContain('<SheetContent side="bottom"');
+    expect(bell).toMatch(/<SheetContent[\s\S]*?side="bottom"/);
     expect(bell).toContain('role="tablist"');
     expect(bell).toContain('role="tabpanel"');
   });

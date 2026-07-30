@@ -8,6 +8,7 @@ import { isArtistNavItemActive } from "../artist-nav-active";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const BOTTOM = readFileSync(join(here, "..", "artist-bottom-nav.tsx"), "utf8");
+const SHARED_BOTTOM = readFileSync(join(here, "..", "liquid-glass-bottom-nav.tsx"), "utf8");
 const SIDEBAR = readFileSync(join(here, "..", "artist-desktop-sidebar.tsx"), "utf8");
 const MOBILE_TOPBAR = readFileSync(join(here, "..", "artist-mobile-top-bar.tsx"), "utf8");
 const USER_BUTTON = readFileSync(join(here, "..", "artist-user-button.tsx"), "utf8");
@@ -68,11 +69,12 @@ describe("artist studio-aware navigation", () => {
   });
 
   it("leaves primary-route prefetching to the serial runtime warmer", () => {
-    expect(BOTTOM.match(/prefetch=\{false\}/g)).toHaveLength(1);
+    expect(BOTTOM).toContain("prefetch: false");
+    expect(SHARED_BOTTOM).toContain("prefetch={tab.prefetch ?? false}");
     expect(SIDEBAR.match(/prefetch=\{false\}/g)).toHaveLength(2);
-    expect(BOTTOM).toContain("announceRuntimeMainNavigationIntent(href)");
+    expect(BOTTOM).toContain("announceRuntimeMainNavigationIntent(tab.href)");
     expect(SIDEBAR.match(/announceRuntimeMainNavigationIntent/g)?.length).toBeGreaterThanOrEqual(3);
-    expect(BOTTOM).toContain("data-sk-nav-destination={href}");
+    expect(SHARED_BOTTOM).toContain("data-sk-nav-destination={tab.href}");
     expect(SIDEBAR.match(/data-sk-nav-destination=/g)).toHaveLength(2);
     expect(BOTTOM).toContain("captureRuntimeMainNavigationTarget(event.currentTarget)");
     expect(SIDEBAR.match(/captureRuntimeMainNavigationTarget/g)?.length).toBeGreaterThanOrEqual(3);

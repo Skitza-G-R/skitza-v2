@@ -22,6 +22,7 @@ import {
   saveArtistTimezoneAction,
   type ArtistDisconnectPreviewActionResult,
 } from "~/app/(artist)/artist/settings/actions";
+import { useTabSwipe } from "~/components/native/use-tab-swipe";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import {
   Dialog,
@@ -32,9 +33,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "~/components/ui/dialog";
-import type {
-  ResolvedArtistNotificationPreferences,
-} from "~/server/artist/profile";
+import type { ResolvedArtistNotificationPreferences } from "~/server/artist/profile";
+
+import {
+  ARTIST_SETTINGS_SECTION_KEYS,
+  ARTIST_SETTINGS_SECTIONS,
+  type ArtistSettingsSection,
+  type ArtistSettingsSectionKey,
+} from "./artist-settings-sections";
 
 type ConnectedStudio = Readonly<{
   producerId: string;
@@ -103,6 +109,13 @@ const NOTIFICATION_ROWS: readonly Readonly<{
     emailKey: "activityEmail",
   },
 ] as const;
+
+const SECTION_ICONS = {
+  profile: UserRound,
+  notifications: Bell,
+  timezone: Clock3,
+  studios: ShieldCheck,
+} satisfies Record<ArtistSettingsSection["iconKey"], typeof UserRound>;
 
 function studioInitials(name: string): string {
   return (
@@ -189,25 +202,33 @@ function PreferenceSwitch({
 }
 
 export function ArtistSettingsClient({
+  initialActive = "profile",
   identity,
   initialTimezone,
   initialPreferences,
   connectedStudios,
   pastStudios,
+  previewOnly = false,
 }: {
+  initialActive?: ArtistSettingsSectionKey;
   identity: ArtistIdentity;
   initialTimezone: string | null;
   initialPreferences: ResolvedArtistNotificationPreferences;
   connectedStudios: readonly ConnectedStudio[];
   pastStudios: readonly PastStudio[];
+  previewOnly?: boolean;
 }) {
   const router = useRouter();
   const online = useOnlineStatus();
+  const [active, setActive] = useState<ArtistSettingsSectionKey>(initialActive);
   const [timezone, setTimezone] = useState(initialTimezone ?? "");
+  const [savedTimezone, setSavedTimezone] = useState(initialTimezone ?? "");
   const [timezoneStatus, setTimezoneStatus] = useState<string | null>(null);
   const [timezonePending, startTimezoneTransition] = useTransition();
   const detectedTimezoneSaved = useRef(false);
   const [preferences, setPreferences] =
+    useState<ResolvedArtistNotificationPreferences>(initialPreferences);
+  const [savedPreferences, setSavedPreferences] =
     useState<ResolvedArtistNotificationPreferences>(initialPreferences);
   const [preferenceStatus, setPreferenceStatus] = useState<string | null>(null);
   const [preferencesPending, startPreferencesTransition] = useTransition();
@@ -218,6 +239,28 @@ export function ArtistSettingsClient({
   const [disconnectError, setDisconnectError] = useState<string | null>(null);
   const [previewPending, startPreviewTransition] = useTransition();
   const [disconnectPending, startDisconnectTransition] = useTransition();
+
+  const changeSection = (next: ArtistSettingsSectionKey) => {
+    setActive(next);
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.set("section", next);
+    window.history.replaceState(null, "", `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+  };
+
+  const tabSwipeHandlers = useTabSwipe({
+    items: ARTIST_SETTINGS_SECTION_KEYS,
+    value: active,
+    onChange: changeSection,
+  });
+
+  const dirtySections = useMemo<Set<ArtistSettingsSectionKey>>(() => {
+    const dirty = new Set<ArtistSettingsSectionKey>();
+    if (timezone !== savedTimezone) dirty.add("timezone");
+    if (JSON.stringify(preferences) !== JSON.stringify(savedPreferences)) {
+      dirty.add("notifications");
+    }
+    return dirty;
+  }, [preferences, savedPreferences, savedTimezone, timezone]);
 
   const timezoneOptions = useMemo(() => {
     let supported: string[];
@@ -242,19 +285,29 @@ export function ArtistSettingsClient({
     const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (!detected) return;
     setTimezone(detected);
+    if (previewOnly) {
+      setSavedTimezone(detected);
+      setTimezoneStatus("Browser timezone detected.");
+      return;
+    }
     startTimezoneTransition(async () => {
       const result = await saveArtistTimezoneAction({ timezone: detected });
-      setTimezoneStatus(
-        result.ok ? "Browser timezone saved." : result.error,
-      );
+      if (result.ok) setSavedTimezone(result.timezone);
+      setTimezoneStatus(result.ok ? "Browser timezone saved." : result.error);
     });
-  }, [initialTimezone]);
+  }, [initialTimezone, previewOnly]);
 
   const saveTimezone = () => {
     if (!timezone || !online) return;
     setTimezoneStatus(null);
+    if (previewOnly) {
+      setSavedTimezone(timezone);
+      setTimezoneStatus("Timezone saved.");
+      return;
+    }
     startTimezoneTransition(async () => {
       const result = await saveArtistTimezoneAction({ timezone });
+      if (result.ok) setSavedTimezone(result.timezone);
       setTimezoneStatus(result.ok ? "Timezone saved." : result.error);
     });
   };
@@ -276,14 +329,19 @@ export function ArtistSettingsClient({
   const savePreferences = () => {
     if (!online) return;
     setPreferenceStatus(null);
+    if (previewOnly) {
+      setSavedPreferences(preferences);
+      setPreferenceStatus("Notification preferences saved.");
+      return;
+    }
     startPreferencesTransition(async () => {
-      const result =
-        await saveArtistNotificationPreferencesAction(preferences);
+      const result = await saveArtistNotificationPreferencesAction(preferences);
       if (!result.ok) {
         setPreferenceStatus(result.error);
         return;
       }
       setPreferences(result.preferences);
+      setSavedPreferences(result.preferences);
       setPreferenceStatus("Notification preferences saved.");
     });
   };
@@ -292,6 +350,16 @@ export function ArtistSettingsClient({
     setDisconnectStudio(studio);
     setDisconnectPreview(null);
     setDisconnectError(null);
+    if (previewOnly) {
+      setDisconnectPreview({
+        producerId: studio.producerId,
+        producerName: studio.name,
+        producerSlug: studio.slug,
+        canDisconnect: true,
+        blockers: [],
+      });
+      return;
+    }
     if (!online) {
       setDisconnectError("Reconnect before managing this studio.");
       return;
@@ -311,6 +379,11 @@ export function ArtistSettingsClient({
   const confirmDisconnect = () => {
     if (!disconnectStudio || !disconnectPreview?.canDisconnect || !online) return;
     setDisconnectError(null);
+    if (previewOnly) {
+      setDisconnectStudio(null);
+      setDisconnectPreview(null);
+      return;
+    }
     startDisconnectTransition(async () => {
       const result = await commitArtistDisconnectAction({
         producerId: disconnectStudio.producerId,
@@ -333,306 +406,384 @@ export function ArtistSettingsClient({
   };
 
   return (
-    <div className="mx-auto grid w-full max-w-5xl gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.72fr)]">
-      <div className="space-y-5">
-        <section
-          aria-labelledby="profile-heading"
-          className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 shadow-[var(--shadow-sm)]"
-        >
-          <div className="mb-4 flex items-center gap-2">
-            <UserRound size={17} aria-hidden className="text-[rgb(var(--brand-primary))]" />
-            <h2
-              id="profile-heading"
-              className="font-display text-base font-bold tracking-[-0.02em] text-[rgb(var(--fg-default))]"
-            >
-              Profile
-            </h2>
-          </div>
-          <div className="flex items-center gap-4">
-            {identity.imageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={identity.imageUrl}
-                alt=""
-                className="h-16 w-16 shrink-0 rounded-full object-cover ring-1 ring-[rgb(var(--border-subtle))]"
-              />
-            ) : (
-              <div className="font-display flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--bg-overlay))] text-lg font-extrabold text-[rgb(var(--fg-secondary))]">
-                {studioInitials(identity.fullName)}
-              </div>
-            )}
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[15px] font-bold text-[rgb(var(--fg-default))]">
-                {identity.fullName}
-              </p>
-              <p className="truncate text-[13px] text-[rgb(var(--fg-muted))]">
-                {identity.email}
-              </p>
-              {identity.joinedLabel ? (
-                <p className="mt-1 font-mono text-[10px] tracking-wide text-[rgb(var(--fg-muted))] uppercase">
-                  Joined {identity.joinedLabel}
-                </p>
-              ) : null}
-            </div>
-            <div className="shrink-0">
-              <UserButton
-                appearance={{
-                  elements: {
-                    avatarBox:
-                      "h-11 w-11 ring-1 ring-[rgb(var(--border-subtle))]",
-                  },
+    <div className="mx-auto w-full max-w-5xl">
+      <nav
+        aria-label="Settings sections"
+        className="no-scrollbar -mx-4 mb-5 overflow-x-auto border-b border-[rgb(var(--border-subtle))] px-4 sm:mx-0 sm:px-0"
+      >
+        <div className="flex min-w-max items-center gap-1 pb-2">
+          {ARTIST_SETTINGS_SECTIONS.map((section) => {
+            const Icon = SECTION_ICONS[section.iconKey];
+            const isActive = active === section.key;
+            const isDirty = dirtySections.has(section.key);
+            return (
+              <button
+                key={section.key}
+                type="button"
+                aria-current={isActive ? "page" : undefined}
+                data-artist-settings-section={section.key}
+                onClick={() => {
+                  changeSection(section.key);
                 }}
-              />
-            </div>
-          </div>
-          <p className="mt-4 border-t border-[rgb(var(--border-subtle))] pt-3 text-xs leading-relaxed text-[rgb(var(--fg-muted))]">
-            Use the account menu to update your name, photo, email, or sign out.
-          </p>
-        </section>
+                className={`sk-press relative flex min-h-11 shrink-0 items-center gap-2 rounded-[var(--radius-lg)] px-3.5 text-[13px] font-semibold transition-[background,color,box-shadow] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none motion-reduce:transition-none ${
+                  isActive
+                    ? "bg-[rgb(var(--bg-sidebar))] text-[rgb(var(--fg-onsidebar))] shadow-[0_4px_14px_rgb(17_16_9/0.16)]"
+                    : "text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))]"
+                }`}
+              >
+                <Icon size={15} strokeWidth={1.8} aria-hidden className="hidden sm:block" />
+                <span>{section.label}</span>
+                {isDirty ? (
+                  <span
+                    aria-label="Unsaved changes in this section"
+                    className="h-1.5 w-1.5 shrink-0 rounded-full bg-[rgb(var(--brand-primary))]"
+                  />
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
 
-        <section
-          aria-labelledby="notifications-heading"
-          className="overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-[var(--shadow-sm)]"
-        >
-          <div className="flex items-start justify-between gap-4 px-5 pt-5 pb-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <Bell size={17} aria-hidden className="text-[rgb(var(--brand-primary))]" />
+      <div className="[touch-action:pan-y_pinch-zoom]" data-tab-swipe-surface {...tabSwipeHandlers}>
+        <div className="w-full max-w-[760px]" data-tab-swipe-panel>
+          {active === "profile" ? (
+            <section
+              aria-labelledby="profile-heading"
+              className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 shadow-[var(--shadow-sm)]"
+            >
+              <div className="mb-4 flex items-center gap-2">
+                <UserRound size={17} aria-hidden className="text-[rgb(var(--brand-primary))]" />
                 <h2
-                  id="notifications-heading"
+                  id="profile-heading"
                   className="font-display text-base font-bold tracking-[-0.02em] text-[rgb(var(--fg-default))]"
                 >
-                  Notifications
+                  Profile
                 </h2>
               </div>
-              <p className="mt-1 text-xs text-[rgb(var(--fg-muted))]">
-                Choose how each update reaches you.
-              </p>
-            </div>
-            <div
-              aria-hidden
-              className="grid shrink-0 grid-cols-2 gap-2 font-mono text-[9px] font-semibold tracking-wider text-[rgb(var(--fg-muted))] uppercase"
-            >
-              <span className="w-11 text-center">In app</span>
-              <span className="w-11 text-center">Email</span>
-            </div>
-          </div>
-          <div className="divide-y divide-[rgb(var(--border-subtle))] border-y border-[rgb(var(--border-subtle))]">
-            {NOTIFICATION_ROWS.map((row) => (
-              <div key={row.category} className="flex min-h-[68px] items-center gap-3 px-5 py-2">
+              <div className="flex items-center gap-4">
+                {identity.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={identity.imageUrl}
+                    alt=""
+                    className="h-16 w-16 shrink-0 rounded-full object-cover ring-1 ring-[rgb(var(--border-subtle))]"
+                  />
+                ) : (
+                  <div className="font-display flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--bg-overlay))] text-lg font-extrabold text-[rgb(var(--fg-secondary))]">
+                    {studioInitials(identity.fullName)}
+                  </div>
+                )}
                 <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-semibold text-[rgb(var(--fg-default))]">
-                    {row.label}
+                  <p className="truncate text-[15px] font-bold text-[rgb(var(--fg-default))]">
+                    {identity.fullName}
                   </p>
-                  <p className="mt-0.5 text-[11px] leading-snug text-[rgb(var(--fg-muted))]">
-                    {row.detail}
+                  <p className="truncate text-[13px] text-[rgb(var(--fg-muted))]">
+                    {identity.email}
                   </p>
+                  {identity.joinedLabel ? (
+                    <p className="mt-1 font-mono text-[10px] tracking-wide text-[rgb(var(--fg-muted))] uppercase">
+                      Joined {identity.joinedLabel}
+                    </p>
+                  ) : null}
                 </div>
-                <div className="grid shrink-0 grid-cols-2 gap-2">
-                  <PreferenceSwitch
-                    checked={preferences[row.category].inApp}
-                    disabled={preferencesPending}
-                    label={`${row.label} in-app notifications`}
-                    onChange={() => {
-                      setPreference(row.category, "inApp");
-                    }}
-                  />
-                  <PreferenceSwitch
-                    checked={preferences[row.category][row.emailKey]}
-                    disabled={preferencesPending}
-                    label={`${row.label} email notifications`}
-                    onChange={() => {
-                      setPreference(row.category, row.emailKey);
-                    }}
-                  />
+                <div className="shrink-0">
+                  {previewOnly ? (
+                    <span
+                      aria-label="Account menu preview"
+                      className="font-display flex h-11 w-11 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-xs font-extrabold text-[rgb(var(--fg-on-brand))] ring-1 ring-[rgb(var(--border-subtle))]"
+                    >
+                      {studioInitials(identity.fullName)}
+                    </span>
+                  ) : (
+                    <UserButton
+                      appearance={{
+                        elements: {
+                          avatarBox: "h-11 w-11 ring-1 ring-[rgb(var(--border-subtle))]",
+                        },
+                      }}
+                    />
+                  )}
                 </div>
               </div>
-            ))}
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-3 p-4">
-            <p
-              role={preferenceStatus?.includes("couldn’t") ? "alert" : "status"}
-              className="min-h-5 text-xs text-[rgb(var(--fg-muted))]"
-            >
-              {preferenceStatus ?? (!online ? "Reconnect to save changes." : "")}
-            </p>
-            <button
-              type="button"
-              onClick={savePreferences}
-              disabled={preferencesPending || !online}
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[12px] font-bold text-[rgb(var(--bg-elevated))] transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:opacity-50"
-            >
-              {preferencesPending ? (
-                <Loader2 size={15} aria-hidden className="animate-spin motion-reduce:animate-none" />
-              ) : null}
-              Save notifications
-            </button>
-          </div>
-        </section>
-      </div>
+              <p className="mt-4 border-t border-[rgb(var(--border-subtle))] pt-3 text-xs leading-relaxed text-[rgb(var(--fg-muted))]">
+                Use the account menu to update your name, photo, email, or sign out.
+              </p>
+            </section>
+          ) : null}
 
-      <div className="space-y-5">
-        <section
-          aria-labelledby="timezone-heading"
-          className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 shadow-[var(--shadow-sm)]"
-        >
-          <div className="flex items-center gap-2">
-            <Clock3 size={17} aria-hidden className="text-[rgb(var(--brand-primary))]" />
-            <h2
-              id="timezone-heading"
-              className="font-display text-base font-bold tracking-[-0.02em] text-[rgb(var(--fg-default))]"
+          {active === "notifications" ? (
+            <section
+              aria-labelledby="notifications-heading"
+              className="overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-[var(--shadow-sm)]"
             >
-              Timezone
-            </h2>
-          </div>
-          <p className="mt-1 text-xs leading-relaxed text-[rgb(var(--fg-muted))]">
-            Session times and reminders use this timezone.
-          </p>
-          <label
-            htmlFor="artist-timezone"
-            className="mt-4 block font-mono text-[10px] font-semibold tracking-wider text-[rgb(var(--fg-muted))] uppercase"
-          >
-            Your timezone
-          </label>
-          <select
-            id="artist-timezone"
-            value={timezone}
-            onChange={(event) => {
-              setTimezone(event.target.value);
-              setTimezoneStatus(null);
-            }}
-            disabled={timezonePending}
-            className="mt-2 min-h-11 w-full rounded-[var(--radius-lg)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-background))] px-3 text-sm text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:opacity-60"
-          >
-            {timezone && !timezoneOptions.includes(timezone) ? (
-              <option value={timezone}>{timezone}</option>
-            ) : null}
-            {timezoneOptions.map((zone) => (
-              <option key={zone} value={zone}>
-                {zone.replaceAll("_", " ")}
-              </option>
-            ))}
-          </select>
-          <div className="mt-3 flex items-center justify-between gap-3">
-            <p
-              role={timezoneStatus?.includes("couldn’t") ? "alert" : "status"}
-              className="text-xs text-[rgb(var(--fg-muted))]"
-            >
-              {timezoneStatus ?? ""}
-            </p>
-            <button
-              type="button"
-              onClick={saveTimezone}
-              disabled={!timezone || timezonePending || !online}
-              className="min-h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-strong))] px-4 text-[12px] font-bold text-[rgb(var(--fg-default))] hover:bg-[rgb(var(--bg-overlay))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:opacity-50"
-            >
-              {timezonePending ? "Saving…" : "Save"}
-            </button>
-          </div>
-        </section>
-
-        <section
-          aria-labelledby="studios-heading"
-          className="overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-[var(--shadow-sm)]"
-        >
-          <div className="px-5 pt-5 pb-3">
-            <div className="flex items-center gap-2">
-              <ShieldCheck size={17} aria-hidden className="text-[rgb(var(--brand-primary))]" />
-              <h2
-                id="studios-heading"
-                className="font-display text-base font-bold tracking-[-0.02em] text-[rgb(var(--fg-default))]"
-              >
-                Connected studios
-              </h2>
-            </div>
-            <p className="mt-1 text-xs text-[rgb(var(--fg-muted))]">
-              {connectedStudios.length} active{" "}
-              {connectedStudios.length === 1 ? "connection" : "connections"}
-            </p>
-          </div>
-          {connectedStudios.length === 0 ? (
-            <p className="border-t border-[rgb(var(--border-subtle))] px-5 py-4 text-sm text-[rgb(var(--fg-muted))]">
-              No connected studios.
-            </p>
-          ) : (
-            <ul className="divide-y divide-[rgb(var(--border-subtle))] border-t border-[rgb(var(--border-subtle))]">
-              {connectedStudios.map((studio) => (
-                <li key={studio.producerId} className="flex items-center gap-3 px-4 py-3">
-                  <StudioMark name={studio.name} logoUrl={studio.logoUrl} size="sm" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[13px] font-semibold text-[rgb(var(--fg-default))]">
-                      {studio.name}
-                    </p>
-                    <p className="truncate text-[10.5px] text-[rgb(var(--fg-muted))]">
-                      {studio.slug}
-                    </p>
+              <div className="flex items-start justify-between gap-4 px-5 pt-5 pb-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Bell size={17} aria-hidden className="text-[rgb(var(--brand-primary))]" />
+                    <h2
+                      id="notifications-heading"
+                      className="font-display text-base font-bold tracking-[-0.02em] text-[rgb(var(--fg-default))]"
+                    >
+                      Notifications
+                    </h2>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      openDisconnect(studio);
-                    }}
-                    className="min-h-11 rounded-[var(--radius-lg)] px-3 text-[11px] font-bold text-[rgb(var(--fg-danger))] hover:bg-[rgb(var(--fg-danger)/0.08)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
+                  <p className="mt-1 text-xs text-[rgb(var(--fg-muted))]">
+                    Choose how each update reaches you.
+                  </p>
+                </div>
+                <div
+                  aria-hidden
+                  className="grid shrink-0 grid-cols-2 gap-2 font-mono text-[9px] font-semibold tracking-wider text-[rgb(var(--fg-muted))] uppercase"
+                >
+                  <span className="w-11 text-center">In app</span>
+                  <span className="w-11 text-center">Email</span>
+                </div>
+              </div>
+              <div className="divide-y divide-[rgb(var(--border-subtle))] border-y border-[rgb(var(--border-subtle))]">
+                {NOTIFICATION_ROWS.map((row) => (
+                  <div
+                    key={row.category}
+                    className="flex min-h-[68px] items-center gap-3 px-5 py-2"
                   >
-                    Disconnect
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section
-          aria-labelledby="past-studios-heading"
-          className="overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-[var(--shadow-sm)]"
-        >
-          <div className="px-5 pt-5 pb-3">
-            <div className="flex items-center gap-2">
-              <History size={17} aria-hidden className="text-[rgb(var(--brand-primary))]" />
-              <h2
-                id="past-studios-heading"
-                className="font-display text-base font-bold tracking-[-0.02em] text-[rgb(var(--fg-default))]"
-              >
-                Past studios
-              </h2>
-            </div>
-            <p className="mt-1 text-xs text-[rgb(var(--fg-muted))]">
-              Read-only records from disconnected studios.
-            </p>
-          </div>
-          {pastStudios.length === 0 ? (
-            <p className="border-t border-[rgb(var(--border-subtle))] px-5 py-4 text-sm text-[rgb(var(--fg-muted))]">
-              No past studios.
-            </p>
-          ) : (
-            <ul className="divide-y divide-[rgb(var(--border-subtle))] border-t border-[rgb(var(--border-subtle))]">
-              {pastStudios.map((studio) => (
-                <li key={studio.producerId}>
-                  <Link
-                    href={`/artist/settings/studios/${studio.producerId}`}
-                    className="flex min-h-16 items-center gap-3 px-4 py-3 hover:bg-[rgb(var(--bg-overlay))] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
-                  >
-                    <StudioMark name={studio.name} logoUrl={studio.logoUrl} size="sm" />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] font-semibold text-[rgb(var(--fg-default))]">
-                        {studio.name}
+                      <p className="text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+                        {row.label}
                       </p>
-                      <p className="mt-0.5 text-[10.5px] text-[rgb(var(--fg-muted))]">
-                        Disconnected{" "}
-                        {new Intl.DateTimeFormat(undefined, {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        }).format(new Date(studio.disconnectedAtIso))}
+                      <p className="mt-0.5 text-[11px] leading-snug text-[rgb(var(--fg-muted))]">
+                        {row.detail}
                       </p>
                     </div>
-                    <ChevronRight size={16} aria-hidden className="text-[rgb(var(--fg-muted))]" />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+                    <div className="grid shrink-0 grid-cols-2 gap-2">
+                      <PreferenceSwitch
+                        checked={preferences[row.category].inApp}
+                        disabled={preferencesPending}
+                        label={`${row.label} in-app notifications`}
+                        onChange={() => {
+                          setPreference(row.category, "inApp");
+                        }}
+                      />
+                      <PreferenceSwitch
+                        checked={preferences[row.category][row.emailKey]}
+                        disabled={preferencesPending}
+                        label={`${row.label} email notifications`}
+                        onChange={() => {
+                          setPreference(row.category, row.emailKey);
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+                <p
+                  role={preferenceStatus?.includes("couldn’t") ? "alert" : "status"}
+                  className="min-h-5 text-xs text-[rgb(var(--fg-muted))]"
+                >
+                  {preferenceStatus ?? (!online ? "Reconnect to save changes." : "")}
+                </p>
+                <button
+                  type="button"
+                  onClick={savePreferences}
+                  disabled={preferencesPending || !online}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[12px] font-bold text-[rgb(var(--bg-elevated))] transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:opacity-50"
+                >
+                  {preferencesPending ? (
+                    <Loader2
+                      size={15}
+                      aria-hidden
+                      className="animate-spin motion-reduce:animate-none"
+                    />
+                  ) : null}
+                  Save notifications
+                </button>
+              </div>
+            </section>
+          ) : null}
+
+          {active === "timezone" ? (
+            <section
+              aria-labelledby="timezone-heading"
+              className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5 shadow-[var(--shadow-sm)]"
+            >
+              <div className="flex items-center gap-2">
+                <Clock3 size={17} aria-hidden className="text-[rgb(var(--brand-primary))]" />
+                <h2
+                  id="timezone-heading"
+                  className="font-display text-base font-bold tracking-[-0.02em] text-[rgb(var(--fg-default))]"
+                >
+                  Timezone
+                </h2>
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-[rgb(var(--fg-muted))]">
+                Session times and reminders use this timezone.
+              </p>
+              <label
+                htmlFor="artist-timezone"
+                className="mt-4 block font-mono text-[10px] font-semibold tracking-wider text-[rgb(var(--fg-muted))] uppercase"
+              >
+                Your timezone
+              </label>
+              <select
+                id="artist-timezone"
+                value={timezone}
+                onChange={(event) => {
+                  setTimezone(event.target.value);
+                  setTimezoneStatus(null);
+                }}
+                disabled={timezonePending}
+                className="mt-2 min-h-11 w-full rounded-[var(--radius-lg)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-background))] px-3 text-sm text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:opacity-60"
+              >
+                {timezone && !timezoneOptions.includes(timezone) ? (
+                  <option value={timezone}>{timezone}</option>
+                ) : null}
+                {timezoneOptions.map((zone) => (
+                  <option key={zone} value={zone}>
+                    {zone.replaceAll("_", " ")}
+                  </option>
+                ))}
+              </select>
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <p
+                  role={timezoneStatus?.includes("couldn’t") ? "alert" : "status"}
+                  className="text-xs text-[rgb(var(--fg-muted))]"
+                >
+                  {timezoneStatus ?? ""}
+                </p>
+                <button
+                  type="button"
+                  onClick={saveTimezone}
+                  disabled={!timezone || timezonePending || !online}
+                  className="min-h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-strong))] px-4 text-[12px] font-bold text-[rgb(var(--fg-default))] hover:bg-[rgb(var(--bg-overlay))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:opacity-50"
+                >
+                  {timezonePending ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </section>
+          ) : null}
+
+          {active === "studios" ? (
+            <div className="space-y-5">
+              <section
+                aria-labelledby="studios-heading"
+                className="overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-[var(--shadow-sm)]"
+              >
+                <div className="px-5 pt-5 pb-3">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck
+                      size={17}
+                      aria-hidden
+                      className="text-[rgb(var(--brand-primary))]"
+                    />
+                    <h2
+                      id="studios-heading"
+                      className="font-display text-base font-bold tracking-[-0.02em] text-[rgb(var(--fg-default))]"
+                    >
+                      Connected studios
+                    </h2>
+                  </div>
+                  <p className="mt-1 text-xs text-[rgb(var(--fg-muted))]">
+                    {connectedStudios.length} active{" "}
+                    {connectedStudios.length === 1 ? "connection" : "connections"}
+                  </p>
+                </div>
+                {connectedStudios.length === 0 ? (
+                  <p className="border-t border-[rgb(var(--border-subtle))] px-5 py-4 text-sm text-[rgb(var(--fg-muted))]">
+                    No connected studios.
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-[rgb(var(--border-subtle))] border-t border-[rgb(var(--border-subtle))]">
+                    {connectedStudios.map((studio) => (
+                      <li key={studio.producerId} className="flex items-center gap-3 px-4 py-3">
+                        <StudioMark name={studio.name} logoUrl={studio.logoUrl} size="sm" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+                            {studio.name}
+                          </p>
+                          <p className="truncate text-[10.5px] text-[rgb(var(--fg-muted))]">
+                            {studio.slug}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            openDisconnect(studio);
+                          }}
+                          className="min-h-11 rounded-[var(--radius-lg)] px-3 text-[11px] font-bold text-[rgb(var(--fg-danger))] hover:bg-[rgb(var(--fg-danger)/0.08)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
+                        >
+                          Disconnect
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              <section
+                aria-labelledby="past-studios-heading"
+                className="overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-[var(--shadow-sm)]"
+              >
+                <div className="px-5 pt-5 pb-3">
+                  <div className="flex items-center gap-2">
+                    <History size={17} aria-hidden className="text-[rgb(var(--brand-primary))]" />
+                    <h2
+                      id="past-studios-heading"
+                      className="font-display text-base font-bold tracking-[-0.02em] text-[rgb(var(--fg-default))]"
+                    >
+                      Past studios
+                    </h2>
+                  </div>
+                  <p className="mt-1 text-xs text-[rgb(var(--fg-muted))]">
+                    Read-only records from disconnected studios.
+                  </p>
+                </div>
+                {pastStudios.length === 0 ? (
+                  <p className="border-t border-[rgb(var(--border-subtle))] px-5 py-4 text-sm text-[rgb(var(--fg-muted))]">
+                    No past studios.
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-[rgb(var(--border-subtle))] border-t border-[rgb(var(--border-subtle))]">
+                    {pastStudios.map((studio) => (
+                      <li
+                        key={studio.producerId}
+                        id={previewOnly ? `past-studio-${studio.producerId}` : undefined}
+                      >
+                        <Link
+                          href={
+                            previewOnly
+                              ? `#past-studio-${studio.producerId}`
+                              : `/artist/settings/studios/${studio.producerId}`
+                          }
+                          className="flex min-h-16 items-center gap-3 px-4 py-3 hover:bg-[rgb(var(--bg-overlay))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset"
+                        >
+                          <StudioMark name={studio.name} logoUrl={studio.logoUrl} size="sm" />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+                              {studio.name}
+                            </p>
+                            <p className="mt-0.5 text-[10.5px] text-[rgb(var(--fg-muted))]">
+                              Disconnected{" "}
+                              {new Intl.DateTimeFormat(undefined, {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                              }).format(new Date(studio.disconnectedAtIso))}
+                            </p>
+                          </div>
+                          <ChevronRight
+                            size={16}
+                            aria-hidden
+                            className="text-[rgb(var(--fg-muted))]"
+                          />
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <Dialog
@@ -665,7 +816,11 @@ export function ArtistSettingsClient({
                 role="status"
                 className="flex items-center gap-3 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-overlay))] p-4 text-sm text-[rgb(var(--fg-secondary))]"
               >
-                <Loader2 size={18} aria-hidden className="animate-spin motion-reduce:animate-none" />
+                <Loader2
+                  size={18}
+                  aria-hidden
+                  className="animate-spin motion-reduce:animate-none"
+                />
                 Checking this studio…
               </div>
             ) : disconnectPreview && !disconnectPreview.canDisconnect ? (
@@ -685,8 +840,8 @@ export function ArtistSettingsClient({
               </div>
             ) : disconnectPreview?.canDisconnect ? (
               <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-overlay))] p-4 text-[12px] leading-relaxed text-[rgb(var(--fg-secondary))]">
-                Disconnecting does not delete the producer’s records. Your preserved
-                history becomes read-only.
+                Disconnecting does not delete the producer’s records. Your preserved history becomes
+                read-only.
               </div>
             ) : null}
 
@@ -718,7 +873,11 @@ export function ArtistSettingsClient({
                 className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-danger))] px-4 text-[12px] font-bold text-white hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:opacity-50"
               >
                 {disconnectPending ? (
-                  <Loader2 size={15} aria-hidden className="animate-spin motion-reduce:animate-none" />
+                  <Loader2
+                    size={15}
+                    aria-hidden
+                    className="animate-spin motion-reduce:animate-none"
+                  />
                 ) : null}
                 Disconnect studio
               </button>

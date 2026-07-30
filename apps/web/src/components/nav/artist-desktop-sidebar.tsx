@@ -119,6 +119,7 @@ export function ArtistDesktopSidebar({
           userId={userId}
           initialStudioId={initialStudioId}
           notificationStudioDotIds={notificationStudioDotIds}
+          inverse
         />
       </div>
 
@@ -140,15 +141,15 @@ export function ArtistDesktopSidebar({
                 announceRuntimeMainNavigationIntent(href);
               }}
               {...(active ? { "aria-current": "page" as const } : {})}
-              className="sk-press relative flex items-center rounded-xl focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset"
+              className="sk-press relative flex items-center rounded-[10px] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset"
               style={{
                 gap: 12,
                 padding: "10px 12px",
-                background: active ? "rgb(var(--fg-onsidebar) / 0.08)" : "transparent",
-                color: active ? "rgb(var(--fg-onsidebar))" : "rgb(var(--fg-onsidebar) / 0.62)",
-                fontFamily: "var(--font-outfit)",
-                fontSize: 14.5,
-                fontWeight: active ? 600 : 500,
+                background: active ? "rgb(var(--fg-onsidebar) / 0.10)" : "transparent",
+                color: active ? "rgb(var(--fg-onsidebar))" : "rgb(var(--fg-onsidebar) / 0.65)",
+                fontSize: 13.5,
+                fontWeight: active ? 700 : 500,
+                letterSpacing: "-0.005em",
                 minHeight: 44,
               }}
             >
@@ -157,17 +158,17 @@ export function ArtistDesktopSidebar({
                   aria-hidden
                   style={{
                     position: "absolute",
-                    insetInlineStart: -16,
+                    insetInlineStart: -5,
                     top: 8,
                     bottom: 8,
-                    width: 2,
+                    width: 3,
                     background: "rgb(var(--brand-primary))",
-                    borderRadius: 999,
+                    borderRadius: 2,
                   }}
                 />
               )}
               <span className="flex h-5 w-5 items-center justify-center">
-                <Icon name={item.icon} size={20} strokeWidth={1.7} />
+                <Icon name={item.icon} size={16} strokeWidth={2.3} />
               </span>
               <span style={{ flex: 1 }}>{item.label}</span>
             </Link>

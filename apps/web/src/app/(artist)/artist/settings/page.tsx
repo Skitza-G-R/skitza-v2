@@ -2,12 +2,19 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
 import { ArtistSettingsClient } from "~/components/artist/settings/artist-settings-client";
+import { isArtistSettingsSectionKey } from "~/components/artist/settings/artist-settings-sections";
 import { appRouter } from "~/server/trpc/routers/_app";
 
-export default async function ArtistSettingsPage() {
+export default async function ArtistSettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ section?: string }>;
+}) {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
 
+  const params = await searchParams;
+  const initialActive = isArtistSettingsSectionKey(params.section) ? params.section : "profile";
   const caller = appRouter.createCaller({ userId });
   const [user, { studios }, profile, pastStudios] = await Promise.all([
     currentUser(),
@@ -17,9 +24,7 @@ export default async function ArtistSettingsPage() {
   ]);
 
   const fullName =
-    [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
-    user?.username ||
-    "Artist";
+    [user?.firstName, user?.lastName].filter(Boolean).join(" ") || user?.username || "Artist";
   const joinedLabel = user?.createdAt
     ? new Intl.DateTimeFormat("en", {
         month: "short",
@@ -43,6 +48,7 @@ export default async function ArtistSettingsPage() {
       </header>
 
       <ArtistSettingsClient
+        initialActive={initialActive}
         identity={{
           fullName,
           email: user?.primaryEmailAddress?.emailAddress ?? "—",

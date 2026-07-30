@@ -1,11 +1,7 @@
 "use client";
 
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode } from "react";
 
-import {
-  ArtistNotificationPanel,
-  type ArtistNotificationFeedItem,
-} from "~/components/artist/artist-notification-bell";
 import { ProfessionalArtistHome } from "~/components/artist/home/professional-home";
 import { MySessionsScreen } from "~/components/artist/sessions/my-sessions-screen";
 import { SessionDetailScreen } from "~/components/artist/sessions/session-detail-screen";
@@ -19,7 +15,6 @@ import {
   DEV_ARTIST_HOME_MAIN,
   DEV_ARTIST_HOME_SUPPORTING,
   DEV_ARTIST_NOTIFICATION_PREFERENCES,
-  DEV_ARTIST_NOTIFICATIONS,
   DEV_ARTIST_NOW_ISO,
   DEV_ARTIST_SESSIONS,
   DEV_ARTIST_SESSION_DETAIL,
@@ -39,7 +34,7 @@ function PreviewCanvas({
     <main
       id="main-content"
       tabIndex={-1}
-      className="min-h-dvh bg-[rgb(var(--bg-background))] px-4 py-6 sm:px-6 sm:py-9"
+      className="min-h-dvh bg-transparent px-4 py-6 sm:px-6 sm:py-9"
     >
       <div className={`mx-auto w-full ${width}`}>{children}</div>
     </main>
@@ -137,75 +132,36 @@ export function ArtistSettingsDevPreview() {
           Manage your profile, timezone, notifications, and studio connections.
         </p>
       </header>
-      <div inert className="pointer-events-none">
-        <ArtistSettingsClient
-          identity={{
-            fullName: "Maya Cohen",
-            email: "maya@example.com",
-            imageUrl: null,
-            joinedLabel: "May 2026",
-          }}
-          initialTimezone="America/New_York"
-          initialPreferences={DEV_ARTIST_NOTIFICATION_PREFERENCES}
-          connectedStudios={DEV_ARTIST_STUDIOS}
-          pastStudios={[
-            {
-              producerId: "00000000-0000-4000-8000-000000000213",
-              name: "Harbor Sound",
-              slug: "harbor-sound",
-              logoUrl: null,
-              disconnectedAtIso: "2026-06-12T10:00:00.000Z",
-            },
-          ]}
-        />
-      </div>
+      <ArtistSettingsClient
+        initialActive="profile"
+        previewOnly
+        identity={{
+          fullName: "Maya Cohen",
+          email: "maya@example.com",
+          imageUrl: null,
+          joinedLabel: "May 2026",
+        }}
+        initialTimezone="America/New_York"
+        initialPreferences={DEV_ARTIST_NOTIFICATION_PREFERENCES}
+        connectedStudios={DEV_ARTIST_STUDIOS}
+        pastStudios={[
+          {
+            producerId: "00000000-0000-4000-8000-000000000213",
+            name: "Harbor Sound",
+            slug: "harbor-sound",
+            logoUrl: null,
+            disconnectedAtIso: "2026-06-12T10:00:00.000Z",
+          },
+        ]}
+      />
     </PreviewCanvas>
   );
 }
 
 export function ArtistNotificationCenterDevPreview() {
-  const [tab, setTab] = useState<"all" | "unread">("all");
-  const [items, setItems] = useState<ArtistNotificationFeedItem[]>([...DEV_ARTIST_NOTIFICATIONS]);
-  const visibleItems = useMemo(
-    () => (tab === "all" ? items : items.filter((item) => item.readAtIso === null)),
-    [items, tab],
-  );
-  const unreadCount = items.filter((item) => item.readAtIso === null).length;
-
-  const markOne = (item: ArtistNotificationFeedItem) => {
-    setItems((current) =>
-      current.map((candidate) =>
-        candidate.id === item.id ? { ...candidate, readAtIso: DEV_ARTIST_NOW_ISO } : candidate,
-      ),
-    );
-    return Promise.resolve();
-  };
-  const openOne = (item: ArtistNotificationFeedItem) => {
-    setItems((current) =>
-      current.map((candidate) =>
-        candidate.id === item.id
-          ? {
-              ...candidate,
-              readAtIso: candidate.readAtIso ?? DEV_ARTIST_NOW_ISO,
-              openedAtIso: candidate.openedAtIso ?? DEV_ARTIST_NOW_ISO,
-            }
-          : candidate,
-      ),
-    );
-    return Promise.resolve();
-  };
-  const markAll = () => {
-    setItems((current) =>
-      current.map((item) => ({
-        ...item,
-        readAtIso: item.readAtIso ?? DEV_ARTIST_NOW_ISO,
-      })),
-    );
-  };
-
   return (
     <PreviewCanvas width="max-w-[900px]">
-      <div inert className="pointer-events-none opacity-40">
+      <div inert className="pointer-events-none">
         <ProfessionalArtistHome
           greeting="Good morning, Maya."
           studioName="Northline Studio"
@@ -214,29 +170,6 @@ export function ArtistNotificationCenterDevPreview() {
           welcome={false}
         />
       </div>
-      <div aria-hidden className="fixed inset-0 z-40 bg-black/30 lg:hidden" />
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-label="Notifications"
-        className="fixed inset-x-0 bottom-0 z-50 max-h-[82dvh] overflow-hidden rounded-t-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-[var(--shadow-lg)] lg:inset-x-auto lg:top-[60px] lg:right-4 lg:bottom-auto lg:w-[390px] lg:rounded-[var(--radius-lg)]"
-      >
-        <ArtistNotificationPanel
-          tab={tab}
-          setTab={setTab}
-          items={visibleItems}
-          loading={false}
-          markingAll={false}
-          pendingId={null}
-          unreadCount={unreadCount}
-          error={null}
-          onRetry={() => undefined}
-          onMarkAll={markAll}
-          onMarkOne={markOne}
-          onOpen={openOne}
-          relativeNow={new Date(DEV_ARTIST_NOW_ISO)}
-        />
-      </section>
     </PreviewCanvas>
   );
 }

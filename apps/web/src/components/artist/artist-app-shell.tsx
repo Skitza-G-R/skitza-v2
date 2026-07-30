@@ -73,7 +73,9 @@ export function ArtistAppShell({
       <div
         className="flex min-h-dvh"
         style={{
-          background: "rgb(var(--bg-background))",
+          backgroundColor: "rgb(var(--bg-background))",
+          backgroundImage:
+            "radial-gradient(circle at 88% -6%, rgb(var(--brand-primary) / 0.11), transparent 30rem), radial-gradient(circle at 5% 92%, rgb(var(--brand-copper) / 0.07), transparent 34rem)",
           color: "rgb(var(--fg-default))",
         }}
       >

@@ -116,9 +116,12 @@ describe("artist platform preview handoff", () => {
     expect(shellSource).toContain('data-artist-platform-preview-chrome="standing"');
     expect(shellSource).toContain("lg:hidden");
     expect(shellSource).toContain("hidden h-dvh shrink-0 flex-col border-e lg:flex");
-    expect(shellSource).toContain("hidden border-b");
-    expect(shellSource).toContain("lg:block");
-    expect(shellSource).toContain('aria-label="Artist preview tabs"');
+    expect(shellSource).toContain("<PreviewTopBar");
+    expect(shellSource).toContain("<LiquidGlassBottomNav");
+    expect(shellSource).toContain('ariaLabel="Artist preview tabs"');
+    expect(shellSource).toContain('position="fixed"');
+    expect(shellSource).toContain("<ArtistNotificationBell");
+    expect(shellSource).toContain('initialOpen: activeDestination === "notifications"');
     expect(shellSource).toContain("previewOnly");
     for (const label of ["Home", "Music", "Sessions", "Store"]) {
       expect(shellSource).toContain(`label: "${label}"`);
@@ -153,10 +156,10 @@ describe("artist platform preview handoff", () => {
       "MySessionsScreen",
       "SessionDetailScreen",
       "ArtistSettingsClient",
-      "ArtistNotificationPanel",
     ]) {
       expect(standingSource).toContain(`<${component}`);
     }
     expect(shellSource).toContain("<StudioSwitcher");
+    expect(shellSource).toContain("<ArtistNotificationBell");
   });
 });

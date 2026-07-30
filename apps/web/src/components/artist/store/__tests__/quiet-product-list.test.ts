@@ -22,7 +22,8 @@ describe("QuietProductList", () => {
 
   it("uses bordered cards and a two-column desktop catalog", () => {
     expect(source).toMatch(/grid gap-3 md:grid-cols-2/);
-    expect(source).toMatch(/rounded-\[var\(--radius-lg\)\] border/);
+    expect(source).toMatch(/rounded-\[var\(--radius-xl\)\] border/);
+    expect(source).toMatch(/backdrop-blur-xl/);
     expect(source).toMatch(/View service/);
   });
 

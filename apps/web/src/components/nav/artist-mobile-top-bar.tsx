@@ -52,34 +52,43 @@ export function ArtistMobileTopBar({
 
   return (
     <header
-      className="sk-safe-top sk-safe-x sticky top-0 z-30 flex items-center justify-between gap-3 backdrop-blur lg:hidden"
+      className="sk-safe-top sticky top-0 z-30 backdrop-blur-2xl lg:hidden"
       style={{
-        background: "rgb(var(--bg-background) / 0.92)",
-        borderBottom: "1px solid rgb(var(--border-subtle))",
-        padding: "12px 16px",
+        background: "rgb(var(--bg-background) / 0.76)",
+        borderBottom: "1px solid rgb(var(--border-subtle) / 0.72)",
+        boxShadow: "0 10px 30px -24px rgb(var(--bg-sidebar) / 0.45)",
+        WebkitBackdropFilter: "blur(28px) saturate(145%)",
       }}
     >
-      <div className="flex min-w-0 flex-1 items-center gap-3">
-        <span className="shrink-0">
-          <Wordmark size={18} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <StudioSwitcher
-            studios={studios}
+      <div
+        className="flex items-center justify-between gap-3 py-3"
+        style={{
+          paddingInlineStart: "max(16px, env(safe-area-inset-left, 0px))",
+          paddingInlineEnd: "max(16px, env(safe-area-inset-right, 0px))",
+        }}
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <span className="shrink-0">
+            <Wordmark size={18} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <StudioSwitcher
+              studios={studios}
+              userId={userId}
+              initialStudioId={initialStudioId}
+              notificationStudioDotIds={notificationStudioDotIds}
+            />
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <ArtistNotificationBell initialUnreadCount={notificationUnreadCount} />
+          <ArtistUserButton
             userId={userId}
-            initialStudioId={initialStudioId}
-            notificationStudioDotIds={notificationStudioDotIds}
+            isProducer={isProducer}
+            settingsHref={withArtistStudio("/artist/settings", activeStudioId)}
+            ringClassName="ring-[rgb(var(--border-subtle))]"
           />
         </div>
-      </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <ArtistNotificationBell initialUnreadCount={notificationUnreadCount} />
-        <ArtistUserButton
-          userId={userId}
-          isProducer={isProducer}
-          settingsHref={withArtistStudio("/artist/settings", activeStudioId)}
-          ringClassName="ring-[rgb(var(--border-subtle))]"
-        />
       </div>
     </header>
   );

@@ -45,7 +45,7 @@ export function QuietProductList({
           const meta = shortMeta(product);
           const taxFootnote = taxModeFootnote(taxMode, taxRatePct);
           const rowClassName =
-            "sk-press flex min-h-full w-full flex-col items-start rounded-[var(--radius-lg)] border bg-[rgb(var(--bg-elevated))] p-4 text-left";
+            "sk-press flex min-h-full w-full flex-col items-start rounded-[var(--radius-xl)] border bg-[rgb(var(--bg-elevated)/0.84)] p-4 text-left shadow-[var(--shadow-sm)] backdrop-blur-xl transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:shadow-[var(--shadow-md)] motion-reduce:hover:translate-y-0";
           const rowContents = (
             <>
               <div className="min-w-0 flex-1">
