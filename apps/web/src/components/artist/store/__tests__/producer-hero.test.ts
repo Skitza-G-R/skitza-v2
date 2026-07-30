@@ -18,9 +18,10 @@ describe("ProducerHero", () => {
     expect(source).toMatch(/producerLogoUrl/);
   });
 
-  it("uses the brand-primary → brand-copper gradient on the cover block", () => {
-    expect(source).toMatch(/var\(--brand-primary\)/);
-    expect(source).toMatch(/var\(--brand-copper\)/);
+  it("uses a compact neutral bordered studio header", () => {
+    expect(source).toMatch(/rounded-\[var\(--radius-lg\)\] border/);
+    expect(source).toMatch(/var\(--border-subtle\)/);
+    expect(source).not.toMatch(/gradient|brand-copper/);
   });
 
   it("renders the producer name in font-display", () => {
@@ -28,8 +29,9 @@ describe("ProducerHero", () => {
     expect(source).toMatch(/producerName/);
   });
 
-  it("renders a logo circle (rounded-full) overlapping the gradient", () => {
+  it("renders a compact circular studio identity", () => {
     expect(source).toMatch(/rounded-full/);
+    expect(source).toMatch(/h-11 w-11/);
   });
 
   it("falls back to an initial letter when no logo url", () => {
@@ -44,13 +46,7 @@ describe("ProducerHero", () => {
     expect(source).toMatch(/var\(--bg-elevated\)/);
   });
 
-  // Tailwind v4 registers --tw-ring-color with `inherits: false`, so a
-  // value set on a parent never reaches the ringed child — the ring
-  // color class must sit on the same element as ring-4.
-  it("sets the ring color on the ringed elements, not via a parent var", () => {
-    expect(source).toMatch(/ring-\[rgb\(var\(--bg-elevated\)\)\]/);
-    // A quoted "--tw-ring-color" is a style-object key — the broken
-    // parent-variable pattern. (Unquoted prose in comments is fine.)
-    expect(source).not.toMatch(/"--tw-ring-color"/);
+  it("does not use overlapping or floating-logo positioning", () => {
+    expect(source).not.toMatch(/absolute|-top-|ring-4|shadow-/);
   });
 });

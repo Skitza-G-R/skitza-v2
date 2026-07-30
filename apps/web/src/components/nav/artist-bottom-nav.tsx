@@ -17,12 +17,12 @@ import { Icon, type IconName } from "./icons";
 // ─── Artist mobile bottom nav (<lg) ─────────────────────────────────
 //
 // Replaces the prior emoji-based artist BottomNav with the locked
-// design's dark 5-tab bar. Mirrors the producer mobile bar visually
+// design's dark 4-tab bar. Mirrors the producer mobile bar visually
 // (same dark `--bg-sidebar` surface, amber active colour, 11px
 // labels, top brand-bar indicator) so the two apps share grammar.
 //
-// Routes wired per CLAUDE.md §"Artist platform — 5 sections":
-//   Home / Music / Book / Store / Payments
+// Routes wired to the approved standing destinations:
+//   Home / Music / Sessions / Store
 // "Messages" appears in the locked desktop design but no /artist/messages
 // route exists — dropped for Phase 2 per Gili's same-pattern Q3 ruling
 // (don't ship nav items that 404).
@@ -39,17 +39,24 @@ type ArtistTab = {
 const TABS: readonly ArtistTab[] = [
   { href: "/artist", label: "Home", icon: "home" },
   { href: "/artist/music", label: "Music", icon: "music" },
-  { href: "/artist/book", label: "Book", icon: "book" },
+  { href: "/artist/sessions", label: "Sessions", icon: "calendar" },
   { href: "/artist/store", label: "Store", icon: "store" },
-  { href: "/artist/payments", label: "Payments", icon: "payments" },
 ] as const;
 
-export function ArtistBottomNav({ studios }: { studios: Studio[] }): ReactNode {
+export function ArtistBottomNav({
+  studios,
+  initialStudioId,
+}: {
+  studios: Studio[];
+  initialStudioId: string | null;
+}): ReactNode {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const activeStudioId = resolveArtistStudioId(studios, searchParams.get("studio"));
-  // My Sessions belongs to the approved Book section even though its
-  // route lives at /artist/sessions.
+  const activeStudioId = resolveArtistStudioId(
+    studios,
+    searchParams.get("studio"),
+    initialStudioId,
+  );
   const isActive = (href: string) => isArtistNavItemActive(pathname, href);
 
   return (

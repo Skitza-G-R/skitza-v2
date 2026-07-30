@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
+import { isArtistFocusedPath } from "./artist-shell-route";
 
 /**
  * Keeps connectivity feedback inside the persistent artist shell. The home
@@ -13,7 +14,7 @@ export function ArtistRouteStatus() {
   const pathname = usePathname();
   const online = useOnlineStatus();
 
-  if (online || pathname === "/artist") return null;
+  if (online || pathname === "/artist" || isArtistFocusedPath(pathname)) return null;
 
   return (
     <div

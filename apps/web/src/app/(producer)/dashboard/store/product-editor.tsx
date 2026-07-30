@@ -117,6 +117,7 @@ function emptyDraft(currency: Currency): Draft {
     currency,
     sessions: 1,
     unlimitedSessions: false,
+    bookingEnabled: false,
     payment: seedPaymentSelection([{ kind: "full" }]),
     includes: [],
     duration: "60 min",
@@ -157,6 +158,7 @@ function seedDraftFromProduct(product: StoreProduct, defaultCurrency: Currency):
     currency,
     sessions: product.sessionCount === 0 ? 1 : product.sessionCount,
     unlimitedSessions: product.sessionCount === 0,
+    bookingEnabled: product.bookingEnabled,
     payment: seedPaymentSelection(product.paymentPlans),
     includes: [...product.deliverables],
     duration:
@@ -398,7 +400,7 @@ export function ProductEditor({
   const visibleAgreementError =
     rightsTouched.agreement || draft._legacyAgreementLink ? agreementError : null;
   const validRights = Object.keys(royaltyErrors).length === 0 && agreementError === null;
-  const validDelivery = /^\d+\s*min$/i.test(draft.duration);
+  const validDelivery = !draft.bookingEnabled || /^\d+\s*min$/i.test(draft.duration);
   const validDetails =
     draft.name.trim().length > 0 &&
     draft.name.trim().length <= 200 &&
@@ -560,6 +562,7 @@ export function ProductEditor({
 
         {currentStep === "delivery" ? (
           <LogisticsStep
+            bookingEnabled={draft.bookingEnabled}
             duration={draft.duration}
             revisions={draft.revisions}
             unlimitedRevisions={draft.unlimitedRevisions}
@@ -619,6 +622,7 @@ export function ProductEditor({
             currency={draft.currency}
             sessions={draft.sessions}
             unlimitedSessions={draft.unlimitedSessions}
+            bookingEnabled={draft.bookingEnabled}
             paymentPlans={reviewPlans}
             duration={draft.duration}
             revisions={draft.revisions}

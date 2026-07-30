@@ -27,10 +27,18 @@ const ARTIST_SHELL = readFileSync(
   fileURLToPath(new URL("../../components/artist/artist-app-shell.tsx", import.meta.url)),
   "utf8",
 );
+const ARTIST_LAYOUT = readFileSync(
+  fileURLToPath(new URL("../(artist)/artist/layout.tsx", import.meta.url)),
+  "utf8",
+);
 const ARTIST_RUNTIME_PROVIDER = readFileSync(
   fileURLToPath(
     new URL("../../components/runtime-state/artist-runtime-state-provider.tsx", import.meta.url),
   ),
+  "utf8",
+);
+const ARTIST_STUDIO_PREFERENCE = readFileSync(
+  fileURLToPath(new URL("../../server/artist/studio-preference.ts", import.meta.url)),
   "utf8",
 );
 const RUNTIME_NAVIGATION_BRIDGE = readFileSync(
@@ -160,9 +168,22 @@ describe("SK-122 Router Cache invalidation contract", () => {
     );
   });
 
-  it("keeps a queryless artist shell on the server's first-studio fallback", () => {
+  it("keeps a queryless artist shell on the user-bound saved studio and safe roster fallback", () => {
+    expect(ARTIST_LAYOUT).toContain("readArtistStudioPreference(userId)");
+    expect(ARTIST_LAYOUT).toContain(
+      "resolveArtistStudioId(studios, null, savedStudioId)",
+    );
+    expect(ARTIST_STUDIO_PREFERENCE).toContain(
+      "artistStudioPreferenceForUser(",
+    );
+    expect(ARTIST_STUDIO_PREFERENCE).toMatch(
+      /artistStudioPreferenceForUser\([\s\S]*?,\s*userId,\s*\)/,
+    );
     expect(ARTIST_RUNTIME_PROVIDER).toMatch(
-      /requestedStudioId === null \? null : storage,[\s\S]*requestedStudioId,/,
+      /resolveArtistStudioId\([\s\S]*?requestedStudioId,\s*initialStudioId,\s*\)/,
+    );
+    expect(ARTIST_RUNTIME_PROVIDER).toContain(
+      "writeArtistStudioPreferenceCookie(identity.userId, identity.contextId)",
     );
   });
 

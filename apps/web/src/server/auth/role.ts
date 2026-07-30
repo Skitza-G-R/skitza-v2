@@ -1,6 +1,14 @@
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
-import { createDb, producers, clientContacts, eq, and, isNull } from "@skitza/db";
+import {
+  and,
+  artistHistoricalAccessGrants,
+  clientContacts,
+  createDb,
+  eq,
+  isNull,
+  producers,
+} from "@skitza/db";
 import { isAutoSlug } from "~/lib/slug";
 
 // Role resolution — the single source of truth for "what kind of user
@@ -12,11 +20,12 @@ import { isAutoSlug } from "~/lib/slug";
 // discovered during Task 15 QA (an artist could bypass (app)/layout
 // by typing /onboarding directly).
 //
-// Split into two functions:
+// Split into pure classification/capability functions plus I/O wrappers:
 //   - resolveUserRole: pure — takes already-fetched facts, returns
 //     a discriminated-union Role. Unit-testable without any mocks.
-//   - fetchUserRole: I/O wrapper — does the Drizzle lookups against
-//     producers + client_contacts, then calls resolveUserRole.
+//   - resolveUserAccess: preserves that launch role while exposing
+//     independent producer/artist capabilities for dual-role accounts.
+//   - fetchUserAccess/fetchUserRole: I/O wrappers around both facts.
 
 export type ProducerRow = {
   id: string;
@@ -31,6 +40,13 @@ export type UserRole =
   | { kind: "producer-incomplete"; producer: ProducerRow }
   | { kind: "producer-complete"; producer: ProducerRow }
   | { kind: "orphan" };
+
+export type UserAccess = {
+  role: UserRole;
+  hasArtistAccess: boolean;
+  hasProducerProfile: boolean;
+  hasProducerAccess: boolean;
+};
 
 /**
  * Pure: given known facts about a user, classify their role.
@@ -56,8 +72,7 @@ export function resolveUserRole(input: {
 
   if (producerRow) {
     const incomplete =
-      producerRow.displayName === null ||
-      isAutoSlug(producerRow.slug, producerRow.email);
+      producerRow.displayName === null || isAutoSlug(producerRow.slug, producerRow.email);
     return incomplete
       ? { kind: "producer-incomplete", producer: producerRow }
       : { kind: "producer-complete", producer: producerRow };
@@ -67,55 +82,86 @@ export function resolveUserRole(input: {
   return { kind: "orphan" };
 }
 
+export function resolveUserAccess(input: {
+  userId: string | null;
+  producerRow: ProducerRow | null;
+  hasClientContacts: boolean;
+}): UserAccess {
+  const role = resolveUserRole(input);
+  return {
+    role,
+    hasArtistAccess: input.userId !== null && input.hasClientContacts,
+    hasProducerProfile: input.userId !== null && input.producerRow !== null,
+    hasProducerAccess: role.kind === "producer-complete",
+  };
+}
+
 /**
- * I/O: fetches the producer row + checks for any client_contacts row
- * for this Clerk user, then classifies. Called from layouts + server
- * actions that need to enforce role boundaries.
- *
- * Two queries worst case: one always hits producers (single index
- * lookup on clerkUserId, unique). The second only fires when no
- * producer row exists — the common path (established producer
- * hitting /dashboard) stays at one query.
+ * I/O: fetches both independent capability facts for this Clerk user.
+ * Producer remains the default launch role, but an active artist
+ * relationship must still permit an explicit visit to `/artist`.
  */
+export async function fetchUserAccess(params: {
+  dbUrl: string;
+  userId: string | null;
+}): Promise<UserAccess> {
+  if (!params.userId) {
+    return resolveUserAccess({
+      userId: null,
+      producerRow: null,
+      hasClientContacts: false,
+    });
+  }
+
+  const db = createDb(params.dbUrl);
+
+  const [[producerRow], [contact], [pastStudioGrant]] = await Promise.all([
+    db
+      .select({
+        id: producers.id,
+        displayName: producers.displayName,
+        slug: producers.slug,
+        email: producers.email,
+      })
+      .from(producers)
+      .where(eq(producers.clerkUserId, params.userId))
+      .limit(1),
+    db
+      .select({ id: clientContacts.id })
+      .from(clientContacts)
+      .where(and(eq(clientContacts.clerkUserId, params.userId), isNull(clientContacts.archivedAt)))
+      .limit(1),
+    db
+      .select({ producerId: artistHistoricalAccessGrants.producerId })
+      .from(artistHistoricalAccessGrants)
+      .where(
+        and(
+          eq(artistHistoricalAccessGrants.artistClerkUserId, params.userId),
+          eq(artistHistoricalAccessGrants.resourceType, "studio"),
+          eq(
+            artistHistoricalAccessGrants.resourceId,
+            artistHistoricalAccessGrants.producerId,
+          ),
+        ),
+      )
+      .limit(1),
+  ]);
+
+  return resolveUserAccess({
+    userId: params.userId,
+    producerRow: producerRow ?? null,
+    // A disconnected artist still owns Settings and exact Past-studio
+    // records. The active studio query remains contact-only, so this grant
+    // never becomes a switcher selection.
+    hasClientContacts: contact !== undefined || pastStudioGrant !== undefined,
+  });
+}
+
 export async function fetchUserRole(params: {
   dbUrl: string;
   userId: string | null;
 }): Promise<UserRole> {
-  if (!params.userId) return { kind: "unauthenticated" };
-
-  const db = createDb(params.dbUrl);
-
-  const [producerRow] = await db
-    .select({
-      id: producers.id,
-      displayName: producers.displayName,
-      slug: producers.slug,
-      email: producers.email,
-    })
-    .from(producers)
-    .where(eq(producers.clerkUserId, params.userId))
-    .limit(1);
-
-  let hasClientContacts = false;
-  if (!producerRow) {
-    const [contact] = await db
-      .select({ id: clientContacts.id })
-      .from(clientContacts)
-      .where(
-        and(
-          eq(clientContacts.clerkUserId, params.userId),
-          isNull(clientContacts.archivedAt),
-        ),
-      )
-      .limit(1);
-    hasClientContacts = contact !== undefined;
-  }
-
-  return resolveUserRole({
-    userId: params.userId,
-    producerRow: producerRow ?? null,
-    hasClientContacts,
-  });
+  return (await fetchUserAccess(params)).role;
 }
 
 export type ExpectedRole = "producer" | "artist";
@@ -142,10 +188,7 @@ export type ExpectedRole = "producer" | "artist";
  *     orphan               → /sign-in      (no DB identity → re-resolve)
  *     artist               → null (render)
  */
-export function decideRoleRedirect(
-  role: UserRole,
-  expected: ExpectedRole,
-): string | null {
+export function decideRoleRedirect(role: UserRole, expected: ExpectedRole): string | null {
   if (expected === "producer") {
     switch (role.kind) {
       case "unauthenticated":
@@ -174,6 +217,15 @@ export function decideRoleRedirect(
   }
 }
 
+export function decideRoleAccessRedirect(
+  access: UserAccess,
+  expected: ExpectedRole,
+): string | null {
+  if (expected === "artist" && access.hasArtistAccess) return null;
+  if (expected === "producer" && access.hasProducerAccess) return null;
+  return decideRoleRedirect(access.role, expected);
+}
+
 /**
  * I/O: enforces the role boundary at the top of a protected layout
  * or server action. Calls Clerk + the DB to resolve the user's role,
@@ -182,16 +234,19 @@ export function decideRoleRedirect(
  */
 export async function requireRole(
   expected: ExpectedRole,
-): Promise<{ userId: string }> {
+): Promise<{ userId: string; hasProducerProfile: boolean }> {
   const { userId } = await auth();
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("missing DATABASE_URL");
 
-  const role = await fetchUserRole({ dbUrl, userId });
-  const redirectTo = decideRoleRedirect(role, expected);
+  const access = await fetchUserAccess({ dbUrl, userId });
+  const redirectTo = decideRoleAccessRedirect(access, expected);
   if (redirectTo) redirect(redirectTo);
 
   // Past the redirect → role is one of the allow-states, all of which
   // require a userId to have been resolved upstream.
-  return { userId: userId as string };
+  return {
+    userId: userId as string,
+    hasProducerProfile: access.hasProducerProfile,
+  };
 }

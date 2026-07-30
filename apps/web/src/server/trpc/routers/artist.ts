@@ -1,6 +1,7 @@
 import {
   and,
   asc,
+  artistNotifications,
   availabilityBlackouts,
   availabilityBlocks,
   bookings,
@@ -31,6 +32,10 @@ import { z } from "zod";
 import { router } from "../init";
 import { artistProcedure } from "../artist-procedure";
 import { artistPurchaseRouter } from "./purchase";
+import {
+  ArtistDisconnectError,
+  commitArtistStudioDisconnect,
+} from "~/server/artist/disconnect";
 import { groupStudiosForArtist } from "~/server/artist/identity";
 import {
   activeArtistClientOwner,
@@ -40,6 +45,7 @@ import {
 import {
   SITE_URL,
   sendBookingCancelledOrRescheduledEmail,
+  sendBookingConfirmedEmail,
   sendNewCommentFromArtistEmail,
 } from "~/server/email/send";
 import { decodeDescription } from "~/app/(producer)/dashboard/store/description-encoding";
@@ -48,17 +54,19 @@ import {
   assertSessionSlotAvailable,
   cancelArtistSessionBooking,
   createSessionBooking,
-  producerLocalDateKey,
   producerLocalDateRange,
   rescheduleArtistSessionBooking,
   sessionAllowanceCanBook,
   sessionAvailabilityHorizonDays,
   sessionBookingCapabilities,
-  sessionStartFromLocalSlot,
   SessionBookingDomainError,
   sessionUseConsumesAllowance,
+  studioLocalDateKey,
+  studioLocalDateTimeUtcCandidates,
 } from "~/server/domain/session-booking/service";
 import { sessionBookingRepository } from "~/server/domain/session-booking/db";
+import { getArtistProfile } from "~/server/artist/profile";
+import { emitArtistSessionNotification } from "~/server/artist/notification-emitters";
 import { assertWritableCommentTarget, CommentDomainError } from "~/server/domain/comments/service";
 import { listSameClientPurchaseTargets } from "~/server/domain/purchase-targeting/db";
 import {
@@ -111,6 +119,21 @@ function mapCommentDomainError(error: unknown): never {
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
   }
   throw new TRPCError({ code: "NOT_FOUND" });
+}
+
+function mapArtistDisconnectDomainError(error: unknown): never {
+  if (!(error instanceof ArtistDisconnectError)) throw error;
+  if (error.code === "NOT_FOUND") {
+    throw new TRPCError({ code: "NOT_FOUND", message: error.message });
+  }
+  if (error.code === "CONCURRENT_CHANGE") {
+    throw new TRPCError({ code: "CONFLICT", message: error.message });
+  }
+  throw new TRPCError({
+    code: "PRECONDITION_FAILED",
+    message: error.message,
+    cause: { blockers: error.blockers },
+  });
 }
 
 function mapVersionApprovalDomainError(error: unknown): never {
@@ -1007,17 +1030,36 @@ function mapSessionBookingDomainError(error: unknown): never {
     error.code === "PURCHASE_INACTIVE" ||
     error.code === "PROJECT_INACTIVE" ||
     error.code === "ALLOWANCE_CLOSED" ||
+    error.code === "BOOKING_DISABLED" ||
     error.code === "NOT_FOUND"
   ) {
     throw new TRPCError({ code: "NOT_FOUND" });
   }
-  if (error.code === "CANCELLATION_WINDOW") {
+  if (error.code === "CANCELLATION_WINDOW" || error.code === "HELD_EXPIRED") {
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
   }
   throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
 }
 
-async function loadArtistSessionRows(db: Db, clerkUserId: string, bookingId?: string) {
+async function emitArtistSessionNotificationBestEffort(
+  db: Db,
+  input: Parameters<typeof emitArtistSessionNotification>[1],
+): Promise<boolean> {
+  try {
+    const delivery = await emitArtistSessionNotification(db, input);
+    return delivery.emailEnabled;
+  } catch (error) {
+    console.warn("[artist-notify] session event failed", error);
+    return true;
+  }
+}
+
+async function loadArtistSessionRows(
+  db: Db,
+  clerkUserId: string,
+  bookingId?: string,
+  producerId?: string,
+) {
   return db
     .select({
       booking: bookings,
@@ -1071,7 +1113,12 @@ async function loadArtistSessionRows(db: Db, clerkUserId: string, bookingId?: st
       ),
     )
     .innerJoin(producers, eq(producers.id, bookings.producerId))
-    .where(bookingId ? eq(bookings.id, bookingId) : undefined)
+    .where(
+      and(
+        bookingId ? eq(bookings.id, bookingId) : undefined,
+        producerId ? eq(bookings.producerId, producerId) : undefined,
+      ),
+    )
     .orderBy(desc(bookings.startsAt));
 }
 
@@ -1087,12 +1134,13 @@ type ArtistBookingBlockedReason =
   | "allowance_exhausted"
   | null;
 
-function presentArtistSession(row: ArtistSessionRow, now: Date) {
+function presentArtistSession(row: ArtistSessionRow, now: Date, artistTimezone: string) {
   return {
     id: row.booking.id,
     producerId: row.booking.producerId,
     producerName: row.producerName ?? "Your producer",
     producerSlug: row.producerSlug,
+    artistTimezone,
     producerTimezone: row.producerTimezone,
     projectId: row.booking.projectId,
     projectTitle: row.projectTitle,
@@ -1108,14 +1156,14 @@ function presentArtistSession(row: ArtistSessionRow, now: Date) {
     status: row.booking.status,
     outcome: row.booking.outcome,
     rescheduledFromBookingId: row.booking.rescheduledFromBookingId,
+    heldExpiryReason: row.booking.heldExpiryReason,
     policy: {
-      cancellationPolicyHours: row.cancellationPolicyHours,
+      cancellationPolicyHours: row.booking.cancellationPolicyHoursSnapshot,
       ...sessionBookingCapabilities({
         booking: row.booking,
         purchaseLifecycleStatus: row.purchaseLifecycleStatus,
         projectLifecycleStatus: row.projectLifecycleStatus,
         allowanceClosedAt: row.allowanceClosedAt,
-        cancellationPolicyHours: row.cancellationPolicyHours,
         now,
       }),
     },
@@ -1138,24 +1186,26 @@ const bookSubrouter = router({
           sessionAllowanceId: z.string().uuid().optional(),
           bookingId: z.string().uuid().optional(),
         })
-        .refine(
-          (value) => Boolean(value.sessionAllowanceId) !== Boolean(value.bookingId),
-          {
-            message: "Choose either a purchased allowance or a session to reschedule",
-          },
-        ),
+        .refine((value) => Boolean(value.sessionAllowanceId) !== Boolean(value.bookingId), {
+          message: "Choose either a purchased allowance or a session to reschedule",
+        }),
     )
     .query(async ({ ctx, input }) => {
       const now = new Date();
-      const [producer] = await ctx.db
-        .select({
-          timeZone: producers.timezone,
-          cancellationPolicyHours: producers.cancellationPolicyHours,
-        })
-        .from(producers)
-        .where(eq(producers.id, input.producerId))
-        .limit(1);
+      const [producerRows, artistProfile] = await Promise.all([
+        ctx.db
+          .select({
+            timeZone: producers.timezone,
+            cancellationPolicyHours: producers.cancellationPolicyHours,
+          })
+          .from(producers)
+          .where(eq(producers.id, input.producerId))
+          .limit(1),
+        getArtistProfile(ctx.db, ctx.clerkUserId),
+      ]);
+      const producer = producerRows[0];
       if (!producer) throw new TRPCError({ code: "NOT_FOUND" });
+      const artistTimeZone = artistProfile.timezone ?? "UTC";
 
       let ignoredBookingId: string | undefined;
       let selectedTerms:
@@ -1172,6 +1222,7 @@ const bookSubrouter = router({
               | "canceled";
             allowanceKind: "fixed" | "unlimited";
             sessionLimit: number | null;
+            bookingEnabledSnapshot: boolean;
             durationMin: number;
             bufferMinutes: number;
             minLeadHours: number;
@@ -1184,6 +1235,8 @@ const bookSubrouter = router({
               | "completed"
               | "no_show";
             sourceBookingStartsAt?: Date;
+            sourceCancellationPolicyHoursSnapshot?: number;
+            sourceHeldExpiresAt?: Date | null;
           }>
         | undefined;
       if (input.bookingId) {
@@ -1192,6 +1245,8 @@ const bookSubrouter = router({
             bookingId: bookings.id,
             bookingStatus: bookings.status,
             bookingStartsAt: bookings.startsAt,
+            cancellationPolicyHoursSnapshot: bookings.cancellationPolicyHoursSnapshot,
+            heldExpiresAt: bookings.heldExpiresAt,
             allowanceId: purchaseSessionAllowances.id,
             purchaseId: purchases.id,
             projectId: projects.id,
@@ -1199,6 +1254,7 @@ const bookSubrouter = router({
             projectLifecycleStatus: projects.lifecycleStatus,
             allowanceKind: purchaseSessionAllowances.kind,
             sessionLimit: purchaseSessionAllowances.sessionLimit,
+            bookingEnabledSnapshot: purchaseSessionAllowances.bookingEnabledSnapshot,
             durationMin: purchaseSessionAllowances.durationMin,
             bufferMinutes: purchaseSessionAllowances.bufferMinutes,
             minLeadHours: purchaseSessionAllowances.minLeadHours,
@@ -1242,12 +1298,15 @@ const bookSubrouter = router({
           projectLifecycleStatus: owned.projectLifecycleStatus,
           allowanceKind: owned.allowanceKind,
           sessionLimit: owned.sessionLimit,
+          bookingEnabledSnapshot: owned.bookingEnabledSnapshot,
           durationMin: owned.durationMin,
           bufferMinutes: owned.bufferMinutes,
           minLeadHours: owned.minLeadHours,
           closedAt: owned.closedAt,
           sourceBookingStatus: owned.bookingStatus,
           sourceBookingStartsAt: owned.bookingStartsAt,
+          sourceCancellationPolicyHoursSnapshot: owned.cancellationPolicyHoursSnapshot,
+          sourceHeldExpiresAt: owned.heldExpiresAt,
         };
       } else if (input.sessionAllowanceId) {
         const [owned] = await ctx.db
@@ -1259,6 +1318,7 @@ const bookSubrouter = router({
             projectLifecycleStatus: projects.lifecycleStatus,
             allowanceKind: purchaseSessionAllowances.kind,
             sessionLimit: purchaseSessionAllowances.sessionLimit,
+            bookingEnabledSnapshot: purchaseSessionAllowances.bookingEnabledSnapshot,
             durationMin: purchaseSessionAllowances.durationMin,
             bufferMinutes: purchaseSessionAllowances.bufferMinutes,
             minLeadHours: purchaseSessionAllowances.minLeadHours,
@@ -1293,6 +1353,7 @@ const bookSubrouter = router({
             and(
               eq(purchaseSessionAllowances.id, input.sessionAllowanceId),
               eq(purchaseSessionAllowances.producerId, input.producerId),
+              eq(purchaseSessionAllowances.bookingEnabledSnapshot, true),
             ),
           )
           .limit(1);
@@ -1303,7 +1364,11 @@ const bookSubrouter = router({
       if (!selectedTerms) throw new TRPCError({ code: "NOT_FOUND" });
 
       const allowanceUseRows = await ctx.db
-        .select({ bookingId: bookings.id, outcome: bookings.outcome })
+        .select({
+          bookingId: bookings.id,
+          allowanceUseId: bookings.allowanceUseId,
+          outcome: bookings.outcome,
+        })
         .from(bookings)
         .where(
           and(
@@ -1316,15 +1381,19 @@ const bookSubrouter = router({
         selectedTerms.sourceBookingStatus === undefined
           ? true
           : selectedTerms.sourceBookingStartsAt !== undefined &&
+            selectedTerms.sourceCancellationPolicyHoursSnapshot !== undefined &&
+            selectedTerms.sourceHeldExpiresAt !== undefined &&
             sessionBookingCapabilities({
               booking: {
                 status: selectedTerms.sourceBookingStatus,
                 startsAt: selectedTerms.sourceBookingStartsAt,
+                cancellationPolicyHoursSnapshot:
+                  selectedTerms.sourceCancellationPolicyHoursSnapshot,
+                heldExpiresAt: selectedTerms.sourceHeldExpiresAt,
               },
               purchaseLifecycleStatus: selectedTerms.purchaseLifecycleStatus,
               projectLifecycleStatus: selectedTerms.projectLifecycleStatus,
               allowanceClosedAt: selectedTerms.closedAt,
-              cancellationPolicyHours: producer.cancellationPolicyHours,
               now,
             }).canReschedule;
       const allowanceCanBook =
@@ -1332,11 +1401,10 @@ const bookSubrouter = router({
           purchaseLifecycleStatus: selectedTerms.purchaseLifecycleStatus,
           projectLifecycleStatus: selectedTerms.projectLifecycleStatus,
           allowanceClosedAt: selectedTerms.closedAt,
+          bookingEnabledSnapshot: selectedTerms.bookingEnabledSnapshot,
           allowanceKind: selectedTerms.allowanceKind,
           sessionLimit: selectedTerms.sessionLimit,
-          existingOutcomes: allowanceUseRows
-            .filter((row) => row.bookingId !== ignoredBookingId)
-            .map((row) => row.outcome),
+          existingUses: allowanceUseRows.filter((row) => row.bookingId !== ignoredBookingId),
         }) && sourceBookingCanReschedule;
 
       const { durationMin, bufferMinutes, minLeadHours } = selectedTerms;
@@ -1392,75 +1460,85 @@ const bookSubrouter = router({
         blocks.sort((left, right) => left.startMin - right.startMin);
       }
 
-      const today = producerLocalDateKey(now, producer.timeZone);
-      const days = [];
+      const slotsByArtistDay = new Map<
+        string,
+        Array<{
+          startsAt: Date;
+          endsAt: Date;
+          studioDate: string;
+          studioStartMin: number;
+        }>
+      >();
+      const seenStarts = new Set<number>();
       for (const dateStr of producerLocalDateRange(
         now,
         producer.timeZone,
         sessionAvailabilityHorizonDays(minLeadHours),
       )) {
-        const startsAtNoon = sessionStartFromLocalSlot({
-          date: dateStr,
-          startMin: 12 * 60,
-          producerTimeZone: producer.timeZone,
-        });
-        const weekday = new Intl.DateTimeFormat("en-US", {
-          timeZone: producer.timeZone,
-          weekday: "short",
-        }).format(startsAtNoon);
-        const weekdayNumber = ({ Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 } as const)[
-          weekday as "Sun" | "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat"
-        ];
+        const weekdayNumber = new Date(`${dateStr}T00:00:00.000Z`).getUTCDay();
         const blocks = blocksByWeekday.get(weekdayNumber) ?? [];
-
-        const buildSlot = (b: BlockShape) => {
-          if (!allowanceCanBook) {
-            return { startMin: b.startMin, endMin: b.endMin, available: false };
-          }
-          let available = true;
-          let evaluated = false;
-          // The client renders every 30-minute start in a block. Keep the
-          // legacy block-level response fail-closed: one invalid rendered
-          // start makes the whole block unavailable.
-          for (let startMin = b.startMin; startMin + durationMin <= b.endMin; startMin += 30) {
-            evaluated = true;
-            try {
-              const startsAt = sessionStartFromLocalSlot({
-                date: dateStr,
-                startMin,
-                producerTimeZone: producer.timeZone,
-              });
-              if (startsAt.getTime() < now.getTime() + minLeadHours * 60 * 60 * 1000) {
-                available = false;
-                break;
+        if (!allowanceCanBook) continue;
+        for (const block of blocks) {
+          for (
+            let startMin = block.startMin;
+            startMin + durationMin <= block.endMin;
+            startMin += 30
+          ) {
+            const candidates = studioLocalDateTimeUtcCandidates({
+              date: dateStr,
+              startMin,
+              timeZone: producer.timeZone,
+            });
+            for (const startsAt of candidates) {
+              if (
+                startsAt.getTime() < now.getTime() + minLeadHours * 60 * 60 * 1000 ||
+                seenStarts.has(startsAt.getTime())
+              ) {
+                continue;
               }
-              assertSessionSlotAvailable({
+              try {
+                assertSessionSlotAvailable({
+                  startsAt,
+                  durationMin,
+                  bufferMinutes,
+                  producerTimeZone: producer.timeZone,
+                  availabilityBlocks: blockRows,
+                  blackouts: blackoutRows,
+                  existingBookings: bookingRows,
+                  ...(ignoredBookingId ? { ignoreBookingId: ignoredBookingId } : {}),
+                });
+              } catch (error) {
+                if (!(error instanceof SessionBookingDomainError)) throw error;
+                continue;
+              }
+              seenStarts.add(startsAt.getTime());
+              const artistDate = studioLocalDateKey(startsAt, artistTimeZone);
+              const slots = slotsByArtistDay.get(artistDate) ?? [];
+              slots.push({
                 startsAt,
-                durationMin,
-                bufferMinutes,
-                producerTimeZone: producer.timeZone,
-                availabilityBlocks: blockRows,
-                blackouts: blackoutRows,
-                existingBookings: bookingRows,
-                ...(ignoredBookingId ? { ignoreBookingId: ignoredBookingId } : {}),
+                endsAt: new Date(startsAt.getTime() + durationMin * 60 * 1000),
+                studioDate: dateStr,
+                studioStartMin: startMin,
               });
-            } catch (error) {
-              if (!(error instanceof SessionBookingDomainError)) throw error;
-              available = false;
-              break;
+              slotsByArtistDay.set(artistDate, slots);
             }
           }
-          return { startMin: b.startMin, endMin: b.endMin, available: evaluated && available };
-        };
-
-        days.push({
-          date: dateStr,
-          weekday: weekdayNumber,
-          blocks: blocks.map(buildSlot),
-        });
+        }
       }
 
-      return { days, timeZone: producer.timeZone, today: today };
+      const days = [...slotsByArtistDay.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([date, slots]) => ({
+          date,
+          slots: slots.sort((left, right) => left.startsAt.getTime() - right.startsAt.getTime()),
+        }));
+
+      return {
+        days,
+        artistTimeZone,
+        studioTimeZone: producer.timeZone,
+        today: studioLocalDateKey(now, artistTimeZone),
+      };
     }),
 
   // Active purchase-owned session allowances. Stable client-contact IDs,
@@ -1543,13 +1621,17 @@ const bookSubrouter = router({
             eq(purchases.lifecycleStatus, "active"),
             eq(projects.lifecycleStatus, "active"),
             isNull(purchaseSessionAllowances.closedAt),
+            eq(purchaseSessionAllowances.bookingEnabledSnapshot, true),
           ),
         );
 
       const allowancesWithUsage = await Promise.all(
         allowanceRows.map(async (allowance) => {
           const rows = await ctx.db
-            .select({ outcome: bookings.outcome })
+            .select({
+              allowanceUseId: bookings.allowanceUseId,
+              outcome: bookings.outcome,
+            })
             .from(bookings)
             .where(
               and(
@@ -1558,9 +1640,11 @@ const bookSubrouter = router({
                 eq(bookings.producerId, input.producerId),
               ),
             );
-          const sessionsUsed = rows.filter((row) =>
-            sessionUseConsumesAllowance(row.outcome),
-          ).length;
+          const sessionsUsed = new Set(
+            rows
+              .filter((row) => sessionUseConsumesAllowance(row.outcome))
+              .map((row) => row.allowanceUseId),
+          ).size;
           const unlimitedSessions = allowance.allowanceKind === "unlimited";
           const sessionCount = unlimitedSessions ? 0 : (allowance.sessionLimit ?? 0);
           const sessionsRemaining = unlimitedSessions ? 0 : sessionCount - sessionsUsed;
@@ -1595,35 +1679,24 @@ const bookSubrouter = router({
     .input(
       z.object({
         producerId: z.string().uuid(),
-        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-        block: z.enum(["morning", "evening"]),
-        startMin: z.number().int().min(0).max(1439),
+        startsAt: z.date(),
         durationMin: z.number().int().min(1).max(24 * 60),
-        projectId: z.string().uuid().nullable(),
-        productId: z.string().uuid().nullable(),
-        existingProjectId: z.string().uuid().optional(),
+        projectId: z.string().uuid(),
         purchaseId: z.string().uuid(),
         sessionAllowanceId: z.string().uuid(),
         operationKey: z.string().trim().min(1).max(200),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const targetProjectId = input.existingProjectId ?? input.projectId;
-      if (!targetProjectId) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: "A purchased session allowance is required.",
-        });
-      }
       let result;
       try {
         result = await createSessionBooking(sessionBookingRepository(ctx.db), {
           producerId: input.producerId,
-          projectId: targetProjectId,
+          projectId: input.projectId,
           purchaseId: input.purchaseId,
           sessionAllowanceId: input.sessionAllowanceId,
           actorClerkUserId: ctx.clerkUserId,
-          localSlot: { date: input.date, startMin: input.startMin },
+          startsAt: input.startsAt,
           durationMin: input.durationMin,
           operationKey: input.operationKey,
         });
@@ -1653,6 +1726,39 @@ const bookSubrouter = router({
             // Push is best effort and must not expose delivery details.
           }
         });
+        if (result.booking.status === "confirmed") {
+          after(async () => {
+            const rows = await loadArtistSessionRows(ctx.db, ctx.clerkUserId, result.booking.id);
+            const created = rows[0];
+            if (!created) return;
+            const producerName = created.producerName ?? "Your producer";
+            const sessionName = purchaseProductName(
+              created.commercialSnapshot,
+              created.projectTitle,
+            );
+            const emailEnabled = await emitArtistSessionNotificationBestEffort(ctx.db, {
+              recipientClerkUserId: ctx.clerkUserId,
+              producerId: created.booking.producerId,
+              bookingId: created.booking.id,
+              producerName,
+              sessionName,
+              kind: "booking_confirmed",
+              sourceEventId: created.booking.id,
+            });
+            if (!emailEnabled) return;
+            try {
+              await sendBookingConfirmedEmail(created.booking.artistEmail, {
+                artistName: created.booking.artistName,
+                producerName,
+                productName: sessionName,
+                startsAt: created.booking.startsAt,
+                producerTimezone: created.producerTimezone,
+              });
+            } catch (error) {
+              console.error("[email] auto-confirmed artist session failed", error);
+            }
+          });
+        }
       }
       return {
         id: result.booking.id,
@@ -1660,130 +1766,158 @@ const bookSubrouter = router({
       };
     }),
 
-  mySessions: artistProcedure.query(async ({ ctx }) => {
-    const now = new Date();
-    const [sessionRows, allowanceRows] = await Promise.all([
-      loadArtistSessionRows(ctx.db, ctx.clerkUserId),
-      ctx.db
-        .select({
-          purchaseId: purchases.id,
-          purchaseLifecycleStatus: purchases.lifecycleStatus,
-          commercialSnapshot: purchases.commercialSnapshot,
-          sessionAllowanceId: purchaseSessionAllowances.id,
-          producerId: purchases.producerId,
-          producerName: producers.displayName,
-          projectId: projects.id,
-          projectTitle: projects.title,
-          projectLifecycleStatus: projects.lifecycleStatus,
-          kind: purchaseSessionAllowances.kind,
-          sessionLimit: purchaseSessionAllowances.sessionLimit,
-          durationMin: purchaseSessionAllowances.durationMin,
-          locationType: purchaseSessionAllowances.locationType,
-          bufferMinutes: purchaseSessionAllowances.bufferMinutes,
-          minLeadHours: purchaseSessionAllowances.minLeadHours,
-          closedAt: purchaseSessionAllowances.closedAt,
-        })
-        .from(purchaseSessionAllowances)
-        .innerJoin(
-          purchases,
-          and(
-            eq(purchases.id, purchaseSessionAllowances.purchaseId),
-            eq(purchases.producerId, purchaseSessionAllowances.producerId),
-          ),
-        )
-        .innerJoin(
-          projects,
-          and(
-            eq(projects.id, purchases.projectId),
-            eq(projects.producerId, purchases.producerId),
-            eq(projects.clientContactId, purchases.clientContactId),
-          ),
-        )
-        .innerJoin(
-          clientContacts,
-          and(
-            eq(clientContacts.id, purchases.clientContactId),
-            eq(clientContacts.producerId, purchases.producerId),
-            eq(clientContacts.clerkUserId, ctx.clerkUserId),
-            isNull(clientContacts.archivedAt),
-          ),
-        )
-        .innerJoin(producers, eq(producers.id, purchases.producerId))
-        .orderBy(desc(purchaseSessionAllowances.createdAt)),
-    ]);
+  mySessions: artistProcedure
+    .input(z.object({ producerId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const now = new Date();
+      const [sessionRows, allowanceRows, artistProfile] = await Promise.all([
+        loadArtistSessionRows(ctx.db, ctx.clerkUserId, undefined, input.producerId),
+        ctx.db
+          .select({
+            purchaseId: purchases.id,
+            purchaseLifecycleStatus: purchases.lifecycleStatus,
+            commercialSnapshot: purchases.commercialSnapshot,
+            sessionAllowanceId: purchaseSessionAllowances.id,
+            producerId: purchases.producerId,
+            producerName: producers.displayName,
+            projectId: projects.id,
+            projectTitle: projects.title,
+            projectLifecycleStatus: projects.lifecycleStatus,
+            kind: purchaseSessionAllowances.kind,
+            bookingEnabledSnapshot: purchaseSessionAllowances.bookingEnabledSnapshot,
+            sessionLimit: purchaseSessionAllowances.sessionLimit,
+            durationMin: purchaseSessionAllowances.durationMin,
+            locationType: purchaseSessionAllowances.locationType,
+            bufferMinutes: purchaseSessionAllowances.bufferMinutes,
+            minLeadHours: purchaseSessionAllowances.minLeadHours,
+            closedAt: purchaseSessionAllowances.closedAt,
+          })
+          .from(purchaseSessionAllowances)
+          .innerJoin(
+            purchases,
+            and(
+              eq(purchases.id, purchaseSessionAllowances.purchaseId),
+              eq(purchases.producerId, purchaseSessionAllowances.producerId),
+            ),
+          )
+          .innerJoin(
+            projects,
+            and(
+              eq(projects.id, purchases.projectId),
+              eq(projects.producerId, purchases.producerId),
+              eq(projects.clientContactId, purchases.clientContactId),
+            ),
+          )
+          .innerJoin(
+            clientContacts,
+            and(
+              eq(clientContacts.id, purchases.clientContactId),
+              eq(clientContacts.producerId, purchases.producerId),
+              eq(clientContacts.clerkUserId, ctx.clerkUserId),
+              isNull(clientContacts.archivedAt),
+            ),
+          )
+          .innerJoin(producers, eq(producers.id, purchases.producerId))
+          .where(
+            and(
+              eq(purchases.producerId, input.producerId),
+              eq(purchaseSessionAllowances.bookingEnabledSnapshot, true),
+            ),
+          )
+          .orderBy(desc(purchaseSessionAllowances.createdAt)),
+        getArtistProfile(ctx.db, ctx.clerkUserId),
+      ]);
+      const artistTimezone = artistProfile.timezone ?? "UTC";
 
-    const outcomesByAllowance = new Map<string, (typeof bookings.outcome.enumValues)[number][]>();
-    for (const row of sessionRows) {
-      const outcomes = outcomesByAllowance.get(row.booking.sessionAllowanceId) ?? [];
-      outcomes.push(row.booking.outcome);
-      outcomesByAllowance.set(row.booking.sessionAllowanceId, outcomes);
-    }
-
-    return {
-      sessions: sessionRows.map((row) => presentArtistSession(row, now)),
-      allowances: allowanceRows.map((allowance) => {
-        const outcomes = outcomesByAllowance.get(allowance.sessionAllowanceId) ?? [];
-        const sessionsUsed = outcomes.filter(sessionUseConsumesAllowance).length;
-        const sessionsRemaining =
-          allowance.kind === "unlimited"
-            ? null
-            : Math.max(0, (allowance.sessionLimit ?? 0) - sessionsUsed);
-        const canBook = sessionAllowanceCanBook({
-          purchaseLifecycleStatus: allowance.purchaseLifecycleStatus,
-          projectLifecycleStatus: allowance.projectLifecycleStatus,
-          allowanceClosedAt: allowance.closedAt,
-          allowanceKind: allowance.kind,
-          sessionLimit: allowance.sessionLimit,
-          existingOutcomes: outcomes,
+      const usesByAllowance = new Map<
+        string,
+        Array<{
+          allowanceUseId: string;
+          outcome: (typeof bookings.outcome.enumValues)[number];
+        }>
+      >();
+      for (const row of sessionRows) {
+        const uses = usesByAllowance.get(row.booking.sessionAllowanceId) ?? [];
+        uses.push({
+          allowanceUseId: row.booking.allowanceUseId,
+          outcome: row.booking.outcome,
         });
-        const bookingBlockedReason: ArtistBookingBlockedReason = canBook
-          ? null
-          : allowance.purchaseLifecycleStatus !== "active"
-            ? allowance.purchaseLifecycleStatus === "waiting_for_payment"
-              ? "purchase_waiting_for_payment"
-              : "purchase_canceled"
-            : allowance.projectLifecycleStatus !== "active"
-              ? allowance.projectLifecycleStatus === "waiting_for_payment"
-                ? "project_waiting_for_payment"
-                : allowance.projectLifecycleStatus === "paused"
-                  ? "project_paused"
-                  : allowance.projectLifecycleStatus === "completed"
-                    ? "project_completed"
-                    : "project_canceled"
-              : allowance.closedAt !== null
-                ? "allowance_closed"
-                : "allowance_exhausted";
-        return {
-          purchaseId: allowance.purchaseId,
-          sessionAllowanceId: allowance.sessionAllowanceId,
-          producerId: allowance.producerId,
-          producerName: allowance.producerName ?? "Your producer",
-          projectId: allowance.projectId,
-          projectTitle: allowance.projectTitle,
-          packageName: purchaseProductName(allowance.commercialSnapshot, allowance.projectTitle),
-          kind: allowance.kind,
-          sessionLimit: allowance.sessionLimit,
-          sessionsUsed,
-          sessionsRemaining,
-          durationMin: allowance.durationMin,
-          locationType: allowance.locationType,
-          bufferMinutes: allowance.bufferMinutes,
-          minLeadHours: allowance.minLeadHours,
-          closedAt: allowance.closedAt,
-          canBook,
-          bookingBlockedReason,
-        };
-      }),
-    };
-  }),
+        usesByAllowance.set(row.booking.sessionAllowanceId, uses);
+      }
+
+      return {
+        sessions: sessionRows.map((row) => presentArtistSession(row, now, artistTimezone)),
+        allowances: allowanceRows.map((allowance) => {
+          const uses = usesByAllowance.get(allowance.sessionAllowanceId) ?? [];
+          const sessionsUsed = new Set(
+            uses
+              .filter((use) => sessionUseConsumesAllowance(use.outcome))
+              .map((use) => use.allowanceUseId),
+          ).size;
+          const sessionsRemaining =
+            allowance.kind === "unlimited"
+              ? null
+              : Math.max(0, (allowance.sessionLimit ?? 0) - sessionsUsed);
+          const canBook = sessionAllowanceCanBook({
+            purchaseLifecycleStatus: allowance.purchaseLifecycleStatus,
+            projectLifecycleStatus: allowance.projectLifecycleStatus,
+            allowanceClosedAt: allowance.closedAt,
+            bookingEnabledSnapshot: allowance.bookingEnabledSnapshot,
+            allowanceKind: allowance.kind,
+            sessionLimit: allowance.sessionLimit,
+            existingUses: uses,
+          });
+          const bookingBlockedReason: ArtistBookingBlockedReason = canBook
+            ? null
+            : allowance.purchaseLifecycleStatus !== "active"
+              ? allowance.purchaseLifecycleStatus === "waiting_for_payment"
+                ? "purchase_waiting_for_payment"
+                : "purchase_canceled"
+              : allowance.projectLifecycleStatus !== "active"
+                ? allowance.projectLifecycleStatus === "waiting_for_payment"
+                  ? "project_waiting_for_payment"
+                  : allowance.projectLifecycleStatus === "paused"
+                    ? "project_paused"
+                    : allowance.projectLifecycleStatus === "completed"
+                      ? "project_completed"
+                      : "project_canceled"
+                : allowance.closedAt !== null
+                  ? "allowance_closed"
+                  : "allowance_exhausted";
+          return {
+            purchaseId: allowance.purchaseId,
+            sessionAllowanceId: allowance.sessionAllowanceId,
+            producerId: allowance.producerId,
+            producerName: allowance.producerName ?? "Your producer",
+            projectId: allowance.projectId,
+            projectTitle: allowance.projectTitle,
+            packageName: purchaseProductName(allowance.commercialSnapshot, allowance.projectTitle),
+            kind: allowance.kind,
+            sessionLimit: allowance.sessionLimit,
+            sessionsUsed,
+            sessionsRemaining,
+            durationMin: allowance.durationMin,
+            locationType: allowance.locationType,
+            bufferMinutes: allowance.bufferMinutes,
+            minLeadHours: allowance.minLeadHours,
+            closedAt: allowance.closedAt,
+            canBook,
+            bookingBlockedReason,
+          };
+        }),
+      };
+    }),
 
   session: artistProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const rows = await loadArtistSessionRows(ctx.db, ctx.clerkUserId, input.id);
+      const [rows, artistProfile] = await Promise.all([
+        loadArtistSessionRows(ctx.db, ctx.clerkUserId, input.id),
+        getArtistProfile(ctx.db, ctx.clerkUserId),
+      ]);
       const row = rows[0];
       if (!row) throw new TRPCError({ code: "NOT_FOUND" });
-      return presentArtistSession(row, new Date());
+      return presentArtistSession(row, new Date(), artistProfile.timezone ?? "UTC");
     }),
 
   cancel: artistProcedure
@@ -1846,8 +1980,7 @@ const bookSubrouter = router({
     .input(
       z.object({
         id: z.string().uuid(),
-        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-        startMin: z.number().int().min(0).max(1439),
+        startsAt: z.date(),
         operationKey: z.string().trim().min(1).max(200),
       }),
     )
@@ -1860,7 +1993,7 @@ const bookSubrouter = router({
         result = await rescheduleArtistSessionBooking(sessionBookingRepository(ctx.db), {
           bookingId: input.id,
           actorClerkUserId: ctx.clerkUserId,
-          localSlot: { date: input.date, startMin: input.startMin },
+          startsAt: input.startsAt,
           operationKey: input.operationKey,
         });
       } catch (error) {
@@ -1883,6 +2016,36 @@ const bookSubrouter = router({
             console.error("[email] artist session reschedule failed", error);
           }
         });
+        if (result.booking.status === "confirmed") {
+          after(async () => {
+            const producerName = before.producerName ?? "Your producer";
+            const sessionName = purchaseProductName(before.commercialSnapshot, before.projectTitle);
+            const emailEnabled = await emitArtistSessionNotificationBestEffort(ctx.db, {
+              recipientClerkUserId: ctx.clerkUserId,
+              producerId: before.booking.producerId,
+              bookingId: result.booking.id,
+              producerName,
+              sessionName,
+              kind: "booking_changed",
+              sourceEventId: result.booking.id,
+            });
+            if (!emailEnabled) return;
+            try {
+              await sendBookingCancelledOrRescheduledEmail(before.booking.artistEmail, {
+                recipientName: before.booking.artistName,
+                counterpartName: producerName,
+                productName: sessionName,
+                status: "rescheduled",
+                oldStartsAt: before.booking.startsAt,
+                newStartsAt: result.booking.startsAt,
+                producerTimezone: before.producerTimezone,
+                reason: null,
+              });
+            } catch (error) {
+              console.error("[email] auto-confirmed artist reschedule failed", error);
+            }
+          });
+        }
         after(async () => {
           try {
             await deliverPushToProducer(ctx.db, before.booking.producerId, {
@@ -1935,6 +2098,7 @@ function assertArtistStoreProductSellable(
     locationType: compatibility.locationType ?? "studio",
     bufferMinutes: compatibility.bufferMinutes ?? 0,
     minLeadHours: compatibility.minLeadHours ?? 12,
+    bookingEnabled: compatibility.bookingEnabled ?? false,
     active: compatibility.active ?? true,
     archivedAt: row.archivedAt ?? null,
   });
@@ -2003,6 +2167,7 @@ const storeSubrouter = router({
           currency: products.currency,
           durationMin: products.durationMin,
           sessionCount: products.sessionCount,
+          bookingEnabled: products.bookingEnabled,
           kind: products.kind,
           pricingModel: products.pricingModel,
           volumeTiers: products.volumeTiers,
@@ -2037,6 +2202,7 @@ const storeSubrouter = router({
         .orderBy(asc(producers.displayName), asc(products.position));
 
       const sellableRows = rows.flatMap((row) => {
+        if (row.pricingModel === "hourly") return [];
         try {
           return [{ row, commercial: assertArtistStoreProductSellable(row) }];
         } catch (error) {
@@ -2055,10 +2221,10 @@ const storeSubrouter = router({
         currency: r.currency,
         durationMin: r.durationMin,
         sessionCount: r.sessionCount,
+        bookingEnabled: commercial.bookingEnabled,
         kind: r.kind,
         pricingModel: r.pricingModel as "flat" | "per_song" | "hourly" | "bundle",
-        volumeTiers:
-          commercial.pricingModel === "per_song" ? [...commercial.volumeTiers] : null,
+        volumeTiers: commercial.pricingModel === "per_song" ? [...commercial.volumeTiers] : null,
         paymentPlans: r.paymentPlans,
         producerId: r.producerId,
         producerName: r.producerName ?? "Untitled Studio",
@@ -2086,6 +2252,7 @@ const storeSubrouter = router({
           currency: products.currency,
           durationMin: products.durationMin,
           sessionCount: products.sessionCount,
+          bookingEnabled: products.bookingEnabled,
           kind: products.kind,
           pricingModel: products.pricingModel,
           volumeTiers: products.volumeTiers,
@@ -2126,6 +2293,12 @@ const storeSubrouter = router({
         .limit(1);
       const row = rows[0];
       if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+      if (row.pricingModel === "hourly") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This service is not available to request yet.",
+        });
+      }
       let commercial: ValidatedStoreProductCommercialInput;
       try {
         commercial = assertArtistStoreProductSellable({
@@ -2183,10 +2356,10 @@ const storeSubrouter = router({
         currency: row.currency,
         durationMin: row.durationMin,
         sessionCount: row.sessionCount,
+        bookingEnabled: commercial.bookingEnabled,
         kind: row.kind,
         pricingModel: row.pricingModel as "flat" | "per_song" | "hourly" | "bundle",
-        volumeTiers:
-          commercial.pricingModel === "per_song" ? [...commercial.volumeTiers] : null,
+        volumeTiers: commercial.pricingModel === "per_song" ? [...commercial.volumeTiers] : null,
         paymentPlans: row.paymentPlans,
         deliverables: row.deliverables ?? null,
         royaltyTerms: "royaltyTerms" in row ? (row.royaltyTerms ?? null) : null,
@@ -2211,6 +2384,7 @@ export type StoreProductRow = {
   currency: string;
   durationMin: number;
   sessionCount: number;
+  bookingEnabled: boolean;
   kind: string;
   pricingModel: "flat" | "per_song" | "hourly" | "bundle";
   volumeTiers: { minQty: number; pricePerUnitCents: number }[] | null;
@@ -2265,309 +2439,35 @@ export const artistRouter = router({
   // signed-in user with three studios pays the same wall-time as one
   // with one. Each sub-query independently joins the exact active
   // producer/email relationship for the signed-in artist.
-  home: artistProcedure.query(async ({ ctx }) => {
-    const now = new Date();
-
-    // 2-5. Parallelize the four data needs. Each sub-query is its own
-    // self-contained SELECT; if any one fails the whole call fails
-    // (acceptable — Home is a single coherent surface, partial data
-    // would be confusing).
-    const [
-      nextSessionRows,
-      upcomingSessionRows,
-      latestMixRows,
-      activityTrackRows,
-      activityBookingRows,
-    ] = await Promise.all([
-      // (2) Next confirmed session — across all my producers, where
-      // the booking's artist email is mine, status=confirmed, in the
-      // future. Sort by startsAt ASC so the very next one wins.
-      ctx.db
-        .select({
-          id: bookings.id,
-          startsAt: bookings.startsAt,
-          durationMin: bookings.durationMin,
-          producerId: bookings.producerId,
-          producerName: producers.displayName,
-          producerSlug: producers.slug,
-          commercialSnapshot: purchases.commercialSnapshot,
-        })
-        .from(bookings)
-        .innerJoin(
-          purchases,
-          and(
-            eq(purchases.id, bookings.purchaseId),
-            eq(purchases.projectId, bookings.projectId),
-            eq(purchases.producerId, bookings.producerId),
-          ),
-        )
-        .innerJoin(producers, eq(producers.id, bookings.producerId))
-        .innerJoin(
-          clientContacts,
-          activeArtistClientOwner(ctx.clerkUserId, {
-            producerId: purchases.producerId,
-            clientContactId: purchases.clientContactId,
-          }),
-        )
-        .where(and(eq(bookings.status, "confirmed"), gte(bookings.startsAt, now)))
-        .orderBy(asc(bookings.startsAt))
-        .limit(1),
-
-      // (2b) All upcoming confirmed sessions (including the one above).
-      // The UI skips the first to avoid double-rendering the next
-      // session, which already has its own dedicated card.
-      ctx.db
-        .select({
-          id: bookings.id,
-          startsAt: bookings.startsAt,
-          durationMin: bookings.durationMin,
-          producerName: producers.displayName,
-          commercialSnapshot: purchases.commercialSnapshot,
-        })
-        .from(bookings)
-        .innerJoin(
-          purchases,
-          and(
-            eq(purchases.id, bookings.purchaseId),
-            eq(purchases.projectId, bookings.projectId),
-            eq(purchases.producerId, bookings.producerId),
-          ),
-        )
-        .innerJoin(producers, eq(producers.id, bookings.producerId))
-        .innerJoin(
-          clientContacts,
-          activeArtistClientOwner(ctx.clerkUserId, {
-            producerId: purchases.producerId,
-            clientContactId: purchases.clientContactId,
-          }),
-        )
-        .where(and(eq(bookings.status, "confirmed"), gte(bookings.startsAt, now)))
-        .orderBy(asc(bookings.startsAt))
-        .limit(10),
-
-      // (3) Latest mix — the most recent track_version uploaded for
-      // any project tied to my (producer, email). Joins through the
-      // project_tracks → projects chain because track_versions only
-      // know their parent track, not the project's owner.
-      //
-      // SK-33: the exact relationship join also supplies lastSeenAt so
-      // we can derive `unread` below.
-      ctx.db
-        .select({
-          id: trackVersions.id,
-          trackTitle: projectTracks.title,
-          label: trackVersions.label,
-          producerName: producers.displayName,
-          producerSlug: producers.slug,
-          producerId: projects.producerId,
-          projectId: projects.id,
-          uploadedAt: trackVersions.uploadedAt,
-          audioUrl: trackVersions.audioUrl,
-          lastSeenAt: clientContacts.lastSeenAt,
-        })
-        .from(trackVersions)
-        .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
-        .innerJoin(projects, eq(projects.id, projectTracks.projectId))
-        .innerJoin(producers, eq(producers.id, projects.producerId))
-        .innerJoin(
-          clientContacts,
-          activeArtistClientOwner(ctx.clerkUserId, {
-            producerId: projects.producerId,
-            clientContactId: projects.clientContactId,
-          }),
-        )
-        .where(
-          and(
-            ne(projects.lifecycleStatus, "waiting_for_payment"),
-            isNotNull(trackVersions.audioUrl),
-            isNull(trackVersions.audioDeletedAt),
-          ),
-        )
-        .orderBy(desc(trackVersions.uploadedAt))
-        .limit(1),
-
-      // (5a) Activity — recent track uploads (cap at 10 from this
-      // source, then merge + cap at 10 across all sources below).
-      ctx.db
-        .select({
-          id: trackVersions.id,
-          trackTitle: projectTracks.title,
-          label: trackVersions.label,
-          producerName: producers.displayName,
-          producerSlug: producers.slug,
-          projectId: projects.id,
-          uploadedAt: trackVersions.uploadedAt,
-        })
-        .from(trackVersions)
-        .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
-        .innerJoin(projects, eq(projects.id, projectTracks.projectId))
-        .innerJoin(producers, eq(producers.id, projects.producerId))
-        .innerJoin(
-          clientContacts,
-          activeArtistClientOwner(ctx.clerkUserId, {
-            producerId: projects.producerId,
-            clientContactId: projects.clientContactId,
-          }),
-        )
-        .where(
-          and(
-            ne(projects.lifecycleStatus, "waiting_for_payment"),
-            isNotNull(trackVersions.audioUrl),
-            isNull(trackVersions.audioDeletedAt),
-          ),
-        )
-        .orderBy(desc(trackVersions.uploadedAt))
-        .limit(10),
-
-      // (5b) Activity — recent booking confirmations.
-      ctx.db
-        .select({
-          id: bookings.id,
-          producerName: producers.displayName,
-          producerSlug: producers.slug,
-          statusChangedAt: bookings.statusChangedAt,
-          startsAt: bookings.startsAt,
-        })
-        .from(bookings)
-        .innerJoin(
-          purchases,
-          and(
-            eq(purchases.id, bookings.purchaseId),
-            eq(purchases.projectId, bookings.projectId),
-            eq(purchases.producerId, bookings.producerId),
-          ),
-        )
-        .innerJoin(producers, eq(producers.id, bookings.producerId))
-        .innerJoin(
-          clientContacts,
-          activeArtistClientOwner(ctx.clerkUserId, {
-            producerId: purchases.producerId,
-            clientContactId: purchases.clientContactId,
-          }),
-        )
-        .where(eq(bookings.status, "confirmed"))
-        .orderBy(desc(bookings.statusChangedAt))
-        .limit(10),
-    ]);
-
-    // ── Shape the next-session result ────────────────────────────────
-    const nextRow = nextSessionRows[0];
-    const nextSession = nextRow
-      ? {
-          id: nextRow.id,
-          startsAt: nextRow.startsAt,
-          durationMin: nextRow.durationMin,
-          producerId: nextRow.producerId,
-          producerName: nextRow.producerName ?? "Untitled Studio",
-          producerSlug: nextRow.producerSlug,
-          productName: purchaseProductName(nextRow.commercialSnapshot, "Session"),
-        }
-      : null;
-
-    // ── Shape the latest-mix result ──────────────────────────────────
-    const mixRow = latestMixRows[0];
-    const latestMix = mixRow
-      ? {
-          id: mixRow.id,
-          trackTitle: mixRow.trackTitle,
-          label: mixRow.label,
-          producerName: mixRow.producerName ?? "Untitled Studio",
-          producerSlug: mixRow.producerSlug,
-          producerId: mixRow.producerId,
-          projectId: mixRow.projectId,
-          uploadedAt: mixRow.uploadedAt,
-          audioUrl: mixRow.audioUrl,
-          // SK-33: derive `unread` for the NEW badge on the Last
-          // Upload hero. True when the relationship's seen-at predates
-          // the upload.
-          unread: mixRow.lastSeenAt.getTime() < mixRow.uploadedAt.getTime(),
-        }
-      : null;
-
-    // The old single-currency invoice rollup cannot represent several
-    // purchase ledgers. Keep the compatibility field unavailable.
-    const outstandingBalance: {
-      totalCents: number;
-      currency: string;
-      nextDueAt: Date | null;
-    } | null = null;
-
-    // ── Merge + sort + cap activity feed ────────────────────────────
-    // Three streams → one normalized stream. We pre-format the message
-    // here so the UI is dumb (no business logic in the rendering
-    // layer). Sort desc by occurredAt, slice to 10.
-    const activity: ActivityItem[] = [];
-    for (const r of activityTrackRows) {
-      activity.push({
-        kind: "track_uploaded",
-        message: `${r.producerName ?? "A producer"} uploaded ${r.label} of ${r.trackTitle}`,
-        occurredAt: r.uploadedAt,
-        producerName: r.producerName ?? "Untitled Studio",
-        deepLink: `/artist/music/${r.projectId}`,
-      });
-    }
-    for (const r of activityBookingRows) {
-      // statusChangedAt is nullable (legacy rows pre-Phase H.4c); fall
-      // back to startsAt so the row still has a sortable timestamp.
-      const occurredAt = r.statusChangedAt ?? r.startsAt;
-      activity.push({
-        kind: "session_confirmed",
-        message: `${r.producerName ?? "A producer"} confirmed your session`,
-        occurredAt,
-        producerName: r.producerName ?? "Untitled Studio",
-        deepLink: null,
-      });
-    }
-    activity.sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime());
-    const cappedActivity = activity.slice(0, 10);
-
-    return {
-      nextSession,
-      upcomingSessions: upcomingSessionRows.map((s) => ({
-        id: s.id,
-        startsAt: s.startsAt,
-        durationMin: s.durationMin,
-        producerName: s.producerName ?? "Producer",
-        packageName: purchaseProductName(s.commercialSnapshot, "Session"),
-      })),
-      latestMix,
-      outstandingBalance,
-      activity: cappedActivity,
-    };
-  }),
-
-  // Soft-disconnect the signed-in artist from one of their studios.
-  // Sets clientContacts.archivedAt so every artist-side read filters
-  // the row out (the row itself stays for the producer's CRM history).
-  //
-  // Blocked when the artist has an active booking owned by one of their
-  // stable client-contact rows for this producer.
-  disconnectProducer: artistProcedure
+  home: artistProcedure
     .input(z.object({ producerId: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      await ctx.db.transaction(async (tx) => {
-        await tx.execute(
-          sql`select pg_advisory_xact_lock(hashtextextended(${input.producerId}, 0))`,
-        );
+    .query(async ({ ctx, input }) => {
+      const now = new Date();
 
-        const myContacts = await tx
-          .select({ id: clientContacts.id })
-          .from(clientContacts)
-          .where(
-            and(
-              eq(clientContacts.clerkUserId, ctx.clerkUserId),
-              eq(clientContacts.producerId, input.producerId),
-              isNull(clientContacts.archivedAt),
-            ),
-          )
-          .for("update");
-        if (myContacts.length === 0) {
-          throw new TRPCError({ code: "NOT_FOUND" });
-        }
-        const myContactIds = myContacts.map((contact) => contact.id);
-
-        const activeBookings = await tx
-          .select({ id: bookings.id })
+      // 2-5. Parallelize the four data needs. Each sub-query is its own
+      // self-contained SELECT; if any one fails the whole call fails
+      // (acceptable — Home is a single coherent surface, partial data
+      // would be confusing).
+      const [
+        nextSessionRows,
+        upcomingSessionRows,
+        latestMixRows,
+        activityTrackRows,
+        activityBookingRows,
+      ] = await Promise.all([
+        // (2) Next confirmed session — across all my producers, where
+        // the booking's artist email is mine, status=confirmed, in the
+        // future. Sort by startsAt ASC so the very next one wins.
+        ctx.db
+          .select({
+            id: bookings.id,
+            startsAt: bookings.startsAt,
+            durationMin: bookings.durationMin,
+            producerId: bookings.producerId,
+            producerName: producers.displayName,
+            producerSlug: producers.slug,
+            commercialSnapshot: purchases.commercialSnapshot,
+          })
           .from(bookings)
           .innerJoin(
             purchases,
@@ -2577,33 +2477,276 @@ export const artistRouter = router({
               eq(purchases.producerId, bookings.producerId),
             ),
           )
+          .innerJoin(producers, eq(producers.id, bookings.producerId))
+          .innerJoin(
+            clientContacts,
+            activeArtistClientOwner(ctx.clerkUserId, {
+              producerId: purchases.producerId,
+              clientContactId: purchases.clientContactId,
+            }),
+          )
           .where(
             and(
               eq(bookings.producerId, input.producerId),
-              inArray(purchases.clientContactId, myContactIds),
-              inArray(bookings.status, ["pending_approval", "confirmed"]),
+              eq(bookings.status, "confirmed"),
+              gte(bookings.startsAt, now),
             ),
           )
-          .limit(1);
-        if (activeBookings.length > 0) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Cannot disconnect — you have active bookings with this producer.",
-          });
-        }
+          .orderBy(asc(bookings.startsAt))
+          .limit(1),
 
-        await tx
-          .update(clientContacts)
-          .set({ archivedAt: new Date() })
+        // (2b) All upcoming confirmed sessions (including the one above).
+        // The UI skips the first to avoid double-rendering the next
+        // session, which already has its own dedicated card.
+        ctx.db
+          .select({
+            id: bookings.id,
+            startsAt: bookings.startsAt,
+            durationMin: bookings.durationMin,
+            producerName: producers.displayName,
+            commercialSnapshot: purchases.commercialSnapshot,
+          })
+          .from(bookings)
+          .innerJoin(
+            purchases,
+            and(
+              eq(purchases.id, bookings.purchaseId),
+              eq(purchases.projectId, bookings.projectId),
+              eq(purchases.producerId, bookings.producerId),
+            ),
+          )
+          .innerJoin(producers, eq(producers.id, bookings.producerId))
+          .innerJoin(
+            clientContacts,
+            activeArtistClientOwner(ctx.clerkUserId, {
+              producerId: purchases.producerId,
+              clientContactId: purchases.clientContactId,
+            }),
+          )
           .where(
             and(
-              inArray(clientContacts.id, myContactIds),
-              eq(clientContacts.clerkUserId, ctx.clerkUserId),
-              eq(clientContacts.producerId, input.producerId),
-              isNull(clientContacts.archivedAt),
+              eq(bookings.producerId, input.producerId),
+              eq(bookings.status, "confirmed"),
+              gte(bookings.startsAt, now),
             ),
-          );
-      });
+          )
+          .orderBy(asc(bookings.startsAt))
+          .limit(10),
+
+        // (3) Latest mix — the most recent track_version uploaded for
+        // any project tied to my (producer, email). Joins through the
+        // project_tracks → projects chain because track_versions only
+        // know their parent track, not the project's owner.
+        //
+        // NEW is exact notification state, not a broad relationship timestamp:
+        // it remains visible until this specific version is opened or played.
+        ctx.db
+          .select({
+            id: trackVersions.id,
+            trackTitle: projectTracks.title,
+            label: trackVersions.label,
+            producerName: producers.displayName,
+            producerSlug: producers.slug,
+            producerId: projects.producerId,
+            projectId: projects.id,
+            uploadedAt: trackVersions.uploadedAt,
+            audioUrl: trackVersions.audioUrl,
+            unread: sql<boolean>`exists (
+            select 1
+            from ${artistNotifications}
+            where ${artistNotifications.recipientClerkUserId} = ${ctx.clerkUserId}
+              and ${artistNotifications.producerId} = ${projects.producerId}
+              and ${artistNotifications.kind} = 'track_version_created'
+              and ${artistNotifications.subjectType} = 'track_version'
+              and ${artistNotifications.subjectId} = ${trackVersions.id}
+              and ${artistNotifications.inAppVisible} is true
+              and ${artistNotifications.openedAt} is null
+          )`,
+          })
+          .from(trackVersions)
+          .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
+          .innerJoin(projects, eq(projects.id, projectTracks.projectId))
+          .innerJoin(producers, eq(producers.id, projects.producerId))
+          .innerJoin(
+            clientContacts,
+            activeArtistClientOwner(ctx.clerkUserId, {
+              producerId: projects.producerId,
+              clientContactId: projects.clientContactId,
+            }),
+          )
+          .where(
+            and(
+              eq(projects.producerId, input.producerId),
+              ne(projects.lifecycleStatus, "waiting_for_payment"),
+              isNotNull(trackVersions.audioUrl),
+              isNull(trackVersions.audioDeletedAt),
+            ),
+          )
+          .orderBy(desc(trackVersions.uploadedAt))
+          .limit(1),
+
+        // (5a) Activity — recent track uploads (cap at 10 from this
+        // source, then merge + cap at 10 across all sources below).
+        ctx.db
+          .select({
+            id: trackVersions.id,
+            trackTitle: projectTracks.title,
+            label: trackVersions.label,
+            producerName: producers.displayName,
+            producerSlug: producers.slug,
+            projectId: projects.id,
+            uploadedAt: trackVersions.uploadedAt,
+          })
+          .from(trackVersions)
+          .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
+          .innerJoin(projects, eq(projects.id, projectTracks.projectId))
+          .innerJoin(producers, eq(producers.id, projects.producerId))
+          .innerJoin(
+            clientContacts,
+            activeArtistClientOwner(ctx.clerkUserId, {
+              producerId: projects.producerId,
+              clientContactId: projects.clientContactId,
+            }),
+          )
+          .where(
+            and(
+              eq(projects.producerId, input.producerId),
+              ne(projects.lifecycleStatus, "waiting_for_payment"),
+              isNotNull(trackVersions.audioUrl),
+              isNull(trackVersions.audioDeletedAt),
+            ),
+          )
+          .orderBy(desc(trackVersions.uploadedAt))
+          .limit(10),
+
+        // (5b) Activity — recent booking confirmations.
+        ctx.db
+          .select({
+            id: bookings.id,
+            producerName: producers.displayName,
+            producerSlug: producers.slug,
+            statusChangedAt: bookings.statusChangedAt,
+            startsAt: bookings.startsAt,
+          })
+          .from(bookings)
+          .innerJoin(
+            purchases,
+            and(
+              eq(purchases.id, bookings.purchaseId),
+              eq(purchases.projectId, bookings.projectId),
+              eq(purchases.producerId, bookings.producerId),
+            ),
+          )
+          .innerJoin(producers, eq(producers.id, bookings.producerId))
+          .innerJoin(
+            clientContacts,
+            activeArtistClientOwner(ctx.clerkUserId, {
+              producerId: purchases.producerId,
+              clientContactId: purchases.clientContactId,
+            }),
+          )
+          .where(and(eq(bookings.producerId, input.producerId), eq(bookings.status, "confirmed")))
+          .orderBy(desc(bookings.statusChangedAt))
+          .limit(10),
+      ]);
+
+      // ── Shape the next-session result ────────────────────────────────
+      const nextRow = nextSessionRows[0];
+      const nextSession = nextRow
+        ? {
+            id: nextRow.id,
+            startsAt: nextRow.startsAt,
+            durationMin: nextRow.durationMin,
+            producerId: nextRow.producerId,
+            producerName: nextRow.producerName ?? "Untitled Studio",
+            producerSlug: nextRow.producerSlug,
+            productName: purchaseProductName(nextRow.commercialSnapshot, "Session"),
+          }
+        : null;
+
+      // ── Shape the latest-mix result ──────────────────────────────────
+      const mixRow = latestMixRows[0];
+      const latestMix = mixRow
+        ? {
+            id: mixRow.id,
+            trackTitle: mixRow.trackTitle,
+            label: mixRow.label,
+            producerName: mixRow.producerName ?? "Untitled Studio",
+            producerSlug: mixRow.producerSlug,
+            producerId: mixRow.producerId,
+            projectId: mixRow.projectId,
+            uploadedAt: mixRow.uploadedAt,
+            audioUrl: mixRow.audioUrl,
+            unread: mixRow.unread,
+          }
+        : null;
+
+      // The old single-currency invoice rollup cannot represent several
+      // purchase ledgers. Keep the compatibility field unavailable.
+      const outstandingBalance: {
+        totalCents: number;
+        currency: string;
+        nextDueAt: Date | null;
+      } | null = null;
+
+      // ── Merge + sort + cap activity feed ────────────────────────────
+      // Three streams → one normalized stream. We pre-format the message
+      // here so the UI is dumb (no business logic in the rendering
+      // layer). Sort desc by occurredAt, slice to 10.
+      const activity: ActivityItem[] = [];
+      for (const r of activityTrackRows) {
+        activity.push({
+          kind: "track_uploaded",
+          message: `${r.producerName ?? "A producer"} uploaded ${r.label} of ${r.trackTitle}`,
+          occurredAt: r.uploadedAt,
+          producerName: r.producerName ?? "Untitled Studio",
+          deepLink: `/artist/music/${r.projectId}`,
+        });
+      }
+      for (const r of activityBookingRows) {
+        // statusChangedAt is nullable (legacy rows pre-Phase H.4c); fall
+        // back to startsAt so the row still has a sortable timestamp.
+        const occurredAt = r.statusChangedAt ?? r.startsAt;
+        activity.push({
+          kind: "session_confirmed",
+          message: `${r.producerName ?? "A producer"} confirmed your session`,
+          occurredAt,
+          producerName: r.producerName ?? "Untitled Studio",
+          deepLink: null,
+        });
+      }
+      activity.sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime());
+      const cappedActivity = activity.slice(0, 10);
+
+      return {
+        nextSession,
+        upcomingSessions: upcomingSessionRows.map((s) => ({
+          id: s.id,
+          startsAt: s.startsAt,
+          durationMin: s.durationMin,
+          producerName: s.producerName ?? "Producer",
+          packageName: purchaseProductName(s.commercialSnapshot, "Session"),
+        })),
+        latestMix,
+        outstandingBalance,
+        activity: cappedActivity,
+      };
+    }),
+
+  // Compatibility alias for the original public RPC. It must share the
+  // exact lock, blocker recheck, grant capture, and archive transaction
+  // used by artistPlatform.disconnect.commit.
+  disconnectProducer: artistProcedure
+    .input(z.object({ producerId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await commitArtistStudioDisconnect(ctx.db, {
+          clerkUserId: ctx.clerkUserId,
+          producerId: input.producerId,
+        });
+      } catch (error) {
+        mapArtistDisconnectDomainError(error);
+      }
 
       return { ok: true as const };
     }),

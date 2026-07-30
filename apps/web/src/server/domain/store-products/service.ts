@@ -35,6 +35,7 @@ export type StoreProductCommercialInput = Readonly<{
   hourlyRateCents: number | null;
   durationMin: number;
   sessionCount: number;
+  bookingEnabled: boolean;
   deliverables: readonly string[] | null;
   locationType: string;
   bufferMinutes: number;
@@ -499,6 +500,9 @@ function normalizeProduct(
   if (typeof product.active !== "boolean") {
     fail("INVALID_PRODUCT", "active must be a boolean", "active");
   }
+  if (typeof product.bookingEnabled !== "boolean") {
+    fail("INVALID_PRODUCT", "bookingEnabled must be a boolean", "bookingEnabled");
+  }
   if (product.active && archivedAt !== null) {
     fail("INVALID_PRODUCT", "An archived product cannot remain published", "active");
   }
@@ -529,6 +533,7 @@ function normalizeProduct(
     hourlyRateCents,
     durationMin: assertInteger(product.durationMin, "durationMin", 0, 24 * 60),
     sessionCount: assertInteger(product.sessionCount, "sessionCount", 0, 100),
+    bookingEnabled: product.bookingEnabled,
     deliverables: normalizeDeliverables(product.deliverables),
     locationType: normalizeRequiredText(product.locationType, "locationType", 100),
     bufferMinutes: assertInteger(product.bufferMinutes, "bufferMinutes", 0, 240),
@@ -539,6 +544,14 @@ function normalizeProduct(
     active: product.active,
     archivedAt,
   });
+
+  if (normalized.bookingEnabled && normalized.durationMin === 0) {
+    fail(
+      "INVALID_PRODUCT",
+      "Bookable products require a positive session duration",
+      "durationMin",
+    );
+  }
 
   if (normalized.active && normalized.archivedAt === null) {
     assertSignedInStorePricingSupported(normalized);
@@ -899,8 +912,13 @@ export type BuildStorePurchaseSnapshotInput = Readonly<{
   selectedPaymentPlan: PaymentPlan;
 }>;
 
+type PurchaseCommercialSnapshotV2 = PurchaseCommercialSnapshot & Readonly<{
+  version: 2;
+  bookingEnabled: boolean;
+}>;
+
 export type BuiltStorePurchaseSnapshot = Readonly<{
-  snapshot: PurchaseCommercialSnapshot;
+  snapshot: PurchaseCommercialSnapshotV2;
   snapshotDigest: string;
 }>;
 
@@ -925,7 +943,7 @@ export function buildStorePurchaseSnapshot(
   const royaltyTerms = normalizeRoyaltyTerms(product.royaltyTerms);
   const rights = deriveStoreProductRights(royaltyTerms);
   const session: PurchaseCommercialSnapshot["session"] =
-    product.durationMin === 0
+    !product.bookingEnabled
       ? null
       : {
           limit:
@@ -947,8 +965,9 @@ export function buildStorePurchaseSnapshot(
         ? 0
         : 1;
 
-  const withoutAgreement: Omit<PurchaseCommercialSnapshot, "agreementText"> = {
-    version: 1,
+  const withoutAgreement: Omit<PurchaseCommercialSnapshotV2, "agreementText"> = {
+    version: 2,
+    bookingEnabled: product.bookingEnabled,
     productOrOfferName: product.name,
     ...(decoded.tagline.trim() ? { tagline: decoded.tagline.trim() } : {}),
     service: product.kind,
@@ -972,7 +991,7 @@ export function buildStorePurchaseSnapshot(
     selectedPaymentPlan: paymentPlan,
     offeredPaymentPlans: product.paymentPlans.map((plan) => ({ ...plan })),
   };
-  const snapshot: PurchaseCommercialSnapshot = {
+  const snapshot: PurchaseCommercialSnapshotV2 = {
     ...withoutAgreement,
     agreementText: finalAgreementText(withoutAgreement, effectiveProducerAgreement(product)),
   };

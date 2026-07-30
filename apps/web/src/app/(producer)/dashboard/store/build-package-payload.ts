@@ -23,6 +23,7 @@ export interface PackageDraft {
   currency: Currency;
   sessions: number;
   unlimitedSessions: boolean;
+  bookingEnabled: boolean;
   payment: PaymentSelectionDraft;
   includes: string[];
   duration: string;
@@ -43,6 +44,7 @@ export interface PackagePayload {
   currency: Currency;
   durationMin: number;
   sessionCount: number;
+  bookingEnabled: boolean;
   paymentPlans: PaymentPlan[];
   deliverables: string[];
   royaltyTerms: ProductRoyaltyTerms | null;
@@ -99,6 +101,7 @@ export function buildPackagePayload(
     sessionCount: draft.unlimitedSessions
       ? 0
       : Math.max(1, draft.sessions),
+    bookingEnabled: draft.bookingEnabled,
     paymentPlans: buildPaymentPlans(draft.payment),
     deliverables: draft.includes
       .map((item) => item.trim())

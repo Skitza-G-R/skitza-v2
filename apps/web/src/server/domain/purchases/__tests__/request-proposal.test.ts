@@ -31,6 +31,7 @@ function product(
     hourlyRateCents: null,
     durationMin: 0,
     sessionCount: 0,
+    bookingEnabled: false,
     deliverables: ["Three mixed masters"],
     locationType: "remote",
     bufferMinutes: 0,

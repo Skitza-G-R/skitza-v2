@@ -31,6 +31,7 @@ function baseInput(
     file: proofFile(),
     purchaseId: "purchase-1",
     installmentId: "installment-1",
+    operationKey: "00000000-0000-4000-8000-000000000001",
     contentType: "application/pdf",
     amountCents: 12_000,
     note: "Paid by transfer",

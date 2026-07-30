@@ -174,4 +174,25 @@ describe("private-offer transition concurrency wiring", () => {
     expect(accept).toContain("where(eq(purchases.privateOfferId, offer.id))");
     expect(accept).toContain("operationKey: `private-offer:${offer.id}:accept:v1`");
   });
+
+  it("serializes and enforces the studio-wide active-purchase guard before acceptance", () => {
+    const accept = compact(implementationOf("acceptPrivateOffer"));
+
+    expect(accept).toContain(
+      "pg_advisory_xact_lock(hashtextextended(${`artist-purchase:${input.clerkUserId}:${offer.producerId}`}, 0))",
+    );
+    expect(accept).toContain(
+      "loadArtistPurchaseGuard(tx, { clerkUserId: input.clerkUserId, producerId: offer.producerId",
+    );
+    expect(accept).toContain("if (activePurchase.blocked)");
+    expect(accept.indexOf("loadArtistPurchaseGuard")).toBeLessThan(
+      accept.indexOf("insert(projects)"),
+    );
+    expect(accept.indexOf("loadArtistPurchaseGuard")).toBeLessThan(
+      accept.indexOf("acceptPurchase("),
+    );
+    expect(compact(routerSource)).toContain(
+      'if (error.code === "ACTIVE_PURCHASE") { throw new TRPCError({ code: "CONFLICT", message: error.message }); }',
+    );
+  });
 });

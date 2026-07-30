@@ -230,14 +230,34 @@ function verifyToken(serverSecret: string, token: string, now: Date): ProofToken
 
 export function createProofUploadToken(
   serverSecret: string,
-  input: Omit<ProofUploadTokenPayload, "version" | "kind" | "uploadId" | "expiresAtEpochSeconds">,
+  input: Omit<ProofUploadTokenPayload, "version" | "kind" | "uploadId" | "expiresAtEpochSeconds"> & {
+    operationKey?: string;
+  },
   now = new Date(),
 ): { token: string; payload: ProofUploadTokenPayload } {
+  const { operationKey, ...tokenInput } = input;
+  const normalizedOperationKey = operationKey?.trim();
+  if (
+    normalizedOperationKey !== undefined &&
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      normalizedOperationKey,
+    )
+  ) {
+    tokenError();
+  }
+  const uploadId = normalizedOperationKey
+    ? createHmac("sha256", signingKey(serverSecret))
+        .update(
+          `${TOKEN_DOMAIN}:upload-operation\0${tokenInput.viewerClerkUserId}\0${tokenInput.purchaseId}\0${tokenInput.installmentId}\0${normalizedOperationKey}`,
+          "utf8",
+        )
+        .digest("hex")
+    : randomBytes(32).toString("hex");
   const payload = assertPayload({
     version: 1,
     kind: "proof_upload",
-    uploadId: randomBytes(32).toString("hex"),
-    ...input,
+    uploadId,
+    ...tokenInput,
     expiresAtEpochSeconds: Math.floor(now.getTime() / 1_000) + PROOF_UPLOAD_TTL_SECONDS,
   });
   if (payload.kind !== "proof_upload") tokenError();

@@ -58,7 +58,6 @@ const {
     audioUrl: { __column: "track_versions.audio_url" },
     audioDeletedAt: { __column: "track_versions.audio_deleted_at" },
   };
-
   const nextSessionMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
   const upcomingSessionsMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
   const latestMixMock = vi.fn<() => Promise<Record<string, unknown>[]>>();
@@ -144,6 +143,16 @@ vi.mock("@clerk/nextjs/server", () => ({
 vi.mock("@skitza/db", () => ({
   createDb: () => dbMock,
   bookings: bookingsMarker,
+  artistNotifications: {
+    __table: "artist_notifications",
+    recipientClerkUserId: { __column: "artist_notifications.recipient_clerk_user_id" },
+    producerId: { __column: "artist_notifications.producer_id" },
+    kind: { __column: "artist_notifications.kind" },
+    subjectType: { __column: "artist_notifications.subject_type" },
+    subjectId: { __column: "artist_notifications.subject_id" },
+    inAppVisible: { __column: "artist_notifications.in_app_visible" },
+    openedAt: { __column: "artist_notifications.opened_at" },
+  },
   clientContacts: clientContactsMarker,
   projects: projectsMarker,
   purchases: purchasesMarker,
@@ -200,10 +209,11 @@ async function caller(userId = "artist-1") {
 const snapshot = {
   productOrOfferName: "4-hour Mix Session",
 } as const;
+const producerId = "11111111-1111-4111-8111-111111111111";
 
 describe("artist.home", () => {
   it("returns no commercial state when there are no owned rows", async () => {
-    const result = await (await caller()).artist.home();
+    const result = await (await caller()).artist.home({ producerId });
     expect(result).toEqual({
       nextSession: null,
       upcomingSessions: [],
@@ -225,7 +235,7 @@ describe("artist.home", () => {
       },
     ]);
 
-    const result = await (await caller()).artist.home();
+    const result = await (await caller()).artist.home({ producerId });
     expect(result.nextSession).toMatchObject({
       id: "booking-1",
       productName: "4-hour Mix Session",
@@ -243,11 +253,11 @@ describe("artist.home", () => {
         projectId: "project-1",
         uploadedAt: new Date("2026-07-17T12:00:00.000Z"),
         audioUrl: "https://audio.invalid/v2.mp3",
-        lastSeenAt: new Date("2026-07-16T12:00:00.000Z"),
+        unread: true,
       },
     ]);
 
-    const result = await (await caller()).artist.home();
+    const result = await (await caller()).artist.home({ producerId });
     expect(result.latestMix).toMatchObject({ id: "version-1", unread: true });
   });
 
@@ -271,13 +281,13 @@ describe("artist.home", () => {
       })),
     );
 
-    const result = await (await caller()).artist.home();
+    const result = await (await caller()).artist.home({ producerId });
     expect(result.activity).toHaveLength(10);
     expect(result.activity.every((item) => item.kind !== "invoice_paid")).toBe(true);
   });
 
   it("joins every project and booking to the exact stable client owner", async () => {
-    await (await caller("artist-owner")).artist.home();
+    await (await caller("artist-owner")).artist.home({ producerId });
     const predicates = ownerJoinSpy.mock.calls.map((call) => call[0]);
     expect(predicates).toHaveLength(5);
     expect(predicates).toContainEqual({

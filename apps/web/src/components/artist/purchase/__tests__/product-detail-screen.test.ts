@@ -7,6 +7,22 @@ import { describe, expect, it } from "vitest";
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, "..", "product-detail-screen.tsx"), "utf8");
 const actions = readFileSync(join(here, "..", "actions.ts"), "utf8");
+const page = readFileSync(
+  join(
+    here,
+    "..",
+    "..",
+    "..",
+    "..",
+    "app",
+    "(artist)",
+    "artist",
+    "purchase",
+    "[productId]",
+    "page.tsx",
+  ),
+  "utf8",
+);
 
 describe("unified artist product detail", () => {
   it("renders product, producer, deliverables, rights, and enabled plans", () => {
@@ -29,9 +45,9 @@ describe("unified artist product detail", () => {
     expect(source).toMatch(/Start a new project/);
     expect(source).toMatch(/Add to an existing project/);
     expect(source).toMatch(/targetKind === "existing" && projectId/);
-    expect(source).toMatch(
-      /disabled=\{\s*previewMode \|\| \(!online && requiresLiveRequest\) \|\| !targetIsReady \|\| sending\s*\}/,
-    );
+    expect(source).toMatch(/activePurchase !== null/);
+    expect(source).toMatch(/\(!online && requiresLiveRequest\)/);
+    expect(source).toMatch(/!targetIsReady/);
   });
 
   it("shows enough context for each same-client project", () => {
@@ -66,9 +82,12 @@ describe("unified artist product detail", () => {
     expect(source).toMatch(/studioId/);
   });
 
-  it("does not enforce or describe a one-open-purchase restriction", () => {
-    expect(source).not.toMatch(/active purchase|fully paid/i);
-    expect(source).not.toMatch(/pendingRequest\s*=|disabled=\{pendingRequest/);
+  it("shows the server-authored active purchase guard before another request", () => {
+    expect(page).toContain("caller.artist.purchase.activeForStudio");
+    expect(source).toContain("activePurchase");
+    expect(source).toContain("Finish your current purchase");
+    expect(source).toContain("withArtistStudio(activePurchase.href, studioId)");
+    expect(source).toMatch(/activePurchase !== null/);
   });
 
   it("states the actual acceptance boundary instead of promising a request-time lock", () => {
@@ -76,18 +95,22 @@ describe("unified artist product detail", () => {
     expect(source).not.toMatch(/locks at request|price locks now|stays fixed once you request/i);
   });
 
-  it("keeps the back action and mobile controls reachable", () => {
-    expect(source).toMatch(/<StickyNav/);
+  it("keeps an in-flow back action and mobile controls reachable", () => {
+    expect(source).toContain("Back to Store");
     expect(source).toContain('router.push(withArtistStudio("/artist/store", studioId))');
     expect(source).toMatch(/min-h-11/);
+    expect(source).not.toContain("<StickyNav");
+    expect(source).not.toContain("fixed inset-0");
   });
 
   it("supports a producer preview with callback back and no real submission", () => {
     expect(source).toMatch(/previewMode\?: boolean/);
     expect(source).toMatch(/onPreviewBack\?: \(\) => void/);
-    expect(source).toMatch(/if \(previewMode \|\| sending \|\| !targetIsReady\) return/);
     expect(source).toMatch(
-      /disabled=\{\s*previewMode \|\| \(!online && requiresLiveRequest\) \|\| !targetIsReady \|\| sending\s*\}/,
+      /if \(previewMode \|\| activePurchase \|\| sending \|\| !targetIsReady\) return/,
+    );
+    expect(source).toMatch(
+      /disabled=\{\s*previewMode \|\|[\s\S]*activePurchase !== null \|\|[\s\S]*\(!online && requiresLiveRequest\)/,
     );
     expect(source).toMatch(/if \(onPreviewBack\)/);
   });

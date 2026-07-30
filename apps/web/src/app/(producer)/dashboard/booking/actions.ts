@@ -62,6 +62,7 @@ export async function createPackage(input: {
   description?: string;
   durationMin: number;
   sessionCount?: number;
+  bookingEnabled?: boolean;
   priceCents?: number;
   currency?: "USD" | "EUR" | "GBP" | "ILS";
   kind?: PackageKind;
@@ -98,6 +99,7 @@ export async function updatePackage(input: {
   description?: string;
   durationMin?: number;
   sessionCount?: number;
+  bookingEnabled?: boolean;
   priceCents?: number;
   currency?: "USD" | "EUR" | "GBP" | "ILS";
   kind?: PackageKind;

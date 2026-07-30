@@ -53,9 +53,8 @@ const PRODUCER_NAV = [
 const ARTIST_NAV = [
   ["/artist", "Home"],
   ["/artist/music", "Music"],
-  ["/artist/book", "Book"],
+  ["/artist/sessions", "Sessions"],
   ["/artist/store", "Store"],
-  ["/artist/payments", "Payments"],
 ] as const;
 
 interface PendingRuntimeScreen {
@@ -101,7 +100,7 @@ function destinationLabel(href: string, role: RuntimeRole): string {
     return "Studio";
   }
 
-  if (pathname.startsWith("/artist/sessions")) return "Book";
+  if (pathname.startsWith("/artist/sessions")) return "Sessions";
   if (pathname.startsWith("/artist/settings")) return "Settings";
   return "Artist";
 }
@@ -764,7 +763,9 @@ function RuntimeResumeShell({
         </main>
         <nav
           aria-label={`${role === "producer" ? "Producer" : "Artist"} saved tabs`}
-          className="grid shrink-0 grid-cols-5 border-t border-[rgb(var(--border-sidebar))] bg-[rgb(var(--bg-sidebar))] px-1 pb-[env(safe-area-inset-bottom,0px)] lg:hidden"
+          className={`grid shrink-0 ${
+            role === "producer" ? "grid-cols-5" : "grid-cols-4"
+          } border-t border-[rgb(var(--border-sidebar))] bg-[rgb(var(--bg-sidebar))] px-1 pb-[env(safe-area-inset-bottom,0px)] lg:hidden`}
         >
           {nav.map(([route, label]) => {
             const active = isActiveDestination(href, route);

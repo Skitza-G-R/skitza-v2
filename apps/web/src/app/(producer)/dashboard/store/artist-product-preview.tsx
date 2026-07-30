@@ -23,6 +23,7 @@ interface ArtistProductPreviewProps {
   volumeTiers: VolumeTier[];
   sessions: number;
   unlimitedSessions: boolean;
+  bookingEnabled: boolean;
   duration: string;
   includes: string[];
   revisions: number;
@@ -55,6 +56,7 @@ export function ArtistProductPreview({
   volumeTiers,
   sessions,
   unlimitedSessions,
+  bookingEnabled,
   duration,
   includes,
   revisions,
@@ -78,11 +80,13 @@ export function ArtistProductPreview({
     name,
     priceCents,
     currency,
-    durationLabel: durationLabel(sessionCount, durationMin),
+    durationLabel: bookingEnabled
+      ? durationLabel(sessionCount, durationMin)
+      : "No bookable sessions",
     includes,
     tagline: tagline || null,
-    sessions: sessionCount,
-    unlimitedSessions,
+    sessions: bookingEnabled ? sessionCount : 0,
+    unlimitedSessions: bookingEnabled && unlimitedSessions,
     revisions: unlimitedRevisions ? 0 : revisions,
     unlimitedRevisions,
     paymentPlans,
@@ -104,8 +108,8 @@ export function ArtistProductPreview({
     currency,
     pricingModel,
     volumeTiers,
-    sessionCount,
-    durationMin,
+    sessionCount: bookingEnabled ? sessionCount : null,
+    durationMin: bookingEnabled ? durationMin : null,
   };
 
   function openDetails(trigger: HTMLButtonElement) {

@@ -24,6 +24,7 @@ interface ReviewStepProps {
   currency: string;
   sessions: number;
   unlimitedSessions: boolean;
+  bookingEnabled: boolean;
   paymentPlans: PaymentPlan[];
   duration: string;
   revisions: number;
@@ -108,6 +109,7 @@ export function ReviewStep({
   currency,
   sessions,
   unlimitedSessions,
+  bookingEnabled,
   paymentPlans,
   duration,
   revisions,
@@ -135,6 +137,7 @@ export function ReviewStep({
         volumeTiers={volumeTiers}
         sessions={sessions}
         unlimitedSessions={unlimitedSessions}
+        bookingEnabled={bookingEnabled}
         duration={duration}
         includes={includes}
         revisions={revisions}
@@ -189,11 +192,13 @@ export function ReviewStep({
             {pricingModel === "per_song" ? " for one song" : ""}.
           </div>
         ) : null}
-        <div className="mt-1">
-          {unlimitedSessions
-            ? "Unlimited sessions"
-            : `${String(sessions)} ${sessions === 1 ? "session" : "sessions"}`}
-        </div>
+        {bookingEnabled ? (
+          <div className="mt-1">
+            {unlimitedSessions
+              ? "Unlimited bookable sessions"
+              : `${String(sessions)} bookable ${sessions === 1 ? "session" : "sessions"}`}
+          </div>
+        ) : null}
         {pricingModel === "per_song" && volumeTiers.length > 0 ? (
           <ul className="mt-3 divide-y divide-[rgb(var(--border-subtle))] border-y border-[rgb(var(--border-subtle))]">
             {volumeTiers.map((tier, index) => (
@@ -222,7 +227,10 @@ export function ReviewStep({
       </ReviewSection>
 
       <ReviewSection title="Delivery" step="delivery" onEdit={onEdit}>
-        <div>{duration || "Duration not specified"}</div>
+        <div className="font-semibold text-[rgb(var(--fg-default))]">
+          {bookingEnabled ? "Artist booking enabled" : "No artist booking"}
+        </div>
+        {bookingEnabled ? <div className="mt-1">{duration}</div> : null}
         <div className="mt-1">
           {unlimitedRevisions
             ? "Unlimited revisions"

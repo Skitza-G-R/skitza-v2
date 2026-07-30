@@ -13,23 +13,23 @@ import { withArtistStudio } from "~/lib/artist-studio-context";
 import { formatSessionTime, type SessionListItem } from "./book-data";
 import { StatusPill } from "./status-pill";
 
-function monthShort(iso: string, producerTimezone: string): string {
+function monthShort(iso: string, timeZone: string): string {
   return new Date(iso).toLocaleDateString("en-US", {
     month: "short",
-    timeZone: producerTimezone,
+    timeZone,
   });
 }
 
-function dayNumber(iso: string, producerTimezone: string): string {
+function dayNumber(iso: string, timeZone: string): string {
   return new Date(iso).toLocaleDateString("en-US", {
     day: "numeric",
-    timeZone: producerTimezone,
+    timeZone,
   });
 }
 
 export function SessionRow({ session }: { session: SessionListItem }) {
   const router = useRouter();
-  const time = formatSessionTime(session.startsAtISO, session.producerTimezone);
+  const time = formatSessionTime(session.startsAtISO, session.artistTimezone);
 
   return (
     <button
@@ -41,10 +41,10 @@ export function SessionRow({ session }: { session: SessionListItem }) {
     >
       <div className="flex w-12 shrink-0 flex-col items-center">
         <span className="font-amount text-[10px] font-bold tracking-[0.12em] text-[rgb(var(--brand-primary))] uppercase">
-          {monthShort(session.startsAtISO, session.producerTimezone)}
+          {monthShort(session.startsAtISO, session.artistTimezone)}
         </span>
         <span className="font-amount text-[20px] leading-none font-bold text-[rgb(var(--fg-default))]">
-          {dayNumber(session.startsAtISO, session.producerTimezone)}
+          {dayNumber(session.startsAtISO, session.artistTimezone)}
         </span>
       </div>
 
@@ -58,6 +58,11 @@ export function SessionRow({ session }: { session: SessionListItem }) {
           <span aria-hidden>·</span>
           <span className="truncate">{session.producerName}</span>
         </p>
+        {session.heldExpiryReason === "approval_timeout" ? (
+          <p className="mt-1 text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
+            The studio did not confirm this request in time.
+          </p>
+        ) : null}
       </div>
 
       <div className="shrink-0">

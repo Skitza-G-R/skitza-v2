@@ -61,9 +61,15 @@ export const libraryRouter = router({
         if (!project) throw new TRPCError({ code: "NOT_FOUND" });
         return project;
       }),
-    artistList: artistProcedure.query(({ ctx }) =>
-      listMusicSongSpaces(ctx.db, { kind: "artist", clerkUserId: ctx.clerkUserId }),
-    ),
+    artistList: artistProcedure
+      .input(z.object({ producerId: z.string().uuid().optional() }).optional())
+      .query(({ ctx, input }) =>
+        listMusicSongSpaces(ctx.db, {
+          kind: "artist",
+          clerkUserId: ctx.clerkUserId,
+          ...(input?.producerId ? { producerId: input.producerId } : {}),
+        }),
+      ),
     artistProject: artistProcedure
       .input(z.object({ projectId: z.string().uuid() }).strict())
       .query(async ({ ctx, input }) => {

@@ -10,6 +10,7 @@ import {
   pgEnum,
   unique,
   uniqueIndex,
+  primaryKey,
   index,
   foreignKey,
   check,
@@ -235,6 +236,10 @@ export const products = pgTable(
     // "Duration (optional)".
     durationMin: integer("duration_min").notNull(), // per session
     sessionCount: integer("session_count").notNull().default(1),
+    // Session duration/count are commercial details, not booking permission.
+    // A product must opt in explicitly before a new purchase can materialize
+    // an artist booking allowance.
+    bookingEnabled: boolean("booking_enabled").notNull().default(false),
     // Flat/bundle price. Still the canonical price for flat products.
     // Per-song products read from volumeTiers instead; hourly reads from
     // hourlyRateCents.
@@ -382,6 +387,10 @@ export const bookingTransitionActorKind = pgEnum("booking_transition_actor_kind"
   "system",
 ]);
 
+export const bookingHeldExpiryReason = pgEnum("booking_held_expiry_reason", [
+  "approval_timeout",
+]);
+
 export const bookings = pgTable(
   "bookings",
   {
@@ -410,6 +419,21 @@ export const bookings = pgTable(
     operationKey: text("operation_key").notNull(),
     operationDigest: text("operation_digest").notNull(),
     rescheduledFromBookingId: uuid("rescheduled_from_booking_id"),
+    // Reschedule replacements share the original allowance-use identity so
+    // both calendar holds reserve capacity while consuming one purchased use.
+    allowanceUseId: uuid("allowance_use_id").notNull().defaultRandom(),
+    cancellationPolicyHoursSnapshot: integer("cancellation_policy_hours_snapshot").notNull(),
+    cancellationPolicySnapshottedAt: timestamp("cancellation_policy_snapshotted_at", {
+      withTimezone: true,
+    }).notNull(),
+    cancellationPolicyBackfilled: boolean("cancellation_policy_backfilled")
+      .notNull()
+      .default(false),
+    // Held requests expire at min(createdAt + 24h, startsAt). Confirmed-at-
+    // creation bookings never enter Held and therefore keep this NULL.
+    heldExpiresAt: timestamp("held_expires_at", { withTimezone: true }),
+    heldExpiredAt: timestamp("held_expired_at", { withTimezone: true }),
+    heldExpiryReason: bookingHeldExpiryReason("held_expiry_reason"),
     status: bookingStatus("status").notNull().default("pending_approval"),
     statusChangedAt: timestamp("status_changed_at", { withTimezone: true }),
     outcome: sessionUseOutcome("outcome").notNull().default("reserved"),
@@ -440,6 +464,10 @@ export const bookings = pgTable(
       t.purchaseId,
     ),
     purchaseStartsIdx: index("bookings_purchase_starts_idx").on(t.purchaseId, t.startsAt),
+    allowanceUseIdx: index("bookings_allowance_use_idx").on(
+      t.sessionAllowanceId,
+      t.allowanceUseId,
+    ),
     purchaseProjectFk: foreignKey({
       columns: [t.purchaseId, t.projectId],
       foreignColumns: [purchases.id, purchases.projectId],
@@ -473,6 +501,32 @@ export const bookings = pgTable(
     rescheduleShape: check(
       "bookings_reschedule_shape",
       sql`${t.rescheduledFromBookingId} IS NULL OR ${t.rescheduledFromBookingId} <> ${t.id}`,
+    ),
+    cancellationPolicySnapshotShape: check(
+      "bookings_cancellation_policy_snapshot_shape",
+      sql`${t.cancellationPolicyHoursSnapshot} >= 0
+        AND ${t.cancellationPolicySnapshottedAt} >= ${t.createdAt}`,
+    ),
+    heldExpiryShape: check(
+      "bookings_held_expiry_shape",
+      sql`(
+        (${t.status} <> 'pending_approval' OR ${t.heldExpiresAt} IS NOT NULL)
+        AND (
+          ${t.heldExpiresAt} IS NULL
+          OR ${t.heldExpiresAt} = LEAST(${t.createdAt} + interval '24 hours', ${t.startsAt})
+        )
+        AND (
+          (${t.heldExpiredAt} IS NULL AND ${t.heldExpiryReason} IS NULL)
+          OR (
+            ${t.heldExpiredAt} IS NOT NULL
+            AND ${t.heldExpiryReason} = 'approval_timeout'
+            AND ${t.heldExpiresAt} IS NOT NULL
+            AND ${t.heldExpiredAt} >= ${t.heldExpiresAt}
+            AND ${t.status} = 'cancelled'
+            AND ${t.outcome} = 'cancelled_by_producer'
+          )
+        )
+      )`,
     ),
     statusOutcomeShape: check(
       "bookings_status_outcome_shape",
@@ -1165,6 +1219,215 @@ export const clerkUserSyncReceipts = pgTable(
 export type ClerkUserSyncReceipt = typeof clerkUserSyncReceipts.$inferSelect;
 export type NewClerkUserSyncReceipt = typeof clerkUserSyncReceipts.$inferInsert;
 
+// ─── Artist platform account preferences (SK-153) ──────────────────
+// Clerk remains the source of truth for profile identity and photo. This
+// single global row stores only product-owned artist preferences.
+export type ArtistNotificationPreferenceCategory =
+  | "purchase"
+  | "proof"
+  | "booking"
+  | "session_reminder"
+  | "new_music"
+  | "producer_comment";
+
+export type ArtistNotificationPreferences = Partial<
+  Record<
+    ArtistNotificationPreferenceCategory,
+    {
+      inApp?: boolean;
+      transactionalEmail?: boolean;
+      activityEmail?: boolean;
+    }
+  >
+>;
+
+export const artistProfiles = pgTable(
+  "artist_profiles",
+  {
+    clerkUserId: text("clerk_user_id").primaryKey(),
+    // NULL means first-use browser detection has not been persisted yet.
+    // The application validates the value against the runtime IANA registry.
+    timezone: text("timezone"),
+    notificationPreferences: jsonb("notification_preferences")
+      .$type<ArtistNotificationPreferences>()
+      .notNull()
+      .default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    identityShape: check(
+      "artist_profiles_identity_shape",
+      sql`${t.clerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'`,
+    ),
+    timezoneShape: check(
+      "artist_profiles_timezone_shape",
+      sql`${t.timezone} IS NULL OR (
+        ${t.timezone} = btrim(${t.timezone})
+        AND char_length(${t.timezone}) BETWEEN 1 AND 100
+      )`,
+    ),
+    timestampShape: check(
+      "artist_profiles_timestamp_shape",
+      sql`${t.updatedAt} >= ${t.createdAt}`,
+    ),
+  }),
+);
+
+export type ArtistProfile = typeof artistProfiles.$inferSelect;
+export type NewArtistProfile = typeof artistProfiles.$inferInsert;
+
+// Artist notification records are intentionally separate from the producer
+// inbox table below. Recipient ownership is the signed-in Clerk account;
+// producerId is only the studio association used for filtering and dots.
+export const artistNotificationKind = pgEnum("artist_notification_kind", [
+  "purchase_approved",
+  "purchase_declined",
+  "proof_verified",
+  "proof_rejected",
+  "booking_confirmed",
+  "booking_declined",
+  "booking_changed",
+  "booking_cancelled",
+  "session_reminder_24h",
+  "session_reminder_1h",
+  "track_version_created",
+  "producer_comment_created",
+]);
+
+export const artistNotificationSubjectType = pgEnum(
+  "artist_notification_subject_type",
+  ["purchase_request", "payment_proof", "booking", "track_version"],
+);
+
+export const artistNotifications = pgTable(
+  "artist_notifications",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    recipientClerkUserId: text("recipient_clerk_user_id").notNull(),
+    producerId: uuid("producer_id")
+      .notNull()
+      .references(() => producers.id, { onDelete: "restrict" }),
+    kind: artistNotificationKind("kind").notNull(),
+    subjectType: artistNotificationSubjectType("subject_type").notNull(),
+    subjectId: uuid("subject_id").notNull(),
+    // Exact same-origin destination built and validated by the server.
+    destinationHref: text("destination_href").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    // Stable source-event identity. Retried emitters use this key instead of
+    // creating duplicate feed rows.
+    dedupeKey: text("dedupe_key").notNull(),
+    // Channel choice is snapshotted at event creation. Dot state remains
+    // independent so disabling the in-app feed cannot clear another studio.
+    inAppVisible: boolean("in_app_visible").notNull().default(true),
+    switcherDotWorthy: boolean("switcher_dot_worthy").notNull().default(false),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    openedAt: timestamp("opened_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    recipientDedupeUnique: unique("artist_notifications_recipient_dedupe_unique").on(
+      t.recipientClerkUserId,
+      t.dedupeKey,
+    ),
+    feedIdx: index("artist_notifications_recipient_feed_idx").on(
+      t.recipientClerkUserId,
+      t.inAppVisible,
+      t.createdAt.desc(),
+      t.id.desc(),
+    ),
+    unreadIdx: index("artist_notifications_recipient_unread_idx")
+      .on(t.recipientClerkUserId, t.createdAt.desc(), t.id.desc())
+      .where(sql`${t.inAppVisible} IS TRUE AND ${t.readAt} IS NULL`),
+    unseenDotIdx: index("artist_notifications_recipient_studio_dot_idx")
+      .on(t.recipientClerkUserId, t.producerId, t.createdAt.desc(), t.id.desc())
+      .where(sql`${t.switcherDotWorthy} IS TRUE AND ${t.openedAt} IS NULL`),
+    identityShape: check(
+      "artist_notifications_identity_shape",
+      sql`${t.recipientClerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
+        AND NULLIF(btrim(${t.dedupeKey}), '') IS NOT NULL
+        AND char_length(${t.dedupeKey}) <= 255`,
+    ),
+    destinationShape: check(
+      "artist_notifications_destination_shape",
+      sql`char_length(${t.destinationHref}) BETWEEN 1 AND 512
+        AND ${t.destinationHref} LIKE '/artist/%'
+        AND ${t.destinationHref} NOT LIKE '//%'
+        AND position(chr(92) in ${t.destinationHref}) = 0
+        AND position('://' in ${t.destinationHref}) = 0`,
+    ),
+    timestampShape: check(
+      "artist_notifications_timestamp_shape",
+      sql`(${t.readAt} IS NULL OR ${t.readAt} >= ${t.createdAt})
+        AND (${t.openedAt} IS NULL OR ${t.openedAt} >= ${t.createdAt})`,
+    ),
+  }),
+);
+
+export type ArtistNotification = typeof artistNotifications.$inferSelect;
+export type NewArtistNotification = typeof artistNotifications.$inferInsert;
+
+// Immutable authorization captured at disconnect. Active connection checks
+// never consult this table; only dedicated read-only Past studio surfaces do.
+export const artistHistoricalResourceType = pgEnum(
+  "artist_historical_resource_type",
+  [
+    "studio",
+    "purchase",
+    "project",
+    "track",
+    "track_version",
+    "track_comment",
+    "payment_proof",
+    "booking",
+    "track_version_download",
+  ],
+);
+
+export const artistHistoricalAccessGrants = pgTable(
+  "artist_historical_access_grants",
+  {
+    artistClerkUserId: text("artist_clerk_user_id").notNull(),
+    producerId: uuid("producer_id")
+      .notNull()
+      .references(() => producers.id, { onDelete: "restrict" }),
+    resourceType: artistHistoricalResourceType("resource_type").notNull(),
+    resourceId: uuid("resource_id").notNull(),
+    disconnectedAt: timestamp("disconnected_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({
+      name: "artist_historical_access_grants_pk",
+      columns: [t.artistClerkUserId, t.producerId, t.resourceType, t.resourceId],
+    }),
+    artistStudioIdx: index("artist_historical_access_grants_artist_studio_idx").on(
+      t.artistClerkUserId,
+      t.producerId,
+      t.resourceType,
+    ),
+    artistResourceIdx: index("artist_historical_access_grants_artist_resource_idx").on(
+      t.artistClerkUserId,
+      t.resourceType,
+      t.resourceId,
+    ),
+    identityShape: check(
+      "artist_historical_access_grants_identity_shape",
+      sql`${t.artistClerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'`,
+    ),
+    timestampShape: check(
+      "artist_historical_access_grants_timestamp_shape",
+      sql`${t.createdAt} >= ${t.disconnectedAt}`,
+    ),
+  }),
+);
+
+export type ArtistHistoricalAccessGrant =
+  typeof artistHistoricalAccessGrants.$inferSelect;
+export type NewArtistHistoricalAccessGrant =
+  typeof artistHistoricalAccessGrants.$inferInsert;
+
 // ─── Notifications / Inbox (Phase E) ────────────────────────────────
 // One unified feed of everything that needs the producer's attention:
 // artist comments on track versions, new work requests, session requests,
@@ -1410,8 +1673,7 @@ export type NewProducerNote = typeof producerNotes.$inferInsert;
 // final terms are accepted and owns the frozen commercial snapshot, exact
 // installment schedule, proofs, ledger history, songs, versions, sessions,
 // approval events, and download entitlement for that accepted work.
-export type PurchaseCommercialSnapshot = {
-  version: 1;
+type PurchaseCommercialSnapshotBody = {
   productOrOfferName: string;
   tagline?: string;
   service?: string;
@@ -1445,6 +1707,13 @@ export type PurchaseCommercialSnapshot = {
   selectedPaymentPlan: PaymentPlan | null;
   offeredPaymentPlans: PaymentPlan[];
   agreementText: string;
+};
+
+export type PurchaseCommercialSnapshot = PurchaseCommercialSnapshotBody & {
+  // Version 1 is immutable legacy history and never creates a new allowance.
+  // The acceptance validator requires version 2 to carry bookingEnabled.
+  version: 1 | 2;
+  bookingEnabled?: boolean;
 };
 
 export const purchaseSourceKind = pgEnum("purchase_source_kind", [
@@ -2488,6 +2757,7 @@ export const purchaseSessionAllowances = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     purchaseId: uuid("purchase_id").notNull(),
     producerId: uuid("producer_id").notNull(),
+    bookingEnabledSnapshot: boolean("booking_enabled_snapshot").notNull().default(false),
     kind: sessionAllowanceKind("kind").notNull(),
     sessionLimit: integer("session_limit"),
     durationMin: integer("duration_min").notNull(),

@@ -3,9 +3,14 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-const source = readFileSync(join(__dirname, "../artist.ts"), "utf8");
+const artistSource = readFileSync(join(__dirname, "../artist.ts"), "utf8");
+const librarySource = readFileSync(join(__dirname, "../library.ts"), "utf8");
+const musicReadModelSource = readFileSync(
+  join(__dirname, "../../../domain/song-spaces/music-read-model.ts"),
+  "utf8",
+);
 
-function procedureBlock(start: string, end: string): string {
+function procedureBlock(source: string, start: string, end: string): string {
   const startIndex = source.indexOf(start);
   const endIndex = source.indexOf(end, startIndex);
   expect(startIndex).toBeGreaterThanOrEqual(0);
@@ -15,53 +20,66 @@ function procedureBlock(start: string, end: string): string {
 
 function expectExactProjectOwnerJoin(block: string) {
   expect(block).toMatch(/\.innerJoin\(\s*clientContacts,/);
-  expect(block).toContain("activeArtistClientOwner(ctx.clerkUserId");
-  expect(block).toContain("producerId: projects.producerId");
-  expect(block).toContain("clientContactId: projects.clientContactId");
+  expect(block).toContain("eq(clientContacts.id, projects.clientContactId)");
+  expect(block).toContain("eq(clientContacts.producerId, projects.producerId)");
+  expect(block).toContain("eq(clientContacts.clerkUserId, scope.clerkUserId)");
+  expect(block).toContain("isNull(clientContacts.archivedAt)");
   expect(block).not.toMatch(/\.leftJoin\(\s*clientContacts,/);
   expect(block).not.toContain("projects.artistEmail");
 }
 
 describe("artist exact relationship wiring", () => {
-  it("scopes the flat music list by the exact project relationship", () => {
-    const block = procedureBlock(
-      "  list: artistProcedure.query",
-      "  // Full detail for one project",
+  const loadProjectHeads = procedureBlock(
+    musicReadModelSource,
+    "async function loadProjectHeads",
+    "type NoChargeSourcePurchase",
+  );
+  const artistProjectHeads = loadProjectHeads.slice(
+    loadProjectHeads.lastIndexOf("  const rows = await db"),
+  );
+
+  it("scopes the current artist Music reads by the exact project relationship", () => {
+    const listBlock = procedureBlock(
+      librarySource,
+      "    artistList: artistProcedure",
+      "    artistProject: artistProcedure",
+    );
+    const projectBlock = procedureBlock(
+      librarySource,
+      "    artistProject: artistProcedure",
+      "  }),",
     );
 
-    expectExactProjectOwnerJoin(block);
-    expect(block).toContain('ne(projects.lifecycleStatus, "waiting_for_payment")');
+    expect(listBlock).toContain("listMusicSongSpaces");
+    expect(projectBlock).toContain("getMusicProjectSongSpaces");
+    for (const block of [listBlock, projectBlock]) {
+      expect(block).toContain('kind: "artist"');
+      expect(block).toContain("clerkUserId: ctx.clerkUserId");
+    }
+    expectExactProjectOwnerJoin(artistProjectHeads);
   });
 
   it("hides waiting projects from every artist Music read without hiding archives", () => {
-    const projectsBlock = procedureBlock(
-      "  projects: artistProcedure.query",
-      "  list: artistProcedure.query",
-    );
-    const projectBlock = procedureBlock(
-      "  project: artistProcedure",
-      "  // Timestamped comment",
-    );
     const detailBlock = procedureBlock(
+      artistSource,
       "  detail: artistProcedure",
       "  // Resolve / re-open",
     );
-    const homeBlock = procedureBlock(
-      "  home: artistProcedure.query",
-      "  // Soft-disconnect",
-    );
 
-    expect((projectsBlock.match(/ne\(projects\.lifecycleStatus, "waiting_for_payment"\)/g) ?? []).length).toBe(2);
-    expect(projectBlock).toContain("assertArtistMusicProjectAvailable(project.lifecycleStatus)");
+    expect(artistProjectHeads).toContain(
+      'ne(projects.lifecycleStatus, "waiting_for_payment")',
+    );
     expect(detailBlock).toContain(
       "assertArtistMusicProjectAvailable(ownedProject.lifecycleStatus)",
     );
-    expect((homeBlock.match(/ne\(projects\.lifecycleStatus, "waiting_for_payment"\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
-    expect(source).not.toContain('eq(projects.lifecycleStatus, "active") // artist Music');
+    expect(musicReadModelSource).not.toContain(
+      'eq(projects.lifecycleStatus, "active") // artist Music',
+    );
   });
 
   it("does not infer booking-level payment state", () => {
     const block = procedureBlock(
+      artistSource,
       "  myPendingPayments: artistProcedure.query",
       "// ─── artist.store sub-router",
     );
@@ -72,6 +90,6 @@ describe("artist exact relationship wiring", () => {
   });
 
   it("does not expose the removed recent-booking confirmation inference", () => {
-    expect(source).not.toContain("recentConfirmedBooking");
+    expect(artistSource).not.toContain("recentConfirmedBooking");
   });
 });

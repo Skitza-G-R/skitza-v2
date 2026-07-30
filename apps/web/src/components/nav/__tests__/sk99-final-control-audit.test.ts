@@ -17,6 +17,7 @@ const readPending = (relativePath: string) => {
 const artistMobileNav = read("../artist-bottom-nav.tsx");
 const producerMobileNav = read("../producer-bottom-nav.tsx");
 const artistDesktopNav = read("../artist-desktop-sidebar.tsx");
+const artistUserButton = read("../artist-user-button.tsx");
 const producerDesktopNav = read("../producer-sidebar.tsx");
 const englishMessages = read("../../../../messages/en.json");
 const appTopBar = read("../../shell/app-topbar.tsx");
@@ -41,19 +42,26 @@ const paymentReminderAction = readPending(
 );
 
 describe("SK-99 final navigation", () => {
-  it("keeps the approved five artist destinations and Settings in the account menu", () => {
+  it("keeps the approved four artist destinations and Settings in the account menu", () => {
     for (const [href, label] of [
       ["/artist", "Home"],
       ["/artist/music", "Music"],
-      ["/artist/book", "Book"],
+      ["/artist/sessions", "Sessions"],
       ["/artist/store", "Store"],
-      ["/artist/payments", "Payments"],
     ] as const) {
       expect(artistMobileNav).toContain(`href: "${href}", label: "${label}"`);
       expect(artistDesktopNav).toContain(`href: "${href}", label: "${label}"`);
     }
+    expect(artistMobileNav).not.toMatch(/href:\s*"\/artist\/(?:book|payments)"/);
+    expect(artistDesktopNav).not.toMatch(/href:\s*"\/artist\/(?:book|payments)"/);
     expect(artistMobileNav).not.toContain('href: "/artist/settings"');
-    expect(artistDesktopNav).toContain('withArtistStudio("/artist/settings", activeStudioId)');
+    expect(artistDesktopNav).not.toContain('href: "/artist/settings"');
+    expect(artistDesktopNav).toContain("<ArtistUserButton");
+    expect(artistDesktopNav).toContain(
+      'settingsHref={withArtistStudio("/artist/settings", activeStudioId)}',
+    );
+    expect(artistUserButton).toContain('label="Settings"');
+    expect(artistUserButton).toContain("href={settingsHref}");
   });
 
   it("keeps the approved producer mobile tabs and desktop Store, Payments, and Settings", () => {

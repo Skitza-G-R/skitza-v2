@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { decideRoleRedirect, type ProducerRow, type UserRole } from "../role";
+import {
+  decideRoleAccessRedirect,
+  decideRoleRedirect,
+  resolveUserAccess,
+  type ProducerRow,
+  type UserRole,
+} from "../role";
 
 // Tests for the kind→redirect mapping that requireRole() enforces at
 // the top of every protected layout. Replaces the redirect-string
@@ -61,9 +67,7 @@ describe("decideRoleRedirect — producer policy", () => {
 
 describe("decideRoleRedirect — artist policy", () => {
   it("unauthenticated → /sign-in?redirect_url=/artist", () => {
-    expect(decideRoleRedirect(unauth, "artist")).toBe(
-      "/sign-in?redirect_url=/artist",
-    );
+    expect(decideRoleRedirect(unauth, "artist")).toBe("/sign-in?redirect_url=/artist");
   });
 
   it("producer-complete → /dashboard (CLAUDE.md: producer cannot reach /artist/*)", () => {
@@ -88,5 +92,36 @@ describe("decideRoleRedirect — artist policy", () => {
 
   it("artist → null (render)", () => {
     expect(decideRoleRedirect(artist, "artist")).toBeNull();
+  });
+});
+
+describe("decideRoleAccessRedirect — dual-role capability policy", () => {
+  it("allows a complete producer with an active artist relationship into either app", () => {
+    const access = resolveUserAccess({
+      userId: "user_dual",
+      producerRow: completeProducer,
+      hasClientContacts: true,
+    });
+    expect(decideRoleAccessRedirect(access, "producer")).toBeNull();
+    expect(decideRoleAccessRedirect(access, "artist")).toBeNull();
+  });
+
+  it("keeps a producer-only account out of the artist app", () => {
+    const access = resolveUserAccess({
+      userId: "user_producer_only",
+      producerRow: completeProducer,
+      hasClientContacts: false,
+    });
+    expect(decideRoleAccessRedirect(access, "artist")).toBe("/dashboard");
+  });
+
+  it("allows an artist capability while an optional producer profile is incomplete", () => {
+    const access = resolveUserAccess({
+      userId: "user_dual_incomplete",
+      producerRow: incompleteProducer,
+      hasClientContacts: true,
+    });
+    expect(decideRoleAccessRedirect(access, "artist")).toBeNull();
+    expect(decideRoleAccessRedirect(access, "producer")).toBe("/onboarding");
   });
 });

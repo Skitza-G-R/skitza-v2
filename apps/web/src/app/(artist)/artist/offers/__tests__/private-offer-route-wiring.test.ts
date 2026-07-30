@@ -11,10 +11,10 @@ const artistRouter = readFileSync(join(srcRoot, "server/trpc/routers/artist.ts")
 const appRouter = readFileSync(join(srcRoot, "server/trpc/routers/_app.ts"), "utf8");
 
 describe("artist private-offer route wiring", () => {
-  it("loads offers independently on Artist Home", () => {
-    expect(homePage).toContain("caller.artist.home()");
-    expect(homePage).toContain("caller.privateOffers.artistList()");
-    expect(homePage).toMatch(/<PrivateOffersList\s+offers=\{privateOffers\.offers\}/);
+  it("keeps offers out of the single-action Artist Home", () => {
+    expect(homePage).toContain("caller.artist.home({ producerId:");
+    expect(homePage).not.toContain("caller.privateOffers.artistList");
+    expect(homePage).not.toContain("PrivateOffersList");
   });
 
   it("loads only the active studio's offers in Store", () => {
@@ -38,7 +38,7 @@ describe("artist private-offer route wiring", () => {
     expect(appRouter).toContain('import { privateOffersRouter } from "./private-offers"');
     expect(appRouter).toContain("privateOffers: privateOffersRouter");
     expect(artistRouter).not.toMatch(/privateOffers|privateOffer/);
-    expect(artistRouter).toContain("home: artistProcedure.query");
+    expect(artistRouter).toContain("home: artistProcedure");
     expect(artistRouter).toContain("music: musicSubrouter");
   });
 });

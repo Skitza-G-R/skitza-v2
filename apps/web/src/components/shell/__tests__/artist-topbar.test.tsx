@@ -5,9 +5,8 @@ import { dirname, join } from "node:path";
 
 // Artist-side wrapper tests. Shared rendering lives in `app-topbar.tsx`
 // (pinned by app-topbar.test.tsx); this file pins the artist-specific
-// configuration: section labels (Home / Music / Book / Store /
-// Settings), artist search placeholder, and the absence of dead
-// search or notification actions.
+// configuration: section labels, artist search placeholder, and the
+// functional artist notification control.
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "artist-topbar.tsx"), "utf-8");
@@ -33,9 +32,9 @@ describe("ArtistTopBar (artist wrapper)", () => {
   it("maps each artist route to its label", () => {
     expect(SRC).toMatch(/"\/artist":\s*"Home"/);
     expect(SRC).toMatch(/"\/artist\/music":\s*"Music"/);
-    expect(SRC).toMatch(/"\/artist\/book":\s*"Book"/);
+    expect(SRC).toMatch(/"\/artist\/sessions":\s*"Sessions"/);
     expect(SRC).toMatch(/"\/artist\/store":\s*"Store"/);
-    expect(SRC).toMatch(/"\/artist\/payments":\s*"Payments"/);
+    expect(SRC).toMatch(/"\/artist\/purchase":\s*"Store"/);
     expect(SRC).toMatch(/"\/artist\/settings":\s*"Settings"/);
   });
 
@@ -52,9 +51,10 @@ describe("ArtistTopBar (artist wrapper)", () => {
     expect(SRC).not.toContain("dispatchEvent");
   });
 
-  it("does not pass a passive notification signal", () => {
-    expect(SRC).not.toContain("unreadCount");
-    expect(SRC).not.toContain("notificationControl");
+  it("passes the live artist bell into the functional notification slot", () => {
+    expect(SRC).toContain("initialUnreadCount");
+    expect(SRC).toContain("notificationControl=");
+    expect(SRC).toContain("<ArtistNotificationBell");
   });
 
   it("uses no forbidden Skitza CSS tokens", () => {

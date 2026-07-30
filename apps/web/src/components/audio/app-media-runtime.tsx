@@ -22,6 +22,7 @@ import {
   clearBrowserPushSubscription,
   type OwnedPushRemoval,
 } from "~/lib/push/browser-subscription";
+import { clearArtistStudioPreferenceCookie } from "~/lib/artist-studio-preference-client";
 import { clearAccountPrivateRuntimeState } from "~/lib/runtime-state/account-exit";
 import { useToast } from "~/components/ui/toast";
 import {
@@ -54,8 +55,8 @@ export function isClerkUserButtonSignOutTarget(target: EventTarget | null): bool
   const button = target.closest("button");
   return Boolean(
     button &&
-      button.closest(CLERK_USER_BUTTON_POPOVER_SELECTOR) &&
-      button.textContent.trim() === "Sign out",
+    button.closest(CLERK_USER_BUTTON_POPOVER_SELECTOR) &&
+    button.textContent.trim() === "Sign out",
   );
 }
 
@@ -112,6 +113,7 @@ async function prepareAppAccountExit(
   let privateCleanupFailure: unknown;
   try {
     clearAccountPrivateRuntimeState(accountId);
+    clearArtistStudioPreferenceCookie();
   } catch (error) {
     privateCleanupFailed = true;
     privateCleanupFailure = error;

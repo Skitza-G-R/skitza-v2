@@ -54,4 +54,37 @@ describe("commercial snapshot agreement", () => {
       );
     }).not.toThrow();
   });
+
+  it("requires v2 snapshots to state booking eligibility consistently with session terms", () => {
+    const enabled = {
+      ...snapshot("Final terms accepted by the artist"),
+      version: 2,
+      bookingEnabled: true,
+      session: {
+        limit: { kind: "fixed", count: 2 },
+        durationMin: 90,
+        locationType: "studio",
+        bufferMinutes: 15,
+        minLeadHours: 24,
+      },
+    } satisfies PurchaseCommercialSnapshot;
+    expect(() => {
+      assertCommercialSnapshotMatchesAcceptance(enabled, 10_000, { kind: "full" });
+    }).not.toThrow();
+
+    expect(() => {
+      assertCommercialSnapshotMatchesAcceptance(
+        { ...enabled, bookingEnabled: false },
+        10_000,
+        { kind: "full" },
+      );
+    }).toThrow(/session must be present exactly when booking is enabled/i);
+    expect(() => {
+      assertCommercialSnapshotMatchesAcceptance(
+        { ...snapshot("Final terms accepted by the artist"), bookingEnabled: false },
+        10_000,
+        { kind: "full" },
+      );
+    }).toThrow(/legacy commercial snapshots cannot declare booking eligibility/i);
+  });
 });

@@ -11,6 +11,7 @@ import { after } from "next/server";
 import { TRPCError } from "@trpc/server";
 import {
   and,
+  clientContacts,
   producers,
   projectTracks,
   projects,
@@ -51,12 +52,8 @@ import {
 } from "~/server/domain/version-uploads/service";
 import { currentTrackArtistApprovalAction } from "~/server/domain/version-uploads/db";
 import { SITE_URL, sendTrackVersionUploadedEmail } from "~/server/email/send";
-import {
-  BUCKETS,
-  getR2,
-  getR2SingleAttempt,
-  isAudioKeyForTrackVersion,
-} from "~/server/storage/r2";
+import { emitArtistNewVersionNotification } from "~/server/artist/notification-emitters";
+import { BUCKETS, getR2, getR2SingleAttempt, isAudioKeyForTrackVersion } from "~/server/storage/r2";
 
 export {
   reconcilePendingMultipartCancellation,
@@ -1936,29 +1933,70 @@ export const audioRouter = router({
           title: projects.title,
           artistName: projects.artistName,
           artistEmail: projects.artistEmail,
+          clientContactId: projects.clientContactId,
         })
         .from(projects)
-        .where(eq(projects.id, projectId))
+        .where(and(eq(projects.id, projectId), eq(projects.producerId, ctx.producerId)))
+        .limit(1);
+      const [trackRow] = await ctx.db
+        .select({ title: projectTracks.title })
+        .from(projectTracks)
+        .where(
+          and(
+            eq(projectTracks.id, trackId),
+            eq(projectTracks.projectId, projectId),
+            eq(projectTracks.purchaseId, purchaseId),
+          ),
+        )
         .limit(1);
       const [producerRow] = await ctx.db
         .select({ displayName: producers.displayName })
         .from(producers)
         .where(eq(producers.id, ctx.producerId))
         .limit(1);
-      if (versionRow && projectRow) {
+      const [artistContact] = projectRow
+        ? await ctx.db
+            .select({ clerkUserId: clientContacts.clerkUserId })
+            .from(clientContacts)
+            .where(
+              and(
+                eq(clientContacts.id, projectRow.clientContactId),
+                eq(clientContacts.producerId, ctx.producerId),
+                isNull(clientContacts.archivedAt),
+              ),
+            )
+            .limit(1)
+        : [];
+      if (versionRow && projectRow && trackRow) {
         const label = versionRow.label;
         const artistEmail = projectRow.artistEmail;
         const artistName = projectRow.artistName;
         const projectTitle = projectRow.title;
+        const trackTitle = trackRow.title;
         const producerName = producerRow?.displayName ?? "Your producer";
         after(async () => {
+          let emailEnabled = true;
+          try {
+            const delivery = await emitArtistNewVersionNotification(ctx.db, {
+              recipientClerkUserId: artistContact?.clerkUserId ?? null,
+              producerId: ctx.producerId,
+              trackVersionId: input.trackVersionId,
+              producerName,
+              trackTitle,
+              versionLabel: label,
+            });
+            emailEnabled = delivery.emailEnabled;
+          } catch (error) {
+            console.warn("[artist-notify] track-version event failed", error);
+          }
+          if (!emailEnabled) return;
           try {
             await sendTrackVersionUploadedEmail(artistEmail, {
               artistName,
               producerName,
               projectName: projectTitle,
               versionLabel: label,
-              reviewUrl: `${SITE_URL}/artist/music`,
+              reviewUrl: `${SITE_URL}/artist/music/song/${input.trackVersionId}`,
             });
           } catch (err) {
             console.error("[email] track-version-uploaded failed", err);

@@ -4,6 +4,7 @@ import {
   allowanceBookHref,
   allowanceCanBook,
   allowanceUnavailableMessage,
+  artistSessionDisplay,
   bookingActionLabel,
   buildProgressDots,
   formatSessionDate,
@@ -77,11 +78,49 @@ describe("buildProgressDots", () => {
 
 describe("bookingActionLabel", () => {
   it("asks to request when Gate 3 (approval) is on", () => {
-    expect(bookingActionLabel(true)).toBe("Request this slot");
+    expect(bookingActionLabel(true)).toBe("Request this time");
   });
 
   it("books directly when Gate 3 is off (auto-approve)", () => {
-    expect(bookingActionLabel(false)).toBe("Book this slot");
+    expect(bookingActionLabel(false)).toBe("Book this time");
+  });
+});
+
+describe("artistSessionDisplay", () => {
+  it("uses only the five approved artist labels", () => {
+    expect(
+      [
+        ["pending_approval", "reserved"],
+        ["confirmed", "reserved"],
+        ["rejected", "reserved"],
+        ["completed", "completed"],
+        ["cancelled", "cancelled_on_time"],
+      ].map(([status, outcome]) =>
+        artistSessionDisplay({ status: status as never, outcome: outcome as never }).label,
+      ),
+    ).toEqual(["Held", "Confirmed", "Declined", "Completed", "Cancelled"]);
+  });
+
+  it("maps no-show to Completed with secondary context", () => {
+    expect(artistSessionDisplay({ status: "no_show", outcome: "no_show" })).toEqual({
+      status: "completed",
+      label: "Completed",
+      secondary: "Marked no-show",
+    });
+  });
+
+  it("explains an automatically expired Held request exactly", () => {
+    expect(
+      artistSessionDisplay({
+        status: "cancelled",
+        outcome: "cancelled_by_producer",
+        heldExpiryReason: "approval_timeout",
+      }),
+    ).toEqual({
+      status: "cancelled",
+      label: "Cancelled",
+      secondary: "The studio did not confirm this request in time.",
+    });
   });
 });
 

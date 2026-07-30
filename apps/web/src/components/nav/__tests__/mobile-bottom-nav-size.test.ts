@@ -8,6 +8,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 const PRODUCER_NAV = readFileSync(join(here, "..", "producer-bottom-nav.tsx"), "utf8");
 const ARTIST_NAV = readFileSync(join(here, "..", "artist-bottom-nav.tsx"), "utf8");
 const ARTIST_SHELL = readFileSync(join(here, "..", "..", "artist", "artist-app-shell.tsx"), "utf8");
+const ARTIST_SHELL_MAIN = readFileSync(
+  join(here, "..", "..", "artist", "artist-shell-main.tsx"),
+  "utf8",
+);
 const GLOBALS = readFileSync(join(here, "..", "..", "..", "app", "globals.css"), "utf8");
 const SETTINGS = readFileSync(
   join(here, "..", "..", "..", "app", "(producer)", "dashboard", "settings", "settings.css"),
@@ -59,8 +63,11 @@ describe("SK-117 mobile bottom-navigation sizing", () => {
   });
 
   it("reserves the larger artist nav and player stack without changing desktop spacing", () => {
-    expect(ARTIST_SHELL).toContain("pb-[calc(5.75rem+env(safe-area-inset-bottom,0px))]");
-    expect(ARTIST_SHELL).toContain("lg:pb-12");
+    expect(ARTIST_SHELL).toContain("<ArtistShellMain>");
+    expect(ARTIST_SHELL_MAIN).toContain(
+      "pb-[calc(5.75rem+env(safe-area-inset-bottom,0px))]",
+    );
+    expect(ARTIST_SHELL_MAIN).toContain("lg:pb-12");
     expect(GLOBALS).toContain("bottom: calc(80px + env(safe-area-inset-bottom, 0px));");
     expect(GLOBALS).toContain("padding-bottom: calc(182px + env(safe-area-inset-bottom));");
   });

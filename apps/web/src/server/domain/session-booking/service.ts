@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 export type SessionUseOutcome =
   | "reserved"
@@ -24,6 +24,8 @@ export type SessionBookingErrorCode =
   | "INVALID_STATUS"
   | "CANCELLATION_WINDOW"
   | "OPERATION_KEY_CONFLICT"
+  | "BOOKING_DISABLED"
+  | "HELD_EXPIRED"
   | "TOO_EARLY";
 
 export class SessionBookingDomainError extends Error {
@@ -77,6 +79,13 @@ export type SessionBookingRecord = Readonly<{
   operationKey: string;
   operationDigest: string;
   rescheduledFromBookingId: string | null;
+  allowanceUseId: string;
+  cancellationPolicyHoursSnapshot: number;
+  cancellationPolicySnapshottedAt: Date;
+  cancellationPolicyBackfilled: boolean;
+  heldExpiresAt: Date | null;
+  heldExpiredAt: Date | null;
+  heldExpiryReason: "approval_timeout" | null;
   status: SessionBookingStatus;
   outcome: SessionUseOutcome;
   statusChangedAt: Date | null;
@@ -88,6 +97,7 @@ export type SessionBookingAllowance = Readonly<{
   id: string;
   purchaseId: string;
   producerId: string;
+  bookingEnabledSnapshot: boolean;
   kind: "fixed" | "unlimited";
   sessionLimit: number | null;
   durationMin: number;
@@ -189,7 +199,13 @@ export interface SessionBookingTransaction {
   listAllowanceUses(
     producerId: string,
     sessionAllowanceId: string,
-  ): Promise<readonly Readonly<{ bookingId: string; outcome: SessionUseOutcome }>[]>;
+  ): Promise<
+    readonly Readonly<{
+      bookingId: string;
+      allowanceUseId: string;
+      outcome: SessionUseOutcome;
+    }>[]
+  >;
   listScheduleEntries(producerId: string): Promise<readonly SessionBookingScheduleEntry[]>;
   insertBooking(input: NewSessionBookingRecord): Promise<SessionBookingRecord>;
   updateBooking(input: {
@@ -199,6 +215,8 @@ export interface SessionBookingTransaction {
     status: SessionBookingStatus;
     outcome: SessionUseOutcome;
     occurredAt: Date;
+    heldExpiredAt?: Date;
+    heldExpiryReason?: "approval_timeout";
   }): Promise<SessionBookingRecord>;
   insertTransitionEvent(
     input: SessionBookingTransitionEventDraft,
@@ -232,7 +250,7 @@ export function artistCancellationOutcome(input: {
     throw new SessionBookingDomainError("INVALID_SLOT", "The cancellation policy is invalid");
   }
   const deadline = input.startsAt.getTime() - input.cancellationPolicyHours * 60 * 60 * 1000;
-  return input.now.getTime() <= deadline ? "cancelled_on_time" : "cancelled_late";
+  return input.now.getTime() < deadline ? "cancelled_on_time" : "cancelled_late";
 }
 
 type WallClock = Readonly<{
@@ -289,11 +307,11 @@ function dateKey(wall: Pick<WallClock, "year" | "month" | "day">): string {
   return `${String(wall.year).padStart(4, "0")}-${String(wall.month).padStart(2, "0")}-${String(wall.day).padStart(2, "0")}`;
 }
 
-export function studioLocalDateTimeToUtc(input: {
+export function studioLocalDateTimeUtcCandidates(input: {
   date: string;
   startMin: number;
   timeZone: string;
-}): Date {
+}): Date[] {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(input.date);
   if (
     !match ||
@@ -338,7 +356,15 @@ export function studioLocalDateTimeToUtc(input: {
       );
     })
     .sort((left, right) => left.getTime() - right.getTime());
-  const earliest = candidates[0];
+  return candidates;
+}
+
+export function studioLocalDateTimeToUtc(input: {
+  date: string;
+  startMin: number;
+  timeZone: string;
+}): Date {
+  const earliest = studioLocalDateTimeUtcCandidates(input)[0];
   if (!earliest) {
     throw new SessionBookingDomainError(
       "INVALID_SLOT",
@@ -504,6 +530,7 @@ export function assertSessionBookingAllowed(
     purchaseLifecycleStatus: "waiting_for_payment" | "active" | "canceled";
     projectLifecycleStatus: "waiting_for_payment" | "active" | "paused" | "completed" | "canceled";
     allowance: Readonly<{
+      bookingEnabledSnapshot: boolean;
       kind: "fixed" | "unlimited";
       sessionLimit: number | null;
       durationMin: number;
@@ -530,6 +557,12 @@ export function assertSessionBookingAllowed(
   }
   if (input.allowance.closedAt !== null) {
     throw new SessionBookingDomainError("ALLOWANCE_CLOSED", "The session allowance is closed");
+  }
+  if (!input.allowance.bookingEnabledSnapshot) {
+    throw new SessionBookingDomainError(
+      "BOOKING_DISABLED",
+      "This purchase does not include artist session booking",
+    );
   }
   if (
     !Number.isSafeInteger(input.allowance.durationMin) ||
@@ -640,11 +673,13 @@ function assertActiveStatus(
 }
 
 export function sessionBookingCapabilities(input: {
-  booking: Pick<SessionBookingRecord, "status" | "startsAt">;
+  booking: Pick<
+    SessionBookingRecord,
+    "status" | "startsAt" | "cancellationPolicyHoursSnapshot" | "heldExpiresAt"
+  >;
   purchaseLifecycleStatus: "waiting_for_payment" | "active" | "canceled";
   projectLifecycleStatus: "waiting_for_payment" | "active" | "paused" | "completed" | "canceled";
   allowanceClosedAt: Date | null;
-  cancellationPolicyHours: number;
   now: Date;
 }): Readonly<{
   cancellationDeadline: Date;
@@ -653,24 +688,33 @@ export function sessionBookingCapabilities(input: {
   canReschedule: boolean;
 }> {
   const cancellationDeadline = new Date(
-    input.booking.startsAt.getTime() - input.cancellationPolicyHours * 60 * 60 * 1000,
+    input.booking.startsAt.getTime() -
+      input.booking.cancellationPolicyHoursSnapshot * 60 * 60 * 1000,
   );
   const activeBooking =
     input.booking.status === "pending_approval" || input.booking.status === "confirmed";
+  const heldBeforeStart =
+    input.booking.status === "pending_approval" &&
+    input.now.getTime() < input.booking.startsAt.getTime() &&
+    input.booking.heldExpiresAt !== null &&
+    input.now.getTime() < input.booking.heldExpiresAt.getTime();
   const isOnTime =
     artistCancellationOutcome({
       startsAt: input.booking.startsAt,
       now: input.now,
-      cancellationPolicyHours: input.cancellationPolicyHours,
+      cancellationPolicyHours: input.booking.cancellationPolicyHoursSnapshot,
     }) === "cancelled_on_time";
   return {
     cancellationDeadline,
     isOnTime,
-    // The approved Artist UI and artist command both disable late
-    // self-service. Cancellation is never gated on project/allowance lifecycle.
-    canCancel: activeBooking && isOnTime,
-    canReschedule:
+    // A Held request is only a temporary reservation. The artist can withdraw
+    // it until the session starts, independently of the confirmed-session
+    // cancellation policy. Confirmed sessions use the strict cutoff.
+    canCancel:
       activeBooking &&
+      (heldBeforeStart || (input.booking.status === "confirmed" && isOnTime)),
+    canReschedule:
+      input.booking.status === "confirmed" &&
       isOnTime &&
       input.purchaseLifecycleStatus === "active" &&
       input.projectLifecycleStatus === "active" &&
@@ -682,20 +726,34 @@ export function sessionAllowanceCanBook(input: {
   purchaseLifecycleStatus: "waiting_for_payment" | "active" | "canceled";
   projectLifecycleStatus: "waiting_for_payment" | "active" | "paused" | "completed" | "canceled";
   allowanceClosedAt: Date | null;
+  bookingEnabledSnapshot?: boolean;
   allowanceKind: "fixed" | "unlimited";
   sessionLimit: number | null;
-  existingOutcomes: readonly SessionUseOutcome[];
+  existingOutcomes?: readonly SessionUseOutcome[];
+  existingUses?: readonly Readonly<{
+    allowanceUseId: string;
+    outcome: SessionUseOutcome;
+  }>[];
 }): boolean {
   if (
     input.purchaseLifecycleStatus !== "active" ||
     input.projectLifecycleStatus !== "active" ||
-    input.allowanceClosedAt !== null
+    input.allowanceClosedAt !== null ||
+    input.bookingEnabledSnapshot === false
   ) {
     return false;
   }
   if (input.allowanceKind === "unlimited") return input.sessionLimit === null;
   if (input.sessionLimit === null || input.sessionLimit <= 0) return false;
-  return input.existingOutcomes.filter(sessionUseConsumesAllowance).length < input.sessionLimit;
+  const used =
+    input.existingUses === undefined
+      ? (input.existingOutcomes ?? []).filter(sessionUseConsumesAllowance).length
+      : new Set(
+          input.existingUses
+            .filter((use) => sessionUseConsumesAllowance(use.outcome))
+            .map((use) => use.allowanceUseId),
+        ).size;
+  return used < input.sessionLimit;
 }
 
 type SessionBookingRequestedStart = Readonly<{
@@ -774,6 +832,7 @@ async function createSessionBookingInTransaction(
   input: CreateSessionBookingInput,
   options: Readonly<{
     rescheduledFromBookingId: string | null;
+    allowanceUseId?: string;
     ignoredBookingId?: string;
     transitionKind: "created" | "rescheduled";
     operationDigestOverride?: string;
@@ -831,13 +890,20 @@ async function createSessionBookingInTransaction(
   const now = commandNow(input.now);
 
   const uses = await transaction.listAllowanceUses(input.producerId, input.sessionAllowanceId);
+  const distinctConsumingUses = new Map<string, SessionUseOutcome>();
+  for (const use of uses) {
+    if (
+      use.bookingId !== options.ignoredBookingId &&
+      sessionUseConsumesAllowance(use.outcome)
+    ) {
+      distinctConsumingUses.set(use.allowanceUseId, use.outcome);
+    }
+  }
   assertSessionBookingAllowed({
     purchaseLifecycleStatus: context.purchase.lifecycleStatus,
     projectLifecycleStatus: context.project.lifecycleStatus,
     allowance: context.allowance,
-    existingOutcomes: uses
-      .filter((use) => use.bookingId !== options.ignoredBookingId)
-      .map((use) => use.outcome),
+    existingOutcomes: [...distinctConsumingUses.values()],
     requestedDurationMin: input.durationMin,
     startsAt,
     now,
@@ -854,6 +920,10 @@ async function createSessionBookingInTransaction(
   });
 
   const status = initialSessionBookingStatus(context.producer.autoConfirmBookings);
+  const heldExpiresAt =
+    status === "pending_approval"
+      ? new Date(Math.min(now.getTime() + 24 * 60 * 60 * 1000, startsAt.getTime()))
+      : null;
   const booking = await transaction.insertBooking({
     producerId: input.producerId,
     projectId: input.projectId,
@@ -866,6 +936,13 @@ async function createSessionBookingInTransaction(
     operationKey: input.operationKey,
     operationDigest: digest,
     rescheduledFromBookingId: options.rescheduledFromBookingId,
+    allowanceUseId: options.allowanceUseId ?? randomUUID(),
+    cancellationPolicyHoursSnapshot: context.producer.cancellationPolicyHours,
+    cancellationPolicySnapshottedAt: now,
+    cancellationPolicyBackfilled: false,
+    heldExpiresAt,
+    heldExpiredAt: null,
+    heldExpiryReason: null,
     status,
     outcome: "reserved",
     occurredAt: now,
@@ -936,6 +1013,7 @@ async function transitionSessionBooking(
       status: SessionBookingStatus;
       outcome: SessionUseOutcome;
     }>;
+    cancelPendingReplacement?: boolean;
   }>,
 ): Promise<BookingTransitionResult> {
   assertOperationKey(input.operationKey);
@@ -990,6 +1068,35 @@ async function transitionSessionBooking(
         newStartsAt: null,
         occurredAt: now,
       });
+      if (spec.cancelPendingReplacement) {
+        const replacement = await transaction.findReplacementBooking(context.booking.id);
+        if (replacement?.status === "pending_approval") {
+          const cancelledReplacement = await transaction.updateBooking({
+            bookingId: replacement.id,
+            producerId: replacement.producerId,
+            expectedStatus: "pending_approval",
+            status: "cancelled",
+            outcome: next.outcome,
+            occurredAt: now,
+          });
+          await transaction.insertTransitionEvent({
+            bookingId: cancelledReplacement.id,
+            producerId: cancelledReplacement.producerId,
+            operationKey: input.operationKey,
+            operationDigest: digest,
+            kind: spec.kind,
+            actorKind: spec.actorKind,
+            actorId: input.actorClerkUserId,
+            fromStatus: replacement.status,
+            toStatus: cancelledReplacement.status,
+            fromOutcome: replacement.outcome,
+            toOutcome: cancelledReplacement.outcome,
+            oldStartsAt: replacement.startsAt,
+            newStartsAt: null,
+            occurredAt: now,
+          });
+        }
+      }
       return { booking: updated, changed: true };
     },
   );
@@ -1004,29 +1111,132 @@ function assertPending(context: SessionBookingContext): void {
   }
 }
 
-export function confirmSessionBooking(
+function assertHeldUnexpired(context: SessionBookingContext, now: Date): void {
+  if (
+    context.booking.status === "pending_approval" &&
+    (context.booking.heldExpiresAt === null ||
+      now.getTime() >= context.booking.heldExpiresAt.getTime())
+  ) {
+    throw new SessionBookingDomainError(
+      "HELD_EXPIRED",
+      "This held request has expired and cannot be changed",
+    );
+  }
+}
+
+export async function confirmSessionBooking(
   repository: SessionBookingRepository,
   input: BookingTransitionInput & { producerId: string },
 ): Promise<BookingTransitionResult> {
-  return transitionSessionBooking(repository, input, {
-    command: "producer-confirm",
-    kind: "confirmed",
-    actorKind: "producer",
-    assertAllowed: (context) => {
+  assertOperationKey(input.operationKey);
+  return repository.atomically(
+    { kind: "booking", bookingId: input.bookingId, producerId: input.producerId },
+    async (transaction) => {
+      const context = await transaction.loadBookingContext({
+        bookingId: input.bookingId,
+        producerId: input.producerId,
+      });
+      if (!context) throw new SessionBookingDomainError("NOT_FOUND", "The session was not found");
+      const digest = operationDigest("producer-confirm", {
+        bookingId: input.bookingId,
+        producerId: input.producerId,
+        reason: input.reason?.trim() || null,
+      });
+      const replay = await transaction.findTransitionEvent(input.bookingId, input.operationKey);
+      if (replay) {
+        assertOperationReplay(replay, digest);
+        return { booking: bookingAtTransition(context.booking, replay), changed: false };
+      }
+      const now = commandNow(input.now);
       assertPending(context);
+      assertHeldUnexpired(context, now);
       if (
         context.purchase.lifecycleStatus !== "active" ||
         context.project.lifecycleStatus !== "active" ||
-        context.allowance.closedAt !== null
+        context.allowance.closedAt !== null ||
+        !context.allowance.bookingEnabledSnapshot
       ) {
         throw new SessionBookingDomainError(
           "PROJECT_INACTIVE",
           "The purchased session allowance is no longer active",
         );
       }
+      const original =
+        context.booking.rescheduledFromBookingId === null
+          ? null
+          : await transaction.loadBookingContext({
+              bookingId: context.booking.rescheduledFromBookingId,
+              producerId: context.booking.producerId,
+            });
+      if (context.booking.rescheduledFromBookingId !== null && original === null) {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "The original session for this replacement was not found",
+        );
+      }
+      if (
+        original &&
+        (original.booking.status !== "confirmed" ||
+          original.booking.allowanceUseId !== context.booking.allowanceUseId)
+      ) {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "The original session is no longer available for this replacement",
+        );
+      }
+      const updated = await transaction.updateBooking({
+        bookingId: context.booking.id,
+        producerId: context.booking.producerId,
+        expectedStatus: "pending_approval",
+        status: "confirmed",
+        outcome: "reserved",
+        occurredAt: now,
+      });
+      await transaction.insertTransitionEvent({
+        bookingId: updated.id,
+        producerId: updated.producerId,
+        operationKey: input.operationKey,
+        operationDigest: digest,
+        kind: "confirmed",
+        actorKind: "producer",
+        actorId: input.actorClerkUserId,
+        fromStatus: context.booking.status,
+        toStatus: updated.status,
+        fromOutcome: context.booking.outcome,
+        toOutcome: updated.outcome,
+        oldStartsAt: context.booking.startsAt,
+        newStartsAt: null,
+        occurredAt: now,
+      });
+      if (original) {
+        const cancelledOriginal = await transaction.updateBooking({
+          bookingId: original.booking.id,
+          producerId: original.booking.producerId,
+          expectedStatus: "confirmed",
+          status: "cancelled",
+          outcome: "cancelled_on_time",
+          occurredAt: now,
+        });
+        await transaction.insertTransitionEvent({
+          bookingId: cancelledOriginal.id,
+          producerId: cancelledOriginal.producerId,
+          operationKey: input.operationKey,
+          operationDigest: digest,
+          kind: "rescheduled",
+          actorKind: "producer",
+          actorId: input.actorClerkUserId,
+          fromStatus: original.booking.status,
+          toStatus: cancelledOriginal.status,
+          fromOutcome: original.booking.outcome,
+          toOutcome: cancelledOriginal.outcome,
+          oldStartsAt: original.booking.startsAt,
+          newStartsAt: updated.startsAt,
+          occurredAt: now,
+        });
+      }
+      return { booking: updated, changed: true };
     },
-    next: () => ({ status: "confirmed", outcome: "reserved" }),
-  });
+  );
 }
 
 export function rejectSessionBooking(
@@ -1037,9 +1247,77 @@ export function rejectSessionBooking(
     command: "producer-reject",
     kind: "rejected",
     actorKind: "producer",
-    assertAllowed: assertPending,
+    assertAllowed: (context, now) => {
+      assertPending(context);
+      assertHeldUnexpired(context, now);
+    },
     next: () => ({ status: "rejected", outcome: "cancelled_by_producer" }),
   });
+}
+
+export async function expireHeldSessionBooking(
+  repository: SessionBookingRepository,
+  input: Readonly<{
+    bookingId: string;
+    operationKey: string;
+    now?: Date;
+  }>,
+): Promise<BookingTransitionResult> {
+  assertOperationKey(input.operationKey);
+  return repository.atomically(
+    { kind: "booking", bookingId: input.bookingId },
+    async (transaction) => {
+      const context = await transaction.loadBookingContext({ bookingId: input.bookingId });
+      if (!context) throw new SessionBookingDomainError("NOT_FOUND", "The session was not found");
+      const digest = operationDigest("system-expire-held", {
+        bookingId: input.bookingId,
+        reason: "approval_timeout",
+      });
+      const replay = await transaction.findTransitionEvent(input.bookingId, input.operationKey);
+      if (replay) {
+        assertOperationReplay(replay, digest);
+        return { booking: bookingAtTransition(context.booking, replay), changed: false };
+      }
+      assertPending(context);
+      const now = commandNow(input.now);
+      if (
+        context.booking.heldExpiresAt === null ||
+        now.getTime() < context.booking.heldExpiresAt.getTime()
+      ) {
+        throw new SessionBookingDomainError(
+          "TOO_EARLY",
+          "This held request has not reached its approval timeout",
+        );
+      }
+      const updated = await transaction.updateBooking({
+        bookingId: context.booking.id,
+        producerId: context.booking.producerId,
+        expectedStatus: "pending_approval",
+        status: "cancelled",
+        outcome: "cancelled_by_producer",
+        occurredAt: now,
+        heldExpiredAt: now,
+        heldExpiryReason: "approval_timeout",
+      });
+      await transaction.insertTransitionEvent({
+        bookingId: updated.id,
+        producerId: updated.producerId,
+        operationKey: input.operationKey,
+        operationDigest: digest,
+        kind: "producer_cancelled",
+        actorKind: "system",
+        actorId: null,
+        fromStatus: context.booking.status,
+        toStatus: updated.status,
+        fromOutcome: context.booking.outcome,
+        toOutcome: updated.outcome,
+        oldStartsAt: context.booking.startsAt,
+        newStartsAt: null,
+        occurredAt: now,
+      });
+      return { booking: updated, changed: true };
+    },
+  );
 }
 
 export function cancelProducerSessionBooking(
@@ -1050,10 +1328,12 @@ export function cancelProducerSessionBooking(
     command: "producer-cancel",
     kind: "producer_cancelled",
     actorKind: "producer",
-    assertAllowed: ({ booking }) => {
-      assertActiveStatus(booking);
+    assertAllowed: (context, now) => {
+      assertActiveStatus(context.booking);
+      assertHeldUnexpired(context, now);
     },
     next: () => ({ status: "cancelled", outcome: "cancelled_by_producer" }),
+    cancelPendingReplacement: true,
   });
 }
 
@@ -1067,11 +1347,21 @@ export function cancelArtistSessionBooking(
     actorKind: "artist",
     assertAllowed: (context, now) => {
       assertActiveStatus(context.booking);
+      if (context.booking.status === "pending_approval") {
+        assertHeldUnexpired(context, now);
+        if (now.getTime() >= context.booking.startsAt.getTime()) {
+          throw new SessionBookingDomainError(
+            "CANCELLATION_WINDOW",
+            "This held request can no longer be withdrawn online",
+          );
+        }
+        return;
+      }
       if (
         artistCancellationOutcome({
           startsAt: context.booking.startsAt,
           now,
-          cancellationPolicyHours: context.producer.cancellationPolicyHours,
+          cancellationPolicyHours: context.booking.cancellationPolicyHoursSnapshot,
         }) !== "cancelled_on_time"
       ) {
         throw new SessionBookingDomainError(
@@ -1081,6 +1371,7 @@ export function cancelArtistSessionBooking(
       }
     },
     next: () => ({ status: "cancelled", outcome: "cancelled_on_time" }),
+    cancelPendingReplacement: true,
   });
 }
 
@@ -1098,7 +1389,7 @@ export function recordLateArtistCancellation(
         artistCancellationOutcome({
           startsAt: context.booking.startsAt,
           now,
-          cancellationPolicyHours: context.producer.cancellationPolicyHours,
+          cancellationPolicyHours: context.booking.cancellationPolicyHoursSnapshot,
         }) !== "cancelled_late"
       ) {
         throw new SessionBookingDomainError(
@@ -1193,18 +1484,11 @@ export async function rescheduleArtistSessionBooking(
         ...requestedStartOperationIdentity(input),
         durationMin: context.booking.durationMin,
       });
-      const replay = await transaction.findTransitionEvent(input.bookingId, input.operationKey);
-      if (replay) {
-        assertOperationReplay(replay, digest);
-        const replacement = await transaction.findReplacementBooking(input.bookingId);
-        if (!replacement || replacement.operationDigest !== digest) {
-          throw new SessionBookingDomainError(
-            "OPERATION_KEY_CONFLICT",
-            "The stored reschedule replacement is inconsistent",
-          );
-        }
+      const replacementReplay = await transaction.findReplacementBooking(input.bookingId);
+      if (replacementReplay) {
+        assertOperationReplay(replacementReplay, digest);
         const replacementEvent = await transaction.findTransitionEvent(
-          replacement.id,
+          replacementReplay.id,
           input.operationKey,
         );
         if (!replacementEvent || replacementEvent.kind !== "rescheduled") {
@@ -1214,20 +1498,42 @@ export async function rescheduleArtistSessionBooking(
           );
         }
         assertOperationReplay(replacementEvent, digest);
+        const originalEvent = await transaction.findTransitionEvent(
+          input.bookingId,
+          input.operationKey,
+        );
+        if (originalEvent) assertOperationReplay(originalEvent, digest);
         return {
-          booking: bookingAtTransition(replacement, replacementEvent),
-          replacedBooking: bookingAtTransition(context.booking, replay),
+          booking: bookingAtTransition(replacementReplay, replacementEvent),
+          replacedBooking: originalEvent
+            ? bookingAtTransition(context.booking, originalEvent)
+            : context.booking,
           created: false,
         };
       }
+      const orphanedReplay = await transaction.findTransitionEvent(
+        input.bookingId,
+        input.operationKey,
+      );
+      if (orphanedReplay) {
+        throw new SessionBookingDomainError(
+          "OPERATION_KEY_CONFLICT",
+          "The stored reschedule transition is missing its replacement",
+        );
+      }
       const startsAt = requestedSessionStart(input, context.producer.timeZone);
       const now = commandNow(input.now);
-      assertActiveStatus(context.booking);
+      if (context.booking.status !== "confirmed") {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "Only a confirmed session can be rescheduled",
+        );
+      }
       if (
         artistCancellationOutcome({
           startsAt: context.booking.startsAt,
           now,
-          cancellationPolicyHours: context.producer.cancellationPolicyHours,
+          cancellationPolicyHours: context.booking.cancellationPolicyHoursSnapshot,
         }) !== "cancelled_on_time"
       ) {
         throw new SessionBookingDomainError(
@@ -1251,6 +1557,7 @@ export async function rescheduleArtistSessionBooking(
         },
         {
           rescheduledFromBookingId: context.booking.id,
+          allowanceUseId: context.booking.allowanceUseId,
           ignoredBookingId: context.booking.id,
           transitionKind: "rescheduled",
           operationDigestOverride: digest,
@@ -1262,30 +1569,33 @@ export async function rescheduleArtistSessionBooking(
           "A replacement exists without its reschedule transition",
         );
       }
-      const replaced = await transaction.updateBooking({
-        bookingId: context.booking.id,
-        producerId: context.booking.producerId,
-        expectedStatus: context.booking.status,
-        status: "cancelled",
-        outcome: "cancelled_on_time",
-        occurredAt: now,
-      });
-      await transaction.insertTransitionEvent({
-        bookingId: replaced.id,
-        producerId: replaced.producerId,
-        operationKey: input.operationKey,
-        operationDigest: digest,
-        kind: "rescheduled",
-        actorKind: "artist",
-        actorId: input.actorClerkUserId,
-        fromStatus: context.booking.status,
-        toStatus: replaced.status,
-        fromOutcome: context.booking.outcome,
-        toOutcome: replaced.outcome,
-        oldStartsAt: context.booking.startsAt,
-        newStartsAt: replacementResult.booking.startsAt,
-        occurredAt: now,
-      });
+      let replaced = context.booking;
+      if (replacementResult.booking.status === "confirmed") {
+        replaced = await transaction.updateBooking({
+          bookingId: context.booking.id,
+          producerId: context.booking.producerId,
+          expectedStatus: context.booking.status,
+          status: "cancelled",
+          outcome: "cancelled_on_time",
+          occurredAt: now,
+        });
+        await transaction.insertTransitionEvent({
+          bookingId: replaced.id,
+          producerId: replaced.producerId,
+          operationKey: input.operationKey,
+          operationDigest: digest,
+          kind: "rescheduled",
+          actorKind: "artist",
+          actorId: input.actorClerkUserId,
+          fromStatus: context.booking.status,
+          toStatus: replaced.status,
+          fromOutcome: context.booking.outcome,
+          toOutcome: replaced.outcome,
+          oldStartsAt: context.booking.startsAt,
+          newStartsAt: replacementResult.booking.startsAt,
+          occurredAt: now,
+        });
+      }
       return {
         booking: replacementResult.booking,
         replacedBooking: replaced,

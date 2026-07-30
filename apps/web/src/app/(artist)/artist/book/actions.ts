@@ -15,13 +15,9 @@ import { appRouter } from "~/server/trpc/routers/_app";
 // CONFLICT) without having to parse the exception type.
 export async function confirmBookingAction(input: {
   producerId: string;
-  date: string;
-  block: "morning" | "evening";
-  startMin: number;
+  startsAt: string;
   durationMin: number;
-  projectId: string | null;
-  productId: string | null;
-  existingProjectId?: string;
+  projectId: string;
   purchaseId: string;
   sessionAllowanceId: string;
   operationKey: string;
@@ -33,7 +29,10 @@ export async function confirmBookingAction(input: {
 
   const caller = appRouter.createCaller({ userId });
   try {
-    const result = await caller.artist.book.confirm(input);
+    const result = await caller.artist.book.confirm({
+      ...input,
+      startsAt: new Date(input.startsAt),
+    });
     revalidatePath("/artist/sessions");
     return { ok: true, id: result.id, status: result.status };
   } catch (e) {
@@ -44,8 +43,7 @@ export async function confirmBookingAction(input: {
 
 export async function rescheduleBookingAction(input: {
   id: string;
-  date: string;
-  startMin: number;
+  startsAt: string;
   operationKey: string;
 }): Promise<
   | {
@@ -61,7 +59,10 @@ export async function rescheduleBookingAction(input: {
 
   const caller = appRouter.createCaller({ userId });
   try {
-    const result = await caller.artist.book.reschedule(input);
+    const result = await caller.artist.book.reschedule({
+      ...input,
+      startsAt: new Date(input.startsAt),
+    });
     revalidatePath("/artist/sessions");
     revalidatePath(`/artist/sessions/${input.id}`);
     return { ok: true, ...result };

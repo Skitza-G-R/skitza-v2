@@ -10,25 +10,60 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "~/components/ui/dialog";
+import { resolveArtistStudioId } from "~/lib/artist-studio-context";
+import { writeArtistStudioPreferenceCookie } from "~/lib/artist-studio-preference-client";
 import type { Studio } from "~/server/artist/identity";
 
 import { artistStudioSwitchHref } from "./studio-switch-destination";
 
-// Server-resolved studio list (artist.studios). The trigger always
-// opens the shared accessible Dialog (mobile bottom sheet, centered
-// desktop modal), even for single-studio artists. Picking a studio
-// swaps ?studio=<id> on safe tab roots. Resource detail paths belong
-// to one producer, so switching there first returns to the matching
-// studio-safe root (see studio-switch-destination.ts).
-export function StudioSwitcher({ studios }: { studios: Studio[] }) {
+// Server-resolved studio list (artist.studios). Zero and one studio are
+// static identities; two or more use the shared accessible Dialog.
+// Picking a studio swaps ?studio=<id> on safe tab roots. Resource detail
+// paths belong to one producer, so switching there first returns to the
+// matching studio-safe root (see studio-switch-destination.ts).
+export function StudioSwitcher({
+  studios,
+  userId,
+  initialStudioId,
+  notificationStudioDotIds,
+  previewOnly = false,
+}: {
+  studios: Studio[];
+  userId: string;
+  initialStudioId: string | null;
+  notificationStudioDotIds: readonly string[];
+  previewOnly?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const activeId = searchParams.get("studio") ?? studios[0]?.producerId;
-  const active = studios.find((s) => s.producerId === activeId) ?? studios[0];
+  const activeId = resolveArtistStudioId(studios, searchParams.get("studio"), initialStudioId);
+  const active = studios.find((studio) => studio.producerId === activeId);
+  const studiosWithActivity = new Set(notificationStudioDotIds);
 
-  if (!active) return null;
+  if (!active) {
+    return (
+      <div
+        role="status"
+        className="flex min-h-11 w-full min-w-0 items-center rounded-[var(--radius-lg)] px-2 py-1 text-sm text-[rgb(var(--fg-muted))]"
+      >
+        No active studio
+      </div>
+    );
+  }
+
+  if (studios.length === 1) {
+    return (
+      <div className="flex min-h-11 w-full max-w-full min-w-0 items-center gap-2 rounded-[var(--radius-lg)] px-2 py-1">
+        <StudioAvatar studio={active} />
+        <span className="font-display min-w-0 flex-1 truncate text-start text-sm tracking-tight">
+          {active.name}
+        </span>
+        <StudioActivityDot visible={studiosWithActivity.has(active.producerId)} />
+      </div>
+    );
+  }
 
   const urlFor = (producerId: string) => {
     return artistStudioSwitchHref(pathname, searchParams.toString(), producerId);
@@ -36,6 +71,8 @@ export function StudioSwitcher({ studios }: { studios: Studio[] }) {
 
   const pick = (producerId: string) => {
     setOpen(false);
+    if (previewOnly) return;
+    writeArtistStudioPreferenceCookie(userId, producerId);
     if (producerId === active.producerId) return;
     router.push(urlFor(producerId));
   };
@@ -51,6 +88,7 @@ export function StudioSwitcher({ studios }: { studios: Studio[] }) {
           <span className="font-display min-w-0 flex-1 truncate text-start text-sm tracking-tight">
             {active.name}
           </span>
+          <StudioActivityDot visible={studiosWithActivity.has(active.producerId)} />
           <span aria-hidden className="shrink-0 text-xs text-[rgb(var(--fg-muted))]">
             ▾
           </span>
@@ -60,9 +98,7 @@ export function StudioSwitcher({ studios }: { studios: Studio[] }) {
       <DialogContent className="gap-0 p-4 sm:max-w-sm">
         <DialogTitle className="pr-8">Pick a studio</DialogTitle>
         <DialogDescription className="mt-1 mb-3 pr-8 text-xs">
-          {studios.length === 1
-            ? "You’re connected to one studio. Visit another producer’s link to add it."
-            : "Choose which studio you want to view."}
+          Choose which studio you want to view.
         </DialogDescription>
         <ul className="space-y-1">
           {studios.map((studio) => {
@@ -89,6 +125,7 @@ export function StudioSwitcher({ studios }: { studios: Studio[] }) {
                   >
                     {studio.name}
                   </span>
+                  <StudioActivityDot visible={studiosWithActivity.has(studio.producerId)} />
                   {isActive ? (
                     <span className="shrink-0 font-mono text-[0.6rem] font-semibold tracking-wider text-[rgb(var(--brand-primary))] uppercase">
                       Current
@@ -101,6 +138,16 @@ export function StudioSwitcher({ studios }: { studios: Studio[] }) {
         </ul>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function StudioActivityDot({ visible }: { visible: boolean }) {
+  if (!visible) return null;
+  return (
+    <span
+      aria-label="New activity from this studio"
+      className="h-2 w-2 shrink-0 rounded-full bg-[rgb(var(--brand-primary))]"
+    />
   );
 }
 

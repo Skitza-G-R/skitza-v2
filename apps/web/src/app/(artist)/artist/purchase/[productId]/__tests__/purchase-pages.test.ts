@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const entry = readFileSync(join(here, "..", "page.tsx"), "utf8");
+const request = readFileSync(join(here, "..", "request", "page.tsx"), "utf8");
 const agree = readFileSync(join(here, "..", "agree", "page.tsx"), "utf8");
 const sent = readFileSync(join(here, "..", "sent", "page.tsx"), "utf8");
 const pay = readFileSync(join(here, "..", "pay", "page.tsx"), "utf8");
@@ -20,22 +21,24 @@ const actions = readFileSync(
 );
 
 describe("unified product entry route", () => {
-  it("loads the owned Store product and maps the same-client target context", () => {
+  it("loads the owned Store product into the professional standing detail", () => {
     expect(entry).toMatch(/caller\.artist\.store\.product\(\{ productId \}\)/);
     expect(entry).toMatch(/toPurchaseProduct\(row\)/);
-    expect(entry).toMatch(/toProducer\(row\)/);
-    expect(entry).toMatch(/coerceTaxMode\(row\.producerTaxMode\)/);
-    expect(entry).toMatch(/taxRatePct=/);
-    expect(entry).toMatch(/row\.targetProjects\.map/);
-    expect(entry).toMatch(/updatedAtIso: project\.updatedAt\.toISOString\(\)/);
+    expect(entry).toMatch(/<ProfessionalProductDetail/);
+    expect(entry).toMatch(/activeForStudio/);
   });
 
-  it("does not read or enforce a studio-wide open-purchase slot", () => {
-    expect(entry).not.toMatch(/artist\.purchase\.pending|pendingRequest/);
+  it("moves quantity and target intent into the focused request route", () => {
+    expect(request).toMatch(/artist\.store\.product/);
+    expect(request).toMatch(/activeForStudio/);
+    expect(request).toMatch(/snapshotProductPrice/);
+    expect(request).toMatch(/row\.targetProjects\.map/);
+    expect(request).toMatch(/<PurchaseRequestScreen/);
   });
 
   it("maps inaccessible or invalid product ids to not found", () => {
-    expect(entry).toMatch(/e\.code === "NOT_FOUND" \|\| e\.code === "BAD_REQUEST"/);
+    expect(entry).toMatch(/e\.code === "BAD_REQUEST"/);
+    expect(entry).toMatch(/e\.code === "NOT_FOUND"/);
     expect(entry).toMatch(/notFound\(\)/);
   });
 });
@@ -96,9 +99,10 @@ describe("approved request flow", () => {
     expect(instructions).toMatch(
       /searchParams: Promise<\{ req\?: string; purchase\?: string; studio\?: string \}>/,
     );
-    expect(instructions).toMatch(/\{ purchaseId: purchase \}/);
-    expect(instructions).toMatch(/\{ purchaseRequestId: req \}/);
-    expect(instructions).toMatch(/studioId=\{data\.producerId\}/);
+    expect(instructions).toMatch(/paymentInstructions/);
+    expect(instructions).toMatch(
+      /\/artist\/payments\/\$\{encodeURIComponent\(data\.purchaseId\)\}\/instructions/,
+    );
   });
 });
 

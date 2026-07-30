@@ -2,20 +2,33 @@ import { auth } from "@clerk/nextjs/server";
 
 import type { AllowanceSummary, SessionListItem } from "~/components/artist/sessions/book-data";
 import { MySessionsScreen } from "~/components/artist/sessions/my-sessions-screen";
+import { resolveArtistStudioId } from "~/lib/artist-studio-context";
+import { readArtistStudioPreference } from "~/server/artist/studio-preference";
 import { appRouter } from "~/server/trpc/routers/_app";
 
-export default async function MySessionsPage() {
+type PageProps = { searchParams: Promise<{ studio?: string }> };
+
+export default async function MySessionsPage({ searchParams }: PageProps) {
   const { userId } = await auth();
   if (!userId) return null;
 
   const caller = appRouter.createCaller({ userId });
-  const result = await caller.artist.book.mySessions();
+  const [sp, { studios }, savedStudioId] = await Promise.all([
+    searchParams,
+    caller.artist.studios(),
+    readArtistStudioPreference(userId),
+  ]);
+  const producerId = resolveArtistStudioId(studios, sp.studio, savedStudioId);
+  const result = producerId
+    ? await caller.artist.book.mySessions({ producerId })
+    : { sessions: [], allowances: [] };
 
   const sessions: SessionListItem[] = result.sessions.map((session) => ({
     id: session.id,
     producerId: session.producerId,
     producerName: session.producerName,
     producerSlug: session.producerSlug,
+    artistTimezone: session.artistTimezone,
     producerTimezone: session.producerTimezone,
     projectId: session.projectId,
     projectTitle: session.projectTitle,
@@ -28,6 +41,7 @@ export default async function MySessionsPage() {
     status: session.status,
     outcome: session.outcome,
     rescheduledFromBookingId: session.rescheduledFromBookingId,
+    heldExpiryReason: session.heldExpiryReason,
     policy: {
       cancellationPolicyHours: session.policy.cancellationPolicyHours,
       cancellationDeadlineISO: session.policy.cancellationDeadline.toISOString(),
@@ -57,5 +71,11 @@ export default async function MySessionsPage() {
     bookingBlockedReason: allowance.bookingBlockedReason,
   }));
 
-  return <MySessionsScreen sessions={sessions} allowances={allowances} />;
+  return (
+    <MySessionsScreen
+      sessions={sessions}
+      allowances={allowances}
+      nowISO={new Date().toISOString()}
+    />
+  );
 }

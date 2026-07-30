@@ -127,7 +127,8 @@ function noChargeSnapshot(input: {
   sourceProductName: string;
 }): PurchaseCommercialSnapshot {
   const snapshot: PurchaseCommercialSnapshot = {
-    version: 1,
+    version: 2,
+    bookingEnabled: false,
     productOrOfferName: `No charge song · ${input.songTitle}`,
     service: "no_charge_add_on",
     deliverables: ["One song space"],
