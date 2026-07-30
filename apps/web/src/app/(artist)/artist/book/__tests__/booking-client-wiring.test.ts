@@ -32,6 +32,15 @@ describe("artist Book server wiring", () => {
 });
 
 describe("focused short booking process", () => {
+  it("does not trap the fixed frame inside a transformed reveal wrapper", () => {
+    expect(pageSrc).toMatch(
+      /<div className="mx-auto w-full max-w-\[480px\] space-y-5">/,
+    );
+    expect(pageSrc).not.toMatch(
+      /<div className="reveal-up mx-auto w-full max-w-\[480px\] space-y-5">/,
+    );
+  });
+
   it("uses a focused overlay and package → day → time → review steps", () => {
     expect(clientSrc).toMatch(/type Step = "package" \| "day" \| "time" \| "review"/);
     expect(clientSrc).toMatch(/fixed inset-0 z-\[60\]/);
