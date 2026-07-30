@@ -42,8 +42,10 @@ export type ProductRoyaltyTerms = {
   notes?: string;
 };
 
-export const producers = pgTable("producers", {
-  id: uuid("id").defaultRandom().primaryKey(),
+export const producers = pgTable(
+  "producers",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
   clerkUserId: text("clerk_user_id").notNull().unique(),
   email: text("email").notNull(),
   displayName: text("display_name"),
@@ -154,8 +156,19 @@ export const producers = pgTable("producers", {
   // toggles modes back and forth.
   taxRatePct: integer("tax_rate_pct").notNull().default(18),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    adminEmailSearchIdx: index("producers_admin_email_search_idx").on(
+      sql`lower(${t.email}) text_pattern_ops`,
+      t.clerkUserId,
+    ),
+    adminNameSearchIdx: index("producers_admin_name_search_idx").on(
+      sql`lower(${t.displayName}) text_pattern_ops`,
+      t.clerkUserId,
+    ),
+  }),
+);
 
 export type Producer = typeof producers.$inferSelect;
 export type NewProducer = typeof producers.$inferInsert;
@@ -421,6 +434,11 @@ export const bookings = pgTable(
       t.rescheduledFromBookingId,
     ),
     producerStartsIdx: index("bookings_producer_starts_idx").on(t.producerId, t.startsAt),
+    adminActivationIdx: index("bookings_admin_activation_idx").on(
+      t.producerId,
+      t.createdAt,
+      t.purchaseId,
+    ),
     purchaseStartsIdx: index("bookings_purchase_starts_idx").on(t.purchaseId, t.startsAt),
     purchaseProjectFk: foreignKey({
       columns: [t.purchaseId, t.projectId],
@@ -646,6 +664,11 @@ export const projects = pgTable(
       t.producerId,
       t.lifecycleStatus,
       t.createdAt,
+    ),
+    adminClientActivityIdx: index("projects_admin_client_activity_idx").on(
+      t.clientContactId,
+      t.createdAt.desc(),
+      t.id.desc(),
     ),
   }),
 );
@@ -986,11 +1009,161 @@ export const clientContacts = pgTable(
     clerkUserIdx: index("client_contacts_clerk_user_idx")
       .on(t.clerkUserId)
       .where(sql`${t.clerkUserId} IS NOT NULL`),
+    activeClerkUserIdx: index("client_contacts_active_clerk_user_idx")
+      .on(t.clerkUserId, t.lastSeenAt.desc(), t.id)
+      .where(sql`${t.clerkUserId} IS NOT NULL AND ${t.archivedAt} IS NULL`),
+    adminEmailSearchIdx: index("client_contacts_admin_email_search_idx")
+      .on(sql`lower(${t.email}) text_pattern_ops`, t.clerkUserId)
+      .where(sql`${t.clerkUserId} IS NOT NULL`),
+    adminNameSearchIdx: index("client_contacts_admin_name_search_idx")
+      .on(sql`lower(${t.name}) text_pattern_ops`, t.clerkUserId)
+      .where(sql`${t.clerkUserId} IS NOT NULL`),
   }),
 );
 
 export type ClientContact = typeof clientContacts.$inferSelect;
 export type NewClientContact = typeof clientContacts.$inferInsert;
+
+// ─── Registered Clerk accounts (SK-133) ────────────────────────────
+// One person appears once, keyed by the provider's immutable Clerk user ID.
+// Producer and Artist roles remain derived from producers/client_contacts.
+// Rows backfilled from those mappings stay `needs_sync`; only a verified
+// Clerk lifecycle webhook may assert current provider state and timestamps.
+export const registeredAccounts = pgTable(
+  "registered_accounts",
+  {
+    clerkUserId: text("clerk_user_id").primaryKey(),
+    primaryEmail: text("primary_email"),
+    displayName: text("display_name"),
+    emailVerified: boolean("email_verified"),
+    audienceType: text("audience_type").notNull().default("unknown"),
+    providerState: text("provider_state").notNull().default("needs_sync"),
+    providerCreatedAt: timestamp("provider_created_at", { withTimezone: true }),
+    providerUpdatedAt: timestamp("provider_updated_at", { withTimezone: true }),
+    lastSignInAt: timestamp("last_sign_in_at", { withTimezone: true }),
+    lastWebhookEventId: text("last_webhook_event_id"),
+    syncedAt: timestamp("synced_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    providerStateIdx: index("registered_accounts_provider_state_idx").on(
+      t.providerState,
+      t.clerkUserId,
+    ),
+    providerCreatedIdx: index("registered_accounts_provider_created_idx").on(
+      sql`CASE WHEN ${t.providerCreatedAt} IS NULL THEN 1 ELSE 0 END`,
+      t.providerCreatedAt.desc().nullsLast(),
+      t.clerkUserId.desc(),
+    ).where(sql`${t.providerState} <> 'deleted'`),
+    emailSearchIdx: index("registered_accounts_email_search_idx").on(
+      sql`lower(${t.primaryEmail}) text_pattern_ops`,
+      t.clerkUserId,
+    ),
+    nameSearchIdx: index("registered_accounts_name_search_idx").on(
+      sql`lower(${t.displayName}) text_pattern_ops`,
+      t.clerkUserId,
+    ),
+    clerkIdSearchIdx: index("registered_accounts_clerk_id_search_idx").on(
+      sql`lower(${t.clerkUserId}) text_pattern_ops`,
+      t.clerkUserId,
+    ),
+    identityShape: check(
+      "registered_accounts_identity_shape",
+      sql`${t.clerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
+        AND (${t.primaryEmail} IS NULL OR (
+          ${t.primaryEmail} = lower(btrim(${t.primaryEmail}))
+          AND char_length(${t.primaryEmail}) BETWEEN 3 AND 320
+        ))
+        AND (${t.displayName} IS NULL OR (
+          NULLIF(btrim(${t.displayName}), '') IS NOT NULL
+          AND char_length(${t.displayName}) <= 160
+        ))
+        AND (${t.lastWebhookEventId} IS NULL OR (
+          NULLIF(btrim(${t.lastWebhookEventId}), '') IS NOT NULL
+          AND char_length(${t.lastWebhookEventId}) <= 255
+        ))`,
+    ),
+    providerStateShape: check(
+      "registered_accounts_provider_state_shape",
+      sql`${t.providerState} IN ('active', 'banned', 'locked', 'deleted', 'needs_sync')`,
+    ),
+    audienceTypeShape: check(
+      "registered_accounts_audience_type_shape",
+      sql`${t.audienceType} IN ('external', 'internal', 'unknown')`,
+    ),
+    syncShape: check(
+      "registered_accounts_sync_shape",
+      sql`(
+        ${t.providerState} = 'needs_sync'
+        AND ${t.providerUpdatedAt} IS NULL
+        AND ${t.lastWebhookEventId} IS NULL
+        AND ${t.syncedAt} IS NULL
+      ) OR (
+        ${t.providerState} <> 'needs_sync'
+        AND ${t.providerUpdatedAt} IS NOT NULL
+        AND ${t.lastWebhookEventId} IS NOT NULL
+        AND ${t.syncedAt} IS NOT NULL
+      )`,
+    ),
+    deletedPiiShape: check(
+      "registered_accounts_deleted_pii_shape",
+      sql`${t.providerState} <> 'deleted' OR (
+        ${t.primaryEmail} IS NULL
+        AND ${t.displayName} IS NULL
+        AND ${t.emailVerified} IS NULL
+        AND ${t.audienceType} = 'unknown'
+        AND ${t.lastSignInAt} IS NULL
+      )`,
+    ),
+    timestampShape: check(
+      "registered_accounts_timestamp_shape",
+      sql`(${t.providerCreatedAt} IS NULL OR ${t.providerUpdatedAt} IS NULL OR ${t.providerCreatedAt} <= ${t.providerUpdatedAt})
+        AND ${t.updatedAt} >= ${t.createdAt}`,
+    ),
+  }),
+);
+
+export type RegisteredAccount = typeof registeredAccounts.$inferSelect;
+export type NewRegisteredAccount = typeof registeredAccounts.$inferInsert;
+
+// Signed Clerk lifecycle webhook receipts are immutable and claimed inside
+// the same transaction as their account and role-mapping side effects.
+export const clerkUserSyncReceipts = pgTable(
+  "clerk_user_sync_receipts",
+  {
+    eventId: text("event_id").primaryKey(),
+    eventDigest: text("event_digest").notNull(),
+    eventType: text("event_type").notNull(),
+    clerkUserId: text("clerk_user_id").notNull(),
+    clerkInstanceId: text("clerk_instance_id").notNull(),
+    providerUpdatedAt: timestamp("provider_updated_at", {
+      withTimezone: true,
+    }).notNull(),
+    processedAt: timestamp("processed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userIdx: index("clerk_user_sync_receipts_user_idx").on(
+      t.clerkUserId,
+      t.providerUpdatedAt.desc(),
+      t.eventId,
+    ),
+    shape: check(
+      "clerk_user_sync_receipts_shape",
+      sql`NULLIF(btrim(${t.eventId}), '') IS NOT NULL
+        AND char_length(${t.eventId}) <= 255
+        AND ${t.eventDigest} ~ '^sha256:[0-9a-f]{64}$'
+        AND ${t.eventType} IN ('user.created', 'user.updated', 'user.deleted')
+        AND ${t.clerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
+        AND ${t.clerkInstanceId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'`,
+    ),
+  }),
+);
+
+export type ClerkUserSyncReceipt = typeof clerkUserSyncReceipts.$inferSelect;
+export type NewClerkUserSyncReceipt = typeof clerkUserSyncReceipts.$inferInsert;
 
 // ─── Notifications / Inbox (Phase E) ────────────────────────────────
 // One unified feed of everything that needs the producer's attention:
@@ -1434,6 +1607,14 @@ export const purchaseRequests = pgTable(
       t.status,
       t.createdAt,
     ),
+    adminActivationIdx: index("purchase_requests_admin_activation_idx").on(
+      t.producerId,
+      t.createdAt,
+      t.clientContactId,
+    ),
+    adminClientActivityIdx: index(
+      "purchase_requests_admin_client_activity_idx",
+    ).on(t.clientContactId, t.createdAt.desc(), t.id.desc()),
     requestedSongQtyPositive: check(
       "purchase_requests_requested_song_qty_positive",
       sql`${t.requestedSongQty} IS NULL OR ${t.requestedSongQty} > 0`,
@@ -1617,6 +1798,11 @@ export const purchases = pgTable(
       t.producerId,
       t.lifecycleStatus,
       t.createdAt,
+    ),
+    adminActivationIdx: index("purchases_admin_activation_idx").on(
+      t.producerId,
+      t.createdAt,
+      t.clientContactId,
     ),
     nonnegativeAmounts: check(
       "purchases_nonnegative_amounts",
@@ -1810,6 +1996,9 @@ export const paymentProofs = pgTable(
       t.status,
       t.createdAt,
     ),
+    adminClientActivityIdx: index(
+      "payment_proofs_admin_client_activity_idx",
+    ).on(t.clientContactId, t.createdAt.desc(), t.id.desc()),
     positiveAmount: check("payment_proofs_positive_amount", sql`${t.amountCents} > 0`),
     nonnegativeSize: check("payment_proofs_nonnegative_size", sql`${t.sizeBytes} >= 0`),
     privateBucketOnly: check(
@@ -2691,6 +2880,16 @@ export const adminActionHistory = pgTable(
       t.occurredAt.desc(),
       t.id,
     ),
+    targetAccountOccurredIdx: index(
+      "admin_action_history_target_account_occurred_idx",
+    )
+      .on(
+        t.environment,
+        t.targetAccountClerkUserId,
+        t.occurredAt.desc(),
+        t.id.desc(),
+      )
+      .where(sql`${t.targetAccountClerkUserId} IS NOT NULL`),
     environmentShape: check(
       "admin_action_history_environment_shape",
       sql`${t.environment} IN ('live', 'test')`,

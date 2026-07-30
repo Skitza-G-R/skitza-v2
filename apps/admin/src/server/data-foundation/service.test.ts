@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   ADMIN_HISTORY_RETENTION_MS,
+  buildRegisteredAccountsReconciliationCommand,
   createAdminDataFoundation,
   isAdminHistoryExpired,
   isAdminSystemProblemTransitionAllowed,
@@ -10,6 +11,7 @@ import {
 
 const NOW = new Date("2026-07-29T12:00:00.000Z");
 const PROBLEM_ID = "9de0f153-9400-49a5-9249-f810d0fbfd27";
+const BATCH_DIGEST = `sha256:${"a".repeat(64)}`;
 
 function repository(): AdminDataFoundationRepository {
   return {
@@ -241,6 +243,104 @@ describe("SK-132 admin data foundation service", () => {
     });
     expect(store.transitionSystemProblem).not.toHaveBeenCalled();
     expect(store.purgeExpiredAdminHistory).not.toHaveBeenCalled();
+  });
+});
+
+describe("SK-133 registered-account reconciliation audit", () => {
+  it("records only bounded batch intent and never copies account identity", () => {
+    const command = buildRegisteredAccountsReconciliationCommand(
+      {
+        actorClerkUserId: "user_founder",
+        batchDigest: BATCH_DIGEST,
+        environment: "test",
+        offset: 100,
+        operationKey: "registered-users-reconcile-page-2",
+      },
+      NOW,
+    );
+
+    expect(command).toMatchObject({
+      action: "registered_accounts.reconcile",
+      actorClerkUserId: "user_founder",
+      environment: "test",
+      occurredAt: NOW,
+      safeAfterState: null,
+      safeBeforeState: null,
+      targetAccountClerkUserId: null,
+      targetId: "test",
+      targetType: "registered_accounts",
+    });
+    expect(command.operationDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(JSON.stringify(command)).not.toMatch(/@|primaryEmail|displayName/);
+  });
+
+  it.each([
+    {
+      actorClerkUserId: "",
+      batchDigest: BATCH_DIGEST,
+      environment: "test",
+      offset: 0,
+      operationKey: "reconcile-1",
+    },
+    {
+      actorClerkUserId: "user_founder",
+      batchDigest: "sha256:not-a-digest",
+      environment: "test",
+      offset: 0,
+      operationKey: "reconcile-1",
+    },
+    {
+      actorClerkUserId: "user_founder",
+      batchDigest: BATCH_DIGEST,
+      environment: "test",
+      offset: 100_001,
+      operationKey: "reconcile-1",
+    },
+    {
+      actorClerkUserId: "user_founder",
+      batchDigest: BATCH_DIGEST,
+      environment: "test",
+      offset: 0.5,
+      operationKey: "reconcile-1",
+    },
+    {
+      actorClerkUserId: "user_founder",
+      batchDigest: BATCH_DIGEST,
+      environment: "unknown",
+      offset: 0,
+      operationKey: "reconcile-1",
+    },
+    {
+      actorClerkUserId: "user_founder",
+      batchDigest: BATCH_DIGEST,
+      environment: "test",
+      offset: 0,
+      operationKey: "x".repeat(201),
+    },
+  ])("rejects malformed audit intent before persistence", (input) => {
+    expect(() =>
+      buildRegisteredAccountsReconciliationCommand(
+        input as Parameters<
+          typeof buildRegisteredAccountsReconciliationCommand
+        >[0],
+        NOW,
+      ),
+    ).toThrow("INVALID_INPUT");
+  });
+
+  it("rejects an invalid audit timestamp", () => {
+    expect(() =>
+      buildRegisteredAccountsReconciliationCommand(
+        {
+          actorClerkUserId: "user_founder",
+          batchDigest: BATCH_DIGEST,
+          environment: "test",
+          offset: 0,
+          operationKey: "reconcile-1",
+        },
+        new Date(Number.NaN),
+      ),
+    ).toThrow("INVALID_INPUT");
   });
 });
 

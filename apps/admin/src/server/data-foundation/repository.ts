@@ -19,6 +19,7 @@ import {
   isAdminSystemProblemTransitionAllowed,
   type AddSupportNoteCommand,
   type AdminDataFoundationRepository,
+  type RecordAdminActionCommand,
   type RecordSensitiveRevealCommand,
   type SystemProblemState,
   type TransitionSystemProblemCommand,
@@ -106,6 +107,13 @@ async function purgeHistory(db: FoundationDb, environment: FoundationEnvironment
   return deleted;
 }
 
+export function purgeAdminHistoryInTransaction(
+  tx: TransactionDb,
+  environment: FoundationEnvironment,
+): Promise<number> {
+  return purgeHistory(tx, environment);
+}
+
 function problemSafeState(
   state: SystemProblemState,
   privateNote: string | null,
@@ -114,6 +122,76 @@ function problemSafeState(
     hasPrivateNote: privateNote !== null,
     state,
   };
+}
+
+export async function recordSensitiveRevealInTransaction(
+  tx: TransactionDb,
+  boundEnvironment: FoundationEnvironment,
+  command: RecordSensitiveRevealCommand,
+): Promise<Readonly<{ id: string; replayed: boolean }>> {
+  if (command.environment !== boundEnvironment) {
+    throw new EventFoundationError("ENVIRONMENT_MISMATCH");
+  }
+  return withAdminOperationReceipt(
+    tx,
+    command,
+    (id) => ({ id }),
+    async () => {
+      const history = await appendHistory(tx, {
+        action: command.action,
+        actorClerkUserId: command.actorClerkUserId,
+        environment: boundEnvironment,
+        failureCode: null,
+        occurredAt: command.occurredAt,
+        operationDigest: command.operationDigest,
+        operationKey: command.operationKey,
+        outcome: "succeeded",
+        revealContentKind: command.contentKind,
+        revealReason: command.reason,
+        safeAfterState: null,
+        safeBeforeState: null,
+        targetAccountClerkUserId: command.targetAccountClerkUserId,
+        targetId: command.targetId,
+        targetType: command.targetType,
+      });
+      return { id: history.record.id };
+    },
+  );
+}
+
+export async function recordAdminActionInTransaction(
+  tx: TransactionDb,
+  boundEnvironment: FoundationEnvironment,
+  command: RecordAdminActionCommand,
+): Promise<Readonly<{ id: string; replayed: boolean }>> {
+  if (command.environment !== boundEnvironment) {
+    throw new EventFoundationError("ENVIRONMENT_MISMATCH");
+  }
+  return withAdminOperationReceipt(
+    tx,
+    command,
+    (id) => ({ id }),
+    async () => {
+      const history = await appendHistory(tx, {
+        action: command.action,
+        actorClerkUserId: command.actorClerkUserId,
+        environment: boundEnvironment,
+        failureCode: null,
+        occurredAt: command.occurredAt,
+        operationDigest: command.operationDigest,
+        operationKey: command.operationKey,
+        outcome: "succeeded",
+        revealContentKind: null,
+        revealReason: null,
+        safeAfterState: null,
+        safeBeforeState: null,
+        targetAccountClerkUserId: null,
+        targetId: command.targetId,
+        targetType: command.targetType,
+      });
+      return { id: history.record.id };
+    },
+  );
 }
 
 type OperationCommand = Readonly<{
@@ -322,32 +400,7 @@ export function createAdminDataFoundationRepository(
         throw new EventFoundationError("ENVIRONMENT_MISMATCH");
       }
       return db.transaction((tx) =>
-        withAdminOperationReceipt(
-          tx,
-          command,
-          (id) => ({ id }),
-          async () => {
-            const history = await appendHistory(tx, {
-              action: command.action,
-              actorClerkUserId: command.actorClerkUserId,
-              environment: boundEnvironment,
-              failureCode: null,
-              occurredAt: command.occurredAt,
-              operationDigest: command.operationDigest,
-              operationKey: command.operationKey,
-              outcome: "succeeded",
-              revealContentKind: command.contentKind,
-              revealReason: command.reason,
-              safeAfterState: null,
-              safeBeforeState: null,
-              targetAccountClerkUserId:
-                command.targetType === "registered_account" ? command.targetId : null,
-              targetId: command.targetId,
-              targetType: command.targetType,
-            });
-            return { id: history.record.id };
-          },
-        ),
+        recordSensitiveRevealInTransaction(tx, boundEnvironment, command),
       );
     },
 

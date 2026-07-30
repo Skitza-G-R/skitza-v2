@@ -28,7 +28,11 @@ export class AdminDataFoundationError extends Error {
 }
 
 type AdminWriteCommand = Readonly<{
-  action: "sensitive_content.reveal" | "support_note.create" | "system_problem.update";
+  action:
+    | "registered_accounts.reconcile"
+    | "sensitive_content.reveal"
+    | "support_note.create"
+    | "system_problem.update";
   actorClerkUserId: string;
   environment: FoundationEnvironment;
   occurredAt: Date;
@@ -37,6 +41,56 @@ type AdminWriteCommand = Readonly<{
   safeAfterState: SafeFoundationMetadata | null;
   safeBeforeState: SafeFoundationMetadata | null;
 }>;
+
+export type RecordAdminActionCommand = AdminWriteCommand &
+  Readonly<{
+    action: "registered_accounts.reconcile";
+    targetAccountClerkUserId: null;
+    targetId: string;
+    targetType: "registered_accounts";
+  }>;
+
+export type RegisteredAccountsReconciliationAuditInput = Readonly<{
+  actorClerkUserId: string;
+  batchDigest: string;
+  environment: FoundationEnvironment;
+  offset: number;
+  operationKey: string;
+}>;
+
+export function buildRegisteredAccountsReconciliationCommand(
+  input: RegisteredAccountsReconciliationAuditInput,
+  occurredAt: Date,
+): RecordAdminActionCommand {
+  if (
+    !/^sha256:[0-9a-f]{64}$/.test(input.batchDigest) ||
+    !Number.isSafeInteger(input.offset) ||
+    input.offset < 0 ||
+    input.offset > 100_000
+  ) {
+    return stop("INVALID_INPUT");
+  }
+  return {
+    ...baseCommand({
+      action: "registered_accounts.reconcile",
+      actorClerkUserId: input.actorClerkUserId,
+      environment: input.environment,
+      intent: {
+        batchDigest: input.batchDigest,
+        offset: input.offset,
+        provider: "clerk",
+      },
+      now: occurredAt,
+      operationKey: input.operationKey,
+      safeAfterState: null,
+      safeBeforeState: null,
+    }),
+    action: "registered_accounts.reconcile",
+    targetAccountClerkUserId: null,
+    targetId: input.environment,
+    targetType: "registered_accounts",
+  };
+}
 
 export type AddSupportNoteCommand = AdminWriteCommand &
   Readonly<{
@@ -51,6 +105,7 @@ export type RecordSensitiveRevealCommand = AdminWriteCommand &
     action: "sensitive_content.reveal";
     contentKind: string;
     reason: SensitiveRevealReason;
+    targetAccountClerkUserId: string | null;
     targetId: string;
     targetType: string;
   }>;
@@ -95,9 +150,55 @@ export type RecordSensitiveRevealInput = Readonly<{
   environment: FoundationEnvironment;
   operationKey: string;
   reason: SensitiveRevealReason;
+  targetAccountClerkUserId?: string | null;
   targetId: string;
   targetType: string;
 }>;
+
+export function buildRecordSensitiveRevealCommand(
+  input: RecordSensitiveRevealInput,
+  occurredAt: Date,
+): RecordSensitiveRevealCommand {
+  const environment = exactEnvironment(input.environment);
+  if (!REVEAL_REASONS.has(input.reason)) return stop("INVALID_INPUT");
+  if (!CONTENT_KIND_PATTERN.test(input.contentKind)) {
+    return stop("INVALID_INPUT");
+  }
+  const targetType = requiredIdentifier(input.targetType);
+  const targetId = requiredIdentifier(input.targetId);
+  const targetAccountClerkUserId =
+    input.targetAccountClerkUserId === undefined
+      ? targetType === "registered_account"
+        ? targetId
+        : null
+      : input.targetAccountClerkUserId === null
+        ? null
+        : requiredIdentifier(input.targetAccountClerkUserId);
+  return {
+    ...baseCommand({
+      action: "sensitive_content.reveal",
+      actorClerkUserId: input.actorClerkUserId,
+      environment,
+      intent: {
+        contentKind: input.contentKind,
+        reason: input.reason,
+        targetAccountClerkUserId,
+        targetId,
+        targetType,
+      },
+      now: occurredAt,
+      operationKey: input.operationKey,
+      safeAfterState: null,
+      safeBeforeState: null,
+    }),
+    action: "sensitive_content.reveal",
+    contentKind: input.contentKind,
+    reason: input.reason,
+    targetAccountClerkUserId,
+    targetId,
+    targetType,
+  };
+}
 
 export type TransitionSystemProblemInput = Readonly<{
   actorClerkUserId: string;
@@ -251,35 +352,8 @@ export function createAdminDataFoundation(
     },
 
     async recordSensitiveReveal(input: RecordSensitiveRevealInput) {
-      const environment = exactEnvironment(input.environment);
-      if (!REVEAL_REASONS.has(input.reason)) return stop("INVALID_INPUT");
-      if (!CONTENT_KIND_PATTERN.test(input.contentKind)) {
-        return stop("INVALID_INPUT");
-      }
-      const targetType = requiredIdentifier(input.targetType);
-      const targetId = requiredIdentifier(input.targetId);
-      const command: RecordSensitiveRevealCommand = {
-        ...baseCommand({
-          action: "sensitive_content.reveal",
-          actorClerkUserId: input.actorClerkUserId,
-          environment,
-          intent: {
-            contentKind: input.contentKind,
-            reason: input.reason,
-            targetId,
-            targetType,
-          },
-          now: now(),
-          operationKey: input.operationKey,
-          safeAfterState: null,
-          safeBeforeState: null,
-        }),
-        action: "sensitive_content.reveal",
-        contentKind: input.contentKind,
-        reason: input.reason,
-        targetId,
-        targetType,
-      };
+      const command = buildRecordSensitiveRevealCommand(input, now());
+      const environment = command.environment;
       await purgeBeforeWrite(environment);
       return repository.recordSensitiveReveal(command);
     },

@@ -1,163 +1,164 @@
+import { createHash } from "node:crypto";
+
 import { Webhook } from "svix";
 import {
-  createDb,
-  producers,
+  type Db,
   clientContacts,
+  createDb,
   eq,
+  producers,
 } from "@skitza/db";
 import { emailToSlug } from "~/lib/slug";
 import { emailHashFor } from "~/server/artist/identity";
 import { stampUnownedArtistContactsForCreatedUser } from "~/server/contacts/connect-artist";
+import {
+  createRegisteredAccountSyncRepository,
+  RegisteredAccountSyncError,
+  synchronizeRegisteredAccount,
+} from "~/server/identity/registered-account-sync";
 
-// Clerk user.created webhook — the single place where Skitza decides
-// whether a brand-new Clerk user should become a Producer or an
-// Artist (client_contacts).
-//
-// 2026-04-22 — CRITICAL BUG FIX (see docs/audit-report.md Task 15).
-// Before this fix, every sign-up created a producers row unconditionally
-// — including strangers who signed up via /join/<slug>. The /join page's
-// CTA now routes through /sign-up/join/<slug>, which sets
-// `unsafeMetadata={ signupOrigin: "join", producerSlug: slug }` on the
-// Clerk <SignUp> component. That metadata rides along on the
-// `user.created` event as `evt.data.unsafe_metadata` and lets this
-// webhook branch:
-//   JOIN   → insert client_contacts scoped to the target producer;
-//            DO NOT create a producers row.
-//   DEFAULT (any other signup, landing page / direct /sign-up / etc.)
-//          → create a producers row, same as today.
-//
-// In BOTH branches we still run the "stamp any pre-existing
-// client_contacts rows with clerkUserId" UPDATE afterward, so an
-// artist who was invited by Producer X and later self-serves via
-// Producer Y's /join link ends up linked on BOTH producer rosters.
-//
-// Safety: if the JOIN metadata's producerSlug doesn't resolve to a
-// real producer (tampered client, stale slug, deleted producer), we
-// FALL BACK to the default producer-insert branch rather than crash.
-// Better an orphan producer row the user can ignore than a 5xx loop
-// Clerk will retry forever.
+type UnknownRecord = Record<string, unknown>;
+
+function record(value: unknown): UnknownRecord | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as UnknownRecord)
+    : null;
+}
+
+function eventType(value: unknown): string | null {
+  const event = record(value);
+  return typeof event?.type === "string" ? event.type : null;
+}
+
+function createdUnsafeMetadata(value: unknown): UnknownRecord | null {
+  const event = record(value);
+  const data = record(event?.data);
+  return record(data?.unsafe_metadata);
+}
+
+// The signed lifecycle receipt, registered-account snapshot, original
+// producer/contact classification, and artist stamping all run in one
+// transaction. A verified Svix retry is therefore either a complete no-op or
+// a complete replay; a partial signup can never be acknowledged.
 export async function POST(req: Request) {
   const secret = process.env.CLERK_WEBHOOK_SECRET;
   const dbUrl = process.env.DATABASE_URL;
-  if (!secret || !dbUrl) return new Response("missing env", { status: 500 });
+  const expectedInstanceId = process.env.CLERK_INSTANCE_ID;
+  if (!secret || !dbUrl || !expectedInstanceId) {
+    return new Response("missing env", { status: 500 });
+  }
 
   const payload = await req.text();
+  const svixId = req.headers.get("svix-id") ?? "";
   const headers = {
-    "svix-id": req.headers.get("svix-id") ?? "",
+    "svix-id": svixId,
     "svix-timestamp": req.headers.get("svix-timestamp") ?? "",
     "svix-signature": req.headers.get("svix-signature") ?? "",
   };
 
-  // Webhook.verify returns `unknown`; treat the result as untrusted data
-  // and pull each field defensively. A malformed event (e.g. { type } with
-  // no data block) must produce a 4xx — Clerk retries 5xx forever.
-  type ClerkEvent = {
-    type?: string;
-    data?: {
-      id?: string;
-      email_addresses?: { email_address?: string }[];
-      first_name?: string | null;
-      // Client-settable metadata the <SignUp> component emits. We treat
-      // this as untrusted (the "unsafe" prefix is Clerk's convention
-      // for "writeable from the browser") and validate anything we
-      // care about — here, the producerSlug is resolved against the DB.
-      unsafe_metadata?: Record<string, unknown>;
-    };
-  };
-  let evt: ClerkEvent;
+  let event: unknown;
   try {
-    evt = new Webhook(secret).verify(payload, headers) as ClerkEvent;
+    event = new Webhook(secret).verify(payload, headers);
   } catch {
     return new Response("invalid signature", { status: 400 });
   }
 
-  if (evt.type !== "user.created") {
+  const type = eventType(event);
+  if (
+    type !== "user.created" &&
+    type !== "user.updated" &&
+    type !== "user.deleted"
+  ) {
     return new Response("ok", { status: 200 });
   }
 
-  const id = evt.data?.id;
-  const email = evt.data?.email_addresses?.[0]?.email_address;
-  if (!id || !email) return new Response("invalid payload", { status: 400 });
+  const eventDigest = `sha256:${createHash("sha256").update(payload).digest("hex")}`;
   const db = createDb(dbUrl);
 
-  // Parse unsafe_metadata defensively. Anything we can't prove is
-  // well-formed falls through to the default branch. Access via
-  // optional chaining because the event schema marks it optional,
-  // and each field is `unknown` until we type-narrow it.
-  const meta = evt.data?.unsafe_metadata;
-  const isJoinOrigin = meta?.signupOrigin === "join";
-  const rawSlug = meta?.producerSlug;
-  const claimedSlug =
-    isJoinOrigin && typeof rawSlug === "string" ? rawSlug : null;
+  try {
+    await db.transaction(async (transaction) => {
+      const tx = transaction as unknown as Db;
+      const result = await synchronizeRegisteredAccount(
+        createRegisteredAccountSyncRepository(tx),
+        event,
+        svixId,
+        eventDigest,
+        expectedInstanceId,
+      );
 
-  // Resolve the producer by slug ONLY when we have a join-origin claim.
-  // Skipping the lookup for plain signups avoids a wasted DB round-trip
-  // on the hot path (most signups are producer-default).
-  let targetProducerId: string | null = null;
-  if (claimedSlug) {
-    const [row] = await db
-      .select({ id: producers.id })
-      .from(producers)
-      .where(eq(producers.slug, claimedSlug))
-      .limit(1);
-    if (row) targetProducerId = row.id;
-  }
+      // Exact signed retries stop before every original signup side effect.
+      if (
+        result.replayed ||
+        result.terminalDeleted ||
+        result.lifecycle?.eventType !== "user.created"
+      ) {
+        return;
+      }
 
-  if (targetProducerId) {
-    // JOIN branch — this user is an artist. Create a client_contacts
-    // row scoped to the target producer, carrying the Clerk user id so
-    // the artist app can resolve their studios immediately on first
-    // login. No producer row.
-    //
-    // onConflictDoNothing on (producerId, emailHash): if the producer
-    // had already added this email to their CRM (pre-invite case),
-    // the existing row stays put — clerkUserId gets stamped on it by
-    // the UPDATE below (same code path the default branch uses).
-    await db
-      .insert(clientContacts)
-      .values({
-        producerId: targetProducerId,
-        emailHash: emailHashFor(email),
-        email: email.trim().toLowerCase(),
-        // `name` is NOT NULL on client_contacts. Fall back through
-        // first_name → local-part of email → a generic "Artist" so
-        // the INSERT never fails a not-null constraint.
-        name:
-          evt.data?.first_name?.trim() ||
-          email.trim().split("@")[0] ||
-          "Artist",
+      const {
         clerkUserId: id,
-      })
-      .onConflictDoNothing();
-  } else {
-    // DEFAULT branch (unchanged behavior from pre-2026-04-22):
-    // producer-default signup. Insert a producers row seeded with an
-    // email-derived slug + null displayName; /onboarding will fill
-    // those in before the (app) layout lets them into /dashboard.
-    await db
-      .insert(producers)
-      .values({
-        clerkUserId: id,
-        email,
-        displayName: evt.data?.first_name ?? null,
-        slug: emailToSlug(email),
-      })
-      .onConflictDoNothing()
-      .returning();
-  }
+        displayName,
+        emailVerified,
+        primaryEmail: email,
+      } = result.lifecycle.snapshot;
+      if (!email) throw new RegisteredAccountSyncError();
 
-  // Artist-stamping branch (runs for BOTH paths): every client_contacts
-  // row sharing this email's hash gets the new Clerk user id. The IS
-  // NULL guard makes this idempotent — re-fires (or a different Clerk
-  // user adopting the same email later) leave already-owned rows
-  // untouched. A pending private offer's frozen recipient hash also
-  // prevents a later mutable client-email edit from transferring its
-  // stable client ownership. The single UPDATE still matches across
-  // producers because email_hash is not producer-partitioned.
-  await stampUnownedArtistContactsForCreatedUser(db, {
-    email,
-    clerkUserId: id,
-  });
+      // `unsafe_metadata` is client-writeable. It may choose the join flow,
+      // but the claimed producer slug is never trusted until it resolves in
+      // this environment's database.
+      const meta = createdUnsafeMetadata(event);
+      const claimedSlug =
+        meta?.signupOrigin === "join" && typeof meta.producerSlug === "string"
+          ? meta.producerSlug
+          : null;
+
+      let targetProducerId: string | null = null;
+      if (claimedSlug && emailVerified === true) {
+        const [row] = await tx
+          .select({ id: producers.id })
+          .from(producers)
+          .where(eq(producers.slug, claimedSlug))
+          .limit(1);
+        if (row) targetProducerId = row.id;
+      }
+
+      if (targetProducerId) {
+        await tx
+          .insert(clientContacts)
+          .values({
+            producerId: targetProducerId,
+            emailHash: emailHashFor(email),
+            email,
+            name: displayName || email.split("@")[0] || "Artist",
+            clerkUserId: id,
+          })
+          .onConflictDoNothing();
+      } else {
+        await tx
+          .insert(producers)
+          .values({
+            clerkUserId: id,
+            email,
+            displayName,
+            slug: emailToSlug(email),
+          })
+          .onConflictDoNothing()
+          .returning();
+      }
+
+      if (emailVerified === true) {
+        await stampUnownedArtistContactsForCreatedUser(tx, {
+          email,
+          clerkUserId: id,
+        });
+      }
+    });
+  } catch (error) {
+    if (error instanceof RegisteredAccountSyncError) {
+      return new Response("invalid payload", { status: 400 });
+    }
+    throw error;
+  }
 
   return new Response("ok", { status: 200 });
 }
