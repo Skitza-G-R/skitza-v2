@@ -14,6 +14,10 @@ import { PaymentsTab, type ProjectPaymentsTabData } from "./album-tabs/project-p
 import { SongsTab, type EmptySongSpaceRowData } from "./album-tabs/songs-tab";
 import { StudioLogTab, type StudioLogEntry } from "./album-tabs/studio-log-tab";
 import { ProjectCompactHeader, type ProjectPaymentAttention } from "./project-compact-header";
+import {
+  ProjectSongUploadController,
+  type ProjectSongUploadData,
+} from "./project-song-upload-controller";
 import type { TrackRowData } from "./track-row";
 
 const ALBUM_TAB_ORDER: readonly AlbumTab[] = ["songs", "payments", "log", "details"];
@@ -39,6 +43,8 @@ interface AlbumSpaceProps {
   purchases: readonly ProjectPurchaseSummary[];
   payments: ProjectPaymentsTabData;
   tracks: TrackRowData[];
+  selectedSongUpload?: ProjectSongUploadData | null;
+  initialUploadOpen?: boolean;
   emptySlots?: readonly EmptySongSpaceRowData[];
   addSongHref: string;
   studioLog: AlbumSpaceStudioLog;
@@ -50,6 +56,8 @@ export function AlbumSpace({
   purchases,
   payments,
   tracks,
+  selectedSongUpload = null,
+  initialUploadOpen = false,
   emptySlots = [],
   addSongHref,
   studioLog,
@@ -109,7 +117,6 @@ export function AlbumSpace({
         <div data-tab-swipe-panel>
           {active === "songs" ? (
             <SongsTab
-              projectId={project.id}
               tracks={tracks}
               emptySlots={emptySlots}
               canAddSong={canAddSong}
@@ -132,6 +139,17 @@ export function AlbumSpace({
           ) : null}
         </div>
       </div>
+
+      {selectedSongUpload ? (
+        <ProjectSongUploadController
+          key={selectedSongUpload.id}
+          projectId={project.id}
+          actionProject={actionProject}
+          purchases={purchases}
+          song={selectedSongUpload}
+          initialUploadOpen={initialUploadOpen}
+        />
+      ) : null}
     </div>
   );
 }

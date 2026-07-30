@@ -30,6 +30,15 @@ describe("AlbumSpace — compact four-tab workspace", () => {
     expect(SRC).not.toContain("FilesTab");
   });
 
+  it("keeps the Songs panel compact without a second inline song workspace", () => {
+    expect(SRC).not.toContain("ProjectSongWorkspace");
+    expect(SRC).not.toContain("selectedSongWorkspace");
+    expect(SRC).not.toContain("SongTabs");
+    expect(SRC).not.toContain("SongSpaceStatStrip");
+    expect(SRC).toContain("ProjectSongUploadController");
+    expect(SRC).toContain("selectedSongUpload");
+  });
+
   it("uses useState for the active tab", () => {
     expect(SRC).toContain("useState");
   });

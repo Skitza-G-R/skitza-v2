@@ -26,6 +26,7 @@ const PLAYABLE_TRACK: TrackRowData = {
   progress: 64,
   currentVersion: "V3",
   durationMs: 213_000,
+  detailHref: "/dashboard/music/version-3?from=project-1",
   playback: {
     versionId: "version-3",
     audioUrl: "https://audio.example/night-drive.mp3",
@@ -43,6 +44,16 @@ const UNPLAYABLE_TRACK: TrackRowData = {
   progress: 64,
   currentVersion: "V3",
   durationMs: 213_000,
+  detailHref: "/dashboard/music/version-history?from=project-1",
+};
+
+const NO_VERSION_TRACK: TrackRowData = {
+  id: "song-3",
+  title: "First Upload",
+  artist: "Maya",
+  workflowStage: "brief",
+  progress: 5,
+  detailHref: "/dashboard/clients-projects/project-1?song=song-3&upload=1",
 };
 
 beforeEach(() => {
@@ -57,12 +68,13 @@ afterEach(() => {
 });
 
 describe("TrackRow interactions", () => {
-  it("keeps Song Space navigation separate from the Play button", async () => {
+  it("opens the existing player Song Page and keeps Play separate", async () => {
     const user = userEvent.setup();
-    render(<TrackRow projectId="project-1" track={PLAYABLE_TRACK} index={1} />);
+    render(<TrackRow track={PLAYABLE_TRACK} index={1} />);
 
     const rowLink = screen.getByRole("link", { name: "Open Night Drive" });
-    expect(rowLink.getAttribute("href")).toBe("/dashboard/clients-projects/project-1/songs/song-1");
+    expect(rowLink.getAttribute("href")).toBe("/dashboard/music/version-3?from=project-1");
+    expect(rowLink.hasAttribute("aria-current")).toBe(false);
     const progress = screen.getByRole("progressbar", {
       name: "Night Drive progress",
     });
@@ -88,7 +100,7 @@ describe("TrackRow interactions", () => {
     mocks.nowPlaying.trackId = "version-3";
     mocks.nowPlaying.playing = true;
     const user = userEvent.setup();
-    render(<TrackRow projectId="project-1" track={PLAYABLE_TRACK} index={1} />);
+    render(<TrackRow track={PLAYABLE_TRACK} index={1} />);
 
     await user.click(screen.getByRole("button", { name: "Pause Night Drive" }));
 
@@ -96,14 +108,30 @@ describe("TrackRow interactions", () => {
     expect(mocks.playerPlay).not.toHaveBeenCalled();
   });
 
-  it("keeps the Play control disabled when no playable version exists", () => {
-    render(<TrackRow projectId="project-1" index={2} track={UNPLAYABLE_TRACK} />);
+  it("opens retained version history while keeping Play disabled when audio is unavailable", () => {
+    render(<TrackRow index={2} track={UNPLAYABLE_TRACK} />);
 
+    expect(screen.getByRole("link", { name: "Open Waiting Song" }).getAttribute("href")).toBe(
+      "/dashboard/music/version-history?from=project-1",
+    );
     expect(
       screen
         .getByRole("button", {
           name: "No playable audio for Waiting Song",
         })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+  });
+
+  it("uses the one-shot upload handoff when a song has no version page yet", () => {
+    render(<TrackRow index={3} track={NO_VERSION_TRACK} />);
+
+    expect(screen.getByRole("link", { name: "Open First Upload" }).getAttribute("href")).toBe(
+      "/dashboard/clients-projects/project-1?song=song-3&upload=1",
+    );
+    expect(
+      screen
+        .getByRole("button", { name: "No playable audio for First Upload" })
         .hasAttribute("disabled"),
     ).toBe(true);
   });

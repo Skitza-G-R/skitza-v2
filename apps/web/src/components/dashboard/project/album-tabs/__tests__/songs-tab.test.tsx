@@ -20,7 +20,7 @@ describe("SongsTab — Songs panel for the album page", () => {
     expect(SRC).toMatch(/<h2[\s\S]*?>\s*Songs\s*<\/h2>/);
   });
 
-  it("leaves the one generic Add Song action in the compact header sheet", () => {
+  it("leaves the one generic Add Song action on the compact header + button", () => {
     expect(SRC).not.toContain("handleAddSong();");
     expect(SRC).toContain("Use the project + button");
   });
@@ -33,6 +33,13 @@ describe("SongsTab — Songs panel for the album page", () => {
 
   it("renders a 1-based index on each TrackRow", () => {
     expect(SRC).toMatch(/index=\{[^}]*\+\s*1\s*\}/);
+  });
+
+  it("opens songs in the existing player without a lower content slot", () => {
+    expect(SRC).toContain("Open a song in the player");
+    expect(SRC).not.toContain("selectedSongId");
+    expect(SRC).not.toContain("selected={");
+    expect(SRC).not.toContain("children");
   });
 
   it("exposes Add Song without an unpersisted reorder callback", () => {

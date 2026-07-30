@@ -6,6 +6,7 @@ import {
   type AlbumSpaceProject,
   type AlbumSpaceStudioLog,
 } from "~/components/dashboard/project/album-space";
+import type { ProjectSongUploadData } from "~/components/dashboard/project/project-song-upload-controller";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
 import type { WorkflowStage } from "~/lib/clients/workflow-stage";
 import type { TrackRowData } from "~/components/dashboard/project/track-row";
@@ -14,10 +15,13 @@ import type { ProjectPurchaseSummary } from "~/components/dashboard/projects/pro
 import { toPaymentHistoryViewData } from "~/components/payments/payment-history-adapter";
 import type { StudioLogEntry } from "~/components/dashboard/project/album-tabs/studio-log-tab";
 import { buildProjectActivityEntries } from "~/components/dashboard/project/album-tabs/studio-log-activity";
+import { projectSongUploadHref } from "~/lib/clients/project-song-upload-href";
+import { classifySongUploadPublicExposure } from "~/server/domain/song-publication/upload-exposure";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{ song?: string; upload?: string }>;
 };
 
 // Project Space server component. The route keeps canonical project,
@@ -48,10 +52,11 @@ function progressForStage(stage: WorkflowStage): number {
   return STAGE_PROGRESS[stage];
 }
 
-export default async function ProjectDetail({ params }: PageProps) {
+export default async function ProjectDetail({ params, searchParams }: PageProps) {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
   const { id } = await params;
+  const query = (await searchParams) ?? {};
 
   const caller = appRouter.createCaller({ userId });
 
@@ -66,6 +71,12 @@ export default async function ProjectDetail({ params }: PageProps) {
   const data = detailResult.value;
   const paymentModel = paymentResult.value;
   const projectBookings = bookingsResult.status === "fulfilled" ? bookingsResult.value : [];
+  const selectedTrack = query.song
+    ? data.tracks.find((track) => track.id === query.song)
+    : undefined;
+  if (query.song && !selectedTrack) {
+    notFound();
+  }
 
   const sessionEntries: StudioLogEntry[] = projectBookings.map((booking) => ({
     id: `session-${booking.id}`,
@@ -87,6 +98,13 @@ export default async function ProjectDetail({ params }: PageProps) {
   const tracks: TrackRowData[] = data.tracks.map((t) => {
     const trackVersions = data.versions.filter((v) => v.trackId === t.id);
     const latest = trackVersions[0];
+    const playable = trackVersions.find(
+      (version) => version.audioDeletedAt === null && version.audioUrl !== null,
+    );
+    const historical = trackVersions.find(
+      (version) => version.audioUrl !== null || version.audioDeletedAt !== null,
+    );
+    const detailVersion = playable ?? historical;
     const noteIds = new Set(trackVersions.map((v) => v.id));
     const noteCount = data.comments.filter(
       (c) => noteIds.has(c.versionId) && c.resolvedAt === null,
@@ -98,11 +116,15 @@ export default async function ProjectDetail({ params }: PageProps) {
       artist: t.artist,
       workflowStage: stage,
       progress: progressForStage(stage),
+      detailHref: detailVersion
+        ? `/dashboard/music/${encodeURIComponent(detailVersion.id)}?from=${encodeURIComponent(
+            data.project.id,
+          )}`
+        : projectSongUploadHref(data.project.id, t.id),
     };
     if (latest?.label) base.currentVersion = latest.label;
     if (noteCount > 0) base.noteCount = noteCount;
     if (latest?.durationMs) base.durationMs = latest.durationMs;
-    const playable = trackVersions.find((version) => version.audioUrl !== null);
     if (playable?.audioUrl) {
       base.playback = {
         versionId: playable.id,
@@ -112,15 +134,11 @@ export default async function ProjectDetail({ params }: PageProps) {
         ...(typeof playable.durationMs === "number" ? { durationMs: playable.durationMs } : {}),
       };
     }
-    // versionCount feeds the UploadTrackModal's "v{N+1}" default label.
-    // Always set, even at 0, so the modal can pick "v1" deterministically.
-    base.versionCount = trackVersions.length;
     return base;
   });
 
-  // Project workflow is deliberately separate from per-song stages. The
-  // producer edits this exact value from the project lifecycle controls;
-  // individual song stages remain visible inside each Song Space.
+  // Project workflow stays in the compact project header. Song rows open
+  // the existing Music player page instead of rendering another workflow.
   const projectStage: WorkflowStage = data.project.workflowStage;
   // Activity timeline — distilled from the project's event ledger.
   // We don't currently have a normalized activity table, so we
@@ -170,6 +188,24 @@ export default async function ProjectDetail({ params }: PageProps) {
     deadlineAtIso: data.project.deadlineAt?.toISOString() ?? null,
     canDeleteEmptyDraft: data.canPermanentlyDelete,
   };
+
+  let selectedSongUpload: ProjectSongUploadData | null = null;
+  if (selectedTrack && query.upload === "1") {
+    const songVersions = data.versions.filter((version) => version.trackId === selectedTrack.id);
+    const sharing = await caller.songPublication.producerState({
+      trackId: selectedTrack.id,
+    });
+
+    selectedSongUpload = {
+      id: selectedTrack.id,
+      purchaseId: selectedTrack.purchaseId,
+      title: selectedTrack.title,
+      archivedAtIso: selectedTrack.archivedAt?.toISOString() ?? null,
+      versionCount: songVersions.length,
+      publicExposure: classifySongUploadPublicExposure(sharing),
+    };
+  }
+
   const purchaseSummaries: ProjectPurchaseSummary[] = paymentModel.projects.flatMap(
     (paymentProject) =>
       paymentProject.purchases.map((purchase) => ({
@@ -269,6 +305,8 @@ export default async function ProjectDetail({ params }: PageProps) {
         purchases={purchaseSummaries}
         payments={payments}
         tracks={tracks}
+        selectedSongUpload={selectedSongUpload}
+        initialUploadOpen={query.upload === "1"}
         emptySlots={data.songSpaces.emptySlots.map((slot) => ({
           id: slot.id,
           purchaseId: slot.purchaseId,

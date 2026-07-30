@@ -19,7 +19,6 @@ export interface EmptySongSpaceRowData {
 // song remains visible even before it has a version.
 
 interface SongsTabProps {
-  projectId: string;
   tracks: TrackRowData[];
   emptySlots?: readonly EmptySongSpaceRowData[];
   canAddSong?: boolean;
@@ -29,7 +28,6 @@ interface SongsTabProps {
 }
 
 export function SongsTab({
-  projectId,
   tracks,
   emptySlots = [],
   canAddSong = true,
@@ -71,13 +69,13 @@ export function SongsTab({
           Songs
         </h2>
         <p className="mt-1 text-[12px] text-[rgb(var(--fg-muted))]">
-          Open a song for details, or use Play to start the mini-player.
+          Open a song in the player, or use Play to start the mini-player.
         </p>
       </div>
 
       <div className="space-y-2">
         {tracks.map((t, i) => (
-          <TrackRow key={t.id} projectId={projectId} track={t} index={i + 1} />
+          <TrackRow key={t.id} track={t} index={i + 1} />
         ))}
         {emptySlots.map((slot) => (
           <div
