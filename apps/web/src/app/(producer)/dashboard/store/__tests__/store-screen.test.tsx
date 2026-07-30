@@ -28,6 +28,19 @@ describe("StoreScreen shell", () => {
     expect(SRC).toMatch(/EmptyState/);
   });
 
+  it("opens Products by default and keeps the private-offer panel mounted", () => {
+    expect(SRC).toMatch(/useState<StoreSurface>\(["']products["']\)/);
+    expect(SRC).toMatch(/<StoreSurfaceTabs/);
+    expect(SRC).toMatch(/hidden=\{surface !== ["']products["']\}/);
+    expect(SRC).toMatch(/hidden=\{surface !== ["']offers["']\}/);
+    expect(SRC).toMatch(/\{privateOffers\}/);
+  });
+
+  it("opens a producer-authenticated full-screen artist preview without navigating", () => {
+    expect(SRC).toMatch(/<ArtistStorePreview/);
+    expect(SRC).not.toMatch(/router\.(?:push|replace)\(["'`]\/(?:artist\/store|join)/);
+  });
+
   it("renders the HIDDEN section divider when filter is all", () => {
     expect(SRC).toMatch(/HIDDEN/);
   });
@@ -93,6 +106,12 @@ describe("StoreScreen shell", () => {
     expect(SRC).not.toMatch(/useDragReorder|drag=\{/);
   });
 
+  it("uses an explicit reorder mode and resets partial catalog state before arranging", () => {
+    expect(SRC).toMatch(/setReordering/);
+    expect(SRC).toMatch(/clearCatalogView/);
+    expect(SRC).toMatch(/reordering=\{reordering\}/);
+  });
+
   it("announces optimistic reorder outcomes to assistive technology", () => {
     expect(SRC).toMatch(/aria-live="polite"/);
     expect(SRC).toMatch(/Moved \$\{moving\.name\}/);
@@ -102,6 +121,17 @@ describe("StoreScreen shell", () => {
   it("mirrors the products prop into local optimistic state", () => {
     expect(SRC).toMatch(/optimisticProducts/);
     expect(SRC).toMatch(/setOptimisticProducts/);
+  });
+
+  it("updates visibility immediately and rolls it back when saving fails", () => {
+    expect(SRC).toContain("withProductVisibility");
+    expect(SRC).toMatch(
+      /setOptimisticProducts\(\(current\)\s*=>\s*withProductVisibility/,
+    );
+    expect(SRC).toMatch(
+      /withProductVisibility\(current,\s*p\.id,\s*p\.active\)/,
+    );
+    expect(SRC).not.toMatch(/const previousProducts = optimisticProducts/);
   });
 
   it("ships one card catalog with no table view or unfinished toggle", () => {
@@ -128,6 +158,24 @@ describe("StoreScreen shell", () => {
 
   it("wires onCreated on the create-mode ProductEditor", () => {
     expect(SRC).toMatch(/onCreated=\{handleCreated\}/);
+  });
+
+  it("reveals and focuses a created product regardless of prior filters or search", () => {
+    expect(SRC).toMatch(/setSurface\(["']products["']\)/);
+    expect(SRC).toMatch(/clearCatalogView\(\)/);
+    expect(SRC).toMatch(/scrollIntoView/);
+    expect(SRC).toMatch(/\.focus\(/);
+    expect(SRC).toMatch(/createdCardRef/);
+  });
+
+  it("marks the first live product as Featured", () => {
+    expect(SRC).toMatch(/featured=\{p\.id === firstLiveProductId\}/);
+  });
+
+  it("passes numbered reorder positions within each visibility group", () => {
+    expect(SRC).toMatch(/reorderPosition=\{index \+ 1\}/);
+    expect(SRC).toMatch(/reorderTotal=\{live\.length\}/);
+    expect(SRC).toMatch(/reorderTotal=\{hidden\.length\}/);
   });
 
   it("keeps create and edit drafts available after an ordinary close and reopen", () => {

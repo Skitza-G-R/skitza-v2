@@ -6,6 +6,7 @@ import {
   parseStoreUrlState,
   type FilterTab,
   type StoreItem,
+  withProductVisibility,
 } from "../filter-search";
 
 const SAMPLE: StoreItem[] = [
@@ -71,5 +72,16 @@ describe("filterAndSearch", () => {
 
   it("returns empty when nothing matches", () => {
     expect(filterAndSearch(SAMPLE, "all", "no_match")).toEqual([]);
+  });
+});
+
+describe("withProductVisibility", () => {
+  it("updates only the requested product and preserves catalog order", () => {
+    const result = withProductVisibility(SAMPLE, "c", true);
+
+    expect(result.map((item) => item.id)).toEqual(["a", "b", "c"]);
+    expect(result.map((item) => item.active)).toEqual([true, true, true]);
+    expect(result[0]).toBe(SAMPLE[0]);
+    expect(result[2]).not.toBe(SAMPLE[2]);
   });
 });

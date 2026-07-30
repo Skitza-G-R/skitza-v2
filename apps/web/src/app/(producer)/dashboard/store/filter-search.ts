@@ -56,3 +56,13 @@ export function filterAndSearch<T extends StoreItem>(
     return false;
   });
 }
+
+export function withProductVisibility<T extends StoreItem>(
+  items: readonly T[],
+  productId: string,
+  active: boolean,
+): T[] {
+  return items.map((item) =>
+    item.id === productId ? { ...item, active } : item,
+  );
+}

@@ -1,7 +1,7 @@
 "use client";
 
 import { UserAvatar, UserButton } from "@clerk/nextjs";
-import { Copy } from "lucide-react";
+import { Copy, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -57,12 +57,19 @@ export function ProducerMobileActions({
   const searchParams = useSearchParams();
   const search = searchParams.toString();
   const currentHref = `${pathname}${search ? `?${search}` : ""}`;
+  const navigationParams = new URLSearchParams(search);
+  navigationParams.delete("storeTip");
+  const navigationSearch = navigationParams.toString();
+  const navigationHref = `${pathname}${navigationSearch ? `?${navigationSearch}` : ""}`;
   const tToasts = useTranslations("today.toasts");
   const [accountOpen, setAccountOpen] = useState(false);
+  const [showStoreTip, setShowStoreTip] = useState(false);
   const accountButtonRef = useRef<HTMLButtonElement>(null);
   const accountSheetRef = useRef<HTMLDivElement>(null);
   const accountSheetDragRef = useRef<AccountSheetDragState | null>(null);
   const accountSheetSettleTimerRef = useRef<number | null>(null);
+  const storeTipConsumedRef = useRef(false);
+  const storeTipNavigationHrefRef = useRef(navigationHref);
   const accountSheetId = useId();
 
   const requestAccountSheetClose = useCallback(() => {
@@ -83,6 +90,30 @@ export function ProducerMobileActions({
   useEffect(() => {
     requestAccountSheetClose();
   }, [currentHref, requestAccountSheetClose]);
+
+  useEffect(() => {
+    if (storeTipConsumedRef.current || searchParams.get("storeTip") !== "1") {
+      return;
+    }
+
+    storeTipConsumedRef.current = true;
+    setShowStoreTip(true);
+
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.delete("storeTip");
+    const nextSearch = nextParams.toString();
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`,
+    );
+  }, [pathname, searchParams]);
+
+  useEffect(() => {
+    if (storeTipNavigationHrefRef.current === navigationHref) return;
+    storeTipNavigationHrefRef.current = navigationHref;
+    setShowStoreTip(false);
+  }, [navigationHref]);
 
   useEffect(
     () => () => {
@@ -254,7 +285,10 @@ export function ProducerMobileActions({
       ) : null}
 
       <UserButton __experimental_asProvider>
-        <div data-testid="topbar-account" className="flex h-10 w-10 items-center justify-center">
+        <div
+          data-testid="topbar-account"
+          className="relative flex h-10 w-10 items-center justify-center"
+        >
           <button
             ref={accountButtonRef}
             type="button"
@@ -263,6 +297,7 @@ export function ProducerMobileActions({
             aria-expanded={accountOpen}
             aria-controls={accountOpen ? accountSheetId : undefined}
             onClick={() => {
+              setShowStoreTip(false);
               setAccountOpen(true);
             }}
             className="sk-press inline-flex h-10 w-10 items-center justify-center rounded-full transition-transform duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none active:scale-[0.94] motion-reduce:transition-none motion-reduce:active:scale-100"
@@ -276,10 +311,37 @@ export function ProducerMobileActions({
             />
           </button>
 
+          {showStoreTip && !accountOpen ? (
+            <div
+              role="status"
+              data-testid="producer-store-tip"
+              className="absolute top-[calc(100%+0.625rem)] right-0 z-50 flex w-64 max-w-[calc(100vw-2rem)] items-start gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3 text-left shadow-[var(--shadow-lg)]"
+            >
+              <span
+                aria-hidden
+                className="absolute -top-1.5 right-3 h-3 w-3 rotate-45 border-t border-l border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
+              />
+              <p className="min-w-0 flex-1 text-[13px] leading-snug font-semibold text-[rgb(var(--fg-default))]">
+                Manage your Store from your profile photo.
+              </p>
+              <button
+                type="button"
+                aria-label="Dismiss Store tip"
+                onClick={() => {
+                  setShowStoreTip(false);
+                }}
+                className="sk-press -m-2.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
+              >
+                <X aria-hidden size={15} strokeWidth={2.2} />
+              </button>
+            </div>
+          ) : null}
+
           <Sheet
             open={accountOpen}
             onOpenChange={(nextOpen) => {
               if (nextOpen) {
+                setShowStoreTip(false);
                 setAccountOpen(true);
                 return;
               }
@@ -324,7 +386,7 @@ export function ProducerMobileActions({
               <nav
                 aria-label="Producer account links"
                 data-testid="producer-mobile-profile-links"
-                className="grid grid-cols-2 gap-2 border-b border-[rgb(var(--border-subtle))] p-4"
+                className="grid grid-cols-1 gap-2 border-b border-[rgb(var(--border-subtle))] p-4"
               >
                 <Link
                   href="/dashboard/store"
@@ -337,10 +399,17 @@ export function ProducerMobileActions({
                   onClick={(event) => {
                     captureRuntimeMainNavigationTarget(event.currentTarget);
                   }}
-                  className="sk-press flex min-h-12 items-center gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3 text-sm font-semibold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
+                  className="sk-press flex min-h-16 items-center gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3 text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
                 >
-                  <Icon name="store" size={18} />
-                  Store
+                  <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary-dark))]">
+                    <Icon name="store" size={18} />
+                  </span>
+                  <span className="min-w-0 text-left">
+                    <span className="block text-sm font-semibold">Store</span>
+                    <span className="mt-0.5 block text-xs font-normal text-[rgb(var(--fg-muted))]">
+                      Products and private offers
+                    </span>
+                  </span>
                 </Link>
                 <Link
                   href="/dashboard/settings"
@@ -353,9 +422,11 @@ export function ProducerMobileActions({
                   onClick={(event) => {
                     captureRuntimeMainNavigationTarget(event.currentTarget);
                   }}
-                  className="sk-press flex min-h-12 items-center gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3 text-sm font-semibold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
+                  className="sk-press flex min-h-16 items-center gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3 text-sm font-semibold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
                 >
-                  <Icon name="settings" size={18} />
+                  <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--bg-overlay))] text-[rgb(var(--fg-muted))]">
+                    <Icon name="settings" size={18} />
+                  </span>
                   Settings
                 </Link>
               </nav>

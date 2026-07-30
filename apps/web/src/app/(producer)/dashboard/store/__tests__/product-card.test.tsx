@@ -36,8 +36,10 @@ describe("ProductCard shell", () => {
     expect(SRC).toMatch(/kindToTile/);
   });
 
-  it("derives the tagline from the first line of description", () => {
+  it("derives the short description from the first line of description", () => {
     expect(SRC).toMatch(/split\(\s*["']\\n["']\s*\)\[0\]/);
+    expect(SRC).toContain("No short description yet");
+    expect(SRC).not.toContain("No tagline yet");
   });
 
   it("provides touch and keyboard-safe move-up/down controls", () => {
@@ -48,6 +50,15 @@ describe("ProductCard shell", () => {
     expect(SRC).toMatch(/Move \$\{product\.name\} up/);
     expect(SRC).toMatch(/Move \$\{product\.name\} down/);
     expect(SRC).toMatch(/h-11 w-11/);
+    expect(SRC).toMatch(/lg:h-9 lg:w-9/);
+    expect(SRC).not.toMatch(/sm:h-9 sm:w-9/);
+  });
+
+  it("numbers each row inside its live or hidden reorder group", () => {
+    expect(SRC).toMatch(/reorderPosition\?:\s*number/);
+    expect(SRC).toMatch(/reorderTotal\?:\s*number/);
+    expect(SRC).toMatch(/Position \$\{String\(reorderPosition\)\} of/);
+    expect(SRC).toMatch(/padStart\(2,\s*["']0["']\)/);
   });
 
   it("plumbs recentlyAdded -> sk-shimmer-glow", () => {
@@ -63,5 +74,22 @@ describe("ProductCard shell", () => {
     expect(SRC).toMatch(/removalLabel/);
     expect(SRC).toMatch(/Archive.*Delete|Delete.*Archive/);
     expect(SRC).toMatch(/aria-label=\{`\$\{removalLabel\}/);
+  });
+
+  it("marks the first live product as Featured", () => {
+    expect(SRC).toMatch(/featured\?:\s*boolean/);
+    expect(SRC).toContain("Featured");
+    expect(SRC).toContain("brand-primary-text");
+  });
+
+  it("shows ordering controls only during explicit reorder mode", () => {
+    expect(SRC).toMatch(/reordering\?:\s*boolean/);
+    expect(SRC).toMatch(/reordering\s*\?/);
+  });
+
+  it("provides a programmatic focus target for newly created products", () => {
+    expect(SRC).toMatch(/focusRef/);
+    expect(SRC).toMatch(/data-product-id/);
+    expect(SRC).toMatch(/tabIndex=\{recentlyAdded \? -1 : undefined\}/);
   });
 });

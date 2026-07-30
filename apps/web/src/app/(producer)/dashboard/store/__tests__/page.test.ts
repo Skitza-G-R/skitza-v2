@@ -22,6 +22,21 @@ describe("dashboard/store/page.tsx", () => {
     expect(SRC).toMatch(/<StoreScreen/);
   });
 
+  it("moves private offers into the Store workspace instead of rendering them above it", () => {
+    const storeScreenStart = SRC.indexOf("<StoreScreen");
+    const privateOfferManagerStart = SRC.indexOf("<PrivateOfferManager");
+
+    expect(storeScreenStart).toBeGreaterThan(-1);
+    expect(privateOfferManagerStart).toBeGreaterThan(storeScreenStart);
+    expect(SRC).toMatch(/privateOffers=\{/);
+    expect(SRC).toMatch(/privateOfferCount=\{offerHistory\.offers\.length\}/);
+  });
+
+  it("passes the producer identity needed by copy-link and artist preview actions", () => {
+    expect(SRC).toMatch(/producerSlug=\{profile\.slug\}/);
+    expect(SRC).toMatch(/producerLogoUrl=\{profile\.brand\.logoUrl \?\? null\}/);
+  });
+
   it("maps purchase-level plans without old deposit compatibility fields", () => {
     expect(SRC).toMatch(/paymentPlans:\s*p\.paymentPlans/);
     expect(SRC).not.toMatch(/depositPct|depositModel|milestones/);

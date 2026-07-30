@@ -167,7 +167,7 @@ export function CompleteScreenClient({ slug }: { slug: string }) {
 
         {/* Open dashboard — primary CTA */}
         <Link
-          href="/dashboard"
+          href="/dashboard?storeTip=1"
           className="ob-press mt-8 inline-flex w-full max-w-md items-center justify-center gap-2 rounded-xl bg-[rgb(var(--bg-sidebar))] px-5 py-3.5 text-[14px] font-bold text-white shadow-[0_2px_12px_rgba(17,16,9,0.18)] hover:shadow-[0_8px_28px_rgba(17,16,9,0.36)]"
         >
           Open my dashboard
