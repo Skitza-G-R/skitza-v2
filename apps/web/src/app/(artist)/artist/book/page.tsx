@@ -111,7 +111,7 @@ export async function ArtistBookFlow({ searchParams }: ArtistBookPageProps) {
   };
 
   return (
-    <div className="reveal-up mx-auto w-full max-w-[480px] space-y-5">
+    <div className="mx-auto w-full max-w-[480px] space-y-5">
       <BookEyebrow studioId={activeStudioId} />
       <BookingClient
         key={`${activeStudioId}:${initialSessionAllowanceId ?? "none"}:${rescheduleSession?.id ?? "new"}`}
