@@ -1,7 +1,6 @@
 "use client";
 
 import { Plus } from "lucide-react";
-import type { ReactNode } from "react";
 
 import { TrackRow, type TrackRowData } from "~/components/dashboard/project/track-row";
 
@@ -20,26 +19,20 @@ export interface EmptySongSpaceRowData {
 // song remains visible even before it has a version.
 
 interface SongsTabProps {
-  projectId: string;
   tracks: TrackRowData[];
-  selectedSongId?: string;
   emptySlots?: readonly EmptySongSpaceRowData[];
   canAddSong?: boolean;
   blockedReason?: string;
   /** Opens the chooser, optionally pinned to the exact visible entitlement. */
   onAddSong?: (slot?: EmptySongSpaceRowData) => void;
-  children?: ReactNode;
 }
 
 export function SongsTab({
-  projectId,
   tracks,
-  selectedSongId,
   emptySlots = [],
   canAddSong = true,
   blockedReason = "New work requires an active project and an active purchase or accepted offer.",
   onAddSong,
-  children,
 }: SongsTabProps) {
   const handleAddSong = (slot: EmptySongSpaceRowData) => {
     if (!canAddSong) return;
@@ -76,19 +69,13 @@ export function SongsTab({
           Songs
         </h2>
         <p className="mt-1 text-[12px] text-[rgb(var(--fg-muted))]">
-          Select a song to manage it here, or use Play to start the mini-player.
+          Open a song in the player, or use Play to start the mini-player.
         </p>
       </div>
 
       <div className="space-y-2">
         {tracks.map((t, i) => (
-          <TrackRow
-            key={t.id}
-            projectId={projectId}
-            track={t}
-            index={i + 1}
-            selected={selectedSongId === t.id}
-          />
+          <TrackRow key={t.id} track={t} index={i + 1} />
         ))}
         {emptySlots.map((slot) => (
           <div
@@ -120,7 +107,6 @@ export function SongsTab({
           </div>
         ))}
       </div>
-      {children}
     </section>
   );
 }

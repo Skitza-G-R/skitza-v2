@@ -5,7 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import { ProjectPage, type ProjectPageData } from "~/components/music/project-page";
-import { projectSongWorkspaceHref } from "~/lib/clients/project-song-workspace-href";
+import { projectSongUploadHref } from "~/lib/clients/project-song-upload-href";
 import {
   editMusicSongArtist,
   markMusicSongReleased,
@@ -79,7 +79,7 @@ export default async function ProducerProjectPage({ params }: PageProps) {
           data.lifecycleStatus === "active" &&
           song.purchaseLifecycleStatus === "active" &&
           song.archivedAt === null
-            ? projectSongWorkspaceHref(data.id, song.id, { upload: true })
+            ? projectSongUploadHref(data.id, song.id)
             : null,
       })),
       ...data.emptySlots.map((slot) => ({

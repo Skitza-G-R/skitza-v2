@@ -12,7 +12,7 @@ import {
 } from "~/app/(producer)/dashboard/clients-projects/actions";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
-import { projectSongWorkspaceHref } from "~/lib/clients/project-song-workspace-href";
+import { projectSongUploadHref } from "~/lib/clients/project-song-upload-href";
 import { PUBLIC_BRAND_ORIGIN } from "~/lib/share/public-url";
 
 export interface PaidExtraProductOption {
@@ -180,9 +180,7 @@ export function AddSongDialog({
         operationKeyRef.current = "";
         toast("Song added", "success");
         onClose();
-        router.push(
-          projectSongWorkspaceHref(result.data.projectId, result.data.id, { upload: true }),
-        );
+        router.push(projectSongUploadHref(result.data.projectId, result.data.id));
       } catch {
         toast("Could not add this song. Try again.", "error");
       }

@@ -42,9 +42,8 @@ interface OverviewTabProps {
   project: OverviewTabProject;
   /** All versions for this song — the panel slices top 3. */
   latestVersions: VersionRowVersionData[];
-  client?: OverviewTabClient;
+  client: OverviewTabClient;
   mode: "album" | "single";
-  showClient?: boolean;
   emptyVersionsMessage: string;
   onShowAllVersions: () => void;
 }
@@ -55,13 +54,12 @@ export function OverviewTab({
   latestVersions,
   client,
   mode,
-  showClient = mode !== "single",
   emptyVersionsMessage,
   onShowAllVersions,
 }: OverviewTabProps) {
   const topThree = latestVersions.slice(0, 3);
-  const clientAvatarBg = client ? producerGradient(client.name) : "";
-  const clientInitials = client ? producerInitials(client.name) : "";
+  const clientAvatarBg = producerGradient(client.name);
+  const clientInitials = producerInitials(client.name);
 
   return (
     <section
@@ -139,7 +137,7 @@ export function OverviewTab({
         </div>
 
         {/* Right — Client snippet (album mode only) */}
-        {showClient && client ? (
+        {mode !== "single" ? (
           <div
             className="rounded-[var(--radius-lg)] border p-5"
             style={{

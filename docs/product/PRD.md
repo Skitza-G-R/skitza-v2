@@ -311,9 +311,10 @@ Never hard-delete a historical project or orphan its records.
 
 ### 6.7 Producer project workspace
 
-- `/dashboard/clients-projects/[id]` is the canonical producer workspace for both one-song and multi-song projects.
-- Song rows select a song inside that same page. The selected song's workflow, version history, Upload new version action, and sessions appear inline.
-- Do not create a second nested producer Song Space layer. Old nested song URLs may remain only as compatibility redirects back to the canonical project workspace.
+- `/dashboard/clients-projects/[id]` is the compact producer project workspace for both one-song and multi-song projects: project header, Songs, Payments, Studio Log, and Details.
+- Do not render a second song workspace, workflow, status strip, version list, or song tabs below the project song list.
+- Song rows with version history open the existing producer player page at `/dashboard/music/[versionId]`. A song without a version may use the project route only as a one-shot first-upload modal handoff.
+- Old nested project-song URLs remain only as compatibility redirects to the existing player page, or back to the project when no player version exists.
 - The project header `+` opens Add Song directly. Do not show an intermediate menu when Add Song is the only action.
 
 ## 7. Songs, versions, Library, and Artist Music

@@ -1,7 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { notFound, redirect } from "next/navigation";
 
-import { projectSongWorkspaceHref } from "~/lib/clients/project-song-workspace-href";
+import { projectSongUploadHref } from "~/lib/clients/project-song-upload-href";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = {
@@ -24,14 +24,29 @@ export default async function LegacySongDetail({ params, searchParams }: PagePro
     notFound();
   }
 
-  const songBelongsToProject = data.tracks.some((track) => track.id === songId);
-  if (!songBelongsToProject) {
+  const track = data.tracks.find((candidate) => candidate.id === songId);
+  if (!track) {
     notFound();
   }
 
-  redirect(
-    projectSongWorkspaceHref(id, songId, {
-      upload: query.upload === "1",
-    }),
+  if (query.upload === "1") {
+    redirect(projectSongUploadHref(id, songId));
+  }
+
+  const songVersions = data.versions.filter((version) => version.trackId === track.id);
+  const playable = songVersions.find(
+    (version) => version.audioDeletedAt === null && version.audioUrl !== null,
   );
+  const historical = songVersions.find(
+    (version) => version.audioUrl !== null || version.audioDeletedAt !== null,
+  );
+  const detailVersion = playable ?? historical;
+
+  if (detailVersion) {
+    redirect(
+      `/dashboard/music/${encodeURIComponent(detailVersion.id)}?from=${encodeURIComponent(id)}`,
+    );
+  }
+
+  redirect(`/dashboard/clients-projects/${encodeURIComponent(id)}`);
 }

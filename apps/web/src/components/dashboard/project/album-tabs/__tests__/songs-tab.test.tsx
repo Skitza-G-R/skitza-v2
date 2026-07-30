@@ -35,9 +35,11 @@ describe("SongsTab — Songs panel for the album page", () => {
     expect(SRC).toMatch(/index=\{[^}]*\+\s*1\s*\}/);
   });
 
-  it("marks the selected song row while keeping selection on Project Space", () => {
-    expect(SRC).toContain("selectedSongId");
-    expect(SRC).toMatch(/selected=\{[^}]*selectedSongId\s*===\s*t\.id[^}]*\}/);
+  it("opens songs in the existing player without a lower content slot", () => {
+    expect(SRC).toContain("Open a song in the player");
+    expect(SRC).not.toContain("selectedSongId");
+    expect(SRC).not.toContain("selected={");
+    expect(SRC).not.toContain("children");
   });
 
   it("exposes Add Song without an unpersisted reorder callback", () => {

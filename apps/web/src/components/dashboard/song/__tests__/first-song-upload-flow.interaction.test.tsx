@@ -118,48 +118,8 @@ vi.mock("~/components/dashboard/projects/project-upload-access", () => ({
   canCreatePurchaseOwnedProjectWork: () => true,
 }));
 
-vi.mock("../song-space-hero", () => ({
-  SongSpaceHero: ({ onUploadNewVersion }: { onUploadNewVersion?: (() => void) | undefined }) => (
-    <button type="button" data-testid="hero-upload" onClick={onUploadNewVersion}>
-      Upload new version
-    </button>
-  ),
-}));
-
-vi.mock("../song-space-stat-strip", () => ({
-  SongSpaceStatStrip: () => null,
-}));
-
-vi.mock("../song-tabs", () => ({
-  SongTabs: () => null,
-}));
-
-vi.mock("../song-tabs/overview-tab", () => ({
-  OverviewTab: () => null,
-}));
-
-vi.mock("../song-tabs/versions-tab", () => ({
-  VersionsTab: () => null,
-}));
-
-vi.mock("../song-tabs/sessions-tab", () => ({
-  SessionsTab: () => null,
-}));
-
-vi.mock("~/components/dashboard/projects/project-action-controls", () => ({
-  ProjectActionControls: () => null,
-}));
-
-vi.mock("~/components/dashboard/projects/project-purchases-panel", () => ({
-  ProjectPurchasesPanel: () => null,
-}));
-
-vi.mock("~/components/payments/payment-history-view", () => ({
-  PaymentHistoryView: () => null,
-}));
-
 import { AddSongDialog, type AddSongProjectOption } from "../add-song-dialog";
-import { SongSpace } from "../song-space";
+import { ProjectSongUploadController } from "../../project/project-song-upload-controller";
 
 const projects: readonly AddSongProjectOption[] = [
   {
@@ -177,28 +137,8 @@ const projects: readonly AddSongProjectOption[] = [
   },
 ];
 
-const songSpaceProps = {
-  mode: "single" as const,
-  song: {
-    id: "song-first",
-    purchaseId: "purchase-first",
-    title: "First Song",
-    archivedAtIso: null,
-    releasedAtIso: null,
-    currentVersion: "No audio",
-    noteCount: 0,
-    durationMs: null,
-    workflowStage: "brief" as const,
-    progress: 5,
-    deadline: "—",
-    isOverdue: false,
-    revisionCount: 0,
-    publicExposure: "none" as const,
-  },
-  project: {
-    id: "project-first",
-    name: "First Project",
-  },
+const uploadControllerProps = {
+  projectId: "project-first",
   actionProject: {
     id: "project-first",
     title: "First Project",
@@ -209,15 +149,14 @@ const songSpaceProps = {
     canDeleteEmptyDraft: false,
   },
   purchases: [],
-  client: {
-    id: "client-first",
-    name: "Test Artist",
-    email: "artist@example.test",
-    linkState: "active" as const,
+  song: {
+    id: "song-first",
+    purchaseId: "purchase-first",
+    title: "First Song",
+    archivedAtIso: null,
+    versionCount: 0,
+    publicExposure: "none" as const,
   },
-  versions: [],
-  sessions: [],
-  gradientToken: "grad-slate" as const,
 };
 
 let originalCreateObjectUrlDescriptor: PropertyDescriptor | undefined;
@@ -350,9 +289,9 @@ describe("first song upload journey", () => {
     mocked.searchParams = destination.searchParams;
     view.rerender(
       <StrictMode>
-        <SongSpace
+        <ProjectSongUploadController
           key="first-arrival"
-          {...songSpaceProps}
+          {...uploadControllerProps}
           initialUploadOpen={destination.searchParams.get("upload") === "1"}
         />
       </StrictMode>,
@@ -371,7 +310,7 @@ describe("first song upload journey", () => {
     ).toBeNull();
     expect(screen.getByLabelText(/^Audio file/)).toBeInstanceOf(HTMLInputElement);
     expect(screen.getByLabelText<HTMLInputElement>(/^Version label/).value).toBe("V1");
-    const canonicalHref = `${destination.pathname}?song=song-first&view=versions#versions`;
+    const canonicalHref = `${destination.pathname}?view=versions#versions`;
     await waitFor(() => {
       expect(historyReplace).toHaveBeenCalledWith(null, "", canonicalHref);
     });
@@ -383,32 +322,37 @@ describe("first song upload journey", () => {
     expect(mocked.router.refresh).not.toHaveBeenCalled();
     expect(mocked.addVersionAction).not.toHaveBeenCalled();
 
-    mocked.searchParams = new URLSearchParams("view=versions");
-    view.rerender(
-      <StrictMode>
-        <SongSpace key="first-arrival" {...songSpaceProps} initialUploadOpen />
-      </StrictMode>,
-    );
-    expect(screen.getByRole("heading", { name: "Upload new version" })).not.toBeNull();
-    expect(historyReplace).toHaveBeenCalledTimes(1);
-    expect(mocked.router.replace).not.toHaveBeenCalled();
-    expect(mocked.router.refresh).not.toHaveBeenCalled();
-
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByLabelText(/^Audio file/)).toBeNull();
     expect(mocked.addVersionAction).not.toHaveBeenCalled();
 
+    mocked.searchParams = new URLSearchParams("view=versions");
     view.rerender(
       <StrictMode>
-        <SongSpace key="canonical-reload" {...songSpaceProps} initialUploadOpen={false} />
+        <ProjectSongUploadController
+          key="canonical-reload"
+          {...uploadControllerProps}
+          initialUploadOpen={false}
+        />
       </StrictMode>,
     );
     expect(screen.queryByLabelText(/^Audio file/)).toBeNull();
+    expect(screen.queryByText("Workflow")).toBeNull();
+    expect(screen.queryByRole("tablist")).toBeNull();
     expect(historyReplace).toHaveBeenCalledTimes(1);
     expect(mocked.router.replace).not.toHaveBeenCalled();
     expect(mocked.router.refresh).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Upload new version" }));
+    mocked.searchParams = new URLSearchParams("song=song-first&upload=1");
+    view.rerender(
+      <StrictMode>
+        <ProjectSongUploadController
+          key="second-arrival"
+          {...uploadControllerProps}
+          initialUploadOpen
+        />
+      </StrictMode>,
+    );
 
     const fileInput = screen.getByLabelText<HTMLInputElement>(/^Audio file/);
     const labelInput = screen.getByLabelText<HTMLInputElement>(/^Version label/);

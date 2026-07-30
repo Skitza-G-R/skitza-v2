@@ -14,7 +14,10 @@ import { PaymentsTab, type ProjectPaymentsTabData } from "./album-tabs/project-p
 import { SongsTab, type EmptySongSpaceRowData } from "./album-tabs/songs-tab";
 import { StudioLogTab, type StudioLogEntry } from "./album-tabs/studio-log-tab";
 import { ProjectCompactHeader, type ProjectPaymentAttention } from "./project-compact-header";
-import { ProjectSongWorkspace, type ProjectSongWorkspaceData } from "./project-song-workspace";
+import {
+  ProjectSongUploadController,
+  type ProjectSongUploadData,
+} from "./project-song-upload-controller";
 import type { TrackRowData } from "./track-row";
 
 const ALBUM_TAB_ORDER: readonly AlbumTab[] = ["songs", "payments", "log", "details"];
@@ -40,7 +43,7 @@ interface AlbumSpaceProps {
   purchases: readonly ProjectPurchaseSummary[];
   payments: ProjectPaymentsTabData;
   tracks: TrackRowData[];
-  selectedSongWorkspace?: ProjectSongWorkspaceData | null;
+  selectedSongUpload?: ProjectSongUploadData | null;
   initialUploadOpen?: boolean;
   emptySlots?: readonly EmptySongSpaceRowData[];
   addSongHref: string;
@@ -53,7 +56,7 @@ export function AlbumSpace({
   purchases,
   payments,
   tracks,
-  selectedSongWorkspace = null,
+  selectedSongUpload = null,
   initialUploadOpen = false,
   emptySlots = [],
   addSongHref,
@@ -114,25 +117,12 @@ export function AlbumSpace({
         <div data-tab-swipe-panel>
           {active === "songs" ? (
             <SongsTab
-              projectId={project.id}
               tracks={tracks}
               emptySlots={emptySlots}
               canAddSong={canAddSong}
               blockedReason={newWorkBlockedReason}
-              {...(selectedSongWorkspace ? { selectedSongId: selectedSongWorkspace.song.id } : {})}
               {...(canAddSong ? { onAddSong: handleAddSong } : {})}
-            >
-              {selectedSongWorkspace ? (
-                <ProjectSongWorkspace
-                  key={selectedSongWorkspace.song.id}
-                  project={{ id: project.id, name: project.name }}
-                  actionProject={actionProject}
-                  purchases={purchases}
-                  data={selectedSongWorkspace}
-                  initialUploadOpen={initialUploadOpen}
-                />
-              ) : null}
-            </SongsTab>
+            />
           ) : null}
           {active === "payments" ? (
             <PaymentsTab projectId={project.id} payments={payments} purchases={purchases} />
@@ -149,6 +139,17 @@ export function AlbumSpace({
           ) : null}
         </div>
       </div>
+
+      {selectedSongUpload ? (
+        <ProjectSongUploadController
+          key={selectedSongUpload.id}
+          projectId={project.id}
+          actionProject={actionProject}
+          purchases={purchases}
+          song={selectedSongUpload}
+          initialUploadOpen={initialUploadOpen}
+        />
+      ) : null}
     </div>
   );
 }

@@ -10,6 +10,13 @@ const projectPage = readFileSync(
   new URL("../../../../app/(producer)/dashboard/clients-projects/[id]/page.tsx", import.meta.url),
   "utf8",
 );
+const projectUploadController = readFileSync(
+  new URL(
+    "../../../../components/dashboard/project/project-song-upload-controller.tsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const uploadModal = readFileSync(
   new URL("../../../../components/dashboard/song/upload-track-modal.tsx", import.meta.url),
   "utf8",
@@ -53,6 +60,9 @@ describe("public song upload acknowledgement wiring", () => {
 
   it("shows the exact active surfaces and forwards acknowledgement only with that warning", () => {
     expect(projectPage).toContain("classifySongUploadPublicExposure");
+    expect(projectUploadController).toContain("UploadTrackModal");
+    expect(projectUploadController).not.toContain("SongTabs");
+    expect(projectUploadController).not.toContain("Workflow");
     expect(uploadModal).toContain("This song is public.");
     expect(uploadModal).toContain("public link and portfolio");
     expect(uploadModal).toMatch(/acknowledgePublicExposure:\s*selectedPublicExposure !== "none"/);
