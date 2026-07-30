@@ -12,6 +12,18 @@ describe("EditorShell shell", () => {
     expect(SRC).toMatch(/@radix-ui\/react-dialog/);
   });
 
+  it("keeps dialog as the default and supports an inline onboarding frame", () => {
+    expect(SRC).toContain('presentation?: "dialog" | "embedded"');
+    expect(SRC).toContain('presentation = "dialog"');
+    expect(SRC).toContain('presentation === "embedded"');
+    expect(SRC).toContain("<section");
+    expect(SRC).toContain("overflow-hidden rounded-[var(--radius-xl)] border");
+  });
+
+  it("does not render the embedded frame when the editor is closed", () => {
+    expect(SRC).toContain("if (!open && embedded) return null");
+  });
+
   it("renders the step indicator label (Step N of M)", () => {
     expect(SRC).toMatch(/Step\s+\$\{|Step \$/);
   });
@@ -72,6 +84,7 @@ describe("EditorShell shell", () => {
   it("resets the body scroll position when the active step changes", () => {
     expect(SRC).toMatch(/useLayoutEffect/);
     expect(SRC).toMatch(/bodyRef\.current\.scrollTop\s*=\s*0/);
-    expect(SRC).toMatch(/\[current, open\]/);
+    expect(SRC).toMatch(/\[current, open, presentation\]/);
+    expect(SRC).toContain('scrollIntoView({ block: "start" })');
   });
 });

@@ -27,13 +27,42 @@ describe("onboarding availability truthfulness", () => {
 
   it("names every weekday switch, uses 44px controls, and respects reduced motion", () => {
     expect(source).toContain("aria-label={`${WEEKDAY_NAMES[day.weekday]} availability`}");
+    expect(source).toContain("min-h-11");
     expect(source).toContain("h-11 w-11");
     expect(source.match(/motion-reduce:transition-none/g)?.length).toBeGreaterThanOrEqual(3);
   });
 
+  it("uses a readable labeled day state instead of a detached slider", () => {
+    expect(source).toContain('{day.active ? "Available" : "Day off"}');
+    expect(source).toContain("{WEEKDAY_NAMES[day.weekday]}");
+    expect(source).not.toContain("translate-x-[18px]");
+    expect(source).not.toContain("translate-x-[2px]");
+  });
+
+  it("keeps hours aligned and moves them below the day controls on phones", () => {
+    expect(source).toContain("sm:grid-cols-[140px_minmax(0,1fr)_auto]");
+    expect(source).toContain(
+      "col-span-2 row-start-2 flex min-w-0 flex-col gap-1.5 sm:col-span-1 sm:col-start-2 sm:row-start-1",
+    );
+    expect(source).toContain('aria-label="Weekly working hours"');
+    expect(source).toContain("`window ${String(idx + 1)} `");
+    expect(source).toContain(
+      "aria-label={`Remove ${WEEKDAY_NAMES[day.weekday]} window ${String(idx + 1)}`}",
+    );
+  });
+
+  it("labels the week-start choice and uses the onboarding accent for its selected state", () => {
+    expect(source).toContain('role="group"');
+    expect(source).toContain('aria-label="Week starts on"');
+    expect(source).toContain(
+      "border-[rgb(var(--brand-primary)/0.34)] bg-[rgb(var(--brand-primary)/0.12)]",
+    );
+  });
+
   it("renders only one copy-hours control per active day", () => {
     expect(source.match(/copyToAllDays\(day\.weekday\)/g)).toHaveLength(1);
-    expect(source).toContain("day.active && activeDayCount > 1");
+    expect(source).toContain("{activeDayCount > 1 ? (");
+    expect(source).toMatch(/Row actions[\s\S]*\{day\.active \? \(/);
   });
 
   it("saves only on Continue and lets Skip leave suggestions unsaved", () => {

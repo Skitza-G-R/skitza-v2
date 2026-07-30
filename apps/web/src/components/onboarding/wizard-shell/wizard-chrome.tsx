@@ -18,6 +18,7 @@ export function WizardChrome({
   hideOuterProgress = false,
   canExit = false,
   previewMode = false,
+  contentWidth = "default",
 }: {
   activePosition: 1 | 2 | 3 | 4 | 5;
   completedCount?: number;
@@ -29,6 +30,7 @@ export function WizardChrome({
   hideOuterProgress?: boolean;
   canExit?: boolean;
   previewMode?: boolean;
+  contentWidth?: "default" | "wide";
 }) {
   const activeStep = WIZARD_STEPS[activePosition - 1];
   const progress = Math.max(1, completedCount, activePosition);
@@ -134,7 +136,11 @@ export function WizardChrome({
 
           <div
             className={`mx-auto w-full px-4 py-6 sm:px-6 sm:py-8 ${
-              hideOuterProgress ? "max-w-4xl" : "max-w-[620px]"
+              hideOuterProgress
+                ? "max-w-4xl"
+                : contentWidth === "wide"
+                  ? "max-w-[1180px]"
+                  : "max-w-[620px]"
             } ${footer ? "pb-28 lg:pb-24" : "pb-10"}`}
           >
             {children}

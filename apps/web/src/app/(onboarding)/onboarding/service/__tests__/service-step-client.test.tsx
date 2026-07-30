@@ -24,6 +24,13 @@ describe("onboarding first-product editor", () => {
     expect(source).not.toContain("<ReviewStep");
   });
 
+  it("embeds the editor inside the visible onboarding chrome", () => {
+    expect(source).toContain("<WizardChrome");
+    expect(source).toContain("activePosition={SERVICE_STEP_INDEX}");
+    expect(source).toContain('presentation="embedded"');
+    expect(source).not.toContain("hideOuterProgress");
+  });
+
   it("preserves the exact seven-step Store flow and runtime draft", () => {
     expect(editorSource).toMatch(
       /const NEW_STEPS[\s\S]*"type"[\s\S]*"details"[\s\S]*"price"[\s\S]*"payment"[\s\S]*"delivery"[\s\S]*"rights"[\s\S]*"review"/,
@@ -53,5 +60,11 @@ describe("onboarding first-product editor", () => {
     expect(editorSource).toMatch(
       /if \(previewMode\) \{[\s\S]*handleSuccessfulSubmit\(\);[\s\S]*return;/,
     );
+  });
+
+  it("keeps dialog presentation as the Store default while onboarding opts into embedding", () => {
+    expect(editorSource).toContain('presentation?: "dialog" | "embedded"');
+    expect(editorSource).toContain('presentation = "dialog"');
+    expect(editorSource).toContain("presentation={presentation}");
   });
 });

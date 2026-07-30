@@ -7,6 +7,7 @@ import { useRef, useState } from "react";
 import { ProductDetailScreen } from "~/components/artist/purchase/product-detail-screen";
 import type { Producer, PurchaseProduct } from "~/components/artist/purchase/purchase-data";
 import { FocalProductCard } from "~/components/artist/store/focal-product-card";
+import { ProducerHero } from "~/components/artist/store/producer-hero";
 import { QuietProductList } from "~/components/artist/store/quiet-product-list";
 import { producerHue, producerInitials } from "~/lib/_phase4-stubs/producer-color";
 import { durationLabel } from "~/lib/purchase/product-mapping";
@@ -34,6 +35,7 @@ interface ArtistProductPreviewProps {
   taxMode?: TaxMode;
   taxRatePct?: number;
   placement?: "focal" | "secondary";
+  presentation?: "product" | "storefront";
 }
 
 function parseDurationMinutes(value: string): number {
@@ -67,6 +69,7 @@ export function ArtistProductPreview({
   taxMode = "tax_free",
   taxRatePct = 18,
   placement = "focal",
+  presentation = "product",
 }: ArtistProductPreviewProps) {
   const [showDetails, setShowDetails] = useState(false);
   const previewTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -116,27 +119,67 @@ export function ArtistProductPreview({
   }
 
   return (
-    <section className="sm:col-span-2" aria-labelledby="artist-product-preview-heading">
-      <div className="mb-3 flex items-end justify-between gap-3">
-        <div>
-          <h3
-            id="artist-product-preview-heading"
-            className="font-display text-[15px] font-bold tracking-[-0.01em] text-[rgb(var(--fg-default))]"
-          >
-            Exact artist preview
-          </h3>
-          <p className="mt-0.5 text-[12.5px] text-[rgb(var(--fg-muted))]">
-            Signed-in Store {placement === "focal" ? "focal card" : "secondary row"} for{" "}
-            {displayName}. Artists can open the real detail view below.
-          </p>
+    <section
+      className={presentation === "product" ? "sm:col-span-2" : "min-w-0"}
+      aria-labelledby={
+        presentation === "storefront"
+          ? "artist-storefront-preview-heading"
+          : "artist-product-preview-heading"
+      }
+    >
+      {presentation === "product" ? (
+        <div className="mb-3 flex items-end justify-between gap-3">
+          <div>
+            <h3
+              id="artist-product-preview-heading"
+              className="font-display text-[15px] font-bold tracking-[-0.01em] text-[rgb(var(--fg-default))]"
+            >
+              Exact artist preview
+            </h3>
+            <p className="mt-0.5 text-[12.5px] text-[rgb(var(--fg-muted))]">
+              Signed-in Store {placement === "focal" ? "focal card" : "secondary row"} for{" "}
+              {displayName}. Artists can open the real detail view below.
+            </p>
+          </div>
+          <span className="shrink-0 font-mono text-[9.5px] font-bold tracking-[0.14em] text-[rgb(var(--fg-faint))] uppercase">
+            Preview only
+          </span>
         </div>
-        <span className="shrink-0 font-mono text-[9.5px] font-bold tracking-[0.14em] text-[rgb(var(--fg-faint))] uppercase">
-          Preview only
-        </span>
-      </div>
+      ) : null}
 
-      <div className="mx-auto max-w-[440px]">
-        {placement === "focal" ? (
+      <div
+        className={
+          presentation === "storefront"
+            ? "mx-auto w-full max-w-[600px]"
+            : "mx-auto max-w-[440px]"
+        }
+      >
+        {presentation === "storefront" ? (
+          <>
+            <header className="mb-5 flex items-baseline justify-between px-1 sm:px-0">
+              <h2
+                id="artist-storefront-preview-heading"
+                className="font-display text-[20px] leading-none font-extrabold tracking-[-0.025em] text-[rgb(var(--fg-default))]"
+              >
+                Store
+                <span className="text-[rgb(var(--brand-primary))]">.</span>
+              </h2>
+              <span className="font-mono text-[9.5px] font-bold tracking-[0.16em] text-[rgb(var(--fg-faint))] uppercase">
+                Preview only
+              </span>
+            </header>
+            <div className="space-y-5 sm:space-y-6">
+              <ProducerHero producerName={displayName} producerLogoUrl={null} />
+              <FocalProductCard
+                product={cardProduct}
+                producerName={displayName}
+                taxMode={taxMode}
+                taxRatePct={taxRatePct}
+                onPreviewDetails={openDetails}
+              />
+            </div>
+          </>
+        ) : placement === "focal" ? (
           <FocalProductCard
             product={cardProduct}
             producerName={displayName}

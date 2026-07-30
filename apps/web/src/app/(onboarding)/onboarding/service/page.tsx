@@ -1,7 +1,9 @@
 import { auth } from "@clerk/nextjs/server";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import type { StoreProduct } from "~/app/(producer)/dashboard/store/store-screen";
+import { inferCurrency } from "~/lib/onboarding/derive";
 import { isDevPreviewBypass } from "~/lib/onboarding/dev-preview";
 import { coerceTaxMode } from "~/lib/tax-mode";
 import { fetchUserRole } from "~/server/auth/role";
@@ -61,10 +63,16 @@ export default async function ServiceStepPage({
   const previewMode = isDevPreviewBypass(params);
 
   if (previewMode) {
+    const requestHeaders = await headers();
+    const previewCurrency = inferCurrency(
+      requestHeaders.get("x-vercel-ip-country"),
+      requestHeaders.get("accept-language"),
+    );
+
     return (
       <ServiceStepClient
         product={null}
-        defaultCurrency="USD"
+        defaultCurrency={previewCurrency}
         taxMode="tax_free"
         taxRatePct={18}
         producerName="Maya Stone"

@@ -34,13 +34,18 @@ export default async function StudioStepPage({
 }) {
   const params = await searchParams;
   const isPreview = isDevPreviewBypass(params);
+  const requestHeaders = await headers();
+  const inferredCurrency = inferCurrency(
+    requestHeaders.get("x-vercel-ip-country"),
+    requestHeaders.get("accept-language"),
+  );
 
   if (isPreview) {
     return (
       <StudioStepClient
         initialDisplayName=""
         initialSlug=""
-        initialCurrency="USD"
+        initialCurrency={inferredCurrency}
         initialTimezone="UTC"
         previewMode
       />
@@ -54,12 +59,6 @@ export default async function StudioStepPage({
   const role = await fetchUserRole({ dbUrl, userId });
   const redirectTo = decideOnboardingRedirect(role, "studio");
   if (redirectTo) redirect(redirectTo);
-
-  const requestHeaders = await headers();
-  const inferredCurrency = inferCurrency(
-    requestHeaders.get("x-vercel-ip-country"),
-    requestHeaders.get("accept-language"),
-  );
 
   if (role.kind !== "producer-complete" && role.kind !== "producer-incomplete") {
     return (

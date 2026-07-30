@@ -47,6 +47,12 @@ describe("ProductEditor orchestrator", () => {
     expect(SRC).toMatch(/<EditorShell/);
   });
 
+  it("passes an optional presentation through without changing Store's dialog default", () => {
+    expect(SRC).toContain('presentation?: "dialog" | "embedded"');
+    expect(SRC).toContain('presentation = "dialog"');
+    expect(SRC).toContain("presentation={presentation}");
+  });
+
   it("calls a packages.create or .update server action", () => {
     expect(SRC).toMatch(/createPackage|updatePackage|packages\.create|packages\.update/);
   });

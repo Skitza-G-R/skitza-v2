@@ -1,7 +1,9 @@
 import { auth } from "@clerk/nextjs/server";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { decodeDescription } from "~/app/(producer)/dashboard/store/description-encoding";
+import { inferCurrency } from "~/lib/onboarding/derive";
 import { isDevPreviewBypass } from "~/lib/onboarding/dev-preview";
 import { coerceTaxMode } from "~/lib/tax-mode";
 import { fetchUserRole } from "~/server/auth/role";
@@ -11,12 +13,11 @@ import { decideOnboardingRedirect } from "../decide-redirect";
 import { reviewReadiness } from "./readiness";
 import { ReviewStepClient, type OnboardingReviewProduct } from "./review-step-client";
 
-const PREVIEW_PRODUCT: OnboardingReviewProduct = {
+const PREVIEW_PRODUCT: Omit<OnboardingReviewProduct, "currency"> = {
   id: "onboarding-preview-product",
   name: "Signature production",
   tagline: "From the first idea to a release-ready master.",
   priceCents: 180000,
-  currency: "USD",
   pricingModel: "flat",
   volumeTiers: [],
   durationMin: 60,
@@ -41,10 +42,16 @@ export default async function ReviewPage({
   const previewMode = isDevPreviewBypass(params);
 
   if (previewMode) {
+    const requestHeaders = await headers();
+    const previewCurrency = inferCurrency(
+      requestHeaders.get("x-vercel-ip-country"),
+      requestHeaders.get("accept-language"),
+    );
+
     return (
       <ReviewStepClient
         producerName="Maya Stone"
-        product={PREVIEW_PRODUCT}
+        product={{ ...PREVIEW_PRODUCT, currency: previewCurrency }}
         hoursNotNeeded={false}
         taxMode="tax_free"
         taxRatePct={18}

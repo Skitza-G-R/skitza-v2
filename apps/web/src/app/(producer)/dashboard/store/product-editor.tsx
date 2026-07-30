@@ -89,6 +89,8 @@ type Draft = Omit<PersistedDraft, "includesSessions"> & {
 interface ProductEditorProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Store uses a dialog; onboarding keeps the same editor inside its wizard chrome. */
+  presentation?: "dialog" | "embedded";
   product: StoreProduct | null;
   defaultCurrency: Currency;
   taxMode: import("~/lib/tax-mode").TaxMode;
@@ -201,6 +203,7 @@ function typeLabel(type: PresetType): string {
 export function ProductEditor({
   open,
   onOpenChange,
+  presentation = "dialog",
   product,
   defaultCurrency,
   taxMode,
@@ -504,6 +507,7 @@ export function ProductEditor({
     <EditorShell
       open={open}
       onOpenChange={handleEditorOpenChange}
+      presentation={presentation}
       mode={mode}
       {...(product ? { productName: product.name } : {})}
       productActive={product?.active ?? false}

@@ -324,7 +324,11 @@ export function AvailabilityStepClient({
               Used by the calendar week grid.
             </span>
           </span>
-          <div className="flex shrink-0 gap-1">
+          <div
+            role="group"
+            aria-label="Week starts on"
+            className="grid shrink-0 grid-cols-2 gap-1 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] p-1"
+          >
             {(["sunday", "monday"] as const).map((opt) => {
               const isActive = opt === weekStart;
               const label = opt === "sunday" ? "Sunday" : "Monday";
@@ -337,10 +341,10 @@ export function AvailabilityStepClient({
                     setWeekStart(opt);
                   }}
                   className={[
-                    "inline-flex h-11 items-center justify-center rounded-[var(--radius-sm)] border px-2.5 font-mono text-[10.5px] transition-colors motion-reduce:transition-none",
+                    "inline-flex h-11 items-center justify-center rounded-[var(--radius-lg)] border px-2.5 font-mono text-[10.5px] transition-colors focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none motion-reduce:transition-none",
                     isActive
-                      ? "border-transparent bg-[rgb(var(--fg-default))] text-[rgb(var(--fg-inverse))]"
-                      : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
+                      ? "border-[rgb(var(--brand-primary)/0.34)] bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary-dark))]"
+                      : "border-transparent bg-transparent text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-elevated))] hover:text-[rgb(var(--fg-default))]",
                   ].join(" ")}
                   style={{ fontWeight: 700 }}
                 >
@@ -351,18 +355,21 @@ export function AvailabilityStepClient({
           </div>
         </div>
 
-        {/* Days grid (compact, with per-day multi-window) */}
-        <ul className="mt-3 flex flex-col gap-1.5">
+        {/* Weekly schedule. Each day is one readable control group:
+            state first, hours second, row actions last. On phones the
+            hours move below the day without changing their order. */}
+        <ul aria-label="Weekly working hours" className="mt-3 flex flex-col gap-2">
           {orderedDays.map((day) => (
             <li
               key={day.weekday}
-              className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 transition-opacity motion-reduce:transition-none ${
+              className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 rounded-[var(--radius-lg)] border p-2 transition-[border-color,background-color] motion-reduce:transition-none sm:grid-cols-[140px_minmax(0,1fr)_auto] ${
                 day.active
-                  ? "border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] opacity-100"
-                  : "border border-transparent opacity-50"
+                  ? "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
+                  : "border-[rgb(var(--border-subtle)/0.72)] bg-[rgb(var(--bg-background)/0.46)]"
               }`}
             >
-              {/* Day toggle */}
+              {/* The whole labeled block is the switch. This avoids a
+                  tiny color-only toggle floating beside an abbreviation. */}
               <button
                 type="button"
                 role="switch"
@@ -371,91 +378,122 @@ export function AvailabilityStepClient({
                 onClick={() => {
                   updateDay(day.weekday, { active: !day.active });
                 }}
-                className="relative flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full"
+                className={`group col-start-1 row-start-1 flex min-h-11 min-w-0 items-center gap-2.5 rounded-[var(--radius-lg)] border px-2.5 py-1.5 text-left transition-[border-color,background-color] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:outline-none motion-reduce:transition-none ${
+                  day.active
+                    ? "border-[rgb(var(--brand-primary)/0.34)] bg-[rgb(var(--brand-primary)/0.09)]"
+                    : "border-transparent bg-transparent hover:border-[rgb(var(--border-subtle))] hover:bg-[rgb(var(--bg-elevated))]"
+                }`}
               >
                 <span
                   aria-hidden
-                  className={`relative h-5 w-9 rounded-full transition-colors motion-reduce:transition-none ${
-                    day.active ? "bg-[rgb(var(--brand-primary))]" : "bg-[rgb(var(--border-strong))]"
+                  className={`h-2.5 w-2.5 shrink-0 rounded-full transition-[background-color,box-shadow] motion-reduce:transition-none ${
+                    day.active
+                      ? "bg-[rgb(var(--brand-primary))] shadow-[0_0_0_4px_rgb(var(--brand-primary)/0.14)]"
+                      : "bg-[rgb(var(--fg-faint))] shadow-[0_0_0_4px_rgb(var(--border-subtle)/0.76)]"
                   }`}
-                >
+                />
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate text-[12.5px] leading-tight font-bold text-[rgb(var(--fg-default))]">
+                    {WEEKDAY_NAMES[day.weekday]}
+                  </span>
                   <span
-                    className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform motion-reduce:transition-none ${
-                      day.active ? "translate-x-[18px]" : "translate-x-[2px]"
+                    className={`mt-0.5 font-mono text-[9.5px] leading-tight tracking-[0.08em] uppercase ${
+                      day.active
+                        ? "text-[rgb(var(--brand-primary-dark))]"
+                        : "text-[rgb(var(--fg-muted))]"
                     }`}
-                  />
+                  >
+                    {day.active ? "Available" : "Day off"}
+                  </span>
                 </span>
               </button>
-              <span className="w-9 text-[12px] font-bold text-[rgb(var(--fg-default))]">
-                {day.label}
-              </span>
 
-              {/* Copy lives left-of-windows on purpose: dropping it
-                  into the windows row let it wrap to a second line as
-                  soon as a 2nd window appeared, so the bracket grew.
-                  Anchoring Copy to the day-label cluster keeps the
-                  row a constant height and reads as "this day's
-                  action" — same convention as the toggle. */}
-              {day.active && activeDayCount > 1 ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    copyToAllDays(day.weekday);
-                  }}
-                  aria-label={`Copy ${day.label}'s hours to all days`}
-                  title="Copy to all days"
-                  className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))] motion-reduce:transition-none"
-                >
-                  <Copy size={11} />
-                </button>
-              ) : null}
-
-              {/* Windows — hidden when day is off (cleaner than dimmed
-                  text that still suggests data). */}
+              {/* Windows occupy the middle column on desktop and a
+                  full second row on narrow screens. */}
               {day.active ? (
-                <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+                <div className="col-span-2 row-start-2 flex min-w-0 flex-col gap-1.5 sm:col-span-1 sm:col-start-2 sm:row-start-1">
                   {day.windows.map((w, idx) => (
                     <div
                       key={idx}
-                      className="flex items-center gap-1 rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-1 py-0.5"
+                      className={`grid min-h-11 min-w-0 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-2 focus-within:border-[rgb(var(--brand-primary)/0.6)] focus-within:ring-2 focus-within:ring-[rgb(var(--brand-primary)/0.12)] ${
+                        day.windows.length > 1
+                          ? "grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_44px]"
+                          : "grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]"
+                      }`}
                     >
-                      <input
-                        type="time"
-                        value={minutesToTime(w.startMin)}
-                        disabled={pending}
-                        onChange={(e) => {
-                          updateWindow(day.weekday, idx, {
-                            startMin: timeToMinutes(e.target.value),
-                          });
-                        }}
-                        className="time-input-naked h-11 w-[64px] bg-transparent px-1 py-0.5 font-mono text-[11px] text-[rgb(var(--fg-default))] outline-none disabled:cursor-not-allowed"
-                      />
-                      <span className="text-[rgb(var(--fg-faint))]">–</span>
-                      <input
-                        type="time"
-                        value={minutesToTime(w.endMin)}
-                        disabled={pending}
-                        onChange={(e) => {
-                          updateWindow(day.weekday, idx, {
-                            endMin: timeToMinutes(e.target.value),
-                          });
-                        }}
-                        className="time-input-naked h-11 w-[64px] bg-transparent px-1 py-0.5 font-mono text-[11px] text-[rgb(var(--fg-default))] outline-none disabled:cursor-not-allowed"
-                      />
+                      <label className="min-w-0">
+                        <span className="sr-only">
+                          {WEEKDAY_NAMES[day.weekday]}{" "}
+                          {day.windows.length > 1 ? `window ${String(idx + 1)} ` : ""}
+                          start time
+                        </span>
+                        <input
+                          type="time"
+                          value={minutesToTime(w.startMin)}
+                          disabled={pending}
+                          onChange={(e) => {
+                            updateWindow(day.weekday, idx, {
+                              startMin: timeToMinutes(e.target.value),
+                            });
+                          }}
+                          className="time-input-naked h-11 w-full min-w-0 bg-transparent px-1 font-mono text-[11px] font-semibold text-[rgb(var(--fg-default))] outline-none disabled:cursor-not-allowed"
+                        />
+                      </label>
+                      <span className="font-mono text-[9px] tracking-[0.08em] text-[rgb(var(--fg-faint))] uppercase">
+                        to
+                      </span>
+                      <label className="min-w-0">
+                        <span className="sr-only">
+                          {WEEKDAY_NAMES[day.weekday]}{" "}
+                          {day.windows.length > 1 ? `window ${String(idx + 1)} ` : ""}
+                          end time
+                        </span>
+                        <input
+                          type="time"
+                          value={minutesToTime(w.endMin)}
+                          disabled={pending}
+                          onChange={(e) => {
+                            updateWindow(day.weekday, idx, {
+                              endMin: timeToMinutes(e.target.value),
+                            });
+                          }}
+                          className="time-input-naked h-11 w-full min-w-0 bg-transparent px-1 font-mono text-[11px] font-semibold text-[rgb(var(--fg-default))] outline-none disabled:cursor-not-allowed"
+                        />
+                      </label>
                       {day.windows.length > 1 ? (
                         <button
                           type="button"
                           onClick={() => {
                             removeWindow(day.weekday, idx);
                           }}
-                          aria-label="Remove window"
-                          className="flex h-11 w-11 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-elevated))] hover:text-[rgb(var(--fg-default))]"
+                          aria-label={`Remove ${WEEKDAY_NAMES[day.weekday]} window ${String(idx + 1)}`}
+                          className="flex h-11 w-11 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-elevated))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none motion-reduce:transition-none"
                         >
                           <X size={12} />
                         </button>
                       ) : null}
                     </div>
                   ))}
+                </div>
+              ) : null}
+
+              {/* Row actions stay together at the right edge. On mobile
+                  they share the first row with the day control. */}
+              {day.active ? (
+                <div className="col-start-2 row-start-1 flex items-center justify-end gap-1 sm:col-start-3">
+                  {activeDayCount > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        copyToAllDays(day.weekday);
+                      }}
+                      aria-label={`Copy ${day.label}'s hours to all days`}
+                      title="Copy to all days"
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none motion-reduce:transition-none"
+                    >
+                      <Copy size={12} />
+                    </button>
+                  ) : null}
                   {day.windows.length < 3 ? (
                     <button
                       type="button"
@@ -463,17 +501,14 @@ export function AvailabilityStepClient({
                         addWindow(day.weekday);
                       }}
                       aria-label={`Add window to ${day.label}`}
-                      className="flex h-11 w-11 items-center justify-center rounded-full border border-dashed border-[rgb(var(--border-strong))] text-[rgb(var(--fg-muted))] hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))]"
+                      title="Add another time window"
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-dashed border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none motion-reduce:transition-none"
                     >
                       <Plus size={12} />
                     </button>
                   ) : null}
                 </div>
-              ) : (
-                <span className="ml-auto pr-1 font-mono text-[10.5px] tracking-[0.16em] text-[rgb(var(--fg-faint))] uppercase">
-                  Off
-                </span>
-              )}
+              ) : null}
             </li>
           ))}
         </ul>
