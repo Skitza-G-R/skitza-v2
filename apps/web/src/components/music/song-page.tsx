@@ -13,6 +13,7 @@ import {
 } from "react";
 
 import { Waveform50, type WaveformComment } from "~/components/audio/waveform-50";
+import { UploadTrackModal } from "~/components/dashboard/song/upload-track-modal";
 import {
   PLAYER_EVENTS,
   clampSeekMs,
@@ -178,6 +179,14 @@ export type L3Actions = {
 //   - the breadcrumb middle crumb reads `track.clientName`, which the
 //     artist wire payload overloads with the producer's display name.
 export type SongPageRole = "producer" | "artist";
+
+export type ProducerVersionUpload = {
+  projectId: string;
+  trackId: string;
+  defaultLabel: string;
+  versionCount: number;
+  publicExposure: "none" | "link" | "portfolio" | "link_and_portfolio";
+};
 
 export function songCommentDraftRoute(role: SongPageRole, versionId: string): string {
   const encodedVersionId = encodeURIComponent(versionId);
@@ -494,6 +503,8 @@ export function SongPage({
   data,
   role = "producer",
   artistStudioId,
+  producerProjectHref,
+  versionUpload,
   actions,
   publicSharing,
   publicSharingActions,
@@ -502,6 +513,8 @@ export function SongPage({
   data: SongPageData;
   role?: SongPageRole;
   artistStudioId?: string | undefined;
+  producerProjectHref?: string | undefined;
+  versionUpload?: ProducerVersionUpload | undefined;
   actions: L3Actions;
   publicSharing?: SongPublicSharingView;
   publicSharingActions?: SongPublicSharingActions;
@@ -526,6 +539,7 @@ export function SongPage({
   const [deliveryPermissionOverrides, setDeliveryPermissionOverrides] = useState<
     Record<string, VersionDeliveryPermission>
   >({});
+  const [versionUploadOpen, setVersionUploadOpen] = useState(false);
   const versions = useMemo(
     () =>
       data.versions.map((version) => {
@@ -1587,7 +1601,7 @@ export function SongPage({
   const projectHref =
     role === "artist"
       ? withArtistStudio(`/artist/music/${data.track.projectId}`, artistStudioId)
-      : `/dashboard/music/project/${data.track.projectId}`;
+      : (producerProjectHref ?? `/dashboard/music/project/${data.track.projectId}`);
   const topbarCrumbs = [
     ...clientCrumb,
     {
@@ -1864,6 +1878,23 @@ export function SongPage({
       <span className="inline-flex min-h-11 items-center text-[12px] font-semibold text-[rgb(var(--fg-muted))]">
         Waiting for producer
       </span>
+    );
+  }
+
+  function renderVersionUploadControl() {
+    if (role !== "producer" || !versionUpload) return null;
+    return (
+      <button
+        type="button"
+        data-test="upload-new-version"
+        aria-label={`Upload ${versionUpload.defaultLabel} for ${songTitle}`}
+        onClick={() => {
+          setVersionUploadOpen(true);
+        }}
+        className="sk-press inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[12px] font-bold text-[rgb(var(--bg-background))] transition-colors hover:bg-[rgb(var(--fg-default)/0.88)]"
+      >
+        <PlusIcon /> Upload {versionUpload.defaultLabel}
+      </button>
     );
   }
 
@@ -2242,6 +2273,7 @@ export function SongPage({
             </div>
             <div className="col-span-2 mt-4 flex flex-wrap items-center gap-2 lg:col-span-1 lg:col-start-2 lg:mt-3">
               {renderVersionControl()}
+              {renderVersionUploadControl()}
               {renderWorkflowControl()}
             </div>
           </Card>
@@ -2442,6 +2474,27 @@ export function SongPage({
           {renderNotesPanel("sheet")}
         </SheetContent>
       </Sheet>
+
+      {role === "producer" && versionUpload ? (
+        <UploadTrackModal
+          open={versionUploadOpen}
+          onClose={() => {
+            setVersionUploadOpen(false);
+          }}
+          projectId={versionUpload.projectId}
+          mode="new-version"
+          trackId={versionUpload.trackId}
+          defaultLabel={versionUpload.defaultLabel}
+          tracks={[
+            {
+              id: versionUpload.trackId,
+              title: songTitle,
+              versionCount: versionUpload.versionCount,
+              publicExposure: versionUpload.publicExposure,
+            },
+          ]}
+        />
+      ) : null}
 
       {managementConfig ? (
         <SongManagementDialog
@@ -2819,6 +2872,23 @@ function CheckIcon() {
       aria-hidden
     >
       <polyline points="3 8.5 7 12 13 5" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      aria-hidden
+    >
+      <path d="M8 3v10M3 8h10" />
     </svg>
   );
 }
