@@ -67,9 +67,7 @@ describe("decideRoleRedirect — producer policy", () => {
 
 describe("decideRoleRedirect — artist policy", () => {
   it("unauthenticated → /sign-in?redirect_url=/artist", () => {
-    expect(decideRoleRedirect(unauth, "artist")).toBe(
-      "/sign-in?redirect_url=/artist",
-    );
+    expect(decideRoleRedirect(unauth, "artist")).toBe("/sign-in?redirect_url=/artist");
   });
 
   it("producer-complete → /dashboard (CLAUDE.md: producer cannot reach /artist/*)", () => {
@@ -114,9 +112,7 @@ describe("decideAccountMembershipRedirect", () => {
       hasArtistAccount: true,
     };
 
-    expect(
-      decideAccountMembershipRedirect(disconnectedArtist, "artist"),
-    ).toBeNull();
+    expect(decideAccountMembershipRedirect(disconnectedArtist, "artist")).toBeNull();
   });
 
   it("preserves strict rejection for a producer without artist membership", () => {
@@ -125,8 +121,16 @@ describe("decideAccountMembershipRedirect", () => {
       hasArtistAccount: false,
     };
 
-    expect(
-      decideAccountMembershipRedirect(producerOnlyMemberships, "artist"),
-    ).toBe("/dashboard");
+    expect(decideAccountMembershipRedirect(producerOnlyMemberships, "artist")).toBe("/dashboard");
+  });
+
+  it("allows artist access while keeping an incomplete producer in onboarding", () => {
+    const incompleteDual: UserAccountMemberships = {
+      primaryRole: proIncomplete,
+      hasArtistAccount: true,
+    };
+
+    expect(decideAccountMembershipRedirect(incompleteDual, "artist")).toBeNull();
+    expect(decideAccountMembershipRedirect(incompleteDual, "producer")).toBe("/onboarding");
   });
 });

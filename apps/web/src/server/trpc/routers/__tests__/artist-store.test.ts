@@ -67,6 +67,7 @@ const {
     currency: { __column: "products.currency" },
     durationMin: { __column: "products.duration_min" },
     sessionCount: { __column: "products.session_count" },
+    bookingEnabled: { __column: "products.booking_enabled" },
     kind: { __column: "products.kind" },
     pricingModel: { __column: "products.pricing_model" },
     paymentPlans: { __column: "products.payment_plans" },
@@ -334,8 +335,9 @@ describe("artist.store.products (query)", () => {
         description: "A mix",
         priceCents: 10000,
         currency: "USD",
-        durationMin: 0,
+        durationMin: 60,
         sessionCount: 1,
+        bookingEnabled: true,
         kind: "mix",
         pricingModel: "flat",
         paymentPlans: [{ kind: "full" }],
@@ -370,6 +372,7 @@ describe("artist.store.products (query)", () => {
     expect(result.products[0]?.id).toBe("prod-a"); // Alpha
     expect(result.products[1]?.id).toBe("prod-b"); // Bravo
     expect(result.products[0]?.producerName).toBe("Alpha Studio");
+    expect(result.products[0]?.bookingEnabled).toBe(true);
     expect(result.products[0]?.producerSlug).toBe("alpha");
     expect(result.products[1]?.producerName).toBe("Bravo Studio");
   });

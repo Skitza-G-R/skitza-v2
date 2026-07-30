@@ -81,51 +81,45 @@ describe("SK-90 purchase-owned history callers", () => {
   });
 
   it("keeps unfinished or deleted audio out of latest-listening surfaces", () => {
-    const artistRouter = source("src/server/trpc/routers/artist.ts");
+    const libraryRouter = source("src/server/trpc/routers/library.ts");
+    const musicReadModel = source("src/server/domain/song-spaces/music-read-model.ts");
     const producerRouter = source("src/server/trpc/routers/producer.ts");
 
-    const artistProjects = artistRouter.slice(
-      artistRouter.indexOf("  projects: artistProcedure.query"),
-      artistRouter.indexOf("  list: artistProcedure.query"),
+    const sharedMusicRoutes = libraryRouter.slice(
+      libraryRouter.indexOf("  music: router"),
+      libraryRouter.indexOf("  list: producerProcedure"),
     );
-    const artistList = artistRouter.slice(
-      artistRouter.indexOf("  list: artistProcedure.query"),
-      artistRouter.indexOf("  // Full detail for one project"),
-    );
-    const artistProject = artistRouter.slice(
-      artistRouter.indexOf("  project: artistProcedure"),
-      artistRouter.indexOf("  // Timestamped comment"),
-    );
-    const artistHome = artistRouter.slice(
-      artistRouter.indexOf("  home: artistProcedure.query"),
-      artistRouter.indexOf("  // Soft-disconnect"),
-    );
-    const producerMusic = producerRouter.slice(
-      producerRouter.indexOf("  music: router"),
-      producerRouter.indexOf("  // Full data export"),
+    const versionRead = musicReadModel.slice(
+      musicReadModel.indexOf("  const versionRows ="),
+      musicReadModel.indexOf("  const commentTargetVersionByTrack"),
     );
     const producerToday = producerRouter.slice(
       producerRouter.indexOf("  today: producerProcedure.query"),
       producerRouter.indexOf("  // ─── Overview sub-router"),
     );
 
-    for (const block of [artistProjects, artistList, artistProject, artistHome]) {
-      expect(block).toContain("isNotNull(trackVersions.audioUrl)");
-      expect(block).toContain("isNull(trackVersions.audioDeletedAt)");
-    }
-    expect(
-      (artistHome.match(/isNotNull\(trackVersions\.audioUrl\)/g) ?? []).length,
-    ).toBeGreaterThanOrEqual(2);
-    expect(
-      (artistHome.match(/isNull\(trackVersions\.audioDeletedAt\)/g) ?? []).length,
-    ).toBeGreaterThanOrEqual(2);
+    expect(sharedMusicRoutes).toContain("listMusicSongSpaces");
+    expect(sharedMusicRoutes).toContain("getMusicProjectSongSpaces");
+    expect(sharedMusicRoutes).toContain('kind: "producer"');
+    expect(sharedMusicRoutes).toContain('kind: "artist"');
 
-    expect(
-      (producerMusic.match(/isNotNull\(trackVersions\.audioUrl\)/g) ?? []).length,
-    ).toBeGreaterThanOrEqual(2);
-    expect(
-      (producerMusic.match(/isNull\(trackVersions\.audioDeletedAt\)/g) ?? []).length,
-    ).toBeGreaterThanOrEqual(2);
+    // The shared read model intentionally loads tombstones for history, then
+    // separates them from the latest playable version. Pure in-flight rows
+    // and deleted audio therefore cannot hide an older playable version.
+    expect(versionRead).toContain(
+      "or(isNotNull(trackVersions.audioUrl), isNotNull(trackVersions.audioDeletedAt))",
+    );
+    const unfinishedGuard = versionRead.indexOf(
+      "if (version.audioUrl === null && version.audioDeletedAt == null) continue;",
+    );
+    const unplayableGuard = versionRead.indexOf(
+      "if (version.audioUrl === null || version.audioDeletedAt != null) continue;",
+    );
+    const latestPlayableWrite = versionRead.indexOf("latestVersionByTrack.set");
+    expect(unfinishedGuard).toBeGreaterThanOrEqual(0);
+    expect(unplayableGuard).toBeGreaterThan(unfinishedGuard);
+    expect(latestPlayableWrite).toBeGreaterThan(unplayableGuard);
+
     expect(producerToday).toContain("isNotNull(trackVersions.audioUrl)");
     expect(producerToday).toContain("isNull(trackVersions.audioDeletedAt)");
   });

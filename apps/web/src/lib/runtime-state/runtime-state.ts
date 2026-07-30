@@ -88,6 +88,7 @@ export interface ProducerStoreProductDraft {
     currency: "USD" | "EUR" | "GBP" | "ILS";
     sessions: number;
     unlimitedSessions: boolean;
+    bookingEnabled: boolean;
     payment: {
       full: boolean;
       split50: boolean;
@@ -513,6 +514,7 @@ function isProducerStoreProductDraft(value: unknown): value is ProducerStoreProd
       "currency",
       "sessions",
       "unlimitedSessions",
+      "bookingEnabled",
       "payment",
       "includes",
       "duration",
@@ -542,6 +544,7 @@ function isProducerStoreProductDraft(value: unknown): value is ProducerStoreProd
     currencies.includes(draft.currency as (typeof currencies)[number]) &&
     isSafeInteger(draft.sessions, 0, 10_000) &&
     typeof draft.unlimitedSessions === "boolean" &&
+    typeof draft.bookingEnabled === "boolean" &&
     isProducerStorePaymentDraft(draft.payment) &&
     Array.isArray(draft.includes) &&
     draft.includes.length <= 100 &&

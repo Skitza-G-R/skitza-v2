@@ -19,6 +19,7 @@ export default async function ArtistSessionDetailPage({ params }: PageProps) {
     producerId: row.producerId,
     producerName: row.producerName,
     producerSlug: row.producerSlug,
+    artistTimezone: row.artistTimezone,
     producerTimezone: row.producerTimezone,
     projectId: row.projectId,
     projectTitle: row.projectTitle,
@@ -31,6 +32,7 @@ export default async function ArtistSessionDetailPage({ params }: PageProps) {
     status: row.status,
     outcome: row.outcome,
     rescheduledFromBookingId: row.rescheduledFromBookingId,
+    heldExpiryReason: row.heldExpiryReason,
     policy: {
       cancellationPolicyHours: row.policy.cancellationPolicyHours,
       cancellationDeadlineISO: row.policy.cancellationDeadline.toISOString(),

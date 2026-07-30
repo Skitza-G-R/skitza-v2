@@ -40,8 +40,8 @@ export function buildProgressDots(used: number, total: number): { filled: boolea
 // Gate 3 (session approval) is a producer toggle, default ON. When on, the
 // slot is held pending approval ("Request"); when off it books instantly.
 
-export function bookingActionLabel(gate3On: boolean): "Request this slot" | "Book this slot" {
-  return gate3On ? "Request this slot" : "Book this slot";
+export function bookingActionLabel(gate3On: boolean): "Request this time" | "Book this time" {
+  return gate3On ? "Request this time" : "Book this time";
 }
 
 // ── UTC-safe session date/time formatting ─────────────────────────────
@@ -70,6 +70,7 @@ export function formatSessionTime(iso: string, producerTimezone: string): string
 // ── Domain types ──────────────────────────────────────────────────────
 
 export type SessionStatus =
+  | "pending_payment"
   | "pending_approval"
   | "confirmed"
   | "rejected"
@@ -86,6 +87,58 @@ export type SessionOutcome =
   | "no_show"
   | null;
 
+export type ArtistSessionDisplayStatus =
+  | "held"
+  | "confirmed"
+  | "declined"
+  | "completed"
+  | "cancelled";
+
+export function artistSessionDisplay(input: {
+  status: SessionStatus;
+  outcome: SessionOutcome;
+  heldExpiryReason?: "approval_timeout" | null;
+}): {
+  status: ArtistSessionDisplayStatus;
+  label: "Held" | "Confirmed" | "Declined" | "Completed" | "Cancelled";
+  secondary: string | null;
+} {
+  if (input.status === "pending_payment" || input.status === "pending_approval") {
+    return {
+      status: "held",
+      label: "Held",
+      secondary:
+        input.status === "pending_payment"
+          ? "Waiting for payment"
+          : "Waiting for producer approval",
+    };
+  }
+  if (input.status === "confirmed") {
+    return { status: "confirmed", label: "Confirmed", secondary: null };
+  }
+  if (input.status === "rejected") {
+    return { status: "declined", label: "Declined", secondary: null };
+  }
+  if (input.status === "no_show" || input.outcome === "no_show") {
+    return { status: "completed", label: "Completed", secondary: "Marked no-show" };
+  }
+  if (input.status === "completed") {
+    return { status: "completed", label: "Completed", secondary: null };
+  }
+  return {
+    status: "cancelled",
+    label: "Cancelled",
+    secondary:
+      input.heldExpiryReason === "approval_timeout"
+        ? "The studio did not confirm this request in time."
+        : input.outcome === "cancelled_by_producer"
+          ? "Cancelled by producer"
+          : input.outcome === "cancelled_late"
+            ? "Cancelled after the change window"
+            : null,
+  };
+}
+
 export type SessionPolicy = {
   cancellationPolicyHours: number;
   cancellationDeadlineISO: string;
@@ -99,6 +152,7 @@ export type SessionListItem = {
   producerId: string;
   producerName: string;
   producerSlug: string;
+  artistTimezone: string;
   producerTimezone: string;
   projectId: string;
   projectTitle: string;
@@ -111,6 +165,7 @@ export type SessionListItem = {
   status: SessionStatus;
   outcome: SessionOutcome;
   rescheduledFromBookingId: string | null;
+  heldExpiryReason: "approval_timeout" | null;
   policy: SessionPolicy;
 };
 

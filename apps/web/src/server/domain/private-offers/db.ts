@@ -23,6 +23,7 @@ import {
 import { emailHashFor } from "~/server/artist/identity";
 import { clientMoneyRepository } from "~/server/domain/client-money/db";
 import { getClientMoneyLedger } from "~/server/domain/client-money/service";
+import { loadArtistPurchaseGuard } from "~/server/domain/purchase-requests/active-guard";
 import { purchaseRepositoryForTransaction } from "~/server/domain/purchases/db";
 import { digestCommercialSnapshot } from "~/server/domain/purchases/policy";
 import { acceptPurchase } from "~/server/domain/purchases/service";
@@ -44,7 +45,12 @@ export type PrivateOfferTarget =
   | Readonly<{ kind: "new" }>
   | Readonly<{ kind: "existing"; projectId: string }>;
 
-export type PrivateOfferPersistenceErrorCode = "NOT_FOUND" | "UNAVAILABLE" | "STALE" | "INTEGRITY";
+export type PrivateOfferPersistenceErrorCode =
+  | "NOT_FOUND"
+  | "UNAVAILABLE"
+  | "STALE"
+  | "ACTIVE_PURCHASE"
+  | "INTEGRITY";
 
 export class PrivateOfferPersistenceError extends Error {
   readonly code: PrivateOfferPersistenceErrorCode;
@@ -724,6 +730,20 @@ export async function acceptPrivateOffer(
       throw new PrivateOfferPersistenceError(
         "STALE",
         "This offer changed. Review the exact terms again before accepting.",
+      );
+    }
+
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`artist-purchase:${input.clerkUserId}:${offer.producerId}`}, 0))`,
+    );
+    const activePurchase = await loadArtistPurchaseGuard(tx, {
+      clerkUserId: input.clerkUserId,
+      producerId: offer.producerId,
+    });
+    if (activePurchase.blocked) {
+      throw new PrivateOfferPersistenceError(
+        "ACTIVE_PURCHASE",
+        "Finish the current purchase with this studio before accepting another offer.",
       );
     }
 

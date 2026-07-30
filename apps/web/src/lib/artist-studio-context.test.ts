@@ -15,6 +15,19 @@ describe("artist studio URL context", () => {
     expect(resolveArtistStudioId([], "removed-studio")).toBeNull();
   });
 
+  it("uses a valid saved studio after an absent or invalid incoming value", () => {
+    expect(resolveArtistStudioId(studios, null, "studio-b")).toBe("studio-b");
+    expect(resolveArtistStudioId(studios, "removed-studio", "studio-b")).toBe("studio-b");
+  });
+
+  it("keeps an authorized incoming studio ahead of the saved preference", () => {
+    expect(resolveArtistStudioId(studios, "studio-a", "studio-b")).toBe("studio-a");
+  });
+
+  it("ignores a saved studio that is no longer connected", () => {
+    expect(resolveArtistStudioId([{ producerId: "studio-a" }], null, "studio-b")).toBe("studio-a");
+  });
+
   it("adds the selected studio to every artist destination", () => {
     expect(withArtistStudio("/artist", "studio-b")).toBe("/artist?studio=studio-b");
     expect(withArtistStudio("/artist/music", "studio-b")).toBe("/artist/music?studio=studio-b");

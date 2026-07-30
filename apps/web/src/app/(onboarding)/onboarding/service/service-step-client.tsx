@@ -105,6 +105,7 @@ interface Draft {
   currency: Currency;
   sessions: number;
   unlimitedSessions: boolean;
+  bookingEnabled: boolean;
   payment: PaymentSelectionDraft;
   includes: string[];
   duration: string;
@@ -139,6 +140,7 @@ function emptyDraft(currency: Currency): Draft {
     currency,
     sessions: 1,
     unlimitedSessions: false,
+    bookingEnabled: false,
     payment: seedPaymentSelection([{ kind: "full" }]),
     includes: [],
     duration: "60 min",
@@ -217,7 +219,7 @@ export function ServiceStepClient({
     detailsAreValid &&
     priceError === null &&
     paymentError === null &&
-    /^\d+\s*min$/i.test(draft.duration) &&
+    (!draft.bookingEnabled || /^\d+\s*min$/i.test(draft.duration)) &&
     royaltyIsValid;
   const pickedPreset = draft._picked ? getPreset(draft._picked) : undefined;
   const typeLabel =
@@ -256,7 +258,7 @@ export function ServiceStepClient({
     if (currentStep === "price") return priceError === null;
     if (currentStep === "payment") return paymentError === null;
     if (currentStep === "delivery") {
-      return /^\d+\s*min$/i.test(draft.duration);
+      return !draft.bookingEnabled || /^\d+\s*min$/i.test(draft.duration);
     }
     if (currentStep === "rights") return royaltyIsValid;
     return allValid;
@@ -408,6 +410,7 @@ export function ServiceStepClient({
 
           {currentStep === "delivery" ? (
             <LogisticsStep
+              bookingEnabled={draft.bookingEnabled}
               duration={draft.duration}
               revisions={draft.revisions}
               unlimitedRevisions={draft.unlimitedRevisions}
@@ -445,6 +448,7 @@ export function ServiceStepClient({
               currency={draft.currency}
               sessions={draft.sessions}
               unlimitedSessions={draft.unlimitedSessions}
+              bookingEnabled={draft.bookingEnabled}
               paymentPlans={reviewPaymentPlans}
               duration={draft.duration}
               revisions={draft.revisions}

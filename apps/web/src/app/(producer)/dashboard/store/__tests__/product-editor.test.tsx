@@ -36,6 +36,13 @@ describe("ProductEditor orchestrator", () => {
     expect(SRC).toMatch(/<ReviewStep/);
   });
 
+  it("defaults new products to non-bookable and persists the explicit booking choice", () => {
+    expect(SRC).toMatch(/bookingEnabled:\s*false/);
+    expect(SRC).toMatch(/bookingEnabled:\s*product\.bookingEnabled/);
+    expect(SRC).toMatch(/bookingEnabled=\{draft\.bookingEnabled\}/);
+    expect(PAYLOAD_SRC).toMatch(/bookingEnabled:\s*draft\.bookingEnabled/);
+  });
+
   it("imports decodeDescription for edit-mode round-trip (encode lives in build-package-payload)", () => {
     expect(SRC).toMatch(/decodeDescription/);
     // After the Task 11 extraction, encodeDescription is called by

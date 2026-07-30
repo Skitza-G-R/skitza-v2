@@ -28,15 +28,15 @@ describe("FocalProductCard", () => {
     expect(source).toMatch(/product\.description/);
   });
 
-  it("stacks the header on phones — price drops below the title (SK-49)", () => {
+  it("stacks the header on phones and keeps the price separate", () => {
     expect(source).toMatch(/flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between/);
-    expect(source).toMatch(/flex flex-row items-baseline gap-2 sm:flex-col sm:items-end/);
+    expect(source).toMatch(/font-mono text-\[21px\]/);
   });
 
   it("links the live CTA via the unified productHref", () => {
     expect(source).toContain("href={withArtistStudio(productHref(product), studioId)}");
     expect(source).toMatch(/from\s+['"]~\/lib\/store\/product-href['"]/);
-    expect(source).toMatch(/View details/);
+    expect(source).toMatch(/View service/);
   });
 
   it("turns the same CTA into a safe producer-preview button when requested", () => {
@@ -51,20 +51,21 @@ describe("FocalProductCard", () => {
     expect(source).toMatch(/\[overflow-wrap:anywhere\]/);
   });
 
-  it("uses the sidebar surface for the primary CTA", () => {
+  it("uses the Skitza dark surface with an amber primary CTA", () => {
     expect(source).toMatch(/var\(--bg-sidebar\)/);
-    expect(source).toMatch(/var\(--fg-onsidebar\)/);
+    expect(source).toMatch(/var\(--brand-primary\)/);
+    expect(source).toMatch(/var\(--fg-on-brand\)/);
   });
 
-  it("uses rounded-[var(--radius-lg)] on the card (not rounded-full)", () => {
-    expect(source).toMatch(/rounded-\[var\(--radius-lg\)\]/);
+  it("uses the expressive card radius without turning the card into a pill", () => {
+    expect(source).toMatch(/rounded-\[var\(--radius-xl\)\]/);
   });
 
-  it("renders a provider-neutral external-payment footnote", () => {
-    expect(source).toMatch(/Request details · payments stay external/);
+  it("keeps the signature record-groove treatment inside the focal card", () => {
+    expect(source).toMatch(/inset 0 0 0 24px/);
+    expect(source).not.toMatch(/Signature|coverGradient|producerHue/);
     expect(source).not.toMatch(/Stripe|Tranzila|Pay by card|payments soon/i);
-    expect(source).toMatch(/uppercase/);
-    expect(source).toMatch(/font-mono/);
+    expect(source).toMatch(/borderColor/);
   });
 
   it("renders the tax footnote when taxMode is set", () => {

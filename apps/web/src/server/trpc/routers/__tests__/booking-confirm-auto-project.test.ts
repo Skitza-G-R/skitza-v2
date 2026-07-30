@@ -199,6 +199,7 @@ function seedMessageContext(): void {
       purchaseId: PURCHASE_ID,
       projectId: PROJECT_ID,
       sessionAllowanceId: ALLOWANCE_ID,
+      rescheduledFromBookingId: null,
       artistEmail: "artist@example.test",
       artistName: "Artist",
       startsAt: new Date("2035-02-03T10:00:00.000Z"),
@@ -206,6 +207,8 @@ function seedMessageContext(): void {
     commercialSnapshot: { productOrOfferName: "Purchased vocal session" },
     producerDisplayName: "Producer",
     producerTimezone: "Asia/Jerusalem",
+    artistClerkUserId: USER_ID,
+    artistContactArchivedAt: null,
   });
 }
 

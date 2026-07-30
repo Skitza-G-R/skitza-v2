@@ -16,44 +16,42 @@ const pageSource = readFileSync(
     "app",
     "(artist)",
     "artist",
-    "purchase",
-    "[productId]",
-    "pay",
+    "payments",
+    "[purchaseId]",
     "instructions",
     "page.tsx",
   ),
   "utf8",
 );
 
-describe("PaymentInstructionsScreen SK-75 wiring", () => {
-  it("keeps off-app payment details and clipboard fallback", () => {
-    expect(screenSource).toMatch(/^"use client";/);
-    expect(screenSource).toMatch(/navigator\.clipboard|writeText/);
-    expect(screenSource).toMatch(/document\.execCommand\("copy"\)/);
+describe("professional off-app payment instructions", () => {
+  it("shows only real Bank or Bit details with one expanded method", () => {
+    expect(screenSource).toMatch(/Bank transfer/);
+    expect(screenSource).toMatch(/label: "Bit"/);
+    expect(screenSource).toMatch(/methods\.find/);
+    expect(screenSource).toMatch(/role="tab"/);
     expect(screenSource).not.toMatch(/Pay by card|Stripe|Tranzila/i);
-    expect(screenSource).toContain("Money is paid directly to {producerName}");
   });
 
-  it("routes to the exact accepted purchase and installment proof", () => {
-    expect(screenSource).toMatch(
-      /new URLSearchParams\(\{ purchase: purchaseId, installment: installmentId \}\)/,
+  it("keeps the off-app money boundary explicit", () => {
+    expect(screenSource).toContain(
+      "Skitza records your proof. It does not process, hold, or move money.",
     );
-    expect(screenSource).toMatch(/\/pay\/proof\?\$\{query\.toString\(\)\}/);
-    expect(screenSource).not.toMatch(/req=\$\{purchaseRequestId\}/);
+    expect(screenSource).toContain("PAID DIRECTLY TO THE STUDIO");
   });
 
-  it("reads the owned accepted purchase and redirects pending review to its exact proof", () => {
-    expect(pageSource).toMatch(/paymentInstructions\(\{ purchaseId: purchase \}\)/);
-    expect(pageSource).toMatch(/purchaseRequestId: req/);
+  it("returns to the standing summary and opens the exact new-proof step", () => {
+    expect(screenSource).toMatch(/summaryHref/);
     expect(pageSource).toMatch(
-      /purchase=\$\{data\.purchaseId\}&installment=\$\{data\.installmentId\}/,
+      /\/artist\/payments\/\$\{encodeURIComponent\(data\.purchaseId\)\}\/proof\/new/,
     );
-    expect(pageSource).toMatch(/data\.pendingProofCents > 0/);
-    expect(pageSource).toMatch(/proofUploadsAvailable=\{data\.proofUploadsAvailable\}/);
+    expect(pageSource).toMatch(/installment: data\.installmentId/);
   });
 
-  it("keeps the producer-will-send-details fallback", () => {
-    expect(screenSource).toMatch(/will send payment details/i);
-    expect(screenSource).toMatch(/paymentDetails/);
+  it("never enters instructions or proof upload without a producer method", () => {
+    expect(pageSource).toMatch(/data\.bankTransfer\?\.trim\(\)/);
+    expect(pageSource).toMatch(/data\.bitPhone\?\.trim\(\)/);
+    expect(pageSource).toContain("notice=no-instructions");
+    expect(screenSource).toMatch(/Proof upload becomes\s+available only after a real payment method/);
   });
 });

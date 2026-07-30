@@ -26,6 +26,7 @@ function purchase(
     | "private_offer"
     | "paid_add_on"
     | "no_charge_add_on" = session === null ? "store_product" : "session_product",
+  snapshotVersion: 1 | 2 = 2,
 ): AllowancePurchase {
   return {
     id: "purchase-sk68",
@@ -45,7 +46,10 @@ function purchase(
             purchaseRequestId: "request-sk68",
           },
     commercialSnapshot: {
-      value: { session },
+      value:
+        snapshotVersion === 2
+          ? { version: 2, bookingEnabled: session !== null, session }
+          : { version: 1, session },
       digest: "snapshot-sk68",
       canonicalJson: "{}",
     },
@@ -134,6 +138,7 @@ describe("purchase-owned session allowance materialization", () => {
     ).toEqual({
       purchaseId: "purchase-sk68",
       producerId: "producer-sk68",
+      bookingEnabledSnapshot: true,
       kind: "fixed",
       sessionLimit: 4,
       durationMin: 90,
@@ -168,7 +173,7 @@ describe("purchase-owned session allowance materialization", () => {
     expect(tx.insertCalls).toBe(0);
   });
 
-  it("materializes legacy store_product session snapshots while rejecting missing session truth", () => {
+  it("does not infer new eligibility from a legacy duration/session snapshot", () => {
     expect(
       purchaseSessionAllowanceDraft(
         purchase(
@@ -180,10 +185,22 @@ describe("purchase-owned session allowance materialization", () => {
             minLeadHours: 12,
           },
           "store_product",
+          1,
         ),
       ),
-    ).toMatchObject({ kind: "fixed", sessionLimit: 1 });
-    expect(() => purchaseSessionAllowanceDraft(purchase(null, "session_product"))).toThrow(
+    ).toBeNull();
+  });
+
+  it("rejects explicit booking eligibility without frozen session truth", () => {
+    const inconsistent = purchase(null, "session_product");
+    (
+      inconsistent.commercialSnapshot.value as {
+        version: 2;
+        bookingEnabled: boolean;
+        session: null;
+      }
+    ).bookingEnabled = true;
+    expect(() => purchaseSessionAllowanceDraft(inconsistent)).toThrow(
       /missing frozen session terms/i,
     );
   });

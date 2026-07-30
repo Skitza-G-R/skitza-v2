@@ -52,6 +52,7 @@ describe("onboarding first-service commercial terms", () => {
       currency: "USD",
       sessions: 8,
       unlimitedSessions: false,
+      bookingEnabled: true,
       payment: {
         full: true,
         split50: true,
@@ -82,6 +83,7 @@ describe("onboarding first-service commercial terms", () => {
       { kind: "split_50_50" },
       { kind: "monthly", installments: 6 },
     ]);
+    expect(payload.bookingEnabled).toBe(true);
     expect(payload.deliverables).toEqual(["Tracking", "Mix", "Master"]);
     expect(payload.royaltyTerms).toEqual({
       master: { mode: "percentage", bps: 250 },

@@ -50,12 +50,11 @@ describe("session-detail-screen.tsx (S12) wiring", () => {
     expect(screenSrc).toMatch(/^"use client";/);
   });
 
-  it("mounts FunnelTopBar with a studio-preserving back route", () => {
-    expect(screenSrc).toMatch(/<FunnelTopBar/);
-    expect(screenSrc).toMatch(/title="Session"/);
-    expect(screenSrc).toContain(
-      'router.push(withArtistStudio("/artist/sessions", session.producerId))',
-    );
+  it("renders an in-flow, studio-preserving back link in the standing shell", () => {
+    expect(screenSrc).toContain("Back to Sessions");
+    expect(screenSrc).toContain('href={withArtistStudio("/artist/sessions", session.producerId)}');
+    expect(screenSrc).not.toContain("<FunnelTopBar");
+    expect(screenSrc).not.toContain("fixed inset-0");
   });
 
   it("uses the server-authored policy without recomputing the deadline in the browser", () => {
@@ -64,9 +63,11 @@ describe("session-detail-screen.tsx (S12) wiring", () => {
     expect(screenSrc).not.toMatch(/Date\.now\(\)|cancelPolicy\(/);
   });
 
-  it("gates Reschedule + Cancel independently on the approved policy", () => {
-    expect(screenSrc).toMatch(/disabled=\{!online \|\| !session\.policy\.canReschedule\}/);
-    expect(screenSrc).toMatch(/disabled=\{!online \|\| !session\.policy\.canCancel\}/);
+  it("shows only the actions allowed by the approved policy", () => {
+    expect(screenSrc).toMatch(/session\.policy\.canReschedule \?/);
+    expect(screenSrc).toMatch(/session\.policy\.canCancel \?/);
+    expect(screenSrc).toMatch(/disabled=\{!online\}/);
+    expect(screenSrc).not.toMatch(/disabled=\{!online \|\| !session\.policy/);
   });
 
   it("shows the PolicyNotice (with the producer's name in the message reason) only when outside policy", () => {
@@ -77,10 +78,9 @@ describe("session-detail-screen.tsx (S12) wiring", () => {
     expect(noticeSrc).toMatch(/producerName/);
   });
 
-  it("routes Reschedule to /artist/book (carrying the session id)", () => {
-    expect(screenSrc).toMatch(/session: session\.id/);
-    expect(screenSrc).toMatch(/allowance: session\.sessionAllowanceId/);
-    expect(screenSrc).toMatch(/router\.push\(`\/artist\/book\?\$\{params\.toString\(\)\}`\)/);
+  it("routes session changes into focused action screens", () => {
+    expect(screenSrc).toContain("router.push(`/artist/sessions/${session.id}/reschedule`)");
+    expect(screenSrc).toContain("router.push(`/artist/sessions/${session.id}/cancel`)");
   });
 
   it("hides actions for every terminal status and keeps the outcome visible", () => {
@@ -89,6 +89,11 @@ describe("session-detail-screen.tsx (S12) wiring", () => {
     expect(screenSrc).toMatch(/status === "confirmed"/);
     expect(screenSrc).toMatch(/This booking is closed/);
     expect(screenSrc).toMatch(/outcome=\{session\.outcome\}/);
+  });
+
+  it("shows the exact Held-expiry explanation from the server reason", () => {
+    expect(pageSrc).toMatch(/heldExpiryReason: row\.heldExpiryReason/);
+    expect(screenSrc).toMatch(/heldExpiryReason: session\.heldExpiryReason/);
   });
 
   it("renders the shared StatusPill", () => {

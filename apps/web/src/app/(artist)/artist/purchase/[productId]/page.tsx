@@ -1,11 +1,10 @@
 import { auth } from "@clerk/nextjs/server";
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { TRPCError } from "@trpc/server";
 
-import { ProductDetailScreen } from "~/components/artist/purchase/product-detail-screen";
-import { toProducer, toPurchaseProduct } from "~/lib/purchase/product-mapping";
-import { coerceTaxMode } from "~/lib/tax-mode";
+import { ProfessionalProductDetail } from "~/components/artist/purchase/professional-product-detail";
+import { toPurchaseProduct } from "~/lib/purchase/product-mapping";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = { params: Promise<{ productId: string }> };
@@ -26,30 +25,25 @@ export default async function PurchaseEntryPage({ params }: PageProps) {
   try {
     row = await caller.artist.store.product({ productId });
   } catch (e) {
-    if (
-      e instanceof TRPCError &&
-      (e.code === "NOT_FOUND" || e.code === "BAD_REQUEST")
-    ) {
-      notFound();
+    if (e instanceof TRPCError) {
+      if (e.code === "BAD_REQUEST") {
+        redirect("/artist/store?notice=unavailable");
+      }
+      if (e.code === "NOT_FOUND") notFound();
     }
     throw e;
   }
+  const activePurchase = await caller.artist.purchase.activeForStudio({
+    producerId: row.producerId,
+  });
 
   return (
-    <ProductDetailScreen
+    <ProfessionalProductDetail
       product={toPurchaseProduct(row)}
-      producer={toProducer(row)}
-      productId={productId}
       studioId={row.producerId}
-      taxMode={coerceTaxMode(row.producerTaxMode)}
-      taxRatePct={Math.max(0, Math.min(100, Math.round(row.producerTaxRatePct)))}
-      targetProjects={row.targetProjects.map((project) => ({
-        id: project.id,
-        title: project.title,
-        lifecycleStatus: project.lifecycleStatus,
-        workflowStage: project.workflowStage,
-        updatedAtIso: project.updatedAt.toISOString(),
-      }))}
+      activePurchase={
+        activePurchase.blocked ? { href: activePurchase.href, label: activePurchase.label } : null
+      }
     />
   );
 }

@@ -1,7 +1,6 @@
 // Loading state for S12 — warm skeleton (not a spinner), per design system
-// §7. Mirrors the session-detail silhouette (full-screen overlay → hero card
-// → pinned action stack) so the swap to live content (once BE-3 adds the
-// real fetch) doesn't jump.
+// §7. Mirrors the standing session-detail silhouette without owning a
+// full-screen overlay.
 function Block({ className }: { className: string }) {
   return (
     <div
@@ -14,18 +13,18 @@ function Block({ className }: { className: string }) {
 export default function Loading() {
   return (
     <div
-      className="fixed inset-0 z-[60] overflow-hidden"
+      className="mx-auto w-full max-w-[440px]"
       style={{ background: "rgb(var(--bg-background))" }}
     >
-      <div className="mx-auto w-full max-w-[440px] px-5 pt-[72px]">
+      <div className="px-5">
+        <Block className="mb-3 h-11 w-36 rounded-[var(--radius-lg)]" />
         {/* hero card */}
         <Block className="h-[220px] w-full rounded-[var(--radius-xl)]" />
         {/* policy line */}
         <Block className="mt-4 h-[52px] w-full rounded-[var(--radius-lg)]" />
       </div>
 
-      {/* pinned actions */}
-      <div className="absolute inset-x-0 bottom-0 mx-auto w-full max-w-[440px] px-[18px] pb-6">
+      <div className="px-[18px] pt-5 pb-6">
         <Block className="h-[50px] w-full rounded-[var(--radius-lg)]" />
         <Block className="mt-2.5 h-[58px] w-full rounded-[var(--radius-lg)]" />
       </div>

@@ -3,8 +3,6 @@ import { TRPCError } from "@trpc/server";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 
-import { PaymentInstructionsScreen } from "~/components/artist/purchase/payment-instructions-screen";
-import { paymentPlanLabel } from "~/components/artist/purchase/pay-data";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 import { appRouter } from "~/server/trpc/routers/_app";
 
@@ -15,72 +13,36 @@ type PageProps = {
 
 export const metadata: Metadata = { title: "Payment instructions" };
 
-// S8 — current off-app instructions for the owned, accepted purchase.
-// The server returns only a due, still-payable installment; terminal,
-// proof-under-review, and future installments never render instructions.
-export default async function PaymentInstructionsPage({ params, searchParams }: PageProps) {
+/** Authorized redirect from the former product-nested instructions route. */
+export default async function LegacyProductPaymentInstructionsPage({
+  params,
+  searchParams,
+}: PageProps) {
   const { userId } = await auth();
-  if (!userId) return null;
-
+  if (!userId) notFound();
   const { productId } = await params;
   const { req, purchase, studio } = await searchParams;
   if (!req && !purchase) {
-    redirect(withArtistStudio(`/artist/purchase/${productId}`, studio));
+    redirect(withArtistStudio(`/artist/purchase/${encodeURIComponent(productId)}`, studio));
   }
 
-  const caller = appRouter.createCaller({ userId });
   try {
+    const caller = appRouter.createCaller({ userId });
     const data = purchase
       ? await caller.artist.purchase.paymentInstructions({ purchaseId: purchase })
       : req
         ? await caller.artist.purchase.paymentInstructions({ purchaseRequestId: req })
-        : redirect(withArtistStudio(`/artist/purchase/${productId}`, studio));
-    if (data.productId && data.productId !== productId) notFound();
-    if (!data.amountDueNowCents) {
-      if (data.proofUploadsAvailable) {
-        redirect(
-          withArtistStudio(
-            `/artist/purchase/${productId}/pay/proof?purchase=${data.purchaseId}&installment=${data.installmentId}`,
-            data.producerId,
-          ),
-        );
-      }
-      redirect(withArtistStudio("/artist", data.producerId));
-    }
-    if (data.proofUploadsAvailable && (data.pendingProofCents > 0 || data.remainingCents <= 0)) {
-      redirect(
-        withArtistStudio(
-          `/artist/purchase/${productId}/pay/proof?purchase=${data.purchaseId}&installment=${data.installmentId}`,
-          data.producerId,
-        ),
-      );
-    }
-
-    const paymentDetails = data.hasDetails
-      ? {
-          bankTransfer: data.bankTransfer ?? undefined,
-          bitPhone: data.bitPhone ?? undefined,
-          note: data.note ?? undefined,
-        }
-      : null;
-
-    return (
-      <PaymentInstructionsScreen
-        productId={productId}
-        studioId={data.producerId}
-        purchaseId={data.purchaseId}
-        installmentId={data.installmentId}
-        producerName={data.producerName ?? "Your producer"}
-        amountDueNowCents={data.amountDueNowCents}
-        currency={data.currency}
-        paymentDetails={paymentDetails}
-        productName={data.productName}
-        planLabel={paymentPlanLabel(data.planKind, data.planInstallments)}
-        proofUploadsAvailable={data.proofUploadsAvailable}
-      />
+        : redirect(withArtistStudio(`/artist/purchase/${encodeURIComponent(productId)}`, studio));
+    redirect(
+      withArtistStudio(
+        `/artist/payments/${encodeURIComponent(data.purchaseId)}/instructions?installment=${encodeURIComponent(data.installmentId)}`,
+        data.producerId,
+      ),
     );
   } catch (error) {
-    if (error instanceof TRPCError && error.code === "NOT_FOUND") notFound();
+    if (error instanceof TRPCError && error.code === "NOT_FOUND") {
+      redirect(withArtistStudio("/artist/store?notice=unavailable", studio));
+    }
     throw error;
   }
 }

@@ -42,9 +42,9 @@ describe("ArtistAppShell + ArtistTopBar wiring", () => {
     expect(SRC).toMatch(/hidden\s+lg:block[\s\S]{0,80}<ArtistTopBar/);
   });
 
-  it("mounts ArtistTopBar without a passive notification prop", () => {
-    expect(SRC).toContain("<ArtistTopBar />");
-    expect(SRC).not.toContain("unreadCount");
+  it("mounts the functional desktop bell with the server unread count", () => {
+    expect(SRC).toContain("<ArtistTopBar initialUnreadCount={notificationUnreadCount} />");
+    expect(SRC).toContain("notificationUnreadCount: number");
   });
 
   it("keeps the existing ArtistMobileTopBar mounted (mobile chrome untouched)", () => {
@@ -52,7 +52,9 @@ describe("ArtistAppShell + ArtistTopBar wiring", () => {
   });
 
   it("gives the mobile navigation the studio list needed to preserve context", () => {
-    expect(SRC).toContain("<ArtistBottomNav studios={studios} />");
+    expect(SRC).toContain(
+      "<ArtistBottomNav studios={studios} initialStudioId={initialStudioId} />",
+    );
   });
 
   it("retains account-scoped runtime state and one shared player presentation", () => {
@@ -67,12 +69,9 @@ describe("ArtistAppShell + ArtistTopBar wiring", () => {
     expect(SRC).not.toContain("PersistentMiniPlayer");
   });
 
-  it("renders the topbar above <main> so it sits at the top of the column", () => {
-    // Match the JSX element specifically (`<main`) so we
-    // don't pick up the literal `<main>` text in the rationale
-    // comment above.
+  it("renders the topbar above the shared main surface", () => {
     const topbarIdx = SRC.indexOf("<ArtistTopBar");
-    const mainIdx = SRC.indexOf("<main", topbarIdx);
+    const mainIdx = SRC.indexOf("<ArtistShellMain", topbarIdx);
     expect(topbarIdx).toBeGreaterThan(-1);
     expect(mainIdx).toBeGreaterThan(topbarIdx);
   });

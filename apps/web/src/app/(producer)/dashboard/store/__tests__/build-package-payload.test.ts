@@ -16,6 +16,7 @@ function flatDraft(overrides: Partial<PackageDraft> = {}): PackageDraft {
     currency: "USD",
     sessions: 1,
     unlimitedSessions: false,
+    bookingEnabled: false,
     payment: {
       full: true,
       split50: false,
@@ -49,6 +50,7 @@ describe("buildPackagePayload", () => {
       currency: "USD",
       durationMin: 60,
       sessionCount: 1,
+      bookingEnabled: false,
       paymentPlans: [{ kind: "full" }],
       deliverables: ["Mix", "Instrumental", "Stems"],
       royaltyTerms: {
@@ -177,10 +179,11 @@ describe("buildPackagePayload", () => {
 
   it("preserves unlimited sessions and the existing product kind", () => {
     const payload = buildPackageUpdatePayload(
-      flatDraft({ unlimitedSessions: true, sessions: 5 }),
+      flatDraft({ unlimitedSessions: true, sessions: 5, bookingEnabled: true }),
       "session",
     );
     expect(payload.sessionCount).toBe(0);
+    expect(payload.bookingEnabled).toBe(true);
     expect(payload.kind).toBe("session");
     expect(payload).not.toHaveProperty("depositPct");
     expect(payload).not.toHaveProperty("depositModel");

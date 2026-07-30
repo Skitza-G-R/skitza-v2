@@ -12,6 +12,7 @@ import {
   sessionBookingCapabilities,
   sessionStartFromLocalSlot,
   sessionUseConsumesAllowance,
+  studioLocalDateTimeUtcCandidates,
 } from "../service";
 
 const now = new Date("2026-07-17T09:00:00.000Z");
@@ -21,6 +22,7 @@ function allowed(overrides: Record<string, unknown> = {}) {
     purchaseLifecycleStatus: "active" as const,
     projectLifecycleStatus: "active" as const,
     allowance: {
+      bookingEnabledSnapshot: true,
       kind: "fixed" as const,
       sessionLimit: 2,
       durationMin: 120,
@@ -58,6 +60,11 @@ describe("session allowance booking policy", () => {
   it.each([
     ["waiting purchase", { purchaseLifecycleStatus: "waiting_for_payment" }, "PURCHASE_INACTIVE"],
     ["paused project", { projectLifecycleStatus: "paused" }, "PROJECT_INACTIVE"],
+    [
+      "booking disabled",
+      { allowance: { ...allowed().allowance, bookingEnabledSnapshot: false } },
+      "BOOKING_DISABLED",
+    ],
     [
       "closed allowance",
       { allowance: { ...allowed().allowance, closedAt: now } },
@@ -142,23 +149,44 @@ describe("session booking transition policy", () => {
     expect(initialSessionBookingStatus(false)).toBe("pending_approval");
   });
 
-  it("treats the exact cancellation-policy boundary as on time", () => {
+  it("blocks self-service at the exact cancellation-policy boundary", () => {
     const startsAt = new Date("2026-07-21T12:00:00.000Z");
 
     expect(
       artistCancellationOutcome({
         startsAt,
-        now: new Date("2026-07-20T12:00:00.000Z"),
+        now: new Date("2026-07-20T11:59:59.999Z"),
         cancellationPolicyHours: 24,
       }),
     ).toBe("cancelled_on_time");
     expect(
       artistCancellationOutcome({
         startsAt,
-        now: new Date("2026-07-20T12:00:00.001Z"),
+        now: new Date("2026-07-20T12:00:00.000Z"),
         cancellationPolicyHours: 24,
       }),
     ).toBe("cancelled_late");
+  });
+
+  it("lets an artist withdraw Held before the start but never reschedule it", () => {
+    const capabilities = sessionBookingCapabilities({
+      booking: {
+        status: "pending_approval",
+        startsAt: new Date("2026-07-21T12:00:00.000Z"),
+        cancellationPolicyHoursSnapshot: 24,
+        heldExpiresAt: new Date("2026-07-21T12:00:00.000Z"),
+      },
+      purchaseLifecycleStatus: "active",
+      projectLifecycleStatus: "active",
+      allowanceClosedAt: null,
+      now: new Date("2026-07-21T11:00:00.000Z"),
+    });
+
+    expect(capabilities).toMatchObject({
+      canCancel: true,
+      canReschedule: false,
+      isOnTime: false,
+    });
   });
 
   it.each([
@@ -186,6 +214,8 @@ describe("session booking transition policy", () => {
     const booking = {
       status: "confirmed" as const,
       startsAt: new Date("2026-07-21T12:00:00.000Z"),
+      cancellationPolicyHoursSnapshot: 24,
+      heldExpiresAt: null,
     };
 
     for (const lifecycle of [
@@ -196,7 +226,6 @@ describe("session booking transition policy", () => {
         sessionBookingCapabilities({
           booking,
           purchaseLifecycleStatus: "active",
-          cancellationPolicyHours: 24,
           now: new Date("2026-07-20T10:00:00.000Z"),
           ...lifecycle,
         }),
@@ -305,6 +334,24 @@ describe("authoritative producer availability", () => {
         producerTimeZone: "America/New_York",
       }).toISOString(),
     ).toBe("2026-11-01T05:30:00.000Z");
+  });
+
+  it("exposes every real instant for a repeated studio wall clock", () => {
+    expect(
+      studioLocalDateTimeUtcCandidates({
+        date: "2026-03-08",
+        startMin: 2 * 60 + 30,
+        timeZone: "America/New_York",
+      }),
+    ).toEqual([]);
+
+    expect(
+      studioLocalDateTimeUtcCandidates({
+        date: "2026-11-01",
+        startMin: 1 * 60 + 30,
+        timeZone: "America/New_York",
+      }).map((candidate) => candidate.toISOString()),
+    ).toEqual(["2026-11-01T05:30:00.000Z", "2026-11-01T06:30:00.000Z"]);
   });
 
   it("fails closed for invalid duration, buffer, or availability timezone", () => {

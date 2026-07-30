@@ -13,11 +13,18 @@ describe("QuietProductList", () => {
     expect(source).toMatch(/export function QuietProductList/);
   });
 
-  it("renders an 'Also from {producerName}' eyebrow in mono uppercase", () => {
-    expect(source).toMatch(/Also from/);
+  it("renders a restrained More services heading", () => {
+    expect(source).toMatch(/More services/);
     expect(source).toMatch(/font-mono/);
     expect(source).toMatch(/uppercase/);
     expect(source).toMatch(/producerName/);
+  });
+
+  it("uses bordered cards and a two-column desktop catalog", () => {
+    expect(source).toMatch(/grid gap-3 md:grid-cols-2/);
+    expect(source).toMatch(/rounded-\[var\(--radius-xl\)\] border/);
+    expect(source).toMatch(/backdrop-blur-xl/);
+    expect(source).toMatch(/View service/);
   });
 
   it("uses the shared price-label helper for each row", () => {

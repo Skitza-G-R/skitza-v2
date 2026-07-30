@@ -63,7 +63,7 @@ describe("trusted artist studio continuity", () => {
     expect(payPage).toContain("studioId={data.producerId}");
     expect(agreePage).toContain("studioId={preview.producerId}");
     expect(offerPage).toContain("studioId={offer.producerId}");
-    expect(paymentPage).toContain("studioId={data.producerId}");
+    expect(paymentPage).toContain("studioId={state.producerId}");
   });
 
   it("validates Book query state against owned studios but keeps an owned reschedule producer", () => {
@@ -73,11 +73,11 @@ describe("trusted artist studio continuity", () => {
       /import\s*\{[^}]*resolveArtistStudioId[^}]*\}\s*from\s*"~\/lib\/artist-studio-context"/,
     );
     expect(book).toMatch(
-      /rescheduleSession\?\.producerId\s*\?\?\s*resolveArtistStudioId\(studios, requestedStudioId\)/,
+      /rescheduleSession\?\.producerId\s*\?\?\s*resolveArtistStudioId\(\s*studios,\s*requestedStudioId,\s*savedStudioId,?\s*\)/,
     );
   });
 
-  it("keeps studio context on Home, shared artist music links, and payment actions", () => {
+  it("keeps studio context on professional Home, shared artist music links, and payment actions", () => {
     const home = source("app", "(artist)", "artist", "page.tsx");
     const library = source("components", "music", "library-screen.tsx");
     const project = source("components", "music", "project-page.tsx");
@@ -85,8 +85,18 @@ describe("trusted artist studio continuity", () => {
     const payments = source("components", "payments", "payment-history.tsx");
 
     expect(home).toContain(
-      "<NextSessionCard nextSession={data.nextSession} activeStudioId={activeStudioId} />",
+      "caller.artist.home({ producerId: activeStudio.producerId })",
     );
+    expect(home).toContain(
+      "caller.artist.book.mySessions({ producerId: activeStudio.producerId })",
+    );
+    expect(home).toContain(
+      ".filter((project) => project.producerId === activeStudio.producerId)",
+    );
+    expect(home).toContain(
+      "withArtistStudio(`/artist/payments/${purchase.id}`, activeStudio.producerId)",
+    );
+    expect(home).toContain("<ProfessionalArtistHome");
     expect(library).toContain("withArtistStudio");
     expect(project).toContain("withArtistStudio");
     expect(song).toContain("withArtistStudio");
@@ -96,13 +106,12 @@ describe("trusted artist studio continuity", () => {
   it("keeps the owning studio through Home, Book, Sessions, and no-charge song journeys", () => {
     const artistRouter = source("server", "trpc", "routers", "artist.ts");
     const home = source("app", "(artist)", "artist", "page.tsx");
-    const nextSession = source("components", "artist", "home", "next-session-card.tsx");
     const bookPage = source("app", "(artist)", "artist", "book", "page.tsx");
     const bookingClient = source("app", "(artist)", "artist", "book", "booking-client.tsx");
+    const sessionsPage = source("app", "(artist)", "artist", "sessions", "page.tsx");
     const sessionsScreen = source("components", "artist", "sessions", "my-sessions-screen.tsx");
     const sessionRow = source("components", "artist", "sessions", "session-row.tsx");
     const sessionDetail = source("components", "artist", "sessions", "session-detail-screen.tsx");
-    const sessionsEmpty = source("components", "artist", "sessions", "sessions-empty.tsx");
     const noChargeDomain = source("server", "domain", "song-spaces", "no-charge.ts");
     const noChargeAgreement = source("components", "music", "no-charge-song-agreement.tsx");
 
@@ -110,27 +119,42 @@ describe("trusted artist studio continuity", () => {
       /nextSessionRows[\s\S]*producerId:\s*bookings\.producerId[\s\S]*const nextSession/,
     );
     expect(artistRouter).toMatch(/const nextSession[\s\S]*producerId:\s*nextRow\.producerId/);
-    expect(home).toContain("activeStudioId={activeStudioId}");
-    expect(nextSession).toContain('withArtistStudio("/artist/book", nextSession.producerId)');
-    expect(nextSession).toContain('withArtistStudio("/artist/book", activeStudioId)');
+    expect(home).toContain(
+      "withArtistStudio(`/artist/sessions/${home.nextSession.id}`, activeStudio.producerId)",
+    );
+    expect(home).toMatch(
+      /withArtistStudio\(\s*`\/artist\/book\?allowance=\$\{allowance\.sessionAllowanceId\}`,\s*activeStudio\.producerId,\s*\)/,
+    );
 
     expect(bookPage).toContain("<BookEyebrow studioId={activeStudioId} />");
     expect(bookPage).toContain('withArtistStudio("/artist/sessions", studioId)');
     expect(bookingClient).toContain(
-      "withArtistStudio(`/artist/sessions?just=${res.id}`, activeStudioId)",
+      "withArtistStudio(`/artist/sessions?just=${response.id}`, activeStudioId)",
     );
     expect(bookingClient.match(/withArtistStudio\("\/artist\/store", activeStudioId\)/g)).toHaveLength(
-      2,
+      1,
     );
 
-    expect(sessionsScreen).toContain('studioId={searchParams.get("studio")}');
+    expect(sessionsPage).toContain(
+      "resolveArtistStudioId(studios, sp.studio, savedStudioId)",
+    );
+    expect(sessionsPage).toContain(
+      "caller.artist.book.mySessions({ producerId })",
+    );
+    expect(sessionsScreen).toContain("allowanceBookHref(bookableAllowance)");
+    expect(sessionsScreen).toContain('withArtistStudio("/artist/store", studioId)');
     expect(sessionRow).toContain(
       "withArtistStudio(`/artist/sessions/${session.id}`, session.producerId)",
     );
-    expect(sessionDetail.match(/withArtistStudio\("\/artist\/sessions", session\.producerId\)/g)).toHaveLength(
-      2,
+    expect(sessionDetail).toContain(
+      'withArtistStudio("/artist/sessions", session.producerId)',
     );
-    expect(sessionsEmpty).toContain('withArtistStudio("/artist/store", studioId)');
+    expect(sessionDetail).toContain(
+      "router.push(`/artist/sessions/${session.id}/reschedule`)",
+    );
+    expect(sessionDetail).toContain(
+      "router.push(`/artist/sessions/${session.id}/cancel`)",
+    );
 
     expect(noChargeDomain).toContain("producerId: payload.producerId");
     expect(noChargeAgreement.match(/withArtistStudio\([\s\S]*preview\.producerId/g)).not.toBeNull();

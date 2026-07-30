@@ -91,6 +91,7 @@ export async function acceptPurchaseAction(input: {
 export async function presignProofUploadAction(input: {
   purchaseId: string;
   installmentId: string;
+  operationKey: string;
   fileName: string;
   contentType: ProofContentType;
   sizeBytes: number;
@@ -138,6 +139,8 @@ export async function submitPaymentProofAction(input: {
     const caller = appRouter.createCaller({ userId });
     const result = await caller.artist.purchase.proofOfPayment.submit(input);
     revalidatePath("/artist", "layout");
+    revalidatePath(`/artist/payments/${input.purchaseId}`);
+    revalidatePath(`/artist/payments/${input.purchaseId}/proof/${result.proofId}`);
     if (result.productId) {
       revalidatePath(`/artist/purchase/${result.productId}/pay`);
       revalidatePath(`/artist/purchase/${result.productId}/pay/instructions`);

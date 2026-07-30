@@ -8,34 +8,53 @@ import { isArtistNavItemActive } from "../artist-nav-active";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const BOTTOM = readFileSync(join(here, "..", "artist-bottom-nav.tsx"), "utf8");
+const SHARED_BOTTOM = readFileSync(join(here, "..", "liquid-glass-bottom-nav.tsx"), "utf8");
 const SIDEBAR = readFileSync(join(here, "..", "artist-desktop-sidebar.tsx"), "utf8");
 const MOBILE_TOPBAR = readFileSync(join(here, "..", "artist-mobile-top-bar.tsx"), "utf8");
+const USER_BUTTON = readFileSync(join(here, "..", "artist-user-button.tsx"), "utf8");
 const SWITCHER = readFileSync(join(here, "..", "..", "artist", "studio-switcher.tsx"), "utf8");
 
-describe("artist Payments navigation", () => {
-  it("replaces Settings with Payments in the mobile main navigation", () => {
-    expect(BOTTOM).toMatch(
-      /href:\s*["']\/artist\/payments["'],\s*label:\s*["']Payments["'],\s*icon:\s*["']payments["']/,
-    );
-    expect(BOTTOM).not.toMatch(/href:\s*["']\/artist\/settings["'],\s*label:\s*["']Settings["']/);
+describe("artist four-tab navigation", () => {
+  it("uses Home, Music, Sessions, and Store in the mobile main navigation", () => {
+    expect(BOTTOM.match(/\{\s*href:\s*"\/artist[^"]*"/g)).toHaveLength(4);
+    for (const [href, label] of [
+      ["/artist", "Home"],
+      ["/artist/music", "Music"],
+      ["/artist/sessions", "Sessions"],
+      ["/artist/store", "Store"],
+    ] as const) {
+      expect(BOTTOM).toContain(`{ href: "${href}", label: "${label}"`);
+    }
+    expect(BOTTOM).not.toMatch(/label:\s*["'](?:Book|Payments)["']/);
   });
 
-  it("replaces Settings with Payments in the desktop main navigation", () => {
-    expect(SIDEBAR).toMatch(
-      /id:\s*["']payments["'],\s*href:\s*["']\/artist\/payments["'],\s*label:\s*["']Payments["']/,
-    );
-    expect(SIDEBAR).not.toMatch(/id:\s*["']settings["'],\s*href:\s*["']\/artist\/settings["']/);
+  it("uses the same four destinations in the desktop main navigation", () => {
+    expect(SIDEBAR.match(/\{\s*id:\s*"[^"]+"/g)).toHaveLength(4);
+    for (const [href, label] of [
+      ["/artist", "Home"],
+      ["/artist/music", "Music"],
+      ["/artist/sessions", "Sessions"],
+      ["/artist/store", "Store"],
+    ] as const) {
+      expect(SIDEBAR).toMatch(new RegExp(`href:\\s*"${href}",\\s*label:\\s*"${label}"`));
+    }
+    expect(SIDEBAR).not.toMatch(/label:\s*["'](?:Book|Payments)["']/);
   });
 
   it("keeps Settings in both artist account controls", () => {
     for (const source of [SIDEBAR, MOBILE_TOPBAR]) {
-      expect(source).toContain("<UserButton.MenuItems>");
-      expect(source).toContain("<UserButton.Link");
-      expect(source).toContain('label="Settings"');
-      expect(source).toMatch(
-        /href=\{withArtistStudio\(["']\/artist\/settings["'],\s*activeStudioId\)\}/,
+      expect(source).toContain("<ArtistUserButton");
+      expect(source).toContain(
+        'settingsHref={withArtistStudio("/artist/settings", activeStudioId)}',
       );
     }
+    expect(USER_BUTTON).toContain("<UserButton.MenuItems>");
+    expect(USER_BUTTON).toContain('label="Settings"');
+  });
+
+  it("mounts notification bells on mobile and desktop artist chrome", () => {
+    expect(MOBILE_TOPBAR).toContain("<ArtistNotificationBell");
+    expect(MOBILE_TOPBAR).toContain("notificationUnreadCount");
   });
 });
 
@@ -45,15 +64,17 @@ describe("artist studio-aware navigation", () => {
       expect(source).toContain("useSearchParams");
       expect(source).toContain("withArtistStudio");
       expect(source).toContain("resolveArtistStudioId");
+      expect(source).toContain("initialStudioId");
     }
   });
 
   it("leaves primary-route prefetching to the serial runtime warmer", () => {
-    expect(BOTTOM.match(/prefetch=\{false\}/g)).toHaveLength(1);
+    expect(BOTTOM).toContain("prefetch: false");
+    expect(SHARED_BOTTOM).toContain("prefetch={tab.prefetch ?? false}");
     expect(SIDEBAR.match(/prefetch=\{false\}/g)).toHaveLength(2);
-    expect(BOTTOM).toContain("announceRuntimeMainNavigationIntent(href)");
+    expect(BOTTOM).toContain("announceRuntimeMainNavigationIntent(tab.href)");
     expect(SIDEBAR.match(/announceRuntimeMainNavigationIntent/g)?.length).toBeGreaterThanOrEqual(3);
-    expect(BOTTOM).toContain("data-sk-nav-destination={href}");
+    expect(SHARED_BOTTOM).toContain("data-sk-nav-destination={tab.href}");
     expect(SIDEBAR.match(/data-sk-nav-destination=/g)).toHaveLength(2);
     expect(BOTTOM).toContain("captureRuntimeMainNavigationTarget(event.currentTarget)");
     expect(SIDEBAR.match(/captureRuntimeMainNavigationTarget/g)?.length).toBeGreaterThanOrEqual(3);
@@ -73,29 +94,51 @@ describe("artist studio-aware navigation", () => {
     expect(SWITCHER).not.toContain('role="listbox"');
     expect(SWITCHER).not.toContain('role="option"');
   });
+
+  it("renders zero and one studio as non-interactive identities", () => {
+    expect(SWITCHER).toContain("No active studio");
+    expect(SWITCHER).toMatch(/studios\.length === 1/);
+    expect(SWITCHER.indexOf("studios.length === 1")).toBeLessThan(
+      SWITCHER.indexOf("<Dialog open="),
+    );
+  });
+
+  it("persists a multi-studio choice before navigation", () => {
+    const write = SWITCHER.indexOf("writeArtistStudioPreferenceCookie(userId, producerId)");
+    const push = SWITCHER.indexOf("router.push(urlFor(producerId))", write);
+    expect(write).toBeGreaterThan(-1);
+    expect(push).toBeGreaterThan(write);
+  });
 });
 
-describe("artist Book section navigation", () => {
-  it("treats My Sessions and session details as part of Book", () => {
+describe("artist navigation active states", () => {
+  it("keeps Home exact and activates section descendants", () => {
+    expect(isArtistNavItemActive("/artist", "/artist")).toBe(true);
+    expect(isArtistNavItemActive("/artist/music", "/artist")).toBe(false);
+    expect(isArtistNavItemActive("/artist/music/song-1", "/artist/music")).toBe(true);
+    expect(isArtistNavItemActive("/artist/sessions/session-1", "/artist/sessions")).toBe(true);
+  });
+
+  it("treats standing store resource routes as Store", () => {
     for (const pathname of [
-      "/artist/book",
-      "/artist/book/producer-1",
-      "/artist/sessions",
-      "/artist/sessions/session-1",
+      "/artist/store",
+      "/artist/store/product-1",
+      "/artist/purchase/product-1",
+      "/artist/offers/offer-1",
     ]) {
-      expect(isArtistNavItemActive(pathname, "/artist/book")).toBe(true);
+      expect(isArtistNavItemActive(pathname, "/artist/store")).toBe(true);
     }
   });
 
-  it("does not activate Book for unrelated artist sections", () => {
+  it("does not activate Store for unrelated artist sections", () => {
     for (const pathname of [
       "/artist",
       "/artist/music",
-      "/artist/store",
+      "/artist/sessions",
       "/artist/payments",
       "/artist/settings",
     ]) {
-      expect(isArtistNavItemActive(pathname, "/artist/book")).toBe(false);
+      expect(isArtistNavItemActive(pathname, "/artist/store")).toBe(false);
     }
   });
 

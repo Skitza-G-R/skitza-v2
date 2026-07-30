@@ -13,13 +13,21 @@ const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "editor-steps", "logistics-step.tsx"), "utf8");
 
 describe("LogisticsStep shell", () => {
-  it("does NOT import the toggle component (no on/off here)", () => {
+  it("uses a native accessible checkbox for explicit artist booking eligibility", () => {
     expect(SRC).not.toMatch(/from\s+["']\.\.\/toggle["']/);
+    expect(SRC).toMatch(/type="checkbox"/);
+    expect(SRC).toMatch(/checked=\{bookingEnabled\}/);
+    expect(SRC).toMatch(/bookingEnabled:\s*event\.target\.checked/);
+    expect(SRC).toContain("Let artists book sessions");
   });
 
   it("references both duration and revisions in the change handler", () => {
     expect(SRC).toMatch(/duration/);
     expect(SRC).toMatch(/revisions/);
+  });
+
+  it("disables session duration controls until artist booking is enabled", () => {
+    expect(SRC).toMatch(/disabled=\{!bookingEnabled\}/);
   });
 
   it("renders a stepper for revisions (uses Minus / Plus icons from lucide)", () => {

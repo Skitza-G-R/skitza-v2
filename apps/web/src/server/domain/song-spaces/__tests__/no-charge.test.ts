@@ -543,6 +543,11 @@ describe("stateless no-charge song-space proposals", () => {
       activatedAt: ACCEPTED_AT,
     });
     expect(purchase?.commercialSnapshot.value.includedSongSpaces).toBe(1);
+    expect(purchase?.commercialSnapshot.value).toMatchObject({
+      version: 2,
+      bookingEnabled: false,
+      session: null,
+    });
     expect(purchase?.commercialSnapshot.value.agreementText).toContain(context.projectTitle);
     expect(purchase?.commercialSnapshot.value.agreementText).toContain("Neon Signs");
     expect(purchase?.commercialSnapshot.value.agreementText).toContain(context.sourceProductName);

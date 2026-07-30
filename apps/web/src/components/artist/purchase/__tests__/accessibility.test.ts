@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { isArtistPurchasePath } from "../../artist-shell-route";
+import { getArtistShellMode } from "../../artist-shell-route";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const srcRoot = join(here, "..", "..", "..", "..");
@@ -12,6 +12,7 @@ const readSrc = (...parts: string[]) => readFileSync(join(srcRoot, ...parts), "u
 
 const globalsSrc = readSrc("app", "globals.css");
 const shellSrc = readSrc("components", "artist", "artist-app-shell.tsx");
+const shellMainSrc = readSrc("components", "artist", "artist-shell-main.tsx");
 const paymentSrc = readSrc("components", "artist", "purchase", "payment-instructions-screen.tsx");
 const proofSrc = readSrc("components", "artist", "purchase", "upload-proof-screen.tsx");
 const statusSrc = readSrc("components", "artist", "home", "purchase-status-card.tsx");
@@ -65,12 +66,12 @@ const lightTokens = globalsSrc.slice(rootStart, darkStart);
 const darkTokens = globalsSrc.slice(darkStart, darkEnd);
 
 describe("artist purchase accessibility contract", () => {
-  it("removes normal artist chrome from purchase routes and exposes a skip-link target", () => {
-    expect(isArtistPurchasePath("/artist/purchase/product-1")).toBe(true);
-    expect(isArtistPurchasePath("/artist/purchase/product-1/pay/proof")).toBe(true);
-    expect(isArtistPurchasePath("/artist/store")).toBe(false);
+  it("keeps product detail standing, focuses purchase steps, and exposes a skip-link target", () => {
+    expect(getArtistShellMode("/artist/purchase/product-1")).toBe("standing");
+    expect(getArtistShellMode("/artist/purchase/product-1/pay/proof")).toBe("focused");
+    expect(getArtistShellMode("/artist/store")).toBe("standing");
     expect(shellSrc.match(/<ArtistShellChrome>/g)?.length).toBeGreaterThanOrEqual(4);
-    expect(shellSrc).toMatch(/<main[\s\S]*?id="main-content"[\s\S]*?tabIndex=\{-1\}/);
+    expect(shellMainSrc).toMatch(/<main[\s\S]*?id="main-content"[\s\S]*?tabIndex=\{-1\}/);
   });
 
   it.each([
@@ -108,12 +109,12 @@ describe("artist purchase accessibility contract", () => {
   });
 
   it("announces copy and upload status changes without moving focus", () => {
-    expect(paymentSrc).toMatch(/role="status"[\s\S]*?aria-live="polite"/);
-    expect(paymentSrc).toMatch(/Copied: \$\{label\}/);
-    expect(paymentSrc).toMatch(/Copy manually: \$\{label\}/);
-    expect(paymentSrc).toMatch(/buttonRef\.current\?\.focus\(\)/);
-    expect(proofSrc).toMatch(/role="status"[\s\S]*?aria-live="polite"/);
-    expect(proofSrc).toMatch(/aria-valuetext=/);
+    expect(paymentSrc).toMatch(/aria-label=\{`Copy \$\{label\}`\}/);
+    expect(paymentSrc).toMatch(/role="status" aria-live="polite"/);
+    expect(paymentSrc).toMatch(/copyState === "copied"/);
+    expect(proofSrc).toMatch(/role="alert"/);
+    expect(proofSrc).toMatch(/phase === "uploading"/);
+    expect(proofSrc).toMatch(/phase === "submitting"/);
   });
 
   it("exposes booking progress state and semantic content collections", () => {
@@ -125,12 +126,13 @@ describe("artist purchase accessibility contract", () => {
     expect(reviewSrc).toMatch(/<h3/);
     expect(sentSrc).toMatch(/<ol className="relative list-none"/);
     expect(sentSrc).toMatch(/aria-current=\{i === 1 \? "step"/);
-    expect(proofSrc).toMatch(/<ul className="[^"]*flex[^"]*list-none[^"]*flex-col/);
+    expect(proofSrc).toMatch(/<details/);
+    expect(proofSrc).toMatch(/<ul className="[^"]*list-none/);
   });
 
   it("gates every purchase animation for reduced-motion users", () => {
     expect(reviewSrc).toMatch(/animate-spin[^"]*motion-reduce:animate-none/);
-    expect(proofSrc).toMatch(/motion-reduce:transition-none/);
+    expect(proofSrc).not.toMatch(/transition-all|animate-spin/);
     expect(stickySrc).toMatch(/sk-sticky-nav-backing/);
     expect(stickySrc).toMatch(/sk-sticky-nav-title/);
     expect(globalsSrc).toMatch(/\.skip-to-content\s*\{\s*transition: none !important;\s*\}/);

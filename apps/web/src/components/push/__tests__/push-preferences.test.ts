@@ -13,6 +13,14 @@ const artistSettings = readFileSync(
   new URL("../../../app/(artist)/artist/settings/page.tsx", import.meta.url),
   "utf8",
 );
+const artistSettingsActions = readFileSync(
+  new URL("../../../app/(artist)/artist/settings/actions.ts", import.meta.url),
+  "utf8",
+);
+const artistSettingsClient = readFileSync(
+  new URL("../../artist/settings/artist-settings-client.tsx", import.meta.url),
+  "utf8",
+);
 const producerShell = readFileSync(new URL("../../shell/app-shell.tsx", import.meta.url), "utf8");
 const artistShell = readFileSync(
   new URL("../../artist/artist-app-shell.tsx", import.meta.url),
@@ -105,10 +113,25 @@ describe("SK-112 contextual push preferences", () => {
     expect(preferences).toContain("if (boundaryIsCurrent()) setPending(null)");
   });
 
-  it("replaces fake settings switches with the delivery-backed control", () => {
+  it("keeps producer push and gives artists global in-app/email preferences", () => {
     expect(producerSettings).toContain("<PushPreferences />");
-    expect(artistSettings).toContain("<PushPreferences />");
     expect(producerSettings).not.toMatch(/notificationPrefs|notifyEmail|notifyInApp/);
+
+    expect(artistSettings).toContain("<ArtistSettingsClient");
+    expect(artistSettings).toContain(
+      "initialPreferences={profile.notificationPreferences}",
+    );
+    expect(artistSettingsClient).toContain(
+      "saveArtistNotificationPreferencesAction",
+    );
+    expect(artistSettingsClient).toContain('"inApp" | "transactionalEmail" | "activityEmail"');
+    expect(artistSettingsClient).toContain("Save notifications");
+    expect(artistSettingsActions).toContain(
+      "caller.artistPlatform.profile.updateNotifications(input)",
+    );
+    expect(artistSettings).not.toContain("PushPreferences");
+    expect(artistSettingsClient).not.toContain("PushPreferences");
+    expect(artistSettingsClient).not.toContain("Notification.requestPermission");
   });
 
   it("places each accessible switch before its flexible copy on the left without overflow", () => {

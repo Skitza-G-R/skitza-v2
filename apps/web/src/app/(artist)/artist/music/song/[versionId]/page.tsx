@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { notFound } from "next/navigation";
 
 import { SongPage, type SongPageData } from "~/components/music/song-page";
+import { ArtistTrackVersionAcknowledger } from "~/components/artist/artist-track-version-acknowledger";
 import type { SongPublicSharingView } from "~/components/music/song-public-link-controls";
 import { PUBLIC_BRAND_ORIGIN } from "~/lib/share/public-url";
 import { appRouter } from "~/server/trpc/routers/_app";
@@ -138,6 +139,7 @@ export default async function ArtistSongPage({ params }: PageProps) {
 
   return (
     <div className="-mx-4 -mt-6 lg:-mx-10 lg:-mt-10">
+      <ArtistTrackVersionAcknowledger trackVersionId={versionId} />
       <SongPage
         data={wire}
         role="artist"

@@ -8,9 +8,13 @@ type ArtistStudioRef = { producerId: string };
 export function resolveArtistStudioId(
   studios: readonly ArtistStudioRef[],
   requestedStudioId: string | null | undefined,
+  savedStudioId?: string | null,
 ): string | null {
   if (requestedStudioId && studios.some((studio) => studio.producerId === requestedStudioId)) {
     return requestedStudioId;
+  }
+  if (savedStudioId && studios.some((studio) => studio.producerId === savedStudioId)) {
+    return savedStudioId;
   }
   return studios[0]?.producerId ?? null;
 }

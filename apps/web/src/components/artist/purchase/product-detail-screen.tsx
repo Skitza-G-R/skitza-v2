@@ -2,12 +2,12 @@
 
 import type { PaymentPlan } from "@skitza/db";
 import { useCallback, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { planKey, requestPlanLabel } from "~/components/checkout/plan-picker-helpers";
 import { ArrowRight, Check, ClockIcon, LockIcon } from "~/components/artist/funnel/funnel-icons";
 import { Eyebrow, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
-import { StickyNav } from "~/components/artist/sticky-nav";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 import { royaltyTermsDisplay } from "~/lib/purchase/royalty-terms";
@@ -46,8 +46,10 @@ type ProductDetailScreenProps = {
   targetProjects?: PurchaseTargetProject[];
   taxMode?: TaxMode;
   taxRatePct?: number;
-  /** Deprecated dev-gallery prop. It no longer restricts a second request. */
-  pendingRequest?: boolean;
+  activePurchase?: {
+    href: string;
+    label: string;
+  } | null;
   /** Producer Review only: renders the real screen with submission disabled. */
   previewMode?: boolean;
   /** Producer Review back action; live artist routes use Store navigation. */
@@ -64,13 +66,13 @@ export function ProductDetailScreen({
   targetProjects = [],
   taxMode = "tax_free",
   taxRatePct = 0,
+  activePurchase = null,
   previewMode = false,
   onPreviewBack,
   previewAgreeHref,
 }: ProductDetailScreenProps) {
   const router = useRouter();
   const online = useOnlineStatus();
-  const scrollRef = useRef<HTMLDivElement | null>(null);
   const operationKeyRef = useRef<string | null>(null);
   const isPerSong = product.pricingModel === "per_song";
   const volumeTiers = useMemo(
@@ -106,7 +108,7 @@ export function ProductDetailScreen({
   }, []);
 
   async function sendRequest() {
-    if (previewMode || sending || !targetIsReady) return;
+    if (previewMode || activePurchase || sending || !targetIsReady) return;
     if (previewAgreeHref) {
       router.push(previewAgreeHref);
       return;
@@ -147,25 +149,27 @@ export function ProductDetailScreen({
 
   return (
     <div
-      ref={scrollRef}
-      className="fixed inset-0 z-[60] overflow-y-auto"
+      className="mx-auto w-full max-w-[440px]"
       style={{ background: "rgb(var(--bg-background))" }}
     >
-      <StickyNav
-        title={product.name}
-        sub={producer.name || undefined}
-        onBack={() => {
+      <button
+        type="button"
+        onClick={() => {
           if (onPreviewBack) {
             onPreviewBack();
             return;
           }
           router.push(withArtistStudio("/artist/store", studioId));
         }}
-        scrollContainerRef={scrollRef}
-        className="max-w-[440px]"
-      />
+        className="sk-press mb-3 inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-2 text-sm font-semibold text-[rgb(var(--fg-secondary))]"
+      >
+        <span aria-hidden className="me-2">
+          ←
+        </span>
+        Back to Store
+      </button>
 
-      <div className="relative mx-auto flex min-h-dvh w-full max-w-[440px] flex-col">
+      <div className="relative flex w-full flex-col">
         <div
           className="relative h-[138px] overflow-hidden"
           style={{ background: coverGradient(producer.hue) }}
@@ -183,7 +187,7 @@ export function ProductDetailScreen({
           </span>
         </div>
 
-        <main className="flex-1 px-5 pt-[18px] pb-[184px]">
+        <div className="flex-1 px-5 pt-[18px] pb-6">
           <h1 className="sk-rise font-syne text-[26px] leading-[1.1] font-extrabold tracking-[-0.035em] [text-wrap:pretty] [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-default))]">
             {product.name}
           </h1>
@@ -191,6 +195,23 @@ export function ProductDetailScreen({
             <p className="sk-rise mt-2.5 text-[14px] leading-relaxed text-[rgb(var(--fg-secondary))]">
               {product.tagline}
             </p>
+          ) : null}
+
+          {activePurchase ? (
+            <section
+              role="status"
+              className="sk-rise mt-4 rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.35)] bg-[rgb(var(--brand-primary)/0.08)] px-4 py-3.5"
+            >
+              <p className="text-[13px] leading-relaxed text-[rgb(var(--fg-secondary))]">
+                Finish your current purchase with {producer.name} before starting another.
+              </p>
+              <Link
+                href={withArtistStudio(activePurchase.href, studioId)}
+                className="sk-press mt-2 inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-1 text-[13px] font-bold text-[rgb(var(--brand-primary-text))] underline decoration-dotted underline-offset-4"
+              >
+                {activePurchase.label}
+              </Link>
+            </section>
           ) : null}
 
           <section
@@ -489,10 +510,10 @@ export function ProductDetailScreen({
               Reconnect to send this request. Your choices stay on this screen.
             </p>
           ) : null}
-        </main>
+        </div>
 
         <div
-          className="sk-safe-bottom sticky bottom-0 z-10 px-[18px] pt-3.5 pb-3.5"
+          className="sk-safe-bottom sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom,0px))] z-10 px-[18px] pt-3.5 pb-3.5 lg:bottom-0"
           style={{
             background:
               "linear-gradient(180deg, rgb(var(--bg-background) / 0) 0%, rgb(var(--bg-background) / 0.96) 22%)",
@@ -502,22 +523,43 @@ export function ProductDetailScreen({
             onClick={() => {
               void sendRequest();
             }}
-            disabled={previewMode || (!online && requiresLiveRequest) || !targetIsReady || sending}
-            glow={!previewMode && (online || !requiresLiveRequest) && targetIsReady && !sending}
+            disabled={
+              previewMode ||
+              activePurchase !== null ||
+              (!online && requiresLiveRequest) ||
+              !targetIsReady ||
+              sending
+            }
+            glow={
+              !previewMode &&
+              activePurchase === null &&
+              (online || !requiresLiveRequest) &&
+              targetIsReady &&
+              !sending
+            }
             ariaBusy={sending}
             sub={
               previewMode
                 ? "Preview only · requests are disabled"
-                : !online && requiresLiveRequest
-                  ? "Reconnect to send this live request"
-                  : sending
-                    ? "Sending your request"
-                    : targetIsReady
-                      ? "No payment or acceptance yet"
-                      : "Choose the exact existing project"
+                : activePurchase
+                  ? "Finish your current purchase first"
+                  : !online && requiresLiveRequest
+                    ? "Reconnect to send this live request"
+                    : sending
+                      ? "Sending your request"
+                      : targetIsReady
+                        ? "No payment or acceptance yet"
+                        : "Choose the exact existing project"
             }
           >
-            {previewMode ? "Preview only" : sending ? "Sending…" : "Send request"} <ArrowRight />
+            {previewMode
+              ? "Preview only"
+              : activePurchase
+                ? activePurchase.label
+                : sending
+                  ? "Sending…"
+                  : "Send request"}{" "}
+            <ArrowRight />
           </PrimaryCta>
         </div>
       </div>

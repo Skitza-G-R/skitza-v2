@@ -10,27 +10,11 @@ const here = dirname(fileURLToPath(import.meta.url));
 const globalsSrc = readFileSync(join(here, "..", "globals.css"), "utf8");
 const layoutSrc = readFileSync(join(here, "..", "layout.tsx"), "utf8");
 const pricingStepSrc = readFileSync(
-  join(
-    here,
-    "..",
-    "(producer)",
-    "dashboard",
-    "store",
-    "editor-steps",
-    "pricing-step.tsx",
-  ),
+  join(here, "..", "(producer)", "dashboard", "store", "editor-steps", "pricing-step.tsx"),
   "utf8",
 );
 const uploadProofSrc = readFileSync(
-  join(
-    here,
-    "..",
-    "..",
-    "components",
-    "artist",
-    "purchase",
-    "upload-proof-screen.tsx",
-  ),
+  join(here, "..", "..", "components", "artist", "purchase", "upload-proof-screen.tsx"),
   "utf8",
 );
 const skipLinkSrc = readFileSync(
@@ -41,10 +25,7 @@ const tailwindRequire = createRequire(
   createRequire(import.meta.url).resolve("@tailwindcss/postcss"),
 );
 const postcss = tailwindRequire("postcss") as (plugins: unknown[]) => {
-  process: (
-    css: string,
-    options: { from: string },
-  ) => Promise<{ css: string }>;
+  process: (css: string, options: { from: string }) => Promise<{ css: string }>;
 };
 
 describe("global accessibility contract", () => {
@@ -107,11 +88,8 @@ describe("global accessibility contract", () => {
     expect(layoutSrc).toContain("maximumScale: 5");
     expect(layoutSrc).toContain("userScalable: true");
     expect(layoutSrc).toContain("[--sk-mobile-control-font-size:22px]");
-    expect(pricingStepSrc).toContain(
-      "[--sk-mobile-control-font-size:19px]",
-    );
-    expect(uploadProofSrc).toContain(
-      "[--sk-mobile-control-font-size:28px]",
-    );
+    expect(pricingStepSrc).toContain("[--sk-mobile-control-font-size:19px]");
+    expect(uploadProofSrc).toContain("Locked installment amount");
+    expect(uploadProofSrc).not.toContain('id="proof-amount"');
   });
 });

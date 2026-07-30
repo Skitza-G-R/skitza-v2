@@ -22,11 +22,13 @@
 import { Minus, Plus } from "lucide-react";
 
 interface LogisticsStepProps {
+  bookingEnabled: boolean;
   duration: string;
   revisions: number;
   unlimitedRevisions: boolean;
   onChange: (
     patch: Partial<{
+      bookingEnabled: boolean;
       duration: string;
       revisions: number;
       unlimitedRevisions: boolean;
@@ -148,6 +150,7 @@ function Stepper({
 }
 
 export function LogisticsStep({
+  bookingEnabled,
   duration,
   revisions,
   unlimitedRevisions,
@@ -158,10 +161,35 @@ export function LogisticsStep({
 
   return (
     <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-6">
+      <label className="flex min-h-20 cursor-pointer items-start gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 transition-colors focus-within:ring-2 focus-within:ring-[rgb(var(--brand-primary)/0.35)] hover:border-[rgb(var(--border-strong))] sm:col-span-2">
+        <input
+          type="checkbox"
+          checked={bookingEnabled}
+          onChange={(event) => {
+            onChange({ bookingEnabled: event.target.checked });
+          }}
+          className="mt-0.5 h-5 w-5 shrink-0 accent-[rgb(var(--brand-primary))]"
+        />
+        <span className="min-w-0">
+          <span className="block text-[14px] font-semibold text-[rgb(var(--fg-default))]">
+            Let artists book sessions
+          </span>
+          <span className="mt-1 block text-[12px] leading-relaxed text-[rgb(var(--fg-muted))]">
+            Artists who buy this product can use its included sessions to book time with you.
+          </span>
+        </span>
+      </label>
+
       {/* Duration */}
-      <fieldset className="flex min-w-0 flex-col gap-2 border-0 p-0">
+      <fieldset
+        disabled={!bookingEnabled}
+        className={[
+          "flex min-w-0 flex-col gap-2 border-0 p-0 transition-opacity",
+          bookingEnabled ? "" : "opacity-45",
+        ].join(" ")}
+      >
         <legend className="mb-1.5 text-[10.5px] font-[var(--font-outfit)] font-bold tracking-[0.16em] text-[rgb(var(--fg-muted))] uppercase">
-          Duration
+          Session duration
         </legend>
         <div className="flex flex-wrap gap-2">
           <DurationChip
