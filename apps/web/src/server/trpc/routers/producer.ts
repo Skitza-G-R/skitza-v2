@@ -33,6 +33,7 @@ import { stripUndefined } from "../strip-undefined";
 import { presentVersionApprovalHistory } from "~/server/domain/version-approval/service";
 import { browserSafeStoredAudioUrl } from "~/server/domain/audio-delivery/urls";
 import { sessionBookingScheduleAdvisoryLockKey } from "~/server/domain/session-booking/db";
+import { privateSongArtworkPath } from "~/server/domain/song-artwork/urls";
 
 // Accepts a subset of producer-editable fields. The schema's cascade is
 // designed so any of these can change without orphaning related data.
@@ -1249,6 +1250,7 @@ export const producerRouter = router({
             trackTitle: projectTracks.title,
             trackArtist: projectTracks.artist,
             trackWorkflowStage: projectTracks.workflowStage,
+            trackArtworkR2Key: projectTracks.artworkR2Key,
             trackArchivedAt: projectTracks.archivedAt,
             trackReleasedAt: projectTracks.releasedAt,
             projectId: projects.id,
@@ -1378,6 +1380,7 @@ export const producerRouter = router({
             title: head.trackTitle,
             artist: head.trackArtist,
             workflowStage: head.trackWorkflowStage,
+            artworkUrl: head.trackArtworkR2Key ? privateSongArtworkPath(head.trackId) : null,
             archivedAt: head.trackArchivedAt,
             releasedAt: head.trackReleasedAt,
             projectId: head.projectId,

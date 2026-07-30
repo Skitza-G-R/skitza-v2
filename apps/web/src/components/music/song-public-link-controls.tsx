@@ -150,12 +150,14 @@ export function SongPublicLinkControls({
   shareTitle,
   actions,
   refreshLiveState,
+  triggerStyle = "hero",
 }: {
   role: "producer" | "artist";
   initialState: SongPublicSharingView;
   shareTitle: string;
   actions?: SongPublicSharingActions;
   refreshLiveState?: SongPublicSharingRefresh;
+  triggerStyle?: "hero" | "menu";
 }) {
   const [state, setState] = useState(initialState);
   const [open, setOpen] = useState(false);
@@ -231,11 +233,23 @@ export function SongPublicLinkControls({
         <button
           type="button"
           data-test="song-public-link-control"
-          className="sk-press inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-lg)] border border-white/28 bg-white/[0.06] px-4 py-2 text-[12.5px] font-bold text-white transition-[background-color,transform] duration-200 hover:-translate-y-px hover:bg-white/[0.14] focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none motion-reduce:transform-none motion-reduce:transition-none"
+          className={
+            triggerStyle === "menu"
+              ? "flex min-h-11 w-full items-center gap-2 rounded-[var(--radius-lg)] px-3 py-2 text-left text-[13px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:bg-[rgb(var(--fg-default)/0.04)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none motion-reduce:transition-none"
+              : "sk-press inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-lg)] border border-white/28 bg-white/[0.06] px-4 py-2 text-[12.5px] font-bold text-white transition-[background-color,transform] duration-200 hover:-translate-y-px hover:bg-white/[0.14] focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none motion-reduce:transform-none motion-reduce:transition-none"
+          }
         >
           <span
             aria-hidden="true"
-            className={`h-2 w-2 rounded-full ${status === "live" ? "bg-emerald-400 shadow-[0_0_10px_rgb(74_222_128/0.7)]" : "bg-white/35"}`}
+            className={`h-2 w-2 rounded-full ${
+              status === "live"
+                ? triggerStyle === "menu"
+                  ? "bg-[rgb(var(--fg-success-text))]"
+                  : "bg-emerald-400 shadow-[0_0_10px_rgb(74_222_128/0.7)]"
+                : triggerStyle === "menu"
+                  ? "bg-[rgb(var(--fg-muted)/0.45)]"
+                  : "bg-white/35"
+            }`}
           />
           {role === "artist" ? "Share public link" : "Public link"}
         </button>
