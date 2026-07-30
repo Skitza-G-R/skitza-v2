@@ -118,14 +118,16 @@ describe("pricing-step.tsx source", () => {
 
   it("keeps session scope in the dedicated Delivery step", () => {
     expect(source).not.toMatch(/sessions per song/i);
-    expect(source).not.toMatch(/Unlimited/);
+    expect(source).not.toMatch(/>Unlimited</);
   });
 
-  it("renders the shared global-tax section in both pricing branches", () => {
+  it("renders the shared read-only global-tax section in both pricing branches", () => {
     const matches = source.match(/<ProductTaxSection/g) ?? [];
     expect(matches).toHaveLength(2);
+    expect(source).toMatch(/showTaxSummary/);
     expect(source).toContain('href="/dashboard/settings?section=region"');
     expect(source).toContain("Edit in Settings");
+    expect(source).not.toMatch(/onTaxChange|TaxModePicker/);
   });
 
   it("stacks per-song ladder rows on mobile instead of forcing four columns", () => {
@@ -133,7 +135,7 @@ describe("pricing-step.tsx source", () => {
     expect(source).toMatch(/grid-cols-1[\s\S]*?sm:grid-cols-/);
   });
 
-  it("keeps per-song price and tax controls at least 44px tall on mobile", () => {
+  it("keeps per-song price and the tax Settings link at least 44px tall on mobile", () => {
     expect(source).toMatch(
       /aria-label="Base price per song"[\s\S]*?className="[^"]*h-11[^"]*sm:h-full/,
     );
