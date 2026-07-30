@@ -69,6 +69,22 @@ describe("PrivateOfferComposer", () => {
     expect(SRC).toContain("overflow-y-auto");
   });
 
+  it("guides the private offer through five validated steps", () => {
+    for (const step of ["recipient", "work", "payment", "rights", "agreement"]) {
+      expect(SRC).toContain(`id: "${step}"`);
+    }
+    expect(SRC).toMatch(
+      /const \[currentStep, setCurrentStep\] = useState<OfferStep>\("recipient"\)/,
+    );
+    expect(SRC).toMatch(/setCurrentStep\("recipient"\)/);
+    expect(SRC).toContain('aria-label="Private offer progress"');
+    expect(SRC).toContain('aria-current={index === currentStepIndex ? "step" : undefined}');
+    expect(SRC).toContain("Step {currentStepIndex + 1} of {OFFER_STEPS.length}");
+    expect(SRC).toContain("Back");
+    expect(SRC).toContain("Next");
+    expect(SRC).toMatch(/if \(!isLastStep\)[\s\S]*?currentStepResult\(\)/);
+  });
+
   it("supports an existing recipient or a new verified-email recipient", () => {
     expect(SRC).toMatch(/kind:\s*"existing";\s*clientContactId:\s*string/);
     expect(SRC).toMatch(/kind:\s*"new";\s*name:\s*string;\s*email:\s*string/);
