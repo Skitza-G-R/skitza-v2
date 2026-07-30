@@ -25,12 +25,11 @@ export interface TrackRowData {
   currentVersion?: string;
   noteCount?: number;
   durationMs?: number;
-  versionCount?: number;
+  detailHref: string;
   playback?: TrackRowPlayback;
 }
 
 export interface TrackRowProps {
-  projectId: string;
   track: TrackRowData;
   index: number;
 }
@@ -43,7 +42,7 @@ function formatDuration(ms: number): string {
   return `${String(minutes)}:${String(seconds).padStart(2, "0")}`;
 }
 
-export function TrackRow({ projectId, track, index }: TrackRowProps) {
+export function TrackRow({ track, index }: TrackRowProps) {
   const nowPlaying = useNowPlaying();
   const indexLabel = String(index).padStart(2, "0");
   const coverBg = producerGradient(track.title);
@@ -86,7 +85,7 @@ export function TrackRow({ projectId, track, index }: TrackRowProps) {
   return (
     <article className="group flex min-w-0 items-center overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] transition-colors hover:bg-[rgb(var(--bg-elevated))]">
       <Link
-        href={`/dashboard/clients-projects/${projectId}/songs/${track.id}`}
+        href={track.detailHref}
         aria-label={`Open ${track.title}`}
         className="flex min-h-[68px] min-w-0 flex-1 items-center gap-3 px-3 py-2.5 focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset sm:px-4"
       >

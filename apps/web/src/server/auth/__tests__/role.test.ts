@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  resolveUserAccountMemberships,
-  resolveUserRole,
-  type ProducerRow,
-} from "../role";
+import { resolveUserAccountMemberships, resolveUserRole, type ProducerRow } from "../role";
 import { emailToSlug } from "~/lib/slug";
 
 // Tests for the pure role-resolution function used across every

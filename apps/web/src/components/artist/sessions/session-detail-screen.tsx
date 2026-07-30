@@ -2,10 +2,9 @@
 
 // S12 — Session detail + cancel / reschedule (artist Book section).
 //
-// A funnel OVERLAY (like review-agree-screen): fixed inset-0, a FunnelTopBar
-// titled "Session" whose back arrow returns to /artist/sessions, no bottom
-// tab bar. Closes SK-13 (no artist session detail) + SK-14 (reschedule
-// missing).
+// A standing artist screen whose in-flow back link returns to
+// /artist/sessions. The shared artist shell remains mounted around the
+// booking detail.
 //
 // The hero card states the booking plainly (date + time large in Syne,
 // duration, the product + producer mini-row, a StatusPill). The action stack
@@ -13,37 +12,42 @@
 // note (proto-s12) — no dead band, no viewport pinning.
 //
 // The server-authored policy gates the actions. Within the window the artist
-// can change the booking; too close means both actions stay disabled and the
-// artist is directed to the producer. Terminal sessions hide actions.
+// can change the booking; too close means the unavailable actions stay hidden
+// and the artist is directed to the producer. Terminal sessions hide actions.
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { Check, ClockIcon, CloseIcon } from "~/components/artist/funnel/funnel-icons";
-import { FunnelTopBar } from "~/components/artist/funnel/funnel-ui";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 
 import {
+  artistSessionDisplay,
   formatSessionDate,
   formatSessionTime,
   locationLabel,
   type SessionDetail,
 } from "./book-data";
 import { PolicyNotice } from "./policy-notice";
-import { RescheduleConfirmSheet } from "./reschedule-confirm-sheet";
 import { StatusPill } from "./status-pill";
 
 export function SessionDetailScreen({ session }: { session: SessionDetail }) {
   const router = useRouter();
   const online = useOnlineStatus();
-  const [sheetOpen, setSheetOpen] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null);
 
   const isActive = session.status === "pending_approval" || session.status === "confirmed";
   const canChange = session.policy.canCancel || session.policy.canReschedule;
 
   const durationLabel = formatDuration(session.durationMin);
+  const display = artistSessionDisplay({
+    status: session.status,
+    outcome: session.outcome,
+    heldExpiryReason: session.heldExpiryReason,
+  });
+  const studioTimeDiffers = session.artistTimezone !== session.producerTimezone;
 
   function reschedule() {
     if (!online) {
@@ -51,13 +55,7 @@ export function SessionDetailScreen({ session }: { session: SessionDetail }) {
       return;
     }
     if (!session.policy.canReschedule) return;
-    const params = new URLSearchParams({
-      session: session.id,
-      studio: session.producerId,
-      project: session.projectId,
-      allowance: session.sessionAllowanceId,
-    });
-    router.push(`/artist/book?${params.toString()}`);
+    router.push(`/artist/sessions/${session.id}/reschedule`);
   }
 
   function openCancel() {
@@ -66,24 +64,26 @@ export function SessionDetailScreen({ session }: { session: SessionDetail }) {
       return;
     }
     if (!session.policy.canCancel) return;
-    setSheetOpen(true);
+    router.push(`/artist/sessions/${session.id}/cancel`);
   }
 
   return (
     <div
-      className="fixed inset-0 z-[60] overflow-y-auto"
+      className="mx-auto w-full max-w-[440px]"
       style={{ background: "rgb(var(--bg-background))" }}
     >
-      <div className="relative mx-auto flex min-h-dvh w-full max-w-[440px] flex-col">
-        <FunnelTopBar
-          title="Session"
-          sub={isActive ? "YOUR BOOKING" : "SESSION HISTORY"}
-          onBack={() => {
-            router.push(withArtistStudio("/artist/sessions", session.producerId));
-          }}
-        />
+      <div className="relative flex w-full flex-col">
+        <Link
+          href={withArtistStudio("/artist/sessions", session.producerId)}
+          className="sk-press mb-3 inline-flex min-h-11 w-fit items-center rounded-[var(--radius-lg)] px-2 text-sm font-semibold text-[rgb(var(--fg-secondary))]"
+        >
+          <span aria-hidden className="me-2">
+            ←
+          </span>
+          Back to Sessions
+        </Link>
 
-        <div className="flex-1 px-5 pt-4 pb-[max(env(safe-area-inset-bottom),20px)]">
+        <div className="flex-1 px-5 pb-[max(env(safe-area-inset-bottom),20px)]">
           {/* hero summary — a DARK card (proto-s12): date/time large in white
               Syne, status pill, product + producer mini-row */}
           <div
@@ -104,11 +104,22 @@ export function SessionDetailScreen({ session }: { session: SessionDetail }) {
 
             {/* date + time — large in white Syne, time in font-amount */}
             <div className="font-syne mt-3 text-[30px] leading-[1.04] font-extrabold tracking-[-0.035em] text-white">
-              {formatSessionDate(session.startsAtISO, session.producerTimezone)} at{" "}
+              {formatSessionDate(session.startsAtISO, session.artistTimezone)} at{" "}
               <span className="font-amount font-extrabold">
-                {formatSessionTime(session.startsAtISO, session.producerTimezone)}
+                {formatSessionTime(session.startsAtISO, session.artistTimezone)}
               </span>
             </div>
+            {studioTimeDiffers ? (
+              <p className="mt-2 text-[11.5px] text-[rgb(255_255_255_/_0.55)]">
+                Studio time · {formatSessionDate(session.startsAtISO, session.producerTimezone)} at{" "}
+                {formatSessionTime(session.startsAtISO, session.producerTimezone)}
+              </p>
+            ) : null}
+            {display.secondary ? (
+              <p className="mt-2 text-[11.5px] text-[rgb(255_255_255_/_0.55)]">
+                {display.secondary}
+              </p>
+            ) : null}
 
             {/* product + producer mini-row */}
             <div
@@ -164,8 +175,9 @@ export function SessionDetailScreen({ session }: { session: SessionDetail }) {
                 <Check width={11} height={11} />
               </span>
               <p className="text-[12.5px] leading-snug text-[rgb(var(--fg-secondary))]">
-                You can change this yourself up to {session.policy.cancellationPolicyHours}h before.{" "}
-                {session.producerName} will be notified.
+                {session.status === "pending_approval"
+                  ? `You can withdraw this held request until it begins. ${session.producerName} will be notified.`
+                  : `You can change this yourself until the ${String(session.policy.cancellationPolicyHours)}h cutoff. ${session.producerName} will be notified.`}
               </p>
             </div>
           ) : null}
@@ -194,61 +206,34 @@ export function SessionDetailScreen({ session }: { session: SessionDetail }) {
 
           {/* action stack flows right under the policy note (proto-s12) —
               hidden once the session has passed */}
-          {isActive ? (
+          {isActive && canChange ? (
             <div className="sk-rise mt-5 flex flex-col gap-2.5" style={{ animationDelay: "160ms" }}>
-              {/* amber Reschedule (proto-s12 primary action) */}
-              <button
-                type="button"
-                onClick={reschedule}
-                disabled={!online || !session.policy.canReschedule}
-                className={`relative flex w-full items-center justify-center gap-[9px] overflow-hidden rounded-[var(--radius-lg)] px-[22px] py-4 text-[16px] font-semibold ${
-                  !online || !session.policy.canReschedule
-                    ? "cursor-not-allowed"
-                    : "sk-cta-press sk-gloss"
-                }`}
-                style={
-                  !online || !session.policy.canReschedule
-                    ? {
-                        background: "rgb(var(--fg-default) / 0.07)",
-                        color: "rgb(var(--fg-muted) / 0.8)",
-                      }
-                    : {
-                        background:
-                          "linear-gradient(180deg, rgb(var(--brand-primary)) 0%, rgb(var(--brand-primary-dark)) 130%)",
-                        color: "rgb(var(--bg-sidebar))",
-                        boxShadow: "0 6px 18px -8px rgb(var(--brand-primary) / 0.40)",
-                      }
-                }
-              >
-                <span className="relative z-[2] inline-flex items-center gap-[9px]">
-                  <ClockIcon width={16} height={16} /> Reschedule
-                </span>
-              </button>
+              {session.policy.canReschedule ? (
+                <button
+                  type="button"
+                  onClick={reschedule}
+                  disabled={!online}
+                  className="sk-cta-press relative flex w-full items-center justify-center gap-[9px] overflow-hidden rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-[22px] py-4 text-[16px] font-semibold text-[rgb(var(--bg-sidebar))] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <span className="relative z-[2] inline-flex items-center gap-[9px]">
+                    <ClockIcon width={16} height={16} /> Reschedule
+                  </span>
+                </button>
+              ) : null}
 
-              {/* outlined Cancel — red text, hairline border (destructive but quiet) */}
-              <button
-                type="button"
-                onClick={openCancel}
-                disabled={!online || !session.policy.canCancel}
-                className={`flex w-full items-center justify-center gap-[8px] rounded-[var(--radius-lg)] px-[22px] py-[15px] text-[15px] font-semibold ${
-                  !online || !session.policy.canCancel ? "cursor-not-allowed" : "sk-press"
-                }`}
-                style={{
-                  background: "rgb(var(--bg-elevated))",
-                  color:
-                    !online || !session.policy.canCancel
-                      ? "rgb(var(--fg-muted) / 0.7)"
-                      : "rgb(var(--fg-danger))",
-                  border: `1px solid ${
-                    !online || !session.policy.canCancel
-                      ? "rgb(var(--border-strong))"
-                      : "rgb(var(--fg-danger) / 0.30)"
-                  }`,
-                  boxShadow: "var(--shadow-sm)",
-                }}
-              >
-                <CloseIcon width={15} height={15} /> Cancel session
-              </button>
+              {session.policy.canCancel ? (
+                <button
+                  type="button"
+                  onClick={openCancel}
+                  disabled={!online}
+                  className="sk-press flex w-full items-center justify-center gap-[8px] rounded-[var(--radius-lg)] border border-[rgb(var(--fg-danger)/0.3)] bg-[rgb(var(--bg-elevated))] px-[22px] py-[15px] text-[15px] font-semibold text-[rgb(var(--fg-danger-text))] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <CloseIcon width={15} height={15} />{" "}
+                  {session.status === "pending_approval"
+                    ? "Withdraw request"
+                    : "Cancel session"}
+                </button>
+              ) : null}
 
               <p className="px-1 pt-0.5 text-center text-[11px] leading-snug text-[rgb(var(--fg-muted))]">
                 The time policy controls changes only. Refunds and deposits follow your signed
@@ -258,20 +243,6 @@ export function SessionDetailScreen({ session }: { session: SessionDetail }) {
           ) : null}
         </div>
       </div>
-
-      {sheetOpen ? (
-        <RescheduleConfirmSheet
-          sessionId={session.id}
-          producerName={session.producerName}
-          onClose={() => {
-            setSheetOpen(false);
-          }}
-          onCancelled={() => {
-            router.push(withArtistStudio("/artist/sessions", session.producerId));
-            router.refresh();
-          }}
-        />
-      ) : null}
     </div>
   );
 }

@@ -24,6 +24,7 @@ function product(
     hourlyRateCents: null,
     durationMin: 60,
     sessionCount: 1,
+    bookingEnabled: true,
     deliverables: ["Stereo WAV", "Instrumental"],
     locationType: "remote",
     bufferMinutes: 15,
@@ -74,6 +75,26 @@ describe("published Store product validation", () => {
     expectError(() => {
       assertPublishedStoreProduct(draft);
     }, "PRODUCT_NOT_PUBLISHED");
+  });
+
+  it("requires explicit booking eligibility and a duration for bookable products", () => {
+    expect(
+      validateStoreProductCommercialState(product({ bookingEnabled: false })).bookingEnabled,
+    ).toBe(false);
+    expectError(
+      () => validateStoreProductCommercialState(product({ bookingEnabled: true, durationMin: 0 })),
+      "INVALID_PRODUCT",
+      "durationMin",
+    );
+    expectError(
+      () =>
+        validateStoreProductCommercialState({
+          ...product(),
+          bookingEnabled: "yes" as never,
+        }),
+      "INVALID_PRODUCT",
+      "bookingEnabled",
+    );
   });
 
   it("keeps hidden legacy hourly rows storage-compatible but rejects publishing them", () => {

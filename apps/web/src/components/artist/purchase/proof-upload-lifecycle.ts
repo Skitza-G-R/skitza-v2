@@ -28,12 +28,14 @@ export type ManagedPaymentProofUploadInput = {
   file: File;
   purchaseId: string;
   installmentId: string;
+  operationKey: string;
   contentType: ProofContentType;
   amountCents: number;
   note: string | null;
   presign: (input: {
     purchaseId: string;
     installmentId: string;
+    operationKey: string;
     fileName: string;
     contentType: ProofContentType;
     sizeBytes: number;
@@ -53,7 +55,7 @@ export type ManagedPaymentProofUploadInput = {
   uploadFile: PaymentProofByteUpload;
   onStart?: () => void;
   onSubmitting?: () => void;
-  onSuccess?: () => void;
+  onSuccess?: (proofId: string) => void;
   onCancelled?: () => void;
   onFailure?: (message: string) => void;
 };
@@ -224,6 +226,7 @@ export function startManagedPaymentProofUpload(
       const presigned = await input.presign({
         purchaseId: input.purchaseId,
         installmentId: input.installmentId,
+        operationKey: input.operationKey,
         fileName: input.file.name,
         contentType: input.contentType,
         sizeBytes: input.file.size,
@@ -291,7 +294,7 @@ export function startManagedPaymentProofUpload(
 
       managed.succeed();
       activeUploadToken = null;
-      input.onSuccess?.();
+      input.onSuccess?.(submitted.proofId);
       resolveFinished("succeeded");
     } catch (error) {
       if (cancellationRequested(controller) && !finalizationStarted) {

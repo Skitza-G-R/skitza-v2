@@ -13,14 +13,14 @@ describe("onboarding review readiness", () => {
   it("requires hours only for a product with bookable sessions", () => {
     expect(
       reviewReadiness({
-        product: { active: false, durationMin: 60 },
+        product: { active: false, bookingEnabled: true },
         availabilityCount: 0,
       }),
     ).toEqual({ ready: false, redirect: "/onboarding/availability" });
 
     expect(
       reviewReadiness({
-        product: { active: false, durationMin: 0 },
+        product: { active: false, bookingEnabled: false },
         availabilityCount: 0,
       }),
     ).toEqual({
@@ -30,10 +30,41 @@ describe("onboarding review readiness", () => {
     });
   });
 
+  it("uses bookingEnabled even when legacy duration data disagrees", () => {
+    const bookingDisabledWithDuration = {
+      active: false,
+      bookingEnabled: false,
+      durationMin: 60,
+    };
+    const bookingEnabledWithoutDuration = {
+      active: false,
+      bookingEnabled: true,
+      durationMin: 0,
+    };
+
+    expect(
+      reviewReadiness({
+        product: bookingDisabledWithDuration,
+        availabilityCount: 0,
+      }),
+    ).toEqual({
+      ready: true,
+      hoursNotNeeded: true,
+      alreadyPublished: false,
+    });
+
+    expect(
+      reviewReadiness({
+        product: bookingEnabledWithoutDuration,
+        availabilityCount: 0,
+      }),
+    ).toEqual({ ready: false, redirect: "/onboarding/availability" });
+  });
+
   it("reports a product that is already published", () => {
     expect(
       reviewReadiness({
-        product: { active: true, durationMin: 30 },
+        product: { active: true, bookingEnabled: true },
         availabilityCount: 1,
       }),
     ).toEqual({

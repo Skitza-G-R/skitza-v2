@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import type { PurchaseCommercialSnapshot } from "@skitza/db";
+import type { ReactNode } from "react";
 
 import {
   WorkspaceListView,
@@ -29,9 +30,15 @@ import {
   type PurchaseStage,
 } from "~/components/artist/home/purchase-status-card";
 
-import { ProductDetailScreen } from "~/components/artist/purchase/product-detail-screen";
+import { ProfessionalProductDetail } from "~/components/artist/purchase/professional-product-detail";
+import { PurchaseRequestScreen } from "~/components/artist/purchase/purchase-request-screen";
 import { ChoosePlanScreen } from "~/components/artist/purchase/choose-plan-screen";
 import { PaymentInstructionsScreen } from "~/components/artist/purchase/payment-instructions-screen";
+import {
+  PaymentSummaryScreen,
+  type ArtistPaymentSummaryProof,
+} from "~/components/artist/purchase/payment-summary-screen";
+import { ProofRecordScreen } from "~/components/artist/purchase/proof-record-screen";
 import { RequestSentScreen } from "~/components/artist/purchase/request-sent-screen";
 import { ReviewAgreeScreen } from "~/components/artist/purchase/review-agree-screen";
 import { UploadProofScreen } from "~/components/artist/purchase/upload-proof-screen";
@@ -50,12 +57,51 @@ import { deriveGradient } from "~/lib/clients/derive-gradient";
 import { UploadModalDevScreen } from "~/components/dev/upload-modal-dev-screen";
 import { Sk75ProofFlowDevScreen } from "~/components/dev/sk75-proof-flow-dev-screen";
 import { Sk69PaymentsDevScreen } from "~/components/dev/sk69-payments-dev-screen";
+import {
+  ArtistHomeDevPreview,
+  ArtistNotificationCenterDevPreview,
+  ArtistSessionDetailDevPreview,
+  ArtistSessionsHubDevPreview,
+  ArtistSettingsDevPreview,
+  ArtistStoreCatalogDevPreview,
+} from "~/components/dev/artist-platform-standing-previews";
+import { ArtistPlatformPreviewShell } from "~/components/dev/artist-platform-preview-shell";
 import { PublicSongPlayer } from "~/components/public-song/public-song-player";
+import { isDevGalleryAvailable } from "~/lib/dev-gallery-access";
 import { CLIENT_ARCHIVE_BLOCKED_MESSAGE } from "~/server/domain/client-management/service";
+
+import { findArtistPlatformPreviewState } from "../../artist-platform/preview-states";
 
 const DEV_REQUEST_ID = "00000000-0000-4000-8000-000000000001";
 const DEV_PROOF_ID = "00000000-0000-4000-8000-000000000002";
 const DEV_USD_PROOF_ID = "00000000-0000-4000-8000-000000000003";
+const DEV_ARTIST_PURCHASE_ID = "00000000-0000-4000-8000-000000000010";
+const DEV_ARTIST_STUDIO_ID = "00000000-0000-4000-8000-000000000011";
+const DEV_ARTIST_PENDING_PROOF = {
+  proofId: "00000000-0000-4000-8000-000000000012",
+  installmentId: "00000000-0000-4000-8000-000000000016",
+  installmentPosition: 1,
+  amountCents: 120_000,
+  status: "pending",
+  createdAt: new Date("2026-07-20T09:00:00.000Z"),
+} satisfies ArtistPaymentSummaryProof;
+const DEV_ARTIST_REJECTED_PROOF = {
+  ...DEV_ARTIST_PENDING_PROOF,
+  proofId: "00000000-0000-4000-8000-000000000013",
+  status: "rejected",
+} satisfies ArtistPaymentSummaryProof;
+const DEV_ARTIST_CONFIRMED_PROOF = {
+  ...DEV_ARTIST_PENDING_PROOF,
+  proofId: "00000000-0000-4000-8000-000000000014",
+  status: "confirmed",
+} satisfies ArtistPaymentSummaryProof;
+const DEV_ARTIST_FINAL_PROOF = {
+  ...DEV_ARTIST_CONFIRMED_PROOF,
+  proofId: "00000000-0000-4000-8000-000000000015",
+  installmentId: "00000000-0000-4000-8000-000000000017",
+  installmentPosition: 2,
+  createdAt: new Date("2026-07-28T09:00:00.000Z"),
+} satisfies ArtistPaymentSummaryProof;
 const DEV_SK72_COMMERCIAL_SNAPSHOT = {
   version: 1,
   productOrOfferName: "Three-song production",
@@ -615,30 +661,77 @@ function Sk72RequestDevPreview({ state }: { state: "pending" | "approved" | "acc
 // Dev-only screen gallery for the handoff-4 wave (2026-07-05). Renders the
 // funnel screens with mock props at /dev/screens/<name> so visual QA can
 // screenshot every state at 390×844 WITHOUT a Clerk session. Hard 404 in
-// production — this never ships to users. Extend the map as waves land.
+// Vercel Production. Local development and Vercel Preview stay available for
+// approval without Clerk or database state.
 type Params = { params: Promise<{ screen: string }> };
 
+function withArtistPlatformStandingChrome(screen: string, children: ReactNode) {
+  const state = findArtistPlatformPreviewState(screen);
+  if (!state || state.chrome !== "Standing") {
+    throw new Error(`Missing standing artist preview contract for ${screen}`);
+  }
+
+  return (
+    <ArtistPlatformPreviewShell
+      activeDestination={state.activeDestination}
+      screenLabel={state.label}
+    >
+      {children}
+    </ArtistPlatformPreviewShell>
+  );
+}
+
 export default async function DevScreenPage({ params }: Params) {
-  if (process.env.NODE_ENV === "production") notFound();
+  if (!isDevGalleryAvailable()) notFound();
   const { screen } = await params;
 
   switch (screen) {
+    case "artist-home":
+      return withArtistPlatformStandingChrome(screen, <ArtistHomeDevPreview />);
+    case "artist-store":
+      return withArtistPlatformStandingChrome(screen, <ArtistStoreCatalogDevPreview />);
+    case "artist-sessions":
+      return withArtistPlatformStandingChrome(screen, <ArtistSessionsHubDevPreview />);
+    case "artist-session-detail":
+      return withArtistPlatformStandingChrome(screen, <ArtistSessionDetailDevPreview />);
+    case "artist-settings":
+      return withArtistPlatformStandingChrome(screen, <ArtistSettingsDevPreview />);
+    case "artist-notifications":
+      return withArtistPlatformStandingChrome(screen, <ArtistNotificationCenterDevPreview />);
     case "s3":
-      return (
-        <ProductDetailScreen
+      return withArtistPlatformStandingChrome(
+        screen,
+        <ProfessionalProductDetail
           product={MOCK_PRODUCT}
-          producer={MOCK_PRODUCER}
-          productId="00000000-0000-4000-8000-000000000000"
-          previewAgreeHref="/dev/screens/s4"
-        />
+          studioId={DEV_ARTIST_STUDIO_ID}
+          activePurchase={null}
+          requestHrefOverride="/dev/screens/s3-request"
+        />,
       );
     case "s3-pending":
-      return (
-        <ProductDetailScreen
+      return withArtistPlatformStandingChrome(
+        screen,
+        <ProfessionalProductDetail
           product={MOCK_PRODUCT}
-          producer={MOCK_PRODUCER}
-          productId="00000000-0000-4000-8000-000000000000"
-          pendingRequest
+          studioId={DEV_ARTIST_STUDIO_ID}
+          activePurchase={{
+            href: "/dev/screens/s5",
+            label: "Request awaiting review",
+          }}
+        />,
+      );
+    case "s3-request":
+      return (
+        <PurchaseRequestScreen
+          productId={MOCK_PRODUCT.id}
+          productName={MOCK_PRODUCT.name}
+          producerName={MOCK_PRODUCER.name}
+          studioId={DEV_ARTIST_STUDIO_ID}
+          amountCents={MOCK_PRODUCT.priceCents}
+          currency={MOCK_PRODUCT.currency}
+          targetProjects={[]}
+          previewSentHref="/dev/screens/s5"
+          backHrefOverride="/dev/screens/s3"
         />
       );
     case "s4":
@@ -681,15 +774,6 @@ export default async function DevScreenPage({ params }: Params) {
         />
       );
     case "s9":
-    case "s9-awaiting":
-    case "s9-rejected":
-    case "s9-partial":
-    case "s9-paid": {
-      const state = screen.slice(3);
-      const isPaid = state === "paid";
-      const isAwaiting = state === "awaiting";
-      const isRejected = state === "rejected";
-      const isPartial = state === "partial";
       return (
         <UploadProofScreen
           productName={MOCK_PRODUCT.name}
@@ -697,66 +781,80 @@ export default async function DevScreenPage({ params }: Params) {
           previewOnly
           currency="ILS"
           installmentPosition={1}
-          proofs={
-            isAwaiting
-              ? [
-                  {
-                    id: "proof-1",
-                    amountCents: 120000,
-                    status: "awaiting",
-                    evidenceUrl: "#",
-                    originalFileName: "bit-transfer.png",
-                    createdAt: new Date("2026-07-20T09:00:00Z"),
-                    rejectionNote: null,
-                  },
-                ]
-              : isRejected
-                ? [
-                    {
-                      id: "proof-1",
-                      amountCents: 120000,
-                      status: "rejected",
-                      evidenceUrl: "#",
-                      originalFileName: "bank-receipt.pdf",
-                      createdAt: new Date("2026-07-20T09:00:00Z"),
-                      rejectionNote: "The amount is cut off in the screenshot.",
-                    },
-                  ]
-                : isPaid
-                  ? [
-                      {
-                        id: "proof-1",
-                        amountCents: 240000,
-                        status: "paid",
-                        evidenceUrl: "#",
-                        originalFileName: "transfer.pdf",
-                        createdAt: new Date("2026-07-20T09:00:00Z"),
-                        rejectionNote: null,
-                      },
-                    ]
-                  : isPartial
-                    ? [
-                        {
-                          id: "proof-1",
-                          amountCents: 120000,
-                          status: "paid",
-                          evidenceUrl: "#",
-                          originalFileName: "first-payment.png",
-                          createdAt: new Date("2026-07-20T09:00:00Z"),
-                          rejectionNote: null,
-                        },
-                      ]
-                    : []
-          }
-          paidCents={isPaid ? 240000 : isPartial ? 120000 : 0}
-          totalCents={240000}
-          thisProofCents={isPaid ? 0 : 120000}
-          bookingHref={isPartial ? "/artist/book?studio=dev-studio&project=dev-project" : undefined}
-          status={isPaid ? "paid" : isAwaiting ? "awaiting" : isRejected ? "rejected" : "empty"}
-          rejectionNote={isRejected ? "The amount is cut off in the screenshot." : undefined}
+          thisProofCents={120_000}
+          backHref="/dev/screens/s8"
         />
       );
-    }
+    case "s9-awaiting":
+      return withArtistPlatformStandingChrome(
+        screen,
+        <ProofRecordScreen
+          purchaseId={DEV_ARTIST_PURCHASE_ID}
+          studioId={DEV_ARTIST_STUDIO_ID}
+          productName={MOCK_PRODUCT.name}
+          producerName={MOCK_PRODUCER.name}
+          currency="ILS"
+          proof={DEV_ARTIST_PENDING_PROOF}
+          remainingCents={240_000}
+          paidInFull={false}
+          replacementUploadAvailable={false}
+          history={[DEV_ARTIST_PENDING_PROOF]}
+          evidenceUrl="#proof-preview"
+          rejectionNote={null}
+        />,
+      );
+    case "s9-rejected":
+      return withArtistPlatformStandingChrome(
+        screen,
+        <ProofRecordScreen
+          purchaseId={DEV_ARTIST_PURCHASE_ID}
+          studioId={DEV_ARTIST_STUDIO_ID}
+          productName={MOCK_PRODUCT.name}
+          producerName={MOCK_PRODUCER.name}
+          currency="ILS"
+          proof={DEV_ARTIST_REJECTED_PROOF}
+          remainingCents={240_000}
+          paidInFull={false}
+          replacementUploadAvailable
+          history={[DEV_ARTIST_REJECTED_PROOF]}
+          evidenceUrl="#proof-preview"
+          rejectionNote="The amount is cut off in the screenshot."
+        />,
+      );
+    case "s9-partial":
+      return withArtistPlatformStandingChrome(
+        screen,
+        <PaymentSummaryScreen
+          purchaseId={DEV_ARTIST_PURCHASE_ID}
+          studioId={DEV_ARTIST_STUDIO_ID}
+          productName={MOCK_PRODUCT.name}
+          producerName={MOCK_PRODUCER.name}
+          currency="ILS"
+          totalCents={240_000}
+          verifiedCents={120_000}
+          remainingCents={120_000}
+          currentInstallmentPosition={2}
+          paymentInstructionsAvailable
+          proofs={[DEV_ARTIST_CONFIRMED_PROOF]}
+        />,
+      );
+    case "s9-paid":
+      return withArtistPlatformStandingChrome(
+        screen,
+        <PaymentSummaryScreen
+          purchaseId={DEV_ARTIST_PURCHASE_ID}
+          studioId={DEV_ARTIST_STUDIO_ID}
+          productName={MOCK_PRODUCT.name}
+          producerName={MOCK_PRODUCER.name}
+          currency="ILS"
+          totalCents={240_000}
+          verifiedCents={240_000}
+          remainingCents={0}
+          currentInstallmentPosition={2}
+          paymentInstructionsAvailable
+          proofs={[DEV_ARTIST_CONFIRMED_PROOF, DEV_ARTIST_FINAL_PROOF]}
+        />,
+      );
     case "sk72-request-pending":
       return <Sk72RequestDevPreview state="pending" />;
     case "sk72-request-approved":
@@ -955,11 +1053,17 @@ export default async function DevScreenPage({ params }: Params) {
     case "project-space-reopened-canceled-purchase":
       return <ProjectSpaceDevPreview lifecycleStatus="active" purchaseLifecycleStatus="canceled" />;
     case "artist-project-completed":
-      return <ArtistArchivedProjectDevPreview lifecycleStatus="completed" />;
+      return withArtistPlatformStandingChrome(
+        screen,
+        <ArtistArchivedProjectDevPreview lifecycleStatus="completed" />,
+      );
     case "artist-project-canceled":
-      return <ArtistArchivedProjectDevPreview lifecycleStatus="canceled" />;
+      return withArtistPlatformStandingChrome(
+        screen,
+        <ArtistArchivedProjectDevPreview lifecycleStatus="canceled" />,
+      );
     case "artist-library-lifecycle":
-      return <ArtistLibraryLifecycleDevPreview />;
+      return withArtistPlatformStandingChrome(screen, <ArtistLibraryLifecycleDevPreview />);
     case "sk8-library":
       return <Sk8LibraryDevPreview />;
     case "sk8-song":

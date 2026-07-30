@@ -25,6 +25,7 @@ export interface OnboardingReviewProduct {
   volumeTiers: VolumeTier[];
   durationMin: number;
   sessionCount: number;
+  bookingEnabled: boolean;
   deliverables: string[];
   revisions: number;
   unlimitedRevisions: boolean;
@@ -142,7 +143,7 @@ export function ReviewStepClient({
           onBack={() => {
             router.push(
               `${
-                includesSessions ? "/onboarding/availability" : "/onboarding/service"
+                product.bookingEnabled ? "/onboarding/availability" : "/onboarding/service"
               }${previewSuffix}`,
             );
           }}
@@ -273,6 +274,7 @@ export function ReviewStepClient({
                   includesSessions={includesSessions}
                   sessions={includesSessions ? Math.max(1, product.sessionCount) : 0}
                   unlimitedSessions={includesSessions && product.sessionCount === 0}
+                  bookingEnabled={product.bookingEnabled}
                   duration={includesSessions ? `${String(product.durationMin)} min` : ""}
                   includes={product.deliverables}
                   revisions={product.revisions}

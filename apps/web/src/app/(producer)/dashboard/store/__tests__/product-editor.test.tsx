@@ -36,6 +36,35 @@ describe("ProductEditor orchestrator", () => {
     expect(SRC).toMatch(/<ReviewStep/);
   });
 
+  it("keeps the session choice canonical across new, restored, preset, and edited drafts", () => {
+    expect(SRC).toMatch(/bookingEnabled:\s*false/);
+    expect(SRC).toMatch(/const includesSessions = product\.bookingEnabled/);
+    expect(SRC).toMatch(/bookingEnabled:\s*includesSessions/);
+    expect(SRC).toMatch(/bookingEnabled:\s*preset\.preset\.includesSessions/);
+    expect(SRC).toMatch(/bookingEnabled=\{draft\.bookingEnabled\}/);
+    expect(PAYLOAD_SRC).toMatch(/bookingEnabled:\s*includesSessions/);
+  });
+
+  it("returns both canonical session fields after submission", () => {
+    expect(SRC).toMatch(
+      /onSubmittedResult\?:\s*\(result:\s*\{[\s\S]*?includesSessions:\s*boolean;[\s\S]*?bookingEnabled:\s*boolean;/,
+    );
+    expect(SRC).toMatch(
+      /onSubmittedResult\?\.\(\{[\s\S]*?includesSessions:\s*draft\.includesSessions,[\s\S]*?bookingEnabled:\s*draft\.bookingEnabled/,
+    );
+  });
+
+  it("requires a duration and valid count whenever sessions are included", () => {
+    const start = SRC.indexOf("const validDelivery");
+    const end = SRC.indexOf("const validDetails", start);
+    const validation = SRC.slice(start, end);
+
+    expect(validation).toMatch(/!draft\.includesSessions/);
+    expect(validation).toMatch(/\/\^\\d\+\\s\*min\$\/i\.test\(draft\.duration\)/);
+    expect(validation).toMatch(/Number\.isInteger\(draft\.sessions\)/);
+    expect(validation).not.toContain("!draft.bookingEnabled");
+  });
+
   it("imports decodeDescription for edit-mode round-trip (encode lives in build-package-payload)", () => {
     expect(SRC).toMatch(/decodeDescription/);
     // After the Task 11 extraction, encodeDescription is called by
@@ -183,7 +212,7 @@ describe("ProductEditor orchestrator", () => {
 
   it("models bookable sessions independently from the product type", () => {
     expect(SRC).toMatch(/includesSessions/);
-    expect(SRC).toMatch(/product\.durationMin\s*>\s*0/);
+    expect(SRC).toMatch(/const includesSessions = product\.bookingEnabled/);
     expect(SRC).toMatch(/includesSessions=\{draft\.includesSessions\}/);
     expect(SRC).not.toMatch(/draft\.type\s*===\s*"mix"[\s\S]{0,120}includesSessions/);
   });

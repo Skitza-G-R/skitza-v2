@@ -27,13 +27,13 @@ export function runtimeLaunchHrefForRole(
     case "orphan":
       return "/onboarding";
     case "unauthenticated":
-      return "/sign-in";
+      return "/sign-up";
   }
 }
 
-function signInRuntimeHref(requestedHref: string | null): string {
-  if (!requestedHref) return "/sign-in";
-  return `/sign-in?${new URLSearchParams({
+function signUpRuntimeHref(requestedHref: string | null): string {
+  if (!requestedHref) return "/sign-up";
+  return `/sign-up?${new URLSearchParams({
     redirect_url: requestedHref,
   }).toString()}`;
 }
@@ -59,7 +59,7 @@ export function runtimeLaunchHrefForMemberships(
     primaryRole.kind === "producer-incomplete";
 
   if (primaryRole.kind === "unauthenticated") {
-    return signInRuntimeHref(safeTarget);
+    return signUpRuntimeHref(safeTarget);
   }
 
   if (hasProducerAccount && memberships.hasArtistAccount) {

@@ -31,6 +31,7 @@ function toStoreProduct(
     kind: product.kind,
     durationMin: product.durationMin,
     sessionCount: product.sessionCount,
+    bookingEnabled: product.bookingEnabled,
     paymentPlans: product.paymentPlans,
     locationType: product.locationType,
     bufferMinutes: product.bufferMinutes,

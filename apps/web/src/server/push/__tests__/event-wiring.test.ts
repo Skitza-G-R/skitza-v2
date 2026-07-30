@@ -57,7 +57,7 @@ describe("SK-112 real push event wiring", () => {
       /if \(result\.changed\)[\s\S]*?deliverPushToVersionProducer[\s\S]*?category: "song_status"[\s\S]*?`\/dashboard\/music\/\$\{input\.versionId\}`/,
     );
     expect(project).toMatch(
-      /deliverPushToVersionArtist[\s\S]*?category: "comment"[\s\S]*?`\/artist\/music\/song\/\$\{input\.versionId\}`/,
+      /deliverPushToVersionArtist[\s\S]*?category: "comment"[\s\S]*?`\/artist\/music\/song\/\$\{input\.versionId\}\?comment=\$\{row\.id\}`/,
     );
   });
 

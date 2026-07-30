@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -59,7 +59,7 @@ describe("ProjectCompactHeader interactions", () => {
     expect(onOpenPayments).toHaveBeenCalledOnce();
   });
 
-  it("opens one Add Song-only bottom sheet and returns focus after Escape", async () => {
+  it("uses the + as the direct Add Song action without opening a menu", async () => {
     const onAddSong = vi.fn();
     const user = userEvent.setup();
     render(
@@ -71,26 +71,11 @@ describe("ProjectCompactHeader interactions", () => {
       />,
     );
 
-    const trigger = screen.getByRole("button", { name: "Add to First Album" });
+    const trigger = screen.getByRole("button", { name: "Add song to First Album" });
+    expect(trigger.getAttribute("aria-haspopup")).toBeNull();
     await user.click(trigger);
-    const dialog = await screen.findByRole("dialog", { name: "Add to First Album" });
-    expect(within(dialog).getByRole("button", { name: "Add song" })).not.toBeNull();
-    expect(within(dialog).queryByText(/Add Session/i)).toBeNull();
-
-    await user.keyboard("{Escape}");
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Add to First Album" })).toBeNull();
-      expect(document.activeElement).toBe(trigger);
-    });
-
-    await user.click(trigger);
-    await user.click(
-      within(await screen.findByRole("dialog", { name: "Add to First Album" })).getByRole(
-        "button",
-        { name: "Add song" },
-      ),
-    );
     expect(onAddSong).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("keeps the + visible but disabled when the project cannot accept new work", () => {
@@ -104,7 +89,7 @@ describe("ProjectCompactHeader interactions", () => {
       />,
     );
 
-    const trigger = screen.getByRole("button", { name: "Add to First Album" });
+    const trigger = screen.getByRole("button", { name: "Add song to First Album" });
     expect((trigger as HTMLButtonElement).disabled).toBe(true);
     expect(trigger.getAttribute("title")).toBe("New work requires an active project.");
   });

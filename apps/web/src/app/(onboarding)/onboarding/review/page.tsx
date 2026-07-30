@@ -22,6 +22,7 @@ const PREVIEW_PRODUCT: Omit<OnboardingReviewProduct, "currency"> = {
   volumeTiers: [],
   durationMin: 60,
   sessionCount: 3,
+  bookingEnabled: true,
   deliverables: ["Production", "Mix", "Master"],
   revisions: 2,
   unlimitedRevisions: false,
@@ -80,7 +81,7 @@ export default async function ReviewPage({
     product: firstProduct
       ? {
           active: firstProduct.active,
-          durationMin: firstProduct.durationMin,
+          bookingEnabled: firstProduct.bookingEnabled,
         }
       : null,
     availabilityCount: availability.length,
@@ -100,6 +101,7 @@ export default async function ReviewPage({
     volumeTiers: firstProduct.volumeTiers ?? [],
     durationMin: firstProduct.durationMin,
     sessionCount: firstProduct.sessionCount,
+    bookingEnabled: firstProduct.bookingEnabled,
     deliverables: firstProduct.deliverables ?? [],
     revisions: decoded.revisions,
     unlimitedRevisions: decoded.unlimitedRevisions,

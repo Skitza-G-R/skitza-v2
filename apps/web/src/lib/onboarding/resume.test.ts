@@ -29,7 +29,7 @@ describe("resolveOnboardingResume", () => {
         identityComplete: true,
         firstNonArchivedProduct: {
           active: false,
-          durationMin: 60,
+          bookingEnabled: true,
         },
         availabilityCount: 0,
       }),
@@ -42,7 +42,7 @@ describe("resolveOnboardingResume", () => {
         identityComplete: true,
         firstNonArchivedProduct: {
           active: true,
-          durationMin: 60,
+          bookingEnabled: true,
         },
         availabilityCount: 0,
       }),
@@ -55,7 +55,7 @@ describe("resolveOnboardingResume", () => {
         identityComplete: true,
         firstNonArchivedProduct: {
           active: false,
-          durationMin: 60,
+          bookingEnabled: true,
         },
         availabilityCount: 1,
       }),
@@ -68,7 +68,7 @@ describe("resolveOnboardingResume", () => {
         identityComplete: true,
         firstNonArchivedProduct: {
           active: true,
-          durationMin: 60,
+          bookingEnabled: true,
         },
         availabilityCount: 1,
       }),
@@ -81,7 +81,7 @@ describe("resolveOnboardingResume", () => {
         identityComplete: true,
         firstNonArchivedProduct: {
           active: false,
-          durationMin: 0,
+          bookingEnabled: false,
         },
         availabilityCount: 0,
       }),
@@ -94,10 +94,39 @@ describe("resolveOnboardingResume", () => {
         identityComplete: true,
         firstNonArchivedProduct: {
           active: true,
-          durationMin: 0,
+          bookingEnabled: false,
         },
         availabilityCount: 0,
       }),
     ).toBe("/onboarding/complete");
+  });
+
+  it("uses the persisted booking flag as the source of truth", () => {
+    const bookingDisabledWithDuration = {
+      active: false,
+      bookingEnabled: false,
+      durationMin: 60,
+    };
+    const bookingEnabledWithoutDuration = {
+      active: false,
+      bookingEnabled: true,
+      durationMin: 0,
+    };
+
+    expect(
+      resolveOnboardingResume({
+        identityComplete: true,
+        firstNonArchivedProduct: bookingDisabledWithDuration,
+        availabilityCount: 0,
+      }),
+    ).toBe("/onboarding/review");
+
+    expect(
+      resolveOnboardingResume({
+        identityComplete: true,
+        firstNonArchivedProduct: bookingEnabledWithoutDuration,
+        availabilityCount: 0,
+      }),
+    ).toBe("/onboarding/availability");
   });
 });

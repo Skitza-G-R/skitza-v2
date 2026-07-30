@@ -22,9 +22,10 @@ interface ReviewStepProps {
   artistPaysCents?: number;
   taxNote?: string | null;
   currency: string;
-  includesSessions?: boolean;
+  includesSessions: boolean;
   sessions: number;
   unlimitedSessions: boolean;
+  bookingEnabled: boolean;
   paymentPlans: PaymentPlan[];
   duration: string;
   revisions: number;
@@ -107,9 +108,10 @@ export function ReviewStep({
   artistPaysCents,
   taxNote,
   currency,
-  includesSessions = true,
+  includesSessions,
   sessions,
   unlimitedSessions,
+  bookingEnabled,
   paymentPlans,
   duration,
   revisions,
@@ -124,6 +126,7 @@ export function ReviewStep({
   onEdit,
 }: ReviewStepProps) {
   const royalty = royaltyTermsDisplay(royaltyTerms);
+  const hasBookableSessions = includesSessions && bookingEnabled;
 
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -135,9 +138,10 @@ export function ReviewStep({
         currency={currency}
         pricingModel={pricingModel}
         volumeTiers={volumeTiers}
-        includesSessions={includesSessions}
+        includesSessions={hasBookableSessions}
         sessions={sessions}
         unlimitedSessions={unlimitedSessions}
+        bookingEnabled={hasBookableSessions}
         duration={duration}
         includes={includes}
         revisions={revisions}
@@ -220,17 +224,19 @@ export function ReviewStep({
       </ReviewSection>
 
       <ReviewSection title="Delivery" step="delivery" onEdit={onEdit}>
-        {includesSessions ? (
+        {hasBookableSessions ? (
           <>
-            <div>
+            <div className="font-semibold text-[rgb(var(--fg-default))]">
               {unlimitedSessions
                 ? "Unlimited bookable sessions"
-                : `${String(sessions)} bookable ${sessions === 1 ? "session" : "sessions"}`}
+                : `${String(sessions)} bookable ${
+                    sessions === 1 ? "session" : "sessions"
+                  }`}
             </div>
             <div className="mt-1">{duration} each</div>
           </>
         ) : (
-          <div>No bookable sessions included</div>
+          <div className="mt-1">No bookable sessions included</div>
         )}
         <div className="mt-1">
           {unlimitedRevisions

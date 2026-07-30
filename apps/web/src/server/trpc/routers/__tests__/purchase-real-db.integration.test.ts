@@ -652,6 +652,7 @@ describeWithSafeDatabase("SK-90 purchase constraints — isolated disposable Pos
         activeDb().insert(purchaseSessionAllowances).values({
           purchaseId,
           producerId,
+          bookingEnabledSnapshot: true,
           kind: "fixed",
           sessionLimit: null,
           durationMin: 60,
@@ -1085,6 +1086,7 @@ describeWithSafeDatabase("SK-90 purchase constraints — isolated disposable Pos
     if (!allowance) throw new Error("SK-90 notification allowance fixture was not created");
     const bookingOperationKey = `sk90-notification-booking-${fixtureSuffix}`;
     const bookingOperationDigest = `digest-sk90-notification-booking-${fixtureSuffix}`;
+    const bookingCreatedAt = new Date();
     const [booking] = await safely(() =>
       activeDb()
         .insert(bookings)
@@ -1099,6 +1101,10 @@ describeWithSafeDatabase("SK-90 purchase constraints — isolated disposable Pos
           durationMin: 60,
           operationKey: bookingOperationKey,
           operationDigest: bookingOperationDigest,
+          cancellationPolicyHoursSnapshot: 24,
+          cancellationPolicySnapshottedAt: bookingCreatedAt,
+          heldExpiresAt: new Date(bookingCreatedAt.getTime() + 24 * 60 * 60 * 1000),
+          createdAt: bookingCreatedAt,
         })
         .returning({ id: bookings.id }),
     );
@@ -1137,6 +1143,10 @@ describeWithSafeDatabase("SK-90 purchase constraints — isolated disposable Pos
             durationMin: 60,
             operationKey: bookingOperationKey,
             operationDigest: `${bookingOperationDigest}-different-command`,
+            cancellationPolicyHoursSnapshot: 24,
+            cancellationPolicySnapshottedAt: bookingCreatedAt,
+            heldExpiresAt: new Date(bookingCreatedAt.getTime() + 24 * 60 * 60 * 1000),
+            createdAt: bookingCreatedAt,
           }),
       ),
     ).toBe("23505");

@@ -1,7 +1,6 @@
 // Loading state for S3 (product detail) — warm skeleton (not a spinner),
-// per design system §7. Full-screen funnel overlay mirroring the screen
-// silhouette: top-bar ghost → cover band → price line → producer card →
-// "what's included" card → pinned CTA ghost.
+// per design system §7. It stays in the standing artist shell and mirrors
+// the screen silhouette without owning a full-screen overlay.
 function Block({ className }: { className: string }) {
   return (
     <div
@@ -14,10 +13,10 @@ function Block({ className }: { className: string }) {
 export default function Loading() {
   return (
     <div
-      className="fixed inset-0 z-[60] overflow-hidden"
+      className="mx-auto w-full max-w-[440px]"
       style={{ background: "rgb(var(--bg-background))" }}
     >
-      <div className="mx-auto w-full max-w-[440px]">
+      <div>
         {/* top-bar ghost */}
         <div className="flex h-[52px] items-center px-[14px]">
           <Block className="h-[38px] w-[38px] shrink-0 rounded-full" />
@@ -38,8 +37,7 @@ export default function Loading() {
         </div>
       </div>
 
-      {/* pinned CTA ghost */}
-      <div className="absolute inset-x-0 bottom-0 mx-auto w-full max-w-[440px] px-[18px] pb-6">
+      <div className="px-[18px] pt-5 pb-6">
         <Block className="h-[58px] w-full rounded-[var(--radius-lg)]" />
       </div>
     </div>

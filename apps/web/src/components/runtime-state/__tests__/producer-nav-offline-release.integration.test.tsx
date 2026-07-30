@@ -166,7 +166,7 @@ function renderOfflineNavigation(): {
   );
 
   const nav = screen.getByRole("navigation", { name: "Producer tabs" });
-  const tabs = [...nav.querySelectorAll<HTMLElement>("[data-producer-nav-tab]")];
+  const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
   Object.defineProperty(nav, "getBoundingClientRect", {
     value: () => makeRect(20, 700, 350, 68),
   });

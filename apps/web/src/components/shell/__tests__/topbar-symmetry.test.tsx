@@ -16,8 +16,8 @@ import { dirname, join } from "node:path";
 //     audience-specific (see Gili's SK-31 Q1 answer).
 //   - The presence/absence of `onSearchClick`. Producer wires it
 //     today; artist intentionally does not until the artist palette
-//     ships. The symmetry we want is in structure, not in identical
-//     code.
+//     ships. Both roles do wire their real notification controls.
+//     The symmetry we want is in structure, not in identical code.
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PRODUCER = readFileSync(join(here, "..", "dashboard-topbar.tsx"), "utf-8");
@@ -83,8 +83,13 @@ describe("producer + artist wrappers share the same core prop shape", () => {
     expect(end).toBeGreaterThan(start);
     const opening = src.slice(start, end);
     const props = new Set<string>();
-    for (const match of opening.matchAll(/\b([a-zA-Z_][a-zA-Z0-9_]*)=/g)) {
-      const name = match[1];
+    const matches = [
+      ...opening.matchAll(/^(\s+)([a-zA-Z_][a-zA-Z0-9_]*)=/gm),
+    ];
+    const propIndent = Math.min(...matches.map((match) => match[1]?.length ?? Infinity));
+    for (const match of matches) {
+      if (match[1]?.length !== propIndent) continue;
+      const name = match[2];
       // `matchAll` types capture groups as `string | undefined`. The
       // regex always captures at least one char, so a defined value
       // is guaranteed — the guard is here to satisfy strict TS, not
@@ -99,7 +104,7 @@ describe("producer + artist wrappers share the same core prop shape", () => {
     const artistProps = extractAppTopBarProps(ARTIST);
     const coreProps = ["variant", "sections", "fallback", "searchPlaceholder"];
 
-    expect([...artistProps].sort()).toEqual(coreProps.sort());
+    expect(artistProps).toEqual(new Set([...coreProps, "notificationControl"]));
     expect(producerProps).toEqual(new Set([...coreProps, "onSearchClick", "notificationControl"]));
   });
 });

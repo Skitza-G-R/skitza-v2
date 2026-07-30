@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
-import { UserButton } from "@clerk/nextjs";
 
 import { StudioSwitcher } from "~/components/artist/studio-switcher";
 import { LogoMark } from "~/components/brand/logo-mark";
@@ -15,6 +14,7 @@ import {
 import type { Studio } from "~/server/artist/identity";
 
 import { isArtistNavItemActive } from "./artist-nav-active";
+import { ArtistUserButton } from "./artist-user-button";
 import { Icon, type IconName } from "./icons";
 import { Wordmark } from "./wordmark";
 
@@ -24,7 +24,7 @@ import { Wordmark } from "./wordmark";
 // the artist app (the prior implementation had a single header + main
 // + bottom nav across all viewports). The locked design (notes/
 // shell.artist-desktop.jsx) specifies 248px dark sidebar with five
-// nav items.
+// nav items. The artist product uses four standing destinations.
 //
 // "Messages" appears in the design source but no /artist/messages
 // route exists yet — dropped for Phase 2 per Gili's Q3 ruling on the
@@ -52,15 +52,30 @@ type ArtistDesktopNav = {
 const NAV_ITEMS: readonly ArtistDesktopNav[] = [
   { id: "home", href: "/artist", label: "Home", icon: "home" },
   { id: "music", href: "/artist/music", label: "Music", icon: "music" },
-  { id: "book", href: "/artist/book", label: "Book", icon: "plus" },
+  { id: "sessions", href: "/artist/sessions", label: "Sessions", icon: "calendar" },
   { id: "store", href: "/artist/store", label: "Store", icon: "tag" },
-  { id: "payments", href: "/artist/payments", label: "Payments", icon: "payments" },
 ] as const;
 
-export function ArtistDesktopSidebar({ studios }: { studios: Studio[] }): ReactNode {
+export function ArtistDesktopSidebar({
+  studios,
+  userId,
+  initialStudioId,
+  notificationStudioDotIds,
+  isProducer,
+}: {
+  studios: Studio[];
+  userId: string;
+  initialStudioId: string | null;
+  notificationStudioDotIds: readonly string[];
+  isProducer: boolean;
+}): ReactNode {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const activeStudioId = resolveArtistStudioId(studios, searchParams.get("studio"));
+  const activeStudioId = resolveArtistStudioId(
+    studios,
+    searchParams.get("studio"),
+    initialStudioId,
+  );
   const isActive = (href: string) => isArtistNavItemActive(pathname, href);
 
   return (
@@ -84,9 +99,7 @@ export function ArtistDesktopSidebar({ studios }: { studios: Studio[] }): ReactN
           captureRuntimeMainNavigationTarget(event.currentTarget);
         }}
         onNavigate={() => {
-          announceRuntimeMainNavigationIntent(
-            withArtistStudio("/artist", activeStudioId),
-          );
+          announceRuntimeMainNavigationIntent(withArtistStudio("/artist", activeStudioId));
         }}
         aria-label="Skitza artist home"
         className="sk-press flex items-center"
@@ -101,7 +114,13 @@ export function ArtistDesktopSidebar({ studios }: { studios: Studio[] }): ReactN
           mismatched on the dark surface for Phase 2, designed for
           warm canvas. Documented in handoff. */}
       <div style={{ padding: "0 4px 14px" }}>
-        <StudioSwitcher studios={studios} />
+        <StudioSwitcher
+          studios={studios}
+          userId={userId}
+          initialStudioId={initialStudioId}
+          notificationStudioDotIds={notificationStudioDotIds}
+          inverse
+        />
       </div>
 
       {/* Nav rail */}
@@ -122,15 +141,15 @@ export function ArtistDesktopSidebar({ studios }: { studios: Studio[] }): ReactN
                 announceRuntimeMainNavigationIntent(href);
               }}
               {...(active ? { "aria-current": "page" as const } : {})}
-              className="sk-press relative flex items-center rounded-xl focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset"
+              className="sk-press relative flex items-center rounded-[10px] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset"
               style={{
                 gap: 12,
                 padding: "10px 12px",
-                background: active ? "rgb(var(--fg-onsidebar) / 0.08)" : "transparent",
-                color: active ? "rgb(var(--fg-onsidebar))" : "rgb(var(--fg-onsidebar) / 0.62)",
-                fontFamily: "var(--font-outfit)",
-                fontSize: 14.5,
-                fontWeight: active ? 600 : 500,
+                background: active ? "rgb(var(--fg-onsidebar) / 0.10)" : "transparent",
+                color: active ? "rgb(var(--fg-onsidebar))" : "rgb(var(--fg-onsidebar) / 0.65)",
+                fontSize: 13.5,
+                fontWeight: active ? 700 : 500,
+                letterSpacing: "-0.005em",
                 minHeight: 44,
               }}
             >
@@ -139,17 +158,17 @@ export function ArtistDesktopSidebar({ studios }: { studios: Studio[] }): ReactN
                   aria-hidden
                   style={{
                     position: "absolute",
-                    insetInlineStart: -16,
+                    insetInlineStart: -5,
                     top: 8,
                     bottom: 8,
-                    width: 2,
+                    width: 3,
                     background: "rgb(var(--brand-primary))",
-                    borderRadius: 999,
+                    borderRadius: 2,
                   }}
                 />
               )}
               <span className="flex h-5 w-5 items-center justify-center">
-                <Icon name={item.icon} size={20} strokeWidth={1.7} />
+                <Icon name={item.icon} size={16} strokeWidth={2.3} />
               </span>
               <span style={{ flex: 1 }}>{item.label}</span>
             </Link>
@@ -167,21 +186,12 @@ export function ArtistDesktopSidebar({ studios }: { studios: Studio[] }): ReactN
           borderTop: "1px solid rgb(var(--border-sidebar))",
         }}
       >
-        <UserButton
-          appearance={{
-            elements: {
-              avatarBox: "h-11 w-11 ring-1 ring-[rgb(var(--border-sidebar))]",
-            },
-          }}
-        >
-          <UserButton.MenuItems>
-            <UserButton.Link
-              label="Settings"
-              labelIcon={<Icon name="settings" size={16} />}
-              href={withArtistStudio("/artist/settings", activeStudioId)}
-            />
-          </UserButton.MenuItems>
-        </UserButton>
+        <ArtistUserButton
+          userId={userId}
+          isProducer={isProducer}
+          settingsHref={withArtistStudio("/artist/settings", activeStudioId)}
+          ringClassName="ring-[rgb(var(--border-sidebar))]"
+        />
         <span
           style={{
             fontSize: 12,

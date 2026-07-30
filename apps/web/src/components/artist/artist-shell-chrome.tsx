@@ -2,16 +2,16 @@
 
 import { usePathname } from "next/navigation";
 
-import { isArtistPurchasePath } from "./artist-shell-route";
+import { isArtistFocusedPath } from "./artist-shell-route";
 
 /**
- * Purchase routes are focused, full-screen flows. Keeping the normal artist
+ * Focused artist flows remove the standing app chrome. Keeping the normal artist
  * sidebar, top bar, players, and bottom navigation mounted behind them leaves
  * visually hidden controls in the keyboard order. This gate removes that
  * chrome from the DOM for the whole purchase funnel.
  */
 export function ArtistShellChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  if (isArtistPurchasePath(pathname)) return null;
+  if (isArtistFocusedPath(pathname)) return null;
   return children;
 }

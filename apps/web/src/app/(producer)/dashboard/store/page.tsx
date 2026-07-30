@@ -39,6 +39,7 @@ export default async function StorePage() {
     kind: p.kind,
     durationMin: p.durationMin,
     sessionCount: p.sessionCount,
+    bookingEnabled: p.bookingEnabled,
     paymentPlans: p.paymentPlans,
     locationType: p.locationType,
     bufferMinutes: p.bufferMinutes,

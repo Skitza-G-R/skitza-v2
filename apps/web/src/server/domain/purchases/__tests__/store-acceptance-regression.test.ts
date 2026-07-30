@@ -33,6 +33,7 @@ type AcceptanceContextFixture = {
     hourlyRateCents: number | null;
     durationMin: number;
     sessionCount: number;
+    bookingEnabled: boolean;
     deliverables: string[] | null;
     locationType: string;
     bufferMinutes: number;
@@ -148,6 +149,7 @@ function context(
       hourlyRateCents: null,
       durationMin: 60,
       sessionCount: 1,
+      bookingEnabled: true,
       deliverables: ["Stereo WAV"],
       locationType: "remote",
       bufferMinutes: 0,

@@ -395,16 +395,19 @@
     min-height: 44px;
   }
 
-  /* Producer mobile Liquid Glass navigation. The frame remains a normal
-   * shell footer (SK-86), while the only visible surface is a compact
-   * translucent pill. A strong opaque fallback keeps the tabs readable
+  /* Shared mobile Liquid Glass navigation. The producer frame remains an
+   * in-flow shell footer while the artist frame is fixed; both show the same
+   * compact translucent pill. A strong opaque fallback keeps the tabs readable
    * in browsers that do not support backdrop-filter. */
-  .producer-bottom-nav__glass {
+  .liquid-glass-bottom-nav__glass {
+    --sk-nav-column-count: 5;
+    --sk-nav-column-width: 20%;
     --sk-nav-lens-x: 50%;
     --sk-nav-lens-y: 34px;
-    --sk-nav-lens-width: clamp(66px, calc(20% - 2px), 82px);
+    --sk-nav-lens-width: calc(var(--sk-nav-column-width) - 2px);
     position: relative;
     isolation: isolate;
+    grid-template-columns: repeat(var(--sk-nav-column-count), minmax(0, 1fr));
     height: 68px;
     min-height: 68px;
     overflow: hidden;
@@ -422,13 +425,13 @@
     -webkit-user-select: none;
   }
   @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    .producer-bottom-nav__glass {
+    .liquid-glass-bottom-nav__glass {
       background: rgb(var(--bg-sidebar) / 0.9);
       backdrop-filter: blur(24px) saturate(170%);
       -webkit-backdrop-filter: blur(24px) saturate(170%);
     }
   }
-  .producer-bottom-nav__glass::before {
+  .liquid-glass-bottom-nav__glass::before {
     content: "";
     position: absolute;
     inset: -55% -18%;
@@ -444,7 +447,7 @@
       );
     opacity: 0.72;
   }
-  .producer-bottom-nav__glass::after {
+  .liquid-glass-bottom-nav__glass::after {
     content: "";
     position: absolute;
     inset: 0;
@@ -456,7 +459,7 @@
       inset 0 -1px 0 rgb(var(--bg-sidebar) / 0.24);
     pointer-events: none;
   }
-  .producer-bottom-nav__lens {
+  .liquid-glass-bottom-nav__lens {
     position: absolute;
     top: 0;
     left: 0;
@@ -474,18 +477,18 @@
       transform 420ms var(--ease-press),
       opacity 180ms var(--ease-out-strong);
   }
-  .producer-bottom-nav__glass[data-lens-ready="true"] .producer-bottom-nav__lens {
+  .liquid-glass-bottom-nav__glass[data-lens-ready="true"] .liquid-glass-bottom-nav__lens {
     opacity: 1;
   }
-  .producer-bottom-nav__lens::before,
-  .producer-bottom-nav__lens::after {
+  .liquid-glass-bottom-nav__lens::before,
+  .liquid-glass-bottom-nav__lens::after {
     content: "";
     position: absolute;
     inset: 0;
     border-radius: 21px;
     pointer-events: none;
   }
-  .producer-bottom-nav__lens::before {
+  .liquid-glass-bottom-nav__lens::before {
     border: 1px solid rgb(var(--fg-onsidebar) / 0.1);
     background:
       radial-gradient(
@@ -509,7 +512,7 @@
       transform 260ms var(--ease-press),
       background-color 180ms ease-out;
   }
-  .producer-bottom-nav__lens::after {
+  .liquid-glass-bottom-nav__lens::after {
     inset: 2px;
     border: 1px solid rgb(var(--brand-primary) / 0.11);
     box-shadow: inset 0 0 0 0.5px rgb(var(--fg-onsidebar) / 0.05);
@@ -519,19 +522,19 @@
       opacity 180ms var(--ease-out-strong),
       transform 260ms var(--ease-press);
   }
-  .producer-bottom-nav__glass[data-interacting="true"] .producer-bottom-nav__lens {
+  .liquid-glass-bottom-nav__glass[data-interacting="true"] .liquid-glass-bottom-nav__lens {
     transition: none;
     will-change: transform;
   }
-  .producer-bottom-nav__glass[data-interacting="true"] .producer-bottom-nav__lens::before {
+  .liquid-glass-bottom-nav__glass[data-interacting="true"] .liquid-glass-bottom-nav__lens::before {
     opacity: 1;
     transform: scale(1.055);
   }
-  .producer-bottom-nav__glass[data-interacting="true"] .producer-bottom-nav__lens::after {
+  .liquid-glass-bottom-nav__glass[data-interacting="true"] .liquid-glass-bottom-nav__lens::after {
     opacity: 1;
     transform: scale(1.035);
   }
-  .producer-bottom-nav__magnifier {
+  .liquid-glass-bottom-nav__magnifier {
     position: absolute;
     inset: 0;
     z-index: 2;
@@ -546,36 +549,36 @@
     );
     transition: opacity 120ms var(--ease-out-strong);
   }
-  .producer-bottom-nav__magnifier-grid {
+  .liquid-glass-bottom-nav__magnifier-grid {
     display: grid;
     width: 100%;
     height: 68px;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(var(--sk-nav-column-count), minmax(0, 1fr));
     filter: brightness(1.05) saturate(1.08);
     transform: scale(1.13);
     transform-origin: var(--sk-nav-lens-x) var(--sk-nav-lens-y);
   }
-  .producer-bottom-nav__glass[data-interacting="true"] .producer-bottom-nav__magnifier {
+  .liquid-glass-bottom-nav__glass[data-interacting="true"] .liquid-glass-bottom-nav__magnifier {
     opacity: 1;
     visibility: visible;
     will-change: clip-path;
   }
-  .producer-bottom-nav__glass[data-interacting="true"]
-    .producer-bottom-nav__magnifier-grid {
+  .liquid-glass-bottom-nav__glass[data-interacting="true"]
+    .liquid-glass-bottom-nav__magnifier-grid {
     will-change: transform;
   }
-  .producer-bottom-nav__magnified-tab {
+  .liquid-glass-bottom-nav__magnified-tab {
     --sk-nav-proximity: 0;
     position: relative;
     min-height: 68px;
   }
-  .producer-bottom-nav__tab {
+  .liquid-glass-bottom-nav__tab {
     --sk-nav-proximity: 0;
     z-index: 1;
     border-radius: 20px;
     -webkit-tap-highlight-color: transparent;
   }
-  .producer-bottom-nav__tab::before {
+  .liquid-glass-bottom-nav__tab::before {
     content: "";
     position: absolute;
     inset: 4px 2px;
@@ -592,12 +595,12 @@
       background-color 180ms ease-out,
       box-shadow 180ms ease-out;
   }
-  .producer-bottom-nav__tab > * {
+  .liquid-glass-bottom-nav__tab > * {
     position: relative;
     z-index: 1;
   }
-  .producer-bottom-nav__tab > svg,
-  .producer-bottom-nav__magnified-tab > svg {
+  .liquid-glass-bottom-nav__tab > svg,
+  .liquid-glass-bottom-nav__magnified-tab > svg {
     transform: translate3d(
         0,
         calc(var(--sk-nav-proximity, 0) * -2.5px),
@@ -606,8 +609,8 @@
       scale(calc(1 + var(--sk-nav-proximity, 0) * 0.045));
     transition: transform 220ms var(--ease-press);
   }
-  .producer-bottom-nav__tab > .producer-bottom-nav__label,
-  .producer-bottom-nav__magnified-tab > .producer-bottom-nav__label {
+  .liquid-glass-bottom-nav__tab > .liquid-glass-bottom-nav__label,
+  .liquid-glass-bottom-nav__magnified-tab > .liquid-glass-bottom-nav__label {
     transform: translate3d(
         0,
         calc(var(--sk-nav-proximity, 0) * -1px),
@@ -618,19 +621,19 @@
       transform 220ms var(--ease-press),
       opacity 180ms var(--ease-out-strong);
   }
-  .producer-bottom-nav__glass[data-interacting="true"] .producer-bottom-nav__tab > svg,
-  .producer-bottom-nav__glass[data-interacting="true"]
-    .producer-bottom-nav__magnified-tab
+  .liquid-glass-bottom-nav__glass[data-interacting="true"] .liquid-glass-bottom-nav__tab > svg,
+  .liquid-glass-bottom-nav__glass[data-interacting="true"]
+    .liquid-glass-bottom-nav__magnified-tab
     > svg,
-  .producer-bottom-nav__glass[data-interacting="true"]
-    .producer-bottom-nav__tab
-    > .producer-bottom-nav__label,
-  .producer-bottom-nav__glass[data-interacting="true"]
-    .producer-bottom-nav__magnified-tab
-    > .producer-bottom-nav__label {
+  .liquid-glass-bottom-nav__glass[data-interacting="true"]
+    .liquid-glass-bottom-nav__tab
+    > .liquid-glass-bottom-nav__label,
+  .liquid-glass-bottom-nav__glass[data-interacting="true"]
+    .liquid-glass-bottom-nav__magnified-tab
+    > .liquid-glass-bottom-nav__label {
     transition-duration: 70ms;
   }
-  .producer-bottom-nav__tab[data-active="true"]::before {
+  .liquid-glass-bottom-nav__tab[data-active="true"]::before {
     border-color: rgb(var(--fg-onsidebar) / 0.1);
     background: linear-gradient(
       145deg,
@@ -643,13 +646,13 @@
     opacity: 1;
     transform: scale(1);
   }
-  @keyframes producer-bottom-nav-refraction {
+  @keyframes liquid-glass-bottom-nav-refraction {
     from { transform: translate3d(-2.5%, 0, 0) scale(1); }
     to   { transform: translate3d(2.5%, 1%, 0) scale(1.025); }
   }
   @media (prefers-reduced-motion: no-preference) {
-    .producer-bottom-nav__glass::before {
-      animation: producer-bottom-nav-refraction 9s ease-in-out infinite alternate;
+    .liquid-glass-bottom-nav__glass::before {
+      animation: liquid-glass-bottom-nav-refraction 9s ease-in-out infinite alternate;
     }
   }
 
@@ -1852,19 +1855,19 @@
     .sk-press-row { transition-duration: 0ms !important; }
     .sk-press-pop:active,
     .sk-press-row:active { transform: none !important; filter: none !important; }
-    .producer-bottom-nav__glass::before {
+    .liquid-glass-bottom-nav__glass::before {
       animation: none !important;
       transform: none !important;
     }
-    .producer-bottom-nav__lens,
-    .producer-bottom-nav__magnifier {
+    .liquid-glass-bottom-nav__lens,
+    .liquid-glass-bottom-nav__magnifier {
       display: none !important;
     }
-    .producer-bottom-nav__tab::before,
-    .producer-bottom-nav__tab > svg,
-    .producer-bottom-nav__tab > .producer-bottom-nav__label,
-    .producer-bottom-nav__magnified-tab > svg,
-    .producer-bottom-nav__magnified-tab > .producer-bottom-nav__label {
+    .liquid-glass-bottom-nav__tab::before,
+    .liquid-glass-bottom-nav__tab > svg,
+    .liquid-glass-bottom-nav__tab > .liquid-glass-bottom-nav__label,
+    .liquid-glass-bottom-nav__magnified-tab > svg,
+    .liquid-glass-bottom-nav__magnified-tab > .liquid-glass-bottom-nav__label {
       transition: none !important;
       transform: none !important;
     }
@@ -2568,5 +2571,34 @@ html[data-theme="dark"] .sk-auth-shell {
   .sk-producer-app-shell .persistent-player-dock,
   .sk-producer-app-shell .mobile-full-player-sheet {
     position: absolute;
+  }
+}
+
+/* SK-156 — iOS Safari zooms the visual viewport when a focused text
+ * control computes below 16px. Keep every phone text-entry surface at the
+ * browser-safe floor in portrait and landscape while leaving desktop
+ * typography and non-text controls untouched. This is deliberately
+ * unlayered and important so it wins over Tailwind utilities, CSS modules,
+ * and runtime form styles without disabling user pinch-to-zoom. */
+@media (max-width: 1023px) {
+  input:not([type]),
+  input[type="text"],
+  input[type="search"],
+  input[type="email"],
+  input[type="url"],
+  input[type="tel"],
+  input[type="password"],
+  input[type="number"],
+  input[type="date"],
+  input[type="time"],
+  input[type="datetime-local"],
+  input[type="month"],
+  input[type="week"],
+  select:not([hidden]),
+  textarea:not([hidden]) {
+    font-size: max(
+      16px,
+      var(--sk-mobile-control-font-size, 1em)
+    ) !important;
   }
 }

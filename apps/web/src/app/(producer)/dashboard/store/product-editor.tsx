@@ -82,8 +82,9 @@ const STEP_SUBTITLES: Record<StepId, string> = {
 };
 
 type PersistedDraft = ProducerStoreProductDraft["draft"];
-type Draft = Omit<PersistedDraft, "includesSessions"> & {
+type Draft = Omit<PersistedDraft, "includesSessions" | "bookingEnabled"> & {
   includesSessions: boolean;
+  bookingEnabled: boolean;
 };
 
 interface ProductEditorProps {
@@ -99,7 +100,10 @@ interface ProductEditorProps {
   previewPlacement?: "focal" | "secondary";
   onCreated?: (id: string) => void;
   onSubmitted: () => void;
-  onSubmittedResult?: (result: { includesSessions: boolean }) => void;
+  onSubmittedResult?: (result: {
+    includesSessions: boolean;
+    bookingEnabled: boolean;
+  }) => void;
   onDiscardDraft?: () => void;
   persistedDraft: ProducerStoreProductDraft | null;
   onPersistDraft: (draft: ProducerStoreProductDraft) => boolean;
@@ -129,6 +133,7 @@ function emptyDraft(currency: Currency): Draft {
     includesSessions: false,
     sessions: 1,
     unlimitedSessions: false,
+    bookingEnabled: false,
     payment: seedPaymentSelection([{ kind: "full" }]),
     includes: [],
     duration: "60 min",
@@ -143,9 +148,14 @@ function emptyDraft(currency: Currency): Draft {
 }
 
 function normalizeDraft(draft: PersistedDraft): Draft {
+  const includesSessions =
+    draft.includesSessions ??
+    draft.bookingEnabled ??
+    /^\d+\s*min$/i.test(draft.duration);
   return {
     ...draft,
-    includesSessions: draft.includesSessions ?? /^\d+\s*min$/i.test(draft.duration),
+    includesSessions,
+    bookingEnabled: includesSessions,
   };
 }
 
@@ -162,6 +172,7 @@ function seedDraftFromProduct(product: StoreProduct, defaultCurrency: Currency):
   const agreement = seedStoreAgreementDraft(dedicatedAgreement, product.contractUrl);
   const pricingModel = product.pricingModel === "per_song" ? "per_song" : "flat";
   const firstTier = product.volumeTiers?.[0];
+  const includesSessions = product.bookingEnabled;
 
   return {
     _picked: null,
@@ -174,9 +185,10 @@ function seedDraftFromProduct(product: StoreProduct, defaultCurrency: Currency):
         ? firstTier.pricePerUnitCents / 100
         : product.priceCents / 100,
     currency,
-    includesSessions: product.durationMin > 0,
+    includesSessions,
     sessions: product.sessionCount === 0 ? 1 : product.sessionCount,
-    unlimitedSessions: product.durationMin > 0 && product.sessionCount === 0,
+    unlimitedSessions: includesSessions && product.sessionCount === 0,
+    bookingEnabled: includesSessions,
     payment: seedPaymentSelection(product.paymentPlans),
     includes: [...product.deliverables],
     duration:
@@ -334,7 +346,10 @@ export function ProductEditor({
   function handleSuccessfulSubmit() {
     latestPersistedDraftRef.current = null;
     onSubmitted();
-    onSubmittedResult?.({ includesSessions: draft.includesSessions });
+    onSubmittedResult?.({
+      includesSessions: draft.includesSessions,
+      bookingEnabled: draft.bookingEnabled,
+    });
     onOpenChange(false);
   }
 
@@ -358,6 +373,7 @@ export function ProductEditor({
       includesSessions: preset.preset.includesSessions,
       sessions: preset.preset.sessions,
       unlimitedSessions: preset.preset.unlimitedSessions,
+      bookingEnabled: preset.preset.includesSessions,
       payment: seedPaymentSelection(plansForPreset(preset.preset.paymentPlan)),
       includes: [...preset.baseline],
       duration: preset.preset.duration === "multi-session" ? "60 min" : preset.preset.duration,
@@ -651,6 +667,7 @@ export function ProductEditor({
             includesSessions={draft.includesSessions}
             sessions={draft.sessions}
             unlimitedSessions={draft.unlimitedSessions}
+            bookingEnabled={draft.bookingEnabled}
             paymentPlans={reviewPlans}
             duration={draft.duration}
             revisions={draft.revisions}

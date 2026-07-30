@@ -45,6 +45,7 @@ function storeProductDraft(): ProducerStoreProductDraft {
       includesSessions: true,
       sessions: 8,
       unlimitedSessions: false,
+      bookingEnabled: true,
       payment: {
         full: true,
         split50: true,
@@ -315,6 +316,41 @@ describe("account-scoped runtime storage", () => {
         legacy as ProducerStoreProductDraft,
         1,
       ),
+    ).toBe(true);
+    expect(
+      readRuntimeState(storage, scope, "producer.store.product-draft", 2),
+    ).toMatchObject({
+      mode: "new",
+      draft: { duration: "60 min" },
+    });
+  });
+
+  it("keeps drafts saved before booking permission was added readable", () => {
+    const storage = new MemoryStorage();
+    const scope = requiredScope("user-a", "producer", "producer-a", "/dashboard/store");
+    const legacy = storeProductDraft();
+    delete legacy.draft.bookingEnabled;
+
+    expect(
+      writeRuntimeState(storage, scope, "producer.store.product-draft", legacy, 1),
+    ).toBe(true);
+    expect(
+      readRuntimeState(storage, scope, "producer.store.product-draft", 2),
+    ).toMatchObject({
+      mode: "new",
+      draft: { duration: "60 min" },
+    });
+  });
+
+  it("keeps drafts missing both newer session flags readable", () => {
+    const storage = new MemoryStorage();
+    const scope = requiredScope("user-a", "producer", "producer-a", "/dashboard/store");
+    const legacy = storeProductDraft();
+    delete legacy.draft.includesSessions;
+    delete legacy.draft.bookingEnabled;
+
+    expect(
+      writeRuntimeState(storage, scope, "producer.store.product-draft", legacy, 1),
     ).toBe(true);
     expect(
       readRuntimeState(storage, scope, "producer.store.product-draft", 2),

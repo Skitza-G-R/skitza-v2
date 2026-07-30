@@ -30,6 +30,7 @@ function product(
     hourlyRateCents: null,
     durationMin: 90,
     sessionCount: 2,
+    bookingEnabled: true,
     deliverables: ["Stereo WAV", "Instrumental"],
     locationType: "remote",
     bufferMinutes: 15,
@@ -94,7 +95,8 @@ describe("Store purchase snapshot", () => {
     const { snapshot, snapshotDigest } = build();
 
     expect(snapshot).toMatchObject({
-      version: 1,
+      version: 2,
+      bookingEnabled: true,
       productOrOfferName: "Mix package",
       tagline: "A release-ready stereo mix",
       service: "mix",
@@ -341,6 +343,7 @@ describe("sessions, revisions, rights, and immutable source copies", () => {
     const { snapshot } = build(
       product({
         durationMin: 0,
+        bookingEnabled: false,
         description: encodeDescription({
           tagline: "Delivery only",
           revisions: 0,
@@ -350,7 +353,18 @@ describe("sessions, revisions, rights, and immutable source copies", () => {
       }),
     );
     expect(snapshot.session).toBeNull();
+    expect(snapshot.bookingEnabled).toBe(false);
     expect(snapshot.revisionRule).toEqual({ kind: "fixed", count: 0 });
+  });
+
+  it("does not infer booking eligibility from legacy session-shaped terms", () => {
+    const { snapshot } = build(product({ bookingEnabled: false }));
+
+    expect(snapshot).toMatchObject({
+      version: 2,
+      bookingEnabled: false,
+      session: null,
+    });
   });
 
   it("derives deterministic rights for none, percentage, agreement, and legacy null terms", () => {

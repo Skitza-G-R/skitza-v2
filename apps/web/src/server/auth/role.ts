@@ -71,8 +71,7 @@ export function resolveUserRole(input: {
 
   if (producerRow) {
     const incomplete =
-      producerRow.displayName === null ||
-      isAutoSlug(producerRow.slug, producerRow.email);
+      producerRow.displayName === null || isAutoSlug(producerRow.slug, producerRow.email);
     return incomplete
       ? { kind: "producer-incomplete", producer: producerRow }
       : { kind: "producer-complete", producer: producerRow };
@@ -97,8 +96,7 @@ export function resolveUserAccountMemberships(input: {
   return {
     primaryRole,
     hasArtistAccount:
-      input.userId !== null &&
-      (input.hasActiveClientContacts || input.hasAnyClientContacts),
+      input.userId !== null && (input.hasActiveClientContacts || input.hasAnyClientContacts),
   };
 }
 
@@ -136,12 +134,7 @@ export async function fetchUserRole(params: {
     const [contact] = await db
       .select({ id: clientContacts.id })
       .from(clientContacts)
-      .where(
-        and(
-          eq(clientContacts.clerkUserId, params.userId),
-          isNull(clientContacts.archivedAt),
-        ),
-      )
+      .where(and(eq(clientContacts.clerkUserId, params.userId), isNull(clientContacts.archivedAt)))
       .limit(1);
     hasClientContacts = contact !== undefined;
   }
@@ -190,12 +183,7 @@ export async function fetchUserAccountMemberships(params: {
     db
       .select({ id: clientContacts.id })
       .from(clientContacts)
-      .where(
-        and(
-          eq(clientContacts.clerkUserId, params.userId),
-          isNull(clientContacts.archivedAt),
-        ),
-      )
+      .where(and(eq(clientContacts.clerkUserId, params.userId), isNull(clientContacts.archivedAt)))
       .limit(1),
   ]);
 
@@ -242,10 +230,7 @@ export type ExpectedRole = "producer" | "artist";
  *     orphan               → /sign-in      (no DB identity → re-resolve)
  *     artist               → null (render)
  */
-export function decideRoleRedirect(
-  role: UserRole,
-  expected: ExpectedRole,
-): string | null {
+export function decideRoleRedirect(role: UserRole, expected: ExpectedRole): string | null {
   if (expected === "producer") {
     switch (role.kind) {
       case "unauthenticated":
@@ -301,7 +286,7 @@ export function decideAccountMembershipRedirect(
  */
 export async function requireRole(
   expected: ExpectedRole,
-): Promise<{ userId: string }> {
+): Promise<{ userId: string; hasProducerProfile: boolean }> {
   const { userId } = await auth();
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("missing DATABASE_URL");
@@ -318,5 +303,10 @@ export async function requireRole(
 
   // Past the redirect → role is one of the allow-states, all of which
   // require a userId to have been resolved upstream.
-  return { userId: userId as string };
+  return {
+    userId: userId as string,
+    hasProducerProfile:
+      memberships.primaryRole.kind === "producer-complete" ||
+      memberships.primaryRole.kind === "producer-incomplete",
+  };
 }

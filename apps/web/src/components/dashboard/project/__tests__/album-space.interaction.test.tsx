@@ -6,14 +6,22 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AlbumSpace } from "../album-space";
 
+const mocks = vi.hoisted(() => ({
+  push: vi.fn(),
+}));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
-    push: vi.fn(),
+    push: mocks.push,
   }),
 }));
 
 vi.mock("../album-tabs/songs-tab", () => ({
   SongsTab: () => <div>Songs panel</div>,
+}));
+
+vi.mock("../project-song-upload-controller", () => ({
+  ProjectSongUploadController: () => null,
 }));
 
 vi.mock("../album-tabs/project-payments-tab", () => ({
@@ -71,6 +79,14 @@ const PROPS = {
     history: EMPTY_PAYMENT_VIEW,
   },
   tracks: [],
+  selectedSongUpload: {
+    id: "song-1",
+    purchaseId: "purchase-1",
+    title: "Night Drive",
+    archivedAtIso: null,
+    versionCount: 1,
+    publicExposure: "none" as const,
+  },
   emptySlots: [],
   addSongHref: "/dashboard/music?addSong=1&projectId=project-1&lockProject=1",
   studioLog: { entries: [] },
@@ -78,6 +94,7 @@ const PROPS = {
 
 afterEach(() => {
   cleanup();
+  mocks.push.mockReset();
 });
 
 describe("AlbumSpace interactions", () => {
@@ -86,6 +103,8 @@ describe("AlbumSpace interactions", () => {
     const first = render(<AlbumSpace {...PROPS} />);
 
     expect(screen.getByText("Songs panel")).not.toBeNull();
+    expect(screen.queryByText("Workflow")).toBeNull();
+    expect(screen.queryByRole("tablist", { name: "Song section" })).toBeNull();
     expect(screen.queryByText("Payments panel")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: /Payment needs attention/i }));
@@ -96,5 +115,17 @@ describe("AlbumSpace interactions", () => {
     render(<AlbumSpace {...PROPS} />);
     expect(screen.getByText("Songs panel")).not.toBeNull();
     expect(screen.queryByText("Payments panel")).toBeNull();
+  });
+
+  it("sends the header plus directly to Add Song without an intermediate menu", async () => {
+    const user = userEvent.setup();
+    render(<AlbumSpace {...PROPS} />);
+
+    await user.click(screen.getByRole("button", { name: "Add song to First Album" }));
+
+    expect(mocks.push).toHaveBeenCalledWith(
+      "/dashboard/music?addSong=1&projectId=project-1&lockProject=1",
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

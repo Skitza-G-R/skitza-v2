@@ -34,6 +34,7 @@ interface LogisticsStepProps {
       includesSessions: boolean;
       sessions: number;
       unlimitedSessions: boolean;
+      bookingEnabled: boolean;
       duration: string;
       revisions: number;
       unlimitedRevisions: boolean;
@@ -186,6 +187,7 @@ export function LogisticsStep({
             onClick={() => {
               onChange({
                 includesSessions: true,
+                bookingEnabled: true,
                 ...(duration ? {} : { duration: "60 min" }),
               });
             }}
@@ -202,7 +204,7 @@ export function LogisticsStep({
             type="button"
             aria-pressed={!includesSessions}
             onClick={() => {
-              onChange({ includesSessions: false });
+              onChange({ includesSessions: false, bookingEnabled: false });
             }}
             className={[
               choiceClass,

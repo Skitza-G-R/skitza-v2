@@ -83,6 +83,7 @@ function productDraft(name: string): ProducerStoreProductDraft {
       currency: "USD",
       sessions: 8,
       unlimitedSessions: false,
+      bookingEnabled: true,
       payment: {
         full: true,
         split50: true,

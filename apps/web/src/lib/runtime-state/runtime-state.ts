@@ -90,6 +90,8 @@ export interface ProducerStoreProductDraft {
     includesSessions?: boolean;
     sessions: number;
     unlimitedSessions: boolean;
+    /** Added by the artist-platform release. Missing only on older saved drafts. */
+    bookingEnabled?: boolean;
     payment: {
       full: boolean;
       split50: boolean;
@@ -520,6 +522,7 @@ function isProducerStoreProductDraft(value: unknown): value is ProducerStoreProd
     "includesSessions",
     "sessions",
     "unlimitedSessions",
+    "bookingEnabled",
     "payment",
     "includes",
     "duration",
@@ -531,8 +534,17 @@ function isProducerStoreProductDraft(value: unknown): value is ProducerStoreProd
     "pricingModel",
     "volumeTiers",
   ] as const;
-  const legacyDraftKeys = currentDraftKeys.filter((key) => key !== "includesSessions");
-  if (!hasExactKeys(value.draft, currentDraftKeys) && !hasExactKeys(value.draft, legacyDraftKeys)) {
+  const withoutIncludesSessions = currentDraftKeys.filter((key) => key !== "includesSessions");
+  const withoutBookingEnabled = currentDraftKeys.filter((key) => key !== "bookingEnabled");
+  const legacyDraftKeys = currentDraftKeys.filter(
+    (key) => key !== "includesSessions" && key !== "bookingEnabled",
+  );
+  if (
+    !hasExactKeys(value.draft, currentDraftKeys) &&
+    !hasExactKeys(value.draft, withoutIncludesSessions) &&
+    !hasExactKeys(value.draft, withoutBookingEnabled) &&
+    !hasExactKeys(value.draft, legacyDraftKeys)
+  ) {
     return false;
   }
 
@@ -551,6 +563,7 @@ function isProducerStoreProductDraft(value: unknown): value is ProducerStoreProd
     (draft.includesSessions === undefined || typeof draft.includesSessions === "boolean") &&
     isSafeInteger(draft.sessions, 0, 10_000) &&
     typeof draft.unlimitedSessions === "boolean" &&
+    (draft.bookingEnabled === undefined || typeof draft.bookingEnabled === "boolean") &&
     isProducerStorePaymentDraft(draft.payment) &&
     Array.isArray(draft.includes) &&
     draft.includes.length <= 100 &&

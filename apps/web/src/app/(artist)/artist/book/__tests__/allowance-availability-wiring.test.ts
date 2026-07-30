@@ -22,14 +22,13 @@ describe("artist booking allowance-authored availability wiring", () => {
   });
 
   it("updates the allowance URL when the picker changes so the server refreshes availability", () => {
-    expect(clientSource).toMatch(/(?:params\.set\(["']allowance["'],\s*id\)|allowance:\s*id)/);
+    expect(clientSource).toMatch(/allowance:\s*selectedPackage\.sessionAllowanceId/);
     expect(clientSource).toMatch(/router\.(?:replace|push)\([^)]*params\.toString\(\)/s);
   });
 
   it("never combines a newly selected allowance with stale server availability", () => {
-    expect(clientSource).toMatch(
-      /selectedPackage && selectedSessionAllowanceId === initialSessionAllowanceId/,
-    );
+    expect(clientSource).toMatch(/setSelectedAllowanceId\(initialSessionAllowanceId\)/);
+    expect(clientSource).toMatch(/router\.replace\(`\/artist\/book\?\$\{params\.toString\(\)\}`\)/);
     expect(pageSource).toMatch(
       /key=\{`\$\{activeStudioId\}:\$\{initialSessionAllowanceId \?\? "none"\}:\$\{rescheduleSession\?\.id \?\? "new"\}`\}/,
     );

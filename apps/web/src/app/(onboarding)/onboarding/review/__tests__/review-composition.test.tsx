@@ -49,6 +49,7 @@ describe("onboarding review composition", () => {
         includesSessions={true}
         sessions={3}
         unlimitedSessions={false}
+        bookingEnabled={true}
         duration="60 min"
         includes={["Production", "Mix", "Master"]}
         revisions={2}
@@ -64,6 +65,6 @@ describe("onboarding review composition", () => {
     expect(html).toContain('aria-label="Maya Stone storefront"');
     expect(html).toContain("Signature production");
     expect(html).toContain("₪1,800");
-    expect(html).toContain("View details");
+    expect(html).toContain("View service");
   });
 });

@@ -1,7 +1,7 @@
 export type ReviewReadinessFacts = {
   product: {
     active: boolean;
-    durationMin: number;
+    bookingEnabled: boolean;
   } | null;
   availabilityCount: number;
 };
@@ -17,7 +17,7 @@ export function reviewReadiness({
   if (!product) {
     return { ready: false, redirect: "/onboarding/service" };
   }
-  const hoursNotNeeded = product.durationMin === 0;
+  const hoursNotNeeded = !product.bookingEnabled;
   if (!hoursNotNeeded && availabilityCount === 0) {
     return { ready: false, redirect: "/onboarding/availability" };
   }

@@ -25,6 +25,7 @@ interface ArtistProductPreviewProps {
   includesSessions?: boolean;
   sessions: number;
   unlimitedSessions: boolean;
+  bookingEnabled: boolean;
   duration: string;
   includes: string[];
   revisions: number;
@@ -59,6 +60,7 @@ export function ArtistProductPreview({
   includesSessions = true,
   sessions,
   unlimitedSessions,
+  bookingEnabled,
   duration,
   includes,
   revisions,
@@ -75,6 +77,7 @@ export function ArtistProductPreview({
   const previewTriggerRef = useRef<HTMLButtonElement | null>(null);
   const durationMin = includesSessions ? parseDurationMinutes(duration) : 0;
   const sessionCount = !includesSessions ? 0 : unlimitedSessions ? 0 : sessions;
+  const sessionsAreBookable = includesSessions && bookingEnabled;
   const displayName = producerName.trim() || "Your studio";
   const previewId = "artist-product-preview";
 
@@ -83,11 +86,13 @@ export function ArtistProductPreview({
     name,
     priceCents,
     currency,
-    durationLabel: durationLabel(sessionCount, durationMin),
+    durationLabel: sessionsAreBookable
+      ? durationLabel(sessionCount, durationMin)
+      : "No bookable sessions",
     includes,
     tagline: tagline || null,
-    sessions: sessionCount,
-    unlimitedSessions: includesSessions && unlimitedSessions,
+    sessions: sessionsAreBookable ? sessionCount : 0,
+    unlimitedSessions: sessionsAreBookable && unlimitedSessions,
     revisions: unlimitedRevisions ? 0 : revisions,
     unlimitedRevisions,
     paymentPlans,
@@ -109,8 +114,8 @@ export function ArtistProductPreview({
     currency,
     pricingModel,
     volumeTiers,
-    sessionCount: includesSessions ? sessionCount : null,
-    durationMin: includesSessions ? durationMin : null,
+    sessionCount: sessionsAreBookable ? sessionCount : null,
+    durationMin: sessionsAreBookable ? durationMin : null,
   };
 
   function openDetails(trigger: HTMLButtonElement) {

@@ -48,12 +48,7 @@ function flushAnimationFrames(): void {
 
 function dispatchPointer(
   target: Element,
-  type:
-    | "lostpointercapture"
-    | "pointercancel"
-    | "pointerdown"
-    | "pointermove"
-    | "pointerup",
+  type: "lostpointercapture" | "pointercancel" | "pointerdown" | "pointermove" | "pointerup",
   {
     clientX,
     clientY,
@@ -105,7 +100,7 @@ describe("ProducerBottomNav finger-following glass", () => {
     render(<ProducerBottomNav />);
 
     const nav = screen.getByRole("navigation", { name: "Producer tabs" });
-    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-producer-nav-tab]")];
+    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
       value: () => makeRect(20, 700, 350, 68),
@@ -161,7 +156,7 @@ describe("ProducerBottomNav finger-following glass", () => {
     render(<ProducerBottomNav />);
 
     const nav = screen.getByRole("navigation", { name: "Producer tabs" });
-    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-producer-nav-tab]")];
+    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
       value: () => makeRect(20, 700, 350, 68),
@@ -217,7 +212,7 @@ describe("ProducerBottomNav finger-following glass", () => {
     render(<ProducerBottomNav />);
 
     const nav = screen.getByRole("navigation", { name: "Producer tabs" });
-    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-producer-nav-tab]")];
+    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
       value: () => makeRect(20, 700, 350, 68),
@@ -267,7 +262,7 @@ describe("ProducerBottomNav finger-following glass", () => {
     render(<ProducerBottomNav />);
 
     const nav = screen.getByRole("navigation", { name: "Producer tabs" });
-    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-producer-nav-tab]")];
+    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
       value: () => makeRect(20, 700, 350, 68),
@@ -314,7 +309,7 @@ describe("ProducerBottomNav finger-following glass", () => {
     render(<ProducerBottomNav />);
 
     const nav = screen.getByRole("navigation", { name: "Producer tabs" });
-    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-producer-nav-tab]")];
+    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
     const capturePointer = vi.fn();
     Object.defineProperty(nav, "setPointerCapture", {
       value: capturePointer,
@@ -367,7 +362,7 @@ describe("ProducerBottomNav finger-following glass", () => {
     render(<ProducerBottomNav />);
 
     const nav = screen.getByRole("navigation", { name: "Producer tabs" });
-    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-producer-nav-tab]")];
+    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
     Object.defineProperty(nav, "setPointerCapture", {
       value: vi.fn(),
     });
@@ -431,7 +426,7 @@ describe("ProducerBottomNav finger-following glass", () => {
     render(<ProducerBottomNav />);
 
     const nav = screen.getByRole("navigation", { name: "Producer tabs" });
-    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-producer-nav-tab]")];
+    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
       value: () => makeRect(20, 700, 350, 68),
@@ -483,7 +478,7 @@ describe("ProducerBottomNav finger-following glass", () => {
     render(<ProducerBottomNav />);
 
     const nav = screen.getByRole("navigation", { name: "Producer tabs" });
-    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-producer-nav-tab]")];
+    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
       value: () => makeRect(20, 700, 350, 68),
@@ -539,7 +534,7 @@ describe("ProducerBottomNav finger-following glass", () => {
     const { rerender } = render(<ProducerBottomNav />);
 
     const nav = screen.getByRole("navigation", { name: "Producer tabs" });
-    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-producer-nav-tab]")];
+    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
       value: () => makeRect(20, 700, 350, 68),
@@ -598,7 +593,7 @@ describe("ProducerBottomNav finger-following glass", () => {
     render(<ProducerBottomNav />);
 
     const nav = screen.getByRole("navigation", { name: "Producer tabs" });
-    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-producer-nav-tab]")];
+    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
       value: () => makeRect(20, 700, 350, 68),
@@ -635,7 +630,7 @@ describe("ProducerBottomNav finger-following glass", () => {
     render(<ProducerBottomNav />);
 
     const nav = screen.getByRole("navigation", { name: "Producer tabs" });
-    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-producer-nav-tab]")];
+    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
       value: () => makeRect(20, 700, 350, 68),
@@ -682,7 +677,7 @@ describe("ProducerBottomNav finger-following glass", () => {
     render(<ProducerBottomNav />);
 
     const nav = screen.getByRole("navigation", { name: "Producer tabs" });
-    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-producer-nav-tab]")];
+    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
     expect(tabs).toHaveLength(5);
 
     Object.defineProperty(nav, "getBoundingClientRect", {
@@ -751,7 +746,7 @@ describe("ProducerBottomNav finger-following glass", () => {
     render(<ProducerBottomNav />);
 
     const nav = screen.getByRole("navigation", { name: "Producer tabs" });
-    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-producer-nav-tab]")];
+    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
       value: () => makeRect(12, 700, 336, 68),
@@ -804,9 +799,9 @@ describe("ProducerBottomNav finger-following glass", () => {
     render(<ProducerBottomNav />);
 
     const nav = screen.getByRole("navigation", { name: "Producer tabs" });
-    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-producer-nav-tab]")];
+    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
     const magnifiedTabs = [
-      ...nav.querySelectorAll<HTMLElement>("[data-producer-nav-magnified-tab]"),
+      ...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-magnified-tab]"),
     ];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
@@ -833,7 +828,7 @@ describe("ProducerBottomNav finger-following glass", () => {
     render(<ProducerBottomNav />);
 
     const nav = screen.getByRole("navigation", { name: "Producer tabs" });
-    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-producer-nav-tab]")];
+    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
       value: () => makeRect(20, 700, 350, 68),
@@ -871,7 +866,7 @@ describe("ProducerBottomNav finger-following glass", () => {
     render(<ProducerBottomNav />);
 
     const nav = screen.getByRole("navigation", { name: "Producer tabs" });
-    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-producer-nav-tab]")];
+    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
       value: () => makeRect(20, 700, 350, 68),
@@ -918,7 +913,7 @@ describe("ProducerBottomNav finger-following glass", () => {
     render(<ProducerBottomNav />);
 
     const nav = screen.getByRole("navigation", { name: "Producer tabs" });
-    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-producer-nav-tab]")];
+    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
 
     Object.defineProperty(nav, "getBoundingClientRect", {
       value: () => makeRect(20, 700, 350, 68),

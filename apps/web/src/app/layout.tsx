@@ -170,7 +170,7 @@ const clerkAppearance = {
     identityPreviewEditButton: "text-[12px] font-semibold text-[rgb(var(--brand-primary))]",
     formResendCodeLink: "text-[12px] font-bold text-[rgb(var(--brand-primary))]",
     otpCodeFieldInput:
-      "font-mono text-[22px] font-extrabold border border-[rgb(var(--border-subtle))] focus:border-[rgb(var(--brand-primary))]",
+      "font-mono text-[22px] font-extrabold border border-[rgb(var(--border-subtle))] [--sk-mobile-control-font-size:22px] focus:border-[rgb(var(--brand-primary))]",
     alert:
       "bg-[rgb(var(--fg-danger)/0.08)] border border-[rgb(var(--fg-danger)/0.2)] text-[rgb(var(--fg-danger))]",
   },

@@ -73,7 +73,7 @@ export default async function AvailabilityStepPage({
   ]);
   const firstProduct = products[0];
   if (!firstProduct) redirect("/onboarding/service");
-  if (firstProduct.durationMin === 0) redirect("/onboarding/review");
+  if (!firstProduct.bookingEnabled) redirect("/onboarding/review");
   const initialWeekStart = profile.weekStart === "monday" ? "monday" : "sunday";
 
   return <AvailabilityStepClient blocks={blocks} initialWeekStart={initialWeekStart} />;

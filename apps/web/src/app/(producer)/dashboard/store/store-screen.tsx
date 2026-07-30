@@ -52,6 +52,7 @@ export interface StoreProduct extends ProductCardData {
   // form-typed columns when the editor opens in edit mode.
   durationMin: number;
   sessionCount: number;
+  bookingEnabled: boolean;
   paymentPlans: import("@skitza/db").PaymentPlan[];
   locationType: string;
   bufferMinutes: number;

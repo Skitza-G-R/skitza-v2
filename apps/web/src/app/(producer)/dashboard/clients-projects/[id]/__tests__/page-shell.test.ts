@@ -98,8 +98,10 @@ describe("clients-projects/[id]/page.tsx — Phase 2 rewrite to AlbumSpace", () 
     expect(SRC).toContain("right.ts.getTime() - left.ts.getTime()");
   });
 
-  it("derives row playback from the newest playable version id", () => {
-    expect(SRC).toContain("trackVersions.find((version) => version.audioUrl !== null)");
+  it("derives row playback and the existing Music player destination from version ids", () => {
+    expect(SRC).toContain("const detailVersion = playable ?? historical");
+    expect(SRC).toContain("/dashboard/music/${encodeURIComponent(detailVersion.id)}");
+    expect(SRC).toContain("projectSongUploadHref(data.project.id, t.id)");
     expect(SRC).toContain("versionId: playable.id");
     expect(SRC).toContain("audioUrl: playable.audioUrl");
   });
@@ -114,11 +116,29 @@ describe("clients-projects/[id]/page.tsx — Phase 2 rewrite to AlbumSpace", () 
   });
 
   it("renders the compact Project Space for one-song and multi-song projects", () => {
-    expect(SRC).not.toContain('data.songSpaces.mode === "single"');
     expect(SRC).not.toMatch(
       /redirect\([\s\S]*?`\/dashboard\/clients-projects\/\$\{[^}]+\}\/songs\/\$\{[^}]+\}`[\s\S]*?\)/,
     );
     expect(SRC).toMatch(/<AlbumSpace/);
+  });
+
+  it("keeps only a one-shot upload handoff instead of a lower song workspace", () => {
+    expect(SRC).toMatch(/searchParams\?:\s*Promise<\{[\s\S]*?song\?:\s*string/);
+    expect(SRC).toMatch(/searchParams\?:\s*Promise<\{[\s\S]*?upload\?:\s*string/);
+    expect(SRC).toContain("const selectedTrack =");
+    expect(SRC).toContain("selectedSongUpload");
+    expect(SRC).toContain("songVersions");
+    expect(SRC).toContain("classifySongUploadPublicExposure");
+    expect(SRC).toContain("selectedSongUpload={selectedSongUpload}");
+    expect(SRC).toContain('initialUploadOpen={query.upload === "1"}');
+    expect(SRC).not.toContain("ProjectSongWorkspace");
+    expect(SRC).not.toContain("SessionsTabSession");
+    expect(SRC).not.toContain("VersionRowVersionData");
+    expect(SRC).not.toContain("songSessions");
+  });
+
+  it("rejects an upload handoff for a song outside the producer-scoped project", () => {
+    expect(SRC).toMatch(/if\s*\(\s*query\.song\s*&&\s*!selectedTrack\s*\)[\s\S]*?notFound\(\)/);
   });
 
   it("maps artist credit into AlbumSpace rows", () => {

@@ -34,7 +34,7 @@ function renderTabs(pathname: string): { html: string; tabs: RenderedTab[] } {
     const href = attributes.match(/\bhref="([^"]+)"/)?.[1] ?? "";
     const label =
       content.match(
-        /<span\b[^>]*class="[^"]*producer-bottom-nav__label[^"]*"[^>]*>([^<]+)<\/span>/,
+        /<span\b[^>]*class="[^"]*liquid-glass-bottom-nav__label[^"]*"[^>]*>([^<]+)<\/span>/,
       )?.[1] ?? "";
 
     return { attributes, href, label };
@@ -61,12 +61,12 @@ describe("ProducerBottomNav rendered behavior", () => {
     expect(tabs).toHaveLength(5);
     expect(tabs[2]).toMatchObject({ label: "Today", href: "/dashboard" });
     expect(html).toContain('aria-label="Producer tabs"');
-    expect(html).toContain("grid-cols-5");
-    expect(html).toContain('class="producer-bottom-nav__lens" aria-hidden="true"');
-    expect(html).toContain('class="producer-bottom-nav__magnifier" aria-hidden="true"');
-    expect(html).toContain("producer-bottom-nav__magnifier-grid");
+    expect(html).toContain("--sk-nav-column-count:5");
+    expect(html).toContain('class="liquid-glass-bottom-nav__lens" aria-hidden="true"');
+    expect(html).toContain('class="liquid-glass-bottom-nav__magnifier" aria-hidden="true"');
+    expect(html).toContain("liquid-glass-bottom-nav__magnifier-grid");
     for (const tab of tabs) {
-      expect(tab.attributes).toContain("producer-bottom-nav__tab");
+      expect(tab.attributes).toContain("liquid-glass-bottom-nav__tab");
       expect(tab.attributes).toContain("min-height:68px");
     }
   });

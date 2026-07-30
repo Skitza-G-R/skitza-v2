@@ -8,10 +8,15 @@
 // pill with the label in sentence case (body font), still with the dot —
 // instead of the light-surface mono-caps chip.
 
-import type { SessionOutcome, SessionStatus } from "./book-data";
+import {
+  artistSessionDisplay,
+  type ArtistSessionDisplayStatus,
+  type SessionOutcome,
+  type SessionStatus,
+} from "./book-data";
 
 const TONE: Record<
-  SessionStatus,
+  ArtistSessionDisplayStatus,
   {
     label: string;
     bg: string;
@@ -29,15 +34,15 @@ const TONE: Record<
     onDarkBg: "rgb(var(--fg-success) / 0.16)",
     onDarkFg: "rgb(134 211 158)",
   },
-  pending_approval: {
-    label: "Pending",
+  held: {
+    label: "Held",
     bg: "rgb(var(--brand-primary) / 0.14)",
     fg: "rgb(var(--brand-primary-dark))",
     dot: "rgb(var(--fg-warning))",
     onDarkBg: "rgb(var(--brand-primary) / 0.16)",
     onDarkFg: "rgb(var(--brand-primary))",
   },
-  rejected: {
+  declined: {
     label: "Declined",
     bg: "rgb(var(--fg-danger) / 0.10)",
     fg: "rgb(var(--fg-danger))",
@@ -61,14 +66,6 @@ const TONE: Record<
     onDarkBg: "rgb(255 255 255 / 0.08)",
     onDarkFg: "rgb(255 255 255 / 0.65)",
   },
-  no_show: {
-    label: "No-show",
-    bg: "rgb(var(--bg-sunken))",
-    fg: "rgb(var(--fg-muted))",
-    dot: "rgb(var(--fg-muted))",
-    onDarkBg: "rgb(255 255 255 / 0.08)",
-    onDarkFg: "rgb(255 255 255 / 0.65)",
-  },
 };
 
 export function StatusPill({
@@ -80,15 +77,8 @@ export function StatusPill({
   outcome?: SessionOutcome;
   onDark?: boolean;
 }) {
-  const tone = TONE[status];
-  const label =
-    status === "cancelled" && outcome === "cancelled_late"
-      ? "Cancelled late"
-      : status === "cancelled" && outcome === "cancelled_by_producer"
-        ? "Producer cancelled"
-        : status === "cancelled" && outcome === "cancelled_on_time"
-          ? "Cancelled on time"
-          : tone.label;
+  const display = artistSessionDisplay({ status, outcome });
+  const tone = TONE[display.status];
   return (
     <span
       className={
@@ -106,7 +96,7 @@ export function StatusPill({
         className="h-[6px] w-[6px] shrink-0 rounded-full"
         style={{ background: onDark ? tone.onDarkFg : tone.dot }}
       />
-      {label}
+      {display.label}
     </span>
   );
 }

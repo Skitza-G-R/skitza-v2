@@ -1,3 +1,7 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -10,6 +14,11 @@ import {
   routeOnSkipFromAvailability,
   routeOnBackFromAvailability,
 } from "../page";
+
+const pageSource = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "..", "page.tsx"),
+  "utf8",
+);
 
 // Working hours are the fourth durable milestone because account creation is
 // already complete on first paint.
@@ -57,5 +66,14 @@ describe("Working-hours page contract", () => {
     it("returns to Step 2 (/onboarding/service)", () => {
       expect(routeOnBackFromAvailability()).toBe("/onboarding/service");
     });
+  });
+
+  it("skips working hours when the persisted product disables artist booking", () => {
+    expect(pageSource).toContain(
+      'if (!firstProduct.bookingEnabled) redirect("/onboarding/review")',
+    );
+    expect(pageSource).not.toContain(
+      'if (firstProduct.durationMin === 0) redirect("/onboarding/review")',
+    );
   });
 });

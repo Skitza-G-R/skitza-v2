@@ -129,6 +129,9 @@ function mapOfferError(error: unknown): never {
     if (error.code === "STALE") {
       throw new TRPCError({ code: "CONFLICT", message: error.message });
     }
+    if (error.code === "ACTIVE_PURCHASE") {
+      throw new TRPCError({ code: "CONFLICT", message: error.message });
+    }
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",
       message: "This offer is unavailable.",

@@ -48,7 +48,7 @@ export default async function OnboardingIndexPage({
       firstNonArchivedProduct: firstProduct
         ? {
             active: firstProduct.active,
-            durationMin: firstProduct.durationMin,
+            bookingEnabled: firstProduct.bookingEnabled,
           }
         : null,
       availabilityCount: availability.length,

@@ -33,10 +33,10 @@ export function ServiceStepClient({
   const submittedRef = useRef(false);
   const previewSuffix = previewMode ? "?__preview=1" : "";
 
-  function routeAfterProduct(includesSessions: boolean) {
+  function routeAfterProduct(bookingEnabled: boolean) {
     submittedRef.current = true;
     router.push(
-      `${includesSessions ? "/onboarding/availability" : "/onboarding/review"}${previewSuffix}`,
+      `${bookingEnabled ? "/onboarding/availability" : "/onboarding/review"}${previewSuffix}`,
     );
   }
 
@@ -87,8 +87,8 @@ export function ServiceStepClient({
             newProductFlow="onboarding"
             previewMode={previewMode}
             onSubmitted={storeDraft.clear}
-            onSubmittedResult={({ includesSessions }) => {
-              routeAfterProduct(includesSessions);
+            onSubmittedResult={({ bookingEnabled }) => {
+              routeAfterProduct(bookingEnabled);
             }}
             onDiscardDraft={discardAndReturn}
             persistedDraft={storeDraft.record}

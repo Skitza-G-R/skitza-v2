@@ -8,10 +8,6 @@ import { formatPriceLabel } from "~/lib/store/format-price-label";
 import { productHref } from "~/lib/store/product-href";
 import { type TaxMode, taxModeFootnote } from "~/lib/tax-mode";
 
-// "Also from {Producer}" — the quiet tail under the focal card.
-// Borderless rows with hairline dividers, whole row tappable. Meta
-// trimmed to one short signal per row since the focal card already
-// taught the artist what each product type looks like.
 export function QuietProductList({
   producerName,
   studioId,
@@ -40,24 +36,16 @@ export function QuietProductList({
   if (products.length === 0) return null;
 
   return (
-    <section className="reveal-up">
-      <p className="mb-2 font-mono text-[10px] font-semibold tracking-[0.18em] text-[rgb(var(--fg-muted))] uppercase">
-        Also from {producerName}
+    <section className="reveal-up" aria-label={`More services from ${producerName}`}>
+      <p className="mb-3 font-mono text-[10px] font-semibold tracking-[0.16em] text-[rgb(var(--fg-muted))] uppercase">
+        More services
       </p>
-      <ul
-        className="overflow-hidden rounded-[var(--radius-lg)]"
-        style={{
-          background: "rgb(var(--bg-elevated))",
-          boxShadow: "var(--shadow-sm)",
-        }}
-      >
-        {products.map((product, i) => {
-          const isLast = i === products.length - 1;
+      <ul className="grid gap-3 md:grid-cols-2">
+        {products.map((product) => {
           const meta = shortMeta(product);
           const taxFootnote = taxModeFootnote(taxMode, taxRatePct);
-          const rowClassName = `sk-press flex w-full items-start justify-between gap-3 px-4 py-3.5 text-left ${
-            isLast ? "" : "border-b"
-          }`;
+          const rowClassName =
+            "sk-press flex min-h-full w-full flex-col items-start rounded-[var(--radius-xl)] border bg-[rgb(var(--bg-elevated)/0.84)] p-4 text-left shadow-[var(--shadow-sm)] backdrop-blur-xl transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:shadow-[var(--shadow-md)] motion-reduce:hover:translate-y-0";
           const rowContents = (
             <>
               <div className="min-w-0 flex-1">
@@ -70,9 +58,9 @@ export function QuietProductList({
                   </p>
                 ) : null}
               </div>
-              <span className="flex shrink-0 flex-col items-end gap-0.5">
+              <span className="mt-4 flex shrink-0 flex-col gap-0.5">
                 <span
-                  className="font-mono text-[14px] font-bold text-[rgb(var(--fg-default))] tabular-nums"
+                  className="font-mono text-[16px] font-bold text-[rgb(var(--fg-default))] tabular-nums"
                   style={{ letterSpacing: "-0.01em" }}
                 >
                   {formatPriceLabel(product)}
@@ -82,6 +70,9 @@ export function QuietProductList({
                     {taxFootnote}
                   </span>
                 ) : null}
+              </span>
+              <span className="mt-4 text-[12px] font-bold text-[rgb(var(--brand-primary-text))]">
+                View service
               </span>
             </>
           );

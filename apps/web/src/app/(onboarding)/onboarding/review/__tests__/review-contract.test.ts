@@ -22,6 +22,7 @@ describe("onboarding final review", () => {
 
   it("re-checks required availability under the shared schedule lock when publishing", () => {
     expect(bookingSource).toContain("input.active && input.requireAvailability");
+    expect(bookingSource).toContain("existing.bookingEnabled");
     expect(bookingSource).toContain("sessionBookingScheduleAdvisoryLockKey(ctx.producerId)");
     expect(bookingSource).toContain(".from(availabilityBlocks)");
     expect(bookingSource).toContain("Add working hours before publishing this product.");
@@ -35,5 +36,12 @@ describe("onboarding final review", () => {
   it("marks working hours not needed for non-session products", () => {
     expect(source).toContain("this product has no bookable sessions");
     expect(source).toContain("hoursNotNeeded={hoursNotNeeded}");
+  });
+
+  it("uses the persisted booking flag for review navigation and artist preview", () => {
+    expect(source).toContain("bookingEnabled={product.bookingEnabled}");
+    expect(source).toContain(
+      'product.bookingEnabled ? "/onboarding/availability" : "/onboarding/service"',
+    );
   });
 });

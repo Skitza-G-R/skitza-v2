@@ -10,7 +10,7 @@ export type OnboardingResumeFacts = {
   identityComplete: boolean;
   firstNonArchivedProduct: {
     active: boolean;
-    durationMin: number;
+    bookingEnabled: boolean;
   } | null;
   availabilityCount: number;
 };
@@ -19,7 +19,8 @@ export type OnboardingResumeFacts = {
  * Resolve the next producer-onboarding screen from durable product facts.
  *
  * Unsaved form state deliberately does not participate here. A product with
- * durationMin === 0 has no bookable sessions, so availability is not required.
+ * bookingEnabled is the persisted source of truth for whether availability is
+ * required. Duration alone cannot tell us whether artists may self-book.
  */
 export function resolveOnboardingResume({
   identityComplete,
@@ -34,7 +35,7 @@ export function resolveOnboardingResume({
     return "/onboarding/service";
   }
 
-  const needsAvailability = firstNonArchivedProduct.durationMin > 0;
+  const needsAvailability = firstNonArchivedProduct.bookingEnabled;
   if (needsAvailability && availabilityCount === 0) {
     return "/onboarding/availability";
   }

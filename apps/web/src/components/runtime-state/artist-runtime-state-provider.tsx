@@ -4,33 +4,42 @@ import { useAuth } from "@clerk/nextjs";
 import { useLayoutEffect, useMemo, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 
+import { resolveArtistStudioId } from "~/lib/artist-studio-context";
 import {
-  canReadArtistRuntimeStudioContext,
-  resolveArtistRuntimeStudioContext,
-  writeArtistRuntimeStudioContext,
-} from "~/lib/runtime-state/artist-context";
+  clearArtistStudioPreferenceCookie,
+  writeArtistStudioPreferenceCookie,
+} from "~/lib/artist-studio-preference-client";
+import { writeArtistRuntimeStudioContext } from "~/lib/runtime-state/artist-context";
 import {
   captureAccountPrivateWriteGeneration,
   isAccountPrivateRuntimeWriteAllowed,
 } from "~/lib/runtime-state/account-exit";
-import { getBrowserRuntimeStorage } from "~/lib/runtime-state/runtime-state";
-
 import { RuntimeNavigationBridge } from "./runtime-navigation-bridge";
-import {
-  RuntimeStateProvider,
-  useRuntimeState,
-} from "./runtime-state-provider";
+import { RuntimeStateProvider, useRuntimeState } from "./runtime-state-provider";
 
 function ArtistRuntimeStudioContextRecorder({
   studioIds,
+  authIsLoaded,
+  authenticatedUserId,
 }: {
   studioIds: readonly string[];
+  authIsLoaded: boolean;
+  authenticatedUserId: string | null | undefined;
 }) {
   const { identity, privateStateAccessAllowed, storage } = useRuntimeState();
   const writeGeneration = useMemo(
     () => captureAccountPrivateWriteGeneration(identity.userId),
     [identity.userId],
   );
+
+  useLayoutEffect(() => {
+    if (!authIsLoaded || authenticatedUserId !== identity.userId) return;
+    if (studioIds.includes(identity.contextId)) {
+      writeArtistStudioPreferenceCookie(identity.userId, identity.contextId);
+    } else {
+      clearArtistStudioPreferenceCookie();
+    }
+  }, [authIsLoaded, authenticatedUserId, identity, studioIds]);
 
   useLayoutEffect(() => {
     if (
@@ -41,12 +50,7 @@ function ArtistRuntimeStudioContextRecorder({
     ) {
       return;
     }
-    writeArtistRuntimeStudioContext(
-      storage,
-      identity.userId,
-      studioIds,
-      identity.contextId,
-    );
+    writeArtistRuntimeStudioContext(storage, identity.userId, studioIds, identity.contextId);
   }, [identity, privateStateAccessAllowed, storage, studioIds, writeGeneration]);
 
   return null;
@@ -55,33 +59,24 @@ function ArtistRuntimeStudioContextRecorder({
 export function ArtistRuntimeStateProvider({
   userId,
   studioIds,
+  initialStudioId,
   cacheEpoch,
   children,
 }: {
   userId: string;
   studioIds: string[];
+  initialStudioId: string | null;
   cacheEpoch: number | string;
   children: ReactNode;
 }) {
   const { isLoaded, userId: clerkUserId } = useAuth();
   const searchParams = useSearchParams();
   const requestedStudioId = searchParams.get("studio");
-  const storage = canReadArtistRuntimeStudioContext(
-    isLoaded,
-    clerkUserId,
-    userId,
-  )
-    ? getBrowserRuntimeStorage()
-    : null;
   const contextId =
-    resolveArtistRuntimeStudioContext(
-      // A queryless server route deterministically renders the first current
-      // studio. Do not let a device-only last-studio pointer give the client
-      // shell a different identity from the server content.
-      requestedStudioId === null ? null : storage,
-      userId,
-      studioIds,
+    resolveArtistStudioId(
+      studioIds.map((producerId) => ({ producerId })),
       requestedStudioId,
+      initialStudioId,
     ) ?? "artist-no-studio";
   const identity = useMemo(
     () => ({ userId, role: "artist" as const, contextId }),
@@ -90,7 +85,11 @@ export function ArtistRuntimeStateProvider({
 
   return (
     <RuntimeStateProvider identity={identity}>
-      <ArtistRuntimeStudioContextRecorder studioIds={studioIds} />
+      <ArtistRuntimeStudioContextRecorder
+        studioIds={studioIds}
+        authIsLoaded={isLoaded}
+        authenticatedUserId={clerkUserId}
+      />
       <RuntimeNavigationBridge cacheEpoch={cacheEpoch} />
       {children}
     </RuntimeStateProvider>

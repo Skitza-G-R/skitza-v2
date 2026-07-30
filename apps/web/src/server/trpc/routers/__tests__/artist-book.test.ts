@@ -14,6 +14,10 @@ const repositorySource = readFileSync(
   join(here, "..", "..", "..", "domain", "session-booking", "db.ts"),
   "utf8",
 );
+const disconnectDomainSource = readFileSync(
+  join(here, "..", "..", "..", "artist", "disconnect.ts"),
+  "utf8",
+);
 const availability = source.slice(
   source.indexOf("availability: artistProcedure"),
   source.indexOf("activePackages: artistProcedure"),
@@ -59,14 +63,11 @@ describe("artist.book purchase-owned session boundary", () => {
   });
 
   it("requires a project and exact purchase allowance identity", () => {
-    expect(confirm).toMatch(
-      /const targetProjectId = input\.existingProjectId \?\? input\.projectId/,
-    );
-    expect(confirm).toMatch(/A purchased session allowance is required/);
+    expect(confirm).toMatch(/projectId: z\.string\(\)\.uuid\(\)/);
     expect(confirm).toMatch(/purchaseId: z\.string\(\)\.uuid\(\)/);
     expect(confirm).toMatch(/sessionAllowanceId: z\.string\(\)\.uuid\(\)/);
     expect(confirm).toMatch(/createSessionBooking\(sessionBookingRepository\(ctx\.db\)/);
-    expect(confirm).toMatch(/projectId: targetProjectId/);
+    expect(confirm).toMatch(/projectId: input\.projectId/);
     expect(confirm).toMatch(/purchaseId: input\.purchaseId/);
     expect(confirm).toMatch(/sessionAllowanceId: input\.sessionAllowanceId/);
     expect(confirm).toMatch(/actorClerkUserId: ctx\.clerkUserId/);
@@ -78,7 +79,12 @@ describe("artist.book purchase-owned session boundary", () => {
     expect(repositorySource).toContain("session-booking:allowance:${anchors.sessionAllowanceId}");
     expect(repositorySource).toContain("return work(transactionAdapter(tx))");
     expect(domainSource).toMatch(/assertSessionBookingAllowed\(\{/);
-    expect(domainSource).toMatch(/existingOutcomes:\s*uses[\s\S]*\.map\(\(use\) => use\.outcome\)/);
+    expect(domainSource).toMatch(
+      /distinctConsumingUses\.set\(use\.allowanceUseId, use\.outcome\)/,
+    );
+    expect(domainSource).toMatch(
+      /existingOutcomes:\s*\[\.\.\.distinctConsumingUses\.values\(\)\]/,
+    );
     expect(domainSource).toMatch(/requestedDurationMin: input\.durationMin/);
   });
 
@@ -114,20 +120,43 @@ describe("artist.book purchase-owned session boundary", () => {
     expect(insert).toBeGreaterThanOrEqual(0);
   });
 
-  it("makes disconnect contact locking, active-booking check, and archive one transaction", () => {
-    const transaction = disconnect.indexOf("ctx.db.transaction");
-    const producerLock = disconnect.indexOf("pg_advisory_xact_lock", transaction);
-    const contactRead = disconnect.indexOf(".from(clientContacts)", producerLock);
-    const rowLock = disconnect.indexOf('.for("update")', contactRead);
-    const activeBookingRead = disconnect.indexOf("const activeBookings", rowLock);
-    const archive = disconnect.indexOf(".update(clientContacts)", activeBookingRead);
+  it("routes the legacy disconnect RPC through the canonical safety boundary exactly once", () => {
+    expect(disconnect.match(/commitArtistStudioDisconnect\(/g)).toHaveLength(1);
+    expect(disconnect).toContain("clerkUserId: ctx.clerkUserId");
+    expect(disconnect).toContain("producerId: input.producerId");
+    expect(disconnect).toContain("mapArtistDisconnectDomainError(error)");
+    expect(disconnect).not.toMatch(
+      /ctx\.db\.transaction|\.update\(clientContacts\)|\.insert\(artistHistoricalAccessGrants\)/,
+    );
+  });
 
-    expect(transaction).toBeGreaterThanOrEqual(0);
-    expect(producerLock).toBeGreaterThan(transaction);
-    expect(contactRead).toBeGreaterThan(producerLock);
-    expect(rowLock).toBeGreaterThan(contactRead);
-    expect(activeBookingRead).toBeGreaterThan(rowLock);
-    expect(archive).toBeGreaterThan(activeBookingRead);
+  it("rechecks every blocker before capturing grants and archiving contacts", () => {
+    const commit = disconnectDomainSource.slice(
+      disconnectDomainSource.indexOf("export async function commitArtistStudioDisconnect"),
+    );
+    const snapshot = commit.indexOf("loadDisconnectSnapshot");
+    const blockerPolicy = commit.indexOf("evaluateArtistDisconnectBlockers", snapshot);
+    const blocked = commit.indexOf('new ArtistDisconnectError(\n          "BLOCKED"', blockerPolicy);
+    const grantCapture = commit.indexOf("captureHistoricalGrants", blocked);
+    const archive = commit.indexOf(".update(clientContacts)", grantCapture);
+
+    expect(snapshot).toBeGreaterThanOrEqual(0);
+    expect(blockerPolicy).toBeGreaterThan(snapshot);
+    expect(blocked).toBeGreaterThan(blockerPolicy);
+    expect(grantCapture).toBeGreaterThan(blocked);
+    expect(archive).toBeGreaterThan(grantCapture);
+    expect(commit.match(/captureHistoricalGrants\(/g)).toHaveLength(1);
+
+    for (const blockerSource of [
+      "purchaseRequests",
+      "purchases",
+      "paymentProofs",
+      "bookings",
+      "purchaseSessionAllowances",
+    ]) {
+      expect(disconnectDomainSource).toContain(`.from(${blockerSource})`);
+    }
+    expect(disconnectDomainSource).toContain(".onConflictDoNothing()");
   });
 
   it("prevents slot races using only canonical active statuses", () => {
