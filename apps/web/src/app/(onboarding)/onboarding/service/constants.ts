@@ -11,28 +11,23 @@ import type { OnboardingStep } from "../decide-redirect";
 // of 5 because the legacy /services chip-multi-select step is dropped
 // (Decision #4: drop service_roles entirely).
 
-/** 1-indexed rail position. Pinned by tests. */
-export const SERVICE_STEP_INDEX: 1 | 2 | 3 | 4 | 5 = 2;
+/** 1-indexed outer milestone. The seven Store steps replace this rail while open. */
+export const SERVICE_STEP_INDEX: 1 | 2 | 3 | 4 | 5 = 3;
 
-export const SERVICE_STEP_TITLE = "Pick your first service.";
+export const SERVICE_STEP_TITLE = "Create your first product.";
 
 export const SERVICE_STEP_SUBTITLE =
-  "Pick a starter, tweak the price, you're done. Add more later.";
+  "Use the same seven steps as Store. It stays hidden until your final review.";
 
 /** OnboardingStep tag — drives decideOnboardingRedirect at the layout. */
 export const ONBOARDING_STEP_NAME: OnboardingStep = "service";
 
-/** Step 2 → Step 3 route. */
+/** A session product needs working hours before review. */
 export function nextRouteAfterService(): "/onboarding/availability" {
   return "/onboarding/availability";
 }
 
-/** Step 2 Skip target — same destination as Continue (no save needed). */
-export function routeOnSkipFromService(): "/onboarding/availability" {
-  return "/onboarding/availability";
-}
-
-/** Step 2 → Step 1 route for the Back button (was /services in legacy). */
+/** Product → public identity. */
 export function routeOnBackFromService(): "/onboarding/studio" {
   return "/onboarding/studio";
 }

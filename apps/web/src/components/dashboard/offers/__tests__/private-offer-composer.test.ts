@@ -26,7 +26,8 @@ describe("PrivateOfferComposer", () => {
     expect(SRC).toMatch(/onOpenChange\?\.\(nextOpen\)/);
     expect(SRC).toMatch(/<DialogPrimitive\.Root open=\{open\} onOpenChange=\{handleOpenChange\}>/);
     expect(SRC).toMatch(/trigger !== null/);
-    expect(SRC).toMatch(/trigger \?\? \([\s\S]*?Send custom offer/);
+    expect(SRC).toMatch(/trigger \?\? \([\s\S]*?New private offer/);
+    expect(SRC).toContain("bg-[rgb(var(--brand-primary))]");
   });
 
   it("lets a controlled caller refresh only after a successful create", () => {
@@ -66,6 +67,22 @@ describe("PrivateOfferComposer", () => {
     expect(SRC).toContain("max-sm:w-full");
     expect(SRC).toContain("safe-area-inset-bottom");
     expect(SRC).toContain("overflow-y-auto");
+  });
+
+  it("guides the private offer through five validated steps", () => {
+    for (const step of ["recipient", "work", "payment", "rights", "agreement"]) {
+      expect(SRC).toContain(`id: "${step}"`);
+    }
+    expect(SRC).toMatch(
+      /const \[currentStep, setCurrentStep\] = useState<OfferStep>\("recipient"\)/,
+    );
+    expect(SRC).toMatch(/setCurrentStep\("recipient"\)/);
+    expect(SRC).toContain('aria-label="Private offer progress"');
+    expect(SRC).toContain('aria-current={index === currentStepIndex ? "step" : undefined}');
+    expect(SRC).toContain("Step {currentStepIndex + 1} of {OFFER_STEPS.length}");
+    expect(SRC).toContain("Back");
+    expect(SRC).toContain("Next");
+    expect(SRC).toMatch(/if \(!isLastStep\)[\s\S]*?currentStepResult\(\)/);
   });
 
   it("supports an existing recipient or a new verified-email recipient", () => {

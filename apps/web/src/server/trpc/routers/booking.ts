@@ -305,6 +305,9 @@ const ProductInputShape = {
   // accepted so an editor can clear the legacy column without a migration.
   contractUrl: z.null().optional(),
   agreementText: z.string().max(20_000).nullable().optional(),
+  // Visibility is part of creation so "Save hidden" never exposes a product
+  // between two mutations. Existing callers omit it and stay live by default.
+  active: z.boolean().default(true),
 };
 
 const ProductInput = z.object(ProductInputShape).superRefine((val, ctx) => {
@@ -708,7 +711,7 @@ const productsRouter = router({
         paymentPlans: values.paymentPlans ?? [{ kind: "full" }],
         royaltyTerms: values.royaltyTerms ?? null,
         agreementText: values.agreementText ?? null,
-        active: true,
+        active: values.active,
         archivedAt: null,
       });
     } catch (error) {
@@ -915,9 +918,20 @@ const productsRouter = router({
   // products. Distinct from `archive`, which moves the row
   // to a soft-deleted state and removes it from the dashboard list.
   setActive: producerProcedure
-    .input(z.object({ id: z.string().uuid(), active: z.boolean() }))
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        active: z.boolean(),
+        requireAvailability: z.boolean().optional().default(false),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       return ctx.db.transaction(async (tx) => {
+        if (input.active && input.requireAvailability) {
+          await tx.execute(
+            sql`select pg_advisory_xact_lock(hashtextextended(${sessionBookingScheduleAdvisoryLockKey(ctx.producerId)}, 0))`,
+          );
+        }
         const [existing] = await tx
           .select()
           .from(products)
@@ -925,6 +939,19 @@ const productsRouter = router({
           .limit(1)
           .for("update");
         if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+        if (input.active && input.requireAvailability && existing.bookingEnabled) {
+          const [availability] = await tx
+            .select({ id: availabilityBlocks.id })
+            .from(availabilityBlocks)
+            .where(eq(availabilityBlocks.producerId, ctx.producerId))
+            .limit(1);
+          if (!availability) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Add working hours before publishing this product.",
+            });
+          }
+        }
         try {
           mergeAndValidateStoreProduct(existing as StoreProductCommercialInput, {
             active: input.active,

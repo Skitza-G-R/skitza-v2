@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   pathname: "/dashboard",
   reducedMotion: false,
+  search: "",
 }));
 
 vi.mock("@clerk/nextjs", () => {
@@ -43,7 +44,7 @@ vi.mock("next/link", () => ({
 
 vi.mock("next/navigation", () => ({
   usePathname: () => mocks.pathname,
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(mocks.search),
 }));
 
 vi.mock("next-intl", () => ({
@@ -182,6 +183,8 @@ function AccountOverlayLifecycleHarness() {
 beforeEach(() => {
   mocks.pathname = "/dashboard";
   mocks.reducedMotion = false;
+  mocks.search = "";
+  window.history.replaceState(null, "", "/dashboard");
   installPointerCapture();
   vi.stubGlobal(
     "matchMedia",
@@ -204,6 +207,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   delete (HTMLElement.prototype as Partial<HTMLElement>).setPointerCapture;
   delete (HTMLElement.prototype as Partial<HTMLElement>).hasPointerCapture;
@@ -211,6 +215,81 @@ afterEach(() => {
 });
 
 describe("ProducerMobileActions account sheet interaction", () => {
+  it("consumes the post-onboarding cue once and dismisses it when the avatar opens", async () => {
+    mocks.search = "storeTip=1";
+    window.history.replaceState(null, "", "/dashboard?storeTip=1");
+
+    const { rerender } = render(<ProducerMobileActions producerSlug={null} />);
+
+    expect(await screen.findByText("Manage your Store from your profile photo.")).not.toBeNull();
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/dashboard");
+      expect(window.location.search).toBe("");
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Open account menu",
+      }),
+    );
+    expect(screen.queryByTestId("producer-store-tip")).toBeNull();
+    expect(screen.getByTestId("account-sheet")).not.toBeNull();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    rerender(<ProducerMobileActions producerSlug={null} />);
+    expect(screen.queryByTestId("producer-store-tip")).toBeNull();
+  });
+
+  it("preserves unrelated query state and the hash when consuming the cue", async () => {
+    mocks.search = "project=active&storeTip=1";
+    window.history.replaceState(
+      null,
+      "",
+      "/dashboard?project=active&storeTip=1#recent",
+    );
+
+    render(<ProducerMobileActions producerSlug={null} />);
+
+    expect(await screen.findByText("Manage your Store from your profile photo.")).not.toBeNull();
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/dashboard");
+      expect(window.location.search).toBe("?project=active");
+      expect(window.location.hash).toBe("#recent");
+    });
+  });
+
+  it("dismisses the post-onboarding cue when navigation changes", async () => {
+    mocks.search = "storeTip=1";
+    window.history.replaceState(null, "", "/dashboard?storeTip=1");
+
+    const { rerender } = render(<ProducerMobileActions producerSlug={null} />);
+    expect(await screen.findByText("Manage your Store from your profile photo.")).not.toBeNull();
+
+    mocks.pathname = "/dashboard/music";
+    mocks.search = "";
+    rerender(<ProducerMobileActions producerSlug={null} />);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("producer-store-tip")).toBeNull();
+    });
+  });
+
+  it("renders Store first in a one-column account menu with its helper", () => {
+    render(<ProducerMobileActions producerSlug={null} />);
+    openAccountSheet();
+
+    const links = screen.getAllByRole("link");
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      "/dashboard/store",
+      "/dashboard/settings",
+    ]);
+    expect(links[0]?.textContent).toContain("Store");
+    expect(links[0]?.textContent).toContain("Products and private offers");
+    const profileLinks = screen.getByTestId("producer-mobile-profile-links");
+    expect(profileLinks.classList.contains("grid-cols-1")).toBe(true);
+    expect(profileLinks.classList.contains("grid-cols-2")).toBe(false);
+  });
+
   it("opens with the scoped motion surface and a fixed drag handle", () => {
     render(<ProducerMobileActions producerSlug={null} />);
 

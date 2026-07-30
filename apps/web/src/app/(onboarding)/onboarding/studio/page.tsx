@@ -1,184 +1,103 @@
-"use client";
+import { auth } from "@clerk/nextjs/server";
+import { createDb, eq, producers } from "@skitza/db";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 
-import { ArrowRight } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { inferCurrency } from "~/lib/onboarding/derive";
+import { isDevPreviewBypass } from "~/lib/onboarding/dev-preview";
+import { fetchUserRole } from "~/server/auth/role";
 
-import { WizardChrome } from "~/components/onboarding/wizard-shell/wizard-chrome";
-import { WizardFooter } from "~/components/onboarding/wizard-shell/wizard-footer";
-import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
+import { decideOnboardingRedirect } from "../decide-redirect";
+import {
+  StudioStepClient,
+  defaultTimezone,
+  isContinueAllowed,
+  nextRouteAfterStudio,
+  STUDIO_STEP_INDEX,
+  STUDIO_STEP_SUBTITLE,
+  STUDIO_STEP_TITLE,
+} from "./studio-step-client";
 
-import { completeStudio } from "../actions";
+export {
+  defaultTimezone,
+  isContinueAllowed,
+  nextRouteAfterStudio,
+  STUDIO_STEP_INDEX,
+  STUDIO_STEP_SUBTITLE,
+  STUDIO_STEP_TITLE,
+};
 
-// Step 1 — Identity / "Your hall".
-//
-// May 2026 redesign — minimal capture: just the studio/producer name.
-// The slug stays server-derived + hidden (Decision #1) and the earlier
-// rev's monogram + tagline fields were dropped per Gili's 2026-05-09
-// pass — they'd require a schema migration that's out-of-scope, and
-// the simpler form fits the no-scroll constraint cleanly.
-//
-// Pure helpers (constants + isContinueAllowed + defaultTimezone +
-// nextRouteAfterStudio) are exported so the unit test pins behaviour
-// without RTL — the repo runs vitest in `node` env.
+export default async function StudioStepPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
+  const isPreview = isDevPreviewBypass(params);
+  const requestHeaders = await headers();
+  const inferredCurrency = inferCurrency(
+    requestHeaders.get("x-vercel-ip-country"),
+    requestHeaders.get("accept-language"),
+  );
 
-/** 1-indexed step number (rail position). Pinned by tests. */
-export const STUDIO_STEP_INDEX: 1 | 2 | 3 | 4 | 5 = 1;
-
-export const STUDIO_STEP_TITLE = "Your hall, in one breath.";
-
-export const STUDIO_STEP_SUBTITLE =
-  "Just your name to start. Everything's editable later.";
-
-/**
- * Continue button gate. Trimmed name must have ≥ 2 characters. Server
- * action also re-validates with zod.
- */
-export function isContinueAllowed(displayName: string): boolean {
-  return displayName.trim().length >= 2;
-}
-
-export function defaultTimezone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  } catch {
-    return "UTC";
+  if (isPreview) {
+    return (
+      <StudioStepClient
+        initialDisplayName=""
+        initialSlug=""
+        initialCurrency={inferredCurrency}
+        initialTimezone="UTC"
+        previewMode
+      />
+    );
   }
-}
 
-/**
- * Step 1 → Step 2 route. The legacy `/onboarding/services` chip step
- * is dropped (Decision #4: drop service_roles entirely), so Step 1
- * advances directly to `/onboarding/service` (the template picker).
- */
-export function nextRouteAfterStudio(): "/onboarding/service" {
-  return "/onboarding/service";
-}
+  const { userId } = await auth();
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) throw new Error("missing DATABASE_URL");
 
-export default function StudioStepPage() {
-  const router = useRouter();
-  const online = useOnlineStatus();
-  const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const [displayName, setDisplayName] = useState("");
+  const role = await fetchUserRole({ dbUrl, userId });
+  const redirectTo = decideOnboardingRedirect(role, "studio");
+  if (redirectTo) redirect(redirectTo);
 
-  const allowContinue = isContinueAllowed(displayName);
-
-  function handleContinue() {
-    if (!allowContinue) return;
-    setError(null);
-    if (!online) {
-      setError("Reconnect to save your studio.");
-      return;
-    }
-    startTransition(async () => {
-      try {
-        await completeStudio({
-          displayName: displayName.trim(),
-          timezone: defaultTimezone(),
-        });
-        router.push(nextRouteAfterStudio());
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Something went wrong");
-      }
-    });
+  if (role.kind !== "producer-complete" && role.kind !== "producer-incomplete") {
+    return (
+      <StudioStepClient
+        initialDisplayName=""
+        initialSlug=""
+        initialCurrency={inferredCurrency}
+        initialTimezone="UTC"
+      />
+    );
   }
+
+  const db = createDb(dbUrl);
+  const [producer] = await db
+    .select({
+      displayName: producers.displayName,
+      slug: producers.slug,
+      defaultCurrency: producers.defaultCurrency,
+      timezone: producers.timezone,
+    })
+    .from(producers)
+    .where(eq(producers.id, role.producer.id))
+    .limit(1);
+
+  const supportedCurrency =
+    producer?.defaultCurrency === "EUR" ||
+    producer?.defaultCurrency === "GBP" ||
+    producer?.defaultCurrency === "ILS" ||
+    producer?.defaultCurrency === "USD"
+      ? producer.defaultCurrency
+      : inferredCurrency;
 
   return (
-    <WizardChrome
-      activePosition={STUDIO_STEP_INDEX}
-      stepIndicator="Step 1 of 5"
-      footer={
-        <WizardFooter
-          onBack={() => { router.push("/onboarding/welcome"); }}
-          onContinue={handleContinue}
-          continueDisabled={!allowContinue}
-          pending={pending}
-        />
-      }
-    >
-      <div className="ob-stagger">
-        <p className="font-mono text-[11px] font-bold uppercase tracking-[0.22em] text-[rgb(var(--brand-primary-dark))]">
-          Step 1 of 5 · Required
-        </p>
-        <h1
-          className="mt-3 font-display text-[30px] font-extrabold leading-[1.05] tracking-[-0.03em] text-balance"
-          style={{ fontVariationSettings: '"opsz" 96' }}
-        >
-          {STUDIO_STEP_TITLE}
-        </h1>
-        <p className="mt-2.5 text-[15px] leading-relaxed text-[rgb(var(--fg-muted))]">
-          {STUDIO_STEP_SUBTITLE}
-        </p>
-
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleContinue();
-          }}
-          className="mt-7"
-        >
-          <label
-            htmlFor="displayName"
-            className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.16em] text-[rgb(var(--fg-muted))]"
-          >
-            Studio or producer name
-          </label>
-          <input
-            id="displayName"
-            type="text"
-            value={displayName}
-            onChange={(e) => { setDisplayName(e.target.value); }}
-            placeholder="e.g. Yael Naim Studio"
-            required
-            autoFocus
-            maxLength={80}
-            className="w-full rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3.5 text-[16px] font-medium text-[rgb(var(--fg-default))] outline-none transition-shadow placeholder:text-[rgb(var(--fg-faint))] focus:border-[rgb(var(--brand-primary))] focus:shadow-[0_0_0_4px_rgba(212,150,10,0.12)]"
-          />
-          <p className="mt-2 text-[12.5px] text-[rgb(var(--fg-muted))]">
-            Shown at the top of your public hall. You can change this anytime.
-          </p>
-
-          {error ? (
-            <p
-              role="alert"
-              className="mt-4 text-[13px] text-[rgb(var(--fg-danger))]"
-            >
-              {error}
-            </p>
-          ) : null}
-        </form>
-
-        {/* Live storefront preview — same warm card the producer's
-            visitors will see at /join/<slug>. Updates as they type. */}
-        <div className="mt-6">
-          <p className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.22em] text-[rgb(var(--fg-muted))]">
-            Preview
-          </p>
-          <div className="ob-breath relative overflow-hidden rounded-2xl border border-[rgb(var(--border-subtle))] bg-gradient-to-br from-[rgb(var(--bg-background))] to-[rgb(var(--bg-elevated))] p-5">
-            <div
-              aria-hidden
-              className="absolute right-[-30px] top-[-30px] h-32 w-32 rounded-full bg-[rgb(var(--brand-primary)/0.18)] blur-3xl"
-            />
-            <p className="relative font-mono text-[10px] font-bold uppercase tracking-[0.22em] text-[rgb(var(--fg-muted))]">
-              skitza.app/your-hall
-            </p>
-            <h2
-              className="relative mt-2 font-display text-[22px] font-extrabold leading-[1.05] tracking-[-0.03em] text-[rgb(var(--fg-default))]"
-              style={{ fontVariationSettings: '"opsz" 96' }}
-            >
-              {displayName.trim() || "Your studio name"}
-            </h2>
-            <p className="relative mt-1 text-[12px] text-[rgb(var(--fg-muted))]">
-              The card artists land on. You can change everything later.
-            </p>
-            <div className="relative mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[rgb(var(--bg-sidebar))] px-3 py-1.5 text-[11px] font-bold text-white">
-              Book a session
-              <ArrowRight size={11} aria-hidden />
-            </div>
-          </div>
-        </div>
-      </div>
-    </WizardChrome>
+    <StudioStepClient
+      initialDisplayName={producer?.displayName ?? ""}
+      initialSlug={producer?.slug ?? role.producer.slug}
+      initialCurrency={supportedCurrency}
+      initialTimezone={producer?.timezone ?? "UTC"}
+      canExit={role.kind === "producer-complete"}
+    />
   );
 }

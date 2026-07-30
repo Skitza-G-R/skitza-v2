@@ -105,6 +105,28 @@ describe("producer mobile account + public-link controls", () => {
     ).toBeGreaterThanOrEqual(3);
   });
 
+  it("keeps Store first in a stacked account menu with its agreed helper", () => {
+    const linksStart = ACTIONS_SRC.indexOf('data-testid="producer-mobile-profile-links"');
+    const storeStart = ACTIONS_SRC.indexOf('href="/dashboard/store"', linksStart);
+    const settingsStart = ACTIONS_SRC.indexOf('href="/dashboard/settings"', linksStart);
+
+    expect(linksStart).toBeGreaterThanOrEqual(0);
+    expect(storeStart).toBeGreaterThan(linksStart);
+    expect(settingsStart).toBeGreaterThan(storeStart);
+    expect(ACTIONS_SRC).toContain("grid-cols-1");
+    expect(ACTIONS_SRC).toContain("Products and private offers");
+    expect(ACTIONS_SRC).not.toContain("grid-cols-2");
+  });
+
+  it("consumes the post-onboarding Store cue from the URL", () => {
+    expect(ACTIONS_SRC).toMatch(/searchParams\.get\("storeTip"\)\s*!==\s*"1"/);
+    expect(ACTIONS_SRC).toContain('nextParams.delete("storeTip")');
+    expect(ACTIONS_SRC).toContain("window.history.replaceState");
+    expect(ACTIONS_SRC).toContain("Manage your Store from your profile photo.");
+    expect(ACTIONS_SRC).toContain('data-testid="producer-store-tip"');
+    expect(ACTIONS_SRC).toContain('aria-label="Dismiss Store tip"');
+  });
+
   it("keeps the accepted target mounted until the exact href actually commits", () => {
     expect(ACTIONS_SRC).toContain("const pathname = usePathname()");
     expect(ACTIONS_SRC).toContain("const searchParams = useSearchParams()");

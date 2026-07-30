@@ -22,12 +22,18 @@
 import { Minus, Plus } from "lucide-react";
 
 interface LogisticsStepProps {
-  bookingEnabled: boolean;
+  includesSessions?: boolean;
+  sessions?: number;
+  unlimitedSessions?: boolean;
+  pricingModel?: "flat" | "per_song";
   duration: string;
   revisions: number;
   unlimitedRevisions: boolean;
   onChange: (
     patch: Partial<{
+      includesSessions: boolean;
+      sessions: number;
+      unlimitedSessions: boolean;
       bookingEnabled: boolean;
       duration: string;
       revisions: number;
@@ -150,7 +156,10 @@ function Stepper({
 }
 
 export function LogisticsStep({
-  bookingEnabled,
+  includesSessions = true,
+  sessions = 1,
+  unlimitedSessions = false,
+  pricingModel = "flat",
   duration,
   revisions,
   unlimitedRevisions,
@@ -159,109 +168,170 @@ export function LogisticsStep({
   const preset = parsePresetFromDuration(duration);
   const customMinutes = customMinutesFromDuration(duration);
 
-  return (
-    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-6">
-      <label className="flex min-h-20 cursor-pointer items-start gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 transition-colors focus-within:ring-2 focus-within:ring-[rgb(var(--brand-primary)/0.35)] hover:border-[rgb(var(--border-strong))] sm:col-span-2">
-        <input
-          type="checkbox"
-          checked={bookingEnabled}
-          onChange={(event) => {
-            onChange({ bookingEnabled: event.target.checked });
-          }}
-          className="mt-0.5 h-5 w-5 shrink-0 accent-[rgb(var(--brand-primary))]"
-        />
-        <span className="min-w-0">
-          <span className="block text-[14px] font-semibold text-[rgb(var(--fg-default))]">
-            Let artists book sessions
-          </span>
-          <span className="mt-1 block text-[12px] leading-relaxed text-[rgb(var(--fg-muted))]">
-            Artists who buy this product can use its included sessions to book time with you.
-          </span>
-        </span>
-      </label>
+  const choiceClass =
+    "sk-press min-h-11 flex-1 rounded-[var(--radius-lg)] border px-3 py-2 text-[13px] font-semibold transition-colors sm:rounded-[var(--radius-md)]";
 
-      {/* Duration */}
-      <fieldset
-        disabled={!bookingEnabled}
-        className={[
-          "flex min-w-0 flex-col gap-2 border-0 p-0 transition-opacity",
-          bookingEnabled ? "" : "opacity-45",
-        ].join(" ")}
-      >
-        <legend className="mb-1.5 text-[10.5px] font-[var(--font-outfit)] font-bold tracking-[0.16em] text-[rgb(var(--fg-muted))] uppercase">
-          Session duration
+  return (
+    <div className="flex flex-col gap-5">
+      <fieldset className="min-w-0 border-0 p-0">
+        <legend className="font-display text-[16px] font-bold tracking-[-0.01em] text-[rgb(var(--fg-default))]">
+          Does this product include bookable sessions?
         </legend>
-        <div className="flex flex-wrap gap-2">
-          <DurationChip
-            label="1 hr"
-            value="60 min"
-            active={preset === "1hr"}
-            onChange={() => {
-              onChange({ duration: "60 min" });
+        <p className="mt-1 text-[12px] leading-relaxed text-[rgb(var(--fg-muted))]">
+          Choose yes only when the artist receives time they can book with you.
+        </p>
+        <div className="mt-3 flex gap-2" role="group" aria-label="Bookable sessions included">
+          <button
+            type="button"
+            aria-pressed={includesSessions}
+            onClick={() => {
+              onChange({
+                includesSessions: true,
+                bookingEnabled: true,
+                ...(duration ? {} : { duration: "60 min" }),
+              });
             }}
-          />
-          <DurationChip
-            label="2 hr"
-            value="120 min"
-            active={preset === "2hr"}
-            onChange={() => {
-              onChange({ duration: "120 min" });
+            className={[
+              choiceClass,
+              includesSessions
+                ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))]"
+                : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))]",
+            ].join(" ")}
+          >
+            Yes, sessions included
+          </button>
+          <button
+            type="button"
+            aria-pressed={!includesSessions}
+            onClick={() => {
+              onChange({ includesSessions: false, bookingEnabled: false });
             }}
-          />
-          <DurationChip
-            label="3 hr"
-            value="180 min"
-            active={preset === "3hr"}
-            onChange={() => {
-              onChange({ duration: "180 min" });
-            }}
-          />
-          <DurationChip
-            label="Custom"
-            value="custom"
-            active={preset === "custom"}
-            onChange={() => {
-              // Drop into Custom mode with an empty input; canContinue
-              // stays false until the producer types a number.
-              onChange({ duration: "" });
-            }}
-          />
+            className={[
+              choiceClass,
+              !includesSessions
+                ? "border-[rgb(var(--fg-default))] bg-[rgb(var(--fg-default))] text-[rgb(var(--bg-elevated))]"
+                : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))]",
+            ].join(" ")}
+          >
+            No, delivery only
+          </button>
         </div>
-        {preset === "custom" ? (
-          <div className="mt-1 flex flex-col gap-1">
-            <input
-              id="logistics-step-custom-minutes"
-              type="number"
-              min={1}
-              max={999}
-              inputMode="numeric"
-              value={customMinutes}
-              onChange={(e) => {
-                const v = e.target.value.trim();
-                if (v === "") {
-                  onChange({ duration: "" });
-                  return;
-                }
-                const n = parseInt(v, 10);
-                if (Number.isFinite(n) && n > 0) {
-                  onChange({ duration: `${String(n)} min` });
-                } else {
-                  onChange({ duration: "" });
-                }
-              }}
-              placeholder="e.g. 45"
-              aria-label="Custom session length in minutes"
-              className="h-11 w-32 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-base text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-faint))] focus:border-[rgb(var(--brand-primary))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.25)] focus:outline-none sm:h-10 sm:rounded-[var(--radius-md)] sm:text-[14px]"
-            />
-            <div className="text-[11.5px] text-[rgb(var(--fg-faint))]">
-              Custom session length in minutes.
-            </div>
-          </div>
-        ) : null}
       </fieldset>
 
-      {/* Revisions */}
-      <div className="flex flex-col gap-2">
+      {includesSessions ? (
+        <div className="grid grid-cols-1 gap-5 border-t border-[rgb(var(--border-subtle))] pt-5 sm:grid-cols-2 sm:gap-6">
+          <div className="flex min-w-0 flex-col gap-2">
+            <Eyebrow>
+              {pricingModel === "per_song" ? "Bookable sessions per song" : "Bookable sessions"}
+            </Eyebrow>
+            <div className="flex flex-wrap items-center gap-2">
+              <Stepper
+                value={sessions}
+                min={1}
+                max={99}
+                disabled={unlimitedSessions}
+                {...(unlimitedSessions ? { display: "∞" } : {})}
+                onChange={(next) => {
+                  onChange({ sessions: next });
+                }}
+                ariaLabel="Bookable sessions count"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  onChange({ unlimitedSessions: !unlimitedSessions });
+                }}
+                aria-pressed={unlimitedSessions}
+                aria-label="Unlimited bookable sessions"
+                className={[
+                  "sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-lg)] border px-4 text-[13px] font-semibold transition-colors sm:h-10 sm:rounded-[var(--radius-md)]",
+                  unlimitedSessions
+                    ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))]"
+                    : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] hover:border-[rgb(var(--border-strong))]",
+                ].join(" ")}
+              >
+                Unlimited
+              </button>
+            </div>
+          </div>
+
+          <fieldset className="flex min-w-0 flex-col gap-2 border-0 p-0">
+            <legend className="mb-1.5 text-[10.5px] font-[var(--font-outfit)] font-bold tracking-[0.16em] text-[rgb(var(--fg-muted))] uppercase">
+              Length of each session
+            </legend>
+            <div className="flex flex-wrap gap-2">
+              <DurationChip
+                label="1 hr"
+                value="60 min"
+                active={preset === "1hr"}
+                onChange={() => {
+                  onChange({ duration: "60 min" });
+                }}
+              />
+              <DurationChip
+                label="2 hr"
+                value="120 min"
+                active={preset === "2hr"}
+                onChange={() => {
+                  onChange({ duration: "120 min" });
+                }}
+              />
+              <DurationChip
+                label="3 hr"
+                value="180 min"
+                active={preset === "3hr"}
+                onChange={() => {
+                  onChange({ duration: "180 min" });
+                }}
+              />
+              <DurationChip
+                label="Custom"
+                value="custom"
+                active={preset === "custom"}
+                onChange={() => {
+                  onChange({ duration: "" });
+                }}
+              />
+            </div>
+            {preset === "custom" ? (
+              <div className="mt-1 flex flex-col gap-1">
+                <input
+                  id="logistics-step-custom-minutes"
+                  type="number"
+                  min={1}
+                  max={999}
+                  inputMode="numeric"
+                  value={customMinutes}
+                  onChange={(event) => {
+                    const value = event.target.value.trim();
+                    if (!value) {
+                      onChange({ duration: "" });
+                      return;
+                    }
+                    const minutes = Number.parseInt(value, 10);
+                    onChange({
+                      duration:
+                        Number.isFinite(minutes) && minutes > 0 ? `${String(minutes)} min` : "",
+                    });
+                  }}
+                  placeholder="e.g. 45"
+                  aria-label="Custom session length in minutes"
+                  className="h-11 w-32 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-base text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-faint))] focus:border-[rgb(var(--brand-primary))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.25)] focus:outline-none sm:h-10 sm:rounded-[var(--radius-md)] sm:text-[14px]"
+                />
+                <div className="text-[11.5px] text-[rgb(var(--fg-faint))]">
+                  Custom session length in minutes.
+                </div>
+              </div>
+            ) : null}
+          </fieldset>
+        </div>
+      ) : (
+        <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3 text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
+          Artists receive the listed deliverables and revisions, with no bookable time included.
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2 border-t border-[rgb(var(--border-subtle))] pt-5">
         <Eyebrow>Revisions</Eyebrow>
         <div className="flex items-center gap-2">
           <Stepper

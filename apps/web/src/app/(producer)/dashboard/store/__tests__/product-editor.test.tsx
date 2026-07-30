@@ -36,11 +36,33 @@ describe("ProductEditor orchestrator", () => {
     expect(SRC).toMatch(/<ReviewStep/);
   });
 
-  it("defaults new products to non-bookable and persists the explicit booking choice", () => {
+  it("keeps the session choice canonical across new, restored, preset, and edited drafts", () => {
     expect(SRC).toMatch(/bookingEnabled:\s*false/);
-    expect(SRC).toMatch(/bookingEnabled:\s*product\.bookingEnabled/);
+    expect(SRC).toMatch(/const includesSessions = product\.bookingEnabled/);
+    expect(SRC).toMatch(/bookingEnabled:\s*includesSessions/);
+    expect(SRC).toMatch(/bookingEnabled:\s*preset\.preset\.includesSessions/);
     expect(SRC).toMatch(/bookingEnabled=\{draft\.bookingEnabled\}/);
-    expect(PAYLOAD_SRC).toMatch(/bookingEnabled:\s*draft\.bookingEnabled/);
+    expect(PAYLOAD_SRC).toMatch(/bookingEnabled:\s*includesSessions/);
+  });
+
+  it("returns both canonical session fields after submission", () => {
+    expect(SRC).toMatch(
+      /onSubmittedResult\?:\s*\(result:\s*\{[\s\S]*?includesSessions:\s*boolean;[\s\S]*?bookingEnabled:\s*boolean;/,
+    );
+    expect(SRC).toMatch(
+      /onSubmittedResult\?\.\(\{[\s\S]*?includesSessions:\s*draft\.includesSessions,[\s\S]*?bookingEnabled:\s*draft\.bookingEnabled/,
+    );
+  });
+
+  it("requires a duration and valid count whenever sessions are included", () => {
+    const start = SRC.indexOf("const validDelivery");
+    const end = SRC.indexOf("const validDetails", start);
+    const validation = SRC.slice(start, end);
+
+    expect(validation).toMatch(/!draft\.includesSessions/);
+    expect(validation).toMatch(/\/\^\\d\+\\s\*min\$\/i\.test\(draft\.duration\)/);
+    expect(validation).toMatch(/Number\.isInteger\(draft\.sessions\)/);
+    expect(validation).not.toContain("!draft.bookingEnabled");
   });
 
   it("imports decodeDescription for edit-mode round-trip (encode lives in build-package-payload)", () => {
@@ -54,11 +76,17 @@ describe("ProductEditor orchestrator", () => {
     expect(SRC).toMatch(/<EditorShell/);
   });
 
+  it("passes an optional presentation through without changing Store's dialog default", () => {
+    expect(SRC).toContain('presentation?: "dialog" | "embedded"');
+    expect(SRC).toContain('presentation = "dialog"');
+    expect(SRC).toContain("presentation={presentation}");
+  });
+
   it("calls a packages.create or .update server action", () => {
     expect(SRC).toMatch(/createPackage|updatePackage|packages\.create|packages\.update/);
   });
 
-  it("keeps catalog saves live-only and handles transport failures locally", () => {
+  it("keeps catalog saves online-only and handles transport failures locally", () => {
     expect(SRC).toContain("useOnlineStatus");
     expect(SRC).toContain("Reconnect to save this product.");
     expect(SRC).toContain("Could not save this product. Please try again.");
@@ -67,7 +95,7 @@ describe("ProductEditor orchestrator", () => {
   it("flushes an edit synchronously when client navigation unmounts inside the debounce", () => {
     const debounceStart = SRC.indexOf("const timeout = window.setTimeout");
     const lifecycleStart = SRC.indexOf("const flush = () =>", debounceStart);
-    const lifecycleEnd = SRC.indexOf("function onTaxChange", lifecycleStart);
+    const lifecycleEnd = SRC.indexOf("function handleEditorOpenChange", lifecycleStart);
     const lifecycle = SRC.slice(lifecycleStart, lifecycleEnd);
 
     expect(debounceStart).toBeGreaterThan(-1);
@@ -82,13 +110,13 @@ describe("ProductEditor orchestrator", () => {
     const debounce = SRC.slice(debounceStart, debounceEnd);
 
     expect(debounce).toContain("latestPersistedDraftRef.current");
-    expect(debounce).toContain("if (latest) onPersistDraft(latest)");
+    expect(debounce).toContain("latest && onPersistDraft(latest)");
     expect(debounce).not.toContain("onPersistDraft(nextRecord)");
   });
 
   it("keeps the unmount flush available for an ordinary close", () => {
     const handlerStart = SRC.indexOf("function handleEditorOpenChange");
-    const handlerEnd = SRC.indexOf("function onTaxChange", handlerStart);
+    const handlerEnd = SRC.indexOf("function handleSuccessfulSubmit", handlerStart);
     const handler = SRC.slice(handlerStart, handlerEnd);
     const persistIndex = handler.indexOf("onPersistDraft(latest)");
     const clearIndex = handler.indexOf("latestPersistedDraftRef.current = null");
@@ -103,9 +131,9 @@ describe("ProductEditor orchestrator", () => {
 
   it("clears the saved draft only after a successful submit", () => {
     const closeStart = SRC.indexOf("function handleSuccessfulSubmit");
-    const closeEnd = SRC.indexOf("function onTaxChange", closeStart);
+    const closeEnd = SRC.indexOf("function handleDiscardDraft", closeStart);
     const close = SRC.slice(closeStart, closeEnd);
-    const saveStart = SRC.indexOf("function save()");
+    const saveStart = SRC.indexOf("function save(active: boolean)");
     const saveEnd = SRC.indexOf("const basePriceCents", saveStart);
     const save = SRC.slice(saveStart, saveEnd);
 
@@ -174,5 +202,30 @@ describe("ProductEditor orchestrator", () => {
     expect(SRC).toMatch(/paymentPlanFeasibilityError\(draft\)/);
     expect(SRC).toMatch(/tagline=\{draft\.tagline\}/);
     expect(SRC).toMatch(/priceError=\{priceError\}/);
+  });
+
+  it("creates live and hidden products atomically through the same create call", () => {
+    expect(SRC).toMatch(/createPackage\(\{\s*\.\.\.payload,\s*active\s*\}/);
+    expect(SRC).toMatch(/onPublish/);
+    expect(SRC).toMatch(/onSaveHidden/);
+  });
+
+  it("models bookable sessions independently from the product type", () => {
+    expect(SRC).toMatch(/includesSessions/);
+    expect(SRC).toMatch(/const includesSessions = product\.bookingEnabled/);
+    expect(SRC).toMatch(/includesSessions=\{draft\.includesSessions\}/);
+    expect(SRC).not.toMatch(/draft\.type\s*===\s*"mix"[\s\S]{0,120}includesSessions/);
+  });
+
+  it("shows actual draft persistence and supports an explicit discard", () => {
+    expect(SRC).toMatch(/draftSaved=\{draftSaved\}/);
+    expect(SRC).toMatch(/onDiscardDraft/);
+    expect(SRC).toMatch(/onDiscard=/);
+  });
+
+  it("uses read-only global tax state in the product flow", () => {
+    expect(SRC).not.toMatch(/function onTaxChange/);
+    expect(SRC).not.toMatch(/updateProducer/);
+    expect(SRC).not.toMatch(/onTaxChange=/);
   });
 });

@@ -9,9 +9,9 @@ import type { OnboardingStep } from "../decide-redirect";
 // other step constants.
 
 /** 1-indexed rail position. Pinned by tests. */
-export const AVAILABILITY_STEP_INDEX: 1 | 2 | 3 | 4 | 5 = 3;
+export const AVAILABILITY_STEP_INDEX: 1 | 2 | 3 | 4 | 5 = 4;
 
-export const AVAILABILITY_STEP_TITLE = "When you work.";
+export const AVAILABILITY_STEP_TITLE = "When should artists be able to book you?";
 
 export const AVAILABILITY_STEP_SUBTITLE =
   "Set your weekly hours. You can edit them anytime from Calendar.";
@@ -19,21 +19,21 @@ export const AVAILABILITY_STEP_SUBTITLE =
 /** OnboardingStep tag for this page — used by decideOnboardingRedirect. */
 export const ONBOARDING_STEP_NAME: OnboardingStep = "availability";
 
-/** Continue is always enabled — children auto-save on change. */
-export const AVAILABILITY_CONTINUE_ALWAYS_ENABLED = true;
+/** Continue is gated until at least one valid confirmed window exists. */
+export const AVAILABILITY_CONTINUE_ALWAYS_ENABLED = false;
 
 /**
  * Step 3 → Step 4 route. Redesign reorders portfolio BEFORE payment
  * (was payment → portfolio in legacy), so availability now advances
  * to /onboarding/portfolio.
  */
-export function nextRouteAfterAvailability(): "/onboarding/portfolio" {
-  return "/onboarding/portfolio";
+export function nextRouteAfterAvailability(): "/onboarding/review" {
+  return "/onboarding/review";
 }
 
-/** Step 3 Skip target — same as Continue. */
-export function routeOnSkipFromAvailability(): "/onboarding/portfolio" {
-  return "/onboarding/portfolio";
+/** Skip leaves required hours unfinished so the producer can resume later. */
+export function routeOnSkipFromAvailability(): "/dashboard" {
+  return "/dashboard";
 }
 
 /** Step 3 → Step 2 route for the Back button. */

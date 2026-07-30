@@ -73,19 +73,25 @@ const STEP_TITLES: Record<StepId, string> = {
 
 const STEP_SUBTITLES: Record<StepId, string> = {
   type: "Pick the closest match. We'll prefill the practical details.",
-  details: "Add the exact name, tagline, and deliverables artists will see.",
-  price: "Set the pricing model, rate, sessions, and global tax disclosure.",
+  details: "Add the title, short description, and deliverables artists will see.",
+  price: "Choose a pricing model and see the artist's total.",
   payment: "Choose one or more. The artist picks after approval.",
-  delivery: "Set the session duration and included revision rounds.",
+  delivery: "Choose whether artists can book time, then set delivery details.",
   rights: "Define headline master and composition terms, then add an optional agreement.",
   review: "Check every term before this product is created or updated.",
 };
 
-type Draft = ProducerStoreProductDraft["draft"];
+type PersistedDraft = ProducerStoreProductDraft["draft"];
+type Draft = Omit<PersistedDraft, "includesSessions" | "bookingEnabled"> & {
+  includesSessions: boolean;
+  bookingEnabled: boolean;
+};
 
 interface ProductEditorProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Store uses a dialog; onboarding keeps the same editor inside its wizard chrome. */
+  presentation?: "dialog" | "embedded";
   product: StoreProduct | null;
   defaultCurrency: Currency;
   taxMode: import("~/lib/tax-mode").TaxMode;
@@ -94,8 +100,17 @@ interface ProductEditorProps {
   previewPlacement?: "focal" | "secondary";
   onCreated?: (id: string) => void;
   onSubmitted: () => void;
+  onSubmittedResult?: (result: {
+    includesSessions: boolean;
+    bookingEnabled: boolean;
+  }) => void;
+  onDiscardDraft?: () => void;
   persistedDraft: ProducerStoreProductDraft | null;
-  onPersistDraft: (draft: ProducerStoreProductDraft) => void;
+  onPersistDraft: (draft: ProducerStoreProductDraft) => boolean;
+  /** Onboarding always creates hidden, then publishes at its final review. */
+  newProductFlow?: "store" | "onboarding";
+  /** Development-only visual walkthrough: preserve editor behavior without writes. */
+  previewMode?: boolean;
 }
 
 const VALID_CURRENCIES: readonly Currency[] = ["USD", "EUR", "GBP", "ILS"];
@@ -115,6 +130,7 @@ function emptyDraft(currency: Currency): Draft {
     type: "consult",
     price: 0,
     currency,
+    includesSessions: false,
     sessions: 1,
     unlimitedSessions: false,
     bookingEnabled: false,
@@ -131,6 +147,18 @@ function emptyDraft(currency: Currency): Draft {
   };
 }
 
+function normalizeDraft(draft: PersistedDraft): Draft {
+  const includesSessions =
+    draft.includesSessions ??
+    draft.bookingEnabled ??
+    /^\d+\s*min$/i.test(draft.duration);
+  return {
+    ...draft,
+    includesSessions,
+    bookingEnabled: includesSessions,
+  };
+}
+
 function kindToPresetType(kind: string): PresetType {
   return kindToTile(kind);
 }
@@ -144,6 +172,7 @@ function seedDraftFromProduct(product: StoreProduct, defaultCurrency: Currency):
   const agreement = seedStoreAgreementDraft(dedicatedAgreement, product.contractUrl);
   const pricingModel = product.pricingModel === "per_song" ? "per_song" : "flat";
   const firstTier = product.volumeTiers?.[0];
+  const includesSessions = product.bookingEnabled;
 
   return {
     _picked: null,
@@ -156,9 +185,10 @@ function seedDraftFromProduct(product: StoreProduct, defaultCurrency: Currency):
         ? firstTier.pricePerUnitCents / 100
         : product.priceCents / 100,
     currency,
+    includesSessions,
     sessions: product.sessionCount === 0 ? 1 : product.sessionCount,
-    unlimitedSessions: product.sessionCount === 0,
-    bookingEnabled: product.bookingEnabled,
+    unlimitedSessions: includesSessions && product.sessionCount === 0,
+    bookingEnabled: includesSessions,
     payment: seedPaymentSelection(product.paymentPlans),
     includes: [...product.deliverables],
     duration:
@@ -185,6 +215,7 @@ function typeLabel(type: PresetType): string {
 export function ProductEditor({
   open,
   onOpenChange,
+  presentation = "dialog",
   product,
   defaultCurrency,
   taxMode,
@@ -193,8 +224,12 @@ export function ProductEditor({
   previewPlacement = "focal",
   onCreated,
   onSubmitted,
+  onSubmittedResult,
+  onDiscardDraft,
   persistedDraft,
   onPersistDraft,
+  newProductFlow = "store",
+  previewMode = false,
 }: ProductEditorProps) {
   const router = useRouter();
   const { toast } = useToast();
@@ -203,14 +238,13 @@ export function ProductEditor({
   const mode = product ? "edit" : "new";
   const steps = mode === "edit" ? EDIT_STEPS : NEW_STEPS;
 
-  const [taxModeLocal, setTaxModeLocal] = useState(taxMode);
-  const [taxRateLocal, setTaxRateLocal] = useState(taxRatePct);
-  const [taxError, setTaxError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>(() =>
     product ? seedDraftFromProduct(product, defaultCurrency) : emptyDraft(defaultCurrency),
   );
   const [currentStep, setCurrentStep] = useState<StepId>(product ? "details" : "type");
   const [returnToReview, setReturnToReview] = useState(false);
+  const [draftSaved, setDraftSaved] = useState(false);
+  const [savingAction, setSavingAction] = useState<"publish" | "hidden" | "edit" | null>(null);
   const [rightsTouched, setRightsTouched] = useState({
     master: false,
     composition: false,
@@ -219,11 +253,6 @@ export function ProductEditor({
   });
   const initializedEditorRef = useRef<string | null>(null);
   const latestPersistedDraftRef = useRef<ProducerStoreProductDraft | null>(null);
-
-  useEffect(() => {
-    setTaxModeLocal(taxMode);
-    setTaxRateLocal(taxRatePct);
-  }, [taxMode, taxRatePct]);
 
   useEffect(() => {
     if (!open) {
@@ -239,9 +268,11 @@ export function ProductEditor({
       persistedDraft?.mode === mode && persistedDraft.productId === productId
         ? persistedDraft
         : null;
-    const nextDraft =
-      restored?.draft ??
-      (product ? seedDraftFromProduct(product, defaultCurrency) : emptyDraft(defaultCurrency));
+    const nextDraft = restored?.draft
+      ? normalizeDraft(restored.draft)
+      : product
+        ? seedDraftFromProduct(product, defaultCurrency)
+        : emptyDraft(defaultCurrency);
     const fallbackStep: StepId = product ? "details" : "type";
     const nextStep =
       restored && steps.includes(restored.currentStep) ? restored.currentStep : fallbackStep;
@@ -262,7 +293,7 @@ export function ProductEditor({
       draft: nextDraft,
     };
     latestPersistedDraftRef.current = nextRecord;
-    onPersistDraft(nextRecord);
+    setDraftSaved(onPersistDraft(nextRecord));
   }, [defaultCurrency, mode, onPersistDraft, open, persistedDraft, product, steps]);
 
   useEffect(() => {
@@ -275,9 +306,10 @@ export function ProductEditor({
       draft,
     };
     latestPersistedDraftRef.current = nextRecord;
+    setDraftSaved(false);
     const timeout = window.setTimeout(() => {
       const latest = latestPersistedDraftRef.current;
-      if (latest) onPersistDraft(latest);
+      if (latest && onPersistDraft(latest)) setDraftSaved(true);
     }, 250);
     return () => {
       window.clearTimeout(timeout);
@@ -314,41 +346,19 @@ export function ProductEditor({
   function handleSuccessfulSubmit() {
     latestPersistedDraftRef.current = null;
     onSubmitted();
+    onSubmittedResult?.({
+      includesSessions: draft.includesSessions,
+      bookingEnabled: draft.bookingEnabled,
+    });
     onOpenChange(false);
   }
 
-  function onTaxChange(patch: { taxMode?: import("~/lib/tax-mode").TaxMode; taxRatePct?: number }) {
-    if (!online) {
-      setTaxError("Reconnect to update tax settings.");
-      toast("Reconnect to update tax settings.", "error");
-      return;
-    }
-    const previousMode = taxModeLocal;
-    const previousRate = taxRateLocal;
-    if (patch.taxMode !== undefined) setTaxModeLocal(patch.taxMode);
-    if (patch.taxRatePct !== undefined) setTaxRateLocal(patch.taxRatePct);
-    setTaxError(null);
-
-    void (async () => {
-      try {
-        const { updateProducer } = await import("~/app/(producer)/dashboard/settings/actions");
-        const result = await updateProducer(patch);
-        if (result.ok) {
-          router.refresh();
-          return;
-        }
-        setTaxModeLocal(previousMode);
-        setTaxRateLocal(previousRate);
-        setTaxError(result.error);
-        toast(result.error, "error");
-      } catch (error) {
-        setTaxModeLocal(previousMode);
-        setTaxRateLocal(previousRate);
-        const message = error instanceof Error ? error.message : "Couldn't save tax settings.";
-        setTaxError(message);
-        toast(message, "error");
-      }
-    })();
+  function handleDiscardDraft() {
+    latestPersistedDraftRef.current = null;
+    setDraftSaved(false);
+    if (onDiscardDraft) onDiscardDraft();
+    else onSubmitted();
+    onOpenChange(false);
   }
 
   function onPickPreset(id: PresetId) {
@@ -360,8 +370,10 @@ export function ProductEditor({
       type: preset.preset.type,
       name: current.name.trim() ? current.name : preset.defaultName,
       price: preset.preset.price,
+      includesSessions: preset.preset.includesSessions,
       sessions: preset.preset.sessions,
       unlimitedSessions: preset.preset.unlimitedSessions,
+      bookingEnabled: preset.preset.includesSessions,
       payment: seedPaymentSelection(plansForPreset(preset.preset.paymentPlan)),
       includes: [...preset.baseline],
       duration: preset.preset.duration === "multi-session" ? "60 min" : preset.preset.duration,
@@ -400,7 +412,11 @@ export function ProductEditor({
   const visibleAgreementError =
     rightsTouched.agreement || draft._legacyAgreementLink ? agreementError : null;
   const validRights = Object.keys(royaltyErrors).length === 0 && agreementError === null;
-  const validDelivery = !draft.bookingEnabled || /^\d+\s*min$/i.test(draft.duration);
+  const validDelivery =
+    !draft.includesSessions ||
+    (/^\d+\s*min$/i.test(draft.duration) &&
+      (draft.unlimitedSessions ||
+        (Number.isInteger(draft.sessions) && draft.sessions >= 1 && draft.sessions <= 99)));
   const validDetails =
     draft.name.trim().length > 0 &&
     draft.name.trim().length <= 200 &&
@@ -442,7 +458,7 @@ export function ProductEditor({
     setCurrentStep(step);
   }
 
-  function save() {
+  function save(active: boolean) {
     if (!allValid || currentStep !== "review") {
       if (!validDetails) setCurrentStep("details");
       else if (!validPrice) setCurrentStep("price");
@@ -451,11 +467,20 @@ export function ProductEditor({
       else if (!validRights) setCurrentStep("rights");
       return;
     }
+    if (previewMode) {
+      const previewId = product?.id ?? "onboarding-preview-product";
+      if (!product) {
+        onCreated?.(previewId);
+      }
+      handleSuccessfulSubmit();
+      return;
+    }
     if (!online) {
       toast("Reconnect to save this product.", "error");
       return;
     }
 
+    setSavingAction(product ? "edit" : active ? "publish" : "hidden");
     startTransition(async () => {
       try {
         if (product) {
@@ -468,24 +493,29 @@ export function ProductEditor({
           toast(`${draft.name.trim()} saved.`, "success");
         } else {
           const payload = buildPackagePayload(draft);
-          const result = await createPackage(payload);
+          const result = await createPackage({ ...payload, active });
           if (!result.ok) {
             toast(result.error, "error");
             return;
           }
           onCreated?.(result.data.id);
-          toast(`${draft.name.trim()} created.`, "success");
+          toast(
+            active ? `${draft.name.trim()} published.` : `${draft.name.trim()} saved hidden.`,
+            "success",
+          );
         }
         handleSuccessfulSubmit();
         router.refresh();
       } catch {
         toast("Could not save this product. Please try again.", "error");
+      } finally {
+        setSavingAction(null);
       }
     });
   }
 
   const basePriceCents = Math.round(draft.price * 100);
-  const previewPriceCents = applyTaxToCents(basePriceCents, taxModeLocal, taxRateLocal);
+  const previewPriceCents = applyTaxToCents(basePriceCents, taxMode, taxRatePct);
   const reviewPlans = validMonthly ? buildPaymentPlans(draft.payment) : [];
   const reviewRoyaltyTerms = royaltyDraftToTerms(draft.royalty);
 
@@ -493,8 +523,10 @@ export function ProductEditor({
     <EditorShell
       open={open}
       onOpenChange={handleEditorOpenChange}
+      presentation={presentation}
       mode={mode}
       {...(product ? { productName: product.name } : {})}
+      productActive={product?.active ?? false}
       steps={steps}
       current={currentStep}
       title={STEP_TITLES[currentStep]}
@@ -502,10 +534,22 @@ export function ProductEditor({
       canContinue={canContinue}
       onBack={goBack}
       onContinue={goNext}
-      onSave={save}
+      onSave={() => {
+        save(product?.active ?? false);
+      }}
+      onPublish={() => {
+        save(true);
+      }}
+      onSaveHidden={() => {
+        save(false);
+      }}
+      onDiscard={handleDiscardDraft}
       isFirstStep={isFirstStep}
       isLastStep={isLastStep}
       pending={pending}
+      {...(savingAction ? { pendingAction: savingAction } : {})}
+      draftSaved={draftSaved}
+      newProductFlow={newProductFlow}
     >
       <div key={currentStep} className="sk-step-enter">
         {currentStep === "type" ? <TypeStep picked={draft._picked} onPick={onPickPreset} /> : null}
@@ -532,14 +576,11 @@ export function ProductEditor({
           <PricingStep
             price={draft.price}
             currency={draft.currency}
-            sessions={draft.sessions}
-            unlimitedSessions={draft.unlimitedSessions}
             pricingModel={draft.pricingModel}
             volumeTiers={draft.volumeTiers}
-            taxMode={taxModeLocal}
-            taxRatePct={taxRateLocal}
-            onTaxChange={onTaxChange}
-            taxError={taxError}
+            taxMode={taxMode}
+            taxRatePct={taxRatePct}
+            showTaxSummary={true}
             priceError={priceError}
             onChange={(patch) => {
               setDraft((current) => ({ ...current, ...patch }));
@@ -562,7 +603,10 @@ export function ProductEditor({
 
         {currentStep === "delivery" ? (
           <LogisticsStep
-            bookingEnabled={draft.bookingEnabled}
+            includesSessions={draft.includesSessions}
+            sessions={draft.sessions}
+            unlimitedSessions={draft.unlimitedSessions}
+            pricingModel={draft.pricingModel}
             duration={draft.duration}
             revisions={draft.revisions}
             unlimitedRevisions={draft.unlimitedRevisions}
@@ -618,8 +662,9 @@ export function ProductEditor({
             volumeTiers={draft.volumeTiers}
             priceCents={basePriceCents}
             artistPaysCents={previewPriceCents}
-            taxNote={taxModeFootnote(taxModeLocal, taxRateLocal)}
+            taxNote={taxModeFootnote(taxMode, taxRatePct)}
             currency={draft.currency}
+            includesSessions={draft.includesSessions}
             sessions={draft.sessions}
             unlimitedSessions={draft.unlimitedSessions}
             bookingEnabled={draft.bookingEnabled}
@@ -631,8 +676,8 @@ export function ProductEditor({
             agreementMode={draft.agreementMode}
             agreementText={draft.agreementText}
             producerName={producerName}
-            taxMode={taxModeLocal}
-            taxRatePct={taxRateLocal}
+            taxMode={taxMode}
+            taxRatePct={taxRatePct}
             previewPlacement={previewPlacement}
             onEdit={editFromReview}
           />

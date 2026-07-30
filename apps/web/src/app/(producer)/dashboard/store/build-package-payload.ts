@@ -21,6 +21,8 @@ export interface PackageDraft {
   type: PresetType;
   price: number;
   currency: Currency;
+  /** Missing only for older/shared callers; bookingEnabled supplies their session choice. */
+  includesSessions?: boolean;
   sessions: number;
   unlimitedSessions: boolean;
   bookingEnabled: boolean;
@@ -90,6 +92,7 @@ export function buildPackagePayload(
       : draft.type === "consult"
         ? ("custom" as PackageKind)
         : (draft.type as PackageKind);
+  const includesSessions = draft.includesSessions ?? draft.bookingEnabled;
 
   return {
     name: draft.name.trim(),
@@ -97,11 +100,14 @@ export function buildPackagePayload(
     kind,
     priceCents: Math.round(draft.price * 100),
     currency: draft.currency,
-    durationMin: parseDurationMin(draft.duration),
-    sessionCount: draft.unlimitedSessions
-      ? 0
-      : Math.max(1, draft.sessions),
-    bookingEnabled: draft.bookingEnabled,
+    durationMin: includesSessions ? parseDurationMin(draft.duration) : 0,
+    sessionCount:
+      includesSessions
+        ? draft.unlimitedSessions
+          ? 0
+          : Math.max(1, draft.sessions)
+        : 0,
+    bookingEnabled: includesSessions,
     paymentPlans: buildPaymentPlans(draft.payment),
     deliverables: draft.includes
       .map((item) => item.trim())

@@ -9,47 +9,78 @@ import { decodeDescription } from "~/app/(producer)/dashboard/store/description-
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, "..", "service-step-client.tsx"), "utf8");
+const editorSource = readFileSync(
+  join(here, "..", "..", "..", "..", "(producer)", "dashboard", "store", "product-editor.tsx"),
+  "utf8",
+);
+const shellSource = readFileSync(
+  join(here, "..", "..", "..", "..", "(producer)", "dashboard", "store", "editor-shell.tsx"),
+  "utf8",
+);
 
-describe("onboarding first-service commercial terms", () => {
-  it("uses the seven-step Store flow and saves only from Review", () => {
-    expect(source).toMatch(
-      /const STEPS:[\s\S]*"type",[\s\S]*"details",[\s\S]*"price",[\s\S]*"payment",[\s\S]*"delivery",[\s\S]*"rights",[\s\S]*"review"/,
+describe("onboarding first-product editor", () => {
+  it("mounts the canonical Store ProductEditor instead of copying its steps", () => {
+    expect(source).toContain("<ProductEditor");
+    expect(source).toContain('newProductFlow="onboarding"');
+    expect(source).not.toContain("<TypeStep");
+    expect(source).not.toContain("<PricingStep");
+    expect(source).not.toContain("<ReviewStep");
+  });
+
+  it("embeds the editor inside the visible onboarding chrome", () => {
+    expect(source).toContain("<WizardChrome");
+    expect(source).toContain("activePosition={SERVICE_STEP_INDEX}");
+    expect(source).toContain('presentation="embedded"');
+    expect(source).not.toContain("hideOuterProgress");
+  });
+
+  it("preserves the exact seven-step Store flow and runtime draft", () => {
+    expect(editorSource).toMatch(
+      /const NEW_STEPS[\s\S]*"type"[\s\S]*"details"[\s\S]*"price"[\s\S]*"payment"[\s\S]*"delivery"[\s\S]*"rights"[\s\S]*"review"/,
     );
-    expect(source).toMatch(/<PaymentStep/);
-    expect(source).toMatch(/<RightsAgreementStep/);
-    expect(source).toMatch(/<ReviewStep/);
-    expect(source).toMatch(/if \(currentStep !== "review"\) return/);
-    expect(source).not.toMatch(/showPaymentPlans/);
-    expect(source).toMatch(/allowPerSong=\{false\}/);
-    expect(source).toMatch(/showTypeEdit=\{true\}/);
-    expect(source).toMatch(/setReturnToReview\(true\)/);
-    expect(source).toMatch(/setCurrentStep\("review"\)/);
+    expect(source).toContain("useProducerStoreProductDraft");
+    expect(source).toContain("persistedDraft={storeDraft.record}");
+    expect(source).toContain("onPersistDraft={storeDraft.save}");
   });
 
-  it("uses multi-plan and explicit royalty draft helpers", () => {
-    expect(source).toMatch(/PaymentSelectionDraft/);
-    expect(source).toMatch(/ProductRoyaltyDraft/);
-    expect(source).toMatch(/buildPaymentPlans/);
-    expect(source).toMatch(/hasPaymentOption/);
-    expect(source).toMatch(/validateRoyaltyDraft\(draft\.royalty, true\)/);
-    expect(source).toMatch(/royaltyDraftToTerms/);
+  it("creates hidden during onboarding and publishes only at final review", () => {
+    expect(editorSource).toContain('newProductFlow?: "store" | "onboarding"');
+    expect(shellSource).toContain("Continue setup");
+    expect(shellSource).toContain(
+      "This stays hidden until you publish your page at the end of setup.",
+    );
+    expect(shellSource).toMatch(/newProductFlow === "onboarding"[\s\S]*onClick=\{onSaveHidden\}/);
   });
 
-  it("keeps tagline and positive cash validation in parity with Store authoring", () => {
-    expect(source).toMatch(/productTaglineError\(draft\.tagline\)/);
-    expect(source).toMatch(/productCashPriceError\(draft\)/);
-    expect(source).toMatch(/paymentPlanFeasibilityError\(draft\)/);
-    expect(source).toMatch(/tagline=\{draft\.tagline\}/);
-    expect(source).toMatch(/priceError=\{priceError\}/);
+  it("routes from the saved product's canonical booking flag", () => {
+    expect(source).toContain(
+      'bookingEnabled ? "/onboarding/availability" : "/onboarding/review"',
+    );
+    expect(source).toContain("onSubmittedResult={({ bookingEnabled }) =>");
+    expect(source).toContain("routeAfterProduct(bookingEnabled)");
   });
 
-  it("builds the onboarding payload with dedicated agreement and deliverables", () => {
+  it("keeps the development walkthrough write-free", () => {
+    expect(source).toContain("previewMode={previewMode}");
+    expect(editorSource).toMatch(
+      /if \(previewMode\) \{[\s\S]*handleSuccessfulSubmit\(\);[\s\S]*return;/,
+    );
+  });
+
+  it("keeps dialog presentation as the Store default while onboarding opts into embedding", () => {
+    expect(editorSource).toContain('presentation?: "dialog" | "embedded"');
+    expect(editorSource).toContain('presentation = "dialog"');
+    expect(editorSource).toContain("presentation={presentation}");
+  });
+
+  it("keeps the latest booking field in the shared package payload", () => {
     const payload = buildPackagePayload({
       name: "First production",
       tagline: "From demo to master.",
       type: "production",
       price: 2_500,
       currency: "USD",
+      includesSessions: true,
       sessions: 8,
       unlimitedSessions: false,
       bookingEnabled: true,

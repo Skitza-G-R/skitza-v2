@@ -117,15 +117,29 @@ function ControlledHeadlessComposer({
   );
 }
 
-async function fillValidCreateForm(user: ReturnType<typeof userEvent.setup>) {
-  await user.type(screen.getByLabelText("Offer name"), "Custom production");
-  await user.type(screen.getByLabelText("Service"), "Production");
-  await user.type(screen.getByLabelText("Deliverables"), "Final mix");
-  await user.type(screen.getByLabelText("Rights"), "Artist may release the final master.");
+async function fillValidCreateFlow(user: ReturnType<typeof userEvent.setup>, dialog: HTMLElement) {
+  await user.click(within(dialog).getByRole("button", { name: "Next" }));
+
+  await user.type(within(dialog).getByLabelText("Offer name"), "Custom production");
+  await user.type(within(dialog).getByLabelText("Service"), "Production");
+  await user.type(within(dialog).getByLabelText("Deliverables"), "Final mix");
+  await user.click(within(dialog).getByRole("button", { name: "Next" }));
+
+  await user.click(within(dialog).getByRole("button", { name: "Next" }));
+
+  await user.type(within(dialog).getByLabelText("Rights"), "Artist may release the final master.");
+  await user.click(within(dialog).getByRole("button", { name: "Next" }));
+
   await user.type(
-    screen.getByLabelText("Exact agreement"),
+    within(dialog).getByLabelText("Exact agreement"),
     "These are the complete private-offer terms.",
   );
+}
+
+async function reachFinalEditStep(user: ReturnType<typeof userEvent.setup>, dialog: HTMLElement) {
+  for (let step = 0; step < 4; step += 1) {
+    await user.click(within(dialog).getByRole("button", { name: "Next" }));
+  }
 }
 
 beforeEach(() => {
@@ -152,6 +166,74 @@ afterEach(async () => {
 });
 
 describe("PrivateOfferComposer compatibility", () => {
+  it("starts at step one and validates only the visible step before advancing", async () => {
+    const user = userEvent.setup();
+
+    render(<ControlledHeadlessComposer onCreated={vi.fn()} onOpenChange={vi.fn()} />);
+
+    const dialog = screen.getByRole("dialog", { name: "Send a private offer" });
+    expect(within(dialog).getByText("Step 1 of 5")).not.toBeNull();
+    expect(dialog.querySelectorAll('[aria-current="step"]')).toHaveLength(1);
+
+    await user.click(within(dialog).getByRole("button", { name: "Next" }));
+    expect(within(dialog).getByText("Step 2 of 5")).not.toBeNull();
+
+    await user.click(within(dialog).getByRole("button", { name: "Next" }));
+    expect((await within(dialog).findByRole("alert")).textContent).toContain("Add an offer name.");
+    expect(within(dialog).getByText("Step 2 of 5")).not.toBeNull();
+    expect(mocks.sendOffer).not.toHaveBeenCalled();
+  });
+
+  it("keeps entered values when moving back and forward", async () => {
+    const user = userEvent.setup();
+
+    render(<ControlledHeadlessComposer onCreated={vi.fn()} onOpenChange={vi.fn()} />);
+
+    const dialog = screen.getByRole("dialog", { name: "Send a private offer" });
+    await user.click(within(dialog).getByRole("button", { name: "Next" }));
+    await user.type(within(dialog).getByLabelText("Offer name"), "Preserved offer");
+    await user.click(within(dialog).getByRole("button", { name: "Back" }));
+    await user.click(within(dialog).getByRole("button", { name: "Next" }));
+
+    expect(within(dialog).getByLabelText<HTMLInputElement>("Offer name").value).toBe(
+      "Preserved offer",
+    );
+  });
+
+  it("uses Enter as Next on an intermediate step without sending", async () => {
+    const user = userEvent.setup();
+
+    render(<ControlledHeadlessComposer onCreated={vi.fn()} onOpenChange={vi.fn()} />);
+
+    const dialog = screen.getByRole("dialog", { name: "Send a private offer" });
+    await user.click(within(dialog).getByRole("button", { name: "Next" }));
+    const offerName = within(dialog).getByLabelText("Offer name");
+    await user.type(offerName, "Keyboard offer");
+    await user.type(within(dialog).getByLabelText("Service"), "Production");
+    await user.type(within(dialog).getByLabelText("Deliverables"), "Final mix");
+    await user.click(offerName);
+    await user.keyboard("{Enter}");
+
+    expect(within(dialog).getByText("Step 3 of 5")).not.toBeNull();
+    expect(mocks.sendOffer).not.toHaveBeenCalled();
+  });
+
+  it("returns to step one when an uncontrolled composer is reopened", async () => {
+    const user = userEvent.setup();
+
+    render(<PrivateOfferComposer {...composerProps()} />);
+
+    await user.click(screen.getByRole("button", { name: "New private offer" }));
+    let dialog = await screen.findByRole("dialog", { name: "Send a private offer" });
+    await user.click(within(dialog).getByRole("button", { name: "Next" }));
+    expect(within(dialog).getByText("Step 2 of 5")).not.toBeNull();
+    await user.click(within(dialog).getByRole("button", { name: "Close private offer composer" }));
+
+    await user.click(screen.getByRole("button", { name: "New private offer" }));
+    dialog = await screen.findByRole("dialog", { name: "Send a private offer" });
+    expect(within(dialog).getByText("Step 1 of 5")).not.toBeNull();
+  });
+
   it("calls a controlled create callback once before close without refreshing the route", async () => {
     mocks.sendOffer.mockResolvedValue({
       ok: true,
@@ -169,7 +251,7 @@ describe("PrivateOfferComposer compatibility", () => {
     render(<ControlledHeadlessComposer onCreated={onCreated} onOpenChange={onOpenChange} />);
 
     const dialog = screen.getByRole("dialog", { name: "Send a private offer" });
-    await fillValidCreateForm(user);
+    await fillValidCreateFlow(user, dialog);
     await user.click(within(dialog).getByRole("button", { name: "Send private offer" }));
 
     await waitFor(() => {
@@ -182,6 +264,30 @@ describe("PrivateOfferComposer compatibility", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(events).toEqual(["created:offer-created", "open:false"]);
     expect(mocks.refresh).not.toHaveBeenCalled();
+    expect(mocks.sendOffer).toHaveBeenCalledWith({
+      recipient: { kind: "existing", clientContactId: "client-1" },
+      target: { kind: "new" },
+      terms: {
+        name: "Custom production",
+        service: "Production",
+        deliverables: ["Final mix"],
+        cashPriceCents: 0,
+        currency: "USD",
+        taxMode: "tax_added",
+        taxRatePct: 18,
+        includedSongSpaces: 0,
+        session: null,
+        revisionRule: { kind: "fixed", count: 0 },
+        royaltyTerms: {
+          master: { mode: "none" },
+          composition: { mode: "none" },
+        },
+        rights: ["Artist may release the final master."],
+        enabledPaymentPlans: [],
+        agreementText: "These are the complete private-offer terms.",
+      },
+      expiresAt: expect.any(String) as unknown as string,
+    });
   });
 
   it("keeps an uncontrolled Store create closing and refreshing the route", async () => {
@@ -193,9 +299,9 @@ describe("PrivateOfferComposer compatibility", () => {
 
     render(<PrivateOfferComposer {...composerProps()} />);
 
-    await user.click(screen.getByRole("button", { name: "Send custom offer" }));
+    await user.click(screen.getByRole("button", { name: "New private offer" }));
     const dialog = await screen.findByRole("dialog", { name: "Send a private offer" });
-    await fillValidCreateForm(user);
+    await fillValidCreateFlow(user, dialog);
     await user.click(within(dialog).getByRole("button", { name: "Send private offer" }));
 
     await waitFor(() => {
@@ -203,7 +309,7 @@ describe("PrivateOfferComposer compatibility", () => {
       expect(mocks.refresh).toHaveBeenCalledOnce();
     });
     expect(mocks.sendOffer).toHaveBeenCalledOnce();
-    expect(screen.getByRole("button", { name: "Send custom offer" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "New private offer" })).not.toBeNull();
   });
 
   it("keeps an uncontrolled Store edit refreshing without calling onCreated", async () => {
@@ -224,6 +330,7 @@ describe("PrivateOfferComposer compatibility", () => {
 
     await user.click(screen.getByRole("button", { name: "Edit private offer" }));
     const dialog = await screen.findByRole("dialog", { name: "Edit private offer" });
+    await reachFinalEditStep(user, dialog);
     await user.click(within(dialog).getByRole("button", { name: "Save corrections" }));
 
     await waitFor(() => {
@@ -231,6 +338,14 @@ describe("PrivateOfferComposer compatibility", () => {
       expect(mocks.refresh).toHaveBeenCalledOnce();
     });
     expect(mocks.updateOffer).toHaveBeenCalledOnce();
+    expect(mocks.updateOffer).toHaveBeenCalledWith({
+      offerId: "offer-existing",
+      expectedUpdatedAt: "2026-07-01T00:00:00.000Z",
+      recipient: { kind: "existing", clientContactId: "client-1" },
+      target: { kind: "new" },
+      terms: INITIAL_OFFER.terms,
+      expiresAt: expect.any(String) as unknown as string,
+    });
     expect(onCreated).not.toHaveBeenCalled();
   });
 
@@ -246,7 +361,7 @@ describe("PrivateOfferComposer compatibility", () => {
     render(<ControlledHeadlessComposer onCreated={onCreated} onOpenChange={onOpenChange} />);
 
     const dialog = screen.getByRole("dialog", { name: "Send a private offer" });
-    await fillValidCreateForm(user);
+    await fillValidCreateFlow(user, dialog);
     await user.click(within(dialog).getByRole("button", { name: "Send private offer" }));
 
     expect(await screen.findByRole("alert")).not.toBeNull();

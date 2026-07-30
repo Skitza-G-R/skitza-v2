@@ -86,9 +86,12 @@ export interface ProducerStoreProductDraft {
     type: "production" | "mix" | "master" | "consult";
     price: number;
     currency: "USD" | "EUR" | "GBP" | "ILS";
+    /** Added in SK-155. Missing only on drafts saved by older clients. */
+    includesSessions?: boolean;
     sessions: number;
     unlimitedSessions: boolean;
-    bookingEnabled: boolean;
+    /** Added by the artist-platform release. Missing only on older saved drafts. */
+    bookingEnabled?: boolean;
     payment: {
       full: boolean;
       split50: boolean;
@@ -503,29 +506,44 @@ function isProducerStoreProductDraft(value: unknown): value is ProducerStoreProd
     !["type", "details", "price", "payment", "delivery", "rights", "review"].includes(
       String(value.currentStep),
     ) ||
-    !isRecord(value.draft) ||
-    !hasExactKeys(value.draft, [
-      "_picked",
-      "_legacyAgreementLink",
-      "name",
-      "tagline",
-      "type",
-      "price",
-      "currency",
-      "sessions",
-      "unlimitedSessions",
-      "bookingEnabled",
-      "payment",
-      "includes",
-      "duration",
-      "revisions",
-      "unlimitedRevisions",
-      "agreementMode",
-      "agreementText",
-      "royalty",
-      "pricingModel",
-      "volumeTiers",
-    ])
+    !isRecord(value.draft)
+  ) {
+    return false;
+  }
+
+  const currentDraftKeys = [
+    "_picked",
+    "_legacyAgreementLink",
+    "name",
+    "tagline",
+    "type",
+    "price",
+    "currency",
+    "includesSessions",
+    "sessions",
+    "unlimitedSessions",
+    "bookingEnabled",
+    "payment",
+    "includes",
+    "duration",
+    "revisions",
+    "unlimitedRevisions",
+    "agreementMode",
+    "agreementText",
+    "royalty",
+    "pricingModel",
+    "volumeTiers",
+  ] as const;
+  const withoutIncludesSessions = currentDraftKeys.filter((key) => key !== "includesSessions");
+  const withoutBookingEnabled = currentDraftKeys.filter((key) => key !== "bookingEnabled");
+  const legacyDraftKeys = currentDraftKeys.filter(
+    (key) => key !== "includesSessions" && key !== "bookingEnabled",
+  );
+  if (
+    !hasExactKeys(value.draft, currentDraftKeys) &&
+    !hasExactKeys(value.draft, withoutIncludesSessions) &&
+    !hasExactKeys(value.draft, withoutBookingEnabled) &&
+    !hasExactKeys(value.draft, legacyDraftKeys)
   ) {
     return false;
   }
@@ -542,9 +560,10 @@ function isProducerStoreProductDraft(value: unknown): value is ProducerStoreProd
     types.includes(draft.type as (typeof types)[number]) &&
     isFiniteNumber(draft.price, 0, 100_000_000) &&
     currencies.includes(draft.currency as (typeof currencies)[number]) &&
+    (draft.includesSessions === undefined || typeof draft.includesSessions === "boolean") &&
     isSafeInteger(draft.sessions, 0, 10_000) &&
     typeof draft.unlimitedSessions === "boolean" &&
-    typeof draft.bookingEnabled === "boolean" &&
+    (draft.bookingEnabled === undefined || typeof draft.bookingEnabled === "boolean") &&
     isProducerStorePaymentDraft(draft.payment) &&
     Array.isArray(draft.includes) &&
     draft.includes.length <= 100 &&

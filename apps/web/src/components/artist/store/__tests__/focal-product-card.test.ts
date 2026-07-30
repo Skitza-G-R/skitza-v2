@@ -74,8 +74,8 @@ describe("FocalProductCard", () => {
     expect(source).toMatch(/taxModeFootnote/);
   });
 
-  it("labels a zero session count as unlimited rather than omitting it", () => {
-    expect(source).toMatch(/product\.sessionCount === 0/);
+  it("labels zero sessions as unlimited only when a real session duration exists", () => {
+    expect(source).toMatch(/product\.durationMin[\s\S]*product\.sessionCount === 0/);
     expect(source).toMatch(/UNLIMITED SESSIONS/);
   });
 

@@ -2,7 +2,7 @@
 
 import type { PaymentPlan, ProductRoyaltyTerms } from "@skitza/db";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { Send, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Pencil, Plus, Send, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   type ReactElement,
@@ -12,6 +12,7 @@ import {
   useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
   useTransition,
 } from "react";
@@ -91,6 +92,19 @@ export interface PrivateOfferComposerProps {
 
 type RoyaltyMode = "none" | "percentage" | "agreement";
 type LimitMode = "fixed" | "unlimited";
+type OfferStep = "recipient" | "work" | "payment" | "rights" | "agreement";
+
+const OFFER_STEPS: readonly {
+  id: OfferStep;
+  title: string;
+  shortTitle: string;
+}[] = [
+  { id: "recipient", title: "Recipient & project", shortTitle: "Recipient" },
+  { id: "work", title: "Work included", shortTitle: "Work" },
+  { id: "payment", title: "Price & payment", shortTitle: "Payment" },
+  { id: "rights", title: "Royalties, rights & revisions", shortTitle: "Rights" },
+  { id: "agreement", title: "Agreement & expiry", shortTitle: "Agreement" },
+];
 
 interface ComposerDraft {
   recipientKind: "existing" | "new";
@@ -129,6 +143,41 @@ interface ComposerDraft {
   revisionCount: string;
   agreementText: string;
   expiresAtLocal: string;
+}
+
+type StepResult<T> = { value: T } | { error: string };
+
+interface RecipientStepValue {
+  recipient: PrivateOfferComposerRecipientPayload;
+  target: PrivateOfferComposerTargetPayload;
+}
+
+interface WorkStepValue {
+  name: string;
+  tagline: string;
+  service: string;
+  deliverables: string[];
+  includedSongSpaces: number;
+  session: PrivateOfferInput["session"];
+}
+
+interface PaymentStepValue {
+  cashPriceCents: number;
+  currency: PrivateOfferCurrency;
+  taxMode: TaxMode;
+  taxRatePct: number;
+  enabledPaymentPlans: PaymentPlan[];
+}
+
+interface RightsStepValue {
+  revisionRule: PrivateOfferInput["revisionRule"];
+  royaltyTerms: ProductRoyaltyTerms;
+  rights: string[];
+}
+
+interface AgreementStepValue {
+  agreementText: string;
+  expiry: Date;
 }
 
 const INPUT_CLASS =
@@ -323,7 +372,41 @@ function royaltySide(mode: RoyaltyMode, percentage: string): ProductRoyaltyTerms
   return bps === null ? null : { mode: "percentage", bps };
 }
 
-function buildTerms(draft: ComposerDraft): { terms: PrivateOfferInput } | { error: string } {
+function buildRecipientStep(
+  draft: ComposerDraft,
+  lockedClientId: string | undefined,
+  availableProjects: readonly PrivateOfferProjectOption[],
+): StepResult<RecipientStepValue> {
+  let recipient: PrivateOfferComposerRecipientPayload;
+  if (lockedClientId || draft.recipientKind === "existing") {
+    const clientContactId = lockedClientId ?? draft.clientContactId;
+    if (!clientContactId) return { error: "Choose a recipient." };
+    recipient = { kind: "existing", clientContactId };
+  } else {
+    const name = draft.newRecipientName.trim();
+    const email = draft.newRecipientEmail.trim().toLowerCase();
+    if (!name) return { error: "Add the new recipient’s name." };
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return { error: "Enter a valid recipient email." };
+    }
+    recipient = { kind: "new", name, email };
+  }
+
+  let target: PrivateOfferComposerTargetPayload = { kind: "new" };
+  if (draft.targetKind === "existing") {
+    if (!draft.targetProjectId) {
+      return { error: "Choose an existing project or switch back to a new project." };
+    }
+    if (!availableProjects.some((project) => project.id === draft.targetProjectId)) {
+      return { error: "That project is not available for this client." };
+    }
+    target = { kind: "existing", projectId: draft.targetProjectId };
+  }
+
+  return { value: { recipient, target } };
+}
+
+function buildWorkStep(draft: ComposerDraft): StepResult<WorkStepValue> {
   const name = draft.name.trim();
   if (!name) return { error: "Add an offer name." };
   const service = draft.service.trim();
@@ -340,18 +423,10 @@ function buildTerms(draft: ComposerDraft): { terms: PrivateOfferInput } | { erro
     return { error: "Each deliverable must be 500 characters or fewer." };
   }
 
-  const cashPriceCents = priceCents(draft.cashPrice);
-  if (cashPriceCents === null)
-    return { error: "Enter a valid cash price with up to two decimals." };
-  if (cashPriceCents > MAX_CASH_PRICE_CENTS) {
-    return { error: "Cash price cannot exceed 21,474,836.47." };
-  }
   const includedSongSpaces = positiveInteger(draft.includedSongSpaces, 0, 1_000);
   if (includedSongSpaces === null) {
     return { error: "Song spaces must be a whole number from 0 to 1,000." };
   }
-  const taxRatePct = positiveInteger(draft.taxRatePct, 0, 100);
-  if (taxRatePct === null) return { error: "Tax must be a whole percentage from 0 to 100." };
 
   let session: PrivateOfferInput["session"] = null;
   if (draft.hasSessionAllowance) {
@@ -378,18 +453,28 @@ function buildTerms(draft: ComposerDraft): { terms: PrivateOfferInput } | { erro
     };
   }
 
-  const revisionCount =
-    draft.revisionMode === "fixed" ? positiveInteger(draft.revisionCount, 0, 1_000) : null;
-  if (draft.revisionMode === "fixed" && revisionCount === null) {
-    return { error: "Revisions must be a whole number from 0 to 1,000." };
-  }
+  return {
+    value: {
+      name,
+      tagline: draft.tagline.trim(),
+      service,
+      deliverables,
+      includedSongSpaces,
+      session,
+    },
+  };
+}
 
-  const master = royaltySide(draft.masterMode, draft.masterPercentage);
-  if (master === null) return { error: "Enter a master royalty from 0.01% to 100%." };
-  const composition = royaltySide(draft.compositionMode, draft.compositionPercentage);
-  if (composition === null) {
-    return { error: "Enter a composition royalty from 0.01% to 100%." };
+function buildPaymentStep(draft: ComposerDraft): StepResult<PaymentStepValue> {
+  const cashPriceCents = priceCents(draft.cashPrice);
+  if (cashPriceCents === null) {
+    return { error: "Enter a valid cash price with up to two decimals." };
   }
+  if (cashPriceCents > MAX_CASH_PRICE_CENTS) {
+    return { error: "Cash price cannot exceed 21,474,836.47." };
+  }
+  const taxRatePct = positiveInteger(draft.taxRatePct, 0, 100);
+  if (taxRatePct === null) return { error: "Tax must be a whole percentage from 0 to 100." };
 
   const enabledPaymentPlans: PaymentPlan[] = [];
   if (cashPriceCents > 0) {
@@ -405,48 +490,67 @@ function buildTerms(draft: ComposerDraft): { terms: PrivateOfferInput } | { erro
     }
   }
 
+  return {
+    value: {
+      cashPriceCents,
+      currency: draft.currency,
+      taxMode: draft.taxMode,
+      taxRatePct,
+      enabledPaymentPlans,
+    },
+  };
+}
+
+function buildRightsStep(draft: ComposerDraft): StepResult<RightsStepValue> {
+  const revisionCount =
+    draft.revisionMode === "fixed" ? positiveInteger(draft.revisionCount, 0, 1_000) : null;
+  if (draft.revisionMode === "fixed" && revisionCount === null) {
+    return { error: "Revisions must be a whole number from 0 to 1,000." };
+  }
+
+  const master = royaltySide(draft.masterMode, draft.masterPercentage);
+  if (master === null) return { error: "Enter a master royalty from 0.01% to 100%." };
+  const composition = royaltySide(draft.compositionMode, draft.compositionPercentage);
+  if (composition === null) {
+    return { error: "Enter a composition royalty from 0.01% to 100%." };
+  }
+
   const rights = splitLines(draft.rights);
   if (rights.length === 0) return { error: "Write the rights included in this offer." };
   if (rights.length > MAX_RIGHTS) return { error: "Add no more than 20 rights." };
   if (rights.some((right) => right.length > MAX_RIGHT_LENGTH)) {
     return { error: "Each right must be 1,000 characters or fewer." };
   }
-  const agreementText = draft.agreementText.trim();
-  if (!agreementText) return { error: "Write the exact agreement the artist will accept." };
-  if (agreementText.length > MAX_AGREEMENT_LENGTH) {
-    return { error: "Exact agreement must be 50,000 characters or fewer." };
-  }
-
   const notes = draft.royaltyNotes.trim();
   const royaltyTerms: ProductRoyaltyTerms = {
     master,
     composition,
     ...(notes ? { notes } : {}),
   };
-  const tagline = draft.tagline.trim();
 
   return {
-    terms: {
-      name,
-      ...(tagline ? { tagline } : {}),
-      service,
-      deliverables,
-      cashPriceCents,
-      currency: draft.currency,
-      taxMode: draft.taxMode,
-      taxRatePct,
-      includedSongSpaces,
-      session,
+    value: {
       revisionRule:
         draft.revisionMode === "unlimited"
           ? { kind: "unlimited" }
           : { kind: "fixed", count: revisionCount ?? 0 },
       royaltyTerms,
       rights,
-      enabledPaymentPlans,
-      agreementText,
     },
   };
+}
+
+function buildAgreementStep(draft: ComposerDraft): StepResult<AgreementStepValue> {
+  const agreementText = draft.agreementText.trim();
+  if (!agreementText) return { error: "Write the exact agreement the artist will accept." };
+  if (agreementText.length > MAX_AGREEMENT_LENGTH) {
+    return { error: "Exact agreement must be 50,000 characters or fewer." };
+  }
+  const expiry = new Date(draft.expiresAtLocal);
+  if (Number.isNaN(expiry.getTime()) || expiry.getTime() <= Date.now()) {
+    return { error: "Choose an expiry date in the future." };
+  }
+  return { value: { agreementText, expiry } };
 }
 
 function FieldLabel({
@@ -471,11 +575,25 @@ function FieldLabel({
   );
 }
 
-function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+function Section({
+  title,
+  hint,
+  children,
+  headingRef,
+}: {
+  title: string;
+  hint?: string;
+  children: ReactNode;
+  headingRef?: RefObject<HTMLHeadingElement | null>;
+}) {
   return (
     <section className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated)/0.45)] p-4 sm:p-5">
       <div className="mb-4">
-        <h3 className="font-display text-[15px] font-bold text-[rgb(var(--fg-default))]">
+        <h3
+          ref={headingRef}
+          tabIndex={headingRef ? -1 : undefined}
+          className="w-fit rounded-[var(--radius-sm)] font-display text-[15px] font-bold text-[rgb(var(--fg-default))] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[rgb(var(--brand-primary))]"
+        >
           {title}
         </h3>
         {hint ? (
@@ -551,7 +669,10 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
   const [pending, startTransition] = useTransition();
   const online = useOnlineStatus();
   const [error, setError] = useState<string | null>(null);
+  const [currentStep, setCurrentStep] = useState<OfferStep>("recipient");
   const [draft, setDraft] = useState<ComposerDraft>(() => seedDraft(props));
+  const scrollBodyRef = useRef<HTMLDivElement | null>(null);
+  const stepHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const [projectOptionsByClient, setProjectOptionsByClient] = useState<
     Record<string, readonly PrivateOfferProjectOption[]>
   >({});
@@ -568,6 +689,7 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
 
   useEffect(() => {
     if (!open) return;
+    setCurrentStep("recipient");
     setDraft(
       seedDraft({
         recipients,
@@ -598,6 +720,13 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
   const loadingProjects = loadingProjectClientId === selectedClientId;
   const currentPriceCents = priceCents(draft.cashPrice);
   const zeroCash = currentPriceCents === 0;
+  const currentStepIndex = Math.max(
+    0,
+    OFFER_STEPS.findIndex((step) => step.id === currentStep),
+  );
+  const currentStepMeta = OFFER_STEPS.find((step) => step.id === currentStep);
+  const isFirstStep = currentStepIndex === 0;
+  const isLastStep = currentStepIndex === OFFER_STEPS.length - 1;
 
   useEffect(() => {
     if (
@@ -657,76 +786,116 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
     });
   }
 
+  function moveToStep(nextStep: OfferStep) {
+    setError(null);
+    setCurrentStep(nextStep);
+    window.requestAnimationFrame(() => {
+      if (scrollBodyRef.current) scrollBodyRef.current.scrollTop = 0;
+      stepHeadingRef.current?.focus();
+    });
+  }
+
+  function currentStepResult(): StepResult<unknown> {
+    if (currentStep === "recipient") {
+      return buildRecipientStep(draft, lockedClientId, availableProjects);
+    }
+    if (currentStep === "work") return buildWorkStep(draft);
+    if (currentStep === "payment") return buildPaymentStep(draft);
+    if (currentStep === "rights") return buildRightsStep(draft);
+    return buildAgreementStep(draft);
+  }
+
+  function handleBack() {
+    if (isFirstStep || pending) return;
+    const previous = OFFER_STEPS[currentStepIndex - 1];
+    if (previous) moveToStep(previous.id);
+  }
+
   function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+
+    if (!isLastStep) {
+      const result = currentStepResult();
+      if ("error" in result) {
+        setError(result.error);
+        if (scrollBodyRef.current) scrollBodyRef.current.scrollTop = 0;
+        return;
+      }
+      const next = OFFER_STEPS[currentStepIndex + 1];
+      if (next) moveToStep(next.id);
+      return;
+    }
+
     if (!online) {
       setError("Reconnect to send or update this private offer.");
       return;
     }
 
-    let recipient: PrivateOfferComposerRecipientPayload;
-    if (lockedClientId || draft.recipientKind === "existing") {
-      const clientContactId = lockedClientId ?? draft.clientContactId;
-      if (!clientContactId) {
-        setError("Choose a recipient.");
-        return;
-      }
-      recipient = { kind: "existing", clientContactId };
-    } else {
-      const name = draft.newRecipientName.trim();
-      const email = draft.newRecipientEmail.trim().toLowerCase();
-      if (!name) {
-        setError("Add the new recipient’s name.");
-        return;
-      }
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        setError("Enter a valid recipient email.");
-        return;
-      }
-      recipient = { kind: "new", name, email };
-    }
-
-    let target: PrivateOfferComposerTargetPayload = { kind: "new" };
-    if (draft.targetKind === "existing") {
-      if (!draft.targetProjectId) {
-        setError("Choose an existing project or switch back to a new project.");
-        return;
-      }
-      if (!availableProjects.some((project) => project.id === draft.targetProjectId)) {
-        setError("That project is not available for this client.");
-        return;
-      }
-      target = { kind: "existing", projectId: draft.targetProjectId };
-    }
-
-    const built = buildTerms(draft);
-    if ("error" in built) {
-      setError(built.error);
+    const recipientStep = buildRecipientStep(draft, lockedClientId, availableProjects);
+    if ("error" in recipientStep) {
+      moveToStep("recipient");
+      setError(recipientStep.error);
       return;
     }
-    const expiry = new Date(draft.expiresAtLocal);
-    if (Number.isNaN(expiry.getTime()) || expiry.getTime() <= Date.now()) {
-      setError("Choose an expiry date in the future.");
+    const workStep = buildWorkStep(draft);
+    if ("error" in workStep) {
+      moveToStep("work");
+      setError(workStep.error);
       return;
     }
+    const paymentStep = buildPaymentStep(draft);
+    if ("error" in paymentStep) {
+      moveToStep("payment");
+      setError(paymentStep.error);
+      return;
+    }
+    const rightsStep = buildRightsStep(draft);
+    if ("error" in rightsStep) {
+      moveToStep("rights");
+      setError(rightsStep.error);
+      return;
+    }
+    const agreementStep = buildAgreementStep(draft);
+    if ("error" in agreementStep) {
+      setError(agreementStep.error);
+      return;
+    }
+
+    const terms: PrivateOfferInput = {
+      name: workStep.value.name,
+      ...(workStep.value.tagline ? { tagline: workStep.value.tagline } : {}),
+      service: workStep.value.service,
+      deliverables: workStep.value.deliverables,
+      cashPriceCents: paymentStep.value.cashPriceCents,
+      currency: paymentStep.value.currency,
+      taxMode: paymentStep.value.taxMode,
+      taxRatePct: paymentStep.value.taxRatePct,
+      includedSongSpaces: workStep.value.includedSongSpaces,
+      session: workStep.value.session,
+      revisionRule: rightsStep.value.revisionRule,
+      royaltyTerms: rightsStep.value.royaltyTerms,
+      rights: rightsStep.value.rights,
+      enabledPaymentPlans: paymentStep.value.enabledPaymentPlans,
+      agreementText: agreementStep.value.agreementText,
+    };
 
     startTransition(async () => {
       try {
-        const expiresAt = expiry.toISOString();
+        const expiresAt = agreementStep.value.expiry.toISOString();
         const result = initialOffer
           ? await updatePrivateOfferAction({
               offerId: initialOffer.id,
               expectedUpdatedAt: initialOffer.expectedUpdatedAt,
-              recipient,
-              target,
-              terms: built.terms,
+              recipient: recipientStep.value.recipient,
+              target: recipientStep.value.target,
+              terms,
               expiresAt,
             } satisfies UpdatePrivateOfferComposerPayload)
           : await sendPrivateOfferAction({
-              recipient,
-              target,
-              terms: built.terms,
+              recipient: recipientStep.value.recipient,
+              target: recipientStep.value.target,
+              terms,
               expiresAt,
             } satisfies SendPrivateOfferComposerPayload);
 
@@ -765,10 +934,19 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
           {trigger ?? (
             <button
               type="button"
-              className="sk-press inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-elevated))] shadow-sm transition-opacity hover:opacity-90"
+              className={[
+                "sk-press inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-lg)] px-4 text-[13px] font-semibold transition-[filter,opacity]",
+                editing
+                  ? "border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] hover:border-[rgb(var(--border-strong))]"
+                  : "border border-transparent bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-on-brand))] shadow-[0_8px_24px_-18px_rgb(var(--brand-primary)/0.75)] hover:brightness-105",
+              ].join(" ")}
             >
-              <Send className="h-4 w-4" aria-hidden />
-              {editing ? "Edit private offer" : "Send custom offer"}
+              {editing ? (
+                <Pencil className="h-4 w-4" aria-hidden />
+              ) : (
+                <Plus className="h-4 w-4" aria-hidden />
+              )}
+              {editing ? "Edit private offer" : "New private offer"}
             </button>
           )}
         </DialogPrimitive.Trigger>
@@ -806,271 +984,654 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
           </header>
 
           <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-5">
-              <Section
-                title="Recipient & project"
-                hint="A new project is the safe default. Existing projects are limited to the same client."
-              >
-                {lockedClientId ? (
-                  <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] p-3">
-                    <p className="text-[13px] font-semibold text-[rgb(var(--fg-default))]">
-                      {selectedRecipient?.name ?? "Selected client"}
-                    </p>
-                    <p className="mt-0.5 text-[12px] break-all text-[rgb(var(--fg-muted))]">
-                      {selectedRecipient?.email ?? "Recipient is locked for this offer"}
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex flex-col gap-2">
-                      <FieldLabel htmlFor={id("recipient")}>Recipient</FieldLabel>
-                      <select
-                        id={id("recipient")}
-                        value={draft.recipientKind === "new" ? "__new__" : draft.clientContactId}
-                        onChange={(event) => {
-                          const value = event.target.value;
-                          patch({
-                            recipientKind: value === "__new__" ? "new" : "existing",
-                            clientContactId: value === "__new__" ? "" : value,
-                            targetKind: "new",
-                            targetProjectId: "",
-                          });
-                        }}
-                        className={INPUT_CLASS}
-                      >
-                        {recipients.map((recipient) => (
-                          <option key={recipient.id} value={recipient.id}>
-                            {recipient.name} — {recipient.email}
-                          </option>
-                        ))}
-                        <option value="__new__">New recipient…</option>
-                      </select>
-                    </div>
-                    {draft.recipientKind === "new" ? (
+            <div className="shrink-0 border-b border-[rgb(var(--border-subtle))] px-5 py-3 sm:px-6">
+              <div className="flex items-baseline justify-between gap-3">
+                <p className="truncate text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+                  {currentStepMeta?.title ?? "Recipient & project"}
+                </p>
+                <p className="shrink-0 font-mono text-[10px] font-bold tracking-[0.1em] text-[rgb(var(--fg-muted))] uppercase">
+                  Step {currentStepIndex + 1} of {OFFER_STEPS.length}
+                </p>
+              </div>
+              <ol aria-label="Private offer progress" className="mt-2 grid grid-cols-5 gap-1.5">
+                {OFFER_STEPS.map((step, index) => (
+                  <li
+                    key={step.id}
+                    aria-current={index === currentStepIndex ? "step" : undefined}
+                    className={[
+                      "h-[3px] rounded-full transition-colors",
+                      index <= currentStepIndex
+                        ? "bg-[rgb(var(--brand-primary))]"
+                        : "bg-[rgb(var(--border-subtle))]",
+                    ].join(" ")}
+                  >
+                    <span className="sr-only">
+                      Step {index + 1}: {step.shortTitle}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+
+            <div
+              ref={scrollBodyRef}
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-5"
+            >
+              {error ? (
+                <div
+                  role="alert"
+                  className="mb-4 rounded-[var(--radius-lg)] border border-[rgb(var(--fg-danger)/0.35)] bg-[rgb(var(--fg-danger)/0.08)] px-4 py-3 text-[12.5px] font-medium text-[rgb(var(--fg-danger))]"
+                >
+                  {error}
+                </div>
+              ) : null}
+
+              <div key={currentStep} className="sk-step-enter">
+                {currentStep === "recipient" ? (
+                  <Section
+                    title="Recipient & project"
+                    hint="A new project is the safe default. Existing projects are limited to the same client."
+                    headingRef={stepHeadingRef}
+                  >
+                    {lockedClientId ? (
+                      <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] p-3">
+                        <p className="text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+                          {selectedRecipient?.name ?? "Selected client"}
+                        </p>
+                        <p className="mt-0.5 text-[12px] break-all text-[rgb(var(--fg-muted))]">
+                          {selectedRecipient?.email ?? "Recipient is locked for this offer"}
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex flex-col gap-2">
+                          <FieldLabel htmlFor={id("recipient")}>Recipient</FieldLabel>
+                          <select
+                            id={id("recipient")}
+                            value={
+                              draft.recipientKind === "new" ? "__new__" : draft.clientContactId
+                            }
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              patch({
+                                recipientKind: value === "__new__" ? "new" : "existing",
+                                clientContactId: value === "__new__" ? "" : value,
+                                targetKind: "new",
+                                targetProjectId: "",
+                              });
+                            }}
+                            className={INPUT_CLASS}
+                          >
+                            {recipients.map((recipient) => (
+                              <option key={recipient.id} value={recipient.id}>
+                                {recipient.name} — {recipient.email}
+                              </option>
+                            ))}
+                            <option value="__new__">New recipient…</option>
+                          </select>
+                        </div>
+                        {draft.recipientKind === "new" ? (
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <div className="flex flex-col gap-2">
+                              <FieldLabel htmlFor={id("new-name")}>Recipient name</FieldLabel>
+                              <input
+                                id={id("new-name")}
+                                type="text"
+                                value={draft.newRecipientName}
+                                maxLength={160}
+                                onChange={(event) => {
+                                  patch({ newRecipientName: event.target.value });
+                                }}
+                                placeholder="Artist or band name"
+                                className={INPUT_CLASS}
+                              />
+                            </div>
+                            <div className="flex flex-col gap-2">
+                              <FieldLabel htmlFor={id("new-email")}>
+                                Verified account email
+                              </FieldLabel>
+                              <input
+                                id={id("new-email")}
+                                type="email"
+                                value={draft.newRecipientEmail}
+                                maxLength={320}
+                                onChange={(event) => {
+                                  patch({ newRecipientEmail: event.target.value });
+                                }}
+                                placeholder="artist@example.com"
+                                className={INPUT_CLASS}
+                              />
+                            </div>
+                          </div>
+                        ) : null}
+                      </>
+                    )}
+
+                    <fieldset>
+                      <legend className="mb-2 text-[10.5px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
+                        Project after acceptance
+                      </legend>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <label className="flex cursor-pointer items-start gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] p-3">
+                          <input
+                            type="radio"
+                            name={`${formId}-target`}
+                            checked={draft.targetKind === "new"}
+                            onChange={() => {
+                              patch({ targetKind: "new", targetProjectId: "" });
+                            }}
+                            className="mt-0.5 h-5 w-5 accent-[rgb(var(--brand-primary))]"
+                          />
+                          <span>
+                            <span className="block text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+                              New project
+                            </span>
+                            <span className="mt-0.5 block text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
+                              Created only when the artist accepts.
+                            </span>
+                          </span>
+                        </label>
+                        <label className="flex cursor-pointer items-start gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] p-3 has-disabled:cursor-not-allowed has-disabled:opacity-50">
+                          <input
+                            type="radio"
+                            name={`${formId}-target`}
+                            checked={draft.targetKind === "existing"}
+                            disabled={
+                              draft.recipientKind === "new" ||
+                              !projectOptionsLoaded ||
+                              loadingProjects ||
+                              availableProjects.length === 0
+                            }
+                            onChange={() => {
+                              patch({ targetKind: "existing" });
+                            }}
+                            className="mt-0.5 h-5 w-5 accent-[rgb(var(--brand-primary))]"
+                          />
+                          <span>
+                            <span className="block text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+                              Existing project
+                            </span>
+                            <span className="mt-0.5 block text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
+                              {loadingProjects
+                                ? "Loading this client’s projects…"
+                                : projectLoadError
+                                  ? "Projects could not be loaded. Keep the new-project target."
+                                  : projectOptionsLoaded && availableProjects.length === 0
+                                    ? "This client has no eligible active project."
+                                    : "Deliberately attach to this client’s work."}
+                            </span>
+                          </span>
+                        </label>
+                      </div>
+                    </fieldset>
+                    {draft.targetKind === "existing" ? (
+                      <div className="flex flex-col gap-2">
+                        <FieldLabel htmlFor={id("project")}>Same-client project</FieldLabel>
+                        <select
+                          id={id("project")}
+                          value={draft.targetProjectId}
+                          disabled={loadingProjects || !projectOptionsLoaded}
+                          onChange={(event) => {
+                            patch({ targetProjectId: event.target.value });
+                          }}
+                          className={INPUT_CLASS}
+                        >
+                          <option value="">Choose a project…</option>
+                          {availableProjects.map((project) => (
+                            <option key={project.id} value={project.id}>
+                              {privateOfferProjectOptionLabel(project)}
+                            </option>
+                          ))}
+                        </select>
+                        {selectedTargetProject ? (
+                          <p className="rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] px-3 py-2 text-[11.5px] leading-relaxed [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-secondary))]">
+                            Selected: {privateOfferProjectOptionLabel(selectedTargetProject)}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </Section>
+                ) : null}
+
+                {currentStep === "work" ? (
+                  <div className="space-y-4">
+                    <Section
+                      title="Work included"
+                      hint="Write the exact scope the artist will accept."
+                      headingRef={stepHeadingRef}
+                    >
                       <div className="grid gap-3 sm:grid-cols-2">
                         <div className="flex flex-col gap-2">
-                          <FieldLabel htmlFor={id("new-name")}>Recipient name</FieldLabel>
+                          <FieldLabel htmlFor={id("name")}>Offer name</FieldLabel>
                           <input
-                            id={id("new-name")}
+                            id={id("name")}
                             type="text"
-                            value={draft.newRecipientName}
-                            maxLength={160}
+                            value={draft.name}
+                            maxLength={200}
                             onChange={(event) => {
-                              patch({ newRecipientName: event.target.value });
+                              patch({ name: event.target.value });
                             }}
-                            placeholder="Artist or band name"
+                            placeholder="Custom EP production"
                             className={INPUT_CLASS}
                           />
                         </div>
                         <div className="flex flex-col gap-2">
-                          <FieldLabel htmlFor={id("new-email")}>Verified account email</FieldLabel>
+                          <FieldLabel htmlFor={id("service")}>Service</FieldLabel>
                           <input
-                            id={id("new-email")}
-                            type="email"
-                            value={draft.newRecipientEmail}
-                            maxLength={320}
+                            id={id("service")}
+                            type="text"
+                            value={draft.service}
+                            maxLength={MAX_SERVICE_LENGTH}
                             onChange={(event) => {
-                              patch({ newRecipientEmail: event.target.value });
+                              patch({ service: event.target.value });
                             }}
-                            placeholder="artist@example.com"
+                            placeholder="Production"
                             className={INPUT_CLASS}
                           />
                         </div>
                       </div>
-                    ) : null}
-                  </>
-                )}
+                      <div className="flex flex-col gap-2">
+                        <FieldLabel htmlFor={id("tagline")} optional>
+                          Short note
+                        </FieldLabel>
+                        <input
+                          id={id("tagline")}
+                          type="text"
+                          value={draft.tagline}
+                          maxLength={300}
+                          onChange={(event) => {
+                            patch({ tagline: event.target.value });
+                          }}
+                          placeholder="A one-line summary for the artist"
+                          className={INPUT_CLASS}
+                        />
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <FieldLabel htmlFor={id("deliverables")}>Deliverables</FieldLabel>
+                        <textarea
+                          id={id("deliverables")}
+                          value={draft.deliverables}
+                          rows={4}
+                          maxLength={MAX_DELIVERABLES_TEXT_LENGTH}
+                          onChange={(event) => {
+                            patch({ deliverables: event.target.value });
+                          }}
+                          placeholder={"Final mix\nInstrumental\nStems"}
+                          className={TEXTAREA_CLASS}
+                        />
+                        <p className="text-[11.5px] text-[rgb(var(--fg-muted))]">
+                          One deliverable per line.
+                        </p>
+                      </div>
+                      <div className="flex max-w-[240px] flex-col gap-2">
+                        <FieldLabel htmlFor={id("songs")}>Included song spaces</FieldLabel>
+                        <input
+                          id={id("songs")}
+                          type="number"
+                          min={0}
+                          max={1_000}
+                          step={1}
+                          inputMode="numeric"
+                          value={draft.includedSongSpaces}
+                          onChange={(event) => {
+                            patch({ includedSongSpaces: event.target.value });
+                          }}
+                          className={INPUT_CLASS}
+                        />
+                      </div>
+                    </Section>
 
-                <fieldset>
-                  <legend className="mb-2 text-[10.5px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
-                    Project after acceptance
-                  </legend>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <label className="flex cursor-pointer items-start gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] p-3">
-                      <input
-                        type="radio"
-                        name={`${formId}-target`}
-                        checked={draft.targetKind === "new"}
-                        onChange={() => {
-                          patch({ targetKind: "new", targetProjectId: "" });
-                        }}
-                        className="mt-0.5 h-5 w-5 accent-[rgb(var(--brand-primary))]"
-                      />
-                      <span>
-                        <span className="block text-[13px] font-semibold text-[rgb(var(--fg-default))]">
-                          New project
-                        </span>
-                        <span className="mt-0.5 block text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
-                          Created only when the artist accepts.
-                        </span>
-                      </span>
-                    </label>
-                    <label className="flex cursor-pointer items-start gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] p-3 has-disabled:cursor-not-allowed has-disabled:opacity-50">
-                      <input
-                        type="radio"
-                        name={`${formId}-target`}
-                        checked={draft.targetKind === "existing"}
-                        disabled={
-                          draft.recipientKind === "new" ||
-                          !projectOptionsLoaded ||
-                          loadingProjects ||
-                          availableProjects.length === 0
-                        }
-                        onChange={() => {
-                          patch({ targetKind: "existing" });
-                        }}
-                        className="mt-0.5 h-5 w-5 accent-[rgb(var(--brand-primary))]"
-                      />
-                      <span>
-                        <span className="block text-[13px] font-semibold text-[rgb(var(--fg-default))]">
-                          Existing project
-                        </span>
-                        <span className="mt-0.5 block text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
-                          {loadingProjects
-                            ? "Loading this client’s projects…"
-                            : projectLoadError
-                              ? "Projects could not be loaded. Keep the new-project target."
-                              : projectOptionsLoaded && availableProjects.length === 0
-                                ? "This client has no eligible active project."
-                                : "Deliberately attach to this client’s work."}
-                        </span>
-                      </span>
-                    </label>
-                  </div>
-                </fieldset>
-                {draft.targetKind === "existing" ? (
-                  <div className="flex flex-col gap-2">
-                    <FieldLabel htmlFor={id("project")}>Same-client project</FieldLabel>
-                    <select
-                      id={id("project")}
-                      value={draft.targetProjectId}
-                      disabled={loadingProjects || !projectOptionsLoaded}
-                      onChange={(event) => {
-                        patch({ targetProjectId: event.target.value });
-                      }}
-                      className={INPUT_CLASS}
+                    <Section
+                      title="Session allowance"
+                      hint="Optional. This snapshots the allowance; scheduling is handled later."
                     >
-                      <option value="">Choose a project…</option>
-                      {availableProjects.map((project) => (
-                        <option key={project.id} value={project.id}>
-                          {privateOfferProjectOptionLabel(project)}
-                        </option>
-                      ))}
-                    </select>
-                    {selectedTargetProject ? (
-                      <p className="rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] px-3 py-2 text-[11.5px] leading-relaxed [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-secondary))]">
-                        Selected: {privateOfferProjectOptionLabel(selectedTargetProject)}
-                      </p>
-                    ) : null}
+                      <ToggleRow
+                        id={id("has-sessions")}
+                        checked={draft.hasSessionAllowance}
+                        title="Include studio or remote sessions"
+                        detail="Set a fixed number or an unlimited allowance."
+                        onChange={(checked) => {
+                          patch({ hasSessionAllowance: checked });
+                        }}
+                      />
+                      {draft.hasSessionAllowance ? (
+                        <>
+                          <div className="grid gap-3 sm:grid-cols-3">
+                            <div className="flex flex-col gap-2">
+                              <FieldLabel htmlFor={id("session-limit")}>Allowance</FieldLabel>
+                              <select
+                                id={id("session-limit")}
+                                value={draft.sessionLimitMode}
+                                onChange={(event) => {
+                                  patch({ sessionLimitMode: event.target.value as LimitMode });
+                                }}
+                                className={INPUT_CLASS}
+                              >
+                                <option value="fixed">Fixed</option>
+                                <option value="unlimited">Unlimited</option>
+                              </select>
+                            </div>
+                            {draft.sessionLimitMode === "fixed" ? (
+                              <div className="flex flex-col gap-2">
+                                <FieldLabel htmlFor={id("session-count")}>Sessions</FieldLabel>
+                                <input
+                                  id={id("session-count")}
+                                  type="number"
+                                  min={1}
+                                  max={1_000}
+                                  step={1}
+                                  value={draft.sessionCount}
+                                  onChange={(event) => {
+                                    patch({ sessionCount: event.target.value });
+                                  }}
+                                  className={INPUT_CLASS}
+                                />
+                              </div>
+                            ) : null}
+                            <div className="flex flex-col gap-2">
+                              <FieldLabel htmlFor={id("session-duration")}>Minutes each</FieldLabel>
+                              <input
+                                id={id("session-duration")}
+                                type="number"
+                                min={1}
+                                max={1_440}
+                                step={1}
+                                value={draft.sessionDurationMin}
+                                onChange={(event) => {
+                                  patch({ sessionDurationMin: event.target.value });
+                                }}
+                                className={INPUT_CLASS}
+                              />
+                            </div>
+                          </div>
+                          <div className="grid gap-3 sm:grid-cols-3">
+                            <div className="flex flex-col gap-2">
+                              <FieldLabel htmlFor={id("session-location")}>Location</FieldLabel>
+                              <select
+                                id={id("session-location")}
+                                value={draft.sessionLocationType}
+                                onChange={(event) => {
+                                  patch({ sessionLocationType: event.target.value });
+                                }}
+                                className={INPUT_CLASS}
+                              >
+                                <option value="studio">Studio</option>
+                                <option value="remote">Remote</option>
+                                <option value="on_location">On location</option>
+                              </select>
+                            </div>
+                            <div className="flex flex-col gap-2">
+                              <FieldLabel htmlFor={id("session-buffer")}>Buffer minutes</FieldLabel>
+                              <input
+                                id={id("session-buffer")}
+                                type="number"
+                                min={0}
+                                max={1_440}
+                                value={draft.sessionBufferMinutes}
+                                onChange={(event) => {
+                                  patch({ sessionBufferMinutes: event.target.value });
+                                }}
+                                className={INPUT_CLASS}
+                              />
+                            </div>
+                            <div className="flex flex-col gap-2">
+                              <FieldLabel htmlFor={id("session-lead")}>
+                                Minimum notice (hours)
+                              </FieldLabel>
+                              <input
+                                id={id("session-lead")}
+                                type="number"
+                                min={0}
+                                max={8_760}
+                                value={draft.sessionMinLeadHours}
+                                onChange={(event) => {
+                                  patch({ sessionMinLeadHours: event.target.value });
+                                }}
+                                className={INPUT_CLASS}
+                              />
+                            </div>
+                          </div>
+                        </>
+                      ) : null}
+                    </Section>
                   </div>
                 ) : null}
-              </Section>
 
-              <Section title="Work included" hint="Write the exact scope the artist will accept.">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="flex flex-col gap-2">
-                    <FieldLabel htmlFor={id("name")}>Offer name</FieldLabel>
-                    <input
-                      id={id("name")}
-                      type="text"
-                      value={draft.name}
-                      maxLength={200}
-                      onChange={(event) => {
-                        patch({ name: event.target.value });
-                      }}
-                      placeholder="Custom EP production"
-                      className={INPUT_CLASS}
-                    />
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <FieldLabel htmlFor={id("service")}>Service</FieldLabel>
-                    <input
-                      id={id("service")}
-                      type="text"
-                      value={draft.service}
-                      maxLength={MAX_SERVICE_LENGTH}
-                      onChange={(event) => {
-                        patch({ service: event.target.value });
-                      }}
-                      placeholder="Production"
-                      className={INPUT_CLASS}
-                    />
-                  </div>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <FieldLabel htmlFor={id("tagline")} optional>
-                    Short note
-                  </FieldLabel>
-                  <input
-                    id={id("tagline")}
-                    type="text"
-                    value={draft.tagline}
-                    maxLength={300}
-                    onChange={(event) => {
-                      patch({ tagline: event.target.value });
-                    }}
-                    placeholder="A one-line summary for the artist"
-                    className={INPUT_CLASS}
-                  />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <FieldLabel htmlFor={id("deliverables")}>Deliverables</FieldLabel>
-                  <textarea
-                    id={id("deliverables")}
-                    value={draft.deliverables}
-                    rows={4}
-                    maxLength={MAX_DELIVERABLES_TEXT_LENGTH}
-                    onChange={(event) => {
-                      patch({ deliverables: event.target.value });
-                    }}
-                    placeholder={"Final mix\nInstrumental\nStems"}
-                    className={TEXTAREA_CLASS}
-                  />
-                  <p className="text-[11.5px] text-[rgb(var(--fg-muted))]">
-                    One deliverable per line.
-                  </p>
-                </div>
-                <div className="flex max-w-[240px] flex-col gap-2">
-                  <FieldLabel htmlFor={id("songs")}>Included song spaces</FieldLabel>
-                  <input
-                    id={id("songs")}
-                    type="number"
-                    min={0}
-                    max={1_000}
-                    step={1}
-                    inputMode="numeric"
-                    value={draft.includedSongSpaces}
-                    onChange={(event) => {
-                      patch({ includedSongSpaces: event.target.value });
-                    }}
-                    className={INPUT_CLASS}
-                  />
-                </div>
-              </Section>
-
-              <Section
-                title="Session allowance"
-                hint="Optional. This snapshots the allowance; scheduling is handled later."
-              >
-                <ToggleRow
-                  id={id("has-sessions")}
-                  checked={draft.hasSessionAllowance}
-                  title="Include studio or remote sessions"
-                  detail="Set a fixed number or an unlimited allowance."
-                  onChange={(checked) => {
-                    patch({ hasSessionAllowance: checked });
-                  }}
-                />
-                {draft.hasSessionAllowance ? (
-                  <>
-                    <div className="grid gap-3 sm:grid-cols-3">
+                {currentStep === "payment" ? (
+                  <Section
+                    title="Price, tax & payment"
+                    hint="A true zero-cash offer has no payment plan or payment proof."
+                    headingRef={stepHeadingRef}
+                  >
+                    <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_140px]">
                       <div className="flex flex-col gap-2">
-                        <FieldLabel htmlFor={id("session-limit")}>Allowance</FieldLabel>
-                        <select
-                          id={id("session-limit")}
-                          value={draft.sessionLimitMode}
+                        <FieldLabel htmlFor={id("price")}>Cash price</FieldLabel>
+                        <input
+                          id={id("price")}
+                          type="text"
+                          inputMode="decimal"
+                          value={draft.cashPrice}
                           onChange={(event) => {
-                            patch({ sessionLimitMode: event.target.value as LimitMode });
+                            handlePriceChange(event.target.value);
+                          }}
+                          placeholder="0.00"
+                          className={INPUT_CLASS}
+                        />
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <FieldLabel htmlFor={id("currency")}>Currency</FieldLabel>
+                        <select
+                          id={id("currency")}
+                          value={draft.currency}
+                          onChange={(event) => {
+                            patch({ currency: event.target.value as PrivateOfferCurrency });
+                          }}
+                          className={INPUT_CLASS}
+                        >
+                          {CURRENCIES.map((currency) => (
+                            <option key={currency}>{currency}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <span className="text-[10.5px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
+                        Tax treatment
+                      </span>
+                      <TaxModeSegmented
+                        value={draft.taxMode}
+                        onChange={(next) => {
+                          patch({ taxMode: next });
+                        }}
+                        size="lg"
+                        ariaLabel="Private offer tax treatment"
+                      />
+                    </div>
+                    {draft.taxMode !== "tax_free" ? (
+                      <div className="flex max-w-[240px] flex-col gap-2">
+                        <FieldLabel htmlFor={id("tax-rate")}>Tax rate (%)</FieldLabel>
+                        <input
+                          id={id("tax-rate")}
+                          type="number"
+                          min={0}
+                          max={100}
+                          step={1}
+                          value={draft.taxRatePct}
+                          onChange={(event) => {
+                            patch({ taxRatePct: event.target.value });
+                          }}
+                          className={INPUT_CLASS}
+                        />
+                      </div>
+                    ) : null}
+                    <fieldset disabled={zeroCash} className={zeroCash ? "opacity-55" : ""}>
+                      <legend className="mb-2 text-[10.5px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
+                        Enabled payment plans
+                      </legend>
+                      {zeroCash ? (
+                        <p className="mb-3 text-[12px] leading-snug text-[rgb(var(--fg-muted))]">
+                          No plan is created for a ₪0 / royalty-only acceptance.
+                        </p>
+                      ) : null}
+                      <div className="grid gap-2 sm:grid-cols-3">
+                        <ToggleRow
+                          id={id("plan-full")}
+                          checked={!zeroCash && draft.fullPlan}
+                          disabled={zeroCash}
+                          title="Pay in full"
+                          detail="One payment."
+                          onChange={(checked) => {
+                            patch({ fullPlan: checked });
+                          }}
+                        />
+                        <ToggleRow
+                          id={id("plan-split")}
+                          checked={!zeroCash && draft.splitPlan}
+                          disabled={zeroCash}
+                          title="50% / 50%"
+                          detail="At acceptance and final approval."
+                          onChange={(checked) => {
+                            patch({ splitPlan: checked });
+                          }}
+                        />
+                        <ToggleRow
+                          id={id("plan-monthly")}
+                          checked={!zeroCash && draft.monthlyPlan}
+                          disabled={zeroCash}
+                          title="Monthly"
+                          detail="Two to twelve payments."
+                          onChange={(checked) => {
+                            patch({ monthlyPlan: checked });
+                          }}
+                        />
+                      </div>
+                    </fieldset>
+                    {!zeroCash && draft.monthlyPlan ? (
+                      <div className="flex max-w-[240px] flex-col gap-2">
+                        <FieldLabel htmlFor={id("installments")}>Monthly payments</FieldLabel>
+                        <input
+                          id={id("installments")}
+                          type="number"
+                          min={2}
+                          max={12}
+                          step={1}
+                          value={draft.monthlyInstallments}
+                          onChange={(event) => {
+                            patch({ monthlyInstallments: event.target.value });
+                          }}
+                          className={INPUT_CLASS}
+                        />
+                      </div>
+                    ) : null}
+                  </Section>
+                ) : null}
+
+                {currentStep === "rights" ? (
+                  <Section
+                    title="Royalties, rights & revisions"
+                    hint="Use percentage for a numeric share, agreement when the exact text below governs it, or none."
+                    headingRef={stepHeadingRef}
+                  >
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="flex flex-col gap-2">
+                        <FieldLabel htmlFor={id("master-mode")}>Master royalty</FieldLabel>
+                        <select
+                          id={id("master-mode")}
+                          value={draft.masterMode}
+                          onChange={(event) => {
+                            patch({ masterMode: event.target.value as RoyaltyMode });
+                          }}
+                          className={INPUT_CLASS}
+                        >
+                          <option value="none">None</option>
+                          <option value="percentage">Percentage</option>
+                          <option value="agreement">In the agreement</option>
+                        </select>
+                        {draft.masterMode === "percentage" ? (
+                          <input
+                            aria-label="Master royalty percentage"
+                            type="text"
+                            inputMode="decimal"
+                            value={draft.masterPercentage}
+                            onChange={(event) => {
+                              patch({ masterPercentage: event.target.value });
+                            }}
+                            placeholder="2.5%"
+                            className={INPUT_CLASS}
+                          />
+                        ) : null}
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <FieldLabel htmlFor={id("composition-mode")}>
+                          Composition royalty
+                        </FieldLabel>
+                        <select
+                          id={id("composition-mode")}
+                          value={draft.compositionMode}
+                          onChange={(event) => {
+                            patch({ compositionMode: event.target.value as RoyaltyMode });
+                          }}
+                          className={INPUT_CLASS}
+                        >
+                          <option value="none">None</option>
+                          <option value="percentage">Percentage</option>
+                          <option value="agreement">In the agreement</option>
+                        </select>
+                        {draft.compositionMode === "percentage" ? (
+                          <input
+                            aria-label="Composition royalty percentage"
+                            type="text"
+                            inputMode="decimal"
+                            value={draft.compositionPercentage}
+                            onChange={(event) => {
+                              patch({ compositionPercentage: event.target.value });
+                            }}
+                            placeholder="5%"
+                            className={INPUT_CLASS}
+                          />
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <FieldLabel htmlFor={id("royalty-notes")} optional>
+                        Royalty notes
+                      </FieldLabel>
+                      <textarea
+                        id={id("royalty-notes")}
+                        value={draft.royaltyNotes}
+                        rows={2}
+                        maxLength={4_000}
+                        onChange={(event) => {
+                          patch({ royaltyNotes: event.target.value });
+                        }}
+                        className={TEXTAREA_CLASS}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <FieldLabel htmlFor={id("rights")}>Rights</FieldLabel>
+                      <textarea
+                        id={id("rights")}
+                        value={draft.rights}
+                        rows={3}
+                        maxLength={MAX_RIGHTS_TEXT_LENGTH}
+                        onChange={(event) => {
+                          patch({ rights: event.target.value });
+                        }}
+                        placeholder="Artist owns the final master subject to the royalty above."
+                        className={TEXTAREA_CLASS}
+                      />
+                      <p className="text-[11.5px] text-[rgb(var(--fg-muted))]">
+                        One right or restriction per line.
+                      </p>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="flex flex-col gap-2">
+                        <FieldLabel htmlFor={id("revision-mode")}>Revisions</FieldLabel>
+                        <select
+                          id={id("revision-mode")}
+                          value={draft.revisionMode}
+                          onChange={(event) => {
+                            patch({ revisionMode: event.target.value as LimitMode });
                           }}
                           className={INPUT_CLASS}
                         >
@@ -1078,406 +1639,106 @@ export function PrivateOfferComposer(props: PrivateOfferComposerProps) {
                           <option value="unlimited">Unlimited</option>
                         </select>
                       </div>
-                      {draft.sessionLimitMode === "fixed" ? (
+                      {draft.revisionMode === "fixed" ? (
                         <div className="flex flex-col gap-2">
-                          <FieldLabel htmlFor={id("session-count")}>Sessions</FieldLabel>
+                          <FieldLabel htmlFor={id("revision-count")}>Revision rounds</FieldLabel>
                           <input
-                            id={id("session-count")}
+                            id={id("revision-count")}
                             type="number"
-                            min={1}
+                            min={0}
                             max={1_000}
                             step={1}
-                            value={draft.sessionCount}
+                            value={draft.revisionCount}
                             onChange={(event) => {
-                              patch({ sessionCount: event.target.value });
+                              patch({ revisionCount: event.target.value });
                             }}
                             className={INPUT_CLASS}
                           />
                         </div>
                       ) : null}
-                      <div className="flex flex-col gap-2">
-                        <FieldLabel htmlFor={id("session-duration")}>Minutes each</FieldLabel>
-                        <input
-                          id={id("session-duration")}
-                          type="number"
-                          min={1}
-                          max={1_440}
-                          step={1}
-                          value={draft.sessionDurationMin}
-                          onChange={(event) => {
-                            patch({ sessionDurationMin: event.target.value });
-                          }}
-                          className={INPUT_CLASS}
-                        />
-                      </div>
                     </div>
-                    <div className="grid gap-3 sm:grid-cols-3">
-                      <div className="flex flex-col gap-2">
-                        <FieldLabel htmlFor={id("session-location")}>Location</FieldLabel>
-                        <select
-                          id={id("session-location")}
-                          value={draft.sessionLocationType}
-                          onChange={(event) => {
-                            patch({ sessionLocationType: event.target.value });
-                          }}
-                          className={INPUT_CLASS}
-                        >
-                          <option value="studio">Studio</option>
-                          <option value="remote">Remote</option>
-                          <option value="on_location">On location</option>
-                        </select>
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <FieldLabel htmlFor={id("session-buffer")}>Buffer minutes</FieldLabel>
-                        <input
-                          id={id("session-buffer")}
-                          type="number"
-                          min={0}
-                          max={1_440}
-                          value={draft.sessionBufferMinutes}
-                          onChange={(event) => {
-                            patch({ sessionBufferMinutes: event.target.value });
-                          }}
-                          className={INPUT_CLASS}
-                        />
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <FieldLabel htmlFor={id("session-lead")}>Minimum notice (hours)</FieldLabel>
-                        <input
-                          id={id("session-lead")}
-                          type="number"
-                          min={0}
-                          max={8_760}
-                          value={draft.sessionMinLeadHours}
-                          onChange={(event) => {
-                            patch({ sessionMinLeadHours: event.target.value });
-                          }}
-                          className={INPUT_CLASS}
-                        />
-                      </div>
-                    </div>
-                  </>
+                  </Section>
                 ) : null}
-              </Section>
 
-              <Section
-                title="Price, tax & payment"
-                hint="A true zero-cash offer has no payment plan or payment proof."
-              >
-                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_140px]">
-                  <div className="flex flex-col gap-2">
-                    <FieldLabel htmlFor={id("price")}>Cash price</FieldLabel>
-                    <input
-                      id={id("price")}
-                      type="text"
-                      inputMode="decimal"
-                      value={draft.cashPrice}
-                      onChange={(event) => {
-                        handlePriceChange(event.target.value);
-                      }}
-                      placeholder="0.00"
-                      className={INPUT_CLASS}
-                    />
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <FieldLabel htmlFor={id("currency")}>Currency</FieldLabel>
-                    <select
-                      id={id("currency")}
-                      value={draft.currency}
-                      onChange={(event) => {
-                        patch({ currency: event.target.value as PrivateOfferCurrency });
-                      }}
-                      className={INPUT_CLASS}
-                    >
-                      {CURRENCIES.map((currency) => (
-                        <option key={currency}>{currency}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <span className="text-[10.5px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
-                    Tax treatment
-                  </span>
-                  <TaxModeSegmented
-                    value={draft.taxMode}
-                    onChange={(next) => {
-                      patch({ taxMode: next });
-                    }}
-                    size="lg"
-                    ariaLabel="Private offer tax treatment"
-                  />
-                </div>
-                {draft.taxMode !== "tax_free" ? (
-                  <div className="flex max-w-[240px] flex-col gap-2">
-                    <FieldLabel htmlFor={id("tax-rate")}>Tax rate (%)</FieldLabel>
-                    <input
-                      id={id("tax-rate")}
-                      type="number"
-                      min={0}
-                      max={100}
-                      step={1}
-                      value={draft.taxRatePct}
-                      onChange={(event) => {
-                        patch({ taxRatePct: event.target.value });
-                      }}
-                      className={INPUT_CLASS}
-                    />
-                  </div>
-                ) : null}
-                <fieldset disabled={zeroCash} className={zeroCash ? "opacity-55" : ""}>
-                  <legend className="mb-2 text-[10.5px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
-                    Enabled payment plans
-                  </legend>
-                  {zeroCash ? (
-                    <p className="mb-3 text-[12px] leading-snug text-[rgb(var(--fg-muted))]">
-                      No plan is created for a ₪0 / royalty-only acceptance.
-                    </p>
-                  ) : null}
-                  <div className="grid gap-2 sm:grid-cols-3">
-                    <ToggleRow
-                      id={id("plan-full")}
-                      checked={!zeroCash && draft.fullPlan}
-                      disabled={zeroCash}
-                      title="Pay in full"
-                      detail="One payment."
-                      onChange={(checked) => {
-                        patch({ fullPlan: checked });
-                      }}
-                    />
-                    <ToggleRow
-                      id={id("plan-split")}
-                      checked={!zeroCash && draft.splitPlan}
-                      disabled={zeroCash}
-                      title="50% / 50%"
-                      detail="At acceptance and final approval."
-                      onChange={(checked) => {
-                        patch({ splitPlan: checked });
-                      }}
-                    />
-                    <ToggleRow
-                      id={id("plan-monthly")}
-                      checked={!zeroCash && draft.monthlyPlan}
-                      disabled={zeroCash}
-                      title="Monthly"
-                      detail="Two to twelve payments."
-                      onChange={(checked) => {
-                        patch({ monthlyPlan: checked });
-                      }}
-                    />
-                  </div>
-                </fieldset>
-                {!zeroCash && draft.monthlyPlan ? (
-                  <div className="flex max-w-[240px] flex-col gap-2">
-                    <FieldLabel htmlFor={id("installments")}>Monthly payments</FieldLabel>
-                    <input
-                      id={id("installments")}
-                      type="number"
-                      min={2}
-                      max={12}
-                      step={1}
-                      value={draft.monthlyInstallments}
-                      onChange={(event) => {
-                        patch({ monthlyInstallments: event.target.value });
-                      }}
-                      className={INPUT_CLASS}
-                    />
-                  </div>
-                ) : null}
-              </Section>
-
-              <Section
-                title="Royalties, rights & revisions"
-                hint="Use percentage for a numeric share, agreement when the exact text below governs it, or none."
-              >
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="flex flex-col gap-2">
-                    <FieldLabel htmlFor={id("master-mode")}>Master royalty</FieldLabel>
-                    <select
-                      id={id("master-mode")}
-                      value={draft.masterMode}
-                      onChange={(event) => {
-                        patch({ masterMode: event.target.value as RoyaltyMode });
-                      }}
-                      className={INPUT_CLASS}
-                    >
-                      <option value="none">None</option>
-                      <option value="percentage">Percentage</option>
-                      <option value="agreement">In the agreement</option>
-                    </select>
-                    {draft.masterMode === "percentage" ? (
-                      <input
-                        aria-label="Master royalty percentage"
-                        type="text"
-                        inputMode="decimal"
-                        value={draft.masterPercentage}
-                        onChange={(event) => {
-                          patch({ masterPercentage: event.target.value });
-                        }}
-                        placeholder="2.5%"
-                        className={INPUT_CLASS}
-                      />
-                    ) : null}
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <FieldLabel htmlFor={id("composition-mode")}>Composition royalty</FieldLabel>
-                    <select
-                      id={id("composition-mode")}
-                      value={draft.compositionMode}
-                      onChange={(event) => {
-                        patch({ compositionMode: event.target.value as RoyaltyMode });
-                      }}
-                      className={INPUT_CLASS}
-                    >
-                      <option value="none">None</option>
-                      <option value="percentage">Percentage</option>
-                      <option value="agreement">In the agreement</option>
-                    </select>
-                    {draft.compositionMode === "percentage" ? (
-                      <input
-                        aria-label="Composition royalty percentage"
-                        type="text"
-                        inputMode="decimal"
-                        value={draft.compositionPercentage}
-                        onChange={(event) => {
-                          patch({ compositionPercentage: event.target.value });
-                        }}
-                        placeholder="5%"
-                        className={INPUT_CLASS}
-                      />
-                    ) : null}
-                  </div>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <FieldLabel htmlFor={id("royalty-notes")} optional>
-                    Royalty notes
-                  </FieldLabel>
-                  <textarea
-                    id={id("royalty-notes")}
-                    value={draft.royaltyNotes}
-                    rows={2}
-                    maxLength={4_000}
-                    onChange={(event) => {
-                      patch({ royaltyNotes: event.target.value });
-                    }}
-                    className={TEXTAREA_CLASS}
-                  />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <FieldLabel htmlFor={id("rights")}>Rights</FieldLabel>
-                  <textarea
-                    id={id("rights")}
-                    value={draft.rights}
-                    rows={3}
-                    maxLength={MAX_RIGHTS_TEXT_LENGTH}
-                    onChange={(event) => {
-                      patch({ rights: event.target.value });
-                    }}
-                    placeholder="Artist owns the final master subject to the royalty above."
-                    className={TEXTAREA_CLASS}
-                  />
-                  <p className="text-[11.5px] text-[rgb(var(--fg-muted))]">
-                    One right or restriction per line.
-                  </p>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="flex flex-col gap-2">
-                    <FieldLabel htmlFor={id("revision-mode")}>Revisions</FieldLabel>
-                    <select
-                      id={id("revision-mode")}
-                      value={draft.revisionMode}
-                      onChange={(event) => {
-                        patch({ revisionMode: event.target.value as LimitMode });
-                      }}
-                      className={INPUT_CLASS}
-                    >
-                      <option value="fixed">Fixed</option>
-                      <option value="unlimited">Unlimited</option>
-                    </select>
-                  </div>
-                  {draft.revisionMode === "fixed" ? (
+                {currentStep === "agreement" ? (
+                  <Section
+                    title="Exact agreement & expiry"
+                    hint="This text and target lock when accepted. Later changes require a new offer."
+                    headingRef={stepHeadingRef}
+                  >
                     <div className="flex flex-col gap-2">
-                      <FieldLabel htmlFor={id("revision-count")}>Revision rounds</FieldLabel>
-                      <input
-                        id={id("revision-count")}
-                        type="number"
-                        min={0}
-                        max={1_000}
-                        step={1}
-                        value={draft.revisionCount}
+                      <FieldLabel htmlFor={id("agreement")}>Exact agreement</FieldLabel>
+                      <textarea
+                        id={id("agreement")}
+                        value={draft.agreementText}
+                        rows={8}
+                        maxLength={MAX_AGREEMENT_LENGTH}
                         onChange={(event) => {
-                          patch({ revisionCount: event.target.value });
+                          patch({ agreementText: event.target.value });
+                        }}
+                        placeholder="Write every additional term the artist is agreeing to…"
+                        className={TEXTAREA_CLASS}
+                      />
+                    </div>
+                    <div className="flex max-w-[320px] flex-col gap-2">
+                      <FieldLabel htmlFor={id("expiry")}>Expires</FieldLabel>
+                      <input
+                        id={id("expiry")}
+                        type="datetime-local"
+                        value={draft.expiresAtLocal}
+                        onChange={(event) => {
+                          patch({ expiresAtLocal: event.target.value });
                         }}
                         className={INPUT_CLASS}
                       />
+                      <p className="text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
+                        Defaults to 14 days from now. Expired offers leave the artist’s view but
+                        remain in your history.
+                      </p>
                     </div>
-                  ) : null}
-                </div>
-              </Section>
-
-              <Section
-                title="Exact agreement & expiry"
-                hint="This text and target lock when accepted. Later changes require a new offer."
-              >
-                <div className="flex flex-col gap-2">
-                  <FieldLabel htmlFor={id("agreement")}>Exact agreement</FieldLabel>
-                  <textarea
-                    id={id("agreement")}
-                    value={draft.agreementText}
-                    rows={8}
-                    maxLength={MAX_AGREEMENT_LENGTH}
-                    onChange={(event) => {
-                      patch({ agreementText: event.target.value });
-                    }}
-                    placeholder="Write every additional term the artist is agreeing to…"
-                    className={TEXTAREA_CLASS}
-                  />
-                </div>
-                <div className="flex max-w-[320px] flex-col gap-2">
-                  <FieldLabel htmlFor={id("expiry")}>Expires</FieldLabel>
-                  <input
-                    id={id("expiry")}
-                    type="datetime-local"
-                    value={draft.expiresAtLocal}
-                    onChange={(event) => {
-                      patch({ expiresAtLocal: event.target.value });
-                    }}
-                    className={INPUT_CLASS}
-                  />
-                  <p className="text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
-                    Defaults to 14 days from now. Expired offers leave the artist’s view but remain
-                    in your history.
-                  </p>
-                </div>
-              </Section>
-
-              {error ? (
-                <div
-                  role="alert"
-                  className="rounded-[var(--radius-lg)] border border-[rgb(var(--fg-danger)/0.35)] bg-[rgb(var(--fg-danger)/0.08)] px-4 py-3 text-[12.5px] font-medium text-[rgb(var(--fg-danger))]"
-                >
-                  {error}
-                </div>
-              ) : null}
+                  </Section>
+                ) : null}
+              </div>
             </div>
 
-            <footer className="flex shrink-0 flex-col-reverse gap-2 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-4 py-3 max-sm:pb-[calc(12px+env(safe-area-inset-bottom,0px))] sm:flex-row sm:items-center sm:justify-end sm:px-6 sm:py-4">
-              <DialogPrimitive.Close asChild>
+            <footer className="flex shrink-0 items-center justify-between gap-2 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-4 py-3 max-sm:pb-[calc(12px+env(safe-area-inset-bottom,0px))] sm:px-6 sm:py-4">
+              {isFirstStep ? (
+                <DialogPrimitive.Close asChild>
+                  <button
+                    type="button"
+                    disabled={pending}
+                    className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] px-4 text-[13px] font-semibold text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                </DialogPrimitive.Close>
+              ) : (
                 <button
                   type="button"
+                  onClick={handleBack}
                   disabled={pending}
-                  className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] px-4 text-[13px] font-semibold text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] disabled:opacity-50"
+                  className="sk-press inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-lg)] px-4 text-[13px] font-semibold text-[rgb(var(--fg-muted))] hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] disabled:opacity-50"
                 >
-                  Cancel
+                  <ArrowLeft className="h-4 w-4" aria-hidden />
+                  Back
                 </button>
-              </DialogPrimitive.Close>
+              )}
               <button
                 type="submit"
-                disabled={pending || !online}
-                className="sk-press inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 text-[13px] font-semibold text-[rgb(17_16_9)] shadow-[0_4px_14px_-2px_rgb(var(--brand-primary)/0.5)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
+                disabled={pending || (isLastStep && !online)}
+                className="sk-press inline-flex min-h-11 min-w-[132px] items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 text-[13px] font-semibold text-[rgb(var(--fg-on-brand))] shadow-[0_4px_14px_-2px_rgb(var(--brand-primary)/0.5)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none max-sm:flex-1"
               >
-                <Send className="h-4 w-4" aria-hidden />
-                {pending ? "Saving…" : editing ? "Save corrections" : "Send private offer"}
+                {isLastStep ? (
+                  <>
+                    <Send className="h-4 w-4" aria-hidden />
+                    {pending ? "Saving…" : editing ? "Save corrections" : "Send private offer"}
+                  </>
+                ) : (
+                  <>
+                    Next
+                    <ArrowRight className="h-4 w-4" aria-hidden />
+                  </>
+                )}
               </button>
             </footer>
           </form>

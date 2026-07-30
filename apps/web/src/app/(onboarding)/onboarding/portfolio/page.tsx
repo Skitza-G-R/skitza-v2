@@ -1,4 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
+import { asc, createDb, eq, producerExternalLinks } from "@skitza/db";
 import { redirect } from "next/navigation";
 
 import { isDevPreviewBypass } from "~/lib/onboarding/dev-preview";
@@ -8,12 +9,8 @@ import { decideOnboardingRedirect } from "../decide-redirect";
 import { PortfolioStepClient } from "./portfolio-step-client";
 import { ONBOARDING_STEP_NAME } from "./constants";
 
-// Step 4 (portfolio / "A taste"). May 2026 redesign — was Step 6 of 6
-// in the legacy flow; now Step 4 of 5 (redesign reorders portfolio
-// BEFORE payment).
-//
-// Re-export every constants entry so existing test imports
-// (`from "../page"`) keep working.
+// Optional post-publish portfolio task. Re-export constants so the server page
+// stays the stable import boundary for its contract tests.
 
 export {
   PORTFOLIO_STEP_INDEX,
@@ -35,7 +32,7 @@ export default async function PortfolioStepPage({
   const isPreview = isDevPreviewBypass(params);
 
   if (isPreview) {
-    return <PortfolioStepClient />;
+    return <PortfolioStepClient previewMode />;
   }
 
   const { userId } = await auth();
@@ -50,5 +47,16 @@ export default async function PortfolioStepPage({
     return null;
   }
 
-  return <PortfolioStepClient />;
+  const db = createDb(dbUrl);
+  const initialLinks = await db
+    .select({
+      platform: producerExternalLinks.platform,
+      url: producerExternalLinks.url,
+      title: producerExternalLinks.title,
+    })
+    .from(producerExternalLinks)
+    .where(eq(producerExternalLinks.producerId, role.producer.id))
+    .orderBy(asc(producerExternalLinks.position));
+
+  return <PortfolioStepClient initialLinks={initialLinks} />;
 }

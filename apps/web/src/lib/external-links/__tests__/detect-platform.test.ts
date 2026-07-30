@@ -17,6 +17,7 @@ describe("detectPlatform", () => {
     ["https://www.tidal.com/track/1", "tidal"],
     ["https://www.instagram.com/reel/abc/", "instagram_reels"],
     ["https://instagram.com/reel/abc/", "instagram_reels"],
+    ["https://artist.bandcamp.com/track/abc", "bandcamp"],
   ])("maps %s -> %s", (url, expected) => {
     expect(detectPlatform(url)).toBe(expected);
   });
@@ -33,17 +34,13 @@ describe("detectPlatform", () => {
   });
 
   it("is case-insensitive on host", () => {
-    expect(detectPlatform("https://OPEN.SPOTIFY.COM/track/abc")).toBe(
-      "spotify",
-    );
+    expect(detectPlatform("https://OPEN.SPOTIFY.COM/track/abc")).toBe("spotify");
     expect(detectPlatform("https://YOUTU.BE/abc")).toBe("youtube");
   });
 
   it("ignores subpaths and query strings", () => {
-    expect(
-      detectPlatform(
-        "https://open.spotify.com/track/abc?si=long-share-id&utm_source=x",
-      ),
-    ).toBe("spotify");
+    expect(detectPlatform("https://open.spotify.com/track/abc?si=long-share-id&utm_source=x")).toBe(
+      "spotify",
+    );
   });
 });

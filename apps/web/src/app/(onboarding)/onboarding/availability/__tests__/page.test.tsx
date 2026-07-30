@@ -1,3 +1,7 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -11,15 +15,20 @@ import {
   routeOnBackFromAvailability,
 } from "../page";
 
-// May 2026 redesign — Step 3 (availability / "When you work") page
-// contract. Was Step 4 of 6 in the legacy flow; now Step 3 of 5.
+const pageSource = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "..", "page.tsx"),
+  "utf8",
+);
+
+// Working hours are the fourth durable milestone because account creation is
+// already complete on first paint.
 // Repo runs vitest in `node` env (no jsdom) so we pin pure constants
 // + helpers, no JSX.
 
-describe("Step 3 (availability / 'When you work') page contract", () => {
+describe("Working-hours page contract", () => {
   describe("constants", () => {
-    it("renders as Step 3 of the 5-step rail", () => {
-      expect(AVAILABILITY_STEP_INDEX).toBe(3);
+    it("renders as milestone 4 of 5", () => {
+      expect(AVAILABILITY_STEP_INDEX).toBe(4);
     });
 
     it("title is about working hours / when (keyword-level)", () => {
@@ -36,24 +45,20 @@ describe("Step 3 (availability / 'When you work') page contract", () => {
       expect(ONBOARDING_STEP_NAME).toBe("availability");
     });
 
-    it("Continue is always enabled (children auto-save)", () => {
-      expect(AVAILABILITY_CONTINUE_ALWAYS_ENABLED).toBe(true);
+    it("Continue validates the producer's confirmed hours", () => {
+      expect(AVAILABILITY_CONTINUE_ALWAYS_ENABLED).toBe(false);
     });
   });
 
   describe("nextRouteAfterAvailability (Continue advance)", () => {
-    it("routes to Step 4 (/onboarding/portfolio) — redesign reordered portfolio before payment", () => {
-      expect(nextRouteAfterAvailability()).toBe("/onboarding/portfolio");
+    it("routes to final review", () => {
+      expect(nextRouteAfterAvailability()).toBe("/onboarding/review");
     });
   });
 
   describe("routeOnSkipFromAvailability (Skip ghost link)", () => {
-    it("advances to /onboarding/portfolio without saving", () => {
-      expect(routeOnSkipFromAvailability()).toBe("/onboarding/portfolio");
-    });
-
-    it("targets the same destination as Continue (one path forward)", () => {
-      expect(routeOnSkipFromAvailability()).toBe(nextRouteAfterAvailability());
+    it("leaves required hours unfinished and returns to the unlocked dashboard", () => {
+      expect(routeOnSkipFromAvailability()).toBe("/dashboard");
     });
   });
 
@@ -61,5 +66,14 @@ describe("Step 3 (availability / 'When you work') page contract", () => {
     it("returns to Step 2 (/onboarding/service)", () => {
       expect(routeOnBackFromAvailability()).toBe("/onboarding/service");
     });
+  });
+
+  it("skips working hours when the persisted product disables artist booking", () => {
+    expect(pageSource).toContain(
+      'if (!firstProduct.bookingEnabled) redirect("/onboarding/review")',
+    );
+    expect(pageSource).not.toContain(
+      'if (firstProduct.durationMin === 0) redirect("/onboarding/review")',
+    );
   });
 });

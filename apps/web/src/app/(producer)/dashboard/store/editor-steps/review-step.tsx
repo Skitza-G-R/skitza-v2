@@ -22,6 +22,7 @@ interface ReviewStepProps {
   artistPaysCents?: number;
   taxNote?: string | null;
   currency: string;
+  includesSessions: boolean;
   sessions: number;
   unlimitedSessions: boolean;
   bookingEnabled: boolean;
@@ -107,6 +108,7 @@ export function ReviewStep({
   artistPaysCents,
   taxNote,
   currency,
+  includesSessions,
   sessions,
   unlimitedSessions,
   bookingEnabled,
@@ -124,6 +126,7 @@ export function ReviewStep({
   onEdit,
 }: ReviewStepProps) {
   const royalty = royaltyTermsDisplay(royaltyTerms);
+  const hasBookableSessions = includesSessions && bookingEnabled;
 
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -135,9 +138,10 @@ export function ReviewStep({
         currency={currency}
         pricingModel={pricingModel}
         volumeTiers={volumeTiers}
+        includesSessions={hasBookableSessions}
         sessions={sessions}
         unlimitedSessions={unlimitedSessions}
-        bookingEnabled={bookingEnabled}
+        bookingEnabled={hasBookableSessions}
         duration={duration}
         includes={includes}
         revisions={revisions}
@@ -163,7 +167,7 @@ export function ReviewStep({
         {!showTypeEdit ? <div className="mt-0.5">{typeLabel}</div> : null}
         <div className="mt-2">
           <div className="text-[11px] font-bold tracking-[0.12em] text-[rgb(var(--fg-faint))] uppercase">
-            Artist-facing tagline
+            Short description
           </div>
           <p className="mt-0.5 [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-default))]">
             {tagline}
@@ -190,13 +194,6 @@ export function ReviewStep({
           <div className="mt-1 font-medium text-[rgb(var(--fg-secondary))] tabular-nums">
             Artist total: {formatAmount(artistPaysCents, currency)}
             {pricingModel === "per_song" ? " for one song" : ""}.
-          </div>
-        ) : null}
-        {bookingEnabled ? (
-          <div className="mt-1">
-            {unlimitedSessions
-              ? "Unlimited bookable sessions"
-              : `${String(sessions)} bookable ${sessions === 1 ? "session" : "sessions"}`}
           </div>
         ) : null}
         {pricingModel === "per_song" && volumeTiers.length > 0 ? (
@@ -227,10 +224,20 @@ export function ReviewStep({
       </ReviewSection>
 
       <ReviewSection title="Delivery" step="delivery" onEdit={onEdit}>
-        <div className="font-semibold text-[rgb(var(--fg-default))]">
-          {bookingEnabled ? "Artist booking enabled" : "No artist booking"}
-        </div>
-        {bookingEnabled ? <div className="mt-1">{duration}</div> : null}
+        {hasBookableSessions ? (
+          <>
+            <div className="font-semibold text-[rgb(var(--fg-default))]">
+              {unlimitedSessions
+                ? "Unlimited bookable sessions"
+                : `${String(sessions)} bookable ${
+                    sessions === 1 ? "session" : "sessions"
+                  }`}
+            </div>
+            <div className="mt-1">{duration} each</div>
+          </>
+        ) : (
+          <div className="mt-1">No bookable sessions included</div>
+        )}
         <div className="mt-1">
           {unlimitedRevisions
             ? "Unlimited revisions"

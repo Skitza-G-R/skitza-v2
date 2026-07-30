@@ -1,15 +1,9 @@
 import type { OnboardingStep } from "../decide-redirect";
 
-// Pure constants for Step 5 (payment / "Get paid"). NO server-only
-// imports — same RSC-boundary discipline as the other steps.
-//
-// May 2026 redesign — was Step 5 of 6 in the legacy flow; now Step 5
-// of 5 (rail position unchanged). Routing changed: Back goes to
-// /onboarding/portfolio (was /availability), Continue goes to
-// /onboarding/complete (was /portfolio). The step is informational:
-// Skitza records external payments and does not connect a provider.
+// Pure constants for the optional post-publish payment-details task.
+// NO server-only imports — same RSC-boundary discipline as the other steps.
 
-/** 1-indexed rail position. Pinned by tests. */
+/** Required by WizardChrome but hidden for this optional post-publish task. */
 export const PAYMENT_STEP_INDEX: 1 | 2 | 3 | 4 | 5 = 5;
 
 export const PAYMENT_STEP_TITLE = "Payments stay external.";
@@ -20,17 +14,23 @@ export const PAYMENT_STEP_SUBTITLE =
 /** OnboardingStep tag for this page — used by decideOnboardingRedirect. */
 export const ONBOARDING_STEP_NAME: OnboardingStep = "payment";
 
-/** Step 5 → completion screen. */
-export function nextRouteAfterPayment(): "/onboarding/complete" {
-  return "/onboarding/complete";
+type OptionalCompletionRoute = "/onboarding/complete" | "/onboarding/complete?__preview=1";
+
+function optionalCompletionRoute(previewMode = false): OptionalCompletionRoute {
+  return previewMode ? "/onboarding/complete?__preview=1" : "/onboarding/complete";
 }
 
-/** Step 5 Skip target — same as Continue. */
-export function routeOnSkipFromPayment(): "/onboarding/complete" {
-  return "/onboarding/complete";
+/** Return to the published-page completion screen after saving. */
+export function nextRouteAfterPayment(previewMode = false): OptionalCompletionRoute {
+  return optionalCompletionRoute(previewMode);
 }
 
-/** Step 5 → Step 4 route for the Back button. */
-export function routeOnBackFromPayment(): "/onboarding/portfolio" {
-  return "/onboarding/portfolio";
+/** Skip leaves the optional task without changing anything. */
+export function routeOnSkipFromPayment(previewMode = false): OptionalCompletionRoute {
+  return optionalCompletionRoute(previewMode);
+}
+
+/** Back returns to the same post-publish completion screen. */
+export function routeOnBackFromPayment(previewMode = false): OptionalCompletionRoute {
+  return optionalCompletionRoute(previewMode);
 }

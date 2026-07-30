@@ -20,6 +20,7 @@ function formatMinutes(min: number): string {
 
 /** Human duration line for the price row, derived from real product fields. */
 export function durationLabel(sessionCount: number, durationMin: number): string {
+  if (durationMin <= 0) return "No bookable sessions included";
   if (sessionCount === 0) return `Unlimited sessions · ${formatMinutes(durationMin)} each`;
   if (sessionCount <= 1) return `Single session · ${formatMinutes(durationMin)}`;
   return `${String(sessionCount)} sessions · ${formatMinutes(durationMin)} each`;
@@ -55,7 +56,7 @@ export function toPurchaseProduct(row: StoreProductRow): PurchaseProduct {
     includes: row.deliverables ?? [],
     tagline: row.description,
     sessions: row.sessionCount,
-    unlimitedSessions: row.sessionCount === 0,
+    unlimitedSessions: row.durationMin > 0 && row.sessionCount === 0,
     revisions: row.revisions,
     unlimitedRevisions: row.unlimitedRevisions,
     paymentPlans: [...row.paymentPlans],

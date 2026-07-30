@@ -46,7 +46,7 @@ export default async function AvailabilityStepPage({
   const isPreview = isDevPreviewBypass(params);
 
   if (isPreview) {
-    return <AvailabilityStepClient blocks={[]} />;
+    return <AvailabilityStepClient blocks={[]} previewMode />;
   }
 
   const { userId } = await auth();
@@ -66,14 +66,15 @@ export default async function AvailabilityStepPage({
   // week-start preference (DB-backed since the Settings redesign so the
   // value follows the producer across devices + surfaces).
   const caller = appRouter.createCaller({ userId });
-  const [blocks, profile] = await Promise.all([
+  const [blocks, profile, products] = await Promise.all([
     fetchAvailabilityBlocks(userId),
     caller.producer.me(),
+    caller.booking.packages.list(),
   ]);
-  const initialWeekStart =
-    profile.weekStart === "monday" ? "monday" : "sunday";
+  const firstProduct = products[0];
+  if (!firstProduct) redirect("/onboarding/service");
+  if (!firstProduct.bookingEnabled) redirect("/onboarding/review");
+  const initialWeekStart = profile.weekStart === "monday" ? "monday" : "sunday";
 
-  return (
-    <AvailabilityStepClient blocks={blocks} initialWeekStart={initialWeekStart} />
-  );
+  return <AvailabilityStepClient blocks={blocks} initialWeekStart={initialWeekStart} />;
 }

@@ -7,10 +7,7 @@ import { createDb, eq, producers } from "@skitza/db";
 import { headers } from "next/headers";
 import { z } from "zod";
 
-import {
-  inferCurrency,
-  slugFromDisplayName,
-} from "~/lib/onboarding/derive";
+import { inferCurrency, slugFromDisplayName } from "~/lib/onboarding/derive";
 import { fetchUserRole } from "~/server/auth/role";
 import { appRouter } from "~/server/trpc/routers/_app";
 
@@ -34,22 +31,26 @@ import { appRouter } from "~/server/trpc/routers/_app";
 const Input = z.object({
   displayName: z.string().trim().min(1).max(80),
   timezone: z.string().min(1).max(64),
+  currency: z.enum(["USD", "EUR", "GBP", "ILS"]).optional(),
 });
 
 const MAX_SLUG_ATTEMPTS = 3;
 
 function isSlugConflict(err: unknown): boolean {
   return (
-    err instanceof Error &&
-    /duplicate key value/.test(err.message) &&
-    /slug/.test(err.message)
+    err instanceof Error && /duplicate key value/.test(err.message) && /slug/.test(err.message)
   );
 }
 
 export async function completeStudio(input: {
   displayName: string;
   timezone: string;
-}): Promise<void> {
+  currency?: "USD" | "EUR" | "GBP" | "ILS";
+}): Promise<{
+  slug: string;
+  currency: "USD" | "EUR" | "GBP" | "ILS";
+  timezone: string;
+}> {
   const { userId } = await auth();
   if (!userId) throw new Error("unauthorized");
   const dbUrl = process.env.DATABASE_URL;
@@ -77,7 +78,7 @@ export async function completeStudio(input: {
   const reqHeaders = await headers();
   const country = reqHeaders.get("x-vercel-ip-country");
   const acceptLanguage = reqHeaders.get("accept-language");
-  const currency = inferCurrency(country, acceptLanguage);
+  const currency = parsed.currency ?? inferCurrency(country, acceptLanguage);
 
   // Upsert by clerkUserId so onboarding works whether the Clerk webhook
   // fired first or not — same idempotent shape as completeOnboarding.
@@ -91,10 +92,12 @@ export async function completeStudio(input: {
   // budget is explicit and each attempt has its own try/catch. Every
   // attempt regenerates the hex suffix — same displayName, fresh
   // 4-char hash, fresh slug.
-  let lastErr: unknown = null;
   for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt += 1) {
     const hash = randomBytes(2).toString("hex");
-    const slug = slugFromDisplayName(parsed.displayName, hash);
+    const slug =
+      role.kind === "producer-complete"
+        ? role.producer.slug
+        : slugFromDisplayName(parsed.displayName, hash);
 
     try {
       await db
@@ -121,9 +124,12 @@ export async function completeStudio(input: {
       // TODO(telemetry): fire producer.onboarding.step_completed
       // with { step: "studio" }. No server-side analytics helper
       // exists yet — add one in a follow-up and emit here.
-      return;
+      return {
+        slug,
+        currency,
+        timezone: parsed.timezone,
+      };
     } catch (err) {
-      lastErr = err;
       if (isSlugConflict(err)) continue;
       // Any other DB error: rethrow immediately. The retry loop is
       // exclusively for slug-uniqueness collisions.
@@ -136,11 +142,7 @@ export async function completeStudio(input: {
   // help — surface a friendly error so the producer can pick a slightly
   // different studio name to widen the body and almost-certainly avoid
   // the collision.
-  if (lastErr) {
-    throw new Error(
-      "could not allocate slug — please try a slightly different studio name",
-    );
-  }
+  throw new Error("could not allocate slug — please try a slightly different studio name");
 }
 
 // ─── saveServiceRoles (Step 2 — services) ───────────────────────────
@@ -185,12 +187,7 @@ export async function saveServiceRoles(input: { roles: string[] }): Promise<void
 // route. Mirrors the booking/actions.ts createPackage shape but is
 // scoped to onboarding (no /dashboard/booking revalidate path — the
 // producer hasn't been there yet during onboarding).
-type OnboardingPackageKind =
-  | "session"
-  | "mixing"
-  | "mastering"
-  | "producing"
-  | "other";
+type OnboardingPackageKind = "session" | "mixing" | "mastering" | "producing" | "other";
 type OnboardingPackageLocation = "studio" | "remote" | "client_space";
 type OnboardingPackageCurrency = "USD" | "EUR" | "GBP" | "ILS";
 

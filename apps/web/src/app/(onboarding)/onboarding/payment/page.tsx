@@ -3,13 +3,17 @@ import { redirect } from "next/navigation";
 
 import { isDevPreviewBypass } from "~/lib/onboarding/dev-preview";
 import { fetchUserRole } from "~/server/auth/role";
+import { appRouter } from "~/server/trpc/routers/_app";
 
 import { decideOnboardingRedirect } from "../decide-redirect";
 import { PaymentStepClient } from "./payment-step-client";
 import { ONBOARDING_STEP_NAME } from "./constants";
 
-// Step 5 explains the external-payments-only boundary. It does not connect
-// or select a payment provider.
+const EMPTY_PAYMENT_INSTRUCTIONS = {
+  bankTransfer: "",
+  bitPhone: "",
+  note: "",
+};
 
 export {
   PAYMENT_STEP_INDEX,
@@ -30,7 +34,7 @@ export default async function PaymentStepPage({
   const isPreview = isDevPreviewBypass(params);
 
   if (isPreview) {
-    return <PaymentStepClient />;
+    return <PaymentStepClient previewMode initialInstructions={EMPTY_PAYMENT_INSTRUCTIONS} />;
   }
 
   const { userId } = await auth();
@@ -44,6 +48,18 @@ export default async function PaymentStepPage({
   if (role.kind !== "producer-complete" && role.kind !== "producer-incomplete") {
     return null;
   }
+  if (!userId) return null;
 
-  return <PaymentStepClient />;
+  const caller = appRouter.createCaller({ userId });
+  const paymentInstructions = await caller.producer.purchase.paymentInstructions.get();
+
+  return (
+    <PaymentStepClient
+      initialInstructions={{
+        bankTransfer: paymentInstructions.bankTransfer ?? "",
+        bitPhone: paymentInstructions.bitPhone ?? "",
+        note: paymentInstructions.note ?? "",
+      }}
+    />
+  );
 }

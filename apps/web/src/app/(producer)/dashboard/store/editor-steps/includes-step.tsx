@@ -94,7 +94,7 @@ export function IncludesStep({
           htmlFor="includes-step-name"
           className="text-[10px] font-[var(--font-outfit)] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase"
         >
-          Product name <span className="text-[rgb(var(--brand-primary))]">*</span>
+          Product title <span className="text-[rgb(var(--brand-primary))]">*</span>
         </label>
         <input
           id="includes-step-name"
@@ -116,7 +116,7 @@ export function IncludesStep({
             htmlFor="includes-step-tagline"
             className="text-[10px] font-[var(--font-outfit)] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase"
           >
-            Tagline <span className="text-[rgb(var(--brand-primary))]">*</span>
+            Short description <span className="text-[rgb(var(--brand-primary))]">*</span>
           </label>
           <span className="text-[10.5px] text-[rgb(var(--fg-faint))] tabular-nums">
             {tagline.length}/{MAX_PRODUCT_TAGLINE_LENGTH}
@@ -132,14 +132,14 @@ export function IncludesStep({
             onTaglineChange(event.target.value);
           }}
           aria-describedby="includes-step-tagline-help"
-          placeholder="e.g. A focused mix, ready for release"
+          placeholder="From first demo to a release-ready master."
           className="h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-base text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-faint))] focus:border-[rgb(var(--brand-primary))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.25)] focus:outline-none sm:h-10 sm:rounded-[var(--radius-md)] sm:text-[14px]"
         />
         <p
           id="includes-step-tagline-help"
           className="text-[11.5px] leading-snug text-[rgb(var(--fg-faint))]"
         >
-          This exact line appears on the artist&apos;s Store card and product details.
+          One sentence artists will see on your Store card.
         </p>
       </div>
 
@@ -167,7 +167,7 @@ export function IncludesStep({
                   remove(s);
                 }}
                 aria-label={`Remove ${s}`}
-                className="group inline-flex min-h-11 max-w-full items-center gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-white py-1.5 pr-1.5 pl-3 text-left text-[12.5px] font-semibold text-[rgb(var(--fg-default))] shadow-[0_1px_2px_rgba(17,16,9,0.04)] transition-colors hover:border-[rgb(var(--danger,220_56_56))] hover:bg-red-50 sm:min-h-8 sm:rounded-[var(--radius-sm)]"
+                className="group inline-flex min-h-11 max-w-full items-center gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] py-1.5 pr-1.5 pl-3 text-left text-[12.5px] font-semibold text-[rgb(var(--fg-default))] shadow-[0_1px_2px_rgba(17,16,9,0.04)] transition-colors hover:border-[rgb(var(--fg-danger))] hover:bg-[rgb(var(--fg-danger)/0.06)] sm:min-h-8 sm:rounded-[var(--radius-sm)]"
               >
                 <span className="min-w-0 break-words">{s}</span>
                 <span
