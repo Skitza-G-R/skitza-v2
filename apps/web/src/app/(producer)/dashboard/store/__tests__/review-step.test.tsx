@@ -47,7 +47,7 @@ describe("ReviewStep", () => {
     expect(html).toContain("Gili Studio");
     expect(html).toContain("Product type");
     expect(html).toContain("Product details");
-    expect(html).toContain("Artist-facing tagline");
+    expect(html).toContain("Short description");
     expect(html).toContain("Release-ready clarity without losing the pulse.");
     expect(html).toContain("Price");
     expect(html).toContain("Payment");

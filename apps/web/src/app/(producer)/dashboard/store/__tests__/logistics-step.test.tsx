@@ -13,11 +13,15 @@ const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "editor-steps", "logistics-step.tsx"), "utf8");
 
 describe("LogisticsStep shell", () => {
-  it("does NOT import the toggle component (no on/off here)", () => {
-    expect(SRC).not.toMatch(/from\s+["']\.\.\/toggle["']/);
+  it("asks whether the product includes bookable sessions", () => {
+    expect(SRC).toMatch(/Does this product include bookable sessions\?/);
+    expect(SRC).toMatch(/includesSessions/);
+    expect(SRC).toMatch(/aria-pressed=\{includesSessions\}/);
   });
 
-  it("references both duration and revisions in the change handler", () => {
+  it("keeps session scope, duration, and revisions in the delivery step", () => {
+    expect(SRC).toMatch(/\bsessions\b/);
+    expect(SRC).toMatch(/unlimitedSessions/);
     expect(SRC).toMatch(/duration/);
     expect(SRC).toMatch(/revisions/);
   });

@@ -21,6 +21,8 @@ export interface PackageDraft {
   type: PresetType;
   price: number;
   currency: Currency;
+  /** Missing only for older/shared callers; omission preserves session behavior. */
+  includesSessions?: boolean;
   sessions: number;
   unlimitedSessions: boolean;
   payment: PaymentSelectionDraft;
@@ -95,10 +97,13 @@ export function buildPackagePayload(
     kind,
     priceCents: Math.round(draft.price * 100),
     currency: draft.currency,
-    durationMin: parseDurationMin(draft.duration),
-    sessionCount: draft.unlimitedSessions
-      ? 0
-      : Math.max(1, draft.sessions),
+    durationMin: draft.includesSessions !== false ? parseDurationMin(draft.duration) : 0,
+    sessionCount:
+      draft.includesSessions !== false
+        ? draft.unlimitedSessions
+          ? 0
+          : Math.max(1, draft.sessions)
+        : 0,
     paymentPlans: buildPaymentPlans(draft.payment),
     deliverables: draft.includes
       .map((item) => item.trim())

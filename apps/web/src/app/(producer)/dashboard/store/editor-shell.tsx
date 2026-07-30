@@ -39,6 +39,7 @@ interface EditorShellProps {
   onOpenChange: (open: boolean) => void;
   mode: "new" | "edit";
   productName?: string;
+  productActive?: boolean;
   steps: readonly string[];
   current: string;
   title: string;
@@ -47,10 +48,15 @@ interface EditorShellProps {
   onBack: () => void;
   onContinue: () => void;
   onSave: () => void;
+  onPublish: () => void;
+  onSaveHidden: () => void;
+  onDiscard: () => void;
   isLastStep: boolean;
   isFirstStep: boolean;
   children: ReactNode;
   pending?: boolean;
+  pendingAction?: "publish" | "hidden" | "edit";
+  draftSaved?: boolean;
 }
 
 export function EditorShell({
@@ -58,6 +64,7 @@ export function EditorShell({
   onOpenChange,
   mode,
   productName,
+  productActive = false,
   steps,
   current,
   title,
@@ -66,10 +73,15 @@ export function EditorShell({
   onBack,
   onContinue,
   onSave,
+  onPublish,
+  onSaveHidden,
+  onDiscard,
   isLastStep,
   isFirstStep,
   children,
   pending = false,
+  pendingAction,
+  draftSaved = false,
 }: EditorShellProps) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const currentIdx = Math.max(0, steps.indexOf(current));
@@ -79,6 +91,7 @@ export function EditorShell({
     mode === "new"
       ? `Step ${currentNum} of ${totalNum} · NEW PRODUCT`
       : `Step ${currentNum} of ${totalNum} · EDITING · ${productName ?? "product"}`;
+  const saveLabel = productActive ? "Save live changes" : "Save hidden changes";
 
   useLayoutEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
@@ -90,13 +103,13 @@ export function EditorShell({
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" />
         <DialogPrimitive.Content
           aria-label={mode === "new" ? "New product" : `Edit ${productName ?? "product"}`}
-          className="fixed top-1/2 left-1/2 z-50 max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[680px] -translate-x-1/2 -translate-y-1/2 rounded-[var(--radius-xl)] bg-[rgb(var(--bg-background))] shadow-2xl max-sm:top-auto max-sm:right-0 max-sm:bottom-0 max-sm:left-0 max-sm:h-auto max-sm:max-h-[92dvh] max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-t-[var(--radius-xl)] max-sm:rounded-b-none"
+          className="fixed top-1/2 left-1/2 z-50 max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[680px] -translate-x-1/2 -translate-y-1/2 rounded-[var(--radius-xl)] bg-[rgb(var(--bg-background))] shadow-2xl max-sm:inset-0 max-sm:top-0 max-sm:left-0 max-sm:h-[100dvh] max-sm:max-h-none max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none"
         >
           {/* Inline keyframe — see file-level comment for rationale. The
               animation runs on this inner div so its transform stays
               isolated from Dialog.Content's centering transform. */}
           <div
-            className="sk-editor-shell-motion flex max-h-[inherit] min-h-0 flex-col overflow-hidden"
+            className="sk-editor-shell-motion flex max-h-[inherit] min-h-0 flex-col overflow-hidden max-sm:h-full"
             style={{ animation: "popIn 240ms cubic-bezier(.16,1,.3,1)" }}
           >
             <style>{`@keyframes popIn {
@@ -115,14 +128,20 @@ export function EditorShell({
                 <X className="h-4 w-4" aria-hidden />
               </DialogPrimitive.Close>
               <div className="min-w-0 pr-12 sm:pr-14">
-                <span
-                  // truncate — edit mode appends the product name
-                  // ("· EDITING · Full production day") which
-                  // overflows a 390px sheet header otherwise.
-                  className="block text-[10.5px] font-[var(--font-outfit)] font-bold tracking-[0.16em] break-words whitespace-normal text-[rgb(var(--fg-muted))] uppercase"
-                >
-                  {stepLabel}
-                </span>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="block text-[10.5px] font-[var(--font-outfit)] font-bold tracking-[0.16em] break-words whitespace-normal text-[rgb(var(--fg-muted))] uppercase">
+                    {stepLabel}
+                  </span>
+                  {draftSaved ? (
+                    <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-[rgb(var(--fg-faint))]">
+                      <span
+                        aria-hidden
+                        className="h-1.5 w-1.5 rounded-full bg-[rgb(var(--brand-primary))]"
+                      />
+                      Draft saved
+                    </span>
+                  ) : null}
+                </div>
                 <DialogPrimitive.Title
                   className="mt-1 leading-none font-[var(--font-syne)] font-extrabold tracking-[-0.025em] text-[rgb(var(--fg-default))]"
                   style={{ fontSize: "clamp(22px, 4vw, 28px)" }}
@@ -148,41 +167,76 @@ export function EditorShell({
               {children}
             </div>
 
-            {/* Footer — Back on left, Continue/Save on right. Cancel
-                removed: Close X handles it. Bottom padding clears the
-                iOS home indicator when the sheet is bottom-anchored. */}
-            <div className="flex shrink-0 items-center justify-between gap-2 border-t border-[rgb(var(--border-subtle))] px-5 py-3 max-sm:pb-[calc(12px+env(safe-area-inset-bottom,0px))] sm:px-6 sm:py-4">
-              <div>
-                {isFirstStep ? null : (
+            <div className="shrink-0 border-t border-[rgb(var(--border-subtle))] px-5 py-3 max-sm:pb-[calc(12px+env(safe-area-inset-bottom,0px))] sm:px-6 sm:py-4">
+              {isLastStep ? (
+                <p className="mb-2 text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
+                  {mode === "new"
+                    ? "Publishing makes this visible to connected artists immediately."
+                    : productActive
+                      ? "Artists will see this update immediately."
+                      : "This product stays hidden after you save."}
+                </p>
+              ) : null}
+              <div className="flex items-center justify-between gap-2 max-sm:flex-wrap">
+                <div className="flex items-center gap-1">
+                  {isFirstStep ? null : (
+                    <button
+                      type="button"
+                      onClick={onBack}
+                      className="sk-press inline-flex h-11 items-center rounded-[var(--radius-lg)] px-3 text-[13px] font-medium text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] sm:h-10 sm:rounded-[var(--radius-md)]"
+                    >
+                      ← Back
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={onBack}
-                    className="sk-press inline-flex h-11 items-center rounded-[var(--radius-lg)] px-3 text-[13px] font-medium text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] sm:h-10 sm:rounded-[var(--radius-md)]"
+                    onClick={onDiscard}
+                    disabled={pending}
+                    className="sk-press inline-flex h-11 items-center rounded-[var(--radius-lg)] px-3 text-[12.5px] font-medium text-[rgb(var(--fg-faint))] transition-colors hover:bg-[rgb(var(--fg-danger)/0.08)] hover:text-[rgb(var(--fg-danger))] disabled:opacity-50 sm:h-10 sm:rounded-[var(--radius-md)]"
                   >
-                    ← Back
+                    Discard draft
                   </button>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                {isLastStep ? (
-                  <button
-                    type="button"
-                    onClick={onSave}
-                    disabled={!canContinue || pending}
-                    className="sk-press inline-flex h-11 items-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-sidebar))] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-10 sm:rounded-[var(--radius-md)]"
-                  >
-                    {pending ? "Saving…" : mode === "new" ? "Create product" : "Save changes"}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={onContinue}
-                    disabled={!canContinue}
-                    className="sk-press inline-flex h-11 items-center rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-elevated))] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-10 sm:rounded-[var(--radius-md)]"
-                  >
-                    Continue →
-                  </button>
-                )}
+                </div>
+                <div className="flex items-center gap-2 max-sm:w-full max-sm:justify-end">
+                  {isLastStep && mode === "new" ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={onSaveHidden}
+                        disabled={!canContinue || pending}
+                        className="sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 text-[13px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:border-[rgb(var(--border-strong))] disabled:cursor-not-allowed disabled:opacity-50 max-sm:flex-1 sm:h-10 sm:rounded-[var(--radius-md)]"
+                      >
+                        {pending && pendingAction === "hidden" ? "Saving…" : "Save hidden"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onPublish}
+                        disabled={!canContinue || pending}
+                        className="sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-sidebar))] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 max-sm:flex-1 sm:h-10 sm:rounded-[var(--radius-md)]"
+                      >
+                        {pending && pendingAction === "publish" ? "Publishing…" : "Publish product"}
+                      </button>
+                    </>
+                  ) : isLastStep ? (
+                    <button
+                      type="button"
+                      onClick={onSave}
+                      disabled={!canContinue || pending}
+                      className="sk-press inline-flex h-11 items-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-sidebar))] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-10 sm:rounded-[var(--radius-md)]"
+                    >
+                      {pending && pendingAction === "edit" ? "Saving…" : saveLabel}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={onContinue}
+                      disabled={!canContinue}
+                      className="sk-press inline-flex h-11 items-center rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[13px] font-semibold text-[rgb(var(--bg-elevated))] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-10 sm:rounded-[var(--radius-md)]"
+                    >
+                      Continue →
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>

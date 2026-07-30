@@ -78,6 +78,8 @@ export async function createPackage(input: {
   // enforces this). Both fields default to flat / [] when omitted.
   pricingModel?: "flat" | "per_song";
   volumeTiers?: { minQty: number; pricePerUnitCents: number }[];
+  /** Create live by default; false saves the product hidden atomically. */
+  active?: boolean;
 }): Promise<ActionDataResult<{ id: string }>> {
   const c = await callerOrError();
   if (!c.ok) return c;

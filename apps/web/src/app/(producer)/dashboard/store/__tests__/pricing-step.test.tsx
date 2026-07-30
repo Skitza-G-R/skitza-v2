@@ -19,17 +19,22 @@ describe("PricingStep shell", () => {
     expect(SRC).not.toMatch(/PLAN_OPTIONS|showPaymentPlans/);
   });
 
-  it("reads/writes price, currency, and sessions", () => {
+  it("reads and writes price and currency without mixing in delivery fields", () => {
     expect(SRC).toMatch(/price/);
     expect(SRC).toMatch(/currency/);
-    expect(SRC).toMatch(/sessions/);
+    expect(SRC).toMatch(/sessions\?: number/);
+    expect(SRC).toMatch(/unlimitedSessions\?: boolean/);
+    const renderedImplementation = SRC.slice(SRC.indexOf("export function PricingStep"));
+    expect(renderedImplementation).not.toMatch(/\bsessions\b/);
+    expect(renderedImplementation).not.toMatch(/unlimitedSessions/);
     expect(SRC).not.toMatch(/paymentPlan/);
   });
 
-  it("renders an 'Unlimited' pill toggle for the sessions count", () => {
-    expect(SRC).toMatch(/Unlimited/);
-    expect(SRC).toMatch(/aria-label="Unlimited sessions"/);
-    expect(SRC).toMatch(/aria-pressed=\{unlimitedSessions\}/);
+  it("shows tax as read-only and links to the global Settings destination", () => {
+    expect(SRC).toMatch(/Edit in Settings/);
+    expect(SRC).toMatch(/\/dashboard\/settings\?section=region/);
+    expect(SRC).not.toMatch(/TaxModeSegmented/);
+    expect(SRC).not.toMatch(/onTaxChange/);
   });
 
   it("does not mention the dropped fields", () => {

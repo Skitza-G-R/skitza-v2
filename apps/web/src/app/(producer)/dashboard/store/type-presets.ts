@@ -22,6 +22,7 @@ export interface PresetSeed {
   name: string;
   price: number;
   duration: string;
+  includesSessions: boolean;
   sessions: number;
   unlimitedSessions: boolean;
   paymentPlan: PaymentPlanChoice;
@@ -69,6 +70,7 @@ export const TYPE_PRESETS: TypePreset[] = [
       name: "",
       price: 2500,
       duration: "multi-session",
+      includesSessions: true,
       sessions: 8,
       unlimitedSessions: false,
       paymentPlan: "split",
@@ -102,6 +104,7 @@ export const TYPE_PRESETS: TypePreset[] = [
       name: "",
       price: 150,
       duration: "180 min",
+      includesSessions: false,
       sessions: 1,
       unlimitedSessions: false,
       paymentPlan: "split",
@@ -134,6 +137,7 @@ export const TYPE_PRESETS: TypePreset[] = [
       name: "",
       price: 200,
       duration: "90 min",
+      includesSessions: false,
       sessions: 1,
       unlimitedSessions: false,
       paymentPlan: "full",
@@ -144,7 +148,7 @@ export const TYPE_PRESETS: TypePreset[] = [
   },
   {
     id: "blank",
-    label: "Blank",
+    label: "Custom",
     icon: "plus",
     desc: "Start from scratch — define your own",
     defaultName: "",
@@ -155,6 +159,7 @@ export const TYPE_PRESETS: TypePreset[] = [
       name: "",
       price: 100,
       duration: "60 min",
+      includesSessions: false,
       sessions: 1,
       unlimitedSessions: false,
       paymentPlan: "full",
