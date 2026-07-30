@@ -27,6 +27,11 @@ describe("ArtistStorePreview", () => {
     expect(SRC).not.toMatch(/\.sort\(/);
   });
 
+  it("shows only the public tagline instead of encoded editor metadata", () => {
+    expect(SRC).toContain("decodeDescription(product.description).tagline || null");
+    expect(SRC).not.toContain("description: product.description");
+  });
+
   it("opens the real product detail in mutation-safe preview mode", () => {
     expect(SRC).toMatch(/onPreviewDetails/);
     expect(SRC).toMatch(/previewMode=\{true\}/);

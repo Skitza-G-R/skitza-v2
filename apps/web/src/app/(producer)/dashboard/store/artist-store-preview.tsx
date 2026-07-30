@@ -47,7 +47,7 @@ function toArtistCardProduct(product: StoreProduct): ArtistCardProduct {
   return {
     id: product.id,
     name: product.name,
-    description: product.description,
+    description: decodeDescription(product.description).tagline || null,
     priceCents: product.priceCents,
     currency: product.currency,
     pricingModel: artistPricingModel(product.pricingModel),
