@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@clerk/backend": "^3.2.11",
     "@clerk/nextjs": "^7.2.1",
     "@skitza/db": "workspace:*",
     "jose": "^6.2.3",
