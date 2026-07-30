@@ -2570,3 +2570,32 @@ html[data-theme="dark"] .sk-auth-shell {
     position: absolute;
   }
 }
+
+/* SK-156 — iOS Safari zooms the visual viewport when a focused text
+ * control computes below 16px. Keep every phone text-entry surface at the
+ * browser-safe floor in portrait and landscape while leaving desktop
+ * typography and non-text controls untouched. This is deliberately
+ * unlayered and important so it wins over Tailwind utilities, CSS modules,
+ * and runtime form styles without disabling user pinch-to-zoom. */
+@media (max-width: 1023px) {
+  input:not([type]),
+  input[type="text"],
+  input[type="search"],
+  input[type="email"],
+  input[type="url"],
+  input[type="tel"],
+  input[type="password"],
+  input[type="number"],
+  input[type="date"],
+  input[type="time"],
+  input[type="datetime-local"],
+  input[type="month"],
+  input[type="week"],
+  select:not([hidden]),
+  textarea:not([hidden]) {
+    font-size: max(
+      16px,
+      var(--sk-mobile-control-font-size, 1em)
+    ) !important;
+  }
+}

@@ -432,7 +432,7 @@ export function UploadProofScreen({
                       setAmount(event.target.value);
                     }}
                     aria-describedby="proof-amount-help"
-                    className="min-w-0 flex-1 border-0 border-b border-white/25 bg-transparent py-1 font-mono text-[28px] font-bold text-white outline-none focus:border-[rgb(var(--brand-primary))]"
+                    className="min-w-0 flex-1 border-0 border-b border-white/25 bg-transparent py-1 font-mono text-[28px] font-bold text-white outline-none [--sk-mobile-control-font-size:28px] focus:border-[rgb(var(--brand-primary))]"
                   />
                 </div>
                 <p
