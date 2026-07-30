@@ -1,15 +1,13 @@
 /**
- * Dev-only preview bypass for the producer onboarding wizard.
+ * Non-production preview bypass for the producer onboarding wizard.
  *
  * Lets a developer (or Claude in the preview tool) visually verify
  * each onboarding step without needing a fresh-producer Clerk session
  * each time. The bypass is gated by TWO independent conditions that
  * must both hold:
  *
- *   1. `process.env.NODE_ENV === "development"` — Vercel sets
- *      NODE_ENV="production" on every deployed environment (preview +
- *      production), so this branch is genuinely unreachable from any
- *      URL pointed at the deployed app.
+ *   1. The app is running locally in development or in Vercel's
+ *      isolated preview environment. Production deployments never pass.
  *
  *   2. The request carries `?__preview=1` in its query string. Opt-in
  *      per request — there is no global "auth is off" mode, and an
@@ -27,7 +25,9 @@ export function isDevPreviewBypass(
     | Record<string, string | string[] | undefined>
     | URLSearchParams,
 ): boolean {
-  if (process.env.NODE_ENV !== "development") return false;
+  const previewEnvironment =
+    process.env.NODE_ENV === "development" || process.env.VERCEL_ENV === "preview";
+  if (!previewEnvironment) return false;
   if (searchParams instanceof URLSearchParams) {
     return searchParams.get("__preview") === "1";
   }

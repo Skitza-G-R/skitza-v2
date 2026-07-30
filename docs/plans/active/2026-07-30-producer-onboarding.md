@@ -73,8 +73,8 @@ without blocking dashboard access after identity is saved.
    truthfulness, and responsive shell contracts.
 2. Run focused onboarding/Store tests until green.
 3. Run typecheck, lint, full tests, and production builds.
-4. Run a development-only, no-write browser walkthrough at 360×800, 390×844,
-   and 1440×900.
+4. Run a non-production, no-write browser walkthrough locally and on the
+   protected Vercel preview at 360×800, 390×844, and desktop.
 5. On every browser pass, check overflow, keyboard/action reachability,
    focus, reduced motion, console errors, page errors, and failed same-origin
    requests.
