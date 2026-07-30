@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
 // Page-level test for the landing route — Phase 3 v3 (replaces the
@@ -49,7 +49,37 @@ beforeEach(() => {
   redirectMock.mockClear();
 });
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("HomePage (landing) — composition (Phase 3 v3)", () => {
+  it("lands one-click Vercel preview links on the onboarding walkthrough", async () => {
+    vi.stubEnv("VERCEL_ENV", "preview");
+    authMock.mockResolvedValue({ userId: null });
+    const { default: HomePage } = await import("../page");
+
+    await expect(HomePage({ searchParams: Promise.resolve({ __preview: "1" }) })).rejects.toThrow(
+      "__REDIRECT__:/onboarding/welcome?__preview=1",
+    );
+    expect(redirectMock).toHaveBeenCalledWith("/onboarding/welcome?__preview=1");
+    expect(authMock).not.toHaveBeenCalled();
+  });
+
+  it("does not enable the onboarding walkthrough redirect in production", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    authMock.mockResolvedValue({ userId: null });
+    const { default: HomePage } = await import("../page");
+
+    const ui = await HomePage({
+      searchParams: Promise.resolve({ __preview: "1" }),
+    });
+    const html = renderToStaticMarkup(ui);
+
+    expect(html).toContain('id="landing-root"');
+    expect(redirectMock).not.toHaveBeenCalled();
+  });
+
   it("redirects signed-in producers to /dashboard and does NOT render landing content", async () => {
     authMock.mockResolvedValue({ userId: "user_123" });
     const { default: HomePage } = await import("../page");

@@ -15,15 +15,15 @@
  *
  * Used by:
  *   - middleware.ts (skips Clerk auth.protect for the request)
+ *   - the preview deployment homepage (lands one-click share links
+ *     on the onboarding walkthrough after Vercel sets its access cookie)
  *   - each onboarding step's page.tsx (skips the role redirect so an
  *     already-completed producer can still see the step UI for review)
  *
  * Tested in dev-preview.test.ts.
  */
 export function isDevPreviewBypass(
-  searchParams:
-    | Record<string, string | string[] | undefined>
-    | URLSearchParams,
+  searchParams: Record<string, string | string[] | undefined> | URLSearchParams,
 ): boolean {
   const previewEnvironment =
     process.env.NODE_ENV === "development" || process.env.VERCEL_ENV === "preview";
