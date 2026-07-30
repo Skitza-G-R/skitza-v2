@@ -29,6 +29,7 @@ import {
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useRuntimeTextDraft } from "~/components/runtime-state/use-runtime-state";
+import { Card } from "~/components/ui/card";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "~/components/ui/sheet";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 import { formatMoney } from "~/lib/format/money";
@@ -38,6 +39,8 @@ import {
   type VersionDeliveryPermission,
   type VersionDeliveryState,
 } from "./delivery-state";
+import { gradientForSeed } from "./lib";
+import { ProjectCover } from "./project-cover";
 import { SongManagementDialog, type SongManagementDialogConfig } from "./song-management-dialog";
 import {
   SongPublicLinkControls,
@@ -1663,21 +1666,12 @@ export function SongPage({
       : null);
   const displayedCurrentMs =
     playbackSnapshot.track?.id === activeVersion.id ? playbackSnapshot.currentMs : currentMs;
-  const coverLetters =
-    songTitle
-      .trim()
-      .split(/\s+/)
-      .slice(0, 2)
-      .map((word) => word.charAt(0).toUpperCase())
-      .join("") || "S";
-
-  function renderArtwork(className: string) {
+  function renderArtwork(className: string, compact = false) {
     return (
       <div
         data-test={artworkUrl ? "song-artwork" : "song-artwork-fallback"}
         className={[
-          "relative shrink-0 overflow-hidden rounded-[12px] border border-white/10 bg-[rgb(255_255_255/0.055)]",
-          "lg:border-[rgb(var(--border-strong))] lg:bg-[rgb(var(--fg-default)/0.055)]",
+          "relative shrink-0 overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] shadow-[var(--shadow-md)]",
           className,
         ].join(" ")}
       >
@@ -1687,14 +1681,16 @@ export function SongPage({
           // eslint-disable-next-line @next/next/no-img-element
           <img src={artworkUrl} alt={`${songTitle} cover`} className="h-full w-full object-cover" />
         ) : (
-          <div className="flex h-full w-full flex-col items-center justify-center text-center">
-            <span className="font-display text-[clamp(46px,16vw,82px)] font-bold tracking-[-0.06em] text-white/82 lg:text-[42px] lg:text-[rgb(var(--fg-default)/0.82)]">
-              {coverLetters}
-            </span>
-            <span className="mt-2 max-w-[80%] truncate font-mono text-[9px] tracking-[0.14em] text-white/38 uppercase lg:text-[rgb(var(--fg-muted))]">
-              {songTitle}
-            </span>
-          </div>
+          <ProjectCover
+            seed={data.track.projectId}
+            gradient={gradientForSeed(data.track.projectId)}
+            kind={null}
+            showKind={false}
+            wordmark={!compact}
+            radius="inherit"
+            shadow="none"
+            className="h-full w-full"
+          />
         )}
       </div>
     );
@@ -1771,7 +1767,7 @@ export function SongPage({
           onClick={() => {
             setVersionMenuOpen((open) => !open);
           }}
-          className="inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-lg)] border border-white/14 bg-white/[0.055] px-3 font-mono text-[11px] font-bold text-white transition-colors hover:bg-white/[0.1] lg:min-h-9 lg:rounded-[10px] lg:border-[rgb(var(--border-subtle))] lg:bg-white lg:text-[rgb(var(--fg-default))] lg:hover:bg-[rgb(var(--fg-default)/0.035)]"
+          className="sk-press inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 font-mono text-[11px] font-bold text-[rgb(var(--fg-default))] transition-colors hover:border-[rgb(var(--border-strong))] hover:bg-[rgb(var(--bg-overlay))] lg:min-h-10 lg:rounded-[var(--radius-md)]"
         >
           <span>{renderedVersion.label}</span>
           <ChevronDownIcon />
@@ -1781,7 +1777,7 @@ export function SongPage({
             id={versionPanelId}
             role="group"
             aria-label="Version history"
-            className="sk-pop absolute top-[calc(100%+8px)] left-0 z-40 max-h-[min(62dvh,480px)] w-[330px] overflow-y-auto rounded-[12px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 text-[rgb(var(--fg-default))] shadow-[var(--shadow-lg)]"
+            className="sk-pop absolute top-[calc(100%+8px)] left-0 z-40 max-h-[min(62dvh,480px)] w-[330px] overflow-y-auto rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 text-[rgb(var(--fg-default))] shadow-[var(--shadow-lg)]"
           >
             {renderVersionOptions()}
           </div>
@@ -1833,7 +1829,7 @@ export function SongPage({
             "inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-lg)] border px-4 text-[12px] font-bold transition-colors disabled:opacity-50",
             isProducerReady
               ? "border-[rgb(var(--brand-primary)/0.45)] bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-primary))]"
-              : "border-white/16 bg-white/[0.055] text-white hover:bg-white/[0.1] lg:border-[rgb(var(--border-strong))] lg:bg-white lg:text-[rgb(var(--fg-default))] lg:hover:bg-[rgb(var(--fg-default)/0.035)]",
+              : "border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] hover:bg-[rgb(var(--bg-overlay))]",
           ].join(" ")}
         >
           <CheckIcon /> {isProducerReady ? "Ready for artist" : "Mark ready"}
@@ -1865,7 +1861,7 @@ export function SongPage({
       );
     }
     return (
-      <span className="inline-flex min-h-11 items-center text-[12px] font-semibold text-white/48 lg:text-[rgb(var(--fg-muted))]">
+      <span className="inline-flex min-h-11 items-center text-[12px] font-semibold text-[rgb(var(--fg-muted))]">
         Waiting for producer
       </span>
     );
@@ -1885,9 +1881,8 @@ export function SongPage({
             setOverflowOpen((open) => !open);
           }}
           className={[
-            "inline-flex h-11 w-11 items-center justify-center rounded-full border transition-colors",
-            "border-white/14 bg-white/[0.055] text-white hover:bg-white/[0.1]",
-            "lg:border-[rgb(var(--border-subtle))] lg:bg-white lg:text-[rgb(var(--fg-default))] lg:hover:bg-[rgb(var(--fg-default)/0.04)]",
+            "sk-press inline-flex h-11 w-11 items-center justify-center rounded-full border transition-colors",
+            "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] shadow-[var(--shadow-sm)] hover:border-[rgb(var(--border-strong))] hover:bg-[rgb(var(--bg-overlay))]",
           ].join(" ")}
         >
           <MoreIcon />
@@ -1897,7 +1892,7 @@ export function SongPage({
             {...moreActionsPanelProps}
             id={moreActionsPanelId}
             testId="song-more-actions-popover"
-            className="sk-pop absolute top-[calc(100%+8px)] right-0 z-50 max-h-[min(72dvh,560px)] w-72 origin-top-right overflow-y-auto rounded-[12px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 text-[rgb(var(--fg-default))] shadow-[var(--shadow-lg)]"
+            className="sk-pop absolute top-[calc(100%+8px)] right-0 z-50 max-h-[min(72dvh,560px)] w-72 origin-top-right overflow-y-auto rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1 text-[rgb(var(--fg-default))] shadow-[var(--shadow-lg)]"
           />
         ) : null}
         <Sheet
@@ -1938,15 +1933,15 @@ export function SongPage({
   function renderNotesPanel(surface: "desktop" | "sheet") {
     const desktop = surface === "desktop";
     return (
-      <div
+      <Card
         className={[
           "flex min-h-0 flex-1 flex-col bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))]",
-          desktop ? "rounded-[12px] border border-[rgb(var(--border-subtle))]" : "h-full",
+          desktop ? "rounded-[var(--radius-lg)]" : "rounded-none border-0 shadow-none",
         ].join(" ")}
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-[rgb(var(--border-subtle))] px-4 py-3">
+        <div className="flex shrink-0 items-center justify-between border-b border-[rgb(var(--border-subtle))] px-5 py-4">
           <div className="flex items-baseline gap-2">
-            <h2 className="font-display text-[17px] font-bold tracking-[-0.02em]">Notes</h2>
+            <h2 className="font-display text-[18px] font-bold tracking-[-0.02em]">Notes</h2>
             <span className="font-mono text-[10px] font-bold text-[rgb(var(--fg-muted))] tabular-nums">
               {String(visibleComments.length)}
               {visibleComments.length !== allCommentsForVersion.length
@@ -1961,7 +1956,7 @@ export function SongPage({
                 onClick={() => {
                   setShowResolved((shown) => !shown);
                 }}
-                className="inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-3 text-[11px] font-bold text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--fg-default)/0.04)] hover:text-[rgb(var(--fg-default))] lg:min-h-9"
+                className="sk-press inline-flex min-h-11 items-center rounded-[var(--radius-lg)] px-3 text-[11px] font-bold text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))] lg:min-h-9 lg:rounded-[var(--radius-md)]"
               >
                 {showResolved ? "Hide resolved" : "Show resolved"}
               </button>
@@ -1981,7 +1976,7 @@ export function SongPage({
 
         {surface === "sheet" ? (
           <div className="flex shrink-0 items-center gap-3 border-b border-[rgb(var(--border-subtle))] px-4 py-3">
-            {renderArtwork("h-12 w-12 rounded-[8px]!")}
+            {renderArtwork("h-12 w-12 rounded-[8px]!", true)}
             <button
               type="button"
               onClick={handlePlayToggle}
@@ -2010,7 +2005,7 @@ export function SongPage({
           </p>
         ) : null}
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5">
           {visibleComments.length === 0 ? (
             <div className="flex min-h-40 items-center justify-center text-center">
               <p className="max-w-[28ch] text-[13px] leading-relaxed text-[rgb(var(--fg-muted))]">
@@ -2031,10 +2026,7 @@ export function SongPage({
                     key={c.id}
                     id={`song-note-${c.id}`}
                     data-song-comment={c.id}
-                    className={[
-                      "py-3.5",
-                      resolved ? "text-[rgb(var(--fg-muted))] opacity-65" : "",
-                    ].join(" ")}
+                    className={["py-4", resolved ? "text-[rgb(var(--fg-muted))]" : ""].join(" ")}
                   >
                     <div className="flex items-start gap-3">
                       <span
@@ -2048,7 +2040,7 @@ export function SongPage({
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <span className="text-[12px] font-bold">{c.authorName}</span>
+                          <span className="text-[13px] font-bold">{c.authorName}</span>
                           <button
                             type="button"
                             data-test="comment-timestamp"
@@ -2066,8 +2058,8 @@ export function SongPage({
                         </div>
                         <p
                           className={[
-                            "mt-0.5 text-[13px] leading-[1.45]",
-                            resolved ? "line-through decoration-[rgb(var(--fg-muted)/0.4)]" : "",
+                            "mt-0.5 text-[13.5px] leading-[1.5]",
+                            resolved ? "text-[rgb(var(--fg-muted))]" : "",
                           ].join(" ")}
                         >
                           {c.body}
@@ -2116,7 +2108,7 @@ export function SongPage({
           )}
         </div>
 
-        <div className="shrink-0 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3">
+        <div className="shrink-0 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4">
           {commentsClosed ? (
             <p role="status" className="text-[12px] leading-relaxed text-[rgb(var(--fg-muted))]">
               {songArchived
@@ -2124,7 +2116,7 @@ export function SongPage({
                 : "This project is archived. New comments are closed."}
             </p>
           ) : (
-            <div className="flex items-center gap-2 rounded-[12px] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-background))] p-1 focus-within:border-[rgb(var(--brand-primary))]">
+            <div className="flex items-center gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-sunken))] p-1 focus-within:border-[rgb(var(--brand-primary))]">
               <span className="shrink-0 px-2 font-mono text-[10px] font-bold text-[rgb(var(--brand-primary-dark))] tabular-nums">
                 {fmtMs(displayedCurrentMs)}
               </span>
@@ -2162,16 +2154,20 @@ export function SongPage({
             </div>
           )}
         </div>
-      </div>
+      </Card>
     );
   }
 
   return (
     <main
       data-test="professional-song-page"
-      className="min-h-full overflow-x-clip bg-[rgb(var(--bg-sidebar))] text-white lg:bg-[rgb(var(--bg-background))] lg:text-[rgb(var(--fg-default))] lg:[--bg-background:242_237_230] lg:[--bg-elevated:255_255_255] lg:[--bg-overlay:247_243_235] lg:[--bg-sunken:232_225_212] lg:[--border-control:107_99_89] lg:[--border-strong:200_192_178] lg:[--border-subtle:232_225_212] lg:[--brand-primary-dark:161_113_6] lg:[--brand-primary-soft:212_150_10] lg:[--brand-primary-text:120_80_0] lg:[--brand-primary:212_150_10] lg:[--fg-danger-text:174_25_25] lg:[--fg-default:17_16_9] lg:[--fg-faint:156_148_138] lg:[--fg-inverse:242_237_230] lg:[--fg-muted:107_99_89] lg:[--fg-secondary:61_55_48] lg:[--fg-success-text:15_105_50] lg:[--focus-ring:150_104_0]"
+      className="sk-page-enter relative isolate min-h-full overflow-x-clip bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-default))]"
     >
       <SetTopBarBreadcrumb crumbs={topbarCrumbs} />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[320px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.09)] via-[rgb(var(--bg-background)/0.72)] to-[rgb(var(--bg-background))]"
+      />
 
       {role === "producer" && actions.prepareArtwork && actions.completeArtwork ? (
         <input
@@ -2187,240 +2183,236 @@ export function SongPage({
         />
       ) : null}
 
-      <div className="mx-auto grid min-h-full max-w-[1480px] lg:h-[calc(100dvh-82px)] lg:max-h-[940px] lg:min-h-[680px] lg:grid-cols-[minmax(0,1.82fr)_minmax(330px,1fr)] lg:gap-4 lg:p-4">
-        <section className="flex min-w-0 flex-col lg:min-h-0">
-          <header className="shrink-0 px-4 pt-[max(14px,env(safe-area-inset-top))] sm:px-6 lg:px-1 lg:pt-0">
-            <div className="flex min-h-11 items-center justify-between gap-3">
+      <div className="relative z-10 mx-auto w-full max-w-[1120px] px-4 py-4 pb-24 sm:px-6 sm:py-6 lg:py-8 lg:pb-10">
+        <header className="mb-4">
+          <Card className="relative grid grid-cols-[88px_minmax(0,1fr)] items-start gap-x-3 p-4 sm:grid-cols-[108px_minmax(0,1fr)] sm:gap-x-5 sm:p-5 lg:grid-cols-[120px_minmax(0,1fr)]">
+            {renderArtwork("h-[88px] w-[88px] sm:h-[108px] sm:w-[108px] lg:h-[120px] lg:w-[120px]")}
+            <div className="min-w-0 pt-0.5">
               <Link
                 href={projectHref}
-                aria-label={"Back to " + data.track.projectTitle}
-                className="inline-flex min-h-11 min-w-0 items-center gap-2 rounded-[var(--radius-lg)] text-[12px] font-semibold text-white/58 hover:text-white lg:text-[rgb(var(--fg-muted))] lg:hover:text-[rgb(var(--fg-default))]"
+                aria-label={"Open " + data.track.projectTitle + " project"}
+                className="inline-flex min-h-11 max-w-[calc(100%-3rem)] items-center text-[11.5px] font-semibold text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-default))]"
               >
-                <BackIcon />
                 <span className="truncate">{data.track.projectTitle}</span>
               </Link>
-              {renderMoreControl()}
-            </div>
-
-            <div className="flex flex-col items-center gap-5 pt-4 pb-5 lg:flex-row lg:items-start lg:gap-5 lg:pt-3 lg:pb-4">
-              {renderArtwork(
-                "aspect-square w-[min(calc(100vw-48px),420px)] lg:h-[132px] lg:w-[132px]",
-              )}
-              <div className="w-full min-w-0 text-center lg:flex-1 lg:pt-1 lg:text-left">
-                <h1 className="font-display text-[clamp(26px,7vw,34px)] leading-[1.04] font-bold tracking-[-0.035em] text-white lg:text-[34px] lg:text-[rgb(var(--fg-default))]">
-                  {songTitle}
-                </h1>
-                <p className="mt-2 truncate text-[13px] font-medium text-white/58 lg:text-[rgb(var(--fg-muted))]">
+              <h1 className="font-display mt-1 line-clamp-2 text-[26px] leading-[1.02] font-extrabold tracking-[-0.035em] text-[rgb(var(--fg-default))] sm:text-[30px] lg:text-[34px]">
+                {songTitle}
+              </h1>
+              {(songArtist ?? clientLabel) ? (
+                <p className="mt-1.5 truncate text-[13px] font-medium text-[rgb(var(--fg-muted))]">
                   {songArtist ?? clientLabel}
                 </p>
-                <div className="mt-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 font-mono text-[10px] text-white/42 lg:justify-start lg:text-[rgb(var(--fg-muted))]">
-                  <Link
-                    href={projectHref}
-                    className="transition-colors hover:text-white lg:hover:text-[rgb(var(--fg-default))]"
-                  >
-                    {data.track.projectTitle}
-                  </Link>
-                  <span aria-hidden>·</span>
-                  <span>
-                    {effectiveDurationMs ? fmtMs(effectiveDurationMs) : "Duration pending"}
-                  </span>
-                  <span aria-hidden>·</span>
-                  <span>{fmtRelativeIso(activeVersion.uploadedAtIso)}</span>
-                  {songReleased ? (
-                    <>
-                      <span aria-hidden>·</span>
-                      <span>Released</span>
-                    </>
-                  ) : null}
-                  {songArchived || projectArchivedLabel ? (
-                    <>
-                      <span aria-hidden>·</span>
-                      <span>{songArchived ? "Song archived" : projectArchivedLabel}</span>
-                    </>
-                  ) : null}
-                  {activeVersionDeleted ? (
-                    <>
-                      <span aria-hidden>·</span>
-                      <span>Audio deleted</span>
-                    </>
-                  ) : null}
-                  {wasPreviouslyArtistApproved && !isExactArtistApproved ? (
-                    <>
-                      <span aria-hidden>·</span>
-                      <span>Previously approved</span>
-                    </>
-                  ) : null}
-                </div>
-                <div className="mt-4 flex flex-wrap items-center justify-center gap-2 lg:justify-start">
-                  {renderVersionControl()}
-                  {renderWorkflowControl()}
-                </div>
-              </div>
+              ) : null}
             </div>
-          </header>
+            <div className="absolute top-4 right-4 sm:top-5 sm:right-5">{renderMoreControl()}</div>
 
-          {error && !notesOpen ? (
-            <p
-              role="alert"
-              className="mx-4 mb-3 rounded-[10px] border border-[rgb(var(--fg-danger)/0.32)] bg-[rgb(var(--fg-danger)/0.1)] px-3 py-2 text-[12px] text-red-100 lg:mx-1 lg:border-[rgb(var(--fg-danger)/0.28)] lg:bg-[rgb(var(--fg-danger)/0.07)] lg:text-[rgb(var(--fg-danger))]"
-            >
-              {error}
-            </p>
-          ) : null}
+            <div className="col-span-2 mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-[rgb(var(--fg-muted))] lg:col-span-1 lg:col-start-2 lg:mt-2">
+              <span className="font-mono tabular-nums">
+                {effectiveDurationMs ? fmtMs(effectiveDurationMs) : "Duration pending"}
+              </span>
+              <span aria-hidden>·</span>
+              <span>
+                Uploaded{" "}
+                <span className="font-mono">{fmtRelativeIso(activeVersion.uploadedAtIso)}</span>
+              </span>
+              {songReleased ? (
+                <>
+                  <span aria-hidden>·</span>
+                  <span>Released</span>
+                </>
+              ) : null}
+              {songArchived || projectArchivedLabel ? (
+                <>
+                  <span aria-hidden>·</span>
+                  <span>{songArchived ? "Song archived" : projectArchivedLabel}</span>
+                </>
+              ) : null}
+              {activeVersionDeleted ? (
+                <>
+                  <span aria-hidden>·</span>
+                  <span>Audio deleted</span>
+                </>
+              ) : null}
+              {wasPreviouslyArtistApproved && !isExactArtistApproved ? (
+                <>
+                  <span aria-hidden>·</span>
+                  <span>Previously approved</span>
+                </>
+              ) : null}
+            </div>
+            <div className="col-span-2 mt-4 flex flex-wrap items-center gap-2 lg:col-span-1 lg:col-start-2 lg:mt-3">
+              {renderVersionControl()}
+              {renderWorkflowControl()}
+            </div>
+          </Card>
+        </header>
 
-          <div className="mx-4 flex min-h-[238px] flex-1 flex-col justify-center rounded-[12px] border border-white/[0.08] bg-[rgb(28_26_20)] px-3 py-5 sm:mx-6 sm:px-5 lg:mx-0 lg:min-h-0 lg:px-8 lg:py-7">
-            {activeVersionDeleted ? (
-              <div
-                role="status"
-                className="flex min-h-32 flex-col items-center justify-center border-y border-white/10 text-center"
-              >
-                <p className="text-[13px] font-bold text-white/68">Audio deleted</p>
-                <p className="mt-1 text-[11px] text-white/40">
-                  The version details and notes remain available.
-                </p>
-              </div>
-            ) : (
-              <>
-                <Waveform50
-                  appearance="studio"
-                  density={{ mobile: 96, desktop: 200 }}
-                  durationMs={effectiveDurationMs ?? 240_000}
-                  comments={waveformComments}
-                  seed={activeVersion.id}
-                  initialMs={displayedCurrentMs}
-                  initialPeaks={activeVersion.peaks}
-                  peaksUrl={
-                    activeVersionPlayable ? (activeVersion.audioUrl ?? undefined) : undefined
-                  }
-                  onProgress={setCurrentMs}
-                  onSeek={(ms) => {
-                    setCurrentMs(ms);
-                    if (
-                      playbackSnapshot.track?.id !== activeVersion.id &&
-                      isSongPageVersionPlayable(activeVersion)
-                    ) {
-                      playerLoad(
-                        activeVersionToPlayerTrack(playbackTrackData, activeVersion, role),
-                        {
-                          currentMs: ms,
-                          playing: false,
-                        },
-                      );
+        {error && !notesOpen ? (
+          <p
+            role="alert"
+            className="mb-4 rounded-[var(--radius-md)] border border-[rgb(var(--fg-danger)/0.28)] bg-[rgb(var(--fg-danger)/0.07)] px-3 py-2 text-[12px] text-[rgb(var(--fg-danger))]"
+          >
+            {error}
+          </p>
+        ) : null}
+
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.7fr)_minmax(320px,1fr)] lg:items-stretch">
+          <section className="flex min-w-0 flex-col gap-4">
+            <div className="rounded-[var(--radius-xl)] border border-[rgb(var(--fg-onsidebar)/0.1)] bg-[rgb(var(--bg-sidebar))] px-4 py-5 text-[rgb(var(--fg-onsidebar))] shadow-[var(--shadow-md)] [--fg-muted:200_192_178] sm:px-5 lg:px-6 lg:py-6">
+              {activeVersionDeleted ? (
+                <div
+                  role="status"
+                  className="flex min-h-[184px] flex-col items-center justify-center border-y border-[rgb(var(--fg-onsidebar)/0.1)] text-center"
+                >
+                  <p className="text-[13px] font-bold text-[rgb(var(--fg-onsidebar)/0.74)]">
+                    Audio deleted
+                  </p>
+                  <p className="mt-1 text-[11px] text-[rgb(var(--fg-onsidebar)/0.5)]">
+                    The version details and notes remain available.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <Waveform50
+                    appearance="studio"
+                    density={{ mobile: 96, desktop: 200 }}
+                    durationMs={effectiveDurationMs ?? 240_000}
+                    comments={waveformComments}
+                    seed={activeVersion.id}
+                    initialMs={displayedCurrentMs}
+                    initialPeaks={activeVersion.peaks}
+                    peaksUrl={
+                      activeVersionPlayable ? (activeVersion.audioUrl ?? undefined) : undefined
                     }
-                  }}
-                  onCommentSelect={(comment) => {
-                    handleJumpToComment(comment.timeMs);
-                    if (!isDesktopMoreActions) setNotesOpen(true);
-                    window.setTimeout(() => {
-                      document
-                        .getElementById("song-note-" + comment.id)
-                        ?.scrollIntoView({ block: "center" });
-                    }, 0);
-                  }}
-                  height={isDesktopMoreActions ? 156 : 92}
-                />
-                <div className="mt-1 flex items-center justify-between font-mono text-[10px] text-white/42 tabular-nums">
-                  <span>{fmtMs(displayedCurrentMs)}</span>
-                  <span>{effectiveDurationMs ? fmtMs(effectiveDurationMs) : "—"}</span>
-                </div>
-              </>
-            )}
+                    onProgress={setCurrentMs}
+                    onSeek={(ms) => {
+                      setCurrentMs(ms);
+                      if (
+                        playbackSnapshot.track?.id !== activeVersion.id &&
+                        isSongPageVersionPlayable(activeVersion)
+                      ) {
+                        playerLoad(
+                          activeVersionToPlayerTrack(playbackTrackData, activeVersion, role),
+                          {
+                            currentMs: ms,
+                            playing: false,
+                          },
+                        );
+                      }
+                    }}
+                    onCommentSelect={(comment) => {
+                      handleJumpToComment(comment.timeMs);
+                      if (!isDesktopMoreActions) setNotesOpen(true);
+                      window.setTimeout(() => {
+                        document
+                          .getElementById("song-note-" + comment.id)
+                          ?.scrollIntoView({ block: "center" });
+                      }, 0);
+                    }}
+                    height={isDesktopMoreActions ? 142 : 104}
+                  />
+                </>
+              )}
 
-            <div className="mt-5 flex items-center justify-center gap-7 sm:gap-10">
+              <div className="mt-5 grid grid-cols-[1fr_auto_1fr] items-center">
+                <span aria-hidden />
+                <div className="flex items-center justify-center gap-4 sm:gap-6">
+                  <button
+                    type="button"
+                    aria-label="Back 15 seconds"
+                    onClick={() => {
+                      handleSkip(-15_000);
+                    }}
+                    disabled={!activeVersionPlayable}
+                    className="sk-press inline-flex h-12 w-12 flex-col items-center justify-center rounded-full text-[rgb(var(--fg-onsidebar)/0.72)] transition-colors hover:bg-[rgb(var(--fg-onsidebar)/0.07)] hover:text-[rgb(var(--fg-onsidebar))] disabled:opacity-35"
+                  >
+                    <SkipBackIcon />
+                    <span className="mt-0.5 font-mono text-[10px]">15</span>
+                  </button>
+                  <button
+                    type="button"
+                    data-test="waveform-play-button"
+                    onClick={handlePlayToggle}
+                    disabled={playState.disabled}
+                    aria-label={playState.label}
+                    className="sk-press inline-flex h-[60px] w-[60px] items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-primary))] shadow-[0_8px_24px_rgb(var(--brand-primary)/0.22)] transition-colors hover:bg-[rgb(var(--brand-primary-hover))] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {isPlayingThis ? <PauseIcon size={18} /> : <PlayIcon size={18} />}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Forward 15 seconds"
+                    onClick={() => {
+                      handleSkip(15_000);
+                    }}
+                    disabled={!activeVersionPlayable}
+                    className="sk-press inline-flex h-12 w-12 flex-col items-center justify-center rounded-full text-[rgb(var(--fg-onsidebar)/0.72)] transition-colors hover:bg-[rgb(var(--fg-onsidebar)/0.07)] hover:text-[rgb(var(--fg-onsidebar))] disabled:opacity-35"
+                  >
+                    <SkipForwardIcon />
+                    <span className="mt-0.5 font-mono text-[10px]">15</span>
+                  </button>
+                </div>
+
+                <div className="hidden items-center justify-end gap-3 text-[rgb(var(--fg-onsidebar)/0.58)] xl:flex">
+                  <VolumeIcon />
+                  <label className="sr-only" htmlFor="song-player-volume">
+                    Player volume
+                  </label>
+                  <input
+                    id="song-player-volume"
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    value={playbackSnapshot.volume}
+                    onChange={(event) => {
+                      playerSetVolume(Number(event.currentTarget.value));
+                    }}
+                    className="h-11 w-28 accent-[rgb(var(--brand-primary))]"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="lg:hidden">
               <button
                 type="button"
-                aria-label="Back 15 seconds"
+                aria-label={"Open Notes, " + String(allCommentsForVersion.length) + " notes"}
                 onClick={() => {
-                  handleSkip(-15_000);
+                  setNotesOpen(true);
                 }}
-                disabled={!activeVersionPlayable}
-                className="inline-flex h-12 w-12 flex-col items-center justify-center rounded-full text-white/72 transition-colors hover:bg-white/[0.07] hover:text-white disabled:opacity-35"
+                className="sk-press flex min-h-14 w-full items-center justify-between rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 text-[13px] font-bold text-[rgb(var(--fg-default))] shadow-[var(--shadow-sm)] transition-colors hover:border-[rgb(var(--border-strong))] hover:bg-[rgb(var(--bg-overlay))]"
               >
-                <SkipBackIcon />
-                <span className="mt-0.5 font-mono text-[8px]">15</span>
-              </button>
-              <button
-                type="button"
-                data-test="waveform-play-button"
-                onClick={handlePlayToggle}
-                disabled={playState.disabled}
-                aria-label={playState.label}
-                className="inline-flex h-[68px] w-[68px] items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-primary))] transition-colors hover:bg-[rgb(var(--brand-primary-hover))] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {isPlayingThis ? <PauseIcon size={20} /> : <PlayIcon size={20} />}
-              </button>
-              <button
-                type="button"
-                aria-label="Forward 15 seconds"
-                onClick={() => {
-                  handleSkip(15_000);
-                }}
-                disabled={!activeVersionPlayable}
-                className="inline-flex h-12 w-12 flex-col items-center justify-center rounded-full text-white/72 transition-colors hover:bg-white/[0.07] hover:text-white disabled:opacity-35"
-              >
-                <SkipForwardIcon />
-                <span className="mt-0.5 font-mono text-[8px]">15</span>
+                <span>Notes</span>
+                <span className="rounded-[var(--radius-sm)] bg-[rgb(var(--bg-sunken))] px-2 py-1 font-mono text-[11px] text-[rgb(var(--fg-muted))]">
+                  {String(allCommentsForVersion.length)}
+                </span>
               </button>
             </div>
 
-            <div className="mt-5 hidden items-center justify-end gap-3 lg:flex">
-              <VolumeIcon />
-              <label className="sr-only" htmlFor="song-player-volume">
-                Player volume
-              </label>
-              <input
-                id="song-player-volume"
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={playbackSnapshot.volume}
-                onChange={(event) => {
-                  playerSetVolume(Number(event.currentTarget.value));
+            <div>
+              <VersionDeliveryPanel
+                role={role}
+                artistStudioId={artistStudioId}
+                version={activeVersion}
+                delivery={activeDelivery}
+                downloadHref={downloadHref}
+                canUseDownloadAction={canUseDownloadAction}
+                canManageOverride={Boolean(actions.setDownloadOverride)}
+                overrideButtonRef={deliveryOverrideButtonRef}
+                onManageOverride={() => {
+                  openManagementDialog("download-override");
                 }}
-                className="h-11 w-32 accent-[rgb(var(--brand-primary))]"
               />
             </div>
-          </div>
+          </section>
 
-          <div className="px-4 pt-4 sm:px-6 lg:hidden">
-            <button
-              type="button"
-              aria-label={"Open Notes, " + String(allCommentsForVersion.length) + " notes"}
-              onClick={() => {
-                setNotesOpen(true);
-              }}
-              className="flex min-h-12 w-full items-center justify-between rounded-[var(--radius-lg)] border border-white/14 bg-white/[0.055] px-4 text-[13px] font-bold text-white transition-colors hover:bg-white/[0.1]"
-            >
-              <span>Notes</span>
-              <span className="font-mono text-[11px] text-white/48">
-                {String(allCommentsForVersion.length)}
-              </span>
-            </button>
-          </div>
-
-          <div className="px-4 pt-4 pb-[max(28px,env(safe-area-inset-bottom))] sm:px-6 lg:px-0 lg:pt-3 lg:pb-0">
-            <VersionDeliveryPanel
-              role={role}
-              artistStudioId={artistStudioId}
-              version={activeVersion}
-              delivery={activeDelivery}
-              downloadHref={downloadHref}
-              canUseDownloadAction={canUseDownloadAction}
-              canManageOverride={Boolean(actions.setDownloadOverride)}
-              overrideButtonRef={deliveryOverrideButtonRef}
-              onManageOverride={() => {
-                openManagementDialog("download-override");
-              }}
-            />
-          </div>
-        </section>
-
-        {isDesktopMoreActions ? (
-          <aside className="flex min-h-0" aria-label="Song notes">
-            {renderNotesPanel("desktop")}
-          </aside>
-        ) : null}
+          {isDesktopMoreActions ? (
+            <aside className="flex min-h-[420px]" aria-label="Song notes">
+              {renderNotesPanel("desktop")}
+            </aside>
+          ) : null}
+        </div>
       </div>
 
       <Sheet
@@ -2431,7 +2423,6 @@ export function SongPage({
       >
         <SheetContent
           side="bottom"
-          showHandle={false}
           aria-describedby="song-notes-description"
           onPointerDown={(event) => {
             const top = event.currentTarget.getBoundingClientRect().top;
@@ -2442,7 +2433,7 @@ export function SongPage({
             notesDragStartYRef.current = null;
             if (start !== null && event.clientY - start > 80) closeNotes();
           }}
-          className="inset-0 h-[var(--sk-viewport-height,100dvh)] max-h-[var(--sk-viewport-height,100dvh)] w-full gap-0 rounded-none border-0 p-0 sm:p-0"
+          className="w-full gap-0 overflow-hidden px-0 pt-2 pb-[env(safe-area-inset-bottom)] sm:px-0 sm:pt-2 sm:pb-[env(safe-area-inset-bottom)]"
         >
           <SheetTitle className="sr-only">Song notes</SheetTitle>
           <SheetDescription id="song-notes-description" className="sr-only">
@@ -2794,25 +2785,6 @@ function fmtRelativeIso(iso: string): string {
   if (diff < day) return `${String(Math.floor(diff / hour))}h ago`;
   if (diff < 7 * day) return `${String(Math.floor(diff / day))}d ago`;
   return new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-function BackIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M13 8H3" />
-      <path d="m7 4-4 4 4 4" />
-    </svg>
-  );
 }
 
 function ChevronDownIcon() {

@@ -906,9 +906,7 @@ describe("L3 project breadcrumb href is role-aware", () => {
 
 describe("song-page.tsx source — phone touch targets", () => {
   it("keeps project navigation and the comment composer at least 44px tall", () => {
-    expect(songPageSrc).toMatch(
-      /aria-label=\{"Back to "[\s\S]{0,350}?className="[^"]*min-h-11[^"]*"/,
-    );
+    expect(songPageSrc).toMatch(/aria-label=\{"Open "[\s\S]{0,350}?className="[^"]*min-h-11[^"]*"/);
     expect(songPageSrc).toMatch(
       /data-test="comment-post"[\s\S]{0,350}?className="[^"]*min-h-11[^"]*"/,
     );

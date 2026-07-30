@@ -137,7 +137,7 @@ export default async function ArtistSongPage({ params }: PageProps) {
   };
 
   return (
-    <div className="-mx-4 -mt-6 lg:mx-0 lg:mt-0">
+    <div className="-mx-4 -mt-6 lg:-mx-10 lg:-mt-10">
       <SongPage
         data={wire}
         role="artist"
