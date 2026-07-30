@@ -33,7 +33,7 @@ describe("runtime launch role resolver", () => {
       "/onboarding",
     ],
     [{ kind: "orphan" as const }, "/onboarding"],
-    [{ kind: "unauthenticated" as const }, "/sign-in"],
+    [{ kind: "unauthenticated" as const }, "/sign-up"],
   ])("routes %o to %s", (role, expected) => {
     expect(runtimeLaunchHrefForRole(role)).toBe(expected);
   });
@@ -111,7 +111,16 @@ describe("membership-aware runtime launch resolver", () => {
     ).toBe("/artist/music?mode=projects");
   });
 
-  it("carries only an allowlisted saved screen through an expired session", () => {
+  it("sends an unknown signed-out launch to sign-up marketing", () => {
+    expect(
+      runtimeLaunchHrefForMemberships({
+        primaryRole: { kind: "unauthenticated" },
+        hasArtistAccount: false,
+      }),
+    ).toBe("/sign-up");
+  });
+
+  it("carries only an allowlisted saved screen into new-user sign-up", () => {
     const unauthenticated = {
       primaryRole: { kind: "unauthenticated" as const },
       hasArtistAccount: false,
@@ -123,14 +132,14 @@ describe("membership-aware runtime launch resolver", () => {
         "/dashboard/music?mode=songs&search=demo",
       ),
     ).toBe(
-      "/sign-in?redirect_url=%2Fdashboard%2Fmusic%3Fmode%3Dsongs%26search%3Ddemo",
+      "/sign-up?redirect_url=%2Fdashboard%2Fmusic%3Fmode%3Dsongs%26search%3Ddemo",
     );
     expect(
       runtimeLaunchHrefForMemberships(
         unauthenticated,
         "/artist/payments/purchase-1",
       ),
-    ).toBe("/sign-in");
+    ).toBe("/sign-up");
   });
 
   it("keeps a producer-only account on the producer platform", () => {
