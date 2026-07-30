@@ -46,7 +46,7 @@ export const ARTIST_PLATFORM_PREVIEW_GROUPS: readonly ArtistPlatformPreviewGroup
         href: "/dev/screens/artist-sessions",
         chrome: "Standing",
         activeDestination: "sessions",
-        detail: "Next, held, upcoming, and past studio time.",
+        detail: "Upcoming studio time and a bounded, expandable history.",
       },
       {
         label: "Session detail",

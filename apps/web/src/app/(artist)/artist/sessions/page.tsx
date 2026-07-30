@@ -1,12 +1,13 @@
 import { auth } from "@clerk/nextjs/server";
 
 import type { AllowanceSummary, SessionListItem } from "~/components/artist/sessions/book-data";
+import { isArtistSessionsTabKey } from "~/components/artist/sessions/artist-sessions-tabs";
 import { MySessionsScreen } from "~/components/artist/sessions/my-sessions-screen";
 import { resolveArtistStudioId } from "~/lib/artist-studio-context";
 import { readArtistStudioPreference } from "~/server/artist/studio-preference";
 import { appRouter } from "~/server/trpc/routers/_app";
 
-type PageProps = { searchParams: Promise<{ studio?: string }> };
+type PageProps = { searchParams: Promise<{ studio?: string; tab?: string }> };
 
 export default async function MySessionsPage({ searchParams }: PageProps) {
   const { userId } = await auth();
@@ -19,6 +20,7 @@ export default async function MySessionsPage({ searchParams }: PageProps) {
     readArtistStudioPreference(userId),
   ]);
   const producerId = resolveArtistStudioId(studios, sp.studio, savedStudioId);
+  const initialTab = isArtistSessionsTabKey(sp.tab) ? sp.tab : "upcoming";
   const result = producerId
     ? await caller.artist.book.mySessions({ producerId })
     : { sessions: [], allowances: [] };
@@ -76,6 +78,7 @@ export default async function MySessionsPage({ searchParams }: PageProps) {
       sessions={sessions}
       allowances={allowances}
       nowISO={new Date().toISOString()}
+      initialTab={initialTab}
     />
   );
 }

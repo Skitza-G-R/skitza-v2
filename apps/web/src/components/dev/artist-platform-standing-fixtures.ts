@@ -119,6 +119,27 @@ const DEV_SESSION_BASE = {
   heldExpiryReason: null,
 } as const;
 
+const DEV_ARTIST_SESSION_HISTORY: SessionListItem[] = Array.from({ length: 13 }, (_, index) => {
+  const startsAt = new Date(Date.UTC(2026, 6, 18 - index * 7, 11));
+  const cancellationDeadline = new Date(startsAt.getTime() - 24 * 60 * 60 * 1000);
+  const wasCancelled = index === 3 || index === 8;
+  return {
+    ...DEV_SESSION_BASE,
+    id: `00000000-0000-4000-8000-${String(246 + index).padStart(12, "0")}`,
+    startsAtISO: startsAt.toISOString(),
+    packageName: index % 3 === 2 ? "Vocal production" : "Premium single production",
+    status: wasCancelled ? "cancelled" : "completed",
+    outcome: wasCancelled ? "cancelled_on_time" : "completed",
+    policy: {
+      cancellationPolicyHours: 24,
+      cancellationDeadlineISO: cancellationDeadline.toISOString(),
+      isOnTime: false,
+      canCancel: false,
+      canReschedule: false,
+    },
+  };
+});
+
 export const DEV_ARTIST_SESSIONS = [
   {
     ...DEV_SESSION_BASE,
@@ -150,20 +171,7 @@ export const DEV_ARTIST_SESSIONS = [
       canReschedule: false,
     },
   },
-  {
-    ...DEV_SESSION_BASE,
-    id: "00000000-0000-4000-8000-000000000246",
-    startsAtISO: "2026-07-18T11:00:00.000Z",
-    status: "completed",
-    outcome: "completed",
-    policy: {
-      cancellationPolicyHours: 24,
-      cancellationDeadlineISO: "2026-07-17T11:00:00.000Z",
-      isOnTime: false,
-      canCancel: false,
-      canReschedule: false,
-    },
-  },
+  ...DEV_ARTIST_SESSION_HISTORY,
 ] satisfies SessionListItem[];
 
 export const DEV_ARTIST_ALLOWANCES = [

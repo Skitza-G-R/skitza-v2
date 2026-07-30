@@ -97,13 +97,13 @@ export function ArtistStoreCatalogDevPreview() {
 export function ArtistSessionsHubDevPreview() {
   return (
     <PreviewCanvas width="max-w-[760px]">
-      <div inert className="pointer-events-none">
-        <MySessionsScreen
-          sessions={DEV_ARTIST_SESSIONS}
-          allowances={DEV_ARTIST_ALLOWANCES}
-          nowISO={DEV_ARTIST_NOW_ISO}
-        />
-      </div>
+      <MySessionsScreen
+        sessions={DEV_ARTIST_SESSIONS}
+        allowances={DEV_ARTIST_ALLOWANCES}
+        nowISO={DEV_ARTIST_NOW_ISO}
+        initialTab="upcoming"
+        previewOnly
+      />
     </PreviewCanvas>
   );
 }

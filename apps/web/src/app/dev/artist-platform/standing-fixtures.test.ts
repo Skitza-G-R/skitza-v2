@@ -12,7 +12,7 @@ import {
 describe("artist platform standing preview fixtures", () => {
   it("uses one fixed clock and fixed session instants", () => {
     expect(DEV_ARTIST_NOW_ISO).toBe("2026-08-04T09:00:00.000Z");
-    expect(DEV_ARTIST_SESSIONS).toHaveLength(3);
+    expect(DEV_ARTIST_SESSIONS).toHaveLength(15);
     expect(
       DEV_ARTIST_SESSIONS.every((session) => {
         return (

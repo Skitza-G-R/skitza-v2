@@ -19,21 +19,27 @@ describe("artist Sessions standing hub", () => {
     expect(screenSrc).not.toMatch(/FunnelTopBar/);
   });
 
-  it("groups server sessions as Next, Held requests, Upcoming, and Past", () => {
+  it("groups server sessions into upcoming work and history", () => {
     expect(screenSrc).toMatch(/groupArtistSessions/);
     expect(screenSrc).toMatch(/const next = confirmed\[0\]/);
     expect(screenSrc).toMatch(/status === "pending_approval"/);
-    for (const title of ["Next", "Held requests", "Upcoming", "Past"]) {
+    for (const title of ["Next", "Held requests", "Upcoming", "History"]) {
       expect(screenSrc).toContain(`title="${title}"`);
     }
+    expect(screenSrc).toMatch(/groups\.past\.slice\(0, visibleHistoryCount\)/);
+    expect(screenSrc).toContain("Show more history");
     expect(screenSrc).toMatch(/nowISO/);
   });
 
-  it("shows Book only for a real entitlement and otherwise View services", () => {
+  it("keeps booking as a compact page action instead of a content tab", () => {
     expect(screenSrc).toMatch(/allowances\.find\(allowanceCanBook\)/);
     expect(screenSrc).toMatch(/allowanceBookHref\(bookableAllowance\)/);
     expect(screenSrc).toMatch(/withArtistStudio\("\/artist\/store"/);
     expect(screenSrc).toMatch(/"Book a session" : "View services"/);
+    expect(screenSrc).toContain('initialTab = "upcoming"');
+    expect(screenSrc).toContain('activeTab === "upcoming"');
+    expect(screenSrc).toContain("ARTIST_SESSIONS_TABS");
+    expect(screenSrc).toContain("useTabSwipe");
   });
 
   it("shows confirmation only for an explicit active just-booked session", () => {
@@ -72,5 +78,11 @@ describe("Sessions route read model", () => {
     expect(pageSrc).toMatch(/result\.allowances\.map/);
     expect(pageSrc).toMatch(/nowISO=\{new Date\(\)\.toISOString\(\)\}/);
     expect(pageSrc).not.toMatch(/MOCK_/);
+  });
+
+  it("supports a validated Upcoming or History deep link", () => {
+    expect(pageSrc).toMatch(/isArtistSessionsTabKey\(sp\.tab\)/);
+    expect(pageSrc).toMatch(/: "upcoming"/);
+    expect(pageSrc).toMatch(/initialTab=\{initialTab\}/);
   });
 });
