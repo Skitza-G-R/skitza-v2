@@ -303,7 +303,11 @@ export function ProducerMobileActions({
       ) : null}
 
       <UserButton __experimental_asProvider>
-        {userId ? renderAccountRoleMenuItems(accountMenuModel) : null}
+        {userId
+          ? renderAccountRoleMenuItems(accountMenuModel, {
+              includeSettings: false,
+            })
+          : null}
         <div
           data-testid="topbar-account"
           className="relative flex h-10 w-10 items-center justify-center"

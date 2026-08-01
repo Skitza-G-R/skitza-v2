@@ -7,6 +7,7 @@ import {
   findOnlyRuntimeStateUserId,
   pruneRuntimeSafeViews,
   readRuntimeLaunchTarget,
+  runtimeLaunchHrefForCurrentContext,
   readRuntimeScreenSafeView,
   runtimeScope,
   writeRuntimeLaunchPointer,
@@ -362,6 +363,30 @@ describe("runtime screen safe views", () => {
 });
 
 describe("runtime launch pointer", () => {
+  it("canonicalizes a plain Artist root and makes it newer than the Producer pointer", () => {
+    const storage = new MemoryStorage();
+    const userId = "first-switch-dual-user";
+    const producer = { ...PRODUCER, userId };
+    const artist = { ...ARTIST, userId };
+
+    expect(writeRuntimeLaunchPointer(storage, producer, "/dashboard", 10)).toBe(
+      true,
+    );
+    const artistLaunchHref = runtimeLaunchHrefForCurrentContext(
+      artist,
+      "/artist",
+    );
+    expect(artistLaunchHref).toBe("/artist?studio=artist-studio");
+    expect(
+      writeRuntimeLaunchPointer(storage, artist, artistLaunchHref ?? "", 20),
+    ).toBe(true);
+    expect(readRuntimeLaunchTarget(storage, userId, 20)).toEqual({
+      role: "artist",
+      contextId: "artist-studio",
+      href: "/artist?studio=artist-studio",
+    });
+  });
+
   it("stores separate role-root pointers and restores the last-used role", () => {
     const storage = new MemoryStorage();
     const dualRoleProducer = { ...PRODUCER, userId: "dual-role-user" };

@@ -1239,6 +1239,30 @@ export function writeRuntimeLaunchPointer(
   );
 }
 
+/**
+ * Canonicalize the shell's current screen for a launch-pointer write. Artist
+ * root navigation intentionally stays at plain `/artist` so the existing
+ * resume bridge can run, but the stored pointer must carry the resolved studio
+ * context or the strict launch writer will reject it.
+ */
+export function runtimeLaunchHrefForCurrentContext(
+  identity: RuntimeStateIdentity,
+  href: string,
+): string | null {
+  const safeHref = normalizeRuntimeHref(href, identity.role);
+  if (!safeHref || identity.role !== "artist") return safeHref;
+
+  const url = new URL(safeHref, "https://runtime.skitza.invalid");
+  const requestedStudio = url.searchParams.get("studio");
+  if (identity.contextId === "artist-no-studio") {
+    return requestedStudio === null ? safeHref : null;
+  }
+  if (requestedStudio && requestedStudio !== identity.contextId) return null;
+  if (!requestedStudio) url.searchParams.set("studio", identity.contextId);
+  url.searchParams.sort();
+  return `${url.pathname}?${url.searchParams.toString()}`;
+}
+
 export function readRuntimeLaunchTargetForRole(
   storage: StorageLike,
   userId: string,

@@ -33,6 +33,7 @@ import {
 } from "~/lib/runtime-state/route-warming";
 import {
   normalizeRuntimeHref,
+  runtimeLaunchHrefForCurrentContext,
   writeRuntimeLaunchPointer,
 } from "~/lib/runtime-state/runtime-state";
 import { NATIVE_REFRESH_EVENT } from "~/lib/pwa/update-coordination";
@@ -311,7 +312,13 @@ export function RuntimeNavigationBridge({
     const persist = () => {
       if (!isAccountPrivateRuntimeWriteAllowed(writeGeneration)) return;
       if (recordRuntimeNavigation(storage, navigationIdentity, safeHref, latestScrollTop)) {
-        writeRuntimeLaunchPointer(storage, navigationIdentity, safeHref);
+        const launchHref = runtimeLaunchHrefForCurrentContext(
+          navigationIdentity,
+          safeHref,
+        );
+        if (launchHref) {
+          writeRuntimeLaunchPointer(storage, navigationIdentity, launchHref);
+        }
       }
     };
     persist();

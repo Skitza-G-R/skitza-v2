@@ -163,7 +163,9 @@ export function useAccountRoleMenuModel({
  */
 export function renderAccountRoleMenuItems(
   model: AccountRoleMenuModel,
+  options?: { includeSettings?: boolean },
 ): ReactElement {
+  const includeSettings = options?.includeSettings ?? true;
   return (
     <UserButton.MenuItems>
       <UserButton.Action
@@ -171,11 +173,13 @@ export function renderAccountRoleMenuItems(
         labelIcon={<CurrentRoleStatusIcon role={model.currentRole} />}
         onClick={keepCurrentRoleMenuOpen}
       />
-      <UserButton.Link
-        label="Settings"
-        labelIcon={<Icon name="settings" size={16} />}
-        href={model.settingsHref}
-      />
+      {includeSettings ? (
+        <UserButton.Link
+          label="Settings"
+          labelIcon={<Icon name="settings" size={16} />}
+          href={model.settingsHref}
+        />
+      ) : null}
       {model.roleAction ? (
         <UserButton.Action
           label={model.roleAction.label}

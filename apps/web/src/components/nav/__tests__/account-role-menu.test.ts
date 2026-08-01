@@ -84,6 +84,23 @@ describe("SK-161 account role menu", () => {
     }>;
     expect(statusItem.props.label).toBe("Artist · Current role");
     expect(typeof statusItem.props.onClick).toBe("function");
+
+    const mobileMenu = renderAccountRoleMenuItems(model, {
+      includeSettings: false,
+    });
+    const mobileChildren = Children.toArray(
+      (mobileMenu as ReactElement<{ children: ReactNode }>).props.children,
+    ).filter(isValidElement);
+    expect(mobileChildren.map((child) => child.type)).toEqual([
+      UserButton.Action,
+      UserButton.Action,
+    ]);
+    expect(
+      mobileChildren.some(
+        (child) =>
+          (child as ReactElement<{ label?: string }>).props.label === "Settings",
+      ),
+    ).toBe(false);
   });
 });
 
