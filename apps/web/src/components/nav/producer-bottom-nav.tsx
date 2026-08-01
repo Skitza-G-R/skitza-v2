@@ -116,15 +116,11 @@ function setLensCoordinates(nav: HTMLElement, x: number, y: number): void {
 function setLensFromPointer(
   nav: HTMLElement,
   rect: DOMRect,
-  { clientX, clientY }: LensPoint,
+  { clientX }: LensPoint,
 ): void {
   const lensHalfWidth = clamp(rect.width / 10 - 1, LENS_MIN_HALF_WIDTH, LENS_MAX_HALF_WIDTH);
   const x = clamp(clientX - rect.left, lensHalfWidth, rect.width - lensHalfWidth);
-  const y = clamp(
-    clientY - rect.top,
-    10,
-    Math.min(NAV_ROW_HEIGHT - 10, Math.max(10, rect.height - 10)),
-  );
+  const y = NAV_ROW_HEIGHT / 2;
 
   setLensCoordinates(nav, x, y);
   setTabProximities(nav, x, rect.left);
