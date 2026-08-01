@@ -7,9 +7,11 @@ import type {
 import {
   chosenRoleDestination,
   joinSignUpMetadataFromTarget,
+  normalizeSameOriginPostSignInTarget,
   postSignInDestination,
   postSignInResolverHref,
   sanitizePostSignInTarget,
+  trustedAuthRequestOrigin,
 } from "../post-sign-in";
 
 const completeProducer: ProducerRow = {
@@ -207,6 +209,51 @@ describe("joinSignUpMetadataFromTarget", () => {
     "/dashboard",
   ])("does not stamp OAuth signup metadata for unsafe target %s", (target) => {
     expect(joinSignUpMetadataFromTarget(target)).toBeNull();
+  });
+});
+
+describe("same-origin Clerk transfer targets", () => {
+  it("normalizes Clerk's absolute same-origin join target back to the strict relative contract", () => {
+    const origin = trustedAuthRequestOrigin({
+      forwardedHost: "preview.example.test",
+      forwardedProto: "https",
+      host: "internal.invalid",
+    });
+    const normalized = normalizeSameOriginPostSignInTarget(
+      "https://preview.example.test/join/northline-studio/continue?action=book",
+      origin,
+    );
+
+    expect(normalized).toBe(
+      "/join/northline-studio/continue?action=book",
+    );
+    expect(joinSignUpMetadataFromTarget(normalized)).toEqual({
+      signupOrigin: "join",
+      producerSlug: "northline-studio",
+    });
+  });
+
+  it.each([
+    "https://evil.example/join/northline-studio/continue?action=book",
+    "https://preview.example.test@evil.example/join/northline-studio/continue?action=book",
+    "https://preview.example.test/join/northline-studio/continue?action=book#unsafe",
+  ])("rejects a non-equivalent absolute transfer target %s", (target) => {
+    expect(
+      normalizeSameOriginPostSignInTarget(
+        target,
+        "https://preview.example.test",
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects malformed forwarded request origins", () => {
+    expect(
+      trustedAuthRequestOrigin({
+        forwardedHost: "preview.example.test@evil.example",
+        forwardedProto: "https",
+        host: null,
+      }),
+    ).toBeNull();
   });
 });
 

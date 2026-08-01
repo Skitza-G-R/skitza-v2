@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   joinSignInHref,
   joinSignUpMetadataFromTarget,
+  normalizeSameOriginPostSignInTarget,
 } from "~/server/auth/post-sign-in";
 import { signUpSwitchHref } from "~/server/auth/returning-device";
 
@@ -72,5 +73,22 @@ describe("join-aware Clerk authentication", () => {
     expect(signInSource).toContain(
       "signUpFallbackRedirectUrl={resolverHref}",
     );
+  });
+
+  it("keeps the slug after Clerk makes the SignUp to SignIn redirect absolute", () => {
+    const absoluteClerkTarget =
+      "https://preview.skitza.test/join/northline-studio/continue?action=book";
+    const normalized = normalizeSameOriginPostSignInTarget(
+      absoluteClerkTarget,
+      "https://preview.skitza.test",
+    );
+
+    expect(signUpSwitchHref(normalized)).toBe(
+      "/sign-up/join/northline-studio",
+    );
+    expect(joinSignUpMetadataFromTarget(normalized)).toEqual({
+      signupOrigin: "join",
+      producerSlug: "northline-studio",
+    });
   });
 });

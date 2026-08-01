@@ -1,10 +1,13 @@
 import { SignIn } from "@clerk/nextjs";
+import { headers } from "next/headers";
 
 import { AuthHero } from "~/components/auth/auth-hero";
 import { signUpSwitchHref } from "~/server/auth/returning-device";
 import {
   joinSignUpMetadataFromTarget,
+  normalizeSameOriginPostSignInTarget,
   postSignInResolverHref,
+  trustedAuthRequestOrigin,
 } from "~/server/auth/post-sign-in";
 
 type Props = {
@@ -14,8 +17,18 @@ type Props = {
 // Shared producer + artist app entrance. The route marker lets the auth shell
 // stay focused here while `/sign-up` keeps its marketing-led desktop layout.
 export default async function Page({ searchParams }: Props) {
-  const query = await searchParams;
-  const requestedHref = typeof query.redirect_url === "string" ? query.redirect_url : null;
+  const [query, requestHeaders] = await Promise.all([searchParams, headers()]);
+  const rawRequestedHref =
+    typeof query.redirect_url === "string" ? query.redirect_url : null;
+  const requestOrigin = trustedAuthRequestOrigin({
+    forwardedHost: requestHeaders.get("x-forwarded-host"),
+    forwardedProto: requestHeaders.get("x-forwarded-proto"),
+    host: requestHeaders.get("host"),
+  });
+  const requestedHref = normalizeSameOriginPostSignInTarget(
+    rawRequestedHref,
+    requestOrigin,
+  );
   const resolverHref = postSignInResolverHref(requestedHref);
   const signUpHref = signUpSwitchHref(requestedHref);
   const joinMetadata = joinSignUpMetadataFromTarget(requestedHref);

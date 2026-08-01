@@ -143,6 +143,53 @@ export function joinSignUpMetadataFromTarget(
     : null;
 }
 
+export function trustedAuthRequestOrigin(input: {
+  forwardedHost: string | null | undefined;
+  forwardedProto: string | null | undefined;
+  host: string | null | undefined;
+}): string | null {
+  const host = (input.forwardedHost ?? input.host)?.split(",")[0]?.trim();
+  const proto = input.forwardedProto?.split(",")[0]?.trim() ?? "https";
+  if (
+    !host ||
+    host.length > 253 ||
+    !/^[a-z0-9.-]+(?::[0-9]{1,5})?$/i.test(host) ||
+    (proto !== "http" && proto !== "https")
+  ) {
+    return null;
+  }
+  try {
+    return new URL(`${proto}://${host}`).origin;
+  } catch {
+    return null;
+  }
+}
+
+export function normalizeSameOriginPostSignInTarget(
+  rawTarget: string | null | undefined,
+  requestOrigin: string | null,
+): string | null {
+  if (!rawTarget || rawTarget.length > 1024) return null;
+  if (rawTarget.startsWith("/") && !rawTarget.startsWith("//")) {
+    return rawTarget;
+  }
+  if (!requestOrigin) return null;
+  try {
+    const target = new URL(rawTarget);
+    if (
+      target.origin !== requestOrigin ||
+      target.username ||
+      target.password ||
+      target.hash
+    ) {
+      return null;
+    }
+    return `${target.pathname}${target.search}`;
+  } catch {
+    return null;
+  }
+}
+
 function isExplicitCreateStudioTarget(
   target: SanitizedPostSignInTarget | null,
 ): boolean {
