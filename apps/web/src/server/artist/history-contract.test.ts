@@ -80,7 +80,7 @@ describe("Past-studio exact historical access contract", () => {
   it("keeps zero-active-studio history reachable without creating a switcher studio", () => {
     expect(roleSource).toContain("hasAnyClientContacts");
     expect(roleSource).toContain(".where(eq(clientContacts.clerkUserId, params.userId))");
-    expect(roleSource).toMatch(/hasArtistAccount:[\s\S]{0,180}hasAnyClientContacts/);
+    expect(roleSource).toMatch(/hasAccess:[\s\S]{0,180}hasAnyClientContacts/);
     expect(roleSource).not.toContain("artistHistoricalAccessGrants");
   });
 

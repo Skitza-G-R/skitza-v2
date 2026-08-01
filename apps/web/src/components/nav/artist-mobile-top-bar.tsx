@@ -6,6 +6,7 @@ import { StudioSwitcher } from "~/components/artist/studio-switcher";
 import { ArtistNotificationBell } from "~/components/artist/artist-notification-bell";
 import { resolveArtistStudioId, withArtistStudio } from "~/lib/artist-studio-context";
 import type { Studio } from "~/server/artist/identity";
+import type { ProducerProfileStatus } from "~/server/auth/role";
 
 import { ArtistUserButton } from "./artist-user-button";
 import { Wordmark } from "./wordmark";
@@ -34,14 +35,16 @@ export function ArtistMobileTopBar({
   initialStudioId,
   notificationUnreadCount,
   notificationStudioDotIds,
-  isProducer,
+  producerStatus,
+  producerNotificationUnreadCount,
 }: {
   studios: Studio[];
   userId: string;
   initialStudioId: string | null;
   notificationUnreadCount: number;
   notificationStudioDotIds: readonly string[];
-  isProducer: boolean;
+  producerStatus: ProducerProfileStatus;
+  producerNotificationUnreadCount: number;
 }) {
   const searchParams = useSearchParams();
   const activeStudioId = resolveArtistStudioId(
@@ -84,7 +87,8 @@ export function ArtistMobileTopBar({
           <ArtistNotificationBell initialUnreadCount={notificationUnreadCount} />
           <ArtistUserButton
             userId={userId}
-            isProducer={isProducer}
+            producerStatus={producerStatus}
+            producerUnreadCount={producerNotificationUnreadCount}
             settingsHref={withArtistStudio("/artist/settings", activeStudioId)}
             ringClassName="ring-[rgb(var(--border-subtle))]"
           />

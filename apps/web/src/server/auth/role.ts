@@ -32,20 +32,45 @@ export type UserRole =
   | { kind: "producer-complete"; producer: ProducerRow }
   | { kind: "orphan" };
 
-/**
- * Product-platform memberships are intentionally separate from UserRole.
- *
- * UserRole keeps the established producer-first precedence used throughout
- * producer onboarding and server actions. Memberships answer the narrower
- * routing question introduced by SK-152: can this Clerk account enter the
- * artist platform as well? A historical client_contacts link still represents
- * an artist account after its final studio is disconnected; resource queries
- * continue to require archivedAt IS NULL before returning studio data.
- */
+export type ProducerProfileStatus = "none" | "incomplete" | "complete";
+
 export type UserAccountMemberships = Readonly<{
-  primaryRole: UserRole;
-  hasArtistAccount: boolean;
+  isAuthenticated: boolean;
+  producer: Readonly<
+    | { status: "none"; profile: null }
+    | { status: "incomplete"; profile: ProducerRow }
+    | { status: "complete"; profile: ProducerRow }
+  >;
+  artist: Readonly<{
+    hasAccess: boolean;
+    hasActiveConnections: boolean;
+  }>;
 }>;
+
+export function producerProfileStatus(
+  memberships: UserAccountMemberships,
+): ProducerProfileStatus {
+  return memberships.producer.status;
+}
+
+/**
+ * Compatibility projection for older producer-specific actions. Never use
+ * this projection for cross-platform routing: it necessarily collapses two
+ * additive memberships into one legacy discriminator.
+ */
+export function legacyUserRoleFromMemberships(
+  memberships: UserAccountMemberships,
+): UserRole {
+  if (!memberships.isAuthenticated) return { kind: "unauthenticated" };
+  if (memberships.producer.status === "complete") {
+    return { kind: "producer-complete", producer: memberships.producer.profile };
+  }
+  if (memberships.producer.status === "incomplete") {
+    return { kind: "producer-incomplete", producer: memberships.producer.profile };
+  }
+  if (memberships.artist.hasAccess) return { kind: "artist" };
+  return { kind: "orphan" };
+}
 
 /**
  * Pure: given known facts about a user, classify their role.
@@ -54,9 +79,9 @@ export type UserAccountMemberships = Readonly<{
  *   1. No userId → "unauthenticated".
  *   2. Producer row exists → "producer-incomplete" or
  *      "producer-complete" depending on displayName + slug state.
- *      Producer identity ALWAYS wins over client_contacts when both
- *      exist (producer-who-is-also-an-artist edge — user confirmed
- *      this is the correct precedence).
+ *      This legacy discriminator represents the Producer side when both
+ *      memberships exist. Cross-platform routing must instead use
+ *      resolveUserAccountMemberships so neither role is discarded.
  *   3. No producer row, has client_contacts → "artist".
  *   4. Neither → "orphan" (Clerk webhook race, sub-second window).
  */
@@ -87,16 +112,24 @@ export function resolveUserAccountMemberships(input: {
   hasActiveClientContacts: boolean;
   hasAnyClientContacts: boolean;
 }): UserAccountMemberships {
-  const primaryRole = resolveUserRole({
-    userId: input.userId,
-    producerRow: input.producerRow,
-    hasClientContacts: input.hasActiveClientContacts,
-  });
+  const isAuthenticated = input.userId !== null;
+  const producer = !isAuthenticated || !input.producerRow
+    ? ({ status: "none", profile: null } as const)
+    : input.producerRow.displayName === null ||
+        isAutoSlug(input.producerRow.slug, input.producerRow.email)
+      ? ({ status: "incomplete", profile: input.producerRow } as const)
+      : ({ status: "complete", profile: input.producerRow } as const);
 
   return {
-    primaryRole,
-    hasArtistAccount:
-      input.userId !== null && (input.hasActiveClientContacts || input.hasAnyClientContacts),
+    isAuthenticated,
+    producer,
+    artist: {
+      hasAccess:
+        isAuthenticated &&
+        (input.hasActiveClientContacts || input.hasAnyClientContacts),
+      hasActiveConnections:
+        isAuthenticated && input.hasActiveClientContacts,
+    },
   };
 }
 
@@ -268,14 +301,21 @@ export function decideAccountMembershipRedirect(
   memberships: UserAccountMemberships,
   expected: ExpectedRole,
 ): string | null {
-  if (
-    expected === "artist" &&
-    memberships.hasArtistAccount &&
-    memberships.primaryRole.kind !== "unauthenticated"
-  ) {
-    return null;
+  if (!memberships.isAuthenticated) {
+    return decideRoleRedirect({ kind: "unauthenticated" }, expected);
   }
-  return decideRoleRedirect(memberships.primaryRole, expected);
+
+  if (expected === "artist") {
+    if (memberships.artist.hasAccess) return null;
+    if (memberships.producer.status === "complete") return "/dashboard";
+    if (memberships.producer.status === "incomplete") return "/onboarding";
+    return "/sign-in";
+  }
+
+  if (memberships.producer.status === "complete") return null;
+  if (memberships.producer.status === "incomplete") return "/onboarding";
+  if (memberships.artist.hasAccess) return "/artist";
+  return "/onboarding";
 }
 
 /**
@@ -286,27 +326,31 @@ export function decideAccountMembershipRedirect(
  */
 export async function requireRole(
   expected: ExpectedRole,
-): Promise<{ userId: string; hasProducerProfile: boolean }> {
+): Promise<{
+  userId: string;
+  hasProducerProfile: boolean;
+  producerProfileStatus: ProducerProfileStatus;
+  producerProfileId: string | null;
+}> {
   const { userId } = await auth();
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("missing DATABASE_URL");
 
-  const memberships =
-    expected === "artist"
-      ? await fetchUserAccountMemberships({ dbUrl, userId })
-      : {
-          primaryRole: await fetchUserRole({ dbUrl, userId }),
-          hasArtistAccount: false,
-        };
+  const memberships = await fetchUserAccountMemberships({ dbUrl, userId });
   const redirectTo = decideAccountMembershipRedirect(memberships, expected);
   if (redirectTo) redirect(redirectTo);
 
   // Past the redirect → role is one of the allow-states, all of which
   // require a userId to have been resolved upstream.
+  const profileStatus = producerProfileStatus(memberships);
   return {
     userId: userId as string,
-    hasProducerProfile:
-      memberships.primaryRole.kind === "producer-complete" ||
-      memberships.primaryRole.kind === "producer-incomplete",
+    hasProducerProfile: profileStatus !== "none",
+    producerProfileStatus: profileStatus,
+    producerProfileId:
+      memberships.producer.status === "complete" ||
+      memberships.producer.status === "incomplete"
+        ? memberships.producer.profile.id
+        : null,
   };
 }

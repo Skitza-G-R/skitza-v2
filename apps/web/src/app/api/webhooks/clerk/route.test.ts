@@ -345,7 +345,7 @@ describe("clerk webhook", () => {
   });
 
   it.each([false, null])(
-    "never claims contact ownership when primary-email verification is %s",
+    "never provisions or connects a join-origin account when primary-email verification is %s",
     async (emailVerified) => {
       synchronizeRegisteredAccountMock.mockResolvedValueOnce({
         lifecycle: {
@@ -386,7 +386,7 @@ describe("clerk webhook", () => {
       ).toHaveLength(0);
       expect(
         insertsByTable.filter((entry) => entry.table === producersMarker),
-      ).toHaveLength(1);
+      ).toHaveLength(0);
     },
   );
 
@@ -562,10 +562,9 @@ describe("user.created — artist stamping", () => {
 // from /join/<slug> — created a producers row and forced the user into
 // producer-onboarding. The fix reads Clerk's `unsafe_metadata` on the
 // user.created event: if `signupOrigin === "join"` AND the attached
-// `producerSlug` resolves to a real producer, we DO NOT create a
-// producer row; instead we insert a client_contacts row scoped to that
-// producer. The update-all-matching-email-hash step still runs afterward
-// (same as default branch) so multi-producer artist identity unifies.
+// signup origin is "join", we NEVER create a producer row. A verified,
+// resolvable target can be connected immediately; stale targets and early
+// unverified Clerk snapshots stay unconnected until the trusted continuation.
 // ─────────────────────────────────────────────────────────────────────
 describe("user.created — /join origin (artist self-serve)", () => {
   it("TDD-A: join-origin with resolvable slug inserts client_contacts and does NOT insert producers", async () => {
@@ -642,7 +641,7 @@ describe("user.created — /join origin (artist self-serve)", () => {
     expect(contactInserts).toHaveLength(0);
   });
 
-  it("TDD-C: join-origin with unknown slug falls back to default producer insert (does not crash)", async () => {
+  it("TDD-C: join-origin with an unknown slug stays unconnected and never creates a Producer", async () => {
     // Simulate lookup: no producer exists with that slug.
     producerLookupMock.mockResolvedValueOnce([]);
 
@@ -664,11 +663,10 @@ describe("user.created — /join origin (artist self-serve)", () => {
     // 5xx forever and would flood our logs.
     expect(res.status).toBe(200);
 
-    // Fallback branch invariant: a producer row IS created (same as
-    // default branch). Better to create an orphan producer row the
-    // user can ignore than to leave them with no record at all.
+    // A stale join target must not recreate the root bug by falling through
+    // to implicit Producer provisioning.
     const producerInserts = insertsByTable.filter((c) => c.table === producersMarker);
-    expect(producerInserts).toHaveLength(1);
+    expect(producerInserts).toHaveLength(0);
 
     // Fallback branch: no client_contacts row (slug didn't resolve
     // so we don't know which producer to attach to).
@@ -676,6 +674,7 @@ describe("user.created — /join origin (artist self-serve)", () => {
       (c) => c.table === clientContactsMarker,
     );
     expect(contactInserts).toHaveLength(0);
+    expect(updateMock).not.toHaveBeenCalled();
 
     // Behavior proof: the lookup WAS attempted. This is what forces
     // the webhook to actually read metadata + query the DB. Without
@@ -684,7 +683,45 @@ describe("user.created — /join origin (artist self-serve)", () => {
     expect(producerLookupMock).toHaveBeenCalledOnce();
   });
 
-  it("TDD-D: default signup (no unsafe_metadata) does NOT attempt slug lookup — no wasted query", async () => {
+  it("TDD-D: an unverified join-origin user.created snapshot never creates or connects a Producer", async () => {
+    synchronizeRegisteredAccountMock.mockResolvedValueOnce({
+      lifecycle: {
+        eventType: "user.created",
+        instanceId: "ins_test",
+        kind: "snapshot",
+        snapshot: {
+          clerkUserId: "user_unverified_join",
+          displayName: "Early Artist",
+          emailVerified: false,
+          eventId: "1",
+          primaryEmail: "early@example.com",
+        },
+      },
+      replayed: false,
+      terminalDeleted: false,
+    });
+
+    const { POST } = await import("./route");
+    const body = JSON.stringify({
+      type: "user.created",
+      data: {
+        id: "user_unverified_join",
+        email_addresses: [{ email_address: "early@example.com" }],
+        unsafe_metadata: {
+          signupOrigin: "join",
+          producerSlug: "gili-asraf",
+        },
+      },
+    });
+    const res = await POST(buildReq(body));
+
+    expect(res.status).toBe(200);
+    expect(producerLookupMock).not.toHaveBeenCalled();
+    expect(insertsByTable).toHaveLength(0);
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it("TDD-E: default signup (no unsafe_metadata) does NOT attempt slug lookup — no wasted query", async () => {
     // Regression guard on perf: the slug lookup should only fire when
     // unsafe_metadata contains signupOrigin==="join". Every normal
     // producer signup otherwise would burn an extra DB round-trip.

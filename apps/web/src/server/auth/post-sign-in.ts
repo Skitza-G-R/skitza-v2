@@ -1,4 +1,5 @@
 import type { UserAccountMemberships } from "./role";
+import type { JoinIntentAction } from "./join-intent";
 
 export type AuthPlatform = "artist" | "producer";
 
@@ -9,12 +10,26 @@ export type SanitizedPostSignInTarget = Readonly<{
 
 const AUTH_TARGET_ORIGIN = "https://post-sign-in.skitza.invalid";
 const MAX_AUTH_TARGET_LENGTH = 2048;
+const JOIN_SLUG_PATTERN = /^[a-z0-9-]{3,48}$/;
 
 function matchesRouteFamily(pathname: string, root: string): boolean {
   return pathname === root || pathname.startsWith(`${root}/`);
 }
 
-function platformForPathname(pathname: string): AuthPlatform | null {
+function isJoinContinuationUrl(url: URL): boolean {
+  const match = /^\/join\/([^/]+)\/continue$/.exec(url.pathname);
+  if (!match || !JOIN_SLUG_PATTERN.test(match[1] ?? "")) return false;
+  const entries = Array.from(url.searchParams.entries());
+  if (entries.length !== 1) return false;
+  return (
+    entries[0]?.[0] === "action" &&
+    (entries[0][1] === "book" || entries[0][1] === "unlock")
+  );
+}
+
+function platformForUrl(url: URL): AuthPlatform | null {
+  const { pathname } = url;
+  if (isJoinContinuationUrl(url)) return "artist";
   if (
     matchesRouteFamily(pathname, "/artist") ||
     matchesRouteFamily(pathname, "/artist-welcome")
@@ -65,12 +80,59 @@ export function sanitizePostSignInTarget(
     return null;
   }
 
-  const platform = platformForPathname(url.pathname);
+  const platform = platformForUrl(url);
   if (!platform) return null;
   return {
     href: `${url.pathname}${url.search}`,
     platform,
   };
+}
+
+export function joinContinuationHref(
+  slug: string,
+  action: JoinIntentAction = "book",
+): string {
+  if (!JOIN_SLUG_PATTERN.test(slug)) return "/";
+  return `/join/${slug}/continue?action=${action}`;
+}
+
+export function joinSignInHref(
+  slug: string,
+  action: JoinIntentAction = "book",
+): string {
+  const continuationHref = joinContinuationHref(slug, action);
+  if (continuationHref === "/") return "/sign-in";
+  return `/sign-in?${new URLSearchParams({
+    redirect_url: continuationHref,
+  }).toString()}`;
+}
+
+export function joinSignUpHrefFromTarget(
+  rawTarget: string | null | undefined,
+): string | null {
+  const target = sanitizePostSignInTarget(rawTarget);
+  if (!isJoinIntentTarget(target)) return null;
+  const url = new URL(target?.href ?? "/", AUTH_TARGET_ORIGIN);
+  const match = /^\/join\/([^/]+)\/continue$/.exec(url.pathname);
+  const action = url.searchParams.get("action");
+  return match?.[1]
+    ? `/sign-up/join/${encodeURIComponent(match[1])}${
+        action === "unlock" ? "/unlock" : ""
+      }`
+    : null;
+}
+
+export function isJoinIntentTarget(
+  target: SanitizedPostSignInTarget | null,
+): boolean {
+  if (!target) return false;
+  return isJoinContinuationUrl(new URL(target.href, AUTH_TARGET_ORIGIN));
+}
+
+function isExplicitCreateStudioTarget(
+  target: SanitizedPostSignInTarget | null,
+): boolean {
+  return target?.href === "/onboarding/studio?intent=create-studio";
 }
 
 function hrefWithNestedTarget(
@@ -93,19 +155,26 @@ export function roleChooserHref(rawTarget?: string | null): string {
   return hrefWithNestedTarget("/choose-role", rawTarget);
 }
 
+export function roleSwitchHref(
+  role: AuthPlatform,
+  rawTarget?: string | null,
+): string {
+  const target = sanitizePostSignInTarget(rawTarget);
+  const query = new URLSearchParams({ role });
+  if (target?.platform === role) query.set("next", target.href);
+  return `/auth/switch?${query.toString()}`;
+}
+
 function isProducerAccount(
   memberships: UserAccountMemberships,
 ): boolean {
-  return (
-    memberships.primaryRole.kind === "producer-complete" ||
-    memberships.primaryRole.kind === "producer-incomplete"
-  );
+  return memberships.producer.status !== "none";
 }
 
 export function isGenuineDualRoleAccount(
   memberships: UserAccountMemberships,
 ): boolean {
-  return isProducerAccount(memberships) && memberships.hasArtistAccount;
+  return isProducerAccount(memberships) && memberships.artist.hasAccess;
 }
 
 function signInHref(rawTarget?: string | null): string {
@@ -118,8 +187,8 @@ function signInHref(rawTarget?: string | null): string {
 
 /**
  * Resolve the first authenticated destination. Explicit deep links are kept
- * only for the platform the account can enter. A genuine dual account always
- * gets the role choice requested by SK-152, with the target carried forward.
+ * only for the platform the account can enter. Generic dual-role entry resumes
+ * the most recently used role and uses the chooser only when no role is saved.
  */
 export function postSignInDestination(
   memberships: UserAccountMemberships,
@@ -127,22 +196,52 @@ export function postSignInDestination(
 ): string {
   const target = sanitizePostSignInTarget(rawTarget);
 
-  if (memberships.primaryRole.kind === "unauthenticated") {
+  if (!memberships.isAuthenticated) {
     return signInHref(target?.href);
   }
 
+  // A join continuation is an Artist-intent hand-off, not an authorization
+  // grant. Every authenticated account may reach that route; it re-resolves
+  // the producer, blocks self-joins, asks Producer accounts for confirmation,
+  // and performs the verified-email connection server-side.
+  if (isJoinIntentTarget(target)) {
+    return target?.href ?? "/";
+  }
+
+  // This one Producer-family URL is also an explicit Artist account action.
+  // Preserve it through an expired session without broadening Artist access to
+  // any other onboarding or dashboard target; the onboarding layout and action
+  // independently validate the trusted route-derived intent.
+  if (
+    isExplicitCreateStudioTarget(target) &&
+    memberships.artist.hasAccess
+  ) {
+    return target?.href ?? "/artist";
+  }
+
+  // Role-specific links win over the remembered role for a dual account.
+  // The protected destination still rechecks the real DB membership.
+  if (target?.platform === "artist" && memberships.artist.hasAccess) {
+    return target.href;
+  }
+  if (target?.platform === "producer" && isProducerAccount(memberships)) {
+    return memberships.producer.status === "incomplete"
+      ? "/onboarding"
+      : target.href;
+  }
+
   if (isGenuineDualRoleAccount(memberships)) {
-    return roleChooserHref(target?.href);
+    return "/auth/resume";
   }
 
   if (isProducerAccount(memberships)) {
-    if (memberships.primaryRole.kind === "producer-incomplete") {
+    if (memberships.producer.status === "incomplete") {
       return "/onboarding";
     }
     return target?.platform === "producer" ? target.href : "/dashboard";
   }
 
-  if (memberships.hasArtistAccount) {
+  if (memberships.artist.hasAccess) {
     return target?.platform === "artist" ? target.href : "/artist";
   }
 
@@ -163,14 +262,14 @@ export function chosenRoleDestination(
 
   if (
     chosenRole === "artist" &&
-    memberships.hasArtistAccount &&
-    memberships.primaryRole.kind !== "unauthenticated"
+    memberships.artist.hasAccess &&
+    memberships.isAuthenticated
   ) {
     return target?.platform === "artist" ? target.href : "/artist";
   }
 
   if (chosenRole === "producer" && isProducerAccount(memberships)) {
-    if (memberships.primaryRole.kind === "producer-incomplete") {
+    if (memberships.producer.status === "incomplete") {
       return "/onboarding";
     }
     return target?.platform === "producer" ? target.href : "/dashboard";

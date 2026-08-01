@@ -39,8 +39,9 @@ describe("/auth/resolve", () => {
   it("routes a single artist back to the requested deep link", async () => {
     authMock.mockResolvedValueOnce({ userId: "artist-user" });
     membershipsMock.mockResolvedValueOnce({
-      primaryRole: { kind: "artist" },
-      hasArtistAccount: true,
+      isAuthenticated: true,
+      producer: { status: "none", profile: null },
+      artist: { hasAccess: true, hasActiveConnections: true },
     });
 
     await expect(
@@ -58,19 +59,20 @@ describe("/auth/resolve", () => {
     });
   });
 
-  it("routes a genuine dual account to the role chooser with the target intact", async () => {
+  it("lets an explicit role deep link override the saved role for a dual account", async () => {
     authMock.mockResolvedValueOnce({ userId: "dual-user" });
     membershipsMock.mockResolvedValueOnce({
-      primaryRole: {
-        kind: "producer-complete",
-        producer: {
+      isAuthenticated: true,
+      producer: {
+        status: "complete",
+        profile: {
           id: "producer-1",
           displayName: "Producer",
           slug: "producer",
           email: "producer@example.com",
         },
       },
-      hasArtistAccount: true,
+      artist: { hasAccess: true, hasActiveConnections: true },
     });
 
     await expect(
@@ -80,7 +82,7 @@ describe("/auth/resolve", () => {
         }),
       }),
     ).rejects.toThrow(
-      "__REDIRECT__:/choose-role?next=%2Fartist%2Fpayments%2Fpurchase-1",
+      "__REDIRECT__:/artist/payments/purchase-1",
     );
   });
 });

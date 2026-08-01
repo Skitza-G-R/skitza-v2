@@ -37,17 +37,28 @@ interface DashboardTopBarProps {
   /** Notification centre state resolved with the producer shell. */
   unreadCount?: number;
   recentNotifications?: readonly ShellNotificationItem[];
+  userId?: string | null;
+  hasArtistAccount?: boolean;
+  artistUnreadCount?: number;
 }
 
 export function DashboardTopBar({
   producerSlug = null,
   unreadCount = 0,
   recentNotifications = [],
+  userId = null,
+  hasArtistAccount = false,
+  artistUnreadCount = 0,
 }: DashboardTopBarProps) {
   const notificationControl = (
     <div className="flex items-center gap-0.5">
       <NotificationBell unreadCount={unreadCount} notifications={recentNotifications} />
-      <ProducerMobileActions producerSlug={producerSlug} />
+      <ProducerMobileActions
+        producerSlug={producerSlug}
+        userId={userId}
+        hasArtistAccount={hasArtistAccount}
+        artistUnreadCount={artistUnreadCount}
+      />
     </div>
   );
 

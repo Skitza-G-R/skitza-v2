@@ -10,4 +10,9 @@ describe("public join portfolio count", () => {
     expect(source).toContain("countPublicPortfolioTracks(");
     expect(source).not.toMatch(/\bportfolioTracks\b/);
   });
+
+  it("detects the signed-in owner without exposing a self-booking path", () => {
+    expect(source).toContain("eq(producers.clerkUserId, userId)");
+    expect(source).toContain("ownPreview={ownPreview}");
+  });
 });

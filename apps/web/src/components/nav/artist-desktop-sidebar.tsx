@@ -12,6 +12,7 @@ import {
   captureRuntimeMainNavigationTarget,
 } from "~/lib/runtime-state/navigation-cache";
 import type { Studio } from "~/server/artist/identity";
+import type { ProducerProfileStatus } from "~/server/auth/role";
 
 import { isArtistNavItemActive } from "./artist-nav-active";
 import { ArtistUserButton } from "./artist-user-button";
@@ -61,13 +62,15 @@ export function ArtistDesktopSidebar({
   userId,
   initialStudioId,
   notificationStudioDotIds,
-  isProducer,
+  producerStatus,
+  producerNotificationUnreadCount,
 }: {
   studios: Studio[];
   userId: string;
   initialStudioId: string | null;
   notificationStudioDotIds: readonly string[];
-  isProducer: boolean;
+  producerStatus: ProducerProfileStatus;
+  producerNotificationUnreadCount: number;
 }): ReactNode {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -188,7 +191,8 @@ export function ArtistDesktopSidebar({
       >
         <ArtistUserButton
           userId={userId}
-          isProducer={isProducer}
+          producerStatus={producerStatus}
+          producerUnreadCount={producerNotificationUnreadCount}
           settingsHref={withArtistStudio("/artist/settings", activeStudioId)}
           ringClassName="ring-[rgb(var(--border-sidebar))]"
         />

@@ -1048,12 +1048,12 @@ function safelyRemoveStorageItem(storage: StorageLike, key: string): void {
   }
 }
 
-export function readRuntimeState<Slot extends RuntimeSlot>(
+function readRuntimeEnvelope<Slot extends RuntimeSlot>(
   storage: StorageLike,
   scope: RuntimeScope,
   slot: Slot,
   now = Date.now(),
-): RuntimePayloadBySlot[Slot] | null {
+): RuntimeEnvelope<RuntimePayloadBySlot[Slot]> | null {
   let key: string;
   try {
     key = buildRuntimeStorageKey(scope, slot);
@@ -1079,11 +1079,20 @@ export function readRuntimeState<Slot extends RuntimeSlot>(
       safelyRemoveStorageItem(storage, key);
       return null;
     }
-    return parsed.payload;
+    return parsed;
   } catch {
     safelyRemoveStorageItem(storage, key);
     return null;
   }
+}
+
+export function readRuntimeState<Slot extends RuntimeSlot>(
+  storage: StorageLike,
+  scope: RuntimeScope,
+  slot: Slot,
+  now = Date.now(),
+): RuntimePayloadBySlot[Slot] | null {
+  return readRuntimeEnvelope(storage, scope, slot, now)?.payload ?? null;
 }
 
 export function writeRuntimeState<Slot extends RuntimeSlot>(
@@ -1230,32 +1239,46 @@ export function writeRuntimeLaunchPointer(
   );
 }
 
-function readRuntimeLaunchPointerForRole(
+export function readRuntimeLaunchTargetForRole(
   storage: StorageLike,
   userId: string,
   role: RuntimeRole,
-  now: number,
-): RuntimeLaunchPointer | null {
+  now = Date.now(),
+): RuntimeLaunchTarget | null {
   const scope = runtimeLaunchScope(userId, role);
-  return scope
-    ? readRuntimeState(storage, scope, "runtime.launch.pointer", now)
+  const envelope = scope
+    ? readRuntimeEnvelope(storage, scope, "runtime.launch.pointer", now)
     : null;
+  return envelope ? { role, ...envelope.payload } : null;
 }
 
 /**
- * Product-role precedence mirrors the signed-in role resolver: if one Clerk
- * user has both roles, their producer destination is the deterministic launch.
+ * Restore the most recently used role while keeping each role's destination
+ * separate. A tie is deterministic, but normal writes have distinct clocks.
  */
 export function readRuntimeLaunchTarget(
   storage: StorageLike,
   userId: string,
   now = Date.now(),
 ): RuntimeLaunchTarget | null {
-  for (const role of ["producer", "artist"] as const) {
-    const pointer = readRuntimeLaunchPointerForRole(storage, userId, role, now);
-    if (pointer) return { role, ...pointer };
-  }
-  return null;
+  const candidates = (["producer", "artist"] as const).flatMap((role) => {
+    const scope = runtimeLaunchScope(userId, role);
+    const envelope = scope
+      ? readRuntimeEnvelope(storage, scope, "runtime.launch.pointer", now)
+      : null;
+    return envelope
+      ? [{ role, updatedAt: envelope.updatedAt, ...envelope.payload }]
+      : [];
+  });
+  candidates.sort((left, right) =>
+    right.updatedAt !== left.updatedAt
+      ? right.updatedAt - left.updatedAt
+      : left.role.localeCompare(right.role),
+  );
+  const latest = candidates[0];
+  return latest
+    ? { role: latest.role, contextId: latest.contextId, href: latest.href }
+    : null;
 }
 
 export function removeRuntimeState(

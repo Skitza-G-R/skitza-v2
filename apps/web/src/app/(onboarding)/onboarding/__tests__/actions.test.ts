@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ZodError } from "zod";
-import type { UserRole } from "~/server/auth/role";
+import type {
+  UserAccountMemberships,
+  UserRole,
+} from "~/server/auth/role";
 
 // Story 03 — completeStudio server action.
 //
@@ -45,11 +48,31 @@ let mockRole: UserRole = {
     email: "ada@example.com",
   },
 };
+let mockHistoricalArtistAccess = false;
+
+function membershipsForMockRole(): UserAccountMemberships {
+  const producer =
+    mockRole.kind === "producer-complete"
+      ? ({ status: "complete", profile: mockRole.producer } as const)
+      : mockRole.kind === "producer-incomplete"
+        ? ({ status: "incomplete", profile: mockRole.producer } as const)
+        : ({ status: "none", profile: null } as const);
+  const activeArtist = mockRole.kind === "artist";
+  return {
+    isAuthenticated: mockRole.kind !== "unauthenticated",
+    producer,
+    artist: {
+      hasAccess: activeArtist || mockHistoricalArtistAccess,
+      hasActiveConnections: activeArtist,
+    },
+  };
+}
 
 // Stateful country header. Default null = local dev → USD fallback.
 // Individual tests override via `mockCountryHeader = "GB"` to assert
 // currency derivation.
 let mockCountryHeader: string | null = null;
+let mockOnboardingIntentHeader: string | null = null;
 
 // Stateful crypto hash queue. Each call to randomBytes(2).toString("hex")
 // pops the front of this queue. Tests override to:
@@ -69,12 +92,17 @@ vi.mock("@skitza/db", () => ({
   eq: (a: unknown, b: unknown) => ({ a, b }),
 }));
 vi.mock("~/server/auth/role", () => ({
-  fetchUserRole: () => Promise.resolve(mockRole),
+  fetchUserAccountMemberships: () =>
+    Promise.resolve(membershipsForMockRole()),
 }));
 vi.mock("next/headers", () => ({
   headers: () =>
     Promise.resolve({
-      get: (name: string) => (name === "x-vercel-ip-country" ? mockCountryHeader : null),
+      get: (name: string) => {
+        if (name === "x-vercel-ip-country") return mockCountryHeader;
+        if (name === "x-onboarding-intent") return mockOnboardingIntentHeader;
+        return null;
+      },
     }),
 }));
 vi.mock("node:crypto", async () => {
@@ -116,6 +144,8 @@ beforeEach(() => {
     },
   };
   mockCountryHeader = null;
+  mockOnboardingIntentHeader = null;
+  mockHistoricalArtistAccess = false;
   mockHashQueue = ["abcd"];
   process.env.DATABASE_URL = "postgresql://test/test";
 });
@@ -302,6 +332,48 @@ describe("completeStudio — auth + role invariants (carried over from completeO
     const { completeStudio } = await import("../actions");
     await expect(completeStudio(validInput)).rejects.toThrow(/artist|forbidden/i);
     expect(insertMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an Artist raw POST that only claims the create-studio input intent", async () => {
+    mockRole = { kind: "artist" };
+    const { completeStudio } = await import("../actions");
+    await expect(
+      completeStudio({ ...validInput, intent: "create-studio" }),
+    ).rejects.toThrow(/artist|forbidden/i);
+    expect(insertMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an Artist raw POST that only carries a create-studio header", async () => {
+    mockRole = { kind: "artist" };
+    mockOnboardingIntentHeader = "create-studio";
+    const { completeStudio } = await import("../actions");
+    await expect(completeStudio(validInput)).rejects.toThrow(/artist|forbidden/i);
+    expect(insertMock).not.toHaveBeenCalled();
+  });
+
+  it("allows an Artist through the explicit server-authorized create-studio flow", async () => {
+    mockRole = { kind: "artist" };
+    mockOnboardingIntentHeader = "create-studio";
+    const { completeStudio } = await import("../actions");
+    await completeStudio({ ...validInput, intent: "create-studio" });
+    expect(insertMock).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a disconnected historical Artist without explicit create-studio intent", async () => {
+    mockRole = { kind: "orphan" };
+    mockHistoricalArtistAccess = true;
+    const { completeStudio } = await import("../actions");
+    await expect(completeStudio(validInput)).rejects.toThrow(/artist|forbidden/i);
+    expect(insertMock).not.toHaveBeenCalled();
+  });
+
+  it("allows a disconnected historical Artist through the explicit create-studio flow", async () => {
+    mockRole = { kind: "orphan" };
+    mockHistoricalArtistAccess = true;
+    mockOnboardingIntentHeader = "create-studio";
+    const { completeStudio } = await import("../actions");
+    await completeStudio({ ...validInput, intent: "create-studio" });
+    expect(insertMock).toHaveBeenCalledOnce();
   });
 
   it("proceeds when caller role is 'orphan' (Clerk webhook race — action's upsert handles it)", async () => {

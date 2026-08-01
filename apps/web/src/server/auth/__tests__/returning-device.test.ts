@@ -55,6 +55,19 @@ describe("auth page switch URLs", () => {
     );
   });
 
+  it("returns join intent to the dedicated Artist signup route", () => {
+    expect(
+      signUpSwitchHref(
+        "/join/northline-studio/continue?action=book",
+      ),
+    ).toBe("/sign-up/join/northline-studio");
+    expect(
+      signUpSwitchHref(
+        "/join/northline-studio/continue?action=unlock",
+      ),
+    ).toBe("/sign-up/join/northline-studio/unlock");
+  });
+
   it("preserves a safe deep link when switching back to sign-in", () => {
     expect(signInSwitchHref()).toBe("/sign-in");
     expect(signInSwitchHref("/dashboard/clients-projects?tab=clients")).toBe(

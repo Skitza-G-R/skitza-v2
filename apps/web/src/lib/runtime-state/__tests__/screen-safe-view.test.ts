@@ -362,7 +362,7 @@ describe("runtime screen safe views", () => {
 });
 
 describe("runtime launch pointer", () => {
-  it("stores one role-root pointer and gives producer launch precedence", () => {
+  it("stores separate role-root pointers and restores the last-used role", () => {
     const storage = new MemoryStorage();
     const dualRoleProducer = { ...PRODUCER, userId: "dual-role-user" };
     const dualRoleArtist = { ...ARTIST, userId: "dual-role-user" };
@@ -387,6 +387,19 @@ describe("runtime launch pointer", () => {
       role: "producer",
       contextId: "producer-studio",
       href: "/dashboard/clients-projects?tab=clients",
+    });
+    expect(
+      writeRuntimeLaunchPointer(
+        storage,
+        dualRoleArtist,
+        "/artist/music?studio=artist-studio&mode=projects",
+        3,
+      ),
+    ).toBe(true);
+    expect(readRuntimeLaunchTarget(storage, dualRoleProducer.userId, 3)).toEqual({
+      role: "artist",
+      contextId: "artist-studio",
+      href: "/artist/music?mode=projects&studio=artist-studio",
     });
     expect(
       writeRuntimeLaunchPointer(
@@ -416,13 +429,13 @@ describe("runtime launch pointer", () => {
         storage,
         dualRoleProducer,
         "/dashboard/calendar?tab=sessions",
-        4,
+        5,
       ),
     ).toBe(false);
-    expect(readRuntimeLaunchTarget(storage, dualRoleProducer.userId, 4)).toEqual({
-      role: "producer",
-      contextId: "producer-studio",
-      href: "/dashboard/clients-projects?tab=clients",
+    expect(readRuntimeLaunchTarget(storage, dualRoleProducer.userId, 5)).toEqual({
+      role: "artist",
+      contextId: "artist-studio",
+      href: "/artist/music?mode=projects&studio=artist-studio",
     });
   });
 

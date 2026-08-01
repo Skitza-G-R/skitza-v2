@@ -32,16 +32,17 @@ vi.mock("next/navigation", () => ({
 import ChooseRolePage from "../page";
 
 const dualRoleMemberships: UserAccountMemberships = {
-  primaryRole: {
-    kind: "producer-complete",
-    producer: {
+  isAuthenticated: true,
+  producer: {
+    status: "complete",
+    profile: {
       id: "producer-1",
       displayName: "Producer",
       slug: "producer",
       email: "producer@example.com",
     },
   },
-  hasArtistAccount: true,
+  artist: { hasAccess: true, hasActiveConnections: true },
 };
 
 describe("/choose-role", () => {
@@ -73,8 +74,9 @@ describe("/choose-role", () => {
   it("does not render the chooser for a single-role account", async () => {
     authMock.mockResolvedValueOnce({ userId: "artist-user" });
     membershipsMock.mockResolvedValueOnce({
-      primaryRole: { kind: "artist" },
-      hasArtistAccount: true,
+      isAuthenticated: true,
+      producer: { status: "none", profile: null },
+      artist: { hasAccess: true, hasActiveConnections: true },
     });
 
     await expect(
