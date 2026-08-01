@@ -1887,13 +1887,13 @@ export function SongPage({
       <button
         type="button"
         data-test="upload-new-version"
-        aria-label={`Upload ${versionUpload.defaultLabel} for ${songTitle}`}
+        aria-label={`Upload new Version for ${songTitle}`}
         onClick={() => {
           setVersionUploadOpen(true);
         }}
         className="sk-press inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-4 text-[12px] font-bold text-[rgb(var(--bg-background))] transition-colors hover:bg-[rgb(var(--fg-default)/0.88)]"
       >
-        <PlusIcon /> Upload {versionUpload.defaultLabel}
+        <PlusIcon /> Upload new Version
       </button>
     );
   }
