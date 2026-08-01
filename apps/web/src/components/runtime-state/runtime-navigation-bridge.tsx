@@ -33,6 +33,7 @@ import {
 } from "~/lib/runtime-state/route-warming";
 import {
   normalizeRuntimeHref,
+  readRuntimeLaunchTargetForRole,
   runtimeLaunchHrefForCurrentContext,
   writeRuntimeLaunchPointer,
 } from "~/lib/runtime-state/runtime-state";
@@ -313,10 +314,39 @@ export function RuntimeNavigationBridge({
       return;
     }
     const writeGeneration = captureAccountPrivateWriteGeneration(identity.userId);
-    if (isAccountPrivateRuntimeWriteAllowed(writeGeneration)) {
-      writeRuntimeLaunchPointer(storage, navigationIdentity, launchHref);
-    }
+    const touchRoleLaunch = () => {
+      if (!isAccountPrivateRuntimeWriteAllowed(writeGeneration)) return;
+      const existingLaunch = readRuntimeLaunchTargetForRole(
+        storage,
+        identity.userId,
+        identity.role,
+      );
+      const preferredHref =
+        existingLaunch?.contextId === identity.contextId
+          ? existingLaunch.href
+          : launchHref;
+      if (
+        !writeRuntimeLaunchPointer(storage, navigationIdentity, preferredHref) &&
+        preferredHref !== launchHref
+      ) {
+        writeRuntimeLaunchPointer(storage, navigationIdentity, launchHref);
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") touchRoleLaunch();
+    };
+
+    touchRoleLaunch();
+    window.addEventListener("pagehide", touchRoleLaunch);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      touchRoleLaunch();
+      window.removeEventListener("pagehide", touchRoleLaunch);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [
+    identity.contextId,
+    identity.role,
     identity.userId,
     launchHref,
     navigationIdentity,

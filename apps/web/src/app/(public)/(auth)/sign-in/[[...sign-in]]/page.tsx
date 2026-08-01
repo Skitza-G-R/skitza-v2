@@ -28,6 +28,8 @@ export default async function Page({ searchParams }: Props) {
         {...(joinMetadata ? { unsafeMetadata: joinMetadata } : {})}
         fallbackRedirectUrl={resolverHref}
         forceRedirectUrl={resolverHref}
+        signUpFallbackRedirectUrl={resolverHref}
+        signUpForceRedirectUrl={resolverHref}
       />
     </div>
   );

@@ -14,7 +14,11 @@ import {
 } from "~/lib/runtime-state/navigation";
 import { MemoryStorage } from "~/lib/runtime-state/__tests__/memory-storage";
 import { RUNTIME_MAIN_NAVIGATION_INTENT_EVENT } from "~/lib/runtime-state/navigation-cache";
-import { readRuntimeLaunchTargetForRole } from "~/lib/runtime-state/runtime-state";
+import {
+  readRuntimeLaunchTarget,
+  readRuntimeLaunchTargetForRole,
+  writeRuntimeLaunchPointer,
+} from "~/lib/runtime-state/runtime-state";
 
 type Effect = () => undefined | (() => void);
 interface CapturedEffect {
@@ -283,6 +287,24 @@ function setupNavigationIntentEnvironment() {
   };
 }
 
+function setupRoleTouchEnvironment() {
+  const browserWindow = new EventTarget();
+  const browserDocument = Object.assign(new EventTarget(), {
+    visibilityState: "visible",
+  });
+  vi.stubGlobal("window", browserWindow);
+  vi.stubGlobal("document", browserDocument);
+  return {
+    hide() {
+      browserDocument.visibilityState = "hidden";
+      browserDocument.dispatchEvent(new Event("visibilitychange"));
+    },
+    pagehide() {
+      browserWindow.dispatchEvent(new Event("pagehide"));
+    },
+  };
+}
+
 describe("RuntimeNavigationBridge root restoration", () => {
   it("keeps the explicit post-onboarding Store cue on the dashboard root", () => {
     mocked.pathname = "/dashboard";
@@ -412,6 +434,7 @@ describe("RuntimeNavigationBridge scroll persistence", () => {
 
 describe("RuntimeNavigationBridge role launch persistence", () => {
   it("records only the safe Artist root pointer from a live booking route", () => {
+    setupRoleTouchEnvironment();
     mocked.identity = {
       userId: "dual-user",
       role: "artist",
@@ -422,7 +445,7 @@ describe("RuntimeNavigationBridge role launch persistence", () => {
     const effectIndex = mocked.effects.length;
 
     RuntimeNavigationBridge({ restoreOnOpen: false });
-    findEffect(
+    const cleanup = findEffect(
       mocked.effects,
       effectIndex,
       "writeRuntimeLaunchPointer",
@@ -452,6 +475,94 @@ describe("RuntimeNavigationBridge role launch persistence", () => {
         currentStorage().getItem(currentStorage().key(index) ?? ""),
       ).join("\n"),
     ).not.toContain("/artist/book");
+    if (typeof cleanup === "function") cleanup();
+  });
+
+  it("refreshes the same-context Artist pointer through the live-route lifecycle without replacing Music with Book", () => {
+    const environment = setupRoleTouchEnvironment();
+    const artist: RuntimeIdentity = {
+      userId: "dual-user",
+      role: "artist",
+      contextId: "studio-id",
+    };
+    mocked.identity = artist;
+    mocked.pathname = "/artist/book";
+    mocked.search = "studio=studio-id&producer=producer-id";
+    const now = Date.now();
+    expect(
+      writeRuntimeLaunchPointer(
+        currentStorage(),
+        artist,
+        "/artist/music?studio=studio-id",
+        now - 20,
+      ),
+    ).toBe(true);
+    expect(
+      writeRuntimeLaunchPointer(
+        currentStorage(),
+        { userId: "dual-user", role: "producer", contextId: "producer-id" },
+        "/dashboard/music",
+        now - 10,
+      ),
+    ).toBe(true);
+    const setItem = vi.spyOn(currentStorage(), "setItem");
+    const effectIndex = mocked.effects.length;
+
+    RuntimeNavigationBridge({ restoreOnOpen: false });
+    const cleanup = findEffect(
+      mocked.effects,
+      effectIndex,
+      "writeRuntimeLaunchPointer",
+      "subscribeToScroll",
+    )();
+    expect(setItem).toHaveBeenCalledTimes(1);
+    environment.pagehide();
+    expect(setItem).toHaveBeenCalledTimes(2);
+    environment.hide();
+    expect(setItem).toHaveBeenCalledTimes(3);
+    if (typeof cleanup === "function") cleanup();
+    expect(setItem).toHaveBeenCalledTimes(4);
+
+    expect(readRuntimeLaunchTarget(currentStorage(), "dual-user")).toEqual({
+      role: "artist",
+      contextId: "studio-id",
+      href: "/artist/music?studio=studio-id",
+    });
+    expect(
+      Array.from({ length: currentStorage().length }, (_, index) =>
+        currentStorage().getItem(currentStorage().key(index) ?? ""),
+      ).join("\n"),
+    ).not.toContain("/artist/book");
+  });
+
+  it("blocks every later live-route touch after private account state is cleared", () => {
+    const environment = setupRoleTouchEnvironment();
+    mocked.identity = {
+      userId: "cleared-dual-user",
+      role: "artist",
+      contextId: "studio-id",
+    };
+    mocked.pathname = "/artist/book";
+    mocked.search = "studio=studio-id";
+    const setItem = vi.spyOn(currentStorage(), "setItem");
+    const effectIndex = mocked.effects.length;
+
+    RuntimeNavigationBridge({ restoreOnOpen: false });
+    const cleanup = findEffect(
+      mocked.effects,
+      effectIndex,
+      "writeRuntimeLaunchPointer",
+      "subscribeToScroll",
+    )();
+    expect(setItem).toHaveBeenCalledTimes(1);
+    clearAccountPrivateRuntimeState("cleared-dual-user", currentStorage());
+
+    environment.pagehide();
+    environment.hide();
+    if (typeof cleanup === "function") cleanup();
+
+    expect(setItem).toHaveBeenCalledTimes(1);
+    expect(currentStorage().length).toBe(0);
   });
 });
 

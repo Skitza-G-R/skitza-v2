@@ -27,6 +27,8 @@ describe("SK-152 auth presentation contract", () => {
     expect(signInSource).toContain("signUpUrl={signUpHref}");
     expect(signInSource).toContain("fallbackRedirectUrl={resolverHref}");
     expect(signInSource).toContain("forceRedirectUrl={resolverHref}");
+    expect(signInSource).toContain("signUpFallbackRedirectUrl={resolverHref}");
+    expect(signInSource).toContain("signUpForceRedirectUrl={resolverHref}");
     expect(globalsSource).toContain(
       '.sk-auth-main:has([data-auth-page="sign-in"]) .sk-auth-form .cl-footer,',
     );

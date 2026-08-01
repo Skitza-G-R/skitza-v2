@@ -66,5 +66,11 @@ describe("join-aware Clerk authentication", () => {
     expect(signInSource).toContain(
       "{...(joinMetadata ? { unsafeMetadata: joinMetadata } : {})}",
     );
+    expect(signInSource).toContain(
+      "signUpForceRedirectUrl={resolverHref}",
+    );
+    expect(signInSource).toContain(
+      "signUpFallbackRedirectUrl={resolverHref}",
+    );
   });
 });
