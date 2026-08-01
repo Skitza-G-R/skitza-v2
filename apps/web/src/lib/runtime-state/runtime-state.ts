@@ -1048,12 +1048,12 @@ function safelyRemoveStorageItem(storage: StorageLike, key: string): void {
   }
 }
 
-export function readRuntimeState<Slot extends RuntimeSlot>(
+function readRuntimeEnvelope<Slot extends RuntimeSlot>(
   storage: StorageLike,
   scope: RuntimeScope,
   slot: Slot,
   now = Date.now(),
-): RuntimePayloadBySlot[Slot] | null {
+): RuntimeEnvelope<RuntimePayloadBySlot[Slot]> | null {
   let key: string;
   try {
     key = buildRuntimeStorageKey(scope, slot);
@@ -1079,11 +1079,20 @@ export function readRuntimeState<Slot extends RuntimeSlot>(
       safelyRemoveStorageItem(storage, key);
       return null;
     }
-    return parsed.payload;
+    return parsed;
   } catch {
     safelyRemoveStorageItem(storage, key);
     return null;
   }
+}
+
+export function readRuntimeState<Slot extends RuntimeSlot>(
+  storage: StorageLike,
+  scope: RuntimeScope,
+  slot: Slot,
+  now = Date.now(),
+): RuntimePayloadBySlot[Slot] | null {
+  return readRuntimeEnvelope(storage, scope, slot, now)?.payload ?? null;
 }
 
 export function writeRuntimeState<Slot extends RuntimeSlot>(
@@ -1230,32 +1239,86 @@ export function writeRuntimeLaunchPointer(
   );
 }
 
-function readRuntimeLaunchPointerForRole(
+/**
+ * Canonicalize the shell's current screen for a launch-pointer write. Artist
+ * root navigation intentionally stays at plain `/artist` so the existing
+ * resume bridge can run, but the stored pointer must carry the resolved studio
+ * context or the strict launch writer will reject it.
+ */
+export function runtimeLaunchHrefForCurrentContext(
+  identity: RuntimeStateIdentity,
+  href: string,
+): string | null {
+  const safeHref = normalizeRuntimeHref(href, identity.role);
+  if (identity.role !== "artist") return safeHref;
+
+  if (!safeHref) {
+    if (!href.startsWith("/") || href.startsWith("//") || href.length > 1024) {
+      return null;
+    }
+    let liveUrl: URL;
+    try {
+      liveUrl = new URL(href, "https://runtime.skitza.invalid");
+    } catch {
+      return null;
+    }
+    if (!isLiveOnlyArtistRoute(liveUrl.pathname)) return null;
+    return identity.contextId === "artist-no-studio"
+      ? "/artist"
+      : `/artist?${new URLSearchParams({ studio: identity.contextId }).toString()}`;
+  }
+
+  const url = new URL(safeHref, "https://runtime.skitza.invalid");
+  const requestedStudio = url.searchParams.get("studio");
+  if (identity.contextId === "artist-no-studio") {
+    return requestedStudio === null ? safeHref : null;
+  }
+  if (requestedStudio && requestedStudio !== identity.contextId) return null;
+  if (!requestedStudio) url.searchParams.set("studio", identity.contextId);
+  url.searchParams.sort();
+  return `${url.pathname}?${url.searchParams.toString()}`;
+}
+
+export function readRuntimeLaunchTargetForRole(
   storage: StorageLike,
   userId: string,
   role: RuntimeRole,
-  now: number,
-): RuntimeLaunchPointer | null {
+  now = Date.now(),
+): RuntimeLaunchTarget | null {
   const scope = runtimeLaunchScope(userId, role);
-  return scope
-    ? readRuntimeState(storage, scope, "runtime.launch.pointer", now)
+  const envelope = scope
+    ? readRuntimeEnvelope(storage, scope, "runtime.launch.pointer", now)
     : null;
+  return envelope ? { role, ...envelope.payload } : null;
 }
 
 /**
- * Product-role precedence mirrors the signed-in role resolver: if one Clerk
- * user has both roles, their producer destination is the deterministic launch.
+ * Restore the most recently used role while keeping each role's destination
+ * separate. A tie is deterministic, but normal writes have distinct clocks.
  */
 export function readRuntimeLaunchTarget(
   storage: StorageLike,
   userId: string,
   now = Date.now(),
 ): RuntimeLaunchTarget | null {
-  for (const role of ["producer", "artist"] as const) {
-    const pointer = readRuntimeLaunchPointerForRole(storage, userId, role, now);
-    if (pointer) return { role, ...pointer };
-  }
-  return null;
+  const candidates = (["producer", "artist"] as const).flatMap((role) => {
+    const scope = runtimeLaunchScope(userId, role);
+    const envelope = scope
+      ? readRuntimeEnvelope(storage, scope, "runtime.launch.pointer", now)
+      : null;
+    return envelope
+      ? [{ role, updatedAt: envelope.updatedAt, ...envelope.payload }]
+      : [];
+  });
+  candidates.sort((left, right) =>
+    right.updatedAt !== left.updatedAt
+      ? right.updatedAt - left.updatedAt
+      : left.role.localeCompare(right.role),
+  );
+  const latest = candidates[0];
+  return latest
+    ? { role: latest.role, contextId: latest.contextId, href: latest.href }
+    : null;
 }
 
 export function removeRuntimeState(

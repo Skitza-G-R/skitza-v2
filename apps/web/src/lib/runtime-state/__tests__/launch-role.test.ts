@@ -76,35 +76,42 @@ describe("runtime launch role resolver", () => {
 
 describe("membership-aware runtime launch resolver", () => {
   const completeProducer = {
-    kind: "producer-complete" as const,
-    producer: {
-      id: "producer-a",
-      displayName: "Producer",
-      slug: "producer",
-      email: "producer@example.com",
-    },
+    id: "producer-a",
+    displayName: "Producer",
+    slug: "producer",
+    email: "producer@example.com",
   };
 
-  it("asks a genuine dual account which safe workspace to resume", () => {
+  it("lets an explicit role target override the saved role for a dual account", () => {
     expect(
       runtimeLaunchHrefForMemberships(
         {
-          primaryRole: completeProducer,
-          hasArtistAccount: true,
+          isAuthenticated: true,
+          producer: { status: "complete", profile: completeProducer },
+          artist: { hasAccess: true, hasActiveConnections: true },
         },
         "/artist/music?studio=studio-a&mode=songs",
       ),
-    ).toBe(
-      "/choose-role?next=%2Fartist%2Fmusic%3Fmode%3Dsongs%26studio%3Dstudio-a",
-    );
+    ).toBe("/artist/music?mode=songs&studio=studio-a");
+  });
+
+  it("uses the client-side last-role resolver when a dual account has no explicit target", () => {
+    expect(
+      runtimeLaunchHrefForMemberships({
+        isAuthenticated: true,
+        producer: { status: "complete", profile: completeProducer },
+        artist: { hasAccess: true, hasActiveConnections: true },
+      }),
+    ).toBe("/auth/resume");
   });
 
   it("resumes a disconnected artist in the artist workspace", () => {
     expect(
       runtimeLaunchHrefForMemberships(
         {
-          primaryRole: { kind: "orphan" },
-          hasArtistAccount: true,
+          isAuthenticated: true,
+          producer: { status: "none", profile: null },
+          artist: { hasAccess: true, hasActiveConnections: false },
         },
         "/artist/music?mode=projects",
       ),
@@ -114,16 +121,18 @@ describe("membership-aware runtime launch resolver", () => {
   it("sends an unknown signed-out launch to sign-up marketing", () => {
     expect(
       runtimeLaunchHrefForMemberships({
-        primaryRole: { kind: "unauthenticated" },
-        hasArtistAccount: false,
+        isAuthenticated: false,
+        producer: { status: "none", profile: null },
+        artist: { hasAccess: false, hasActiveConnections: false },
       }),
     ).toBe("/sign-up");
   });
 
   it("carries only an allowlisted saved screen into new-user sign-up", () => {
     const unauthenticated = {
-      primaryRole: { kind: "unauthenticated" as const },
-      hasArtistAccount: false,
+      isAuthenticated: false,
+      producer: { status: "none" as const, profile: null },
+      artist: { hasAccess: false, hasActiveConnections: false },
     };
 
     expect(
@@ -146,8 +155,9 @@ describe("membership-aware runtime launch resolver", () => {
     expect(
       runtimeLaunchHrefForMemberships(
         {
-          primaryRole: completeProducer,
-          hasArtistAccount: false,
+          isAuthenticated: true,
+          producer: { status: "complete", profile: completeProducer },
+          artist: { hasAccess: false, hasActiveConnections: false },
         },
         "/artist/music",
       ),

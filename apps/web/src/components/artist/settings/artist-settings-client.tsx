@@ -406,7 +406,12 @@ export function ArtistSettingsClient({
   };
 
   return (
-    <div className="mx-auto w-full max-w-5xl">
+    <div
+      className="mx-auto w-full max-w-5xl"
+      data-role-switch-unsaved={
+        dirtySections.size > 0 ? "true" : undefined
+      }
+    >
       <nav
         aria-label="Settings sections"
         className="no-scrollbar -mx-4 mb-5 overflow-x-auto border-b border-[rgb(var(--border-subtle))] px-4 sm:mx-0 sm:px-0"

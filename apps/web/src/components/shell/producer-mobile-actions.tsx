@@ -16,6 +16,10 @@ import {
 
 import { copyPublicLink } from "~/components/dashboard/overview/public-link-strip";
 import { Icon } from "~/components/nav/icons";
+import {
+  renderAccountRoleMenuItems,
+  useAccountRoleMenuModel,
+} from "~/components/nav/account-role-menu-items";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "~/components/ui/sheet";
 import { useToast } from "~/components/ui/toast";
 import {
@@ -33,6 +37,9 @@ import {
 
 interface ProducerMobileActionsProps {
   producerSlug: string | null;
+  userId?: string | null;
+  hasArtistAccount?: boolean;
+  artistUnreadCount?: number;
 }
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
@@ -51,6 +58,9 @@ type AccountSheetDragState = {
 
 export function ProducerMobileActions({
   producerSlug,
+  userId = null,
+  hasArtistAccount = false,
+  artistUnreadCount = 0,
 }: ProducerMobileActionsProps) {
   const { toast } = useToast();
   const pathname = usePathname();
@@ -71,6 +81,14 @@ export function ProducerMobileActions({
   const storeTipConsumedRef = useRef(false);
   const storeTipNavigationHrefRef = useRef(navigationHref);
   const accountSheetId = useId();
+  const accountMenuModel = useAccountRoleMenuModel({
+    currentRole: "producer",
+    userId: userId ?? "",
+    producerStatus: "complete",
+    hasArtistAccount,
+    otherRoleUnreadCount: artistUnreadCount,
+    settingsHref: "/dashboard/settings",
+  });
 
   const requestAccountSheetClose = useCallback(() => {
     const sheet = accountSheetRef.current;
@@ -285,6 +303,11 @@ export function ProducerMobileActions({
       ) : null}
 
       <UserButton __experimental_asProvider>
+        {userId
+          ? renderAccountRoleMenuItems(accountMenuModel, {
+              includeSettings: false,
+            })
+          : null}
         <div
           data-testid="topbar-account"
           className="relative flex h-10 w-10 items-center justify-center"

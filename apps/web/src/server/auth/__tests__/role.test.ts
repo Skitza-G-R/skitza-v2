@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { resolveUserAccountMemberships, resolveUserRole, type ProducerRow } from "../role";
+import {
+  legacyUserRoleFromMemberships,
+  resolveUserAccountMemberships,
+  resolveUserRole,
+  type ProducerRow,
+} from "../role";
 import { emailToSlug } from "~/lib/slug";
 
 // Tests for the pure role-resolution function used across every
@@ -132,7 +137,7 @@ describe("resolveUserRole", () => {
 });
 
 describe("resolveUserAccountMemberships", () => {
-  it("keeps producer precedence while exposing a genuine dual role", () => {
+  it("exposes producer and Artist memberships additively", () => {
     const memberships = resolveUserAccountMemberships({
       userId: "user_dual",
       producerRow: completeProducer,
@@ -140,8 +145,14 @@ describe("resolveUserAccountMemberships", () => {
       hasAnyClientContacts: true,
     });
 
-    expect(memberships.primaryRole.kind).toBe("producer-complete");
-    expect(memberships.hasArtistAccount).toBe(true);
+    expect(memberships.producer).toEqual({
+      status: "complete",
+      profile: completeProducer,
+    });
+    expect(memberships.artist).toEqual({
+      hasAccess: true,
+      hasActiveConnections: true,
+    });
   });
 
   it("preserves artist identity after the last studio is disconnected", () => {
@@ -152,8 +163,14 @@ describe("resolveUserAccountMemberships", () => {
       hasAnyClientContacts: true,
     });
 
-    expect(memberships.primaryRole.kind).toBe("orphan");
-    expect(memberships.hasArtistAccount).toBe(true);
+    expect(memberships.producer).toEqual({ status: "none", profile: null });
+    expect(memberships.artist).toEqual({
+      hasAccess: true,
+      hasActiveConnections: false,
+    });
+    expect(legacyUserRoleFromMemberships(memberships)).toEqual({
+      kind: "artist",
+    });
   });
 
   it("does not infer artist membership for an unauthenticated request", () => {
@@ -165,8 +182,9 @@ describe("resolveUserAccountMemberships", () => {
     });
 
     expect(memberships).toEqual({
-      primaryRole: { kind: "unauthenticated" },
-      hasArtistAccount: false,
+      isAuthenticated: false,
+      producer: { status: "none", profile: null },
+      artist: { hasAccess: false, hasActiveConnections: false },
     });
   });
 });

@@ -33,6 +33,8 @@ import {
 } from "~/lib/runtime-state/route-warming";
 import {
   normalizeRuntimeHref,
+  readRuntimeLaunchTargetForRole,
+  runtimeLaunchHrefForCurrentContext,
   writeRuntimeLaunchPointer,
 } from "~/lib/runtime-state/runtime-state";
 import { NATIVE_REFRESH_EVENT } from "~/lib/pwa/update-coordination";
@@ -261,6 +263,10 @@ export function RuntimeNavigationBridge({
   const preserveRequestedRoot = searchParams.get("storeTip") === "1";
   const href = `${pathname}${search ? `?${search}` : ""}`;
   const safeHref = normalizeRuntimeHref(href, identity.role);
+  const launchHref = runtimeLaunchHrefForCurrentContext(
+    navigationIdentity,
+    href,
+  );
   const identityKey = `${identity.userId}:${identity.role}:${identity.contextId}`;
   const navigationCache = useMemo(
     () => createRuntimeNavigationSessionCache(),
@@ -299,6 +305,57 @@ export function RuntimeNavigationBridge({
   ]);
 
   useEffect(() => {
+    if (
+      !privateStateAccessAllowed ||
+      !storage ||
+      safeHref ||
+      !launchHref
+    ) {
+      return;
+    }
+    const writeGeneration = captureAccountPrivateWriteGeneration(identity.userId);
+    const touchRoleLaunch = () => {
+      if (!isAccountPrivateRuntimeWriteAllowed(writeGeneration)) return;
+      const existingLaunch = readRuntimeLaunchTargetForRole(
+        storage,
+        identity.userId,
+        identity.role,
+      );
+      const preferredHref =
+        existingLaunch?.contextId === identity.contextId
+          ? existingLaunch.href
+          : launchHref;
+      if (
+        !writeRuntimeLaunchPointer(storage, navigationIdentity, preferredHref) &&
+        preferredHref !== launchHref
+      ) {
+        writeRuntimeLaunchPointer(storage, navigationIdentity, launchHref);
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") touchRoleLaunch();
+    };
+
+    touchRoleLaunch();
+    window.addEventListener("pagehide", touchRoleLaunch);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      touchRoleLaunch();
+      window.removeEventListener("pagehide", touchRoleLaunch);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [
+    identity.contextId,
+    identity.role,
+    identity.userId,
+    launchHref,
+    navigationIdentity,
+    privateStateAccessAllowed,
+    safeHref,
+    storage,
+  ]);
+
+  useEffect(() => {
     if (!privateStateAccessAllowed || !storage || !safeHref) return;
     if (skipPersistHref.current === safeHref) return;
     skipPersistHref.current = null;
@@ -311,7 +368,9 @@ export function RuntimeNavigationBridge({
     const persist = () => {
       if (!isAccountPrivateRuntimeWriteAllowed(writeGeneration)) return;
       if (recordRuntimeNavigation(storage, navigationIdentity, safeHref, latestScrollTop)) {
-        writeRuntimeLaunchPointer(storage, navigationIdentity, safeHref);
+        if (launchHref) {
+          writeRuntimeLaunchPointer(storage, navigationIdentity, launchHref);
+        }
       }
     };
     persist();
@@ -344,7 +403,14 @@ export function RuntimeNavigationBridge({
       window.removeEventListener("pagehide", onPageHide);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [navigationIdentity, privateStateAccessAllowed, safeHref, storage]);
+  }, [
+    identity.userId,
+    launchHref,
+    navigationIdentity,
+    privateStateAccessAllowed,
+    safeHref,
+    storage,
+  ]);
 
   useLayoutEffect(() => {
     if (!privateStateAccessAllowed) return;

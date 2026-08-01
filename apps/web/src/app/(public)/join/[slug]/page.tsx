@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { TRPCError } from "@trpc/server";
+import { auth } from "@clerk/nextjs/server";
 
-import { createDb } from "@skitza/db";
+import { and, createDb, eq, producers } from "@skitza/db";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { JoinNav } from "~/components/join/join-nav";
 import { JoinBento } from "~/components/join/join-bento";
@@ -64,9 +65,27 @@ export default async function JoinPage({ params }: PageProps) {
   // Render-only, no persistence or client-state.
   const dbUrl = process.env.DATABASE_URL;
   let publicTrackCount = 0;
+  let ownPreview = false;
   if (dbUrl) {
     const db = createDb(dbUrl);
-    publicTrackCount = await countPublicPortfolioTracks(db, data.producer.id);
+    const { userId } = await auth();
+    const [trackCount, ownerRows] = await Promise.all([
+      countPublicPortfolioTracks(db, data.producer.id),
+      userId
+        ? db
+            .select({ id: producers.id })
+            .from(producers)
+            .where(
+              and(
+                eq(producers.id, data.producer.id),
+                eq(producers.clerkUserId, userId),
+              ),
+            )
+            .limit(1)
+        : Promise.resolve([]),
+    ]);
+    publicTrackCount = trackCount;
+    ownPreview = ownerRows[0] !== undefined;
   }
   const lockedCount = Math.max(
     0,
@@ -96,6 +115,7 @@ export default async function JoinPage({ params }: PageProps) {
           meta={data.meta}
           samples={data.publicSamples}
           lockedCount={lockedCount}
+          ownPreview={ownPreview}
         />
 
         {/* Floating mini player — appears at the bottom only when the

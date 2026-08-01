@@ -19,10 +19,18 @@ describe("SK-152 auth presentation contract", () => {
     expect(signInSource).toContain("Sign in to continue to Skitza.");
     expect(signInSource).not.toMatch(/your hall/i);
     expect(signInSource).toContain("postSignInResolverHref(requestedHref)");
+    expect(signInSource).toContain("await Promise.all([searchParams, headers()])");
+    expect(signInSource).toContain("normalizeSameOriginPostSignInTarget(");
     expect(signInSource).toContain("signUpSwitchHref(requestedHref)");
+    expect(signInSource).toContain("joinSignUpMetadataFromTarget(requestedHref)");
+    expect(signInSource).toContain(
+      "{...(joinMetadata ? { unsafeMetadata: joinMetadata } : {})}",
+    );
     expect(signInSource).toContain("signUpUrl={signUpHref}");
     expect(signInSource).toContain("fallbackRedirectUrl={resolverHref}");
     expect(signInSource).toContain("forceRedirectUrl={resolverHref}");
+    expect(signInSource).toContain("signUpFallbackRedirectUrl={resolverHref}");
+    expect(signInSource).toContain("signUpForceRedirectUrl={resolverHref}");
     expect(globalsSource).toContain(
       '.sk-auth-main:has([data-auth-page="sign-in"]) .sk-auth-form .cl-footer,',
     );

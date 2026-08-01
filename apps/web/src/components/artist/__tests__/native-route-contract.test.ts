@@ -114,10 +114,8 @@ describe("signed-in artist native route contract", () => {
       "sign-out-link.tsx",
     );
 
-    expect(welcome).toContain("connectionConfirmed = true");
-    expect(welcome).toContain("{connectionConfirmed ? (");
-    expect(welcome).toMatch(/No\s+studio access was added/);
-    expect(welcome).toContain("Try connecting again");
+    expect(welcome).toContain("redirect(joinContinuationHref(slug))");
+    expect(welcome).not.toContain("connectVerifiedArtistToProducer");
     expect(signOut).toContain('role="alert"');
   });
 
@@ -125,13 +123,15 @@ describe("signed-in artist native route contract", () => {
     const desktop = src("..", "..", "nav", "artist-desktop-sidebar.tsx");
     const mobile = src("..", "..", "nav", "artist-mobile-top-bar.tsx");
     const userButton = src("..", "..", "nav", "artist-user-button.tsx");
+    const accountRoleMenu = src("..", "..", "nav", "account-role-menu-items.tsx");
     const settings = src("..", "settings", "artist-settings-client.tsx");
 
     expect(desktop).toContain("minHeight: 44");
     expect(desktop).toContain("<ArtistUserButton");
     expect(mobile).toContain("<ArtistUserButton");
     expect(userButton).toContain("avatarBox: `h-11 w-11");
-    expect(userButton).toContain('label="Settings"');
+    expect(userButton).toContain("renderAccountRoleMenuItems(menuModel)");
+    expect(accountRoleMenu).toContain('label="Settings"');
     expect(settings).toMatch(/avatarBox:\s*"h-11 w-11/);
   });
 });

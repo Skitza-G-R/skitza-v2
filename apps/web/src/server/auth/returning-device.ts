@@ -1,4 +1,7 @@
-import { sanitizePostSignInTarget } from "./post-sign-in";
+import {
+  joinSignUpHrefFromTarget,
+  sanitizePostSignInTarget,
+} from "./post-sign-in";
 
 export const RETURNING_DEVICE_COOKIE = "skitza-returning";
 
@@ -57,6 +60,9 @@ export function signInSwitchHref(rawTarget?: string | null): string {
 }
 
 export function signUpSwitchHref(rawTarget?: string | null): string {
+  const joinSignUpHref = joinSignUpHrefFromTarget(rawTarget);
+  if (joinSignUpHref) return joinSignUpHref;
+
   const query = new URLSearchParams({ intent: "signup" });
   const target = sanitizePostSignInTarget(rawTarget);
 

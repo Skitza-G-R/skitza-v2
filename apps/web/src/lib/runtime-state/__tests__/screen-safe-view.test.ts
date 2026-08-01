@@ -5,9 +5,11 @@ import {
   buildRuntimeStorageKey,
   clearRuntimeStateForUser,
   findOnlyRuntimeStateUserId,
+  normalizeRuntimeHref,
   pruneRuntimeSafeViews,
   readRuntimeLaunchTarget,
   readRuntimeScreenSafeView,
+  runtimeLaunchHrefForCurrentContext,
   runtimeScope,
   writeRuntimeLaunchPointer,
   writeRuntimeScreenSafeView,
@@ -362,7 +364,66 @@ describe("runtime screen safe views", () => {
 });
 
 describe("runtime launch pointer", () => {
-  it("stores one role-root pointer and gives producer launch precedence", () => {
+  it("canonicalizes a plain Artist root and makes it newer than the Producer pointer", () => {
+    const storage = new MemoryStorage();
+    const userId = "first-switch-dual-user";
+    const producer = { ...PRODUCER, userId };
+    const artist = { ...ARTIST, userId };
+
+    expect(writeRuntimeLaunchPointer(storage, producer, "/dashboard", 10)).toBe(
+      true,
+    );
+    const artistLaunchHref = runtimeLaunchHrefForCurrentContext(
+      artist,
+      "/artist",
+    );
+    expect(artistLaunchHref).toBe("/artist?studio=artist-studio");
+    expect(
+      writeRuntimeLaunchPointer(storage, artist, artistLaunchHref ?? "", 20),
+    ).toBe(true);
+    expect(readRuntimeLaunchTarget(storage, userId, 20)).toEqual({
+      role: "artist",
+      contextId: "artist-studio",
+      href: "/artist?studio=artist-studio",
+    });
+  });
+
+  it("marks Artist newest from Book while excluding the live transaction URL", () => {
+    const storage = new MemoryStorage();
+    const userId = "booking-switch-dual-user";
+    const producer = { ...PRODUCER, userId };
+    const artist = { ...ARTIST, userId };
+    const liveBookHref = "/artist/book?studio=artist-studio";
+
+    expect(writeRuntimeLaunchPointer(storage, producer, "/dashboard", 10)).toBe(
+      true,
+    );
+    expect(normalizeRuntimeHref(liveBookHref, "artist")).toBeNull();
+    expect(writeRuntimeLaunchPointer(storage, artist, liveBookHref, 20)).toBe(
+      false,
+    );
+
+    const safeFallback = runtimeLaunchHrefForCurrentContext(
+      artist,
+      liveBookHref,
+    );
+    expect(safeFallback).toBe("/artist?studio=artist-studio");
+    expect(
+      writeRuntimeLaunchPointer(storage, artist, safeFallback ?? "", 20),
+    ).toBe(true);
+    expect(readRuntimeLaunchTarget(storage, userId, 20)).toEqual({
+      role: "artist",
+      contextId: "artist-studio",
+      href: "/artist?studio=artist-studio",
+    });
+    const storedValues = Array.from({ length: storage.length }, (_, index) => {
+      const key = storage.key(index);
+      return key ? storage.getItem(key) : null;
+    });
+    expect(storedValues.join("\n")).not.toContain(liveBookHref);
+  });
+
+  it("stores separate role-root pointers and restores the last-used role", () => {
     const storage = new MemoryStorage();
     const dualRoleProducer = { ...PRODUCER, userId: "dual-role-user" };
     const dualRoleArtist = { ...ARTIST, userId: "dual-role-user" };
@@ -387,6 +448,19 @@ describe("runtime launch pointer", () => {
       role: "producer",
       contextId: "producer-studio",
       href: "/dashboard/clients-projects?tab=clients",
+    });
+    expect(
+      writeRuntimeLaunchPointer(
+        storage,
+        dualRoleArtist,
+        "/artist/music?studio=artist-studio&mode=projects",
+        3,
+      ),
+    ).toBe(true);
+    expect(readRuntimeLaunchTarget(storage, dualRoleProducer.userId, 3)).toEqual({
+      role: "artist",
+      contextId: "artist-studio",
+      href: "/artist/music?mode=projects&studio=artist-studio",
     });
     expect(
       writeRuntimeLaunchPointer(
@@ -416,13 +490,13 @@ describe("runtime launch pointer", () => {
         storage,
         dualRoleProducer,
         "/dashboard/calendar?tab=sessions",
-        4,
+        5,
       ),
     ).toBe(false);
-    expect(readRuntimeLaunchTarget(storage, dualRoleProducer.userId, 4)).toEqual({
-      role: "producer",
-      contextId: "producer-studio",
-      href: "/dashboard/clients-projects?tab=clients",
+    expect(readRuntimeLaunchTarget(storage, dualRoleProducer.userId, 5)).toEqual({
+      role: "artist",
+      contextId: "artist-studio",
+      href: "/artist/music?mode=projects&studio=artist-studio",
     });
   });
 

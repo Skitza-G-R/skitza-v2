@@ -154,7 +154,10 @@ export function MarketingSection({
   }
 
   return (
-    <section aria-labelledby="settings-marketing-heading">
+    <section
+      aria-labelledby="settings-marketing-heading"
+      data-role-switch-unsaved={dirty ? "true" : undefined}
+    >
       <header className="mb-3">
         <h2
           id="settings-marketing-heading"

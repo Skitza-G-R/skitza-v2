@@ -188,6 +188,7 @@ function WorkingHoursCard({
   return (
     <section
       aria-labelledby="working-hours-heading"
+      data-role-switch-unsaved={dirty ? "true" : undefined}
       className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
     >
       <header className="flex items-center justify-between border-b border-[rgb(var(--border-subtle))] px-5 py-4">

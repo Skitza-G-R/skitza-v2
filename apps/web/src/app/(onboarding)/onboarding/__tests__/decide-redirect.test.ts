@@ -1,6 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { decideOnboardingRedirect, stepFromPath } from "../decide-redirect";
-import type { UserRole, ProducerRow } from "~/server/auth/role";
+import {
+  decideOnboardingMembershipRedirect,
+  decideOnboardingRedirect,
+  stepFromPath,
+} from "../decide-redirect";
+import type {
+  ProducerRow,
+  UserAccountMemberships,
+  UserRole,
+} from "~/server/auth/role";
 
 // Routing policy for the /onboarding producer wizard — added as part
 // of audit Task 16 (strict role isolation).
@@ -130,6 +138,59 @@ describe("decideOnboardingRedirect (2-arg, step-aware)", () => {
       expect(decideOnboardingRedirect(role, "review")).toBe("/sign-in");
       expect(decideOnboardingRedirect(role, "portfolio")).toBe("/sign-in");
     });
+  });
+});
+
+describe("explicit Artist studio creation", () => {
+  it("admits an Artist only to the first Producer setup step after an explicit choice", () => {
+    const role = { kind: "artist" as const };
+
+    expect(
+      decideOnboardingRedirect(role, "studio", {
+        allowArtistCreateStudio: true,
+      }),
+    ).toBeNull();
+    expect(
+      decideOnboardingRedirect(role, "service", {
+        allowArtistCreateStudio: true,
+      }),
+    ).toBe("/artist");
+  });
+});
+
+describe("membership-aware onboarding wall", () => {
+  const historicalArtist: UserAccountMemberships = {
+    isAuthenticated: true,
+    producer: { status: "none", profile: null },
+    artist: { hasAccess: true, hasActiveConnections: false },
+  };
+
+  it("redirects a historical-only Artist before showing Producer onboarding", () => {
+    expect(
+      decideOnboardingMembershipRedirect(historicalArtist, "studio"),
+    ).toBe("/artist");
+  });
+
+  it("admits the same Artist only with trusted explicit create-studio intent", () => {
+    expect(
+      decideOnboardingMembershipRedirect(historicalArtist, "studio", {
+        allowArtistCreateStudio: true,
+      }),
+    ).toBeNull();
+  });
+
+  it("preserves incomplete Producer setup even when Artist access is additive", () => {
+    const incompleteDual: UserAccountMemberships = {
+      isAuthenticated: true,
+      producer: { status: "incomplete", profile: incompleteProducer },
+      artist: { hasAccess: true, hasActiveConnections: false },
+    };
+    expect(
+      decideOnboardingMembershipRedirect(incompleteDual, "studio"),
+    ).toBeNull();
+    expect(
+      decideOnboardingMembershipRedirect(incompleteDual, "service"),
+    ).toBe("/onboarding/studio");
   });
 });
 

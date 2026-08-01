@@ -11,12 +11,8 @@ const connectionSource = readFileSync(
   join(__dirname, "../../../contacts/connect-artist.ts"),
   "utf8",
 );
-const joinRouteSource = readFileSync(
-  join(__dirname, "../../../../app/(public)/(auth)/sign-up/join/[slug]/[[...rest]]/page.tsx"),
-  "utf8",
-);
-const welcomeRouteSource = readFileSync(
-  join(__dirname, "../../../../app/(artist-welcome)/artist-welcome/[slug]/page.tsx"),
+const joinContinuationSource = readFileSync(
+  join(__dirname, "../../../contacts/join-continuation.ts"),
   "utf8",
 );
 
@@ -94,10 +90,8 @@ describe("private-offer router security wiring", () => {
     expect(compact(connectionSource)).toContain(
       "inArray(privateOffers.recipientEmailHash, verifiedEmailHashes)",
     );
-    for (const source of [joinRouteSource, welcomeRouteSource]) {
-      expect(source).toContain("verifiedEmailHashesFromUser");
-      expect(source).toContain("verifiedEmailHashes,");
-    }
+    expect(joinContinuationSource).toContain("verifiedEmailHashesFromUser");
+    expect(joinContinuationSource).toContain("verifiedEmailHashes,");
   });
 
   it("keeps list pages available without a verified email while actions fail closed", () => {

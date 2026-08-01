@@ -105,6 +105,12 @@ describe("producer mobile account + public-link controls", () => {
     ).toBeGreaterThanOrEqual(3);
   });
 
+  it("keeps the custom Settings card as the mobile sheet's only Settings entry", () => {
+    expect(ACTIONS_SRC).toContain("includeSettings: false");
+    expect(ACTIONS_SRC.match(/href="\/dashboard\/settings"/g)).toHaveLength(1);
+    expect(ACTIONS_SRC).toContain("renderAccountRoleMenuItems(accountMenuModel");
+  });
+
   it("keeps Store first in a stacked account menu with its agreed helper", () => {
     const linksStart = ACTIONS_SRC.indexOf('data-testid="producer-mobile-profile-links"');
     const storeStart = ACTIONS_SRC.indexOf('href="/dashboard/store"', linksStart);

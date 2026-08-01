@@ -21,6 +21,7 @@ import { SidebarShareChip } from "~/components/shell/sidebar-share-chip";
 import { ThemeToggle } from "~/components/shell/theme-toggle";
 
 import { Icon, type IconName } from "./icons";
+import { ProducerUserButton } from "./producer-user-button";
 import { Wordmark } from "./wordmark";
 
 // ─── Producer left rail (desktop, lg+) ──────────────────────────────
@@ -174,6 +175,9 @@ export function ProducerSidebar({
   publicBaseUrl,
   displayName = null,
   plan = "free",
+  userId = null,
+  hasArtistAccount = false,
+  artistUnreadCount = 0,
 }: {
   producerSlug: string | null;
   publicBaseUrl: string;
@@ -184,6 +188,9 @@ export function ProducerSidebar({
   /** Plan tier — surfaced as a small "Pro plan" / "Free plan"
    *  caption under the producer's name on the footer chip. */
   plan?: string;
+  userId?: string | null;
+  hasArtistAccount?: boolean;
+  artistUnreadCount?: number;
 }): ReactNode {
   const pathname = usePathname();
   const active: ActiveKey = getActiveKey(pathname);
@@ -253,6 +260,9 @@ export function ProducerSidebar({
         publicBaseUrl={publicBaseUrl}
         displayName={displayName}
         plan={plan}
+        userId={userId}
+        hasArtistAccount={hasArtistAccount}
+        artistUnreadCount={artistUnreadCount}
         onToggle={toggle}
       />
     </aside>
@@ -266,6 +276,9 @@ function SidebarBody({
   publicBaseUrl,
   displayName,
   plan,
+  userId,
+  hasArtistAccount,
+  artistUnreadCount,
   onToggle,
 }: {
   active: ActiveKey;
@@ -274,6 +287,9 @@ function SidebarBody({
   publicBaseUrl: string;
   displayName: string | null;
   plan: string;
+  userId: string | null;
+  hasArtistAccount: boolean;
+  artistUnreadCount: number;
   onToggle: () => void;
 }) {
   const t = useTranslations("sidebar");
@@ -380,13 +396,22 @@ function SidebarBody({
               presentation-only context — no extra menu wired up. */}
           {!collapsed && displayName ? (
             <div className="flex min-w-0 items-center gap-2" data-testid="sidebar-footer-chip">
-              <UserButton
-                appearance={{
-                  elements: {
-                    avatarBox: "h-7 w-7 ring-1 ring-[rgb(var(--border-sidebar))]",
-                  },
-                }}
-              />
+              {userId ? (
+                <ProducerUserButton
+                  userId={userId}
+                  hasArtistAccount={hasArtistAccount}
+                  artistUnreadCount={artistUnreadCount}
+                  avatarClassName="h-7 w-7 ring-1 ring-[rgb(var(--border-sidebar))]"
+                />
+              ) : (
+                <UserButton
+                  appearance={{
+                    elements: {
+                      avatarBox: "h-7 w-7 ring-1 ring-[rgb(var(--border-sidebar))]",
+                    },
+                  }}
+                />
+              )}
               <div className="min-w-0 leading-tight">
                 <p
                   className="truncate text-[11.5px] font-semibold"
@@ -403,13 +428,22 @@ function SidebarBody({
               </div>
             </div>
           ) : (
-            <UserButton
-              appearance={{
-                elements: {
-                  avatarBox: "h-7 w-7 ring-1 ring-[rgb(var(--border-sidebar))]",
-                },
-              }}
-            />
+            userId ? (
+              <ProducerUserButton
+                userId={userId}
+                hasArtistAccount={hasArtistAccount}
+                artistUnreadCount={artistUnreadCount}
+                avatarClassName="h-7 w-7 ring-1 ring-[rgb(var(--border-sidebar))]"
+              />
+            ) : (
+              <UserButton
+                appearance={{
+                  elements: {
+                    avatarBox: "h-7 w-7 ring-1 ring-[rgb(var(--border-sidebar))]",
+                  },
+                }}
+              />
+            )
           )}
         </div>
       </div>
