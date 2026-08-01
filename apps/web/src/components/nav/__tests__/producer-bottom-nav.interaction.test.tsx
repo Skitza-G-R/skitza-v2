@@ -96,6 +96,42 @@ afterEach(() => {
 });
 
 describe("ProducerBottomNav finger-following glass", () => {
+  it("keeps the glass lens vertically centered while following a horizontal drag", () => {
+    render(<ProducerBottomNav />);
+
+    const nav = screen.getByRole("navigation", { name: "Producer tabs" });
+    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
+
+    Object.defineProperty(nav, "getBoundingClientRect", {
+      value: () => makeRect(20, 700, 350, 68),
+    });
+    tabs.forEach((tab, index) => {
+      Object.defineProperty(tab, "getBoundingClientRect", {
+        value: () => makeRect(20 + index * 70, 700, 70, 68),
+      });
+    });
+
+    dispatchPointer(nav, "pointerdown", {
+      pointerId: 3,
+      clientX: 55,
+      clientY: 710,
+    });
+
+    expect(nav.style.getPropertyValue("--sk-nav-lens-y")).toBe("34px");
+
+    dispatchPointer(nav, "pointermove", {
+      pointerId: 3,
+      clientX: 265,
+      clientY: 750,
+    });
+    act(() => {
+      flushAnimationFrames();
+    });
+
+    expect(nav.style.getPropertyValue("--sk-nav-lens-x")).toBe("245px");
+    expect(nav.style.getPropertyValue("--sk-nav-lens-y")).toBe("34px");
+  });
+
   it("starts destination navigation while the finger is still down after crossing tabs", () => {
     render(<ProducerBottomNav />);
 
