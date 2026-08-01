@@ -1250,7 +1250,23 @@ export function runtimeLaunchHrefForCurrentContext(
   href: string,
 ): string | null {
   const safeHref = normalizeRuntimeHref(href, identity.role);
-  if (!safeHref || identity.role !== "artist") return safeHref;
+  if (identity.role !== "artist") return safeHref;
+
+  if (!safeHref) {
+    if (!href.startsWith("/") || href.startsWith("//") || href.length > 1024) {
+      return null;
+    }
+    let liveUrl: URL;
+    try {
+      liveUrl = new URL(href, "https://runtime.skitza.invalid");
+    } catch {
+      return null;
+    }
+    if (!isLiveOnlyArtistRoute(liveUrl.pathname)) return null;
+    return identity.contextId === "artist-no-studio"
+      ? "/artist"
+      : `/artist?${new URLSearchParams({ studio: identity.contextId }).toString()}`;
+  }
 
   const url = new URL(safeHref, "https://runtime.skitza.invalid");
   const requestedStudio = url.searchParams.get("studio");

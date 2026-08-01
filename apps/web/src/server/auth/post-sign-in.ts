@@ -129,6 +129,20 @@ export function isJoinIntentTarget(
   return isJoinContinuationUrl(new URL(target.href, AUTH_TARGET_ORIGIN));
 }
 
+export function joinSignUpMetadataFromTarget(
+  rawTarget: string | null | undefined,
+): Readonly<{ signupOrigin: "join"; producerSlug: string }> | null {
+  const target = sanitizePostSignInTarget(rawTarget);
+  if (!isJoinIntentTarget(target)) return null;
+
+  const url = new URL(target?.href ?? "/", AUTH_TARGET_ORIGIN);
+  const match = /^\/join\/([^/]+)\/continue$/.exec(url.pathname);
+  const producerSlug = match?.[1];
+  return producerSlug
+    ? { signupOrigin: "join", producerSlug }
+    : null;
+}
+
 function isExplicitCreateStudioTarget(
   target: SanitizedPostSignInTarget | null,
 ): boolean {

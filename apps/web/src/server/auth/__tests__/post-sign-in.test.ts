@@ -6,6 +6,7 @@ import type {
 } from "../role";
 import {
   chosenRoleDestination,
+  joinSignUpMetadataFromTarget,
   postSignInDestination,
   postSignInResolverHref,
   sanitizePostSignInTarget,
@@ -182,6 +183,31 @@ describe("postSignInResolverHref", () => {
       ).toBe("/auth/resolve");
     },
   );
+});
+
+describe("joinSignUpMetadataFromTarget", () => {
+  it("derives Artist metadata only from a strictly validated join continuation", () => {
+    expect(
+      joinSignUpMetadataFromTarget(
+        "/join/northline-studio/continue?action=book",
+      ),
+    ).toEqual({ signupOrigin: "join", producerSlug: "northline-studio" });
+    expect(
+      joinSignUpMetadataFromTarget(
+        "/join/northline-studio/continue?action=unlock",
+      ),
+    ).toEqual({ signupOrigin: "join", producerSlug: "northline-studio" });
+  });
+
+  it.each([
+    "/join/ab/continue?action=book",
+    "/join/northline-studio/continue?action=delete",
+    "/join/northline-studio/continue?action=book&next=/dashboard",
+    "https://evil.example/join/northline-studio/continue?action=book",
+    "/dashboard",
+  ])("does not stamp OAuth signup metadata for unsafe target %s", (target) => {
+    expect(joinSignUpMetadataFromTarget(target)).toBeNull();
+  });
 });
 
 describe("postSignInDestination", () => {

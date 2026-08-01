@@ -262,6 +262,10 @@ export function RuntimeNavigationBridge({
   const preserveRequestedRoot = searchParams.get("storeTip") === "1";
   const href = `${pathname}${search ? `?${search}` : ""}`;
   const safeHref = normalizeRuntimeHref(href, identity.role);
+  const launchHref = runtimeLaunchHrefForCurrentContext(
+    navigationIdentity,
+    href,
+  );
   const identityKey = `${identity.userId}:${identity.role}:${identity.contextId}`;
   const navigationCache = useMemo(
     () => createRuntimeNavigationSessionCache(),
@@ -300,6 +304,28 @@ export function RuntimeNavigationBridge({
   ]);
 
   useEffect(() => {
+    if (
+      !privateStateAccessAllowed ||
+      !storage ||
+      safeHref ||
+      !launchHref
+    ) {
+      return;
+    }
+    const writeGeneration = captureAccountPrivateWriteGeneration(identity.userId);
+    if (isAccountPrivateRuntimeWriteAllowed(writeGeneration)) {
+      writeRuntimeLaunchPointer(storage, navigationIdentity, launchHref);
+    }
+  }, [
+    identity.userId,
+    launchHref,
+    navigationIdentity,
+    privateStateAccessAllowed,
+    safeHref,
+    storage,
+  ]);
+
+  useEffect(() => {
     if (!privateStateAccessAllowed || !storage || !safeHref) return;
     if (skipPersistHref.current === safeHref) return;
     skipPersistHref.current = null;
@@ -312,10 +338,6 @@ export function RuntimeNavigationBridge({
     const persist = () => {
       if (!isAccountPrivateRuntimeWriteAllowed(writeGeneration)) return;
       if (recordRuntimeNavigation(storage, navigationIdentity, safeHref, latestScrollTop)) {
-        const launchHref = runtimeLaunchHrefForCurrentContext(
-          navigationIdentity,
-          safeHref,
-        );
         if (launchHref) {
           writeRuntimeLaunchPointer(storage, navigationIdentity, launchHref);
         }
@@ -351,7 +373,14 @@ export function RuntimeNavigationBridge({
       window.removeEventListener("pagehide", onPageHide);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [navigationIdentity, privateStateAccessAllowed, safeHref, storage]);
+  }, [
+    identity.userId,
+    launchHref,
+    navigationIdentity,
+    privateStateAccessAllowed,
+    safeHref,
+    storage,
+  ]);
 
   useLayoutEffect(() => {
     if (!privateStateAccessAllowed) return;

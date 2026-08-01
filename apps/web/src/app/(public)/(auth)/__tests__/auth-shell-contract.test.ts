@@ -20,6 +20,10 @@ describe("SK-152 auth presentation contract", () => {
     expect(signInSource).not.toMatch(/your hall/i);
     expect(signInSource).toContain("postSignInResolverHref(requestedHref)");
     expect(signInSource).toContain("signUpSwitchHref(requestedHref)");
+    expect(signInSource).toContain("joinSignUpMetadataFromTarget(requestedHref)");
+    expect(signInSource).toContain(
+      "{...(joinMetadata ? { unsafeMetadata: joinMetadata } : {})}",
+    );
     expect(signInSource).toContain("signUpUrl={signUpHref}");
     expect(signInSource).toContain("fallbackRedirectUrl={resolverHref}");
     expect(signInSource).toContain("forceRedirectUrl={resolverHref}");

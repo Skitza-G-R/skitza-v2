@@ -7,18 +7,29 @@ import {
 import { NATIVE_REFRESH_EVENT } from "~/lib/pwa/update-coordination";
 import {
   popRuntimeBack,
+  readRuntimeNavigationIndex,
   readRuntimeNavigationSnapshot,
   recordRuntimeNavigation,
   type RuntimeIdentity,
 } from "~/lib/runtime-state/navigation";
 import { MemoryStorage } from "~/lib/runtime-state/__tests__/memory-storage";
 import { RUNTIME_MAIN_NAVIGATION_INTENT_EVENT } from "~/lib/runtime-state/navigation-cache";
+import { readRuntimeLaunchTargetForRole } from "~/lib/runtime-state/runtime-state";
 
 type Effect = () => undefined | (() => void);
+interface CapturedEffect {
+  run: Effect;
+  source: string;
+}
 
 const mocked = vi.hoisted(() => ({
-  effects: [] as Effect[],
-  layoutEffects: [] as Effect[],
+  effects: [] as CapturedEffect[],
+  identity: {
+    userId: "producer-user",
+    role: "producer" as "producer" | "artist",
+    contextId: "producer-id",
+  },
+  layoutEffects: [] as CapturedEffect[],
   pathname: "/dashboard/calendar",
   persistentRefs: [] as Array<{ current: unknown }>,
   persistRefs: false,
@@ -38,10 +49,10 @@ vi.mock("react", async (importOriginal) => {
   return {
     ...actual,
     useEffect: (effect: Effect) => {
-      mocked.effects.push(effect);
+      mocked.effects.push({ run: effect, source: effect.toString() });
     },
     useLayoutEffect: (effect: Effect) => {
-      mocked.layoutEffects.push(effect);
+      mocked.layoutEffects.push({ run: effect, source: effect.toString() });
     },
     useMemo: <Value>(factory: () => Value) => factory(),
     useRef: <Value>(initialValue: Value) => {
@@ -65,11 +76,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("../runtime-state-provider", () => ({
   useRuntimeState: () => ({
-    identity: {
-      userId: "producer-user",
-      role: "producer",
-      contextId: "producer-id",
-    },
+    identity: mocked.identity,
     privateStateAccessAllowed: true,
     storage: mocked.storage,
   }),
@@ -86,6 +93,11 @@ const CALENDAR_HREF = "/dashboard/calendar?tab=availability";
 
 beforeEach(() => {
   mocked.effects.length = 0;
+  mocked.identity = {
+    userId: "producer-user",
+    role: "producer",
+    contextId: "producer-id",
+  };
   mocked.layoutEffects.length = 0;
   mocked.pathname = "/dashboard/calendar";
   mocked.persistentRefs.length = 0;
@@ -144,12 +156,39 @@ function setupScrollEnvironment() {
   return { animation, main };
 }
 
+function findEffect(
+  effects: CapturedEffect[],
+  startIndex: number,
+  marker: string,
+  excludedMarker?: string,
+): Effect {
+  const matches = effects
+    .slice(startIndex)
+    .filter(
+      (effect) =>
+        effect.source.includes(marker) &&
+        (!excludedMarker || !effect.source.includes(excludedMarker)),
+    );
+  if (matches.length !== 1) {
+    throw new Error(
+      `Expected one effect containing ${marker}, found ${matches.length.toString()}`,
+    );
+  }
+  const match = matches[0];
+  if (!match) throw new Error(`Expected an effect containing ${marker}`);
+  return match.run;
+}
+
 function renderBridge(): undefined | (() => void) {
   const layoutEffectIndex = mocked.layoutEffects.length;
   const effectIndex = mocked.effects.length;
   RuntimeNavigationBridge({ restoreOnOpen: false });
-  mocked.layoutEffects[layoutEffectIndex]?.();
-  return mocked.effects[effectIndex]?.();
+  findEffect(
+    mocked.layoutEffects,
+    layoutEffectIndex,
+    "readRuntimeNavigationSnapshot",
+  )();
+  return findEffect(mocked.effects, effectIndex, "subscribeToScroll")();
 }
 
 function currentStorage(): MemoryStorage {
@@ -258,7 +297,11 @@ describe("RuntimeNavigationBridge root restoration", () => {
 
     const layoutEffectIndex = mocked.layoutEffects.length;
     RuntimeNavigationBridge({});
-    mocked.layoutEffects[layoutEffectIndex]?.();
+    findEffect(
+      mocked.layoutEffects,
+      layoutEffectIndex,
+      "readRuntimeNavigationSnapshot",
+    )();
 
     expect(mocked.router.replace).not.toHaveBeenCalled();
 
@@ -268,7 +311,11 @@ describe("RuntimeNavigationBridge root restoration", () => {
     mocked.refIndex = 0;
     const nextLayoutEffectIndex = mocked.layoutEffects.length;
     RuntimeNavigationBridge({});
-    mocked.layoutEffects[nextLayoutEffectIndex]?.();
+    findEffect(
+      mocked.layoutEffects,
+      nextLayoutEffectIndex,
+      "readRuntimeNavigationSnapshot",
+    )();
 
     expect(mocked.router.replace).not.toHaveBeenCalled();
   });
@@ -285,7 +332,11 @@ describe("RuntimeNavigationBridge root restoration", () => {
 
     const layoutEffectIndex = mocked.layoutEffects.length;
     RuntimeNavigationBridge({});
-    mocked.layoutEffects[layoutEffectIndex]?.();
+    findEffect(
+      mocked.layoutEffects,
+      layoutEffectIndex,
+      "readRuntimeNavigationSnapshot",
+    )();
 
     expect(mocked.router.replace).toHaveBeenCalledWith("/dashboard/store");
   });
@@ -359,6 +410,51 @@ describe("RuntimeNavigationBridge scroll persistence", () => {
   });
 });
 
+describe("RuntimeNavigationBridge role launch persistence", () => {
+  it("records only the safe Artist root pointer from a live booking route", () => {
+    mocked.identity = {
+      userId: "dual-user",
+      role: "artist",
+      contextId: "studio-id",
+    };
+    mocked.pathname = "/artist/book";
+    mocked.search = "studio=studio-id&producer=producer-id";
+    const effectIndex = mocked.effects.length;
+
+    RuntimeNavigationBridge({ restoreOnOpen: false });
+    findEffect(
+      mocked.effects,
+      effectIndex,
+      "writeRuntimeLaunchPointer",
+      "subscribeToScroll",
+    )();
+
+    expect(
+      readRuntimeLaunchTargetForRole(
+        currentStorage(),
+        "dual-user",
+        "artist",
+      ),
+    ).toEqual({
+      role: "artist",
+      contextId: "studio-id",
+      href: "/artist?studio=studio-id",
+    });
+    expect(
+      readRuntimeNavigationIndex(currentStorage(), {
+        userId: "dual-user",
+        role: "artist",
+        contextId: "studio-id",
+      }),
+    ).toBeNull();
+    expect(
+      Array.from({ length: currentStorage().length }, (_, index) =>
+        currentStorage().getItem(currentStorage().key(index) ?? ""),
+      ).join("\n"),
+    ).not.toContain("/artist/book");
+  });
+});
+
 describe("RuntimeNavigationBridge navigation intent", () => {
   it("sets pending feedback synchronously and clears every html marker on shell exit", () => {
     const environment = setupNavigationIntentEnvironment();
@@ -366,8 +462,16 @@ describe("RuntimeNavigationBridge navigation intent", () => {
     const effectIndex = mocked.effects.length;
     RuntimeNavigationBridge({ restoreOnOpen: false });
 
-    const cleanupIntent = mocked.layoutEffects[layoutEffectIndex + 2]?.();
-    const cleanupShell = mocked.effects[effectIndex + 3]?.();
+    const cleanupIntent = findEffect(
+      mocked.layoutEffects,
+      layoutEffectIndex,
+      "RUNTIME_MAIN_NAVIGATION_INTENT_EVENT",
+    )();
+    const cleanupShell = findEffect(
+      mocked.effects,
+      effectIndex,
+      "navigationCache.clear",
+    )();
     environment.announce("/dashboard/music");
 
     expect(environment.root.dataset.skNavState).toBe("pending");
@@ -390,7 +494,11 @@ describe("RuntimeNavigationBridge navigation intent", () => {
     const environment = setupNavigationIntentEnvironment();
     const effectIndex = mocked.effects.length;
     RuntimeNavigationBridge({ restoreOnOpen: false });
-    const cleanupFreshness = mocked.effects[effectIndex + 1]?.();
+    const cleanupFreshness = findEffect(
+      mocked.effects,
+      effectIndex,
+      "NATIVE_REFRESH_EVENT",
+    )();
 
     window.dispatchEvent(new Event(NATIVE_REFRESH_EVENT));
 
@@ -404,7 +512,11 @@ describe("RuntimeNavigationBridge navigation intent", () => {
     const environment = setupNavigationIntentEnvironment();
     const layoutEffectIndex = mocked.layoutEffects.length;
     RuntimeNavigationBridge({ restoreOnOpen: false });
-    const cleanupIntent = mocked.layoutEffects[layoutEffectIndex + 2]?.();
+    const cleanupIntent = findEffect(
+      mocked.layoutEffects,
+      layoutEffectIndex,
+      "RUNTIME_MAIN_NAVIGATION_INTENT_EVENT",
+    )();
 
     environment.announce("/dashboard/music");
     environment.timeout();
@@ -423,7 +535,11 @@ describe("RuntimeNavigationBridge navigation intent", () => {
     mocked.refIndex = 0;
     const layoutEffectIndex = mocked.layoutEffects.length;
     RuntimeNavigationBridge({ restoreOnOpen: false });
-    const cleanupIntent = mocked.layoutEffects[layoutEffectIndex + 2]?.();
+    const cleanupIntent = findEffect(
+      mocked.layoutEffects,
+      layoutEffectIndex,
+      "RUNTIME_MAIN_NAVIGATION_INTENT_EVENT",
+    )();
 
     environment.announce("/dashboard/music");
     expect(environment.root.dataset.skNavState).toBe("pending");
@@ -474,7 +590,11 @@ describe("RuntimeNavigationBridge navigation intent", () => {
     mocked.refIndex = 0;
     const intentLayoutEffectIndex = mocked.layoutEffects.length;
     RuntimeNavigationBridge({ restoreOnOpen: false });
-    const cleanupIntent = mocked.layoutEffects[intentLayoutEffectIndex + 2]?.();
+    const cleanupIntent = findEffect(
+      mocked.layoutEffects,
+      intentLayoutEffectIndex,
+      "RUNTIME_MAIN_NAVIGATION_INTENT_EVENT",
+    )();
 
     environment.announce("/dashboard/music");
     expect(environment.pendingTarget.getAttribute("data-sk-nav-pending")).toBe("");
@@ -484,7 +604,11 @@ describe("RuntimeNavigationBridge navigation intent", () => {
     mocked.refIndex = 0;
     const layoutEffectIndex = mocked.layoutEffects.length;
     RuntimeNavigationBridge({ restoreOnOpen: false });
-    mocked.layoutEffects[layoutEffectIndex + 1]?.();
+    findEffect(
+      mocked.layoutEffects,
+      layoutEffectIndex,
+      "afterRuntimeNavigationPaint",
+    )();
     environment.runCommitFrames();
 
     expect(environment.root.dataset.skNavState).toBe("settled");

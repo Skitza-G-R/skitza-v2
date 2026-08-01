@@ -5,10 +5,11 @@ import {
   buildRuntimeStorageKey,
   clearRuntimeStateForUser,
   findOnlyRuntimeStateUserId,
+  normalizeRuntimeHref,
   pruneRuntimeSafeViews,
   readRuntimeLaunchTarget,
-  runtimeLaunchHrefForCurrentContext,
   readRuntimeScreenSafeView,
+  runtimeLaunchHrefForCurrentContext,
   runtimeScope,
   writeRuntimeLaunchPointer,
   writeRuntimeScreenSafeView,
@@ -385,6 +386,41 @@ describe("runtime launch pointer", () => {
       contextId: "artist-studio",
       href: "/artist?studio=artist-studio",
     });
+  });
+
+  it("marks Artist newest from Book while excluding the live transaction URL", () => {
+    const storage = new MemoryStorage();
+    const userId = "booking-switch-dual-user";
+    const producer = { ...PRODUCER, userId };
+    const artist = { ...ARTIST, userId };
+    const liveBookHref = "/artist/book?studio=artist-studio";
+
+    expect(writeRuntimeLaunchPointer(storage, producer, "/dashboard", 10)).toBe(
+      true,
+    );
+    expect(normalizeRuntimeHref(liveBookHref, "artist")).toBeNull();
+    expect(writeRuntimeLaunchPointer(storage, artist, liveBookHref, 20)).toBe(
+      false,
+    );
+
+    const safeFallback = runtimeLaunchHrefForCurrentContext(
+      artist,
+      liveBookHref,
+    );
+    expect(safeFallback).toBe("/artist?studio=artist-studio");
+    expect(
+      writeRuntimeLaunchPointer(storage, artist, safeFallback ?? "", 20),
+    ).toBe(true);
+    expect(readRuntimeLaunchTarget(storage, userId, 20)).toEqual({
+      role: "artist",
+      contextId: "artist-studio",
+      href: "/artist?studio=artist-studio",
+    });
+    const storedValues = Array.from({ length: storage.length }, (_, index) => {
+      const key = storage.key(index);
+      return key ? storage.getItem(key) : null;
+    });
+    expect(storedValues.join("\n")).not.toContain(liveBookHref);
   });
 
   it("stores separate role-root pointers and restores the last-used role", () => {
