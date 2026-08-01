@@ -14,14 +14,19 @@ describe("/artist page composition", () => {
     );
   });
 
-  it("fetches selected-studio Home, payments, sessions, and request state in parallel", () => {
+  it("keeps request status outside the selected-studio Home critical path", () => {
     expect(SRC).toMatch(/caller\.artist\.home\(\{\s*producerId:/);
     expect(SRC).toMatch(/caller\.artist\.purchase\.payments\(\)/);
     expect(SRC).toMatch(/caller\.artist\.studios\(\)/);
     expect(SRC).toMatch(/caller\.artist\.book\.mySessions\(\{\s*producerId:/);
     expect(SRC).toMatch(/caller\.artist\.purchase\.current\(\{\s*producerId:/);
     expect(SRC).not.toMatch(/caller\.artist\.book\.myPendingPayments\(\)/);
-    expect(SRC).toMatch(/Promise\.all/);
+    expect(SRC).toMatch(
+      /const \[home, paymentReadModel, sessions\] = await Promise\.all\([\s\S]*?\);/,
+    );
+    expect(SRC).toMatch(/<Suspense fallback=\{null\}>/);
+    expect(SRC).toMatch(/<ArtistHomeSupportingSection/);
+    expect(SRC).toMatch(/async function ArtistHomeSupportingSection/);
   });
 
   it("uses the saved artist IANA timezone for Home date labels", () => {

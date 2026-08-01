@@ -1,4 +1,5 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
+import { Suspense } from "react";
 
 import {
   selectArtistHomeMainAction,
@@ -11,7 +12,10 @@ import {
   formatArtistTimeRange,
   isSameArtistDay,
 } from "~/components/artist/home/home-timezone";
-import { ProfessionalArtistHome } from "~/components/artist/home/professional-home";
+import {
+  ArtistHomeSupportingList,
+  ProfessionalArtistHome,
+} from "~/components/artist/home/professional-home";
 import { RuntimeScreenSafeViewWriter } from "~/components/runtime-state/runtime-screen-view";
 import { resolveArtistStudioId, withArtistStudio } from "~/lib/artist-studio-context";
 import { formatPurchaseMoney } from "~/components/artist/purchase/purchase-data";
@@ -22,6 +26,8 @@ import { appRouter } from "~/server/trpc/routers/_app";
 type ArtistHomePageProps = {
   searchParams?: Promise<{ studio?: string }>;
 };
+
+type Caller = ReturnType<typeof appRouter.createCaller>;
 
 export default async function ArtistHomePage({ searchParams }: ArtistHomePageProps) {
   const { userId } = await auth();
@@ -71,11 +77,13 @@ export default async function ArtistHomePage({ searchParams }: ArtistHomePagePro
     );
   }
 
-  const [home, paymentReadModel, sessions, currentRequest] = await Promise.all([
+  const currentRequestPromise = caller.artist.purchase.current({
+    producerId: activeStudio.producerId,
+  });
+  const [home, paymentReadModel, sessions] = await Promise.all([
     caller.artist.home({ producerId: activeStudio.producerId }),
     caller.artist.purchase.payments(),
     caller.artist.book.mySessions({ producerId: activeStudio.producerId }),
-    caller.artist.purchase.current({ producerId: activeStudio.producerId }),
   ]);
 
   const candidates: ArtistHomeAction[] = [];
@@ -181,21 +189,6 @@ export default async function ArtistHomePage({ searchParams }: ArtistHomePagePro
   const main = selectArtistHomeMainAction(candidates) ?? serviceAction;
   const supporting: ArtistHomeAction[] = [];
 
-  if (currentRequest.current?.status === "pending") {
-    supporting.push({
-      id: currentRequest.current.id,
-      kind: "payment_action",
-      title: `${currentRequest.current.productNameSnapshot} is under review`,
-      detail: `${activeStudio.name} will respond to your request.`,
-      href: withArtistStudio(
-        `/artist/purchase/${currentRequest.current.productId ?? currentRequest.current.id}/sent?req=${currentRequest.current.id}`,
-        activeStudio.producerId,
-      ),
-      actionLabel: "View",
-      upcomingAt: null,
-      occurredAt: currentRequest.current.createdAt,
-    });
-  }
   const proofUnderReview = selectedPayments.find(
     ({ purchase }) => purchase.producerBucket === "needs_review",
   );
@@ -231,9 +224,7 @@ export default async function ArtistHomePage({ searchParams }: ArtistHomePagePro
     home.nextSession !== null ||
     selectedPayments.length > 0 ||
     selectedAllowances.length > 0 ||
-    home.latestMix !== null ||
-    currentRequest.current !== null;
-  const quietRows = withoutArtistHomeDuplicate(supporting, main).slice(0, 3);
+    home.latestMix !== null;
 
   return (
     <>
@@ -255,10 +246,62 @@ export default async function ArtistHomePage({ searchParams }: ArtistHomePagePro
         greeting={greeting}
         studioName={activeStudio.name}
         main={main}
-        supporting={quietRows}
+        supporting={[]}
+        supportingSection={
+          <Suspense fallback={null}>
+            <ArtistHomeSupportingSection
+              currentRequestPromise={currentRequestPromise}
+              producerId={activeStudio.producerId}
+              studioName={activeStudio.name}
+              main={main}
+              supporting={supporting}
+            />
+          </Suspense>
+        }
         welcome={!meaningfulItems}
       />
     </>
+  );
+}
+
+async function ArtistHomeSupportingSection({
+  currentRequestPromise,
+  producerId,
+  studioName,
+  main,
+  supporting,
+}: {
+  currentRequestPromise: ReturnType<Caller["artist"]["purchase"]["current"]>;
+  producerId: string;
+  studioName: string;
+  main: ArtistHomeAction;
+  supporting: readonly ArtistHomeAction[];
+}) {
+  const rows = [...supporting];
+
+  try {
+    const currentRequest = await currentRequestPromise;
+    if (currentRequest.current?.status === "pending") {
+      rows.unshift({
+        id: currentRequest.current.id,
+        kind: "payment_action",
+        title: `${currentRequest.current.productNameSnapshot} is under review`,
+        detail: `${studioName} will respond to your request.`,
+        href: withArtistStudio(
+          `/artist/purchase/${currentRequest.current.productId ?? currentRequest.current.id}/sent?req=${currentRequest.current.id}`,
+          producerId,
+        ),
+        actionLabel: "View",
+        upcomingAt: null,
+        occurredAt: currentRequest.current.createdAt,
+      });
+    }
+  } catch (error) {
+    console.error("[artist-home] purchase request status failed", error);
+  }
+
+  return (
+    <ArtistHomeSupportingList supporting={withoutArtistHomeDuplicate(rows, main).slice(0, 3)} />
   );
 }
 

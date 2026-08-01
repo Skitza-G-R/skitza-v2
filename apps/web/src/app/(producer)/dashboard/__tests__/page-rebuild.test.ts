@@ -3,10 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-import {
-  formatGreetingDate,
-  formatGreetingSummary,
-} from "../page-helpers";
+import { formatGreetingDate, formatGreetingSummary } from "../page-helpers";
 
 // Today / Overview page.
 //
@@ -81,9 +78,7 @@ describe("formatGreetingSummary", () => {
 
 describe("Today page — Phase 4 populated layout", () => {
   it("imports <OverviewScreen> from components/dashboard/overview", () => {
-    expect(pageSource).toMatch(
-      /from "~\/components\/dashboard\/overview\/overview-screen"/,
-    );
+    expect(pageSource).toMatch(/from "~\/components\/dashboard\/overview\/overview-screen"/);
   });
 
   it("renders <OverviewScreen> inside the !empty branch", () => {
@@ -116,15 +111,11 @@ describe("Today page — Phase 4 populated layout", () => {
     // Match the JSX call site only — leading newline filters out the
     // <DashboardEmptyOnboarding> branch which legitimately passes
     // publicBaseUrl as a prop.
-    expect(pageSource).not.toMatch(
-      /<OverviewScreen[\s\S]*?publicBaseUrl=\{publicBaseUrl\}/,
-    );
+    expect(pageSource).not.toMatch(/<OverviewScreen[\s\S]*?publicBaseUrl=\{publicBaseUrl\}/);
   });
 
   it("calls booking.list with status='pending_approval' for the approvals card", () => {
-    expect(pageSource).toContain(
-      'caller.booking.list({ status: "pending_approval" })',
-    );
+    expect(pageSource).toContain('caller.booking.list({ status: "pending_approval" })');
   });
 
   it("requests enough urgent projects for the queue-level View all cap", () => {
@@ -132,9 +123,7 @@ describe("Today page — Phase 4 populated layout", () => {
   });
 
   it("uses the dedicated unresolved source instead of the mixed Today feed", () => {
-    expect(pageSource).toContain(
-      "unresolvedItems={today.needsYouUnresolvedItems.map(",
-    );
+    expect(pageSource).toContain("unresolvedItems={today.needsYouUnresolvedItems.map(");
     expect(pageSource).not.toContain("unresolvedItems={today.items.map(");
   });
 });
@@ -167,6 +156,14 @@ describe("Today page — retired Story 06 components are NOT imported", () => {
 // ─── Source-grep — preserved infrastructure ────────────────────────
 
 describe("Today page — preserved page chrome (auth-fix territory)", () => {
+  it("keeps the optional setup-package read inside the main parallel fan-out", () => {
+    expect(pageSource).toContain(
+      "skipOnboarding ? caller.booking.packages.list() : Promise.resolve(null)",
+    );
+    expect(pageSource).toMatch(/const \[\s*packages,\s*today,[\s\S]*?\] = await Promise\.all\(/);
+    expect(pageSource).not.toContain("detectOnboardingState(userId, caller)");
+  });
+
   it("keeps the gradient hero (relative isolate wrapper)", () => {
     expect(pageSource).toContain("relative isolate");
   });

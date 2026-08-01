@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { acknowledgeArtistTrackVersionAction } from "~/components/artist/artist-notification-actions";
 import { playerPlay } from "~/components/audio/persistent-player";
@@ -13,12 +13,14 @@ export function ProfessionalArtistHome({
   studioName,
   main,
   supporting,
+  supportingSection,
   welcome,
 }: {
   greeting: string;
   studioName: string;
   main: ArtistHomeAction;
   supporting: readonly ArtistHomeAction[];
+  supportingSection?: ReactNode;
   welcome: boolean;
 }) {
   const [acknowledgedNewVersionId, setAcknowledgedNewVersionId] = useState<string | null>(null);
@@ -121,33 +123,43 @@ export function ProfessionalArtistHome({
         </div>
       </article>
 
-      {supporting.length > 0 ? (
-        <section aria-label="More from this studio">
-          <ul className="divide-y divide-[rgb(var(--border-subtle))] rounded-[var(--radius-xl)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated)/0.84)] shadow-[var(--shadow-sm)] backdrop-blur-xl">
-            {supporting.map((item) => (
-              <li key={`${item.kind}:${item.id}`}>
-                <Link
-                  href={item.href}
-                  className="sk-press flex min-h-16 items-center justify-between gap-4 px-4 py-3.5"
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate text-[13.5px] font-semibold text-[rgb(var(--fg-default))]">
-                      {item.title}
-                    </span>
-                    <span className="mt-0.5 block truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
-                      {item.detail}
-                    </span>
-                  </span>
-                  <span className="shrink-0 text-[11.5px] font-semibold text-[rgb(var(--brand-primary-text))]">
-                    {item.actionLabel}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+      {supportingSection ?? <ArtistHomeSupportingList supporting={supporting} />}
     </div>
+  );
+}
+
+export function ArtistHomeSupportingList({
+  supporting,
+}: {
+  supporting: readonly ArtistHomeAction[];
+}) {
+  if (supporting.length === 0) return null;
+
+  return (
+    <section aria-label="More from this studio">
+      <ul className="divide-y divide-[rgb(var(--border-subtle))] rounded-[var(--radius-xl)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated)/0.84)] shadow-[var(--shadow-sm)] backdrop-blur-xl">
+        {supporting.map((item) => (
+          <li key={`${item.kind}:${item.id}`}>
+            <Link
+              href={item.href}
+              className="sk-press flex min-h-16 items-center justify-between gap-4 px-4 py-3.5"
+            >
+              <span className="min-w-0">
+                <span className="block truncate text-[13.5px] font-semibold text-[rgb(var(--fg-default))]">
+                  {item.title}
+                </span>
+                <span className="mt-0.5 block truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
+                  {item.detail}
+                </span>
+              </span>
+              <span className="shrink-0 text-[11.5px] font-semibold text-[rgb(var(--brand-primary-text))]">
+                {item.actionLabel}
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

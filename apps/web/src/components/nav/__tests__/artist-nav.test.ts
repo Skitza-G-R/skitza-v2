@@ -23,7 +23,7 @@ describe("artist four-tab navigation", () => {
       ["/artist/sessions", "Sessions"],
       ["/artist/store", "Store"],
     ] as const) {
-      expect(BOTTOM).toContain(`{ href: "${href}", label: "${label}"`);
+      expect(BOTTOM).toMatch(new RegExp(`href:\\s*"${href}",\\s*label:\\s*"${label}"`));
     }
     expect(BOTTOM).not.toMatch(/label:\s*["'](?:Book|Payments)["']/);
   });
@@ -68,10 +68,12 @@ describe("artist studio-aware navigation", () => {
     }
   });
 
-  it("leaves primary-route prefetching to the serial runtime warmer", () => {
-    expect(BOTTOM).toContain("prefetch: false");
+  it("fully prefetches Home while leaving sibling routes to the serial runtime warmer", () => {
+    expect(BOTTOM).toMatch(/href:\s*"\/artist",\s*label:\s*"Home",[\s\S]*?prefetch:\s*true/);
+    expect(BOTTOM.match(/prefetch:\s*false/g)).toHaveLength(3);
     expect(SHARED_BOTTOM).toContain("prefetch={tab.prefetch ?? false}");
-    expect(SIDEBAR.match(/prefetch=\{false\}/g)).toHaveLength(2);
+    expect(SIDEBAR).toContain("prefetch={true}");
+    expect(SIDEBAR).toContain('prefetch={item.id === "home"}');
     expect(BOTTOM).toContain("announceRuntimeMainNavigationIntent(tab.href)");
     expect(SIDEBAR.match(/announceRuntimeMainNavigationIntent/g)?.length).toBeGreaterThanOrEqual(3);
     expect(SHARED_BOTTOM).toContain("data-sk-nav-destination={tab.href}");

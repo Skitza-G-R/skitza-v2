@@ -94,7 +94,7 @@ export function ArtistDesktopSidebar({
       <Link
         href={withArtistStudio("/artist", activeStudioId)}
         data-sk-nav-destination={withArtistStudio("/artist", activeStudioId)}
-        prefetch={false}
+        prefetch={true}
         onClick={(event) => {
           captureRuntimeMainNavigationTarget(event.currentTarget);
         }}
@@ -133,7 +133,7 @@ export function ArtistDesktopSidebar({
               key={item.id}
               href={href}
               data-sk-nav-destination={href}
-              prefetch={false}
+              prefetch={item.id === "home"}
               onClick={(event) => {
                 captureRuntimeMainNavigationTarget(event.currentTarget);
               }}

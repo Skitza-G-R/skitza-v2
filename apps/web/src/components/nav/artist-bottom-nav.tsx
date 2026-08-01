@@ -21,13 +21,20 @@ type ArtistTab = {
   href: string;
   label: string;
   icon: IconName;
+  prefetch: boolean;
 };
 
 const TABS: readonly ArtistTab[] = [
-  { href: "/artist", label: "Home", icon: "home", id: "home" },
-  { href: "/artist/music", label: "Music", icon: "music", id: "music" },
-  { href: "/artist/sessions", label: "Sessions", icon: "calendar", id: "sessions" },
-  { href: "/artist/store", label: "Store", icon: "store", id: "store" },
+  { href: "/artist", label: "Home", icon: "home", id: "home", prefetch: true },
+  { href: "/artist/music", label: "Music", icon: "music", id: "music", prefetch: false },
+  {
+    href: "/artist/sessions",
+    label: "Sessions",
+    icon: "calendar",
+    id: "sessions",
+    prefetch: false,
+  },
+  { href: "/artist/store", label: "Store", icon: "store", id: "store", prefetch: false },
 ] as const;
 
 /**
@@ -53,7 +60,6 @@ export function ArtistBottomNav({
     ...tab,
     href: withArtistStudio(tab.href, activeStudioId),
     active: isArtistNavItemActive(pathname, tab.href),
-    prefetch: false,
   }));
 
   return (

@@ -9,8 +9,6 @@ import { mapProducerOverviewSafeScreen } from "~/lib/runtime-state/screen-view-m
 import { producerDashboardQueueVersion } from "~/server/runtime/queue-version";
 import { appRouter } from "~/server/trpc/routers/_app";
 
-import { detectOnboardingState } from "./onboarding/detect";
-
 // Overview page — always renders the single responsive Calm Control
 // screen. Its Needs You queue owns unresolved work; the other compact
 // sections own their own empty states so a new producer still sees a
@@ -33,14 +31,15 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   // /dashboard (the previous `firstRun = no packages && empty brand`
   // check) re-fired on every visit because there's no persistent
   // "onboarding seen" flag, trapping producers who finished the real
-  // wizard but hadn't yet added a package or brand. detectOnboardingState
-  // still runs below to power the skipper banner.
+  // wizard but hadn't yet added a package or brand. The skipper banner
+  // only needs package presence, so that focused read joins the main
+  // parallel fan-out only for the explicit `?skip=1` return path.
   const caller = appRouter.createCaller({ userId });
-  const onboarding = await detectOnboardingState(userId, caller);
 
   // Fan-out across the independent sources that feed the dashboard's
   // Needs You queue, proof review, project/upload shelves, and studio pulse.
   const [
+    packages,
     today,
     me,
     followUpRaw,
@@ -51,6 +50,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     urgent,
     recentPaid,
   ] = await Promise.all([
+    skipOnboarding ? caller.booking.packages.list() : Promise.resolve(null),
     caller.producer.today(),
     caller.producer.me(),
     caller.booking.needsFollowUp(),
@@ -65,8 +65,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   // Show a "finish setup" nudge when a skipper hasn't set up any of
   // the basics yet AND has no inbox items — otherwise the dashboard
   // is completely empty with no next step to take.
-  const showSetupNudge =
-    skipOnboarding && !onboarding.hasPackages && today.items.length === 0;
+  const showSetupNudge = skipOnboarding && packages?.length === 0 && today.items.length === 0;
 
   // Today's session = first session item whose occurredAt is today.
   // Producer.today fans the items list across sessions/comments/

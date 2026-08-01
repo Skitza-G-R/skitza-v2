@@ -51,10 +51,11 @@ describe("producer nav: Portfolio in sidebar only", () => {
     expect(BOTTOM).not.toMatch(/href:\s*["']\/dashboard\/store["']/);
   });
 
-  it("fully prefetches the five persistent mobile routes while keeping desktop warming serial", () => {
+  it("fully prefetches persistent mobile routes and desktop Overview only", () => {
     expect(BOTTOM).toContain("prefetch: true");
     expect(SHARED_BOTTOM).toContain("prefetch={tab.prefetch ?? false}");
-    expect(SIDEBAR.match(/prefetch=\{false\}/g)).toHaveLength(2);
+    expect(SIDEBAR).toContain("prefetch={true}");
+    expect(SIDEBAR).toContain('prefetch={item.id === "today"}');
     expect(BOTTOM).toContain("announceRuntimeMainNavigationIntent(tab.href)");
     expect(SIDEBAR.match(/announceRuntimeMainNavigationIntent/g)?.length).toBeGreaterThanOrEqual(3);
     expect(SHARED_BOTTOM).toContain("data-sk-nav-destination={tab.href}");

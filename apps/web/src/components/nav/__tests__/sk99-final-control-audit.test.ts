@@ -49,8 +49,11 @@ describe("SK-99 final navigation", () => {
       ["/artist/sessions", "Sessions"],
       ["/artist/store", "Store"],
     ] as const) {
-      expect(artistMobileNav).toContain(`href: "${href}", label: "${label}"`);
-      expect(artistDesktopNav).toContain(`href: "${href}", label: "${label}"`);
+      const destination = new RegExp(
+        `href:\\s*"${href}",[\\s\\S]*?label:\\s*"${label}"`,
+      );
+      expect(artistMobileNav).toMatch(destination);
+      expect(artistDesktopNav).toMatch(destination);
     }
     expect(artistMobileNav).not.toMatch(/href:\s*"\/artist\/(?:book|payments)"/);
     expect(artistDesktopNav).not.toMatch(/href:\s*"\/artist\/(?:book|payments)"/);
