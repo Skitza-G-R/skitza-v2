@@ -1,49 +1,40 @@
 import type { OnboardingStep } from "../decide-redirect";
 
-// Pure constants + route helpers for Step 4 (portfolio / "A taste").
-// NO server-only imports — both page.tsx (server) and the client
-// component import from here.
-//
-// May 2026 redesign — was Step 6 of 6 in the legacy flow; now
-// Step 4 of 5 (redesign reorders: portfolio sits BEFORE payment so
-// the producer leaves the wizard with a "show your work" capture
-// already in hand).
+// Pure constants + route helpers for the post-publish portfolio task.
+// NO server-only imports — both page.tsx (server) and the client component
+// import from here.
 
-/** 1-indexed rail position. Pinned by tests. */
+/** Required by WizardChrome but hidden for this optional post-publish task. */
 export const PORTFOLIO_STEP_INDEX: 1 | 2 | 3 | 4 | 5 = 4;
 
-export const PORTFOLIO_STEP_TITLE = "A taste of your work.";
+export const PORTFOLIO_STEP_TITLE = "Show artists your work.";
 
-/**
- * Subtitle copy. Surfaces the deferred-upload path so Step 4 doesn't
- * feel incomplete (track-upload widget is deferred per Decision #3 —
- * schema FK blocker on track_versions → projectTracks; producers
- * upload via Setup → Portfolio for now).
- */
 export const PORTFOLIO_STEP_SUBTITLE =
-  "Add a few links so artists know your sound. Optional — skip if you'd rather.";
+  "Your public page is already ready. Add a few links now, or come back later.";
 
 /** Helper copy rendered above the link inputs. */
-export const PORTFOLIO_HELPER_COPY =
-  "All optional. Fill what you have, skip what you don't.";
+export const PORTFOLIO_HELPER_COPY = "All optional. Fill what you have, skip what you don't.";
 
 /** OnboardingStep tag for this page — used by decideOnboardingRedirect. */
 export const ONBOARDING_STEP_NAME: OnboardingStep = "portfolio";
 
-/**
- * Continue route — redesign reorders Step 4 → Step 5 (payment).
- * Was /onboarding/complete in the legacy flow.
- */
-export function routeOnContinueFromPortfolio(): "/onboarding/payment" {
-  return "/onboarding/payment";
+type OptionalCompletionRoute = "/onboarding/complete" | "/onboarding/complete?__preview=1";
+
+function optionalCompletionRoute(previewMode = false): OptionalCompletionRoute {
+  return previewMode ? "/onboarding/complete?__preview=1" : "/onboarding/complete";
 }
 
-/** Skip ghost link target — same as Continue (telemetry-only divergence). */
-export function routeOnSkipFromPortfolio(): "/onboarding/payment" {
-  return "/onboarding/payment";
+/** Return to the published-page completion screen after saving. */
+export function routeOnContinueFromPortfolio(previewMode = false): OptionalCompletionRoute {
+  return optionalCompletionRoute(previewMode);
 }
 
-/** Step 4 → Step 3 route for the Back button. */
-export function routeOnBackFromPortfolio(): "/onboarding/availability" {
-  return "/onboarding/availability";
+/** Skip leaves the optional task without changing anything. */
+export function routeOnSkipFromPortfolio(previewMode = false): OptionalCompletionRoute {
+  return optionalCompletionRoute(previewMode);
+}
+
+/** Back returns to the same post-publish completion screen. */
+export function routeOnBackFromPortfolio(previewMode = false): OptionalCompletionRoute {
+  return optionalCompletionRoute(previewMode);
 }

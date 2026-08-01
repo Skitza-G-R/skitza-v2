@@ -7,9 +7,12 @@ import { useEffect, useRef, useState } from "react";
 import { producerGradient } from "~/lib/_phase4-stubs/producer-color";
 import {
   PLAYER_EVENTS,
+  clampSeekMs,
   playerClose,
+  playerLoad,
   playerPlay,
   playerSeek,
+  playerSetVolume,
   playerToggle,
   publishNowPlaying,
   useNowPlaying,
@@ -19,36 +22,44 @@ import {
 
 export {
   PLAYER_EVENTS,
+  clampSeekMs,
   playerClose,
+  playerLoad,
   playerPlay,
   playerSeek,
+  playerSetVolume,
   playerToggle,
   publishNowPlaying,
   useNowPlaying,
+  usePlaybackSnapshot,
 };
-export type { PlayerTrack };
+export type { PlayerLoadOptions, PlayerTrack } from "./playback-runtime";
 
-/** Pathname matcher for the producer Song page (/dashboard/music/<uuid>).
- *  Legacy: the song page used to suppress the dock because its
- *  in-card transport bar (Skip / Play / Skip) was the playback UI.
- *  That transport has been removed, so the dock is now always
- *  visible across the dashboard. The route-based hide logic was
- *  retired with it. */
+const UUID_PATH_SEGMENT = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const PRODUCER_SHARED_SONG_PATH = new RegExp(`^/dashboard/music/${UUID_PATH_SEGMENT}/?$`, "i");
+const ARTIST_SHARED_SONG_PATH = new RegExp(`^/artist/music/song/${UUID_PATH_SEGMENT}/?$`, "i");
+
+/** True only for the two routes that render the shared Music SongPage. */
+export function isSharedSongPagePathname(pathname: string | null): boolean {
+  if (!pathname) return false;
+  return PRODUCER_SHARED_SONG_PATH.test(pathname) || ARTIST_SHARED_SONG_PATH.test(pathname);
+}
 
 // PersistentPlayer — the dark rounded floating dock. Mounted once in
 // the dashboard layout (apps/web/src/components/shell/app-shell.tsx)
 // so it survives client-side navigation between sibling routes.
 //
 // Communication with the rest of the app happens over a tiny custom-
-// event bus on `window`, five events total:
+// event bus on `window`:
 //
-//   skitza:player:set    CustomEvent<PlayerTrack>  — load + play a track
+//   skitza:player:set    CustomEvent<PlayerTrack | structured load>
 //   skitza:player:toggle CustomEvent<void>          — pause / resume
 //   skitza:player:seek   CustomEvent<number>        — jump to ms offset
+//   skitza:player:volume CustomEvent<number>        — set volume from 0..1
 //   skitza:player:close  CustomEvent<void>          — unload + hide dock
 //   skitza:player:time   CustomEvent<number>        — BROADCAST: current ms
 //
-// The first four are inputs; the fifth is an output (side-panel
+// The first five are inputs; the last is an output (side-panel
 // waveforms subscribe to keep their playhead aligned with the dock).
 
 // ─── Pure helpers (exported for direct unit-testing) ─────────────────
@@ -102,6 +113,26 @@ export function expandHrefForTrack(track: PlayerTrack, pathname: string | null):
   return `/dashboard/music/${track.id}`;
 }
 
+export function shouldCollapsePlayerDrag({
+  offsetY,
+  velocityY,
+  viewportHeight,
+}: {
+  offsetY: number;
+  velocityY: number;
+  viewportHeight: number;
+}): boolean {
+  const safeHeight = Number.isFinite(viewportHeight) && viewportHeight > 0 ? viewportHeight : 800;
+  const safeOffset = Number.isFinite(offsetY) ? Math.max(0, offsetY) : 0;
+  const safeVelocity = Number.isFinite(velocityY) ? velocityY : 0;
+  const distanceThreshold = Math.min(180, Math.max(96, safeHeight * 0.2));
+
+  // Reversing upward before release should always let the sheet return
+  // to its open position, even if it travelled past the distance gate.
+  if (safeVelocity < -0.25) return false;
+  return safeOffset >= distanceThreshold || (safeOffset >= 24 && safeVelocity >= 0.55);
+}
+
 // ─── Component ───────────────────────────────────────────────────────
 
 export function PersistentPlayer() {
@@ -113,12 +144,9 @@ export function PersistentPlayer() {
   // route to the right L3 (artist vs producer) without each caller
   // having to pass a role prop.
   const pathname = usePathname();
-  // Dock is always visible across the dashboard now (legacy song-page
-  // hide was retired with the in-card transport). The body-data-
-  // attribute padding rule in globals.css (body[data-skitza-dock="1"]
-  // main#main-content { padding-bottom: 110px }) automatically clears
-  // the song-page comments thread from the dock's footprint.
-  const dockHidden = false;
+  // SongPage supplies its own full transport. Hide only the dock chrome
+  // there; AppPlaybackRuntime remains mounted so playback continues.
+  const dockHidden = isSharedSongPagePathname(pathname);
 
   // Toggle a body data attribute so globals.css can reserve
   // padding-bottom equal to the dock's height on every dashboard
@@ -127,7 +155,7 @@ export function PersistentPlayer() {
   // for a dock that isn't visible.
   useEffect(() => {
     if (typeof document === "undefined") return;
-    if (state.track) {
+    if (state.track && !dockHidden) {
       document.body.dataset.skitzaDock = "1";
     } else {
       delete document.body.dataset.skitzaDock;
@@ -152,8 +180,8 @@ export function PersistentPlayer() {
     playerSeek(ms);
   }
 
-  function onSkip(deltaPct: number) {
-    onScrub(Math.min(100, Math.max(0, progressPct + deltaPct)));
+  function onSkip(deltaMs: number) {
+    playerSeek(clampSeekMs(currentMs, deltaMs, effectiveDurationMs));
   }
 
   function onTogglePlay() {
@@ -215,7 +243,7 @@ function DesktopDock({
   progressPct: number;
   onTogglePlay: () => void;
   onScrub: (pct: number) => void;
-  onSkip: (deltaPct: number) => void;
+  onSkip: (deltaMs: number) => void;
   hidden?: boolean;
   pathname: string | null;
 }) {
@@ -224,6 +252,7 @@ function DesktopDock({
       role="region"
       aria-label="Audio player"
       aria-hidden={hidden}
+      inert={hidden}
       // Floats with margin from the sidebar (lg+) and from the right
       // edge — feels like a tactile dock, not a full-width bar. The
       // .persistent-player-dock class in globals.css contributes the
@@ -295,9 +324,9 @@ function DesktopDock({
           <div className="flex items-center justify-center gap-4">
             <button
               type="button"
-              aria-label="Skip back 5%"
+              aria-label="Back 15 seconds"
               onClick={() => {
-                onSkip(-5);
+                onSkip(-15_000);
               }}
               className="sk-press inline-flex min-h-11 min-w-11 items-center justify-center text-white/55 hover:text-white"
             >
@@ -313,9 +342,9 @@ function DesktopDock({
             </button>
             <button
               type="button"
-              aria-label="Skip forward 5%"
+              aria-label="Forward 15 seconds"
               onClick={() => {
-                onSkip(5);
+                onSkip(15_000);
               }}
               className="sk-press inline-flex min-h-11 min-w-11 items-center justify-center text-white/55 hover:text-white"
             >
@@ -395,7 +424,7 @@ function MobileDock({
   progressPct: number;
   onTogglePlay: () => void;
   onScrub: (pct: number) => void;
-  onSkip: (deltaPct: number) => void;
+  onSkip: (deltaMs: number) => void;
   hidden?: boolean;
   pathname: string | null;
 }) {
@@ -434,6 +463,7 @@ function MobileDock({
         role="region"
         aria-label="Audio player"
         aria-hidden={hidden}
+        inert={hidden}
         // Sits above the producer Liquid Glass nav on <md.
         // .persistent-player-dock from globals.css already handles the
         // bottom-nav + safe-area offset; here we just ensure the dock
@@ -453,7 +483,7 @@ function MobileDock({
         }}
       >
         <div
-          className="flex w-full items-center gap-2.5 rounded-xl border px-2 py-2 shadow-[0_-4px_24px_rgba(0,0,0,0.4)]"
+          className="sk-toast-in flex w-full items-center gap-2.5 rounded-xl border px-2 py-2 shadow-[0_-4px_24px_rgba(0,0,0,0.4)]"
           style={{
             background: "#1A1A1A",
             borderColor: "rgba(255,255,255,0.08)",
@@ -523,7 +553,7 @@ function MobileDock({
         onTogglePlay={onTogglePlay}
         onScrub={onScrub}
         onSkip={onSkip}
-        expanded={expanded}
+        expanded={expanded && !hidden}
         onCollapse={() => {
           setExpanded(false);
         }}
@@ -543,7 +573,7 @@ function MobileDock({
 // the same curve (distance shrinks as it leaves). Reduced-motion users
 // get an instant swap.
 
-function MobileFullPlayer({
+export function MobileFullPlayer({
   track,
   playing,
   currentMs,
@@ -564,7 +594,7 @@ function MobileFullPlayer({
   progressPct: number;
   onTogglePlay: () => void;
   onScrub: (pct: number) => void;
-  onSkip: (deltaPct: number) => void;
+  onSkip: (deltaMs: number) => void;
   expanded: boolean;
   onCollapse: () => void;
   collapseBtnRef: React.RefObject<HTMLButtonElement | null>;
@@ -574,22 +604,148 @@ function MobileFullPlayer({
   // same producerGradient hash the covers use, so mini → full reads
   // as the same object growing.
   const tint = producerGradient(track.subtitle);
+  const [dragOffsetY, setDragOffsetY] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const [scrubPreviewPct, setScrubPreviewPct] = useState<number | null>(null);
+  const suppressHandleClickRef = useRef(false);
+  const dragRef = useRef<{
+    pointerId: number;
+    startY: number;
+    lastY: number;
+    lastAt: number;
+    velocityY: number;
+    moved: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    if (expanded) return;
+    dragRef.current = null;
+    setDragging(false);
+    setDragOffsetY(0);
+    setScrubPreviewPct(null);
+  }, [expanded]);
+
+  function pointerOffset(clientY: number): number {
+    const drag = dragRef.current;
+    if (!drag) return 0;
+    const viewportHeight = typeof window === "undefined" ? 800 : Math.max(1, window.innerHeight);
+    return Math.min(viewportHeight, Math.max(0, clientY - drag.startY));
+  }
+
+  function onHandlePointerDown(event: React.PointerEvent<HTMLButtonElement>) {
+    if (!event.isPrimary || event.button !== 0) return;
+    suppressHandleClickRef.current = false;
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      lastY: event.clientY,
+      lastAt: event.timeStamp,
+      velocityY: 0,
+      moved: false,
+    };
+    setDragging(true);
+    setDragOffsetY(0);
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Older Safari builds can expose pointer capture before it works.
+    }
+  }
+
+  function onHandlePointerMove(event: React.PointerEvent<HTMLButtonElement>) {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const offsetY = pointerOffset(event.clientY);
+    const moveDeltaY = event.clientY - drag.lastY;
+    const rawElapsedSinceLastMove = event.timeStamp - drag.lastAt;
+    const elapsedSinceLastMove = Math.max(0, rawElapsedSinceLastMove);
+    const instantaneousVelocity = moveDeltaY / Math.max(1, elapsedSinceLastMove);
+    const hasImmediateCoordinate = rawElapsedSinceLastMove <= 0 && moveDeltaY !== 0;
+    const velocityRetention = hasImmediateCoordinate
+      ? 0
+      : Math.pow(0.45, elapsedSinceLastMove / 16);
+    drag.velocityY =
+      drag.velocityY * velocityRetention + instantaneousVelocity * (1 - velocityRetention);
+    drag.lastY = event.clientY;
+    drag.lastAt = event.timeStamp;
+    drag.moved ||= Math.abs(event.clientY - drag.startY) >= 5;
+    setDragOffsetY(offsetY);
+  }
+
+  function finishHandleDrag(event: React.PointerEvent<HTMLButtonElement>, cancelled: boolean) {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const offsetY = pointerOffset(event.clientY);
+    const releaseDeltaY = event.clientY - drag.lastY;
+    const rawElapsedSinceLastMove = event.timeStamp - drag.lastAt;
+    const elapsedSinceLastMove = Math.max(0, rawElapsedSinceLastMove);
+    const releaseVelocity = releaseDeltaY / Math.max(1, elapsedSinceLastMove);
+    const hasImmediateFinalCoordinate = rawElapsedSinceLastMove <= 0 && releaseDeltaY !== 0;
+    // Keep the existing 45/55 velocity blend at a normal 16ms frame,
+    // but let a stationary hold decay the old sample before release.
+    // If timestamps tie or go backwards, a changed final coordinate
+    // is the only fresh direction sample and must take ownership.
+    const velocityRetention = hasImmediateFinalCoordinate
+      ? 0
+      : Math.pow(0.45, elapsedSinceLastMove / 16);
+    const velocityY =
+      drag.velocityY * velocityRetention + releaseVelocity * (1 - velocityRetention);
+    const moved = drag.moved || Math.abs(event.clientY - drag.startY) >= 5;
+    dragRef.current = null;
+    setDragging(false);
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // Losing capture during system gestures is safe; settle below.
+    }
+
+    if (moved) {
+      suppressHandleClickRef.current = true;
+      window.setTimeout(() => {
+        suppressHandleClickRef.current = false;
+      }, 0);
+    }
+
+    if (
+      !cancelled &&
+      moved &&
+      shouldCollapsePlayerDrag({
+        offsetY,
+        velocityY,
+        viewportHeight: window.innerHeight,
+      })
+    ) {
+      setDragOffsetY(offsetY);
+      onCollapse();
+      return;
+    }
+    setDragOffsetY(0);
+  }
+
+  const displayedProgressPct = scrubPreviewPct ?? progressPct;
+  const displayedCurrentMs =
+    scrubPreviewPct !== null && durationMs
+      ? Math.round((scrubPreviewPct / 100) * durationMs)
+      : currentMs;
+
   return (
     <div
       role="dialog"
       aria-modal={expanded}
       aria-label={`Now playing — ${track.title}`}
       aria-hidden={!expanded}
+      inert={!expanded}
       className={[
-        "fixed inset-0 z-50 flex flex-col md:hidden",
-        "motion-reduce:transition-none",
+        "mobile-full-player-sheet fixed inset-0 z-50 flex flex-col md:hidden",
         expanded ? "" : "pointer-events-none",
       ].join(" ")}
       style={{
         background: "#141414",
         color: "#fff",
-        transform: expanded ? "translateY(0)" : "translateY(100%)",
-        transition: "transform 340ms cubic-bezier(0.32, 0.72, 0, 1)",
+        transform: expanded ? `translateY(${String(dragOffsetY)}px)` : "translateY(100%)",
+        transition: dragging ? "none" : undefined,
         willChange: "transform",
         visibility: expanded ? "visible" : undefined,
       }}
@@ -617,8 +773,28 @@ function MobileFullPlayer({
           ref={collapseBtnRef}
           type="button"
           aria-label="Minimize player"
-          onClick={onCollapse}
-          className="sk-press mx-auto flex h-11 w-full max-w-[160px] items-center justify-center"
+          onClick={() => {
+            if (suppressHandleClickRef.current) {
+              suppressHandleClickRef.current = false;
+              return;
+            }
+            onCollapse();
+          }}
+          onPointerDown={onHandlePointerDown}
+          onPointerMove={onHandlePointerMove}
+          onPointerUp={(event) => {
+            finishHandleDrag(event, false);
+          }}
+          onPointerCancel={(event) => {
+            finishHandleDrag(event, true);
+          }}
+          onLostPointerCapture={(event) => {
+            if (event.target !== event.currentTarget) return;
+            if (dragRef.current?.pointerId === event.pointerId) {
+              finishHandleDrag(event, true);
+            }
+          }}
+          className="sk-press mx-auto flex h-11 w-full max-w-[160px] touch-none items-center justify-center select-none"
         >
           <span aria-hidden className="h-[5px] w-10 rounded-full bg-white/25" />
         </button>
@@ -679,21 +855,27 @@ function MobileFullPlayer({
         {/* Seek — tall waveform + time stamps. */}
         <div className="mt-4">
           <div className="flex items-center">
-            <MiniWaveform seed={track.id} progressPct={progressPct} onScrub={onScrub} tall />
+            <MiniWaveform
+              seed={track.id}
+              progressPct={displayedProgressPct}
+              onScrub={onScrub}
+              onPreview={setScrubPreviewPct}
+              tall
+            />
           </div>
           <div className="mt-1.5 flex items-center justify-between font-mono text-[10.5px] text-white/55 tabular-nums">
-            <span>{fmtTime(currentMs)}</span>
+            <span>{fmtTime(displayedCurrentMs)}</span>
             <span>{durationMs ? fmtTime(durationMs) : "–:––"}</span>
           </div>
         </div>
 
-        {/* Transport — 64px play/pause flanked by ±10% skips. */}
+        {/* Transport — 64px play/pause flanked by fixed ±15 second skips. */}
         <div className="mt-2 flex items-center justify-center gap-9">
           <button
             type="button"
-            aria-label="Skip back"
+            aria-label="Back 15 seconds"
             onClick={() => {
-              onSkip(-10);
+              onSkip(-15_000);
             }}
             className="sk-press inline-flex h-12 w-12 items-center justify-center rounded-full text-white/85 hover:text-white"
           >
@@ -709,9 +891,9 @@ function MobileFullPlayer({
           </button>
           <button
             type="button"
-            aria-label="Skip forward"
+            aria-label="Forward 15 seconds"
             onClick={() => {
-              onSkip(10);
+              onSkip(15_000);
             }}
             className="sk-press inline-flex h-12 w-12 items-center justify-center rounded-full text-white/85 hover:text-white"
           >
@@ -797,41 +979,103 @@ function seededBars(seed: string, n: number): number[] {
   return out;
 }
 
-function MiniWaveform({
+export function MiniWaveform({
   seed,
   progressPct,
   onScrub,
+  onPreview,
   tall = false,
 }: {
   seed: string;
   progressPct: number;
   onScrub: (pct: number) => void;
+  onPreview?: (pct: number | null) => void;
   /** Full-screen player variant — taller strip, thicker bars. */
   tall?: boolean;
 }) {
   const heights = seededBars(seed, MINI_BAR_COUNT);
-  const playedBars = Math.floor((progressPct / 100) * MINI_BAR_COUNT);
+  const [pointerPreviewPct, setPointerPreviewPct] = useState<number | null>(null);
+  const activePointerIdRef = useRef<number | null>(null);
+  const displayedProgressPct = pointerPreviewPct ?? progressPct;
+  const playedBars = Math.floor((displayedProgressPct / 100) * MINI_BAR_COUNT);
+
+  function percentAt(clientX: number, element: HTMLDivElement): number {
+    const rect = element.getBoundingClientRect();
+    if (!Number.isFinite(rect.width) || rect.width <= 0) return 0;
+    return Math.min(100, Math.max(0, ((clientX - rect.left) / rect.width) * 100));
+  }
+
+  function previewAt(clientX: number, element: HTMLDivElement): number {
+    const pct = percentAt(clientX, element);
+    setPointerPreviewPct(pct);
+    onPreview?.(pct);
+    return pct;
+  }
+
+  function stopPreview(): void {
+    activePointerIdRef.current = null;
+    setPointerPreviewPct(null);
+    onPreview?.(null);
+  }
+
   return (
     <div
       role="slider"
       aria-label="Seek"
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-valuenow={Math.round(progressPct)}
+      aria-valuenow={Math.round(displayedProgressPct)}
       tabIndex={0}
       onKeyDown={(e) => {
         if (e.key === "ArrowLeft") {
           e.preventDefault();
-          onScrub(Math.max(0, progressPct - 5));
+          onScrub(Math.max(0, displayedProgressPct - 5));
         } else if (e.key === "ArrowRight") {
           e.preventDefault();
-          onScrub(Math.min(100, progressPct + 5));
+          onScrub(Math.min(100, displayedProgressPct + 5));
         }
       }}
-      onClick={(e) => {
-        const r = e.currentTarget.getBoundingClientRect();
-        const pct = ((e.clientX - r.left) / r.width) * 100;
+      onPointerDown={(event) => {
+        if (!event.isPrimary || event.button !== 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        activePointerIdRef.current = event.pointerId;
+        try {
+          event.currentTarget.setPointerCapture(event.pointerId);
+        } catch {
+          // Pointer capture is best effort on older Safari versions.
+        }
+        previewAt(event.clientX, event.currentTarget);
+      }}
+      onPointerMove={(event) => {
+        if (activePointerIdRef.current !== event.pointerId) return;
+        event.preventDefault();
+        event.stopPropagation();
+        previewAt(event.clientX, event.currentTarget);
+      }}
+      onPointerUp={(event) => {
+        if (activePointerIdRef.current !== event.pointerId) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const pct = previewAt(event.clientX, event.currentTarget);
+        activePointerIdRef.current = null;
+        try {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        } catch {
+          // The browser may already have released capture.
+        }
         onScrub(pct);
+        stopPreview();
+      }}
+      onPointerCancel={(event) => {
+        if (activePointerIdRef.current !== event.pointerId) return;
+        event.preventDefault();
+        event.stopPropagation();
+        stopPreview();
+      }}
+      onLostPointerCapture={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (activePointerIdRef.current === event.pointerId) stopPreview();
       }}
       className={[
         "relative flex-1 cursor-pointer touch-none select-none focus-visible:ring-1 focus-visible:ring-white/40 focus-visible:outline-none",

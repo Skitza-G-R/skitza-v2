@@ -1,4 +1,8 @@
-import type { UserRole } from "~/server/auth/role";
+import { roleChooserHref } from "~/server/auth/post-sign-in";
+import type {
+  UserAccountMemberships,
+  UserRole,
+} from "~/server/auth/role";
 
 import { normalizeRuntimeHref } from "./runtime-state";
 
@@ -23,6 +27,48 @@ export function runtimeLaunchHrefForRole(
     case "orphan":
       return "/onboarding";
     case "unauthenticated":
-      return "/sign-in";
+      return "/sign-up";
   }
+}
+
+function signUpRuntimeHref(requestedHref: string | null): string {
+  if (!requestedHref) return "/sign-up";
+  return `/sign-up?${new URLSearchParams({
+    redirect_url: requestedHref,
+  }).toString()}`;
+}
+
+/**
+ * Membership-aware cold-launch routing.
+ *
+ * Runtime restoration has a deliberately tighter route/query allowlist than
+ * normal post-sign-in deep links. Normalize the saved target here before it
+ * reaches either sign-in or the dual-role chooser so an installed app can
+ * resume a safe screen without restoring live transactional state.
+ */
+export function runtimeLaunchHrefForMemberships(
+  memberships: UserAccountMemberships,
+  requestedHref?: string | null,
+): string {
+  const artistTarget = requestedRuntimeHref("artist", requestedHref);
+  const producerTarget = requestedRuntimeHref("producer", requestedHref);
+  const safeTarget = artistTarget ?? producerTarget;
+  const { primaryRole } = memberships;
+  const hasProducerAccount =
+    primaryRole.kind === "producer-complete" ||
+    primaryRole.kind === "producer-incomplete";
+
+  if (primaryRole.kind === "unauthenticated") {
+    return signUpRuntimeHref(safeTarget);
+  }
+
+  if (hasProducerAccount && memberships.hasArtistAccount) {
+    return roleChooserHref(safeTarget);
+  }
+
+  if (memberships.hasArtistAccount && !hasProducerAccount) {
+    return artistTarget ?? "/artist";
+  }
+
+  return runtimeLaunchHrefForRole(primaryRole, producerTarget);
 }

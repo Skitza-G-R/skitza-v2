@@ -10,6 +10,7 @@ import {
   pgEnum,
   unique,
   uniqueIndex,
+  primaryKey,
   index,
   foreignKey,
   check,
@@ -42,8 +43,10 @@ export type ProductRoyaltyTerms = {
   notes?: string;
 };
 
-export const producers = pgTable("producers", {
-  id: uuid("id").defaultRandom().primaryKey(),
+export const producers = pgTable(
+  "producers",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
   clerkUserId: text("clerk_user_id").notNull().unique(),
   email: text("email").notNull(),
   displayName: text("display_name"),
@@ -154,8 +157,19 @@ export const producers = pgTable("producers", {
   // toggles modes back and forth.
   taxRatePct: integer("tax_rate_pct").notNull().default(18),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    adminEmailSearchIdx: index("producers_admin_email_search_idx").on(
+      sql`lower(${t.email}) text_pattern_ops`,
+      t.clerkUserId,
+    ),
+    adminNameSearchIdx: index("producers_admin_name_search_idx").on(
+      sql`lower(${t.displayName}) text_pattern_ops`,
+      t.clerkUserId,
+    ),
+  }),
+);
 
 export type Producer = typeof producers.$inferSelect;
 export type NewProducer = typeof producers.$inferInsert;
@@ -222,6 +236,10 @@ export const products = pgTable(
     // "Duration (optional)".
     durationMin: integer("duration_min").notNull(), // per session
     sessionCount: integer("session_count").notNull().default(1),
+    // Session duration/count are commercial details, not booking permission.
+    // A product must opt in explicitly before a new purchase can materialize
+    // an artist booking allowance.
+    bookingEnabled: boolean("booking_enabled").notNull().default(false),
     // Flat/bundle price. Still the canonical price for flat products.
     // Per-song products read from volumeTiers instead; hourly reads from
     // hourlyRateCents.
@@ -369,6 +387,10 @@ export const bookingTransitionActorKind = pgEnum("booking_transition_actor_kind"
   "system",
 ]);
 
+export const bookingHeldExpiryReason = pgEnum("booking_held_expiry_reason", [
+  "approval_timeout",
+]);
+
 export const bookings = pgTable(
   "bookings",
   {
@@ -397,6 +419,21 @@ export const bookings = pgTable(
     operationKey: text("operation_key").notNull(),
     operationDigest: text("operation_digest").notNull(),
     rescheduledFromBookingId: uuid("rescheduled_from_booking_id"),
+    // Reschedule replacements share the original allowance-use identity so
+    // both calendar holds reserve capacity while consuming one purchased use.
+    allowanceUseId: uuid("allowance_use_id").notNull().defaultRandom(),
+    cancellationPolicyHoursSnapshot: integer("cancellation_policy_hours_snapshot").notNull(),
+    cancellationPolicySnapshottedAt: timestamp("cancellation_policy_snapshotted_at", {
+      withTimezone: true,
+    }).notNull(),
+    cancellationPolicyBackfilled: boolean("cancellation_policy_backfilled")
+      .notNull()
+      .default(false),
+    // Held requests expire at min(createdAt + 24h, startsAt). Confirmed-at-
+    // creation bookings never enter Held and therefore keep this NULL.
+    heldExpiresAt: timestamp("held_expires_at", { withTimezone: true }),
+    heldExpiredAt: timestamp("held_expired_at", { withTimezone: true }),
+    heldExpiryReason: bookingHeldExpiryReason("held_expiry_reason"),
     status: bookingStatus("status").notNull().default("pending_approval"),
     statusChangedAt: timestamp("status_changed_at", { withTimezone: true }),
     outcome: sessionUseOutcome("outcome").notNull().default("reserved"),
@@ -421,7 +458,16 @@ export const bookings = pgTable(
       t.rescheduledFromBookingId,
     ),
     producerStartsIdx: index("bookings_producer_starts_idx").on(t.producerId, t.startsAt),
+    adminActivationIdx: index("bookings_admin_activation_idx").on(
+      t.producerId,
+      t.createdAt,
+      t.purchaseId,
+    ),
     purchaseStartsIdx: index("bookings_purchase_starts_idx").on(t.purchaseId, t.startsAt),
+    allowanceUseIdx: index("bookings_allowance_use_idx").on(
+      t.sessionAllowanceId,
+      t.allowanceUseId,
+    ),
     purchaseProjectFk: foreignKey({
       columns: [t.purchaseId, t.projectId],
       foreignColumns: [purchases.id, purchases.projectId],
@@ -455,6 +501,32 @@ export const bookings = pgTable(
     rescheduleShape: check(
       "bookings_reschedule_shape",
       sql`${t.rescheduledFromBookingId} IS NULL OR ${t.rescheduledFromBookingId} <> ${t.id}`,
+    ),
+    cancellationPolicySnapshotShape: check(
+      "bookings_cancellation_policy_snapshot_shape",
+      sql`${t.cancellationPolicyHoursSnapshot} >= 0
+        AND ${t.cancellationPolicySnapshottedAt} >= ${t.createdAt}`,
+    ),
+    heldExpiryShape: check(
+      "bookings_held_expiry_shape",
+      sql`(
+        (${t.status} <> 'pending_approval' OR ${t.heldExpiresAt} IS NOT NULL)
+        AND (
+          ${t.heldExpiresAt} IS NULL
+          OR ${t.heldExpiresAt} = LEAST(${t.createdAt} + interval '24 hours', ${t.startsAt})
+        )
+        AND (
+          (${t.heldExpiredAt} IS NULL AND ${t.heldExpiryReason} IS NULL)
+          OR (
+            ${t.heldExpiredAt} IS NOT NULL
+            AND ${t.heldExpiryReason} = 'approval_timeout'
+            AND ${t.heldExpiresAt} IS NOT NULL
+            AND ${t.heldExpiredAt} >= ${t.heldExpiresAt}
+            AND ${t.status} = 'cancelled'
+            AND ${t.outcome} = 'cancelled_by_producer'
+          )
+        )
+      )`,
     ),
     statusOutcomeShape: check(
       "bookings_status_outcome_shape",
@@ -647,6 +719,11 @@ export const projects = pgTable(
       t.lifecycleStatus,
       t.createdAt,
     ),
+    adminClientActivityIdx: index("projects_admin_client_activity_idx").on(
+      t.clientContactId,
+      t.createdAt.desc(),
+      t.id.desc(),
+    ),
   }),
 );
 export type Project = typeof projects.$inferSelect;
@@ -668,6 +745,13 @@ export const projectTracks = pgTable(
     artist: text("artist"),
     position: integer("position").notNull().default(0),
     workflowStage: workflowStage("workflow_stage").notNull().default("brief"),
+    // Optional, private per-song cover identity. The browser only receives a
+    // same-origin authenticated route; raw R2 keys and object metadata stay on
+    // the server. All four fields transition together (migration 0037).
+    artworkR2Key: text("artwork_r2_key"),
+    artworkContentType: text("artwork_content_type"),
+    artworkSizeBytes: bigint("artwork_size_bytes", { mode: "number" }),
+    artworkObjectEtag: text("artwork_object_etag"),
     // Release is a producer-confirmed product state, separate from creative
     // progress (Done / Delivered). Once set, application code treats it as
     // irreversible because protected audio may be permanently deleted.
@@ -688,6 +772,27 @@ export const projectTracks = pgTable(
     projectPortfolioPublishedIdx: index("project_tracks_project_portfolio_published_idx")
       .on(t.projectId, t.portfolioPublishedAt.desc(), t.id)
       .where(sql`${t.portfolioPublishedAt} IS NOT NULL`),
+    artworkIdentityShape: check(
+      "project_tracks_artwork_identity_shape",
+      sql`(
+        (
+          ${t.artworkR2Key} IS NULL
+          AND ${t.artworkContentType} IS NULL
+          AND ${t.artworkSizeBytes} IS NULL
+          AND ${t.artworkObjectEtag} IS NULL
+        )
+        OR
+        (
+          NULLIF(btrim(${t.artworkR2Key}), '') IS NOT NULL
+          AND char_length(${t.artworkR2Key}) <= 1024
+          AND ${t.artworkContentType} IN ('image/jpeg', 'image/png', 'image/webp')
+          AND ${t.artworkSizeBytes} > 0
+          AND ${t.artworkSizeBytes} <= 5242880
+          AND NULLIF(btrim(${t.artworkObjectEtag}), '') IS NOT NULL
+          AND char_length(${t.artworkObjectEtag}) <= 512
+        )
+      ) IS TRUE`,
+    ),
   }),
 );
 export type ProjectTrack = typeof projectTracks.$inferSelect;
@@ -986,11 +1091,370 @@ export const clientContacts = pgTable(
     clerkUserIdx: index("client_contacts_clerk_user_idx")
       .on(t.clerkUserId)
       .where(sql`${t.clerkUserId} IS NOT NULL`),
+    activeClerkUserIdx: index("client_contacts_active_clerk_user_idx")
+      .on(t.clerkUserId, t.lastSeenAt.desc(), t.id)
+      .where(sql`${t.clerkUserId} IS NOT NULL AND ${t.archivedAt} IS NULL`),
+    adminEmailSearchIdx: index("client_contacts_admin_email_search_idx")
+      .on(sql`lower(${t.email}) text_pattern_ops`, t.clerkUserId)
+      .where(sql`${t.clerkUserId} IS NOT NULL`),
+    adminNameSearchIdx: index("client_contacts_admin_name_search_idx")
+      .on(sql`lower(${t.name}) text_pattern_ops`, t.clerkUserId)
+      .where(sql`${t.clerkUserId} IS NOT NULL`),
   }),
 );
 
 export type ClientContact = typeof clientContacts.$inferSelect;
 export type NewClientContact = typeof clientContacts.$inferInsert;
+
+// ─── Registered Clerk accounts (SK-133) ────────────────────────────
+// One person appears once, keyed by the provider's immutable Clerk user ID.
+// Producer and Artist roles remain derived from producers/client_contacts.
+// Rows backfilled from those mappings stay `needs_sync`; only a verified
+// Clerk lifecycle webhook may assert current provider state and timestamps.
+export const registeredAccounts = pgTable(
+  "registered_accounts",
+  {
+    clerkUserId: text("clerk_user_id").primaryKey(),
+    primaryEmail: text("primary_email"),
+    displayName: text("display_name"),
+    emailVerified: boolean("email_verified"),
+    audienceType: text("audience_type").notNull().default("unknown"),
+    providerState: text("provider_state").notNull().default("needs_sync"),
+    providerCreatedAt: timestamp("provider_created_at", { withTimezone: true }),
+    providerUpdatedAt: timestamp("provider_updated_at", { withTimezone: true }),
+    lastSignInAt: timestamp("last_sign_in_at", { withTimezone: true }),
+    lastWebhookEventId: text("last_webhook_event_id"),
+    syncedAt: timestamp("synced_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    providerStateIdx: index("registered_accounts_provider_state_idx").on(
+      t.providerState,
+      t.clerkUserId,
+    ),
+    providerCreatedIdx: index("registered_accounts_provider_created_idx").on(
+      sql`CASE WHEN ${t.providerCreatedAt} IS NULL THEN 1 ELSE 0 END`,
+      t.providerCreatedAt.desc().nullsLast(),
+      t.clerkUserId.desc(),
+    ).where(sql`${t.providerState} <> 'deleted'`),
+    emailSearchIdx: index("registered_accounts_email_search_idx").on(
+      sql`lower(${t.primaryEmail}) text_pattern_ops`,
+      t.clerkUserId,
+    ),
+    nameSearchIdx: index("registered_accounts_name_search_idx").on(
+      sql`lower(${t.displayName}) text_pattern_ops`,
+      t.clerkUserId,
+    ),
+    clerkIdSearchIdx: index("registered_accounts_clerk_id_search_idx").on(
+      sql`lower(${t.clerkUserId}) text_pattern_ops`,
+      t.clerkUserId,
+    ),
+    identityShape: check(
+      "registered_accounts_identity_shape",
+      sql`${t.clerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
+        AND (${t.primaryEmail} IS NULL OR (
+          ${t.primaryEmail} = lower(btrim(${t.primaryEmail}))
+          AND char_length(${t.primaryEmail}) BETWEEN 3 AND 320
+        ))
+        AND (${t.displayName} IS NULL OR (
+          NULLIF(btrim(${t.displayName}), '') IS NOT NULL
+          AND char_length(${t.displayName}) <= 160
+        ))
+        AND (${t.lastWebhookEventId} IS NULL OR (
+          NULLIF(btrim(${t.lastWebhookEventId}), '') IS NOT NULL
+          AND char_length(${t.lastWebhookEventId}) <= 255
+        ))`,
+    ),
+    providerStateShape: check(
+      "registered_accounts_provider_state_shape",
+      sql`${t.providerState} IN ('active', 'banned', 'locked', 'deleted', 'needs_sync')`,
+    ),
+    audienceTypeShape: check(
+      "registered_accounts_audience_type_shape",
+      sql`${t.audienceType} IN ('external', 'internal', 'unknown')`,
+    ),
+    syncShape: check(
+      "registered_accounts_sync_shape",
+      sql`(
+        ${t.providerState} = 'needs_sync'
+        AND ${t.providerUpdatedAt} IS NULL
+        AND ${t.lastWebhookEventId} IS NULL
+        AND ${t.syncedAt} IS NULL
+      ) OR (
+        ${t.providerState} <> 'needs_sync'
+        AND ${t.providerUpdatedAt} IS NOT NULL
+        AND ${t.lastWebhookEventId} IS NOT NULL
+        AND ${t.syncedAt} IS NOT NULL
+      )`,
+    ),
+    deletedPiiShape: check(
+      "registered_accounts_deleted_pii_shape",
+      sql`${t.providerState} <> 'deleted' OR (
+        ${t.primaryEmail} IS NULL
+        AND ${t.displayName} IS NULL
+        AND ${t.emailVerified} IS NULL
+        AND ${t.audienceType} = 'unknown'
+        AND ${t.lastSignInAt} IS NULL
+      )`,
+    ),
+    timestampShape: check(
+      "registered_accounts_timestamp_shape",
+      sql`(${t.providerCreatedAt} IS NULL OR ${t.providerUpdatedAt} IS NULL OR ${t.providerCreatedAt} <= ${t.providerUpdatedAt})
+        AND ${t.updatedAt} >= ${t.createdAt}`,
+    ),
+  }),
+);
+
+export type RegisteredAccount = typeof registeredAccounts.$inferSelect;
+export type NewRegisteredAccount = typeof registeredAccounts.$inferInsert;
+
+// Signed Clerk lifecycle webhook receipts are immutable and claimed inside
+// the same transaction as their account and role-mapping side effects.
+export const clerkUserSyncReceipts = pgTable(
+  "clerk_user_sync_receipts",
+  {
+    eventId: text("event_id").primaryKey(),
+    eventDigest: text("event_digest").notNull(),
+    eventType: text("event_type").notNull(),
+    clerkUserId: text("clerk_user_id").notNull(),
+    clerkInstanceId: text("clerk_instance_id").notNull(),
+    providerUpdatedAt: timestamp("provider_updated_at", {
+      withTimezone: true,
+    }).notNull(),
+    processedAt: timestamp("processed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userIdx: index("clerk_user_sync_receipts_user_idx").on(
+      t.clerkUserId,
+      t.providerUpdatedAt.desc(),
+      t.eventId,
+    ),
+    shape: check(
+      "clerk_user_sync_receipts_shape",
+      sql`NULLIF(btrim(${t.eventId}), '') IS NOT NULL
+        AND char_length(${t.eventId}) <= 255
+        AND ${t.eventDigest} ~ '^sha256:[0-9a-f]{64}$'
+        AND ${t.eventType} IN ('user.created', 'user.updated', 'user.deleted')
+        AND ${t.clerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
+        AND ${t.clerkInstanceId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'`,
+    ),
+  }),
+);
+
+export type ClerkUserSyncReceipt = typeof clerkUserSyncReceipts.$inferSelect;
+export type NewClerkUserSyncReceipt = typeof clerkUserSyncReceipts.$inferInsert;
+
+// ─── Artist platform account preferences (SK-153) ──────────────────
+// Clerk remains the source of truth for profile identity and photo. This
+// single global row stores only product-owned artist preferences.
+export type ArtistNotificationPreferenceCategory =
+  | "purchase"
+  | "proof"
+  | "booking"
+  | "session_reminder"
+  | "new_music"
+  | "producer_comment";
+
+export type ArtistNotificationPreferences = Partial<
+  Record<
+    ArtistNotificationPreferenceCategory,
+    {
+      inApp?: boolean;
+      transactionalEmail?: boolean;
+      activityEmail?: boolean;
+    }
+  >
+>;
+
+export const artistProfiles = pgTable(
+  "artist_profiles",
+  {
+    clerkUserId: text("clerk_user_id").primaryKey(),
+    // NULL means first-use browser detection has not been persisted yet.
+    // The application validates the value against the runtime IANA registry.
+    timezone: text("timezone"),
+    notificationPreferences: jsonb("notification_preferences")
+      .$type<ArtistNotificationPreferences>()
+      .notNull()
+      .default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    identityShape: check(
+      "artist_profiles_identity_shape",
+      sql`${t.clerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'`,
+    ),
+    timezoneShape: check(
+      "artist_profiles_timezone_shape",
+      sql`${t.timezone} IS NULL OR (
+        ${t.timezone} = btrim(${t.timezone})
+        AND char_length(${t.timezone}) BETWEEN 1 AND 100
+      )`,
+    ),
+    timestampShape: check(
+      "artist_profiles_timestamp_shape",
+      sql`${t.updatedAt} >= ${t.createdAt}`,
+    ),
+  }),
+);
+
+export type ArtistProfile = typeof artistProfiles.$inferSelect;
+export type NewArtistProfile = typeof artistProfiles.$inferInsert;
+
+// Artist notification records are intentionally separate from the producer
+// inbox table below. Recipient ownership is the signed-in Clerk account;
+// producerId is only the studio association used for filtering and dots.
+export const artistNotificationKind = pgEnum("artist_notification_kind", [
+  "purchase_approved",
+  "purchase_declined",
+  "proof_verified",
+  "proof_rejected",
+  "booking_confirmed",
+  "booking_declined",
+  "booking_changed",
+  "booking_cancelled",
+  "session_reminder_24h",
+  "session_reminder_1h",
+  "track_version_created",
+  "producer_comment_created",
+]);
+
+export const artistNotificationSubjectType = pgEnum(
+  "artist_notification_subject_type",
+  ["purchase_request", "payment_proof", "booking", "track_version"],
+);
+
+export const artistNotifications = pgTable(
+  "artist_notifications",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    recipientClerkUserId: text("recipient_clerk_user_id").notNull(),
+    producerId: uuid("producer_id")
+      .notNull()
+      .references(() => producers.id, { onDelete: "restrict" }),
+    kind: artistNotificationKind("kind").notNull(),
+    subjectType: artistNotificationSubjectType("subject_type").notNull(),
+    subjectId: uuid("subject_id").notNull(),
+    // Exact same-origin destination built and validated by the server.
+    destinationHref: text("destination_href").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    // Stable source-event identity. Retried emitters use this key instead of
+    // creating duplicate feed rows.
+    dedupeKey: text("dedupe_key").notNull(),
+    // Channel choice is snapshotted at event creation. Dot state remains
+    // independent so disabling the in-app feed cannot clear another studio.
+    inAppVisible: boolean("in_app_visible").notNull().default(true),
+    switcherDotWorthy: boolean("switcher_dot_worthy").notNull().default(false),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    openedAt: timestamp("opened_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    recipientDedupeUnique: unique("artist_notifications_recipient_dedupe_unique").on(
+      t.recipientClerkUserId,
+      t.dedupeKey,
+    ),
+    feedIdx: index("artist_notifications_recipient_feed_idx").on(
+      t.recipientClerkUserId,
+      t.inAppVisible,
+      t.createdAt.desc(),
+      t.id.desc(),
+    ),
+    unreadIdx: index("artist_notifications_recipient_unread_idx")
+      .on(t.recipientClerkUserId, t.createdAt.desc(), t.id.desc())
+      .where(sql`${t.inAppVisible} IS TRUE AND ${t.readAt} IS NULL`),
+    unseenDotIdx: index("artist_notifications_recipient_studio_dot_idx")
+      .on(t.recipientClerkUserId, t.producerId, t.createdAt.desc(), t.id.desc())
+      .where(sql`${t.switcherDotWorthy} IS TRUE AND ${t.openedAt} IS NULL`),
+    identityShape: check(
+      "artist_notifications_identity_shape",
+      sql`${t.recipientClerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
+        AND NULLIF(btrim(${t.dedupeKey}), '') IS NOT NULL
+        AND char_length(${t.dedupeKey}) <= 255`,
+    ),
+    destinationShape: check(
+      "artist_notifications_destination_shape",
+      sql`char_length(${t.destinationHref}) BETWEEN 1 AND 512
+        AND ${t.destinationHref} LIKE '/artist/%'
+        AND ${t.destinationHref} NOT LIKE '//%'
+        AND position(chr(92) in ${t.destinationHref}) = 0
+        AND position('://' in ${t.destinationHref}) = 0`,
+    ),
+    timestampShape: check(
+      "artist_notifications_timestamp_shape",
+      sql`(${t.readAt} IS NULL OR ${t.readAt} >= ${t.createdAt})
+        AND (${t.openedAt} IS NULL OR ${t.openedAt} >= ${t.createdAt})`,
+    ),
+  }),
+);
+
+export type ArtistNotification = typeof artistNotifications.$inferSelect;
+export type NewArtistNotification = typeof artistNotifications.$inferInsert;
+
+// Immutable authorization captured at disconnect. Active connection checks
+// never consult this table; only dedicated read-only Past studio surfaces do.
+export const artistHistoricalResourceType = pgEnum(
+  "artist_historical_resource_type",
+  [
+    "studio",
+    "purchase",
+    "project",
+    "track",
+    "track_version",
+    "track_comment",
+    "payment_proof",
+    "booking",
+    "track_version_download",
+  ],
+);
+
+export const artistHistoricalAccessGrants = pgTable(
+  "artist_historical_access_grants",
+  {
+    artistClerkUserId: text("artist_clerk_user_id").notNull(),
+    producerId: uuid("producer_id")
+      .notNull()
+      .references(() => producers.id, { onDelete: "restrict" }),
+    resourceType: artistHistoricalResourceType("resource_type").notNull(),
+    resourceId: uuid("resource_id").notNull(),
+    disconnectedAt: timestamp("disconnected_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({
+      name: "artist_historical_access_grants_pk",
+      columns: [t.artistClerkUserId, t.producerId, t.resourceType, t.resourceId],
+    }),
+    artistStudioIdx: index("artist_historical_access_grants_artist_studio_idx").on(
+      t.artistClerkUserId,
+      t.producerId,
+      t.resourceType,
+    ),
+    artistResourceIdx: index("artist_historical_access_grants_artist_resource_idx").on(
+      t.artistClerkUserId,
+      t.resourceType,
+      t.resourceId,
+    ),
+    identityShape: check(
+      "artist_historical_access_grants_identity_shape",
+      sql`${t.artistClerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'`,
+    ),
+    timestampShape: check(
+      "artist_historical_access_grants_timestamp_shape",
+      sql`${t.createdAt} >= ${t.disconnectedAt}`,
+    ),
+  }),
+);
+
+export type ArtistHistoricalAccessGrant =
+  typeof artistHistoricalAccessGrants.$inferSelect;
+export type NewArtistHistoricalAccessGrant =
+  typeof artistHistoricalAccessGrants.$inferInsert;
 
 // ─── Notifications / Inbox (Phase E) ────────────────────────────────
 // One unified feed of everything that needs the producer's attention:
@@ -1237,8 +1701,7 @@ export type NewProducerNote = typeof producerNotes.$inferInsert;
 // final terms are accepted and owns the frozen commercial snapshot, exact
 // installment schedule, proofs, ledger history, songs, versions, sessions,
 // approval events, and download entitlement for that accepted work.
-export type PurchaseCommercialSnapshot = {
-  version: 1;
+type PurchaseCommercialSnapshotBody = {
   productOrOfferName: string;
   tagline?: string;
   service?: string;
@@ -1272,6 +1735,13 @@ export type PurchaseCommercialSnapshot = {
   selectedPaymentPlan: PaymentPlan | null;
   offeredPaymentPlans: PaymentPlan[];
   agreementText: string;
+};
+
+export type PurchaseCommercialSnapshot = PurchaseCommercialSnapshotBody & {
+  // Version 1 is immutable legacy history and never creates a new allowance.
+  // The acceptance validator requires version 2 to carry bookingEnabled.
+  version: 1 | 2;
+  bookingEnabled?: boolean;
 };
 
 export const purchaseSourceKind = pgEnum("purchase_source_kind", [
@@ -1434,6 +1904,14 @@ export const purchaseRequests = pgTable(
       t.status,
       t.createdAt,
     ),
+    adminActivationIdx: index("purchase_requests_admin_activation_idx").on(
+      t.producerId,
+      t.createdAt,
+      t.clientContactId,
+    ),
+    adminClientActivityIdx: index(
+      "purchase_requests_admin_client_activity_idx",
+    ).on(t.clientContactId, t.createdAt.desc(), t.id.desc()),
     requestedSongQtyPositive: check(
       "purchase_requests_requested_song_qty_positive",
       sql`${t.requestedSongQty} IS NULL OR ${t.requestedSongQty} > 0`,
@@ -1617,6 +2095,11 @@ export const purchases = pgTable(
       t.producerId,
       t.lifecycleStatus,
       t.createdAt,
+    ),
+    adminActivationIdx: index("purchases_admin_activation_idx").on(
+      t.producerId,
+      t.createdAt,
+      t.clientContactId,
     ),
     nonnegativeAmounts: check(
       "purchases_nonnegative_amounts",
@@ -1810,6 +2293,9 @@ export const paymentProofs = pgTable(
       t.status,
       t.createdAt,
     ),
+    adminClientActivityIdx: index(
+      "payment_proofs_admin_client_activity_idx",
+    ).on(t.clientContactId, t.createdAt.desc(), t.id.desc()),
     positiveAmount: check("payment_proofs_positive_amount", sql`${t.amountCents} > 0`),
     nonnegativeSize: check("payment_proofs_nonnegative_size", sql`${t.sizeBytes} >= 0`),
     privateBucketOnly: check(
@@ -2299,6 +2785,7 @@ export const purchaseSessionAllowances = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     purchaseId: uuid("purchase_id").notNull(),
     producerId: uuid("producer_id").notNull(),
+    bookingEnabledSnapshot: boolean("booking_enabled_snapshot").notNull().default(false),
     kind: sessionAllowanceKind("kind").notNull(),
     sessionLimit: integer("session_limit"),
     durationMin: integer("duration_min").notNull(),
@@ -2576,3 +3063,594 @@ export const songPublicAccessEvents = pgTable(
 );
 export type SongPublicAccessEvent = typeof songPublicAccessEvents.$inferSelect;
 export type NewSongPublicAccessEvent = typeof songPublicAccessEvents.$inferInsert;
+
+// ─── SK-132: founder-admin safety and operational data ─────────────
+// These records are deliberately independent from customer-facing routes.
+// Every row carries an explicit Live/Test environment, and every retry-safe
+// write carries both a caller-scoped operation key and an intent digest.
+
+export type AdminSafeJsonValue = string | number | boolean | null;
+export type AdminSafeJsonObject = { [key: string]: AdminSafeJsonValue };
+
+export const adminDataEnvironment = pgEnum("admin_data_environment", ["live", "test"]);
+
+export const adminActionOutcome = pgEnum("admin_action_outcome", [
+  "succeeded",
+  "failed",
+  "partial",
+  "no_change",
+]);
+
+export const adminSensitiveRevealReason = pgEnum("admin_sensitive_reveal_reason", [
+  "support_investigation",
+  "safety_issue",
+]);
+
+export const operationalRunKind = pgEnum("operational_run_kind", [
+  "job",
+  "email",
+  "webhook",
+  "provider_investigation",
+]);
+
+export const operationalRunStatus = pgEnum("operational_run_status", [
+  "running",
+  "succeeded",
+  "failed",
+  "partial",
+]);
+
+export const systemProblemState = pgEnum("system_problem_state", ["new", "seen", "resolved"]);
+
+export const adminActionReceipts = pgTable(
+  "admin_action_receipts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    environment: adminDataEnvironment("environment").notNull(),
+    action: text("action").notNull(),
+    operationKey: text("operation_key").notNull(),
+    operationDigest: text("operation_digest").notNull(),
+    resultId: text("result_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    environmentActionOperationUnique: unique(
+      "admin_action_receipts_environment_action_operation_unique",
+    ).on(t.environment, t.action, t.operationKey),
+    environmentCreatedIdx: index("admin_action_receipts_environment_created_idx").on(
+      t.environment,
+      t.createdAt.desc(),
+      t.id,
+    ),
+    environmentShape: check(
+      "admin_action_receipts_environment_shape",
+      sql`${t.environment} IN ('live', 'test')`,
+    ),
+    identityShape: check(
+      "admin_action_receipts_identity_shape",
+      sql`NULLIF(btrim(${t.action}), '') IS NOT NULL AND char_length(${t.action}) <= 100 AND NULLIF(btrim(${t.operationKey}), '') IS NOT NULL AND char_length(${t.operationKey}) <= 255 AND NULLIF(btrim(${t.resultId}), '') IS NOT NULL AND char_length(${t.resultId}) <= 255`,
+    ),
+    digestShape: check(
+      "admin_action_receipts_digest_shape",
+      sql`${t.operationDigest} ~ '^sha256:[0-9a-f]{64}$'`,
+    ),
+  }),
+);
+export type AdminActionReceipt = typeof adminActionReceipts.$inferSelect;
+export type NewAdminActionReceipt = typeof adminActionReceipts.$inferInsert;
+
+export const adminActionHistory = pgTable(
+  "admin_action_history",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    environment: adminDataEnvironment("environment").notNull(),
+    actorClerkUserId: text("actor_clerk_user_id").notNull(),
+    targetType: text("target_type").notNull(),
+    targetId: text("target_id").notNull(),
+    targetAccountClerkUserId: text("target_account_clerk_user_id"),
+    action: text("action").notNull(),
+    safeBeforeState: jsonb("safe_before_state").$type<AdminSafeJsonObject>(),
+    safeAfterState: jsonb("safe_after_state").$type<AdminSafeJsonObject>(),
+    revealReason: adminSensitiveRevealReason("reveal_reason"),
+    revealContentKind: text("reveal_content_kind"),
+    outcome: adminActionOutcome("outcome").notNull(),
+    failureCode: text("failure_code"),
+    operationKey: text("operation_key").notNull(),
+    operationDigest: text("operation_digest").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    environmentOperationUnique: unique("admin_action_history_environment_operation_unique").on(
+      t.environment,
+      t.action,
+      t.operationKey,
+    ),
+    environmentOccurredIdx: index("admin_action_history_environment_occurred_idx").on(
+      t.environment,
+      t.occurredAt.desc(),
+      t.id,
+    ),
+    targetOccurredIdx: index("admin_action_history_target_occurred_idx").on(
+      t.environment,
+      t.targetType,
+      t.targetId,
+      t.occurredAt.desc(),
+      t.id,
+    ),
+    targetAccountOccurredIdx: index(
+      "admin_action_history_target_account_occurred_idx",
+    )
+      .on(
+        t.environment,
+        t.targetAccountClerkUserId,
+        t.occurredAt.desc(),
+        t.id.desc(),
+      )
+      .where(sql`${t.targetAccountClerkUserId} IS NOT NULL`),
+    environmentShape: check(
+      "admin_action_history_environment_shape",
+      sql`${t.environment} IN ('live', 'test')`,
+    ),
+    actorShape: check(
+      "admin_action_history_actor_shape",
+      sql`NULLIF(btrim(${t.actorClerkUserId}), '') IS NOT NULL AND (${t.targetAccountClerkUserId} IS NULL OR NULLIF(btrim(${t.targetAccountClerkUserId}), '') IS NOT NULL)`,
+    ),
+    targetShape: check(
+      "admin_action_history_target_shape",
+      sql`NULLIF(btrim(${t.targetType}), '') IS NOT NULL AND NULLIF(btrim(${t.targetId}), '') IS NOT NULL AND NULLIF(btrim(${t.action}), '') IS NOT NULL`,
+    ),
+    operationShape: check(
+      "admin_action_history_operation_shape",
+      sql`NULLIF(btrim(${t.operationKey}), '') IS NOT NULL`,
+    ),
+    digestShape: check(
+      "admin_action_history_digest_shape",
+      sql`${t.operationDigest} ~ '^sha256:[0-9a-f]{64}$'`,
+    ),
+    safeStateShape: check(
+      "admin_action_history_safe_state_shape",
+      sql`(
+        ${t.safeBeforeState} IS NULL
+        OR (
+          ${t.action} = 'system_problem.update'
+          AND skitza_is_safe_admin_json(
+            ${t.safeBeforeState},
+            ARRAY['hasPrivateNote', 'state']
+          )
+          AND COALESCE(
+            jsonb_typeof(${t.safeBeforeState} -> 'hasPrivateNote') = 'boolean',
+            false
+          )
+          AND COALESCE(
+            ${t.safeBeforeState} ->> 'state' IN ('new', 'seen', 'resolved'),
+            false
+          )
+        )
+      ) AND (
+        ${t.safeAfterState} IS NULL
+        OR (
+          ${t.action} = 'support_note.create'
+          AND skitza_is_safe_admin_json(
+            ${t.safeAfterState},
+            ARRAY['noteCreated']
+          )
+          AND ${t.safeAfterState} = '{"noteCreated": true}'::jsonb
+        )
+        OR (
+          ${t.action} = 'system_problem.update'
+          AND skitza_is_safe_admin_json(
+            ${t.safeAfterState},
+            ARRAY['hasPrivateNote', 'state']
+          )
+          AND COALESCE(
+            jsonb_typeof(${t.safeAfterState} -> 'hasPrivateNote') = 'boolean',
+            false
+          )
+          AND COALESCE(
+            ${t.safeAfterState} ->> 'state' IN ('new', 'seen', 'resolved'),
+            false
+          )
+        )
+      )`,
+    ),
+    revealShape: check(
+      "admin_action_history_reveal_shape",
+      sql`(
+        (
+          ${t.action} = 'sensitive_content.reveal'
+          AND ${t.revealReason} IS NOT NULL
+          AND NULLIF(btrim(${t.revealContentKind}), '') IS NOT NULL
+          AND char_length(${t.revealContentKind}) <= 100
+          AND ${t.revealContentKind} ~ '^[a-z][a-z0-9_.-]{0,99}$'
+          AND ${t.outcome} = 'succeeded'
+          AND ${t.failureCode} IS NULL
+          AND ${t.safeBeforeState} IS NULL
+          AND ${t.safeAfterState} IS NULL
+        )
+        OR (
+          ${t.action} <> 'sensitive_content.reveal'
+          AND ${t.revealReason} IS NULL
+          AND ${t.revealContentKind} IS NULL
+        )
+      )`,
+    ),
+    failureShape: check(
+      "admin_action_history_failure_shape",
+      sql`${t.failureCode} IS NULL OR NULLIF(btrim(${t.failureCode}), '') IS NOT NULL`,
+    ),
+  }),
+);
+export type AdminActionHistory = typeof adminActionHistory.$inferSelect;
+export type NewAdminActionHistory = typeof adminActionHistory.$inferInsert;
+
+export const adminSupportNotes = pgTable(
+  "admin_support_notes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    environment: adminDataEnvironment("environment").notNull(),
+    targetType: text("target_type").notNull(),
+    targetId: text("target_id").notNull(),
+    body: text("body").notNull(),
+    createdByClerkUserId: text("created_by_clerk_user_id").notNull(),
+    operationKey: text("operation_key").notNull(),
+    operationDigest: text("operation_digest").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    environmentOperationUnique: unique("admin_support_notes_environment_operation_unique").on(
+      t.environment,
+      t.operationKey,
+    ),
+    targetCreatedIdx: index("admin_support_notes_target_created_idx").on(
+      t.environment,
+      t.targetType,
+      t.targetId,
+      t.createdAt.desc(),
+      t.id,
+    ),
+    environmentShape: check(
+      "admin_support_notes_environment_shape",
+      sql`${t.environment} IN ('live', 'test')`,
+    ),
+    targetShape: check(
+      "admin_support_notes_target_shape",
+      sql`NULLIF(btrim(${t.targetType}), '') IS NOT NULL AND NULLIF(btrim(${t.targetId}), '') IS NOT NULL AND NULLIF(btrim(${t.createdByClerkUserId}), '') IS NOT NULL`,
+    ),
+    bodyShape: check(
+      "admin_support_notes_body_shape",
+      sql`NULLIF(btrim(${t.body}), '') IS NOT NULL AND char_length(${t.body}) <= 10000`,
+    ),
+    operationShape: check(
+      "admin_support_notes_operation_shape",
+      sql`NULLIF(btrim(${t.operationKey}), '') IS NOT NULL`,
+    ),
+    digestShape: check(
+      "admin_support_notes_digest_shape",
+      sql`${t.operationDigest} ~ '^sha256:[0-9a-f]{64}$'`,
+    ),
+  }),
+);
+export type AdminSupportNote = typeof adminSupportNotes.$inferSelect;
+export type NewAdminSupportNote = typeof adminSupportNotes.$inferInsert;
+
+export const domainEvents = pgTable(
+  "domain_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    environment: adminDataEnvironment("environment").notNull(),
+    eventName: text("event_name").notNull(),
+    eventVersion: integer("event_version").notNull().default(1),
+    producerId: uuid("producer_id"),
+    actorClerkUserId: text("actor_clerk_user_id"),
+    targetType: text("target_type").notNull(),
+    targetId: text("target_id").notNull(),
+    operationKey: text("operation_key").notNull(),
+    operationDigest: text("operation_digest").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    safeMetadata: jsonb("safe_metadata").$type<AdminSafeJsonObject>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    environmentOperationUnique: unique("domain_events_environment_operation_unique").on(
+      t.environment,
+      t.eventName,
+      t.operationKey,
+    ),
+    environmentOccurredIdx: index("domain_events_environment_occurred_idx").on(
+      t.environment,
+      t.occurredAt.desc(),
+      t.id,
+    ),
+    producerOccurredIdx: index("domain_events_producer_occurred_idx").on(
+      t.environment,
+      t.producerId,
+      t.occurredAt.desc(),
+      t.id,
+    ),
+    targetOccurredIdx: index("domain_events_target_occurred_idx").on(
+      t.environment,
+      t.targetType,
+      t.targetId,
+      t.occurredAt.desc(),
+      t.id.desc(),
+    ),
+    actorOccurredIdx: index("domain_events_actor_occurred_idx")
+      .on(t.environment, t.actorClerkUserId, t.occurredAt.desc(), t.id.desc())
+      .where(sql`${t.actorClerkUserId} IS NOT NULL`),
+    environmentShape: check(
+      "domain_events_environment_shape",
+      sql`${t.environment} IN ('live', 'test')`,
+    ),
+    eventShape: check(
+      "domain_events_event_shape",
+      sql`NULLIF(btrim(${t.eventName}), '') IS NOT NULL AND (${t.actorClerkUserId} IS NULL OR NULLIF(btrim(${t.actorClerkUserId}), '') IS NOT NULL)`,
+    ),
+    positiveVersion: check("domain_events_positive_version", sql`${t.eventVersion} > 0`),
+    targetShape: check(
+      "domain_events_target_shape",
+      sql`NULLIF(btrim(${t.targetType}), '') IS NOT NULL AND NULLIF(btrim(${t.targetId}), '') IS NOT NULL`,
+    ),
+    operationShape: check(
+      "domain_events_operation_shape",
+      sql`NULLIF(btrim(${t.operationKey}), '') IS NOT NULL`,
+    ),
+    digestShape: check(
+      "domain_events_digest_shape",
+      sql`${t.operationDigest} ~ '^sha256:[0-9a-f]{64}$'`,
+    ),
+    safeMetadataShape: check(
+      "domain_events_safe_metadata_shape",
+      sql`
+        skitza_is_safe_admin_json(
+          ${t.safeMetadata},
+          ARRAY['changed', 'fieldCount']
+        )
+        AND (
+          NOT (${t.safeMetadata} ? 'changed')
+          OR jsonb_typeof(${t.safeMetadata} -> 'changed') = 'boolean'
+        )
+        AND CASE
+          WHEN ${t.safeMetadata} ? 'fieldCount' THEN
+            CASE
+              WHEN jsonb_typeof(${t.safeMetadata} -> 'fieldCount') = 'number'
+              THEN (
+                (${t.safeMetadata} ->> 'fieldCount')::numeric >= 0
+                AND (${t.safeMetadata} ->> 'fieldCount')::numeric
+                  = trunc((${t.safeMetadata} ->> 'fieldCount')::numeric)
+              )
+              ELSE false
+            END
+          ELSE true
+        END
+      `,
+    ),
+  }),
+);
+export type DomainEvent = typeof domainEvents.$inferSelect;
+export type NewDomainEvent = typeof domainEvents.$inferInsert;
+
+export const operationalRuns = pgTable(
+  "operational_runs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    environment: adminDataEnvironment("environment").notNull(),
+    kind: operationalRunKind("kind").notNull(),
+    operationName: text("operation_name").notNull(),
+    operationKey: text("operation_key").notNull(),
+    operationDigest: text("operation_digest").notNull(),
+    attemptNumber: integer("attempt_number").notNull(),
+    targetType: text("target_type"),
+    targetId: text("target_id"),
+    provider: text("provider"),
+    providerReference: text("provider_reference"),
+    safeMetadata: jsonb("safe_metadata").$type<AdminSafeJsonObject>().notNull().default({}),
+    status: operationalRunStatus("status").notNull().default("running"),
+    errorCode: text("error_code"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    environmentOperationAttemptUnique: unique(
+      "operational_runs_environment_operation_attempt_unique",
+    ).on(t.environment, t.kind, t.operationName, t.operationKey, t.attemptNumber),
+    environmentStartedIdx: index("operational_runs_environment_started_idx").on(
+      t.environment,
+      t.startedAt.desc(),
+      t.id,
+    ),
+    targetStartedIdx: index("operational_runs_target_started_idx").on(
+      t.environment,
+      t.targetType,
+      t.targetId,
+      t.startedAt.desc(),
+      t.id,
+    ),
+    environmentKindStatusIdx: index("operational_runs_environment_kind_status_idx").on(
+      t.environment,
+      t.kind,
+      t.status,
+      t.startedAt.desc(),
+      t.id.desc(),
+    ),
+    environmentShape: check(
+      "operational_runs_environment_shape",
+      sql`${t.environment} IN ('live', 'test')`,
+    ),
+    operationShape: check(
+      "operational_runs_operation_shape",
+      sql`NULLIF(btrim(${t.operationName}), '') IS NOT NULL AND NULLIF(btrim(${t.operationKey}), '') IS NOT NULL`,
+    ),
+    digestShape: check(
+      "operational_runs_digest_shape",
+      sql`${t.operationDigest} ~ '^sha256:[0-9a-f]{64}$'`,
+    ),
+    positiveAttempt: check("operational_runs_positive_attempt", sql`${t.attemptNumber} > 0`),
+    targetShape: check(
+      "operational_runs_target_shape",
+      sql`(${t.targetType} IS NULL AND ${t.targetId} IS NULL) OR (NULLIF(btrim(${t.targetType}), '') IS NOT NULL AND NULLIF(btrim(${t.targetId}), '') IS NOT NULL)`,
+    ),
+    providerShape: check(
+      "operational_runs_provider_shape",
+      sql`(${t.provider} IS NULL OR NULLIF(btrim(${t.provider}), '') IS NOT NULL) AND (${t.providerReference} IS NULL OR (${t.provider} IS NOT NULL AND NULLIF(btrim(${t.providerReference}), '') IS NOT NULL))`,
+    ),
+    safeMetadataShape: check(
+      "operational_runs_safe_metadata_shape",
+      sql`
+        skitza_is_safe_admin_json(
+          ${t.safeMetadata},
+          ARRAY['batchSize', 'durationMs']
+        )
+        AND CASE
+          WHEN ${t.safeMetadata} ? 'batchSize' THEN
+            CASE
+              WHEN jsonb_typeof(${t.safeMetadata} -> 'batchSize') = 'number'
+              THEN (
+                (${t.safeMetadata} ->> 'batchSize')::numeric >= 0
+                AND (${t.safeMetadata} ->> 'batchSize')::numeric
+                  = trunc((${t.safeMetadata} ->> 'batchSize')::numeric)
+              )
+              ELSE false
+            END
+          ELSE true
+        END
+        AND CASE
+          WHEN ${t.safeMetadata} ? 'durationMs' THEN
+            CASE
+              WHEN jsonb_typeof(${t.safeMetadata} -> 'durationMs') = 'number'
+              THEN (
+                (${t.safeMetadata} ->> 'durationMs')::numeric >= 0
+                AND (${t.safeMetadata} ->> 'durationMs')::numeric
+                  = trunc((${t.safeMetadata} ->> 'durationMs')::numeric)
+              )
+              ELSE false
+            END
+          ELSE true
+        END
+      `,
+    ),
+    statusShape: check(
+      "operational_runs_status_shape",
+      sql`(
+        (
+          ${t.status} = 'running'
+          AND ${t.finishedAt} IS NULL
+          AND ${t.errorCode} IS NULL
+          AND ${t.providerReference} IS NULL
+        )
+        OR (
+          ${t.status} IN ('succeeded', 'failed', 'partial')
+          AND ${t.finishedAt} IS NOT NULL
+          AND ${t.finishedAt} >= greatest(${t.startedAt}, ${t.createdAt})
+          AND (
+            (${t.status} = 'succeeded' AND ${t.errorCode} IS NULL)
+            OR (
+              ${t.status} IN ('failed', 'partial')
+              AND NULLIF(btrim(${t.errorCode}), '') IS NOT NULL
+              AND ${t.errorCode} ~ '^[a-z][a-z0-9_.-]{0,99}$'
+            )
+          )
+        )
+      )
+      AND ${t.createdAt} >= ${t.startedAt}
+      AND ${t.updatedAt} >= COALESCE(${t.finishedAt}, ${t.createdAt})`,
+    ),
+  }),
+);
+export type OperationalRun = typeof operationalRuns.$inferSelect;
+export type NewOperationalRun = typeof operationalRuns.$inferInsert;
+
+export const systemProblems = pgTable(
+  "system_problems",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    environment: adminDataEnvironment("environment").notNull(),
+    fingerprint: text("fingerprint").notNull(),
+    category: text("category").notNull(),
+    title: text("title").notNull(),
+    status: systemProblemState("status").notNull().default("new"),
+    privateNote: text("private_note"),
+    provider: text("provider"),
+    providerReference: text("provider_reference"),
+    firstObservedAt: timestamp("first_observed_at", { withTimezone: true }).notNull(),
+    lastObservedAt: timestamp("last_observed_at", { withTimezone: true }).notNull(),
+    seenAt: timestamp("seen_at", { withTimezone: true }),
+    seenByClerkUserId: text("seen_by_clerk_user_id"),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedByClerkUserId: text("resolved_by_clerk_user_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    environmentFingerprintUnique: unique("system_problems_environment_fingerprint_unique").on(
+      t.environment,
+      t.fingerprint,
+    ),
+    environmentStatusIdx: index("system_problems_environment_status_idx").on(
+      t.environment,
+      t.status,
+      t.lastObservedAt.desc(),
+      t.id,
+    ),
+    environmentShape: check(
+      "system_problems_environment_shape",
+      sql`${t.environment} IN ('live', 'test')`,
+    ),
+    fingerprintShape: check(
+      "system_problems_fingerprint_shape",
+      sql`${t.fingerprint} ~ '^sha256:[0-9a-f]{64}$'`,
+    ),
+    identityShape: check(
+      "system_problems_identity_shape",
+      sql`NULLIF(btrim(${t.category}), '') IS NOT NULL AND NULLIF(btrim(${t.title}), '') IS NOT NULL AND (${t.privateNote} IS NULL OR (NULLIF(btrim(${t.privateNote}), '') IS NOT NULL AND char_length(${t.privateNote}) <= 10000))`,
+    ),
+    providerShape: check(
+      "system_problems_provider_shape",
+      sql`(${t.provider} IS NULL OR NULLIF(btrim(${t.provider}), '') IS NOT NULL) AND (${t.providerReference} IS NULL OR (${t.provider} IS NOT NULL AND NULLIF(btrim(${t.providerReference}), '') IS NOT NULL))`,
+    ),
+    observationShape: check(
+      "system_problems_observation_shape",
+      sql`${t.lastObservedAt} >= ${t.firstObservedAt} AND ${t.createdAt} >= ${t.firstObservedAt} AND ${t.updatedAt} >= greatest(${t.createdAt}, ${t.lastObservedAt}) AND (${t.seenAt} IS NULL OR ${t.seenAt} >= ${t.createdAt}) AND (${t.seenAt} IS NULL OR ${t.updatedAt} >= ${t.seenAt}) AND (${t.resolvedAt} IS NULL OR ${t.resolvedAt} >= ${t.createdAt}) AND (${t.resolvedAt} IS NULL OR ${t.updatedAt} >= ${t.resolvedAt})`,
+    ),
+    stateShape: check(
+      "system_problems_state_shape",
+      sql`(
+        (
+          ${t.status} = 'new'
+          AND ${t.seenAt} IS NULL
+          AND ${t.seenByClerkUserId} IS NULL
+          AND ${t.resolvedAt} IS NULL
+          AND ${t.resolvedByClerkUserId} IS NULL
+        )
+        OR (
+          ${t.status} = 'seen'
+          AND ${t.seenAt} IS NOT NULL
+          AND ${t.seenAt} >= ${t.firstObservedAt}
+          AND NULLIF(btrim(${t.seenByClerkUserId}), '') IS NOT NULL
+          AND ${t.resolvedAt} IS NULL
+          AND ${t.resolvedByClerkUserId} IS NULL
+        )
+        OR (
+          ${t.status} = 'resolved'
+          AND (
+            (${t.seenAt} IS NULL AND ${t.seenByClerkUserId} IS NULL)
+            OR (
+              ${t.seenAt} IS NOT NULL
+              AND ${t.seenAt} >= ${t.firstObservedAt}
+              AND NULLIF(btrim(${t.seenByClerkUserId}), '') IS NOT NULL
+            )
+          )
+          AND ${t.resolvedAt} IS NOT NULL
+          AND ${t.resolvedAt} >= ${t.firstObservedAt}
+          AND ${t.resolvedAt} >= ${t.lastObservedAt}
+          AND (${t.seenAt} IS NULL OR ${t.resolvedAt} >= ${t.seenAt})
+          AND NULLIF(btrim(${t.resolvedByClerkUserId}), '') IS NOT NULL
+        )
+      )`,
+    ),
+  }),
+);
+export type SystemProblem = typeof systemProblems.$inferSelect;
+export type NewSystemProblem = typeof systemProblems.$inferInsert;

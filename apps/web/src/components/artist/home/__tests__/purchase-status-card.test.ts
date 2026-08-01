@@ -85,7 +85,10 @@ describe("PurchaseStatusCard (home heartbeat, S6)", () => {
       line: "Gili Studio approved — choose a plan and review the agreement.",
       sub: "Your exact terms freeze only when you accept",
     });
-    expect(HOME_SRC).toMatch(/actionLabel: "Choose a payment plan"/);
+    expect(HOME_SRC).toContain("caller.artist.purchase.payments()");
+    expect(HOME_SRC).toContain(
+      "withArtistStudio(`/artist/payments/${purchase.id}`, activeStudio.producerId)",
+    );
   });
 
   it("does not offer a dead continuation when approved Store terms are unpublished", () => {
@@ -93,8 +96,9 @@ describe("PurchaseStatusCard (home heartbeat, S6)", () => {
       line: "Gili Studio approved your request, but the offer is temporarily unavailable.",
       sub: "No terms have been accepted or frozen",
     });
-    expect(HOME_SRC).toMatch(/stage === "awaiting_payment" && current\.acceptanceAvailable/);
-    expect(HOME_SRC).toMatch(/continuationAvailable: current\.acceptanceAvailable/);
+    expect(HOME_SRC).not.toContain('stage === "awaiting_payment"');
+    expect(HOME_SRC).not.toContain("continuationAvailable");
+    expect(HOME_SRC).toContain('currentRequest.current?.status === "pending"');
   });
 
   it("preserves the request currency and minor units on Artist Home", () => {
@@ -112,7 +116,9 @@ describe("PurchaseStatusCard (home heartbeat, S6)", () => {
     expect(markup).toContain("$123.45");
     expect(markup).toContain("$23.45");
     expect(markup).not.toContain("₪");
-    expect(HOME_SRC).toMatch(/currency: current\.currency/);
+    expect(HOME_SRC).toContain(
+      "formatPurchaseMoney(purchase.nextPayment.amountCents, purchase.currency)",
+    );
   });
 
   it("keeps a decline generic and never accepts a private-reason prop", () => {
@@ -142,19 +148,29 @@ describe("PurchaseStatusCard (home heartbeat, S6)", () => {
     expect(SRC).not.toMatch(/stage !== "paid"/);
   });
 
-  it("keeps accepted-purchase payment actions in the canonical payment card", () => {
+  it("keeps accepted-purchase actions in the professional Home priority", () => {
     expect(HOME_SRC).toMatch(/caller\.artist\.purchase\.payments\(\)/);
-    expect(HOME_SRC).toMatch(
-      /<ArtistPaymentActionsCard[\s\S]{0,160}payments=\{activePaymentActions\}/,
+    expect(HOME_SRC).toContain(
+      ".filter((project) => project.producerId === activeStudio.producerId)",
     );
-    expect(HOME_SRC).toMatch(/payNextAvailable: purchase\.showPayNextPayment/);
-    expect(HOME_SRC).not.toMatch(/actionLabel: "Make next payment"/);
+    expect(HOME_SRC).toContain(
+      "if (!purchase.showPayNextPayment || !purchase.nextPayment) continue",
+    );
+    expect(HOME_SRC).toContain('kind: "payment_action"');
+    expect(HOME_SRC).toContain('actionLabel: "View payment"');
+    expect(HOME_SRC).toContain("<ProfessionalArtistHome");
+    expect(HOME_SRC).not.toContain("<ArtistPaymentActionsCard");
   });
 
-  it("keeps session actions separate from request and payment actions", () => {
-    expect(HOME_SRC).toMatch(/<NextSessionCard nextSession=\{data\.nextSession\}/);
-    expect(HOME_SRC).toMatch(/<BookSessionTiles[\s\S]{0,120}studios=\{studiosForTiles\}/);
-    expect(HOME_SRC).not.toMatch(/actionLabel: "Book a session"/);
+  it("keeps Sessions as distinct prioritized destinations", () => {
+    expect(HOME_SRC).toContain('kind: "today_session"');
+    expect(HOME_SRC).toContain('actionLabel: "View session"');
+    expect(HOME_SRC).toContain('kind: "ready_to_schedule"');
+    expect(HOME_SRC).toMatch(
+      /withArtistStudio\(\s*`\/artist\/book\?allowance=\$\{allowance\.sessionAllowanceId\}`,\s*activeStudio\.producerId,\s*\)/,
+    );
+    expect(HOME_SRC).not.toContain("<NextSessionCard");
+    expect(HOME_SRC).not.toContain("<BookSessionTiles");
     expect(HOME_SRC).not.toMatch(/current\.projectId/);
   });
 

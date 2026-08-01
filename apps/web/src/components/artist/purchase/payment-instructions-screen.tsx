@@ -1,190 +1,26 @@
 "use client";
 
-// S8 — Payment instructions (artist purchase funnel · Pay).
-//
-// Payment in v1 is OFF-APP. After the producer approves (Gate 1) and the
-// artist picks a plan (S7), this screen shows what's due now and exactly how
-// to pay it — bank transfer or Bit — then sends them to upload their proof
-// (S9). Money never moves inside the app; Skitza only keeps the record.
-//
-// Data-only props come from the locked request and the producer's real
-// payment settings. Navigation + clipboard copy live here.
-
-import { useRef, useState } from "react";
+import { Check, Copy } from "lucide-react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { ArrowRight, Check, ShieldIcon } from "~/components/artist/funnel/funnel-icons";
-import { Eyebrow, FunnelTopBar, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
+import { FunnelTopBar } from "~/components/artist/funnel/funnel-ui";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { withArtistStudio } from "~/lib/artist-studio-context";
+
 import { formatPurchaseMoney } from "./pay-data";
 
-// The producer's off-app payment details. Absent → "will send details".
 export type PaymentDetails = {
   bankTransfer?: string | undefined;
   bitPhone?: string | undefined;
   note?: string | undefined;
 };
 
-// Inline copy glyph — kept local so the shared icon set stays untouched
-// (mirrors UploadGlyph in upload-proof-screen.tsx).
-function CopyGlyph() {
-  return (
-    <svg
-      aria-hidden="true"
-      width="11"
-      height="11"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2.2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="9" y="9" width="12" height="12" rx="2.5" />
-      <path d="M5 15H4.5A1.5 1.5 0 013 13.5v-9A1.5 1.5 0 014.5 3h9A1.5 1.5 0 0115 4.5V5" />
-    </svg>
-  );
-}
-
-// Small inline copy control — writes one value to the clipboard and flips to a
-// brief "Copied" confirmation. Kept inline (not a shared atom) per the brief.
-function CopyButton({ value, label }: { value: string; label: string }) {
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
-
-  function copyWithSelection(): boolean {
-    const field = document.createElement("textarea");
-    field.value = value;
-    field.setAttribute("readonly", "");
-    field.style.position = "fixed";
-    field.style.opacity = "0";
-    document.body.append(field);
-    field.select();
-    // Deprecated but still the only broadly supported fallback when the
-    // async Clipboard API is denied inside an embedded mobile browser.
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    const copied = document.execCommand("copy");
-    field.remove();
-    buttonRef.current?.focus();
-    return copied;
-  }
-
-  async function copy() {
-    let copied = false;
-    try {
-      // Some embedded browsers expose the API but leave its promise pending.
-      // Bound the wait so the selection fallback always gets a chance.
-      await Promise.race([
-        navigator.clipboard.writeText(value),
-        new Promise<never>((_, reject) => {
-          setTimeout(() => {
-            reject(new Error("Clipboard timed out"));
-          }, 600);
-        }),
-      ]);
-      copied = true;
-    } catch {
-      copied = copyWithSelection();
-    }
-    setCopyState(copied ? "copied" : "failed");
-    setTimeout(() => {
-      setCopyState("idle");
-    }, 1800);
-  }
-
-  return (
-    <>
-      <button
-        ref={buttonRef}
-        type="button"
-        onClick={() => {
-          void copy();
-        }}
-        aria-label={
-          copyState === "copied"
-            ? `Copied: ${label}`
-            : copyState === "failed"
-              ? `Copy manually: ${label}`
-              : `Copy ${label}`
-        }
-        className="sk-press inline-flex min-h-11 shrink-0 items-center gap-[5px] rounded-[var(--radius-lg)] border px-3 font-mono text-[10.5px] font-bold tracking-[0.08em] uppercase transition-colors"
-        style={
-          copyState === "copied"
-            ? {
-                background: "rgb(var(--fg-success) / 0.14)",
-                borderColor: "rgb(var(--fg-success-text) / 0.65)",
-                color: "rgb(var(--fg-success-text))",
-              }
-            : copyState === "failed"
-              ? {
-                  background: "rgb(var(--fg-danger) / 0.1)",
-                  borderColor: "rgb(var(--fg-danger-text) / 0.65)",
-                  color: "rgb(var(--fg-danger-text))",
-                }
-              : {
-                  /* amber-tinted pill (proto-s8) */
-                  background: "rgb(var(--brand-primary) / 0.14)",
-                  borderColor: "rgb(var(--brand-primary-text) / 0.65)",
-                  color: "rgb(var(--brand-primary-text))",
-                }
-        }
-      >
-        {copyState === "copied" ? (
-          <>
-            <Check aria-hidden="true" width={11} height={11} />
-            Copied
-          </>
-        ) : copyState === "failed" ? (
-          <>Copy manually</>
-        ) : (
-          <>
-            <CopyGlyph />
-            Copy
-          </>
-        )}
-      </button>
-      <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
-        {copyState === "copied"
-          ? `${label} copied to the clipboard.`
-          : copyState === "failed"
-            ? `Copy failed for ${label}. Select and copy it manually.`
-            : ""}
-      </span>
-    </>
-  );
-}
-
-// One label/value row inside the bank card, with its own copy control.
-function PaymentDetailBlock({
-  label,
-  value,
-  copyLabel,
-}: {
-  label: string;
-  value: string;
-  copyLabel: string;
-}) {
-  return (
-    <div className="flex items-start justify-between gap-3 py-3.5">
-      <div className="min-w-0 flex-1">
-        <div className="font-mono text-[9.5px] tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
-          {label}
-        </div>
-        <div className="mt-1 font-mono text-[13.5px] leading-relaxed font-semibold break-words whitespace-pre-wrap text-[rgb(var(--fg-default))] tabular-nums">
-          {value}
-        </div>
-      </div>
-      <CopyButton value={value} label={copyLabel} />
-    </div>
-  );
-}
+type PaymentMethod = "bank" | "bit";
 
 export function PaymentInstructionsScreen({
-  productId,
   studioId,
   purchaseId,
-  installmentId,
   producerName,
   amountDueNowCents,
   currency,
@@ -194,6 +30,7 @@ export function PaymentInstructionsScreen({
   proofUploadsAvailable = true,
   proofHref,
   previewProofHref,
+  summaryHref,
 }: {
   productId: string;
   studioId?: string | undefined;
@@ -202,246 +39,195 @@ export function PaymentInstructionsScreen({
   producerName: string;
   amountDueNowCents: number;
   currency: string;
-  /** The producer's details, or null → they'll send them directly. */
   paymentDetails: PaymentDetails | null;
-  /** Recap row in the dark amount card: "{productName} · {planLabel}". */
   productName?: string | undefined;
-  /** Human label of the chosen plan (e.g. "Split 50 / 50"). */
   planLabel?: string | undefined;
-  /** False on a pre-0023 database, where the private proof ledger does not exist yet. */
   proofUploadsAvailable?: boolean | undefined;
-  /** Exact purchase-owned proof route for non-Store purchases. */
   proofHref?: string | undefined;
-  /** Dev-gallery navigation only; production routes use the exact purchase installment. */
   previewProofHref?: string | undefined;
+  summaryHref?: string | undefined;
 }) {
   const router = useRouter();
   const online = useOnlineStatus();
-  const liveProofRoute = !previewProofHref;
-  const hasPaymentDetails = Boolean(
-    paymentDetails?.bankTransfer?.trim() ||
-    paymentDetails?.bitPhone?.trim() ||
-    paymentDetails?.note?.trim(),
+  const methods = useMemo(
+    () =>
+      [
+        paymentDetails?.bankTransfer?.trim()
+          ? ({ id: "bank", label: "Bank transfer", value: paymentDetails.bankTransfer.trim() } as const)
+          : null,
+        paymentDetails?.bitPhone?.trim()
+          ? ({ id: "bit", label: "Bit", value: paymentDetails.bitPhone.trim() } as const)
+          : null,
+      ].filter((method): method is NonNullable<typeof method> => method !== null),
+    [paymentDetails?.bankTransfer, paymentDetails?.bitPhone],
   );
-
-  const goToProof = () => {
-    if (!online && liveProofRoute) return;
-    if (previewProofHref) {
-      router.push(previewProofHref);
-      return;
-    }
-    if (proofHref) {
-      router.push(proofHref);
-      return;
-    }
-    if (!purchaseId || !installmentId) {
-      router.push(withArtistStudio("/artist", studioId));
-      return;
-    }
-    const query = new URLSearchParams({ purchase: purchaseId, installment: installmentId });
-    router.push(
-      withArtistStudio(`/artist/purchase/${productId}/pay/proof?${query.toString()}`, studioId),
-    );
-  };
+  const [selected, setSelected] = useState<PaymentMethod>(methods[0]?.id ?? "bank");
+  const method = methods.find((candidate) => candidate.id === selected) ?? methods[0] ?? null;
+  const canUpload = Boolean(method && proofUploadsAvailable && (proofHref || previewProofHref));
 
   return (
-    <div
-      className="fixed inset-0 z-[60] overflow-y-auto"
-      style={{ background: "rgb(var(--bg-background))" }}
-    >
-      <div className="relative mx-auto flex min-h-dvh w-full max-w-[440px] flex-col">
+    <div className="min-h-dvh bg-[rgb(var(--bg-background))]">
+      <div className="mx-auto flex min-h-dvh w-full max-w-[480px] flex-col">
         <FunnelTopBar
-          title="Payment"
-          sub="OFF-APP · BANK OR BIT"
+          title="Payment instructions"
+          sub="PAID DIRECTLY TO THE STUDIO"
           onBack={() => {
-            router.back();
+            router.push(
+              summaryHref ??
+                withArtistStudio(
+                  purchaseId ? `/artist/payments/${purchaseId}` : "/artist",
+                  studioId,
+                ),
+            );
           }}
         />
 
-        <div className="flex-1 px-5 pt-3.5 pb-[184px]">
-          <h1 className="sr-only">Payment instructions</h1>
-
-          {/* amount due now — dark hero card (matches the prototype) */}
-          <div
-            className="sk-rise rounded-card px-[18px] pt-[15px] pb-[18px]"
-            style={{
-              background: "rgb(var(--bg-sidebar))",
-              color: "rgb(var(--fg-onsidebar))",
-              boxShadow: "0 18px 40px -16px rgb(17 16 9 / 0.45)",
-            }}
-          >
-            <div className="font-mono text-[9.5px] font-bold tracking-[0.16em] text-[rgb(var(--brand-primary))] uppercase">
+        <main className="flex-1 px-4 pt-4 pb-32 min-[390px]:px-5">
+          <section className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-5">
+            <p className="font-mono text-[9px] font-semibold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase">
               Amount due now
-            </div>
-            <div className="font-amount mt-1.5 text-[42px] leading-none font-bold tracking-[-0.04em] text-white">
-              {formatPurchaseMoney(amountDueNowCents, currency)}
-            </div>
-            {/* chosen-plan recap (proto-s8): "{product} · {plan}" */}
-            {(productName ?? planLabel) ? (
-              <div className="mt-2 truncate text-[12.5px] font-medium text-white/80">
-                {[productName, planLabel].filter(Boolean).join(" · ")}
-              </div>
-            ) : null}
-            <p className="mt-2 text-[12.5px] leading-snug text-white/55">
-              {proofUploadsAvailable
-                ? "Pay using your bank or Bit, then upload your proof."
-                : "Pay using your bank or Bit and keep your transfer receipt."}
             </p>
-          </div>
+            <p className="mt-1 font-mono text-[34px] leading-none font-bold tracking-[-0.04em] text-[rgb(var(--fg-default))] tabular-nums">
+              {formatPurchaseMoney(amountDueNowCents, currency)}
+            </p>
+            {(productName ?? planLabel) ? (
+              <p className="mt-2 text-[12.5px] text-[rgb(var(--fg-muted))]">
+                {[productName, planLabel].filter(Boolean).join(" · ")}
+              </p>
+            ) : null}
+          </section>
 
-          {hasPaymentDetails && paymentDetails ? (
-            /* Current external methods and note, each configured independently. */
-            <div className="sk-rise mt-[18px]" style={{ animationDelay: "80ms" }}>
-              {paymentDetails.bankTransfer ? (
-                <>
-                  <h2 className="mb-[9px]">
-                    <Eyebrow>Bank transfer</Eyebrow>
-                  </h2>
-                  <div
-                    className="rounded-card px-[18px]"
-                    style={{
-                      background: "rgb(var(--bg-elevated))",
-                      border: "1px solid rgb(var(--border-subtle))",
-                      boxShadow: "var(--shadow-sm)",
-                    }}
-                  >
-                    <PaymentDetailBlock
-                      label="Transfer details"
-                      value={paymentDetails.bankTransfer}
-                      copyLabel="bank transfer details"
-                    />
-                  </div>
-                </>
-              ) : null}
-
-              {paymentDetails.bitPhone ? (
-                <>
-                  <h2 className={paymentDetails.bankTransfer ? "mt-[18px] mb-[9px]" : "mb-[9px]"}>
-                    <Eyebrow>Bit</Eyebrow>
-                  </h2>
-                  <div
-                    className="rounded-card px-[18px]"
-                    style={{
-                      background: "rgb(var(--bg-elevated))",
-                      border: "1px solid rgb(var(--border-subtle))",
-                      boxShadow: "var(--shadow-sm)",
-                    }}
-                  >
-                    <PaymentDetailBlock
-                      label="Bit number"
-                      value={paymentDetails.bitPhone}
-                      copyLabel="Bit number"
-                    />
-                  </div>
-                </>
-              ) : null}
-
-              {paymentDetails.note ? (
-                <>
-                  <h2
-                    className={
-                      paymentDetails.bankTransfer || paymentDetails.bitPhone
-                        ? "mt-[18px] mb-[9px]"
-                        : "mb-[9px]"
-                    }
-                  >
-                    <Eyebrow>Payment note</Eyebrow>
-                  </h2>
-                  <div
-                    className="rounded-card px-[18px] py-4 text-[13px] leading-relaxed whitespace-pre-wrap text-[rgb(var(--fg-default))]"
-                    style={{
-                      background: "rgb(var(--bg-elevated))",
-                      border: "1px solid rgb(var(--border-subtle))",
-                      boxShadow: "var(--shadow-sm)",
-                    }}
-                  >
-                    {paymentDetails.note}
-                  </div>
-                </>
-              ) : null}
-            </div>
-          ) : (
-            /* fallback — producer hasn't shared details yet */
-            <div
-              className="sk-rise rounded-card mt-[18px] flex items-start gap-3 px-4 py-4"
-              style={{
-                animationDelay: "80ms",
-                background: "rgb(var(--bg-elevated))",
-                border: "1px solid rgb(var(--border-subtle))",
-                boxShadow: "var(--shadow-sm)",
-              }}
-            >
-              <span
-                className="mt-px flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px]"
-                style={{
-                  background: "rgb(var(--brand-primary) / 0.14)",
-                  color: "rgb(var(--brand-primary-text))",
-                }}
+          {methods.length > 0 ? (
+            <section className="mt-4" aria-labelledby="payment-method-heading">
+              <h1
+                id="payment-method-heading"
+                className="font-display text-[21px] font-bold tracking-[-0.025em] text-[rgb(var(--fg-default))]"
               >
-                <ShieldIcon width={16} height={16} />
-              </span>
-              <div className="min-w-0">
-                <div className="text-[14px] font-semibold text-[rgb(var(--fg-default))]">
-                  {producerName} will send payment details
+                Choose a payment method
+              </h1>
+              {methods.length > 1 ? (
+                <div className="mt-3 grid grid-cols-2 gap-2" role="tablist">
+                  {methods.map((candidate) => (
+                    <button
+                      key={candidate.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={candidate.id === method?.id}
+                      onClick={() => {
+                        setSelected(candidate.id);
+                      }}
+                      className="min-h-11 rounded-[var(--radius-lg)] border px-3 text-[12.5px] font-semibold"
+                      style={{
+                        background:
+                          candidate.id === method?.id
+                            ? "rgb(var(--bg-sidebar))"
+                            : "rgb(var(--bg-elevated))",
+                        borderColor: "rgb(var(--border-control))",
+                        color:
+                          candidate.id === method?.id
+                            ? "rgb(var(--fg-onsidebar))"
+                            : "rgb(var(--fg-default))",
+                      }}
+                    >
+                      {candidate.label}
+                    </button>
+                  ))}
                 </div>
-                <p className="mt-1 text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
-                  {proofUploadsAvailable
-                    ? "They'll share their bank or Bit details with you directly. Once you've paid, come back and upload your proof."
-                    : "They'll share their bank or Bit details with you directly. Keep your receipt until private proof upload is enabled."}
+              ) : null}
+
+              {method ? (
+                <div className="mt-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4">
+                  <p className="font-mono text-[9px] font-semibold tracking-[0.13em] text-[rgb(var(--fg-muted))] uppercase">
+                    {method.label}
+                  </p>
+                  <p className="mt-2 whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed font-semibold text-[rgb(var(--fg-default))]">
+                    {method.value}
+                  </p>
+                  <CopyButton value={method.value} label={method.label} />
+                </div>
+              ) : null}
+              {paymentDetails?.note?.trim() ? (
+                <p className="mt-3 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] px-4 py-3 text-[12.5px] leading-relaxed whitespace-pre-wrap text-[rgb(var(--fg-secondary))]">
+                  {paymentDetails.note.trim()}
                 </p>
-              </div>
-            </div>
+              ) : null}
+            </section>
+          ) : (
+            <section className="mt-4 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4">
+              <h1 className="text-[14px] font-semibold text-[rgb(var(--fg-default))]">
+                {producerName} has not added payment instructions yet.
+              </h1>
+              <p className="mt-1.5 text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
+                The studio will share its Bank or Bit details directly. Proof upload becomes
+                available only after a real payment method is shown.
+              </p>
+            </section>
           )}
 
-          {/* reassurance — the app is the record-keeper, not the processor */}
-          <div className="mt-3.5 flex items-start gap-1.5 text-[11.5px] leading-snug text-[rgb(var(--fg-muted))]">
-            <span className="mt-px">
-              <ShieldIcon />
-            </span>
-            <span>
-              Money is paid directly to {producerName}. Skitza keeps the record — we never hold or
-              move your money.
-            </span>
-          </div>
-          {!online && liveProofRoute ? (
-            <p
-              role="status"
-              className="mt-3 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] px-3.5 py-3 text-[12.5px] text-[rgb(var(--fg-secondary))]"
-            >
-              Reconnect before opening the live proof form.
-            </p>
-          ) : null}
-        </div>
+          <p className="mt-4 text-[11.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
+            Skitza records your proof. It does not process, hold, or move money.
+          </p>
+        </main>
 
-        {/* pinned action */}
-        <div
-          className="sk-safe-bottom sticky bottom-0 z-10 px-[18px] pt-3.5 pb-3.5"
-          style={{
-            background:
-              "linear-gradient(180deg, rgb(var(--bg-background) / 0) 0%, rgb(var(--bg-background) / 0.96) 22%)",
-          }}
-        >
-          <PrimaryCta
-            onClick={goToProof}
-            disabled={!proofUploadsAvailable || (!online && liveProofRoute)}
-            sub={
-              !online && liveProofRoute
-                ? "Reconnect to continue"
-                : proofUploadsAvailable
-                  ? "Upload a screenshot of your transfer"
-                  : `Keep your receipt and send it directly to ${producerName}`
-            }
-          >
-            {proofUploadsAvailable ? (
-              <>
-                I&apos;ve paid — upload proof <ArrowRight />
-              </>
-            ) : (
-              "Proof upload temporarily unavailable"
-            )}
-          </PrimaryCta>
-        </div>
+        {canUpload ? (
+          <div className="sticky bottom-0 px-4 pt-4 pb-[calc(0.875rem+env(safe-area-inset-bottom,0px))] min-[390px]:px-5">
+            <button
+              type="button"
+              disabled={!online}
+              onClick={() => {
+                const destination = previewProofHref ?? proofHref;
+                if (destination) router.push(destination);
+              }}
+              className="sk-press min-h-12 w-full rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sidebar))] px-4 text-[14px] font-bold text-[rgb(var(--fg-onsidebar))] disabled:opacity-50"
+            >
+              {online ? "I’ve paid — upload proof" : "Reconnect to continue"}
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
+  );
+}
+
+function CopyButton({ value, label }: { value: string; label: string }) {
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+
+  async function copyValue() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopyState("copied");
+      window.setTimeout(() => {
+        setCopyState("idle");
+      }, 1_800);
+    } catch {
+      setCopyState("failed");
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          void copyValue();
+        }}
+        className="sk-press mt-3 inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[rgb(var(--border-control))] px-3 text-[11px] font-bold text-[rgb(var(--fg-default))]"
+        aria-label={`Copy ${label}`}
+      >
+        {copyState === "copied" ? (
+          <Check size={14} aria-hidden />
+        ) : (
+          <Copy size={14} aria-hidden />
+        )}
+        {copyState === "copied" ? "Copied" : "Copy"}
+      </button>
+      <span className="sr-only" role="status" aria-live="polite">
+        {copyState === "copied"
+          ? `${label} copied`
+          : copyState === "failed"
+            ? `Could not copy ${label}. Select the details above to copy manually.`
+            : ""}
+      </span>
+    </>
   );
 }

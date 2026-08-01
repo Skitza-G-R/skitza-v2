@@ -1,75 +1,50 @@
-// Route-segment loading state for /dashboard/clients-projects/[id]
-// (Album page). Mirrors the AlbumSpace shell: dark gradient hero band
-// (avatar + identity + hero CTAs), 4-tile stat strip, segmented tab
-// bar, and a tracklist body. The previous version of this file was a
-// generic title + 2-column grid that didn't match either branch of
-// the page (album vs single-mode redirect), creating a noticeable
-// shape flip on hand-off.
-//
-// Single-mode (project with exactly one track) redirects on the
-// server to /songs/[songId] before this loading file ever renders, so
-// the skeleton only needs to match the album-mode geometry.
-
 export default function AlbumSpaceLoading() {
   return (
-    <main aria-hidden aria-label="Loading project" className="sk-page-enter">
-      <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
-        {/* Breadcrumb placeholder — "Clients & Projects › {project}". */}
-        <Skel className="mb-4 h-4 w-56 rounded" />
-
-        {/* Dark gradient placeholder for the AlbumHero band — shorter
-            below md to match the SK-60 stacked mobile hero. */}
-        <Skel className="h-[200px] rounded-[var(--radius-lg)] md:h-[260px]" tone="band" />
-
-        {/* 4-cell stat strip — 2×2 below md, matching AlbumStatStrip */}
-        <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-          <Skel className="h-[88px] rounded-[var(--radius-md)]" />
-          <Skel className="h-[88px] rounded-[var(--radius-md)]" />
-          <Skel className="h-[88px] rounded-[var(--radius-md)]" />
-          <Skel className="h-[88px] rounded-[var(--radius-md)]" />
-        </div>
-
-        {/* Tab pill bar — Songs / Files / Payments / Studio Log */}
-        <div className="mt-6 flex gap-2">
-          <Skel className="h-9 w-24 rounded-full" />
-          <Skel className="h-9 w-20 rounded-full" />
-          <Skel className="h-9 w-24 rounded-full" />
-          <Skel className="h-9 w-28 rounded-full" />
-        </div>
-
-        {/* Tracklist body — 4 row placeholders */}
-        <div className="mt-6 space-y-2">
-          <Skel className="h-[64px] rounded-[var(--radius-md)]" />
-          <Skel className="h-[64px] rounded-[var(--radius-md)]" />
-          <Skel className="h-[64px] rounded-[var(--radius-md)]" />
-          <Skel className="h-[64px] rounded-[var(--radius-md)]" />
+    <div
+      aria-hidden
+      className="sk-page-enter mx-auto max-w-[1600px] px-4 py-4 sm:px-6 sm:py-6"
+      style={{ animationFillMode: "backwards" }}
+    >
+      <div className="rounded-[var(--radius-xl)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 shadow-[var(--shadow-sm)] sm:p-5">
+        <div className="flex items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <Skel className="h-3 w-24 rounded-[var(--radius-sm)]" />
+            <Skel className="mt-3 h-9 w-2/3 max-w-[420px] rounded-[var(--radius-md)]" />
+            <div className="mt-4 flex flex-wrap gap-3">
+              <Skel className="h-5 w-28 rounded-[var(--radius-sm)]" />
+              <Skel className="h-5 w-20 rounded-[var(--radius-sm)]" />
+              <Skel className="h-5 w-24 rounded-[var(--radius-sm)]" />
+            </div>
+          </div>
+          <Skel className="h-11 w-11 shrink-0 rounded-full" />
         </div>
       </div>
-    </main>
+
+      <div className="sticky top-0 z-30 mt-3 bg-[rgb(var(--bg-background)/0.94)] py-2 backdrop-blur-xl lg:top-16">
+        <div className="flex max-w-full gap-1 overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1">
+          <Skel slot="project-tab" className="h-11 w-24 shrink-0 rounded-[var(--radius-lg)]" />
+          <Skel slot="project-tab" className="h-11 w-24 shrink-0 rounded-[var(--radius-lg)]" />
+          <Skel slot="project-tab" className="h-11 w-28 shrink-0 rounded-[var(--radius-lg)]" />
+          <Skel slot="project-tab" className="h-11 w-24 shrink-0 rounded-[var(--radius-lg)]" />
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-2">
+        <Skel slot="song-row" className="h-[68px] rounded-[var(--radius-lg)]" />
+        <Skel slot="song-row" className="h-[68px] rounded-[var(--radius-lg)]" />
+        <Skel slot="song-row" className="h-[68px] rounded-[var(--radius-lg)]" />
+        <Skel slot="song-row" className="h-[68px] rounded-[var(--radius-lg)]" />
+      </div>
+    </div>
   );
 }
 
-function Skel({
-  className,
-  tone = "default",
-}: {
-  className?: string;
-  tone?: "default" | "band";
-}) {
-  // The hero band placeholder reads as a dark gradient stand-in so the
-  // perceived weight matches the real hero; everything else uses the
-  // standard elevated surface tone so the cards line up with the live
-  // page's card backgrounds.
-  const bg =
-    tone === "band"
-      ? "bg-[rgb(var(--bg-sunken))]"
-      : "bg-[rgb(var(--bg-elevated))]";
+function Skel({ className, slot }: { className?: string; slot?: string }) {
   return (
     <span
-      aria-hidden
+      data-loading-slot={slot}
       className={[
-        "block animate-pulse border border-[rgb(var(--border-subtle))] motion-reduce:animate-none",
-        bg,
+        "block animate-pulse border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] motion-reduce:animate-none",
         className ?? "",
       ].join(" ")}
     />

@@ -535,7 +535,8 @@ export function buildPrivateOfferSnapshot(input: PrivateOfferInput): PurchaseCom
   assertFeasiblePlans(offeredPaymentPlans, tax.totalCents);
 
   const snapshot: PurchaseCommercialSnapshot = {
-    version: 1,
+    version: 2,
+    bookingEnabled: session !== null,
     productOrOfferName: name,
     ...(tagline ? { tagline } : {}),
     service,

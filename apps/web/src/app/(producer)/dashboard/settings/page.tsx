@@ -1,6 +1,7 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
+import { coerceTaxMode } from "~/lib/tax-mode";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { SettingsClient } from "./settings-client";
 import {
@@ -120,6 +121,8 @@ export default async function SettingsPage({
           | "EUR"
           | "GBP"
           | "ILS",
+        taxMode: coerceTaxMode(profile.taxMode),
+        taxRatePct: profile.taxRatePct,
         weekStart: profile.weekStart === "monday" ? "monday" : "sunday",
         plan: profile.plan === "pro" ? "pro" : "free",
         paymentInstructions: {

@@ -17,22 +17,34 @@ function sourceBlock(source: string, startToken: string, endToken: string): stri
   return source.slice(start, end);
 }
 
-describe("artist allowance availability block contract", () => {
-  it("preserves every configured block for each producer-local weekday", () => {
-    const availability = sourceBlock(
-      artistSource,
-      "availability: artistProcedure",
-      "activePackages: artistProcedure",
-    );
+describe("artist exact availability slot contract", () => {
+  const availability = sourceBlock(
+    artistSource,
+    "availability: artistProcedure",
+    "activePackages: artistProcedure",
+  );
 
-    expect(availability).toMatch(/blocksByWeekday[\s\S]*BlockShape\[\]/);
-    expect(availability).toMatch(/blocksByWeekday\.set\(b\.weekday,[\s\S]*block/);
-    expect(availability).toMatch(/blocks:\s*blocks[\s\S]*\.map\(buildSlot\)/);
-    expect(availability).not.toMatch(/morning:\s*buildSlot|evening:\s*buildSlot/);
+  it("evaluates every 30-minute start in every producer-local block independently", () => {
+    expect(availability).toMatch(/for \(const block of blocks\)/);
+    expect(availability).toMatch(/startMin \+= 30/);
+    expect(availability).toMatch(/studioLocalDateTimeUtcCandidates/);
+    expect(availability).toMatch(/for \(const startsAt of candidates\)/);
+    expect(availability).toMatch(/assertSessionSlotAvailable/);
+    expect(availability).toMatch(/continue;/);
+    expect(availability).not.toMatch(/available = false;\s*break/);
   });
 
-  it("renders availability from day.blocks without a two-block morning/evening projection", () => {
-    expect(bookingClientSource).toMatch(/day\.blocks/);
-    expect(bookingClientSource).not.toMatch(/day\.(?:morning|evening)/);
+  it("returns exact instants grouped in the artist timezone", () => {
+    expect(availability).toMatch(/studioLocalDateKey\(startsAt, artistTimeZone\)/);
+    expect(availability).toMatch(/startsAt,/);
+    expect(availability).toMatch(/endsAt:/);
+    expect(availability).toMatch(/artistTimeZone/);
+    expect(availability).toMatch(/studioTimeZone: producer\.timeZone/);
+  });
+
+  it("renders only server-authored day.slots and submits startsAtISO", () => {
+    expect(bookingClientSource).toMatch(/day\.slots/);
+    expect(bookingClientSource).toMatch(/slot\.startsAtISO/);
+    expect(bookingClientSource).not.toMatch(/day\.(?:morning|evening|blocks)/);
   });
 });

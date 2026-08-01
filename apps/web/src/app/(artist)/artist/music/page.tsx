@@ -1,4 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
+import Link from "next/link";
 import { Suspense } from "react";
 
 import {
@@ -7,7 +8,9 @@ import {
   type MusicLibraryRow,
 } from "~/components/music/library-screen";
 import { RuntimeScreenSafeViewWriter } from "~/components/runtime-state/runtime-screen-view";
+import { resolveArtistStudioId, withArtistStudio } from "~/lib/artist-studio-context";
 import { mapArtistMusicSafeScreen } from "~/lib/runtime-state/screen-view-mappers";
+import { readArtistStudioPreference } from "~/server/artist/studio-preference";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 // Music library — Library view (L1).
@@ -21,12 +24,25 @@ import { appRouter } from "~/server/trpc/routers/_app";
 // One row per TRACK across every project this artist is part of,
 // sorted by the newest version's upload time (newest first). Dates
 // cross the RSC → client boundary as ISO strings.
-export default async function MusicPage() {
+type MusicPageProps = {
+  searchParams: Promise<{ studio?: string; view?: string }>;
+};
+
+export default async function MusicPage({ searchParams }: MusicPageProps) {
   const { userId } = await auth();
   if (!userId) return null;
 
   const caller = appRouter.createCaller({ userId });
-  const data = await caller.library.music.artistList();
+  const [studiosResponse, sp, savedStudioId] = await Promise.all([
+    caller.artist.studios(),
+    searchParams,
+    readArtistStudioPreference(userId),
+  ]);
+  const activeStudioId = resolveArtistStudioId(studiosResponse.studios, sp.studio, savedStudioId);
+  const allMusic = sp.view === "all";
+  const data = await caller.library.music.artistList(
+    allMusic || !activeStudioId ? undefined : { producerId: activeStudioId },
+  );
 
   const rows: MusicLibraryRow[] = data.projects.flatMap((project) => [
     ...project.songs.map(
@@ -125,8 +141,43 @@ export default async function MusicPage() {
         className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[360px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.10)] to-transparent"
       />
       <div className="mx-auto mt-10 max-w-[1180px] px-4 pt-6 pb-24 sm:px-7 sm:pt-8 lg:mt-0">
+        {studiosResponse.studios.length > 1 ? (
+          <nav
+            aria-label="Music scope"
+            className="mb-5 inline-flex rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1"
+          >
+            <Link
+              href={withArtistStudio("/artist/music", activeStudioId)}
+              aria-current={!allMusic ? "page" : undefined}
+              className={`min-h-9 rounded-[calc(var(--radius-lg)-4px)] px-3 py-2 text-[12px] font-semibold ${
+                allMusic
+                  ? "text-[rgb(var(--fg-muted))]"
+                  : "bg-[rgb(var(--bg-sidebar))] text-[rgb(var(--fg-onsidebar))]"
+              }`}
+            >
+              This studio
+            </Link>
+            <Link
+              href={withArtistStudio("/artist/music?view=all", activeStudioId)}
+              aria-current={allMusic ? "page" : undefined}
+              className={`min-h-9 rounded-[calc(var(--radius-lg)-4px)] px-3 py-2 text-[12px] font-semibold ${
+                allMusic
+                  ? "bg-[rgb(var(--bg-sidebar))] text-[rgb(var(--fg-onsidebar))]"
+                  : "text-[rgb(var(--fg-muted))]"
+              }`}
+            >
+              All music
+            </Link>
+          </nav>
+        ) : null}
         <Suspense fallback={null}>
           <RuntimeScreenSafeViewWriter
+            href={
+              allMusic
+                ? withArtistStudio("/artist/music?view=all", activeStudioId)
+                : withArtistStudio("/artist/music", activeStudioId)
+            }
+            contextId={activeStudioId ?? "artist-no-studio"}
             view={mapArtistMusicSafeScreen({
               projects: projectRows,
               tracks: rows,

@@ -4,6 +4,7 @@ import {
   authorizeArtistDownload,
   authorizeArtistOwner,
   authorizePrivateStream,
+  authorizePrivateStreamForAccount,
   authorizePublicPortfolioStream,
   authorizeProducerDownload,
   authorizeProducerOverrideManagement,
@@ -16,6 +17,12 @@ import {
   type AuthorizedStoredAudio,
   type PublicAudioDeliveryContext,
 } from "./policy";
+
+export {
+  readProducerDownloadOverrideStates as readDownloadOverrideStates,
+  type ProducerDownloadStateBatchRepository,
+  type ProducerDownloadStateBatchScope,
+} from "./producer-download-state";
 
 export type DownloadOverrideEvent = Readonly<{
   id: string;
@@ -122,6 +129,26 @@ export async function deliverPrivateStream<Result>(
   return repository.atomically({ kind: "audio", versionId }, async (transaction) => {
     exactScope(transaction.context, { versionId });
     const audio = authorizePrivateStream(transaction.context, input.viewer);
+    return open(audioRequest(transaction.context, audio));
+  });
+}
+
+export async function deliverPrivateStreamForAccount<Result>(
+  repository: AudioDeliveryRepository,
+  input: Readonly<{ viewerClerkUserId: string; versionId: string }>,
+  open: (request: AudioObjectRequest) => Promise<Result>,
+): Promise<Result> {
+  const viewerClerkUserId = identifier(
+    input.viewerClerkUserId,
+    "Viewer id",
+  );
+  const versionId = identifier(input.versionId, "Version id");
+  return repository.atomically({ kind: "audio", versionId }, async (transaction) => {
+    exactScope(transaction.context, { versionId });
+    const audio = authorizePrivateStreamForAccount(
+      transaction.context,
+      viewerClerkUserId,
+    );
     return open(audioRequest(transaction.context, audio));
   });
 }

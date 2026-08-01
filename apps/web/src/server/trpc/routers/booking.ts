@@ -6,6 +6,7 @@ import {
   availabilityBlackouts,
   availabilityBlocks,
   bookings,
+  clientContacts,
   desc,
   eq,
   gte,
@@ -54,6 +55,7 @@ import {
   SessionBookingDomainError,
 } from "~/server/domain/session-booking/service";
 import { deliverPushToProjectArtist } from "~/server/push/delivery";
+import { emitArtistSessionNotification } from "~/server/artist/notification-emitters";
 
 function mapStoreProductCommercialError(error: unknown): never {
   if (error instanceof StoreProductCommercialError) {
@@ -95,12 +97,14 @@ async function loadProducerBookingMessageContext(
   producerId: string,
   bookingId: string,
 ) {
-  const [row] = await db
+  const rows = await db
     .select({
       booking: bookings,
       commercialSnapshot: purchases.commercialSnapshot,
       producerDisplayName: producers.displayName,
       producerTimezone: producers.timezone,
+      artistClerkUserId: clientContacts.clerkUserId,
+      artistContactArchivedAt: clientContacts.archivedAt,
     })
     .from(bookings)
     .innerJoin(
@@ -111,10 +115,54 @@ async function loadProducerBookingMessageContext(
         eq(purchases.producerId, bookings.producerId),
       ),
     )
+    .innerJoin(
+      clientContacts,
+      and(
+        eq(clientContacts.id, purchases.clientContactId),
+        eq(clientContacts.producerId, purchases.producerId),
+      ),
+    )
     .innerJoin(producers, eq(producers.id, bookings.producerId))
     .where(and(eq(bookings.id, bookingId), eq(bookings.producerId, producerId)))
     .limit(1);
-  return row ?? null;
+  const row = rows[0];
+  if (!row) return null;
+
+  let originalStartsAt: Date | null = null;
+  if (row.booking.rescheduledFromBookingId) {
+    const [original] = await db
+      .select({ startsAt: bookings.startsAt })
+      .from(bookings)
+      .where(
+        and(
+          eq(bookings.id, row.booking.rescheduledFromBookingId),
+          eq(bookings.producerId, producerId),
+        ),
+      )
+      .limit(1);
+    originalStartsAt = original?.startsAt ?? null;
+  }
+
+  return {
+    ...row,
+    artistClerkUserId: row.artistContactArchivedAt === null ? row.artistClerkUserId : null,
+    originalStartsAt,
+  };
+}
+
+async function emitArtistBookingNotificationBestEffort(
+  db: Parameters<typeof sessionBookingRepository>[0],
+  input: Parameters<typeof emitArtistSessionNotification>[1],
+): Promise<boolean> {
+  try {
+    const delivery = await emitArtistSessionNotification(db, input);
+    return delivery.emailEnabled;
+  } catch (error) {
+    console.warn("[artist-notify] booking event failed", error);
+    // A feed write is best effort. Do not suppress the existing transactional
+    // email when the notification store is temporarily unavailable.
+    return true;
+  }
 }
 
 type RecentPaymentCompatibility = {
@@ -241,6 +289,7 @@ const ProductInputShape = {
   // round-trip silently fail, so the Save button errored on any
   // product the producer marked as unlimited.
   sessionCount: z.number().int().min(0).max(100).optional(),
+  bookingEnabled: z.boolean().default(false),
   deliverables: z.array(z.string().min(1).max(100)).max(10).optional(),
   locationType: ProductLocationType.default("studio"),
   bufferMinutes: z.number().int().min(0).max(240).default(0),
@@ -256,6 +305,9 @@ const ProductInputShape = {
   // accepted so an editor can clear the legacy column without a migration.
   contractUrl: z.null().optional(),
   agreementText: z.string().max(20_000).nullable().optional(),
+  // Visibility is part of creation so "Save hidden" never exposes a product
+  // between two mutations. Existing callers omit it and stay live by default.
+  active: z.boolean().default(true),
 };
 
 const ProductInput = z.object(ProductInputShape).superRefine((val, ctx) => {
@@ -319,6 +371,7 @@ const ProductUpdateInput = z.object({
     .optional(),
   // 0 = unlimited sessions (see create-input comment above).
   sessionCount: z.number().int().min(0).max(100).optional(),
+  bookingEnabled: z.boolean().optional(),
   deliverables: z.array(z.string().min(1).max(100)).max(10).optional(),
   locationType: ProductLocationType.optional(),
   bufferMinutes: z.number().int().min(0).max(240).optional(),
@@ -650,6 +703,7 @@ const productsRouter = router({
         hourlyRateCents: values.hourlyRateCents ?? null,
         durationMin: values.durationMin,
         sessionCount: values.sessionCount,
+        bookingEnabled: values.bookingEnabled,
         deliverables: values.deliverables ?? null,
         locationType: values.locationType,
         bufferMinutes: values.bufferMinutes,
@@ -657,7 +711,7 @@ const productsRouter = router({
         paymentPlans: values.paymentPlans ?? [{ kind: "full" }],
         royaltyTerms: values.royaltyTerms ?? null,
         agreementText: values.agreementText ?? null,
-        active: true,
+        active: values.active,
         archivedAt: null,
       });
     } catch (error) {
@@ -749,10 +803,7 @@ const productsRouter = router({
           .select({ id: purchases.id })
           .from(purchases)
           .where(
-            and(
-              eq(purchases.productId, existing.id),
-              eq(purchases.producerId, ctx.producerId),
-            ),
+            and(eq(purchases.productId, existing.id), eq(purchases.producerId, ctx.producerId)),
           )
           .limit(1);
         const [offerHistory] = await tx
@@ -827,10 +878,7 @@ const productsRouter = router({
         .select({ id: products.id })
         .from(products)
         .where(
-          and(
-            eq(products.producerId, ctx.producerId),
-            inArray(products.id, input.orderedIds),
-          ),
+          and(eq(products.producerId, ctx.producerId), inArray(products.id, input.orderedIds)),
         );
       if (rows.length !== input.orderedIds.length) {
         throw new TRPCError({ code: "NOT_FOUND" });
@@ -870,9 +918,20 @@ const productsRouter = router({
   // products. Distinct from `archive`, which moves the row
   // to a soft-deleted state and removes it from the dashboard list.
   setActive: producerProcedure
-    .input(z.object({ id: z.string().uuid(), active: z.boolean() }))
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        active: z.boolean(),
+        requireAvailability: z.boolean().optional().default(false),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       return ctx.db.transaction(async (tx) => {
+        if (input.active && input.requireAvailability) {
+          await tx.execute(
+            sql`select pg_advisory_xact_lock(hashtextextended(${sessionBookingScheduleAdvisoryLockKey(ctx.producerId)}, 0))`,
+          );
+        }
         const [existing] = await tx
           .select()
           .from(products)
@@ -880,6 +939,19 @@ const productsRouter = router({
           .limit(1)
           .for("update");
         if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+        if (input.active && input.requireAvailability && existing.bookingEnabled) {
+          const [availability] = await tx
+            .select({ id: availabilityBlocks.id })
+            .from(availabilityBlocks)
+            .where(eq(availabilityBlocks.producerId, ctx.producerId))
+            .limit(1);
+          if (!availability) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Add working hours before publishing this product.",
+            });
+          }
+        }
         try {
           mergeAndValidateStoreProduct(existing as StoreProductCommercialInput, {
             active: input.active,
@@ -925,28 +997,29 @@ const productsRouter = router({
         const [row] = await tx
           .insert(products)
           .values({
-          producerId: existing.producerId,
-          name: `${existing.name} (copy)`,
-          description: existing.description,
-          durationMin: existing.durationMin,
-          sessionCount: existing.sessionCount,
-          priceCents: existing.priceCents,
-          currency: existing.currency,
-          active: false,
-          position: nextPos,
-          kind: existing.kind,
-          locationType: existing.locationType,
-          bufferMinutes: existing.bufferMinutes,
-          minLeadHours: existing.minLeadHours,
-          pricingModel: existing.pricingModel,
-          volumeTiers: existing.volumeTiers,
-          hourlyRateCents: existing.hourlyRateCents,
-          deliverables: existing.deliverables,
-          paymentPlans: existing.paymentPlans,
-          royaltyTerms: existing.royaltyTerms,
-          // A duplicate is a future product and must not inherit mutable terms.
-          contractUrl: null,
-          agreementText: existing.agreementText,
+            producerId: existing.producerId,
+            name: `${existing.name} (copy)`,
+            description: existing.description,
+            durationMin: existing.durationMin,
+            sessionCount: existing.sessionCount,
+            bookingEnabled: existing.bookingEnabled,
+            priceCents: existing.priceCents,
+            currency: existing.currency,
+            active: false,
+            position: nextPos,
+            kind: existing.kind,
+            locationType: existing.locationType,
+            bufferMinutes: existing.bufferMinutes,
+            minLeadHours: existing.minLeadHours,
+            pricingModel: existing.pricingModel,
+            volumeTiers: existing.volumeTiers,
+            hourlyRateCents: existing.hourlyRateCents,
+            deliverables: existing.deliverables,
+            paymentPlans: existing.paymentPlans,
+            royaltyTerms: existing.royaltyTerms,
+            // A duplicate is a future product and must not inherit mutable terms.
+            contractUrl: null,
+            agreementText: existing.agreementText,
           })
           .returning();
         if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -1262,13 +1335,16 @@ export const bookingRouter = router({
               "no_show",
             ])
             .optional(),
+          projectId: z.string().uuid().optional(),
         })
         .optional(),
     )
     .query(async ({ ctx, input }) => {
-      const filter = input?.status
-        ? and(eq(bookings.producerId, ctx.producerId), eq(bookings.status, input.status))
-        : eq(bookings.producerId, ctx.producerId);
+      const filter = and(
+        eq(bookings.producerId, ctx.producerId),
+        input?.projectId ? eq(bookings.projectId, input.projectId) : undefined,
+        input?.status ? eq(bookings.status, input.status) : undefined,
+      );
       const rows = await ctx.db
         .select({ booking: bookings, commercialSnapshot: purchases.commercialSnapshot })
         .from(bookings)
@@ -1314,14 +1390,39 @@ export const bookingRouter = router({
       }
       if (result.changed) {
         after(async () => {
+          const sessionName = purchaseProductName(before.commercialSnapshot, "Session");
+          const changed = before.booking.rescheduledFromBookingId !== null;
+          const emailEnabled = await emitArtistBookingNotificationBestEffort(ctx.db, {
+            recipientClerkUserId: before.artistClerkUserId,
+            producerId: ctx.producerId,
+            bookingId: result.booking.id,
+            producerName: before.producerDisplayName ?? "Your producer",
+            sessionName,
+            kind: changed ? "booking_changed" : "booking_confirmed",
+            sourceEventId: result.booking.id,
+          });
+          if (!emailEnabled) return;
           try {
-            await sendBookingConfirmedEmail(before.booking.artistEmail, {
-              artistName: before.booking.artistName,
-              producerName: before.producerDisplayName ?? "Your producer",
-              productName: purchaseProductName(before.commercialSnapshot, "Session"),
-              startsAt: before.booking.startsAt,
-              producerTimezone: before.producerTimezone,
-            });
+            if (changed) {
+              await sendBookingCancelledOrRescheduledEmail(before.booking.artistEmail, {
+                recipientName: before.booking.artistName,
+                counterpartName: before.producerDisplayName ?? "Your producer",
+                productName: sessionName,
+                status: "rescheduled",
+                oldStartsAt: before.originalStartsAt ?? before.booking.startsAt,
+                newStartsAt: result.booking.startsAt,
+                producerTimezone: before.producerTimezone,
+                reason: null,
+              });
+            } else {
+              await sendBookingConfirmedEmail(before.booking.artistEmail, {
+                artistName: before.booking.artistName,
+                producerName: before.producerDisplayName ?? "Your producer",
+                productName: sessionName,
+                startsAt: before.booking.startsAt,
+                producerTimezone: before.producerTimezone,
+              });
+            }
           } catch {
             console.error("[email] booking confirmation failed");
           }
@@ -1365,6 +1466,16 @@ export const bookingRouter = router({
       }
       if (result.changed) {
         after(async () => {
+          const emailEnabled = await emitArtistBookingNotificationBestEffort(ctx.db, {
+            recipientClerkUserId: before.artistClerkUserId,
+            producerId: ctx.producerId,
+            bookingId: result.booking.id,
+            producerName: before.producerDisplayName ?? "Your producer",
+            sessionName: purchaseProductName(before.commercialSnapshot, "Session"),
+            kind: "booking_declined",
+            sourceEventId: result.booking.id,
+          });
+          if (!emailEnabled) return;
           try {
             await sendBookingCancelledOrRescheduledEmail(before.booking.artistEmail, {
               recipientName: before.booking.artistName,
@@ -1419,6 +1530,16 @@ export const bookingRouter = router({
       }
       if (result.changed) {
         after(async () => {
+          const emailEnabled = await emitArtistBookingNotificationBestEffort(ctx.db, {
+            recipientClerkUserId: before.artistClerkUserId,
+            producerId: ctx.producerId,
+            bookingId: result.booking.id,
+            producerName: before.producerDisplayName ?? "Your producer",
+            sessionName: purchaseProductName(before.commercialSnapshot, "Session"),
+            kind: "booking_cancelled",
+            sourceEventId: result.booking.id,
+          });
+          if (!emailEnabled) return;
           try {
             await sendBookingCancelledOrRescheduledEmail(before.booking.artistEmail, {
               recipientName: before.booking.artistName,

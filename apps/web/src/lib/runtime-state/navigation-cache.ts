@@ -10,6 +10,8 @@ export const RUNTIME_NAVIGATION_READY_MAX_AGE_MS = 150_000;
 export const RUNTIME_MAIN_NAVIGATION_INTENT_EVENT = "skitza:runtime-main-navigation-intent";
 export const RUNTIME_MAIN_NAVIGATION_DESTINATION_ATTRIBUTE = "data-sk-nav-destination";
 export const RUNTIME_MAIN_NAVIGATION_PENDING_ATTRIBUTE = "data-sk-nav-pending";
+export const RUNTIME_MAIN_NAVIGATION_RELEASE_GUARD_UNTIL_ATTRIBUTE =
+  "data-sk-nav-release-guard-until";
 
 export const PRODUCER_MAIN_NAVIGATION_DESTINATIONS = [
   "/dashboard",

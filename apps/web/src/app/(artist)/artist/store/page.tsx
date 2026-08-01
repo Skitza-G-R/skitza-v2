@@ -5,12 +5,13 @@ import { ProducerHero } from "~/components/artist/store/producer-hero";
 import { QuietProductList } from "~/components/artist/store/quiet-product-list";
 import { PrivateOffersList } from "~/components/artist/offers/private-offers-list";
 import { RuntimeScreenSafeViewWriter } from "~/components/runtime-state/runtime-screen-view";
-import { withArtistStudio } from "~/lib/artist-studio-context";
+import { resolveArtistStudioId, withArtistStudio } from "~/lib/artist-studio-context";
 import { mapArtistStoreSafeScreen } from "~/lib/runtime-state/screen-view-mappers";
 import { coerceTaxMode } from "~/lib/tax-mode";
+import { readArtistStudioPreference } from "~/server/artist/studio-preference";
 import { appRouter } from "~/server/trpc/routers/_app";
 
-type PageProps = { searchParams: Promise<{ studio?: string }> };
+type PageProps = { searchParams: Promise<{ studio?: string; notice?: string }> };
 
 // Boutique storefront per producer. The chrome StudioSwitcher
 // (mobile top bar + desktop sidebar) writes ?studio=<id>; we resolve
@@ -31,7 +32,10 @@ export default async function StorePage({ searchParams }: PageProps) {
   const caller = appRouter.createCaller({ userId });
   const sp = await searchParams;
 
-  const { studios } = await caller.artist.studios();
+  const [{ studios }, savedStudioId] = await Promise.all([
+    caller.artist.studios(),
+    readArtistStudioPreference(userId),
+  ]);
   if (studios.length === 0) {
     return (
       <div className="reveal-up mx-auto w-full max-w-[600px] space-y-5 lg:max-w-[760px]">
@@ -53,7 +57,8 @@ export default async function StorePage({ searchParams }: PageProps) {
   // returns them desc by lastSeenAt server-side). The length === 0
   // case is handled above, so studios[0] is defined here — the
   // explicit guard exists to satisfy the no-non-null-assertion lint.
-  const activeStudio = studios.find((s) => s.producerId === sp.studio) ?? studios[0];
+  const activeStudioId = resolveArtistStudioId(studios, sp.studio, savedStudioId);
+  const activeStudio = studios.find((studio) => studio.producerId === activeStudioId);
   if (!activeStudio) return null;
 
   const [{ products }, privateOffers] = await Promise.all([
@@ -71,7 +76,7 @@ export default async function StorePage({ searchParams }: PageProps) {
   const taxRatePct = focal?.producerTaxRatePct ?? 18;
 
   return (
-    <div className="mx-auto w-full max-w-[600px] space-y-6 lg:max-w-[760px]">
+    <div className="mx-auto w-full max-w-[920px] space-y-5">
       <RuntimeScreenSafeViewWriter
         href={withArtistStudio("/artist/store", activeStudio.producerId)}
         contextId={activeStudio.producerId}
@@ -81,6 +86,15 @@ export default async function StorePage({ searchParams }: PageProps) {
         })}
       />
       <StoreEyebrow />
+      {sp.notice === "unavailable" ? (
+        <p
+          role="status"
+          className="rounded-[var(--radius-lg)] border bg-[rgb(var(--bg-elevated))] px-4 py-3 text-[13px] text-[rgb(var(--fg-secondary))]"
+          style={{ borderColor: "rgb(var(--border-subtle))" }}
+        >
+          This service is not available to request yet.
+        </p>
+      ) : null}
       <PrivateOffersList offers={privateOffers.offers} />
       <ProducerHero producerName={activeStudio.name} producerLogoUrl={activeStudio.logoUrl} />
       {focal ? (
@@ -128,10 +142,12 @@ export default async function StorePage({ searchParams }: PageProps) {
 // weight; this stays a quiet route handle. Mirrors BookEyebrow.
 function StoreEyebrow() {
   return (
-    <header className="flex items-baseline justify-between px-1 sm:px-0">
-      <h1 className="font-display text-[20px] leading-none font-extrabold tracking-[-0.025em] text-[rgb(var(--fg-default))]">
+    <header className="px-1 sm:px-0">
+      <p className="font-mono text-[9px] font-semibold tracking-[0.16em] text-[rgb(var(--fg-muted))] uppercase">
+        Studio services
+      </p>
+      <h1 className="font-display mt-1 text-[26px] leading-none font-bold tracking-[-0.03em] text-[rgb(var(--fg-default))] sm:text-[30px]">
         Store
-        <span style={{ color: "rgb(var(--brand-primary))" }}>.</span>
       </h1>
     </header>
   );

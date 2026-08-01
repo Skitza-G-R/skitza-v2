@@ -48,6 +48,13 @@ function bookingRecord(row: Booking): SessionBookingRecord {
     operationKey: row.operationKey,
     operationDigest: row.operationDigest,
     rescheduledFromBookingId: row.rescheduledFromBookingId,
+    allowanceUseId: row.allowanceUseId,
+    cancellationPolicyHoursSnapshot: row.cancellationPolicyHoursSnapshot,
+    cancellationPolicySnapshottedAt: row.cancellationPolicySnapshottedAt,
+    cancellationPolicyBackfilled: row.cancellationPolicyBackfilled,
+    heldExpiresAt: row.heldExpiresAt,
+    heldExpiredAt: row.heldExpiredAt,
+    heldExpiryReason: row.heldExpiryReason,
     status: row.status,
     outcome: row.outcome,
     statusChangedAt: row.statusChangedAt,
@@ -91,6 +98,7 @@ function createContextFromRow(
     purchaseId: string;
     purchaseLifecycleStatus: SessionBookingCreateContext["purchase"]["lifecycleStatus"];
     allowanceId: string;
+    bookingEnabledSnapshot: boolean;
     allowanceKind: "fixed" | "unlimited";
     sessionLimit: number | null;
     durationMin: number;
@@ -117,6 +125,7 @@ function createContextFromRow(
       id: row.allowanceId,
       purchaseId: row.purchaseId,
       producerId: row.producerId,
+      bookingEnabledSnapshot: row.bookingEnabledSnapshot,
       kind: row.allowanceKind,
       sessionLimit: row.sessionLimit,
       durationMin: row.durationMin,
@@ -148,6 +157,7 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
           purchaseId: purchases.id,
           purchaseLifecycleStatus: purchases.lifecycleStatus,
           allowanceId: purchaseSessionAllowances.id,
+          bookingEnabledSnapshot: purchaseSessionAllowances.bookingEnabledSnapshot,
           allowanceKind: purchaseSessionAllowances.kind,
           sessionLimit: purchaseSessionAllowances.sessionLimit,
           durationMin: purchaseSessionAllowances.durationMin,
@@ -174,6 +184,7 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
             eq(purchaseSessionAllowances.id, input.sessionAllowanceId),
             eq(purchaseSessionAllowances.purchaseId, purchases.id),
             eq(purchaseSessionAllowances.producerId, purchases.producerId),
+            eq(purchaseSessionAllowances.bookingEnabledSnapshot, true),
           ),
         )
         .innerJoin(
@@ -212,6 +223,7 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
           purchaseId: purchases.id,
           purchaseLifecycleStatus: purchases.lifecycleStatus,
           allowanceId: purchaseSessionAllowances.id,
+          bookingEnabledSnapshot: purchaseSessionAllowances.bookingEnabledSnapshot,
           allowanceKind: purchaseSessionAllowances.kind,
           sessionLimit: purchaseSessionAllowances.sessionLimit,
           durationMin: purchaseSessionAllowances.durationMin,
@@ -307,7 +319,11 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
 
     listAllowanceUses: async (producerId, sessionAllowanceId) =>
       tx
-        .select({ bookingId: bookings.id, outcome: bookings.outcome })
+        .select({
+          bookingId: bookings.id,
+          allowanceUseId: bookings.allowanceUseId,
+          outcome: bookings.outcome,
+        })
         .from(bookings)
         .where(
           and(
@@ -355,6 +371,13 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
           operationKey: input.operationKey,
           operationDigest: input.operationDigest,
           rescheduledFromBookingId: input.rescheduledFromBookingId,
+          allowanceUseId: input.allowanceUseId,
+          cancellationPolicyHoursSnapshot: input.cancellationPolicyHoursSnapshot,
+          cancellationPolicySnapshottedAt: input.cancellationPolicySnapshottedAt,
+          cancellationPolicyBackfilled: input.cancellationPolicyBackfilled,
+          heldExpiresAt: input.heldExpiresAt,
+          heldExpiredAt: input.heldExpiredAt,
+          heldExpiryReason: input.heldExpiryReason,
           status: input.status,
           statusChangedAt: input.occurredAt,
           outcome: input.outcome,
@@ -374,6 +397,12 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
           statusChangedAt: input.occurredAt,
           outcome: input.outcome,
           outcomeChangedAt: input.occurredAt,
+          ...(input.heldExpiredAt
+            ? {
+                heldExpiredAt: input.heldExpiredAt,
+                heldExpiryReason: input.heldExpiryReason,
+              }
+            : {}),
         })
         .where(
           and(

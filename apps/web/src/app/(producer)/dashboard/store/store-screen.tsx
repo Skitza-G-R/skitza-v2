@@ -8,27 +8,40 @@
 
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import {
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 
 import { reorderProducts, setPackageActive } from "~/app/(producer)/dashboard/booking/actions";
+import { copyPublicLink } from "~/components/dashboard/overview/public-link-strip";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useProducerStoreProductDraft } from "~/components/runtime-state/use-runtime-state";
 import { useToast } from "~/components/ui/toast";
+import { buildJoinUrl } from "~/lib/share/public-url";
 import type { TaxMode } from "~/lib/tax-mode";
 
+import { ArtistStorePreview } from "./artist-store-preview";
 import { EmptyState } from "./empty-state";
 import {
   countByFilter,
   filterAndSearch,
   parseStoreUrlState,
   type FilterTab,
+  withProductVisibility,
 } from "./filter-search";
 import { NewProductButton } from "./new-product-button";
 import { ProductCard, type ProductCardData } from "./product-card";
 import { ProductEditor } from "./product-editor";
 import { ProductRemovalModal, type ProductRemovalAction } from "./product-removal-modal";
-import { StoreHeader } from "./store-header";
+import { StoreHeader, type StoreHeaderCopyState } from "./store-header";
+import { StoreSurfaceTabs, type StoreSurface } from "./store-surface-tabs";
 import { StoreToolbar } from "./store-toolbar";
 import { useProductRemoval } from "./use-product-removal";
 
@@ -39,6 +52,7 @@ export interface StoreProduct extends ProductCardData {
   // form-typed columns when the editor opens in edit mode.
   durationMin: number;
   sessionCount: number;
+  bookingEnabled: boolean;
   paymentPlans: import("@skitza/db").PaymentPlan[];
   locationType: string;
   bufferMinutes: number;
@@ -69,6 +83,10 @@ interface StoreScreenProps {
   taxMode: TaxMode;
   taxRatePct: number;
   producerName?: string;
+  producerSlug: string;
+  producerLogoUrl: string | null;
+  privateOfferCount: number;
+  privateOffers: ReactNode;
 }
 
 export function StoreScreen({
@@ -77,6 +95,10 @@ export function StoreScreen({
   taxMode,
   taxRatePct,
   producerName = "Your studio",
+  producerSlug,
+  producerLogoUrl,
+  privateOfferCount,
+  privateOffers,
 }: StoreScreenProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -85,8 +107,12 @@ export function StoreScreen({
   const { toast } = useToast();
   const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
+  const [surface, setSurface] = useState<StoreSurface>("products");
   const [filter, setFilter] = useState<FilterTab>(urlState.filter);
   const [search, setSearch] = useState(urlState.search);
+  const [reordering, setReordering] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [copyState, setCopyState] = useState<StoreHeaderCopyState>("idle");
   // Editor state. `creating` opens <ProductEditor> in create mode;
   // `editing` opens it in edit mode pre-filled. `removing` opens the
   // lifecycle-aware confirmation for a single product.
@@ -96,11 +122,13 @@ export function StoreScreen({
   const storeDraft = useProducerStoreProductDraft();
   const restoredStoreDraftRef = useRef(false);
   // Phase 3 P3-11 — flags the most-recently-created product id so its
-  // card gets the `sk-shimmer-glow` className for ~4s. Cleared by the
-  // setTimeout in handleCreated below. Holds at most one id at a time.
+  // card gets the `sk-shimmer-glow` className for ~4s once the refreshed
+  // product list contains it. Holds at most one id at a time.
   const [recentlyAdded, setRecentlyAdded] = useState<string | null>(null);
   const [reorderAnnouncement, setReorderAnnouncement] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
+  const createdCardRef = useRef<HTMLElement | null>(null);
+  const copyResetTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     const next = parseStoreUrlState(searchParams.toString());
@@ -108,12 +136,21 @@ export function StoreScreen({
     setSearch(next.search);
   }, [searchParams]);
 
+  useEffect(
+    () => () => {
+      if (copyResetTimerRef.current !== null) {
+        window.clearTimeout(copyResetTimerRef.current);
+      }
+    },
+    [],
+  );
+
   function replaceUrlState(
     key: "filter" | "search",
     value: string,
     defaultValue: string,
   ) {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(window.location.search);
     if (value === defaultValue) params.delete(key);
     else params.set(key, value.slice(0, 120));
     const query = params.toString();
@@ -135,12 +172,52 @@ export function StoreScreen({
     replaceUrlState("search", bounded, "");
   }
 
+  function clearCatalogView() {
+    setFilter("all");
+    setSearch("");
+    const params = new URLSearchParams(window.location.search);
+    params.delete("filter");
+    params.delete("search");
+    const query = params.toString();
+    window.history.replaceState(null, "", `${pathname}${query ? `?${query}` : ""}`);
+  }
+
+  function updateReordering(next: boolean) {
+    if (next) {
+      clearCatalogView();
+      setSurface("products");
+    }
+    setReordering(next);
+  }
+
+  async function copyStoreLink() {
+    if (copyResetTimerRef.current !== null) {
+      window.clearTimeout(copyResetTimerRef.current);
+    }
+    const clipboard = (navigator as { clipboard?: Clipboard }).clipboard;
+    const writeText = clipboard ? clipboard.writeText.bind(clipboard) : undefined;
+    const copied = await copyPublicLink(buildJoinUrl(producerSlug), writeText);
+    setCopyState(copied ? "copied" : "error");
+    toast(
+      copied ? "Store link copied." : "Could not copy the Store link.",
+      copied ? "success" : "error",
+    );
+    copyResetTimerRef.current = window.setTimeout(
+      () => {
+        setCopyState("idle");
+        copyResetTimerRef.current = null;
+      },
+      copied ? 1800 : 2800,
+    );
+  }
+
   useLayoutEffect(() => {
     if (!storeDraft.loaded || restoredStoreDraftRef.current) return;
     restoredStoreDraftRef.current = true;
     const saved = storeDraft.record;
     if (!saved) return;
     if (saved.mode === "new") {
+      setSurface("products");
       setCreating(true);
       return;
     }
@@ -153,15 +230,10 @@ export function StoreScreen({
   }, [products, storeDraft]);
 
   function handleCreated(id: string) {
+    setSurface("products");
+    setReordering(false);
+    clearCatalogView();
     setRecentlyAdded(id);
-    // Animation runs 2 × 2s = 4s. Clear slightly after that so React
-    // removes the className and the box-shadow halo disappears cleanly.
-    // If a SECOND new product lands before this timer fires, the new
-    // setRecentlyAdded(id) overrides — but we keep the existing
-    // setTimeout running, which will then no-op via the equality check.
-    setTimeout(() => {
-      setRecentlyAdded((cur) => (cur === id ? null : cur));
-    }, 4500);
   }
 
   const removeProduct = useProductRemoval();
@@ -176,6 +248,34 @@ export function StoreScreen({
   useEffect(() => {
     setOptimisticProducts(products);
   }, [products]);
+
+  useEffect(() => {
+    if (
+      !recentlyAdded ||
+      !optimisticProducts.some((product) => product.id === recentlyAdded)
+    ) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      const card = createdCardRef.current;
+      if (!card) return;
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      card.scrollIntoView({
+        behavior: reducedMotion ? "auto" : "smooth",
+        block: "center",
+      });
+      card.focus({ preventScroll: true });
+    });
+    const timer = window.setTimeout(() => {
+      setRecentlyAdded((current) => (current === recentlyAdded ? null : current));
+    }, 4500);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [optimisticProducts, recentlyAdded]);
 
   const counts = useMemo(() => countByFilter(optimisticProducts), [optimisticProducts]);
   const filtered = useMemo(
@@ -227,6 +327,12 @@ export function StoreScreen({
   const live = filtered.filter((p) => p.active);
   const hidden = filtered.filter((p) => !p.active);
 
+  function openNewProduct() {
+    setSurface("products");
+    setReordering(false);
+    setCreating(true);
+  }
+
   // Global keyboard handlers: / focuses search and N opens the new flow.
   // Radix owns Escape for each dialog (including the nested artist-detail
   // preview), so the global listener never closes dialog state itself.
@@ -250,17 +356,22 @@ export function StoreScreen({
         creating ||
         editing !== null ||
         removing !== null ||
+        previewOpen ||
         isShortcutTarget(e.target)
       ) {
         return;
       }
       if (e.key === "/") {
-        e.preventDefault();
-        searchRef.current?.focus();
+        if (searchRef.current) {
+          e.preventDefault();
+          searchRef.current.focus();
+        }
         return;
       }
       if (e.key.toLowerCase() === "n") {
         e.preventDefault();
+        setSurface("products");
+        setReordering(false);
         setCreating(true);
       }
     }
@@ -268,7 +379,7 @@ export function StoreScreen({
     return () => {
       window.removeEventListener("keydown", onKey);
     };
-  }, [creating, editing, removing]);
+  }, [creating, editing, previewOpen, removing]);
 
   function onToggleVisible(p: StoreProduct) {
     if (!online) {
@@ -276,6 +387,9 @@ export function StoreScreen({
       return;
     }
     const next = !p.active;
+    setOptimisticProducts((current) =>
+      withProductVisibility(current, p.id, next),
+    );
     startTransition(async () => {
       try {
         const res = await setPackageActive({ id: p.id, active: next });
@@ -283,9 +397,15 @@ export function StoreScreen({
           toast(next ? `"${p.name}" is now live.` : `"${p.name}" hidden.`, "success");
           router.refresh();
         } else {
+          setOptimisticProducts((current) =>
+            withProductVisibility(current, p.id, p.active),
+          );
           toast(res.error, "error");
         }
       } catch {
+        setOptimisticProducts((current) =>
+          withProductVisibility(current, p.id, p.active),
+        );
         toast("Could not update product visibility. Please try again.", "error");
       }
     });
@@ -303,96 +423,93 @@ export function StoreScreen({
 
   return (
     <div className="mx-auto w-full max-w-[1100px] px-4 pt-6 pb-24 sm:px-6 sm:pt-10">
-      <StoreHeader liveCount={counts.live} hiddenCount={counts.hidden} />
+      <StoreHeader
+        liveCount={counts.live}
+        hiddenCount={counts.hidden}
+        onPreview={() => {
+          setPreviewOpen(true);
+        }}
+        onCopy={() => {
+          void copyStoreLink();
+        }}
+        copyState={copyState}
+      />
 
-      <div className="mb-4 flex justify-end">
-        <NewProductButton
-          onClick={() => {
-            setCreating(true);
+      <div className="mb-5">
+        <StoreSurfaceTabs
+          value={surface}
+          onChange={(nextSurface) => {
+            setSurface(nextSurface);
+            if (nextSurface === "offers") setReordering(false);
           }}
+          productCount={counts.all}
+          offerCount={privateOfferCount}
         />
       </div>
 
-      <StoreToolbar
-        ref={searchRef}
-        filter={filter}
-        onFilterChange={updateFilter}
-        counts={counts}
-        search={search}
-        onSearchChange={updateSearch}
-      />
+      <section
+        id="store-products-panel"
+        role="tabpanel"
+        aria-labelledby="store-products-tab"
+        hidden={surface !== "products"}
+      >
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <p className="hidden max-w-[58ch] text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))] sm:block">
+            Reusable services artists can request from your Store.
+          </p>
+          <div className="w-full sm:w-auto">
+            <NewProductButton onClick={openNewProduct} />
+          </div>
+        </div>
 
-      <p className="sr-only" aria-live="polite" aria-atomic="true">
-        {reorderAnnouncement}
-      </p>
+        <StoreToolbar
+          ref={searchRef}
+          filter={filter}
+          onFilterChange={updateFilter}
+          counts={counts}
+          totalCount={counts.all}
+          search={search}
+          onSearchChange={updateSearch}
+          reordering={reordering}
+          onReorderingChange={updateReordering}
+        />
 
-      {filtered.length === 0 ? (
-        products.length === 0 ? (
-          <EmptyState
-            title="No products yet"
-            body="Create your first product to start taking bookings from your link."
-            action={
-              <NewProductButton
-                onClick={() => {
-                  setCreating(true);
-                }}
-              />
-            }
-          />
-        ) : (
-          <EmptyState title="Nothing matches" body="Try clearing the filter or search." />
-        )
-      ) : (
-        <div className="flex flex-col gap-2">
-          {live.map((p, index) => (
-            <ProductCard
-              key={p.id}
-              product={p}
-              pending={pending}
-              recentlyAdded={p.id === recentlyAdded}
-              taxMode={taxMode}
-              taxRatePct={taxRatePct}
-              canMoveUp={index > 0}
-              canMoveDown={index < live.length - 1}
-              onMoveUp={() => {
-                moveProduct(p.id, live[index - 1]?.id);
-              }}
-              onMoveDown={() => {
-                moveProduct(p.id, live[index + 1]?.id);
-              }}
-              onToggleVisible={() => {
-                onToggleVisible(p);
-              }}
-              onEdit={() => {
-                onEdit(p);
-              }}
-              onRemove={() => {
-                onRemove(p);
-              }}
+        <p className="sr-only" aria-live="polite" aria-atomic="true">
+          {reorderAnnouncement}
+        </p>
+
+        {filtered.length === 0 ? (
+          products.length === 0 ? (
+            <EmptyState
+              title="No products yet"
+              body="Create your first product to start taking requests from your Store."
+              action={<NewProductButton onClick={openNewProduct} />}
             />
-          ))}
-          {filter === "all" && hidden.length > 0 ? (
-            <div className="mt-4 mb-1 flex items-center gap-2 text-[10.5px] font-bold tracking-[0.16em] text-[rgb(var(--fg-muted))] uppercase">
-              HIDDEN <span aria-hidden>·</span>{" "}
-              <span className="tabular-nums">{hidden.length}</span>
-            </div>
-          ) : null}
-          {(filter === "all" || filter === "hidden") &&
-            hidden.map((p, index) => (
+          ) : (
+            <EmptyState title="Nothing matches" body="Try clearing the filter or search." />
+          )
+        ) : (
+          <div className="flex flex-col gap-2">
+            {live.map((p, index) => (
               <ProductCard
                 key={p.id}
                 product={p}
                 pending={pending}
                 recentlyAdded={p.id === recentlyAdded}
+                featured={p.id === firstLiveProductId}
+                reordering={reordering}
+                reorderPosition={index + 1}
+                reorderTotal={live.length}
+                focusRef={p.id === recentlyAdded ? createdCardRef : undefined}
                 taxMode={taxMode}
                 taxRatePct={taxRatePct}
                 canMoveUp={index > 0}
-                canMoveDown={index < hidden.length - 1}
+                canMoveDown={index < live.length - 1}
                 onMoveUp={() => {
-                  moveProduct(p.id, hidden[index - 1]?.id);
+                  moveProduct(p.id, live[index - 1]?.id);
                 }}
                 onMoveDown={() => {
-                  moveProduct(p.id, hidden[index + 1]?.id);
+                  moveProduct(p.id, live[index + 1]?.id);
                 }}
                 onToggleVisible={() => {
                   onToggleVisible(p);
@@ -405,8 +522,68 @@ export function StoreScreen({
                 }}
               />
             ))}
-        </div>
-      )}
+            {filter === "all" && hidden.length > 0 ? (
+              <div className="mt-4 mb-1 flex items-center gap-2 text-[10.5px] font-bold tracking-[0.16em] text-[rgb(var(--fg-muted))] uppercase">
+                HIDDEN <span aria-hidden>·</span>{" "}
+                <span className="tabular-nums">{hidden.length}</span>
+              </div>
+            ) : null}
+            {(filter === "all" || filter === "hidden") &&
+              hidden.map((p, index) => (
+                <ProductCard
+                  key={p.id}
+                  product={p}
+                  pending={pending}
+                  recentlyAdded={p.id === recentlyAdded}
+                  featured={p.id === firstLiveProductId}
+                  reordering={reordering}
+                  reorderPosition={index + 1}
+                  reorderTotal={hidden.length}
+                  focusRef={p.id === recentlyAdded ? createdCardRef : undefined}
+                  taxMode={taxMode}
+                  taxRatePct={taxRatePct}
+                  canMoveUp={index > 0}
+                  canMoveDown={index < hidden.length - 1}
+                  onMoveUp={() => {
+                    moveProduct(p.id, hidden[index - 1]?.id);
+                  }}
+                  onMoveDown={() => {
+                    moveProduct(p.id, hidden[index + 1]?.id);
+                  }}
+                  onToggleVisible={() => {
+                    onToggleVisible(p);
+                  }}
+                  onEdit={() => {
+                    onEdit(p);
+                  }}
+                  onRemove={() => {
+                    onRemove(p);
+                  }}
+                />
+              ))}
+          </div>
+        )}
+      </section>
+
+      <section
+        id="store-offers-panel"
+        role="tabpanel"
+        aria-labelledby="store-offers-tab"
+        hidden={surface !== "offers"}
+        className="rounded-[var(--radius-xl)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated)/0.42)] p-4 sm:p-6"
+      >
+        {privateOffers}
+      </section>
+
+      <ArtistStorePreview
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        products={optimisticProducts}
+        producerName={producerName}
+        producerLogoUrl={producerLogoUrl}
+        taxMode={taxMode}
+        taxRatePct={taxRatePct}
+      />
 
       {/* Create modal */}
       <ProductEditor

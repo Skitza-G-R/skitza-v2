@@ -9,11 +9,7 @@ import { WizardChrome } from "~/components/onboarding/wizard-shell/wizard-chrome
 import { WizardFooter } from "~/components/onboarding/wizard-shell/wizard-footer";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
-import {
-  orderByWeekStart,
-  useWeekStartPref,
-  type WeekStart,
-} from "~/lib/time/week-start";
+import { orderByWeekStart, useWeekStartPref, type WeekStart } from "~/lib/time/week-start";
 
 import {
   AVAILABILITY_STEP_INDEX,
@@ -125,20 +121,20 @@ function buildInitialDays(blocks: ReadonlyArray<BlockInput>): DayConfig[] {
 export function AvailabilityStepClient({
   blocks,
   initialWeekStart = "sunday",
+  previewMode = false,
 }: {
   blocks: BlockInput[];
   // Producer's stored week-start (DB-backed since the Settings redesign).
   // Optional with a sensible default so dev preview mode — which renders
   // without a real producer row — still works.
   initialWeekStart?: WeekStart;
+  previewMode?: boolean;
 }) {
   const router = useRouter();
   const { toast } = useToast();
   const online = useOnlineStatus();
   const [pending, startTransition] = useTransition();
-  const [days, setDays] = useState<DayConfig[]>(() =>
-    buildInitialDays(blocks),
-  );
+  const [days, setDays] = useState<DayConfig[]>(() => buildInitialDays(blocks));
 
   // Shared week-start preference — DB-backed, so flipping it here
   // carries over to the Calendar availability tab and the Settings →
@@ -149,31 +145,21 @@ export function AvailabilityStepClient({
     (message) => {
       toast(message, "error");
     },
+    !previewMode,
   );
-  const orderedDays = useMemo(
-    () => orderByWeekStart(days, weekStart),
-    [days, weekStart],
-  );
+  const orderedDays = useMemo(() => orderByWeekStart(days, weekStart), [days, weekStart]);
 
   const updateDay = (weekday: Weekday, patch: Partial<DayConfig>) => {
-    setDays((prev) =>
-      prev.map((d) => (d.weekday === weekday ? { ...d, ...patch } : d)),
-    );
+    setDays((prev) => prev.map((d) => (d.weekday === weekday ? { ...d, ...patch } : d)));
   };
 
-  const updateWindow = (
-    weekday: Weekday,
-    idx: number,
-    patch: Partial<WindowConfig>,
-  ) => {
+  const updateWindow = (weekday: Weekday, idx: number, patch: Partial<WindowConfig>) => {
     setDays((prev) =>
       prev.map((d) =>
         d.weekday === weekday
           ? {
               ...d,
-              windows: d.windows.map((w, i) =>
-                i === idx ? { ...w, ...patch } : w,
-              ),
+              windows: d.windows.map((w, i) => (i === idx ? { ...w, ...patch } : w)),
             }
           : d,
       ),
@@ -215,16 +201,12 @@ export function AvailabilityStepClient({
   const copyToAllDays = (sourceWeekday: Weekday) => {
     const source = days.find((d) => d.weekday === sourceWeekday);
     if (!source || !source.active) return;
-    const targetCount = days.filter(
-      (d) => d.active && d.weekday !== sourceWeekday,
-    ).length;
+    const targetCount = days.filter((d) => d.active && d.weekday !== sourceWeekday).length;
     if (targetCount === 0) return;
     const cloneWindows = () => source.windows.map((w) => ({ ...w }));
     setDays((prev) =>
       prev.map((d) =>
-        d.weekday === sourceWeekday || !d.active
-          ? d
-          : { ...d, windows: cloneWindows() },
+        d.weekday === sourceWeekday || !d.active ? d : { ...d, windows: cloneWindows() },
       ),
     );
     toast(
@@ -234,6 +216,13 @@ export function AvailabilityStepClient({
   };
 
   const activeDayCount = days.filter((d) => d.active).length;
+  const activeWindows = days.filter((day) => day.active).flatMap((day) => day.windows);
+  const hoursAreValid =
+    activeWindows.length > 0 &&
+    activeWindows.every(
+      (window) =>
+        window.startMin >= 0 && window.endMin <= 24 * 60 && window.endMin - window.startMin >= 30,
+    );
 
   const collectBlocks = (): BlockInput[] =>
     days
@@ -248,7 +237,17 @@ export function AvailabilityStepClient({
           })),
       );
 
-  const advance = (target: string) => {
+  const previewSuffix = previewMode ? "?__preview=1" : "";
+
+  const saveAndContinue = () => {
+    if (!hoursAreValid) {
+      toast("Add at least one valid 30-minute working window.", "error");
+      return;
+    }
+    if (previewMode) {
+      router.push(`${nextRouteAfterAvailability()}${previewSuffix}`);
+      return;
+    }
     if (!online) {
       toast("Reconnect to save availability.", "error");
       return;
@@ -260,7 +259,7 @@ export function AvailabilityStepClient({
           toast(`Couldn't save availability: ${res.error}`, "error");
           return;
         }
-        router.push(target);
+        router.push(nextRouteAfterAvailability());
       } catch {
         toast("Could not save availability. Try again.", "error");
       }
@@ -270,29 +269,48 @@ export function AvailabilityStepClient({
   return (
     <WizardChrome
       activePosition={AVAILABILITY_STEP_INDEX}
-      stepIndicator="Step 3 of 5"
+      completedCount={3}
+      stepIndicator="Working hours"
+      canExit={!previewMode}
+      previewMode={previewMode}
       footer={
         <WizardFooter
-          onBack={() => { router.push(routeOnBackFromAvailability()); }}
-          onSkip={() => { advance(routeOnSkipFromAvailability()); }}
-          onContinue={() => { advance(nextRouteAfterAvailability()); }}
+          onBack={() => {
+            router.push(`${routeOnBackFromAvailability()}${previewSuffix}`);
+          }}
+          onSkip={() => {
+            router.push(
+              previewMode ? "/onboarding/welcome?__preview=1" : routeOnSkipFromAvailability(),
+            );
+          }}
+          onContinue={saveAndContinue}
+          continueDisabled={!hoursAreValid}
           pending={pending}
         />
       }
     >
       <div className="ob-stagger">
-        <p className="font-mono text-[10.5px] font-bold uppercase tracking-[0.22em] text-[rgb(var(--brand-primary-dark))]">
-          Step 3 of 5 · Required
+        <p className="font-mono text-[10.5px] font-bold tracking-[0.22em] text-[rgb(var(--brand-primary-dark))] uppercase">
+          Working hours · Required for this product
         </p>
         <h1
-          className="mt-2 font-display text-[26px] font-extrabold leading-[1.05] tracking-[-0.03em] text-balance"
+          className="font-display mt-2 text-[26px] leading-[1.05] font-extrabold tracking-[-0.03em] text-balance"
           style={{ fontVariationSettings: '"opsz" 96' }}
         >
-          When you work.
+          When should artists be able to book you?
         </h1>
         <p className="mt-1.5 text-[13px] leading-snug text-[rgb(var(--fg-muted))]">
-          Set your working hours. Edit them from Calendar later.
+          Set your working hours. You approve every booking request.
         </p>
+
+        {blocks.length === 0 ? (
+          <div className="mt-4 rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.28)] bg-[rgb(var(--brand-primary)/0.08)] px-4 py-3">
+            <p className="text-[12px] font-bold text-[rgb(var(--fg-default))]">Suggested hours</p>
+            <p className="mt-1 text-[11.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
+              Monday to Friday, 10:00–18:00. These are not saved until you continue.
+            </p>
+          </div>
+        ) : null}
 
         {/* Week-start preference — shared with the Calendar page via
             localStorage. Producers who think in Mon-first weeks can
@@ -306,7 +324,11 @@ export function AvailabilityStepClient({
               Used by the calendar week grid.
             </span>
           </span>
-          <div className="flex shrink-0 gap-1">
+          <div
+            role="group"
+            aria-label="Week starts on"
+            className="grid shrink-0 grid-cols-2 gap-1 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] p-1"
+          >
             {(["sunday", "monday"] as const).map((opt) => {
               const isActive = opt === weekStart;
               const label = opt === "sunday" ? "Sunday" : "Monday";
@@ -315,12 +337,14 @@ export function AvailabilityStepClient({
                   key={opt}
                   type="button"
                   aria-pressed={isActive}
-                  onClick={() => { setWeekStart(opt); }}
+                  onClick={() => {
+                    setWeekStart(opt);
+                  }}
                   className={[
-                    "inline-flex h-11 items-center justify-center rounded-[var(--radius-sm)] border px-2.5 font-mono text-[10.5px] transition-colors motion-reduce:transition-none",
+                    "inline-flex h-11 items-center justify-center rounded-[var(--radius-lg)] border px-2.5 font-mono text-[10.5px] transition-colors focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none motion-reduce:transition-none",
                     isActive
-                      ? "border-transparent bg-[rgb(var(--fg-default))] text-[rgb(var(--fg-inverse))]"
-                      : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
+                      ? "border-[rgb(var(--brand-primary)/0.34)] bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary-dark))]"
+                      : "border-transparent bg-transparent text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-elevated))] hover:text-[rgb(var(--fg-default))]",
                   ].join(" ")}
                   style={{ fontWeight: 700 }}
                 >
@@ -331,123 +355,160 @@ export function AvailabilityStepClient({
           </div>
         </div>
 
-        {/* Days grid (compact, with per-day multi-window) */}
-        <ul className="mt-3 flex flex-col gap-1.5">
+        {/* Weekly schedule. Each day is one readable control group:
+            state first, hours second, row actions last. On phones the
+            hours move below the day without changing their order. */}
+        <ul aria-label="Weekly working hours" className="mt-3 flex flex-col gap-2">
           {orderedDays.map((day) => (
             <li
               key={day.weekday}
-              className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 transition-opacity motion-reduce:transition-none ${
+              className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 rounded-[var(--radius-lg)] border p-2 transition-[border-color,background-color] motion-reduce:transition-none sm:grid-cols-[140px_minmax(0,1fr)_auto] ${
                 day.active
-                  ? "border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] opacity-100"
-                  : "border border-transparent opacity-50"
+                  ? "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
+                  : "border-[rgb(var(--border-subtle)/0.72)] bg-[rgb(var(--bg-background)/0.46)]"
               }`}
             >
-              {/* Day toggle */}
+              {/* The whole labeled block is the switch. This avoids a
+                  tiny color-only toggle floating beside an abbreviation. */}
               <button
                 type="button"
                 role="switch"
                 aria-checked={day.active}
                 aria-label={`${WEEKDAY_NAMES[day.weekday]} availability`}
-                onClick={() => { updateDay(day.weekday, { active: !day.active }); }}
-                className="relative flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full"
+                onClick={() => {
+                  updateDay(day.weekday, { active: !day.active });
+                }}
+                className={`group col-start-1 row-start-1 flex min-h-11 min-w-0 items-center gap-2.5 rounded-[var(--radius-lg)] border px-2.5 py-1.5 text-left transition-[border-color,background-color] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:outline-none motion-reduce:transition-none ${
+                  day.active
+                    ? "border-[rgb(var(--brand-primary)/0.34)] bg-[rgb(var(--brand-primary)/0.09)]"
+                    : "border-transparent bg-transparent hover:border-[rgb(var(--border-subtle))] hover:bg-[rgb(var(--bg-elevated))]"
+                }`}
               >
                 <span
                   aria-hidden
-                  className={`relative h-5 w-9 rounded-full transition-colors motion-reduce:transition-none ${
+                  className={`h-2.5 w-2.5 shrink-0 rounded-full transition-[background-color,box-shadow] motion-reduce:transition-none ${
                     day.active
-                      ? "bg-[rgb(var(--brand-primary))]"
-                      : "bg-[rgb(var(--border-strong))]"
+                      ? "bg-[rgb(var(--brand-primary))] shadow-[0_0_0_4px_rgb(var(--brand-primary)/0.14)]"
+                      : "bg-[rgb(var(--fg-faint))] shadow-[0_0_0_4px_rgb(var(--border-subtle)/0.76)]"
                   }`}
-                >
+                />
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate text-[12.5px] leading-tight font-bold text-[rgb(var(--fg-default))]">
+                    {WEEKDAY_NAMES[day.weekday]}
+                  </span>
                   <span
-                    className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform motion-reduce:transition-none ${
-                      day.active ? "translate-x-[18px]" : "translate-x-[2px]"
+                    className={`mt-0.5 font-mono text-[9.5px] leading-tight tracking-[0.08em] uppercase ${
+                      day.active
+                        ? "text-[rgb(var(--brand-primary-dark))]"
+                        : "text-[rgb(var(--fg-muted))]"
                     }`}
-                  />
+                  >
+                    {day.active ? "Available" : "Day off"}
+                  </span>
                 </span>
               </button>
-              <span className="w-9 text-[12px] font-bold text-[rgb(var(--fg-default))]">
-                {day.label}
-              </span>
 
-              {/* Copy lives left-of-windows on purpose: dropping it
-                  into the windows row let it wrap to a second line as
-                  soon as a 2nd window appeared, so the bracket grew.
-                  Anchoring Copy to the day-label cluster keeps the
-                  row a constant height and reads as "this day's
-                  action" — same convention as the toggle. */}
-              {day.active && activeDayCount > 1 ? (
-                <button
-                  type="button"
-                  onClick={() => { copyToAllDays(day.weekday); }}
-                  aria-label={`Copy ${day.label}'s hours to all days`}
-                  title="Copy to all days"
-                  className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))] motion-reduce:transition-none"
-                >
-                  <Copy size={11} />
-                </button>
-              ) : null}
-
-              {/* Windows — hidden when day is off (cleaner than dimmed
-                  text that still suggests data). */}
+              {/* Windows occupy the middle column on desktop and a
+                  full second row on narrow screens. */}
               {day.active ? (
-                <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+                <div className="col-span-2 row-start-2 flex min-w-0 flex-col gap-1.5 sm:col-span-1 sm:col-start-2 sm:row-start-1">
                   {day.windows.map((w, idx) => (
                     <div
                       key={idx}
-                      className="flex items-center gap-1 rounded-md border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-1 py-0.5"
+                      className={`grid min-h-11 min-w-0 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-2 focus-within:border-[rgb(var(--brand-primary)/0.6)] focus-within:ring-2 focus-within:ring-[rgb(var(--brand-primary)/0.12)] ${
+                        day.windows.length > 1
+                          ? "grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_44px]"
+                          : "grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]"
+                      }`}
                     >
-                      <input
-                        type="time"
-                        value={minutesToTime(w.startMin)}
-                        disabled={pending}
-                        onChange={(e) =>
-                          { updateWindow(day.weekday, idx, {
-                            startMin: timeToMinutes(e.target.value),
-                          }); }
-                        }
-                        className="time-input-naked h-11 w-[64px] bg-transparent px-1 py-0.5 font-mono text-[11px] text-[rgb(var(--fg-default))] outline-none disabled:cursor-not-allowed"
-                      />
-                      <span className="text-[rgb(var(--fg-faint))]">–</span>
-                      <input
-                        type="time"
-                        value={minutesToTime(w.endMin)}
-                        disabled={pending}
-                        onChange={(e) =>
-                          { updateWindow(day.weekday, idx, {
-                            endMin: timeToMinutes(e.target.value),
-                          }); }
-                        }
-                        className="time-input-naked h-11 w-[64px] bg-transparent px-1 py-0.5 font-mono text-[11px] text-[rgb(var(--fg-default))] outline-none disabled:cursor-not-allowed"
-                      />
+                      <label className="min-w-0">
+                        <span className="sr-only">
+                          {WEEKDAY_NAMES[day.weekday]}{" "}
+                          {day.windows.length > 1 ? `window ${String(idx + 1)} ` : ""}
+                          start time
+                        </span>
+                        <input
+                          type="time"
+                          value={minutesToTime(w.startMin)}
+                          disabled={pending}
+                          onChange={(e) => {
+                            updateWindow(day.weekday, idx, {
+                              startMin: timeToMinutes(e.target.value),
+                            });
+                          }}
+                          className="time-input-naked h-11 w-full min-w-0 bg-transparent px-1 font-mono text-[11px] font-semibold text-[rgb(var(--fg-default))] outline-none disabled:cursor-not-allowed"
+                        />
+                      </label>
+                      <span className="font-mono text-[9px] tracking-[0.08em] text-[rgb(var(--fg-faint))] uppercase">
+                        to
+                      </span>
+                      <label className="min-w-0">
+                        <span className="sr-only">
+                          {WEEKDAY_NAMES[day.weekday]}{" "}
+                          {day.windows.length > 1 ? `window ${String(idx + 1)} ` : ""}
+                          end time
+                        </span>
+                        <input
+                          type="time"
+                          value={minutesToTime(w.endMin)}
+                          disabled={pending}
+                          onChange={(e) => {
+                            updateWindow(day.weekday, idx, {
+                              endMin: timeToMinutes(e.target.value),
+                            });
+                          }}
+                          className="time-input-naked h-11 w-full min-w-0 bg-transparent px-1 font-mono text-[11px] font-semibold text-[rgb(var(--fg-default))] outline-none disabled:cursor-not-allowed"
+                        />
+                      </label>
                       {day.windows.length > 1 ? (
                         <button
                           type="button"
-                          onClick={() => { removeWindow(day.weekday, idx); }}
-                          aria-label="Remove window"
-                          className="flex h-11 w-11 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-elevated))] hover:text-[rgb(var(--fg-default))]"
+                          onClick={() => {
+                            removeWindow(day.weekday, idx);
+                          }}
+                          aria-label={`Remove ${WEEKDAY_NAMES[day.weekday]} window ${String(idx + 1)}`}
+                          className="flex h-11 w-11 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-elevated))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none motion-reduce:transition-none"
                         >
                           <X size={12} />
                         </button>
                       ) : null}
                     </div>
                   ))}
+                </div>
+              ) : null}
+
+              {/* Row actions stay together at the right edge. On mobile
+                  they share the first row with the day control. */}
+              {day.active ? (
+                <div className="col-start-2 row-start-1 flex items-center justify-end gap-1 sm:col-start-3">
+                  {activeDayCount > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        copyToAllDays(day.weekday);
+                      }}
+                      aria-label={`Copy ${day.label}'s hours to all days`}
+                      title="Copy to all days"
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none motion-reduce:transition-none"
+                    >
+                      <Copy size={12} />
+                    </button>
+                  ) : null}
                   {day.windows.length < 3 ? (
                     <button
                       type="button"
-                      onClick={() => { addWindow(day.weekday); }}
+                      onClick={() => {
+                        addWindow(day.weekday);
+                      }}
                       aria-label={`Add window to ${day.label}`}
-                      className="flex h-11 w-11 items-center justify-center rounded-full border border-dashed border-[rgb(var(--border-strong))] text-[rgb(var(--fg-muted))] hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))]"
+                      title="Add another time window"
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-dashed border-[rgb(var(--border-strong))] bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-muted))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none motion-reduce:transition-none"
                     >
                       <Plus size={12} />
                     </button>
                   ) : null}
                 </div>
-              ) : (
-                <span className="ml-auto pr-1 font-mono text-[10.5px] uppercase tracking-[0.16em] text-[rgb(var(--fg-faint))]">
-                  Off
-                </span>
-              )}
+              ) : null}
             </li>
           ))}
         </ul>

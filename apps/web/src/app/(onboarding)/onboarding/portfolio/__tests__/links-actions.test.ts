@@ -96,11 +96,7 @@ vi.mock("~/server/auth/role", () => ({
 // Walk an arbitrarily nested and(...) tree to find an eq(<col>, <val>)
 // predicate matching the requested column marker. Same helper used in
 // producer-music.test.ts. Returns the matched [col, val] tuple or null.
-function findPredicate(
-  where: unknown,
-  operator: "eq",
-  columnMarker: unknown,
-): unknown[] | null {
+function findPredicate(where: unknown, operator: "eq", columnMarker: unknown): unknown[] | null {
   if (!where || typeof where !== "object") return null;
   if ("and" in where && Array.isArray((where as { and: unknown[] }).and)) {
     for (const p of (where as { and: unknown[] }).and) {
@@ -213,12 +209,31 @@ describe("saveExternalLinks — non-empty URL inserts (or updates on conflict)",
     expect(deleteMock).not.toHaveBeenCalled();
   });
 
-  it("scopes each INSERT values to ctx.producerId", async () => {
+  it("accepts SoundCloud and Bandcamp because both persist and render publicly", async () => {
     const { saveExternalLinks } = await import("../links-actions");
     await saveExternalLinks({
       links: [
-        { platform: "spotify", url: "https://open.spotify.com/artist/abc" },
+        {
+          platform: "soundcloud",
+          url: "https://soundcloud.com/producer/mix",
+        },
+        {
+          platform: "bandcamp",
+          url: "https://producer.bandcamp.com",
+        },
       ],
+    });
+
+    expect(insertValuesSpy.mock.calls.map((call) => call[0])).toEqual([
+      expect.objectContaining({ platform: "soundcloud" }),
+      expect.objectContaining({ platform: "bandcamp" }),
+    ]);
+  });
+
+  it("scopes each INSERT values to ctx.producerId", async () => {
+    const { saveExternalLinks } = await import("../links-actions");
+    await saveExternalLinks({
+      links: [{ platform: "spotify", url: "https://open.spotify.com/artist/abc" }],
     });
     expect(insertValuesSpy).toHaveBeenCalledTimes(1);
     const valuesArg = insertValuesSpy.mock.calls[0]?.[0] as
@@ -243,31 +258,23 @@ describe("saveExternalLinks — non-empty URL inserts (or updates on conflict)",
         },
       ],
     });
-    const valuesArg = insertValuesSpy.mock.calls[0]?.[0] as
-      | { title?: string | null }
-      | undefined;
+    const valuesArg = insertValuesSpy.mock.calls[0]?.[0] as { title?: string | null } | undefined;
     expect(valuesArg?.title).toBe("Latest single");
   });
 
   it("persists empty title as SQL NULL (cleaner than empty string)", async () => {
     const { saveExternalLinks } = await import("../links-actions");
     await saveExternalLinks({
-      links: [
-        { platform: "spotify", url: "https://open.spotify.com/artist/abc" },
-      ],
+      links: [{ platform: "spotify", url: "https://open.spotify.com/artist/abc" }],
     });
-    const valuesArg = insertValuesSpy.mock.calls[0]?.[0] as
-      | { title?: string | null }
-      | undefined;
+    const valuesArg = insertValuesSpy.mock.calls[0]?.[0] as { title?: string | null } | undefined;
     expect(valuesArg?.title).toBeNull();
   });
 
   it("uses ON CONFLICT (producer_id, platform) DO UPDATE SET url=EXCLUDED.url so re-saves replace existing", async () => {
     const { saveExternalLinks } = await import("../links-actions");
     await saveExternalLinks({
-      links: [
-        { platform: "spotify", url: "https://open.spotify.com/artist/abc" },
-      ],
+      links: [{ platform: "spotify", url: "https://open.spotify.com/artist/abc" }],
     });
     expect(onConflictSpy).toHaveBeenCalledTimes(1);
     const arg = onConflictSpy.mock.calls[0]?.[0] as
@@ -304,9 +311,7 @@ describe("saveExternalLinks — mixed batch (acceptance: both at once)", () => {
       ],
     });
     // INSERT: producerId field on values.
-    const valuesArg = insertValuesSpy.mock.calls[0]?.[0] as
-      | { producerId?: string }
-      | undefined;
+    const valuesArg = insertValuesSpy.mock.calls[0]?.[0] as { producerId?: string } | undefined;
     expect(valuesArg?.producerId).toBe("producer-uuid-1");
     // DELETE: producerId predicate via findPredicate.
     const where = deleteWhereSpy.mock.calls[0]?.[0];
@@ -390,6 +395,23 @@ describe("saveExternalLinks — input validation (zod)", () => {
     expect(insertMock).not.toHaveBeenCalled();
   });
 
+  it("rejects payloads larger than the five onboarding platforms", async () => {
+    const { saveExternalLinks } = await import("../links-actions");
+    await expect(
+      saveExternalLinks({
+        links: [
+          { platform: "spotify", url: "" },
+          { platform: "youtube", url: "" },
+          { platform: "instagram_reels", url: "" },
+          { platform: "soundcloud", url: "" },
+          { platform: "bandcamp", url: "" },
+          { platform: "spotify", url: "" },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(ZodError);
+    expect(deleteMock).not.toHaveBeenCalled();
+  });
+
   it("rejects URLs longer than 500 chars (DB column is text but UI cap is 500)", async () => {
     const { saveExternalLinks } = await import("../links-actions");
     const tooLong = "https://example.com/" + "x".repeat(600);
@@ -400,11 +422,25 @@ describe("saveExternalLinks — input validation (zod)", () => {
     ).rejects.toBeInstanceOf(ZodError);
   });
 
+  it("rejects unsafe schemes and URLs that do not match the selected platform", async () => {
+    const { saveExternalLinks } = await import("../links-actions");
+    await expect(
+      saveExternalLinks({
+        links: [{ platform: "spotify", url: "javascript:alert(1)" }],
+      }),
+    ).rejects.toThrow(/valid Spotify link/);
+    await expect(
+      saveExternalLinks({
+        links: [{ platform: "spotify", url: "https://youtube.com/watch?v=abc" }],
+      }),
+    ).rejects.toThrow(/valid Spotify link/);
+    expect(insertMock).not.toHaveBeenCalled();
+    expect(deleteMock).not.toHaveBeenCalled();
+  });
+
   it("rejects when links is not an array", async () => {
     const { saveExternalLinks } = await import("../links-actions");
-    const bad = { links: "not-an-array" } as unknown as Parameters<
-      typeof saveExternalLinks
-    >[0];
+    const bad = { links: "not-an-array" } as unknown as Parameters<typeof saveExternalLinks>[0];
     await expect(saveExternalLinks(bad)).rejects.toBeInstanceOf(ZodError);
   });
 

@@ -2,15 +2,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { isDevPreviewBypass } from "./dev-preview";
 
-// Dev-only preview bypass for the producer onboarding wizard.
+// Non-production preview bypass for the producer onboarding wizard.
 //
 // Lets a developer (or Claude in the preview tool) visually verify
 // each onboarding step without needing to sign up a fresh producer
 // every time. Two gates that BOTH have to be true:
-//   1. NODE_ENV === "development" — Vercel sets NODE_ENV="production"
-//      on every deployed environment (preview + production), so this
-//      path is unreachable from any URL anyone might point at the
-//      deployed app.
+//   1. Local development or Vercel's isolated preview environment.
+//      Vercel production remains excluded.
 //   2. The request carries `?__preview=1` in its query string. Opt-in
 //      per request; an accidental visit to /onboarding/welcome doesn't
 //      trip the bypass, and there's no global "auth is off" mode.
@@ -34,8 +32,15 @@ describe("isDevPreviewBypass — searchParams object shape (page components)", (
     expect(isDevPreviewBypass({ __preview: "1" })).toBe(true);
   });
 
-  it("returns false when NODE_ENV=production (param ignored)", () => {
+  it("returns true in a Vercel preview deployment", () => {
     vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL_ENV", "preview");
+    expect(isDevPreviewBypass({ __preview: "1" })).toBe(true);
+  });
+
+  it("returns false in a Vercel production deployment", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL_ENV", "production");
     expect(isDevPreviewBypass({ __preview: "1" })).toBe(false);
   });
 
@@ -77,8 +82,15 @@ describe("isDevPreviewBypass — URLSearchParams shape (middleware)", () => {
     expect(isDevPreviewBypass(new URLSearchParams("__preview=1"))).toBe(true);
   });
 
-  it("returns false for URLSearchParams when NODE_ENV=production", () => {
+  it("returns true for URLSearchParams in a Vercel preview deployment", () => {
     vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL_ENV", "preview");
+    expect(isDevPreviewBypass(new URLSearchParams("__preview=1"))).toBe(true);
+  });
+
+  it("returns false for URLSearchParams in Vercel production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL_ENV", "production");
     expect(isDevPreviewBypass(new URLSearchParams("__preview=1"))).toBe(false);
   });
 

@@ -36,6 +36,7 @@ export type WeekStart = "sunday" | "monday";
 export function useWeekStartPref(
   initial: WeekStart,
   onError?: (message: string) => void,
+  persist = true,
 ): [WeekStart, (next: WeekStart) => void, boolean] {
   const router = useRouter();
   const [value, setValue] = useState<WeekStart>(initial);
@@ -46,6 +47,7 @@ export function useWeekStartPref(
     if (next === value || saveLock.current.current) return;
     const prev = value;
     setValue(next); // optimistic — UI rotates immediately
+    if (!persist) return;
     void runOptimisticPreferenceSave({
       lock: saveLock.current,
       save: () => updateProducer({ weekStart: next }),

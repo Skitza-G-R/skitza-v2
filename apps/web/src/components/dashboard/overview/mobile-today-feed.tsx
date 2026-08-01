@@ -281,7 +281,7 @@ function SetupNudgeCard() {
         Add a service and your hours so clients can actually book you.
       </p>
       <a
-        href="/dashboard/onboarding"
+        href="/onboarding"
         className="sk-press mt-3 flex min-h-[44px] w-full items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 text-sm font-semibold text-[rgb(var(--fg-inverse))]"
       >
         Finish setup

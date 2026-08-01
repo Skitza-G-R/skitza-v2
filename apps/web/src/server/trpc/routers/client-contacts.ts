@@ -18,6 +18,7 @@ import {
   sql,
   trackComments,
   trackVersions,
+  type Db,
 } from "@skitza/db";
 import { z } from "zod";
 
@@ -100,6 +101,111 @@ function mapClientMoneyDomainError(error: unknown): never {
   throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message });
 }
 
+async function loadClientDetailBase(
+  ctx: Readonly<{ db: Db; producerId: string }>,
+  clientId: string,
+) {
+  const [contact] = await ctx.db
+    .select()
+    .from(clientContacts)
+    .where(and(eq(clientContacts.id, clientId), eq(clientContacts.producerId, ctx.producerId)))
+    .limit(1);
+  if (!contact || contact.producerId !== ctx.producerId) {
+    throw new TRPCError({ code: "NOT_FOUND" });
+  }
+
+  const isObviouslyNonDeletable =
+    contact.clerkUserId !== null ||
+    contact.invitedAt !== null ||
+    contact.archivedAt !== null ||
+    contact.producerArchivedAt !== null;
+  const [canPermanentlyDelete, projectRows] = await Promise.all([
+    isObviouslyNonDeletable
+      ? Promise.resolve(false)
+      : canPermanentlyDeleteEmptyDraftClient(historicalDeletionRepository(ctx.db), {
+          producerId: ctx.producerId,
+          clientId,
+        }),
+    ctx.db
+      .select({
+        id: projects.id,
+        title: projects.title,
+        lifecycleStatus: projects.lifecycleStatus,
+        workflowStage: projects.workflowStage,
+        deadlineAt: projects.deadlineAt,
+        clientContactId: projects.clientContactId,
+        createdAt: projects.createdAt,
+        updatedAt: projects.updatedAt,
+        nextSessionAt: sql<
+          Date | string | null
+        >`min(case when ${bookings.startsAt} > now() and ${bookings.status} = 'confirmed' then ${bookings.startsAt} end)`,
+        canPermanentlyDelete: sql<boolean>`(
+          ${projects.lifecycleStatus} = 'waiting_for_payment'
+          and not exists(select 1 from ${projectTracks}
+            where ${projectTracks.projectId} = ${projects.id})
+          and not exists(select 1 from ${purchases}
+            where ${purchases.producerId} = ${projects.producerId}
+              and ${purchases.projectId} = ${projects.id})
+          and not exists(select 1 from ${purchaseRequests}
+            where ${purchaseRequests.producerId} = ${projects.producerId}
+              and ${purchaseRequests.projectId} = ${projects.id})
+          and not exists(select 1 from ${privateOffers}
+            where ${privateOffers.producerId} = ${projects.producerId}
+              and ${privateOffers.targetProjectId} = ${projects.id})
+          and not exists(select 1 from ${bookings}
+            where ${bookings.producerId} = ${projects.producerId}
+              and ${bookings.projectId} = ${projects.id})
+          and not exists(select 1 from ${notifications}
+            where ${notifications.producerId} = ${projects.producerId}
+              and ${notifications.projectId} = ${projects.id})
+        )`,
+      })
+      .from(projects)
+      .leftJoin(bookings, eq(bookings.projectId, projects.id))
+      .where(and(eq(projects.producerId, ctx.producerId), eq(projects.clientContactId, clientId)))
+      .groupBy(projects.id)
+      .orderBy(desc(projects.updatedAt)),
+  ]);
+
+  const activeProjectCount = projectRows.filter(
+    (project) => project.lifecycleStatus !== "completed" && project.lifecycleStatus !== "canceled",
+  ).length;
+  const archiveBlockingProjectCount = projectRows.filter(
+    (project) =>
+      project.lifecycleStatus === "active" || project.lifecycleStatus === "waiting_for_payment",
+  ).length;
+
+  return {
+    contact: {
+      id: contact.id,
+      email: contact.email,
+      name: contact.name,
+      phone: contact.phone,
+      firstSeenAt: contact.firstSeenAt,
+      lastSeenAt: contact.lastSeenAt,
+      tags: contact.tags,
+      notes: contact.notes,
+      producerArchivedAt: contact.producerArchivedAt,
+      referralSource: contact.referralSource,
+      invitedAt: contact.invitedAt,
+      clerkUserId: contact.clerkUserId,
+      canPermanentlyDelete,
+    },
+    stats: {
+      activeProjectCount,
+      archiveBlockingProjectCount,
+      totalProjectCount: projectRows.length,
+      lastActivity: projectRows[0]?.updatedAt ?? contact.lastSeenAt,
+      commercial: unavailableCommercialProjection(),
+    },
+    projects: projectRows.map((project) => ({
+      ...project,
+      commercial: unavailableCommercialProjection(),
+    })),
+    projectIds: projectRows.map((project) => project.id),
+  };
+}
+
 export const clientContactsRouter = router({
   // Read: autocomplete + simple listing.
   list: producerProcedure
@@ -131,78 +237,96 @@ export const clientContactsRouter = router({
   // Phase H.2 — enriched CRM list with two "modes":
   //   view = "by-client"     → one row per contact with aggregate stats
   //   view = "all-projects"  → one row per project, with its client
+  //   view = "workspace"     → both shapes from one shared set of reads
   //
   // Commercial totals are deliberately unavailable until the Payments work
   // defines the purchase-ledger projection. Project-row flags and invoice
   // compatibility tables are not valid commercial sources.
   listWithProjects: producerProcedure
-    .input(z.object({ view: z.enum(["by-client", "all-projects"]).optional() }).optional())
+    .input(
+      z.object({ view: z.enum(["by-client", "all-projects", "workspace"]).optional() }).optional(),
+    )
     .query(async ({ ctx, input }) => {
       const view = input?.view ?? "by-client";
 
-      // One producer-scoped row per project. The clientContactId is the
-      // ownership key; email snapshots below are display-only.
-      const projectRows = await ctx.db
-        .select({
-          id: projects.id,
-          title: projects.title,
-          lifecycleStatus: projects.lifecycleStatus,
-          workflowStage: projects.workflowStage,
-          deadlineAt: projects.deadlineAt,
-          createdAt: projects.createdAt,
-          updatedAt: projects.updatedAt,
-          clientContactId: projects.clientContactId,
-          clientName: projects.clientName,
-          clientEmail: projects.clientEmail,
-          artistName: projects.artistName,
-          artistEmail: projects.artistEmail,
-          nextSessionAt: sql<
-            Date | string | null
-          >`min(case when ${bookings.startsAt} > now() and ${bookings.status} = 'confirmed' then ${bookings.startsAt} end)`,
-          canPermanentlyDelete: sql<boolean>`(
-            ${projects.lifecycleStatus} = 'waiting_for_payment'
-            and not exists(select 1 from ${projectTracks}
-              where ${projectTracks.projectId} = ${projects.id})
-            and not exists(select 1 from ${purchases}
-              where ${purchases.producerId} = ${projects.producerId}
-                and ${purchases.projectId} = ${projects.id})
-            and not exists(select 1 from ${purchaseRequests}
-              where ${purchaseRequests.producerId} = ${projects.producerId}
-                and ${purchaseRequests.projectId} = ${projects.id})
-            and not exists(select 1 from ${privateOffers}
-              where ${privateOffers.producerId} = ${projects.producerId}
-                and ${privateOffers.targetProjectId} = ${projects.id})
-            and not exists(select 1 from ${bookings}
-              where ${bookings.producerId} = ${projects.producerId}
-                and ${bookings.projectId} = ${projects.id})
-            and not exists(select 1 from ${notifications}
-              where ${notifications.producerId} = ${projects.producerId}
-                and ${notifications.projectId} = ${projects.id})
-          )`,
-        })
-        .from(projects)
-        .leftJoin(bookings, eq(bookings.projectId, projects.id))
-        .where(eq(projects.producerId, ctx.producerId))
-        .groupBy(projects.id)
-        // Custom drag-to-reorder takes precedence (`position` asc).
-        // For un-dragged rows (all default to position=0), fall back
-        // to most-recently-updated so existing behavior is preserved.
-        .orderBy(asc(projects.position), desc(projects.updatedAt));
-
-      // Pre-compute last-comment timestamp + unresolved count per
-      // producer-owned project via a single aggregate.
-      const commentAgg = await ctx.db
-        .select({
-          projectId: projectTracks.projectId,
-          lastComment: sql<Date | string | null>`max(${trackComments.createdAt})`,
-          unresolved: sql<number>`count(*) filter (where ${trackComments.resolvedAt} is null and ${trackComments.fromProducer} = false)::int`,
-        })
-        .from(trackComments)
-        .innerJoin(trackVersions, eq(trackVersions.id, trackComments.versionId))
-        .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
-        .innerJoin(projects, eq(projects.id, projectTracks.projectId))
-        .where(eq(projects.producerId, ctx.producerId))
-        .groupBy(projectTracks.projectId);
+      // The three producer-scoped inputs are independent. Loading them
+      // together also lets the workspace view build both UI shapes
+      // without repeating the project and comment aggregates.
+      const [projectRows, commentAgg, contacts] = await Promise.all([
+        ctx.db
+          .select({
+            id: projects.id,
+            title: projects.title,
+            lifecycleStatus: projects.lifecycleStatus,
+            workflowStage: projects.workflowStage,
+            deadlineAt: projects.deadlineAt,
+            createdAt: projects.createdAt,
+            updatedAt: projects.updatedAt,
+            clientContactId: projects.clientContactId,
+            clientName: projects.clientName,
+            clientEmail: projects.clientEmail,
+            artistName: projects.artistName,
+            artistEmail: projects.artistEmail,
+            nextSessionAt: sql<
+              Date | string | null
+            >`min(case when ${bookings.startsAt} > now() and ${bookings.status} = 'confirmed' then ${bookings.startsAt} end)`,
+            canPermanentlyDelete: sql<boolean>`(
+              ${projects.lifecycleStatus} = 'waiting_for_payment'
+              and not exists(select 1 from ${projectTracks}
+                where ${projectTracks.projectId} = ${projects.id})
+              and not exists(select 1 from ${purchases}
+                where ${purchases.producerId} = ${projects.producerId}
+                  and ${purchases.projectId} = ${projects.id})
+              and not exists(select 1 from ${purchaseRequests}
+                where ${purchaseRequests.producerId} = ${projects.producerId}
+                  and ${purchaseRequests.projectId} = ${projects.id})
+              and not exists(select 1 from ${privateOffers}
+                where ${privateOffers.producerId} = ${projects.producerId}
+                  and ${privateOffers.targetProjectId} = ${projects.id})
+              and not exists(select 1 from ${bookings}
+                where ${bookings.producerId} = ${projects.producerId}
+                  and ${bookings.projectId} = ${projects.id})
+              and not exists(select 1 from ${notifications}
+                where ${notifications.producerId} = ${projects.producerId}
+                  and ${notifications.projectId} = ${projects.id})
+            )`,
+          })
+          .from(projects)
+          .leftJoin(bookings, eq(bookings.projectId, projects.id))
+          .where(eq(projects.producerId, ctx.producerId))
+          .groupBy(projects.id)
+          .orderBy(asc(projects.position), desc(projects.updatedAt)),
+        ctx.db
+          .select({
+            projectId: projectTracks.projectId,
+            lastComment: sql<Date | string | null>`max(${trackComments.createdAt})`,
+            unresolved: sql<number>`count(*) filter (where ${trackComments.resolvedAt} is null and ${trackComments.fromProducer} = false)::int`,
+          })
+          .from(trackComments)
+          .innerJoin(trackVersions, eq(trackVersions.id, trackComments.versionId))
+          .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
+          .innerJoin(projects, eq(projects.id, projectTracks.projectId))
+          .where(eq(projects.producerId, ctx.producerId))
+          .groupBy(projectTracks.projectId),
+        ctx.db
+          .select({
+            id: clientContacts.id,
+            email: clientContacts.email,
+            name: clientContacts.name,
+            phone: clientContacts.phone,
+            firstSeenAt: clientContacts.firstSeenAt,
+            lastSeenAt: clientContacts.lastSeenAt,
+            tags: clientContacts.tags,
+            notes: clientContacts.notes,
+            producerArchivedAt: clientContacts.producerArchivedAt,
+            referralSource: clientContacts.referralSource,
+            invitedAt: clientContacts.invitedAt,
+            clerkUserId: clientContacts.clerkUserId,
+          })
+          .from(clientContacts)
+          .where(eq(clientContacts.producerId, ctx.producerId))
+          .orderBy(asc(clientContacts.position), desc(clientContacts.lastSeenAt)),
+      ]);
 
       const commentMap = new Map<string, { lastComment: Date | null; unresolved: number }>();
       for (const row of commentAgg) {
@@ -252,108 +376,41 @@ export const clientContactsRouter = router({
         };
       });
 
-      if (view === "all-projects") {
-        // Flat list shape. Resolve the client only through the project's
-        // stable contact id. The snapshot fallback is display-only.
-        const contacts = await ctx.db
-          .select({
-            id: clientContacts.id,
-            email: clientContacts.email,
-            name: clientContacts.name,
-            phone: clientContacts.phone,
-            tags: clientContacts.tags,
-            notes: clientContacts.notes,
-            producerArchivedAt: clientContacts.producerArchivedAt,
-            invitedAt: clientContacts.invitedAt,
-            clerkUserId: clientContacts.clerkUserId,
-          })
-          .from(clientContacts)
-          .where(eq(clientContacts.producerId, ctx.producerId));
-        const contactById = new Map<
-          string,
-          {
-            id: string;
-            email: string;
-            name: string;
-            phone: string | null;
-            tags: string[] | null;
-            notes: string | null;
-            producerArchivedAt: Date | null;
-            invitedAt: Date | null;
-            clerkUserId: string | null;
-          }
-        >();
-        for (const c of contacts) {
-          contactById.set(c.id, {
-            id: c.id,
-            email: c.email,
-            name: c.name,
-            phone: c.phone,
-            tags: c.tags,
-            notes: c.notes,
-            producerArchivedAt: c.producerArchivedAt,
-            invitedAt: c.invitedAt,
-            clerkUserId: c.clerkUserId,
-          });
-        }
+      const contactById = new Map(contacts.map((contact) => [contact.id, contact] as const));
+      const projectsWithClients = enriched.map((p) => {
+        const contact = contactById.get(p.clientContactId) ?? null;
         return {
-          view: "all-projects" as const,
-          projects: enriched.map((p) => {
-            const ct = contactById.get(p.clientContactId) ?? null;
-            return {
-              ...p,
-              client: ct
-                ? {
-                    id: ct.id,
-                    email: ct.email,
-                    name: ct.name,
-                    phone: ct.phone,
-                    tags: ct.tags,
-                    notes: ct.notes,
-                    producerArchivedAt: ct.producerArchivedAt,
-                    invitedAt: ct.invitedAt,
-                    clerkUserId: ct.clerkUserId,
-                  }
-                : {
-                    id: null,
-                    email: p.clientEmail,
-                    name: p.clientName ?? p.artistName,
-                    phone: null as string | null,
-                    tags: null as string[] | null,
-                    notes: null as string | null,
-                    producerArchivedAt: null as Date | null,
-                    invitedAt: null as Date | null,
-                    clerkUserId: null as string | null,
-                  },
-            };
-          }),
+          ...p,
+          client: contact
+            ? {
+                id: contact.id,
+                email: contact.email,
+                name: contact.name,
+                phone: contact.phone,
+                tags: contact.tags,
+                notes: contact.notes,
+                producerArchivedAt: contact.producerArchivedAt,
+                invitedAt: contact.invitedAt,
+                clerkUserId: contact.clerkUserId,
+              }
+            : {
+                id: null,
+                email: p.clientEmail,
+                name: p.clientName ?? p.artistName,
+                phone: null as string | null,
+                tags: null as string[] | null,
+                notes: null as string | null,
+                producerArchivedAt: null as Date | null,
+                invitedAt: null as Date | null,
+                clerkUserId: null as string | null,
+              },
         };
+      });
+      if (view === "all-projects") {
+        return { view: "all-projects" as const, projects: projectsWithClients };
       }
 
-      // view === "by-client" — fold projects into their contact.
-      const contacts = await ctx.db
-        .select({
-          id: clientContacts.id,
-          email: clientContacts.email,
-          name: clientContacts.name,
-          phone: clientContacts.phone,
-          firstSeenAt: clientContacts.firstSeenAt,
-          lastSeenAt: clientContacts.lastSeenAt,
-          tags: clientContacts.tags,
-          notes: clientContacts.notes,
-          producerArchivedAt: clientContacts.producerArchivedAt,
-          referralSource: clientContacts.referralSource,
-          // Phase 1 (clients-projects redesign) — drives LinkPill state.
-          // `clerkUserId` set ⇒ "active" (artist signed up), else
-          // `invitedAt` set ⇒ "pending", else "none".
-          invitedAt: clientContacts.invitedAt,
-          clerkUserId: clientContacts.clerkUserId,
-        })
-        .from(clientContacts)
-        .where(eq(clientContacts.producerId, ctx.producerId))
-        // Custom drag order first, then most-recently-seen for the
-        // un-dragged (position=0) tail.
-        .orderBy(asc(clientContacts.position), desc(clientContacts.lastSeenAt));
+      // The by-client and combined workspace views share this fold.
 
       type Agg = {
         active: number;
@@ -437,6 +494,13 @@ export const clientContactsRouter = router({
           isStale,
         };
       });
+      if (view === "workspace") {
+        return {
+          view: "workspace" as const,
+          projects: projectsWithClients,
+          clients: rows,
+        };
+      }
       return { view: "by-client" as const, clients: rows };
     }),
 
@@ -909,73 +973,17 @@ export const clientContactsRouter = router({
   detail: producerProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const [contact] = await ctx.db
-        .select()
-        .from(clientContacts)
-        .where(and(eq(clientContacts.id, input.id), eq(clientContacts.producerId, ctx.producerId)))
-        .limit(1);
-      if (!contact || contact.producerId !== ctx.producerId) {
-        throw new TRPCError({ code: "NOT_FOUND" });
-      }
-      const canPermanentlyDelete = await canPermanentlyDeleteEmptyDraftClient(
-        historicalDeletionRepository(ctx.db),
-        { producerId: ctx.producerId, clientId: input.id },
-      );
-      const projectRows = await ctx.db
-        .select({
-          id: projects.id,
-          title: projects.title,
-          lifecycleStatus: projects.lifecycleStatus,
-          workflowStage: projects.workflowStage,
-          deadlineAt: projects.deadlineAt,
-          clientContactId: projects.clientContactId,
-          createdAt: projects.createdAt,
-          updatedAt: projects.updatedAt,
-          nextSessionAt: sql<
-            Date | string | null
-          >`min(case when ${bookings.startsAt} > now() and ${bookings.status} = 'confirmed' then ${bookings.startsAt} end)`,
-          canPermanentlyDelete: sql<boolean>`(
-            ${projects.lifecycleStatus} = 'waiting_for_payment'
-            and not exists(select 1 from ${projectTracks}
-              where ${projectTracks.projectId} = ${projects.id})
-            and not exists(select 1 from ${purchases}
-              where ${purchases.producerId} = ${projects.producerId}
-                and ${purchases.projectId} = ${projects.id})
-            and not exists(select 1 from ${purchaseRequests}
-              where ${purchaseRequests.producerId} = ${projects.producerId}
-                and ${purchaseRequests.projectId} = ${projects.id})
-            and not exists(select 1 from ${privateOffers}
-              where ${privateOffers.producerId} = ${projects.producerId}
-                and ${privateOffers.targetProjectId} = ${projects.id})
-            and not exists(select 1 from ${bookings}
-              where ${bookings.producerId} = ${projects.producerId}
-                and ${bookings.projectId} = ${projects.id})
-            and not exists(select 1 from ${notifications}
-              where ${notifications.producerId} = ${projects.producerId}
-                and ${notifications.projectId} = ${projects.id})
-          )`,
-        })
-        .from(projects)
-        .leftJoin(bookings, eq(bookings.projectId, projects.id))
-        .where(and(eq(projects.producerId, ctx.producerId), eq(projects.clientContactId, input.id)))
-        .groupBy(projects.id)
-        .orderBy(desc(projects.updatedAt));
-
-      const projectIds = projectRows.map((d) => d.id);
-
-      let trackCount = 0;
-      if (projectIds.length > 0) {
-        const [row] = await ctx.db
-          .select({ n: sql<number>`count(*)::int` })
-          .from(trackVersions)
-          .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
-          .where(inArray(projectTracks.projectId, projectIds));
-        trackCount = row?.n ?? 0;
-      }
-
-      const commentRows =
-        projectIds.length > 0
-          ? await ctx.db
+      const base = await loadClientDetailBase(ctx, input.id);
+      const [trackCountRow, commentRows] = await Promise.all([
+        base.projectIds.length > 0
+          ? ctx.db
+              .select({ n: sql<number>`count(*)::int` })
+              .from(trackVersions)
+              .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
+              .where(inArray(projectTracks.projectId, base.projectIds))
+          : Promise.resolve([]),
+        base.projectIds.length > 0
+          ? ctx.db
               .select({
                 id: trackComments.id,
                 versionId: trackComments.versionId,
@@ -991,28 +999,14 @@ export const clientContactsRouter = router({
               .innerJoin(projectTracks, eq(projectTracks.id, trackVersions.trackId))
               .where(
                 and(
-                  inArray(projectTracks.projectId, projectIds),
+                  inArray(projectTracks.projectId, base.projectIds),
                   eq(trackComments.fromProducer, false),
                 ),
               )
               .orderBy(desc(trackComments.createdAt))
               .limit(20)
-          : [];
-
-      const activeProjectCount = projectRows.filter(
-        (project) =>
-          project.lifecycleStatus !== "completed" && project.lifecycleStatus !== "canceled",
-      ).length;
-      const archiveBlockingProjectCount = projectRows.filter(
-        (project) =>
-          project.lifecycleStatus === "active" || project.lifecycleStatus === "waiting_for_payment",
-      ).length;
-      const lastActivity = projectRows[0]?.updatedAt ?? contact.lastSeenAt;
-
-      const enrichedProjects = projectRows.map((project) => ({
-        ...project,
-        commercial: unavailableCommercialProjection(),
-      }));
+          : Promise.resolve([]),
+      ]);
 
       let money;
       try {
@@ -1025,37 +1019,27 @@ export const clientContactsRouter = router({
       }
 
       return {
-        contact: {
-          id: contact.id,
-          email: contact.email,
-          name: contact.name,
-          // PR #130 — phone surfaces the optional phone column so the
-          // Client Space hero's Edit modal can prefill it. Null when
-          // the producer hasn't filled it in.
-          phone: contact.phone,
-          firstSeenAt: contact.firstSeenAt,
-          lastSeenAt: contact.lastSeenAt,
-          tags: contact.tags,
-          notes: contact.notes,
-          producerArchivedAt: contact.producerArchivedAt,
-          referralSource: contact.referralSource,
-          // Phase 1 (clients-projects redesign) — drives LinkPill state
-          // on the Client Space hero.
-          invitedAt: contact.invitedAt,
-          clerkUserId: contact.clerkUserId,
-          canPermanentlyDelete,
-        },
+        contact: base.contact,
         stats: {
-          activeProjectCount,
-          archiveBlockingProjectCount,
-          totalProjectCount: projectRows.length,
-          trackCount,
-          lastActivity,
-          commercial: unavailableCommercialProjection(),
+          ...base.stats,
+          trackCount: trackCountRow[0]?.n ?? 0,
         },
-        projects: enrichedProjects,
+        projects: base.projects,
         money,
         comments: commentRows,
+      };
+    }),
+
+  // Client Space consumes only identity, project rows, and archive counts.
+  // Keep its lean contract separate so the legacy detail output stays exact.
+  clientSpaceDetail: producerProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const detail = await loadClientDetailBase(ctx, input.id);
+      return {
+        contact: detail.contact,
+        stats: detail.stats,
+        projects: detail.projects,
       };
     }),
 });

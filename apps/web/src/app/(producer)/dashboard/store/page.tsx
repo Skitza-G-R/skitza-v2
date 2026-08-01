@@ -39,6 +39,7 @@ export default async function StorePage() {
     kind: p.kind,
     durationMin: p.durationMin,
     sessionCount: p.sessionCount,
+    bookingEnabled: p.bookingEnabled,
     paymentPlans: p.paymentPlans,
     locationType: p.locationType,
     bufferMinutes: p.bufferMinutes,
@@ -74,21 +75,24 @@ export default async function StorePage() {
           liveProductCount: products.filter((product) => product.active).length,
         }}
       />
-      <div className="mx-auto w-full max-w-[1100px] px-4 pt-6 sm:px-6 sm:pt-10">
-        <PrivateOfferManager
-          recipients={offerRecipients}
-          offers={offerHistory.offers}
-          defaultCurrency={defaultCurrency}
-          taxMode={taxMode}
-          taxRatePct={taxRatePct}
-        />
-      </div>
       <StoreScreen
         products={products}
         defaultCurrency={defaultCurrency}
         taxMode={taxMode}
         taxRatePct={taxRatePct}
         producerName={profile.displayName ?? "Your studio"}
+        producerSlug={profile.slug}
+        producerLogoUrl={profile.brand.logoUrl ?? null}
+        privateOfferCount={offerHistory.offers.length}
+        privateOffers={
+          <PrivateOfferManager
+            recipients={offerRecipients}
+            offers={offerHistory.offers}
+            defaultCurrency={defaultCurrency}
+            taxMode={taxMode}
+            taxRatePct={taxRatePct}
+          />
+        }
       />
     </>
   );

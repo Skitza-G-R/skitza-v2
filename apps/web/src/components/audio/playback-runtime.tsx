@@ -27,13 +27,29 @@ export type PlaybackSnapshot = {
   playing: boolean;
   currentMs: number;
   audioDurationSec: number | null;
+  volume: number;
 };
 
 export type PlaybackCommand =
-  | { kind: "set"; track: PlayerTrack }
+  | {
+      kind: "set";
+      track: PlayerTrack;
+      currentMs?: number;
+      playing?: boolean;
+    }
   | { kind: "toggle" }
   | { kind: "seek"; currentMs: number }
+  | { kind: "volume"; volume: number }
   | { kind: "close" };
+
+export type PlayerLoadOptions = {
+  currentMs: number;
+  playing: boolean;
+};
+
+type StructuredPlayerSetDetail = PlayerLoadOptions & {
+  track: PlayerTrack;
+};
 
 type ResolvedAudioSource = {
   accountId: string | null;
@@ -47,11 +63,13 @@ const EMPTY_PLAYBACK: PlaybackSnapshot = {
   playing: false,
   currentMs: 0,
   audioDurationSec: null,
+  volume: 1,
 };
 
 const EVT_SET = "skitza:player:set";
 const EVT_TOGGLE = "skitza:player:toggle";
 const EVT_SEEK = "skitza:player:seek";
+const EVT_VOLUME = "skitza:player:volume";
 const EVT_CLOSE = "skitza:player:close";
 const EVT_TIME = "skitza:player:time";
 
@@ -59,6 +77,7 @@ export const PLAYER_EVENTS = {
   set: EVT_SET,
   toggle: EVT_TOGGLE,
   seek: EVT_SEEK,
+  volume: EVT_VOLUME,
   close: EVT_CLOSE,
   time: EVT_TIME,
 } as const;
@@ -104,7 +123,7 @@ export function useNowPlaying(): { trackId: string | null; playing: boolean } {
 
 export function publishNowPlaying(next: { trackId: string | null; playing: boolean }): void {
   if (next.trackId === null) {
-    emitPlayback(EMPTY_PLAYBACK);
+    emitPlayback({ ...EMPTY_PLAYBACK, volume: playbackSnapshot.volume });
     return;
   }
   if (playbackSnapshot.track?.id !== next.trackId) return;
@@ -114,6 +133,21 @@ export function publishNowPlaying(next: { trackId: string | null; playing: boole
 export function playerPlay(track: PlayerTrack): void {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(EVT_SET, { detail: track }));
+}
+
+/**
+ * Load another audio source at an exact position without changing the caller's
+ * intended play/pause state. The structured event remains additive: legacy
+ * callers may continue dispatching a raw PlayerTrack over PLAYER_EVENTS.set.
+ */
+export function playerLoad(track: PlayerTrack, options: PlayerLoadOptions): void {
+  if (typeof window === "undefined") return;
+  const detail: StructuredPlayerSetDetail = {
+    track,
+    currentMs: options.currentMs,
+    playing: options.playing,
+  };
+  window.dispatchEvent(new CustomEvent(EVT_SET, { detail }));
 }
 
 export function playerToggle(): void {
@@ -126,9 +160,29 @@ export function playerSeek(ms: number): void {
   window.dispatchEvent(new CustomEvent(EVT_SEEK, { detail: ms }));
 }
 
+export function playerSetVolume(volume: number): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(EVT_VOLUME, { detail: volume }));
+}
+
 export function playerClose(): void {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(EVT_CLOSE));
+}
+
+export function clampSeekMs(currentMs: number, deltaMs: number, durationMs: number | null): number {
+  const safeCurrentMs = Number.isFinite(currentMs) ? Math.max(0, currentMs) : 0;
+  const safeDeltaMs = Number.isFinite(deltaMs) ? deltaMs : 0;
+  const nextMs = Math.max(0, safeCurrentMs + safeDeltaMs);
+  if (durationMs === null || !Number.isFinite(durationMs) || durationMs < 0) {
+    return nextMs;
+  }
+  return Math.min(durationMs, nextMs);
+}
+
+function clampVolume(volume: number, fallback: number): number {
+  if (!Number.isFinite(volume)) return fallback;
+  return Math.min(1, Math.max(0, volume));
 }
 
 function playbackStorageKey(accountId: string): string {
@@ -234,6 +288,40 @@ export function normalizePlayerTrack(value: unknown): PlayerTrack | null {
   };
 }
 
+/**
+ * Normalize both generations of the set-event contract:
+ *
+ * - legacy: CustomEvent<PlayerTrack>
+ * - structured: CustomEvent<{ track, currentMs, playing }>
+ *
+ * Keeping this parser at the runtime boundary lets existing row/card
+ * dispatchers remain unchanged while comparison surfaces can load a new
+ * version without losing position or pause state.
+ */
+export function playbackSetCommandFromDetail(
+  value: unknown,
+): Extract<PlaybackCommand, { kind: "set" }> | null {
+  if (typeof value !== "object" || value === null) return null;
+  const record = value as Record<string, unknown>;
+  const structured = Object.prototype.hasOwnProperty.call(record, "track");
+  const track = normalizePlayerTrack(structured ? record.track : value);
+  if (!track) return null;
+  if (!structured) return { kind: "set", track };
+  if (
+    typeof record.currentMs !== "number" ||
+    !Number.isFinite(record.currentMs) ||
+    typeof record.playing !== "boolean"
+  ) {
+    return null;
+  }
+  return {
+    kind: "set",
+    track,
+    currentMs: record.currentMs,
+    playing: record.playing,
+  };
+}
+
 function storedPlayerTrack(value: unknown, origin: string): PlayerTrack | null {
   const normalized = normalizePlayerTrack(value);
   if (!normalized?.audioUrl || !isAudioUrlSafeToRestore(normalized.audioUrl, origin)) {
@@ -280,6 +368,7 @@ export function restorePlaybackForAccount(accountId: string, origin: string): Pl
       playing: false,
       currentMs: parsed.currentMs,
       audioDurationSec: null,
+      volume: 1,
     };
   } catch {
     try {
@@ -363,21 +452,27 @@ export function reducePlaybackSnapshot(
   command: PlaybackCommand,
 ): PlaybackSnapshot {
   switch (command.kind) {
-    case "set":
+    case "set": {
+      const currentMs = clampSeekMs(command.currentMs ?? 0, 0, command.track.durationMs);
+      const requestedPlaying = command.playing ?? command.track.audioUrl !== null;
       return {
         track: command.track,
-        playing: command.track.audioUrl !== null,
-        currentMs: 0,
+        playing: command.track.audioUrl !== null && requestedPlaying,
+        currentMs,
         audioDurationSec: null,
+        volume: current.volume,
       };
+    }
     case "toggle":
       return current.track?.audioUrl ? { ...current, playing: !current.playing } : current;
     case "seek":
       return Number.isFinite(command.currentMs)
         ? { ...current, currentMs: Math.max(0, command.currentMs) }
         : current;
+    case "volume":
+      return { ...current, volume: clampVolume(command.volume, current.volume) };
     case "close":
-      return EMPTY_PLAYBACK;
+      return { ...EMPTY_PLAYBACK, volume: current.volume };
   }
 }
 
@@ -424,9 +519,9 @@ export function AppPlaybackRuntime({ accountId }: { accountId: string | null | u
 
   useEffect(() => {
     const onSet = (event: Event) => {
-      const track = normalizePlayerTrack((event as CustomEvent<unknown>).detail);
-      if (!track) return;
-      emitPlayback(reducePlaybackSnapshot(playbackSnapshot, { kind: "set", track }));
+      const command = playbackSetCommandFromDetail((event as CustomEvent<unknown>).detail);
+      if (!command) return;
+      emitPlayback(reducePlaybackSnapshot(playbackSnapshot, command));
       persistPlayback(window.location.origin);
     };
     const onToggle = () => {
@@ -443,6 +538,13 @@ export function AppPlaybackRuntime({ accountId }: { accountId: string | null | u
       );
       persistPlayback(window.location.origin);
     };
+    const onVolume = (event: Event) => {
+      const detail = (event as CustomEvent<unknown>).detail;
+      if (typeof detail !== "number") return;
+      updatePlayback((current) =>
+        reducePlaybackSnapshot(current, { kind: "volume", volume: detail }),
+      );
+    };
     const onClose = () => {
       const currentAccount = playbackAccountId;
       emitPlayback(reducePlaybackSnapshot(playbackSnapshot, { kind: "close" }));
@@ -453,14 +555,22 @@ export function AppPlaybackRuntime({ accountId }: { accountId: string | null | u
     window.addEventListener(EVT_SET, onSet as EventListener);
     window.addEventListener(EVT_TOGGLE, onToggle);
     window.addEventListener(EVT_SEEK, onSeek as EventListener);
+    window.addEventListener(EVT_VOLUME, onVolume as EventListener);
     window.addEventListener(EVT_CLOSE, onClose);
     return () => {
       window.removeEventListener(EVT_SET, onSet as EventListener);
       window.removeEventListener(EVT_TOGGLE, onToggle);
       window.removeEventListener(EVT_SEEK, onSeek as EventListener);
+      window.removeEventListener(EVT_VOLUME, onVolume as EventListener);
       window.removeEventListener(EVT_CLOSE, onClose);
     };
   }, []);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.volume = snapshot.volume;
+  }, [snapshot.volume]);
 
   useEffect(() => {
     const flushCurrentPosition = () => {

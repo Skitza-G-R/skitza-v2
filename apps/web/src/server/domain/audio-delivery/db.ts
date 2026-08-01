@@ -35,6 +35,8 @@ import type {
   PublicAudioDeliveryRepository,
 } from "./service";
 
+export { producerDownloadStateBatchRepository as producerDownloadStateRepository } from "./producer-download-state-db";
+
 type TransactionDb = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 type DiscoveredVersionScope = Readonly<{

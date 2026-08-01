@@ -6,6 +6,7 @@ type JsonRecord = Record<string, unknown>;
 
 const SNAPSHOT_KEYS = [
   "version",
+  "bookingEnabled",
   "productOrOfferName",
   "tagline",
   "service",
@@ -28,7 +29,7 @@ const SNAPSHOT_KEYS = [
 ] as const;
 
 const REQUIRED_SNAPSHOT_KEYS = SNAPSHOT_KEYS.filter(
-  (key) => key !== "tagline" && key !== "service",
+  (key) => key !== "tagline" && key !== "service" && key !== "bookingEnabled",
 );
 
 function record(value: unknown, label: string): JsonRecord {
@@ -308,8 +309,31 @@ export function assertCommercialSnapshotMatchesAcceptance(
   acceptedPlan: PurchasePaymentPlan | null,
 ): asserts snapshot is PurchaseCommercialSnapshot {
   const candidate = record(snapshot, "commercialSnapshot");
-  exactKeys(candidate, SNAPSHOT_KEYS, REQUIRED_SNAPSHOT_KEYS, "commercialSnapshot");
-  if (candidate.version !== 1) throw new Error("commercialSnapshot.version must be 1");
+  if (candidate.version !== 1 && candidate.version !== 2) {
+    throw new Error("commercialSnapshot.version must be 1 or 2");
+  }
+  exactKeys(
+    candidate,
+    SNAPSHOT_KEYS,
+    candidate.version === 2
+      ? [...REQUIRED_SNAPSHOT_KEYS, "bookingEnabled"]
+      : REQUIRED_SNAPSHOT_KEYS,
+    "commercialSnapshot",
+  );
+  if (candidate.version === 1) {
+    if (Object.prototype.hasOwnProperty.call(candidate, "bookingEnabled")) {
+      throw new Error("Legacy commercial snapshots cannot declare booking eligibility");
+    }
+  } else {
+    if (typeof candidate.bookingEnabled !== "boolean") {
+      throw new Error("commercialSnapshot.bookingEnabled must be a boolean");
+    }
+    if ((candidate.session !== null) !== candidate.bookingEnabled) {
+      throw new Error(
+        "commercialSnapshot.session must be present exactly when booking is enabled",
+      );
+    }
+  }
   stringValue(candidate.productOrOfferName, "commercialSnapshot.productOrOfferName", true);
   if (Object.prototype.hasOwnProperty.call(candidate, "tagline")) {
     stringValue(candidate.tagline, "commercialSnapshot.tagline");

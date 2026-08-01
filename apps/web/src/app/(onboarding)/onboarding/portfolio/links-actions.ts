@@ -6,12 +6,18 @@ import { z } from "zod";
 
 import { fetchUserRole } from "~/server/auth/role";
 
+import {
+  ONBOARDING_PORTFOLIO_PLATFORMS,
+  onboardingPortfolioUrlError,
+  type OnboardingPortfolioPlatform,
+} from "./portfolio-links";
+
 // Story 06 — Onboarding portfolio external-links bulk-save action.
 //
 // Contract (story spec):
 //   "use server";
 //   async function saveExternalLinks(input: {
-//     links: { platform: "spotify" | "youtube" | "instagram_reels"; url: string }[];
+//     links: { platform: OnboardingPortfolioPlatform; url: string }[];
 //   }): Promise<void>;
 //
 // Per link:
@@ -31,9 +37,9 @@ import { fetchUserRole } from "~/server/auth/role";
 //
 // Why a server action vs a tRPC mutation: the existing
 // producer-external-links router exposes single-row CRUD (add /
-// remove / reorder) keyed by row id. The wizard's UX is bulk: 3
-// platform inputs handed off as one payload. We could call the
-// router three times from the client, but (a) it'd require dispatching
+// remove / reorder) keyed by row id. The wizard's UX is bulk: its
+// curated platform inputs are handed off as one payload. We could call the
+// router once per platform from the client, but (a) it'd require dispatching
 // a "what's the row id for this platform?" lookup first, and (b) the
 // upsert+delete branch is bespoke to this UX. A thin server action
 // keeps the bulk concern inside the onboarding folder and the existing
@@ -42,18 +48,11 @@ import { fetchUserRole } from "~/server/auth/role";
 
 // ─── Input shape ────────────────────────────────────────────────────
 
-const SUPPORTED_PLATFORMS = [
-  "spotify",
-  "youtube",
-  "instagram_reels",
-] as const;
-
-const platformSchema = z.enum(SUPPORTED_PLATFORMS);
+const platformSchema = z.enum(ONBOARDING_PORTFOLIO_PLATFORMS);
 
 // URL: empty string is valid (DELETE branch). Non-empty must respect
-// the 500-char DB cap. Lenient http(s) check happens client-side via
-// linkRowError; here we only enforce length so a malicious caller
-// can't smuggle a huge string through.
+// the 500-char DB cap. After shape parsing, the server also verifies
+// http(s) and that the URL host matches the selected platform.
 //
 // T8 — title is optional (default ""). Capped at 120 chars; written
 // to producer_external_links.title (nullable). Empty title persists as
@@ -66,14 +65,14 @@ const linkSchema = z.object({
 });
 
 const Input = z.object({
-  links: z.array(linkSchema),
+  links: z.array(linkSchema).max(ONBOARDING_PORTFOLIO_PLATFORMS.length),
 });
 
 // ─── Action ─────────────────────────────────────────────────────────
 
 export async function saveExternalLinks(input: {
   links: Array<{
-    platform: "spotify" | "youtube" | "instagram_reels";
+    platform: OnboardingPortfolioPlatform;
     url: string;
     title?: string;
   }>;
@@ -106,6 +105,10 @@ export async function saveExternalLinks(input: {
 
   // 4. Validate input shape via zod.
   const parsed = Input.parse(input);
+  for (const link of parsed.links) {
+    const message = onboardingPortfolioUrlError(link.platform, link.url);
+    if (message) throw new Error(message);
+  }
 
   // Empty input is a valid no-op (the producer hit Continue with no
   // changes). Skip even creating the db client.
@@ -158,10 +161,7 @@ export async function saveExternalLinks(input: {
           position: 0,
         })
         .onConflictDoUpdate({
-          target: [
-            producerExternalLinks.producerId,
-            producerExternalLinks.platform,
-          ],
+          target: [producerExternalLinks.producerId, producerExternalLinks.platform],
           set: {
             url: trimmed,
             title: titleValue,

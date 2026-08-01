@@ -80,14 +80,14 @@ export function assertProofUploadMetadata(input: {
 
 export function assertProofAmount(amountCents: number, remainingCents: number): void {
   if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
-    throw new PaymentProofPolicyError("Enter the amount this proof actually represents");
+    throw new PaymentProofPolicyError("The proof amount must be a positive locked amount");
   }
   if (!Number.isSafeInteger(remainingCents) || remainingCents < 0) {
     throw new PaymentProofPolicyError("The installment balance is invalid");
   }
-  if (amountCents > remainingCents) {
+  if (amountCents !== remainingCents) {
     throw new PaymentProofPolicyError(
-      "The proof amount cannot be higher than this installment's remaining balance",
+      "The proof amount must match this installment's locked remaining balance",
     );
   }
 }

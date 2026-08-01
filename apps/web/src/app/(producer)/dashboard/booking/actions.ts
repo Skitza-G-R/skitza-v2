@@ -62,6 +62,7 @@ export async function createPackage(input: {
   description?: string;
   durationMin: number;
   sessionCount?: number;
+  bookingEnabled?: boolean;
   priceCents?: number;
   currency?: "USD" | "EUR" | "GBP" | "ILS";
   kind?: PackageKind;
@@ -78,6 +79,8 @@ export async function createPackage(input: {
   // enforces this). Both fields default to flat / [] when omitted.
   pricingModel?: "flat" | "per_song";
   volumeTiers?: { minQty: number; pricePerUnitCents: number }[];
+  /** Create live by default; false saves the product hidden atomically. */
+  active?: boolean;
 }): Promise<ActionDataResult<{ id: string }>> {
   const c = await callerOrError();
   if (!c.ok) return c;
@@ -98,6 +101,7 @@ export async function updatePackage(input: {
   description?: string;
   durationMin?: number;
   sessionCount?: number;
+  bookingEnabled?: boolean;
   priceCents?: number;
   currency?: "USD" | "EUR" | "GBP" | "ILS";
   kind?: PackageKind;
@@ -143,6 +147,7 @@ export async function deactivatePackage(input: { id: string }): Promise<ActionRe
 export async function setPackageActive(input: {
   id: string;
   active: boolean;
+  requireAvailability?: boolean;
 }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;

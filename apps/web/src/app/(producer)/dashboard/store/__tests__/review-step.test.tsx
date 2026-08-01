@@ -15,8 +15,10 @@ describe("ReviewStep", () => {
         pricingModel="flat"
         priceCents={100_03}
         currency="USD"
+        includesSessions={true}
         sessions={2}
         unlimitedSessions={false}
+        bookingEnabled={true}
         paymentPlans={[
           { kind: "full" },
           { kind: "split_50_50" },
@@ -43,15 +45,17 @@ describe("ReviewStep", () => {
 
     expect(html).toContain("Exact artist preview");
     expect(html).toContain("Signed-in Store focal card for Gili Studio.");
-    expect(html).toContain("View details");
+    expect(html).toContain("View service");
     expect(html).toContain("Gili Studio");
     expect(html).toContain("Product type");
     expect(html).toContain("Product details");
-    expect(html).toContain("Artist-facing tagline");
+    expect(html).toContain("Short description");
     expect(html).toContain("Release-ready clarity without losing the pulse.");
     expect(html).toContain("Price");
     expect(html).toContain("Payment");
     expect(html).toContain("Delivery");
+    expect(html).toContain("2 bookable sessions");
+    expect(html).not.toContain("Artist booking enabled");
     expect(html).toContain("Rights &amp; agreement");
     expect(html).toContain("Stereo mix");
     expect(html).toContain("Monthly installments");
@@ -72,8 +76,10 @@ describe("ReviewStep", () => {
         pricingModel="flat"
         priceCents={20_000}
         currency="USD"
+        includesSessions={false}
         sessions={1}
         unlimitedSessions={false}
+        bookingEnabled={false}
         paymentPlans={[{ kind: "full" }]}
         duration="60 min"
         revisions={0}
@@ -86,6 +92,8 @@ describe("ReviewStep", () => {
     );
 
     expect(html).toContain("Not specified");
+    expect(html).toContain("No bookable sessions included");
+    expect(html).not.toContain("No artist booking");
     expect(html).toContain("No agreement added");
   });
 
@@ -99,8 +107,10 @@ describe("ReviewStep", () => {
         pricingModel="flat"
         priceCents={10_000}
         currency="ILS"
+        includesSessions={true}
         sessions={1}
         unlimitedSessions={false}
+        bookingEnabled={true}
         paymentPlans={[{ kind: "full" }]}
         duration="60 min"
         revisions={1}
@@ -117,7 +127,7 @@ describe("ReviewStep", () => {
     );
 
     expect(html).toContain("Signed-in Store secondary row for Gili Studio.");
-    expect(html).toContain("Also from Gili Studio");
+    expect(html).toContain("More services");
     expect(html).toContain("+ 18% tax");
     expect(html).not.toContain("Signature");
   });
@@ -134,8 +144,10 @@ describe("ReviewStep", () => {
         artistPaysCents={11_800}
         taxNote="+ 18% tax"
         currency="USD"
+        includesSessions={true}
         sessions={1}
         unlimitedSessions={false}
+        bookingEnabled={true}
         paymentPlans={[{ kind: "full" }]}
         duration="60 min"
         revisions={1}
@@ -168,8 +180,10 @@ describe("ReviewStep", () => {
         ]}
         priceCents={20_000}
         currency="USD"
+        includesSessions={true}
         sessions={1}
         unlimitedSessions={false}
+        bookingEnabled={true}
         paymentPlans={[{ kind: "full" }]}
         duration="60 min"
         revisions={2}

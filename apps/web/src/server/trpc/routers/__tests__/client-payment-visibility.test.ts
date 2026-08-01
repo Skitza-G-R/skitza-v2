@@ -33,7 +33,7 @@ describe("producer client payment visibility", () => {
     expect(clientContacts).toMatch(/clientContactId:\s*projects\.clientContactId/);
     expect(clientContacts).toMatch(/contactById\.get\(p\.clientContactId\)/);
     expect(clientContacts).toMatch(/byClientContactId\.get\(c\.id\)/);
-    expect(clientContacts).toMatch(/eq\(projects\.clientContactId, input\.id\)/);
+    expect(clientContacts).toMatch(/eq\(projects\.clientContactId, (?:input\.id|clientId)\)/);
     expect(clientContacts).not.toMatch(/emailMatchesProject|contactByEmail|byEmail/);
   });
 
@@ -42,7 +42,12 @@ describe("producer client payment visibility", () => {
     expect(purchase).toMatch(/listProducerPaymentProofHistory/);
     expect(clientContacts).toContain("clientMoneyRepository");
     expect(clientContacts).toContain("getClientMoneyLedger");
-    expect(clientPage).toContain("ClientMoneyLedger");
+    expect(clientPage).toContain("caller.purchaseLedger.client({ clientContactId: id })");
+    expect(clientPage).toContain("toProducerPaymentWorkspaceBuckets(payments.producerBuckets)");
+    expect(clientPage).toMatch(
+      /<ClientSpaceWorkspace[\s\S]*?paymentBuckets=\{paymentBuckets\}[\s\S]*?needsReviewCount=\{needsReviewCount\}/,
+    );
+    expect(clientPage).not.toContain("ClientMoneyLedger");
     expect(clientPage).not.toMatch(/proofOfPayment\.history|<ClientPaymentProofs/);
   });
 

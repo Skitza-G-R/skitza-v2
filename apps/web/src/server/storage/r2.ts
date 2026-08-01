@@ -9,6 +9,7 @@ function requireEnv(name: string): string {
 
 let _r2: S3Client | null = null;
 let _r2SingleAttempt: S3Client | null = null;
+let _r2BrowserUpload: S3Client | null = null;
 
 function r2Config() {
   return {
@@ -32,6 +33,19 @@ export function getR2SingleAttempt(): S3Client {
   if (_r2SingleAttempt) return _r2SingleAttempt;
   _r2SingleAttempt = new S3Client({ ...r2Config(), maxAttempts: 1 });
   return _r2SingleAttempt;
+}
+
+/**
+ * Browser PUT presigns must not inherit the SDK's optional empty-body CRC32.
+ * The browser supplies the real body after the URL has already been signed.
+ */
+export function getR2BrowserUpload(): S3Client {
+  if (_r2BrowserUpload) return _r2BrowserUpload;
+  _r2BrowserUpload = new S3Client({
+    ...r2Config(),
+    requestChecksumCalculation: "WHEN_REQUIRED",
+  });
+  return _r2BrowserUpload;
 }
 
 export const BUCKETS = {

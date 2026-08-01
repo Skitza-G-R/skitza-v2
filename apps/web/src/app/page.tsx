@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 
 import { LandingPage } from "~/components/landing/landing-page";
+import { isDevPreviewBypass } from "~/lib/onboarding/dev-preview";
 
 // Explicit landing metadata — overrides the root layout's template for the
 // homepage and pins robots.index+follow so Next can't accidentally inherit
@@ -45,7 +46,16 @@ export const metadata: Metadata = {
 // Pivoted to a single-file verbatim port — see `LandingPage` for the
 // full structure. This server component now does the bare minimum:
 // auth-redirect, metadata, CSS import, and render the client tree.
-export default async function HomePage() {
+type HomePageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function HomePage({ searchParams }: HomePageProps = {}) {
+  const params = (await searchParams) ?? {};
+  if (isDevPreviewBypass(params)) {
+    redirect("/onboarding/welcome?__preview=1");
+  }
+
   const { userId } = await auth();
   if (userId) redirect("/dashboard");
   return <LandingPage />;

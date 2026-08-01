@@ -16,12 +16,13 @@ describe("SongsTab — Songs panel for the album page", () => {
     expect(SRC).toContain("~/components/dashboard/project/track-row");
   });
 
-  it("renders a Tracklist header above the rows", () => {
-    expect(SRC).toMatch(/Tracklist/);
+  it("renders a level-two Songs heading above the rows", () => {
+    expect(SRC).toMatch(/<h2[\s\S]*?>\s*Songs\s*<\/h2>/);
   });
 
-  it("renders an 'Add song' button in the panel header", () => {
-    expect(SRC).toMatch(/Add\s*song/);
+  it("leaves the one generic Add Song action on the compact header + button", () => {
+    expect(SRC).not.toContain("handleAddSong();");
+    expect(SRC).toContain("Use the project + button");
   });
 
   it("renders an empty state when the tracks list is empty", () => {
@@ -32,6 +33,13 @@ describe("SongsTab — Songs panel for the album page", () => {
 
   it("renders a 1-based index on each TrackRow", () => {
     expect(SRC).toMatch(/index=\{[^}]*\+\s*1\s*\}/);
+  });
+
+  it("opens songs in the existing player without a lower content slot", () => {
+    expect(SRC).toContain("Open a song in the player");
+    expect(SRC).not.toContain("selectedSongId");
+    expect(SRC).not.toContain("selected={");
+    expect(SRC).not.toContain("children");
   });
 
   it("exposes Add Song without an unpersisted reorder callback", () => {

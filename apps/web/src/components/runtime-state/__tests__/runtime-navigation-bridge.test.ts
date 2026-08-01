@@ -8,6 +8,7 @@ import { NATIVE_REFRESH_EVENT } from "~/lib/pwa/update-coordination";
 import {
   popRuntimeBack,
   readRuntimeNavigationSnapshot,
+  recordRuntimeNavigation,
   type RuntimeIdentity,
 } from "~/lib/runtime-state/navigation";
 import { MemoryStorage } from "~/lib/runtime-state/__tests__/memory-storage";
@@ -242,6 +243,53 @@ function setupNavigationIntentEnvironment() {
     },
   };
 }
+
+describe("RuntimeNavigationBridge root restoration", () => {
+  it("keeps the explicit post-onboarding Store cue on the dashboard root", () => {
+    mocked.pathname = "/dashboard";
+    mocked.search = "storeTip=1";
+    mocked.persistRefs = true;
+    recordRuntimeNavigation(
+      currentStorage(),
+      PRODUCER,
+      "/dashboard/store",
+      0,
+    );
+
+    const layoutEffectIndex = mocked.layoutEffects.length;
+    RuntimeNavigationBridge({});
+    mocked.layoutEffects[layoutEffectIndex]?.();
+
+    expect(mocked.router.replace).not.toHaveBeenCalled();
+
+    // Consuming the cue query must not make the same mounted shell resume away
+    // from Overview on its next render.
+    mocked.search = "";
+    mocked.refIndex = 0;
+    const nextLayoutEffectIndex = mocked.layoutEffects.length;
+    RuntimeNavigationBridge({});
+    mocked.layoutEffects[nextLayoutEffectIndex]?.();
+
+    expect(mocked.router.replace).not.toHaveBeenCalled();
+  });
+
+  it("still resumes the last producer screen for an ordinary dashboard root", () => {
+    mocked.pathname = "/dashboard";
+    mocked.search = "";
+    recordRuntimeNavigation(
+      currentStorage(),
+      PRODUCER,
+      "/dashboard/store",
+      0,
+    );
+
+    const layoutEffectIndex = mocked.layoutEffects.length;
+    RuntimeNavigationBridge({});
+    mocked.layoutEffects[layoutEffectIndex]?.();
+
+    expect(mocked.router.replace).toHaveBeenCalledWith("/dashboard/store");
+  });
+});
 
 describe("RuntimeNavigationBridge scroll persistence", () => {
   it("does not overwrite the previous route after the shared scroll container resets", () => {

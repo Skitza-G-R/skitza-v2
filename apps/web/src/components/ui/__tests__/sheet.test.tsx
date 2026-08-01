@@ -98,4 +98,10 @@ describe("Sheet primitive — native mobile behavior", () => {
   it("turns off overlay animation for reduced-motion users", () => {
     expect(sheetSource).toMatch(/SheetPrimitive\.Overlay[\s\S]*motion-reduce:animate-none/);
   });
+
+  it("keeps account-specific overlay motion opt-in", () => {
+    expect(sheetSource).toContain("overlayClassName?: string");
+    expect(sheetSource).toContain("<SheetOverlay className={overlayClassName} />");
+    expect(sheetSource).not.toContain("sk-account-sheet-overlay-motion");
+  });
 });

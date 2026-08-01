@@ -33,6 +33,7 @@ import type {
 export type PurchaseSessionAllowanceDraft = Readonly<{
   purchaseId: string;
   producerId: string;
+  bookingEnabledSnapshot: true;
   kind: "fixed" | "unlimited";
   sessionLimit: number | null;
   durationMin: number;
@@ -55,11 +56,14 @@ export function purchaseSessionAllowanceDraft(
   >,
 ): PurchaseSessionAllowanceDraft | null {
   const session = purchase.commercialSnapshot.value.session;
-  if (session === null) {
-    if (purchase.source.kind === "session_product") {
-      throw new Error("A session-product purchase is missing frozen session terms");
-    }
+  const explicitlyBookable =
+    purchase.commercialSnapshot.value.version === 2 &&
+    purchase.commercialSnapshot.value.bookingEnabled === true;
+  if (!explicitlyBookable) {
     return null;
+  }
+  if (session === null) {
+    throw new Error("A booking-enabled purchase is missing frozen session terms");
   }
   // SK-95 accepted Store rows used store_product before SK-68 introduced
   // explicit session_product provenance. Their immutable session snapshot is
@@ -67,6 +71,7 @@ export function purchaseSessionAllowanceDraft(
   return {
     purchaseId: purchase.id,
     producerId: purchase.producerId,
+    bookingEnabledSnapshot: true,
     kind: session.limit.kind,
     sessionLimit: session.limit.kind === "fixed" ? session.limit.count : null,
     durationMin: session.durationMin,
@@ -116,6 +121,7 @@ export async function ensurePurchaseSessionAllowance(
   if (
     !row ||
     row.producerId !== draft.producerId ||
+    row.bookingEnabledSnapshot !== draft.bookingEnabledSnapshot ||
     row.kind !== draft.kind ||
     row.sessionLimit !== draft.sessionLimit ||
     row.durationMin !== draft.durationMin ||

@@ -19,7 +19,6 @@ export interface EmptySongSpaceRowData {
 // song remains visible even before it has a version.
 
 interface SongsTabProps {
-  projectId: string;
   tracks: TrackRowData[];
   emptySlots?: readonly EmptySongSpaceRowData[];
   canAddSong?: boolean;
@@ -29,14 +28,13 @@ interface SongsTabProps {
 }
 
 export function SongsTab({
-  projectId,
   tracks,
   emptySlots = [],
   canAddSong = true,
   blockedReason = "New work requires an active project and an active purchase or accepted offer.",
   onAddSong,
 }: SongsTabProps) {
-  const handleAddSong = (slot?: EmptySongSpaceRowData) => {
+  const handleAddSong = (slot: EmptySongSpaceRowData) => {
     if (!canAddSong) return;
     onAddSong?.(slot);
   };
@@ -53,66 +51,31 @@ export function SongsTab({
         }}
       >
         <p className="font-syne text-[18px] font-bold" style={{ color: "rgb(var(--fg-default))" }}>
-          {canAddSong ? "No songs yet — add the first one to get started." : blockedReason}
+          {canAddSong ? "No songs yet." : blockedReason}
         </p>
         {canAddSong ? (
           <p className="mt-2 text-[13px]" style={{ color: "rgb(var(--fg-muted))" }}>
-            Purchased song spaces stay visible here before audio is uploaded.
+            Use the project + button to add the first song.
           </p>
-        ) : null}
-        {canAddSong ? (
-          <button
-            type="button"
-            onClick={() => {
-              handleAddSong();
-            }}
-            className="mt-5 inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] px-4 py-2 text-[13px] font-semibold shadow-[var(--shadow-sm)] transition-colors"
-            style={{
-              background: "rgb(var(--brand-primary))",
-              color: "rgb(var(--bg-sidebar))",
-            }}
-          >
-            <Plus size={14} />
-            Add song
-          </button>
         ) : null}
       </section>
     );
   }
 
   return (
-    <section role="tabpanel" id="panel-songs" aria-labelledby="tab-songs" className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="font-syne text-[18px] font-bold" style={{ color: "rgb(var(--fg-default))" }}>
-          Tracklist
-        </h3>
-        {canAddSong ? (
-          <button
-            type="button"
-            onClick={() => {
-              handleAddSong();
-            }}
-            className="inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] border px-3 py-1.5 text-[12px] font-semibold transition-colors"
-            style={{
-              background: "transparent",
-              borderColor: "rgb(var(--border-subtle))",
-              color: "rgb(var(--fg-default))",
-            }}
-          >
-            <Plus size={12} />
-            Add song
-          </button>
-        ) : null}
+    <section role="tabpanel" id="panel-songs" aria-labelledby="tab-songs" className="space-y-3">
+      <div>
+        <h2 className="font-syne text-[18px] font-bold" style={{ color: "rgb(var(--fg-default))" }}>
+          Songs
+        </h2>
+        <p className="mt-1 text-[12px] text-[rgb(var(--fg-muted))]">
+          Open a song in the player, or use Play to start the mini-player.
+        </p>
       </div>
 
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         {tracks.map((t, i) => (
-          <TrackRow
-            key={t.id}
-            projectId={projectId}
-            track={t}
-            index={i + 1}
-          />
+          <TrackRow key={t.id} track={t} index={i + 1} />
         ))}
         {emptySlots.map((slot) => (
           <div

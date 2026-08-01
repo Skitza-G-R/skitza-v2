@@ -66,10 +66,18 @@ describe("SK-110 root media runtime", () => {
       "clearAccountPrivateRuntimeState(accountId)",
       pushBoundary,
     );
-    const mediaCleanup = ROOT_RUNTIME.indexOf("prepareMediaAccountExit(accountId)", privateCleanup);
+    const studioPreferenceCleanup = ROOT_RUNTIME.indexOf(
+      "clearArtistStudioPreferenceCookie()",
+      privateCleanup,
+    );
+    const mediaCleanup = ROOT_RUNTIME.indexOf(
+      "prepareMediaAccountExit(accountId)",
+      studioPreferenceCleanup,
+    );
     expect(pushBoundary).toBeGreaterThan(composedCleanup);
     expect(privateCleanup).toBeGreaterThan(pushBoundary);
-    expect(mediaCleanup).toBeGreaterThan(privateCleanup);
+    expect(studioPreferenceCleanup).toBeGreaterThan(privateCleanup);
+    expect(mediaCleanup).toBeGreaterThan(studioPreferenceCleanup);
     expect(ACCOUNT_EXIT).toContain("storage: StorageLike | null = getBrowserRuntimeStorage()");
   });
 
@@ -129,9 +137,7 @@ describe("SK-110 root media runtime", () => {
     expect(boundaryError).toBeGreaterThan(builtInCleanup);
     expect(blockedReturn).toBeGreaterThan(boundaryError);
     expect(builtInSignOut).toBeGreaterThan(blockedReturn);
-    expect(ROOT_RUNTIME).toContain(
-      'document.addEventListener("click", onClerkSignOut, true)',
-    );
+    expect(ROOT_RUNTIME).toContain('document.addEventListener("click", onClerkSignOut, true)');
   });
 
   it("keeps the new account hidden until switch invalidation is confirmed", () => {
@@ -151,7 +157,7 @@ describe("SK-110 root media runtime", () => {
     expect(ROOT_RUNTIME).toContain("previous && accountId === null");
     expect(ROOT_RUNTIME).toContain("void clerkRef.current.signOut().catch");
     expect(PUSH_EXIT).toContain("await adapter.suppressDelivery()");
-    expect(PUSH_EXIT).toContain('if (browserUnsubscribed) {');
+    expect(PUSH_EXIT).toContain("if (browserUnsubscribed) {");
     expect(PUSH_EXIT).not.toContain('"server-removed"');
     expect(PUSH_EXIT).not.toContain('return confirm("delivery-suppressed")');
   });

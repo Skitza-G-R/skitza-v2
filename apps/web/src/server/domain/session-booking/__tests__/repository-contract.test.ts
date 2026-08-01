@@ -88,6 +88,7 @@ describe("session booking Postgres repository contract", () => {
     const schedule = sourceBlock("listScheduleEntries:", "insertBooking:");
 
     expect(allowanceUses).toContain("bookings.outcome");
+    expect(allowanceUses).toContain("bookings.allowanceUseId");
     expect(allowanceUses).toContain("bookings.sessionAllowanceId");
     expect(schedule).toContain("purchaseSessionAllowances.bufferMinutes");
     expect(schedule).toContain('inArray(bookings.status, ["pending_approval", "confirmed"])');
@@ -101,6 +102,10 @@ describe("session booking Postgres repository contract", () => {
       "operationKey",
       "operationDigest",
       "rescheduledFromBookingId",
+      "allowanceUseId",
+      "cancellationPolicyHoursSnapshot",
+      "cancellationPolicySnapshottedAt",
+      "heldExpiresAt",
       "startsAt",
       "durationMin",
     ]) {

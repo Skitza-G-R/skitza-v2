@@ -1,5 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
-import { Calendar, Mic2, Package } from "lucide-react";
+import { CalendarClock, Check, Package, UserRound } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -9,28 +9,6 @@ import { fetchUserRole } from "~/server/auth/role";
 
 import { decideOnboardingRedirect } from "../decide-redirect";
 import { nextRouteAfterWelcome } from "./constants";
-
-// Step 0 — Welcome screen.
-//
-// Introduced by the May 2026 redesign. Sits BEFORE Step 1 (studio) as
-// a context-set screen: explains what the producer is about to do,
-// sets expectations ("about 2 minutes · skip anything · come back
-// later"), and primes them with the three things they'll be asked
-// for. NOT counted as one of the 5 numbered rail steps — instead, the
-// rail pre-highlights Step 1 ("Your hall") to telegraph what's next.
-//
-// Layout: WizardChrome (the new shared shell with wordmark header +
-// 260px step rail + tip card + main content area). Footer is omitted
-// because Welcome doesn't have a Continue button — the CTA inside
-// the main column ("Start setting up →") is the only forward action.
-//
-// Role gate: stepFromPath defaults to "studio" for any unknown path
-// (welcome included), so decideOnboardingRedirect("studio", role) is
-// the right call. Same matrix as the existing studio page; reusing it
-// means we don't have to extend the OnboardingStep type just for a
-// presentational pre-step.
-//
-// Dev-only ?__preview=1 bypass — see lib/onboarding/dev-preview.ts.
 
 export default async function WelcomePage({
   searchParams,
@@ -59,66 +37,84 @@ export default async function WelcomePage({
   }
 
   return (
-    <WizardChrome activePosition={1} stepIndicator="Setup">
-      <div className="ob-stagger flex flex-col items-center text-center">
-        {/* Live-dot pill: gold-tinted bg + alive heartbeat (combined
-            scale + glow). Reads as breathing rather than blinking. */}
-        <span className="mb-4 inline-flex items-center gap-2 rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary)/0.12)] px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.18em] text-[rgb(var(--brand-primary-dark))]">
-          <span
-            aria-hidden
-            className="ob-alive-dot inline-block h-1.5 w-1.5 rounded-full bg-[rgb(var(--brand-primary))]"
-          />
-          Welcome
+    <WizardChrome
+      activePosition={2}
+      completedCount={1}
+      stepIndicator="Public page setup"
+      previewMode={isPreview}
+    >
+      <div className="ob-stagger">
+        <span className="inline-flex min-h-8 items-center gap-2 rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary)/0.12)] px-3 font-mono text-[10px] font-bold tracking-[0.16em] text-[rgb(var(--brand-primary-dark))] uppercase">
+          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))]">
+            <Check size={11} strokeWidth={3} aria-hidden />
+          </span>
+          Account created
         </span>
 
         <h1
-          className="font-display text-[30px] font-extrabold leading-[1.04] tracking-[-0.035em] text-balance sm:text-[40px]"
+          className="font-display mt-5 max-w-[13ch] text-[38px] leading-[0.98] font-extrabold tracking-[-0.04em] text-balance sm:text-[50px]"
           style={{ fontVariationSettings: '"opsz" 96' }}
         >
-          Let&apos;s set up
-          <br />
-          the place where
-          <br />
-          artists find you
+          Build the page artists meet first
           <span className="text-[rgb(var(--brand-primary))]">.</span>
         </h1>
 
-        <p className="mt-3 max-w-md text-[14px] leading-relaxed text-[rgb(var(--fg-muted))]">
-          Five short steps. About two minutes. By the end, you&apos;ll have
-          a public link you can paste anywhere — and Skitza will handle
-          the rest.
+        <p className="mt-4 max-w-lg text-[15px] leading-relaxed text-[rgb(var(--fg-muted))] sm:text-[16px]">
+          Add your public name, one real product, and working hours only when that product needs
+          them. Your progress is saved as you go.
         </p>
 
-        <ul className="mt-5 grid w-full grid-cols-3 gap-2 text-left">
+        <ul className="mt-7 grid gap-2.5 sm:grid-cols-3">
           {[
-            { Icon: Mic2, label: "Your studio identity" },
-            { Icon: Package, label: "One service to start" },
-            { Icon: Calendar, label: "Your weekly hours" },
-          ].map(({ Icon, label }) => (
+            {
+              Icon: UserRound,
+              label: "Your public page",
+              detail: "Name and link",
+            },
+            {
+              Icon: Package,
+              label: "Your first product",
+              detail: "Hidden until review",
+            },
+            {
+              Icon: CalendarClock,
+              label: "Working hours",
+              detail: "Only if needed",
+            },
+          ].map(({ Icon, label, detail }) => (
             <li
               key={label}
-              className="flex items-center gap-2 rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-2.5 py-2.5"
+              className="flex min-h-[72px] items-center gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated)/0.8)] px-3.5 py-3 shadow-[0_10px_35px_rgb(var(--bg-sidebar)/0.04)]"
             >
-              <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary-dark))]">
+              <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-[rgb(var(--brand-primary)/0.14)] text-[rgb(var(--brand-primary-dark))]">
                 <Icon size={14} aria-hidden />
               </span>
-              <span className="text-[12px] font-semibold leading-tight">
-                {label}
+              <span className="min-w-0">
+                <span className="block text-[12px] leading-tight font-bold text-[rgb(var(--fg-default))]">
+                  {label}
+                </span>
+                <span className="mt-1 block text-[11px] leading-tight text-[rgb(var(--fg-muted))]">
+                  {detail}
+                </span>
               </span>
             </li>
           ))}
         </ul>
 
+        <div className="mt-5 rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.28)] bg-[rgb(var(--brand-primary)/0.07)] px-4 py-3 text-[13px] leading-relaxed text-[rgb(var(--fg-secondary))]">
+          Nothing goes live until you see the artist view and choose to publish.
+        </div>
+
         <Link
-          href={nextRouteAfterWelcome()}
-          className="ob-press mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[rgb(var(--bg-sidebar))] px-5 py-3 text-[14px] font-bold text-white shadow-[0_2px_12px_rgba(17,16,9,0.18)] hover:shadow-[0_8px_24px_rgba(17,16,9,0.32)]"
+          href={`${nextRouteAfterWelcome()}${isPreview ? "?__preview=1" : ""}`}
+          className="ob-press mt-7 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sidebar))] px-5 text-[14px] font-bold text-white shadow-[0_12px_32px_rgb(var(--bg-sidebar)/0.20)] hover:shadow-[0_16px_40px_rgb(var(--bg-sidebar)/0.30)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:outline-none sm:w-auto sm:min-w-48"
         >
-          Start setting up
+          Start setup
           <span aria-hidden>→</span>
         </Link>
 
-        <p className="mt-3 font-mono text-[11px] tracking-[0.04em] text-[rgb(var(--fg-muted))]">
-          About 2 minutes · Skip anything · Come back later
+        <p className="mt-3 text-[12px] text-[rgb(var(--fg-muted))]">
+          A few minutes · Progress saved · Dashboard opens after your name
         </p>
       </div>
     </WizardChrome>

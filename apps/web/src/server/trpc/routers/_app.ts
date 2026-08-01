@@ -1,5 +1,6 @@
 import { router } from "../init";
 import { artistRouter } from "./artist";
+import { artistPlatformRouter } from "./artist-platform";
 import { audioRouter } from "./audio";
 import { audioDeliveryRouter } from "./audio-delivery";
 import { bookingRouter } from "./booking";
@@ -18,10 +19,12 @@ import { privateOffersRouter } from "./private-offers";
 import { purchaseLedgerRouter } from "./purchase-ledger";
 import { publicProfileRouter } from "./public-profile";
 import { songPublicationRouter } from "./song-publication";
+import { songArtworkRouter } from "./song-artwork";
 import { waitlistRouter } from "./waitlist";
 
 export const appRouter = router({
   artist: artistRouter,
+  artistPlatform: artistPlatformRouter,
   audioDelivery: audioDeliveryRouter,
   audio: audioRouter,
   booking: bookingRouter,
@@ -40,6 +43,7 @@ export const appRouter = router({
   purchaseLedger: purchaseLedgerRouter,
   publicProfile: publicProfileRouter,
   songPublication: songPublicationRouter,
+  songArtwork: songArtworkRouter,
   waitlist: waitlistRouter,
 });
 

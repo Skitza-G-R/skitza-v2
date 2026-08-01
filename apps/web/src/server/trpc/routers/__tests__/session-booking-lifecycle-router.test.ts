@@ -38,24 +38,23 @@ const artistActivePackages = sourceBlock(
 );
 
 describe("SK-68 artist session router boundary", () => {
-  it("returns availability calendar truth in the producer timezone", () => {
+  it("authors schedule candidates in the producer timezone and groups them in artist time", () => {
     expect(artistAvailability).toMatch(/timeZone:\s*producers\.timezone/);
     expect(artistAvailability).toMatch(/today:/);
-    expect(artistAvailability).toMatch(/timeZone:/);
-    expect(artistAvailability).toMatch(/producerLocalDateKey|localDateKey/);
+    expect(artistAvailability).toMatch(/artistTimeZone/);
+    expect(artistAvailability).toMatch(/studioTimeZone:\s*producer\.timeZone/);
+    expect(artistAvailability).toMatch(/studioLocalDateKey/);
     expect(artistAvailability).toMatch(
       /producerLocalDateRange\([^)]*sessionAvailabilityHorizonDays\(minLeadHours\)/s,
     );
-    expect(artistAvailability).not.toMatch(/getUTC(?:FullYear|Month|Date|Day)/);
   });
 
-  it("fails an availability block closed when any rendered 30-minute start is invalid", () => {
-    const buildSlot = sourceBlock(artistAvailability, "const buildSlot", "days.push");
-
-    expect(buildSlot).toMatch(/startMin \+= 30/);
-    expect(buildSlot).toMatch(/available = false;\s*break;/);
-    expect(buildSlot).toMatch(/available:\s*evaluated && available/);
-    expect(buildSlot).not.toMatch(/\.some\(/);
+  it("keeps valid exact candidates when another start in the block is invalid", () => {
+    expect(artistAvailability).toMatch(/startMin \+= 30/);
+    expect(artistAvailability).toMatch(/studioLocalDateTimeUtcCandidates/);
+    expect(artistAvailability).toMatch(/for \(const startsAt of candidates\)/);
+    expect(artistAvailability).toMatch(/catch \(error\)[\s\S]*continue;/);
+    expect(artistAvailability).not.toMatch(/available = false;\s*break/);
   });
 
   it("authorizes availability against the exact purchased allowance and its stored terms", () => {
@@ -138,20 +137,19 @@ describe("SK-68 artist session router boundary", () => {
     }
   });
 
-  it("accepts producer-wall-clock slots for both create and reschedule", () => {
+  it("accepts one exact server-authored instant for both create and reschedule", () => {
     for (const procedure of ["confirm", "reschedule"]) {
       const command = sourceBlock(
         artistBook,
         `${procedure}: artistProcedure`,
         procedure === "confirm" ? "mySessions: artistProcedure" : undefined,
       );
-      expect(command).toMatch(/date:\s*z\.string\(\)[\s\S]*\^\\d\{4\}-\\d\{2\}-\\d\{2\}/);
-      expect(command).toMatch(/startMin:\s*z\.number\(\)\.int\(\)\.min\(0\)\.max\(1439\)/);
-      expect(command).not.toMatch(/startsAt:\s*z\./);
+      expect(command).toMatch(/startsAt:\s*z\.date\(\)/);
+      expect(command).not.toMatch(/date:\s*z\.string/);
+      expect(command).not.toMatch(/startMin:\s*z\.number/);
       expect(command).not.toMatch(/Date\.UTC\(/);
-      expect(command).toMatch(
-        /localSlot:\s*\{\s*date:\s*input\.date,\s*startMin:\s*input\.startMin/,
-      );
+      expect(command).toMatch(/startsAt:\s*input\.startsAt/);
+      expect(command).not.toMatch(/localSlot:/);
       expect(command).not.toMatch(/sessionStartFromLocalSlot\(/);
     }
   });

@@ -16,6 +16,37 @@ describe("PrivateOfferComposer", () => {
     expect(SRC).toMatch(/terms:\s*PrivateOfferInput/);
   });
 
+  it("supports controlled or uncontrolled opening without changing the default trigger", () => {
+    expect(SRC).toMatch(/open\?:\s*boolean/);
+    expect(SRC).toMatch(/onOpenChange\?:\s*\(open:\s*boolean\)\s*=>\s*void/);
+    expect(SRC).toMatch(/trigger\?:\s*ReactElement\s*\|\s*null/);
+    expect(SRC).toMatch(/const \[uncontrolledOpen, setUncontrolledOpen\] = useState\(false\)/);
+    expect(SRC).toMatch(/const open = controlledOpen \?\? uncontrolledOpen/);
+    expect(SRC).toMatch(/if \(controlledOpen === undefined\) setUncontrolledOpen\(nextOpen\)/);
+    expect(SRC).toMatch(/onOpenChange\?\.\(nextOpen\)/);
+    expect(SRC).toMatch(/<DialogPrimitive\.Root open=\{open\} onOpenChange=\{handleOpenChange\}>/);
+    expect(SRC).toMatch(/trigger !== null/);
+    expect(SRC).toMatch(/trigger \?\? \([\s\S]*?New private offer/);
+    expect(SRC).toContain("bg-[rgb(var(--brand-primary))]");
+  });
+
+  it("lets a controlled caller refresh only after a successful create", () => {
+    expect(SRC).toMatch(/onCreated\?:\s*\(offerId:\s*string\)\s*=>\s*void/);
+    expect(SRC).toMatch(
+      /if \(!result\.ok\)[\s\S]*?return;[\s\S]*?if \(!editing\) onCreated\?\.\(result\.data\.id\);[\s\S]*?handleOpenChange\(false\);[\s\S]*?if \(editing \|\| !onCreated\) router\.refresh\(\)/,
+    );
+    expect(SRC).not.toMatch(
+      /handleOpenChange\(false\);[\s\S]{0,80}onCreated\?\.\(result\.data\.id\)/,
+    );
+  });
+
+  it("restores focus to an explicit connected target after a headless composer closes", () => {
+    expect(SRC).toMatch(/returnFocusRef\?:\s*RefObject<HTMLElement\s*\|\s*null>/);
+    expect(SRC).toMatch(
+      /onCloseAutoFocus=\{\(event\)\s*=>\s*\{[\s\S]*?returnFocusRef\?\.current[\s\S]*?!target\?\.isConnected[\s\S]*?event\.preventDefault\(\)[\s\S]*?target\.focus\(\)/,
+    );
+  });
+
   it("uses authenticated server actions for both create and pre-acceptance correction", () => {
     expect(SRC).toMatch(/sendPrivateOfferAction\(/);
     expect(SRC).toMatch(/updatePrivateOfferAction\(/);
@@ -36,6 +67,22 @@ describe("PrivateOfferComposer", () => {
     expect(SRC).toContain("max-sm:w-full");
     expect(SRC).toContain("safe-area-inset-bottom");
     expect(SRC).toContain("overflow-y-auto");
+  });
+
+  it("guides the private offer through five validated steps", () => {
+    for (const step of ["recipient", "work", "payment", "rights", "agreement"]) {
+      expect(SRC).toContain(`id: "${step}"`);
+    }
+    expect(SRC).toMatch(
+      /const \[currentStep, setCurrentStep\] = useState<OfferStep>\("recipient"\)/,
+    );
+    expect(SRC).toMatch(/setCurrentStep\("recipient"\)/);
+    expect(SRC).toContain('aria-label="Private offer progress"');
+    expect(SRC).toContain('aria-current={index === currentStepIndex ? "step" : undefined}');
+    expect(SRC).toContain("Step {currentStepIndex + 1} of {OFFER_STEPS.length}");
+    expect(SRC).toContain("Back");
+    expect(SRC).toContain("Next");
+    expect(SRC).toMatch(/if \(!isLastStep\)[\s\S]*?currentStepResult\(\)/);
   });
 
   it("supports an existing recipient or a new verified-email recipient", () => {

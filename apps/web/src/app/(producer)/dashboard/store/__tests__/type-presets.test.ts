@@ -33,6 +33,7 @@ describe("TYPE_PRESETS", () => {
 
   it("blank preset has empty baseline + extras so the user starts fresh", () => {
     const blank = getPreset("blank");
+    expect(blank?.label).toBe("Custom");
     expect(blank?.baseline).toHaveLength(0);
     expect(blank?.extras).toHaveLength(0);
   });

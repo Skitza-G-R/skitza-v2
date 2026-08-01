@@ -1,7 +1,7 @@
 // pricing-step.tsx
 //
 // Stage 3 of the producer Store wizard. Two panels under one step:
-//   * "One flat price" (default) — price + currency + sessions + plan.
+//   * "One flat price" (default) — price + currency.
 //   * "Per song with discounts"   — a 3-column rate-card ladder
 //     (when booking · per song · total) + an artist-facing preview.
 //
@@ -13,11 +13,11 @@
 
 "use client";
 
-import { Minus, Plus, X } from "lucide-react";
+import Link from "next/link";
+import { Plus, X } from "lucide-react";
 
 import { fromPrice, type VolumeTier } from "~/lib/pricing";
 import { applyTaxToCents, type TaxMode, taxModePricingNote } from "~/lib/tax-mode";
-import { TaxModeSegmented } from "~/components/dashboard/tax-mode-segmented";
 
 type Currency = "USD" | "EUR" | "GBP" | "ILS";
 type PricingModel = "flat" | "per_song";
@@ -65,28 +65,19 @@ export function appendDiscountTier(
 }
 
 interface PricingStepProps {
+  // Legacy onboarding callers still pass these delivery values. They remain
+  // accepted until that flow moves the controls into its Logistics step.
+  sessions?: number;
+  unlimitedSessions?: boolean;
   price: number;
   currency: Currency;
-  sessions: number;
-  unlimitedSessions: boolean;
   pricingModel: PricingModel;
   volumeTiers: VolumeTier[];
-  // Producer's business-level tax mode + rate (migration 0019). Drives
-  // BOTH the inline toggle the producer interacts with AND the live
-  // "Artists pay $X" preview below it. The toggle is the only place
-  // tax mode is editable in v2 — Settings + Storefront no longer
-  // expose it. When `onTaxChange` is undefined (e.g. onboarding) the
-  // tax section is hidden entirely.
+  // Producer-level tax is read-only here. Product editing must never
+  // silently change every other product; the link opens global Settings.
   taxMode?: TaxMode;
   taxRatePct?: number;
-  onTaxChange?: (patch: { taxMode?: TaxMode; taxRatePct?: number }) => void;
-  // Optional error surface for the fire-and-forget tax save. Renders
-  // a small danger-color line below the toggle when set. Pending
-  // state is deliberately NOT surfaced — the toggle's slide
-  // animation is the only feedback the producer gets, so a
-  // server roundtrip + router.refresh() doesn't make the
-  // optimistic move feel slow.
-  taxError?: string | null;
+  showTaxSummary?: boolean;
   /** Exact client-side commercial validation shown beside the cash inputs. */
   priceError?: string | null;
   // When false, the "How do you want to charge?" pill is hidden and
@@ -98,85 +89,10 @@ interface PricingStepProps {
     patch: Partial<{
       price: number;
       currency: Currency;
-      sessions: number;
-      unlimitedSessions: boolean;
       pricingModel: PricingModel;
       volumeTiers: VolumeTier[];
     }>,
   ) => void;
-}
-
-function Stepper({
-  value,
-  min = 0,
-  max = 99,
-  onChange,
-  disabled = false,
-  ariaLabel,
-}: {
-  value: number;
-  min?: number;
-  max?: number;
-  onChange: (next: number) => void;
-  disabled?: boolean;
-  ariaLabel?: string;
-}) {
-  const canDec = !disabled && value > min;
-  const canInc = !disabled && value < max;
-  // Shared button class — picked out to keep both -/+ in lockstep.
-  // transition-[background-color,transform] (not transition-colors) so
-  // the active scale animates too. focus-visible ring matches the
-  // pattern from .s-select. active:scale-[0.94] gives the instant
-  // "interface heard you" feedback Emil prescribes for press states.
-  const btnClass = [
-    "inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-lg)] text-[rgb(var(--fg-default))] sm:h-8 sm:w-8 sm:rounded-[var(--radius-sm)]",
-    "transition-[background-color,transform] duration-150",
-    "hover:bg-[rgb(17_16_9/0.06)]",
-    "active:scale-[0.94]",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.5)] focus-visible:ring-offset-1 focus-visible:ring-offset-[rgb(var(--bg-elevated))]",
-    "disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100",
-  ].join(" ");
-  return (
-    <div
-      className={[
-        "inline-flex min-h-11 items-center gap-1 rounded-[var(--radius-lg)] border bg-[rgb(var(--bg-elevated))] sm:h-11 sm:rounded-[var(--radius-md)] sm:p-1",
-        "transition-[opacity,border-color] duration-200",
-        disabled
-          ? "border-[rgb(var(--border-subtle))] opacity-50"
-          : "border-[rgb(var(--border-subtle))]",
-      ].join(" ")}
-      style={{ transitionTimingFunction: "var(--ease-out-strong)" }}
-      aria-label={ariaLabel}
-    >
-      <button
-        type="button"
-        onClick={() => {
-          if (canDec) onChange(value - 1);
-        }}
-        disabled={!canDec}
-        aria-label="Decrease"
-        className={btnClass}
-        style={{ transitionTimingFunction: "var(--ease-press)" }}
-      >
-        <Minus size={14} strokeWidth={2.4} aria-hidden />
-      </button>
-      <span className="font-display min-w-[2.5ch] text-center text-[16px] leading-none font-bold text-[rgb(var(--fg-default))] tabular-nums">
-        {value}
-      </span>
-      <button
-        type="button"
-        onClick={() => {
-          if (canInc) onChange(value + 1);
-        }}
-        disabled={!canInc}
-        aria-label="Increase"
-        className={btnClass}
-        style={{ transitionTimingFunction: "var(--ease-press)" }}
-      >
-        <Plus size={14} strokeWidth={2.4} aria-hidden />
-      </button>
-    </div>
-  );
 }
 
 function Eyebrow({ children }: { children: React.ReactNode }) {
@@ -202,82 +118,32 @@ function formatCurrency(symbol: string, amount: number): string {
 function ProductTaxSection({
   taxMode,
   taxRatePct,
-  price,
   pricingNote,
-  error,
-  onChange,
 }: {
   taxMode: TaxMode;
   taxRatePct: number;
-  price: number;
   pricingNote: string;
-  error: string | null;
-  onChange: (patch: { taxMode?: TaxMode; taxRatePct?: number }) => void;
 }) {
   return (
     <section className="border-t border-[rgb(var(--border-subtle))] pt-4" aria-label="Tax settings">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-end">
-        <div>
+      <div className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3.5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <Eyebrow>Tax</Eyebrow>
-          <p className="text-[11.5px] text-[rgb(var(--fg-faint))]">Applies to all products</p>
+          <p
+            key={`${taxMode}-${String(taxRatePct)}`}
+            className="text-[12px] leading-relaxed text-[rgb(var(--fg-muted))]"
+            aria-live="polite"
+          >
+            {pricingNote}
+          </p>
         </div>
-        <div
-          className={
-            taxMode === "tax_free"
-              ? "min-w-0"
-              : "grid min-w-0 grid-cols-[minmax(0,1fr)_72px] items-center gap-2"
-          }
+        <Link
+          href="/dashboard/settings?section=region"
+          className="sk-press inline-flex h-11 shrink-0 items-center justify-center rounded-[var(--radius-lg)] px-3 text-[12.5px] font-semibold text-[rgb(var(--brand-primary-dark))] hover:bg-[rgb(var(--brand-primary)/0.08)] sm:h-9 sm:rounded-[var(--radius-md)]"
         >
-          <TaxModeSegmented
-            value={taxMode}
-            onChange={(next) => {
-              onChange({ taxMode: next });
-            }}
-            size="lg"
-            className="!h-[52px] min-w-0 sm:!h-11 [&>button]:min-h-11 [&>button]:min-w-0 [&>button]:px-2 sm:[&>button]:min-h-0 sm:[&>button]:px-3"
-            ariaLabel="Tax disclosure mode"
-          />
-          {taxMode !== "tax_free" ? (
-            <div className="flex h-[52px] items-center gap-1 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] pr-1 pl-2 focus-within:border-[rgb(var(--brand-primary))] focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.12)] sm:h-11 sm:rounded-[var(--radius-md)]">
-              <input
-                type="number"
-                min={0}
-                max={100}
-                step={1}
-                inputMode="numeric"
-                value={taxRatePct}
-                onChange={(event) => {
-                  const next = Number(event.target.value);
-                  if (!Number.isFinite(next)) return;
-                  onChange({
-                    taxRatePct: Math.max(0, Math.min(100, Math.round(next))),
-                  });
-                }}
-                aria-label="Tax rate percentage"
-                className="font-display h-full w-10 border-none bg-transparent text-right text-base leading-none font-bold text-[rgb(var(--fg-default))] tabular-nums outline-none sm:text-[14px]"
-              />
-              <span
-                aria-hidden
-                className="pr-2 text-[13px] font-semibold text-[rgb(var(--fg-muted))]"
-              >
-                %
-              </span>
-            </div>
-          ) : null}
-        </div>
+          Edit in Settings
+        </Link>
       </div>
-      <div
-        key={`${taxMode}-${String(taxRatePct)}-${String(price)}`}
-        className="reveal-up mt-2 text-[12px] leading-relaxed text-[rgb(var(--fg-muted))]"
-        aria-live="polite"
-      >
-        {pricingNote}
-      </div>
-      {error ? (
-        <div className="mt-1.5 text-[11.5px] text-[rgb(var(--fg-danger))]" role="alert">
-          Couldn&apos;t save: {error}
-        </div>
-      ) : null}
     </section>
   );
 }
@@ -285,24 +151,15 @@ function ProductTaxSection({
 export function PricingStep({
   price,
   currency,
-  sessions,
-  unlimitedSessions,
   pricingModel,
   volumeTiers,
   taxMode = "tax_free",
   taxRatePct = 18,
-  onTaxChange,
-  taxError = null,
+  showTaxSummary = false,
   priceError = null,
   allowPerSong = true,
   onChange,
 }: PricingStepProps) {
-  // Show the tax UI only when a callback is wired — onboarding mounts
-  // this step without producer state and the section should be hidden
-  // there. Narrow once into a local non-undefined ref so the JSX below
-  // can call it directly (eslint's no-unnecessary-condition rule
-  // doesn't see a `typeof` guard through the JSX boundary).
-  const taxChange = onTaxChange;
   const curSym = CURRENCY_SYMBOL[currency];
   // Live tax preview — formats the same currency the price input uses
   // so the post-tax amount reads as a direct comparison to whatever
@@ -400,7 +257,7 @@ export function PricingStep({
       {pricingModel === "flat" || !allowPerSong ? (
         // ── Flat-price panel ──────────────────────────────────────────
         <>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] sm:gap-4">
+          <div className="max-w-[420px]">
             <div className="flex flex-col gap-2">
               <Eyebrow>Price</Eyebrow>
               <div className="flex h-[52px] items-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-[0_1px_2px_rgba(17,16,9,0.03)] transition-[border-color,box-shadow] focus-within:border-[rgb(var(--brand-primary))] focus-within:shadow-[0_0_0_3px_rgb(var(--brand-primary)/0.12)] sm:h-11">
@@ -422,7 +279,7 @@ export function PricingStep({
                   aria-label="Price"
                   aria-invalid={priceError !== null}
                   aria-describedby={priceError ? "pricing-step-error" : undefined}
-                  className="font-display h-full min-w-0 flex-1 border-none bg-transparent px-2 py-1 text-[19px] font-bold text-[rgb(var(--fg-default))] tabular-nums outline-none placeholder:text-[rgb(var(--fg-faint))]"
+                  className="font-display h-full min-w-0 flex-1 border-none bg-transparent px-2 py-1 text-[19px] font-bold text-[rgb(var(--fg-default))] tabular-nums outline-none [--sk-mobile-control-font-size:19px] placeholder:text-[rgb(var(--fg-faint))]"
                 />
                 <div className="flex h-7 shrink-0 items-center border-l border-[rgb(var(--border-subtle))] px-2.5">
                   <select
@@ -441,83 +298,13 @@ export function PricingStep({
                 </div>
               </div>
             </div>
-
-            <div>
-              <Eyebrow>Sessions</Eyebrow>
-              <div
-                className="flex h-[52px] min-w-0 gap-2 sm:h-11"
-                role="group"
-                aria-label="Sessions"
-              >
-                <div
-                  className={[
-                    "grid h-full min-w-[132px] flex-[1.1] grid-cols-[1fr_auto_1fr] items-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-1 shadow-[0_1px_2px_rgba(17,16,9,0.03)] transition-opacity",
-                    unlimitedSessions ? "opacity-45" : "opacity-100",
-                  ].join(" ")}
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (sessions > 1 && !unlimitedSessions) {
-                        onChange({ sessions: sessions - 1 });
-                      }
-                    }}
-                    disabled={unlimitedSessions || sessions <= 1}
-                    aria-label="Decrease sessions"
-                    className="inline-flex h-10 w-full items-center justify-center rounded-[var(--radius-md)] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-150 hover:bg-[rgb(17_16_9/0.06)] active:scale-[0.94] disabled:cursor-not-allowed disabled:active:scale-100 sm:h-8 sm:rounded-[var(--radius-sm)]"
-                    style={{ transitionTimingFunction: "var(--ease-press)" }}
-                  >
-                    <Minus size={14} strokeWidth={2.4} aria-hidden />
-                  </button>
-                  <span
-                    className="font-display min-w-[2.5ch] text-center text-[19px] leading-none font-bold text-[rgb(var(--fg-default))] tabular-nums"
-                    aria-live="polite"
-                  >
-                    {sessions}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (sessions < 99 && !unlimitedSessions) {
-                        onChange({ sessions: sessions + 1 });
-                      }
-                    }}
-                    disabled={unlimitedSessions || sessions >= 99}
-                    aria-label="Increase sessions"
-                    className="inline-flex h-10 w-full items-center justify-center rounded-[var(--radius-md)] text-[rgb(var(--fg-default))] transition-[background-color,transform] duration-150 hover:bg-[rgb(17_16_9/0.06)] active:scale-[0.94] disabled:cursor-not-allowed disabled:active:scale-100 sm:h-8 sm:rounded-[var(--radius-sm)]"
-                    style={{ transitionTimingFunction: "var(--ease-press)" }}
-                  >
-                    <Plus size={14} strokeWidth={2.4} aria-hidden />
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onChange({ unlimitedSessions: !unlimitedSessions });
-                  }}
-                  aria-pressed={unlimitedSessions}
-                  aria-label="Unlimited sessions"
-                  className={[
-                    "sk-press inline-flex h-full min-w-0 flex-1 items-center justify-center rounded-[var(--radius-lg)] border px-3 text-[12px] font-semibold transition-[background-color,border-color,color,transform] duration-150",
-                    unlimitedSessions
-                      ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))] shadow-[0_2px_12px_rgb(var(--brand-primary)/0.18)]"
-                      : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-muted))] shadow-[0_1px_2px_rgba(17,16,9,0.03)] hover:border-[rgb(var(--border-strong))] hover:text-[rgb(var(--fg-default))]",
-                  ].join(" ")}
-                >
-                  Unlimited
-                </button>
-              </div>
-            </div>
           </div>
 
-          {taxChange ? (
+          {showTaxSummary ? (
             <ProductTaxSection
               taxMode={taxMode}
               taxRatePct={taxRatePct}
-              price={price}
               pricingNote={taxPricingNote}
-              error={taxError}
-              onChange={taxChange}
             />
           ) : null}
         </>
@@ -529,52 +316,6 @@ export function PricingStep({
         // "Artists will see" footer renders the exact store-card copy
         // so the producer validates buyer-facing language inline.
         <>
-          {/* Sessions per song — same control as the flat panel, but
-              the value means "sessions reserved per song the artist
-              picks." Booking-time math multiplies by songQty (see
-              computeProjectSessionCount in ~/lib/pricing). Eyebrow +
-              tiny descriptor on the left, control on the right —
-              reads as a supporting note to the rate ladder below,
-              not a rival heading. Wraps cleanly on narrow widths. */}
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-            <div className="flex items-baseline gap-2">
-              <Eyebrow>Sessions per song</Eyebrow>
-              <span className="text-[11px] text-[rgb(var(--fg-muted))]">
-                what each song includes
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Stepper
-                value={sessions}
-                min={1}
-                max={99}
-                disabled={unlimitedSessions}
-                onChange={(next) => {
-                  onChange({ sessions: next });
-                }}
-                ariaLabel="Sessions per song"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  onChange({ unlimitedSessions: !unlimitedSessions });
-                }}
-                aria-pressed={unlimitedSessions}
-                aria-label="Unlimited sessions"
-                className={[
-                  "sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-lg)] border px-4 text-[13px] font-semibold sm:h-10 sm:rounded-[var(--radius-md)]",
-                  "transition-[background-color,border-color,color] duration-200",
-                  unlimitedSessions
-                    ? "border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))]"
-                    : "border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))] hover:border-[rgb(var(--border-strong))]",
-                ].join(" ")}
-                style={{ transitionTimingFunction: "var(--ease-out-strong)" }}
-              >
-                Unlimited
-              </button>
-            </div>
-          </div>
-
           <div>
             <Eyebrow>Pricing ladder</Eyebrow>
             <div className="overflow-hidden rounded-[12px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">
@@ -740,14 +481,11 @@ export function PricingStep({
             </div>
           </div>
 
-          {taxChange ? (
+          {showTaxSummary ? (
             <ProductTaxSection
               taxMode={taxMode}
               taxRatePct={taxRatePct}
-              price={price}
               pricingNote={taxPricingNote}
-              error={taxError}
-              onChange={taxChange}
             />
           ) : null}
         </>

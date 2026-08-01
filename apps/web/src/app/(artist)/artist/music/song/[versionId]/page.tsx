@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { notFound } from "next/navigation";
 
 import { SongPage, type SongPageData } from "~/components/music/song-page";
+import { ArtistTrackVersionAcknowledger } from "~/components/artist/artist-track-version-acknowledger";
 import type { SongPublicSharingView } from "~/components/music/song-public-link-controls";
 import { PUBLIC_BRAND_ORIGIN } from "~/lib/share/public-url";
 import { appRouter } from "~/server/trpc/routers/_app";
@@ -91,6 +92,7 @@ export default async function ArtistSongPage({ params }: PageProps) {
       projectId: data.track.projectId,
       projectTitle: data.track.projectTitle,
       clientName: data.track.clientName,
+      artworkUrl: data.track.artworkUrl,
       archivedAtIso: data.track.archivedAt?.toISOString() ?? null,
       releasedAtIso: data.track.releasedAt?.toISOString() ?? null,
       workflowStage: data.track.workflowStage,
@@ -135,13 +137,9 @@ export default async function ArtistSongPage({ params }: PageProps) {
     selectedVersionId: data.selectedVersionId,
   };
 
-  // Same negative-margin breakout pattern PR2 uses for L2 — the
-  // shared SongPage hero is full-bleed by design and the artist
-  // shell's `px-4 pt-6 lg:px-10 lg:pt-10` would otherwise leave a
-  // cream strip on every edge. Cancel that padding here so the hero
-  // spans edge-to-edge and starts flush at the top.
   return (
     <div className="-mx-4 -mt-6 lg:-mx-10 lg:-mt-10">
+      <ArtistTrackVersionAcknowledger trackVersionId={versionId} />
       <SongPage
         data={wire}
         role="artist"

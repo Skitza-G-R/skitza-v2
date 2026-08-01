@@ -14,19 +14,24 @@ describe("TrackRow — album-page tracklist row", () => {
     expect(SRC).toMatch(/export function TrackRow/);
   });
 
-  it("uses the six-column grid without a dead drag-handle column", () => {
-    expect(SRC).toContain("30px 38px minmax(0,1fr) 130px 180px 22px");
-    expect(SRC).not.toContain("22px 30px 38px minmax(0,1fr) 130px 180px 22px");
+  it("uses one compact responsive row without the old fixed six-column grid", () => {
+    expect(SRC).toContain("min-h-[68px]");
+    expect(SRC).not.toContain("30px 38px minmax(0,1fr) 130px 180px 22px");
   });
 
-  it("wraps the row in a Next.js Link for whole-row click navigation", () => {
+  it("wraps the song details in a Next.js Link", () => {
     expect(SRC).toContain('from "next/link"');
   });
 
-  it("the Link href targets the Song Space at /clients-projects/[id]/songs/[songId]", () => {
-    // Build the href using template strings — search whitespace-tolerant
-    // so prettier --write can't break this assertion.
-    expect(SRC).toMatch(/\/dashboard\/clients-projects\/\$\{[^}]*projectId[^}]*\}\/songs\/\$\{[^}]*track\.id[^}]*\}/);
+  it("fully prefetches the protected Song Page before a project-row click", () => {
+    expect(SRC).toMatch(/<Link[\s\S]{0,180}?prefetch=\{true\}/);
+  });
+
+  it("uses the server-provided player or upload destination without a nested Song Space", () => {
+    expect(SRC).toContain("detailHref");
+    expect(SRC).not.toContain("projectSongWorkspaceHref");
+    expect(SRC).not.toContain("?song=");
+    expect(SRC).not.toMatch(/\/songs\/\$\{[^}]*track\.id/);
   });
 
   it("does not advertise drag/reorder before persistence exists", () => {
@@ -34,15 +39,15 @@ describe("TrackRow — album-page tracklist row", () => {
     expect(SRC).not.toContain("GripVertical");
   });
 
-  it("uses the semantic Link itself as the block-level row container", () => {
-    expect(SRC).toMatch(/<Link\s+[\s\S]*?className="[^"]*group[^"]*block/);
+  it("uses one semantic row Link with a separate sibling Play control", () => {
+    expect(SRC).toMatch(/<Link\s+[\s\S]*?className="[^"]*min-h-\[68px\][^"]*"/);
+    expect(SRC).toMatch(/<\/Link>[\s\S]*?<button/);
     expect(SRC).not.toContain('className="absolute inset-0 z-0');
   });
 
-  it("renders every visible desktop and mobile cell inside the one semantic row link", () => {
+  it("renders song details in the Link while keeping Play outside it", () => {
     const html = renderToStaticMarkup(
       <TrackRow
-        projectId="project-1"
         index={1}
         track={{
           id: "song-1",
@@ -51,17 +56,21 @@ describe("TrackRow — album-page tracklist row", () => {
           workflowStage: "mixing",
           progress: 64,
           currentVersion: "v2",
+          detailHref: "/dashboard/music/version-2?from=project-1",
         }}
       />,
     );
 
     const linkStart = html.indexOf("<a ");
     const linkEnd = html.indexOf("</a>", linkStart);
+    const linkHtml = html.slice(linkStart, linkEnd);
     expect(linkStart).toBeGreaterThanOrEqual(0);
     expect(html.match(/<a /g)).toHaveLength(1);
-    expect(linkEnd).toBeGreaterThan(html.lastIndexOf("Whole row song"));
-    expect(linkEnd).toBeGreaterThan(html.lastIndexOf("Mixing"));
-    expect(linkEnd).toBeGreaterThan(html.lastIndexOf("64%"));
+    expect(linkHtml).not.toContain("aria-current");
+    expect(linkHtml).toContain("Whole row song");
+    expect(linkHtml).toContain("Mixing");
+    expect(linkHtml).toContain("64% complete");
+    expect(html.indexOf("<button", linkEnd)).toBeGreaterThan(linkEnd);
     expect(html).not.toContain("pointer-events-none");
   });
 

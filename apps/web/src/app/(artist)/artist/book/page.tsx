@@ -2,6 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 
 import { resolveArtistStudioId, withArtistStudio } from "~/lib/artist-studio-context";
+import { readArtistStudioPreference } from "~/server/artist/studio-preference";
 import { appRouter } from "~/server/trpc/routers/_app";
 import { BookingClient } from "./booking-client";
 import {
@@ -9,7 +10,7 @@ import {
   uniquePrepaidSessionForProject,
 } from "./prepaid-session-selection";
 
-type PageProps = {
+export type ArtistBookPageProps = {
   searchParams: Promise<{
     studio?: string;
     producerId?: string;
@@ -28,14 +29,17 @@ type PageProps = {
 // The artist layout already gates on sign-in + redirects empty users
 // to /artist-welcome, so the auth() check here is defense-in-depth
 // (matches the other tab pages).
-export default async function BookPage({ searchParams }: PageProps) {
+export async function ArtistBookFlow({ searchParams }: ArtistBookPageProps) {
   const { userId } = await auth();
   if (!userId) return null;
 
   const caller = appRouter.createCaller({ userId });
 
   const sp = await searchParams;
-  const { studios } = await caller.artist.studios();
+  const [{ studios }, savedStudioId] = await Promise.all([
+    caller.artist.studios(),
+    readArtistStudioPreference(userId),
+  ]);
   const rescheduleSession = sp.session
     ? await caller.artist.book.session({ id: sp.session })
     : null;
@@ -44,7 +48,8 @@ export default async function BookPage({ searchParams }: PageProps) {
   // studio. `studios` is already sorted desc by lastSeenAt server-side.
   const requestedStudioId = sp.studio ?? sp.producerId ?? null;
   const activeStudioId =
-    rescheduleSession?.producerId ?? resolveArtistStudioId(studios, requestedStudioId);
+    rescheduleSession?.producerId ??
+    resolveArtistStudioId(studios, requestedStudioId, savedStudioId);
   if (!activeStudioId) {
     return (
       <div className="reveal-up space-y-5">
@@ -67,10 +72,7 @@ export default async function BookPage({ searchParams }: PageProps) {
     selectablePackages,
     rescheduleSession?.sessionAllowanceId ?? sp.allowance ?? null,
   );
-  const projectAllowance = uniquePrepaidSessionForProject(
-    selectablePackages,
-    sp.project ?? null,
-  );
+  const projectAllowance = uniquePrepaidSessionForProject(selectablePackages, sp.project ?? null);
   const onlyAllowance = selectablePackages.length === 1 ? selectablePackages[0] : null;
   const initialSessionAllowanceId =
     explicitAllowance?.sessionAllowanceId ??
@@ -79,7 +81,7 @@ export default async function BookPage({ searchParams }: PageProps) {
     null;
   // Do not query private schedule data until the artist has selected one
   // server-authorized purchase allowance (or an owned session to reschedule).
-  const availability = rescheduleSession
+  const availabilityResult = rescheduleSession
     ? await caller.artist.book.availability({
         producerId: activeStudioId,
         bookingId: rescheduleSession.id,
@@ -91,12 +93,25 @@ export default async function BookPage({ searchParams }: PageProps) {
         })
       : {
           days: [],
-          timeZone: "UTC",
+          artistTimeZone: "UTC",
+          studioTimeZone: "UTC",
           today: new Date().toISOString().slice(0, 10),
         };
+  const availability = {
+    ...availabilityResult,
+    days: availabilityResult.days.map((day) => ({
+      date: day.date,
+      slots: day.slots.map((slot) => ({
+        startsAtISO: slot.startsAt.toISOString(),
+        endsAtISO: slot.endsAt.toISOString(),
+        studioDate: slot.studioDate,
+        studioStartMin: slot.studioStartMin,
+      })),
+    })),
+  };
 
   return (
-    <div className="reveal-up mx-auto w-full max-w-[480px] space-y-5">
+    <div className="mx-auto w-full max-w-[480px] space-y-5">
       <BookEyebrow studioId={activeStudioId} />
       <BookingClient
         key={`${activeStudioId}:${initialSessionAllowanceId ?? "none"}:${rescheduleSession?.id ?? "new"}`}
@@ -110,6 +125,8 @@ export default async function BookPage({ searchParams }: PageProps) {
     </div>
   );
 }
+
+export default ArtistBookFlow;
 
 // Tiny page-identity row above the card. The card itself carries the
 // producer + session context, so this stays a quiet visual handle for

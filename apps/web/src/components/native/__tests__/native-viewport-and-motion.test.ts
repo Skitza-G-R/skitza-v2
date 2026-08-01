@@ -19,6 +19,10 @@ const flowSource = readFileSync(
   fileURLToPath(new URL("../native-full-screen-flow.tsx", import.meta.url)),
   "utf8",
 );
+const appShellSource = readFileSync(
+  fileURLToPath(new URL("../../shell/app-shell.tsx", import.meta.url)),
+  "utf8",
+);
 const tailwindRequire = createRequire(
   createRequire(import.meta.url).resolve("@tailwindcss/postcss"),
 );
@@ -124,6 +128,34 @@ describe("native CSS contracts", () => {
     expect(globalsCss).toContain("env(safe-area-inset-bottom, 0px)");
     expect(globalsCss).toContain(".sk-native-full-screen-flow");
     expect(globalsCss).toContain(".sk-native-action-dock");
+  });
+
+  it("anchors standalone producer chrome to the measured visual viewport", async () => {
+    expect(appShellSource).toContain("sk-producer-app-shell");
+
+    const productionCss = await postcss([
+      tailwindPostcss({ base: webRoot, optimize: true }),
+    ]).process(globalsCss, { from: productionCssPath });
+    const standaloneShellRule = productionCss.css.match(
+      /\.sk-producer-app-shell\{([^}]*)\}/,
+    )?.[1];
+
+    expect(productionCss.css).toContain("display-mode:standalone");
+    expect(standaloneShellRule).toBeDefined();
+    expect(standaloneShellRule).toContain(
+      "height:var(--sk-viewport-height,100dvh)",
+    );
+    expect(standaloneShellRule).toContain(
+      "max-height:var(--sk-viewport-height,100dvh)",
+    );
+    expect(standaloneShellRule).not.toContain("height:100vh");
+    expect(productionCss.css).toContain(
+      ".sk-producer-app-shell .persistent-player-dock",
+    );
+    expect(productionCss.css).toContain(
+      ".sk-producer-app-shell .mobile-full-player-sheet",
+    );
+    expect(productionCss.css).toContain("position:absolute");
   });
 
   it("gates directional flow and progress motion for reduced-motion users", () => {

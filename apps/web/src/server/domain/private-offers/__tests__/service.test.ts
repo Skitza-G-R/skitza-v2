@@ -68,7 +68,8 @@ describe("private-offer commercial terms", () => {
     const snapshot = buildPrivateOfferSnapshot(offerInput());
 
     expect(snapshot).toEqual({
-      version: 1,
+      version: 2,
+      bookingEnabled: true,
       productOrOfferName: "Custom album production",
       tagline: "Four songs, made together",
       service: "Production",
@@ -150,6 +151,16 @@ describe("private-offer commercial terms", () => {
     expect(accepted.snapshot.agreementText).toContain("Project target: Start a new project.");
     expect(accepted.snapshot.agreementText).toContain("Selected payment plan: None");
     expect(accepted.snapshot.agreementText).toContain("No payment is due");
+  });
+
+  it("snapshots non-session offers as explicitly non-bookable", () => {
+    const snapshot = buildPrivateOfferSnapshot(offerInput({ session: null }));
+
+    expect(snapshot).toMatchObject({
+      version: 2,
+      bookingEnabled: false,
+      session: null,
+    });
   });
 
   it("rejects plans on a zero offer and requires a feasible plan set on a paid offer", () => {

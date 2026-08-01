@@ -1,0 +1,136 @@
+// @vitest-environment jsdom
+
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+
+import { CalendarSwipeSurface } from "../calendar-swipe-surface";
+
+const routerPush = vi.hoisted(() => vi.fn());
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: routerPush }),
+}));
+
+class TestPointerEvent extends MouseEvent {
+  readonly pointerId: number;
+  readonly pointerType: string;
+  readonly isPrimary: boolean;
+
+  constructor(
+    type: string,
+    init: MouseEventInit & {
+      pointerId?: number;
+      pointerType?: string;
+      isPrimary?: boolean;
+    } = {},
+  ) {
+    super(type, init);
+    this.pointerId = init.pointerId ?? 0;
+    this.pointerType = init.pointerType ?? "";
+    this.isPrimary = init.isPrimary ?? false;
+  }
+}
+
+beforeAll(() => {
+  Object.defineProperty(window, "PointerEvent", {
+    configurable: true,
+    value: TestPointerEvent,
+  });
+});
+
+afterEach(() => {
+  cleanup();
+  routerPush.mockReset();
+});
+
+describe("CalendarSwipeSurface", () => {
+  it("shows the adjacent destination immediately and does not freeze while server navigation resolves", () => {
+    vi.useFakeTimers();
+    const { rerender } = render(
+      <CalendarSwipeSurface
+        active="sessions"
+        eyebrows={{
+          schedule: "THIS WEEK",
+          sessions: "2 SESSIONS",
+          availability: "8H OPEN PER WEEK",
+        }}
+        scheduleEyebrow="THIS WEEK"
+        sessionsContent={<p>Sessions content</p>}
+        availabilityContent={<p>Availability content</p>}
+      />,
+    );
+    const surface = screen.getByRole("tabpanel");
+    const track = surface.parentElement;
+    expect(track?.getAttribute("data-calendar-swipe-active")).toBe("sessions");
+    expect(track?.hasAttribute("data-tab-swipe-panel")).toBe(true);
+    expect(
+      screen
+        .getByText("Availability content")
+        .closest("[role='tabpanel']")
+        ?.getAttribute("aria-hidden"),
+    ).toBe("true");
+
+    fireEvent.pointerDown(surface, {
+      pointerId: 1,
+      pointerType: "touch",
+      isPrimary: true,
+      clientX: 120,
+      clientY: 20,
+    });
+    fireEvent.pointerMove(surface, {
+      pointerId: 1,
+      pointerType: "touch",
+      isPrimary: true,
+      clientX: 40,
+      clientY: 22,
+    });
+
+    expect(track?.getAttribute("data-tab-swipe-state")).toBe("dragging");
+    expect(track?.style.getPropertyValue("--sk-tab-swipe-x")).toBe("-80px");
+
+    fireEvent.pointerUp(surface, {
+      pointerId: 1,
+      pointerType: "touch",
+      isPrimary: true,
+      clientX: 40,
+      clientY: 22,
+    });
+
+    expect(routerPush).toHaveBeenCalledOnce();
+    expect(routerPush).toHaveBeenCalledWith("/dashboard/calendar?tab=availability", {
+      scroll: false,
+    });
+
+    expect(track?.getAttribute("data-calendar-swipe-active")).toBe("availability");
+    expect(screen.getByRole("tabpanel").textContent).toContain("Availability content");
+    expect(
+      screen
+        .getByText("Sessions content")
+        .closest("[role='tabpanel']")
+        ?.getAttribute("aria-hidden"),
+    ).toBe("true");
+
+    // The destination remains selected after the old 190ms cleanup window,
+    // even though the server-owned `active` prop has not resolved yet.
+    vi.advanceTimersByTime(250);
+    expect(track?.getAttribute("data-calendar-swipe-active")).toBe("availability");
+    expect(screen.getByRole("tabpanel").textContent).toContain("Availability content");
+
+    rerender(
+      <CalendarSwipeSurface
+        active="availability"
+        eyebrows={{
+          schedule: "THIS WEEK",
+          sessions: "2 SESSIONS",
+          availability: "8H OPEN PER WEEK",
+        }}
+        scheduleEyebrow="THIS WEEK"
+        sessionsContent={<p>Sessions content</p>}
+        availabilityContent={<p>Availability content</p>}
+      />,
+    );
+
+    expect(screen.getByRole("tabpanel").textContent).toContain("Availability content");
+    expect(screen.getByText("8H OPEN PER WEEK").textContent).toBe("8H OPEN PER WEEK");
+  });
+});

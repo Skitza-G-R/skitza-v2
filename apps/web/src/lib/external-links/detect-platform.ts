@@ -36,5 +36,7 @@ export function detectPlatform(url: string): ExternalPlatform | null {
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
     return null;
   }
-  return HOST_MAP[parsed.host.toLowerCase()] ?? null;
+  const host = parsed.hostname.toLowerCase();
+  if (host.endsWith(".bandcamp.com")) return "bandcamp";
+  return HOST_MAP[host] ?? null;
 }

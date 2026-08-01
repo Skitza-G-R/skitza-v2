@@ -15,17 +15,20 @@ const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "editor-steps", "includes-step.tsx"), "utf8");
 
 describe("IncludesStep shell", () => {
-  it("renders the product name input", () => {
+  it("renders the product title input", () => {
     expect(SRC).toMatch(/<input/);
-    expect(SRC).toMatch(/name/i);
+    expect(SRC).toMatch(/Product title/);
   });
 
-  it("renders a required, bounded artist-facing tagline", () => {
-    expect(SRC).toMatch(/Tagline/);
+  it("renders a required, bounded artist-facing short description", () => {
+    expect(SRC).toMatch(/Short description/);
     expect(SRC).toMatch(/tagline=\{draft\.tagline\}|value=\{tagline\}/);
     expect(SRC).toMatch(/maxLength=\{MAX_PRODUCT_TAGLINE_LENGTH\}/);
     expect(MAX_PRODUCT_TAGLINE_LENGTH).toBe(160);
-    expect(SRC).toMatch(/exact line appears on the artist/i);
+    expect(SRC).toMatch(
+      /placeholder="From first demo to a release-ready master\."/,
+    );
+    expect(SRC).toMatch(/One sentence artists will see on your Store card/i);
   });
 
   it("does not force focus and open the mobile keyboard when Details appears", () => {

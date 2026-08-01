@@ -10,6 +10,7 @@ import {
   producers,
   projects,
   purchaseRequests,
+  sql,
 } from "@skitza/db";
 import type {
   Db,
@@ -24,6 +25,10 @@ import { z } from "zod";
 import { decodeDescription } from "~/app/(producer)/dashboard/store/description-encoding";
 import { snapshotProductPrice } from "~/lib/purchase/price-snapshot";
 import { generateRefNumber } from "~/lib/purchase/request-helpers";
+import {
+  emitArtistProofDecisionNotification,
+  emitArtistPurchaseDecisionNotification,
+} from "~/server/artist/notification-emitters";
 import {
   getProducerPaymentInstructions,
   loadArtistInstallmentPaymentInstructions,
@@ -65,6 +70,7 @@ import {
   transitionPurchaseRequest,
   type PurchaseRequestTransitionAction,
 } from "~/server/domain/purchase-requests/service";
+import { loadArtistPurchaseGuard } from "~/server/domain/purchase-requests/active-guard";
 import {
   correctProducerPurchaseTarget,
   listSameClientPurchaseTargets,
@@ -229,6 +235,7 @@ async function loadArtistRequest(
     .select({
       request: purchaseRequests,
       product: products,
+      artistClerkUserId: clientContacts.clerkUserId,
       producerName: producers.displayName,
       producerTaxMode: producers.taxMode,
       producerTaxRatePct: producers.taxRatePct,
@@ -261,6 +268,32 @@ async function loadArtistRequest(
   return row;
 }
 
+async function loadProjectArtistClerkUserId(
+  db: Pick<Db, "select">,
+  producerId: string,
+  projectId: string,
+): Promise<string | null> {
+  const [row] = await db
+    .select({ clerkUserId: clientContacts.clerkUserId })
+    .from(projects)
+    .innerJoin(
+      clientContacts,
+      and(
+        eq(clientContacts.id, projects.clientContactId),
+        eq(clientContacts.producerId, projects.producerId),
+      ),
+    )
+    .where(
+      and(
+        eq(projects.id, projectId),
+        eq(projects.producerId, producerId),
+        isNull(clientContacts.archivedAt),
+      ),
+    )
+    .limit(1);
+  return row?.clerkUserId ?? null;
+}
+
 async function loadProducerRequest(
   db: Pick<Db, "select">,
   producerId: string,
@@ -270,11 +303,19 @@ async function loadProducerRequest(
     .select({
       request: purchaseRequests,
       product: products,
+      artistClerkUserId: clientContacts.clerkUserId,
       producerName: producers.displayName,
       producerTaxMode: producers.taxMode,
       producerTaxRatePct: producers.taxRatePct,
     })
     .from(purchaseRequests)
+    .innerJoin(
+      clientContacts,
+      and(
+        eq(clientContacts.id, purchaseRequests.clientContactId),
+        eq(clientContacts.producerId, purchaseRequests.producerId),
+      ),
+    )
     .innerJoin(
       products,
       and(
@@ -357,6 +398,15 @@ export const artistPurchaseRouter = router({
       asOf: new Date(),
     }),
   ),
+
+  activeForStudio: artistProcedure
+    .input(z.object({ producerId: z.string().uuid() }))
+    .query(({ ctx, input }) =>
+      loadArtistPurchaseGuard(ctx.db, {
+        clerkUserId: ctx.clerkUserId,
+        producerId: input.producerId,
+      }),
+    ),
 
   request: artistProcedure
     .input(
@@ -455,6 +505,47 @@ export const artistPurchaseRouter = router({
       }
 
       const result = await ctx.db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${`artist-purchase:${ctx.clerkUserId}:${product.producerId}`}, 0))`,
+        );
+
+        const findExisting = async () => {
+          const [existingRequest] = await tx
+            .select()
+            .from(purchaseRequests)
+            .where(
+              and(
+                eq(purchaseRequests.producerId, product.producerId),
+                eq(purchaseRequests.clientContactId, contact.id),
+                eq(purchaseRequests.operationKey, operation.operationKey),
+              ),
+            )
+            .limit(1);
+          return existingRequest ?? null;
+        };
+
+        const existing = await findExisting();
+        if (existing) {
+          try {
+            assertPurchaseRequestOperationReplay(existing, operation);
+          } catch (error) {
+            mapRequestDomainError(error);
+          }
+        }
+
+        if (!existing) {
+          const guard = await loadArtistPurchaseGuard(tx, {
+            clerkUserId: ctx.clerkUserId,
+            producerId: product.producerId,
+          });
+          if (guard.blocked) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "Finish the current purchase with this studio before starting another.",
+            });
+          }
+        }
+
         const [availableProduct] = await tx
           .select()
           .from(products)
@@ -498,28 +589,7 @@ export const artistPurchaseRouter = router({
           if (!availableTarget) throw new TRPCError({ code: "NOT_FOUND" });
         }
 
-        const findExisting = async () => {
-          const [existing] = await tx
-            .select()
-            .from(purchaseRequests)
-            .where(
-              and(
-                eq(purchaseRequests.producerId, product.producerId),
-                eq(purchaseRequests.clientContactId, contact.id),
-                eq(purchaseRequests.operationKey, operation.operationKey),
-              ),
-            )
-            .limit(1);
-          return existing ?? null;
-        };
-
-        const existing = await findExisting();
         if (existing) {
-          try {
-            assertPurchaseRequestOperationReplay(existing, operation);
-          } catch (error) {
-            mapRequestDomainError(error);
-          }
           return { request: existing, created: false };
         }
 
@@ -909,6 +979,7 @@ export const artistPurchaseRouter = router({
         z.object({
           purchaseId: z.string().uuid(),
           installmentId: z.string().uuid(),
+          operationKey: z.string().uuid(),
           fileName: z.string().min(1).max(200),
           contentType: z.enum(PROOF_CONTENT_TYPES),
           sizeBytes: z.number().int().positive().max(MAX_PROOF_BYTES),
@@ -920,6 +991,7 @@ export const artistPurchaseRouter = router({
             clerkUserId: ctx.clerkUserId,
             purchaseId: input.purchaseId,
             installmentId: input.installmentId,
+            operationKey: input.operationKey,
             originalFileName: input.fileName,
             contentType: input.contentType,
             sizeBytes: input.sizeBytes,
@@ -1066,24 +1138,42 @@ export const producerPurchaseRouter = router({
           console.error("[notify] purchase-approved failed");
         }
 
-        after(async () => {
-          try {
-            await sendPurchaseApprovedEmail(request.artistEmail, {
-              artistName: request.artistName,
-              producerName: result.producerName ?? "Your producer",
-              productName: result.product.name,
-              refNumber: request.refNumber,
-              currency: result.product.currency,
-              subtotalCents: proposal.subtotalCents,
-              taxMode: proposal.tax.mode,
-              taxRatePct: proposal.tax.ratePct,
-              taxCents: proposal.tax.amountCents,
-              totalCents: proposal.totalCents,
-            });
-          } catch {
-            console.error("[email] purchase-approved failed");
-          }
-        });
+        let artistEmailEnabled = true;
+        try {
+          const channels = await emitArtistPurchaseDecisionNotification(ctx.db, {
+            recipientClerkUserId: result.artistClerkUserId,
+            producerId: request.producerId,
+            purchaseRequestId: request.id,
+            productId: request.productId,
+            producerName: result.producerName ?? "Your producer",
+            productName: result.product.name,
+            decision: "approved",
+          });
+          artistEmailEnabled = channels.emailEnabled;
+        } catch {
+          console.error("[notify] artist purchase-approved failed");
+        }
+
+        if (artistEmailEnabled) {
+          after(async () => {
+            try {
+              await sendPurchaseApprovedEmail(request.artistEmail, {
+                artistName: request.artistName,
+                producerName: result.producerName ?? "Your producer",
+                productName: result.product.name,
+                refNumber: request.refNumber,
+                currency: result.product.currency,
+                subtotalCents: proposal.subtotalCents,
+                taxMode: proposal.tax.mode,
+                taxRatePct: proposal.tax.ratePct,
+                taxCents: proposal.tax.amountCents,
+                totalCents: proposal.totalCents,
+              });
+            } catch {
+              console.error("[email] purchase-approved failed");
+            }
+          });
+        }
         after(async () => {
           try {
             await deliverPushToPurchaseRequestArtist(ctx.db, request.id, {
@@ -1134,18 +1224,36 @@ export const producerPurchaseRouter = router({
           console.error("[notify] purchase-declined failed");
         }
 
-        after(async () => {
-          try {
-            await sendPurchaseDeclinedEmail(request.artistEmail, {
-              artistName: request.artistName,
-              producerName: result.producerName ?? "Your producer",
-              productName: result.product.name,
-              refNumber: request.refNumber,
-            });
-          } catch {
-            console.error("[email] purchase-declined failed");
-          }
-        });
+        let artistEmailEnabled = true;
+        try {
+          const channels = await emitArtistPurchaseDecisionNotification(ctx.db, {
+            recipientClerkUserId: result.artistClerkUserId,
+            producerId: request.producerId,
+            purchaseRequestId: request.id,
+            productId: request.productId,
+            producerName: result.producerName ?? "Your producer",
+            productName: result.product.name,
+            decision: "declined",
+          });
+          artistEmailEnabled = channels.emailEnabled;
+        } catch {
+          console.error("[notify] artist purchase-declined failed");
+        }
+
+        if (artistEmailEnabled) {
+          after(async () => {
+            try {
+              await sendPurchaseDeclinedEmail(request.artistEmail, {
+                artistName: request.artistName,
+                producerName: result.producerName ?? "Your producer",
+                productName: result.product.name,
+                refNumber: request.refNumber,
+              });
+            } catch {
+              console.error("[email] purchase-declined failed");
+            }
+          });
+        }
         after(async () => {
           try {
             await deliverPushToPurchaseRequestArtist(ctx.db, request.id, {
@@ -1408,7 +1516,27 @@ export const producerPurchaseRouter = router({
           mapPaymentProofError(error);
         }
         const email = result.email;
+        let artistEmailEnabled = true;
         if (result.created) {
+          try {
+            const recipientClerkUserId = await loadProjectArtistClerkUserId(
+              ctx.db,
+              ctx.producerId,
+              result.projectId,
+            );
+            const channels = await emitArtistProofDecisionNotification(ctx.db, {
+              recipientClerkUserId,
+              producerId: ctx.producerId,
+              purchaseId: result.purchaseId,
+              proofId: result.proofId,
+              producerName: email?.producerName ?? "Your producer",
+              productName: email?.productName ?? "Purchase",
+              decision: "verified",
+            });
+            artistEmailEnabled = channels.emailEnabled;
+          } catch {
+            console.error("[notify] artist proof-verified failed");
+          }
           after(async () => {
             try {
               await deliverPushToProjectArtist(ctx.db, result.projectId, {
@@ -1420,7 +1548,7 @@ export const producerPurchaseRouter = router({
             }
           });
         }
-        if (email) {
+        if (email && artistEmailEnabled) {
           after(async () => {
             try {
               await sendProofVerifiedEmail(email.artistEmail, email);
@@ -1453,7 +1581,27 @@ export const producerPurchaseRouter = router({
         }
         const email = result.email;
         const rejectionNote = email?.rejectionNote;
+        let artistEmailEnabled = true;
         if (result.changed) {
+          try {
+            const recipientClerkUserId = await loadProjectArtistClerkUserId(
+              ctx.db,
+              ctx.producerId,
+              result.projectId,
+            );
+            const channels = await emitArtistProofDecisionNotification(ctx.db, {
+              recipientClerkUserId,
+              producerId: ctx.producerId,
+              purchaseId: result.purchaseId,
+              proofId: result.proofId,
+              producerName: email?.producerName ?? "Your producer",
+              productName: email?.productName ?? "Purchase",
+              decision: "rejected",
+            });
+            artistEmailEnabled = channels.emailEnabled;
+          } catch {
+            console.error("[notify] artist proof-rejected failed");
+          }
           after(async () => {
             try {
               await deliverPushToProjectArtist(ctx.db, result.projectId, {
@@ -1465,7 +1613,7 @@ export const producerPurchaseRouter = router({
             }
           });
         }
-        if (email && rejectionNote) {
+        if (email && rejectionNote && artistEmailEnabled) {
           after(async () => {
             try {
               await sendProofRejectedEmail(email.artistEmail, {

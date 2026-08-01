@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import { WIZARD_STEPS, getStepByPosition, getStepById } from "./wizard-steps";
 
 // WIZARD_STEPS is the single-source-of-truth for the 5 numbered steps
-// shown in the desktop rail (Step 1..Step 5). Welcome (Step 0) and
-// Done (post-Step 5) are NOT in this list — they don't appear in the
-// rail and have separate UI shells.
+// shown in the producer setup rail. The first item is deliberately
+// already complete when onboarding opens: the signed-in producer has
+// genuinely created an account.
 //
 // Order, labels, meta strings, and required flags are pinned by tests
 // because they're load-bearing for the visual rail (positions drive
@@ -23,47 +23,46 @@ describe("WIZARD_STEPS — the 5-step rail data structure", () => {
 
   it("ids are stable + unique (id determines route + state)", () => {
     const ids = WIZARD_STEPS.map((s) => s.id);
-    expect(ids).toEqual(["studio", "service", "availability", "portfolio", "payment"]);
+    expect(ids).toEqual(["account", "identity", "product", "availability", "publish"]);
     expect(new Set(ids).size).toBe(5);
   });
 
-  it("matches redesign labels (rail row text)", () => {
+  it("shows a true completed win before the first editable step", () => {
     expect(WIZARD_STEPS.map((s) => s.label)).toEqual([
-      "Your hall",
-      "First service",
-      "When you work",
-      "A taste",
-      "Get paid",
+      "Account created",
+      "Public page",
+      "First product",
+      "Working hours",
+      "Review & publish",
     ]);
+    expect(WIZARD_STEPS[0]).toMatchObject({
+      state: "complete",
+      meta: "Done",
+      route: null,
+    });
   });
 
-  it("matches redesign required/optional split (1-3 required, 4-5 optional)", () => {
-    expect(WIZARD_STEPS.map((s) => s.required)).toEqual([true, true, true, false, false]);
+  it("keeps optional portfolio and payment details outside numbered progress", () => {
+    expect(WIZARD_STEPS.map((s) => s.id)).not.toContain("portfolio");
+    expect(WIZARD_STEPS.map((s) => s.id)).not.toContain("payment");
   });
 
-  it("meta string format: '{Required|Optional} · {n}s'", () => {
-    for (const step of WIZARD_STEPS) {
-      const expectedPrefix = step.required ? "Required" : "Optional";
-      expect(step.meta).toMatch(new RegExp(`^${expectedPrefix} · \\d+s$`));
-    }
-  });
-
-  it("routes match the existing /onboarding/{id} URLs (Step 1 → /onboarding/studio etc.)", () => {
+  it("routes editable steps into the canonical onboarding family", () => {
     expect(WIZARD_STEPS.map((s) => s.route)).toEqual([
+      null,
       "/onboarding/studio",
       "/onboarding/service",
       "/onboarding/availability",
-      "/onboarding/portfolio",
-      "/onboarding/payment",
+      "/onboarding/review",
     ]);
   });
 });
 
 describe("getStepByPosition", () => {
   it("returns the step at that 1-indexed position", () => {
-    expect(getStepByPosition(1)?.id).toBe("studio");
-    expect(getStepByPosition(3)?.id).toBe("availability");
-    expect(getStepByPosition(5)?.id).toBe("payment");
+    expect(getStepByPosition(1)?.id).toBe("account");
+    expect(getStepByPosition(3)?.id).toBe("product");
+    expect(getStepByPosition(5)?.id).toBe("publish");
   });
 
   it("returns undefined for out-of-range positions", () => {
@@ -75,13 +74,13 @@ describe("getStepByPosition", () => {
 
 describe("getStepById", () => {
   it("returns the step with that id", () => {
-    expect(getStepById("studio")?.position).toBe(1);
-    expect(getStepById("portfolio")?.position).toBe(4);
+    expect(getStepById("identity")?.position).toBe(2);
+    expect(getStepById("availability")?.position).toBe(4);
   });
 
   it("returns undefined for unknown ids", () => {
-    expect(getStepById("welcome")).toBeUndefined();
+    expect(getStepById("studio")).toBeUndefined();
     expect(getStepById("done")).toBeUndefined();
-    expect(getStepById("services")).toBeUndefined(); // legacy chip step (dropped)
+    expect(getStepById("portfolio")).toBeUndefined();
   });
 });

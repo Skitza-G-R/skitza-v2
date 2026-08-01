@@ -52,14 +52,6 @@ jobs:
           MAGIC_LINK_SECRET: ${{ secrets.MAGIC_LINK_SECRET }}
         run: pnpm test
 
-      # Build only the web app from CI. The root `pnpm build` is `pnpm -r build`
-      # which would also invoke `tauri build` in apps/desktop — that is macOS-only
-      # and handled by desktop-build.yml.
-      #
-      # Why no MAGIC_LINK_SECRET here? `next build` does not invoke the token
-      # module, and the module reads its secret lazily at call-time. If a future
-      # change introduces top-level secret access, the failure surfaces at
-      # request time (production) — the right place to catch it is the test
-      # step above, not here.
-      - name: Build web
-        run: pnpm --filter web build
+      # Build both independently deployable Next.js applications.
+      - name: Build web and admin
+        run: pnpm --filter web --filter admin build

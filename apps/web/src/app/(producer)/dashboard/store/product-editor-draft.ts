@@ -6,11 +6,11 @@ export const MAX_PRODUCT_TAGLINE_LENGTH = 160;
 
 export function productTaglineError(tagline: string): string | null {
   const trimmed = tagline.trim();
-  if (!trimmed) return "Write the short tagline artists will see.";
+  if (!trimmed) return "Write the short description artists will see.";
   if (trimmed.length > MAX_PRODUCT_TAGLINE_LENGTH) {
-    return `Tagline must be ${String(MAX_PRODUCT_TAGLINE_LENGTH)} characters or fewer.`;
+    return `Short description must be ${String(MAX_PRODUCT_TAGLINE_LENGTH)} characters or fewer.`;
   }
-  if (/\r|\n/.test(trimmed)) return "Keep the tagline to one line.";
+  if (/\r|\n/.test(trimmed)) return "Keep the short description to one line.";
   return null;
 }
 

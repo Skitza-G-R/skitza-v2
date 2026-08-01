@@ -5,6 +5,7 @@ import {
   and,
   asc,
   bookings,
+  clientContacts,
   inArray,
   isNull,
   projectTracks,
@@ -87,6 +88,7 @@ import {
 } from "~/server/domain/version-approval/service";
 import { SITE_URL, sendProducerRepliedToCommentEmail } from "~/server/email/send";
 import { deliverPushToProjectArtist, deliverPushToVersionArtist } from "~/server/push/delivery";
+import { emitArtistProducerCommentNotification } from "~/server/artist/notification-emitters";
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -1337,6 +1339,7 @@ export const projectRouter = router({
         project: Pick<typeof projects.$inferSelect, "artistName" | "artistEmail">;
         track: Pick<typeof projectTracks.$inferSelect, "title">;
         producerName: string;
+        artistClerkUserId: string | null;
       };
       try {
         saved = await ctx.db.transaction(async (tx) => {
@@ -1350,6 +1353,7 @@ export const projectRouter = router({
               lifecycleStatus: projects.lifecycleStatus,
               artistName: projects.artistName,
               artistEmail: projects.artistEmail,
+              clientContactId: projects.clientContactId,
             })
             .from(projects)
             .where(eq(projects.id, discovered.projectId))
@@ -1401,6 +1405,17 @@ export const projectRouter = router({
             .from(producers)
             .where(eq(producers.id, ctx.producerId))
             .limit(1);
+          const [artistContact] = await tx
+            .select({ clerkUserId: clientContacts.clerkUserId })
+            .from(clientContacts)
+            .where(
+              and(
+                eq(clientContacts.id, project.clientContactId),
+                eq(clientContacts.producerId, project.producerId),
+                isNull(clientContacts.archivedAt),
+              ),
+            )
+            .limit(1);
           const producerName = producerRow?.displayName ?? "Producer";
           const [row] = await tx
             .insert(trackComments)
@@ -1420,21 +1435,37 @@ export const projectRouter = router({
             project: { artistName: project.artistName, artistEmail: project.artistEmail },
             track: { title: track.title },
             producerName,
+            artistClerkUserId: artistContact?.clerkUserId ?? null,
           };
         });
       } catch (error) {
         mapCommentDomainError(error);
       }
-      const { row, project, track, producerName } = saved;
+      const { row, project, track, producerName, artistClerkUserId } = saved;
 
       after(async () => {
+        let emailEnabled = true;
+        try {
+          const delivery = await emitArtistProducerCommentNotification(ctx.db, {
+            recipientClerkUserId: artistClerkUserId,
+            producerId: ctx.producerId,
+            trackVersionId: input.versionId,
+            commentId: row.id,
+            producerName,
+            trackTitle: track.title,
+          });
+          emailEnabled = delivery.emailEnabled;
+        } catch (error) {
+          console.warn("[artist-notify] producer comment failed", error);
+        }
+        if (!emailEnabled) return;
         try {
           await sendProducerRepliedToCommentEmail(project.artistEmail, {
             artistName: project.artistName,
             producerName,
             trackTitle: track.title,
             replyBody: input.body,
-            threadUrl: `${SITE_URL}/artist/music`,
+            threadUrl: `${SITE_URL}/artist/music/song/${input.versionId}?comment=${row.id}`,
           });
         } catch (err) {
           console.error("[email] producer-replied-to-comment failed", err);
@@ -1444,7 +1475,7 @@ export const projectRouter = router({
         try {
           await deliverPushToVersionArtist(ctx.db, input.versionId, {
             category: "comment",
-            url: `/artist/music/song/${input.versionId}`,
+            url: `/artist/music/song/${input.versionId}?comment=${row.id}`,
           });
         } catch {
           // Push is best effort and must not expose delivery details.

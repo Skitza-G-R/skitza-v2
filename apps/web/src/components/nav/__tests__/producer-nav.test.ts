@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 const here = dirname(fileURLToPath(import.meta.url));
 const SIDEBAR = readFileSync(join(here, "..", "producer-sidebar.tsx"), "utf8");
 const BOTTOM = readFileSync(join(here, "..", "producer-bottom-nav.tsx"), "utf8");
+const SHARED_BOTTOM = readFileSync(join(here, "..", "liquid-glass-bottom-nav.tsx"), "utf8");
 const APP_SHELL = readFileSync(join(here, "..", "..", "shell", "app-shell.tsx"), "utf8");
 const APP_TOPBAR = readFileSync(join(here, "..", "..", "shell", "app-topbar.tsx"), "utf8");
 const GLOBALS = readFileSync(join(here, "..", "..", "..", "app", "globals.css"), "utf8");
@@ -50,12 +51,13 @@ describe("producer nav: Portfolio in sidebar only", () => {
     expect(BOTTOM).not.toMatch(/href:\s*["']\/dashboard\/store["']/);
   });
 
-  it("leaves primary-route prefetching to the serial runtime warmer", () => {
-    expect(BOTTOM).toMatch(/<Link[\s\S]*href=\{tab\.href\}[\s\S]*prefetch=\{false\}/);
+  it("fully prefetches the five persistent mobile routes while keeping desktop warming serial", () => {
+    expect(BOTTOM).toContain("prefetch: true");
+    expect(SHARED_BOTTOM).toContain("prefetch={tab.prefetch ?? false}");
     expect(SIDEBAR.match(/prefetch=\{false\}/g)).toHaveLength(2);
     expect(BOTTOM).toContain("announceRuntimeMainNavigationIntent(tab.href)");
     expect(SIDEBAR.match(/announceRuntimeMainNavigationIntent/g)?.length).toBeGreaterThanOrEqual(3);
-    expect(BOTTOM).toContain("data-sk-nav-destination={tab.href}");
+    expect(SHARED_BOTTOM).toContain("data-sk-nav-destination={tab.href}");
     expect(SIDEBAR.match(/data-sk-nav-destination=/g)).toHaveLength(2);
     expect(BOTTOM).toContain("captureRuntimeMainNavigationTarget(event.currentTarget)");
     expect(SIDEBAR.match(/captureRuntimeMainNavigationTarget/g)?.length).toBeGreaterThanOrEqual(3);
@@ -64,10 +66,11 @@ describe("producer nav: Portfolio in sidebar only", () => {
   it("keeps the warmed producer screen open when a tab is tapped offline", () => {
     expect(BOTTOM).toContain("useOnlineStatus()");
     expect(BOTTOM).toContain("useToast()");
-    expect(BOTTOM).toContain("aria-disabled={!online}");
-    expect(BOTTOM).toMatch(
-      /onClick=\{\(event\) => \{[\s\S]*if \(online\) return;[\s\S]*event\.preventDefault\(\);[\s\S]*toast\(/,
-    );
+    expect(BOTTOM).toContain("navigationBlocked: !online");
+    expect(BOTTOM).toContain("onNavigationBlocked");
+    expect(SHARED_BOTTOM).toContain("aria-disabled={tab.navigationBlocked ?? false}");
+    expect(SHARED_BOTTOM).toContain("if (!tab.navigationBlocked) return");
+    expect(SHARED_BOTTOM).toContain("event.preventDefault()");
     expect(BOTTOM).toContain("This screen will stay open until you reconnect.");
     expect(BOTTOM).not.toMatch(/router\.(?:push|replace)|history\.(?:pushState|replaceState)/);
   });
@@ -102,12 +105,13 @@ describe("producer mobile nav viewport anchoring", () => {
   });
 
   it("keeps the glass nav in the shell footer instead of fixing it to the document viewport", () => {
-    expect(BOTTOM).toContain("relative z-30 shrink-0");
-    expect(BOTTOM).toContain(
+    expect(BOTTOM).toContain('position="in-flow"');
+    expect(SHARED_BOTTOM).toContain('"fixed inset-x-0 bottom-0" : "relative"');
+    expect(SHARED_BOTTOM).toContain(
       ") max(8px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px))",
     );
     expect(GLOBALS).toMatch(
-      /\.producer-bottom-nav__glass\s*\{[\s\S]*?height:\s*68px;[\s\S]*?padding-bottom:\s*0;/,
+      /\.liquid-glass-bottom-nav__glass\s*\{[\s\S]*?height:\s*68px;[\s\S]*?padding-bottom:\s*0;/,
     );
     expect(GLOBALS).not.toContain(
       "padding-bottom: max(0px, calc(env(safe-area-inset-bottom, 0px) - 8px));",
@@ -118,41 +122,47 @@ describe("producer mobile nav viewport anchoring", () => {
   });
 
   it("centers the tab row, magnified copy, and lens in the same compact glass height", () => {
-    expect(BOTTOM.match(/minHeight:\s*68/g)).toHaveLength(2);
+    expect(SHARED_BOTTOM.match(/minHeight:\s*68/g)).toHaveLength(2);
     expect(GLOBALS).toContain("--sk-nav-lens-y: 34px");
     expect(GLOBALS).toContain("height: 60px");
-    expect(GLOBALS).toMatch(/\.producer-bottom-nav__magnifier-grid\s*\{[\s\S]*?height:\s*68px;/);
+    expect(GLOBALS).toMatch(
+      /\.liquid-glass-bottom-nav__magnifier-grid\s*\{[\s\S]*?height:\s*68px;/,
+    );
   });
 
   it("renders the producer nav as one compact live glass pill", () => {
     expect(BOTTOM).toContain("producer-bottom-nav-frame");
-    expect(BOTTOM).toContain("producer-bottom-nav__glass");
-    expect(BOTTOM).toContain('data-active={isActive ? "true" : "false"}');
-    expect(GLOBALS).toContain(".producer-bottom-nav__glass");
+    expect(BOTTOM).toContain("<LiquidGlassBottomNav");
+    expect(SHARED_BOTTOM).toContain("liquid-glass-bottom-nav__glass");
+    expect(SHARED_BOTTOM).toContain('data-active={tab.active ? "true" : "false"}');
+    expect(GLOBALS).toContain(".liquid-glass-bottom-nav__glass");
     expect(GLOBALS).toContain("background: rgb(var(--bg-sidebar) / 0.9)");
     expect(GLOBALS).toContain("backdrop-filter: blur(24px) saturate(170%)");
     expect(GLOBALS).toContain("-webkit-backdrop-filter: blur(24px) saturate(170%)");
-    expect(GLOBALS).toContain('.producer-bottom-nav__tab[data-active="true"]');
+    expect(GLOBALS).toMatch(
+      /\.liquid-glass-bottom-nav__glass\s*\{[\s\S]*?grid-template-columns:\s*repeat\(var\(--sk-nav-column-count\),\s*minmax\(0,\s*1fr\)\)/,
+    );
+    expect(GLOBALS).toContain('.liquid-glass-bottom-nav__tab[data-active="true"]');
     expect(GLOBALS).toContain("rgb(var(--bg-sidebar) / 0.52)");
   });
 
   it("tracks one real magnifying lens from pointer movement without React render-loop state", () => {
-    expect(BOTTOM).toContain("producer-bottom-nav__lens");
-    expect(BOTTOM).toContain("producer-bottom-nav__magnifier");
-    expect(BOTTOM).toContain("producer-bottom-nav__magnifier-grid");
-    expect(BOTTOM).toContain("requestAnimationFrame(flushPendingLensPoint)");
-    expect(BOTTOM).toContain('style.setProperty("--sk-nav-lens-x"');
-    expect(BOTTOM).toContain('style.setProperty("--sk-nav-lens-y"');
-    expect(BOTTOM).toContain('style.setProperty("--sk-nav-proximity"');
-    expect(BOTTOM).toContain("onPointerDown={handlePointerDown}");
-    expect(BOTTOM).toContain("onPointerMove={handlePointerMove}");
-    expect(BOTTOM).toContain("onPointerUp={handlePointerEnd}");
-    expect(BOTTOM).toContain("onPointerCancel={handlePointerEnd}");
-    expect(BOTTOM).toContain("draggable={false}");
-    expect(BOTTOM).not.toContain("useState");
+    expect(SHARED_BOTTOM).toContain("liquid-glass-bottom-nav__lens");
+    expect(SHARED_BOTTOM).toContain("liquid-glass-bottom-nav__magnifier");
+    expect(SHARED_BOTTOM).toContain("liquid-glass-bottom-nav__magnifier-grid");
+    expect(SHARED_BOTTOM).toContain("requestAnimationFrame(flushPendingLensPoint)");
+    expect(SHARED_BOTTOM).toContain('style.setProperty("--sk-nav-lens-x"');
+    expect(SHARED_BOTTOM).toContain('style.setProperty("--sk-nav-lens-y"');
+    expect(SHARED_BOTTOM).toContain('style.setProperty("--sk-nav-proximity"');
+    expect(SHARED_BOTTOM).toContain("onPointerDown={handlePointerDown}");
+    expect(SHARED_BOTTOM).toContain("onPointerMove={handlePointerMove}");
+    expect(SHARED_BOTTOM).toContain("onPointerUp={handlePointerEnd}");
+    expect(SHARED_BOTTOM).toContain("onPointerCancel={handlePointerEnd}");
+    expect(SHARED_BOTTOM).toContain("draggable={false}");
+    expect(SHARED_BOTTOM).not.toContain("useState");
 
-    expect(GLOBALS).toContain(".producer-bottom-nav__lens");
-    expect(GLOBALS).toContain(".producer-bottom-nav__magnifier");
+    expect(GLOBALS).toContain(".liquid-glass-bottom-nav__lens");
+    expect(GLOBALS).toContain(".liquid-glass-bottom-nav__magnifier");
     expect(GLOBALS).toContain("calc(var(--sk-nav-lens-width) / 2) 30px");
     expect(GLOBALS).toContain("transform: scale(1.13)");
     expect(GLOBALS).toContain("touch-action: pan-y");
@@ -160,9 +170,9 @@ describe("producer mobile nav viewport anchoring", () => {
 
   it("keeps a static active treatment when reduced motion is requested", () => {
     expect(GLOBALS).toMatch(
-      /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.producer-bottom-nav__lens,[\s\S]*\.producer-bottom-nav__magnifier[\s\S]*display: none !important/,
+      /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.liquid-glass-bottom-nav__lens,[\s\S]*\.liquid-glass-bottom-nav__magnifier[\s\S]*display: none !important/,
     );
-    expect(GLOBALS).toContain('.producer-bottom-nav__tab[data-active="true"]');
+    expect(GLOBALS).toContain('.liquid-glass-bottom-nav__tab[data-active="true"]');
   });
 
   it("keeps producer topbar controls below the iPhone status area", () => {

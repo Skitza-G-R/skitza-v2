@@ -8,9 +8,25 @@ import { SongPage, type L3Actions, type SongPageData } from "../song-page";
 
 const mocks = vi.hoisted(() => ({
   playerClose: vi.fn(),
+  playerLoad: vi.fn(),
   playerPlay: vi.fn(),
   playerSeek: vi.fn(),
+  playerSetVolume: vi.fn(),
   playerToggle: vi.fn(),
+  preserveDraft: vi.fn(),
+  playbackSnapshot: {
+    track: null as null | {
+      id: string;
+      audioUrl: string | null;
+      title: string;
+      subtitle: string;
+      durationMs: number | null;
+    },
+    playing: false,
+    currentMs: 0,
+    audioDurationSec: null as number | null,
+    volume: 1,
+  },
 }));
 
 vi.mock("~/components/audio/waveform-50", () => ({
@@ -19,11 +35,19 @@ vi.mock("~/components/audio/waveform-50", () => ({
 
 vi.mock("~/components/audio/persistent-player", () => ({
   PLAYER_EVENTS: { time: "skitza:test-player-time" },
+  clampSeekMs: (currentMs: number, deltaMs: number, durationMs: number | null) =>
+    Math.min(durationMs ?? Number.POSITIVE_INFINITY, Math.max(0, currentMs + deltaMs)),
   playerClose: mocks.playerClose,
+  playerLoad: mocks.playerLoad,
   playerPlay: mocks.playerPlay,
   playerSeek: mocks.playerSeek,
+  playerSetVolume: mocks.playerSetVolume,
   playerToggle: mocks.playerToggle,
-  useNowPlaying: () => ({ trackId: null, playing: false }),
+  useNowPlaying: () => ({
+    trackId: mocks.playbackSnapshot.track?.id ?? null,
+    playing: mocks.playbackSnapshot.playing,
+  }),
+  usePlaybackSnapshot: () => mocks.playbackSnapshot,
 }));
 
 vi.mock("~/components/runtime-state/online-required-link", () => ({
@@ -35,9 +59,28 @@ vi.mock("~/components/runtime-state/use-runtime-state", () => ({
     body: "",
     setBody: vi.fn(),
     setBodyFromUser: vi.fn(),
-    preserveDraft: vi.fn(),
+    preserveDraft: mocks.preserveDraft,
     clearDraft: vi.fn(),
   }),
+}));
+
+vi.mock("~/components/dashboard/song/upload-track-modal", () => ({
+  UploadTrackModal: (props: {
+    open: boolean;
+    projectId: string;
+    trackId?: string;
+    defaultLabel?: string;
+  }) =>
+    props.open ? (
+      <div
+        role="dialog"
+        aria-label="Upload new version"
+        data-project-id={props.projectId}
+        data-track-id={props.trackId}
+      >
+        {props.defaultLabel}
+      </div>
+    ) : null,
 }));
 
 function installMatchMedia(matches: boolean) {
@@ -68,6 +111,7 @@ function songData(archived: boolean): SongPageData {
       projectId: "project-1",
       projectTitle: "After the Rain — Single",
       clientName: "Noya",
+      artworkUrl: null,
       archivedAtIso: archived ? "2026-07-20T09:00:00.000Z" : null,
       releasedAtIso: null,
       workflowStage: "mixing",
@@ -116,9 +160,17 @@ function songActions(): L3Actions {
 
 beforeEach(() => {
   mocks.playerClose.mockReset();
+  mocks.playerLoad.mockReset();
   mocks.playerPlay.mockReset();
   mocks.playerSeek.mockReset();
+  mocks.playerSetVolume.mockReset();
   mocks.playerToggle.mockReset();
+  mocks.preserveDraft.mockReset();
+  mocks.playbackSnapshot.track = null;
+  mocks.playbackSnapshot.playing = false;
+  mocks.playbackSnapshot.currentMs = 0;
+  mocks.playbackSnapshot.audioDurationSec = null;
+  mocks.playbackSnapshot.volume = 1;
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
     window.setTimeout(() => {
       callback(0);
@@ -132,6 +184,196 @@ afterEach(async () => {
     window.setTimeout(resolve, 0);
   });
   vi.unstubAllGlobals();
+});
+
+describe("SongPage professional player interactions", () => {
+  it("keeps a project-origin return link and opens the next-version uploader", async () => {
+    installMatchMedia(true);
+    const user = userEvent.setup();
+
+    render(
+      <SongPage
+        data={songData(false)}
+        actions={songActions()}
+        producerProjectHref="/dashboard/clients-projects/project-1"
+        versionUpload={{
+          projectId: "project-1",
+          trackId: "track-1",
+          defaultLabel: "V2",
+          versionCount: 1,
+          publicExposure: "none",
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByRole("link", {
+        name: "Open After the Rain — Single project",
+      }).getAttribute("href"),
+    ).toBe("/dashboard/clients-projects/project-1");
+
+    await user.click(screen.getByRole("button", { name: "Upload V2 for After the Rain" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Upload new version" });
+    expect(dialog.getAttribute("data-project-id")).toBe("project-1");
+    expect(dialog.getAttribute("data-track-id")).toBe("track-1");
+    expect(dialog.textContent).toContain("V2");
+  });
+
+  it("uses fixed 15 second transport controls", async () => {
+    installMatchMedia(false);
+    const user = userEvent.setup();
+    mocks.playbackSnapshot.track = {
+      id: "version-1",
+      audioUrl: "/audio/after-the-rain.mp3",
+      title: "After the Rain",
+      subtitle: "Noya · Mix v1",
+      durationMs: 201_000,
+    };
+    mocks.playbackSnapshot.currentMs = 60_000;
+
+    render(<SongPage data={songData(false)} actions={songActions()} />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("skitza:test-player-time", {
+          detail: 60_000,
+        }),
+      );
+    });
+
+    await user.click(screen.getByRole("button", { name: "Back 15 seconds" }));
+    expect(mocks.playerSeek).toHaveBeenLastCalledWith(45_000);
+
+    await user.click(screen.getByRole("button", { name: "Forward 15 seconds" }));
+    expect(mocks.playerSeek).toHaveBeenLastCalledWith(75_000);
+  });
+
+  it("preserves the current time and paused state when switching this song's version", async () => {
+    installMatchMedia(true);
+    const user = userEvent.setup();
+    const data = songData(false);
+    const firstVersion = data.versions[0];
+    if (!firstVersion) throw new Error("Expected the song fixture to include a version.");
+    data.versions.push({
+      ...firstVersion,
+      id: "version-2",
+      label: "Mix v2",
+      audioUrl: "/audio/after-the-rain-v2.mp3",
+      uploadedAtIso: "2026-07-19T09:30:00.000Z",
+    });
+    mocks.playbackSnapshot.track = {
+      id: "version-1",
+      audioUrl: "/audio/after-the-rain.mp3",
+      title: "After the Rain",
+      subtitle: "Noya · Mix v1",
+      durationMs: 201_000,
+    };
+    mocks.playbackSnapshot.currentMs = 80_000;
+    mocks.playbackSnapshot.playing = false;
+
+    render(<SongPage data={data} actions={songActions()} />);
+    await user.click(screen.getByRole("button", { name: /Choose version/i }));
+    await user.click(screen.getByRole("button", { name: /Mix v2/i }));
+
+    expect(mocks.playerLoad).toHaveBeenCalledWith(expect.objectContaining({ id: "version-2" }), {
+      currentMs: 80_000,
+      playing: false,
+    });
+  });
+
+  it("opens Notes as a mobile sheet and preserves its draft when closed", async () => {
+    installMatchMedia(false);
+    const user = userEvent.setup();
+
+    render(<SongPage data={songData(false)} actions={songActions()} />);
+    await user.click(screen.getByRole("button", { name: /Open Notes/i }));
+
+    expect(await screen.findByRole("dialog", { name: "Song notes" })).not.toBeNull();
+    await user.keyboard("{Escape}");
+
+    expect(mocks.preserveDraft).toHaveBeenCalled();
+  });
+
+  it("lets a producer change the private song cover from More", async () => {
+    installMatchMedia(true);
+    const user = userEvent.setup();
+    const prepareArtwork = vi.fn(() =>
+      Promise.resolve({
+        ok: true as const,
+        data: {
+          uploadUrl: "https://uploads.example.test/song-cover",
+          uploadToken: "signed-upload-token",
+        },
+      }),
+    );
+    const completeArtwork = vi.fn(() =>
+      Promise.resolve({
+        ok: true as const,
+        data: { artworkUrl: "/api/song-artwork/track-1" },
+      }),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(null, {
+            status: 200,
+            headers: { etag: '"artwork-etag"' },
+          }),
+        ),
+      ),
+    );
+
+    render(
+      <SongPage
+        data={songData(false)}
+        actions={{ ...songActions(), prepareArtwork, completeArtwork }}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    await user.click(
+      within(await screen.findByRole("group", { name: "Song actions" })).getByRole("button", {
+        name: "Change cover",
+      }),
+    );
+
+    const input = screen.getByLabelText("Choose song cover");
+    await user.upload(
+      input,
+      new File([new Uint8Array([137, 80, 78, 71])], "cover.png", {
+        type: "image/png",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(completeArtwork).toHaveBeenCalledWith({
+        trackId: "track-1",
+        versionId: "version-1",
+        uploadToken: "signed-upload-token",
+        objectEtag: '"artwork-etag"',
+      });
+    });
+    expect(await screen.findByAltText("After the Rain cover")).not.toBeNull();
+  });
+
+  it("approves an artist-ready version in one click without a confirmation dialog", async () => {
+    installMatchMedia(false);
+    const user = userEvent.setup();
+    const data = songData(false);
+    const version = data.versions[0];
+    if (!version) throw new Error("Expected the song fixture to include a version.");
+    version.producerMarkedFinalAtIso = "2026-07-20T10:00:00.000Z";
+    const approveVersion = vi.fn(() => Promise.resolve({ ok: true as const }));
+
+    render(<SongPage data={data} role="artist" actions={{ ...songActions(), approveVersion }} />);
+    await user.click(screen.getByRole("button", { name: "Approve this version" }));
+
+    await waitFor(() => {
+      expect(approveVersion).toHaveBeenCalledWith({ versionId: "version-1" });
+    });
+    expect(screen.queryByRole("dialog", { name: /Approve/i })).toBeNull();
+    expect(screen.getByText("Approved")).not.toBeNull();
+  });
 });
 
 describe("SongPage More actions interactions", () => {

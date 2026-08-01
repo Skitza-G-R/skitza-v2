@@ -30,6 +30,13 @@ const updateReturningSpy = vi.fn<() => Promise<Row[]>>(() =>
 const updateSetSpy = vi.fn(() => ({
   where: () => ({ returning: updateReturningSpy }),
 }));
+const insertReturningSpy = vi.fn<() => Promise<Row[]>>(() =>
+  Promise.resolve([{ id: PRODUCT_ID, name: "Created" }]),
+);
+const insertValuesSpy = vi.fn((values: Row) => {
+  void values;
+  return { returning: insertReturningSpy };
+});
 
 const dbMock = {
   select: () => ({
@@ -53,6 +60,8 @@ const dbMock = {
     },
   }),
   update: () => ({ set: updateSetSpy }),
+  insert: () => ({ values: insertValuesSpy }),
+  execute: () => Promise.resolve(),
   transaction: (callback: unknown) =>
     (callback as (tx: unknown) => Promise<unknown>)(dbMock),
 };
@@ -102,6 +111,7 @@ vi.mock("@skitza/db", () => ({
   gte: (col: unknown, val: unknown) => ({ gte: [col, val] }),
   lte: (col: unknown, val: unknown) => ({ lte: [col, val] }),
   inArray: (col: unknown, vals: unknown) => ({ inArray: [col, vals] }),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values }),
 }));
 
 beforeEach(() => {
@@ -111,6 +121,8 @@ beforeEach(() => {
   updateSetSpy.mockReset().mockReturnValue({
     where: () => ({ returning: updateReturningSpy }),
   });
+  insertReturningSpy.mockReset().mockResolvedValue([{ id: PRODUCT_ID, name: "Created" }]);
+  insertValuesSpy.mockClear();
   process.env.DATABASE_URL = "postgresql://test/test";
 });
 
@@ -216,6 +228,47 @@ describe("booking.packages.update", () => {
         paymentPlans: [],
       }),
     ).rejects.toThrow(/at least one payment option/i);
+  });
+
+  it("inserts a hidden product as hidden in the original create transaction", async () => {
+    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    productSelectQueue.push([]);
+    const caller = await buildCaller();
+
+    await caller.booking.packages.create({
+      name: "Private draft",
+      priceCents: 20_000,
+      durationMin: 0,
+      sessionCount: 0,
+      active: false,
+    });
+
+    expect(insertValuesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        producerId: PRODUCER_ID,
+        active: false,
+      }),
+    );
+  });
+
+  it("keeps omitted create visibility live for onboarding and legacy callers", async () => {
+    producerSelectQueue.push([{ id: PRODUCER_ID }]);
+    productSelectQueue.push([]);
+    const caller = await buildCaller();
+
+    await caller.booking.packages.create({
+      name: "Published product",
+      priceCents: 20_000,
+      durationMin: 60,
+      sessionCount: 1,
+    });
+
+    expect(insertValuesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        producerId: PRODUCER_ID,
+        active: true,
+      }),
+    );
   });
 
   it("rejects duplicate standard plans and multiple monthly schedules", async () => {

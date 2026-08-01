@@ -36,7 +36,7 @@ export type MusicProjectLifecycleStatus =
 
 export type MusicReadScope =
   | Readonly<{ kind: "producer"; producerId: string }>
-  | Readonly<{ kind: "artist"; clerkUserId: string }>;
+  | Readonly<{ kind: "artist"; clerkUserId: string; producerId?: string }>;
 
 export type MusicLatestVersion = Readonly<{
   id: string;
@@ -195,9 +195,11 @@ async function loadProjectHeads(
       ),
     )
     .where(
-      projectId
-        ? and(eq(projects.id, projectId), ne(projects.lifecycleStatus, "waiting_for_payment"))
-        : ne(projects.lifecycleStatus, "waiting_for_payment"),
+      and(
+        projectId ? eq(projects.id, projectId) : undefined,
+        scope.producerId ? eq(projects.producerId, scope.producerId) : undefined,
+        ne(projects.lifecycleStatus, "waiting_for_payment"),
+      ),
     )
     .orderBy(desc(projects.updatedAt), asc(projects.id));
   return rows;

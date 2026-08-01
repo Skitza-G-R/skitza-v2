@@ -1,47 +1,136 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { useTabSwipe } from "~/components/native/use-tab-swipe";
 
+import { CalendarTabs } from "./calendar-tabs";
 import type { CalendarTabKey } from "./calendar-tab-key";
 
 const CALENDAR_SWIPE_ITEMS = ["sessions", "availability"] as const;
 type CalendarSwipeItem = (typeof CALENDAR_SWIPE_ITEMS)[number];
 
-export function normalizeCalendarSwipeItem(
-  active: CalendarTabKey,
-): CalendarSwipeItem {
+export function normalizeCalendarSwipeItem(active: CalendarTabKey): CalendarSwipeItem {
   return active === "availability" ? "availability" : "sessions";
 }
 
 export function CalendarSwipeSurface({
   active,
-  children,
+  eyebrows,
+  scheduleEyebrow,
+  sessionsContent,
+  availabilityContent,
 }: {
   active: CalendarTabKey;
-  children: ReactNode;
+  eyebrows: Record<CalendarTabKey, string>;
+  scheduleEyebrow: string;
+  sessionsContent: ReactNode;
+  availabilityContent: ReactNode;
 }) {
   const router = useRouter();
+  const [optimistic, setOptimistic] = useState<{
+    source: CalendarTabKey;
+    value: CalendarSwipeItem;
+  } | null>(null);
+  const displayActive: CalendarTabKey = optimistic?.source === active ? optimistic.value : active;
+  const displaySwipeItem = normalizeCalendarSwipeItem(displayActive);
+  const sessionsActive = displaySwipeItem === "sessions";
+  const sessionsPanelKey: CalendarTabKey =
+    sessionsActive && displayActive === "schedule" ? "schedule" : "sessions";
+
   const swipeHandlers = useTabSwipe({
     items: CALENDAR_SWIPE_ITEMS,
-    value: normalizeCalendarSwipeItem(active),
+    value: displaySwipeItem,
     onChange(next) {
+      setOptimistic({ source: active, value: next });
       router.push(`/dashboard/calendar?tab=${next}`, { scroll: false });
     },
   });
 
   return (
-    <div
-      data-tab-swipe-surface
-      {...swipeHandlers}
-      id={`calendar-panel-${active}`}
-      role="tabpanel"
-      aria-labelledby={`calendar-tab-${active}`}
-      className="reveal-up flex min-h-0 flex-1 [touch-action:pan-y_pinch-zoom] flex-col"
-    >
-      {children}
-    </div>
+    <>
+      <header className="reveal-up mb-2 shrink-0 sm:mb-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+          <div className="flex min-w-0 items-baseline gap-3">
+            <h1
+              className="reveal-up font-display leading-[0.95]"
+              style={{
+                fontSize: "clamp(22px, 2.6vw, 30px)",
+                fontWeight: 800,
+                letterSpacing: "-0.03em",
+              }}
+            >
+              Calendar
+            </h1>
+            <p
+              key={`eyebrow-${displayActive}`}
+              className={[
+                "reveal-up truncate font-mono text-[10px] tracking-[0.16em] text-[rgb(var(--fg-muted))]",
+                displayActive === "sessions" ? "lg:hidden" : "",
+              ].join(" ")}
+              style={{ fontWeight: 700 }}
+            >
+              {eyebrows[displayActive]}
+            </p>
+            {displayActive === "sessions" ? (
+              <p
+                className="reveal-up hidden truncate font-mono text-[10px] tracking-[0.16em] text-[rgb(var(--fg-muted))] lg:block"
+                style={{ fontWeight: 700 }}
+              >
+                {scheduleEyebrow}
+              </p>
+            ) : null}
+          </div>
+          <CalendarTabs active={displayActive} />
+        </div>
+      </header>
+
+      <div
+        data-tab-swipe-surface
+        {...swipeHandlers}
+        className="reveal-up flex min-h-0 flex-1 [touch-action:pan-y_pinch-zoom] flex-col overflow-x-clip"
+      >
+        <div
+          className="relative flex min-h-0 flex-1 flex-col"
+          data-tab-swipe-panel
+          data-calendar-swipe-track
+          data-calendar-swipe-active={displaySwipeItem}
+        >
+          <section
+            data-calendar-swipe-item="sessions"
+            id={`calendar-panel-${sessionsPanelKey}`}
+            role="tabpanel"
+            aria-labelledby={`calendar-tab-${sessionsPanelKey}`}
+            aria-hidden={!sessionsActive}
+            inert={!sessionsActive}
+            className={[
+              "flex min-h-0 min-w-0 flex-1 flex-col",
+              sessionsActive
+                ? "relative"
+                : "pointer-events-none absolute inset-x-0 top-0 min-h-full",
+            ].join(" ")}
+          >
+            {sessionsContent}
+          </section>
+          <section
+            data-calendar-swipe-item="availability"
+            id="calendar-panel-availability"
+            role="tabpanel"
+            aria-labelledby="calendar-tab-availability"
+            aria-hidden={sessionsActive}
+            inert={sessionsActive}
+            className={[
+              "flex min-h-0 min-w-0 flex-1 flex-col",
+              sessionsActive
+                ? "pointer-events-none absolute inset-x-0 top-0 min-h-full"
+                : "relative",
+            ].join(" ")}
+          >
+            {availabilityContent}
+          </section>
+        </div>
+      </div>
+    </>
   );
 }

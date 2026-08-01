@@ -1,182 +1,259 @@
 "use client";
 
-import { Check, Copy } from "lucide-react";
+import { ArrowRight, Check, Copy, ExternalLink, Landmark, Link2, Share2 } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { ConfettiBurst } from "~/components/onboarding/wizard-shell/confetti-burst";
-import {
-  CopyIcon,
-  InstagramIcon,
-  WhatsAppIcon,
-  XTwitterIcon,
-} from "~/components/onboarding/wizard-shell/share-icons";
 import { WizardChrome } from "~/components/onboarding/wizard-shell/wizard-chrome";
+import { buildJoinUrl } from "~/lib/share/public-url";
 
-// Step 6 — "You're live." Done celebration. May 2026 redesign.
-//
-// Wrapped in WizardChrome with all 5 rail steps marked completed
-// (completedCount=5) so the producer sees the full sequence in the
-// gold-with-check state — proof of finish. Footer slot is omitted
-// because the only forward action ("Open dashboard →") is the H1's
-// CTA.
-//
-// Confetti is intentionally NOT implemented as a CSS particle system
-// here — premium confetti needs a JS library (canvas-confetti) and a
-// useEffect for the burst. Adding the dep is a separate small brief
-// so this commit stays bounded. The subtle gold blur background
-// already gives the celebration vibe.
-//
-// Share strip: 4 buttons. Copy link uses the Clipboard API; the other
-// three deep-link to share intents (https://twitter.com/intent/tweet
-// etc.) which open the native sharing flow on each platform.
+export const COMPLETE_DASHBOARD_HREF = "/dashboard?storeTip=1" as const;
 
-export function CompleteScreenClient({ slug }: { slug: string }) {
-  const [copied, setCopied] = useState(false);
-  const joinLink = `skitza.app/join/${slug}`;
-  const fullUrl = `https://${joinLink}`;
-  const shareText = `Hey — I just opened my hall on Skitza. Book a session here:`;
+type FollowUpRoute = "/onboarding/portfolio" | "/onboarding/payment";
+
+export function completionFollowUpHref(route: FollowUpRoute, previewMode: boolean): string {
+  return previewMode ? `${route}?__preview=1` : route;
+}
+
+export function artistPreviewHref(slug: string, previewMode: boolean): string {
+  if (previewMode) return "/onboarding/review?__preview=1";
+  return buildJoinUrl(slug);
+}
+
+export function CompleteScreenClient({
+  slug,
+  previewMode = false,
+}: {
+  slug: string;
+  previewMode?: boolean;
+}) {
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const [canShare, setCanShare] = useState(false);
+  const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fullUrl = buildJoinUrl(slug);
+  const displayUrl = fullUrl.replace(/^https?:\/\//, "");
+  const previewHref = artistPreviewHref(slug, previewMode);
+  const portfolioHref = completionFollowUpHref("/onboarding/portfolio", previewMode);
+  const paymentHref = completionFollowUpHref("/onboarding/payment", previewMode);
+
+  useEffect(() => {
+    setCanShare(typeof navigator.share === "function");
+    return () => {
+      if (copyResetRef.current) clearTimeout(copyResetRef.current);
+    };
+  }, []);
+
+  const resetCopyStatusLater = () => {
+    if (copyResetRef.current) clearTimeout(copyResetRef.current);
+    copyResetRef.current = setTimeout(() => {
+      setCopyStatus("idle");
+    }, 2200);
+  };
 
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(fullUrl);
-      setCopied(true);
-      setTimeout(() => { setCopied(false); }, 2000);
+      setCopyStatus("copied");
     } catch {
-      // clipboard write can throw in non-secure contexts; the link is
-      // selectable in the pill below as a fallback.
+      setCopyStatus("failed");
     }
+    resetCopyStatusLater();
   };
 
-  const shareButtons: ReadonlyArray<{
-    id: string;
-    label: string;
-    Icon: ({ size }: { size?: number }) => React.ReactElement;
-    onClick?: () => void;
-    href?: string;
-  }> = [
-    {
-      id: "copy",
-      label: "Copy link",
-      Icon: CopyIcon,
-      onClick: () => void handleCopy(),
-    },
-    {
-      id: "instagram",
-      label: "Instagram",
-      Icon: InstagramIcon,
-      href: "https://www.instagram.com/",
-    },
-    {
-      id: "twitter",
-      label: "X",
-      Icon: XTwitterIcon,
-      href: `https://twitter.com/intent/tweet?text=${encodeURIComponent(`${shareText} ${fullUrl}`)}`,
-    },
-    {
-      id: "whatsapp",
-      label: "WhatsApp",
-      Icon: WhatsAppIcon,
-      href: `https://wa.me/?text=${encodeURIComponent(`${shareText} ${fullUrl}`)}`,
-    },
-  ];
+  const handleNativeShare = async () => {
+    const url = previewMode ? `${window.location.origin}${previewHref}` : fullUrl;
+
+    try {
+      await navigator.share({
+        title: "My public page on Skitza",
+        text: "Listen to my work and see what we can make together.",
+        url,
+      });
+    } catch {
+      // Closing the native share sheet is a normal outcome.
+    }
+  };
 
   return (
     <WizardChrome
       activePosition={5}
       completedCount={5}
-      stepIndicator="Done"
+      stepIndicator="Setup complete"
+      previewMode={previewMode}
     >
       <ConfettiBurst />
+
       <div className="ob-stagger flex flex-col items-center text-center">
-        {/* Live-dot pill: gold-tinted bg + pulsing dot. */}
-        <span className="mb-7 inline-flex items-center gap-2 rounded-[var(--radius-sm)] bg-[rgb(var(--brand-primary)/0.12)] px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.18em] text-[rgb(var(--brand-primary-dark))]">
+        <span className="inline-flex min-h-8 items-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary)/0.12)] px-3 font-mono text-[10px] font-bold tracking-[0.16em] text-[rgb(var(--brand-primary-dark))] uppercase">
           <span
             aria-hidden
             className="ob-alive-dot inline-block h-1.5 w-1.5 rounded-full bg-[rgb(var(--brand-primary))]"
           />
-          Live
+          Published
         </span>
 
         <h1
-          className="font-display text-[44px] font-extrabold leading-[1.02] tracking-[-0.035em] text-balance sm:text-[56px]"
+          className="font-display mt-5 max-w-xl text-[38px] leading-[1.04] font-extrabold tracking-[-0.035em] text-balance sm:text-[52px]"
           style={{ fontVariationSettings: '"opsz" 96' }}
         >
-          You&apos;re live
+          Your public page is ready to share
           <span className="text-[rgb(var(--brand-primary))]">.</span>
         </h1>
 
-        <p className="mt-4 max-w-md text-[15px] leading-relaxed text-[rgb(var(--fg-muted))]">
-          Your hall is open. Share the link below — artists can browse,
-          book, and pay in one tap.
+        <p className="mt-4 max-w-md text-[15px] leading-6 text-[rgb(var(--fg-muted))]">
+          Send your link when you&apos;re ready. You can keep editing your page from the dashboard.
         </p>
 
-        {/* Live URL pill */}
-        <div className="mt-7 flex w-full max-w-md items-center gap-2 rounded-2xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3">
-          <code className="flex-1 truncate text-left font-mono text-[14px] font-semibold text-[rgb(var(--fg-default))]">
-            {joinLink}
-          </code>
-          <button
-            type="button"
-            onClick={() => void handleCopy()}
-            aria-label="Copy join link"
-            className="ob-press inline-flex items-center gap-1.5 rounded-xl bg-[rgb(var(--bg-sidebar))] px-3 py-1.5 text-[12px] font-bold text-white"
-          >
-            {copied ? <Check size={12} /> : <Copy size={12} />}
-            {copied ? "Copied" : "Copy"}
-          </button>
-        </div>
-
-        {/* Share strip — 4 buttons */}
-        <div className="mt-5 grid w-full max-w-md grid-cols-4 gap-2.5">
-          {shareButtons.map((b) => {
-            const Icon = b.Icon;
-            const baseClass =
-              "ob-press flex flex-col items-center justify-center gap-1.5 rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2 py-3 text-[11px] font-semibold text-[rgb(var(--fg-default))] transition-colors hover:border-[rgb(var(--brand-primary))] hover:bg-[rgb(var(--brand-primary)/0.08)]";
-            const inner = (
-              <>
-                <Icon size={16} />
-                <span>{b.label}</span>
-              </>
-            );
-            if (b.href) {
-              return (
-                <a
-                  key={b.id}
-                  href={b.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={baseClass}
-                >
-                  {inner}
-                </a>
-              );
-            }
-            return (
-              <button
-                key={b.id}
-                type="button"
-                onClick={b.onClick}
-                className={baseClass}
-              >
-                {inner}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Open dashboard — primary CTA */}
-        <Link
-          href="/dashboard"
-          className="ob-press mt-8 inline-flex w-full max-w-md items-center justify-center gap-2 rounded-xl bg-[rgb(var(--bg-sidebar))] px-5 py-3.5 text-[14px] font-bold text-white shadow-[0_2px_12px_rgba(17,16,9,0.18)] hover:shadow-[0_8px_28px_rgba(17,16,9,0.36)]"
+        <section
+          aria-labelledby="public-page-link-heading"
+          className="relative mt-7 w-full overflow-hidden rounded-[var(--radius-xl)] bg-[rgb(var(--bg-sidebar))] px-4 py-5 text-left text-white shadow-[0_18px_48px_rgb(var(--bg-sidebar)/0.22)] sm:px-6 sm:py-6"
         >
-          Open my dashboard
-          <span aria-hidden>→</span>
+          <div
+            aria-hidden
+            className="absolute -top-24 -right-16 h-52 w-52 rounded-full bg-[rgb(var(--brand-primary)/0.24)] blur-3xl"
+          />
+          <div
+            aria-hidden
+            className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[rgb(var(--brand-primary)/0.8)] to-transparent"
+          />
+
+          <div className="relative">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="font-mono text-[10px] font-bold tracking-[0.17em] text-white/55 uppercase">
+                  Your public page
+                </p>
+                <h2 id="public-page-link-heading" className="mt-1 text-[15px] font-bold text-white">
+                  Ready for artists
+                </h2>
+              </div>
+              <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--bg-sidebar))]">
+                <Check aria-hidden size={16} strokeWidth={3} />
+              </span>
+            </div>
+
+            <div className="mt-5 flex min-w-0 items-center gap-2 rounded-[var(--radius-lg)] border border-white/12 bg-white/[0.07] p-1.5 pl-3">
+              <code className="min-w-0 flex-1 truncate font-mono text-[12px] font-semibold text-white/90 sm:text-[13px]">
+                {displayUrl}
+              </code>
+              <button
+                type="button"
+                onClick={() => void handleCopy()}
+                aria-label="Copy public page link"
+                className="ob-press inline-flex min-h-11 flex-shrink-0 items-center gap-1.5 rounded-[var(--radius-md)] bg-white px-3 text-[12px] font-bold text-[rgb(var(--bg-sidebar))] shadow-sm transition-colors hover:bg-[rgb(var(--brand-primary))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-sidebar))] focus-visible:outline-none"
+              >
+                {copyStatus === "copied" ? (
+                  <Check aria-hidden size={14} />
+                ) : (
+                  <Copy aria-hidden size={14} />
+                )}
+                {copyStatus === "copied" ? "Copied" : "Copy link"}
+              </button>
+            </div>
+
+            <p aria-live="polite" className="mt-2 min-h-4 px-1 text-[11px] text-white/55">
+              {copyStatus === "copied"
+                ? "Link copied."
+                : copyStatus === "failed"
+                  ? "Copy did not work. Select the link above to copy it."
+                  : "This is the link you can send to artists."}
+            </p>
+          </div>
+        </section>
+
+        <Link
+          href={COMPLETE_DASHBOARD_HREF}
+          className="ob-press mt-5 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 text-[14px] font-extrabold text-[rgb(var(--bg-sidebar))] shadow-[0_12px_30px_rgb(var(--brand-primary)/0.24)] transition-colors hover:bg-[rgb(var(--brand-primary-dark))] hover:text-white focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:outline-none"
+        >
+          Open dashboard
+          <ArrowRight aria-hidden size={17} />
         </Link>
 
-        <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.18em] text-[rgb(var(--brand-primary-dark))]">
-          Edit anything from settings
-        </p>
+        <Link
+          href={previewHref}
+          target={previewMode ? undefined : "_blank"}
+          rel={previewMode ? undefined : "noopener noreferrer"}
+          className="ob-press mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[13px] font-bold text-[rgb(var(--fg-default))] transition-colors hover:border-[rgb(var(--brand-primary)/0.6)] hover:bg-[rgb(var(--brand-primary)/0.06)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+        >
+          Preview as artist
+          <ExternalLink aria-hidden size={14} />
+        </Link>
+
+        {canShare ? (
+          <button
+            type="button"
+            onClick={() => void handleNativeShare()}
+            className="ob-press mt-2.5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[13px] font-bold text-[rgb(var(--fg-default))] transition-colors hover:border-[rgb(var(--brand-primary)/0.6)] hover:bg-[rgb(var(--brand-primary)/0.06)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none sm:hidden"
+          >
+            <Share2 aria-hidden size={15} />
+            Share from your phone
+          </button>
+        ) : null}
+
+        <section
+          aria-labelledby="optional-next-steps-heading"
+          className="mt-9 w-full border-t border-[rgb(var(--border-subtle))] pt-7 text-left"
+        >
+          <div>
+            <p className="font-mono text-[10px] font-bold tracking-[0.16em] text-[rgb(var(--brand-primary-dark))] uppercase">
+              Optional next steps
+            </p>
+            <h2
+              id="optional-next-steps-heading"
+              className="mt-1.5 text-[19px] font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]"
+            >
+              Add more whenever you want
+            </h2>
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <Link
+              href={portfolioHref}
+              className="ob-card-press group rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 hover:border-[rgb(var(--brand-primary)/0.55)] hover:shadow-[0_12px_28px_rgb(var(--bg-sidebar)/0.08)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+            >
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary-dark))]">
+                <Link2 aria-hidden size={17} />
+              </span>
+              <span className="mt-4 flex items-center justify-between gap-3">
+                <span className="text-[14px] font-extrabold text-[rgb(var(--fg-default))]">
+                  Add portfolio links
+                </span>
+                <ArrowRight
+                  aria-hidden
+                  size={15}
+                  className="flex-shrink-0 text-[rgb(var(--fg-muted))] transition-transform group-hover:translate-x-0.5"
+                />
+              </span>
+              <span className="mt-1.5 block text-[12px] leading-5 text-[rgb(var(--fg-muted))]">
+                Show artists where they can hear more of your work.
+              </span>
+            </Link>
+
+            <Link
+              href={paymentHref}
+              className="ob-card-press group rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 hover:border-[rgb(var(--brand-primary)/0.55)] hover:shadow-[0_12px_28px_rgb(var(--bg-sidebar)/0.08)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+            >
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary)/0.12)] text-[rgb(var(--brand-primary-dark))]">
+                <Landmark aria-hidden size={17} />
+              </span>
+              <span className="mt-4 flex items-center justify-between gap-3">
+                <span className="text-[14px] font-extrabold text-[rgb(var(--fg-default))]">
+                  Add direct payment details
+                </span>
+                <ArrowRight
+                  aria-hidden
+                  size={15}
+                  className="flex-shrink-0 text-[rgb(var(--fg-muted))] transition-transform group-hover:translate-x-0.5"
+                />
+              </span>
+              <span className="mt-1.5 block text-[12px] leading-5 text-[rgb(var(--fg-muted))]">
+                Bank or Bit details stay private until you approve a request. Skitza never handles
+                the money.
+              </span>
+            </Link>
+          </div>
+        </section>
       </div>
     </WizardChrome>
   );

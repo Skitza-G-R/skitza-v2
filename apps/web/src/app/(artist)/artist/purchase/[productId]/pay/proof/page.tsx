@@ -3,10 +3,7 @@ import { TRPCError } from "@trpc/server";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 
-import type { ProofStatus } from "~/components/artist/purchase/pay-data";
-import { UploadProofScreen } from "~/components/artist/purchase/upload-proof-screen";
 import { withArtistStudio } from "~/lib/artist-studio-context";
-import { artistPaymentProofQueueVersion } from "~/server/runtime/queue-version";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = {
@@ -16,78 +13,48 @@ type PageProps = {
 
 export const metadata: Metadata = { title: "Upload payment proof" };
 
-// The browser gets immutable proof metadata and short-lived same-origin
-// evidence links only. Permanent storage identity remains server-only.
-export default async function PurchaseProofPage({ params, searchParams }: PageProps) {
+/** Authorized redirect from the former product-nested proof route. */
+export default async function LegacyProductProofPage({ params, searchParams }: PageProps) {
   const { userId } = await auth();
-  if (!userId) return null;
-
+  if (!userId) notFound();
   const { productId } = await params;
   const { purchase, installment, studio } = await searchParams;
-  if (!purchase) redirect(withArtistStudio(`/artist/purchase/${productId}`, studio));
+  if (!purchase) {
+    redirect(withArtistStudio(`/artist/purchase/${encodeURIComponent(productId)}`, studio));
+  }
 
-  const caller = appRouter.createCaller({ userId });
   try {
-    const data = await caller.artist.purchase.proofOfPayment.state({
-      purchaseId: purchase,
-      ...(installment ? { installmentId: installment } : {}),
-    });
+    const data = await appRouter
+      .createCaller({ userId })
+      .artist.purchase.proofOfPayment.state({
+        purchaseId: purchase,
+        ...(installment ? { installmentId: installment } : {}),
+      });
     if (data.productId && data.productId !== productId) notFound();
-
-    const proofs = data.proofs.map((proof) => ({
-      id: proof.proofId,
-      amountCents: proof.amountCents,
-      status: (proof.status === "pending"
-        ? "awaiting"
-        : proof.status === "confirmed"
-          ? "paid"
-          : "rejected") as ProofStatus,
-      evidenceUrl: proof.evidenceUrl,
-      originalFileName: proof.originalFileName,
-      createdAt: proof.createdAt,
-      rejectionNote: proof.rejectionNote,
-    }));
-    const latest = data.proofs.filter((proof) => proof.installmentId === data.installmentId).at(-1);
-    const initialStatus: ProofStatus = data.paidInFull
-      ? "paid"
-      : latest?.status === "pending"
-        ? "awaiting"
-        : latest?.status === "rejected"
-          ? "rejected"
-          : "empty";
-    const bookingHref =
-      data.installmentPosition > 1 || data.paidInFull
-        ? `/artist/book?studio=${data.producerId}&project=${data.projectId}`
-        : undefined;
-
-    return (
-      <UploadProofScreen
-        studioId={data.producerId}
-        productName={data.productName}
-        producerName={data.producerName}
-        purchaseId={data.purchaseId}
-        installmentId={data.installmentId}
-        installmentPosition={data.installmentPosition}
-        proofs={proofs}
-        paidCents={data.paidCents}
-        totalCents={data.totalCents}
-        thisProofCents={data.amountDueNowCents}
-        currency={data.currency}
-        proofUploadsAvailable={data.proofUploadsAvailable}
-        bookingHref={bookingHref}
-        status={initialStatus}
-        rejectionNote={
-          latest?.status === "rejected" ? (latest.rejectionNote ?? undefined) : undefined
-        }
-        proofStateVersion={artistPaymentProofQueueVersion({
-          purchaseId: data.purchaseId,
-          installmentId: data.installmentId,
-          proofs: data.proofs.filter((proof) => proof.installmentId === data.installmentId),
-        })}
-      />
+    const latest = data.proofs
+      .filter((proof) => proof.installmentId === data.installmentId)
+      .at(-1);
+    if (latest) {
+      redirect(
+        withArtistStudio(
+          `/artist/payments/${encodeURIComponent(data.purchaseId)}/proof/${encodeURIComponent(latest.proofId)}`,
+          data.producerId,
+        ),
+      );
+    }
+    const query = new URLSearchParams({ installment: data.installmentId });
+    redirect(
+      withArtistStudio(
+        data.proofUploadsAvailable
+          ? `/artist/payments/${encodeURIComponent(data.purchaseId)}/proof/new?${query.toString()}`
+          : `/artist/payments/${encodeURIComponent(data.purchaseId)}`,
+        data.producerId,
+      ),
     );
   } catch (error) {
-    if (error instanceof TRPCError && error.code === "NOT_FOUND") notFound();
+    if (error instanceof TRPCError && error.code === "NOT_FOUND") {
+      redirect(withArtistStudio("/artist/store?notice=unavailable", studio));
+    }
     throw error;
   }
 }

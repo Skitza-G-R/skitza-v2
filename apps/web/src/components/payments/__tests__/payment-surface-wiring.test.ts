@@ -15,12 +15,43 @@ const artistPurchasePayment = read(
   "[purchaseId]",
   "page.tsx",
 );
-const paymentHistory = read("components", "payments", "payment-history.tsx");
-const producerPaymentWorkspace = read(
-  "components",
+const artistPaymentInstructions = read(
+  "app",
+  "(artist)",
+  "artist",
   "payments",
-  "producer-payment-workspace.tsx",
+  "[purchaseId]",
+  "instructions",
+  "page.tsx",
 );
+const artistNewProof = read(
+  "app",
+  "(artist)",
+  "artist",
+  "payments",
+  "[purchaseId]",
+  "proof",
+  "new",
+  "page.tsx",
+);
+const artistExactProof = read(
+  "app",
+  "(artist)",
+  "artist",
+  "payments",
+  "[purchaseId]",
+  "proof",
+  "[proofId]",
+  "page.tsx",
+);
+const artistPaymentSummary = read(
+  "components",
+  "artist",
+  "purchase",
+  "payment-summary-screen.tsx",
+);
+const paymentHistory = read("components", "payments", "payment-history.tsx");
+const producerPaymentWorkspace = read("components", "payments", "producer-payment-workspace.tsx");
 const producerPaymentWorkspaceData = read(
   "components",
   "payments",
@@ -46,6 +77,12 @@ const clientPage = read(
   "[id]",
   "page.tsx",
 );
+const clientSpaceWorkspace = read(
+  "components",
+  "dashboard",
+  "clients",
+  "client-space-workspace.tsx",
+);
 const dashboardPage = read("app", "(producer)", "dashboard", "page.tsx");
 const artistHome = read("app", "(artist)", "artist", "page.tsx");
 const requestsPage = read("app", "(producer)", "dashboard", "requests", "page.tsx");
@@ -61,24 +98,43 @@ describe("SK-69 payment surface wiring", () => {
     for (const bucket of ["waiting", "active", "history"]) {
       expect(artistPayments).toContain(`model.artistBuckets.${bucket}`);
     }
-    expect(producerPayments).toContain(
-      "toProducerPaymentWorkspaceBuckets(model.producerBuckets)",
-    );
+    expect(producerPayments).toContain("toProducerPaymentWorkspaceBuckets(model.producerBuckets)");
     expect(producerPayments).toContain("ProducerPaymentWorkspace");
     expect(producerPayments).not.toContain("PaymentHistoryView");
     expect(artistPayments).toContain("PaymentHistoryView");
   });
 
-  it("feeds project, song, and client views from the same read projection", () => {
+  it("feeds canonical project and client views from the same read projection", () => {
     expect(projectPage).toContain("caller.purchaseLedger.project({ projectId: id })");
-    expect(songPage).toContain("caller.purchaseLedger.project({ projectId: id })");
     expect(clientPage).toContain("caller.purchaseLedger.client({ clientContactId: id })");
-    expect(projectPage).toContain("paymentHistory={paymentHistory}");
-    expect(songPage).toContain("paymentHistory={paymentHistory}");
-    expect(clientPage).toContain(
-      "toProducerPaymentWorkspaceBuckets(payments.producerBuckets)",
+    expect(projectPage).toContain("payments={payments}");
+    expect(projectPage).toContain("paymentModel.producerBuckets.needs_review");
+    expect(projectPage).toContain("paymentModel.producerBuckets.due_or_overdue");
+    expect(projectPage).toContain("paymentModel.producerBuckets.history");
+    expect(songPage).toContain("/dashboard/music/");
+    expect(songPage).toContain("projectSongUploadHref");
+    expect(songPage).not.toContain("purchaseLedger");
+    expect(clientPage).toContain("toProducerPaymentWorkspaceBuckets(payments.producerBuckets)");
+    expect(clientPage).toContain("<ClientSpaceWorkspace");
+    expect(clientPage).not.toContain("<ProducerPaymentWorkspace");
+    expect(clientSpaceWorkspace).toContain(
+      'import { ProducerPaymentWorkspace } from "~/components/payments/producer-payment-workspace"',
     );
-    expect(clientPage).toContain("<ProducerPaymentWorkspace");
+
+    const compactClientWorkspace = clientSpaceWorkspace.replace(/\s+/g, " ");
+    expect(compactClientWorkspace).toContain(
+      '<ProducerPaymentWorkspace buckets={paymentBuckets} scope="client" clientLabel={clientName} defaultView="open" presentation="client-tab" />',
+    );
+    expect(clientSpaceWorkspace.match(/<ProducerPaymentWorkspace/g)).toHaveLength(1);
+  });
+
+  it("does not add a second client proof queue beside the canonical workspace", () => {
+    for (const clientSurface of [clientPage, clientSpaceWorkspace]) {
+      expect(clientSurface).not.toContain("ClientPaymentProofs");
+      expect(clientSurface).not.toContain("client-payment-proofs");
+      expect(clientSurface).not.toMatch(/proofOfPayment\.(history|view)/);
+      expect(clientSurface).not.toContain("<PaymentProofReview");
+    }
   });
 
   it("keeps purchase, proof/payment, and session actions separate on dashboard and Home", () => {
@@ -86,9 +142,13 @@ describe("SK-69 payment surface wiring", () => {
     expect(dashboardPage).toContain("paymentBalances={paymentBalances}");
     expect(dashboardPage).toContain("purchaseRequests={pendingPurchaseRequests.requests}");
     expect(dashboardPage).toContain("pendingApprovals={pendingApprovals}");
-    expect(artistHome).toContain("<PurchaseStatusCard");
-    expect(artistHome).toContain("<ArtistPaymentActionsCard");
-    expect(artistHome).toContain("<NextSessionCard");
+    expect(artistHome).toContain("<ProfessionalArtistHome");
+    expect(artistHome).toContain('kind: "payment_action"');
+    expect(artistHome).toContain('kind: "today_session"');
+    expect(artistHome).toContain('kind: "ready_to_schedule"');
+    expect(artistHome).not.toContain("<PurchaseStatusCard");
+    expect(artistHome).not.toContain("<ArtistPaymentActionsCard");
+    expect(artistHome).not.toContain("<NextSessionCard");
     expect(artistHome).not.toContain("myPendingPayments");
     expect(artistHome).not.toContain("PaymentRequestsSection");
   });
@@ -116,11 +176,45 @@ describe("SK-69 payment surface wiring", () => {
     );
     expect(paymentHistory).toContain("Complete payment");
     expect(artistPurchasePayment).toContain(
-      "caller.artist.purchase.paymentInstructions({ purchaseId })",
+      "caller.artist.purchase.proofOfPayment.state({ purchaseId })",
     );
-    expect(artistPurchasePayment).toContain("installmentId={data.installmentId}");
     expect(artistPurchasePayment).toContain(
-      "new URLSearchParams({ installment: data.installmentId })",
+      "installmentId: state.installmentId",
     );
+    expect(artistPurchasePayment).toContain("<PaymentSummaryScreen");
+    expect(artistPurchasePayment).toContain("studioId={state.producerId}");
+
+    expect(artistPaymentSummary).toContain(
+      "`/artist/payments/${encodeURIComponent(purchaseId)}/instructions`",
+    );
+    expect(artistPaymentSummary).toContain(
+      "`/artist/payments/${encodeURIComponent(purchaseId)}/proof/${encodeURIComponent(proof.proofId)}`",
+    );
+
+    expect(artistPaymentInstructions).toContain(
+      "caller.artist.purchase.paymentInstructions({",
+    );
+    expect(artistPaymentInstructions).toContain(
+      "const proofQuery = new URLSearchParams({ installment: data.installmentId })",
+    );
+    expect(artistPaymentInstructions).toContain("purchaseId={data.purchaseId}");
+    expect(artistPaymentInstructions).toContain("installmentId={data.installmentId}");
+
+    expect(artistNewProof).toContain(
+      "caller.artist.purchase.proofOfPayment.state({",
+    );
+    expect(artistNewProof).toContain(
+      "proof.installmentId === data.installmentId",
+    );
+    expect(artistNewProof).toContain("purchaseId: data.purchaseId");
+    expect(artistNewProof).toContain("installmentId: data.installmentId");
+
+    expect(artistExactProof).toContain(
+      ".artist.purchase.proofOfPayment.state({ purchaseId })",
+    );
+    expect(artistExactProof).toContain(
+      "data.proofs.find((proof) => proof.proofId === proofId)",
+    );
+    expect(artistExactProof).toContain("if (!exact) notFound()");
   });
 });

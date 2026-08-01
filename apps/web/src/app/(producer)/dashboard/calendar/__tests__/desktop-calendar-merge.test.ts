@@ -32,11 +32,14 @@ describe("desktop Calendar schedule and sessions merge", () => {
   });
 
   it("hydrates the merged desktop schedule for both meeting URLs", () => {
-    expect(PAGE).toContain('if (active === "schedule" || active === "sessions")');
+    expect(PAGE).toMatch(
+      /Promise\.all\(\[[\s\S]*caller\.booking\.list\(\)[\s\S]*caller\.booking\.upcoming\([\s\S]*caller\.booking\.availability\.getSettings\(\)[\s\S]*caller\.booking\.availability\.list\(\)[\s\S]*caller\.booking\.blackouts\.list\(\)/,
+    );
     expect(PAGE).toMatch(/<SchedulePanel[\s\S]*desktopSessions={allSessions}/);
     expect(PAGE).toMatch(
-      /active === "sessions"[\s\S]*hidden min-h-0 flex-1 flex-col lg:flex[\s\S]*<SchedulePanel/,
+      /sessionsContent=\{[\s\S]*hidden min-h-0 flex-1 flex-col lg:flex[\s\S]*<SchedulePanel/,
     );
+    expect(PAGE).toContain("availabilityContent={");
   });
 
   it("uses compact read-only sessions without a fake editor", () => {

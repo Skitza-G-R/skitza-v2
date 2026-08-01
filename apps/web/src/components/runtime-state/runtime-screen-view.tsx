@@ -22,6 +22,7 @@ import {
   captureRuntimeMainNavigationTarget,
   RUNTIME_MAIN_NAVIGATION_DESTINATION_ATTRIBUTE,
   RUNTIME_MAIN_NAVIGATION_INTENT_EVENT,
+  RUNTIME_MAIN_NAVIGATION_RELEASE_GUARD_UNTIL_ATTRIBUTE,
   resolveRuntimeMainNavigationHref,
   type RuntimeMainNavigationIntentDetail,
 } from "~/lib/runtime-state/navigation-cache";
@@ -35,6 +36,7 @@ import {
   type RuntimeScreenSafeView,
 } from "~/lib/runtime-state/runtime-state";
 
+import { useOnlineStatus } from "./online-required-link";
 import { useRuntimeState } from "./runtime-state-provider";
 
 const PREVIEW_TIMEOUT_MS = 15_000;
@@ -51,9 +53,8 @@ const PRODUCER_NAV = [
 const ARTIST_NAV = [
   ["/artist", "Home"],
   ["/artist/music", "Music"],
-  ["/artist/book", "Book"],
+  ["/artist/sessions", "Sessions"],
   ["/artist/store", "Store"],
-  ["/artist/payments", "Payments"],
 ] as const;
 
 interface PendingRuntimeScreen {
@@ -99,7 +100,7 @@ function destinationLabel(href: string, role: RuntimeRole): string {
     return "Studio";
   }
 
-  if (pathname.startsWith("/artist/sessions")) return "Book";
+  if (pathname.startsWith("/artist/sessions")) return "Sessions";
   if (pathname.startsWith("/artist/settings")) return "Settings";
   return "Artist";
 }
@@ -194,23 +195,24 @@ function RuntimeScreenSafeViewWriterAtHref({
 export function RuntimeScreenPreview({
   view,
   source = "cache",
+  refreshing,
 }: {
   view: RuntimeScreenSafeView;
   source?: "cache" | "resume";
+  refreshing: boolean;
 }) {
   return (
     <div
       aria-label={`${view.title} saved view`}
+      aria-busy={refreshing || undefined}
       data-runtime-screen-source={source}
       className="mx-auto flex w-full max-w-[1180px] flex-col gap-4 px-4 pt-5 pb-24 sm:px-6 lg:gap-5 lg:px-8 lg:pt-8"
     >
-      <div
-        role="status"
-        className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-xs font-semibold text-[rgb(var(--fg-secondary))]"
-      >
-        Showing the last saved view while fresh data loads. Live actions wait for the current
-        server response.
-      </div>
+      {refreshing ? (
+        <p role="status" className="sr-only">
+          Updating {view.title}
+        </p>
+      ) : null}
 
       <header>
         <h1 className="font-syne text-[32px] leading-none font-extrabold tracking-[-0.035em] text-[rgb(var(--fg-default))] lg:text-[38px]">
@@ -341,6 +343,7 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const online = useOnlineStatus();
   const { identity, privateStateAccessAllowed, storage } = useRuntimeState();
   const [pending, setPending] = useState<PendingRuntimeScreen | null>(null);
   const timeoutRef = useRef<number | null>(null);
@@ -379,6 +382,15 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
       const requestedHref = link?.getAttribute(RUNTIME_MAIN_NAVIGATION_DESTINATION_ATTRIBUTE);
       if (!link || !requestedHref) return;
 
+      const releaseGuardDeadline = Number(
+        link.getAttribute(RUNTIME_MAIN_NAVIGATION_RELEASE_GUARD_UNTIL_ATTRIBUTE),
+      );
+      if (Number.isFinite(releaseGuardDeadline) && Date.now() <= releaseGuardDeadline) {
+        event.preventDefault();
+        return;
+      }
+      link.removeAttribute(RUNTIME_MAIN_NAVIGATION_RELEASE_GUARD_UNTIL_ATTRIBUTE);
+
       const targetHref = resolveRuntimeMainNavigationHref(requestedHref, {
         role: identity.role,
         contextId: identity.contextId,
@@ -416,9 +428,14 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
       });
       if (!targetHref || targetHref === currentHref) return;
 
+      const localOnly = detail.localOnly === true || !navigator.onLine;
+      if (!localOnly) {
+        clearPending();
+        return;
+      }
+
       if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current);
       const view = readRuntimeScreenSafeView(storage, identity, targetHref);
-      const localOnly = detail.localOnly === true || !navigator.onLine;
       document.documentElement.dataset.skScreenSource = view ? "cache" : "scaffold";
       flushSync(() => {
         setPending({
@@ -429,9 +446,6 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
           view,
         });
       });
-      if (!localOnly) {
-        timeoutRef.current = window.setTimeout(clearPending, PREVIEW_TIMEOUT_MS);
-      }
     };
 
     window.addEventListener(RUNTIME_MAIN_NAVIGATION_INTENT_EVENT, onIntent);
@@ -439,6 +453,7 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
       window.removeEventListener(RUNTIME_MAIN_NAVIGATION_INTENT_EVENT, onIntent);
     };
   }, [
+    clearPending,
     currentHref,
     identityKey,
     identity,
@@ -536,7 +551,10 @@ export function RuntimeScreenTransitionBoundary({ children }: { children: ReactN
 
   if (!visiblePending) return children;
   return visiblePending.view ? (
-    <RuntimeScreenPreview view={visiblePending.view} />
+    <RuntimeScreenPreview
+      view={visiblePending.view}
+      refreshing={online && !visiblePending.localOnly}
+    />
   ) : (
     <RuntimeDestinationScaffold
       href={visiblePending.href}
@@ -613,6 +631,7 @@ export function RuntimeResumeBoundary({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const online = useOnlineStatus();
   const [resume, setResume] = useState<ResumeState | null>(null);
   const [resolvedIdentity, setResolvedIdentity] = useState(false);
   const requestedHref = hrefFromLocation(pathname, searchParams);
@@ -678,6 +697,7 @@ export function RuntimeResumeBoundary({
       href={presentedHref}
       role={activeResume?.target.role ?? fallbackRole}
       view={presentedView}
+      refreshing={online}
     />
   );
 }
@@ -686,10 +706,12 @@ function RuntimeResumeShell({
   href,
   role,
   view,
+  refreshing,
 }: {
   href: string;
   role: RuntimeRole;
   view: RuntimeScreenSafeView | null;
+  refreshing: boolean;
 }) {
   const nav = role === "producer" ? PRODUCER_NAV : ARTIST_NAV;
   return (
@@ -725,19 +747,25 @@ function RuntimeResumeShell({
         <header className="flex h-16 shrink-0 items-center border-b border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-4 lg:px-8">
           <span className="font-syne text-lg font-extrabold lg:hidden">Skitza</span>
           <span className="ml-auto text-xs font-semibold text-[rgb(var(--fg-muted))]">
-            Restoring your last screen…
+            Opening Skitza…
           </span>
         </header>
         <main className="min-h-0 min-w-0 flex-1 overflow-y-auto">
           {view ? (
-            <RuntimeScreenPreview view={view} source="resume" />
+            <RuntimeScreenPreview
+              view={view}
+              source="resume"
+              refreshing={refreshing}
+            />
           ) : (
             <RuntimeDestinationScaffold href={href} role={role} />
           )}
         </main>
         <nav
           aria-label={`${role === "producer" ? "Producer" : "Artist"} saved tabs`}
-          className="grid shrink-0 grid-cols-5 border-t border-[rgb(var(--border-sidebar))] bg-[rgb(var(--bg-sidebar))] px-1 pb-[env(safe-area-inset-bottom,0px)] lg:hidden"
+          className={`grid shrink-0 ${
+            role === "producer" ? "grid-cols-5" : "grid-cols-4"
+          } border-t border-[rgb(var(--border-sidebar))] bg-[rgb(var(--bg-sidebar))] px-1 pb-[env(safe-area-inset-bottom,0px)] lg:hidden`}
         >
           {nav.map(([route, label]) => {
             const active = isActiveDestination(href, route);

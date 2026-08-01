@@ -1,62 +1,47 @@
-// Route-segment loading state for /dashboard/clients-projects/clients/[id]
-// (Client Space). Mirrors the live single-surface composition: a
-// full-bleed dark gradient hero band (avatar + identity + meta + KPIs
-// + "+ New project" pill) followed by a vertical list of project rows.
-//
-// The previous version of this file rendered four fake tab placeholders
-// — Phase 1 collapsed the old 4-tab structure (Overview / Projects /
-// Payments / Notes) into a single surface, so those tabs no longer
-// exist in the real page. Keeping the tabs in the skeleton meant the
-// loading state promised UI that never arrives. The dark band uses
-// --bg-sunken as a hero stand-in (the per-client hue isn't known on
-// first paint).
-
 export default function ClientSpaceLoading() {
   return (
-    <main aria-hidden aria-label="Loading client">
-      <div className="mx-auto max-w-[1400px] px-4 pb-24 pt-6 sm:px-6 sm:pt-8 lg:px-8 lg:pt-10">
-        {/* Breadcrumb placeholder — matches the real page's
-            "Clients & Projects › {client}" crumb row above the hero. */}
-        <Skel className="mb-4 h-4 w-48 rounded" />
+    <main aria-hidden>
+      <div className="mx-auto w-full max-w-[1180px] px-4 pt-4 pb-28 sm:px-6 sm:pt-6 lg:px-8 lg:pt-7 lg:pb-10">
+        <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 sm:p-5">
+          <div className="flex items-center gap-3">
+            <Skel className="h-14 w-14 shrink-0 rounded-full" />
+            <div className="min-w-0 flex-1">
+              <Skel className="h-6 w-40 rounded-[var(--radius-sm)]" />
+              <Skel className="mt-2 h-3 w-56 max-w-full rounded-[var(--radius-sm)]" />
+            </div>
+            <Skel className="h-11 w-11 shrink-0 rounded-full" />
+            <Skel className="h-11 w-11 shrink-0 rounded-full" />
+          </div>
+        </div>
 
-        {/* Full-bleed dark hero band (negative horizontal margins
-            cancel the page padding, matching the real hero's pattern). */}
-        <Skel
-          className="-mx-4 h-[420px] sm:-mx-6 md:h-[300px]"
-          tone="band"
-        />
+        <div className="mt-4 grid grid-cols-3 gap-1 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-1">
+          <Skel className="h-11 rounded-[var(--radius-lg)]" />
+          <Skel className="h-11 rounded-[var(--radius-lg)]" />
+          <Skel className="h-11 rounded-[var(--radius-lg)]" />
+        </div>
 
-        {/* Vertical project list — 3 row placeholders */}
-        <div className="mt-6 flex flex-col gap-2">
-          <Skel className="h-[68px] rounded-[var(--radius-md)]" />
-          <Skel className="h-[68px] rounded-[var(--radius-md)]" />
-          <Skel className="h-[68px] rounded-[var(--radius-md)]" />
+        <div className="mt-4 space-y-2">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <Skel className="h-3 w-16 rounded-[var(--radius-sm)]" />
+              <Skel className="mt-2 h-5 w-32 rounded-[var(--radius-sm)]" />
+            </div>
+            <Skel className="h-9 w-36 rounded-[var(--radius-lg)]" />
+          </div>
+          <Skel className="h-[76px] rounded-[var(--radius-lg)]" />
+          <Skel className="h-[76px] rounded-[var(--radius-lg)]" />
+          <Skel className="h-[76px] rounded-[var(--radius-lg)]" />
         </div>
       </div>
     </main>
   );
 }
 
-function Skel({
-  className,
-  tone = "default",
-}: {
-  className?: string;
-  tone?: "default" | "band";
-}) {
-  const bg =
-    tone === "band"
-      ? "bg-[rgb(var(--bg-sunken))]"
-      : "bg-[rgb(var(--bg-elevated))]";
+function Skel({ className }: { className?: string }) {
   return (
     <span
-      aria-hidden
       className={[
-        "block animate-pulse motion-reduce:animate-none",
-        tone === "band"
-          ? ""
-          : "border border-[rgb(var(--border-subtle))]",
-        bg,
+        "block animate-pulse border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-sunken))] motion-reduce:animate-none",
         className ?? "",
       ].join(" ")}
     />

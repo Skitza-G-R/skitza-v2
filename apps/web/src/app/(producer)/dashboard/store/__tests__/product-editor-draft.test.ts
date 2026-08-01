@@ -18,7 +18,7 @@ import {
 
 describe("product authoring commercial validation", () => {
   it("requires a short, single-line artist-facing tagline", () => {
-    expect(productTaglineError(" ")).toMatch(/tagline artists will see/i);
+    expect(productTaglineError(" ")).toMatch(/short description artists will see/i);
     expect(productTaglineError("Line one\nLine two")).toMatch(/one line/i);
     expect(productTaglineError("x".repeat(MAX_PRODUCT_TAGLINE_LENGTH + 1))).toMatch(
       /characters or fewer/i,

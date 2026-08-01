@@ -12,6 +12,7 @@ import { NativeInstallGuidance } from "~/components/pwa/native-install-guidance"
 
 import { ArtistHomeSoftNavigationBoundary } from "./home/artist-home-runtime";
 import { ArtistShellChrome } from "./artist-shell-chrome";
+import { ArtistShellMain } from "./artist-shell-main";
 import { ArtistRouteStatus } from "./artist-route-status";
 
 // Artist app shell — Phase 2 (locked design system).
@@ -23,10 +24,10 @@ import { ArtistRouteStatus } from "./artist-route-status";
 //   Mobile (<lg):
 //     warm-canvas top bar   (Wordmark + StudioSwitcher + UserButton)
 //     main content          (warm canvas, scrollable)
-//     dark bottom nav       (5 tabs: Home / Music / Book / Store / Payments)
+//     dark bottom nav       (4 tabs: Home / Music / Sessions / Store)
 //
 //   Desktop (lg+):
-//     dark left sidebar     (Wordmark + 5 nav items + UserButton)
+//     dark left sidebar     (Wordmark + 4 nav items + UserButton)
 //     main content          (warm canvas, scrollable)
 //
 // `isProducer` is intentionally consumed inside the responsive layout
@@ -44,41 +45,50 @@ import { ArtistRouteStatus } from "./artist-route-status";
 // the same single-column layout at every viewport).
 export function ArtistAppShell({
   userId,
-  isProducer: _isProducer,
+  isProducer,
   studios,
+  initialStudioId,
+  notificationUnreadCount,
+  notificationStudioDotIds,
   children,
 }: {
   userId: string;
   isProducer: boolean;
   studios: Studio[];
+  initialStudioId: string | null;
+  notificationUnreadCount: number;
+  notificationStudioDotIds: readonly string[];
   children: React.ReactNode;
 }) {
-  // `_isProducer` parked in scope so the prior call-site signature is
-  // preserved; Phase 2 doesn't render the dual-role UserButton menu
-  // entry yet (the new chrome's UserButton appearance API is still
-  // under design — landing in Phase 3 with the redesigned menu surface).
-  // Same data is fetched so re-introduction is a no-op for the layout.
-  void _isProducer;
   const runtimeCacheEpoch = Date.now();
 
   return (
     <ArtistRuntimeStateProvider
       userId={userId}
       studioIds={studios.map((studio) => studio.producerId)}
+      initialStudioId={initialStudioId}
       cacheEpoch={runtimeCacheEpoch}
     >
       <NativeInstallGuidance role="artist" />
       <div
         className="flex min-h-dvh"
         style={{
-          background: "rgb(var(--bg-background))",
+          backgroundColor: "rgb(var(--bg-background))",
+          backgroundImage:
+            "radial-gradient(circle at 88% -6%, rgb(var(--brand-primary) / 0.11), transparent 30rem), radial-gradient(circle at 5% 92%, rgb(var(--brand-copper) / 0.07), transparent 34rem)",
           color: "rgb(var(--fg-default))",
         }}
       >
         {/* Desktop-only left rail. `hidden lg:flex` is set inside the
             sidebar component so this fragment stays declarative. */}
         <ArtistShellChrome>
-          <ArtistDesktopSidebar studios={studios} />
+          <ArtistDesktopSidebar
+            studios={studios}
+            userId={userId}
+            initialStudioId={initialStudioId}
+            notificationStudioDotIds={notificationStudioDotIds}
+            isProducer={isProducer}
+          />
         </ArtistShellChrome>
 
         {/* Main column — top bar (mobile only) + content + bottom nav
@@ -86,7 +96,14 @@ export function ArtistAppShell({
             scrolling content. */}
         <div className="flex min-w-0 flex-1 flex-col">
           <ArtistShellChrome>
-            <ArtistMobileTopBar studios={studios} />
+            <ArtistMobileTopBar
+              studios={studios}
+              userId={userId}
+              initialStudioId={initialStudioId}
+              notificationUnreadCount={notificationUnreadCount}
+              notificationStudioDotIds={notificationStudioDotIds}
+              isProducer={isProducer}
+            />
           </ArtistShellChrome>
           {/* SK-31: replicate the producer top bar on the artist side,
               desktop only. The `<TopBarBreadcrumbProvider>` wraps both
@@ -100,7 +117,7 @@ export function ArtistAppShell({
           <TopBarBreadcrumbProvider>
             <ArtistShellChrome>
               <div className="hidden lg:block">
-                <ArtistTopBar />
+                <ArtistTopBar initialUnreadCount={notificationUnreadCount} />
               </div>
             </ArtistShellChrome>
             {/* The mobile bottom padding reserves the 76px tab bar,
@@ -111,16 +128,12 @@ export function ArtistAppShell({
                 readable at tablet+ widths even on the desktop sidebar
                 layout — Phase 3 pages can opt out by setting their own
                 width. */}
-            <main
-              id="main-content"
-              tabIndex={-1}
-              className="mx-auto w-full max-w-2xl px-4 pt-6 pb-[calc(5.75rem+env(safe-area-inset-bottom,0px))] lg:max-w-none lg:px-10 lg:pt-10 lg:pb-12"
-            >
+            <ArtistShellMain>
               <ArtistRouteStatus />
               <RuntimeScreenTransitionBoundary>
                 <ArtistHomeSoftNavigationBoundary>{children}</ArtistHomeSoftNavigationBoundary>
               </RuntimeScreenTransitionBoundary>
-            </main>
+            </ArtistShellMain>
           </TopBarBreadcrumbProvider>
         </div>
 
@@ -128,7 +141,7 @@ export function ArtistAppShell({
           {/* PersistentPlayer powers the shared Music Library's Play
               buttons through the app-level playback runtime. */}
           <PersistentPlayer />
-          <ArtistBottomNav studios={studios} />
+          <ArtistBottomNav studios={studios} initialStudioId={initialStudioId} />
         </ArtistShellChrome>
       </div>
     </ArtistRuntimeStateProvider>

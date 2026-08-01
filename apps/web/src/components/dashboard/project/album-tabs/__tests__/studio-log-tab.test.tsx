@@ -1,12 +1,38 @@
 import { describe, it, expect } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
+import { StudioLogTab, sortStudioLogEntries, type StudioLogEntry } from "../studio-log-tab";
+
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "studio-log-tab.tsx"), "utf-8");
 
-describe("StudioLogTab — insights + activity timeline + sessions", () => {
+const ENTRIES: StudioLogEntry[] = [
+  {
+    id: "created",
+    kind: "created",
+    ts: new Date("2026-07-01T09:00:00.000Z"),
+    description: "Project created",
+  },
+  {
+    id: "session",
+    kind: "session",
+    ts: new Date("2026-07-03T09:00:00.000Z"),
+    durationMinutes: 90,
+    attendees: ["Maya"],
+    status: "cancelled",
+  },
+  {
+    id: "version",
+    kind: "version",
+    ts: new Date("2026-07-02T09:00:00.000Z"),
+    description: "New version uploaded — V2",
+  },
+];
+
+describe("StudioLogTab — one newest-first project timeline", () => {
   it("exports a StudioLogTab component (function)", () => {
     expect(SRC).toMatch(/export function StudioLogTab/);
   });
@@ -15,44 +41,35 @@ describe("StudioLogTab — insights + activity timeline + sessions", () => {
     expect(SRC).toContain('role="tabpanel"');
   });
 
-  it("renders the 4 insight tile labels: Sessions logged / Studio hours / This month / Last session", () => {
-    expect(SRC).toContain("Sessions logged");
-    expect(SRC).toContain("Studio hours");
-    expect(SRC).toContain("This month");
-    expect(SRC).toContain("Last session");
+  it("sorts mixed sessions and activity deterministically, newest first", () => {
+    expect(sortStudioLogEntries(ENTRIES).map((entry) => entry.id)).toEqual([
+      "session",
+      "version",
+      "created",
+    ]);
   });
 
-  it("uses StatTile for each insight tile", () => {
-    expect(SRC).toContain("StatTile");
-    expect(SRC).toContain("~/components/dashboard/common/stat-tile");
+  it("renders one timeline with session status, duration, and attendee", () => {
+    const html = renderToStaticMarkup(<StudioLogTab entries={ENTRIES} />);
+    expect(html.indexOf("Studio session")).toBeLessThan(html.indexOf("New version uploaded"));
+    expect(html.indexOf("New version uploaded")).toBeLessThan(html.indexOf("Project created"));
+    expect(html).toContain("Canceled");
+    expect(html).toContain("1h 30m");
+    expect(html).toContain("Maya");
   });
 
-  it("renders an Activity section header above the timeline", () => {
-    expect(SRC).toMatch(/Activity/);
+  it("uses one compact empty state and removes the old stat/separate-list layout", () => {
+    const html = renderToStaticMarkup(<StudioLogTab entries={[]} />);
+    expect(html).toContain("No studio activity yet");
+    expect(SRC).not.toContain("StatTile");
+    expect(SRC).not.toContain("sessionsCount");
+    expect(SRC).not.toContain("studioHours");
   });
 
-  it("renders a Sessions section header above the sessions list", () => {
-    expect(SRC).toMatch(/Sessions/);
-  });
-
-  it("renders an empty state when activities array is empty", () => {
-    expect(SRC).toMatch(/No activity/);
-  });
-
-  it("renders an empty state when sessions array is empty", () => {
-    expect(SRC).toMatch(/No sessions/);
-  });
-
-  it("accepts sessionsCount + studioHours + thisMonthCount + lastSessionDate insight props", () => {
-    expect(SRC).toContain("sessionsCount");
-    expect(SRC).toContain("studioHours");
-    expect(SRC).toContain("thisMonthCount");
-    expect(SRC).toContain("lastSessionDate");
-  });
-
-  it("accepts activities + sessions list props", () => {
-    expect(SRC).toContain("activities");
-    expect(SRC).toContain("sessions");
+  it("does not expose the stopped Add Session action or payment events", () => {
+    expect(SRC).not.toContain("Add Session");
+    expect(SRC).not.toContain("/artist/book");
+    expect(SRC).not.toContain("PaymentHistory");
   });
 
   it("forbids --surface-card", () => {

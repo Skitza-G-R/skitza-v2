@@ -12,6 +12,19 @@ const artistRouterSource = readFileSync(
   join(here, "..", "..", "..", "server", "trpc", "routers", "artist.ts"),
   "utf8",
 );
+const musicReadModelSource = readFileSync(
+  join(
+    here,
+    "..",
+    "..",
+    "..",
+    "server",
+    "domain",
+    "song-spaces",
+    "music-read-model.ts",
+  ),
+  "utf8",
+);
 const artistLibraryPageSource = readFileSync(
   join(here, "..", "..", "..", "app", "(artist)", "artist", "music", "page.tsx"),
   "utf8",
@@ -36,7 +49,15 @@ describe("artist archived project listening surfaces", () => {
   });
 
   it("lists project-level archive rows and gives artists an Active/Archived project filter", () => {
-    expect(artistLibraryPageSource).toContain("caller.library.music.artistList()");
+    expect(artistLibraryPageSource).toMatch(
+      /caller\.library\.music\.artistList\(\s*allMusic \|\| !activeStudioId \? undefined : \{ producerId: activeStudioId \},\s*\)/,
+    );
+    expect(musicReadModelSource).toContain(
+      "scope.producerId ? eq(projects.producerId, scope.producerId) : undefined",
+    );
+    expect(musicReadModelSource).toContain(
+      "eq(clientContacts.clerkUserId, scope.clerkUserId)",
+    );
     expect(artistLibraryPageSource).toContain("projectRows={projectRows}");
     expect(librarySource).toContain('aria-label="Project status"');
     expect(librarySource).toContain('label="Active"');

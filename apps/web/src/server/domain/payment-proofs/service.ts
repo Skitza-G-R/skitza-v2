@@ -1,6 +1,7 @@
 import {
   and,
   asc,
+  artistHistoricalAccessGrants,
   clientContacts,
   desc,
   eq,
@@ -581,6 +582,7 @@ export async function prepareArtistProofUpload(
     clerkUserId: string;
     purchaseId: string;
     installmentId: string;
+    operationKey: string;
     originalFileName: string;
     contentType: ProofContentType;
     sizeBytes: number;
@@ -613,6 +615,7 @@ export async function prepareArtistProofUpload(
         originalFileName,
         contentType: input.contentType,
         sizeBytes: input.sizeBytes,
+        operationKey: input.operationKey,
       },
       input.now,
     );
@@ -1162,8 +1165,63 @@ export async function authorizePrivateProofEvidence(
       ),
     )
     .limit(1);
-  if (!row) throw new PaymentProofDomainError("NOT_FOUND", "Payment proof was not found");
-  return { ...row, originalFileName: row.originalFileName ?? "payment-proof" };
+  if (row) return { ...row, originalFileName: row.originalFileName ?? "payment-proof" };
+
+  const [historical] = await db
+    .select({
+      ...evidenceSelection(),
+      producerId: paymentProofs.producerId,
+    })
+    .from(paymentProofs)
+    .innerJoin(
+      artistHistoricalAccessGrants,
+      and(
+        eq(artistHistoricalAccessGrants.resourceType, "payment_proof"),
+        eq(artistHistoricalAccessGrants.resourceId, paymentProofs.id),
+        eq(artistHistoricalAccessGrants.producerId, paymentProofs.producerId),
+      ),
+    )
+    .innerJoin(
+      clientContacts,
+      and(
+        eq(clientContacts.id, paymentProofs.clientContactId),
+        eq(clientContacts.producerId, paymentProofs.producerId),
+        eq(clientContacts.clerkUserId, input.clerkUserId),
+      ),
+    )
+    .where(
+      and(
+        eq(paymentProofs.id, input.proofId),
+        eq(artistHistoricalAccessGrants.artistClerkUserId, input.clerkUserId),
+      ),
+    )
+    .limit(1);
+  if (!historical) {
+    throw new PaymentProofDomainError("NOT_FOUND", "Payment proof was not found");
+  }
+  const [studioGrant] = await db
+    .select({ resourceId: artistHistoricalAccessGrants.resourceId })
+    .from(artistHistoricalAccessGrants)
+    .where(
+      and(
+        eq(artistHistoricalAccessGrants.artistClerkUserId, input.clerkUserId),
+        eq(artistHistoricalAccessGrants.producerId, historical.producerId),
+        eq(artistHistoricalAccessGrants.resourceType, "studio"),
+        eq(artistHistoricalAccessGrants.resourceId, historical.producerId),
+      ),
+    )
+    .limit(1);
+  if (!studioGrant) {
+    throw new PaymentProofDomainError("NOT_FOUND", "Payment proof was not found");
+  }
+  return {
+    proofId: historical.proofId,
+    storageKey: historical.storageKey,
+    objectEtag: historical.objectEtag,
+    contentType: historical.contentType,
+    sizeBytes: historical.sizeBytes,
+    originalFileName: historical.originalFileName ?? "payment-proof",
+  };
 }
 
 async function markProofNotificationRead(

@@ -1,8 +1,8 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
-import { runtimeLaunchHrefForRole } from "~/lib/runtime-state/launch-role";
-import { fetchUserRole } from "~/server/auth/role";
+import { runtimeLaunchHrefForMemberships } from "~/lib/runtime-state/launch-role";
+import { fetchUserAccountMemberships } from "~/server/auth/role";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +18,6 @@ export default async function ResolveLaunchRolePage({
   const query = await searchParams;
   const requestedHref =
     typeof query.next === "string" ? query.next : null;
-  const role = await fetchUserRole({ dbUrl, userId });
-  redirect(runtimeLaunchHrefForRole(role, requestedHref));
+  const memberships = await fetchUserAccountMemberships({ dbUrl, userId });
+  redirect(runtimeLaunchHrefForMemberships(memberships, requestedHref));
 }

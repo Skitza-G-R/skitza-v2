@@ -14,8 +14,10 @@ function flatDraft(overrides: Partial<PackageDraft> = {}): PackageDraft {
     type: "mix",
     price: 200,
     currency: "USD",
+    includesSessions: true,
     sessions: 1,
     unlimitedSessions: false,
+    bookingEnabled: true,
     payment: {
       full: true,
       split50: false,
@@ -49,6 +51,7 @@ describe("buildPackagePayload", () => {
       currency: "USD",
       durationMin: 60,
       sessionCount: 1,
+      bookingEnabled: true,
       paymentPlans: [{ kind: "full" }],
       deliverables: ["Mix", "Instrumental", "Stems"],
       royaltyTerms: {
@@ -177,13 +180,56 @@ describe("buildPackagePayload", () => {
 
   it("preserves unlimited sessions and the existing product kind", () => {
     const payload = buildPackageUpdatePayload(
-      flatDraft({ unlimitedSessions: true, sessions: 5 }),
+      flatDraft({ unlimitedSessions: true, sessions: 5, bookingEnabled: true }),
       "session",
     );
     expect(payload.sessionCount).toBe(0);
+    expect(payload.bookingEnabled).toBe(true);
     expect(payload.kind).toBe("session");
     expect(payload).not.toHaveProperty("depositPct");
     expect(payload).not.toHaveProperty("depositModel");
     expect(payload).not.toHaveProperty("milestones");
+  });
+
+  it("stores a pure-delivery product without creating an unlimited session allowance", () => {
+    const payload = buildPackagePayload(
+      flatDraft({
+        includesSessions: false,
+        sessions: 8,
+        unlimitedSessions: true,
+        duration: "180 min",
+      }),
+    );
+
+    expect(payload.durationMin).toBe(0);
+    expect(payload.sessionCount).toBe(0);
+    expect(payload.bookingEnabled).toBe(false);
+  });
+
+  it("does not silently lose an explicit session choice to a stale booking flag", () => {
+    const payload = buildPackagePayload(
+      flatDraft({
+        includesSessions: true,
+        bookingEnabled: false,
+        sessions: 3,
+        duration: "120 min",
+      }),
+    );
+
+    expect(payload.durationMin).toBe(120);
+    expect(payload.sessionCount).toBe(3);
+    expect(payload.bookingEnabled).toBe(true);
+  });
+
+  it("uses bookingEnabled as the choice for legacy drafts without includesSessions", () => {
+    const legacyDraft = flatDraft({
+      bookingEnabled: false,
+    });
+    delete legacyDraft.includesSessions;
+    const payload = buildPackagePayload(legacyDraft);
+
+    expect(payload.durationMin).toBe(0);
+    expect(payload.sessionCount).toBe(0);
+    expect(payload.bookingEnabled).toBe(false);
   });
 });

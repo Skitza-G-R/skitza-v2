@@ -29,18 +29,15 @@ describe("payment proof input policy", () => {
     }).toThrow(PaymentProofPolicyError);
   });
 
-  it("accepts a safe partial amount but never more than the exact remainder", () => {
-    expect(() => {
-      assertProofAmount(1, 10_000);
-    }).not.toThrow();
-    expect(() => {
-      assertProofAmount(4_000, 10_000);
-    }).not.toThrow();
+  it("accepts only the exact locked installment remainder", () => {
     expect(() => {
       assertProofAmount(10_000, 10_000);
     }).not.toThrow();
     expect(() => {
       assertProofAmount(0, 10_000);
+    }).toThrow(PaymentProofPolicyError);
+    expect(() => {
+      assertProofAmount(4_000, 10_000);
     }).toThrow(PaymentProofPolicyError);
     expect(() => {
       assertProofAmount(10_001, 10_000);

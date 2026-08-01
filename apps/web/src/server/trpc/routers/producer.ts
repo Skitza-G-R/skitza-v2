@@ -33,6 +33,7 @@ import { stripUndefined } from "../strip-undefined";
 import { presentVersionApprovalHistory } from "~/server/domain/version-approval/service";
 import { browserSafeStoredAudioUrl } from "~/server/domain/audio-delivery/urls";
 import { sessionBookingScheduleAdvisoryLockKey } from "~/server/domain/session-booking/db";
+import { privateSongArtworkPath } from "~/server/domain/song-artwork/urls";
 
 // Accepts a subset of producer-editable fields. The schema's cascade is
 // designed so any of these can change without orphaning related data.
@@ -1249,6 +1250,7 @@ export const producerRouter = router({
             trackTitle: projectTracks.title,
             trackArtist: projectTracks.artist,
             trackWorkflowStage: projectTracks.workflowStage,
+            trackArtworkR2Key: projectTracks.artworkR2Key,
             trackArchivedAt: projectTracks.archivedAt,
             trackReleasedAt: projectTracks.releasedAt,
             projectId: projects.id,
@@ -1280,6 +1282,7 @@ export const producerRouter = router({
           .select({
             id: trackVersions.id,
             purchaseId: trackVersions.purchaseId,
+            purchaseLifecycleStatus: purchases.lifecycleStatus,
             purchaseTotalCents: purchases.totalCents,
             purchaseCurrency: purchases.currency,
             label: trackVersions.label,
@@ -1308,29 +1311,51 @@ export const producerRouter = router({
           )
           .orderBy(desc(trackVersions.uploadedAt), desc(trackVersions.id));
 
-        const approvalRows =
-          versionRows.length === 0
-            ? []
-            : await ctx.db
-                .select({
-                  id: versionApprovalEvents.id,
-                  versionId: versionApprovalEvents.versionId,
-                  action: versionApprovalEvents.action,
-                  createdAt: versionApprovalEvents.createdAt,
-                })
-                .from(versionApprovalEvents)
-                .where(
-                  and(
-                    inArray(
-                      versionApprovalEvents.versionId,
-                      versionRows.map((version) => version.id),
+        // Approval history and comments both depend only on the resolved
+        // version IDs. Start them together so the song page pays one DB
+        // roundtrip on the critical path instead of two.
+        const versionIds = versionRows.map((version) => version.id);
+        const [approvalRows, comments] =
+          versionIds.length === 0
+            ? [[], []]
+            : await Promise.all([
+                ctx.db
+                  .select({
+                    id: versionApprovalEvents.id,
+                    versionId: versionApprovalEvents.versionId,
+                    action: versionApprovalEvents.action,
+                    createdAt: versionApprovalEvents.createdAt,
+                  })
+                  .from(versionApprovalEvents)
+                  .where(
+                    and(
+                      inArray(versionApprovalEvents.versionId, versionIds),
+                      eq(versionApprovalEvents.producerId, ctx.producerId),
                     ),
-                    eq(versionApprovalEvents.producerId, ctx.producerId),
-                  ),
-                )
-                .orderBy(desc(versionApprovalEvents.createdAt), desc(versionApprovalEvents.id));
+                  )
+                  .orderBy(desc(versionApprovalEvents.createdAt), desc(versionApprovalEvents.id)),
+                ctx.db
+                  .select({
+                    id: trackComments.id,
+                    versionId: trackComments.versionId,
+                    timeMs: trackComments.timestampMs,
+                    body: trackComments.body,
+                    fromProducer: trackComments.fromProducer,
+                    authorName: trackComments.authorName,
+                    createdAt: trackComments.createdAt,
+                    resolvedAt: trackComments.resolvedAt,
+                  })
+                  .from(trackComments)
+                  .where(
+                    and(
+                      inArray(trackComments.versionId, versionIds),
+                      eq(trackComments.producerId, ctx.producerId),
+                    ),
+                  )
+                  .orderBy(asc(trackComments.timestampMs)),
+              ]);
         const approvalHistory = presentVersionApprovalHistory(
-          versionRows.map((version) => version.id),
+          versionIds,
           approvalRows,
         );
 
@@ -1350,33 +1375,13 @@ export const producerRouter = router({
           };
         });
 
-        // 3. Comments across all versions of this track. Asc by
-        //    timestampMs so the comment thread reads in track order
-        //    (same convention as the artist Now Playing screen).
-        const versionIds = versions.map((v) => v.id);
-        const comments = versionIds.length
-          ? await ctx.db
-              .select({
-                id: trackComments.id,
-                versionId: trackComments.versionId,
-                timeMs: trackComments.timestampMs,
-                body: trackComments.body,
-                fromProducer: trackComments.fromProducer,
-                authorName: trackComments.authorName,
-                createdAt: trackComments.createdAt,
-                resolvedAt: trackComments.resolvedAt,
-              })
-              .from(trackComments)
-              .where(inArray(trackComments.versionId, versionIds))
-              .orderBy(asc(trackComments.timestampMs))
-          : [];
-
         return {
           track: {
             id: head.trackId,
             title: head.trackTitle,
             artist: head.trackArtist,
             workflowStage: head.trackWorkflowStage,
+            artworkUrl: head.trackArtworkR2Key ? privateSongArtworkPath(head.trackId) : null,
             archivedAt: head.trackArchivedAt,
             releasedAt: head.trackReleasedAt,
             projectId: head.projectId,

@@ -11,7 +11,8 @@ const RESOURCE_ROOTS: ReadonlyArray<readonly [prefix: string, safeRoot: string]>
   ["/artist/purchase/", "/artist/store"],
   ["/artist/store/", "/artist/store"],
   ["/artist/offers/", "/artist/store"],
-  ["/artist/payments/", "/artist/payments"],
+  ["/artist/payments/", "/artist"],
+  ["/artist/proof/", "/artist"],
   ["/artist/music/", "/artist/music"],
   ["/artist/sessions/", "/artist/sessions"],
 ];
@@ -23,10 +24,8 @@ export function artistStudioSwitchHref(
 ): string {
   const safeRoot = RESOURCE_ROOTS.find(([prefix]) => pathname.startsWith(prefix))?.[1];
   const params = safeRoot ? new URLSearchParams() : new URLSearchParams(currentQuery);
-  if (pathname === "/artist/book") {
-    for (const resourceKey of ["session", "allowance", "project", "producerId"]) {
-      params.delete(resourceKey);
-    }
+  if (pathname === "/artist/music") {
+    params.delete("view");
   }
   params.set("studio", producerId);
   return `${safeRoot ?? pathname}?${params.toString()}`;

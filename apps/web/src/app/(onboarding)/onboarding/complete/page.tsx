@@ -4,16 +4,10 @@ import { redirect } from "next/navigation";
 
 import { isDevPreviewBypass } from "~/lib/onboarding/dev-preview";
 import { fetchUserRole } from "~/server/auth/role";
+import { appRouter } from "~/server/trpc/routers/_app";
 
 import { decideOnboardingRedirect } from "../decide-redirect";
 import { CompleteScreenClient } from "./complete-screen-client";
-
-// Done — post-Step 5 celebration screen. May 2026 redesign — wrapped
-// in WizardChrome with all 5 rail rows marked completed.
-//
-// Producer-complete renders; producer-incomplete bounces back to
-// /onboarding/studio (handled by decideOnboardingRedirect's existing
-// non-studio rule).
 
 export default async function CompleteScreenPage({
   searchParams,
@@ -24,7 +18,7 @@ export default async function CompleteScreenPage({
   const isPreview = isDevPreviewBypass(params);
 
   if (isPreview) {
-    return <CompleteScreenClient slug="preview-studio" />;
+    return <CompleteScreenClient slug="preview-studio" previewMode />;
   }
 
   const { userId } = await auth();
@@ -35,12 +29,16 @@ export default async function CompleteScreenPage({
   const redirectTo = decideOnboardingRedirect(role, "complete");
   if (redirectTo) redirect(redirectTo);
 
-  if (role.kind !== "producer-complete" && role.kind !== "producer-incomplete") {
+  if (!userId || (role.kind !== "producer-complete" && role.kind !== "producer-incomplete")) {
     return null;
   }
 
-  // Pull the slug fresh from the producers row so the join link is
-  // accurate even if the producer renamed their studio mid-flow.
+  const caller = appRouter.createCaller({ userId });
+  const packages = await caller.booking.packages.list();
+  if (!packages.some((product) => product.active)) {
+    redirect("/onboarding");
+  }
+
   const db = createDb(dbUrl);
   const [row] = await db
     .select({ slug: producers.slug })

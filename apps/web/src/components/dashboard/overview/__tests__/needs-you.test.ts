@@ -153,6 +153,13 @@ describe("buildNeedsYouQueue", () => {
     expect(queue[0]?.href).toBe("/dashboard/payments/proof-1");
     expect(queue[1]?.href).toBe("/dashboard/requests/r-1");
     expect(queue[2]?.href).toBe("/dashboard/calendar?booking=b-1");
+    expect(queue.at(-1)).toEqual(
+      expect.objectContaining({
+        kind: "setup",
+        href: "/onboarding",
+        actionLabel: "Finish setup",
+      }),
+    );
   });
 
   it("keeps an artist comment separate from a project urgency signal", () => {

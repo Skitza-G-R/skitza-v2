@@ -12,6 +12,18 @@ describe("EditorShell shell", () => {
     expect(SRC).toMatch(/@radix-ui\/react-dialog/);
   });
 
+  it("keeps dialog as the default and supports an inline onboarding frame", () => {
+    expect(SRC).toContain('presentation?: "dialog" | "embedded"');
+    expect(SRC).toContain('presentation = "dialog"');
+    expect(SRC).toContain('presentation === "embedded"');
+    expect(SRC).toContain("<section");
+    expect(SRC).toContain("overflow-hidden rounded-[var(--radius-xl)] border");
+  });
+
+  it("does not render the embedded frame when the editor is closed", () => {
+    expect(SRC).toContain("if (!open && embedded) return null");
+  });
+
   it("renders the step indicator label (Step N of M)", () => {
     expect(SRC).toMatch(/Step\s+\$\{|Step \$/);
   });
@@ -20,16 +32,26 @@ describe("EditorShell shell", () => {
     expect(SRC).toMatch(/<StepBar/);
   });
 
-  it("renders Back, Continue, and Save labels in the footer", () => {
+  it("renders Back and Continue labels in the footer", () => {
     expect(SRC).toContain("Back");
     expect(SRC).toContain("Continue");
-    expect(SRC).toContain("Save");
   });
 
-  it("renders mode-aware Save label (Create product on new, Save changes on edit)", () => {
-    expect(SRC).toMatch(/Create product/);
-    expect(SRC).toMatch(/Save changes/);
-    expect(SRC).toMatch(/mode === "new"/);
+  it("makes publish explicit and offers an atomic hidden alternative", () => {
+    expect(SRC).toMatch(/Publish product/);
+    expect(SRC).toMatch(/Save hidden/);
+    expect(SRC).toMatch(/Publishing makes this visible to connected artists immediately/);
+  });
+
+  it("labels edits according to their current visibility", () => {
+    expect(SRC).toMatch(/Save live changes/);
+    expect(SRC).toMatch(/Save hidden changes/);
+    expect(SRC).toMatch(/Artists will see this update immediately/);
+  });
+
+  it("keeps discard separate from the close button", () => {
+    expect(SRC).toMatch(/Discard draft/);
+    expect(SRC).toMatch(/onDiscard/);
   });
 
   it("has a close X button in the header", () => {
@@ -40,10 +62,17 @@ describe("EditorShell shell", () => {
     expect(SRC).toMatch(/popIn|scale\(0\.97\)|translateY\(12/);
   });
 
-  it("uses the wider desktop width and a content-fit mobile sheet", () => {
+  it("uses the wider desktop modal and a true full-screen mobile flow", () => {
     expect(SRC).toContain("max-w-[680px]");
-    expect(SRC).toContain("max-sm:h-auto");
-    expect(SRC).toMatch(/dvh/);
+    expect(SRC).toContain("max-sm:inset-0");
+    expect(SRC).toContain("max-sm:h-[100dvh]");
+    expect(SRC).toContain("max-sm:max-h-none");
+    expect(SRC).not.toContain("max-sm:max-h-[92dvh]");
+  });
+
+  it("wraps the final action row and clears the iOS home indicator", () => {
+    expect(SRC).toMatch(/max-sm:flex-wrap/);
+    expect(SRC).toMatch(/safe-area-inset-bottom/);
   });
 
   it("keeps only the body scrollable and allows instructions to wrap", () => {
@@ -55,6 +84,7 @@ describe("EditorShell shell", () => {
   it("resets the body scroll position when the active step changes", () => {
     expect(SRC).toMatch(/useLayoutEffect/);
     expect(SRC).toMatch(/bodyRef\.current\.scrollTop\s*=\s*0/);
-    expect(SRC).toMatch(/\[current, open\]/);
+    expect(SRC).toMatch(/\[current, open, presentation\]/);
+    expect(SRC).toContain('scrollIntoView({ block: "start" })');
   });
 });
