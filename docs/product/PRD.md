@@ -86,13 +86,14 @@ Completed and Canceled are different states.
 
 ### 3.3 Song
 
-A song is music inside exactly one project.
+A song is music inside exactly one project. It becomes durable only when its first Version upload
+succeeds. A failed or canceled first upload must not leave an empty Song.
 
 The app must never allow a song or audio version to exist without a project. A song has versions, comments, workflow state, artist approval, public-sharing state, portfolio state, and purchase-owned download entitlement.
 
 ### 3.4 Version
 
-A version is one uploaded audio version of a song.
+A version is exactly one uploaded audio file belonging to a song.
 
 A producer may mark an exact version final or ready. The artist may separately approve that exact version. Stored audio may later be permanently deleted under the Released rules while lightweight history and comments remain.
 
@@ -261,8 +262,10 @@ Names remain editable. Add a number when the same generated name already exists 
 
 - A project with one song behaves like a single.
 - Add Another Song changes it into an album.
-- A multi-song purchase creates the purchased number of empty song spaces.
-- Paid projects and paid empty song spaces remain visible before audio exists.
+- A purchase may grant commercial song capacity or be linked to a Project or Song, but accepting a
+  purchase does not create a Song record.
+- Paid Projects remain visible before audio exists. Unused commercial capacity is not an empty Song
+  and does not appear as a Library row.
 - A later extra song uses a separate purchase.
 - A paid extra song becomes available only after its complete first installment is confirmed.
 - A free extra song receives a ₪0 No charge purchase.
@@ -313,22 +316,26 @@ Never hard-delete a historical project or orphan its records.
 
 - `/dashboard/clients-projects/[id]` is the compact producer project workspace for both one-song and multi-song projects: project header, Songs, Payments, Studio Log, and Details.
 - Do not render a second song workspace, workflow, status strip, version list, or song tabs below the project song list.
-- Song rows with version history open the existing producer player page at `/dashboard/music/[versionId]`. A song without a version may use the project route only as a one-shot first-upload modal handoff.
+- Song rows open the existing producer player page at `/dashboard/music/[versionId]`.
 - Old nested project-song URLs remain only as compatibility redirects to the existing player page, or back to the project when no player version exists.
-- The project header `+` opens Add Song directly. Do not show an intermediate menu when Add Song is the only action.
+- The project header `+` opens file-first Add Song directly with the Project already selected. Do not
+  show an intermediate menu when Add Song is the only action.
 
 ## 7. Songs, versions, Library, and Artist Music
 
-### 7.1 Add Song and purchase assignment
+### 7.1 File-first upload and Song creation
 
-Library → Add Song must:
-
-1. Ask the producer to choose an active project.
-2. Open New Project if no active project exists.
-3. Use an unused purchased song space when available.
-4. Otherwise offer a paid extra-song purchase/private offer or Add for no extra charge.
-
-The selected purchase controls download access for that song's versions. Do not use the project's total balance.
+- Library uses **Upload audio**. The producer chooses or drops the file before the app asks whether
+  it is a New Song or New Version and before it asks for any missing destination details.
+- Project uses **Add Song** with the Project already selected.
+- Song uses **Upload new Version** with the Project and Song already selected.
+- A new Song and V1 are created together only after the exact uploaded audio object succeeds and is
+  verified. Cancellation, failure, and retry must never expose an empty or ghost Song.
+- A purchase may remain linked internally for commercial/download entitlement, but the producer is
+  never required to start from a purchase to add a Song.
+- Every successful Version is automatically available to the linked artist through existing access
+  guards. There is no manual Share step, private Draft Version, or separate publish action.
+- Stems remain links. Stem upload and storage are outside this flow.
 
 Do not expose Move to another project as a normal edit.
 
@@ -393,13 +400,13 @@ Client/project archive never archives songs.
 
 Artist Music stays simple and is not a producer-style project room.
 
-- Music → Projects shows project or album folders.
+- Artist Music and producer Library are Song-first. Project is a filter, not a required
+  Project → Song drill-down.
 - Waiting-for-payment projects stay in Payments and do not appear as active work.
-- Paid projects and empty paid song spaces remain visible before audio exists.
-- A single may open directly to its song.
-- An album lists songs, empty purchased spaces, and included sessions.
-- Completed/Canceled projects appear under Music → Projects → Archived.
-- All Songs includes every song the artist may hear, including archived work.
+- Purchases and unused paid capacity do not appear as empty Songs.
+- The Library stays visually simple: do not crowd Song rows or Version history with purchase or
+  Project metadata beyond what the current design already needs.
+- The Song list includes every Song the artist may hear, including archived work.
 - Listening and commenting happen on private song pages.
 - Completed/Canceled projects allow listening but block new comments/uploads until reopen.
 - Archived songs allow listening but block new comments/uploads until restore.
@@ -419,7 +426,8 @@ Artist Music stays simple and is not a producer-style project room.
 - Artist may change song quantity before acceptance.
 - Keep volume discounts.
 - Save quantity, unit prices, discount, subtotal, tax, and final total.
-- A multi-song purchase creates that number of empty song spaces.
+- A multi-song purchase records that quantity in its immutable commercial snapshot; it does not
+  create Song records before audio is uploaded.
 - Later extra songs are a new purchase.
 
 ### 8.3 Product editor
@@ -833,8 +841,8 @@ Producer:
 
 Artist:
 
-- Music → Projects → Archived
-- All Songs includes every song the artist may hear
+- Music is Song-first with Project as a filter
+- The Song list includes every song the artist may hear
 - Payments → History contains paid and canceled purchases
 
 Projects are reopened. Songs and clients are restored. Client/project archive never archives songs.
@@ -857,7 +865,7 @@ Remove without replacement:
 
 Keep and make real:
 
-- Library Add Song
+- Library Upload audio
 - artist session Cancel and Reschedule
 - automatic session confirmation according to setting
 - normal Invite client and its route

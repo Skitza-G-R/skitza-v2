@@ -145,8 +145,11 @@ describe("clients-projects/[id]/page.tsx — Phase 2 rewrite to AlbumSpace", () 
     expect(SRC).toMatch(/artist:\s*t\.artist/);
   });
 
-  it("locks project-room Add Song to the project being viewed", () => {
-    expect(SRC).toContain("&lockProject=1");
+  it("shows only durable Songs and passes the current Project into AlbumSpace", () => {
+    expect(SRC).toContain("const durableTracks = data.tracks.filter");
+    expect(SRC).toContain("songsCount: durableTracks.length");
+    expect(SRC).toContain("tracks={tracks}");
+    expect(SRC).not.toContain("lockProject=1");
   });
 
   it("lets AppShell own the main landmark and omits the stopped Add Session flow", () => {

@@ -4,9 +4,9 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import {
-  AddSongDialog,
-  type AddSongProjectOption,
-} from "~/components/dashboard/song/add-song-dialog";
+  UploadTrackModal,
+  type UploadTrackModalProject,
+} from "~/components/dashboard/song/upload-track-modal";
 import {
   MusicLibraryScreen,
   type MusicLibraryProjectRow,
@@ -22,11 +22,9 @@ import type {
 export function ProducerMusicLibrary({
   tracks,
   projectRows,
-  addSongProjects,
-  initialAddSongOpen,
+  uploadProjects,
+  initialUploadOpen,
   initialProjectId,
-  initialPurchaseId,
-  lockInitialProject,
   renameSong,
   editArtist,
   setArchived,
@@ -34,25 +32,23 @@ export function ProducerMusicLibrary({
 }: {
   tracks: MusicLibraryRow[];
   projectRows: MusicLibraryProjectRow[];
-  addSongProjects: AddSongProjectOption[];
-  initialAddSongOpen: boolean;
+  uploadProjects: UploadTrackModalProject[];
+  initialUploadOpen: boolean;
   initialProjectId?: string;
-  initialPurchaseId?: string;
-  lockInitialProject?: boolean;
   renameSong: RenameSongAction;
   editArtist: EditSongArtistAction;
   setArchived: SetSongArchivedAction;
   markReleased?: MarkSongReleasedAction;
 }) {
   const router = useRouter();
-  const [addSongOpen, setAddSongOpen] = useState(initialAddSongOpen);
+  const [uploadOpen, setUploadOpen] = useState(initialUploadOpen);
 
   useEffect(() => {
-    setAddSongOpen(initialAddSongOpen);
-  }, [initialAddSongOpen]);
+    setUploadOpen(initialUploadOpen);
+  }, [initialUploadOpen]);
 
-  const closeAddSong = () => {
-    setAddSongOpen(false);
+  const closeUpload = () => {
+    setUploadOpen(false);
     router.replace("/dashboard/music", { scroll: false });
   };
 
@@ -61,19 +57,20 @@ export function ProducerMusicLibrary({
       <MusicLibraryScreen
         tracks={tracks}
         projectRows={projectRows}
-        addSongHref="/dashboard/music?addSong=1"
+        onUploadAudio={() => {
+          setUploadOpen(true);
+        }}
         renameSong={renameSong}
         editArtist={editArtist}
         setArchived={setArchived}
         {...(markReleased ? { markReleased } : {})}
       />
-      <AddSongDialog
-        open={addSongOpen}
-        onClose={closeAddSong}
-        projects={addSongProjects}
-        {...(lockInitialProject === undefined ? {} : { lockInitialProject })}
-        {...(initialProjectId ? { initialProjectId } : {})}
-        {...(initialPurchaseId ? { initialPurchaseId } : {})}
+      <UploadTrackModal
+        open={uploadOpen}
+        onClose={closeUpload}
+        mode="library"
+        projects={uploadProjects}
+        {...(initialProjectId ? { projectId: initialProjectId } : {})}
       />
     </>
   );

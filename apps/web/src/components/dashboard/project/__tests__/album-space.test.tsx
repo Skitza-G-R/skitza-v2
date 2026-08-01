@@ -101,18 +101,17 @@ describe("AlbumSpace — compact four-tab workspace", () => {
     expect(SRC).toMatch(/<ProjectCompactHeader[\s\S]*?onAddSong=\{\(\) =>/);
   });
 
-  it("explains why reopened work with only canceled purchases cannot add songs", () => {
-    expect(SRC).toContain("New work requires an active purchase or accepted offer.");
+  it("explains that Add Song is contextual to an active Project", () => {
+    expect(SRC).toContain("Add a Song while this Project is active.");
     expect(SRC).toContain("blockedReason={newWorkBlockedReason}");
   });
 
-  it("routes Add Song through the purchased-space flow without opening upload", () => {
-    expect(SRC).toContain("router.push(addSongHref)");
-    expect(SRC).toContain("purchaseId=${encodeURIComponent(slot.purchaseId)}");
-    expect(SRC).toContain("&lockProject=1");
-    expect(SRC).not.toContain("UploadTrackModal");
-    expect(SRC).not.toMatch(/mode=["']new-song["']/);
-    expect(SRC).toContain("emptySlots={emptySlots}");
+  it("opens contextual file-first Add Song without asking for a purchase", () => {
+    expect(SRC).toContain("UploadTrackModal");
+    expect(SRC).toMatch(/mode=["']new-song["']/);
+    expect(SRC).toContain("projectId={project.id}");
+    expect(SRC).not.toContain("purchaseId=");
+    expect(SRC).not.toContain("emptySlots=");
   });
 
   it("keeps the sticky tab rail outside the moving swipe panel", () => {

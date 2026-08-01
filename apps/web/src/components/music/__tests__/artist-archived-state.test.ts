@@ -13,16 +13,7 @@ const artistRouterSource = readFileSync(
   "utf8",
 );
 const musicReadModelSource = readFileSync(
-  join(
-    here,
-    "..",
-    "..",
-    "..",
-    "server",
-    "domain",
-    "song-spaces",
-    "music-read-model.ts",
-  ),
+  join(here, "..", "..", "..", "server", "domain", "song-spaces", "music-read-model.ts"),
   "utf8",
 );
 const artistLibraryPageSource = readFileSync(
@@ -30,7 +21,7 @@ const artistLibraryPageSource = readFileSync(
   "utf8",
 );
 
-describe("artist archived project listening surfaces", () => {
+describe("artist Song-first listening surfaces", () => {
   it("threads the producer-scoped lifecycle through artist list, project, and song reads", () => {
     expect(artistRouterSource).toContain("projectLifecycleStatus: projects.lifecycleStatus");
     expect(artistRouterSource).toContain("lifecycleStatus: project.lifecycleStatus");
@@ -48,29 +39,24 @@ describe("artist archived project listening surfaces", () => {
     }
   });
 
-  it("lists project-level archive rows and gives artists an Active/Archived project filter", () => {
+  it("keeps all authorized Songs in one Library with Project as a filter", () => {
     expect(artistLibraryPageSource).toMatch(
       /caller\.library\.music\.artistList\(\s*allMusic \|\| !activeStudioId \? undefined : \{ producerId: activeStudioId \},\s*\)/,
     );
     expect(musicReadModelSource).toContain(
       "scope.producerId ? eq(projects.producerId, scope.producerId) : undefined",
     );
-    expect(musicReadModelSource).toContain(
-      "eq(clientContacts.clerkUserId, scope.clerkUserId)",
-    );
+    expect(musicReadModelSource).toContain("eq(clientContacts.clerkUserId, scope.clerkUserId)");
     expect(artistLibraryPageSource).toContain("projectRows={projectRows}");
-    expect(librarySource).toContain('aria-label="Project status"');
-    expect(librarySource).toContain('label="Active"');
-    expect(librarySource).toContain('label="Archived"');
-    expect(librarySource).toContain("projectArchiveFilter");
-    expect(librarySource).toContain("explicitProjects");
+    expect(librarySource).toContain('aria-label="Filter by project"');
+    expect(librarySource).not.toContain('aria-label="Library mode"');
+    expect(librarySource).not.toContain("<ProjectsGrid");
+    expect(librarySource).not.toContain("<ProjectsTable");
   });
 
-  it("gives empty archived views a truthful way back to active work", () => {
-    expect(librarySource).toContain('label: "View active projects"');
-    expect(librarySource).toContain('label: "View active songs"');
-    expect(librarySource).toContain('onProjectArchiveFilterChange?.("active")');
-    expect(librarySource).toContain('onSongArchiveFilterChange?.("active")');
+  it("does not apply the producer-only Song archive filter to artists", () => {
+    expect(librarySource).toContain('if (role !== "producer") return filteredTracks');
+    expect(librarySource).toMatch(/role === "producer" \? \(\s*<SongArchiveFilterControl/);
   });
 
   it("closes only new comment entry points while keeping the comment thread controls", () => {

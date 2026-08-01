@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { useTabSwipe } from "~/components/native/use-tab-swipe";
+import { UploadTrackModal } from "~/components/dashboard/song/upload-track-modal";
 import type { ProjectActionProject } from "~/components/dashboard/projects/project-action-controls";
 import type { ProjectPurchaseSummary } from "~/components/dashboard/projects/project-purchases-panel";
 import type { WorkflowStage } from "~/lib/clients/workflow-stage";
@@ -11,7 +12,7 @@ import type { WorkflowStage } from "~/lib/clients/workflow-stage";
 import { AlbumTabs, type AlbumTab } from "./album-tabs";
 import { DetailsTab } from "./album-tabs/details-tab";
 import { PaymentsTab, type ProjectPaymentsTabData } from "./album-tabs/project-payments-tab";
-import { SongsTab, type EmptySongSpaceRowData } from "./album-tabs/songs-tab";
+import { SongsTab } from "./album-tabs/songs-tab";
 import { StudioLogTab, type StudioLogEntry } from "./album-tabs/studio-log-tab";
 import { ProjectCompactHeader, type ProjectPaymentAttention } from "./project-compact-header";
 import {
@@ -45,8 +46,6 @@ interface AlbumSpaceProps {
   tracks: TrackRowData[];
   selectedSongUpload?: ProjectSongUploadData | null;
   initialUploadOpen?: boolean;
-  emptySlots?: readonly EmptySongSpaceRowData[];
-  addSongHref: string;
   studioLog: AlbumSpaceStudioLog;
 }
 
@@ -58,12 +57,11 @@ export function AlbumSpace({
   tracks,
   selectedSongUpload = null,
   initialUploadOpen = false,
-  emptySlots = [],
-  addSongHref,
   studioLog,
 }: AlbumSpaceProps) {
   const router = useRouter();
   const [active, setActive] = useState<AlbumTab>("songs");
+  const [addSongOpen, setAddSongOpen] = useState(false);
   const tabSwipeHandlers = useTabSwipe({
     items: ALBUM_TAB_ORDER,
     value: active,
@@ -76,19 +74,8 @@ export function AlbumSpace({
   const newWorkBlockedReason = archived
     ? "New work is closed because this project is archived."
     : projectActive
-      ? "New work requires an active purchase or accepted offer."
+      ? "Add a Song while this Project is active."
       : "New work requires an active project.";
-
-  const handleAddSong = (slot?: EmptySongSpaceRowData) => {
-    if (!slot) {
-      router.push(addSongHref);
-      return;
-    }
-    const separator = addSongHref.includes("?") ? "&" : "?";
-    router.push(
-      `${addSongHref}${separator}purchaseId=${encodeURIComponent(slot.purchaseId)}&lockProject=1`,
-    );
-  };
 
   return (
     <div className="space-y-3 md:space-y-4">
@@ -105,7 +92,7 @@ export function AlbumSpace({
           setActive("payments");
         }}
         onAddSong={() => {
-          handleAddSong();
+          setAddSongOpen(true);
         }}
       />
 
@@ -118,10 +105,8 @@ export function AlbumSpace({
           {active === "songs" ? (
             <SongsTab
               tracks={tracks}
-              emptySlots={emptySlots}
               canAddSong={canAddSong}
               blockedReason={newWorkBlockedReason}
-              {...(canAddSong ? { onAddSong: handleAddSong } : {})}
             />
           ) : null}
           {active === "payments" ? (
@@ -150,6 +135,18 @@ export function AlbumSpace({
           initialUploadOpen={initialUploadOpen}
         />
       ) : null}
+      <UploadTrackModal
+        open={addSongOpen}
+        onClose={() => {
+          setAddSongOpen(false);
+        }}
+        mode="new-song"
+        projectId={project.id}
+        tracks={[]}
+        onCreated={() => {
+          setAddSongOpen(false);
+        }}
+      />
     </div>
   );
 }

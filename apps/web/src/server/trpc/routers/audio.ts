@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   CompleteMultipartUploadCommand,
   DeleteObjectCommand,
@@ -51,6 +50,7 @@ import {
   type VersionUploadLifecycleScope,
 } from "~/server/domain/version-uploads/service";
 import { currentTrackArtistApprovalAction } from "~/server/domain/version-uploads/db";
+import { createStoredAudioIdentityFingerprint } from "~/server/domain/first-version-uploads/service";
 import { SITE_URL, sendTrackVersionUploadedEmail } from "~/server/email/send";
 import { emitArtistNewVersionNotification } from "~/server/artist/notification-emitters";
 import { BUCKETS, getR2, getR2SingleAttempt, isAudioKeyForTrackVersion } from "~/server/storage/r2";
@@ -97,15 +97,7 @@ export function createAudioIdentityFingerprint(input: {
   objectEtag: string;
   sizeBytes: number;
 }): string {
-  const encodePart = (value: string): string =>
-    `${Buffer.byteLength(value, "utf8").toString()}:${value}`;
-  const canonicalIdentity = [
-    "skitza-track-audio-v1",
-    encodePart(input.key),
-    encodePart(input.objectEtag),
-    encodePart(input.sizeBytes.toString()),
-  ].join("|");
-  return `sha256:${createHash("sha256").update(canonicalIdentity, "utf8").digest("hex")}`;
+  return createStoredAudioIdentityFingerprint(input);
 }
 
 export function validateUploadInput(input: {

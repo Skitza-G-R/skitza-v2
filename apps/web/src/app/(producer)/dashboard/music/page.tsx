@@ -1,7 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
-import type { AddSongProjectOption } from "~/components/dashboard/song/add-song-dialog";
+import type { UploadTrackModalProject } from "~/components/dashboard/song/upload-track-modal";
 import { RuntimeScreenSafeViewWriter } from "~/components/runtime-state/runtime-screen-view";
 import {
   type MusicLibraryProjectRow,
@@ -23,9 +23,8 @@ import {
 type PageProps = {
   searchParams?: Promise<{
     addSong?: string;
+    upload?: string;
     projectId?: string;
-    purchaseId?: string;
-    lockProject?: string;
   }>;
 };
 
@@ -43,8 +42,8 @@ export default async function MusicPage({ searchParams }: PageProps) {
     redirect("/dashboard/clients-projects?newProject=1");
   }
 
-  const tracks: MusicLibraryRow[] = data.projects.flatMap((project) => [
-    ...project.songs.map(
+  const tracks: MusicLibraryRow[] = data.projects.flatMap((project) =>
+    project.songs.map(
       (song): MusicLibraryRow => ({
         kind: "track",
         id: song.id,
@@ -79,24 +78,7 @@ export default async function MusicPage({ searchParams }: PageProps) {
             : null,
       }),
     ),
-    ...project.emptySlots.map(
-      (slot): MusicLibraryRow => ({
-        kind: "empty-slot",
-        id: slot.id,
-        purchaseId: slot.purchaseId,
-        slotIndex: slot.slotNumber,
-        trackTitle: slot.title,
-        projectId: project.id,
-        projectTitle: project.title,
-        projectLifecycleStatus: project.lifecycleStatus,
-        clientName: project.partnerName,
-        actionHref:
-          project.lifecycleStatus === "active"
-            ? `/dashboard/music?addSong=1&projectId=${project.id}&purchaseId=${slot.purchaseId}&lockProject=1`
-            : null,
-      }),
-    ),
-  ]);
+  );
 
   const projectRows: MusicLibraryProjectRow[] = data.projects.map((project) => {
     const latestUpload = project.songs.reduce<Date | null>((latest, song) => {
@@ -107,26 +89,25 @@ export default async function MusicPage({ searchParams }: PageProps) {
       id: project.id,
       title: project.title,
       artistLabel: project.partnerName ?? "Unknown artist",
-      visibleSpaceCount: project.visibleCount,
+      visibleSpaceCount: project.songs.length,
       playableTrackCount: project.songs.filter((song) => song.latestVersion?.audioUrl).length,
       projectLifecycleStatus: project.lifecycleStatus,
       latestTrackUploadedAtIso: latestUpload?.toISOString() ?? null,
     };
   });
 
-  const addSongProjects: AddSongProjectOption[] = data.activeProjects.map((project) => ({
+  const uploadProjects: UploadTrackModalProject[] = data.activeProjects.map((project) => ({
     id: project.id,
     title: project.title,
     clientName: project.partnerName,
-    emptySlots: project.emptySlots.map((slot) => ({
-      id: slot.id,
-      purchaseId: slot.purchaseId,
-      slotNumber: slot.slotNumber,
-      label: slot.label,
-    })),
-    paidExtraProducts: project.paidExtraProducts.map((product) => ({ ...product })),
-    noChargeAvailable: project.noChargeAvailable,
-    noChargeUnavailableReason: project.noChargeUnavailableReason,
+    tracks: project.songs
+      .filter((song) => song.purchaseLifecycleStatus === "active" && song.archivedAt === null)
+      .map((song) => ({
+        id: song.trackId,
+        title: song.title,
+        versionCount: song.versionCount,
+        publicExposure: song.publicExposure,
+      })),
   }));
 
   return (
@@ -156,11 +137,9 @@ export default async function MusicPage({ searchParams }: PageProps) {
         <ProducerMusicLibrary
           tracks={tracks}
           projectRows={projectRows}
-          addSongProjects={addSongProjects}
-          initialAddSongOpen={params.addSong === "1"}
-          lockInitialProject={params.lockProject === "1"}
+          uploadProjects={uploadProjects}
+          initialUploadOpen={params.upload === "1" || params.addSong === "1"}
           {...(params.projectId ? { initialProjectId: params.projectId } : {})}
-          {...(params.purchaseId ? { initialPurchaseId: params.purchaseId } : {})}
           renameSong={renameMusicSong}
           editArtist={editMusicSongArtist}
           setArchived={setMusicSongArchived}

@@ -24,6 +24,21 @@ vi.mock("../project-song-upload-controller", () => ({
   ProjectSongUploadController: () => null,
 }));
 
+vi.mock("~/components/dashboard/song/upload-track-modal", () => ({
+  UploadTrackModal: ({
+    open,
+    mode,
+    projectId,
+  }: {
+    open: boolean;
+    mode: string;
+    projectId?: string;
+  }) =>
+    open ? (
+      <div role="dialog" aria-label="Add Song upload" data-mode={mode} data-project={projectId} />
+    ) : null,
+}));
+
 vi.mock("../album-tabs/project-payments-tab", () => ({
   PaymentsTab: () => <div>Payments panel</div>,
 }));
@@ -87,8 +102,6 @@ const PROPS = {
     versionCount: 1,
     publicExposure: "none" as const,
   },
-  emptySlots: [],
-  addSongHref: "/dashboard/music?addSong=1&projectId=project-1&lockProject=1",
   studioLog: { entries: [] },
 };
 
@@ -117,15 +130,15 @@ describe("AlbumSpace interactions", () => {
     expect(screen.queryByText("Payments panel")).toBeNull();
   });
 
-  it("sends the header plus directly to Add Song without an intermediate menu", async () => {
+  it("opens the contextual Add Song upload for the current Project", async () => {
     const user = userEvent.setup();
     render(<AlbumSpace {...PROPS} />);
 
     await user.click(screen.getByRole("button", { name: "Add song to First Album" }));
 
-    expect(mocks.push).toHaveBeenCalledWith(
-      "/dashboard/music?addSong=1&projectId=project-1&lockProject=1",
-    );
-    expect(screen.queryByRole("dialog")).toBeNull();
+    const dialog = screen.getByRole("dialog", { name: "Add Song upload" });
+    expect(dialog.getAttribute("data-mode")).toBe("new-song");
+    expect(dialog.getAttribute("data-project")).toBe("project-1");
+    expect(mocks.push).not.toHaveBeenCalled();
   });
 });

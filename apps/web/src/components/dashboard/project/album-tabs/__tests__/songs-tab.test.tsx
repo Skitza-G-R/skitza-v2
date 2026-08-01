@@ -43,7 +43,7 @@ describe("SongsTab — Songs panel for the album page", () => {
   });
 
   it("exposes Add Song without an unpersisted reorder callback", () => {
-    expect(SRC).toContain("onAddSong");
+    expect(SRC).not.toContain("onAddSong");
     expect(SRC).not.toContain("onReorder");
   });
 
@@ -54,19 +54,16 @@ describe("SongsTab — Songs panel for the album page", () => {
     expect(SRC).not.toContain("onDrop");
   });
 
-  it("delegates Add Song to the purchased-space flow without opening upload", () => {
-    expect(SRC).toContain("onAddSong?.(slot)");
+  it("leaves the single Add Song action to the contextual Project header", () => {
     expect(SRC).not.toContain("UploadTrackModal");
     expect(SRC).not.toContain("~/components/dashboard/song/upload-track-modal");
     expect(SRC).not.toMatch(/mode=["']new-song["']/);
   });
 
-  it("renders purchased empty song spaces before audio exists", () => {
-    expect(SRC).toContain("emptySlots.map");
-    expect(SRC).toContain("Purchased song space · ready to name");
-    expect(SRC).toContain("slot.label");
-    expect(SRC).toContain("handleAddSong(slot)");
-    expect(SRC).toContain("purchaseId: string");
+  it("renders only durable Songs and never purchased empty spaces", () => {
+    expect(SRC).not.toContain("emptySlots");
+    expect(SRC).not.toContain("Purchased song space");
+    expect(SRC).toContain("tracks.map");
   });
 
   it("sets role=tabpanel on the wrapping section", () => {

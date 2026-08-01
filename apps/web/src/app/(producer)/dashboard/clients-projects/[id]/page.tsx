@@ -71,8 +71,14 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
   const data = detailResult.value;
   const paymentModel = paymentResult.value;
   const projectBookings = bookingsResult.status === "fulfilled" ? bookingsResult.value : [];
+  const durableVersionTrackIds = new Set(
+    data.versions
+      .filter((version) => version.audioUrl !== null || version.audioDeletedAt !== null)
+      .map((version) => version.trackId),
+  );
+  const durableTracks = data.tracks.filter((track) => durableVersionTrackIds.has(track.id));
   const selectedTrack = query.song
-    ? data.tracks.find((track) => track.id === query.song)
+    ? durableTracks.find((track) => track.id === query.song)
     : undefined;
   if (query.song && !selectedTrack) {
     notFound();
@@ -95,7 +101,7 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
   //   - durationMs: from the latest version.
   //   - progress: heuristic per workflow stage (no per-track progress
   //     column yet).
-  const tracks: TrackRowData[] = data.tracks.map((t) => {
+  const tracks: TrackRowData[] = durableTracks.map((t) => {
     const trackVersions = data.versions.filter((v) => v.trackId === t.id);
     const latest = trackVersions[0];
     const playable = trackVersions.find(
@@ -173,7 +179,7 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
     id: data.project.id,
     name: data.project.title,
     clientName: data.project.clientName ?? data.project.artistName,
-    songsCount: data.songSpaces.visibleCount,
+    songsCount: durableTracks.length,
     workflowStage: projectStage,
     deadline,
     isOverdue,
@@ -307,12 +313,6 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
         tracks={tracks}
         selectedSongUpload={selectedSongUpload}
         initialUploadOpen={query.upload === "1"}
-        emptySlots={data.songSpaces.emptySlots.map((slot) => ({
-          id: slot.id,
-          purchaseId: slot.purchaseId,
-          label: slot.label,
-        }))}
-        addSongHref={`/dashboard/music?addSong=1&projectId=${data.project.id}&lockProject=1`}
         studioLog={studioLog}
       />
     </div>

@@ -9,10 +9,12 @@ const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, "..", "library-screen.tsx"), "utf8");
 
 describe("mobile library toolbar", () => {
-  it("opens on Songs by default while preserving an explicit Projects mode", () => {
+  it("keeps legacy mode URLs parseable while rendering a Song-first screen", () => {
     expect(parseMusicLibraryUrlState("").mode).toBe("songs");
     expect(parseMusicLibraryUrlState("mode=projects").mode).toBe("projects");
-    expect(source).toContain('replaceUrlState("mode", next, "songs")');
+    expect(source).not.toContain('aria-label="Library mode"');
+    expect(source).not.toMatch(/<ProjectsGrid/);
+    expect(source).not.toMatch(/<ProjectsTable/);
   });
 
   it("uses the same compact two-column phone grid for Projects and Songs", () => {
@@ -34,9 +36,7 @@ describe("mobile library toolbar", () => {
   });
 
   it("removes the inapplicable sort control instead of rendering it disabled", () => {
-    expect(source).toMatch(
-      /mode === "songs" && view === "table"\s*\?\s*\(\s*<SortDropdown/,
-    );
+    expect(source).toMatch(/view === "table"\s*\?\s*<SortDropdown/);
     expect(source).not.toMatch(/<SortDropdown[\s\S]{0,180}disabled=/);
   });
 
@@ -63,16 +63,10 @@ describe("mobile library toolbar", () => {
     expect(source).not.toContain('role="tabpanel"');
   });
 
-  it("swipes the results surface through the existing URL-synced mode updater", () => {
-    expect(source).toContain('import { useTabSwipe } from "~/components/native/use-tab-swipe"');
-    expect(source).toMatch(
-      /useTabSwipe\(\{\s*items:\s*MUSIC_LIBRARY_MODES,\s*value:\s*mode,\s*onChange:\s*updateMode,\s*\}\)/,
-    );
-    expect(source).toMatch(
-      /id=\{RESULTS_PANEL_ID\}[\s\S]{0,180}data-tab-swipe-surface[\s\S]{0,100}\{\.\.\.modeSwipeHandlers\}/,
-    );
-    expect(source).toContain('className="[touch-action:pan-y_pinch-zoom]"');
-    expect(source.match(/data-tab-swipe-surface/g)).toHaveLength(1);
+  it("does not swipe into a forced Project drill-down", () => {
+    expect(source).not.toContain("useTabSwipe");
+    expect(source).not.toContain("data-tab-swipe-surface");
+    expect(source).toContain('aria-label="Filter by project"');
   });
 
   it("makes the actual search input a 44px target", () => {
@@ -80,7 +74,7 @@ describe("mobile library toolbar", () => {
   });
 
   it("makes each actual mobile dropdown a 44px target", () => {
-    for (const label of ["Filter by artist", "Sort songs", "Library view"]) {
+    for (const label of ["Filter by artist", "Filter by project", "Sort songs", "Library view"]) {
       expect(source).toMatch(
         new RegExp(`aria-label="${label}"[\\s\\S]{0,180}className="[^"]*min-h-11`),
       );

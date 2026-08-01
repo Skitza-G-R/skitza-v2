@@ -6,6 +6,7 @@ import {
   projects,
   producers,
   purchases,
+  songPublicLinks,
   trackComments,
   trackVersions,
 } from "@skitza/db";
@@ -265,13 +266,16 @@ describe("music song-space ownership", () => {
       clerkUserId: "artist-clerk-user",
     });
 
-    expect(projectById(result, "project-artist").paidExtraProducts).toEqual([]);
+    expect(result.projects).toEqual([]);
+    expect(
+      result.activeProjects.find((project) => project.id === "project-artist")?.paidExtraProducts,
+    ).toEqual([]);
     expect(db.queries.some((query) => query.table === products)).toBe(false);
   });
 });
 
 describe("music song-space projection", () => {
-  it("keeps paid projects and songs visible before audio without inventing versions", async () => {
+  it("projects durable Songs without inventing rows from paid capacity or incomplete uploads", async () => {
     const createdAt = new Date("2026-07-10T08:00:00Z");
     const projectUpdatedAt = new Date("2026-07-15T08:00:00Z");
     const latestUploadedAt = new Date("2026-07-18T08:00:00Z");
@@ -383,6 +387,7 @@ describe("music song-space projection", () => {
         position: 0,
         archivedAt: null,
         releasedAt: new Date("2026-07-18T12:00:00Z"),
+        portfolioPublishedAt: new Date("2026-07-18T13:00:00Z"),
         createdAt,
       },
       {
@@ -394,6 +399,7 @@ describe("music song-space projection", () => {
         position: 1,
         archivedAt: new Date("2026-07-18T10:00:00Z"),
         releasedAt: null,
+        portfolioPublishedAt: null,
         createdAt,
       },
       {
@@ -405,6 +411,7 @@ describe("music song-space projection", () => {
         position: 2,
         archivedAt: null,
         releasedAt: null,
+        portfolioPublishedAt: null,
         createdAt,
       },
     ];
@@ -476,6 +483,7 @@ describe("music song-space projection", () => {
       ],
       [purchases, purchaseRows],
       [projectTracks, trackRows],
+      [songPublicLinks, [{ trackId: "track-versioned" }]],
       [trackVersions, versionRows],
       [
         trackComments,
@@ -492,9 +500,11 @@ describe("music song-space projection", () => {
       producerId: "producer-owned",
     });
 
-    expect(result.projects.map((project) => project.id)).toEqual([
+    expect(result.projects.map((project) => project.id)).toEqual(["project-active"]);
+    expect(result.activeProjects.map((project) => project.id)).toEqual([
       "project-active",
       "project-virtual-only",
+      "project-waiting-only",
     ]);
 
     const album = projectById(result, "project-active");
@@ -517,11 +527,7 @@ describe("music song-space projection", () => {
       },
     ]);
     expect(album.latestActivityAt).toEqual(latestUploadedAt);
-    expect(album.songs.map((song) => song.id)).toEqual([
-      "track-versioned",
-      "track-zero-version",
-      "track-from-canceled-purchase",
-    ]);
+    expect(album.songs.map((song) => song.id)).toEqual(["track-versioned", "track-zero-version"]);
     expect(album.emptySlots).toEqual([
       {
         id: "virtual:purchase-active:3",
@@ -548,6 +554,8 @@ describe("music song-space projection", () => {
     expect(latestSong?.purchaseLifecycleStatus).toBe("active");
     expect(latestSong?.archivedAt).toBeNull();
     expect(latestSong?.releasedAt).toEqual(new Date("2026-07-18T12:00:00Z"));
+    expect(latestSong?.versionCount).toBe(3);
+    expect(latestSong?.publicExposure).toBe("link_and_portfolio");
 
     const zeroVersionSong = album.songs[1];
     expect(zeroVersionSong?.latestVersion).toBeNull();
@@ -557,8 +565,14 @@ describe("music song-space projection", () => {
     });
     expect(zeroVersionSong?.unreadComments).toBe(1);
     expect(zeroVersionSong?.archivedAt).toEqual(new Date("2026-07-18T10:00:00Z"));
+    expect(zeroVersionSong?.versionCount).toBe(1);
+    expect(zeroVersionSong?.publicExposure).toBe("none");
 
-    const paidSingle = projectById(result, "project-virtual-only");
+    const paidSingle = result.activeProjects.find(
+      (project) => project.id === "project-virtual-only",
+    );
+    if (!paidSingle) throw new Error("Expected active upload destination");
+    expect(result.projects.some((project) => project.id === paidSingle.id)).toBe(false);
     expect(paidSingle.songs).toEqual([]);
     expect(paidSingle.visibleCount).toBe(1);
     expect(paidSingle.mode).toBe("single");
@@ -576,14 +590,10 @@ describe("music song-space projection", () => {
     expect(emptySlot).not.toHaveProperty("latestVersion");
     expect(emptySlot).not.toHaveProperty("audioUrl");
 
-    // Waiting/canceled purchases preserve allocated songs but contribute
-    // no unused virtual remainder. A waiting-only project is therefore hidden.
+    // Waiting/canceled purchases retain commercial accounting but contribute
+    // neither Library rows nor unused active capacity.
     expect(result.projects.some((project) => project.id === "project-waiting-only")).toBe(false);
-    expect(album.songs.some((song) => song.id === "track-from-canceled-purchase")).toBe(true);
-    expect(
-      album.songs.find((song) => song.id === "track-from-canceled-purchase")
-        ?.purchaseLifecycleStatus,
-    ).toBe("canceled");
+    expect(album.songs.some((song) => song.id === "track-from-canceled-purchase")).toBe(false);
     expect(album.emptySlots.some((slot) => slot.purchaseId === "purchase-waiting-extra")).toBe(
       false,
     );
@@ -794,6 +804,20 @@ describe("music song-space projection", () => {
               artist: "Artist",
               position: 0,
               createdAt: now,
+            },
+          ],
+        ],
+        [
+          trackVersions,
+          [
+            {
+              id: "version-eligibility",
+              trackId: "track-eligibility",
+              label: "V1",
+              audioUrl: "https://audio.invalid/eligibility.wav",
+              audioDeletedAt: null,
+              durationMs: 90_000,
+              uploadedAt: now,
             },
           ],
         ],

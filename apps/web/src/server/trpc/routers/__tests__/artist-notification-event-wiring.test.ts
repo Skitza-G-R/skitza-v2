@@ -5,6 +5,10 @@ const bookingSource = readFileSync(new URL("../booking.ts", import.meta.url), "u
 const artistSource = readFileSync(new URL("../artist.ts", import.meta.url), "utf8");
 const projectSource = readFileSync(new URL("../project.ts", import.meta.url), "utf8");
 const audioSource = readFileSync(new URL("../audio.ts", import.meta.url), "utf8");
+const firstVersionUploadSource = readFileSync(
+  new URL("../first-version-upload.ts", import.meta.url),
+  "utf8",
+);
 
 function procedure(source: string, start: string, end: string): string {
   const startIndex = source.indexOf(start);
@@ -108,6 +112,21 @@ describe("artist notification event wiring", () => {
     );
     expect(complete).toContain(
       "reviewUrl: `${SITE_URL}/artist/music/song/${input.trackVersionId}`",
+    );
+  });
+
+  it("preserves new-version delivery after atomic Song + V1 completion", () => {
+    const complete = firstVersionUploadSource.slice(
+      firstVersionUploadSource.indexOf("  complete:"),
+    );
+    expect(complete.indexOf("emitArtistNewVersionNotification")).toBeGreaterThan(
+      complete.indexOf("tx.insert(trackVersions)"),
+    );
+    expect(complete).toMatch(
+      /if \(completed\.newlyCompleted\)[\s\S]*eq\(clientContacts\.id, projectRow\.clientContactId\)[\s\S]*eq\(clientContacts\.producerId, ctx\.producerId\)[\s\S]*isNull\(clientContacts\.archivedAt\)/,
+    );
+    expect(complete).toMatch(
+      /emailEnabled = delivery\.emailEnabled[\s\S]*if \(!emailEnabled\) return[\s\S]*sendTrackVersionUploadedEmail/,
     );
   });
 });
