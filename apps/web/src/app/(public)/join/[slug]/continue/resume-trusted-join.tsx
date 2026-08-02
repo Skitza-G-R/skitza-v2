@@ -3,19 +3,11 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 
 import type { JoinIntentAction } from "~/server/auth/join-intent";
+import { Button } from "~/components/ui/button";
 
-import {
-  continueAsArtist,
-  resumeTrustedJoinIntent,
-} from "./actions";
+import { continueAsArtist, resumeTrustedJoinIntent } from "./actions";
 
-export function ResumeTrustedJoin({
-  slug,
-  action,
-}: {
-  slug: string;
-  action: JoinIntentAction;
-}) {
+export function ResumeTrustedJoin({ slug, action }: { slug: string; action: JoinIntentAction }) {
   const [failed, setFailed] = useState(false);
   const [, startTransition] = useTransition();
   const started = useRef(false);
@@ -44,12 +36,13 @@ export function ResumeTrustedJoin({
   const fallbackAction = continueAsArtist.bind(null, slug, action);
   return (
     <form action={fallbackAction}>
-      <button
+      <Button
         type="submit"
-        className="sk-press sk-cta-shine inline-flex min-h-12 w-full items-center justify-center rounded-[var(--radius-lg)] bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))] px-6 py-3 text-sm font-semibold text-[#0C0A07] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))] focus-visible:outline-none"
+        size="lg"
+        className="sk-cta-shine w-full rounded-[var(--radius-lg)] bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))] text-[#0C0A07]"
       >
         {action === "book" ? "Continue to booking" : "Continue to your studio"}
-      </button>
+      </Button>
     </form>
   );
 }

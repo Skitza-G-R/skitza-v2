@@ -18,6 +18,7 @@ import {
   joinArtistHref,
   JoinContinuationError,
 } from "~/server/contacts/join-continuation";
+import { isJoinAccountConflict, joinAccountConflictHref } from "~/server/contacts/join-recovery";
 import { joinSignInHref } from "~/server/auth/post-sign-in";
 
 function requireJoinAction(action: string): JoinIntentAction {
@@ -25,10 +26,17 @@ function requireJoinAction(action: string): JoinIntentAction {
   return action;
 }
 
-export async function continueAsArtist(
-  slug: string,
-  rawAction: string,
-): Promise<never> {
+function redirectForKnownJoinError(error: unknown, slug: string, action: JoinIntentAction): never {
+  if (error instanceof JoinContinuationError && error.code === "SELF_JOIN") {
+    redirect(`/join/${encodeURIComponent(slug)}`);
+  }
+  if (isJoinAccountConflict(error)) {
+    redirect(joinAccountConflictHref(slug, action));
+  }
+  throw error;
+}
+
+export async function continueAsArtist(slug: string, rawAction: string): Promise<never> {
   const action = requireJoinAction(rawAction);
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("missing DATABASE_URL");
@@ -36,22 +44,15 @@ export async function continueAsArtist(
   const { userId } = await auth();
   if (!userId) redirect(joinSignInHref(slug, action));
 
-  clearJoinIntentCookie(
-    await cookies(),
-    process.env.NODE_ENV === "production",
-  );
-
   const target = await findJoinTargetProducer(dbUrl, slug);
   if (!target) notFound();
 
   try {
     const bookingHref = await connectCurrentUserForJoin({ dbUrl, userId, target });
+    clearJoinIntentCookie(await cookies(), process.env.NODE_ENV === "production");
     redirect(action === "book" ? bookingHref : joinArtistHref(target));
   } catch (error) {
-    if (error instanceof JoinContinuationError && error.code === "SELF_JOIN") {
-      redirect(`/join/${encodeURIComponent(slug)}`);
-    }
-    throw error;
+    redirectForKnownJoinError(error, slug, action);
   }
 }
 
@@ -77,11 +78,6 @@ export async function resumeTrustedJoinIntent(
   ) {
     return { ok: false };
   }
-  clearJoinIntentCookie(
-    cookieStore,
-    process.env.NODE_ENV === "production",
-  );
-
   const target = await findJoinTargetProducer(dbUrl, slug);
   if (!target) notFound();
   const memberships = await fetchUserAccountMemberships({ dbUrl, userId });
@@ -91,11 +87,9 @@ export async function resumeTrustedJoinIntent(
 
   try {
     const bookingHref = await connectCurrentUserForJoin({ dbUrl, userId, target });
+    clearJoinIntentCookie(cookieStore, process.env.NODE_ENV === "production");
     redirect(action === "book" ? bookingHref : joinArtistHref(target));
   } catch (error) {
-    if (error instanceof JoinContinuationError && error.code === "SELF_JOIN") {
-      redirect(`/join/${encodeURIComponent(slug)}`);
-    }
-    throw error;
+    redirectForKnownJoinError(error, slug, action);
   }
 }
