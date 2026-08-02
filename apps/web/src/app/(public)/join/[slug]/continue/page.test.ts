@@ -8,6 +8,11 @@ const service = readFileSync(
   "utf8",
 );
 const action = readFileSync(new URL("./actions.ts", import.meta.url), "utf8");
+const accountSwitch = readFileSync(
+  new URL("./join-account-switch-button.tsx", import.meta.url),
+  "utf8",
+);
+const shell = readFileSync(new URL("./join-continuation-shell.tsx", import.meta.url), "utf8");
 
 describe("join confirmation and continuation", () => {
   it("uses the exact approved Producer confirmation copy", () => {
@@ -51,5 +56,23 @@ describe("join confirmation and continuation", () => {
     expect(service).toContain("eq(clientContacts.clerkUserId, input.userId)");
     expect(service).toContain("isNull(clientContacts.archivedAt)");
     expect(service).toContain('JoinContinuationError("CONNECTION_NOT_CONFIRMED")');
+  });
+
+  it("renders every continuation state inside a centered bounded shell", () => {
+    expect(page.match(/<JoinContinuationShell/g)).toHaveLength(3);
+    expect(page).toContain('data-auth-page="join-account-conflict"');
+    expect(accountSwitch).toContain("Sign out and choose account");
+    expect(page).toContain("Back to {studioName}");
+    expect(shell).toContain("max-w-[440px]");
+    expect(shell).toContain("px-4");
+    expect(shell).toContain("sm:px-6");
+    expect(page.match(/\[overflow-wrap:anywhere\]/g)).toHaveLength(3);
+    expect(page.match(/whitespace-normal/g)).toHaveLength(3);
+  });
+
+  it("turns only the expected account ownership conflict into recovery UX", () => {
+    expect(action.match(/redirectForKnownJoinError\(/g)).toHaveLength(3);
+    expect(action).toContain("isJoinAccountConflict(error)");
+    expect(action).toContain("joinAccountConflictHref(slug, action)");
   });
 });

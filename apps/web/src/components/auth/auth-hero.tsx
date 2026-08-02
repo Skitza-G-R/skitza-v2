@@ -18,34 +18,34 @@ export type AuthHeroProps = {
   eyebrow: string;
   title: string;
   blurb: ReactNode;
+  showAccentPeriod?: boolean;
 };
 
-export function AuthHero({ eyebrow, title, blurb }: AuthHeroProps) {
+export function AuthHero({ eyebrow, title, blurb, showAccentPeriod = true }: AuthHeroProps) {
   return (
     <header className="mb-5 sm:mb-7">
       <div
-        className="font-mono mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] sm:mb-3"
+        className="mb-2 font-mono text-[11px] font-semibold tracking-[0.18em] uppercase sm:mb-3"
         style={{ color: "rgb(var(--fg-muted))" }}
       >
         {eyebrow}
       </div>
       <h1
-        className="font-syne mb-2 text-[26px] font-extrabold leading-[1.1] sm:text-[30px]"
+        className="font-syne mb-2 text-[26px] leading-[1.1] font-extrabold [overflow-wrap:anywhere] sm:text-[30px]"
         style={{
           letterSpacing: "-0.025em",
           color: "rgb(var(--fg-primary))",
         }}
       >
         {title}
-        <span
-          aria-hidden
-          style={{ color: "rgb(var(--brand-primary))" }}
-        >
-          .
-        </span>
+        {showAccentPeriod ? (
+          <span aria-hidden style={{ color: "rgb(var(--brand-primary))" }}>
+            .
+          </span>
+        ) : null}
       </h1>
       <p
-        className="text-[13.5px] leading-[1.5]"
+        className="text-[13.5px] leading-[1.5] [overflow-wrap:anywhere]"
         style={{ color: "rgb(var(--fg-secondary))" }}
       >
         {blurb}

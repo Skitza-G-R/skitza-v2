@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 
 import { AuthHero } from "~/components/auth/auth-hero";
+import { Button } from "~/components/ui/button";
 import {
   JOIN_INTENT_COOKIE,
   type JoinIntentAction,
@@ -12,26 +13,26 @@ import {
 } from "~/server/auth/join-intent";
 import { joinSignInHref } from "~/server/auth/post-sign-in";
 import { fetchUserAccountMemberships } from "~/server/auth/role";
-import {
-  findJoinTargetProducer,
-  isSelfJoin,
-} from "~/server/contacts/join-continuation";
+import { findJoinTargetProducer, isSelfJoin } from "~/server/contacts/join-continuation";
+import { JOIN_ACCOUNT_CONFLICT } from "~/server/contacts/join-recovery";
 
 import { continueAsArtist } from "./actions";
+import { JoinAccountSwitchButton } from "./join-account-switch-button";
+import { JoinContinuationShell } from "./join-continuation-shell";
 import { ResumeTrustedJoin } from "./resume-trusted-join";
 
 type Props = {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ action?: string | string[] }>;
+  searchParams: Promise<{
+    action?: string | string[];
+    problem?: string | string[];
+  }>;
 };
 
 function hasProducerProfile(
   memberships: Awaited<ReturnType<typeof fetchUserAccountMemberships>>,
 ): boolean {
-  return (
-    memberships.producer.status === "complete" ||
-    memberships.producer.status === "incomplete"
-  );
+  return memberships.producer.status === "complete" || memberships.producer.status === "incomplete";
 }
 
 export default async function JoinContinuationPage({ params, searchParams }: Props) {
@@ -63,70 +64,117 @@ export default async function JoinContinuationPage({ params, searchParams }: Pro
       secret: joinIntentSecret(),
     });
   const producerBackHref =
-    memberships.producer.status === "incomplete"
-      ? "/onboarding"
-      : "/dashboard";
+    memberships.producer.status === "incomplete" ? "/onboarding" : "/dashboard";
   const studioName = target.displayName ?? "this studio";
+  const publicStudioHref = `/join/${encodeURIComponent(slug)}`;
   const action = continueAsArtist.bind(null, slug, requestedAction);
+
+  if (query.problem === JOIN_ACCOUNT_CONFLICT) {
+    return (
+      <JoinContinuationShell>
+        <div data-auth-page="join-account-conflict">
+          <AuthHero
+            eyebrow="Account already connected"
+            title="Use another account"
+            blurb={
+              <>
+                This email is already connected to another Skitza account. Sign out, then sign in
+                with that account to continue with {studioName}.
+              </>
+            }
+          />
+          <div className="space-y-3">
+            <JoinAccountSwitchButton slug={slug} action={requestedAction} />
+            <Button
+              asChild
+              variant="outline"
+              size="lg"
+              className="h-auto min-h-12 w-full rounded-[var(--radius-lg)] py-3 text-center [overflow-wrap:anywhere] whitespace-normal"
+            >
+              <Link href={publicStudioHref}>Back to {studioName}</Link>
+            </Button>
+          </div>
+        </div>
+      </JoinContinuationShell>
+    );
+  }
 
   if (!producerConfirmation && trustedIntent) {
     return (
-      <div data-auth-page="join-resume" className="space-y-5 sm:space-y-6">
-        <AuthHero
-          eyebrow={requestedAction === "book" ? "Booking" : "Your music"}
-          title={`Opening ${studioName}…`}
-          blurb={
-            requestedAction === "book"
-              ? "Taking you straight to booking."
-              : "Opening your Artist workspace and unlocked tracks."
-          }
-        />
-        <ResumeTrustedJoin slug={slug} action={requestedAction} />
-      </div>
+      <JoinContinuationShell>
+        <div data-auth-page="join-resume">
+          <AuthHero
+            eyebrow={requestedAction === "book" ? "Booking" : "Your music"}
+            title={`Opening ${studioName}…`}
+            blurb={
+              requestedAction === "book"
+                ? "Taking you straight to booking."
+                : "Opening your Artist workspace and unlocked tracks."
+            }
+            showAccentPeriod={false}
+          />
+          <ResumeTrustedJoin slug={slug} action={requestedAction} />
+        </div>
+      </JoinContinuationShell>
     );
   }
 
   return (
-    <div data-auth-page="join-confirmation" className="space-y-5 sm:space-y-6">
-      <AuthHero
-        eyebrow={producerConfirmation ? "Artist mode" : "Booking"}
-        title={
-          producerConfirmation
-            ? `Join ${studioName} as an Artist?`
-            : requestedAction === "book"
-              ? "Continue to booking"
-              : `Continue to ${studioName}`
-        }
-        blurb={
-          producerConfirmation
-            ? "Your Producer workspace will stay exactly as it is. You can switch back anytime."
-            : requestedAction === "book"
-              ? "Your original booking intent expired. Continue to reconnect and open booking."
-              : "Your unlock request expired. Continue to open this studio in your Artist workspace."
-        }
-      />
-      <div className="space-y-3">
-        <form action={action}>
-          <button
-            type="submit"
-            className="sk-press sk-cta-shine inline-flex min-h-12 w-full items-center justify-center rounded-[var(--radius-lg)] bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))] px-6 py-3 text-sm font-semibold text-[#0C0A07] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))] focus-visible:outline-none"
-          >
-            {producerConfirmation
-              ? "Continue as Artist"
+    <JoinContinuationShell>
+      <div data-auth-page="join-confirmation">
+        <AuthHero
+          eyebrow={producerConfirmation ? "Artist mode" : "Booking"}
+          title={
+            producerConfirmation
+              ? `Join ${studioName} as an Artist?`
               : requestedAction === "book"
                 ? "Continue to booking"
-                : "Continue to your studio"}
-          </button>
-        </form>
-        {producerConfirmation ? (
-          <Link
-            href={producerBackHref}
-            className="sk-press inline-flex min-h-12 w-full items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-transparent px-6 py-3 text-sm font-semibold text-[rgb(var(--fg-primary))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))] focus-visible:outline-none"
-          >
-            Back to my studio
-          </Link>
-        ) : null}
+                : `Continue to ${studioName}`
+          }
+          blurb={
+            producerConfirmation
+              ? "Your Producer workspace will stay exactly as it is. You can switch back anytime."
+              : requestedAction === "book"
+                ? "Your original booking intent expired. Continue to reconnect and open booking."
+                : "Your unlock request expired. Continue to open this studio in your Artist workspace."
+          }
+          showAccentPeriod={!producerConfirmation}
+        />
+        <div className="space-y-3">
+          <form action={action}>
+            <Button
+              type="submit"
+              size="lg"
+              className="sk-cta-shine w-full rounded-[var(--radius-lg)] bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))] text-[#0C0A07]"
+            >
+              {producerConfirmation
+                ? "Continue as Artist"
+                : requestedAction === "book"
+                  ? "Continue to booking"
+                  : "Continue to your studio"}
+            </Button>
+          </form>
+          {producerConfirmation ? (
+            <Button
+              asChild
+              variant="outline"
+              size="lg"
+              className="h-auto min-h-12 w-full rounded-[var(--radius-lg)] py-3 text-center [overflow-wrap:anywhere] whitespace-normal"
+            >
+              <Link href={producerBackHref}>Back to my studio</Link>
+            </Button>
+          ) : (
+            <Button
+              asChild
+              variant="outline"
+              size="lg"
+              className="h-auto min-h-12 w-full rounded-[var(--radius-lg)] py-3 text-center [overflow-wrap:anywhere] whitespace-normal"
+            >
+              <Link href={publicStudioHref}>Back to {studioName}</Link>
+            </Button>
+          )}
+        </div>
       </div>
-    </div>
+    </JoinContinuationShell>
   );
 }

@@ -20,11 +20,9 @@ import {
   joinArtistHref,
   joinEntryMode,
 } from "~/server/contacts/join-continuation";
+import { isJoinAccountConflict, joinAccountConflictHref } from "~/server/contacts/join-recovery";
 
-async function startJoinAction(
-  slug: string,
-  action: JoinIntentAction,
-): Promise<never> {
+async function startJoinAction(slug: string, action: JoinIntentAction): Promise<never> {
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("missing DATABASE_URL");
   const target = await findJoinTargetProducer(dbUrl, slug);
@@ -45,9 +43,7 @@ async function startJoinAction(
       joinIntentCookieOptions(process.env.NODE_ENV === "production"),
     );
     redirect(
-      `/sign-up/join/${encodeURIComponent(target.slug)}${
-        action === "unlock" ? "/unlock" : ""
-      }`,
+      `/sign-up/join/${encodeURIComponent(target.slug)}${action === "unlock" ? "/unlock" : ""}`,
     );
   }
 
@@ -59,8 +55,15 @@ async function startJoinAction(
     redirect(joinContinuationHref(target.slug, action));
   }
 
-  const bookingHref = await connectCurrentUserForJoin({ dbUrl, userId, target });
-  redirect(action === "book" ? bookingHref : joinArtistHref(target));
+  try {
+    const bookingHref = await connectCurrentUserForJoin({ dbUrl, userId, target });
+    redirect(action === "book" ? bookingHref : joinArtistHref(target));
+  } catch (error) {
+    if (isJoinAccountConflict(error)) {
+      redirect(joinAccountConflictHref(target.slug, action));
+    }
+    throw error;
+  }
 }
 
 export async function startJoinBooking(slug: string): Promise<never> {
