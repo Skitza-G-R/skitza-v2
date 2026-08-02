@@ -15,6 +15,7 @@ export type ActionResult = { ok: true } | { ok: false; error: string };
 export type ActionDataResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
 const CLIENTS_PROJECTS_PATH = "/dashboard/clients-projects";
+const MUSIC_LIBRARY_PATH = "/dashboard/music";
 
 async function callerOrError(): Promise<
   { ok: true; caller: ReturnType<typeof appRouter.createCaller> } | { ok: false; error: string }
@@ -51,10 +52,84 @@ function toMessage(err: unknown): string {
   return err instanceof Error ? err.message : "Something went wrong.";
 }
 
+export type PreparedFirstVersionUpload =
+  | {
+      status: "completed";
+      intentId: string;
+      projectId: string;
+      trackId: string;
+      versionId: string;
+    }
+  | {
+      status: "ready";
+      intentId: string;
+      projectId: string;
+      trackId: string;
+      versionId: string;
+      uploadUrl: string;
+      headers: Record<string, string>;
+      expiresInSeconds: number;
+    };
+
+export async function prepareFirstVersionUploadAction(input: {
+  operationKey: string;
+  projectId: string;
+  title: string;
+  artist?: string | null;
+  label: string;
+  description?: string | null;
+  filename: string;
+  sizeBytes: number;
+  contentType: string;
+  durationMs?: number | null;
+}): Promise<ActionDataResult<PreparedFirstVersionUpload>> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const data = await c.caller.firstVersionUpload.prepare(input);
+    return { ok: true, data };
+  } catch (err) {
+    console.error("[upload-actions]", err);
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function completeFirstVersionUploadAction(input: {
+  intentId: string;
+}): Promise<
+  ActionDataResult<{ projectId: string; trackId: string; versionId: string; url: string }>
+> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const data = await c.caller.firstVersionUpload.complete(input);
+    revalidatePath(CLIENTS_PROJECTS_PATH);
+    revalidatePath(`${CLIENTS_PROJECTS_PATH}/${data.projectId}`);
+    revalidatePath(MUSIC_LIBRARY_PATH);
+    return { ok: true, data };
+  } catch (err) {
+    console.error("[upload-actions]", err);
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function cancelFirstVersionUploadAction(input: {
+  intentId: string;
+}): Promise<ActionDataResult<{ ok: true; completed: boolean }>> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const data = await c.caller.firstVersionUpload.cancel(input);
+    return { ok: true, data };
+  } catch (err) {
+    console.error("[upload-actions]", err);
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
 // ─── Track + version creation ────────────────────────────────────────
-// Creates a new project_tracks row for the "+ New song" picker in the
-// Upload Track modal. Revalidates the album page so the new track
-// appears once the rest of the chain finishes.
+// Compatibility bridge for the separate paid/no-charge commercial flows.
+// File-first V1 uploads never call this action; they commit Song + V1 together.
 export async function addTrackAction(input: {
   projectId: string;
   purchaseId: string;

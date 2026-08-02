@@ -26,6 +26,9 @@ import { neon } from "@neondatabase/serverless";
 
 const CUTOVER_FLOOR = "0027_purchase_foundation.sql";
 const STABLE_OWNERSHIP_MIGRATION = "0028_stable_client_ownership.sql";
+const PRIVATE_OFFER_RECIPIENT_MIGRATION = "0029_private_offer_recipient_identity.sql";
+const APPROVED_HISTORICAL_CUTOVER_DIGEST =
+  "7cd77f778f677d89ebfeeac3cc0eefed8ff5cfb0c0f68c2991733edd16ba5112";
 const LEDGER_RELATION = "skitza_migrations.applied";
 const RUNNER_LOCK_SQL = "SELECT pg_advisory_xact_lock(7468258445703257129::bigint)";
 const LEDGER_SCHEMA_SQL = 'CREATE SCHEMA IF NOT EXISTS "skitza_migrations"';
@@ -92,6 +95,14 @@ const APPROVED_CUTOVER_CONTENT = readFileSync(
 );
 const APPROVED_CUTOVER_DIGEST = migrationDigest(APPROVED_CUTOVER_CONTENT);
 const APPROVED_CUTOVER_DIRECTORY = fileURLToPath(new URL("./drizzle/", import.meta.url));
+const APPROVED_HISTORICAL_COMPATIBILITY_LEDGER = Object.freeze(
+  [STABLE_OWNERSHIP_MIGRATION, PRIVATE_OFFER_RECIPIENT_MIGRATION].map((filename) => ({
+    filename,
+    digest: migrationDigest(
+      readFileSync(new URL(`./drizzle/${filename}`, import.meta.url), "utf8"),
+    ),
+  })),
+);
 const APPROVED_CUTOVER_FILES = Object.freeze([
   "0027_purchase_foundation.sql",
   "0028_stable_client_ownership.sql",
@@ -158,6 +169,160 @@ function chat3StructureVerificationStatement(cutoverContent) {
   const statements = splitStatements(completedVerifier);
   if (statements.length !== 1) throw fail("SKITZA_CHAT3_VERIFIER_SOURCE_INVALID");
   return statements[0];
+}
+
+/**
+ * Verify the exact completed catalog shared by the approved historical and
+ * current 0027 cutovers after the immutable 0028 and 0029 extensions. The two
+ * 0027 files differ only in their accepted source tax_mode default and the
+ * current file's explicit SET DEFAULT; both finish with tax_free. Every
+ * extension below is pinned by name, definition, body, and inventory digest.
+ */
+function historicalChat3StructureVerificationStatement() {
+  let verifier = chat3StructureVerificationStatement(APPROVED_CUTOVER_CONTENT);
+
+  for (const [expected, replacement] of [
+    ["a9e205f4f1b636413e899e76147a1756", "41fed0c25ee45d713867ca511e26dd98"],
+    ["ed847cb606dd766f90c2b1de0e798785", "30ed03952efd543b08e01888bfffbdce"],
+    ["d80c8a527557cd653f3838bbdda546d6", "4e522999a4d4af73005780672c1a0f87"],
+    ["2f4f547b09747ee6481fabe09b2fd3b7", "7469e719f0ae9ec49eebb308e6117826"],
+    ["SKITZA_0027_TARGET_SCHEMA_DRIFT", "SKITZA_0027_HISTORICAL_TARGET_SCHEMA_DRIFT"],
+  ]) {
+    verifier = replaceExactlyOnce(verifier, expected, replacement);
+  }
+
+  verifier = replaceExactlyOnce(
+    verifier,
+    "('private_offers', 'id:pg_catalog.uuid:NO:gen_random_uuid(),producer_id:pg_catalog.uuid:NO:<none>,client_contact_id:pg_catalog.uuid:NO:<none>,target_project_id:pg_catalog.uuid:YES:<none>,product_id:pg_catalog.uuid:YES:<none>,status:public.private_offer_status:NO:draft,commercial_draft:pg_catalog.jsonb:NO:<none>,expires_at:pg_catalog.timestamptz:NO:<none>,accepted_at:pg_catalog.timestamptz:YES:<none>,created_at:pg_catalog.timestamptz:NO:now(),updated_at:pg_catalog.timestamptz:NO:now()')",
+    "('private_offers', 'id:pg_catalog.uuid:NO:gen_random_uuid(),producer_id:pg_catalog.uuid:NO:<none>,client_contact_id:pg_catalog.uuid:NO:<none>,target_project_id:pg_catalog.uuid:YES:<none>,product_id:pg_catalog.uuid:YES:<none>,status:public.private_offer_status:NO:draft,commercial_draft:pg_catalog.jsonb:NO:<none>,expires_at:pg_catalog.timestamptz:NO:<none>,accepted_at:pg_catalog.timestamptz:YES:<none>,created_at:pg_catalog.timestamptz:NO:now(),updated_at:pg_catalog.timestamptz:NO:now(),recipient_email:pg_catalog.text:NO:<none>,recipient_email_hash:pg_catalog.text:NO:<none>')",
+  );
+  verifier = replaceExactlyOnce(
+    verifier,
+    "      OR to_regclass('public.agreement_acceptances') IS NOT NULL",
+    `      OR (
+        SELECT string_agg(
+          column_name || ':' || udt_schema || '.' || udt_name || ':' || is_nullable || ':' ||
+            COALESCE(
+              CASE
+                WHEN column_default ~ '^''[^'']*''::' THEN
+                  regexp_replace(column_default, '^''([^'']*)''::.*$', '\\1')
+                ELSE column_default
+              END,
+              '<none>'
+            ),
+          ',' ORDER BY ordinal_position
+        )
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'client_contacts'
+      ) IS DISTINCT FROM 'id:pg_catalog.uuid:NO:gen_random_uuid(),producer_id:pg_catalog.uuid:NO:<none>,email_hash:pg_catalog.text:NO:<none>,email:pg_catalog.text:NO:<none>,name:pg_catalog.text:NO:<none>,first_seen_at:pg_catalog.timestamptz:NO:now(),last_seen_at:pg_catalog.timestamptz:NO:now(),tags:pg_catalog._text:NO:{},notes:pg_catalog.text:YES:<none>,referral_source:pg_catalog.text:YES:<none>,clerk_user_id:pg_catalog.text:YES:<none>,archived_at:pg_catalog.timestamptz:YES:<none>,invited_at:pg_catalog.timestamptz:YES:<none>,position:pg_catalog.int4:NO:0,phone:pg_catalog.text:YES:<none>,producer_archived_at:pg_catalog.timestamptz:YES:<none>'
+      OR to_regclass('public.agreement_acceptances') IS NOT NULL`,
+  );
+  verifier = replaceExactlyOnce(
+    verifier,
+    "          ('private_offers', 'private_offers_product_producer_fk'),",
+    `          ('private_offers', 'private_offers_product_producer_fk'),
+          ('private_offers', 'private_offers_recipient_email_hash_shape'),`,
+  );
+  verifier = replaceExactlyOnce(
+    verifier,
+    "      OR EXISTS (\n        SELECT 1\n        FROM (VALUES\n          ('projects', 'projects_producer_lifecycle_idx'",
+    `      OR NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE pg_constraint.conrelid = 'public.private_offers'::regclass
+          AND pg_constraint.conname = 'private_offers_recipient_email_hash_shape'
+          AND pg_constraint.contype = 'c'
+          AND pg_constraint.convalidated
+          AND NOT pg_constraint.connoinherit
+          AND pg_get_constraintdef(pg_constraint.oid, false) =
+            $historical_check$CHECK ((recipient_email_hash ~ '^[0-9a-f]{64}$'::text))$historical_check$
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM (VALUES
+          ('projects', 'projects_producer_lifecycle_idx'`,
+  );
+  verifier = replaceExactlyOnce(
+    verifier,
+    "          ('private_offers', 'private_offers_producer_status_expiry_idx', $index$CREATE INDEX private_offers_producer_status_expiry_idx ON public.private_offers USING btree (producer_id, status, expires_at)$index$),",
+    `          ('private_offers', 'private_offers_producer_status_expiry_idx', $index$CREATE INDEX private_offers_producer_status_expiry_idx ON public.private_offers USING btree (producer_id, status, expires_at)$index$),
+          ('private_offers', 'private_offers_recipient_status_expiry_idx', $index$CREATE INDEX private_offers_recipient_status_expiry_idx ON public.private_offers USING btree (recipient_email_hash, status, expires_at)$index$),`,
+  );
+  verifier = replaceExactlyOnce(
+    verifier,
+    "          ('bookings', 'bookings_protect_identity', 'protect_booking_identity', 27),",
+    `          ('bookings', 'bookings_protect_identity', 'protect_booking_identity', 27),
+          ('client_contacts', 'client_contacts_empty_draft_delete_only', 'skitza_guard_client_contact_delete', 11),
+          ('client_contacts', 'client_contacts_owner_immutable', 'skitza_guard_client_contact_owner', 19),
+          ('private_offers', 'private_offers_recipient_identity_immutable', 'skitza_guard_private_offer_recipient_identity', 19),
+          ('projects', 'projects_empty_draft_delete_only', 'skitza_guard_project_delete', 11),
+          ('projects', 'projects_owner_immutable', 'skitza_guard_project_owner', 19),`,
+  );
+  verifier = replaceExactlyOnce(
+    verifier,
+    "      OR EXISTS (\n        SELECT 1\n        FROM (VALUES\n          ('prevent_append_only_mutation', '02474ebe9014c9c5269a35b4469682f6')",
+    `      OR EXISTS (
+        SELECT 1
+        FROM (VALUES
+          ('client_contacts', 'client_contacts_empty_draft_delete_only', $trigger$CREATE TRIGGER client_contacts_empty_draft_delete_only BEFORE DELETE ON public.client_contacts FOR EACH ROW EXECUTE FUNCTION skitza_guard_client_contact_delete()$trigger$),
+          ('client_contacts', 'client_contacts_owner_immutable', $trigger$CREATE TRIGGER client_contacts_owner_immutable BEFORE UPDATE OF producer_id, clerk_user_id ON public.client_contacts FOR EACH ROW EXECUTE FUNCTION skitza_guard_client_contact_owner()$trigger$),
+          ('private_offers', 'private_offers_recipient_identity_immutable', $trigger$CREATE TRIGGER private_offers_recipient_identity_immutable BEFORE UPDATE OF recipient_email, recipient_email_hash ON public.private_offers FOR EACH ROW EXECUTE FUNCTION skitza_guard_private_offer_recipient_identity()$trigger$),
+          ('projects', 'projects_empty_draft_delete_only', $trigger$CREATE TRIGGER projects_empty_draft_delete_only BEFORE DELETE ON public.projects FOR EACH ROW EXECUTE FUNCTION skitza_guard_project_delete()$trigger$),
+          ('projects', 'projects_owner_immutable', $trigger$CREATE TRIGGER projects_owner_immutable BEFORE UPDATE OF producer_id, client_contact_id ON public.projects FOR EACH ROW EXECUTE FUNCTION skitza_guard_project_owner()$trigger$)
+        ) AS historical_trigger("table_name", "trigger_name", "trigger_definition")
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM pg_trigger
+          WHERE pg_trigger.tgrelid = to_regclass(format('public.%I', historical_trigger."table_name"))
+            AND pg_trigger.tgname = historical_trigger."trigger_name"
+            AND pg_get_triggerdef(pg_trigger.oid, false) = historical_trigger."trigger_definition"
+            AND NOT pg_trigger.tgisinternal
+        )
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM (VALUES
+          ('prevent_append_only_mutation', '02474ebe9014c9c5269a35b4469682f6')`,
+  );
+  verifier = replaceExactlyOnce(
+    verifier,
+    "          ('protect_session_allowance_terms', '358913a6c660186afa4c8f6e0ab28801'),",
+    `          ('protect_session_allowance_terms', '358913a6c660186afa4c8f6e0ab28801'),
+          ('skitza_guard_client_contact_delete', 'be4215c158bee47e248ad10447f96099'),
+          ('skitza_guard_client_contact_owner', 'eccc2a2d3cc17e9655f2688d8ec32e84'),
+          ('skitza_guard_private_offer_recipient_identity', '8c6ae01a7a3226e2a34bf6bc4fb277ce'),
+          ('skitza_guard_project_delete', 'e11e166bbae07013aea1b2b81ccf8bd4'),
+          ('skitza_guard_project_owner', '06e08a8bbf293b37ec1c55f24483b439'),`,
+  );
+
+  const statements = splitStatements(verifier);
+  if (statements.length !== 1) throw fail("SKITZA_CHAT3_VERIFIER_SOURCE_INVALID");
+  return statements[0];
+}
+
+function historicalCutoverCompatibilityStatement() {
+  const verifier = historicalChat3StructureVerificationStatement();
+  const outerTag = "$skitza_historical_cutover$";
+  const statementTag = "$skitza_historical_cutover_statement$";
+  const exactLedgerPredicates = [
+    { filename: CUTOVER_FLOOR, digest: APPROVED_HISTORICAL_CUTOVER_DIGEST },
+    ...APPROVED_HISTORICAL_COMPATIBILITY_LEDGER,
+  ]
+    .map(
+      ({ filename, digest }) =>
+        `NOT EXISTS (SELECT 1 FROM "skitza_migrations"."applied" WHERE "filename" = '${filename}' AND "digest" = '${digest}')`,
+    )
+    .join("\n    OR ");
+
+  return `-- SKITZA_0027_HISTORICAL_COMPATIBILITY_GUARD
+DO ${outerTag}
+BEGIN
+  IF ${exactLedgerPredicates} THEN
+    RAISE EXCEPTION 'SKITZA_MIGRATION_DIGEST_MISMATCH';
+  END IF;
+  EXECUTE ${statementTag}${verifier}${statementTag};
+END
+${outerTag}`;
 }
 
 function postLockChat3StructureStatement(filename, digest) {
@@ -531,12 +696,53 @@ async function hasAppliedLaterMigration(sql, filename) {
   return rows.length === 1 && rows[0]?.later_migration === 1;
 }
 
+async function assertHistoricalCompatibilityLedger(sql) {
+  for (const { filename, digest } of APPROVED_HISTORICAL_COMPATIBILITY_LEDGER) {
+    if ((await appliedDigest(sql, filename)) !== digest) {
+      throw fail("SKITZA_MIGRATION_DIGEST_MISMATCH");
+    }
+  }
+}
+
+async function verifyHistoricalCutoverCompatibility(sql) {
+  const statement = historicalCutoverCompatibilityStatement();
+  try {
+    await sql.transaction(
+      (transactionSql) => [
+        transactionSql(RUNNER_LOCK_SQL),
+        transactionSql(LEDGER_SCHEMA_SQL),
+        transactionSql(LEDGER_TABLE_SQL),
+        transactionSql(LEDGER_LOCK_SQL),
+        transactionSql(statement),
+      ],
+      { isolationLevel: "ReadCommitted" },
+    );
+  } catch (cause) {
+    throw fail("SKITZA_MIGRATION_FAILED", cause);
+  }
+
+  if ((await appliedDigest(sql, CUTOVER_FLOOR)) !== APPROVED_HISTORICAL_CUTOVER_DIGEST) {
+    throw fail("SKITZA_MIGRATION_LEDGER_COMMIT_INVALID");
+  }
+  await assertHistoricalCompatibilityLedger(sql);
+  return "SKITZA_MIGRATION_VERIFIED";
+}
+
 async function applyMigration(sql, filename, content, options = {}) {
   const digest = migrationDigest(content);
   const recordedDigest = await appliedDigest(sql, filename);
   if (recordedDigest !== null) {
-    if (recordedDigest !== digest) {
+    const isHistoricalCutover =
+      filename === CUTOVER_FLOOR && recordedDigest === APPROVED_HISTORICAL_CUTOVER_DIGEST;
+    if (recordedDigest !== digest && !isHistoricalCutover) {
       throw fail("SKITZA_MIGRATION_DIGEST_MISMATCH");
+    }
+    if (isHistoricalCutover) {
+      await assertHistoricalCompatibilityLedger(sql);
+      if (await hasAppliedLaterMigration(sql, PRIVATE_OFFER_RECIPIENT_MIGRATION)) {
+        return "SKITZA_MIGRATION_ALREADY_APPLIED";
+      }
+      return verifyHistoricalCutoverCompatibility(sql);
     }
     if (filename !== CUTOVER_FLOOR) return "SKITZA_MIGRATION_ALREADY_APPLIED";
     if (await hasAppliedLaterMigration(sql, filename)) {

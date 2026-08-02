@@ -1,13 +1,12 @@
 "use client";
 
-import { AudioLines, ChevronDown, Disc3, Grid3x3, List, Play, Plus, Search, X } from "lucide-react";
+import { AudioLines, ChevronDown, Grid3x3, List, Play, Plus, Search, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { EqBars } from "~/components/audio/eq-bars";
 import { playerPlay, playerToggle, useNowPlaying } from "~/components/audio/persistent-player";
-import { useTabSwipe } from "~/components/native/use-tab-swipe";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 
 import { ProjectCover } from "./project-cover";
@@ -53,11 +52,9 @@ interface MusicLibraryItemBase {
   clientName: string | null;
 }
 
-// An allocated song is stable even before its first version exists. Older
-// callers can omit `kind` and `latestVersionId`: in that compatibility shape
-// `id` is still treated as the latest version id. New callers should use a
-// stable row id (normally the track id) and set `latestVersionId` explicitly,
-// including `null` for a zero-version song.
+// A Library track is a durable Song with uploaded or intentionally deleted
+// Version history. Current callers use the stable track id as the row id and
+// pass the exact latest Version id separately.
 export interface MusicLibraryTrackRow extends MusicLibraryItemBase {
   kind?: "track";
   trackId: string;
@@ -86,7 +83,7 @@ export interface MusicLibraryEmptySlotRow extends MusicLibraryItemBase {
   slotIndex: number;
   trackTitle?: string;
   trackArtist?: string | null;
-  /** A real Add Song destination that claims this exact entitlement. */
+  /** Legacy entitlement destination; current Libraries never render these rows. */
   actionHref?: string | null;
 }
 
@@ -131,8 +128,6 @@ type SongSort = "recent" | "title" | "notes" | "length";
 type ProjectArchiveFilter = "active" | "archived";
 export type SongArchiveFilter = "active" | "archived";
 
-const MUSIC_LIBRARY_MODES = ["projects", "songs"] as const;
-
 export interface MusicLibraryUrlState {
   mode: Mode;
   view: View;
@@ -141,11 +136,7 @@ export interface MusicLibraryUrlState {
   archive: "active" | "archived";
 }
 
-function enumerated<T extends string>(
-  value: string | null,
-  values: readonly T[],
-  fallback: T,
-): T {
+function enumerated<T extends string>(value: string | null, values: readonly T[], fallback: T): T {
   return value !== null && values.includes(value as T) ? (value as T) : fallback;
 }
 
@@ -330,11 +321,7 @@ export type MusicLibraryRole = "producer" | "artist";
 // Internal href builders centralised here (instead of inlined per-cell)
 // so the URL switch lives in ONE place. Each side now has its own
 // L2 + L3 route (SK-30 added the artist L3).
-function projectHref(
-  role: MusicLibraryRole,
-  projectId: string,
-  producerId?: string,
-): string {
+function projectHref(role: MusicLibraryRole, projectId: string, producerId?: string): string {
   return role === "producer"
     ? `/dashboard/music/project/${projectId}`
     : withArtistStudio(`/artist/music/${projectId}`, producerId);
@@ -349,7 +336,8 @@ export function MusicLibraryScreen({
   tracks,
   projectRows: explicitProjects = [],
   role = "producer",
-  addSongHref = "/dashboard/music?addSong=1",
+  addSongHref = "/dashboard/music?upload=1",
+  onUploadAudio,
   renameSong,
   editArtist,
   setArchived,
@@ -358,8 +346,9 @@ export function MusicLibraryScreen({
   tracks: MusicLibraryRow[];
   projectRows?: MusicLibraryProjectRow[];
   role?: MusicLibraryRole;
-  /** Producer Add Song entry point; also used by producer empty states. */
+  /** Producer upload entry point; the file is chosen before its destination. */
   addSongHref?: string;
+  onUploadAudio?: () => void;
   renameSong?: RenameSongAction;
   editArtist?: EditSongArtistAction;
   setArchived?: SetSongArchivedAction;
@@ -370,28 +359,23 @@ export function MusicLibraryScreen({
   const urlState = parseMusicLibraryUrlState(searchParams.toString());
   // "all" is the sentinel for "no artist filter" — any other string is
   // a literal client/artist name from the artist filter pill.
-  const [mode, setMode] = useState<Mode>(urlState.mode);
   const [view, setView] = useState<View>(urlState.view);
   const [search, setSearch] = useState(urlState.search);
   const [artist, setArtist] = useState<string>("all");
+  const [projectFilter, setProjectFilter] = useState<string>("all");
   const [sort, setSort] = useState<SongSort>(urlState.sort);
-  const [projectArchiveFilter, setProjectArchiveFilter] =
-    useState<ProjectArchiveFilter>(urlState.archive);
-  const [songArchiveFilter, setSongArchiveFilter] =
-    useState<SongArchiveFilter>(urlState.archive);
+  const [songArchiveFilter, setSongArchiveFilter] = useState<SongArchiveFilter>(urlState.archive);
 
   useEffect(() => {
     const next = parseMusicLibraryUrlState(searchParams.toString());
-    setMode(next.mode);
     setView(next.view);
     setSearch(next.search);
     setSort(next.sort);
-    setProjectArchiveFilter(next.archive);
     setSongArchiveFilter(next.archive);
   }, [searchParams]);
 
   function replaceUrlState(
-    key: "mode" | "view" | "search" | "sort" | "filter",
+    key: "view" | "search" | "sort" | "filter",
     value: string,
     defaultValue: string,
   ) {
@@ -401,17 +385,6 @@ export function MusicLibraryScreen({
     const query = params.toString();
     window.history.replaceState(null, "", `${pathname}${query ? `?${query}` : ""}`);
   }
-
-  function updateMode(next: Mode) {
-    setMode(next);
-    replaceUrlState("mode", next, "songs");
-  }
-
-  const modeSwipeHandlers = useTabSwipe({
-    items: MUSIC_LIBRARY_MODES,
-    value: mode,
-    onChange: updateMode,
-  });
 
   function updateView(next: View) {
     setView(next);
@@ -427,11 +400,6 @@ export function MusicLibraryScreen({
   function updateSort(next: SongSort) {
     setSort(next);
     replaceUrlState("sort", next, "recent");
-  }
-
-  function updateProjectArchiveFilter(next: ProjectArchiveFilter) {
-    setProjectArchiveFilter(next);
-    replaceUrlState("filter", next, "active");
   }
 
   function updateSongArchiveFilter(next: SongArchiveFilter) {
@@ -453,6 +421,13 @@ export function MusicLibraryScreen({
     return out;
   }, [tracks]);
 
+  const projectOptions = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const project of explicitProjects) byId.set(project.id, project.title);
+    for (const track of tracks) byId.set(track.projectId, track.projectTitle);
+    return [...byId].map(([id, title]) => ({ id, title }));
+  }, [explicitProjects, tracks]);
+
   // Apply search + artist filter to the raw track list. Reused for the
   // Songs view directly and as the substrate for project aggregation.
   const filteredTracks = useMemo(() => {
@@ -462,35 +437,12 @@ export function MusicLibraryScreen({
         const name = (rowArtist(t) ?? "").trim();
         if (name !== artist) return false;
       }
+      if (projectFilter !== "all" && t.projectId !== projectFilter) return false;
       if (!q) return true;
       const hay = [rowTitle(t), rowArtist(t) ?? "", t.projectTitle].join(" ").toLowerCase();
       return hay.includes(q);
     });
-  }, [tracks, search, artist]);
-
-  const filteredExplicitProjects = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return explicitProjects.filter((project) => {
-      if (artist !== "all" && project.artistLabel !== artist) return false;
-      if (!q) return true;
-      return `${project.title} ${project.artistLabel}`.toLowerCase().includes(q);
-    });
-  }, [explicitProjects, search, artist]);
-
-  // Project aggregation — one entry per projectId, with track count,
-  // total duration, kind, and a stable gradient picked by hashing the
-  // projectId so the same project always lands on the same palette.
-  const projects = useMemo<ProjectAggregate[]>(() => {
-    return aggregateMusicProjects(filteredTracks, filteredExplicitProjects);
-  }, [filteredExplicitProjects, filteredTracks]);
-
-  const visibleProjects = useMemo(() => {
-    if (role !== "artist") return projects;
-    return projects.filter((project) => {
-      const archived = archivedProjectLabel(project.projectLifecycleStatus) !== null;
-      return projectArchiveFilter === "archived" ? archived : !archived;
-    });
-  }, [projectArchiveFilter, projects, role]);
+  }, [tracks, search, artist, projectFilter]);
 
   // Song archive is deliberately a second-level filter. Project
   // aggregation above always receives every matching song so archiving one
@@ -518,7 +470,7 @@ export function MusicLibraryScreen({
   // Sort songs only when the songs table is showing (per design.md the
   // sort dropdown disappears in grid view).
   const sortedSongs = useMemo(() => {
-    if (mode !== "songs" || view !== "table") return visibleSongs;
+    if (view !== "table") return visibleSongs;
     const arr = [...visibleSongs];
     switch (sort) {
       case "title":
@@ -544,7 +496,7 @@ export function MusicLibraryScreen({
         break;
     }
     return arr;
-  }, [mode, sort, view, visibleSongs]);
+  }, [sort, view, visibleSongs]);
 
   return (
     <div className="sk-page-enter flex flex-col gap-5">
@@ -562,7 +514,7 @@ export function MusicLibraryScreen({
             <span className="font-mono font-bold text-[rgb(var(--fg-default))] tabular-nums">
               {String(totalTracks)}
             </span>{" "}
-            song space{totalTracks === 1 ? "" : "s"}
+            Song{totalTracks === 1 ? "" : "s"}
             {" · "}
             <span className="font-mono font-bold text-[rgb(var(--fg-default))] tabular-nums">
               {String(totalProjects)}
@@ -577,16 +529,15 @@ export function MusicLibraryScreen({
             )}
           </p>
         </div>
-        {/* Add Song is producer-only. The caller owns the real workflow
-            destination so this shared read model never invents a route. */}
         {role === "producer" ? (
-          <Link
-            href={addSongHref}
+          <button
+            type="button"
+            onClick={onUploadAudio}
             className="sk-press inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-[15px] text-[12.5px] font-bold text-[rgb(var(--fg-default))] shadow-[0_2px_12px_rgb(var(--brand-primary)/0.22)]"
           >
             <Plus size={13} strokeWidth={2.4} />
-            Add Song
-          </Link>
+            Upload audio
+          </button>
         ) : null}
       </header>
 
@@ -594,8 +545,8 @@ export function MusicLibraryScreen({
           so it reads as the lid of the library section, not a floating
           translucent strip. On phones (SK-55) the card chrome drops
           away and the controls re-flow into two tidy rows — search (+
-          artist filter), then mode toggle left / sort + view right —
-          the Spotify library pattern. md+ keeps the card exactly as
+          artist/project filters), then sort + view — the Spotify
+          library pattern. md+ keeps the card exactly as
           designed (background/border moved from inline style to md:
           classes so the mobile reset can win). */}
       <div className="flex flex-wrap items-center gap-2 md:gap-2.5 md:rounded-[12px] md:border md:border-[rgb(var(--border-strong))] md:bg-[rgb(var(--bg-elevated))] md:px-3 md:py-2.5">
@@ -640,21 +591,17 @@ export function MusicLibraryScreen({
           <ArtistFilterPill options={artistOptions} value={artist} onChange={setArtist} />
         ) : null}
 
+        <ProjectFilterPill
+          options={projectOptions}
+          value={projectFilter}
+          onChange={setProjectFilter}
+        />
+
         {/* Phone-only row break — everything after this wraps onto the
             second toolbar row. Display:none from md up. */}
         <span aria-hidden className="w-full md:hidden" />
 
-        {/* Mode toggle (Projects / Songs) — pushed to the right on
-            desktop; anchors the second row's left edge on phones. */}
-        <div className="flex shrink-0 md:ml-auto">
-          <ModeToggle value={mode} onChange={updateMode} />
-        </div>
-
-        {/* Sorting is a real action only in the songs table. Removing it
-            elsewhere keeps phones free of a disabled, dead control. */}
-        {mode === "songs" && view === "table" ? (
-          <SortDropdown value={sort} onChange={updateSort} />
-        ) : null}
+        {view === "table" ? <SortDropdown value={sort} onChange={updateSort} /> : null}
 
         {/* Phones use one compact native menu; desktop keeps the faster
             two-button view switch. Both update the same view state. */}
@@ -664,48 +611,15 @@ export function MusicLibraryScreen({
         </div>
       </div>
 
-      {role === "artist" && mode === "projects" ? (
-        <ProjectArchiveFilterControl
-          value={projectArchiveFilter}
-          onChange={updateProjectArchiveFilter}
-        />
+      {role === "producer" ? (
+        <SongArchiveFilterControl value={songArchiveFilter} onChange={updateSongArchiveFilter} />
       ) : null}
 
-      {role === "producer" && mode === "songs" ? (
-        <SongArchiveFilterControl
-          value={songArchiveFilter}
-          onChange={updateSongArchiveFilter}
-        />
-      ) : null}
-
-      {/* Body — one results region updated by the two pressed-button groups. */}
-      <div
-        id={RESULTS_PANEL_ID}
-        role="region"
-        aria-label="Library results"
-        className="[touch-action:pan-y_pinch-zoom]"
-        data-tab-swipe-surface
-        {...modeSwipeHandlers}
-      >
-        <div data-tab-swipe-panel>
-        {mode === "projects" && visibleProjects.length === 0 ? (
+      {/* Song-first results. Project remains a filter, never a required drill-down. */}
+      <div id={RESULTS_PANEL_ID} role="region" aria-label="Library results">
+        {visibleSongs.length === 0 ? (
           <EmptyResult
-            hasQuery={Boolean(search.trim()) || artist !== "all"}
-            hasProjects={totalProjects > 0}
-            role={role}
-            addSongHref={addSongHref}
-            {...(role === "artist" ? { projectArchiveFilter } : {})}
-            onProjectArchiveFilterChange={updateProjectArchiveFilter}
-          />
-        ) : mode === "projects" ? (
-          view === "grid" ? (
-            <ProjectsGrid projects={visibleProjects} role={role} />
-          ) : (
-            <ProjectsTable projects={visibleProjects} role={role} />
-          )
-        ) : visibleSongs.length === 0 ? (
-          <EmptyResult
-            hasQuery={Boolean(search.trim()) || artist !== "all"}
+            hasQuery={Boolean(search.trim()) || artist !== "all" || projectFilter !== "all"}
             hasProjects={totalProjects > 0}
             role={role}
             addSongHref={addSongHref}
@@ -733,7 +647,6 @@ export function MusicLibraryScreen({
             {...(markReleased ? { markReleased } : {})}
           />
         )}
-        </div>
       </div>
     </div>
   );
@@ -745,63 +658,6 @@ export function MusicLibraryScreen({
 // to it via aria-controls so their effect is explicit without claiming
 // the keyboard contract of tabs.
 const RESULTS_PANEL_ID = "library-results";
-
-function ProjectArchiveFilterControl({
-  value,
-  onChange,
-}: {
-  value: ProjectArchiveFilter;
-  onChange: (value: ProjectArchiveFilter) => void;
-}) {
-  return (
-    <div
-      role="group"
-      aria-label="Project status"
-      className="flex w-fit rounded-[9px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-[2px]"
-    >
-      <ProjectArchiveFilterButton
-        label="Active"
-        active={value === "active"}
-        onClick={() => {
-          onChange("active");
-        }}
-      />
-      <ProjectArchiveFilterButton
-        label="Archived"
-        active={value === "archived"}
-        onClick={() => {
-          onChange("archived");
-        }}
-      />
-    </div>
-  );
-}
-
-function ProjectArchiveFilterButton({
-  label,
-  active,
-  onClick,
-}: {
-  label: "Active" | "Archived";
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      className={[
-        "sk-press min-h-11 rounded-[7px] px-3 py-1.5 text-[11.5px] font-bold",
-        active
-          ? "bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-default))] shadow-sm"
-          : "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
-      ].join(" ")}
-    >
-      {label}
-    </button>
-  );
-}
 
 function SongArchiveFilterControl({
   value,
@@ -837,39 +693,6 @@ function SongArchiveFilterControl({
           </button>
         );
       })}
-    </div>
-  );
-}
-
-function ModeToggle({ value, onChange }: { value: Mode; onChange: (m: Mode) => void }) {
-  return (
-    <div
-      role="group"
-      aria-label="Library mode"
-      className="flex rounded-[9px] p-[2px]"
-      style={{
-        background: "rgb(var(--bg-elevated))",
-        border: "1px solid rgb(var(--border-subtle))",
-      }}
-    >
-      <SegmentedButton
-        active={value === "projects"}
-        onClick={() => {
-          onChange("projects");
-        }}
-        icon={<Disc3 size={13} strokeWidth={2.2} />}
-        label="Projects"
-        controls={RESULTS_PANEL_ID}
-      />
-      <SegmentedButton
-        active={value === "songs"}
-        onClick={() => {
-          onChange("songs");
-        }}
-        icon={<AudioLines size={13} strokeWidth={2.2} />}
-        label="Songs"
-        controls={RESULTS_PANEL_ID}
-      />
     </div>
   );
 }
@@ -911,19 +734,12 @@ function ViewToggle({ value, onChange }: { value: View; onChange: (v: View) => v
 
 function CompactViewMenu({ value, onChange }: { value: View; onChange: (v: View) => void }) {
   return (
-    <label
-      className="sk-press relative ml-auto inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2.5 text-[11.5px] font-semibold text-[rgb(var(--fg-default))] md:hidden"
-    >
+    <label className="sk-press relative ml-auto inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-2.5 text-[11.5px] font-semibold text-[rgb(var(--fg-default))] md:hidden">
       <span className="pointer-events-none text-[rgb(var(--fg-muted))]">View</span>
       <span className="pointer-events-none hidden min-[375px]:inline">
         {value === "grid" ? "Grid" : "List"}
       </span>
-      <ChevronDown
-        aria-hidden
-        size={11}
-        strokeWidth={2.2}
-        className="pointer-events-none"
-      />
+      <ChevronDown aria-hidden size={11} strokeWidth={2.2} className="pointer-events-none" />
       <select
         aria-label="Library view"
         value={value}
@@ -1030,13 +846,50 @@ function ArtistFilterPill({
   );
 }
 
-function SortDropdown({
+function ProjectFilterPill({
+  options,
   value,
   onChange,
 }: {
-  value: SongSort;
-  onChange: (v: SongSort) => void;
+  options: { id: string; title: string }[];
+  value: string;
+  onChange: (value: string) => void;
 }) {
+  const selected = options.find((option) => option.id === value);
+  return (
+    <label
+      className={[
+        "sk-press sk-trans relative inline-flex min-h-11 max-w-[132px] min-w-0 items-center gap-1.5 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-[12px] font-semibold sm:max-w-[200px] sm:px-3",
+        selected
+          ? "bg-[rgb(var(--fg-default))] text-[rgb(var(--bg-background))]"
+          : "bg-[rgb(var(--bg-elevated))] text-[rgb(var(--fg-default))]",
+      ].join(" ")}
+      style={{ border: selected ? "none" : "1px solid rgb(var(--border-subtle))" }}
+    >
+      <span className="pointer-events-none min-w-0 truncate">
+        {selected?.title ?? "All Projects"}
+      </span>
+      <ChevronDown size={11} strokeWidth={2.2} className="pointer-events-none" />
+      <select
+        aria-label="Filter by project"
+        value={value}
+        onChange={(event) => {
+          onChange(event.target.value);
+        }}
+        className="absolute inset-0 min-h-11 cursor-pointer opacity-0 md:min-h-0"
+      >
+        <option value="all">All Projects</option>
+        {options.map((option) => (
+          <option key={option.id} value={option.id}>
+            {option.title}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function SortDropdown({ value, onChange }: { value: SongSort; onChange: (v: SongSort) => void }) {
   return (
     <label
       className="sk-press sk-trans relative inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-elevated))] px-2.5 py-1.5 text-[11.5px] font-semibold text-[rgb(var(--fg-default))] md:px-3"
@@ -1065,7 +918,8 @@ function SortDropdown({
 
 // ─── Views ───────────────────────────────────────────────────────────
 
-function ProjectsGrid({
+/** Legacy presentation helper; the Song-first Library does not invoke it. */
+export function ProjectsGrid({
   projects,
   role,
 }: {
@@ -1164,7 +1018,8 @@ function ProjectCard({ project, role }: { project: ProjectAggregate; role: Music
   );
 }
 
-function ProjectsTable({
+/** Legacy presentation helper; the Song-first Library does not invoke it. */
+export function ProjectsTable({
   projects,
   role,
 }: {
@@ -1643,7 +1498,7 @@ function SongWaitingState({
         className="sk-press mt-2 inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-3 text-[11px] font-bold text-[rgb(var(--fg-default))]"
       >
         <Plus size={12} strokeWidth={2.4} />
-        {emptySlot ? "Add Song" : "Upload audio"}
+        Upload audio
       </Link>
     );
   }
@@ -2079,7 +1934,7 @@ function LibrarySongMobileRow({
               className="sk-press inline-flex min-h-11 shrink-0 items-center gap-1 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-3 text-[11px] font-bold text-[rgb(var(--fg-default))]"
             >
               <Plus size={12} strokeWidth={2.4} />
-              Add Song
+              Upload audio
             </Link>
           ) : null}
         </div>
@@ -2257,18 +2112,18 @@ function EmptyResult({
     if (role === "artist") {
       return (
         <EmptyShell
-          title="No projects yet"
-          body="Once a producer opens a project for you, your music will land here."
+          title="No songs yet"
+          body="Once your producer uploads a mix, it shows up here."
         />
       );
     }
     return (
       <EmptyShell
-        title="Add your first song"
-        body="Choose an active project, or create a new one when none exists."
+        title="Upload your first Song"
+        body="Choose an audio file, then select its active Project."
         cta={{
           href: addSongHref,
-          label: "Add Song",
+          label: "Upload audio",
         }}
       />
     );
@@ -2307,8 +2162,8 @@ function EmptyResult({
     ) : (
       <EmptyShell
         title="No active songs"
-        body="Restore a song from Archived Songs, or add a song to an active project."
-        cta={{ href: addSongHref, label: "Add Song" }}
+        body="Restore a Song from Archived Songs, or upload audio to an active Project."
+        cta={{ href: addSongHref, label: "Upload audio" }}
       />
     );
   }
@@ -2320,10 +2175,10 @@ function EmptyResult({
   return (
     <EmptyShell
       title="No songs yet"
-      body="Add a song to an active project, then upload its first version."
+      body="Choose an audio file, then add it to an active Project as a new Song."
       cta={{
         href: addSongHref,
-        label: "Add Song",
+        label: "Upload audio",
       }}
     />
   );

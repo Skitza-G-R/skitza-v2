@@ -26,6 +26,10 @@ const addSongSource = readFileSync(
   join(webRoot, "src/components/dashboard/song/add-song-dialog.tsx"),
   "utf8",
 );
+const firstVersionSource = readFileSync(
+  join(webRoot, "src/server/trpc/routers/first-version-upload.ts"),
+  "utf8",
+);
 
 describe("SK-90 project song ownership", () => {
   it("removes the direct checkout creator and project-level song pricing projection", () => {
@@ -54,19 +58,40 @@ describe("SK-90 project song ownership", () => {
     expect(detail).toMatch(/summarizeProjectSongSpaces\(/);
     expect(detail).toMatch(/lifecycleStatus: purchase\.lifecycleStatus/);
     expect(detail).toMatch(/includedSongSpaces/);
-    expect(detail).toMatch(/songSpacePurchaseId: songSpaces\.emptySlots\[0\]\?\.purchaseId \?\? null/);
+    expect(detail).toMatch(
+      /songSpacePurchaseId: songSpaces\.emptySlots\[0\]\?\.purchaseId \?\? null/,
+    );
   });
 
-  it("threads the exact virtual-slot purchase through Add Song and allocation", () => {
-    expect(pageSource).toMatch(/emptySlots=\{data\.songSpaces\.emptySlots\.map/);
-    expect(pageSource).toMatch(/purchaseId: slot\.purchaseId/);
-    expect(albumSource).toContain("router.push(addSongHref)");
+  it("keeps commercial ownership server-side instead of making purchase the Add Song start", () => {
+    expect(pageSource).not.toContain("emptySlots={");
+    expect(albumSource).toContain('mode="new-song"');
+    expect(albumSource).not.toContain("purchaseId=");
     expect(addSongSource).toMatch(/purchaseId: slot\.purchaseId/);
     expect(addSongSource).toMatch(/claimSongSpaceAction\(\{/);
+    expect(firstVersionSource).toMatch(/purchaseId:\s*activeDestination\.purchaseId/);
+    expect(firstVersionSource).toMatch(
+      /includedSongSpaces:\s*lockedPurchase\.commercialSnapshot\.includedSongSpaces/,
+    );
+    expect(firstVersionSource).toMatch(/allocatedSongSpaces:\s*allocatedRows\.length/);
   });
 
-  it("fails closed in the new-song modal when no eligible purchase is available", () => {
-    expect(modalSource).toMatch(/isNewSong && !purchaseId && !allocatedNewTrackId/);
-    expect(modalSource).toMatch(/No active purchase has an available song space/);
+  it("creates Song + V1 only in the atomic completion transaction", () => {
+    expect(modalSource).toContain("prepareFirstVersionUploadAction");
+    expect(modalSource).not.toContain("addTrackAction");
+    expect(firstVersionSource).toMatch(
+      /tx\.insert\(projectTracks\)[\s\S]*?tx\.insert\(trackVersions\)[\s\S]*?completedAt/,
+    );
+  });
+
+  it("keeps incomplete legacy allocations out of the Project Song list", () => {
+    expect(pageSource).toMatch(
+      /durableVersionTrackIds[\s\S]*audioUrl !== null \|\| version\.audioDeletedAt !== null/,
+    );
+    expect(pageSource).toContain(
+      "const durableTracks = data.tracks.filter((track) => durableVersionTrackIds.has(track.id))",
+    );
+    expect(pageSource).toContain("const tracks: TrackRowData[] = durableTracks.map");
+    expect(pageSource).toContain("songsCount: durableTracks.length");
   });
 });

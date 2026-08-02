@@ -151,7 +151,10 @@ describe("SK-99 retained real controls", () => {
   });
 
   it("keeps real Add Song and automatic confirmation controls", () => {
-    expect(albumSpace).toContain("onAddSong: handleAddSong");
+    expect(albumSpace).toContain("setAddSongOpen(true)");
+    expect(albumSpace).toContain('mode="new-song"');
+    expect(albumSpace).toContain("projectId={project.id}");
+    expect(albumSpace).not.toContain("lockProject=1");
     const policiesEditor = read("../../../app/(producer)/dashboard/booking/policies-editor.tsx");
     expect(policiesEditor).toContain("autoConfirmBookings");
     expect(policiesEditor).toContain("updateAvailabilitySettings");

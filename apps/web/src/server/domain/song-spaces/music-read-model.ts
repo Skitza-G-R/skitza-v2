@@ -15,11 +15,17 @@ import {
   products,
   producers,
   purchases,
+  songPublicLinks,
   sql,
   trackComments,
   trackVersions,
   type Db,
 } from "@skitza/db";
+
+import {
+  classifySongUploadPublicExposure,
+  type SongUploadPublicExposure,
+} from "~/server/domain/song-publication/upload-exposure";
 
 import {
   summarizeProjectSongSpaces,
@@ -67,6 +73,8 @@ export type MusicAllocatedSong = Readonly<{
   createdAt: Date;
   latestVersion: MusicLatestVersion | null;
   latestHistoryVersion: MusicHistoryVersion | null;
+  versionCount: number;
+  publicExposure: SongUploadPublicExposure;
   unreadComments: number;
   plays: 0;
 }>;
@@ -267,9 +275,9 @@ function noChargeAvailability(
   );
   if (!hasEligibleSource) {
     return {
-        available: false,
-        reason: "No active ILS product-backed purchase source was found for this project.",
-      };
+      available: false,
+      reason: "No active ILS product-backed purchase source was found for this project.",
+    };
   }
   if (!Number.isSafeInteger(unusedActiveSongSpaceCount) || unusedActiveSongSpaceCount !== 0) {
     return {
@@ -315,43 +323,54 @@ async function buildProjectReadModels(
       : [];
 
   const purchaseRows = await db
-      .select({
-        purchaseId: purchases.id,
-        producerId: purchases.producerId,
-        projectId: purchases.projectId,
-        clientContactId: purchases.clientContactId,
-        lifecycleStatus: purchases.lifecycleStatus,
-        acceptedAt: purchases.acceptedAt,
-        productId: purchases.productId,
-        sourceProductId: products.id,
-        sourceProductProducerId: products.producerId,
-        currency: purchases.currency,
-        commercialSnapshot: purchases.commercialSnapshot,
-      })
-      .from(purchases)
-      .leftJoin(
-        products,
-        and(eq(products.id, purchases.productId), eq(products.producerId, purchases.producerId)),
-      )
-      .where(inArray(purchases.projectId, projectIds))
-      .orderBy(asc(purchases.acceptedAt), asc(purchases.id));
+    .select({
+      purchaseId: purchases.id,
+      producerId: purchases.producerId,
+      projectId: purchases.projectId,
+      clientContactId: purchases.clientContactId,
+      lifecycleStatus: purchases.lifecycleStatus,
+      acceptedAt: purchases.acceptedAt,
+      productId: purchases.productId,
+      sourceProductId: products.id,
+      sourceProductProducerId: products.producerId,
+      currency: purchases.currency,
+      commercialSnapshot: purchases.commercialSnapshot,
+    })
+    .from(purchases)
+    .leftJoin(
+      products,
+      and(eq(products.id, purchases.productId), eq(products.producerId, purchases.producerId)),
+    )
+    .where(inArray(purchases.projectId, projectIds))
+    .orderBy(asc(purchases.acceptedAt), asc(purchases.id));
   const trackRows = await db
-      .select({
-        id: projectTracks.id,
-        projectId: projectTracks.projectId,
-        purchaseId: projectTracks.purchaseId,
-        title: projectTracks.title,
-        artist: projectTracks.artist,
-        position: projectTracks.position,
-        archivedAt: projectTracks.archivedAt,
-        releasedAt: projectTracks.releasedAt,
-        createdAt: projectTracks.createdAt,
-      })
-      .from(projectTracks)
-      .where(inArray(projectTracks.projectId, projectIds))
-      .orderBy(asc(projectTracks.position), asc(projectTracks.id));
+    .select({
+      id: projectTracks.id,
+      projectId: projectTracks.projectId,
+      purchaseId: projectTracks.purchaseId,
+      title: projectTracks.title,
+      artist: projectTracks.artist,
+      position: projectTracks.position,
+      archivedAt: projectTracks.archivedAt,
+      releasedAt: projectTracks.releasedAt,
+      portfolioPublishedAt: projectTracks.portfolioPublishedAt,
+      createdAt: projectTracks.createdAt,
+    })
+    .from(projectTracks)
+    .where(inArray(projectTracks.projectId, projectIds))
+    .orderBy(asc(projectTracks.position), asc(projectTracks.id));
 
   const trackIds = trackRows.map((track) => track.id);
+  const publicLinkRows =
+    trackIds.length === 0
+      ? []
+      : await db
+          .select({ trackId: songPublicLinks.trackId })
+          .from(songPublicLinks)
+          .where(
+            and(inArray(songPublicLinks.trackId, trackIds), isNull(songPublicLinks.disabledAt)),
+          );
+  const publicLinkTrackIds = new Set(publicLinkRows.map((row) => row.trackId));
   const versionRows =
     trackIds.length === 0
       ? []
@@ -379,8 +398,10 @@ async function buildProjectReadModels(
 
   const latestVersionByTrack = new Map<string, MusicLatestVersion>();
   const latestHistoryVersionByTrack = new Map<string, MusicHistoryVersion>();
+  const versionCountByTrack = new Map<string, number>();
   for (const version of versionRows) {
     if (version.audioUrl === null && version.audioDeletedAt == null) continue;
+    versionCountByTrack.set(version.trackId, (versionCountByTrack.get(version.trackId) ?? 0) + 1);
     if (!latestHistoryVersionByTrack.has(version.trackId)) {
       latestHistoryVersionByTrack.set(version.trackId, {
         id: version.id,
@@ -425,10 +446,7 @@ async function buildProjectReadModels(
           );
   const unreadByVersion = new Map<string, number>();
   for (const comment of commentRows) {
-    unreadByVersion.set(
-      comment.versionId,
-      (unreadByVersion.get(comment.versionId) ?? 0) + 1,
-    );
+    unreadByVersion.set(comment.versionId, (unreadByVersion.get(comment.versionId) ?? 0) + 1);
   }
 
   const models: MusicProjectReadModel[] = [];
@@ -439,13 +457,13 @@ async function buildProjectReadModels(
       producerId: head.producerId,
       projectId: head.id,
       purchases: projectPurchases.map((purchase) => ({
-          producerId: purchase.producerId,
-          projectId: purchase.projectId,
-          purchaseId: purchase.purchaseId,
-          lifecycleStatus: purchase.lifecycleStatus,
-          includedSongSpaces: purchase.commercialSnapshot.includedSongSpaces,
-          acceptedAt: purchase.acceptedAt,
-        })),
+        producerId: purchase.producerId,
+        projectId: purchase.projectId,
+        purchaseId: purchase.purchaseId,
+        lifecycleStatus: purchase.lifecycleStatus,
+        includedSongSpaces: purchase.commercialSnapshot.includedSongSpaces,
+        acceptedAt: purchase.acceptedAt,
+      })),
       tracks: projectTracksList.map((track) => ({
         id: track.id,
         producerId: head.producerId,
@@ -461,33 +479,40 @@ async function buildProjectReadModels(
     const purchaseLifecycleById = new Map(
       projectPurchases.map((purchase) => [purchase.purchaseId, purchase.lifecycleStatus]),
     );
-    const songs = summary.tracks.map((track): MusicAllocatedSong => {
+    const songs = summary.tracks.flatMap((track): MusicAllocatedSong[] => {
       const stored = tracksById.get(track.id);
       if (!stored) throw new Error("Song-space read model lost an allocated track");
       const latestVersion = latestVersionByTrack.get(track.id) ?? null;
       const latestHistoryVersion = latestHistoryVersionByTrack.get(track.id) ?? null;
+      if (!latestVersion && !latestHistoryVersion) return [];
       const purchaseLifecycleStatus = purchaseLifecycleById.get(track.purchaseId);
       if (!purchaseLifecycleStatus) {
         throw new Error("Song-space read model lost an allocated song purchase");
       }
-      return {
-        kind: "song",
-        id: track.id,
-        trackId: track.id,
-        purchaseId: track.purchaseId,
-        purchaseLifecycleStatus,
-        title: track.title,
-        artist: track.artist,
-        position: track.position,
-        archivedAt: stored.archivedAt,
-        releasedAt: stored.releasedAt,
-        createdAt: stored.createdAt,
-        latestVersion,
-        latestHistoryVersion,
-        unreadComments:
-          unreadByVersion.get(commentTargetVersionByTrack.get(track.id) ?? "") ?? 0,
-        plays: 0,
-      };
+      return [
+        {
+          kind: "song",
+          id: track.id,
+          trackId: track.id,
+          purchaseId: track.purchaseId,
+          purchaseLifecycleStatus,
+          title: track.title,
+          artist: track.artist,
+          position: track.position,
+          archivedAt: stored.archivedAt,
+          releasedAt: stored.releasedAt,
+          createdAt: stored.createdAt,
+          latestVersion,
+          latestHistoryVersion,
+          versionCount: versionCountByTrack.get(track.id) ?? 0,
+          publicExposure: classifySongUploadPublicExposure({
+            linkEnabled: publicLinkTrackIds.has(track.id),
+            portfolioPublished: stored.portfolioPublishedAt != null,
+          }),
+          unreadComments: unreadByVersion.get(commentTargetVersionByTrack.get(track.id) ?? "") ?? 0,
+          plays: 0,
+        },
+      ];
     });
     const emptySlots = summary.emptySlots.map(
       (slot): MusicEmptySongSpace => ({ ...slot, title: slot.label }),
@@ -538,9 +563,9 @@ export async function listMusicSongSpaces(
       const snapshotDb = tx as unknown as Db;
       const heads = await loadProjectHeads(snapshotDb, scope);
       const allProjects = await buildProjectReadModels(snapshotDb, heads, scope);
-      const projectsWithSpaces = allProjects.filter((project) => project.visibleCount > 0);
+      const projectsWithSongs = allProjects.filter((project) => project.songs.length > 0);
       return {
-        projects: projectsWithSpaces,
+        projects: projectsWithSongs,
         activeProjects: allProjects.filter((project) => project.lifecycleStatus === "active"),
       };
     },

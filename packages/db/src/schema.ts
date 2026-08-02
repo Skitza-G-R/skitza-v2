@@ -2146,6 +2146,87 @@ export const purchases = pgTable(
 export type Purchase = typeof purchases.$inferSelect;
 export type NewPurchase = typeof purchases.$inferInsert;
 
+// File-first first-Version uploads live here until storage has verified the
+// exact object. These rows are upload intents, not Songs: project_tracks and
+// track_versions are inserted together only when completion succeeds.
+export const firstVersionUploadIntents = pgTable(
+  "first_version_upload_intents",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    producerId: uuid("producer_id")
+      .notNull()
+      .references(() => producers.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id").notNull(),
+    purchaseId: uuid("purchase_id").notNull(),
+    operationKey: text("operation_key").notNull(),
+    requestDigest: text("request_digest").notNull(),
+    trackId: uuid("track_id").notNull(),
+    versionId: uuid("version_id").notNull(),
+    title: text("title").notNull(),
+    artist: text("artist"),
+    label: text("label").notNull(),
+    description: text("description"),
+    stagingAudioR2Key: text("staging_audio_r2_key").notNull(),
+    audioR2Key: text("audio_r2_key").notNull(),
+    audioContentType: text("audio_content_type").notNull(),
+    audioSizeBytes: bigint("audio_size_bytes", { mode: "number" }).notNull(),
+    durationMs: integer("duration_ms"),
+    completionToken: text("completion_token").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    canceledAt: timestamp("canceled_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    producerOperationUnique: unique("first_version_upload_intents_operation_unique").on(
+      t.producerId,
+      t.operationKey,
+    ),
+    trackUnique: unique("first_version_upload_intents_track_unique").on(t.trackId),
+    versionUnique: unique("first_version_upload_intents_version_unique").on(t.versionId),
+    stagingAudioKeyUnique: unique("first_version_upload_intents_staging_audio_key_unique").on(
+      t.stagingAudioR2Key,
+    ),
+    audioKeyUnique: unique("first_version_upload_intents_audio_key_unique").on(t.audioR2Key),
+    projectProducerFk: foreignKey({
+      columns: [t.projectId, t.producerId],
+      foreignColumns: [projects.id, projects.producerId],
+      name: "first_version_upload_intents_project_producer_fk",
+    }).onDelete("cascade"),
+    purchaseProjectFk: foreignKey({
+      columns: [t.purchaseId, t.projectId],
+      foreignColumns: [purchases.id, purchases.projectId],
+      name: "first_version_upload_intents_purchase_project_fk",
+    }).onDelete("cascade"),
+    purchaseProducerFk: foreignKey({
+      columns: [t.purchaseId, t.producerId],
+      foreignColumns: [purchases.id, purchases.producerId],
+      name: "first_version_upload_intents_purchase_producer_fk",
+    }).onDelete("cascade"),
+    producerStateIdx: index("first_version_upload_intents_producer_state_idx").on(
+      t.producerId,
+      t.completedAt,
+      t.canceledAt,
+      t.expiresAt,
+    ),
+    identityShape: check(
+      "first_version_upload_intents_identity_shape",
+      sql`${t.requestDigest} ~ '^sha256:[0-9a-f]{64}$' AND ${t.completionToken} ~ '^[0-9a-f]{64}$' AND NULLIF(btrim(${t.stagingAudioR2Key}), '') IS NOT NULL AND char_length(${t.stagingAudioR2Key}) <= 1024 AND NULLIF(btrim(${t.audioR2Key}), '') IS NOT NULL AND char_length(${t.audioR2Key}) <= 1024 AND ${t.stagingAudioR2Key} <> ${t.audioR2Key}`,
+    ),
+    contentShape: check(
+      "first_version_upload_intents_content_shape",
+      sql`${t.audioSizeBytes} > 0 AND ${t.audioSizeBytes} <= 524288000 AND (${t.durationMs} IS NULL OR ${t.durationMs} BETWEEN 1 AND 86400000) AND char_length(${t.title}) BETWEEN 1 AND 120 AND char_length(${t.label}) BETWEEN 1 AND 40 AND (${t.artist} IS NULL OR char_length(${t.artist}) BETWEEN 1 AND 120) AND (${t.description} IS NULL OR char_length(${t.description}) BETWEEN 1 AND 500)`,
+    ),
+    stateShape: check(
+      "first_version_upload_intents_state_shape",
+      sql`NOT (${t.canceledAt} IS NOT NULL AND ${t.completedAt} IS NOT NULL) AND ${t.expiresAt} > ${t.createdAt} AND ${t.updatedAt} >= ${t.createdAt}`,
+    ),
+  }),
+);
+export type FirstVersionUploadIntent = typeof firstVersionUploadIntents.$inferSelect;
+export type NewFirstVersionUploadIntent = typeof firstVersionUploadIntents.$inferInsert;
+
 export const purchaseAcceptances = pgTable(
   "purchase_acceptances",
   {

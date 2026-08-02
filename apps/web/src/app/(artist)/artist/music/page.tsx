@@ -15,11 +15,8 @@ import { appRouter } from "~/server/trpc/routers/_app";
 
 // Music library — Library view (L1).
 //
-// Renders the same component the producer side uses (MusicLibraryScreen)
-// in artist mode. The shared component owns all the chrome and four
-// views (Projects/Songs × Grid/Table); role="artist" hides the
-// producer-only Upload CTA and the artist filter pill, and switches
-// internal Links to /artist/music/* URLs.
+// Renders the same Song-first component the producer side uses. Project is
+// a filter, while role="artist" hides producer-only upload and edit actions.
 //
 // One row per TRACK across every project this artist is part of,
 // sorted by the newest version's upload time (newest first). Dates
@@ -44,8 +41,8 @@ export default async function MusicPage({ searchParams }: MusicPageProps) {
     allMusic || !activeStudioId ? undefined : { producerId: activeStudioId },
   );
 
-  const rows: MusicLibraryRow[] = data.projects.flatMap((project) => [
-    ...project.songs.map(
+  const rows: MusicLibraryRow[] = data.projects.flatMap((project) =>
+    project.songs.map(
       (song): MusicLibraryRow => ({
         kind: "track",
         id: song.id,
@@ -75,28 +72,14 @@ export default async function MusicPage({ searchParams }: MusicPageProps) {
         plays: song.plays,
       }),
     ),
-    ...project.emptySlots.map(
-      (slot): MusicLibraryRow => ({
-        kind: "empty-slot",
-        id: slot.id,
-        producerId: project.producerId,
-        purchaseId: slot.purchaseId,
-        slotIndex: slot.slotNumber,
-        trackTitle: slot.title,
-        projectId: project.id,
-        projectTitle: project.title,
-        projectLifecycleStatus: project.lifecycleStatus,
-        clientName: project.partnerName,
-      }),
-    ),
-  ]);
+  );
 
   const projectRows: MusicLibraryProjectRow[] = data.projects.map((project) => ({
     id: project.id,
     producerId: project.producerId,
     title: project.title,
     artistLabel: project.partnerName ?? "Producer",
-    visibleSpaceCount: project.visibleCount,
+    visibleSpaceCount: project.songs.length,
     playableTrackCount: project.songs.filter((song) => song.latestVersion?.audioUrl).length,
     projectLifecycleStatus: project.lifecycleStatus,
     latestTrackUploadedAtIso:

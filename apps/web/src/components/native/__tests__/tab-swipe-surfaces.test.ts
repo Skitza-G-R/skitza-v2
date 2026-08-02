@@ -3,7 +3,6 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const SURFACES = [
-  ["Music Projects/Songs", "../../music/library-screen.tsx"],
   ["Clients/Projects", "../../dashboard/clients-projects/workspace-list-view.tsx"],
   ["Project Songs/Studio Log", "../../dashboard/project/album-space.tsx"],
   ["Song Overview/Versions/Sessions", "../../dashboard/song/song-space.tsx"],
@@ -23,6 +22,17 @@ describe("inner-tab swipe surfaces", () => {
     expect(source).toMatch(
       /data-tab-swipe-surface[\s\S]*?\{\.\.\.(?:modeSwipeHandlers|tabSwipeHandlers|swipeHandlers)\}[\s\S]*?data-tab-swipe-panel/,
     );
+  });
+
+  it("keeps the Song-first Library out of a Projects/Songs swipe mode", () => {
+    const source = readFileSync(
+      fileURLToPath(new URL("../../music/library-screen.tsx", import.meta.url)),
+      "utf8",
+    );
+
+    expect(source).not.toContain("data-tab-swipe-surface");
+    expect(source).not.toContain("useTabSwipe");
+    expect(source).toContain('aria-label="Filter by project"');
   });
 
   it("keeps Calendar's server navigation immediate and scroll-stable", () => {

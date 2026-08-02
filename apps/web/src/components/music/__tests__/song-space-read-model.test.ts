@@ -143,15 +143,17 @@ describe("Project page purchased-space read model", () => {
   });
 });
 
-describe("honest empty UI source guards", () => {
+describe("durable Song UI source guards", () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const librarySource = readFileSync(join(here, "..", "library-screen.tsx"), "utf8");
   const projectSource = readFileSync(join(here, "..", "project-page.tsx"), "utf8");
 
-  it("marks virtual and allocated-no-audio rows and uses the configurable Add Song entry", () => {
-    expect(librarySource).toContain('data-music-row="empty-slot"');
-    expect(librarySource).toContain('"allocated-no-audio"');
-    expect(librarySource).toContain('addSongHref = "/dashboard/music?addSong=1"');
+  it("uses file-first upload entry and keeps Project as a filter", () => {
+    expect(librarySource).toContain('addSongHref = "/dashboard/music?upload=1"');
+    expect(librarySource).toContain('aria-label="Filter by project"');
+    expect(librarySource).not.toContain('aria-label="Library mode"');
+    expect(librarySource).not.toContain("<ProjectsGrid");
+    expect(librarySource).not.toContain("<ProjectsTable");
     expect(librarySource).not.toContain("/dashboard/clients-projects?action=upload");
     expect(projectSource).toContain('data-project-music-row="empty-slot"');
     expect(projectSource).toContain('"allocated-no-audio"');

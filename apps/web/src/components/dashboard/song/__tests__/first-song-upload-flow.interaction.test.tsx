@@ -1,29 +1,18 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { StrictMode, type ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocked = vi.hoisted(() => ({
-  router: {
-    push: vi.fn(),
-    replace: vi.fn(),
-    refresh: vi.fn(),
-  },
-  pathname: "/dashboard/music",
-  searchParams: new URLSearchParams(),
+  router: { refresh: vi.fn() },
   toast: vi.fn(),
-  claimSongSpaceAction: vi.fn(),
-  createNoChargeSongProposalAction: vi.fn(),
-  abortMultipartAction: vi.fn(),
+  prepareFirstVersionUploadAction: vi.fn(),
+  completeFirstVersionUploadAction: vi.fn(),
+  cancelFirstVersionUploadAction: vi.fn(),
   addTrackAction: vi.fn(),
   addVersionAction: vi.fn(),
-  completeMultipartAction: vi.fn(),
-  deleteVersionAction: vi.fn(),
-  initMultipartAction: vi.fn(),
-  setTrackStageAction: vi.fn(),
-  signPartAction: vi.fn(),
   beginManagedUpload: vi.fn(),
 }));
 
@@ -35,29 +24,10 @@ vi.mock("@radix-ui/react-dialog", () => ({
   Content: ({ children }: { children?: ReactNode }) => <section>{children}</section>,
   Title: ({ children }: { children?: ReactNode }) => <h2>{children}</h2>,
   Description: ({ children }: { children?: ReactNode }) => <p>{children}</p>,
-  Close: ({ children }: { children?: ReactNode }) => <>{children}</>,
-}));
-
-vi.mock("next/link", () => ({
-  default: ({
-    href,
-    children,
-    onClick,
-  }: {
-    href: string;
-    children?: ReactNode;
-    onClick?: () => void;
-  }) => (
-    <a href={href} onClick={onClick}>
-      {children}
-    </a>
-  ),
 }));
 
 vi.mock("next/navigation", () => ({
-  usePathname: () => mocked.pathname,
   useRouter: () => mocked.router,
-  useSearchParams: () => mocked.searchParams,
 }));
 
 vi.mock("~/components/runtime-state/online-required-link", () => ({
@@ -68,32 +38,25 @@ vi.mock("~/components/ui/toast", () => ({
   useToast: () => ({ toast: mocked.toast }),
 }));
 
-vi.mock("~/app/(producer)/dashboard/clients-projects/actions", () => ({
-  claimSongSpaceAction: mocked.claimSongSpaceAction,
-  createNoChargeSongProposalAction: mocked.createNoChargeSongProposalAction,
-}));
-
 vi.mock("~/app/(producer)/dashboard/clients-projects/upload-actions", () => ({
-  abortMultipartAction: mocked.abortMultipartAction,
+  abortMultipartAction: vi.fn(),
   addTrackAction: mocked.addTrackAction,
   addVersionAction: mocked.addVersionAction,
-  completeMultipartAction: mocked.completeMultipartAction,
-  deleteVersionAction: mocked.deleteVersionAction,
-  initMultipartAction: mocked.initMultipartAction,
-  setTrackStageAction: mocked.setTrackStageAction,
-  signPartAction: mocked.signPartAction,
+  cancelFirstVersionUploadAction: mocked.cancelFirstVersionUploadAction,
+  completeFirstVersionUploadAction: mocked.completeFirstVersionUploadAction,
+  completeMultipartAction: vi.fn(),
+  deleteVersionAction: vi.fn(),
+  initMultipartAction: vi.fn(),
+  prepareFirstVersionUploadAction: mocked.prepareFirstVersionUploadAction,
+  setTrackStageAction: vi.fn(),
+  signPartAction: vi.fn(),
 }));
 
 vi.mock("~/lib/audio/use-multipart-upload", () => ({
   cancelInitializedUploadIfRequested: vi.fn().mockResolvedValue(null),
   createUploadCancellationRequest: vi.fn(() => ({ requested: false })),
   markResumableProgress: vi.fn(),
-  markVersionCleanupRequested: vi.fn(
-    (trackVersionId: string, _createdAt: Date, accountId: string) => ({
-      trackVersionId,
-      accountId,
-    }),
-  ),
+  markVersionCleanupRequested: vi.fn(),
   persistResumableEntry: vi.fn(),
   removeResumableEntry: vi.fn(),
   removeVersionCleanupEntry: vi.fn(),
@@ -110,109 +73,28 @@ vi.mock("~/lib/audio/upload-manager", () => ({
   requireUploadRuntimeAccountId: vi.fn(() => "test-account"),
 }));
 
-vi.mock("~/components/audio/persistent-player", () => ({
-  playerPlay: vi.fn(),
-}));
+import { UploadTrackModal } from "../upload-track-modal";
 
-vi.mock("~/components/dashboard/projects/project-upload-access", () => ({
-  canCreatePurchaseOwnedProjectWork: () => true,
-}));
+const originalCreateObjectUrl = Object.getOwnPropertyDescriptor(URL, "createObjectURL");
 
-import { AddSongDialog, type AddSongProjectOption } from "../add-song-dialog";
-import { ProjectSongUploadController } from "../../project/project-song-upload-controller";
-
-const projects: readonly AddSongProjectOption[] = [
-  {
-    id: "project-first",
-    title: "First Project",
-    clientName: "Test Artist",
-    emptySlots: [
-      {
-        id: "purchase-first:1",
-        purchaseId: "purchase-first",
-        slotNumber: 1,
-        label: "Song space 1",
-      },
-    ],
-  },
-];
-
-const uploadControllerProps = {
-  projectId: "project-first",
-  actionProject: {
-    id: "project-first",
-    title: "First Project",
-    clientName: "Test Artist",
-    lifecycleStatus: "active" as const,
-    workflowStage: "brief" as const,
-    deadlineAtIso: null,
-    canDeleteEmptyDraft: false,
-  },
-  purchases: [],
-  song: {
-    id: "song-first",
-    purchaseId: "purchase-first",
-    title: "First Song",
-    archivedAtIso: null,
-    versionCount: 0,
-    publicExposure: "none" as const,
-  },
-};
-
-let originalCreateObjectUrlDescriptor: PropertyDescriptor | undefined;
+function Harness({ onClosed = vi.fn() }: { onClosed?: () => void }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <UploadTrackModal
+      open={open}
+      onClose={() => {
+        setOpen(false);
+        onClosed();
+      }}
+      mode="new-song"
+      projectId="11111111-1111-4111-8111-111111111111"
+      tracks={[]}
+    />
+  );
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
-
-  mocked.pathname = "/dashboard/music";
-  mocked.searchParams = new URLSearchParams();
-  mocked.claimSongSpaceAction.mockResolvedValue({
-    ok: true,
-    data: {
-      id: "song-first",
-      projectId: "project-first",
-      purchaseId: "purchase-first",
-      title: "First Song",
-    },
-  });
-  mocked.addTrackAction.mockResolvedValue({
-    ok: true,
-    data: {
-      id: "unexpected-track",
-      projectId: "project-first",
-      title: "Unexpected",
-    },
-  });
-  mocked.addVersionAction.mockResolvedValue({
-    ok: true,
-    data: {
-      id: "version-first",
-      trackId: "song-first",
-      label: "V1",
-    },
-  });
-  mocked.initMultipartAction.mockResolvedValue({
-    ok: true,
-    data: {
-      uploadId: "upload-first",
-      key: "test/song-first/version-first.wav",
-      completionToken: "completion-first",
-    },
-  });
-  mocked.signPartAction.mockResolvedValue({
-    ok: true,
-    data: { url: "https://upload.example.test/part/1" },
-  });
-  mocked.completeMultipartAction.mockResolvedValue({
-    ok: true,
-    data: {
-      url: "https://audio.example.test/version-first.wav",
-      key: "test/song-first/version-first.wav",
-    },
-  });
-  mocked.abortMultipartAction.mockResolvedValue({ ok: true, data: { ok: true } });
-  mocked.deleteVersionAction.mockResolvedValue({ ok: true });
-  mocked.setTrackStageAction.mockResolvedValue({ ok: true });
   mocked.beginManagedUpload.mockReturnValue({
     id: "managed-first",
     dismiss: vi.fn(),
@@ -224,165 +106,108 @@ beforeEach(() => {
     setUploading: vi.fn(),
     succeed: vi.fn(),
   });
-
+  mocked.cancelFirstVersionUploadAction.mockResolvedValue({
+    ok: true,
+    data: { ok: true, completed: false },
+  });
+  mocked.completeFirstVersionUploadAction.mockResolvedValue({
+    ok: true,
+    data: {
+      projectId: "11111111-1111-4111-8111-111111111111",
+      trackId: "22222222-2222-4222-8222-222222222222",
+      versionId: "33333333-3333-4333-8333-333333333333",
+      url: "/api/audio/versions/33333333-3333-4333-8333-333333333333",
+    },
+  });
   vi.stubGlobal(
     "fetch",
-    vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      headers: new Headers({ ETag: '"etag-first"' }),
-    }),
+    vi.fn().mockResolvedValue({ ok: true, status: 200, headers: new Headers() }),
   );
-  originalCreateObjectUrlDescriptor = Object.getOwnPropertyDescriptor(URL, "createObjectURL");
   Object.defineProperty(URL, "createObjectURL", {
     configurable: true,
-    writable: true,
     value: vi.fn(() => {
-      throw new Error("Duration probe intentionally unavailable in this test");
+      throw new Error("Duration unavailable in test");
     }),
   });
 });
 
 afterEach(() => {
   cleanup();
-  if (originalCreateObjectUrlDescriptor) {
-    Object.defineProperty(URL, "createObjectURL", originalCreateObjectUrlDescriptor);
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  if (originalCreateObjectUrl) {
+    Object.defineProperty(URL, "createObjectURL", originalCreateObjectUrl);
   } else {
     Reflect.deleteProperty(URL, "createObjectURL");
   }
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
 });
 
-describe("first song upload journey", () => {
-  it("opens the first picker, creates nothing on close, and submits the first audio as V1", async () => {
+describe("first Song upload journey", () => {
+  it("chooses the file first and never creates a Song until atomic completion", async () => {
     const user = userEvent.setup();
-    const closeAddSong = vi.fn();
+    const closedWithoutFile = vi.fn();
+    const first = render(<Harness onClosed={closedWithoutFile} />);
 
-    const view = render(
-      <StrictMode>
-        <AddSongDialog open onClose={closeAddSong} projects={projects} />
-      </StrictMode>,
-    );
-
-    await user.type(screen.getByPlaceholderText("Untitled song"), "First Song");
-    await user.click(screen.getByRole("button", { name: "Add Song" }));
-
-    const claimedHref = "/dashboard/clients-projects/project-first?song=song-first&upload=1";
-    await waitFor(() => {
-      expect(mocked.router.push).toHaveBeenCalledWith(claimedHref);
-    });
-    expect(mocked.claimSongSpaceAction).toHaveBeenCalledTimes(1);
-    expect(closeAddSong).toHaveBeenCalledTimes(1);
-    expect(mocked.router.refresh).not.toHaveBeenCalled();
-
-    const destination = new URL(claimedHref, "https://skitza.example.test");
-    destination.searchParams.set("view", "versions");
-    destination.hash = "versions";
-    window.history.replaceState(
-      null,
-      "",
-      `${destination.pathname}${destination.search}${destination.hash}`,
-    );
-    const historyReplace = vi.spyOn(window.history, "replaceState");
-    mocked.pathname = destination.pathname;
-    mocked.searchParams = destination.searchParams;
-    view.rerender(
-      <StrictMode>
-        <ProjectSongUploadController
-          key="first-arrival"
-          {...uploadControllerProps}
-          initialUploadOpen={destination.searchParams.get("upload") === "1"}
-        />
-      </StrictMode>,
-    );
-
-    const firstArrivalHeading = screen.getByRole("heading", {
-      name: "Upload new version",
-    });
-    const firstArrivalModal = firstArrivalHeading.closest("section");
-    expect(firstArrivalModal).not.toBeNull();
-    expect(screen.getByText("First Song")).not.toBeNull();
-    expect(
-      within(firstArrivalModal as HTMLElement).queryByRole("option", {
-        name: "+ New song",
-      }),
-    ).toBeNull();
-    expect(screen.getByLabelText(/^Audio file/)).toBeInstanceOf(HTMLInputElement);
-    expect(screen.getByLabelText<HTMLInputElement>(/^Version label/).value).toBe("V1");
-    const canonicalHref = `${destination.pathname}?view=versions#versions`;
-    await waitFor(() => {
-      expect(historyReplace).toHaveBeenCalledWith(null, "", canonicalHref);
-    });
-    expect(historyReplace).toHaveBeenCalledTimes(1);
-    expect(`${window.location.pathname}${window.location.search}${window.location.hash}`).toBe(
-      canonicalHref,
-    );
-    expect(mocked.router.replace).not.toHaveBeenCalled();
-    expect(mocked.router.refresh).not.toHaveBeenCalled();
-    expect(mocked.addVersionAction).not.toHaveBeenCalled();
-
+    expect(screen.getByRole("heading", { name: "Add Song" })).not.toBeNull();
+    expect(screen.getByLabelText(/^Audio file/)).not.toBeNull();
+    expect(screen.queryByLabelText(/^Song title/)).toBeNull();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByLabelText(/^Audio file/)).toBeNull();
+    expect(closedWithoutFile).toHaveBeenCalledTimes(1);
+    expect(mocked.prepareFirstVersionUploadAction).not.toHaveBeenCalled();
+    expect(mocked.addTrackAction).not.toHaveBeenCalled();
     expect(mocked.addVersionAction).not.toHaveBeenCalled();
+    first.unmount();
 
-    mocked.searchParams = new URLSearchParams("view=versions");
-    view.rerender(
-      <StrictMode>
-        <ProjectSongUploadController
-          key="canonical-reload"
-          {...uploadControllerProps}
-          initialUploadOpen={false}
-        />
-      </StrictMode>,
-    );
-    expect(screen.queryByLabelText(/^Audio file/)).toBeNull();
-    expect(screen.queryByText("Workflow")).toBeNull();
-    expect(screen.queryByRole("tablist")).toBeNull();
-    expect(historyReplace).toHaveBeenCalledTimes(1);
-    expect(mocked.router.replace).not.toHaveBeenCalled();
-    expect(mocked.router.refresh).not.toHaveBeenCalled();
-
-    mocked.searchParams = new URLSearchParams("song=song-first&upload=1");
-    view.rerender(
-      <StrictMode>
-        <ProjectSongUploadController
-          key="second-arrival"
-          {...uploadControllerProps}
-          initialUploadOpen
-        />
-      </StrictMode>,
-    );
-
-    const fileInput = screen.getByLabelText<HTMLInputElement>(/^Audio file/);
-    const labelInput = screen.getByLabelText<HTMLInputElement>(/^Version label/);
-    expect(labelInput.value).toBe("V1");
-
-    const fixture = new File([new Uint8Array([0])], "harmless-first-upload.wav", {
+    mocked.prepareFirstVersionUploadAction
+      .mockResolvedValueOnce({ ok: false, error: "Network interrupted" })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          status: "ready",
+          intentId: "44444444-4444-4444-8444-444444444444",
+          projectId: "11111111-1111-4111-8111-111111111111",
+          trackId: "22222222-2222-4222-8222-222222222222",
+          versionId: "33333333-3333-4333-8333-333333333333",
+          uploadUrl: "https://upload.example.test/first-version",
+          headers: {
+            "Content-Type": "audio/wav",
+            "x-amz-meta-skitza-upload-token": "a".repeat(64),
+          },
+          expiresInSeconds: 900,
+        },
+      });
+    const closedAfterSuccess = vi.fn();
+    render(<Harness onClosed={closedAfterSuccess} />);
+    const file = new File([new Uint8Array([0])], "first-version.wav", {
       type: "audio/wav",
     });
-    await user.upload(fileInput, fixture);
+    await user.upload(screen.getByLabelText<HTMLInputElement>(/^Audio file/), file);
+    expect(screen.getByLabelText(/^Song title/)).not.toBeNull();
+    expect(screen.queryByLabelText(/^Version label/)).toBeNull();
+    await user.type(screen.getByLabelText(/^Song title/), "First Song");
 
     await user.click(screen.getByRole("button", { name: "Upload" }));
-
     await waitFor(() => {
-      expect(mocked.completeMultipartAction).toHaveBeenCalledTimes(1);
+      expect(mocked.prepareFirstVersionUploadAction).toHaveBeenCalledTimes(1);
     });
+    expect(mocked.completeFirstVersionUploadAction).not.toHaveBeenCalled();
     expect(mocked.addTrackAction).not.toHaveBeenCalled();
-    expect(mocked.addVersionAction).toHaveBeenCalledTimes(1);
-    expect(mocked.addVersionAction).toHaveBeenCalledWith({
-      trackId: "song-first",
-      label: "V1",
-      audioUrl: null,
+    expect(mocked.addVersionAction).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Upload" }));
+    await waitFor(() => {
+      expect(mocked.completeFirstVersionUploadAction).toHaveBeenCalledTimes(1);
     });
-    expect(mocked.addVersionAction).not.toHaveBeenCalledWith(
-      expect.objectContaining({ label: "V2" }),
-    );
-    expect(mocked.completeMultipartAction).toHaveBeenCalledWith(
+    expect(mocked.prepareFirstVersionUploadAction).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        trackVersionId: "version-first",
-        uploadId: "upload-first",
+        projectId: "11111111-1111-4111-8111-111111111111",
+        title: "First Song",
+        label: "V1",
+        filename: "first-version.wav",
       }),
     );
+    expect(mocked.addTrackAction).not.toHaveBeenCalled();
+    expect(mocked.addVersionAction).not.toHaveBeenCalled();
+    expect(closedAfterSuccess).toHaveBeenCalledTimes(1);
   });
 });

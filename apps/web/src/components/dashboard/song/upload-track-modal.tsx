@@ -15,15 +15,18 @@ import {
 } from "react";
 
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
+import { Select } from "~/components/ui/input";
 import { useToast } from "~/components/ui/toast";
 import { WORKFLOW_STAGES, type WorkflowStage } from "~/lib/clients/workflow-stage";
 import {
   abortMultipartAction,
-  addTrackAction,
   addVersionAction,
+  cancelFirstVersionUploadAction,
+  completeFirstVersionUploadAction,
   completeMultipartAction,
   deleteVersionAction,
   initMultipartAction,
+  prepareFirstVersionUploadAction,
   setTrackStageAction,
   signPartAction,
 } from "~/app/(producer)/dashboard/clients-projects/upload-actions";
@@ -50,32 +53,9 @@ import {
   type ManagedUploadHandle,
 } from "~/lib/audio/upload-manager";
 
-// UploadTrackModal — single modal that serves all 3 upload entry points
-// (Album Songs tab "+ Add song", Song Space hero "Upload new version",
-// Versions-tab AddVersionDropZone). DESIGN.md §6.4, BUILD-NOTES §7.3.
-//
-// Architecture decisions:
-//   - Form fields: song picker / version label / stage (optional) /
-//     description (optional) / file drop zone.
-//   - Submit orchestrates the chain client-side: addTrack? -> addVersion
-//     (audioUrl=null) -> initMultipart -> signPart×N -> chunked PUT to R2
-//     -> completeMultipart -> setTrackStage (optional).
-//   - 5MB chunks. signPart fires per-chunk; chunk PUT goes through
-//     window.fetch (NOT a Server Action — chunked PUT must happen in
-//     the browser to keep the body on the user's connection).
-//   - Server Actions only. No client-side tRPC. Mirrors invite-modal /
-//     new-client-modal precedent.
-//   - On close mid-upload, fire abortMultipartAction to reclaim R2.
-//
-// Three modes selected by the parent:
-//   - "new-song"    — "+ Add song" entry. Song picker shows "+ New song"
-//                     plus any existing tracks; description applies to
-//                     the new version.
-//   - "new-version" — Song Space + drop-zone entries. trackId pre-locked
-//                     so the song picker renders as plain text.
-//
-// Mode "new-version" without a trackId is invalid; the modal asserts
-// at runtime by hiding the song picker and disabling submit.
+// One file-first surface serves all contextual entry points. New Songs use
+// a temporary intent and become durable only when Song + V1 commit together;
+// existing Songs retain the hardened multipart Version path.
 
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
 const NEW_SONG_VALUE = "__new__";
@@ -112,18 +92,29 @@ export interface UploadTrackModalTrack {
   publicExposure?: "none" | "link" | "portfolio" | "link_and_portfolio";
 }
 
+export interface UploadTrackModalProject {
+  id: string;
+  title: string;
+  clientName?: string | null;
+  tracks: UploadTrackModalTrack[];
+}
+
+const EMPTY_TRACKS: UploadTrackModalTrack[] = [];
+const EMPTY_PROJECTS: UploadTrackModalProject[] = [];
+
 export interface UploadTrackModalProps {
   open: boolean;
   onClose: () => void;
-  projectId: string;
-  /** Exact active purchase selected by the owned project read model. */
+  projectId?: string;
+  /** Legacy caller compatibility; V1 destination binding is now resolved server-side. */
   purchaseId?: string | null;
-  mode: "new-song" | "new-version";
+  mode: "library" | "new-song" | "new-version";
   /** Pre-selected when mode === "new-version". Required for that mode. */
   trackId?: string;
   /** Pre-populated version label (e.g. "V4"). Falls back to V{versionCount+1}. */
   defaultLabel?: string;
-  tracks: UploadTrackModalTrack[];
+  tracks?: UploadTrackModalTrack[];
+  projects?: UploadTrackModalProject[];
   /** Fired after the upload chain finishes — parent can refresh. */
   onCreated?: () => void;
 }
@@ -132,11 +123,11 @@ export function UploadTrackModal({
   open,
   onClose,
   projectId,
-  purchaseId,
   mode,
   trackId,
   defaultLabel,
-  tracks,
+  tracks = EMPTY_TRACKS,
+  projects = EMPTY_PROJECTS,
   onCreated,
 }: UploadTrackModalProps) {
   const { toast } = useToast();
@@ -145,9 +136,12 @@ export function UploadTrackModal({
   const [pending, startTransition] = useTransition();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // ─── Form state ────────────────────────────────────────────────────
-  // Song picker: in new-song mode, default to NEW_SONG_VALUE; in
-  // new-version mode, the trackId locks the picker (no dropdown).
+  // Destination details stay hidden until the producer chooses a file.
+  const initialProjectId =
+    mode !== "library" || (projectId && projects.some((project) => project.id === projectId))
+      ? (projectId ?? projects[0]?.id ?? "")
+      : (projects[0]?.id ?? "");
+  const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId);
   const initialPick = mode === "new-version" && trackId ? trackId : NEW_SONG_VALUE;
   const [selectedTrackId, setSelectedTrackId] = useState<string>(initialPick);
   const [newSongName, setNewSongName] = useState("");
@@ -158,39 +152,26 @@ export function UploadTrackModal({
   const [isDragging, setIsDragging] = useState(false);
   const [progress, setProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [allocatedNewTrackId, setAllocatedNewTrackId] = useState<string | null>(null);
-  const [allocatedNewTrackTitle, setAllocatedNewTrackTitle] = useState<string | null>(null);
 
   // Active upload state — kept in a ref so the abort handler reads the
   // freshest value even if the user closes mid-upload before React
   // commits a re-render. The ref also lets us detect "in flight" for
   // the Cancel button's destructive label.
   const activeUploadRef = useRef<ActiveMultipartUpload | null>(null);
+  const activeFirstVersionIntentRef = useRef<string | null>(null);
   const activeCancellationRef = useRef<UploadCancellationRequest | null>(null);
   const activePutAbortRef = useRef<AbortController | null>(null);
   const managedUploadRef = useRef<ManagedUploadHandle | null>(null);
-  // A new-song submit allocates its purchased song space before the
-  // version and audio steps begin. Keep that exact track for retries in
-  // this modal session so a later failure cannot consume another space.
-  const allocatedNewTrackIdRef = useRef<string | null>(null);
-  const songSpaceOperationKeyRef = useRef("");
+  const firstVersionOperationKeyRef = useRef("");
 
   useEffect(() => startMultipartCancellationRecovery(), []);
-
-  useEffect(() => {
-    if (!open) {
-      allocatedNewTrackIdRef.current = null;
-      songSpaceOperationKeyRef.current = "";
-      setAllocatedNewTrackId(null);
-      setAllocatedNewTrackTitle(null);
-    }
-  }, [open]);
 
   // Reset every time the modal opens. Carrying state across open/close
   // is confusing — same precedent as new-client-modal.
   useEffect(() => {
     if (!open) return;
     const startPick = mode === "new-version" && trackId ? trackId : NEW_SONG_VALUE;
+    setSelectedProjectId(initialProjectId);
     setSelectedTrackId(startPick);
     setNewSongName("");
     setLabel(defaultLabel ?? deriveNextLabel(tracks, startPick));
@@ -200,10 +181,10 @@ export function UploadTrackModal({
     setProgress(0);
     setUploadError(null);
     setIsDragging(false);
-    setAllocatedNewTrackTitle(null);
     activeUploadRef.current = null;
-    songSpaceOperationKeyRef.current = crypto.randomUUID();
-  }, [open, mode, trackId, defaultLabel, tracks]);
+    activeFirstVersionIntentRef.current = null;
+    firstVersionOperationKeyRef.current = crypto.randomUUID();
+  }, [open, mode, trackId, initialProjectId, defaultLabel, tracks, projects]);
 
   useEffect(() => {
     if (online) {
@@ -211,13 +192,21 @@ export function UploadTrackModal({
     }
   }, [online]);
 
+  const destinationTracks = useMemo(
+    () =>
+      mode === "library"
+        ? (projects.find((candidate) => candidate.id === selectedProjectId)?.tracks ?? [])
+        : tracks,
+    [mode, projects, selectedProjectId, tracks],
+  );
+
   // When the user picks a different existing track, auto-bump the
   // default label to V{N+1} for that track. We only do this if the
   // label is still "factory default" (empty or last derived) — once
   // the producer typed their own, we leave it alone.
   const derivedLabel = useMemo(
-    () => deriveNextLabel(tracks, selectedTrackId),
-    [tracks, selectedTrackId],
+    () => deriveNextLabel(destinationTracks, selectedTrackId),
+    [destinationTracks, selectedTrackId],
   );
   const [labelTouched, setLabelTouched] = useState(false);
   useEffect(() => {
@@ -226,22 +215,29 @@ export function UploadTrackModal({
     }
   }, [derivedLabel, defaultLabel, labelTouched]);
 
-  const isNewSong = selectedTrackId === NEW_SONG_VALUE;
+  const isNewSong = mode === "new-song" || selectedTrackId === NEW_SONG_VALUE;
   const selectedPublicExposure =
-    tracks.find((track) => track.id === selectedTrackId)?.publicExposure ?? "none";
+    destinationTracks.find((track) => track.id === selectedTrackId)?.publicExposure ?? "none";
   const needsSongName = isNewSong && newSongName.trim().length === 0;
   const visibleUploadError = !online ? OFFLINE_UPLOAD_MESSAGE : uploadError;
   const submitDisabled =
     pending ||
     !online ||
     !file ||
-    label.trim().length === 0 ||
+    (!isNewSong && label.trim().length === 0) ||
     needsSongName ||
-    (isNewSong && !purchaseId && !allocatedNewTrackId) ||
+    !selectedProjectId ||
     (mode === "new-version" && !trackId);
 
   // ─── File handlers ─────────────────────────────────────────────────
   const handleFilePick = (f: File | null) => {
+    if (pending) return;
+    const previousIntentId = activeFirstVersionIntentRef.current;
+    if (previousIntentId) {
+      activeFirstVersionIntentRef.current = null;
+      void cancelFirstVersionUploadAction({ intentId: previousIntentId });
+      firstVersionOperationKeyRef.current = crypto.randomUUID();
+    }
     if (!f) {
       setFile(null);
       return;
@@ -275,14 +271,20 @@ export function UploadTrackModal({
   }
 
   const handleClose = () => {
-    allocatedNewTrackIdRef.current = null;
-    setAllocatedNewTrackId(null);
     const cancellation = activeCancellationRef.current;
     if (cancellation) requestUploadCancellation(cancellation);
     activePutAbortRef.current?.abort();
     const managed = managedUploadRef.current;
     if (managed) {
       void cancelManagedUpload(managed.id);
+    }
+    const firstVersionIntentId = activeFirstVersionIntentRef.current;
+    if (firstVersionIntentId) {
+      void cancelFirstVersionUploadAction({ intentId: firstVersionIntentId }).finally(() => {
+        if (activeFirstVersionIntentRef.current === firstVersionIntentId) {
+          activeFirstVersionIntentRef.current = null;
+        }
+      });
     }
     // Publish and reconcile an exact cancellation. Keep the identity in
     // the ref until that finishes so any upload failure can safely await
@@ -316,7 +318,138 @@ export function UploadTrackModal({
     startUpload(submittedFile);
   };
 
+  function finishSuccessfulUpload(managed: ManagedUploadHandle) {
+    managed.succeed();
+    toast("Upload complete", "success");
+    onCreated?.();
+    router.refresh();
+    onClose();
+  }
+
+  function startFirstVersionUpload(submittedFile: File) {
+    if (blockOfflineUpload()) return;
+    setUploadError(null);
+    const cancellation = createUploadCancellationRequest();
+    activeCancellationRef.current = cancellation;
+    const putAbort = new AbortController();
+    activePutAbortRef.current = putAbort;
+    const managed = beginManagedUpload({
+      fileName: submittedFile.name,
+      label: mode === "library" ? "Upload audio" : "Add Song",
+    });
+    managedUploadRef.current = managed;
+    let finishOperation: () => void = () => {};
+    const operationFinished = new Promise<void>((resolve) => {
+      finishOperation = resolve;
+    });
+    managed.setCancel(async () => {
+      requestUploadCancellation(cancellation);
+      putAbort.abort();
+      await operationFinished;
+      return { ok: activeFirstVersionIntentRef.current === null };
+    });
+    managed.setRetry(() => {
+      if (blockOfflineUpload()) return Promise.reject(new Error(OFFLINE_UPLOAD_MESSAGE));
+      managed.dismiss();
+      startFirstVersionUpload(submittedFile);
+      return Promise.resolve();
+    });
+
+    startTransition(async () => {
+      setProgress(0);
+      managed.setPreparing();
+      try {
+        let durationMs: number | undefined;
+        try {
+          durationMs = await getDurationMs(submittedFile);
+        } catch {
+          // Duration is decorative; the upload remains valid without it.
+        }
+        const trimmedDescription = description.trim();
+        const prepared = await prepareFirstVersionUploadAction({
+          operationKey: firstVersionOperationKeyRef.current,
+          projectId: selectedProjectId,
+          title: newSongName.trim(),
+          label: "V1",
+          ...(trimmedDescription ? { description: trimmedDescription } : {}),
+          filename: submittedFile.name,
+          sizeBytes: submittedFile.size,
+          contentType: audioContentType(submittedFile),
+          ...(durationMs ? { durationMs } : {}),
+        });
+        if (!prepared.ok) throw new Error(prepared.error);
+        if (prepared.data.status === "completed") {
+          activeFirstVersionIntentRef.current = null;
+          finishSuccessfulUpload(managed);
+          return;
+        }
+
+        const intentId = prepared.data.intentId;
+        activeFirstVersionIntentRef.current = intentId;
+        if (uploadCancellationRequested(cancellation)) {
+          await cancelFirstVersionUploadAction({ intentId });
+          activeFirstVersionIntentRef.current = null;
+          throw new Error("Upload stopped.");
+        }
+
+        setProgress(8);
+        managed.setUploading(8);
+        const putResponse = await fetch(prepared.data.uploadUrl, {
+          method: "PUT",
+          body: submittedFile,
+          headers: prepared.data.headers,
+          signal: putAbort.signal,
+        });
+        if (!putResponse.ok) {
+          throw new Error(`Audio upload failed: ${String(putResponse.status)}`);
+        }
+        if (uploadCancellationRequested(cancellation)) {
+          await cancelFirstVersionUploadAction({ intentId });
+          activeFirstVersionIntentRef.current = null;
+          throw new Error("Upload stopped.");
+        }
+        setProgress(90);
+        managed.setUploading(90);
+        managed.setCompleting();
+        const completed = await completeFirstVersionUploadAction({ intentId });
+        if (!completed.ok) throw new Error(completed.error);
+        activeFirstVersionIntentRef.current = null;
+        if (stage !== "no-change") {
+          const stageResult = await setTrackStageAction({
+            trackId: completed.data.trackId,
+            workflowStage: stage,
+          });
+          if (!stageResult.ok) {
+            toast(`Uploaded — but stage didn't update: ${stageResult.error}`, "error");
+          }
+        }
+        setProgress(100);
+        finishSuccessfulUpload(managed);
+      } catch (error) {
+        const intentId = activeFirstVersionIntentRef.current;
+        if (intentId && uploadCancellationRequested(cancellation)) {
+          await cancelFirstVersionUploadAction({ intentId });
+          activeFirstVersionIntentRef.current = null;
+        }
+        const message = error instanceof Error ? error.message : "Upload failed. Please retry.";
+        toast(message, "error");
+        setUploadError(message);
+        setProgress(0);
+        managed.fail(message);
+      } finally {
+        finishOperation();
+        if (activeCancellationRef.current === cancellation) activeCancellationRef.current = null;
+        if (activePutAbortRef.current === putAbort) activePutAbortRef.current = null;
+        if (managedUploadRef.current === managed) managedUploadRef.current = null;
+      }
+    });
+  }
+
   function startUpload(submittedFile: File) {
+    if (isNewSong) {
+      startFirstVersionUpload(submittedFile);
+      return;
+    }
     if (blockOfflineUpload()) return;
     setUploadError(null);
     const uploadAccountId = requireUploadRuntimeAccountId();
@@ -358,31 +491,7 @@ export function UploadTrackModal({
       let createdVersionId: string | null = null;
       let versionCleanup: ReturnType<typeof markVersionCleanupRequested> | null = null;
       try {
-        // 1. Resolve trackId — create a new project_tracks row if the
-        //    producer picked "+ New song", else use the existing id.
-        const retainedTrackId = allocatedNewTrackIdRef.current;
-        let resolvedTrackId = retainedTrackId ?? selectedTrackId;
-        if (!retainedTrackId && isNewSong) {
-          if (!purchaseId) {
-            throw new Error("No active purchase has an available song space.");
-          }
-          const res = await addTrackAction({
-            projectId,
-            purchaseId,
-            operationKey: songSpaceOperationKeyRef.current,
-            title: newSongName.trim(),
-          });
-          if (!res.ok) throw new Error(res.error);
-          // Closing while allocation was in flight ends the modal
-          // session. Do not repopulate its retry identity afterward.
-          if (uploadCancellationRequested(cancellation)) {
-            throw new Error("Upload stopped.");
-          }
-          allocatedNewTrackIdRef.current = res.data.id;
-          setAllocatedNewTrackId(res.data.id);
-          setAllocatedNewTrackTitle(res.data.title);
-          resolvedTrackId = res.data.id;
-        }
+        const resolvedTrackId = selectedTrackId;
 
         // 2. Create the track_versions row with audioUrl=null. The R2
         //    completion step patches this same row once parts upload.
@@ -521,13 +630,7 @@ export function UploadTrackModal({
 
         // Clear the orphan-cleanup handle — the row is now legitimate.
         createdVersionId = null;
-        allocatedNewTrackIdRef.current = null;
-        setAllocatedNewTrackId(null);
-        setAllocatedNewTrackTitle(null);
-        toast("Upload complete", "success");
-        onCreated?.();
-        router.refresh();
-        onClose();
+        finishSuccessfulUpload(managed);
       } catch (err) {
         // A pending multipart identity must be durably cancelled and
         // reconciled before its placeholder can be deleted. If cancel
@@ -588,20 +691,26 @@ export function UploadTrackModal({
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[rgb(17_16_9/0.42)] backdrop-blur-[3px]" />
         <DialogPrimitive.Content
           aria-describedby="upload-track-modal-body"
-          className="sk-sheet-mobile fixed top-1/2 left-1/2 z-50 max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[520px] overflow-y-auto rounded-[18px] bg-[rgb(var(--bg-background))] p-5 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)] md:-translate-x-1/2 md:-translate-y-1/2"
+          className="sk-sheet-mobile fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[520px] flex-col overflow-hidden rounded-[18px] bg-[rgb(var(--bg-background))] p-0 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)] md:-translate-x-1/2 md:-translate-y-1/2"
         >
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex shrink-0 items-start justify-between gap-3 px-5 pt-5">
             <div className="min-w-0 flex-1">
               <DialogPrimitive.Title className="font-display text-[17px] font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
-                {mode === "new-version" ? "Upload new version" : "Add song"}
+                {mode === "library"
+                  ? "Upload audio"
+                  : mode === "new-version"
+                    ? "Upload new Version"
+                    : "Add Song"}
               </DialogPrimitive.Title>
               <DialogPrimitive.Description
                 id="upload-track-modal-body"
                 className="mt-1 text-[13px] leading-snug text-[rgb(var(--fg-muted))]"
               >
-                {mode === "new-version"
-                  ? "Send a new mix for review."
-                  : "Upload an audio file and we'll notify the artist."}
+                {mode === "library"
+                  ? "Choose a file first, then where it belongs."
+                  : mode === "new-version"
+                    ? "Add the next audio file to this Song."
+                    : "Choose the first audio file for this Song."}
               </DialogPrimitive.Description>
             </div>
             <button
@@ -618,265 +727,331 @@ export function UploadTrackModal({
             </button>
           </div>
 
-          <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3">
-            {/* ─── Song picker ─────────────────────────────────── */}
-            {mode === "new-version" && trackId ? (
-              <div>
-                <FieldLabel htmlFor="upload-track-song-locked">Song</FieldLabel>
-                <p
-                  id="upload-track-song-locked"
-                  className="mt-1 truncate rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))]"
-                  style={{ borderColor: "rgb(var(--border-subtle))" }}
-                >
-                  {lockedSongTitle}
-                </p>
-              </div>
-            ) : allocatedNewTrackId ? (
-              <div>
-                <FieldLabel htmlFor="upload-track-song-allocated">Song</FieldLabel>
-                <p
-                  id="upload-track-song-allocated"
-                  className="mt-1 truncate rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))]"
-                  style={{ borderColor: "rgb(var(--border-subtle))" }}
-                >
-                  {allocatedNewTrackTitle ?? newSongName}
-                </p>
-                <p className="mt-1 text-[11.5px] text-[rgb(var(--fg-muted))]">
-                  This purchased song space is allocated. Retry the upload for this song.
-                </p>
-              </div>
-            ) : (
-              <div>
-                <FieldLabel htmlFor="upload-track-song">Song</FieldLabel>
-                <select
-                  id="upload-track-song"
-                  value={selectedTrackId}
-                  disabled={pending}
-                  onChange={(e) => {
-                    setSelectedTrackId(e.target.value);
-                    setLabelTouched(false);
-                  }}
-                  className="mt-1 w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
-                  style={{ borderColor: "rgb(var(--border-subtle))" }}
-                >
-                  {tracks.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.title}
-                    </option>
-                  ))}
-                  <option value={NEW_SONG_VALUE}>+ New song</option>
-                </select>
-                {isNewSong ? (
-                  <input
-                    id="upload-track-new-song-name"
-                    type="text"
-                    required
-                    autoFocus
-                    value={newSongName}
-                    disabled={pending}
-                    maxLength={120}
-                    onChange={(e) => {
-                      setNewSongName(e.target.value);
+          <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pt-4 pb-4">
+              <div className="flex flex-col gap-3">
+                {/* The file always comes first. Destination details appear only afterward. */}
+                <div>
+                  <FieldLabel htmlFor="upload-track-file" required>
+                    Audio file
+                  </FieldLabel>
+                  <div
+                    role="button"
+                    aria-disabled={pending}
+                    tabIndex={pending ? -1 : 0}
+                    onClick={() => {
+                      if (!pending) fileInputRef.current?.click();
                     }}
-                    placeholder="New song title"
-                    className="mt-2 w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
-                    style={{ borderColor: "rgb(var(--border-subtle))" }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        fileInputRef.current?.click();
+                      }
+                    }}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      setIsDragging(true);
+                    }}
+                    onDragLeave={() => {
+                      setIsDragging(false);
+                    }}
+                    onDrop={handleDrop}
+                    className="mt-1 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[12px] border border-dashed px-4 py-5 text-center transition-colors hover:bg-[rgb(17_16_9/0.04)]"
+                    style={{
+                      borderColor: isDragging
+                        ? "rgb(var(--brand-primary))"
+                        : "rgb(var(--brand-primary)/0.40)",
+                      background: isDragging
+                        ? "rgb(var(--brand-primary)/0.10)"
+                        : "rgb(var(--brand-primary)/0.04)",
+                    }}
+                  >
+                    <UploadCloud
+                      size={22}
+                      strokeWidth={1.8}
+                      aria-hidden
+                      className="text-[rgb(var(--brand-primary))]"
+                    />
+                    {file ? (
+                      <div className="max-w-full min-w-0">
+                        <p className="truncate text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+                          {file.name}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-[rgb(var(--fg-muted))]">
+                          {formatBytes(file.size)} · Click to replace
+                        </p>
+                      </div>
+                    ) : (
+                      <div>
+                        <p className="text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+                          Drop WAV / MP3 here
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-[rgb(var(--fg-muted))]">
+                          or click to browse
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  <input
+                    ref={fileInputRef}
+                    id="upload-track-file"
+                    type="file"
+                    accept="audio/*,.mp3,.m4a,.wav,.flac,.aif,.aiff"
+                    disabled={pending}
+                    onChange={handleFileInputChange}
+                    className="sr-only"
                   />
+                </div>
+
+                {file ? (
+                  <>
+                    {mode === "library" ? (
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <FieldLabel
+                            htmlFor={
+                              projects.length === 0
+                                ? "upload-track-project-empty"
+                                : "upload-track-project"
+                            }
+                            required
+                          >
+                            Project
+                          </FieldLabel>
+                          {projects.length === 0 ? (
+                            <p
+                              id="upload-track-project-empty"
+                              className="mt-1 min-h-10 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[13px] text-[rgb(var(--fg-muted))]"
+                            >
+                              No active Projects
+                            </p>
+                          ) : (
+                            <Select
+                              id="upload-track-project"
+                              aria-label="Project"
+                              value={selectedProjectId}
+                              disabled={pending}
+                              onChange={(event) => {
+                                setSelectedProjectId(event.target.value);
+                                setSelectedTrackId(NEW_SONG_VALUE);
+                                setLabelTouched(false);
+                              }}
+                              className="mt-1"
+                            >
+                              {projects.map((candidate) => (
+                                <option key={candidate.id} value={candidate.id}>
+                                  {candidate.title}
+                                  {candidate.clientName ? ` · ${candidate.clientName}` : ""}
+                                </option>
+                              ))}
+                            </Select>
+                          )}
+                        </div>
+                        <div>
+                          <FieldLabel
+                            htmlFor={
+                              destinationTracks.length === 0
+                                ? "upload-track-destination-locked"
+                                : "upload-track-song"
+                            }
+                            required
+                          >
+                            Destination
+                          </FieldLabel>
+                          {destinationTracks.length === 0 ? (
+                            <p
+                              id="upload-track-destination-locked"
+                              className="mt-1 min-h-10 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[13px] font-medium text-[rgb(var(--fg-default))]"
+                            >
+                              New Song
+                            </p>
+                          ) : (
+                            <Select
+                              id="upload-track-song"
+                              value={selectedTrackId}
+                              disabled={pending}
+                              onChange={(event) => {
+                                setSelectedTrackId(event.target.value);
+                                setLabelTouched(false);
+                              }}
+                              className="mt-1"
+                            >
+                              <option value={NEW_SONG_VALUE}>New Song</option>
+                              {destinationTracks.map((candidate) => (
+                                <option key={candidate.id} value={candidate.id}>
+                                  New Version — {candidate.title}
+                                </option>
+                              ))}
+                            </Select>
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {mode === "new-version" && trackId ? (
+                      <div>
+                        <FieldLabel htmlFor="upload-track-song-locked">Song</FieldLabel>
+                        <p
+                          id="upload-track-song-locked"
+                          className="mt-1 truncate rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))]"
+                          style={{ borderColor: "rgb(var(--border-subtle))" }}
+                        >
+                          {lockedSongTitle}
+                        </p>
+                      </div>
+                    ) : isNewSong ? (
+                      <div>
+                        <FieldLabel htmlFor="upload-track-new-song-name" required>
+                          Song title
+                        </FieldLabel>
+                        <input
+                          id="upload-track-new-song-name"
+                          type="text"
+                          required
+                          autoFocus
+                          value={newSongName}
+                          disabled={pending}
+                          maxLength={120}
+                          onChange={(event) => {
+                            setNewSongName(event.target.value);
+                          }}
+                          placeholder="Name this Song"
+                          className="mt-1 w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
+                          style={{ borderColor: "rgb(var(--border-subtle))" }}
+                        />
+                      </div>
+                    ) : null}
+
+                    {selectedPublicExposure !== "none" ? (
+                      <div
+                        role="status"
+                        className="rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.3)] bg-[rgb(var(--brand-primary)/0.1)] px-3.5 py-3 text-[12.5px] leading-relaxed text-[rgb(var(--fg-default))]"
+                      >
+                        <span className="font-semibold">This song is public.</span> When this upload
+                        finishes, the new version will appear on its
+                        {selectedPublicExposure === "link"
+                          ? " public link"
+                          : selectedPublicExposure === "portfolio"
+                            ? " portfolio"
+                            : " public link and portfolio"}{" "}
+                        automatically.
+                      </div>
+                    ) : null}
+
+                    {/* ─── Version label ──────────────────────────────── */}
+                    {!isNewSong ? (
+                      <div>
+                        <FieldLabel htmlFor="upload-track-label" required>
+                          Version label
+                        </FieldLabel>
+                        <input
+                          id="upload-track-label"
+                          type="text"
+                          required
+                          value={label}
+                          maxLength={40}
+                          onChange={(e) => {
+                            setLabel(e.target.value);
+                            setLabelTouched(true);
+                          }}
+                          placeholder="V2 / Mix / Master"
+                          className="mt-1 w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
+                          style={{ borderColor: "rgb(var(--border-subtle))" }}
+                        />
+                      </div>
+                    ) : null}
+
+                    <details className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">
+                      <summary className="cursor-pointer px-3 py-2.5 text-[12px] font-semibold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.6)] focus-visible:outline-none focus-visible:ring-inset">
+                        Stage and notes (optional)
+                      </summary>
+                      <div className="grid gap-3 border-t border-[rgb(var(--border-subtle))] p-3">
+                        <div>
+                          <FieldLabel htmlFor="upload-track-stage">Advance to stage</FieldLabel>
+                          <select
+                            id="upload-track-stage"
+                            value={stage}
+                            onChange={(e) => {
+                              setStage(e.target.value as "no-change" | WorkflowStage);
+                            }}
+                            className="mt-1 w-full rounded-[10px] border bg-[rgb(var(--bg-background))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
+                            style={{ borderColor: "rgb(var(--border-subtle))" }}
+                          >
+                            <option value="no-change">No change</option>
+                            {WORKFLOW_STAGES.map((s) => (
+                              <option key={s.key} value={s.key}>
+                                {s.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <FieldLabel htmlFor="upload-track-description">
+                            Notes for artist
+                          </FieldLabel>
+                          <textarea
+                            id="upload-track-description"
+                            value={description}
+                            rows={2}
+                            maxLength={500}
+                            onChange={(e) => {
+                              setDescription(e.target.value);
+                            }}
+                            placeholder="What changed in this version?"
+                            className="mt-1 w-full resize-y rounded-[10px] border bg-[rgb(var(--bg-background))] px-3 py-2 text-[14px] leading-snug text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
+                            style={{ borderColor: "rgb(var(--border-subtle))" }}
+                          />
+                        </div>
+                      </div>
+                    </details>
+                  </>
+                ) : null}
+
+                {/* ─── Progress bar ───────────────────────────────── */}
+                {pending ? (
+                  <div>
+                    <div
+                      className="h-1.5 w-full overflow-hidden rounded-full"
+                      style={{ background: "rgb(17_16_9/0.08)" }}
+                      role="progressbar"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={progress}
+                    >
+                      <div
+                        className="h-full transition-[width]"
+                        style={{
+                          width: `${String(progress)}%`,
+                          background: "rgb(var(--brand-primary))",
+                        }}
+                      />
+                    </div>
+                    <p className="mt-1 text-[11px] text-[rgb(var(--fg-muted))]">
+                      Uploading… {progress}%
+                    </p>
+                  </div>
+                ) : null}
+
+                {file && projects.length === 0 && mode === "library" ? (
+                  <p role="alert" className="text-sm text-[rgb(var(--fg-danger))]">
+                    Create or activate a Project before uploading audio.
+                  </p>
+                ) : null}
+
+                {visibleUploadError ? (
+                  <p
+                    id="upload-track-error"
+                    role="alert"
+                    className="text-sm text-[rgb(var(--fg-danger))]"
+                  >
+                    {visibleUploadError}
+                  </p>
                 ) : null}
               </div>
-            )}
-
-            {selectedPublicExposure !== "none" ? (
-              <div
-                role="status"
-                className="rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.3)] bg-[rgb(var(--brand-primary)/0.1)] px-3.5 py-3 text-[12.5px] leading-relaxed text-[rgb(var(--fg-default))]"
-              >
-                <span className="font-semibold">This song is public.</span> When this upload
-                finishes, the new version will appear on its
-                {selectedPublicExposure === "link"
-                  ? " public link"
-                  : selectedPublicExposure === "portfolio"
-                    ? " portfolio"
-                    : " public link and portfolio"}{" "}
-                automatically.
-              </div>
-            ) : null}
-
-            {/* ─── Version label ──────────────────────────────── */}
-            <div>
-              <FieldLabel htmlFor="upload-track-label" required>
-                Version label
-              </FieldLabel>
-              <input
-                id="upload-track-label"
-                type="text"
-                required
-                value={label}
-                maxLength={40}
-                onChange={(e) => {
-                  setLabel(e.target.value);
-                  setLabelTouched(true);
-                }}
-                placeholder="V2 / Mix / Master"
-                className="mt-1 w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
-                style={{ borderColor: "rgb(var(--border-subtle))" }}
-              />
             </div>
-
-            <details className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">
-              <summary className="cursor-pointer px-3 py-2.5 text-[12px] font-semibold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.6)] focus-visible:outline-none focus-visible:ring-inset">
-                Stage and notes (optional)
-              </summary>
-              <div className="grid gap-3 border-t border-[rgb(var(--border-subtle))] p-3">
-                <div>
-                  <FieldLabel htmlFor="upload-track-stage">Advance to stage</FieldLabel>
-                  <select
-                    id="upload-track-stage"
-                    value={stage}
-                    onChange={(e) => {
-                      setStage(e.target.value as "no-change" | WorkflowStage);
-                    }}
-                    className="mt-1 w-full rounded-[10px] border bg-[rgb(var(--bg-background))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
-                    style={{ borderColor: "rgb(var(--border-subtle))" }}
-                  >
-                    <option value="no-change">No change</option>
-                    {WORKFLOW_STAGES.map((s) => (
-                      <option key={s.key} value={s.key}>
-                        {s.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <FieldLabel htmlFor="upload-track-description">Notes for artist</FieldLabel>
-                  <textarea
-                    id="upload-track-description"
-                    value={description}
-                    rows={2}
-                    maxLength={500}
-                    onChange={(e) => {
-                      setDescription(e.target.value);
-                    }}
-                    placeholder="What changed in this version?"
-                    className="mt-1 w-full resize-y rounded-[10px] border bg-[rgb(var(--bg-background))] px-3 py-2 text-[14px] leading-snug text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
-                    style={{ borderColor: "rgb(var(--border-subtle))" }}
-                  />
-                </div>
-              </div>
-            </details>
-
-            {/* ─── File drop zone ─────────────────────────────── */}
-            <div>
-              <FieldLabel htmlFor="upload-track-file" required>
-                Audio file
-              </FieldLabel>
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => fileInputRef.current?.click()}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    fileInputRef.current?.click();
-                  }
-                }}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setIsDragging(true);
-                }}
-                onDragLeave={() => {
-                  setIsDragging(false);
-                }}
-                onDrop={handleDrop}
-                className="mt-1 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[12px] border border-dashed px-4 py-4 text-center transition-colors hover:bg-[rgb(17_16_9/0.04)]"
-                style={{
-                  borderColor: isDragging
-                    ? "rgb(var(--brand-primary))"
-                    : "rgb(var(--brand-primary)/0.40)",
-                  background: isDragging
-                    ? "rgb(var(--brand-primary)/0.10)"
-                    : "rgb(var(--brand-primary)/0.04)",
-                }}
-              >
-                <UploadCloud
-                  size={22}
-                  strokeWidth={1.8}
-                  aria-hidden
-                  className="text-[rgb(var(--brand-primary))]"
-                />
-                {file ? (
-                  <div className="min-w-0">
-                    <p className="truncate text-[13px] font-semibold text-[rgb(var(--fg-default))]">
-                      {file.name}
-                    </p>
-                    <p className="mt-0.5 text-[11px] text-[rgb(var(--fg-muted))]">
-                      {formatBytes(file.size)}
-                    </p>
-                  </div>
-                ) : (
-                  <div>
-                    <p className="text-[13px] font-semibold text-[rgb(var(--fg-default))]">
-                      Drop WAV / MP3 here
-                    </p>
-                    <p className="mt-0.5 text-[11px] text-[rgb(var(--fg-muted))]">
-                      or click to browse
-                    </p>
-                  </div>
-                )}
-              </div>
-              <input
-                ref={fileInputRef}
-                id="upload-track-file"
-                type="file"
-                accept="audio/*,.mp3,.m4a,.wav,.flac,.aif,.aiff"
-                onChange={handleFileInputChange}
-                className="sr-only"
-              />
-            </div>
-
-            {/* ─── Progress bar ───────────────────────────────── */}
-            {pending ? (
-              <div>
-                <div
-                  className="h-1.5 w-full overflow-hidden rounded-full"
-                  style={{ background: "rgb(17_16_9/0.08)" }}
-                  role="progressbar"
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={progress}
-                >
-                  <div
-                    className="h-full transition-[width]"
-                    style={{
-                      width: `${String(progress)}%`,
-                      background: "rgb(var(--brand-primary))",
-                    }}
-                  />
-                </div>
-                <p className="mt-1 text-[11px] text-[rgb(var(--fg-muted))]">
-                  Uploading… {progress}%
-                </p>
-              </div>
-            ) : null}
-
-            {isNewSong && !purchaseId && !allocatedNewTrackId ? (
-              <p role="alert" className="text-sm text-[rgb(var(--fg-danger))]">
-                No active purchase has an available song space.
-              </p>
-            ) : null}
-
-            {visibleUploadError ? (
-              <p
-                id="upload-track-error"
-                role="alert"
-                className="text-sm text-[rgb(var(--fg-danger))]"
-              >
-                {visibleUploadError}
-              </p>
-            ) : null}
 
             {/* ─── Action row ─────────────────────────────────── */}
-            <div className="sticky bottom-0 -mx-5 mt-1 -mb-5 flex flex-col-reverse gap-2 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-5 py-3 sm:flex-row sm:items-center sm:justify-end">
+            <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-5 py-3 sm:flex-row sm:items-center sm:justify-end">
               <button
                 type="button"
                 onClick={handleClose}
@@ -939,6 +1114,24 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${String(bytes)} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function audioContentType(file: File): string {
+  if (file.type.startsWith("audio/")) return file.type.toLowerCase();
+  const extension = file.name.toLowerCase().split(".").pop();
+  switch (extension) {
+    case "wav":
+      return "audio/wav";
+    case "flac":
+      return "audio/flac";
+    case "m4a":
+      return "audio/x-m4a";
+    case "aif":
+    case "aiff":
+      return "audio/aiff";
+    default:
+      return "audio/mpeg";
+  }
 }
 
 // Best-effort duration probe. Wrapped in a 3s race so a malformed

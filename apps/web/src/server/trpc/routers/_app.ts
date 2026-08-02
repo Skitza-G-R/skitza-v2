@@ -6,6 +6,7 @@ import { audioDeliveryRouter } from "./audio-delivery";
 import { bookingRouter } from "./booking";
 import { clientContactsRouter } from "./client-contacts";
 import { healthRouter } from "./health";
+import { firstVersionUploadRouter } from "./first-version-upload";
 import { inboxRouter } from "./inbox";
 import { libraryRouter } from "./library";
 import { paletteRouter } from "./palette";
@@ -30,6 +31,7 @@ export const appRouter = router({
   booking: bookingRouter,
   clientContacts: clientContactsRouter,
   health: healthRouter,
+  firstVersionUpload: firstVersionUploadRouter,
   inbox: inboxRouter,
   library: libraryRouter,
   palette: paletteRouter,

@@ -26,13 +26,15 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     expect(SRC).toMatch(/Portal/);
   });
 
-  it("declares the UploadTrackModalProps shape with open, onClose, projectId, mode, tracks", () => {
+  it("declares contextual Library, Project, and Song upload props", () => {
     expect(SRC).toMatch(/open:\s*boolean/);
     expect(SRC).toMatch(/onClose:\s*\(\)\s*=>\s*void/);
-    expect(SRC).toMatch(/projectId:\s*string/);
-    expect(SRC).toMatch(/purchaseId\?:\s*string\s*\|\s*null/);
-    expect(SRC).toMatch(/mode:\s*["']new-song["']\s*\|\s*["']new-version["']/);
-    expect(SRC).toMatch(/tracks:\s*UploadTrackModalTrack\[\]/);
+    expect(SRC).toMatch(/projectId\?:\s*string/);
+    expect(SRC).toMatch(
+      /mode:\s*["']library["']\s*\|\s*["']new-song["']\s*\|\s*["']new-version["']/,
+    );
+    expect(SRC).toMatch(/tracks\?:\s*UploadTrackModalTrack\[\]/);
+    expect(SRC).toMatch(/projects\?:\s*UploadTrackModalProject\[\]/);
     expect(SRC).toMatch(/onCreated\?:/);
     expect(SRC).toMatch(/trackId\?:\s*string/);
     expect(SRC).toMatch(/defaultLabel\?:\s*string/);
@@ -129,8 +131,11 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     expect(SRC).toMatch(/Stop\s+uploading/);
   });
 
-  it("calls all 8 Server Actions from the upload-actions wrapper", () => {
-    expect(SRC).toContain("addTrackAction");
+  it("uses atomic V1 actions and preserves the hardened V2+ multipart actions", () => {
+    expect(SRC).toContain("prepareFirstVersionUploadAction");
+    expect(SRC).toContain("completeFirstVersionUploadAction");
+    expect(SRC).toContain("cancelFirstVersionUploadAction");
+    expect(SRC).not.toContain("addTrackAction");
     expect(SRC).toContain("addVersionAction");
     expect(SRC).toContain("initMultipartAction");
     expect(SRC).toContain("signPartAction");
@@ -141,43 +146,25 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     expect(SRC).toContain("deleteVersionAction");
   });
 
-  it("sends the exact purchase for new-song allocation and disables when unavailable", () => {
-    expect(SRC).toMatch(/addTrackAction\(\{[\s\S]*?projectId,[\s\S]*?purchaseId,/);
-    expect(SRC).toMatch(/operationKey: songSpaceOperationKeyRef\.current/);
-    expect(SRC).toMatch(/isNewSong && !purchaseId/);
-    expect(SRC).toMatch(/No active purchase has an available song space/);
+  it("keeps purchase selection off the form and lets the server bind commercial access", () => {
+    expect(SRC).not.toMatch(/purchaseId,[\s\S]{0,120}prepareFirstVersionUploadAction/);
+    expect(SRC).toMatch(
+      /prepareFirstVersionUploadAction\(\{[\s\S]*?projectId:\s*selectedProjectId,[\s\S]*?title:\s*newSongName\.trim\(\),[\s\S]*?label:\s*["']V1["']/,
+    );
+    expect(SRC).not.toContain("No active purchase has an available song space");
   });
 
-  it("reuses a successfully allocated new-song track on retry and resets it on close or success", () => {
-    const submitStart = SRC.indexOf("const handleSubmit");
-    const submitEnd = SRC.indexOf("// Display label", submitStart);
-    const submit = SRC.slice(submitStart, submitEnd);
-    const close = SRC.slice(SRC.indexOf("const handleClose"), submitStart);
-
-    expect(SRC).toContain("allocatedNewTrackIdRef");
-    expect(submit).toMatch(
-      /const retainedTrackId = allocatedNewTrackIdRef\.current;[\s\S]*?let resolvedTrackId = retainedTrackId \?\? selectedTrackId;[\s\S]*?if \(!retainedTrackId && isNewSong\)[\s\S]*?await addTrackAction/,
+  it("reuses an intent operation key for retry and cancels the exact intent on close", () => {
+    expect(SRC).toContain("firstVersionOperationKeyRef");
+    expect(SRC).toContain("operationKey: firstVersionOperationKeyRef.current");
+    expect(SRC).toContain("activeFirstVersionIntentRef.current = intentId");
+    expect(SRC).toMatch(
+      /const firstVersionIntentId = activeFirstVersionIntentRef\.current;[\s\S]*?cancelFirstVersionUploadAction\(\{ intentId: firstVersionIntentId \}\)/,
     );
-    expect(submit).toMatch(/allocatedNewTrackIdRef\.current = res\.data\.id/);
-    expect(submit).toContain("setAllocatedNewTrackId(res.data.id)");
-    expect(SRC).toMatch(/isNewSong && !purchaseId && !allocatedNewTrackId/);
-    expect(SRC).toMatch(/allocatedNewTrackId \? \([\s\S]*?upload-track-song-allocated/);
-    expect(SRC).toContain(
-      "This purchased song space is allocated. Retry the upload for this song.",
+    expect(SRC).toMatch(
+      /completeFirstVersionUploadAction\(\{ intentId \}\)[\s\S]*?activeFirstVersionIntentRef\.current = null/,
     );
-
-    // A later version/audio failure must retain the allocation for the
-    // next submit instead of consuming another purchased song space.
-    const catchSource = submit.slice(submit.indexOf("} catch (err) {"));
-    expect(catchSource).not.toContain("allocatedNewTrackIdRef.current = null");
-
-    // Leaving the modal or completing the upload ends that retry session.
-    expect(close).toContain("allocatedNewTrackIdRef.current = null");
-    const completed = submit.slice(submit.indexOf("createdVersionId = null"));
-    expect(completed).toContain("allocatedNewTrackIdRef.current = null");
-    expect(completed.indexOf("allocatedNewTrackIdRef.current = null")).toBeLessThan(
-      completed.indexOf("onClose()"),
-    );
+    expect(SRC).not.toContain("allocatedNewTrackIdRef");
   });
 
   it("blocks offline submit and retry before allocating upload work", () => {
@@ -193,14 +180,12 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
       handleSubmit.indexOf("submitDisabled"),
     );
 
-    const uploadEnd = SRC.indexOf("// Display label", uploadStart);
-    const upload = SRC.slice(uploadStart, uploadEnd);
+    const upload = SRC.slice(uploadStart, SRC.indexOf("// Display label", uploadStart));
     const firstOfflineGate = upload.indexOf("if (blockOfflineUpload()) return;");
     expect(firstOfflineGate).toBeGreaterThanOrEqual(0);
     for (const allocation of [
       "requireUploadRuntimeAccountId()",
       "beginManagedUpload(",
-      "addTrackAction(",
       "addVersionAction(",
       "initMultipartAction(",
     ]) {
@@ -384,6 +369,25 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
   it("applies centering translations only from the desktop breakpoint", () => {
     expect(SRC).toMatch(/sk-sheet-mobile[^"]*md:-translate-x-1\/2[^"]*md:-translate-y-1\/2/);
     expect(SRC).not.toMatch(/\s-translate-[xy]-1\/2(?:\s|")/);
+  });
+
+  it("keeps the actions outside the independently scrollable form body", () => {
+    expect(SRC).toMatch(
+      /DialogPrimitive\.Content[\s\S]*?className="[^"]*flex[^"]*flex-col[^"]*overflow-hidden[^"]*p-0/,
+    );
+    expect(SRC).toMatch(/<form[^>]*className="[^"]*min-h-0[^"]*flex-1[^"]*flex-col/);
+    expect(SRC).toMatch(
+      /className="[^"]*min-h-0[^"]*flex-1[^"]*overflow-y-auto[^"]*overscroll-contain/,
+    );
+    expect(SRC).toMatch(/className="[^"]*shrink-0[^"]*border-t/);
+    expect(SRC).not.toContain("sticky bottom-0");
+  });
+
+  it("shows clear locked values instead of blank or single-option native pickers", () => {
+    expect(SRC).toContain('id="upload-track-project-empty"');
+    expect(SRC).toContain("No active Projects");
+    expect(SRC).toContain('id="upload-track-destination-locked"');
+    expect(SRC).toMatch(/destinationTracks\.length === 0/);
   });
 
   it("forbids --surface-card", () => {

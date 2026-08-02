@@ -212,7 +212,9 @@ describe("SongPage professional player interactions", () => {
       }).getAttribute("href"),
     ).toBe("/dashboard/clients-projects/project-1");
 
-    await user.click(screen.getByRole("button", { name: "Upload V2 for After the Rain" }));
+    await user.click(
+      screen.getByRole("button", { name: "Upload new Version for After the Rain" }),
+    );
 
     const dialog = await screen.findByRole("dialog", { name: "Upload new version" });
     expect(dialog.getAttribute("data-project-id")).toBe("project-1");
