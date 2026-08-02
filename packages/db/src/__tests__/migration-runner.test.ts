@@ -39,6 +39,12 @@ const STABLE_OWNERSHIP_MIGRATION = readFileSync(
   join(process.cwd(), "drizzle", "0028_stable_client_ownership.sql"),
   "utf8",
 );
+const PRIVATE_OFFER_RECIPIENT_MIGRATION = readFileSync(
+  join(process.cwd(), "drizzle", "0029_private_offer_recipient_identity.sql"),
+  "utf8",
+);
+const APPROVED_HISTORICAL_CUTOVER_DIGEST =
+  "7cd77f778f677d89ebfeeac3cc0eefed8ff5cfb0c0f68c2991733edd16ba5112";
 
 function adapterBinding() {
   return {
@@ -102,21 +108,31 @@ function approvedCutoverDirectory(prefix: string): string {
 type Query = { params: unknown[] | undefined; statement: string };
 
 function fakeSql(
-  options: { failStatement?: string; initialDigest?: string; laterMigration?: boolean } = {},
+  options: {
+    failStatement?: string;
+    initialDigest?: string;
+    initialLedger?: Record<string, string>;
+    laterMigration?: boolean;
+  } = {},
 ) {
-  let relationExists = options.initialDigest !== undefined;
+  const ledger = new Map(Object.entries(options.initialLedger ?? {}));
+  let relationExists = options.initialDigest !== undefined || ledger.size > 0;
   let digest = options.initialDigest ?? null;
   const transactions: Array<{ options: unknown; queries: Query[] }> = [];
 
-  const sql = (async (statement: string) => {
+  const sql = (async (statement: string, params?: unknown[]) => {
     if (statement.includes("to_regclass")) {
       return [{ ledger_relation: relationExists ? "internal-ledger" : null }];
     }
     if (statement.includes('SELECT "digest"')) {
-      return digest === null ? [] : [{ digest }];
+      const filename = String(params?.[0] ?? "");
+      const recordedDigest = ledger.get(filename) ?? digest;
+      return recordedDigest === null ? [] : [{ digest: recordedDigest }];
     }
     if (statement.includes('AS "later_migration"')) {
-      return options.laterMigration ? [{ later_migration: 1 }] : [];
+      const filename = String(params?.[0] ?? "");
+      const hasLaterLedger = [...ledger.keys()].some((ledgerFilename) => ledgerFilename > filename);
+      return options.laterMigration || hasLaterLedger ? [{ later_migration: 1 }] : [];
     }
     throw new Error("unexpected read query");
   }) as ((statement: string, params?: unknown[]) => Promise<unknown[]>) & {
@@ -139,10 +155,22 @@ function fakeSql(
     const ledgerInsert = queries.find((query) =>
       query.statement.includes('INSERT INTO "skitza_migrations"."applied"'),
     );
+    if (
+      ledgerInsert === undefined &&
+      queries.some((query) =>
+        query.statement.includes("SKITZA_0027_HISTORICAL_COMPATIBILITY_GUARD"),
+      )
+    ) {
+      return;
+    }
+    const nextFilename = ledgerInsert?.params?.[0];
     const nextDigest = ledgerInsert?.params?.[1];
-    if (typeof nextDigest !== "string") throw new Error("missing ledger digest");
+    if (typeof nextFilename !== "string" || typeof nextDigest !== "string") {
+      throw new Error("missing ledger digest");
+    }
     relationExists = true;
-    digest = nextDigest;
+    if (!ledger.has(nextFilename)) ledger.set(nextFilename, nextDigest);
+    digest = ledger.get(nextFilename) ?? nextDigest;
   };
 
   return {
@@ -372,6 +400,72 @@ describe("SK-90 migration runner cutover", () => {
       "SKITZA_MIGRATION_ALREADY_APPLIED",
     );
     expect(client.state.transactions).toHaveLength(0);
+  });
+
+  it("accepts only the pinned historical 0027 after exact through-0029 verification", async () => {
+    const exactLedger = {
+      "0027_purchase_foundation.sql": APPROVED_HISTORICAL_CUTOVER_DIGEST,
+      "0028_stable_client_ownership.sql": migrationDigest(STABLE_OWNERSHIP_MIGRATION),
+      "0029_private_offer_recipient_identity.sql": migrationDigest(
+        PRIVATE_OFFER_RECIPIENT_MIGRATION,
+      ),
+    };
+    const exact = fakeSql({ initialLedger: exactLedger });
+
+    await expect(
+      applyMigration(exact.sql, "0027_purchase_foundation.sql", CUTOVER_MIGRATION),
+    ).resolves.toBe("SKITZA_MIGRATION_VERIFIED");
+    expect(exact.state.transactions).toHaveLength(1);
+    const compatibilityQueries = exact.state.transactions[0]?.queries ?? [];
+    expect(compatibilityQueries).toHaveLength(5);
+    expect(
+      compatibilityQueries.some((query) =>
+        query.statement.includes('INSERT INTO "skitza_migrations"."applied"'),
+      ),
+    ).toBe(false);
+    const verifier = compatibilityQueries[4]?.statement ?? "";
+    expect(verifier).toContain("SKITZA_0027_HISTORICAL_TARGET_SCHEMA_DRIFT");
+    expect(verifier).toContain("private_offers_recipient_email_hash_shape");
+    expect(verifier).toContain("private_offers_recipient_status_expiry_idx");
+    expect(verifier).toContain("client_contacts_owner_immutable");
+    expect(verifier).toContain("skitza_guard_private_offer_recipient_identity");
+    expect(verifier).toContain("41fed0c25ee45d713867ca511e26dd98");
+    expect(verifier).toContain("30ed03952efd543b08e01888bfffbdce");
+    expect(verifier).toContain("4e522999a4d4af73005780672c1a0f87");
+    expect(verifier).toContain("7469e719f0ae9ec49eebb308e6117826");
+
+    const drifted = fakeSql({
+      failStatement: "SKITZA_0027_HISTORICAL_TARGET_SCHEMA_DRIFT",
+      initialLedger: exactLedger,
+    });
+    await expect(
+      applyMigration(drifted.sql, "0027_purchase_foundation.sql", CUTOVER_MIGRATION),
+    ).rejects.toThrow("SKITZA_MIGRATION_FAILED");
+
+    for (const invalidLedger of [
+      {
+        ...exactLedger,
+        "0027_purchase_foundation.sql": migrationDigest("arbitrary historical cutover"),
+      },
+      {
+        ...exactLedger,
+        "0028_stable_client_ownership.sql": migrationDigest("changed 0028"),
+      },
+      {
+        ...exactLedger,
+        "0029_private_offer_recipient_identity.sql": migrationDigest("changed 0029"),
+      },
+      {
+        "0027_purchase_foundation.sql": APPROVED_HISTORICAL_CUTOVER_DIGEST,
+        "0028_stable_client_ownership.sql": migrationDigest(STABLE_OWNERSHIP_MIGRATION),
+      },
+    ]) {
+      const invalid = fakeSql({ initialLedger: invalidLedger });
+      await expect(
+        applyMigration(invalid.sql, "0027_purchase_foundation.sql", CUTOVER_MIGRATION),
+      ).rejects.toThrow("SKITZA_MIGRATION_DIGEST_MISMATCH");
+      expect(invalid.state.transactions).toHaveLength(0);
+    }
   });
 
   it("derives a fail-closed Chat 3 verifier from the rehearsed immutable 0027 migration", () => {
