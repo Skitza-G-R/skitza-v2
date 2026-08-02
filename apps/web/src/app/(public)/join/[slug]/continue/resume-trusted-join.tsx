@@ -28,7 +28,7 @@ export function ResumeTrustedJoin({ slug, action }: { slug: string; action: Join
   if (!failed) {
     return (
       <p className="text-center text-sm text-[rgb(var(--fg-secondary))]" role="status">
-        Opening booking…
+        {action === "book" ? "Opening booking…" : "Opening your unlocked tracks…"}
       </p>
     );
   }
