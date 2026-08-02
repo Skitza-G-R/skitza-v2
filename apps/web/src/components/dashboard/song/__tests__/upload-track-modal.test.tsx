@@ -371,6 +371,25 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     expect(SRC).not.toMatch(/\s-translate-[xy]-1\/2(?:\s|")/);
   });
 
+  it("keeps the actions outside the independently scrollable form body", () => {
+    expect(SRC).toMatch(
+      /DialogPrimitive\.Content[\s\S]*?className="[^"]*flex[^"]*flex-col[^"]*overflow-hidden[^"]*p-0/,
+    );
+    expect(SRC).toMatch(/<form[^>]*className="[^"]*min-h-0[^"]*flex-1[^"]*flex-col/);
+    expect(SRC).toMatch(
+      /className="[^"]*min-h-0[^"]*flex-1[^"]*overflow-y-auto[^"]*overscroll-contain/,
+    );
+    expect(SRC).toMatch(/className="[^"]*shrink-0[^"]*border-t/);
+    expect(SRC).not.toContain("sticky bottom-0");
+  });
+
+  it("shows clear locked values instead of blank or single-option native pickers", () => {
+    expect(SRC).toContain('id="upload-track-project-empty"');
+    expect(SRC).toContain("No active Projects");
+    expect(SRC).toContain('id="upload-track-destination-locked"');
+    expect(SRC).toMatch(/destinationTracks\.length === 0/);
+  });
+
   it("forbids --surface-card", () => {
     expect(SRC).not.toContain("--surface-card");
   });

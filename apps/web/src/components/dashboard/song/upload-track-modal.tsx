@@ -15,6 +15,7 @@ import {
 } from "react";
 
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
+import { Select } from "~/components/ui/input";
 import { useToast } from "~/components/ui/toast";
 import { WORKFLOW_STAGES, type WorkflowStage } from "~/lib/clients/workflow-stage";
 import {
@@ -690,9 +691,9 @@ export function UploadTrackModal({
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[rgb(17_16_9/0.42)] backdrop-blur-[3px]" />
         <DialogPrimitive.Content
           aria-describedby="upload-track-modal-body"
-          className="sk-sheet-mobile fixed top-1/2 left-1/2 z-50 max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[520px] overflow-y-auto rounded-[18px] bg-[rgb(var(--bg-background))] p-5 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)] md:-translate-x-1/2 md:-translate-y-1/2"
+          className="sk-sheet-mobile fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[520px] flex-col overflow-hidden rounded-[18px] bg-[rgb(var(--bg-background))] p-0 shadow-[0_40px_80px_-20px_rgba(17,16,9,0.45),0_14px_32px_-12px_rgba(17,16,9,0.22)] md:-translate-x-1/2 md:-translate-y-1/2"
         >
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex shrink-0 items-start justify-between gap-3 px-5 pt-5">
             <div className="min-w-0 flex-1">
               <DialogPrimitive.Title className="font-display text-[17px] font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
                 {mode === "library"
@@ -726,295 +727,331 @@ export function UploadTrackModal({
             </button>
           </div>
 
-          <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3">
-            {/* The file always comes first. Destination details appear only afterward. */}
-            <div>
-              <FieldLabel htmlFor="upload-track-file" required>
-                Audio file
-              </FieldLabel>
-              <div
-                role="button"
-                aria-disabled={pending}
-                tabIndex={pending ? -1 : 0}
-                onClick={() => {
-                  if (!pending) fileInputRef.current?.click();
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    fileInputRef.current?.click();
-                  }
-                }}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  setIsDragging(true);
-                }}
-                onDragLeave={() => {
-                  setIsDragging(false);
-                }}
-                onDrop={handleDrop}
-                className="mt-1 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[12px] border border-dashed px-4 py-5 text-center transition-colors hover:bg-[rgb(17_16_9/0.04)]"
-                style={{
-                  borderColor: isDragging
-                    ? "rgb(var(--brand-primary))"
-                    : "rgb(var(--brand-primary)/0.40)",
-                  background: isDragging
-                    ? "rgb(var(--brand-primary)/0.10)"
-                    : "rgb(var(--brand-primary)/0.04)",
-                }}
-              >
-                <UploadCloud
-                  size={22}
-                  strokeWidth={1.8}
-                  aria-hidden
-                  className="text-[rgb(var(--brand-primary))]"
-                />
-                {file ? (
-                  <div className="max-w-full min-w-0">
-                    <p className="truncate text-[13px] font-semibold text-[rgb(var(--fg-default))]">
-                      {file.name}
-                    </p>
-                    <p className="mt-0.5 text-[11px] text-[rgb(var(--fg-muted))]">
-                      {formatBytes(file.size)} · Click to replace
-                    </p>
-                  </div>
-                ) : (
-                  <div>
-                    <p className="text-[13px] font-semibold text-[rgb(var(--fg-default))]">
-                      Drop WAV / MP3 here
-                    </p>
-                    <p className="mt-0.5 text-[11px] text-[rgb(var(--fg-muted))]">
-                      or click to browse
-                    </p>
-                  </div>
-                )}
-              </div>
-              <input
-                ref={fileInputRef}
-                id="upload-track-file"
-                type="file"
-                accept="audio/*,.mp3,.m4a,.wav,.flac,.aif,.aiff"
-                disabled={pending}
-                onChange={handleFileInputChange}
-                className="sr-only"
-              />
-            </div>
-
-            {file ? (
-              <>
-                {mode === "library" ? (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div>
-                      <FieldLabel htmlFor="upload-track-project" required>
-                        Project
-                      </FieldLabel>
-                      <select
-                        id="upload-track-project"
-                        aria-label="Project"
-                        value={selectedProjectId}
-                        disabled={pending}
-                        onChange={(event) => {
-                          setSelectedProjectId(event.target.value);
-                          setSelectedTrackId(NEW_SONG_VALUE);
-                          setLabelTouched(false);
-                        }}
-                        className="mt-1 w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
-                        style={{ borderColor: "rgb(var(--border-subtle))" }}
-                      >
-                        {projects.map((candidate) => (
-                          <option key={candidate.id} value={candidate.id}>
-                            {candidate.title}
-                            {candidate.clientName ? ` · ${candidate.clientName}` : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <FieldLabel htmlFor="upload-track-song" required>
-                        Destination
-                      </FieldLabel>
-                      <select
-                        id="upload-track-song"
-                        value={selectedTrackId}
-                        disabled={pending}
-                        onChange={(event) => {
-                          setSelectedTrackId(event.target.value);
-                          setLabelTouched(false);
-                        }}
-                        className="mt-1 w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
-                        style={{ borderColor: "rgb(var(--border-subtle))" }}
-                      >
-                        <option value={NEW_SONG_VALUE}>New Song</option>
-                        {destinationTracks.map((candidate) => (
-                          <option key={candidate.id} value={candidate.id}>
-                            New Version — {candidate.title}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                ) : null}
-
-                {mode === "new-version" && trackId ? (
-                  <div>
-                    <FieldLabel htmlFor="upload-track-song-locked">Song</FieldLabel>
-                    <p
-                      id="upload-track-song-locked"
-                      className="mt-1 truncate rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))]"
-                      style={{ borderColor: "rgb(var(--border-subtle))" }}
-                    >
-                      {lockedSongTitle}
-                    </p>
-                  </div>
-                ) : isNewSong ? (
-                  <div>
-                    <FieldLabel htmlFor="upload-track-new-song-name" required>
-                      Song title
-                    </FieldLabel>
-                    <input
-                      id="upload-track-new-song-name"
-                      type="text"
-                      required
-                      autoFocus
-                      value={newSongName}
-                      disabled={pending}
-                      maxLength={120}
-                      onChange={(event) => {
-                        setNewSongName(event.target.value);
-                      }}
-                      placeholder="Name this Song"
-                      className="mt-1 w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
-                      style={{ borderColor: "rgb(var(--border-subtle))" }}
-                    />
-                  </div>
-                ) : null}
-
-                {selectedPublicExposure !== "none" ? (
+          <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pt-4 pb-4">
+              <div className="flex flex-col gap-3">
+                {/* The file always comes first. Destination details appear only afterward. */}
+                <div>
+                  <FieldLabel htmlFor="upload-track-file" required>
+                    Audio file
+                  </FieldLabel>
                   <div
-                    role="status"
-                    className="rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.3)] bg-[rgb(var(--brand-primary)/0.1)] px-3.5 py-3 text-[12.5px] leading-relaxed text-[rgb(var(--fg-default))]"
-                  >
-                    <span className="font-semibold">This song is public.</span> When this upload
-                    finishes, the new version will appear on its
-                    {selectedPublicExposure === "link"
-                      ? " public link"
-                      : selectedPublicExposure === "portfolio"
-                        ? " portfolio"
-                        : " public link and portfolio"}{" "}
-                    automatically.
-                  </div>
-                ) : null}
-
-                {/* ─── Version label ──────────────────────────────── */}
-                {!isNewSong ? (
-                  <div>
-                    <FieldLabel htmlFor="upload-track-label" required>
-                      Version label
-                    </FieldLabel>
-                    <input
-                      id="upload-track-label"
-                      type="text"
-                      required
-                      value={label}
-                      maxLength={40}
-                      onChange={(e) => {
-                        setLabel(e.target.value);
-                        setLabelTouched(true);
-                      }}
-                      placeholder="V2 / Mix / Master"
-                      className="mt-1 w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
-                      style={{ borderColor: "rgb(var(--border-subtle))" }}
-                    />
-                  </div>
-                ) : null}
-
-                <details className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">
-                  <summary className="cursor-pointer px-3 py-2.5 text-[12px] font-semibold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.6)] focus-visible:outline-none focus-visible:ring-inset">
-                    Stage and notes (optional)
-                  </summary>
-                  <div className="grid gap-3 border-t border-[rgb(var(--border-subtle))] p-3">
-                    <div>
-                      <FieldLabel htmlFor="upload-track-stage">Advance to stage</FieldLabel>
-                      <select
-                        id="upload-track-stage"
-                        value={stage}
-                        onChange={(e) => {
-                          setStage(e.target.value as "no-change" | WorkflowStage);
-                        }}
-                        className="mt-1 w-full rounded-[10px] border bg-[rgb(var(--bg-background))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
-                        style={{ borderColor: "rgb(var(--border-subtle))" }}
-                      >
-                        <option value="no-change">No change</option>
-                        {WORKFLOW_STAGES.map((s) => (
-                          <option key={s.key} value={s.key}>
-                            {s.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <FieldLabel htmlFor="upload-track-description">Notes for artist</FieldLabel>
-                      <textarea
-                        id="upload-track-description"
-                        value={description}
-                        rows={2}
-                        maxLength={500}
-                        onChange={(e) => {
-                          setDescription(e.target.value);
-                        }}
-                        placeholder="What changed in this version?"
-                        className="mt-1 w-full resize-y rounded-[10px] border bg-[rgb(var(--bg-background))] px-3 py-2 text-[14px] leading-snug text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
-                        style={{ borderColor: "rgb(var(--border-subtle))" }}
-                      />
-                    </div>
-                  </div>
-                </details>
-              </>
-            ) : null}
-
-            {/* ─── Progress bar ───────────────────────────────── */}
-            {pending ? (
-              <div>
-                <div
-                  className="h-1.5 w-full overflow-hidden rounded-full"
-                  style={{ background: "rgb(17_16_9/0.08)" }}
-                  role="progressbar"
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={progress}
-                >
-                  <div
-                    className="h-full transition-[width]"
-                    style={{
-                      width: `${String(progress)}%`,
-                      background: "rgb(var(--brand-primary))",
+                    role="button"
+                    aria-disabled={pending}
+                    tabIndex={pending ? -1 : 0}
+                    onClick={() => {
+                      if (!pending) fileInputRef.current?.click();
                     }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        fileInputRef.current?.click();
+                      }
+                    }}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      setIsDragging(true);
+                    }}
+                    onDragLeave={() => {
+                      setIsDragging(false);
+                    }}
+                    onDrop={handleDrop}
+                    className="mt-1 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[12px] border border-dashed px-4 py-5 text-center transition-colors hover:bg-[rgb(17_16_9/0.04)]"
+                    style={{
+                      borderColor: isDragging
+                        ? "rgb(var(--brand-primary))"
+                        : "rgb(var(--brand-primary)/0.40)",
+                      background: isDragging
+                        ? "rgb(var(--brand-primary)/0.10)"
+                        : "rgb(var(--brand-primary)/0.04)",
+                    }}
+                  >
+                    <UploadCloud
+                      size={22}
+                      strokeWidth={1.8}
+                      aria-hidden
+                      className="text-[rgb(var(--brand-primary))]"
+                    />
+                    {file ? (
+                      <div className="max-w-full min-w-0">
+                        <p className="truncate text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+                          {file.name}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-[rgb(var(--fg-muted))]">
+                          {formatBytes(file.size)} · Click to replace
+                        </p>
+                      </div>
+                    ) : (
+                      <div>
+                        <p className="text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+                          Drop WAV / MP3 here
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-[rgb(var(--fg-muted))]">
+                          or click to browse
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  <input
+                    ref={fileInputRef}
+                    id="upload-track-file"
+                    type="file"
+                    accept="audio/*,.mp3,.m4a,.wav,.flac,.aif,.aiff"
+                    disabled={pending}
+                    onChange={handleFileInputChange}
+                    className="sr-only"
                   />
                 </div>
-                <p className="mt-1 text-[11px] text-[rgb(var(--fg-muted))]">
-                  Uploading… {progress}%
-                </p>
+
+                {file ? (
+                  <>
+                    {mode === "library" ? (
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <FieldLabel
+                            htmlFor={
+                              projects.length === 0
+                                ? "upload-track-project-empty"
+                                : "upload-track-project"
+                            }
+                            required
+                          >
+                            Project
+                          </FieldLabel>
+                          {projects.length === 0 ? (
+                            <p
+                              id="upload-track-project-empty"
+                              className="mt-1 min-h-10 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[13px] text-[rgb(var(--fg-muted))]"
+                            >
+                              No active Projects
+                            </p>
+                          ) : (
+                            <Select
+                              id="upload-track-project"
+                              aria-label="Project"
+                              value={selectedProjectId}
+                              disabled={pending}
+                              onChange={(event) => {
+                                setSelectedProjectId(event.target.value);
+                                setSelectedTrackId(NEW_SONG_VALUE);
+                                setLabelTouched(false);
+                              }}
+                              className="mt-1"
+                            >
+                              {projects.map((candidate) => (
+                                <option key={candidate.id} value={candidate.id}>
+                                  {candidate.title}
+                                  {candidate.clientName ? ` · ${candidate.clientName}` : ""}
+                                </option>
+                              ))}
+                            </Select>
+                          )}
+                        </div>
+                        <div>
+                          <FieldLabel
+                            htmlFor={
+                              destinationTracks.length === 0
+                                ? "upload-track-destination-locked"
+                                : "upload-track-song"
+                            }
+                            required
+                          >
+                            Destination
+                          </FieldLabel>
+                          {destinationTracks.length === 0 ? (
+                            <p
+                              id="upload-track-destination-locked"
+                              className="mt-1 min-h-10 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[13px] font-medium text-[rgb(var(--fg-default))]"
+                            >
+                              New Song
+                            </p>
+                          ) : (
+                            <Select
+                              id="upload-track-song"
+                              value={selectedTrackId}
+                              disabled={pending}
+                              onChange={(event) => {
+                                setSelectedTrackId(event.target.value);
+                                setLabelTouched(false);
+                              }}
+                              className="mt-1"
+                            >
+                              <option value={NEW_SONG_VALUE}>New Song</option>
+                              {destinationTracks.map((candidate) => (
+                                <option key={candidate.id} value={candidate.id}>
+                                  New Version — {candidate.title}
+                                </option>
+                              ))}
+                            </Select>
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {mode === "new-version" && trackId ? (
+                      <div>
+                        <FieldLabel htmlFor="upload-track-song-locked">Song</FieldLabel>
+                        <p
+                          id="upload-track-song-locked"
+                          className="mt-1 truncate rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))]"
+                          style={{ borderColor: "rgb(var(--border-subtle))" }}
+                        >
+                          {lockedSongTitle}
+                        </p>
+                      </div>
+                    ) : isNewSong ? (
+                      <div>
+                        <FieldLabel htmlFor="upload-track-new-song-name" required>
+                          Song title
+                        </FieldLabel>
+                        <input
+                          id="upload-track-new-song-name"
+                          type="text"
+                          required
+                          autoFocus
+                          value={newSongName}
+                          disabled={pending}
+                          maxLength={120}
+                          onChange={(event) => {
+                            setNewSongName(event.target.value);
+                          }}
+                          placeholder="Name this Song"
+                          className="mt-1 w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
+                          style={{ borderColor: "rgb(var(--border-subtle))" }}
+                        />
+                      </div>
+                    ) : null}
+
+                    {selectedPublicExposure !== "none" ? (
+                      <div
+                        role="status"
+                        className="rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.3)] bg-[rgb(var(--brand-primary)/0.1)] px-3.5 py-3 text-[12.5px] leading-relaxed text-[rgb(var(--fg-default))]"
+                      >
+                        <span className="font-semibold">This song is public.</span> When this upload
+                        finishes, the new version will appear on its
+                        {selectedPublicExposure === "link"
+                          ? " public link"
+                          : selectedPublicExposure === "portfolio"
+                            ? " portfolio"
+                            : " public link and portfolio"}{" "}
+                        automatically.
+                      </div>
+                    ) : null}
+
+                    {/* ─── Version label ──────────────────────────────── */}
+                    {!isNewSong ? (
+                      <div>
+                        <FieldLabel htmlFor="upload-track-label" required>
+                          Version label
+                        </FieldLabel>
+                        <input
+                          id="upload-track-label"
+                          type="text"
+                          required
+                          value={label}
+                          maxLength={40}
+                          onChange={(e) => {
+                            setLabel(e.target.value);
+                            setLabelTouched(true);
+                          }}
+                          placeholder="V2 / Mix / Master"
+                          className="mt-1 w-full rounded-[10px] border bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
+                          style={{ borderColor: "rgb(var(--border-subtle))" }}
+                        />
+                      </div>
+                    ) : null}
+
+                    <details className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">
+                      <summary className="cursor-pointer px-3 py-2.5 text-[12px] font-semibold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.6)] focus-visible:outline-none focus-visible:ring-inset">
+                        Stage and notes (optional)
+                      </summary>
+                      <div className="grid gap-3 border-t border-[rgb(var(--border-subtle))] p-3">
+                        <div>
+                          <FieldLabel htmlFor="upload-track-stage">Advance to stage</FieldLabel>
+                          <select
+                            id="upload-track-stage"
+                            value={stage}
+                            onChange={(e) => {
+                              setStage(e.target.value as "no-change" | WorkflowStage);
+                            }}
+                            className="mt-1 w-full rounded-[10px] border bg-[rgb(var(--bg-background))] px-3 py-2 text-[14px] text-[rgb(var(--fg-default))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
+                            style={{ borderColor: "rgb(var(--border-subtle))" }}
+                          >
+                            <option value="no-change">No change</option>
+                            {WORKFLOW_STAGES.map((s) => (
+                              <option key={s.key} value={s.key}>
+                                {s.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <FieldLabel htmlFor="upload-track-description">
+                            Notes for artist
+                          </FieldLabel>
+                          <textarea
+                            id="upload-track-description"
+                            value={description}
+                            rows={2}
+                            maxLength={500}
+                            onChange={(e) => {
+                              setDescription(e.target.value);
+                            }}
+                            placeholder="What changed in this version?"
+                            className="mt-1 w-full resize-y rounded-[10px] border bg-[rgb(var(--bg-background))] px-3 py-2 text-[14px] leading-snug text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-muted))] focus:ring-2 focus:ring-[rgb(var(--brand-primary)/0.6)] focus:outline-none"
+                            style={{ borderColor: "rgb(var(--border-subtle))" }}
+                          />
+                        </div>
+                      </div>
+                    </details>
+                  </>
+                ) : null}
+
+                {/* ─── Progress bar ───────────────────────────────── */}
+                {pending ? (
+                  <div>
+                    <div
+                      className="h-1.5 w-full overflow-hidden rounded-full"
+                      style={{ background: "rgb(17_16_9/0.08)" }}
+                      role="progressbar"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={progress}
+                    >
+                      <div
+                        className="h-full transition-[width]"
+                        style={{
+                          width: `${String(progress)}%`,
+                          background: "rgb(var(--brand-primary))",
+                        }}
+                      />
+                    </div>
+                    <p className="mt-1 text-[11px] text-[rgb(var(--fg-muted))]">
+                      Uploading… {progress}%
+                    </p>
+                  </div>
+                ) : null}
+
+                {file && projects.length === 0 && mode === "library" ? (
+                  <p role="alert" className="text-sm text-[rgb(var(--fg-danger))]">
+                    Create or activate a Project before uploading audio.
+                  </p>
+                ) : null}
+
+                {visibleUploadError ? (
+                  <p
+                    id="upload-track-error"
+                    role="alert"
+                    className="text-sm text-[rgb(var(--fg-danger))]"
+                  >
+                    {visibleUploadError}
+                  </p>
+                ) : null}
               </div>
-            ) : null}
-
-            {file && projects.length === 0 && mode === "library" ? (
-              <p role="alert" className="text-sm text-[rgb(var(--fg-danger))]">
-                Create or activate a Project before uploading audio.
-              </p>
-            ) : null}
-
-            {visibleUploadError ? (
-              <p
-                id="upload-track-error"
-                role="alert"
-                className="text-sm text-[rgb(var(--fg-danger))]"
-              >
-                {visibleUploadError}
-              </p>
-            ) : null}
+            </div>
 
             {/* ─── Action row ─────────────────────────────────── */}
-            <div className="sticky bottom-0 -mx-5 mt-1 -mb-5 flex flex-col-reverse gap-2 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-5 py-3 sm:flex-row sm:items-center sm:justify-end">
+            <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-5 py-3 sm:flex-row sm:items-center sm:justify-end">
               <button
                 type="button"
                 onClick={handleClose}

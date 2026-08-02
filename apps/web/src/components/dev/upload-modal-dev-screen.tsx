@@ -20,22 +20,33 @@ export function UploadModalDevScreen() {
         }}
         className="min-h-11 rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-4 py-2 text-sm font-semibold text-[rgb(var(--bg-sidebar))]"
       >
-        Open Add song
+        Open Upload audio
       </button>
       <UploadTrackModal
         open={open}
         onClose={() => {
           setOpen(false);
         }}
-        projectId="00000000-0000-4000-8000-000000000003"
-        purchaseId="00000000-0000-4000-8000-000000000004"
-        mode="new-song"
-        tracks={[
+        mode="library"
+        projects={[
           {
-            id: "song-existing",
-            title: "Existing song",
-            versionCount: 2,
-            publicExposure: "link_and_portfolio",
+            id: "00000000-0000-4000-8000-000000000003",
+            title: "Debut single",
+            clientName: "Maya Cohen",
+            tracks: [
+              {
+                id: "song-existing",
+                title: "Existing song",
+                versionCount: 2,
+                publicExposure: "link_and_portfolio",
+              },
+            ],
+          },
+          {
+            id: "00000000-0000-4000-8000-000000000005",
+            title: "Second project",
+            clientName: "Lior Tansky",
+            tracks: [],
           },
         ]}
       />
