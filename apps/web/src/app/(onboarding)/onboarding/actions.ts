@@ -8,7 +8,10 @@ import { headers } from "next/headers";
 import { z } from "zod";
 
 import { inferCurrency, slugFromDisplayName } from "~/lib/onboarding/derive";
-import { fetchUserRole } from "~/server/auth/role";
+import {
+  fetchUserAccountMemberships,
+  fetchUserRole,
+} from "~/server/auth/role";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 // Story 03 — completeStudio.
@@ -32,6 +35,7 @@ const Input = z.object({
   displayName: z.string().trim().min(1).max(80),
   timezone: z.string().min(1).max(64),
   currency: z.enum(["USD", "EUR", "GBP", "ILS"]).optional(),
+  intent: z.literal("create-studio").optional(),
 });
 
 const MAX_SLUG_ATTEMPTS = 3;
@@ -46,6 +50,7 @@ export async function completeStudio(input: {
   displayName: string;
   timezone: string;
   currency?: "USD" | "EUR" | "GBP" | "ILS";
+  intent?: "create-studio";
 }): Promise<{
   slug: string;
   currency: "USD" | "EUR" | "GBP" | "ILS";
@@ -56,18 +61,24 @@ export async function completeStudio(input: {
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("missing DATABASE_URL");
 
-  // Defense in depth — see the long comment in the original
-  // completeOnboarding action. The (onboarding)/layout gate redirects
-  // artists at the render path, but a signed-in artist crafting a raw
-  // HTTP POST to this server action (devtools / curl / a script)
-  // bypasses the layout. Without this check they'd silently upsert a
-  // producers row and "become" a producer.
-  const role = await fetchUserRole({ dbUrl, userId });
-  if (role.kind === "artist") {
+  const parsed = Input.parse(input);
+  const reqHeaders = await headers();
+
+  // Defense in depth: Artist access is additive only through the explicit
+  // Create-a-studio route. Middleware derives this header from the exact
+  // /onboarding/studio?intent=create-studio URL; requiring it alongside the
+  // validated action input keeps ordinary or input-only raw POSTs closed.
+  const memberships = await fetchUserAccountMemberships({ dbUrl, userId });
+  const hasAuthorizedArtistCreateStudioIntent =
+    parsed.intent === "create-studio" &&
+    reqHeaders.get("x-onboarding-intent") === "create-studio";
+  if (
+    memberships.artist.hasAccess &&
+    memberships.producer.status === "none" &&
+    !hasAuthorizedArtistCreateStudioIntent
+  ) {
     throw new Error("forbidden: artists cannot access producer onboarding");
   }
-
-  const parsed = Input.parse(input);
 
   // Server-derive currency. Country header is the most specific signal
   // (Vercel injects x-vercel-ip-country in production); Accept-Language
@@ -75,7 +86,6 @@ export async function completeStudio(input: {
   // Hebrew browser still gets ILS even when the geo header is missing
   // (which happens in some preview / proxy paths). USD is the final
   // fallback when neither signal is informative. See inferCurrency.
-  const reqHeaders = await headers();
   const country = reqHeaders.get("x-vercel-ip-country");
   const acceptLanguage = reqHeaders.get("accept-language");
   const currency = parsed.currency ?? inferCurrency(country, acceptLanguage);
@@ -95,8 +105,8 @@ export async function completeStudio(input: {
   for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt += 1) {
     const hash = randomBytes(2).toString("hex");
     const slug =
-      role.kind === "producer-complete"
-        ? role.producer.slug
+      memberships.producer.status === "complete"
+        ? memberships.producer.profile.slug
         : slugFromDisplayName(parsed.displayName, hash);
 
     try {

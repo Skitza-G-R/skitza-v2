@@ -98,8 +98,9 @@ describe("decideRoleRedirect — artist policy", () => {
 describe("decideAccountMembershipRedirect", () => {
   it("allows a dual-role account through either route family", () => {
     const dual: UserAccountMemberships = {
-      primaryRole: proComplete,
-      hasArtistAccount: true,
+      isAuthenticated: true,
+      producer: { status: "complete", profile: completeProducer },
+      artist: { hasAccess: true, hasActiveConnections: true },
     };
 
     expect(decideAccountMembershipRedirect(dual, "producer")).toBeNull();
@@ -108,8 +109,9 @@ describe("decideAccountMembershipRedirect", () => {
 
   it("allows a disconnected artist account into the empty artist platform", () => {
     const disconnectedArtist: UserAccountMemberships = {
-      primaryRole: orphan,
-      hasArtistAccount: true,
+      isAuthenticated: true,
+      producer: { status: "none", profile: null },
+      artist: { hasAccess: true, hasActiveConnections: false },
     };
 
     expect(decideAccountMembershipRedirect(disconnectedArtist, "artist")).toBeNull();
@@ -117,8 +119,9 @@ describe("decideAccountMembershipRedirect", () => {
 
   it("preserves strict rejection for a producer without artist membership", () => {
     const producerOnlyMemberships: UserAccountMemberships = {
-      primaryRole: proComplete,
-      hasArtistAccount: false,
+      isAuthenticated: true,
+      producer: { status: "complete", profile: completeProducer },
+      artist: { hasAccess: false, hasActiveConnections: false },
     };
 
     expect(decideAccountMembershipRedirect(producerOnlyMemberships, "artist")).toBe("/dashboard");
@@ -126,8 +129,9 @@ describe("decideAccountMembershipRedirect", () => {
 
   it("allows artist access while keeping an incomplete producer in onboarding", () => {
     const incompleteDual: UserAccountMemberships = {
-      primaryRole: proIncomplete,
-      hasArtistAccount: true,
+      isAuthenticated: true,
+      producer: { status: "incomplete", profile: incompleteProducer },
+      artist: { hasAccess: true, hasActiveConnections: true },
     };
 
     expect(decideAccountMembershipRedirect(incompleteDual, "artist")).toBeNull();

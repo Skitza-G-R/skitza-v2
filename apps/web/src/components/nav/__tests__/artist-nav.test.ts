@@ -12,6 +12,10 @@ const SHARED_BOTTOM = readFileSync(join(here, "..", "liquid-glass-bottom-nav.tsx
 const SIDEBAR = readFileSync(join(here, "..", "artist-desktop-sidebar.tsx"), "utf8");
 const MOBILE_TOPBAR = readFileSync(join(here, "..", "artist-mobile-top-bar.tsx"), "utf8");
 const USER_BUTTON = readFileSync(join(here, "..", "artist-user-button.tsx"), "utf8");
+const ACCOUNT_ROLE_MENU = readFileSync(
+  join(here, "..", "account-role-menu-items.tsx"),
+  "utf8",
+);
 const SWITCHER = readFileSync(join(here, "..", "..", "artist", "studio-switcher.tsx"), "utf8");
 
 describe("artist four-tab navigation", () => {
@@ -48,8 +52,9 @@ describe("artist four-tab navigation", () => {
         'settingsHref={withArtistStudio("/artist/settings", activeStudioId)}',
       );
     }
-    expect(USER_BUTTON).toContain("<UserButton.MenuItems>");
-    expect(USER_BUTTON).toContain('label="Settings"');
+    expect(USER_BUTTON).toContain("renderAccountRoleMenuItems(menuModel)");
+    expect(ACCOUNT_ROLE_MENU).toContain("<UserButton.MenuItems>");
+    expect(ACCOUNT_ROLE_MENU).toContain('label="Settings"');
   });
 
   it("mounts notification bells on mobile and desktop artist chrome", () => {

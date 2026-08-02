@@ -136,16 +136,12 @@ function measuredTabWidthAtPointer(nav: HTMLElement, navRect: DOMRect, clientX: 
 function setLensFromPointer(
   nav: HTMLElement,
   rect: DOMRect,
-  { clientX, clientY }: LensPoint,
+  { clientX }: LensPoint,
 ): void {
   const lensWidth = setLensWidth(nav, measuredTabWidthAtPointer(nav, rect, clientX));
   const lensHalfWidth = lensWidth / 2;
   const x = clamp(clientX - rect.left, lensHalfWidth, rect.width - lensHalfWidth);
-  const y = clamp(
-    clientY - rect.top,
-    10,
-    Math.min(NAV_ROW_HEIGHT - 10, Math.max(10, rect.height - 10)),
-  );
+  const y = NAV_ROW_HEIGHT / 2;
 
   setLensCoordinates(nav, x, y);
   setTabProximities(nav, x, rect.left);

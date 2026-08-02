@@ -350,7 +350,10 @@ export function AvailabilityEditor({
   }, [errors]);
 
   return (
-    <div className="space-y-3">
+    <div
+      className="space-y-3"
+      data-role-switch-unsaved={isDirty ? "true" : undefined}
+    >
       {/* Presets */}
       <div className="rounded-[var(--radius-md)] bg-[rgb(var(--bg-overlay)/0.5)] px-3 py-2.5">
         <div className="mb-1.5 flex items-center justify-between gap-3">

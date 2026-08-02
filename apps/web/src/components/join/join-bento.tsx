@@ -27,6 +27,10 @@ import {
   type PlayerTrack,
 } from "~/components/audio/persistent-player";
 import { usePublicOnline } from "~/components/public/public-connectivity";
+import {
+  startJoinBooking,
+  startJoinUnlock,
+} from "~/app/(public)/join/[slug]/actions";
 
 import {
   formatGenres,
@@ -58,6 +62,7 @@ interface JoinBentoProps {
   meta?: JoinMeta | null;
   samples: ReadonlyArray<PublicSample>;
   lockedCount: number;
+  ownPreview?: boolean;
 }
 
 const GRAIN_NOISE_URL =
@@ -83,6 +88,7 @@ export function JoinBento({
   meta,
   samples,
   lockedCount,
+  ownPreview = false,
 }: JoinBentoProps) {
   const online = usePublicOnline();
   const name = producer.displayName ?? "Producer";
@@ -102,6 +108,7 @@ export function JoinBento({
   if (genres) metaChips.push(genres);
   if (response) metaChips.push(response);
   if (streams) metaChips.push(streams);
+  const bookingAction = startJoinBooking.bind(null, slug);
 
   return (
     <section
@@ -179,25 +186,44 @@ export function JoinBento({
         </ul>
       ) : null}
 
-      <div className="reveal-up-delay-3 mt-5 flex flex-col items-center gap-2">
-        <Link
-          href={`/sign-up/join/${encodeURIComponent(slug)}`}
-          className="group sk-press inline-flex min-h-11 items-center gap-3 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-primary))] py-1.5 pl-5 pr-1.5 text-sm font-bold text-[rgb(var(--bg-base))] transition-transform duration-500 hover:-translate-y-[1px] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))] motion-reduce:transform-none motion-reduce:transition-none"
-          style={{ transitionTimingFunction: EASE_LINEAR }}
+      {ownPreview ? (
+        <div
+          data-testid="own-public-page-preview"
+          className="reveal-up-delay-3 mt-5 flex flex-col items-center gap-2"
         >
-          Book a session
-          <span
-            aria-hidden
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-[rgb(var(--bg-base)/0.12)] transition-transform duration-500 group-hover:translate-x-0.5 group-hover:-translate-y-[1px]"
-            style={{ transitionTimingFunction: EASE_LINEAR }}
+          <p className="font-mono text-[0.62rem] font-semibold uppercase tracking-[0.2em] text-[rgb(var(--brand-primary))]">
+            Viewing your public page
+          </p>
+          <Link
+            href="/dashboard"
+            className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--fg-primary)/0.14)] px-5 py-2 text-sm font-bold text-[rgb(var(--fg-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))]"
           >
-            <ArrowUpRight className="h-3.5 w-3.5" />
-          </span>
-        </Link>
-        <p className="font-mono text-[0.62rem] font-medium uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
-          Sign in or sign up to continue · Free
-        </p>
-      </div>
+            Back to dashboard
+          </Link>
+        </div>
+      ) : (
+        <div className="reveal-up-delay-3 mt-5 flex flex-col items-center gap-2">
+          <form action={bookingAction}>
+            <button
+              type="submit"
+              className="group sk-press inline-flex min-h-11 items-center gap-3 rounded-[var(--radius-lg)] bg-[rgb(var(--fg-primary))] py-1.5 pr-1.5 pl-5 text-sm font-bold text-[rgb(var(--bg-base))] transition-transform duration-500 hover:-translate-y-[1px] active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--bg-base))] focus-visible:outline-none motion-reduce:transform-none motion-reduce:transition-none"
+              style={{ transitionTimingFunction: EASE_LINEAR }}
+            >
+              Book a session
+              <span
+                aria-hidden
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-[rgb(var(--bg-base)/0.12)] transition-transform duration-500 group-hover:translate-x-0.5 group-hover:-translate-y-[1px]"
+                style={{ transitionTimingFunction: EASE_LINEAR }}
+              >
+                <ArrowUpRight className="h-3.5 w-3.5" />
+              </span>
+            </button>
+          </form>
+          <p className="font-mono text-[0.62rem] font-medium uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
+            Sign in or sign up to continue · Free
+          </p>
+        </div>
+      )}
 
       <div className="reveal-up-delay-3 mt-5 w-full">
         <SamplesCard
@@ -206,6 +232,7 @@ export function JoinBento({
           lockedCount={lockedCount}
           slug={slug}
           online={online}
+          ownPreview={ownPreview}
         />
       </div>
 
@@ -287,6 +314,7 @@ interface SamplesCardProps {
   lockedCount: number;
   slug: string;
   online: boolean;
+  ownPreview: boolean;
 }
 
 function SamplesCard({
@@ -295,7 +323,10 @@ function SamplesCard({
   lockedCount,
   slug,
   online,
+  ownPreview,
 }: SamplesCardProps) {
+  const unlockAction = startJoinUnlock.bind(null, slug);
+
   if (samples.length === 0) {
     return (
       <div
@@ -358,19 +389,21 @@ function SamplesCard({
             />
           ))}
 
-          {lockedCount > 0 ? (
+          {lockedCount > 0 && !ownPreview ? (
             <li className="mt-1 border-t border-[rgb(var(--fg-primary)/0.08)] pt-2">
-              <Link
-                href={`/sign-up/join/${encodeURIComponent(slug)}`}
-                className="sk-press flex min-h-11 items-center gap-3 rounded-[var(--radius-lg)] px-2 py-2 text-left transition-colors duration-200 hover:bg-[rgb(var(--fg-primary)/0.04)] motion-reduce:transition-none"
-              >
-                <span aria-hidden className="w-6 shrink-0 text-center text-sm">
-                  🔒
-                </span>
-                <span className="flex-1 truncate text-sm font-semibold text-[rgb(var(--fg-muted))]">
-                  {lockedCount} more track{lockedCount === 1 ? "" : "s"} — sign up to unlock
-                </span>
-              </Link>
+              <form action={unlockAction}>
+                <button
+                  type="submit"
+                  className="sk-press flex min-h-11 w-full items-center gap-3 rounded-[var(--radius-lg)] px-2 py-2 text-left transition-colors duration-200 hover:bg-[rgb(var(--fg-primary)/0.04)] motion-reduce:transition-none"
+                >
+                  <span aria-hidden className="w-6 shrink-0 text-center text-sm">
+                    🔒
+                  </span>
+                  <span className="flex-1 truncate text-sm font-semibold text-[rgb(var(--fg-muted))]">
+                    {lockedCount} more track{lockedCount === 1 ? "" : "s"} — sign up to unlock
+                  </span>
+                </button>
+              </form>
             </li>
           ) : null}
         </ul>

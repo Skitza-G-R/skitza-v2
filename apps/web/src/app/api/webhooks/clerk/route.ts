@@ -103,12 +103,15 @@ export async function POST(req: Request) {
       } = result.lifecycle.snapshot;
       if (!email) throw new RegisteredAccountSyncError();
 
-      // `unsafe_metadata` is client-writeable. It may choose the join flow,
-      // but the claimed producer slug is never trusted until it resolves in
-      // this environment's database.
+      // `unsafe_metadata` is client-writeable. Choosing the join flow grants
+      // no producer or artist access, but it must suppress implicit Producer
+      // provisioning: a join-origin account can become a Producer only later
+      // through the explicit Create-a-studio flow. The claimed producer slug
+      // is never trusted until it resolves in this environment's database.
       const meta = createdUnsafeMetadata(event);
+      const isJoinOrigin = meta?.signupOrigin === "join";
       const claimedSlug =
-        meta?.signupOrigin === "join" && typeof meta.producerSlug === "string"
+        isJoinOrigin && typeof meta.producerSlug === "string"
           ? meta.producerSlug
           : null;
 
@@ -133,7 +136,7 @@ export async function POST(req: Request) {
             clerkUserId: id,
           })
           .onConflictDoNothing();
-      } else {
+      } else if (!isJoinOrigin) {
         await tx
           .insert(producers)
           .values({
@@ -146,7 +149,11 @@ export async function POST(req: Request) {
           .returning();
       }
 
-      if (emailVerified === true) {
+      // A stale/invalid target or an early unverified user.created snapshot
+      // stays unconnected. The trusted POST continuation will revalidate and
+      // connect it after authentication; do not let the broad legacy email
+      // stamping path turn the failed join classification into a side effect.
+      if (emailVerified === true && (!isJoinOrigin || targetProducerId)) {
         await stampUnownedArtistContactsForCreatedUser(tx, {
           email,
           clerkUserId: id,

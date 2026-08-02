@@ -2602,3 +2602,16 @@ html[data-theme="dark"] .sk-auth-shell {
     ) !important;
   }
 }
+/* Clerk custom menus only accept Action/Link children. This no-op Action is
+ * marked by its icon portal after mount and visually/semantically reduced to
+ * a compact, non-navigation current-role status row. */
+[data-role-current-status="true"] {
+  min-height: 1.75rem !important;
+  cursor: default !important;
+  pointer-events: none !important;
+  font-size: 0.6875rem !important;
+  font-weight: 650 !important;
+  letter-spacing: 0.08em !important;
+  opacity: 0.62 !important;
+  text-transform: uppercase !important;
+}

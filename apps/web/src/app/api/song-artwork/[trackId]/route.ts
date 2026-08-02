@@ -1,9 +1,10 @@
 import { auth } from "@clerk/nextjs/server";
 import { createDb } from "@skitza/db";
 
-import { fetchUserRole } from "~/server/auth/role";
+import { fetchUserAccountMemberships } from "~/server/auth/role";
 import {
   authorizeSongArtworkRead,
+  type AuthorizedSongArtwork,
   type SongArtworkViewer,
 } from "~/server/domain/song-artwork/service";
 import { readPrivateSongArtworkObject } from "~/server/domain/song-artwork/storage";
@@ -30,20 +31,39 @@ export async function GET(
   if (!userId || !databaseUrl) return unavailable();
 
   try {
-    const role = await fetchUserRole({ dbUrl: databaseUrl, userId });
-    let viewer: SongArtworkViewer;
-    if (role.kind === "producer-complete" || role.kind === "producer-incomplete") {
-      viewer = { role: "producer", producerId: role.producer.id };
-    } else if (role.kind === "artist") {
-      viewer = { role: "artist", clerkUserId: userId };
-    } else {
-      return unavailable();
+    const memberships = await fetchUserAccountMemberships({
+      dbUrl: databaseUrl,
+      userId,
+    });
+    const viewers: SongArtworkViewer[] = [];
+    if (
+      memberships.producer.status === "complete" ||
+      memberships.producer.status === "incomplete"
+    ) {
+      viewers.push({
+        role: "producer",
+        producerId: memberships.producer.profile.id,
+      });
+    }
+    if (memberships.artist.hasAccess) {
+      viewers.push({ role: "artist", clerkUserId: userId });
     }
 
-    const artwork = await authorizeSongArtworkRead(createDb(databaseUrl), {
-      viewer,
-      trackId,
-    });
+    let artwork: AuthorizedSongArtwork | null = null;
+    for (const viewer of viewers) {
+      try {
+        artwork = await authorizeSongArtworkRead(createDb(databaseUrl), {
+          viewer,
+          trackId,
+        });
+        break;
+      } catch {
+        // A dual-role account may fail exact ownership as its Producer while
+        // still owning the same track through an exact active Artist link.
+      }
+    }
+    if (!artwork) return unavailable();
+
     const object = await readPrivateSongArtworkObject(artwork);
     return new Response(Buffer.from(object.body), {
       status: 200,

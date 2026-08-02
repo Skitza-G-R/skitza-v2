@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import {
   and,
+  clientContacts,
   createDb,
   desc,
   eq,
@@ -11,6 +12,8 @@ import {
   sql,
 } from "@skitza/db";
 import { cache } from "react";
+
+import { artistNotificationUnreadCount } from "~/server/artist/notifications";
 
 // Request-scoped shell state used by AppShell and any server component
 // that wants the producer slug / unread count without re-querying.
@@ -53,6 +56,8 @@ export interface ShellState {
   displayName: string | null;
   plan: string;
   unreadCount: number;
+  hasArtistAccount: boolean;
+  artistUnreadCount: number;
   recentNotifications: ShellNotificationItem[];
 }
 
@@ -122,6 +127,8 @@ const DEFAULT_STATE: ShellState = {
   displayName: null,
   plan: "free",
   unreadCount: 0,
+  hasArtistAccount: false,
+  artistUnreadCount: 0,
   recentNotifications: [],
 };
 
@@ -158,7 +165,13 @@ export const getShellState = cache(async (): Promise<ShellState> => {
     purchaseId: notifications.purchaseId,
     readAt: notifications.readAt,
   };
-  const [unreadCountRows, unreadRows, recentReadRows] = await Promise.all([
+  const [
+    unreadCountRows,
+    unreadRows,
+    recentReadRows,
+    artistContactRows,
+    artistUnreadCount,
+  ] = await Promise.all([
     db
       .select({ value: sql<number>`count(*)`.mapWith(Number) })
       .from(notifications)
@@ -193,6 +206,12 @@ export const getShellState = cache(async (): Promise<ShellState> => {
       )
       .orderBy(desc(notifications.createdAt))
       .limit(NOTIFICATION_FEED_LIMIT),
+    db
+      .select({ id: clientContacts.id })
+      .from(clientContacts)
+      .where(eq(clientContacts.clerkUserId, userId))
+      .limit(1),
+    artistNotificationUnreadCount(db, userId),
   ]);
 
   const recentNotifications = mergeShellNotificationRows(unreadRows, recentReadRows);
@@ -204,6 +223,8 @@ export const getShellState = cache(async (): Promise<ShellState> => {
     displayName: row.displayName,
     plan: row.plan,
     unreadCount: unreadCountRows[0]?.value ?? 0,
+    hasArtistAccount: artistContactRows[0] !== undefined,
+    artistUnreadCount,
     recentNotifications,
   };
 });

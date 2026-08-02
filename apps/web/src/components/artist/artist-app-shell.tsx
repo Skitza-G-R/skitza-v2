@@ -9,6 +9,7 @@ import { TopBarBreadcrumbProvider } from "~/components/shell/topbar-breadcrumb-c
 import { ArtistRuntimeStateProvider } from "~/components/runtime-state/artist-runtime-state-provider";
 import { RuntimeScreenTransitionBoundary } from "~/components/runtime-state/runtime-screen-view";
 import { NativeInstallGuidance } from "~/components/pwa/native-install-guidance";
+import type { ProducerProfileStatus } from "~/server/auth/role";
 
 import { ArtistHomeSoftNavigationBoundary } from "./home/artist-home-runtime";
 import { ArtistShellChrome } from "./artist-shell-chrome";
@@ -45,7 +46,8 @@ import { ArtistRouteStatus } from "./artist-route-status";
 // the same single-column layout at every viewport).
 export function ArtistAppShell({
   userId,
-  isProducer,
+  producerStatus,
+  producerNotificationUnreadCount,
   studios,
   initialStudioId,
   notificationUnreadCount,
@@ -53,7 +55,8 @@ export function ArtistAppShell({
   children,
 }: {
   userId: string;
-  isProducer: boolean;
+  producerStatus: ProducerProfileStatus;
+  producerNotificationUnreadCount: number;
   studios: Studio[];
   initialStudioId: string | null;
   notificationUnreadCount: number;
@@ -87,7 +90,8 @@ export function ArtistAppShell({
             userId={userId}
             initialStudioId={initialStudioId}
             notificationStudioDotIds={notificationStudioDotIds}
-            isProducer={isProducer}
+            producerStatus={producerStatus}
+            producerNotificationUnreadCount={producerNotificationUnreadCount}
           />
         </ArtistShellChrome>
 
@@ -102,7 +106,8 @@ export function ArtistAppShell({
               initialStudioId={initialStudioId}
               notificationUnreadCount={notificationUnreadCount}
               notificationStudioDotIds={notificationStudioDotIds}
-              isProducer={isProducer}
+              producerStatus={producerStatus}
+              producerNotificationUnreadCount={producerNotificationUnreadCount}
             />
           </ArtistShellChrome>
           {/* SK-31: replicate the producer top bar on the artist side,

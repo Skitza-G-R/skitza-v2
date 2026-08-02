@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { isAccessGated, resolveLegacyRedirect } from "./middleware";
+import {
+  isAccessGated,
+  resolveLegacyRedirect,
+  trustedOnboardingRequestHeaders,
+} from "./middleware";
 
 // The pure `resolveLegacyRedirect` operates on pathname only; query-string
 // preservation on the 301 response is handled in the `clerkMiddleware`
@@ -52,5 +56,36 @@ describe("pre-launch access gate", () => {
     expect(isAccessGated("/listen-private/live-song-token")).toBe(true);
     expect(isAccessGated("/launch/resolve")).toBe(true);
     expect(isAccessGated("/dashboard/music/song-id")).toBe(true);
+  });
+});
+
+describe("trusted onboarding request headers", () => {
+  it("removes forged intent and preview headers when the URL is not authorized", () => {
+    const headers = trustedOnboardingRequestHeaders({
+      incomingHeaders: new Headers({
+        "x-pathname": "/forged",
+        "x-onboarding-intent": "create-studio",
+        "x-onboarding-preview-bypass": "1",
+      }),
+      pathname: "/onboarding/studio",
+      searchParams: new URLSearchParams(),
+      isOnboardingPreview: false,
+    });
+
+    expect(headers.get("x-pathname")).toBe("/onboarding/studio");
+    expect(headers.get("x-onboarding-intent")).toBeNull();
+    expect(headers.get("x-onboarding-preview-bypass")).toBeNull();
+  });
+
+  it("sets trusted values only from the server-derived route conditions", () => {
+    const headers = trustedOnboardingRequestHeaders({
+      incomingHeaders: new Headers(),
+      pathname: "/onboarding/studio",
+      searchParams: new URLSearchParams("intent=create-studio"),
+      isOnboardingPreview: true,
+    });
+
+    expect(headers.get("x-onboarding-intent")).toBe("create-studio");
+    expect(headers.get("x-onboarding-preview-bypass")).toBe("1");
   });
 });

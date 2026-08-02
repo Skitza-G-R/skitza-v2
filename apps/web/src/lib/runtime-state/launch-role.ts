@@ -1,8 +1,8 @@
-import { roleChooserHref } from "~/server/auth/post-sign-in";
 import type {
   UserAccountMemberships,
   UserRole,
 } from "~/server/auth/role";
+import { legacyUserRoleFromMemberships } from "~/server/auth/role";
 
 import { normalizeRuntimeHref } from "./runtime-state";
 
@@ -53,20 +53,24 @@ export function runtimeLaunchHrefForMemberships(
   const artistTarget = requestedRuntimeHref("artist", requestedHref);
   const producerTarget = requestedRuntimeHref("producer", requestedHref);
   const safeTarget = artistTarget ?? producerTarget;
-  const { primaryRole } = memberships;
-  const hasProducerAccount =
-    primaryRole.kind === "producer-complete" ||
-    primaryRole.kind === "producer-incomplete";
+  const primaryRole = legacyUserRoleFromMemberships(memberships);
+  const hasProducerAccount = memberships.producer.status !== "none";
 
-  if (primaryRole.kind === "unauthenticated") {
+  if (!memberships.isAuthenticated) {
     return signUpRuntimeHref(safeTarget);
   }
 
-  if (hasProducerAccount && memberships.hasArtistAccount) {
-    return roleChooserHref(safeTarget);
+  if (hasProducerAccount && memberships.artist.hasAccess) {
+    if (artistTarget) return artistTarget;
+    if (producerTarget) {
+      return memberships.producer.status === "incomplete"
+        ? "/onboarding"
+        : producerTarget;
+    }
+    return "/auth/resume";
   }
 
-  if (memberships.hasArtistAccount && !hasProducerAccount) {
+  if (memberships.artist.hasAccess && !hasProducerAccount) {
     return artistTarget ?? "/artist";
   }
 

@@ -18,6 +18,7 @@ const artistMobileNav = read("../artist-bottom-nav.tsx");
 const producerMobileNav = read("../producer-bottom-nav.tsx");
 const artistDesktopNav = read("../artist-desktop-sidebar.tsx");
 const artistUserButton = read("../artist-user-button.tsx");
+const accountRoleMenu = read("../account-role-menu-items.tsx");
 const producerDesktopNav = read("../producer-sidebar.tsx");
 const englishMessages = read("../../../../messages/en.json");
 const appTopBar = read("../../shell/app-topbar.tsx");
@@ -60,8 +61,9 @@ describe("SK-99 final navigation", () => {
     expect(artistDesktopNav).toContain(
       'settingsHref={withArtistStudio("/artist/settings", activeStudioId)}',
     );
-    expect(artistUserButton).toContain('label="Settings"');
-    expect(artistUserButton).toContain("href={settingsHref}");
+    expect(artistUserButton).toContain("renderAccountRoleMenuItems(menuModel)");
+    expect(accountRoleMenu).toContain('label="Settings"');
+    expect(accountRoleMenu).toContain("href={model.settingsHref}");
   });
 
   it("keeps the approved producer mobile tabs and desktop Store, Payments, and Settings", () => {

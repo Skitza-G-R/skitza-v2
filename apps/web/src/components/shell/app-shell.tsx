@@ -45,8 +45,17 @@ import { TopBarBreadcrumbProvider } from "./topbar-breadcrumb-context";
 // docs/qa/phase-2-handoff.md under "FloatingPlayer slot".
 
 export async function AppShell({ children }: { children: ReactNode }) {
-  const { userId, producerId, slug, displayName, plan, unreadCount, recentNotifications } =
-    await getShellState();
+  const {
+    userId,
+    producerId,
+    slug,
+    displayName,
+    plan,
+    unreadCount,
+    recentNotifications,
+    hasArtistAccount,
+    artistUnreadCount,
+  } = await getShellState();
   const runtimeCacheEpoch = Date.now();
   // Public origin used by the SidebarShareChip to render the
   // /join/<slug> URL. Always the canonical brand origin — share links
@@ -68,6 +77,9 @@ export async function AppShell({ children }: { children: ReactNode }) {
         publicBaseUrl={publicBaseUrl}
         displayName={displayName}
         plan={plan}
+        userId={userId}
+        hasArtistAccount={hasArtistAccount}
+        artistUnreadCount={artistUnreadCount}
       />
       {/* Mobile behaves as one native-style viewport: the topbar and tab
           bar are non-scrolling chrome while page content is the only
@@ -84,6 +96,9 @@ export async function AppShell({ children }: { children: ReactNode }) {
             producerSlug={slug}
             unreadCount={unreadCount}
             recentNotifications={recentNotifications}
+            userId={userId}
+            hasArtistAccount={hasArtistAccount}
+            artistUnreadCount={artistUnreadCount}
           />
           <main
             id="main-content"

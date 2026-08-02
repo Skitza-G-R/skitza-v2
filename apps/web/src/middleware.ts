@@ -117,6 +117,35 @@ export function isAccessGated(pathname: string): boolean {
   return true;
 }
 
+export function trustedOnboardingRequestHeaders(input: {
+  incomingHeaders: Headers;
+  pathname: string;
+  searchParams: URLSearchParams;
+  isOnboardingPreview: boolean;
+}): Headers {
+  const requestHeaders = new Headers(input.incomingHeaders);
+
+  // These values cross an authorization boundary. Never trust namesakes on
+  // the incoming request: clear them before deriving fresh values from the
+  // server-observed pathname, query, environment, and preview predicate.
+  requestHeaders.delete("x-pathname");
+  requestHeaders.delete("x-onboarding-intent");
+  requestHeaders.delete("x-onboarding-preview-bypass");
+  requestHeaders.set("x-pathname", input.pathname);
+
+  if (
+    input.pathname === "/onboarding/studio" &&
+    input.searchParams.get("intent") === "create-studio"
+  ) {
+    requestHeaders.set("x-onboarding-intent", "create-studio");
+  }
+  if (input.isOnboardingPreview) {
+    requestHeaders.set("x-onboarding-preview-bypass", "1");
+  }
+
+  return requestHeaders;
+}
+
 const clerk = clerkMiddleware(async (auth, req) => {
   const { userId } = await auth();
   const returningDeviceCookie = req.cookies.get(RETURNING_DEVICE_COOKIE)?.value;
@@ -186,17 +215,18 @@ const clerk = clerkMiddleware(async (auth, req) => {
   // into (producer)/dashboard/onboarding when the wizard is rebuilt in
   // Phase 3.
   if (req.nextUrl.pathname.startsWith("/onboarding")) {
-    const requestHeaders = new Headers(req.headers);
-    requestHeaders.set("x-pathname", req.nextUrl.pathname);
+    const requestHeaders = trustedOnboardingRequestHeaders({
+      incomingHeaders: req.headers,
+      pathname: req.nextUrl.pathname,
+      searchParams: req.nextUrl.searchParams,
+      isOnboardingPreview,
+    });
     // Forward the dev-preview bypass signal so the (onboarding) layout
     // can short-circuit its role gate (and skip the DB round-trip
     // fetchUserRole would otherwise do). Server components can't read
     // search params from the URL directly, so we hop the signal across
     // the request/response boundary as a header. Same NODE_ENV +
     // ?__preview=1 gate as above — see lib/onboarding/dev-preview.ts.
-    if (isOnboardingPreview) {
-      requestHeaders.set("x-onboarding-preview-bypass", "1");
-    }
     return finalizeResponse(
       NextResponse.next({ request: { headers: requestHeaders } }),
     );

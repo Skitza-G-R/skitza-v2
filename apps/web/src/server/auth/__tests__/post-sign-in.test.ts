@@ -6,9 +6,12 @@ import type {
 } from "../role";
 import {
   chosenRoleDestination,
+  joinSignUpMetadataFromTarget,
+  normalizeSameOriginPostSignInTarget,
   postSignInDestination,
   postSignInResolverHref,
   sanitizePostSignInTarget,
+  trustedAuthRequestOrigin,
 } from "../post-sign-in";
 
 const completeProducer: ProducerRow = {
@@ -26,24 +29,27 @@ const incompleteProducer: ProducerRow = {
 };
 
 const artistOnly: UserAccountMemberships = {
-  primaryRole: { kind: "artist" },
-  hasArtistAccount: true,
+  isAuthenticated: true,
+  producer: { status: "none", profile: null },
+  artist: { hasAccess: true, hasActiveConnections: true },
 };
 
 const producerOnly: UserAccountMemberships = {
-  primaryRole: {
-    kind: "producer-complete",
-    producer: completeProducer,
-  },
-  hasArtistAccount: false,
+  isAuthenticated: true,
+  producer: { status: "complete", profile: completeProducer },
+  artist: { hasAccess: false, hasActiveConnections: false },
 };
 
 const dualRole: UserAccountMemberships = {
-  primaryRole: {
-    kind: "producer-complete",
-    producer: completeProducer,
-  },
-  hasArtistAccount: true,
+  isAuthenticated: true,
+  producer: { status: "complete", profile: completeProducer },
+  artist: { hasAccess: true, hasActiveConnections: true },
+};
+
+const incompleteDualRole: UserAccountMemberships = {
+  isAuthenticated: true,
+  producer: { status: "incomplete", profile: incompleteProducer },
+  artist: { hasAccess: true, hasActiveConnections: true },
 };
 
 describe("sanitizePostSignInTarget", () => {
@@ -67,6 +73,20 @@ describe("sanitizePostSignInTarget", () => {
       "/artist-welcome/studio-slug",
       {
         href: "/artist-welcome/studio-slug",
+        platform: "artist",
+      },
+    ],
+    [
+      "/join/studio-slug/continue?action=book",
+      {
+        href: "/join/studio-slug/continue?action=book",
+        platform: "artist",
+      },
+    ],
+    [
+      "/join/studio-slug/continue?action=unlock",
+      {
+        href: "/join/studio-slug/continue?action=unlock",
         platform: "artist",
       },
     ],
@@ -139,6 +159,102 @@ describe("postSignInResolverHref", () => {
       "/auth/resolve",
     );
   });
+
+  it("keeps the producer slug and booking action for join-origin sign-in", () => {
+    expect(
+      postSignInResolverHref("/join/studio-slug/continue?action=book"),
+    ).toBe(
+      "/auth/resolve?next=%2Fjoin%2Fstudio-slug%2Fcontinue%3Faction%3Dbook",
+    );
+  });
+
+  it.each(["---", "-studio", "studio-", "s".repeat(48)])(
+    "accepts persisted public-slug boundary %s",
+    (slug) => {
+      expect(
+        postSignInResolverHref(`/join/${slug}/continue?action=book`),
+      ).toContain(encodeURIComponent(`/join/${slug}/continue?action=book`));
+    },
+  );
+
+  it.each(["ab", "s".repeat(49), "Studio", "studio/other"])(
+    "rejects an invalid join slug %s",
+    (slug) => {
+      expect(
+        postSignInResolverHref(`/join/${slug}/continue?action=book`),
+      ).toBe("/auth/resolve");
+    },
+  );
+});
+
+describe("joinSignUpMetadataFromTarget", () => {
+  it("derives Artist metadata only from a strictly validated join continuation", () => {
+    expect(
+      joinSignUpMetadataFromTarget(
+        "/join/northline-studio/continue?action=book",
+      ),
+    ).toEqual({ signupOrigin: "join", producerSlug: "northline-studio" });
+    expect(
+      joinSignUpMetadataFromTarget(
+        "/join/northline-studio/continue?action=unlock",
+      ),
+    ).toEqual({ signupOrigin: "join", producerSlug: "northline-studio" });
+  });
+
+  it.each([
+    "/join/ab/continue?action=book",
+    "/join/northline-studio/continue?action=delete",
+    "/join/northline-studio/continue?action=book&next=/dashboard",
+    "https://evil.example/join/northline-studio/continue?action=book",
+    "/dashboard",
+  ])("does not stamp OAuth signup metadata for unsafe target %s", (target) => {
+    expect(joinSignUpMetadataFromTarget(target)).toBeNull();
+  });
+});
+
+describe("same-origin Clerk transfer targets", () => {
+  it("normalizes Clerk's absolute same-origin join target back to the strict relative contract", () => {
+    const origin = trustedAuthRequestOrigin({
+      forwardedHost: "preview.example.test",
+      forwardedProto: "https",
+      host: "internal.invalid",
+    });
+    const normalized = normalizeSameOriginPostSignInTarget(
+      "https://preview.example.test/join/northline-studio/continue?action=book",
+      origin,
+    );
+
+    expect(normalized).toBe(
+      "/join/northline-studio/continue?action=book",
+    );
+    expect(joinSignUpMetadataFromTarget(normalized)).toEqual({
+      signupOrigin: "join",
+      producerSlug: "northline-studio",
+    });
+  });
+
+  it.each([
+    "https://evil.example/join/northline-studio/continue?action=book",
+    "https://preview.example.test@evil.example/join/northline-studio/continue?action=book",
+    "https://preview.example.test/join/northline-studio/continue?action=book#unsafe",
+  ])("rejects a non-equivalent absolute transfer target %s", (target) => {
+    expect(
+      normalizeSameOriginPostSignInTarget(
+        target,
+        "https://preview.example.test",
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects malformed forwarded request origins", () => {
+    expect(
+      trustedAuthRequestOrigin({
+        forwardedHost: "preview.example.test@evil.example",
+        forwardedProto: "https",
+        host: null,
+      }),
+    ).toBeNull();
+  });
 });
 
 describe("postSignInDestination", () => {
@@ -173,11 +289,9 @@ describe("postSignInDestination", () => {
     expect(
       postSignInDestination(
         {
-          primaryRole: {
-            kind: "producer-incomplete",
-            producer: incompleteProducer,
-          },
-          hasArtistAccount: false,
+          isAuthenticated: true,
+          producer: { status: "incomplete", profile: incompleteProducer },
+          artist: { hasAccess: false, hasActiveConnections: false },
         },
         "/dashboard/music",
       ),
@@ -188,8 +302,9 @@ describe("postSignInDestination", () => {
     expect(
       postSignInDestination(
         {
-          primaryRole: { kind: "orphan" },
-          hasArtistAccount: false,
+          isAuthenticated: true,
+          producer: { status: "none", profile: null },
+          artist: { hasAccess: false, hasActiveConnections: false },
         },
         null,
       ),
@@ -200,31 +315,67 @@ describe("postSignInDestination", () => {
     expect(
       postSignInDestination(
         {
-          primaryRole: { kind: "orphan" },
-          hasArtistAccount: true,
+          isAuthenticated: true,
+          producer: { status: "none", profile: null },
+          artist: { hasAccess: true, hasActiveConnections: false },
         },
         null,
       ),
     ).toBe("/artist");
   });
 
-  it("sends only genuine dual-role accounts to the chooser", () => {
+  it("lets an explicit Artist deep link override Producer precedence", () => {
     expect(
       postSignInDestination(
         dualRole,
         "/artist/music/song/version-1?studio=studio-a",
       ),
-    ).toBe(
-      "/choose-role?next=%2Fartist%2Fmusic%2Fsong%2Fversion-1%3Fstudio%3Dstudio-a",
+    ).toBe("/artist/music/song/version-1?studio=studio-a");
+  });
+
+  it("keeps Artist mode usable while Producer setup is unfinished", () => {
+    expect(
+      postSignInDestination(
+        incompleteDualRole,
+        "/artist/book?studio=producer-target",
+      ),
+    ).toBe("/artist/book?studio=producer-target");
+  });
+
+  it("preserves only the exact Create-a-studio action for an Artist after sign-in", () => {
+    expect(
+      postSignInDestination(
+        artistOnly,
+        "/onboarding/studio?intent=create-studio",
+      ),
+    ).toBe("/onboarding/studio?intent=create-studio");
+    expect(
+      postSignInDestination(
+        artistOnly,
+        "/onboarding/studio?intent=create-studio&next=/dashboard",
+      ),
+    ).toBe("/artist");
+    expect(postSignInDestination(artistOnly, "/onboarding/studio")).toBe(
+      "/artist",
     );
+  });
+
+  it("preserves join intent for a Producer so the join route can ask for confirmation", () => {
+    expect(
+      postSignInDestination(
+        producerOnly,
+        "/join/studio-slug/continue?action=book",
+      ),
+    ).toBe("/join/studio-slug/continue?action=book");
   });
 
   it("preserves the intended target when an unauthenticated resolver is revisited", () => {
     expect(
       postSignInDestination(
         {
-          primaryRole: { kind: "unauthenticated" },
-          hasArtistAccount: false,
+          isAuthenticated: false,
+          producer: { status: "none", profile: null },
+          artist: { hasAccess: false, hasActiveConnections: false },
         },
         "/artist/music",
       ),
@@ -257,11 +408,9 @@ describe("chosenRoleDestination", () => {
     expect(
       chosenRoleDestination(
         {
-          primaryRole: {
-            kind: "producer-incomplete",
-            producer: incompleteProducer,
-          },
-          hasArtistAccount: true,
+          isAuthenticated: true,
+          producer: { status: "incomplete", profile: incompleteProducer },
+          artist: { hasAccess: true, hasActiveConnections: true },
         },
         "producer",
         "/dashboard/music",
@@ -282,8 +431,9 @@ describe("chosenRoleDestination", () => {
     expect(
       chosenRoleDestination(
         {
-          primaryRole: { kind: "unauthenticated" },
-          hasArtistAccount: true,
+          isAuthenticated: false,
+          producer: { status: "none", profile: null },
+          artist: { hasAccess: true, hasActiveConnections: true },
         },
         "artist",
         "/artist/music",
