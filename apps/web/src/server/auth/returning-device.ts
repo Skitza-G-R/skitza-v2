@@ -52,7 +52,9 @@ export function shouldRedirectReturningDeviceToSignIn({
 
 export function signInSwitchHref(rawTarget?: string | null): string {
   const target = sanitizePostSignInTarget(rawTarget);
-  if (!target) return "/sign-in";
+  // The homepage Producer CTA uses /onboarding as new-account intent. Do not
+  // carry that generic target when a returning device is handed to sign-in.
+  if (!target || target.href === "/onboarding") return "/sign-in";
 
   return `/sign-in?${new URLSearchParams({
     redirect_url: target.href,

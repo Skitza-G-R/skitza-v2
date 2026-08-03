@@ -75,6 +75,26 @@ describe("auth page switch URLs", () => {
     );
   });
 
+  it("drops the generic Producer signup target on a returning-device handoff", () => {
+    expect(signInSwitchHref("/onboarding")).toBe("/sign-in");
+  });
+
+  it("preserves explicit onboarding and Artist targets on that handoff", () => {
+    expect(
+      signInSwitchHref("/onboarding/studio?intent=create-studio"),
+    ).toBe(
+      "/sign-in?redirect_url=%2Fonboarding%2Fstudio%3Fintent%3Dcreate-studio",
+    );
+    expect(
+      signInSwitchHref("/join/northline-studio/continue?action=book"),
+    ).toBe(
+      "/sign-in?redirect_url=%2Fjoin%2Fnorthline-studio%2Fcontinue%3Faction%3Dbook",
+    );
+    expect(signInSwitchHref("/artist/music?studio=studio-a")).toBe(
+      "/sign-in?redirect_url=%2Fartist%2Fmusic%3Fstudio%3Dstudio-a",
+    );
+  });
+
   it("drops external and non-app redirect targets", () => {
     expect(signUpSwitchHref("https://evil.example/artist")).toBe("/sign-up?intent=signup");
     expect(signInSwitchHref("//evil.example/dashboard")).toBe("/sign-in");
