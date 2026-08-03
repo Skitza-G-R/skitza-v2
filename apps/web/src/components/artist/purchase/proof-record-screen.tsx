@@ -116,7 +116,7 @@ export function ProofRecordScreen({
 
   return (
     <div className="fixed inset-0 z-[60] overflow-y-auto bg-[rgb(var(--bg-background))]">
-      <div className="relative mx-auto flex min-h-dvh w-full max-w-[440px] flex-col overflow-x-hidden">
+      <div className="relative mx-auto flex min-h-dvh w-full max-w-[440px] flex-col overflow-x-clip">
         <FunnelTopBar
           title="Payment proof"
           sub={`INSTALLMENT ${String(proof.installmentPosition)}`}

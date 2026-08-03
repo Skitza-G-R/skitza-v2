@@ -44,6 +44,7 @@ describe("artist proof record design", () => {
     expect(html).toContain("UTC");
     expect(html).toContain("Payment progress");
     expect(html).toContain("Back to payment summary");
+    expect(html).toContain("overflow-x-clip");
   });
 
   it("keeps replacement upload on the exact canonical route", () => {
