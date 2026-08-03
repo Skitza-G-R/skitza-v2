@@ -1132,6 +1132,24 @@
       color: rgb(var(--fg-onsidebar));
       background: rgb(var(--fg-onsidebar) / 0.14);
     }
+    .sk-sidebar-nav-item:active {
+      color: rgb(var(--fg-onsidebar));
+      background: rgb(var(--fg-onsidebar) / 0.13);
+      filter: brightness(1.08);
+      transition-duration: 70ms;
+    }
+    .sk-sidebar-nav-item[aria-current="page"]:active {
+      background: rgb(var(--fg-onsidebar) / 0.17);
+    }
+    .sk-sidebar-shell[data-collapsed="false"] .sk-sidebar-nav-item:active {
+      transform: translateX(2px) scale(0.975);
+    }
+    .sk-sidebar-shell[data-collapsed="true"] .sk-sidebar-nav-item:active {
+      transform: scale(0.975);
+    }
+    .sk-sidebar-nav-item:active .sk-sidebar-nav-icon {
+      transform: scale(0.96);
+    }
   }
 
   /* ----------------------------------------------------------------
@@ -1913,6 +1931,8 @@
     .sk-sidebar-nav-icon { transition-duration: 0ms !important; }
     .sk-sidebar-nav-item:hover { transform: none !important; filter: none !important; }
     .sk-sidebar-nav-item:hover .sk-sidebar-nav-icon { transform: none !important; }
+    .sk-sidebar-nav-item:active { transform: none !important; filter: none !important; }
+    .sk-sidebar-nav-item:active .sk-sidebar-nav-icon { transform: none !important; }
     .sk-pop,
     .sk-pop-center { animation: none !important; }
     .sk-cta-shine:hover::after { animation: none !important; }

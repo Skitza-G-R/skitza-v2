@@ -7,7 +7,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const SIDEBAR = readFileSync(join(here, "..", "producer-sidebar.tsx"), "utf8");
 const GLOBALS = readFileSync(join(here, "..", "..", "..", "app", "globals.css"), "utf8");
 
-describe("ProducerSidebar hover feedback", () => {
+describe("ProducerSidebar pointer feedback", () => {
   it("marks the navigation row and icon for scoped hover motion", () => {
     expect(SIDEBAR).toContain("sk-sidebar-nav-item");
     expect(SIDEBAR).toContain("sk-sidebar-nav-icon");
@@ -20,6 +20,18 @@ describe("ProducerSidebar hover feedback", () => {
     );
   });
 
+  it("compresses pressed rows and releases through the existing transition", () => {
+    expect(GLOBALS).toMatch(
+      /\.sk-sidebar-shell\[data-collapsed="false"\] \.sk-sidebar-nav-item:active\s*\{[^}]*scale\(0\.975\)/s,
+    );
+    expect(GLOBALS).toMatch(
+      /\.sk-sidebar-nav-item:active \.sk-sidebar-nav-icon\s*\{[^}]*transform/s,
+    );
+    expect(GLOBALS).toMatch(
+      /\.sk-sidebar-nav-item\[aria-current="page"\]:active\s*\{[^}]*background/s,
+    );
+  });
+
   it("removes hover transforms for reduced-motion users", () => {
     const reducedMotion = GLOBALS.match(
       /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n {2}\}/,
@@ -28,5 +40,9 @@ describe("ProducerSidebar hover feedback", () => {
     expect(reducedMotion).toContain(".sk-sidebar-nav-item");
     expect(reducedMotion).toContain(".sk-sidebar-nav-icon");
     expect(reducedMotion).toMatch(/\.sk-sidebar-nav-item:hover\s*\{[^}]*transform:\s*none/s);
+    expect(reducedMotion).toMatch(/\.sk-sidebar-nav-item:active\s*\{[^}]*transform:\s*none/s);
+    expect(reducedMotion).toMatch(
+      /\.sk-sidebar-nav-item:active \.sk-sidebar-nav-icon\s*\{[^}]*transform:\s*none/s,
+    );
   });
 });
