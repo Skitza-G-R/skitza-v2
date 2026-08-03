@@ -4,7 +4,7 @@ const PURCHASE_STEP_PATH =
   /^\/artist\/purchase\/[^/]+\/(?:request|agree|sent|pay(?:\/(?:instructions|proof))?)$/;
 const SESSION_ACTION_PATH = /^\/artist\/sessions\/[^/]+\/(?:cancel|reschedule)$/;
 const PAYMENT_PROCESS_PATH =
-  /^\/artist\/payments\/[^/]+\/(?:instructions|proof\/new)$/;
+  /^\/artist\/payments\/[^/]+\/(?:instructions|proof\/[^/]+)$/;
 
 function normalizeArtistPath(pathname: string | null): string {
   if (!pathname || pathname === "/") return pathname ?? "";

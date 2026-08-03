@@ -4,6 +4,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
 
+import { AcceptedRequestPaymentProofActions } from "~/components/dashboard/requests/accepted-request-payment-proof-actions";
 import { PurchaseRequestCommercialDetails } from "~/components/dashboard/requests/purchase-request-commercial-details";
 import { PurchaseRequestReview } from "~/components/dashboard/requests/purchase-request-review";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
@@ -49,6 +50,12 @@ export default async function ProducerPurchaseRequestPage({ params, searchParams
     commercialTerms.kind === "unavailable"
       ? commercialTerms.productName
       : commercialTerms.snapshot.productOrOfferName;
+  const pendingProofs =
+    commercialTerms.kind === "accepted"
+      ? await caller.producer.purchase.proofOfPayment.pending({
+          purchaseId: commercialTerms.purchaseId,
+        })
+      : { available: true as const, proofs: [] };
 
   return (
     <>
@@ -110,9 +117,7 @@ export default async function ProducerPurchaseRequestPage({ params, searchParams
         ) : null}
 
         {commercialTerms.kind === "accepted" ? (
-          <p className="border-b border-[rgb(var(--border-subtle))] py-5 text-sm leading-relaxed text-[rgb(var(--fg-secondary))]">
-            The artist accepted these terms. Any later payment follow-up belongs in Payments.
-          </p>
+          <AcceptedRequestPaymentProofActions proofs={pendingProofs.proofs} />
         ) : null}
 
         <PurchaseRequestCommercialDetails

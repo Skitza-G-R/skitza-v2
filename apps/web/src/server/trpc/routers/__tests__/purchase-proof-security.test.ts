@@ -46,8 +46,10 @@ describe("accepted-purchase proof API security", () => {
     expect(producerProofRouter).toMatch(
       /listProducerPendingPaymentProofs\(ctx\.db, ctx\.producerId/,
     );
+    expect(producerProofRouter).toMatch(/ctx\.producerId, input\?\.purchaseId/);
     expect(producerProofRouter).toMatch(/producerId: ctx\.producerId/);
     expect(serviceSource).toMatch(/eq\(paymentProofs\.producerId, producerId\)/);
+    expect(serviceSource).toMatch(/purchaseId \? eq\(paymentProofs\.purchaseId, purchaseId\)/);
     expect(serviceSource).toMatch(/eq\(purchases\.producerId, producerId\)/);
   });
 

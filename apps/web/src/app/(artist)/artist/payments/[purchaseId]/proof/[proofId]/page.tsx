@@ -38,7 +38,11 @@ export default async function ArtistPaymentProofRecordPage({ params }: PageProps
           amountCents: exact.amountCents,
           status: exact.status,
           createdAt: exact.createdAt,
+          originalFileName: exact.originalFileName,
+          evidenceUrl: exact.evidenceUrl,
         }}
+        totalCents={data.totalCents}
+        verifiedCents={data.paidCents}
         remainingCents={data.remainingCents}
         paidInFull={data.paidInFull}
         replacementUploadAvailable={
@@ -53,8 +57,9 @@ export default async function ArtistPaymentProofRecordPage({ params }: PageProps
           amountCents: proof.amountCents,
           status: proof.status,
           createdAt: proof.createdAt,
+          originalFileName: proof.originalFileName,
+          evidenceUrl: proof.evidenceUrl,
         }))}
-        evidenceUrl={exact.evidenceUrl}
         rejectionNote={exact.rejectionNote}
       />
     );

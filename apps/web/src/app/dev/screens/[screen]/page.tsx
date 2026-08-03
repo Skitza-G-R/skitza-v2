@@ -794,12 +794,17 @@ export default async function DevScreenPage({ params }: Params) {
           productName={MOCK_PRODUCT.name}
           producerName={MOCK_PRODUCER.name}
           currency="ILS"
-          proof={DEV_ARTIST_PENDING_PROOF}
+          proof={{
+            ...DEV_ARTIST_PENDING_PROOF,
+            originalFileName: "bank-transfer.png",
+            evidenceUrl: "#proof-preview",
+          }}
+          totalCents={240_000}
+          verifiedCents={0}
           remainingCents={240_000}
           paidInFull={false}
           replacementUploadAvailable={false}
-          history={[DEV_ARTIST_PENDING_PROOF]}
-          evidenceUrl="#proof-preview"
+          history={[]}
           rejectionNote={null}
         />,
       );
@@ -812,12 +817,17 @@ export default async function DevScreenPage({ params }: Params) {
           productName={MOCK_PRODUCT.name}
           producerName={MOCK_PRODUCER.name}
           currency="ILS"
-          proof={DEV_ARTIST_REJECTED_PROOF}
+          proof={{
+            ...DEV_ARTIST_REJECTED_PROOF,
+            originalFileName: "bank-transfer.png",
+            evidenceUrl: "#proof-preview",
+          }}
+          totalCents={240_000}
+          verifiedCents={0}
           remainingCents={240_000}
           paidInFull={false}
           replacementUploadAvailable
-          history={[DEV_ARTIST_REJECTED_PROOF]}
-          evidenceUrl="#proof-preview"
+          history={[]}
           rejectionNote="The amount is cut off in the screenshot."
         />,
       );
@@ -834,7 +844,7 @@ export default async function DevScreenPage({ params }: Params) {
           verifiedCents={120_000}
           remainingCents={120_000}
           currentInstallmentPosition={2}
-          paymentInstructionsAvailable
+          proofUploadsAvailable
           proofs={[DEV_ARTIST_CONFIRMED_PROOF]}
         />,
       );
@@ -851,7 +861,7 @@ export default async function DevScreenPage({ params }: Params) {
           verifiedCents={240_000}
           remainingCents={0}
           currentInstallmentPosition={2}
-          paymentInstructionsAvailable
+          proofUploadsAvailable
           proofs={[DEV_ARTIST_CONFIRMED_PROOF, DEV_ARTIST_FINAL_PROOF]}
         />,
       );
