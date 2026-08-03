@@ -33,6 +33,7 @@ export function UploadModalDevScreen() {
             id: "00000000-0000-4000-8000-000000000003",
             title: "Debut single",
             clientName: "Maya Cohen",
+            canCreateNewSong: true,
             tracks: [
               {
                 id: "song-existing",
@@ -46,6 +47,7 @@ export function UploadModalDevScreen() {
             id: "00000000-0000-4000-8000-000000000005",
             title: "Second project",
             clientName: "Lior Tansky",
+            canCreateNewSong: true,
             tracks: [],
           },
         ]}

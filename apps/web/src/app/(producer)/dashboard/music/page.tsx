@@ -38,7 +38,7 @@ export default async function MusicPage({ searchParams }: PageProps) {
   ]);
   const params = resolvedParams ?? {};
 
-  if (params.addSong === "1" && data.activeProjects.length === 0) {
+  if (params.addSong === "1" && data.uploadableProjects.length === 0) {
     redirect("/dashboard/clients-projects?newProject=1");
   }
 
@@ -96,10 +96,11 @@ export default async function MusicPage({ searchParams }: PageProps) {
     };
   });
 
-  const uploadProjects: UploadTrackModalProject[] = data.activeProjects.map((project) => ({
+  const uploadProjects: UploadTrackModalProject[] = data.uploadableProjects.map((project) => ({
     id: project.id,
     title: project.title,
     clientName: project.partnerName,
+    canCreateNewSong: project.emptySlots.length > 0,
     tracks: project.songs
       .filter((song) => song.purchaseLifecycleStatus === "active" && song.archivedAt === null)
       .map((song) => ({

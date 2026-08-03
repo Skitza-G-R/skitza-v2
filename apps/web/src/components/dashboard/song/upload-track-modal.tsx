@@ -53,12 +53,17 @@ import {
   type ManagedUploadHandle,
 } from "~/lib/audio/upload-manager";
 
+import {
+  NEW_SONG_DESTINATION,
+  defaultLibraryUploadDestination,
+  shouldShowLibraryUploadDestination,
+} from "./upload-destination";
+
 // One file-first surface serves all contextual entry points. New Songs use
 // a temporary intent and become durable only when Song + V1 commit together;
 // existing Songs retain the hardened multipart Version path.
 
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
-const NEW_SONG_VALUE = "__new__";
 const OFFLINE_UPLOAD_MESSAGE =
   "Reconnect to upload. This attempt has not started; your file and form details remain here.";
 
@@ -96,6 +101,7 @@ export interface UploadTrackModalProject {
   id: string;
   title: string;
   clientName?: string | null;
+  canCreateNewSong: boolean;
   tracks: UploadTrackModalTrack[];
 }
 
@@ -141,8 +147,14 @@ export function UploadTrackModal({
     mode !== "library" || (projectId && projects.some((project) => project.id === projectId))
       ? (projectId ?? projects[0]?.id ?? "")
       : (projects[0]?.id ?? "");
+  const initialProject = projects.find((candidate) => candidate.id === initialProjectId);
   const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId);
-  const initialPick = mode === "new-version" && trackId ? trackId : NEW_SONG_VALUE;
+  const initialPick =
+    mode === "new-version" && trackId
+      ? trackId
+      : mode === "library"
+        ? defaultLibraryUploadDestination(initialProject)
+        : NEW_SONG_DESTINATION;
   const [selectedTrackId, setSelectedTrackId] = useState<string>(initialPick);
   const [newSongName, setNewSongName] = useState("");
   const [label, setLabel] = useState(defaultLabel ?? "V1");
@@ -170,7 +182,13 @@ export function UploadTrackModal({
   // is confusing — same precedent as new-client-modal.
   useEffect(() => {
     if (!open) return;
-    const startPick = mode === "new-version" && trackId ? trackId : NEW_SONG_VALUE;
+    const startProject = projects.find((candidate) => candidate.id === initialProjectId);
+    const startPick =
+      mode === "new-version" && trackId
+        ? trackId
+        : mode === "library"
+          ? defaultLibraryUploadDestination(startProject)
+          : NEW_SONG_DESTINATION;
     setSelectedProjectId(initialProjectId);
     setSelectedTrackId(startPick);
     setNewSongName("");
@@ -192,13 +210,12 @@ export function UploadTrackModal({
     }
   }, [online]);
 
-  const destinationTracks = useMemo(
-    () =>
-      mode === "library"
-        ? (projects.find((candidate) => candidate.id === selectedProjectId)?.tracks ?? [])
-        : tracks,
-    [mode, projects, selectedProjectId, tracks],
+  const selectedProject = useMemo(
+    () => projects.find((candidate) => candidate.id === selectedProjectId),
+    [projects, selectedProjectId],
   );
+  const destinationTracks = mode === "library" ? (selectedProject?.tracks ?? []) : tracks;
+  const showLibraryUploadDestination = shouldShowLibraryUploadDestination(selectedProject);
 
   // When the user picks a different existing track, auto-bump the
   // default label to V{N+1} for that track. We only do this if the
@@ -215,7 +232,7 @@ export function UploadTrackModal({
     }
   }, [derivedLabel, defaultLabel, labelTouched]);
 
-  const isNewSong = mode === "new-song" || selectedTrackId === NEW_SONG_VALUE;
+  const isNewSong = mode === "new-song" || selectedTrackId === NEW_SONG_DESTINATION;
   const selectedPublicExposure =
     destinationTracks.find((track) => track.id === selectedTrackId)?.publicExposure ?? "none";
   const needsSongName = isNewSong && newSongName.trim().length === 0;
@@ -806,7 +823,11 @@ export function UploadTrackModal({
                 {file ? (
                   <>
                     {mode === "library" ? (
-                      <div className="grid gap-3 sm:grid-cols-2">
+                      <div
+                        className={
+                          showLibraryUploadDestination ? "grid gap-3 sm:grid-cols-2" : "grid gap-3"
+                        }
+                      >
                         <div>
                           <FieldLabel
                             htmlFor={
@@ -823,7 +844,7 @@ export function UploadTrackModal({
                               id="upload-track-project-empty"
                               className="mt-1 min-h-10 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[13px] text-[rgb(var(--fg-muted))]"
                             >
-                              No active Projects
+                              No Projects available for audio upload
                             </p>
                           ) : (
                             <Select
@@ -832,8 +853,12 @@ export function UploadTrackModal({
                               value={selectedProjectId}
                               disabled={pending}
                               onChange={(event) => {
-                                setSelectedProjectId(event.target.value);
-                                setSelectedTrackId(NEW_SONG_VALUE);
+                                const nextProjectId = event.target.value;
+                                const nextProject = projects.find(
+                                  (candidate) => candidate.id === nextProjectId,
+                                );
+                                setSelectedProjectId(nextProjectId);
+                                setSelectedTrackId(defaultLibraryUploadDestination(nextProject));
                                 setLabelTouched(false);
                               }}
                               className="mt-1"
@@ -847,25 +872,11 @@ export function UploadTrackModal({
                             </Select>
                           )}
                         </div>
-                        <div>
-                          <FieldLabel
-                            htmlFor={
-                              destinationTracks.length === 0
-                                ? "upload-track-destination-locked"
-                                : "upload-track-song"
-                            }
-                            required
-                          >
-                            Destination
-                          </FieldLabel>
-                          {destinationTracks.length === 0 ? (
-                            <p
-                              id="upload-track-destination-locked"
-                              className="mt-1 min-h-10 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-[13px] font-medium text-[rgb(var(--fg-default))]"
-                            >
-                              New Song
-                            </p>
-                          ) : (
+                        {showLibraryUploadDestination ? (
+                          <div>
+                            <FieldLabel htmlFor="upload-track-song" required>
+                              Upload as
+                            </FieldLabel>
                             <Select
                               id="upload-track-song"
                               value={selectedTrackId}
@@ -876,15 +887,17 @@ export function UploadTrackModal({
                               }}
                               className="mt-1"
                             >
-                              <option value={NEW_SONG_VALUE}>New Song</option>
+                              {selectedProject?.canCreateNewSong ? (
+                                <option value={NEW_SONG_DESTINATION}>New Song</option>
+                              ) : null}
                               {destinationTracks.map((candidate) => (
                                 <option key={candidate.id} value={candidate.id}>
                                   New Version — {candidate.title}
                                 </option>
                               ))}
                             </Select>
-                          )}
-                        </div>
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
 
@@ -1034,7 +1047,7 @@ export function UploadTrackModal({
 
                 {file && projects.length === 0 && mode === "library" ? (
                   <p role="alert" className="text-sm text-[rgb(var(--fg-danger))]">
-                    Create or activate a Project before uploading audio.
+                    No Project is currently ready for an audio upload.
                   </p>
                 ) : null}
 
@@ -1104,7 +1117,7 @@ function FieldLabel({
 // new song we suggest "V1"; otherwise V{N+1} based on the upstream
 // versionCount. The producer can always overwrite.
 function deriveNextLabel(tracks: UploadTrackModalTrack[], trackIdOrNew: string): string {
-  if (trackIdOrNew === NEW_SONG_VALUE) return "V1";
+  if (trackIdOrNew === NEW_SONG_DESTINATION) return "V1";
   const t = tracks.find((row) => row.id === trackIdOrNew);
   const next = (t?.versionCount ?? 0) + 1;
   return `V${String(next)}`;

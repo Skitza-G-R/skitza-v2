@@ -42,6 +42,20 @@ describe("first Version upload boundary", () => {
     },
   );
 
+  it("reports an inactive purchase without incorrectly blaming the active Project", () => {
+    expect(() =>
+      assertFirstVersionUploadDestination(
+        { ...destination, purchaseLifecycleStatus: "waiting_for_payment" },
+        { producerId: "producer-1", projectId: "project-1" },
+      ),
+    ).toThrow(
+      expect.objectContaining<Partial<FirstVersionUploadError>>({
+        code: "INACTIVE",
+        message: "This Project needs an active Song purchase before you can upload a new Song",
+      }),
+    );
+  });
+
   it("preserves the purchased Song-capacity guard", () => {
     expect(() =>
       assertFirstVersionUploadDestination(
