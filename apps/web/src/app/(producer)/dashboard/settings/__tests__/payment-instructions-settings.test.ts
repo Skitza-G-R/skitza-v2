@@ -8,6 +8,7 @@ const settingsDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const pageSource = readFileSync(join(settingsDir, "page.tsx"), "utf8");
 const actionSource = readFileSync(join(settingsDir, "actions.ts"), "utf8");
 const clientSource = readFileSync(join(settingsDir, "settings-client.tsx"), "utf8");
+const cssSource = readFileSync(join(settingsDir, "settings.css"), "utf8");
 
 describe("producer payment instructions settings", () => {
   it("loads and saves through the focused purchase payment-instructions boundary", () => {
@@ -37,5 +38,29 @@ describe("producer payment instructions settings", () => {
     expect(clientSource).toMatch(/Artists pay you directly/);
     expect(clientSource).toMatch(/never holds, routes/);
     expect(clientSource).toMatch(/splits,\s+refunds, or credits money/);
+  });
+
+  it("presents payment setup as a focused producer task with a live artist preview", () => {
+    expect(clientSource).toMatch(/How artists pay you/);
+    expect(clientSource).toMatch(/Only approved artists see these details/);
+    expect(clientSource).toMatch(/s-payment-workspace/);
+    expect(clientSource).toMatch(/s-payment-preview/);
+    expect(clientSource).toMatch(/What the artist will see/);
+    expect(clientSource).toMatch(/paymentInstructions\.bankTransfer/);
+    expect(clientSource).toMatch(/paymentInstructions\.bitPhone/);
+    expect(clientSource).toMatch(/paymentInstructions\.note/);
+  });
+
+  it("uses a responsive editor/preview layout without introducing public exposure copy", () => {
+    expect(cssSource).toMatch(/\.s-payment-workspace\s*{[^}]*grid-template-columns:/);
+    expect(cssSource).toMatch(
+      /@media \(max-width: 760px\)[\s\S]*?\.s-payment-workspace\s*{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+    );
+    expect(clientSource).toMatch(/Shown only after approval/);
+    expect(clientSource).not.toMatch(/publicly visible/i);
+  });
+
+  it("keeps Save and Discard visible after payment details change", () => {
+    expect(clientSource).toContain('className={`s-savebar${dirty ? " s-show" : ""}`}');
   });
 });

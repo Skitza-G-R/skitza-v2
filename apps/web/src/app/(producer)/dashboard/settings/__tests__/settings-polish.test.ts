@@ -139,6 +139,19 @@ describe("Settings polish — sub-nav click updates URL", () => {
   });
 });
 
+describe("Settings polish — mobile section rail geometry", () => {
+  it("sticks directly beneath the shell topbar without a second top offset", () => {
+    const mobileNav = css.match(
+      /@media \(max-width: 1023px\)\s*\{\s*\.s-nav\s*\{([\s\S]*?)\n\s*\}/,
+    )?.[1];
+
+    expect(mobileNav, "mobile .s-nav block not found").toBeDefined();
+    expect(mobileNav).toContain("position: sticky");
+    expect(mobileNav).toMatch(/top:\s*0;/);
+    expect(mobileNav).not.toMatch(/top:\s*40px/);
+  });
+});
+
 describe("Settings polish — dead Plan CTAs removed (Free view)", () => {
   it("PlanFreeView renders no ComingSoonButton", () => {
     // Pull the PlanFreeView function body out of the source. Previously

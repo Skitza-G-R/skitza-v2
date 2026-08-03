@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { Eye, Landmark, ShieldCheck, Smartphone } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { PushPreferences } from "~/components/push/push-preferences";
@@ -272,7 +273,7 @@ export function SettingsClient({
 
       {/* Save bar — slides up only when dirty. Disabled while saving. */}
       <div
-        className={`s-savebar${dirty ? "s-show" : ""}`}
+        className={`s-savebar${dirty ? " s-show" : ""}`}
         role="region"
         aria-label="Unsaved changes"
         aria-hidden={!dirty}
@@ -621,34 +622,56 @@ function IntegrationsSection({
   paymentInstructions: PaymentInstructionsState;
   onChange: (next: PaymentInstructionsState) => void;
 }) {
+  const bankTransfer = paymentInstructions.bankTransfer.trim();
+  const bitPhone = paymentInstructions.bitPhone.trim();
+  const paymentNote = paymentInstructions.note.trim();
+  const configuredMethods = Number(Boolean(bankTransfer)) + Number(Boolean(bitPhone));
+  const setupStatus =
+    configuredMethods === 0
+      ? "Not set up"
+      : configuredMethods === 1
+        ? "1 method ready"
+        : "2 methods ready";
+
   return (
     <section className="s-reveal" aria-labelledby="settings-int-h">
       <header className="s-section-head">
-        <span className="s-section-eyebrow">Payments &amp; tools</span>
-        <h2 id="settings-int-h">Integrations</h2>
-        <p>Tell artists how to pay you directly.</p>
+        <span className="s-section-eyebrow">Direct payments</span>
+        <h2 id="settings-int-h">How artists pay you</h2>
+        <p>Add Bank, Bit, or both. You can change these instructions at any time.</p>
       </header>
 
-      <div className="s-card">
-        <div className="s-payment-boundary" role="note">
-          <span className="s-payment-boundary-dot" aria-hidden="true" />
-          <div>
-            <div className="s-payment-boundary-title">Payment instructions</div>
-            <div className="s-payment-boundary-copy">
-              Artists pay you directly. Skitza only keeps the record—it never holds, routes, splits,
-              refunds, or credits money.
+      <div className="s-payment-workspace">
+        <div className="s-card s-payment-editor">
+          <div className="s-payment-editor-head">
+            <div>
+              <span className="s-payment-kicker">Manual payment setup</span>
+              <h3>Bank &amp; Bit</h3>
+              <p>Only approved artists see these details when a payment is due.</p>
             </div>
+            <span
+              className="s-payment-status"
+              data-ready={configuredMethods > 0 ? "true" : "false"}
+              aria-live="polite"
+            >
+              <span aria-hidden />
+              {setupStatus}
+            </span>
           </div>
-        </div>
 
-        <div className="s-row">
-          <div>
-            <label className="s-row-label" htmlFor="settings-bank-transfer">
-              Bank transfer
+          <div className="s-payment-method">
+            <div className="s-payment-method-head">
+              <span className="s-payment-method-icon" aria-hidden>
+                <Landmark size={18} strokeWidth={1.8} />
+              </span>
+              <div>
+                <h4>Bank transfer</h4>
+                <p>Account holder, bank, branch, and account number.</p>
+              </div>
+            </div>
+            <label className="s-payment-field-label" htmlFor="settings-bank-transfer">
+              Transfer details
             </label>
-            <div className="s-row-hint">Account name, bank, branch, and account number.</div>
-          </div>
-          <div className="s-row-field">
             <textarea
               id="settings-bank-transfer"
               className="s-input s-textarea"
@@ -663,17 +686,25 @@ function IntegrationsSection({
                 });
               }}
             />
+            <div className="s-payment-field-meta">
+              <span>One detail per line is easiest to read.</span>
+              <span>{paymentInstructions.bankTransfer.length}/500</span>
+            </div>
           </div>
-        </div>
 
-        <div className="s-row">
-          <div>
-            <label className="s-row-label" htmlFor="settings-bit-phone">
-              Bit
+          <div className="s-payment-method">
+            <div className="s-payment-method-head">
+              <span className="s-payment-method-icon" aria-hidden>
+                <Smartphone size={18} strokeWidth={1.8} />
+              </span>
+              <div>
+                <h4>Bit</h4>
+                <p>Use the phone number connected to your Bit account.</p>
+              </div>
+            </div>
+            <label className="s-payment-field-label" htmlFor="settings-bit-phone">
+              Bit phone number
             </label>
-            <div className="s-row-hint">The phone number linked to your Bit account.</div>
-          </div>
-          <div className="s-row-field">
             <input
               id="settings-bit-phone"
               className="s-input"
@@ -690,17 +721,17 @@ function IntegrationsSection({
                 });
               }}
             />
+            <div className="s-payment-field-meta">
+              <span>Include the country code when needed.</span>
+              <span>{paymentInstructions.bitPhone.length}/32</span>
+            </div>
           </div>
-        </div>
 
-        <div className="s-row">
-          <div>
-            <label className="s-row-label" htmlFor="settings-payment-note">
-              Payment note
+          <div className="s-payment-note-editor">
+            <label className="s-payment-field-label" htmlFor="settings-payment-note">
+              Payment note <span>Optional</span>
             </label>
-            <div className="s-row-hint">Optional note shown with your payment details.</div>
-          </div>
-          <div className="s-row-field">
+            <p>Add a transfer reference, timing note, or anything the artist should know.</p>
             <textarea
               id="settings-payment-note"
               className="s-input s-textarea s-textarea-compact"
@@ -715,8 +746,68 @@ function IntegrationsSection({
                 });
               }}
             />
+            <div className="s-payment-field-meta s-payment-field-meta-end">
+              <span>{paymentInstructions.note.length}/500</span>
+            </div>
+          </div>
+
+          <div className="s-payment-boundary" role="note">
+            <ShieldCheck size={17} strokeWidth={1.9} aria-hidden />
+            <div>
+              <div className="s-payment-boundary-title">Payment instructions</div>
+              <div className="s-payment-boundary-copy">
+                Artists pay you directly. Skitza only keeps the record—it never holds, routes,
+                splits, refunds, or credits money.
+              </div>
+            </div>
           </div>
         </div>
+
+        <aside className="s-payment-preview" aria-label="What the artist will see">
+          <div className="s-payment-preview-glow" aria-hidden />
+          <div className="s-payment-preview-head">
+            <span>What the artist will see</span>
+            <Eye size={16} strokeWidth={1.8} aria-hidden />
+          </div>
+          <div className="s-payment-preview-intro">
+            <span>Payment details</span>
+            <h3>Pay your producer directly.</h3>
+            <p>Choose either available method, then keep your receipt.</p>
+          </div>
+
+          <div className="s-payment-preview-methods">
+            <div className="s-payment-preview-method" data-empty={bankTransfer ? "false" : "true"}>
+              <span className="s-payment-preview-icon" aria-hidden>
+                <Landmark size={15} strokeWidth={1.8} />
+              </span>
+              <div>
+                <span className="s-payment-preview-label">Bank transfer</span>
+                <span className="s-payment-preview-value">{bankTransfer || "Not added yet"}</span>
+              </div>
+            </div>
+            <div className="s-payment-preview-method" data-empty={bitPhone ? "false" : "true"}>
+              <span className="s-payment-preview-icon" aria-hidden>
+                <Smartphone size={15} strokeWidth={1.8} />
+              </span>
+              <div>
+                <span className="s-payment-preview-label">Bit number</span>
+                <span className="s-payment-preview-value">{bitPhone || "Not added yet"}</span>
+              </div>
+            </div>
+          </div>
+
+          {paymentNote ? (
+            <div className="s-payment-preview-note">
+              <span>Producer note</span>
+              <p>{paymentNote}</p>
+            </div>
+          ) : null}
+
+          <div className="s-payment-preview-foot">
+            <ShieldCheck size={14} strokeWidth={1.9} aria-hidden />
+            <span>Shown only after approval</span>
+          </div>
+        </aside>
       </div>
     </section>
   );
