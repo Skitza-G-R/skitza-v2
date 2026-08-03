@@ -23,9 +23,8 @@ export function PaymentSummaryScreen({
   verifiedCents,
   remainingCents,
   currentInstallmentPosition,
-  paymentInstructionsAvailable,
+  proofUploadsAvailable,
   proofs,
-  notice,
 }: {
   purchaseId: string;
   studioId: string;
@@ -36,9 +35,8 @@ export function PaymentSummaryScreen({
   verifiedCents: number;
   remainingCents: number;
   currentInstallmentPosition: number;
-  paymentInstructionsAvailable: boolean;
+  proofUploadsAvailable: boolean;
   proofs: readonly ArtistPaymentSummaryProof[];
-  notice?: "no-instructions" | undefined;
 }) {
   const latest = proofs.at(-1) ?? null;
   const latestHref = latest
@@ -72,24 +70,12 @@ export function PaymentSummaryScreen({
         </p>
       </header>
 
-      {notice === "no-instructions" ? (
-        <p
-          role="status"
-          className="mt-5 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3 text-[13px] text-[rgb(var(--fg-secondary))]"
-        >
-          Payment instructions have not been provided yet.
-        </p>
-      ) : null}
-
       <section className="mt-5 grid gap-3 sm:grid-cols-3" aria-label="Payment progress">
         <SummaryAmount
           label="Producer verified"
           amount={formatPurchaseMoney(verifiedCents, currency)}
         />
-        <SummaryAmount
-          label="Remaining"
-          amount={formatPurchaseMoney(remainingCents, currency)}
-        />
+        <SummaryAmount label="Remaining" amount={formatPurchaseMoney(remainingCents, currency)} />
         <SummaryAmount label="Agreed total" amount={formatPurchaseMoney(totalCents, currency)} />
       </section>
 
@@ -101,8 +87,7 @@ export function PaymentSummaryScreen({
               Proof sent to {producerName}
             </h2>
             <p className="mt-2 text-[13px] leading-relaxed text-[rgb(var(--fg-muted))]">
-              You can safely leave this screen. The record will update after the studio reviews
-              it.
+              You can safely leave this screen. The record will update after the studio reviews it.
             </p>
             {latestHref ? <PrimaryLink href={latestHref}>View proof</PrimaryLink> : null}
           </>
@@ -128,7 +113,7 @@ export function PaymentSummaryScreen({
             </p>
             <PrimaryLink href={withArtistStudio("/artist", studioId)}>Back to Home</PrimaryLink>
           </>
-        ) : paymentInstructionsAvailable ? (
+        ) : proofUploadsAvailable ? (
           <>
             <StatusEyebrow>
               {verifiedCents > 0
@@ -139,19 +124,21 @@ export function PaymentSummaryScreen({
               {verifiedCents > 0 ? "The next payment is ready" : "Payment is ready"}
             </h2>
             <p className="mt-2 text-[13px] leading-relaxed text-[rgb(var(--fg-muted))]">
-              Follow the studio’s Bank or Bit instructions, then upload one proof for the locked
+              View the studio’s payment instructions. If Bank or Bit is not shown, {producerName}
+              will send those details directly. You can still upload proof for the locked
               installment amount.
             </p>
             <PrimaryLink href={instructionsHref}>View payment instructions</PrimaryLink>
           </>
         ) : (
           <>
-            <StatusEyebrow>Payment details pending</StatusEyebrow>
+            <StatusEyebrow>Not ready</StatusEyebrow>
             <h2 className="font-display mt-2 text-[21px] font-bold tracking-[-0.025em] text-[rgb(var(--fg-default))]">
-              Payment instructions have not been provided yet
+              Proof upload is not available yet
             </h2>
             <p className="mt-2 text-[13px] leading-relaxed text-[rgb(var(--fg-muted))]">
-              {producerName} will add Bank or Bit details before proof upload is available.
+              Return later or contact {producerName}. Bank or Bit details are not required once the
+              secure proof uploader is available.
             </p>
           </>
         )}
