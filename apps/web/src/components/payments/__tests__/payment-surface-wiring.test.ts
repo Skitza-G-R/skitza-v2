@@ -206,8 +206,9 @@ describe("SK-69 payment surface wiring", () => {
     expect(artistNewProof).toContain(
       "proof.installmentId === data.installmentId",
     );
-    expect(artistNewProof).toContain("purchaseId: data.purchaseId");
-    expect(artistNewProof).toContain("installmentId: data.installmentId");
+    expect(artistNewProof).toContain("purchaseId={data.purchaseId}");
+    expect(artistNewProof).toContain("installmentId={data.installmentId}");
+    expect(artistNewProof).not.toContain("paymentInstructions");
 
     expect(artistExactProof).toContain(
       ".artist.purchase.proofOfPayment.state({ purchaseId })",

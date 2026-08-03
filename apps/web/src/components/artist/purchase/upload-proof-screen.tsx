@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { FunnelTopBar } from "~/components/artist/funnel/funnel-ui";
+import { ArrowRight } from "~/components/artist/funnel/funnel-icons";
+import { FunnelTopBar, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 
@@ -76,6 +77,7 @@ export function UploadProofScreen({
   totalCents = 0,
   thisProofCents,
   currency = "ILS",
+  proofUploadsAvailable = true,
   rejectionNote,
   previewOnly = false,
   onPreviewSubmit,
@@ -120,6 +122,7 @@ export function UploadProofScreen({
   );
 
   function selectFile(event: React.ChangeEvent<HTMLInputElement>) {
+    if (!proofUploadsAvailable) return;
     const selected = event.target.files?.[0] ?? null;
     if (!selected) return;
     const fileError = proofFileError(selected);
@@ -142,7 +145,7 @@ export function UploadProofScreen({
   }
 
   function send() {
-    if (!file || busy) return;
+    if (!file || busy || !proofUploadsAvailable) return;
     if (!online && !previewOnly) {
       setError("Reconnect before uploading. No proof has been sent.");
       return;
@@ -169,38 +172,45 @@ export function UploadProofScreen({
     }
     const operationKey = operationKeyRef.current ?? crypto.randomUUID();
     operationKeyRef.current = operationKey;
-    startManagedPaymentProofUpload({
-      file,
-      purchaseId,
-      installmentId,
-      operationKey,
-      contentType,
-      amountCents: thisProofCents,
-      note: null,
-      presign: presignProofUploadAction,
-      cleanup: cancelPaymentProofUploadAction,
-      submit: submitPaymentProofAction,
-      uploadFile: uploadPaymentProofBytes,
-      onStart: () => {
-        setPhase("uploading");
-        setError(null);
-      },
-      onSubmitting: () => {
-        setPhase("submitting");
-      },
-      onSuccess: (proofId) => {
-        clearProofOperation(purchaseId, installmentId);
-        router.push(withArtistStudio(`/artist/payments/${purchaseId}/proof/${proofId}`, studioId));
-      },
-      onCancelled: () => {
-        setPhase("idle");
-        setError("Upload stopped. Your proof was not sent.");
-      },
-      onFailure: (message) => {
-        setPhase("idle");
-        setError(message);
-      },
-    });
+    try {
+      startManagedPaymentProofUpload({
+        file,
+        purchaseId,
+        installmentId,
+        operationKey,
+        contentType,
+        amountCents: thisProofCents,
+        note: null,
+        presign: presignProofUploadAction,
+        cleanup: cancelPaymentProofUploadAction,
+        submit: submitPaymentProofAction,
+        uploadFile: uploadPaymentProofBytes,
+        onStart: () => {
+          setPhase("uploading");
+          setError(null);
+        },
+        onSubmitting: () => {
+          setPhase("submitting");
+        },
+        onSuccess: (proofId) => {
+          clearProofOperation(purchaseId, installmentId);
+          router.push(
+            withArtistStudio(`/artist/payments/${purchaseId}/proof/${proofId}`, studioId),
+          );
+        },
+        onCancelled: () => {
+          setPhase("idle");
+          setError("Upload stopped. Your proof was not sent.");
+        },
+        onFailure: (message) => {
+          setPhase("idle");
+          setError(message);
+        },
+      });
+    } catch {
+      setPhase("idle");
+      setError("Could not start the upload. Try again.");
+    }
   }
 
   return (
@@ -235,12 +245,16 @@ export function UploadProofScreen({
             </p>
           ) : null}
 
-          <section className="mt-4 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4">
-            <p className="font-mono text-[9px] font-semibold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase">
+          <section className="mt-4 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sidebar))] p-4 text-white shadow-[0_18px_40px_-16px_rgb(17_16_9/0.45)]">
+            <p className="truncate text-[12px] text-white/70">{productName}</p>
+            <p className="mt-3 font-mono text-[9px] font-semibold tracking-[0.14em] text-[rgb(var(--brand-primary))] uppercase">
               Locked installment amount
             </p>
-            <p className="mt-1 font-mono text-[27px] font-bold tracking-[-0.03em] text-[rgb(var(--fg-default))]">
+            <p className="font-amount mt-1 font-mono text-[34px] leading-none font-bold tracking-[-0.03em] text-white tabular-nums">
               {formatPurchaseMoney(thisProofCents, currency)}
+            </p>
+            <p className="mt-2 text-[11.5px] leading-relaxed text-white/55">
+              This amount comes from your accepted installment and cannot be edited here.
             </p>
           </section>
 
@@ -249,7 +263,7 @@ export function UploadProofScreen({
             type="file"
             accept="image/jpeg,image/png,image/webp,image/heic,.heic,application/pdf"
             onChange={selectFile}
-            disabled={busy}
+            disabled={busy || !proofUploadsAvailable}
             hidden
           />
           <button
@@ -257,7 +271,7 @@ export function UploadProofScreen({
             onClick={() => {
               fileInputRef.current?.click();
             }}
-            disabled={busy}
+            disabled={busy || !proofUploadsAvailable}
             className="sk-press mt-4 flex min-h-[170px] w-full flex-col items-center justify-center gap-2 rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-control))] bg-[rgb(var(--bg-elevated))] p-5 disabled:opacity-60"
           >
             {previewUrl ? (
@@ -279,6 +293,15 @@ export function UploadProofScreen({
               JPG · PNG · WEBP · HEIC · PDF · MAX 15 MB
             </span>
           </button>
+
+          {!proofUploadsAvailable ? (
+            <p
+              role="status"
+              className="mt-3 rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] p-3 text-[12px] text-[rgb(var(--fg-secondary))]"
+            >
+              Private proof upload is temporarily unavailable.
+            </p>
+          ) : null}
 
           {error ? (
             <p
@@ -351,19 +374,38 @@ export function UploadProofScreen({
           </p>
         </main>
 
-        <div className="sticky bottom-0 px-4 pt-4 pb-[calc(0.875rem+env(safe-area-inset-bottom,0px))] min-[390px]:px-5">
-          <button
-            type="button"
+        <div
+          className="sticky bottom-0 z-10 px-4 pt-5 pb-[calc(0.875rem+env(safe-area-inset-bottom,0px))] min-[390px]:px-5"
+          style={{
+            background:
+              "linear-gradient(180deg, rgb(var(--bg-background)/0), rgb(var(--bg-background)) 24%)",
+          }}
+        >
+          <PrimaryCta
             onClick={send}
-            disabled={!file || busy || (!online && !previewOnly)}
-            className="sk-press min-h-12 w-full rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sidebar))] px-4 text-[14px] font-bold text-[rgb(var(--fg-onsidebar))] disabled:opacity-50"
+            disabled={!file || busy || !proofUploadsAvailable || (!online && !previewOnly)}
+            glow={Boolean(file && !busy && proofUploadsAvailable && (online || previewOnly))}
+            ariaBusy={busy}
+            sub={
+              !proofUploadsAvailable
+                ? "Private proof upload is temporarily unavailable"
+                : !online && !previewOnly
+                  ? "Reconnect to send this proof"
+                  : file
+                    ? `Sends privately to ${producerName}`
+                    : "Attach a file to continue"
+            }
           >
-            {phase === "uploading"
-              ? "Uploading…"
-              : phase === "submitting"
-                ? "Sending…"
-                : "Send proof"}
-          </button>
+            {phase === "uploading" ? (
+              "Uploading…"
+            ) : phase === "submitting" ? (
+              "Sending…"
+            ) : (
+              <>
+                Send proof <ArrowRight />
+              </>
+            )}
+          </PrimaryCta>
         </div>
       </div>
     </div>

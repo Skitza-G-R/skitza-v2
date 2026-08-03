@@ -48,22 +48,6 @@ export default async function ArtistNewPaymentProofPage({ params, searchParams }
       );
     }
 
-    const instructions = await caller.artist.purchase.paymentInstructions({
-      purchaseId: data.purchaseId,
-      installmentId: data.installmentId,
-    });
-    if (
-      !instructions.hasDetails ||
-      (!instructions.bankTransfer?.trim() && !instructions.bitPhone?.trim())
-    ) {
-      redirect(
-        withArtistStudio(
-          `/artist/payments/${encodeURIComponent(data.purchaseId)}?notice=no-instructions`,
-          data.producerId,
-        ),
-      );
-    }
-
     return (
       <UploadProofScreen
         studioId={data.producerId}

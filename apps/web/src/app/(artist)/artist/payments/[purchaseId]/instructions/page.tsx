@@ -30,16 +30,6 @@ export default async function ArtistPaymentInstructionsPage({
       purchaseId,
       ...(installment ? { installmentId: installment } : {}),
     });
-    const hasMethod =
-      data.hasDetails && Boolean(data.bankTransfer?.trim() || data.bitPhone?.trim());
-    if (!hasMethod) {
-      redirect(
-        withArtistStudio(
-          `/artist/payments/${encodeURIComponent(data.purchaseId)}?notice=no-instructions`,
-          data.producerId,
-        ),
-      );
-    }
 
     const proofQuery = new URLSearchParams({ installment: data.installmentId });
     return (

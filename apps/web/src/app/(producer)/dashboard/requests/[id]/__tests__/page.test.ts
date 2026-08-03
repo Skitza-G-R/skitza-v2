@@ -45,4 +45,12 @@ describe("producer purchase request detail", () => {
   it("does not put payment-proof review on the new-work detail", () => {
     expect(page).not.toMatch(/proofOfPayment\.(history|view)|PaymentProofReview/);
   });
+
+  it("loads only the accepted purchase's pending proofs and renders exact Payments links", () => {
+    expect(page).toMatch(
+      /proofOfPayment\.pending\(\{[\s\S]*purchaseId: commercialTerms\.purchaseId/,
+    );
+    expect(page).toMatch(/<AcceptedRequestPaymentProofActions/);
+    expect(page).toMatch(/pendingProofs\.proofs/);
+  });
 });

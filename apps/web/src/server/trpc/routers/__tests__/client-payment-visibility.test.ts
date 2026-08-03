@@ -53,7 +53,13 @@ describe("producer client payment visibility", () => {
 
   it("rejects proof deep-links in Requests while Payments owns decisions", () => {
     expect(requestPage).toMatch(/if \(requestedProofId\) notFound\(\)/);
-    expect(requestPage).not.toMatch(/proofOfPayment\.(?:history|pending|view)/);
+    expect(requestPage).toMatch(
+      /proofOfPayment\.pending\(\{[\s\S]*purchaseId: commercialTerms\.purchaseId/,
+    );
+    expect(requestPage).not.toMatch(/proofOfPayment\.(?:history|view)/);
+    expect(requestPage).not.toMatch(
+      /confirmProducerPaymentProof|rejectProducerPaymentProof|PaymentProofReview/,
+    );
     expect(purchase).toMatch(/confirmProducerPaymentProof/);
     expect(purchase).toMatch(/rejectProducerPaymentProof/);
     expect(purchase).not.toMatch(/notImplemented\("producer\.purchase\.proofOfPayment/);

@@ -99,11 +99,16 @@ describe("professional payment-proof upload", () => {
     expect(screenSource).not.toMatch(/<textarea/);
   });
 
-  it("loads the exact owned installment and does not show an upload when one is pending", () => {
+  it("loads the exact owned installment and blocks unavailable or duplicate upload entry", () => {
     expect(newProofPageSource).toMatch(/proofOfPayment\.state/);
     expect(newProofPageSource).toMatch(/installmentId: installment/);
     expect(newProofPageSource).toMatch(/latest\?\.status === "pending"/);
+    expect(newProofPageSource).toMatch(/latest\?\.status === "confirmed"/);
     expect(newProofPageSource).toMatch(/!data\.proofUploadsAvailable/);
-    expect(newProofPageSource).toMatch(/paymentInstructions/);
+  });
+
+  it("allows the exact new-proof route without loading Bank or Bit instructions", () => {
+    expect(newProofPageSource).not.toMatch(/paymentInstructions/);
+    expect(newProofPageSource).not.toMatch(/bankTransfer|bitPhone|notice=no-instructions/);
   });
 });
