@@ -634,11 +634,11 @@ function IntegrationsSection({
         : "2 methods ready";
 
   return (
-    <section className="s-reveal" aria-labelledby="settings-int-h">
+    <section className="s-reveal s-payment-section" aria-labelledby="settings-int-h">
       <header className="s-section-head">
         <span className="s-section-eyebrow">Direct payments</span>
         <h2 id="settings-int-h">How artists pay you</h2>
-        <p>Add Bank, Bit, or both. You can change these instructions at any time.</p>
+        <p>Add Bank, Bit, or both.</p>
       </header>
 
       <div className="s-payment-workspace">
@@ -647,7 +647,7 @@ function IntegrationsSection({
             <div>
               <span className="s-payment-kicker">Manual payment setup</span>
               <h3>Bank &amp; Bit</h3>
-              <p>Only approved artists see these details when a payment is due.</p>
+              <p>Only approved artists see these details when payment is due.</p>
             </div>
             <span
               className="s-payment-status"
@@ -659,14 +659,14 @@ function IntegrationsSection({
             </span>
           </div>
 
-          <div className="s-payment-method">
+          <div className="s-payment-method s-payment-method-bank">
             <div className="s-payment-method-head">
               <span className="s-payment-method-icon" aria-hidden>
                 <Landmark size={18} strokeWidth={1.8} />
               </span>
               <div>
                 <h4>Bank transfer</h4>
-                <p>Account holder, bank, branch, and account number.</p>
+                <p>Account holder, bank, branch, and account.</p>
               </div>
             </div>
             <label className="s-payment-field-label" htmlFor="settings-bank-transfer">
@@ -675,7 +675,7 @@ function IntegrationsSection({
             <textarea
               id="settings-bank-transfer"
               className="s-input s-textarea"
-              rows={4}
+              rows={3}
               maxLength={500}
               value={paymentInstructions.bankTransfer}
               placeholder={"Account name\nBank · branch · account number"}
@@ -687,43 +687,45 @@ function IntegrationsSection({
               }}
             />
             <div className="s-payment-field-meta">
-              <span>One detail per line is easiest to read.</span>
+              <span>Use one line per detail.</span>
               <span>{paymentInstructions.bankTransfer.length}/500</span>
             </div>
           </div>
 
-          <div className="s-payment-method">
+          <div className="s-payment-method s-payment-method-bit">
             <div className="s-payment-method-head">
               <span className="s-payment-method-icon" aria-hidden>
                 <Smartphone size={18} strokeWidth={1.8} />
               </span>
               <div>
                 <h4>Bit</h4>
-                <p>Use the phone number connected to your Bit account.</p>
+                <p>Phone linked to your Bit account.</p>
               </div>
             </div>
-            <label className="s-payment-field-label" htmlFor="settings-bit-phone">
-              Bit phone number
-            </label>
-            <input
-              id="settings-bit-phone"
-              className="s-input"
-              type="tel"
-              inputMode="tel"
-              autoComplete="tel"
-              maxLength={32}
-              value={paymentInstructions.bitPhone}
-              placeholder="+972 50 123 4567"
-              onChange={(event) => {
-                onChange({
-                  ...paymentInstructions,
-                  bitPhone: event.target.value,
-                });
-              }}
-            />
-            <div className="s-payment-field-meta">
-              <span>Include the country code when needed.</span>
-              <span>{paymentInstructions.bitPhone.length}/32</span>
+            <div className="s-payment-method-field">
+              <label className="s-payment-field-label" htmlFor="settings-bit-phone">
+                Bit phone number
+              </label>
+              <input
+                id="settings-bit-phone"
+                className="s-input"
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                maxLength={32}
+                value={paymentInstructions.bitPhone}
+                placeholder="+972 50 123 4567"
+                onChange={(event) => {
+                  onChange({
+                    ...paymentInstructions,
+                    bitPhone: event.target.value,
+                  });
+                }}
+              />
+              <div className="s-payment-field-meta">
+                <span>Include country code when needed.</span>
+                <span>{paymentInstructions.bitPhone.length}/32</span>
+              </div>
             </div>
           </div>
 
@@ -731,14 +733,13 @@ function IntegrationsSection({
             <label className="s-payment-field-label" htmlFor="settings-payment-note">
               Payment note <span>Optional</span>
             </label>
-            <p>Add a transfer reference, timing note, or anything the artist should know.</p>
             <textarea
               id="settings-payment-note"
               className="s-input s-textarea s-textarea-compact"
-              rows={3}
+              rows={2}
               maxLength={500}
               value={paymentInstructions.note}
-              placeholder="Add a reference, timing note, or other instruction"
+              placeholder="Reference or payment instruction"
               onChange={(event) => {
                 onChange({
                   ...paymentInstructions,
@@ -771,8 +772,8 @@ function IntegrationsSection({
           </div>
           <div className="s-payment-preview-intro">
             <span>Payment details</span>
-            <h3>Pay your producer directly.</h3>
-            <p>Choose either available method, then keep your receipt.</p>
+            <h3>Pay your producer.</h3>
+            <p>Choose a method and keep your receipt.</p>
           </div>
 
           <div className="s-payment-preview-methods">

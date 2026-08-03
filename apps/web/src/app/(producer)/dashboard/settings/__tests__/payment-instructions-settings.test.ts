@@ -63,4 +63,14 @@ describe("producer payment instructions settings", () => {
   it("keeps Save and Discard visible after payment details change", () => {
     expect(clientSource).toContain('className={`s-savebar${dirty ? " s-show" : ""}`}');
   });
+
+  it("keeps the Bank and Bit setup compact on desktop and mobile", () => {
+    expect(clientSource).toContain('className="s-reveal s-payment-section"');
+    expect(clientSource).toMatch(/id="settings-bank-transfer"[\s\S]{0,160}rows=\{3\}/);
+    expect(clientSource).toMatch(/id="settings-payment-note"[\s\S]{0,160}rows=\{2\}/);
+    expect(cssSource).toMatch(/\.s-payment-method\s*{[^}]*padding:\s*14px 16px/);
+    expect(cssSource).toMatch(
+      /\.s-payment-method-bank \.s-textarea\s*{[^}]*min-height:\s*72px/,
+    );
+  });
 });
