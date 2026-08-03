@@ -41,6 +41,7 @@ describe("artist proof record design", () => {
     expect(html).toContain("Needs producer review");
     expect(html).toContain("Proof history");
     expect(html).toContain("receipt.png");
+    expect(html).toContain("UTC");
     expect(html).toContain("Payment progress");
     expect(html).toContain("Back to payment summary");
   });

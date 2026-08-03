@@ -46,6 +46,8 @@ function formatUploadedAt(value: Date): string {
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZone: "UTC",
+    timeZoneName: "short",
   }).format(value);
 }
 
