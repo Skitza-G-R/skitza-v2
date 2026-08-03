@@ -179,8 +179,9 @@ describe("SK-69 payment surface wiring", () => {
       "caller.artist.purchase.proofOfPayment.state({ purchaseId })",
     );
     expect(artistPurchasePayment).toContain(
-      "installmentId: state.installmentId",
+      "proofUploadsAvailable={state.proofUploadsAvailable}",
     );
+    expect(artistPurchasePayment).not.toContain("caller.artist.purchase.paymentInstructions");
     expect(artistPurchasePayment).toContain("<PaymentSummaryScreen");
     expect(artistPurchasePayment).toContain("studioId={state.producerId}");
 
