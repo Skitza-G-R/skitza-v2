@@ -128,7 +128,7 @@ describe("signed-in artist native route contract", () => {
 
     expect(desktop).toContain("minHeight: 44");
     expect(desktop).toContain("<ArtistUserButton");
-    expect(mobile).toContain("<ArtistUserButton");
+    expect(mobile).toContain("<ArtistMobileUserButton");
     expect(userButton).toContain("avatarBox: `h-11 w-11");
     expect(userButton).toContain("renderAccountRoleMenuItems(menuModel)");
     expect(accountRoleMenu).toContain('label="Settings"');

@@ -8,7 +8,7 @@ import { resolveArtistStudioId, withArtistStudio } from "~/lib/artist-studio-con
 import type { Studio } from "~/server/artist/identity";
 import type { ProducerProfileStatus } from "~/server/auth/role";
 
-import { ArtistUserButton } from "./artist-user-button";
+import { ArtistMobileUserButton } from "./artist-user-button";
 import { Wordmark } from "./wordmark";
 
 // ─── Artist mobile top bar (<lg) ───────────────────────────────────
@@ -85,7 +85,7 @@ export function ArtistMobileTopBar({
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <ArtistNotificationBell initialUnreadCount={notificationUnreadCount} />
-          <ArtistUserButton
+          <ArtistMobileUserButton
             userId={userId}
             producerStatus={producerStatus}
             producerUnreadCount={producerNotificationUnreadCount}
