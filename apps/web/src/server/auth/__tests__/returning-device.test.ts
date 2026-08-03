@@ -60,12 +60,12 @@ describe("auth page switch URLs", () => {
       signUpSwitchHref(
         "/join/northline-studio/continue?action=book",
       ),
-    ).toBe("/sign-up/join/northline-studio");
+    ).toBe("/sign-up/join/northline-studio?intent=signup");
     expect(
       signUpSwitchHref(
         "/join/northline-studio/continue?action=unlock",
       ),
-    ).toBe("/sign-up/join/northline-studio/unlock");
+    ).toBe("/sign-up/join/northline-studio/unlock?intent=signup");
   });
 
   it("preserves a safe deep link when switching back to sign-in", () => {

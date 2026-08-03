@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { UserAccountMemberships } from "~/server/auth/role";
-import type { JoinTargetProducer } from "~/server/contacts/join-continuation";
+import {
+  JoinContinuationError,
+  type JoinTargetProducer,
+} from "~/server/contacts/join-continuation";
 import { ProjectOwnershipDomainError } from "~/server/domain/project-ownership/service";
 
 type TestCookieStore = {
@@ -137,6 +140,36 @@ describe("join continuation actions", () => {
     );
 
     expect(store.set).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends an unverified email to bounded retry and account-switch recovery", async () => {
+    const store = cookieStore();
+    cookiesMock.mockResolvedValue(store);
+    connectMock.mockRejectedValue(
+      new JoinContinuationError("UNVERIFIED_EMAIL"),
+    );
+
+    await expect(continueAsArtist("northline-studio", "book")).rejects.toThrow(
+      "__REDIRECT__:/join/northline-studio/continue?action=book&problem=unverified-email",
+    );
+
+    expect(store.set).not.toHaveBeenCalled();
+  });
+
+  it("sends an unconfirmed connection to bounded retry recovery", async () => {
+    const store = cookieStore();
+    cookiesMock.mockResolvedValue(store);
+    connectMock.mockRejectedValue(
+      new JoinContinuationError("CONNECTION_NOT_CONFIRMED"),
+    );
+
+    await expect(
+      resumeTrustedJoinIntent("northline-studio", "unlock"),
+    ).rejects.toThrow(
+      "__REDIRECT__:/join/northline-studio/continue?action=unlock&problem=connection-pending",
+    );
+
+    expect(store.set).not.toHaveBeenCalled();
   });
 
   it("still lets unexpected failures reach the real error boundary", async () => {

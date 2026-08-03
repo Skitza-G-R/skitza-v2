@@ -43,7 +43,7 @@ describe("join-aware Clerk authentication", () => {
       "/join/northline-studio/continue?action=book",
     );
     expect(signUpSwitchHref(continuation)).toBe(
-      "/sign-up/join/northline-studio",
+      "/sign-up/join/northline-studio?intent=signup",
     );
     expect(source).toContain(
       'unsafeMetadata={{ signupOrigin: "join", producerSlug: slug }}',
@@ -84,7 +84,7 @@ describe("join-aware Clerk authentication", () => {
     );
 
     expect(signUpSwitchHref(normalized)).toBe(
-      "/sign-up/join/northline-studio",
+      "/sign-up/join/northline-studio?intent=signup",
     );
     expect(joinSignUpMetadataFromTarget(normalized)).toEqual({
       signupOrigin: "join",

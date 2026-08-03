@@ -6,6 +6,7 @@ import type {
 } from "../role";
 import {
   chosenRoleDestination,
+  joinSignUpHrefFromTarget,
   joinSignUpMetadataFromTarget,
   normalizeSameOriginPostSignInTarget,
   postSignInDestination,
@@ -209,6 +210,21 @@ describe("joinSignUpMetadataFromTarget", () => {
     "/dashboard",
   ])("does not stamp OAuth signup metadata for unsafe target %s", (target) => {
     expect(joinSignUpMetadataFromTarget(target)).toBeNull();
+  });
+});
+
+describe("joinSignUpHrefFromTarget", () => {
+  it("marks Book and Unlock switches as explicit account creation", () => {
+    expect(
+      joinSignUpHrefFromTarget(
+        "/join/northline-studio/continue?action=book",
+      ),
+    ).toBe("/sign-up/join/northline-studio?intent=signup");
+    expect(
+      joinSignUpHrefFromTarget(
+        "/join/northline-studio/continue?action=unlock",
+      ),
+    ).toBe("/sign-up/join/northline-studio/unlock?intent=signup");
   });
 });
 
