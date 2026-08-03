@@ -118,7 +118,7 @@ export function joinSignUpHrefFromTarget(
   return match?.[1]
     ? `/sign-up/join/${encodeURIComponent(match[1])}${
         action === "unlock" ? "/unlock" : ""
-      }`
+      }?intent=signup`
     : null;
 }
 

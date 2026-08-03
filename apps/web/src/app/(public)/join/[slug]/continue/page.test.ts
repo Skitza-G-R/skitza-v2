@@ -59,20 +59,30 @@ describe("join confirmation and continuation", () => {
   });
 
   it("renders every continuation state inside a centered bounded shell", () => {
-    expect(page.match(/<JoinContinuationShell/g)).toHaveLength(3);
+    expect(page.match(/<JoinContinuationShell/g)).toHaveLength(4);
     expect(page).toContain('data-auth-page="join-account-conflict"');
     expect(accountSwitch).toContain("Sign out and choose account");
     expect(page).toContain("Back to {studioName}");
     expect(shell).toContain("max-w-[440px]");
     expect(shell).toContain("px-4");
     expect(shell).toContain("sm:px-6");
-    expect(page.match(/\[overflow-wrap:anywhere\]/g)).toHaveLength(3);
-    expect(page.match(/whitespace-normal/g)).toHaveLength(3);
+    expect(page.match(/\[overflow-wrap:anywhere\]/g)).toHaveLength(4);
+    expect(page.match(/whitespace-normal/g)).toHaveLength(4);
   });
 
   it("turns only the expected account ownership conflict into recovery UX", () => {
     expect(action.match(/redirectForKnownJoinError\(/g)).toHaveLength(3);
     expect(action).toContain("isJoinAccountConflict(error)");
     expect(action).toContain("joinAccountConflictHref(slug, action)");
+  });
+
+  it("renders allowlisted verification retry states through the explicit POST action", () => {
+    expect(page).toContain('query.problem === JOIN_UNVERIFIED_EMAIL');
+    expect(page).toContain('query.problem === JOIN_CONNECTION_PENDING');
+    expect(page).toContain("Verify your email, then retry");
+    expect(page).toContain("Connection is still finishing");
+    expect(page).toContain("<form action={action}>");
+    expect(page).toContain("Retry");
+    expect(page).toContain("<JoinAccountSwitchButton");
   });
 });

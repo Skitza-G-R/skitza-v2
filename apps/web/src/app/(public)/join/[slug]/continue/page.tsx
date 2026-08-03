@@ -14,7 +14,11 @@ import {
 import { joinSignInHref } from "~/server/auth/post-sign-in";
 import { fetchUserAccountMemberships } from "~/server/auth/role";
 import { findJoinTargetProducer, isSelfJoin } from "~/server/contacts/join-continuation";
-import { JOIN_ACCOUNT_CONFLICT } from "~/server/contacts/join-recovery";
+import {
+  JOIN_ACCOUNT_CONFLICT,
+  JOIN_CONNECTION_PENDING,
+  JOIN_UNVERIFIED_EMAIL,
+} from "~/server/contacts/join-recovery";
 
 import { continueAsArtist } from "./actions";
 import { JoinAccountSwitchButton } from "./join-account-switch-button";
@@ -68,6 +72,11 @@ export default async function JoinContinuationPage({ params, searchParams }: Pro
   const studioName = target.displayName ?? "this studio";
   const publicStudioHref = `/join/${encodeURIComponent(slug)}`;
   const action = continueAsArtist.bind(null, slug, requestedAction);
+  const retryProblem =
+    query.problem === JOIN_UNVERIFIED_EMAIL ||
+    query.problem === JOIN_CONNECTION_PENDING
+      ? query.problem
+      : null;
 
   if (query.problem === JOIN_ACCOUNT_CONFLICT) {
     return (
@@ -85,6 +94,51 @@ export default async function JoinContinuationPage({ params, searchParams }: Pro
           />
           <div className="space-y-3">
             <JoinAccountSwitchButton slug={slug} action={requestedAction} />
+            <Button
+              asChild
+              variant="outline"
+              size="lg"
+              className="h-auto min-h-12 w-full rounded-[var(--radius-lg)] py-3 text-center [overflow-wrap:anywhere] whitespace-normal"
+            >
+              <Link href={publicStudioHref}>Back to {studioName}</Link>
+            </Button>
+          </div>
+        </div>
+      </JoinContinuationShell>
+    );
+  }
+
+  if (retryProblem) {
+    const needsVerifiedEmail = retryProblem === JOIN_UNVERIFIED_EMAIL;
+    return (
+      <JoinContinuationShell>
+        <div data-auth-page="join-verification-recovery">
+          <AuthHero
+            eyebrow={needsVerifiedEmail ? "Verification needed" : "Almost connected"}
+            title={
+              needsVerifiedEmail
+                ? "Verify your email, then retry"
+                : "Connection is still finishing"
+            }
+            blurb={
+              needsVerifiedEmail
+                ? `Skitza needs a verified email before it can safely connect this Artist account to ${studioName}. Verify the email on this account, then retry.`
+                : `Skitza has not confirmed the connection to ${studioName} yet. Nothing was reassigned. Retry to check it again.`
+            }
+          />
+          <div className="space-y-3">
+            <form action={action}>
+              <Button
+                type="submit"
+                size="lg"
+                className="sk-cta-shine w-full rounded-[var(--radius-lg)] bg-gradient-to-br from-[rgb(var(--brand-primary))] to-[rgb(var(--brand-accent))] text-[#0C0A07]"
+              >
+                Retry
+              </Button>
+            </form>
+            {needsVerifiedEmail ? (
+              <JoinAccountSwitchButton slug={slug} action={requestedAction} />
+            ) : null}
             <Button
               asChild
               variant="outline"

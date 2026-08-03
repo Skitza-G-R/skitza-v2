@@ -18,7 +18,12 @@ import {
   joinArtistHref,
   JoinContinuationError,
 } from "~/server/contacts/join-continuation";
-import { isJoinAccountConflict, joinAccountConflictHref } from "~/server/contacts/join-recovery";
+import {
+  isJoinAccountConflict,
+  joinAccountConflictHref,
+  joinRetryHref,
+  joinRetryProblem,
+} from "~/server/contacts/join-recovery";
 import { joinSignInHref } from "~/server/auth/post-sign-in";
 
 function requireJoinAction(action: string): JoinIntentAction {
@@ -29,6 +34,10 @@ function requireJoinAction(action: string): JoinIntentAction {
 function redirectForKnownJoinError(error: unknown, slug: string, action: JoinIntentAction): never {
   if (error instanceof JoinContinuationError && error.code === "SELF_JOIN") {
     redirect(`/join/${encodeURIComponent(slug)}`);
+  }
+  const retryProblem = joinRetryProblem(error);
+  if (retryProblem) {
+    redirect(joinRetryHref(slug, action, retryProblem));
   }
   if (isJoinAccountConflict(error)) {
     redirect(joinAccountConflictHref(slug, action));
