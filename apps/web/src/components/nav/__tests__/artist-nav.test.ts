@@ -46,13 +46,18 @@ describe("artist four-tab navigation", () => {
   });
 
   it("keeps Settings in both artist account controls", () => {
+    expect(SIDEBAR).toContain("<ArtistUserButton");
+    expect(MOBILE_TOPBAR).toContain("<ArtistMobileUserButton");
     for (const source of [SIDEBAR, MOBILE_TOPBAR]) {
-      expect(source).toContain("<ArtistUserButton");
       expect(source).toContain(
         'settingsHref={withArtistStudio("/artist/settings", activeStudioId)}',
       );
     }
     expect(USER_BUTTON).toContain("renderAccountRoleMenuItems(menuModel)");
+    expect(USER_BUTTON).toContain(
+      "renderAccountRoleMenuItems(menuModel, { includeSettings: false })",
+    );
+    expect(USER_BUTTON).toContain('className="sk-account-sheet-motion');
     expect(ACCOUNT_ROLE_MENU).toContain("<UserButton.MenuItems>");
     expect(ACCOUNT_ROLE_MENU).toContain('label="Settings"');
   });
