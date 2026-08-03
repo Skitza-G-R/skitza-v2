@@ -494,12 +494,10 @@ function NavItem({
       aria-keyshortcuts={item.shortcut}
       {...(isActive ? { "aria-current": "page" as const } : {})}
       {...(collapsed ? { title: label } : {})}
-      className="sk-press relative flex items-center rounded-[10px] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset"
+      className="sk-press sk-sidebar-nav-item relative flex items-center rounded-[10px] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none focus-visible:ring-inset"
       style={{
         gap: collapsed ? 0 : 12,
         padding: collapsed ? "11px 10px" : "10px 12px",
-        color: isActive ? "rgb(var(--fg-onsidebar))" : "rgb(var(--fg-onsidebar) / 0.65)",
-        background: isActive ? "rgb(var(--fg-onsidebar) / 0.10)" : "transparent",
         fontSize: 13.5,
         fontWeight: isActive ? 700 : 500,
         letterSpacing: "-0.005em",
@@ -524,7 +522,7 @@ function NavItem({
           opacity: isActive ? 1 : 0,
         }}
       />
-      <span className="relative flex shrink-0 items-center">
+      <span className="sk-sidebar-nav-icon relative flex shrink-0 items-center">
         <Icon name={item.icon} size={16} strokeWidth={2.3} />
         {collapsed && badgeCount > 0 && (
           <span
