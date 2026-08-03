@@ -112,6 +112,7 @@ export type MusicProjectReadModel = Readonly<{
 export type MusicLibraryReadModel = Readonly<{
   projects: readonly MusicProjectReadModel[];
   activeProjects: readonly MusicProjectReadModel[];
+  uploadableProjects: readonly MusicProjectReadModel[];
 }>;
 
 type ProjectHead = Readonly<{
@@ -567,6 +568,14 @@ export async function listMusicSongSpaces(
       return {
         projects: projectsWithSongs,
         activeProjects: allProjects.filter((project) => project.lifecycleStatus === "active"),
+        uploadableProjects: allProjects.filter(
+          (project) =>
+            project.lifecycleStatus === "active" &&
+            (project.emptySlots.length > 0 ||
+              project.songs.some(
+                (song) => song.purchaseLifecycleStatus === "active" && song.archivedAt === null,
+              )),
+        ),
       };
     },
     { isolationLevel: "repeatable read", accessMode: "read only" },

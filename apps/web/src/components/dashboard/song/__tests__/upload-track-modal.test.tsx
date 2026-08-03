@@ -383,11 +383,12 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     expect(SRC).not.toContain("sticky bottom-0");
   });
 
-  it("shows clear locked values instead of blank or single-option native pickers", () => {
+  it("shows the upload choice only when more than one destination is available", () => {
     expect(SRC).toContain('id="upload-track-project-empty"');
-    expect(SRC).toContain("No active Projects");
-    expect(SRC).toContain('id="upload-track-destination-locked"');
-    expect(SRC).toMatch(/destinationTracks\.length === 0/);
+    expect(SRC).toContain("No Projects available for audio upload");
+    expect(SRC).toContain("shouldShowLibraryUploadDestination");
+    expect(SRC).toContain("Upload as");
+    expect(SRC).not.toContain('id="upload-track-destination-locked"');
   });
 
   it("forbids --surface-card", () => {

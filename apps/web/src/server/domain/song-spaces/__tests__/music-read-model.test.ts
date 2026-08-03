@@ -506,6 +506,10 @@ describe("music song-space projection", () => {
       "project-virtual-only",
       "project-waiting-only",
     ]);
+    expect(result.uploadableProjects.map((project) => project.id)).toEqual([
+      "project-active",
+      "project-virtual-only",
+    ]);
 
     const album = projectById(result, "project-active");
     expect(album.visibleCount).toBe(4);

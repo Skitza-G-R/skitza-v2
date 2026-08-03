@@ -135,13 +135,16 @@ export function assertFirstVersionUploadDestination(
   ) {
     throw new FirstVersionUploadError("NOT_FOUND", "The upload destination was not found");
   }
-  if (
-    candidate.projectLifecycleStatus !== "active" ||
-    candidate.purchaseLifecycleStatus !== "active"
-  ) {
+  if (candidate.projectLifecycleStatus !== "active") {
     throw new FirstVersionUploadError(
       "INACTIVE",
       "Audio can be added only while the Project is active",
+    );
+  }
+  if (candidate.purchaseLifecycleStatus !== "active") {
+    throw new FirstVersionUploadError(
+      "INACTIVE",
+      "This Project needs an active Song purchase before you can upload a new Song",
     );
   }
   if (
