@@ -68,6 +68,6 @@ export const SUB_NAV: readonly NavItem[] = [
   { key: "profile", label: "Profile", iconKey: "user" },
   { key: "plan", label: "Plan & billing", iconKey: "bolt" },
   { key: "notif", label: "Notifications", iconKey: "bell" },
-  { key: "int", label: "Integrations", iconKey: "plug" },
+  { key: "int", label: "Getting paid", iconKey: "plug" },
   { key: "region", label: "Currency & region", iconKey: "globe" },
 ];
