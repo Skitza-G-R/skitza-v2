@@ -14,6 +14,7 @@ describe("getArtistShellMode", () => {
     "/artist/purchase/product-1/pay/proof",
     "/artist/payments/purchase-1/instructions",
     "/artist/payments/purchase-1/proof/new",
+    "/artist/payments/purchase-1/proof/proof-1",
     "/artist/sessions/session-1/cancel",
     "/artist/sessions/session-1/reschedule",
     "/artist/settings/account/delete",
@@ -33,7 +34,6 @@ describe("getArtistShellMode", () => {
     "/artist/sessions/session-1/cancel/extra",
     "/artist/payments",
     "/artist/payments/purchase-1",
-    "/artist/payments/purchase-1/proof/proof-1",
     "/artist/settings",
     "/artist/not-found",
   ])("keeps %s in the standing shell", (pathname) => {
