@@ -712,6 +712,7 @@ export function buildPaymentReadModel(
       (installment) => installment.remainingCents > 0 && installment.status !== "canceled",
     );
     const showPayNextPayment = Boolean(
+      purchase.lifecycleStatus !== "canceled" &&
       nextInstallment &&
       !pendingProofInstallmentIdSet.has(nextInstallment.id) &&
       isInstallmentPayableForInstructions(

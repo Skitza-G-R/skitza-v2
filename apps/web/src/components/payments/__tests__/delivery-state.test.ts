@@ -3,22 +3,39 @@ import { describe, expect, it } from "vitest";
 import { mapPaymentDeliveryState, splitGoogleDriveDeliverables } from "../delivery-state";
 
 describe("SK-44 payment delivery mapping", () => {
-  it("maps paid and zero-total purchases to paid delivery", () => {
-    for (const totalCents of [24_000, 0]) {
-      expect(
-        mapPaymentDeliveryState({
-          fullyPaid: true,
-          totalCents,
-          paidCents: totalCents,
-          waivedCents: 0,
-          remainingCents: 0,
-          overdue: false,
-          activeOverrideVersionLabels: [],
-          googleDriveLinks: [],
-          withheldGoogleDriveLinkCount: 0,
-        }),
-      ).toMatchObject({ key: "paid", label: "Paid · downloads available" });
-    }
+  it("maps a fully paid cash purchase to paid delivery", () => {
+    expect(
+      mapPaymentDeliveryState({
+        fullyPaid: true,
+        totalCents: 24_000,
+        paidCents: 24_000,
+        waivedCents: 0,
+        remainingCents: 0,
+        overdue: false,
+        activeOverrideVersionLabels: [],
+        googleDriveLinks: [],
+        withheldGoogleDriveLinkCount: 0,
+      }),
+    ).toMatchObject({ key: "paid", label: "Paid · downloads available" });
+  });
+
+  it("keeps a zero-total accepted purchase distinct from verified payment", () => {
+    expect(
+      mapPaymentDeliveryState({
+        fullyPaid: true,
+        totalCents: 0,
+        paidCents: 0,
+        waivedCents: 0,
+        remainingCents: 0,
+        overdue: false,
+        activeOverrideVersionLabels: [],
+        googleDriveLinks: [],
+        withheldGoogleDriveLinkCount: 0,
+      }),
+    ).toMatchObject({
+      key: "no_payment_required",
+      label: "No payment required · downloads available",
+    });
   });
 
   it("keeps downward-corrected purchases locked and shows remaining debt", () => {

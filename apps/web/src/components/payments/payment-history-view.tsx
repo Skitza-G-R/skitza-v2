@@ -48,6 +48,7 @@ export type {
   PaymentHistoryProject,
   PaymentHistoryProof,
   PaymentHistoryPurchase,
+  PaymentHistoryRecordStatus,
   PaymentHistoryRole,
   PaymentHistorySectionDescriptor,
   PaymentHistoryStatus,

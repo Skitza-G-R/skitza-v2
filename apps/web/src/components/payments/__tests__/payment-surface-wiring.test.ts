@@ -101,7 +101,8 @@ describe("SK-69 payment surface wiring", () => {
     expect(producerPayments).toContain("toProducerPaymentWorkspaceBuckets(model.producerBuckets)");
     expect(producerPayments).toContain("ProducerPaymentWorkspace");
     expect(producerPayments).not.toContain("PaymentHistoryView");
-    expect(artistPayments).toContain("PaymentHistoryView");
+    expect(artistPayments).toContain("ArtistPaymentsOverview");
+    expect(artistPayments).not.toMatch(/\bPaymentHistoryView\b/);
   });
 
   it("feeds canonical project and client views from the same read projection", () => {
@@ -180,11 +181,11 @@ describe("SK-69 payment surface wiring", () => {
       "caller.artist.purchase.proofOfPayment.state({ purchaseId })",
     );
     expect(artistPurchasePayment).toContain(
-      "proofUploadsAvailable={state.proofUploadsAvailable}",
+      "proofUploadAvailability={state?.proofUploadAvailability ?? null}",
     );
     expect(artistPurchasePayment).not.toContain("caller.artist.purchase.paymentInstructions");
     expect(artistPurchasePayment).toContain("<PaymentSummaryScreen");
-    expect(artistPurchasePayment).toContain("studioId={state.producerId}");
+    expect(artistPurchasePayment).toContain("studioId={studioId}");
 
     expect(artistPaymentSummary).toContain(
       "`/artist/payments/${encodeURIComponent(purchaseId)}/instructions`",
@@ -219,5 +220,16 @@ describe("SK-69 payment surface wiring", () => {
       "data.proofs.find((proof) => proof.proofId === proofId)",
     );
     expect(artistExactProof).toContain("if (!exact) notFound()");
+  });
+
+  it("opens every accepted purchase from the rich ledger and skips proof state without installments", () => {
+    expect(artistPurchasePayment).toContain("caller.artist.purchase.payments()");
+    expect(artistPurchasePayment).toContain("findArtistPaymentRecord(sections, purchaseId)");
+    expect(artistPurchasePayment).toMatch(
+      /recordUsesProofFlow\(purchase\)[\s\S]*proofOfPayment\.state/,
+    );
+    expect(artistPurchasePayment).toContain("purchaseRecord={purchase}");
+    expect(artistPaymentSummary).toContain("PaymentHistoryPurchaseDetails");
+    expect(artistPaymentSummary).toContain("Full purchase record");
   });
 });

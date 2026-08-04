@@ -1,8 +1,8 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
+import { ArtistPaymentsOverview } from "~/components/artist/payments/artist-payments-overview";
 import { toPaymentHistoryViewData } from "~/components/payments/payment-history-adapter";
-import { PaymentHistoryView } from "~/components/payments/payment-history-view";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 export const metadata = { title: "Payments" };
@@ -40,36 +40,24 @@ export default async function ArtistPaymentsPage() {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
   const model = await appRouter.createCaller({ userId }).artist.purchase.payments();
+  const sections = [
+    toPaymentHistoryViewData(model.artistBuckets.waiting, SECTIONS.waiting, "artist"),
+    toPaymentHistoryViewData(model.artistBuckets.active, SECTIONS.active, "artist"),
+    toPaymentHistoryViewData(model.artistBuckets.history, SECTIONS.history, "artist"),
+  ];
 
   return (
-    <main className="mx-auto w-full max-w-[1040px] px-4 py-6 sm:px-6 sm:py-9">
-      <header className="mb-7">
-        <p className="font-mono text-[10px] font-bold tracking-[0.14em] text-[rgb(var(--brand-primary-text))] uppercase">
-          Your accepted work
-        </p>
-        <h1 className="font-display mt-2 text-[clamp(2rem,6vw,3.4rem)] leading-none font-extrabold tracking-[-0.045em] text-[rgb(var(--fg-default))]">
+    <div className="mx-auto w-full max-w-[900px]">
+      <header className="mb-7 max-w-[620px]">
+        <h1 className="font-display text-[clamp(1.9rem,6vw,2.8rem)] leading-none font-extrabold tracking-[-0.045em] text-[rgb(var(--fg-default))]">
           Payments
         </h1>
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[rgb(var(--fg-muted))]">
-          See what is due, follow producer instructions, upload proof, and keep every accepted
-          agreement and payment record.
+        <p className="mt-2 text-[13px] leading-relaxed text-[rgb(var(--fg-muted))]">
+          See what is due, pay your studio directly, and keep every proof and verification record.
         </p>
       </header>
 
-      <div className="space-y-9">
-        <PaymentHistoryView
-          role="artist"
-          data={toPaymentHistoryViewData(model.artistBuckets.waiting, SECTIONS.waiting, "artist")}
-        />
-        <PaymentHistoryView
-          role="artist"
-          data={toPaymentHistoryViewData(model.artistBuckets.active, SECTIONS.active, "artist")}
-        />
-        <PaymentHistoryView
-          role="artist"
-          data={toPaymentHistoryViewData(model.artistBuckets.history, SECTIONS.history, "artist")}
-        />
-      </div>
-    </main>
+      <ArtistPaymentsOverview sections={sections} />
+    </div>
   );
 }

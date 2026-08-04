@@ -45,6 +45,7 @@ const SHARED_PROJECT: PaymentHistoryProject = {
       counterpartyLabel: "Maya Cohen",
       currency: "ILS",
       status: { label: "Overdue", tone: "danger" },
+      recordStatus: "open",
       defaultOpen: true,
       totalCents: 120_000,
       paidCents: 60_000,
