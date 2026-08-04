@@ -16,6 +16,8 @@ import {
 } from "~/server/artist/history";
 import {
   acknowledgeArtistTrackVersionNotification,
+  archiveAllArtistNotifications,
+  archiveArtistNotification,
   artistNotificationStudioDotProducerIds,
   artistNotificationUnreadCount,
   listArtistNotifications,
@@ -145,6 +147,20 @@ export const artistPlatformRouter = router({
       }),
     markAllRead: artistProcedure.mutation(async ({ ctx }) => ({
       markedCount: await markAllArtistNotificationsRead(ctx.db, ctx.clerkUserId),
+    })),
+    archive: artistProcedure
+      .input(z.object({ notificationId: z.string().uuid() }))
+      .mutation(async ({ ctx, input }) => {
+        const owned = await archiveArtistNotification(
+          ctx.db,
+          ctx.clerkUserId,
+          input.notificationId,
+        );
+        if (!owned) throw new TRPCError({ code: "NOT_FOUND" });
+        return { ok: true as const };
+      }),
+    archiveAll: artistProcedure.mutation(async ({ ctx }) => ({
+      archivedCount: await archiveAllArtistNotifications(ctx.db, ctx.clerkUserId),
     })),
     open: artistProcedure
       .input(z.object({ notificationId: z.string().uuid() }))

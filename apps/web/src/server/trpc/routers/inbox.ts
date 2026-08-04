@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { and, desc, eq, inArray, isNull, isNotNull, notifications, type Db } from "@skitza/db";
+import { and, desc, eq, inArray, isNull, isNotNull, notifications, sql, type Db } from "@skitza/db";
 import { TRPCError } from "@trpc/server";
 
 import { router } from "../init";
@@ -10,6 +10,49 @@ import { producerProcedure } from "../producer-procedure";
 // (producerId, archivedAt, createdAt). Emit helpers in
 // server/notifications/emit.ts insert rows; this router only reads
 // and mutates state (read/archive flags).
+
+export async function archiveProducerNotification(
+  db: Db,
+  producerId: string,
+  notificationId: string,
+): Promise<boolean> {
+  const now = new Date();
+  const changed = await db
+    .update(notifications)
+    .set({
+      archivedAt: sql`coalesce(${notifications.archivedAt}, ${now})`,
+      readAt: sql`coalesce(${notifications.readAt}, ${now})`,
+    })
+    .where(
+      and(
+        eq(notifications.id, notificationId),
+        eq(notifications.producerId, producerId),
+      ),
+    )
+    .returning({ id: notifications.id });
+  return changed.length === 1;
+}
+
+export async function archiveAllProducerNotifications(
+  db: Db,
+  producerId: string,
+): Promise<number> {
+  const now = new Date();
+  const changed = await db
+    .update(notifications)
+    .set({
+      archivedAt: now,
+      readAt: sql`coalesce(${notifications.readAt}, ${now})`,
+    })
+    .where(
+      and(
+        eq(notifications.producerId, producerId),
+        isNull(notifications.archivedAt),
+      ),
+    )
+    .returning({ id: notifications.id });
+  return changed.length;
+}
 
 export const inboxRouter = router({
   // Active (non-archived) by default; pass { archived: true } for the
@@ -111,16 +154,14 @@ export const inboxRouter = router({
   archive: producerProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      await assertOwnsNotification(ctx, input.id);
-      const now = new Date();
-      // Archiving implies read — no reason to keep bold/unread state
-      // on a row the producer explicitly dismissed.
-      await ctx.db
-        .update(notifications)
-        .set({ archivedAt: now, readAt: now })
-        .where(eq(notifications.id, input.id));
+      const owned = await archiveProducerNotification(ctx.db, ctx.producerId, input.id);
+      if (!owned) throw new TRPCError({ code: "NOT_FOUND" });
       return { ok: true as const };
     }),
+
+  archiveAll: producerProcedure.mutation(async ({ ctx }) => ({
+    archivedCount: await archiveAllProducerNotifications(ctx.db, ctx.producerId),
+  })),
 
   unarchive: producerProcedure
     .input(z.object({ id: z.string().uuid() }))

@@ -1,14 +1,6 @@
 "use client";
 
-import {
-  Bell,
-  CalendarDays,
-  Check,
-  CheckCheck,
-  Loader2,
-  MessageSquare,
-  Music2,
-} from "lucide-react";
+import { Bell, CalendarDays, Check, Loader2, MessageSquare, Music2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   type PointerEvent as ReactPointerEvent,
@@ -22,8 +14,9 @@ import {
 } from "react";
 
 import {
+  archiveAllArtistNotificationsAction,
+  archiveArtistNotificationAction,
   loadArtistNotificationFeedAction,
-  markAllArtistNotificationsReadAction,
   markArtistNotificationReadAction,
   openArtistNotificationAction,
 } from "~/components/artist/artist-notification-actions";
@@ -52,6 +45,8 @@ export type ArtistNotificationFeedItem = Readonly<{
 export type ArtistNotificationTab = "all" | "unread";
 const DESKTOP_QUERY = "(min-width: 1024px)";
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+const REMOVE_ERROR = "Notification couldn’t be removed. Try again.";
+const CLEAR_ERROR = "Notifications couldn’t be cleared. Try again.";
 const SHEET_SETTLE_MS = 240;
 const SHEET_BOTTOM_BACKING_PX = ACCOUNT_SHEET_UPWARD_OVERSCAN_PX + 1;
 
@@ -100,7 +95,7 @@ export function ArtistNotificationBell({
   const tabPanelId = useId();
   const [open, setOpen] = useState(preview?.initialOpen ?? false);
   const [desktop, setDesktop] = useState(false);
-  const [tab, setTab] = useState<ArtistNotificationTab>("all");
+  const [tab, setTab] = useState<ArtistNotificationTab>("unread");
   const [items, setItems] = useState<ArtistNotificationFeedItem[]>(() =>
     preview ? [...preview.items] : [],
   );
@@ -111,7 +106,7 @@ export function ArtistNotificationBell({
   const [error, setError] = useState<string | null>(null);
   const [loading, startLoad] = useTransition();
   const [pendingId, setPendingId] = useState<string | null>(null);
-  const [markingAll, startMarkAll] = useTransition();
+  const [clearing, startClear] = useTransition();
 
   const clearSheetSettleTimer = useCallback(() => {
     if (sheetSettleTimerRef.current === null) return;
@@ -253,28 +248,57 @@ export function ArtistNotificationBell({
     router.refresh();
   };
 
-  const markAll = () => {
-    if (unreadCount === 0 || markingAll) return;
-    setError(null);
+  const removeLocal = (item: ArtistNotificationFeedItem) => {
+    setItems((current) => current.filter((candidate) => candidate.id !== item.id));
+    if (item.readAtIso === null) {
+      setUnreadCount((current) => Math.max(0, current - 1));
+    }
+  };
+
+  const dismissOne = async (item: ArtistNotificationFeedItem) => {
+    if (pendingId) return;
     if (preview) {
-      const now = new Date().toISOString();
-      setItems((current) =>
-        current.map((item) => (item.readAtIso === null ? { ...item, readAtIso: now } : item)),
-      );
-      setUnreadCount(0);
+      removeLocal(item);
       return;
     }
-    startMarkAll(async () => {
-      const result = await markAllArtistNotificationsReadAction();
+    setPendingId(item.id);
+    setError(null);
+    try {
+      const result = await archiveArtistNotificationAction({ notificationId: item.id });
       if (!result.ok) {
         setError(result.error);
         return;
       }
-      const now = new Date().toISOString();
-      setItems((current) =>
-        current.map((item) => (item.readAtIso === null ? { ...item, readAtIso: now } : item)),
-      );
+      removeLocal(item);
+      router.refresh();
+    } catch {
+      setError(REMOVE_ERROR);
+    } finally {
+      setPendingId(null);
+    }
+  };
+
+  const clearAll = () => {
+    if (items.length === 0 || clearing || pendingId) return;
+    setError(null);
+    if (preview) {
+      setItems([]);
       setUnreadCount(0);
+      return;
+    }
+    startClear(async () => {
+      try {
+        const result = await archiveAllArtistNotificationsAction();
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+        setItems([]);
+        setUnreadCount(0);
+        router.refresh();
+      } catch {
+        setError(CLEAR_ERROR);
+      }
     });
   };
 
@@ -408,13 +432,15 @@ export function ArtistNotificationBell({
       tab={tab}
       setTab={setTab}
       items={visibleItems}
+      hasItems={items.length > 0}
       loading={loading}
-      markingAll={markingAll}
+      clearing={clearing}
       pendingId={pendingId}
       unreadCount={unreadCount}
       error={error}
       onRetry={loadFeed}
-      onMarkAll={markAll}
+      onClearAll={clearAll}
+      onDismiss={dismissOne}
       onMarkOne={markOne}
       onOpen={openItem}
       tabPanelId={tabPanelId}
@@ -519,13 +545,15 @@ export function ArtistNotificationPanel({
   tab,
   setTab,
   items,
+  hasItems,
   loading,
-  markingAll,
+  clearing,
   pendingId,
   unreadCount,
   error,
   onRetry,
-  onMarkAll,
+  onClearAll,
+  onDismiss,
   onMarkOne,
   onOpen,
   relativeNow,
@@ -534,13 +562,15 @@ export function ArtistNotificationPanel({
   tab: ArtistNotificationTab;
   setTab: (tab: ArtistNotificationTab) => void;
   items: readonly ArtistNotificationFeedItem[];
+  hasItems: boolean;
   loading: boolean;
-  markingAll: boolean;
+  clearing: boolean;
   pendingId: string | null;
   unreadCount: number;
   error: string | null;
   onRetry: () => void;
-  onMarkAll: () => void;
+  onClearAll: () => void;
+  onDismiss: (item: ArtistNotificationFeedItem) => Promise<void>;
   onMarkOne: (item: ArtistNotificationFeedItem) => Promise<void>;
   onOpen: (item: ArtistNotificationFeedItem) => Promise<void>;
   relativeNow?: Date;
@@ -564,16 +594,14 @@ export function ArtistNotificationPanel({
         </div>
         <button
           type="button"
-          onClick={onMarkAll}
-          disabled={markingAll || unreadCount === 0}
+          onClick={onClearAll}
+          disabled={clearing || pendingId !== null || !hasItems}
           className="inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-lg)] px-2 text-[11px] font-bold text-[rgb(var(--fg-secondary))] hover:bg-[rgb(var(--bg-overlay))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:opacity-40"
         >
-          {markingAll ? (
+          {clearing ? (
             <Loader2 size={14} aria-hidden className="animate-spin motion-reduce:animate-none" />
-          ) : (
-            <CheckCheck size={14} aria-hidden />
-          )}
-          Mark all read
+          ) : null}
+          {clearing ? "Clearing…" : "Clear all"}
         </button>
       </div>
 
@@ -662,6 +690,7 @@ export function ArtistNotificationPanel({
                     </span>
                     <button
                       type="button"
+                      aria-label={`Open ${item.title}`}
                       disabled={pendingId !== null}
                       onClick={() => void onOpen(item)}
                       className="min-w-0 flex-1 text-left focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:opacity-60"
@@ -706,6 +735,23 @@ export function ArtistNotificationPanel({
                         )}
                       </button>
                     ) : null}
+                    <button
+                      type="button"
+                      aria-label={`Dismiss ${item.title}`}
+                      disabled={pendingId !== null || clearing}
+                      onClick={() => void onDismiss(item)}
+                      className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:opacity-50"
+                    >
+                      {pendingId === item.id ? (
+                        <Loader2
+                          size={14}
+                          aria-hidden
+                          className="animate-spin motion-reduce:animate-none"
+                        />
+                      ) : (
+                        <X size={15} aria-hidden />
+                      )}
+                    </button>
                   </div>
                 </li>
               );

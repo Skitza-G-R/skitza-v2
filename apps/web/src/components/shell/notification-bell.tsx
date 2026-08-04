@@ -7,6 +7,7 @@ import {
   MessageSquare,
   ShoppingBag,
   WalletCards,
+  X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
@@ -24,7 +25,11 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "~/components/
 import { formatRelativeTime } from "~/lib/time/relative";
 import type { ShellNotificationItem } from "~/server/shell-data";
 
-import { markAllNotificationsRead, markNotificationRead } from "./notification-bell-actions";
+import {
+  archiveAllNotifications,
+  archiveNotification,
+  markNotificationRead,
+} from "./notification-bell-actions";
 
 export type NotificationTab = "all" | "unread";
 
@@ -114,13 +119,14 @@ export function NotificationBell({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<NotificationTab>("all");
+  const [tab, setTab] = useState<NotificationTab>("unread");
   const [isDesktop, setIsDesktop] = useState(false);
   const [pendingId, setPendingId] = useState<string | null>(null);
-  const [markingAll, setMarkingAll] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [readOverrides, setReadOverrides] = useState<Set<string>>(() => new Set<string>());
-  const [allReadOverride, setAllReadOverride] = useState(false);
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => new Set<string>());
+  const [clearedAll, setClearedAll] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
@@ -147,7 +153,8 @@ export function NotificationBell({
   // read markers then so a newly arrived notification is never hidden.
   useEffect(() => {
     setReadOverrides(new Set<string>());
-    setAllReadOverride(false);
+    setDismissedIds(new Set<string>());
+    setClearedAll(false);
   }, [notifications, unreadCount]);
 
   useEffect(
@@ -194,33 +201,37 @@ export function NotificationBell({
   }, [closeWithFocusReturn, isDesktop, open]);
 
   const isUnread = useCallback(
-    (item: ShellNotificationItem) => !allReadOverride && notificationIsUnread(item, readOverrides),
-    [allReadOverride, readOverrides],
+    (item: ShellNotificationItem) => notificationIsUnread(item, readOverrides),
+    [readOverrides],
   );
 
-  const visibleNotifications = useMemo(
+  const activeNotifications = useMemo(
     () =>
-      allReadOverride && tab === "unread"
-        ? []
-        : filterNotifications(notifications, tab, readOverrides),
-    [allReadOverride, notifications, readOverrides, tab],
+      clearedAll ? [] : notifications.filter((notification) => !dismissedIds.has(notification.id)),
+    [clearedAll, dismissedIds, notifications],
+  );
+  const visibleNotifications = useMemo(
+    () => filterNotifications(activeNotifications, tab, readOverrides),
+    [activeNotifications, readOverrides, tab],
   );
 
   const overriddenUnreadCount = useMemo(
     () =>
       notifications.reduce(
         (count, item) =>
-          item.readAtIso === null && readOverrides.has(item.id) ? count + 1 : count,
+          item.readAtIso === null && (readOverrides.has(item.id) || dismissedIds.has(item.id))
+            ? count + 1
+            : count,
         0,
       ),
-    [notifications, readOverrides],
+    [dismissedIds, notifications, readOverrides],
   );
-  const currentUnreadCount = allReadOverride ? 0 : Math.max(0, unreadCount - overriddenUnreadCount);
+  const currentUnreadCount = clearedAll ? 0 : Math.max(0, unreadCount - overriddenUnreadCount);
   const badgeLabel = currentUnreadCount > 99 ? "99+" : String(currentUnreadCount);
 
   const handleItemClick = useCallback(
     async (item: ShellNotificationItem) => {
-      if (pendingId !== null || markingAll) return;
+      if (pendingId !== null || clearing) return;
       setError(null);
       setPendingId(item.id);
 
@@ -244,30 +255,54 @@ export function NotificationBell({
         router.push(notificationHref(item));
       }
     },
-    [isUnread, markingAll, pendingId, router],
+    [clearing, isUnread, pendingId, router],
   );
 
-  const handleMarkAll = useCallback(async () => {
-    if (markingAll || pendingId !== null || currentUnreadCount === 0) return;
+  const handleDismiss = useCallback(
+    async (item: ShellNotificationItem) => {
+      if (pendingId !== null || clearing) return;
+      setError(null);
+      setPendingId(item.id);
+      try {
+        const result = await archiveNotification(item.id);
+        if (!result.ok) {
+          setError(result.error || FALLBACK_ERROR);
+          return;
+        }
+        setDismissedIds((current) => {
+          const next = new Set(current);
+          next.add(item.id);
+          return next;
+        });
+        router.refresh();
+      } catch {
+        setError(FALLBACK_ERROR);
+      } finally {
+        setPendingId(null);
+      }
+    },
+    [clearing, pendingId, router],
+  );
+
+  const handleClearAll = useCallback(async () => {
+    if (clearing || pendingId !== null || activeNotifications.length === 0) return;
     setError(null);
-    setMarkingAll(true);
+    setClearing(true);
     try {
-      const result = await markAllNotificationsRead();
+      const result = await archiveAllNotifications();
       if (!result.ok) {
         setError(result.error || FALLBACK_ERROR);
         return;
       }
-      setAllReadOverride(true);
-      setReadOverrides(
-        new Set(notifications.filter((item) => item.readAtIso === null).map((item) => item.id)),
-      );
+      setClearedAll(true);
+      setDismissedIds(new Set(notifications.map((item) => item.id)));
       router.refresh();
     } catch {
       setError(FALLBACK_ERROR);
     } finally {
-      setMarkingAll(false);
+      setClearing(false);
     }
-  }, [currentUnreadCount, markingAll, notifications, pendingId, router]);
+  }, [activeNotifications.length, clearing, notifications, pendingId, router]);
 
   const settleSheetDrag = useCallback((dismiss: boolean) => {
     const sheet = sheetRef.current;
@@ -382,12 +417,14 @@ export function NotificationBell({
     notifications: visibleNotifications,
     isUnread,
     currentUnreadCount,
+    hasNotifications: activeNotifications.length > 0,
     pendingId,
-    markingAll,
+    clearing,
     error,
     tabPanelId,
     onItemClick: handleItemClick,
-    onMarkAll: handleMarkAll,
+    onDismiss: handleDismiss,
+    onClearAll: handleClearAll,
   } as const;
 
   return (
@@ -497,12 +534,14 @@ interface NotificationPanelProps {
   notifications: readonly ShellNotificationItem[];
   isUnread: (item: ShellNotificationItem) => boolean;
   currentUnreadCount: number;
+  hasNotifications: boolean;
   pendingId: string | null;
-  markingAll: boolean;
+  clearing: boolean;
   error: string | null;
   tabPanelId: string;
   onItemClick: (item: ShellNotificationItem) => Promise<void>;
-  onMarkAll: () => Promise<void>;
+  onDismiss: (item: ShellNotificationItem) => Promise<void>;
+  onClearAll: () => Promise<void>;
 }
 
 function NotificationPanel({
@@ -512,12 +551,14 @@ function NotificationPanel({
   notifications,
   isUnread,
   currentUnreadCount,
+  hasNotifications,
   pendingId,
-  markingAll,
+  clearing,
   error,
   tabPanelId,
   onItemClick,
-  onMarkAll,
+  onDismiss,
+  onClearAll,
 }: NotificationPanelProps) {
   const allTabId = `${tabPanelId}-all`;
   const unreadTabId = `${tabPanelId}-unread`;
@@ -529,12 +570,12 @@ function NotificationPanel({
         <button
           type="button"
           onClick={() => {
-            void onMarkAll();
+            void onClearAll();
           }}
-          disabled={markingAll || pendingId !== null || currentUnreadCount === 0}
+          disabled={clearing || pendingId !== null || !hasNotifications}
           className="min-h-8 rounded-[var(--radius-sm)] px-2.5 text-xs font-semibold text-[rgb(var(--brand-primary-text))] transition-colors hover:bg-[rgb(var(--brand-primary)/0.09)] disabled:cursor-not-allowed disabled:text-[rgb(var(--fg-faint))] motion-reduce:transition-none"
         >
-          {markingAll ? "Marking…" : "Mark all read"}
+          {clearing ? "Clearing…" : "Clear all"}
         </button>
       </div>
 
@@ -615,44 +656,57 @@ function NotificationPanel({
                   key={item.id}
                   className="border-b border-[rgb(var(--border-subtle))] last:border-b-0"
                 >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void onItemClick(item);
-                    }}
-                    disabled={pendingId !== null || markingAll}
-                    aria-label={`${item.title}${unread ? ", unread" : ""}`}
-                    className="group flex min-h-[72px] w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[rgb(var(--bg-overlay))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset disabled:cursor-wait disabled:opacity-60 motion-reduce:transition-none sm:px-5"
-                  >
-                    <NotificationKindIcon kind={item.kind} />
-                    <span className="min-w-0 flex-1">
-                      <span
-                        className={`line-clamp-1 text-sm text-[rgb(var(--fg-default))] ${
-                          unread ? "font-semibold" : "font-medium"
-                        }`}
-                      >
-                        {item.title}
-                      </span>
-                      {item.body ? (
-                        <span className="mt-0.5 line-clamp-1 text-xs text-[rgb(var(--fg-muted))]">
-                          {item.body}
-                        </span>
-                      ) : null}
-                    </span>
-                    <span className="flex shrink-0 items-center gap-2">
-                      <span className="font-mono text-[10px] text-[rgb(var(--fg-muted))]">
-                        {pending ? "Updating…" : formatRelativeTime(new Date(item.createdAtIso))}
-                      </span>
-                      {unread ? (
+                  <div className="group flex min-h-[72px] items-center transition-colors hover:bg-[rgb(var(--bg-overlay))] motion-reduce:transition-none">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void onItemClick(item);
+                      }}
+                      disabled={pendingId !== null || clearing}
+                      aria-label={`${item.title}${unread ? ", unread" : ""}`}
+                      className="flex min-w-0 flex-1 items-center gap-3 py-3 pr-1 pl-4 text-left focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset disabled:cursor-wait disabled:opacity-60 sm:pl-5"
+                    >
+                      <NotificationKindIcon kind={item.kind} />
+                      <span className="min-w-0 flex-1">
                         <span
-                          aria-hidden
-                          className="h-2 w-2 rounded-full bg-[rgb(var(--brand-primary))]"
-                        />
-                      ) : (
-                        <span aria-hidden className="h-2 w-2" />
-                      )}
-                    </span>
-                  </button>
+                          className={`line-clamp-1 text-sm text-[rgb(var(--fg-default))] ${
+                            unread ? "font-semibold" : "font-medium"
+                          }`}
+                        >
+                          {item.title}
+                        </span>
+                        {item.body ? (
+                          <span className="mt-0.5 line-clamp-1 text-xs text-[rgb(var(--fg-muted))]">
+                            {item.body}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <span className="font-mono text-[10px] text-[rgb(var(--fg-muted))]">
+                          {pending ? "Updating…" : formatRelativeTime(new Date(item.createdAtIso))}
+                        </span>
+                        {unread ? (
+                          <span
+                            aria-hidden
+                            className="h-2 w-2 rounded-full bg-[rgb(var(--brand-primary))]"
+                          />
+                        ) : (
+                          <span aria-hidden className="h-2 w-2" />
+                        )}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Dismiss ${item.title}`}
+                      disabled={pendingId !== null || clearing}
+                      onClick={() => {
+                        void onDismiss(item);
+                      }}
+                      className="mr-2 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-elevated))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:cursor-wait disabled:opacity-50 motion-reduce:transition-none"
+                    >
+                      <X size={16} strokeWidth={2} aria-hidden />
+                    </button>
+                  </div>
                 </li>
               );
             })}

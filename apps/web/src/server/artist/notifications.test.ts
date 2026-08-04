@@ -44,6 +44,7 @@ function notification(overrides: NotificationOverrides): ArtistNotification {
     switcherDotWorthy: true,
     readAt: null,
     openedAt: null,
+    archivedAt: null,
     createdAt: new Date("2026-07-30T12:00:00.000Z"),
     ...overrides,
   };

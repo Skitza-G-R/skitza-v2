@@ -57,3 +57,31 @@ export async function markAllNotificationsRead(): Promise<NotificationActionResu
     return { ok: false, error: toMessage(err) };
   }
 }
+
+export async function archiveNotification(
+  id: string,
+): Promise<NotificationActionResult> {
+  const { userId } = await auth();
+  if (!userId) return { ok: false, error: "Please sign in to continue." };
+  try {
+    const caller = appRouter.createCaller({ userId });
+    await caller.inbox.archive({ id });
+    revalidatePath("/dashboard", "layout");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function archiveAllNotifications(): Promise<NotificationActionResult> {
+  const { userId } = await auth();
+  if (!userId) return { ok: false, error: "Please sign in to continue." };
+  try {
+    const caller = appRouter.createCaller({ userId });
+    await caller.inbox.archiveAll();
+    revalidatePath("/dashboard", "layout");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toMessage(err) };
+  }
+}

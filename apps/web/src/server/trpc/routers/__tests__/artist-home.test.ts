@@ -151,6 +151,7 @@ vi.mock("@skitza/db", () => ({
     subjectType: { __column: "artist_notifications.subject_type" },
     subjectId: { __column: "artist_notifications.subject_id" },
     inAppVisible: { __column: "artist_notifications.in_app_visible" },
+    archivedAt: { __column: "artist_notifications.archived_at" },
     openedAt: { __column: "artist_notifications.opened_at" },
   },
   clientContacts: clientContactsMarker,

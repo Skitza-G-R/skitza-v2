@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   desktop: false,
   desktopListeners: new Set<() => void>(),
   reducedMotion: false,
+  archiveAll: vi.fn(),
+  archiveOne: vi.fn(),
   load: vi.fn(),
   markAll: vi.fn(),
   markOne: vi.fn(),
@@ -23,6 +25,8 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("~/components/artist/artist-notification-actions", () => ({
+  archiveAllArtistNotificationsAction: mocks.archiveAll,
+  archiveArtistNotificationAction: mocks.archiveOne,
   loadArtistNotificationFeedAction: mocks.load,
   markAllArtistNotificationsReadAction: mocks.markAll,
   markArtistNotificationReadAction: mocks.markOne,
@@ -154,6 +158,8 @@ beforeEach(() => {
   mocks.desktop = false;
   mocks.desktopListeners.clear();
   mocks.reducedMotion = false;
+  mocks.archiveAll.mockReset();
+  mocks.archiveOne.mockReset();
   mocks.load.mockReset();
   mocks.markAll.mockReset();
   mocks.markOne.mockReset();
@@ -165,6 +171,8 @@ beforeEach(() => {
     notifications: previewItems,
     unreadCount: 1,
   });
+  mocks.archiveAll.mockResolvedValue({ ok: true });
+  mocks.archiveOne.mockResolvedValue({ ok: true });
   mocks.markAll.mockResolvedValue({ ok: true });
   mocks.markOne.mockResolvedValue({ ok: true });
   mocks.open.mockResolvedValue({ ok: true, href: "/artist/studio/producer-1" });
@@ -218,6 +226,84 @@ afterEach(() => {
 });
 
 describe("ArtistNotificationBell mobile sheet", () => {
+  it("opens on Unread by default while All retains read notifications", () => {
+    renderOpenPreview();
+
+    expect(screen.getByRole("tab", { name: "unread" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText("Mix notes arrived")).not.toBeNull();
+    expect(screen.queryByText("Session confirmed")).toBeNull();
+
+    fireEvent.click(screen.getByRole("tab", { name: "all" }));
+    expect(screen.getByText("Session confirmed")).not.toBeNull();
+  });
+
+  it("dismisses one preview item locally without navigating", async () => {
+    const { trigger } = renderOpenPreview();
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss Mix notes arrived" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("Mix notes arrived")).toBeNull();
+    });
+    expect(trigger.getAttribute("aria-label")).toBe("Notifications");
+    expect(mocks.archiveOne).not.toHaveBeenCalled();
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it("keeps the item and badge when persisted dismissal fails", async () => {
+    mocks.archiveOne.mockResolvedValueOnce({
+      ok: false,
+      error: "Notification couldn’t be removed. Try again.",
+    });
+    render(<ArtistNotificationBell initialUnreadCount={1} />);
+    const trigger = screen.getByTestId<HTMLButtonElement>("artist-notification-trigger");
+
+    fireEvent.click(trigger);
+    expect(await screen.findByText("Mix notes arrived")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss Mix notes arrived" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Notification couldn’t be removed. Try again.",
+    );
+    expect(screen.getByText("Mix notes arrived")).not.toBeNull();
+    expect(trigger.getAttribute("aria-label")).toBe("Notifications, 1 unread");
+    expect(mocks.refresh).not.toHaveBeenCalled();
+  });
+
+  it("Clear all removes every active preview item from both tabs", async () => {
+    const { trigger } = renderOpenPreview();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("No unread notifications")).not.toBeNull();
+    });
+    fireEvent.click(screen.getByRole("tab", { name: "all" }));
+    expect(screen.getByText("No notifications yet")).not.toBeNull();
+    expect(trigger.getAttribute("aria-label")).toBe("Notifications");
+    expect(mocks.archiveAll).not.toHaveBeenCalled();
+  });
+
+  it("keeps every item and the badge when Clear all fails", async () => {
+    mocks.archiveAll.mockResolvedValueOnce({
+      ok: false,
+      error: "Notifications couldn’t be cleared. Try again.",
+    });
+    render(<ArtistNotificationBell initialUnreadCount={1} />);
+    const trigger = screen.getByTestId<HTMLButtonElement>("artist-notification-trigger");
+
+    fireEvent.click(trigger);
+    expect(await screen.findByText("Mix notes arrived")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Notifications couldn’t be cleared. Try again.",
+    );
+    expect(screen.getByText("Mix notes arrived")).not.toBeNull();
+    expect(trigger.getAttribute("aria-label")).toBe("Notifications, 1 unread");
+    expect(mocks.refresh).not.toHaveBeenCalled();
+  });
+
   it("uses preview fixtures locally without invoking production actions or navigation", async () => {
     const { trigger } = renderOpenPreview();
 
@@ -226,10 +312,7 @@ describe("ArtistNotificationBell mobile sheet", () => {
     expect(screen.getByText("Mix notes arrived")).not.toBeNull();
     expect(screen.getByText(/Signal House/)).not.toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Mark Mix notes arrived read" }));
-    expect(trigger.getAttribute("aria-label")).toBe("Notifications");
-
-    fireEvent.click(screen.getByRole("button", { name: /Mix notes arrived/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Mix notes arrived" }));
     await waitFor(() => {
       expect(trigger.getAttribute("aria-expanded")).toBe("false");
       expect(document.activeElement).toBe(trigger);
@@ -259,18 +342,16 @@ describe("ArtistNotificationBell mobile sheet", () => {
     expect(mocks.load).toHaveBeenCalledTimes(1);
   });
 
-  it("marks every preview item read locally", () => {
+  it("marks one preview item read locally while All retains it", () => {
     const { trigger } = renderOpenPreview();
 
-    fireEvent.click(screen.getByRole("button", { name: "Mark all read" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mark Mix notes arrived read" }));
     expect(trigger.getAttribute("aria-label")).toBe("Notifications");
-    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Mark all read" }).disabled).toBe(
-      true,
-    );
-
-    fireEvent.click(screen.getByRole("tab", { name: "unread" }));
     expect(screen.getByText("No unread notifications")).not.toBeNull();
-    expect(mocks.markAll).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("tab", { name: "all" }));
+    expect(screen.getByText("Mix notes arrived")).not.toBeNull();
+    expect(screen.getByText("Session confirmed")).not.toBeNull();
+    expect(mocks.markOne).not.toHaveBeenCalled();
   });
 
   it("provides roving tab focus with Arrow, Home, and End keys", async () => {
@@ -282,26 +363,26 @@ describe("ArtistNotificationBell mobile sheet", () => {
     expect(artistNotificationTabForKey("ArrowRight")).toBe("unread");
     expect(artistNotificationTabForKey("Home")).toBe("all");
     expect(artistNotificationTabForKey("Enter")).toBeNull();
-    expect(allTab.tabIndex).toBe(0);
-    expect(unreadTab.tabIndex).toBe(-1);
-    expect(allTab.getAttribute("aria-controls")).toBe(panel.id);
-
-    allTab.focus();
-    fireEvent.keyDown(allTab, { key: "End" });
-    expect(unreadTab.getAttribute("aria-selected")).toBe("true");
+    expect(allTab.tabIndex).toBe(-1);
     expect(unreadTab.tabIndex).toBe(0);
-    await waitFor(() => {
-      expect(document.activeElement).toBe(unreadTab);
-    });
-    expect(panel.getAttribute("aria-labelledby")).toBe(unreadTab.id);
-    expect(screen.queryByText("Session confirmed")).toBeNull();
+    expect(unreadTab.getAttribute("aria-controls")).toBe(panel.id);
 
+    unreadTab.focus();
     fireEvent.keyDown(unreadTab, { key: "Home" });
     expect(allTab.getAttribute("aria-selected")).toBe("true");
+    expect(allTab.tabIndex).toBe(0);
     await waitFor(() => {
       expect(document.activeElement).toBe(allTab);
     });
+    expect(panel.getAttribute("aria-labelledby")).toBe(allTab.id);
     expect(screen.getByText("Session confirmed")).not.toBeNull();
+
+    fireEvent.keyDown(allTab, { key: "End" });
+    expect(unreadTab.getAttribute("aria-selected")).toBe("true");
+    await waitFor(() => {
+      expect(document.activeElement).toBe(unreadTab);
+    });
+    expect(screen.queryByText("Session confirmed")).toBeNull();
   });
 
   it("tracks and reverses handle drags while leaving scroll content untouched", () => {
