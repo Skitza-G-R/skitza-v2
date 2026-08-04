@@ -92,6 +92,13 @@ describe("sanitizePostSignInTarget", () => {
       },
     ],
     [
+      "/join/studio-slug/continue?action=home",
+      {
+        href: "/join/studio-slug/continue?action=home",
+        platform: "artist",
+      },
+    ],
+    [
       "/dashboard/clients-projects/project-1?song=song-1",
       {
         href: "/dashboard/clients-projects/project-1?song=song-1",
@@ -200,6 +207,11 @@ describe("joinSignUpMetadataFromTarget", () => {
         "/join/northline-studio/continue?action=unlock",
       ),
     ).toEqual({ signupOrigin: "join", producerSlug: "northline-studio" });
+    expect(
+      joinSignUpMetadataFromTarget(
+        "/join/northline-studio/continue?action=home",
+      ),
+    ).toEqual({ signupOrigin: "join", producerSlug: "northline-studio" });
   });
 
   it.each([
@@ -214,7 +226,7 @@ describe("joinSignUpMetadataFromTarget", () => {
 });
 
 describe("joinSignUpHrefFromTarget", () => {
-  it("marks Book and Unlock switches as explicit account creation", () => {
+  it("marks Book, Unlock, and Home switches as explicit account creation", () => {
     expect(
       joinSignUpHrefFromTarget(
         "/join/northline-studio/continue?action=book",
@@ -225,6 +237,11 @@ describe("joinSignUpHrefFromTarget", () => {
         "/join/northline-studio/continue?action=unlock",
       ),
     ).toBe("/sign-up/join/northline-studio/unlock?intent=signup");
+    expect(
+      joinSignUpHrefFromTarget(
+        "/join/northline-studio/continue?action=home",
+      ),
+    ).toBe("/sign-up/join/northline-studio/home?intent=signup");
   });
 });
 

@@ -12,5 +12,5 @@ export function buildClientInviteUrl(
   origin: string = PUBLIC_BRAND_ORIGIN,
 ): string {
   const normalizedOrigin = origin.replace(/\/+$/, "");
-  return `${normalizedOrigin}/sign-up/join/${encodeURIComponent(producerSlug)}`;
+  return `${normalizedOrigin}/sign-up/join/${encodeURIComponent(producerSlug)}/home`;
 }

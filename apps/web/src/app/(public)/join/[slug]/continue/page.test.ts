@@ -36,7 +36,7 @@ describe("join confirmation and continuation", () => {
     expect(action).toContain("connectCurrentUserForJoin");
   });
 
-  it("auto-resumes only a trusted action and keeps unlock copy out of the expired-booking state", () => {
+  it("auto-resumes only a trusted action and keeps Home and Unlock copy distinct", () => {
     expect(page).toContain("expectedAction: requestedAction");
     expect(page).toContain("<ResumeTrustedJoin slug={slug} action={requestedAction} />");
     expect(page).toContain("Your original booking intent expired.");
@@ -45,8 +45,10 @@ describe("join confirmation and continuation", () => {
       "Your unlock request expired. Continue to open this studio in your Artist workspace.",
     );
     expect(page).not.toContain("Sign up to unlock this studio");
-    expect(page).toContain('requestedAction === "book" ? "Booking" : "Your music"');
+    expect(page).toContain('requestedAction === "unlock"');
+    expect(page).toContain('"Artist Home"');
     expect(page).toContain("Opening your Artist workspace and unlocked tracks.");
+    expect(page).toContain("Opening your Artist Home with this studio selected.");
     expect(action.match(/clearJoinIntentCookie\(/g)).toHaveLength(2);
   });
 

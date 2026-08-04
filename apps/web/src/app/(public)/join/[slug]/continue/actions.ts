@@ -27,7 +27,7 @@ import {
 import { joinSignInHref } from "~/server/auth/post-sign-in";
 
 function requireJoinAction(action: string): JoinIntentAction {
-  if (action !== "book" && action !== "unlock") notFound();
+  if (action !== "book" && action !== "unlock" && action !== "home") notFound();
   return action;
 }
 

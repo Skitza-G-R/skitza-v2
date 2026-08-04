@@ -113,6 +113,33 @@ describe("trusted join intent", () => {
     ).toBe(false);
   });
 
+  it("round-trips Home as a separate bounded invite intent", () => {
+    const token = issueJoinIntentToken({
+      slug: "northline-studio",
+      action: "home",
+      secret: SECRET,
+      nowMs: NOW,
+    });
+
+    expect(
+      verifiedJoinIntentAction({
+        token,
+        expectedSlug: "northline-studio",
+        secret: SECRET,
+        nowMs: NOW,
+      }),
+    ).toBe("home");
+    expect(
+      verifyJoinIntentToken({
+        token,
+        expectedSlug: "northline-studio",
+        expectedAction: "book",
+        secret: SECRET,
+        nowMs: NOW,
+      }),
+    ).toBe(false);
+  });
+
   it("consumes the cookie with an exact /join-path tombstone", () => {
     const set = vi.fn();
     clearJoinIntentCookie({ set }, true);
