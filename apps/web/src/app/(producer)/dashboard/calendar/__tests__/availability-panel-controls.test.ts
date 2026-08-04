@@ -15,7 +15,9 @@ describe("AvailabilityPanel — truthful booking preferences", () => {
   });
 
   it("renders the resolved timezone as plain text without a disclosure affordance", () => {
-    expect(SRC).toMatch(/<p[^>]*>\s*\{getTimezoneLabel\(\)\}\s*<\/p>/);
+    expect(SRC).toMatch(
+      /<p[^>]*>\s*\{getTimezoneLabel\(timeZone,\s*initialNow\)\}\s*<\/p>/,
+    );
     expect(SRC).not.toContain("<ChevronDown />");
     expect(SRC).not.toMatch(/function ChevronDown\(/);
   });
