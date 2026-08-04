@@ -9,6 +9,7 @@ import { bookingActionLabel, locationLabel } from "~/components/artist/sessions/
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 import { markMeaningfulInstallAction } from "~/lib/pwa/install-guidance";
+import { formatGmtClockTime } from "~/lib/timezone-display";
 
 import { confirmBookingAction, rescheduleBookingAction } from "./actions";
 import { findPrepaidSessionByAllowance } from "./prepaid-session-selection";
@@ -104,10 +105,10 @@ function formatInstant(
 }
 
 function formatTime(iso: string, timeZone: string, includeZone = false): string {
+  if (includeZone) return formatGmtClockTime(new Date(iso), timeZone);
   return formatInstant(iso, timeZone, {
     hour: "numeric",
     minute: "2-digit",
-    ...(includeZone ? { timeZoneName: "short" } : {}),
   });
 }
 

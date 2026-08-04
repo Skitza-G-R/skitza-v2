@@ -24,6 +24,7 @@ import {
 } from "~/app/(artist)/artist/settings/actions";
 import { useTabSwipe } from "~/components/native/use-tab-swipe";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
+import { formatTimeZoneSettingLabel } from "~/lib/timezone-display";
 import {
   Dialog,
   DialogClose,
@@ -644,7 +645,7 @@ export function ArtistSettingsClient({
                 ) : null}
                 {timezoneOptions.map((zone) => (
                   <option key={zone} value={zone}>
-                    {zone.replaceAll("_", " ")}
+                    {formatTimeZoneSettingLabel(zone)}
                   </option>
                 ))}
               </select>
