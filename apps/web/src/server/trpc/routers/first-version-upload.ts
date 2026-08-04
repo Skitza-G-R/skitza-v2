@@ -29,6 +29,7 @@ import {
   createStoredAudioIdentityFingerprint,
 } from "~/server/domain/first-version-uploads/service";
 import {
+  FirstVersionUploadPresignError,
   buildFirstVersionStagingKey,
   computeFirstVersionUploadPeaks,
   createFirstVersionUploadUrl,
@@ -55,6 +56,12 @@ const prepareInput = z.object({
 });
 
 function mapFirstVersionUploadError(error: unknown): never {
+  if (error instanceof FirstVersionUploadPresignError) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: error.message,
+    });
+  }
   if (!(error instanceof FirstVersionUploadError)) throw error;
   switch (error.code) {
     case "BAD_REQUEST":

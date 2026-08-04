@@ -31,10 +31,25 @@ function safeUploadDetail(error: unknown): string | undefined {
   }
 }
 
+function classifiedUploadStage(
+  fallbackStage: UploadFailureStage,
+  error: unknown,
+): UploadFailureStage {
+  if (
+    fallbackStage === "initiation" &&
+    error instanceof TRPCError &&
+    error.code === "PRECONDITION_FAILED" &&
+    error.message === uploadStageFailure("presign")
+  ) {
+    return "presign";
+  }
+  return fallbackStage;
+}
+
 /**
  * Upload actions may receive provider and signed-request errors. Only known
  * application errors are included; unknown details stay server-side.
  */
 export function toSafeUploadStageError(stage: UploadFailureStage, error: unknown): string {
-  return uploadStageFailure(stage, safeUploadDetail(error));
+  return uploadStageFailure(classifiedUploadStage(stage, error), safeUploadDetail(error));
 }

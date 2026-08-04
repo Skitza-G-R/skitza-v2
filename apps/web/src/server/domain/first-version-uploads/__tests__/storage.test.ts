@@ -51,6 +51,25 @@ afterEach(() => {
 });
 
 describe("first Version upload storage", () => {
+  it("replaces presigner failures with a user-safe link-preparation error", async () => {
+    mocks.getSignedUrl.mockRejectedValueOnce(
+      new Error(
+        "request failed for https://storage.invalid/?X-Amz-Credential=private-token",
+      ),
+    );
+
+    const failure = await createFirstVersionUploadUrl(
+      { key: "staging/upload.wav", ...expectation },
+      {} as never,
+    ).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({
+      name: "FirstVersionUploadPresignError",
+      message: "Upload link preparation failed. Please try again.",
+    });
+    expect(String(failure)).not.toContain("private-token");
+  });
+
   it("returns every signed browser PUT header", async () => {
     mocks.getSignedUrl.mockResolvedValueOnce("https://upload.example.test/intent");
     const client = {};

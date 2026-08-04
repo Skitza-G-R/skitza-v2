@@ -9,12 +9,20 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 import { computePeaksFromBytes } from "~/server/audio/peaks";
+import { uploadStageFailure } from "~/lib/audio/upload-stage-errors";
 import { BUCKETS, encodeR2CopySource, getR2, getR2BrowserUpload } from "~/server/storage/r2";
 import { verifyFirstVersionObject } from "./service";
 
 const UPLOAD_URL_TTL_SECONDS = 15 * 60;
 const PEAKS_COMPUTE_TIMEOUT_MS = 30_000;
 export const FIRST_VERSION_COMPLETION_TOKEN_METADATA = "skitza-upload-token";
+
+export class FirstVersionUploadPresignError extends Error {
+  constructor() {
+    super(uploadStageFailure("presign"));
+    this.name = "FirstVersionUploadPresignError";
+  }
+}
 
 export type FirstVersionStoredObject = Readonly<{
   sizeBytes: number;
@@ -57,23 +65,28 @@ export async function createFirstVersionUploadUrl(
 }> {
   const contentType = input.contentType.trim().toLowerCase();
   const metadataHeader = `x-amz-meta-${FIRST_VERSION_COMPLETION_TOKEN_METADATA}`;
-  const uploadUrl = await getSignedUrl(
-    client,
-    new PutObjectCommand({
-      Bucket: BUCKETS.audio,
-      Key: input.key,
-      ContentType: contentType,
-      ContentLength: input.sizeBytes,
-      CacheControl: "no-store",
-      Metadata: {
-        [FIRST_VERSION_COMPLETION_TOKEN_METADATA]: input.completionToken,
+  let uploadUrl: string;
+  try {
+    uploadUrl = await getSignedUrl(
+      client,
+      new PutObjectCommand({
+        Bucket: BUCKETS.audio,
+        Key: input.key,
+        ContentType: contentType,
+        ContentLength: input.sizeBytes,
+        CacheControl: "no-store",
+        Metadata: {
+          [FIRST_VERSION_COMPLETION_TOKEN_METADATA]: input.completionToken,
+        },
+      }),
+      {
+        expiresIn: UPLOAD_URL_TTL_SECONDS,
+        signableHeaders: new Set(["content-type", metadataHeader]),
       },
-    }),
-    {
-      expiresIn: UPLOAD_URL_TTL_SECONDS,
-      signableHeaders: new Set(["content-type", metadataHeader]),
-    },
-  );
+    );
+  } catch {
+    throw new FirstVersionUploadPresignError();
+  }
   return {
     uploadUrl,
     headers: {
