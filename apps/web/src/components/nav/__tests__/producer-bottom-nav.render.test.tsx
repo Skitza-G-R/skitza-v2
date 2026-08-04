@@ -48,18 +48,18 @@ beforeEach(() => {
 });
 
 describe("ProducerBottomNav rendered behavior", () => {
-  it("renders all five real routes with Today/Home in the center slot", () => {
+  it("renders all five real routes with Today/Home in the far-left slot", () => {
     const { html, tabs } = renderTabs("/dashboard");
 
     expect(tabs.map(({ label, href }) => ({ label, href }))).toEqual([
+      { label: "Today", href: "/dashboard" },
       { label: "Music", href: "/dashboard/music" },
       { label: "Clients", href: "/dashboard/clients-projects" },
-      { label: "Today", href: "/dashboard" },
       { label: "Calendar", href: "/dashboard/calendar?tab=sessions" },
       { label: "Payments", href: "/dashboard/payments" },
     ]);
     expect(tabs).toHaveLength(5);
-    expect(tabs[2]).toMatchObject({ label: "Today", href: "/dashboard" });
+    expect(tabs[0]).toMatchObject({ label: "Today", href: "/dashboard" });
     expect(html).toContain('aria-label="Producer tabs"');
     expect(html).toContain("--sk-nav-column-count:5");
     expect(html).toContain('class="liquid-glass-bottom-nav__lens" aria-hidden="true"');

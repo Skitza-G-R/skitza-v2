@@ -733,7 +733,7 @@ describe("ProducerBottomNav finger-following glass", () => {
       window.dispatchEvent(new Event("resize"));
     });
     expect(nav.dataset.lensReady).toBe("true");
-    expect(nav.style.getPropertyValue("--sk-nav-lens-x")).toBe("175px");
+    expect(nav.style.getPropertyValue("--sk-nav-lens-x")).toBe("35px");
     expect(nav.style.getPropertyValue("--sk-nav-lens-y")).toBe("34px");
 
     dispatchPointer(nav, "pointerdown", {
