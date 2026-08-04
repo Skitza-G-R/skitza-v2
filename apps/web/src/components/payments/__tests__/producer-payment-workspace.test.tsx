@@ -12,6 +12,7 @@ import type { PaymentWorkspaceBucket } from "../producer-payment-workspace-model
 
 const usdPurchase: PaymentHistoryPurchase = {
   id: "purchase-usd",
+  counterpartyId: "client-maya",
   reference: "SK-USD-101",
   title: "Mix & master",
   counterpartyLabel: "Maya Stone",
@@ -99,6 +100,7 @@ const ilsPurchase: PaymentHistoryPurchase = {
   reference: "SK-ILS-202",
   title: "Vocal production",
   counterpartyLabel: "Noa Green",
+  counterpartyId: "client-noa",
   currency: "ILS",
   status: { label: "Upcoming", tone: "active" },
   totalCents: 300_000,
@@ -115,6 +117,11 @@ const ilsPurchase: PaymentHistoryPurchase = {
     productName: "Vocal production",
     subtotalCents: 300_000,
     totalCents: 300_000,
+  },
+  acceptance: {
+    acceptedAtIso: "2026-07-15T09:00:00.000Z",
+    acceptedByLabel: "Noa Green",
+    statement: null,
   },
   nextPayment: {
     amountCents: 100_000,
@@ -376,6 +383,19 @@ function changeSearch(tree: ReactElement, value: string): void {
   (onChange as (nextValue: string) => void)(value);
 }
 
+function changeInput(tree: ReactElement, ariaLabel: string, value: string): void {
+  const input = findElement(
+    tree,
+    (element) => element.type === "input" && element.props["aria-label"] === ariaLabel,
+  );
+  expect(input, `input "${ariaLabel}"`).not.toBeNull();
+  const onChange = input?.props.onChange;
+  expect(onChange).toBeTypeOf("function");
+  (onChange as (event: ChangeEvent<HTMLInputElement>) => void)({
+    target: { value },
+  } as ChangeEvent<HTMLInputElement>);
+}
+
 function togglePurchaseDetails(tree: ReactElement, purchaseId: string): void {
   const row = findElement(tree, (element) => {
     const candidate = element.props.row as { id?: string } | undefined;
@@ -399,8 +419,8 @@ describe("ProducerPaymentWorkspace", () => {
     expect(count(html, /<table/g)).toBe(1);
     expect(html).toContain("<caption");
     expect(html).toContain('scope="col"');
-    expect(count(html, /scope="rowgroup"/g)).toBe(2);
-    expect(count(html, /<tbody/g)).toBe(2);
+    expect(count(html, /scope="rowgroup"/g)).toBe(1);
+    expect(count(html, /<tbody/g)).toBe(1);
 
     expect(html).toContain("USD");
     expect(html).toContain("$1,000.00");
@@ -417,8 +437,12 @@ describe("ProducerPaymentWorkspace", () => {
     expect(html).toContain('aria-label="Payment views"');
     expect(html).toContain('aria-label="Search payment records"');
     expect(html).toContain('aria-label="Filter by currency"');
+    expect(html).toContain('aria-label="Filter by artist"');
+    expect(html).toContain('aria-label="Accepted from"');
+    expect(html).toContain('aria-label="Accepted to"');
     expect(html).toContain('aria-live="polite"');
     expect(html).toContain('href="/dashboard/payments/proof-pending"');
+    expect(html).toContain('aria-label="Payment proof actions"');
 
     expect(html).toContain('aria-expanded="false"');
     expect(html).not.toContain("FULL DOSSIER SENTINEL");
@@ -628,6 +652,55 @@ describe("ProducerPaymentWorkspace", () => {
     const searchHtml = searchHarness.html();
     expect(searchHtml).toContain("Vocal production");
     expect(searchHtml).not.toContain("Mix &amp; master");
+  });
+
+  it("executes combined artist and inclusive accepted-date filters", () => {
+    const harness = createInteractionHarness({
+      buckets,
+      scope: "global",
+    });
+
+    changeSelect(harness.renderTree(), "Filter by artist", "client-noa");
+    changeInput(harness.renderTree(), "Accepted from", "2026-07-15");
+    changeInput(harness.renderTree(), "Accepted to", "2026-07-15");
+    const html = harness.html();
+
+    expect(html).toContain("Vocal production");
+    expect(html).not.toContain("Mix &amp; master");
+    expect(html).toContain("1 payment record");
+  });
+
+  it("shows an invalid-range state and resets every filter together", () => {
+    const harness = createInteractionHarness({
+      buckets,
+      scope: "global",
+    });
+
+    changeSelect(harness.renderTree(), "Filter by artist", "client-noa");
+    changeInput(harness.renderTree(), "Accepted from", "2026-07-20");
+    changeInput(harness.renderTree(), "Accepted to", "2026-07-10");
+    const invalidHtml = harness.html();
+    expect(invalidHtml).toContain("Start date must be on or before end date");
+    expect(invalidHtml).toContain('role="alert"');
+
+    clickButton(harness.renderTree(), "Reset filters");
+    const resetHtml = harness.html();
+    expect(resetHtml).toContain("Mix &amp; master");
+    expect(resetHtml).toContain("Vocal production");
+    expect(resetHtml).not.toContain("Start date must be on or before end date");
+    expect(resetHtml).not.toContain(">Reset filters</button>");
+  });
+
+  it("keeps advanced filters collapsed on mobile and removes repeated project card boxes", () => {
+    const html = renderToStaticMarkup(
+      <ProducerPaymentWorkspace buckets={buckets} scope="global" />,
+    );
+
+    expect(html).toMatch(/data-payment-advanced-filters="" class="[^"]*hidden[^"]*lg:grid/);
+    expect(html).toMatch(/aria-controls="[^"]*-advanced-filters"/);
+    expect(html).toContain("lg:hidden");
+    expect(html).toContain('data-payment-project-group=""');
+    expect(html).not.toMatch(/data-payment-project-group="" class="[^"]*rounded/);
   });
 
   it("executes the client project filter and preserves the selected project href", () => {

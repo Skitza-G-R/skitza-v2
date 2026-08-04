@@ -218,6 +218,7 @@ function mapPurchase(
     studioId: purchase.producerId,
     reference: purchase.refNumber,
     title: purchase.commercialSnapshot.productOrOfferName,
+    counterpartyId: role === "producer" ? purchase.clientContactId : null,
     counterpartyLabel: role === "producer" ? purchase.clientName : purchase.producerName,
     currency: purchase.currency,
     status: purchaseStatus(purchase, recordStatus),

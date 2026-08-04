@@ -8,6 +8,7 @@ import {
   buildPaymentWorkspaceRows,
   filterPaymentWorkspaceRows,
   groupPaymentWorkspaceRows,
+  isPaymentWorkspaceDateRangeValid,
   summarizePaymentWorkspaceRows,
   workspaceViewCount,
   type PaymentWorkspaceBucket,
@@ -158,7 +159,8 @@ function SummaryPanel({
   return (
     <section
       aria-labelledby={headingId}
-      className="overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]"
+      data-payment-summary=""
+      className="overflow-hidden border-y border-[rgb(var(--border-subtle))]"
     >
       <header className="flex min-w-0 flex-col gap-1 border-b border-[rgb(var(--border-subtle))] px-4 py-3 sm:flex-row sm:items-baseline sm:justify-between">
         <div className="min-w-0">
@@ -403,6 +405,133 @@ function ResponsivePurchaseRow({
   );
 }
 
+function PaymentProofActionRow({
+  row,
+  expanded,
+  detailsId,
+  onToggle,
+}: {
+  row: PaymentWorkspaceRow;
+  expanded: boolean;
+  detailsId: string;
+  onToggle: () => void;
+}) {
+  const purchase = row.purchase;
+  const proof = pendingProof(row);
+
+  return (
+    <li className="min-w-0 border-b border-[rgb(var(--border-subtle))] last:border-b-0">
+      <div className="grid min-w-0 gap-3 px-1 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-3">
+        <div className="min-w-0">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <Badge variant={purchase.status.tone}>{purchase.status.label}</Badge>
+            <Link
+              href={`/dashboard/clients-projects/${encodeURIComponent(row.project.id)}`}
+              className="font-mono text-[9.5px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase underline-offset-4 hover:underline focus-visible:rounded-[var(--radius-sm)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
+            >
+              {row.project.title}
+            </Link>
+          </div>
+          <p className="mt-2 text-[14px] font-extrabold break-words text-[rgb(var(--fg-default))]">
+            {purchase.title}
+          </p>
+          <p className="mt-1 text-[11px] text-[rgb(var(--fg-muted))]">
+            {purchase.counterpartyLabel ?? "Client unavailable"} · {purchase.reference}
+          </p>
+          {proof ? (
+            <p className="mt-2 text-[11px] font-semibold text-[rgb(var(--fg-secondary))]">
+              {formatMoney(proof.amountCents, proof.currency, { withCents: true })} {proof.currency}
+              {proof.submittedAtIso ? ` · submitted ${formatDate(proof.submittedAtIso)}` : ""}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="flex min-w-0 flex-wrap items-center gap-2 sm:justify-end">
+          {proof ? (
+            <Link
+              href={`/dashboard/payments/${encodeURIComponent(proof.id)}`}
+              aria-label={`Review proof for ${purchase.title}`}
+              className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--brand-copper)/0.35)] bg-[rgb(var(--brand-copper)/0.08)] px-3 text-[11px] font-bold text-[rgb(var(--brand-copper))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)]"
+            >
+              Review proof
+            </Link>
+          ) : null}
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-controls={detailsId}
+            aria-label={`${expanded ? "Hide" : "Show"} details for ${purchase.title}`}
+            onClick={onToggle}
+            className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-3 text-[11px] font-bold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)]"
+          >
+            {expanded ? "Hide details" : "Details"}
+          </button>
+        </div>
+      </div>
+      {expanded ? (
+        <div id={detailsId} className="border-t border-[rgb(var(--border-subtle))]">
+          <PaymentHistoryPurchaseDetails
+            purchase={purchase}
+            role="producer"
+            idPrefix={`${detailsId}-content`}
+          />
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+function PaymentProofActions({
+  rows,
+  instanceId,
+  expandedPurchaseId,
+  onToggleDetails,
+}: {
+  rows: readonly PaymentWorkspaceRow[];
+  instanceId: string;
+  expandedPurchaseId: string | null;
+  onToggleDetails: (purchaseId: string) => void;
+}) {
+  if (rows.length === 0) return null;
+
+  return (
+    <section
+      aria-label="Payment proof actions"
+      className="min-w-0 border-y border-[rgb(var(--border-strong))]"
+    >
+      <header className="flex min-w-0 flex-col gap-1 px-1 py-3 sm:flex-row sm:items-baseline sm:justify-between sm:px-3">
+        <div>
+          <p className="font-mono text-[9px] font-bold tracking-[0.14em] text-[rgb(var(--brand-primary-text))] uppercase">
+            Action queue
+          </p>
+          <h2 className="font-display mt-0.5 text-[20px] font-extrabold tracking-[-0.025em] text-[rgb(var(--fg-default))]">
+            Needs review
+          </h2>
+        </div>
+        <p className="text-[11px] font-semibold text-[rgb(var(--fg-muted))]">
+          {pluralize(rows.length, "proof")}
+        </p>
+      </header>
+      <ul className="border-t border-[rgb(var(--border-subtle))]">
+        {rows.map((row) => {
+          const detailsId = `${instanceId}-desktop-details-${safeDomId(row.id)}`;
+          return (
+            <PaymentProofActionRow
+              key={row.id}
+              row={row}
+              expanded={expandedPurchaseId === row.id}
+              detailsId={detailsId}
+              onToggle={() => {
+                onToggleDetails(row.id);
+              }}
+            />
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 function renderPaymentRecordsTable({
   groups,
   scope,
@@ -476,7 +605,8 @@ function renderPaymentRecordsTable({
           return (
             <tbody
               key={group.project.id}
-              className="mb-4 block min-w-0 overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] last:mb-0 xl:table-row-group xl:border-0"
+              data-payment-project-group=""
+              className="mb-5 block min-w-0 border-t border-[rgb(var(--border-subtle))] last:mb-0 xl:table-row-group xl:border-0"
             >
               <tr className="block xl:table-row">
                 <th
@@ -527,6 +657,10 @@ export function ProducerPaymentWorkspace({
   const [view, setView] = useState<PaymentWorkspaceView>(initialView);
   const [currency, setCurrency] = useState("all");
   const [projectId, setProjectId] = useState("all");
+  const [counterpartyId, setCounterpartyId] = useState("all");
+  const [acceptedFrom, setAcceptedFrom] = useState("");
+  const [acceptedTo, setAcceptedTo] = useState("");
+  const [advancedFiltersExpanded, setAdvancedFiltersExpanded] = useState(false);
   const [expandedPurchaseId, setExpandedPurchaseId] = useState<string | null>(null);
   const [historyExpanded, setHistoryExpanded] = useState(false);
 
@@ -543,6 +677,38 @@ export function ProducerPaymentWorkspace({
     }
     return [...projects].map(([id, title]) => ({ id, title }));
   }, [allRows]);
+  const artistOptions = useMemo(() => {
+    const artists = new Map<string, string>();
+    for (const row of allRows) {
+      const id = row.purchase.counterpartyId;
+      if (!id || artists.has(id)) continue;
+      artists.set(id, row.purchase.counterpartyLabel ?? "Artist unavailable");
+    }
+    return [...artists]
+      .map(([id, label]) => ({ id, label }))
+      .sort((left, right) => left.label.localeCompare(right.label));
+  }, [allRows]);
+
+  const dateRangeValid = isPaymentWorkspaceDateRangeValid(acceptedFrom, acceptedTo);
+  const scopeFilteredRows = useMemo(
+    () =>
+      filterPaymentWorkspaceRows(allRows, {
+        view: "all",
+        query: search.value,
+        currency,
+        projectId,
+        counterpartyId,
+        acceptedFrom,
+        acceptedTo,
+      }),
+    [acceptedFrom, acceptedTo, allRows, counterpartyId, currency, projectId, search.value],
+  );
+  const scopeSummary = useMemo(
+    () => summarizePaymentWorkspaceRows(scopeFilteredRows),
+    [scopeFilteredRows],
+  );
+  const visibleSummary = scope === "global" ? scopeSummary : allSummary;
+  const viewCountRows = scope === "global" ? scopeFilteredRows : allRows;
 
   const filteredRows = useMemo(
     () =>
@@ -551,10 +717,24 @@ export function ProducerPaymentWorkspace({
         query: search.value,
         currency,
         projectId,
+        counterpartyId,
+        acceptedFrom,
+        acceptedTo,
       }),
-    [allRows, currency, projectId, search.value, view],
+    [acceptedFrom, acceptedTo, allRows, counterpartyId, currency, projectId, search.value, view],
   );
-  const groups = useMemo(() => groupPaymentWorkspaceRows(filteredRows), [filteredRows]);
+  const actionRows = useMemo(
+    () => (scope === "global" ? filteredRows.filter((row) => row.bucketId === "needs_review") : []),
+    [filteredRows, scope],
+  );
+  const recordRows = useMemo(
+    () =>
+      scope === "global"
+        ? filteredRows.filter((row) => row.bucketId !== "needs_review")
+        : filteredRows,
+    [filteredRows, scope],
+  );
+  const groups = useMemo(() => groupPaymentWorkspaceRows(recordRows), [recordRows]);
   const historyRows = useMemo(
     () =>
       clientTabPresentation
@@ -563,6 +743,9 @@ export function ProducerPaymentWorkspace({
             query: search.value,
             currency,
             projectId,
+            counterpartyId: "all",
+            acceptedFrom: "",
+            acceptedTo: "",
           })
         : [],
     [allRows, clientTabPresentation, currency, projectId, search.value],
@@ -578,7 +761,10 @@ export function ProducerPaymentWorkspace({
     view !== initialView ||
     search.value.trim().length > 0 ||
     currency !== "all" ||
-    projectId !== "all";
+    projectId !== "all" ||
+    counterpartyId !== "all" ||
+    acceptedFrom.length > 0 ||
+    acceptedTo.length > 0;
   const emptyDefaultView = !filtersChanged && filteredRows.length === 0;
   const tableCaption =
     scope === "client"
@@ -590,6 +776,10 @@ export function ProducerPaymentWorkspace({
     search.setValue("");
     setCurrency("all");
     setProjectId("all");
+    setCounterpartyId("all");
+    setAcceptedFrom("");
+    setAcceptedTo("");
+    setAdvancedFiltersExpanded(false);
     setExpandedPurchaseId(null);
     setHistoryExpanded(false);
   }
@@ -601,9 +791,9 @@ export function ProducerPaymentWorkspace({
   return (
     <div className="min-w-0 space-y-4">
       <SummaryPanel
-        rows={allRows}
-        openCount={allSummary.openCount}
-        needsReviewCount={allSummary.needsReviewCount}
+        rows={scope === "global" ? scopeFilteredRows : allRows}
+        openCount={visibleSummary.openCount}
+        needsReviewCount={visibleSummary.needsReviewCount}
         headingId={`${instanceId}-money-summary`}
         outstandingFirst={clientTabPresentation}
       />
@@ -641,81 +831,208 @@ export function ProducerPaymentWorkspace({
               >
                 <span>{option.label}</span>
                 <span
-                  aria-label={`${String(workspaceViewCount(allRows, option.value))} records`}
+                  aria-label={`${String(workspaceViewCount(viewCountRows, option.value))} records`}
                   className={cn(
                     "font-mono text-[9.5px]",
                     active ? "text-[rgb(var(--bg-elevated)/0.72)]" : "text-[rgb(var(--fg-muted))]",
                   )}
                 >
-                  {String(workspaceViewCount(allRows, option.value))}
+                  {String(workspaceViewCount(viewCountRows, option.value))}
                 </span>
               </button>
             );
           })}
         </div>
 
-        <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(220px,1fr)_auto_auto_auto] sm:items-center">
-          <div className="[&_input]:h-11 [&_input]:rounded-[var(--radius-lg)] sm:[&_input]:h-9 sm:[&_input]:rounded-[var(--radius-md)]">
-            <ListSearchInput
-              value={search.value}
-              onChange={(value) => {
-                search.setValue(value);
-                setExpandedPurchaseId(null);
-              }}
-              inputRef={search.inputRef}
-              placeholder="Search client, project, purchase, or reference"
-              ariaLabel="Search payment records"
-            />
+        {scope === "global" ? (
+          <>
+            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 lg:grid-cols-1">
+              <div className="[&_input]:h-11 [&_input]:rounded-[var(--radius-lg)] sm:[&_input]:h-9 sm:[&_input]:rounded-[var(--radius-md)]">
+                <ListSearchInput
+                  value={search.value}
+                  onChange={(value) => {
+                    search.setValue(value);
+                    setExpandedPurchaseId(null);
+                  }}
+                  inputRef={search.inputRef}
+                  placeholder="Search artist, project, purchase, or reference"
+                  ariaLabel="Search payment records"
+                />
+              </div>
+              <button
+                type="button"
+                aria-expanded={advancedFiltersExpanded}
+                aria-controls={`${instanceId}-advanced-filters`}
+                onClick={() => {
+                  setAdvancedFiltersExpanded((current) => !current);
+                }}
+                className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[11px] font-bold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none lg:hidden"
+              >
+                Filters
+              </button>
+            </div>
+
+            <div
+              id={`${instanceId}-advanced-filters`}
+              data-payment-advanced-filters=""
+              className={cn(
+                advancedFiltersExpanded ? "grid" : "hidden",
+                "min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid lg:grid-cols-4",
+              )}
+            >
+              <label className="min-w-0 text-[10px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
+                Artist
+                <select
+                  value={counterpartyId}
+                  onChange={(event) => {
+                    setCounterpartyId(event.target.value);
+                    setExpandedPurchaseId(null);
+                  }}
+                  aria-label="Filter by artist"
+                  className="mt-1 block min-h-11 w-full min-w-0 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[12px] font-semibold tracking-normal text-[rgb(var(--fg-default))] normal-case focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)]"
+                >
+                  <option value="all">All artists</option>
+                  {artistOptions.map((artist) => (
+                    <option key={artist.id} value={artist.id}>
+                      {artist.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="min-w-0 text-[10px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
+                Accepted from
+                <input
+                  type="date"
+                  value={acceptedFrom}
+                  max={acceptedTo || undefined}
+                  onChange={(event) => {
+                    setAcceptedFrom(event.target.value);
+                    setExpandedPurchaseId(null);
+                  }}
+                  aria-label="Accepted from"
+                  className="mt-1 block min-h-11 w-full min-w-0 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[12px] font-semibold tracking-normal text-[rgb(var(--fg-default))] normal-case focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)]"
+                />
+              </label>
+
+              <label className="min-w-0 text-[10px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
+                Accepted to
+                <input
+                  type="date"
+                  value={acceptedTo}
+                  min={acceptedFrom || undefined}
+                  onChange={(event) => {
+                    setAcceptedTo(event.target.value);
+                    setExpandedPurchaseId(null);
+                  }}
+                  aria-label="Accepted to"
+                  className="mt-1 block min-h-11 w-full min-w-0 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[12px] font-semibold tracking-normal text-[rgb(var(--fg-default))] normal-case focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)]"
+                />
+              </label>
+
+              <label className="min-w-0 text-[10px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
+                Currency
+                <select
+                  value={currency}
+                  onChange={(event) => {
+                    setCurrency(event.target.value);
+                    setExpandedPurchaseId(null);
+                  }}
+                  aria-label="Filter by currency"
+                  className="mt-1 block min-h-11 w-full min-w-0 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[12px] font-semibold tracking-normal text-[rgb(var(--fg-default))] normal-case focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)]"
+                >
+                  <option value="all">All currencies</option>
+                  {currencyOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {!dateRangeValid ? (
+              <p role="alert" className="text-[11px] font-bold text-[rgb(var(--fg-danger))]">
+                Start date must be on or before end date.
+              </p>
+            ) : null}
+
+            {filtersChanged ? (
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-transparent px-3 text-[11px] font-bold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)]"
+                >
+                  Reset filters
+                </button>
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(220px,1fr)_auto_auto_auto] sm:items-center">
+            <div className="[&_input]:h-11 [&_input]:rounded-[var(--radius-lg)] sm:[&_input]:h-9 sm:[&_input]:rounded-[var(--radius-md)]">
+              <ListSearchInput
+                value={search.value}
+                onChange={(value) => {
+                  search.setValue(value);
+                  setExpandedPurchaseId(null);
+                }}
+                inputRef={search.inputRef}
+                placeholder="Search client, project, purchase, or reference"
+                ariaLabel="Search payment records"
+              />
+            </div>
+
+            {currencyOptions.length > 1 ? (
+              <select
+                value={currency}
+                onChange={(event) => {
+                  setCurrency(event.target.value);
+                  setExpandedPurchaseId(null);
+                }}
+                aria-label="Filter by currency"
+                className="min-h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[12px] font-semibold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)]"
+              >
+                <option value="all">All currencies</option>
+                {currencyOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+
+            {projectOptions.length > 1 ? (
+              <select
+                value={projectId}
+                onChange={(event) => {
+                  setProjectId(event.target.value);
+                  setExpandedPurchaseId(null);
+                }}
+                aria-label="Filter by project"
+                className="min-h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[12px] font-semibold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)]"
+              >
+                <option value="all">All projects</option>
+                {projectOptions.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.title}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+
+            {filtersChanged ? (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-transparent px-3 text-[11px] font-bold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)]"
+              >
+                Clear filters
+              </button>
+            ) : null}
           </div>
-
-          {currencyOptions.length > 1 ? (
-            <select
-              value={currency}
-              onChange={(event) => {
-                setCurrency(event.target.value);
-                setExpandedPurchaseId(null);
-              }}
-              aria-label="Filter by currency"
-              className="min-h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[12px] font-semibold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)]"
-            >
-              <option value="all">All currencies</option>
-              {currencyOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          ) : null}
-
-          {scope === "client" && projectOptions.length > 1 ? (
-            <select
-              value={projectId}
-              onChange={(event) => {
-                setProjectId(event.target.value);
-                setExpandedPurchaseId(null);
-              }}
-              aria-label="Filter by project"
-              className="min-h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[12px] font-semibold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)]"
-            >
-              <option value="all">All projects</option>
-              {projectOptions.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.title}
-                </option>
-              ))}
-            </select>
-          ) : null}
-
-          {filtersChanged ? (
-            <button
-              type="button"
-              onClick={clearFilters}
-              className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-transparent px-3 text-[11px] font-bold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)]"
-            >
-              Clear filters
-            </button>
-          ) : null}
-        </div>
+        )}
 
         <p
           aria-live="polite"
@@ -739,7 +1056,7 @@ export function ProducerPaymentWorkspace({
             payment schedule and current balance.
           </p>
         </div>
-      ) : filteredRows.length === 0 ? (
+      ) : !dateRangeValid ? null : filteredRows.length === 0 ? (
         <div
           role="status"
           className="rounded-[var(--radius-lg)] border border-dashed border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-9 text-center"
@@ -770,19 +1087,56 @@ export function ProducerPaymentWorkspace({
               onClick={clearFilters}
               className="sk-press mt-3 inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-4 text-[12px] font-bold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
             >
-              Clear filters
+              {scope === "global" ? "Reset filters" : "Clear filters"}
             </button>
           )}
         </div>
       ) : (
-        renderPaymentRecordsTable({
-          groups,
-          scope,
-          tableCaption,
-          instanceId,
-          expandedPurchaseId,
-          onToggleDetails: toggleDetails,
-        })
+        <>
+          {scope === "global"
+            ? PaymentProofActions({
+                rows: actionRows,
+                instanceId,
+                expandedPurchaseId,
+                onToggleDetails: toggleDetails,
+              })
+            : null}
+
+          {recordRows.length > 0 ? (
+            scope === "global" ? (
+              <section aria-labelledby={`${instanceId}-records-heading`} className="min-w-0">
+                <header className="mb-3 flex min-w-0 items-baseline justify-between gap-3">
+                  <h2
+                    id={`${instanceId}-records-heading`}
+                    className="font-display text-[20px] font-extrabold tracking-[-0.025em] text-[rgb(var(--fg-default))]"
+                  >
+                    Payment records
+                  </h2>
+                  <p className="font-mono text-[10px] text-[rgb(var(--fg-muted))]">
+                    {pluralize(recordRows.length, "record")}
+                  </p>
+                </header>
+                {renderPaymentRecordsTable({
+                  groups,
+                  scope,
+                  tableCaption,
+                  instanceId,
+                  expandedPurchaseId,
+                  onToggleDetails: toggleDetails,
+                })}
+              </section>
+            ) : (
+              renderPaymentRecordsTable({
+                groups,
+                scope,
+                tableCaption,
+                instanceId,
+                expandedPurchaseId,
+                onToggleDetails: toggleDetails,
+              })
+            )
+          ) : null}
+        </>
       )}
 
       {clientTabPresentation && historyRows.length > 0 ? (
