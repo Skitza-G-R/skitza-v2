@@ -24,10 +24,12 @@ export type ManagedUploadRecord = {
   updatedAt: string;
 };
 
-type UploadActionResult = { ok: boolean };
+export type UploadActionResult = { ok: boolean };
+export type TerminalUploadDispose = () => Promise<UploadActionResult>;
 type UploadActions = {
   cancel?: () => Promise<UploadActionResult>;
   retry?: () => Promise<void>;
+  terminalDispose?: TerminalUploadDispose;
 };
 
 export const UPLOAD_SUCCESS_FEEDBACK_MS = 4000;
@@ -174,7 +176,29 @@ function updateRecord(
   emit();
 }
 
-function removeRecord(id: string): void {
+function takeTerminalDispose(id: string): TerminalUploadDispose | null {
+  const current = actions.get(id);
+  if (!current?.terminalDispose) return null;
+  const { terminalDispose, ...remaining } = current;
+  actions.set(id, remaining);
+  return terminalDispose;
+}
+
+function invokeTerminalDispose(id: string): Promise<UploadActionResult> | null {
+  const terminalDispose = takeTerminalDispose(id);
+  if (!terminalDispose) return null;
+  try {
+    return terminalDispose().catch(() => ({ ok: false }));
+  } catch {
+    return Promise.resolve({ ok: false });
+  }
+}
+
+function removeRecord(id: string, disposeTerminal = true): void {
+  const record = records.find((candidate) => candidate.id === id);
+  if (disposeTerminal && record && (record.status === "done" || record.status === "error")) {
+    void invokeTerminalDispose(id);
+  }
   clearTerminalRemovalTimer(id);
   records = records.filter((record) => record.id !== id);
   actions.delete(id);
@@ -219,6 +243,7 @@ export type ManagedUploadHandle = {
   setCompleting: () => void;
   setCancel: (cancel: () => Promise<UploadActionResult>) => void;
   setRetry: (retry: () => Promise<void>) => void;
+  setTerminalDispose: (dispose: TerminalUploadDispose) => void;
   succeed: () => void;
   fail: (message: string) => void;
   dismiss: () => void;
@@ -234,6 +259,7 @@ export function beginManagedUpload(input: {
   const now = new Date().toISOString();
   for (const record of records) {
     if (record.accountId === accountId && (record.status === "done" || record.status === "error")) {
+      void invokeTerminalDispose(record.id);
       actions.delete(record.id);
       clearTerminalRemovalTimer(record.id);
     }
@@ -280,7 +306,12 @@ export function beginManagedUpload(input: {
     },
     setCompleting() {
       const current = actions.get(id);
-      if (current) actions.set(id, current.retry ? { retry: current.retry } : {});
+      if (current) {
+        actions.set(id, {
+          ...(current.retry ? { retry: current.retry } : {}),
+          ...(current.terminalDispose ? { terminalDispose: current.terminalDispose } : {}),
+        });
+      }
       updateRecord(id, (record) => ({
         ...record,
         status: "completing",
@@ -298,6 +329,12 @@ export function beginManagedUpload(input: {
       const current = actions.get(id) ?? {};
       actions.set(id, { ...current, retry });
       updateRecord(id, (record) => ({ ...record, canRetry: true }));
+    },
+    setTerminalDispose(terminalDispose) {
+      const record = records.find((candidate) => candidate.id === id);
+      if (!record || record.status === "done") return;
+      const current = actions.get(id) ?? {};
+      actions.set(id, { ...current, terminalDispose });
     },
     succeed() {
       actions.delete(id);
@@ -384,7 +421,7 @@ async function cancelManagedUploadForAccount(id: string, accountId: string): Pro
   try {
     const result = await cancel();
     if (result.ok) {
-      removeRecord(id);
+      removeRecord(id, false);
       return true;
     }
   } catch {
@@ -413,17 +450,23 @@ export async function cancelManagedUploadsForAccount(accountId: string): Promise
 }
 
 /**
- * Drops File objects and callbacks at an account boundary. Durable multipart
- * identities are deliberately not touched here: failed cancellation must
- * remain in that account's scoped journal for later authenticated recovery.
+ * Gives terminal records one final disposal attempt before dropping their
+ * File objects and callbacks at an account boundary. Durable multipart
+ * identities remain in the account-scoped journal for authenticated recovery.
  */
-export function releaseManagedUploadsForAccount(accountId: string): void {
+export async function releaseManagedUploadsForAccount(accountId: string): Promise<void> {
+  const terminalDisposals: Promise<UploadActionResult>[] = [];
   for (const record of records) {
     if (record.accountId === accountId) {
+      if (record.status === "done" || record.status === "error") {
+        const disposal = invokeTerminalDispose(record.id);
+        if (disposal) terminalDisposals.push(disposal);
+      }
       actions.delete(record.id);
       clearTerminalRemovalTimer(record.id);
     }
   }
   records = records.filter((record) => record.accountId !== accountId);
   emit();
+  await Promise.all(terminalDisposals);
 }

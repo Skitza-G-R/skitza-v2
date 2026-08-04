@@ -88,7 +88,7 @@ export async function prepareMediaAccountExit(accountId: string): Promise<boolea
     cleanupFailure = error;
   }
   try {
-    releaseManagedUploadsForAccount(accountId);
+    await releaseManagedUploadsForAccount(accountId);
   } catch (error) {
     if (!cleanupFailed) {
       cleanupFailed = true;

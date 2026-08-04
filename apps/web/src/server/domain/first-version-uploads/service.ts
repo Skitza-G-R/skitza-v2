@@ -41,6 +41,25 @@ export class FirstVersionUploadError extends Error {
   }
 }
 
+export async function presignFirstVersionUploadWithCompensation<T>(input: {
+  newlyInserted: boolean;
+  presign: () => Promise<T>;
+  compensate: () => Promise<void>;
+}): Promise<T> {
+  try {
+    return await input.presign();
+  } catch (error) {
+    if (input.newlyInserted) {
+      try {
+        await input.compensate();
+      } catch {
+        // Preserve the typed presigner failure; cleanup must never expose a raw DB error.
+      }
+    }
+    throw error;
+  }
+}
+
 export function assertFirstVersionAudioFile(
   input: Readonly<{
     filename: string;

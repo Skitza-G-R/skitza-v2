@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   FirstVersionUploadError,
   assertFirstVersionUploadDestination,
+  presignFirstVersionUploadWithCompensation,
   verifyFirstVersionObject,
 } from "../service";
 
@@ -96,5 +97,41 @@ describe("first Version upload boundary", () => {
         observedEtag: '"etag-1"',
       }),
     ).toThrow(expect.objectContaining<Partial<FirstVersionUploadError>>({ code: "MISMATCH" }));
+  });
+
+  it("compensates only a newly inserted intent when presigning fails", async () => {
+    const presignFailure = new Error("safe presign failure");
+    const compensate = vi.fn(() => Promise.resolve());
+
+    await expect(
+      presignFirstVersionUploadWithCompensation({
+        newlyInserted: true,
+        presign: () => Promise.reject(presignFailure),
+        compensate,
+      }),
+    ).rejects.toBe(presignFailure);
+
+    expect(compensate).toHaveBeenCalledOnce();
+
+    await expect(
+      presignFirstVersionUploadWithCompensation({
+        newlyInserted: false,
+        presign: () => Promise.reject(presignFailure),
+        compensate,
+      }),
+    ).rejects.toBe(presignFailure);
+    expect(compensate).toHaveBeenCalledOnce();
+  });
+
+  it("preserves the typed presign failure if compensation itself fails", async () => {
+    const presignFailure = new Error("safe presign failure");
+
+    await expect(
+      presignFirstVersionUploadWithCompensation({
+        newlyInserted: true,
+        presign: () => Promise.reject(presignFailure),
+        compensate: () => Promise.reject(new Error("database cleanup failed")),
+      }),
+    ).rejects.toBe(presignFailure);
   });
 });

@@ -154,16 +154,20 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     expect(SRC).not.toContain("No active purchase has an available song space");
   });
 
-  it("reuses an intent operation key for retry and cancels the exact intent on close", () => {
+  it("reuses an intent operation key and retains exact cancellation until it succeeds", () => {
     expect(SRC).toContain("firstVersionOperationKeyRef");
     expect(SRC).toContain("operationKey: firstVersionOperationKeyRef.current");
     expect(SRC).toContain("activeFirstVersionIntentRef.current = intentId");
     expect(SRC).toMatch(
-      /const firstVersionIntentId = activeFirstVersionIntentRef\.current;[\s\S]*?cancelFirstVersionUploadAction\(\{ intentId: firstVersionIntentId \}\)/,
+      /registerFirstVersionCancellation\([\s\S]*?cancelFirstVersionUploadAction\(\{ intentId \}\)[\s\S]*?if \(!result\.ok\) return[\s\S]*?clearActiveFirstVersionIntent\(intentId\)/,
     );
     expect(SRC).toMatch(
-      /completeFirstVersionUploadAction\(\{ intentId \}\)[\s\S]*?activeFirstVersionIntentRef\.current = null/,
+      /else if \(activeFirstVersionIntentRef\.current\)[\s\S]*?cancelActiveFirstVersionIntent\(\)/,
     );
+    expect(SRC).toMatch(
+      /completeFirstVersionUploadAction\(\{ intentId \}\)[\s\S]*?clearActiveFirstVersionIntent\(intentId\)/,
+    );
+    expect(SRC).toContain("managed.setTerminalDispose");
     expect(SRC).not.toContain("allocatedNewTrackIdRef");
   });
 

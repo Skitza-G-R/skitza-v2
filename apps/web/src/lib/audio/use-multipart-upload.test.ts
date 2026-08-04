@@ -113,9 +113,10 @@ describe("multipart upload recovery identity", () => {
       SOURCE.indexOf("if (!signed.ok)"),
       SOURCE.indexOf("const blob"),
     );
+    const transferStart = SOURCE.indexOf("resp = await fetch");
     const networkFailure = SOURCE.slice(
-      SOURCE.indexOf("catch (e)"),
-      SOURCE.indexOf("if (!resp.ok)"),
+      SOURCE.indexOf("} catch {", transferStart),
+      SOURCE.indexOf("if (!resp.ok)", transferStart),
     );
     const putFailure = SOURCE.slice(
       SOURCE.indexOf("if (!resp.ok)"),
