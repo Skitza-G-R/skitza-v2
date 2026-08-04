@@ -1,5 +1,11 @@
 "use client";
 
+import {
+  formatSessionDate,
+  formatSessionTime,
+  formatSessionTimeZoneLabel,
+} from "~/components/artist/sessions/book-data";
+
 // SessionsPanel — artist-only L2 widget.
 //
 // Renders the project's upcoming + pending sessions in a small card
@@ -15,6 +21,7 @@
 export type SessionRow = {
   id: string;
   startsAtIso: string;
+  producerTimezone: string;
   durationMin: number;
   status: string;
   packageName: string | null;
@@ -28,8 +35,14 @@ export function SessionsPanel({ sessions }: { sessions: SessionRow[] }) {
       </h2>
       <ul className="space-y-2">
         {sessions.map((session) => {
-          const date = new Date(session.startsAtIso);
-          const isPast = date < new Date();
+          const startsAt = new Date(session.startsAtIso);
+          const isPast = startsAt < new Date();
+          const date = formatSessionDate(session.startsAtIso, session.producerTimezone);
+          const time = formatSessionTime(session.startsAtIso, session.producerTimezone);
+          const timezone = formatSessionTimeZoneLabel(
+            session.startsAtIso,
+            session.producerTimezone,
+          );
           const statusLabel = isPast
             ? "Completed"
             : session.status === "pending_approval"
@@ -43,20 +56,10 @@ export function SessionsPanel({ sessions }: { sessions: SessionRow[] }) {
               className="rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] p-3"
             >
               <p className="text-sm font-medium text-[rgb(var(--fg-primary))]">
-                {date.toLocaleDateString(undefined, {
-                  weekday: "short",
-                  month: "short",
-                  day: "numeric",
-                })}
-                {" · "}
-                {date.toLocaleTimeString(undefined, {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  hour12: false,
-                })}
+                {date} · {time}
               </p>
               <p className="mt-0.5 text-xs text-[rgb(var(--fg-muted))]">
-                {String(session.durationMin)} min
+                {timezone} · {String(session.durationMin)} min
                 {session.packageName ? ` · ${session.packageName}` : ""}
                 {" · "}
                 {statusLabel}
