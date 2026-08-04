@@ -92,9 +92,13 @@ describe("first Version upload storage", () => {
       Bucket: "isolated-first-version-audio",
       Key: "staging/upload.wav",
       ContentType: "audio/wav",
-      ContentLength: 4_096,
       CacheControl: "no-store",
       Metadata: { "skitza-upload-token": expectation.completionToken },
+    });
+    expect((signedCommand as PutObjectCommand).input).not.toHaveProperty("ContentLength");
+    expect(mocks.getSignedUrl.mock.calls[0]?.[2]).toMatchObject({
+      signableHeaders: new Set(["content-type", "cache-control"]),
+      unhoistableHeaders: new Set(["x-amz-meta-skitza-upload-token"]),
     });
   });
 

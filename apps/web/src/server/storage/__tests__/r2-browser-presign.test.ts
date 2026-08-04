@@ -2,6 +2,7 @@ import { UploadPartCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { createFirstVersionUploadUrl } from "~/server/domain/first-version-uploads/storage";
 import { getR2BrowserUpload } from "../r2";
 
 describe("R2 browser upload presigning", () => {
@@ -31,6 +32,27 @@ describe("R2 browser upload presigning", () => {
     );
     const query = new URL(signed).searchParams;
 
+    expect(query.has("x-amz-checksum-crc32")).toBe(false);
+    expect(query.has("x-amz-sdk-checksum-algorithm")).toBe(false);
+    expect(query.get("X-Amz-Content-Sha256")).toBe("UNSIGNED-PAYLOAD");
+  });
+
+  it("signs the exact headers sent by a 39.2 MB first-Version browser PUT", async () => {
+    const upload = await createFirstVersionUploadUrl({
+      key: "first-version-staging/producers/producer/intents/intent/upload",
+      sizeBytes: 41_104_179,
+      contentType: "audio/wav",
+      completionToken: "a".repeat(64),
+    });
+    const query = new URL(upload.uploadUrl).searchParams;
+    const signedHeaders = new Set((query.get("X-Amz-SignedHeaders") ?? "").split(";"));
+    const unsignedBrowserHeaders = Object.keys(upload.headers)
+      .map((header) => header.toLowerCase())
+      .filter((header) => !signedHeaders.has(header));
+
+    expect(unsignedBrowserHeaders).toEqual([]);
+    expect(signedHeaders).not.toContain("content-length");
+    expect(query.has("x-amz-meta-skitza-upload-token")).toBe(false);
     expect(query.has("x-amz-checksum-crc32")).toBe(false);
     expect(query.has("x-amz-sdk-checksum-algorithm")).toBe(false);
     expect(query.get("X-Amz-Content-Sha256")).toBe("UNSIGNED-PAYLOAD");
