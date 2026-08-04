@@ -1,5 +1,10 @@
 import Link from "next/link";
 
+import { PaymentHistoryPurchaseDetails } from "~/components/payments/payment-history";
+import type {
+  PaymentHistoryPurchase,
+  PaymentHistoryRecordStatus,
+} from "~/components/payments/payment-history-view";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 import type { ArtistProofUploadAvailability as DomainArtistProofUploadAvailability } from "~/server/domain/payment-proofs/artist-upload-availability";
 
@@ -26,8 +31,10 @@ export function PaymentSummaryScreen({
   verifiedCents,
   remainingCents,
   currentInstallmentPosition,
+  recordStatus,
   proofUploadAvailability,
   proofs,
+  purchaseRecord,
 }: {
   purchaseId: string;
   studioId: string;
@@ -37,9 +44,11 @@ export function PaymentSummaryScreen({
   totalCents: number;
   verifiedCents: number;
   remainingCents: number;
-  currentInstallmentPosition: number;
-  proofUploadAvailability: ArtistProofUploadAvailability;
+  currentInstallmentPosition: number | null;
+  recordStatus: PaymentHistoryRecordStatus;
+  proofUploadAvailability: ArtistProofUploadAvailability | null;
   proofs: readonly ArtistPaymentSummaryProof[];
+  purchaseRecord?: PaymentHistoryPurchase;
 }) {
   const latest = proofs.at(-1) ?? null;
   const latestHref = latest
@@ -52,7 +61,6 @@ export function PaymentSummaryScreen({
     `/artist/payments/${encodeURIComponent(purchaseId)}/instructions`,
     studioId,
   );
-  const paidInFull = remainingCents <= 0;
 
   return (
     <div className="mx-auto w-full max-w-[680px]">
@@ -96,7 +104,36 @@ export function PaymentSummaryScreen({
         </dl>
 
         <div className="border-t border-[rgb(var(--border-subtle))] p-5">
-          {latest?.status === "pending" ? (
+          {recordStatus === "canceled" ? (
+            <>
+              <StatusEyebrow>Closed</StatusEyebrow>
+              <StatusTitle>This purchase is closed</StatusTitle>
+              <StatusCopy>No new proof can be added to this canceled purchase.</StatusCopy>
+            </>
+          ) : recordStatus === "settled_by_waiver" ? (
+            <>
+              <StatusEyebrow>Settled</StatusEyebrow>
+              <StatusTitle>Balance settled by waiver</StatusTitle>
+              <StatusCopy>
+                A waiver is not a verified payment. The exact waiver and payment history remain
+                recorded below.
+              </StatusCopy>
+            </>
+          ) : recordStatus === "no_payment_required" ? (
+            <>
+              <StatusEyebrow>Accepted record</StatusEyebrow>
+              <StatusTitle>No payment required</StatusTitle>
+              <StatusCopy>
+                This accepted purchase has no cash total. View the frozen accepted terms below.
+              </StatusCopy>
+            </>
+          ) : recordStatus === "paid_in_full" ? (
+            <>
+              <StatusEyebrow>Complete</StatusEyebrow>
+              <StatusTitle>Payment fully verified</StatusTitle>
+              <StatusCopy>The full agreed amount is verified in your payment history.</StatusCopy>
+            </>
+          ) : latest?.status === "pending" ? (
             <>
               <StatusEyebrow>Waiting for verification</StatusEyebrow>
               <StatusTitle>Proof sent to {producerName}</StatusTitle>
@@ -115,18 +152,14 @@ export function PaymentSummaryScreen({
               </StatusCopy>
               {latestHref ? <PrimaryLink href={latestHref}>View proof</PrimaryLink> : null}
             </>
-          ) : paidInFull ? (
-            <>
-              <StatusEyebrow>Complete</StatusEyebrow>
-              <StatusTitle>Payment fully verified</StatusTitle>
-              <StatusCopy>The full agreed amount is verified in your payment history.</StatusCopy>
-            </>
-          ) : proofUploadAvailability.status === "available" ? (
+          ) : proofUploadAvailability?.status === "available" ? (
             <>
               <StatusEyebrow>
                 {verifiedCents > 0
                   ? "Next payment ready"
-                  : `Payment ${String(currentInstallmentPosition)}`}
+                  : currentInstallmentPosition === null
+                    ? "Payment ready"
+                    : `Payment ${String(currentInstallmentPosition)}`}
               </StatusEyebrow>
               <StatusTitle>Pay directly, then upload proof</StatusTitle>
               <StatusCopy>
@@ -135,29 +168,23 @@ export function PaymentSummaryScreen({
               </StatusCopy>
               <PrimaryLink href={instructionsHref}>Pay &amp; upload proof</PrimaryLink>
             </>
-          ) : proofUploadAvailability.status === "not_due" ? (
+          ) : proofUploadAvailability?.status === "not_due" ? (
             <>
               <StatusEyebrow>Scheduled</StatusEyebrow>
               <StatusTitle>Next payment isn’t due yet</StatusTitle>
               <StatusCopy>{notDueCopy(proofUploadAvailability)}</StatusCopy>
             </>
-          ) : proofUploadAvailability.status === "purchase_canceled" ? (
+          ) : proofUploadAvailability?.status === "purchase_canceled" ? (
             <>
               <StatusEyebrow>Closed</StatusEyebrow>
               <StatusTitle>This purchase is closed</StatusTitle>
               <StatusCopy>No new proof can be added to this canceled purchase.</StatusCopy>
             </>
-          ) : proofUploadAvailability.status === "awaiting_review" ? (
+          ) : proofUploadAvailability?.status === "awaiting_review" ? (
             <>
               <StatusEyebrow>Waiting for verification</StatusEyebrow>
               <StatusTitle>A proof is already being reviewed</StatusTitle>
               <StatusCopy>Another proof cannot be added until the studio reviews it.</StatusCopy>
-            </>
-          ) : proofUploadAvailability.status === "paid_in_full" ? (
-            <>
-              <StatusEyebrow>Complete</StatusEyebrow>
-              <StatusTitle>Payment fully verified</StatusTitle>
-              <StatusCopy>The full agreed amount is verified in your payment history.</StatusCopy>
             </>
           ) : (
             <>
@@ -211,6 +238,30 @@ export function PaymentSummaryScreen({
               </li>
             ))}
           </ul>
+        </details>
+      ) : null}
+
+      {purchaseRecord ? (
+        <details className="mt-4 overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))]">
+          <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none focus-visible:ring-inset [&::-webkit-details-marker]:hidden">
+            <span>
+              <span className="block text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+                Full purchase record
+              </span>
+              <span className="mt-0.5 block text-[10.5px] font-normal text-[rgb(var(--fg-muted))]">
+                Accepted terms, plan, schedule, and complete history
+              </span>
+            </span>
+            <span className="shrink-0 text-[10px] font-semibold text-[rgb(var(--brand-primary-text))]">
+              View
+            </span>
+          </summary>
+          <PaymentHistoryPurchaseDetails
+            purchase={purchaseRecord}
+            role="artist"
+            idPrefix={`artist-payment-${purchaseRecord.id}`}
+            showPaymentAction={false}
+          />
         </details>
       ) : null}
     </div>

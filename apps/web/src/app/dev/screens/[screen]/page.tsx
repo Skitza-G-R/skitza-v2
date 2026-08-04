@@ -844,6 +844,7 @@ export default async function DevScreenPage({ params }: Params) {
           verifiedCents={120_000}
           remainingCents={120_000}
           currentInstallmentPosition={2}
+          recordStatus="open"
           proofUploadAvailability={{ status: "available" }}
           proofs={[DEV_ARTIST_CONFIRMED_PROOF]}
         />,
@@ -861,6 +862,7 @@ export default async function DevScreenPage({ params }: Params) {
           verifiedCents={120_000}
           remainingCents={120_000}
           currentInstallmentPosition={2}
+          recordStatus="open"
           proofUploadAvailability={{
             status: "not_due",
             installmentPosition: 2,
@@ -883,6 +885,7 @@ export default async function DevScreenPage({ params }: Params) {
           verifiedCents={240_000}
           remainingCents={0}
           currentInstallmentPosition={2}
+          recordStatus="paid_in_full"
           proofUploadAvailability={{ status: "paid_in_full" }}
           proofs={[DEV_ARTIST_CONFIRMED_PROOF, DEV_ARTIST_FINAL_PROOF]}
         />,

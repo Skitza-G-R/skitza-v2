@@ -3,7 +3,15 @@ import { TRPCError } from "@trpc/server";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
+import {
+  findArtistPaymentRecord,
+  recordUsesProofFlow,
+} from "~/components/artist/payments/artist-payment-record";
 import { PaymentSummaryScreen } from "~/components/artist/purchase/payment-summary-screen";
+import {
+  allPaymentsBucket,
+  toPaymentHistoryViewData,
+} from "~/components/payments/payment-history-adapter";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = {
@@ -11,6 +19,15 @@ type PageProps = {
 };
 
 export const metadata: Metadata = { title: "Payment summary" };
+
+const DETAIL_SECTION = {
+  id: "artist-payment-record",
+  eyebrow: "Accepted purchase",
+  title: "Payment record",
+  description: "The complete accepted agreement and money history.",
+  emptyTitle: "Payment record not found",
+  emptyDescription: "This accepted purchase is not available.",
+} as const;
 
 /** Standing entry for one owned accepted purchase and its proof history. */
 export default async function ArtistPurchasePaymentPage({ params }: PageProps) {
@@ -20,28 +37,47 @@ export default async function ArtistPurchasePaymentPage({ params }: PageProps) {
   const caller = appRouter.createCaller({ userId });
 
   try {
-    const state = await caller.artist.purchase.proofOfPayment.state({ purchaseId });
+    const model = await caller.artist.purchase.payments();
+    const sections = [
+      toPaymentHistoryViewData(
+        allPaymentsBucket(model.projects, model.totals),
+        DETAIL_SECTION,
+        "artist",
+      ),
+    ];
+    const record = findArtistPaymentRecord(sections, purchaseId);
+    if (!record) notFound();
+    const { purchase } = record;
+    const studioId = purchase.studioId;
+    if (!studioId) notFound();
+    const state = recordUsesProofFlow(purchase)
+      ? await caller.artist.purchase.proofOfPayment.state({ purchaseId })
+      : null;
 
     return (
       <PaymentSummaryScreen
-        purchaseId={state.purchaseId}
-        studioId={state.producerId}
-        productName={state.productName}
-        producerName={state.producerName}
-        currency={state.currency}
-        totalCents={state.totalCents}
-        verifiedCents={state.paidCents}
-        remainingCents={state.remainingCents}
-        currentInstallmentPosition={state.installmentPosition}
-        proofUploadAvailability={state.proofUploadAvailability}
-        proofs={state.proofs.map((proof) => ({
-          proofId: proof.proofId,
-          installmentId: proof.installmentId,
-          installmentPosition: proof.installmentPosition,
-          amountCents: proof.amountCents,
-          status: proof.status,
-          createdAt: proof.createdAt,
-        }))}
+        purchaseId={purchase.id}
+        studioId={studioId}
+        productName={purchase.title}
+        producerName={purchase.counterpartyLabel ?? "Your producer"}
+        currency={purchase.currency}
+        totalCents={purchase.totalCents}
+        verifiedCents={purchase.paidCents}
+        remainingCents={purchase.totalRemainingCents}
+        currentInstallmentPosition={state?.installmentPosition ?? null}
+        recordStatus={purchase.recordStatus}
+        proofUploadAvailability={state?.proofUploadAvailability ?? null}
+        proofs={
+          state?.proofs.map((proof) => ({
+            proofId: proof.proofId,
+            installmentId: proof.installmentId,
+            installmentPosition: proof.installmentPosition,
+            amountCents: proof.amountCents,
+            status: proof.status,
+            createdAt: proof.createdAt,
+          })) ?? []
+        }
+        purchaseRecord={purchase}
       />
     );
   } catch (error) {

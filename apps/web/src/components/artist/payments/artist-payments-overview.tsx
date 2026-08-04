@@ -120,12 +120,20 @@ function ArtistPaymentRow({
             {String(proofCount)} proof {proofCount === 1 ? "record" : "records"}
           </span>
           <span className="text-right text-[11.5px] font-bold text-[rgb(var(--brand-primary-text))]">
-            {purchase.showPayNextPayment ? "Pay & upload proof" : "View payment record"} →
+            {artistPaymentActionLabel(purchase)} →
           </span>
         </span>
       </Link>
     </li>
   );
+}
+
+function artistPaymentActionLabel(purchase: PaymentHistoryPurchase): string {
+  if (purchase.recordStatus === "canceled") return "View closed record";
+  if (purchase.recordStatus === "no_payment_required") return "View accepted terms";
+  if (purchase.recordStatus === "settled_by_waiver") return "View settlement history";
+  if (purchase.recordStatus === "paid_in_full") return "View payment history";
+  return purchase.showPayNextPayment ? "Pay & upload proof" : "View payment record";
 }
 
 function Amount({

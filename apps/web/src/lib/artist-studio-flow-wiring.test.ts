@@ -63,7 +63,8 @@ describe("trusted artist studio continuity", () => {
     expect(payPage).toContain("studioId={data.producerId}");
     expect(agreePage).toContain("studioId={preview.producerId}");
     expect(offerPage).toContain("studioId={offer.producerId}");
-    expect(paymentPage).toContain("studioId={state.producerId}");
+    expect(paymentPage).toContain("const studioId = purchase.studioId");
+    expect(paymentPage).toContain("studioId={studioId}");
   });
 
   it("validates Book query state against owned studios but keeps an owned reschedule producer", () => {

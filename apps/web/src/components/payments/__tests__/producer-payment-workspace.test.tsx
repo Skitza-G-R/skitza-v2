@@ -17,6 +17,7 @@ const usdPurchase: PaymentHistoryPurchase = {
   counterpartyLabel: "Maya Stone",
   currency: "USD",
   status: { label: "Needs review", tone: "accent" },
+  recordStatus: "open",
   defaultOpen: true,
   totalCents: 150_000,
   paidCents: 100_000,

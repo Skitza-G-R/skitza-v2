@@ -13,7 +13,13 @@ export type PaymentDeliveryInput = Readonly<{
 }>;
 
 export type PaymentDeliveryState = Readonly<{
-  key: "paid" | "early_override" | "overdue_locked" | "waived_locked" | "locked";
+  key:
+    | "no_payment_required"
+    | "paid"
+    | "early_override"
+    | "overdue_locked"
+    | "waived_locked"
+    | "locked";
   label: string;
   description: string;
   paidCents: number;
@@ -67,15 +73,23 @@ export function mapPaymentDeliveryState(input: PaymentDeliveryInput): PaymentDel
     overdue: input.overdue,
     activeOverrideVersionLabels: input.activeOverrideVersionLabels,
   };
+  if (input.totalCents === 0) {
+    return {
+      ...common,
+      key: "no_payment_required",
+      label: "No payment required · downloads available",
+      description:
+        "This accepted purchase has no cash total. Access comes from the accepted agreement, not a verified payment.",
+      googleDriveLinks: input.googleDriveLinks,
+      withheldGoogleDriveLinkCount: 0,
+    };
+  }
   if (input.fullyPaid) {
     return {
       ...common,
       key: "paid",
       label: "Paid · downloads available",
-      description:
-        input.totalCents === 0
-          ? "This no-charge purchase is fully paid. Every still-stored owned version is downloadable."
-          : "Every still-stored version owned by this purchase is downloadable.",
+      description: "Every still-stored version owned by this purchase is downloadable.",
       googleDriveLinks: input.googleDriveLinks,
       withheldGoogleDriveLinkCount: 0,
     };
