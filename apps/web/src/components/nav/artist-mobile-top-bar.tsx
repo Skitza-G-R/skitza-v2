@@ -89,7 +89,6 @@ export function ArtistMobileTopBar({
             userId={userId}
             producerStatus={producerStatus}
             producerUnreadCount={producerNotificationUnreadCount}
-            paymentsHref={withArtistStudio("/artist/payments", activeStudioId)}
             settingsHref={withArtistStudio("/artist/settings", activeStudioId)}
             ringClassName="ring-[rgb(var(--border-subtle))]"
           />

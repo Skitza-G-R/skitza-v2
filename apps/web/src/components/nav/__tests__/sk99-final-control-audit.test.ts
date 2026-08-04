@@ -43,18 +43,19 @@ const paymentReminderAction = readPending(
 );
 
 describe("SK-99 final navigation", () => {
-  it("keeps the approved four artist destinations and Settings in the account menu", () => {
+  it("keeps the approved five artist destinations and Settings in the account menu", () => {
     for (const [href, label] of [
       ["/artist", "Home"],
       ["/artist/music", "Music"],
       ["/artist/sessions", "Sessions"],
+      ["/artist/payments", "Payments"],
       ["/artist/store", "Store"],
     ] as const) {
       expect(artistMobileNav).toContain(`href: "${href}", label: "${label}"`);
       expect(artistDesktopNav).toContain(`href: "${href}", label: "${label}"`);
     }
-    expect(artistMobileNav).not.toMatch(/href:\s*"\/artist\/(?:book|payments)"/);
-    expect(artistDesktopNav).not.toMatch(/href:\s*"\/artist\/(?:book|payments)"/);
+    expect(artistMobileNav).not.toMatch(/href:\s*"\/artist\/book"/);
+    expect(artistDesktopNav).not.toMatch(/href:\s*"\/artist\/book"/);
     expect(artistMobileNav).not.toContain('href: "/artist/settings"');
     expect(artistDesktopNav).not.toContain('href: "/artist/settings"');
     expect(artistDesktopNav).toContain("<ArtistUserButton");
@@ -62,6 +63,8 @@ describe("SK-99 final navigation", () => {
       'settingsHref={withArtistStudio("/artist/settings", activeStudioId)}',
     );
     expect(artistUserButton).toContain("renderAccountRoleMenuItems(menuModel)");
+    expect(artistUserButton).not.toContain("paymentsHref");
+    expect(accountRoleMenu).not.toContain('label="Payments"');
     expect(accountRoleMenu).toContain('label="Settings"');
     expect(accountRoleMenu).toContain("href={model.settingsHref}");
   });

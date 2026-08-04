@@ -32,7 +32,6 @@ interface ArtistUserButtonProps {
   userId: string;
   producerStatus: ProducerProfileStatus;
   producerUnreadCount: number;
-  paymentsHref: string;
   settingsHref: string;
   ringClassName: string;
 }
@@ -55,7 +54,6 @@ export function ArtistUserButton({
   userId,
   producerStatus,
   producerUnreadCount,
-  paymentsHref,
   settingsHref,
   ringClassName,
 }: ArtistUserButtonProps) {
@@ -65,7 +63,6 @@ export function ArtistUserButton({
     producerStatus,
     hasArtistAccount: true,
     otherRoleUnreadCount: producerUnreadCount,
-    paymentsHref,
     settingsHref,
   });
 
@@ -86,7 +83,6 @@ export function ArtistMobileUserButton({
   userId,
   producerStatus,
   producerUnreadCount,
-  paymentsHref,
   settingsHref,
   ringClassName,
 }: ArtistUserButtonProps) {
@@ -106,7 +102,6 @@ export function ArtistMobileUserButton({
     producerStatus,
     hasArtistAccount: true,
     otherRoleUnreadCount: producerUnreadCount,
-    paymentsHref,
     settingsHref,
   });
 
@@ -265,7 +260,6 @@ export function ArtistMobileUserButton({
   return (
     <UserButton __experimental_asProvider>
       {renderAccountRoleMenuItems(menuModel, {
-        includePayments: false,
         includeSettings: false,
       })}
       <div className="relative flex h-11 w-11 items-center justify-center">
@@ -339,24 +333,6 @@ export function ArtistMobileUserButton({
               aria-label="Artist account links"
               className="grid grid-cols-1 gap-2 border-b border-[rgb(var(--border-subtle))] p-4"
             >
-              <Link
-                href={paymentsHref}
-                data-sk-nav-destination={paymentsHref}
-                prefetch={false}
-                onNavigate={() => {
-                  announceRuntimeMainNavigationIntent(paymentsHref);
-                  if (currentHref === paymentsHref) requestAccountSheetClose();
-                }}
-                onClick={(event) => {
-                  captureRuntimeMainNavigationTarget(event.currentTarget);
-                }}
-                className="sk-press flex min-h-16 items-center gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 py-3 text-sm font-semibold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none"
-              >
-                <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--bg-overlay))] text-[rgb(var(--fg-muted))]">
-                  <Icon name="payments" size={18} />
-                </span>
-                Payments
-              </Link>
               <Link
                 href={settingsHref}
                 data-sk-nav-destination={settingsHref}
