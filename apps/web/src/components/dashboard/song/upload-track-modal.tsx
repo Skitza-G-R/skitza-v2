@@ -52,6 +52,7 @@ import {
   requireUploadRuntimeAccountId,
   type ManagedUploadHandle,
 } from "~/lib/audio/upload-manager";
+import { uploadStageFailure, uploadTransferFailure } from "~/lib/audio/upload-stage-errors";
 
 import {
   NEW_SONG_DESTINATION,
@@ -404,24 +405,32 @@ export function UploadTrackModal({
         const intentId = prepared.data.intentId;
         activeFirstVersionIntentRef.current = intentId;
         if (uploadCancellationRequested(cancellation)) {
-          await cancelFirstVersionUploadAction({ intentId });
+          const canceled = await cancelFirstVersionUploadAction({ intentId });
+          if (!canceled.ok) throw new Error(canceled.error);
           activeFirstVersionIntentRef.current = null;
           throw new Error("Upload stopped.");
         }
 
         setProgress(8);
         managed.setUploading(8);
-        const putResponse = await fetch(prepared.data.uploadUrl, {
-          method: "PUT",
-          body: submittedFile,
-          headers: prepared.data.headers,
-          signal: putAbort.signal,
-        });
+        let putResponse: Response;
+        try {
+          putResponse = await fetch(prepared.data.uploadUrl, {
+            method: "PUT",
+            body: submittedFile,
+            headers: prepared.data.headers,
+            signal: putAbort.signal,
+          });
+        } catch {
+          if (uploadCancellationRequested(cancellation)) throw new Error("Upload stopped.");
+          throw new Error(uploadTransferFailure());
+        }
         if (!putResponse.ok) {
-          throw new Error(`Audio upload failed: ${String(putResponse.status)}`);
+          throw new Error(uploadTransferFailure({ status: putResponse.status }));
         }
         if (uploadCancellationRequested(cancellation)) {
-          await cancelFirstVersionUploadAction({ intentId });
+          const canceled = await cancelFirstVersionUploadAction({ intentId });
+          if (!canceled.ok) throw new Error(canceled.error);
           activeFirstVersionIntentRef.current = null;
           throw new Error("Upload stopped.");
         }
@@ -444,11 +453,15 @@ export function UploadTrackModal({
         finishSuccessfulUpload(managed);
       } catch (error) {
         const intentId = activeFirstVersionIntentRef.current;
+        let cancellationFailure: string | null = null;
         if (intentId && uploadCancellationRequested(cancellation)) {
-          await cancelFirstVersionUploadAction({ intentId });
-          activeFirstVersionIntentRef.current = null;
+          const canceled = await cancelFirstVersionUploadAction({ intentId });
+          if (canceled.ok) activeFirstVersionIntentRef.current = null;
+          else cancellationFailure = canceled.error;
         }
-        const message = error instanceof Error ? error.message : "Upload failed. Please retry.";
+        const message =
+          cancellationFailure ??
+          (error instanceof Error ? error.message : uploadStageFailure("initiation"));
         toast(message, "error");
         setUploadError(message);
         setProgress(0);
@@ -562,6 +575,9 @@ export function UploadTrackModal({
           if (initializedCancellation.ok && activeUploadRef.current === recoveryEntry) {
             activeUploadRef.current = null;
           }
+          if (!initializedCancellation.ok) {
+            throw new Error(uploadStageFailure("cancellation"));
+          }
           throw new Error("Upload stopped.");
         }
 
@@ -586,13 +602,19 @@ export function UploadTrackModal({
           if (!sres.ok) throw new Error(sres.error);
           if (uploadCancellationRequested(cancellation)) throw new Error("Upload stopped.");
 
-          const putRes = await fetch(sres.data.url, {
-            method: "PUT",
-            body: chunk,
-            signal: putAbort.signal,
-          });
+          let putRes: Response;
+          try {
+            putRes = await fetch(sres.data.url, {
+              method: "PUT",
+              body: chunk,
+              signal: putAbort.signal,
+            });
+          } catch {
+            if (uploadCancellationRequested(cancellation)) throw new Error("Upload stopped.");
+            throw new Error(uploadTransferFailure({ partNumber }));
+          }
           if (!putRes.ok) {
-            throw new Error(`Part ${String(partNumber)} upload failed: ${String(putRes.status)}`);
+            throw new Error(uploadTransferFailure({ partNumber, status: putRes.status }));
           }
           if (uploadCancellationRequested(cancellation)) throw new Error("Upload stopped.");
           const eTag = (putRes.headers.get("ETag") ?? "").replaceAll('"', "");
@@ -661,17 +683,21 @@ export function UploadTrackModal({
         }
         const active = activeUploadRef.current;
         let cancellationFinished = active === null;
+        let cancellationFailure: string | null = null;
         if (active) {
           const aborted = await requestExactMultipartCancellation(active, abortMultipartAction);
           cancellationFinished = aborted.ok;
           if (aborted.ok && activeUploadRef.current === active) {
             activeUploadRef.current = null;
           }
+          if (!aborted.ok) cancellationFailure = uploadStageFailure("cancellation");
         }
         if (versionCleanup && cancellationFinished) {
           await requestVersionCleanup(versionCleanup, deleteVersionAction);
         }
-        const msg = err instanceof Error ? err.message : "Upload failed. Please retry.";
+        const msg =
+          cancellationFailure ??
+          (err instanceof Error ? err.message : uploadStageFailure("initiation"));
         toast(msg, "error");
         setUploadError(msg);
         setProgress(0);

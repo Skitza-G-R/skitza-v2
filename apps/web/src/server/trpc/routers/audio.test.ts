@@ -812,6 +812,15 @@ describe("approved audio identity persistence", () => {
 });
 
 describe("purchase-owned audio lifecycle boundary", () => {
+  it("presigns browser part transfers with the checksum-safe R2 client", () => {
+    const signStart = AUDIO_SRC.indexOf("signPart:");
+    const completeStart = AUDIO_SRC.indexOf("completeMultipart:", signStart);
+    const signSource = AUDIO_SRC.slice(signStart, completeStart);
+
+    expect(signSource).toContain("getSignedUrl(getR2BrowserUpload()");
+    expect(signSource).not.toContain("getSignedUrl(getR2(), cmd");
+  });
+
   it("rechecks an active project and purchase before every presign boundary", () => {
     const initStart = AUDIO_SRC.indexOf("initMultipart:");
     const signStart = AUDIO_SRC.indexOf("signPart:");
