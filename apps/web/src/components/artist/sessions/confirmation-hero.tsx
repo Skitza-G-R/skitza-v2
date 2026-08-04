@@ -14,13 +14,19 @@
 
 import { RippleEmblem } from "~/components/artist/funnel/funnel-ui";
 import { CheckLarge, ClockIcon } from "~/components/artist/funnel/funnel-icons";
-import { formatSessionDate, formatSessionTime, type SessionListItem } from "./book-data";
+import {
+  formatSessionDate,
+  formatSessionTime,
+  formatSessionTimeZoneLabel,
+  type SessionListItem,
+} from "./book-data";
 
 export function ConfirmationHero({ session }: { session: SessionListItem }) {
   if (session.status !== "confirmed" && session.status !== "pending_approval") return null;
   const confirmed = session.status === "confirmed";
   const date = formatSessionDate(session.startsAtISO, session.producerTimezone);
   const time = formatSessionTime(session.startsAtISO, session.producerTimezone);
+  const timeZone = formatSessionTimeZoneLabel(session.startsAtISO, session.producerTimezone);
 
   // Tone tokens — green = settled, amber = pending the producer's approval.
   const tone = confirmed ? "success" : "amber";
@@ -55,6 +61,10 @@ export function ConfirmationHero({ session }: { session: SessionListItem }) {
       <h2 className="font-syne mt-2 text-[26px] leading-[1.06] font-extrabold tracking-[-0.035em] text-balance text-[rgb(var(--fg-default))]">
         {date} at <span className="font-amount font-extrabold">{time}</span>
       </h2>
+
+      <p className="mt-2 font-mono text-[10px] font-semibold tracking-[0.08em] text-[rgb(var(--fg-muted))]">
+        {timeZone}
+      </p>
 
       <p className="mx-auto mt-2 max-w-[280px] text-[13px] leading-relaxed text-pretty text-[rgb(var(--fg-secondary))]">
         {confirmed

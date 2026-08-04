@@ -24,7 +24,7 @@ describe("/artist page composition", () => {
     expect(SRC).toMatch(/Promise\.all/);
   });
 
-  it("uses the saved artist IANA timezone for Home booking labels", () => {
+  it("uses artist time for the greeting and producer time for session labels", () => {
     expect(SRC).toContain("caller.artistPlatform.profile.get()");
     expect(SRC).toContain('artistProfile.timezone ?? "UTC"');
     expect(SRC).toContain("artistGreeting(new Date(), firstName, artistTimezone)");

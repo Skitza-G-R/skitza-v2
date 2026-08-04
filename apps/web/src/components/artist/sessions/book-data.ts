@@ -44,10 +44,10 @@ export function bookingActionLabel(gate3On: boolean): "Request this time" | "Boo
   return gate3On ? "Request this time" : "Book this time";
 }
 
-// ── UTC-safe session date/time formatting ─────────────────────────────
-// Parse the full ISO instant and format in UTC so the server and client
-// agree (mirrors booking-client.tsx's `timeZone: "UTC"` date math). Single
-// timezone (Israel) in v1; the instant is the source of truth.
+// ── Producer-local session date/time formatting ───────────────────────
+// Booking instants stay UTC internally. Every booking surface renders that
+// instant in the Producer's configured IANA timezone so Artist and Producer
+// see the same appointment wall clock.
 
 export function formatSessionDate(iso: string, producerTimezone: string): string {
   return new Date(iso).toLocaleDateString("en-US", {
@@ -65,6 +65,16 @@ export function formatSessionTime(iso: string, producerTimezone: string): string
     hour12: true,
     timeZone: producerTimezone,
   });
+}
+
+export function formatSessionTimeZoneLabel(iso: string, producerTimezone: string): string {
+  const offset = new Intl.DateTimeFormat("en-US", {
+    timeZone: producerTimezone,
+    timeZoneName: "shortOffset",
+  })
+    .formatToParts(new Date(iso))
+    .find((part) => part.type === "timeZoneName")?.value;
+  return `${producerTimezone} · ${offset ?? "GMT"}`;
 }
 
 // ── Domain types ──────────────────────────────────────────────────────

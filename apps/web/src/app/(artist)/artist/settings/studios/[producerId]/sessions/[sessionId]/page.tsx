@@ -8,6 +8,7 @@ import {
   artistSessionDisplay,
   formatSessionDate,
   formatSessionTime,
+  formatSessionTimeZoneLabel,
   locationLabel,
 } from "~/components/artist/sessions/book-data";
 import { PastStudioRecordShell } from "~/components/artist/settings/past-studio-record-shell";
@@ -63,17 +64,14 @@ export default async function ArtistPastStudioSessionPage({ params }: PageProps)
           {durationLabel(session.durationMin)} session
         </p>
         <h2 className="font-display mt-2 text-[clamp(1.7rem,7vw,2.6rem)] leading-tight font-extrabold tracking-[-0.04em]">
-          {formatSessionDate(startsAtIso, session.artistTimezone)} at{" "}
+          {formatSessionDate(startsAtIso, session.producerTimezone)} at{" "}
           <span className="font-mono">
-            {formatSessionTime(startsAtIso, session.artistTimezone)}
+            {formatSessionTime(startsAtIso, session.producerTimezone)}
           </span>
         </h2>
-        {session.artistTimezone !== session.producerTimezone ? (
-          <p className="mt-2 text-[11.5px] text-[rgb(255_255_255_/_0.55)]">
-            Studio time · {formatSessionDate(startsAtIso, session.producerTimezone)} at{" "}
-            {formatSessionTime(startsAtIso, session.producerTimezone)}
-          </p>
-        ) : null}
+        <p className="mt-2 text-[11.5px] text-[rgb(255_255_255_/_0.55)]">
+          {formatSessionTimeZoneLabel(startsAtIso, session.producerTimezone)}
+        </p>
         {display.secondary ? (
           <p className="mt-2 text-[11.5px] text-[rgb(255_255_255_/_0.55)]">
             {display.secondary}
@@ -86,12 +84,12 @@ export default async function ArtistPastStudioSessionPage({ params }: PageProps)
           <SessionField
             icon={<CalendarDays size={15} aria-hidden />}
             label="Date"
-            value={formatSessionDate(startsAtIso, session.artistTimezone)}
+            value={formatSessionDate(startsAtIso, session.producerTimezone)}
           />
           <SessionField
             icon={<Clock3 size={15} aria-hidden />}
             label="Time"
-            value={`${formatSessionTime(startsAtIso, session.artistTimezone)} · ${session.artistTimezone}`}
+            value={`${formatSessionTime(startsAtIso, session.producerTimezone)} · ${formatSessionTimeZoneLabel(startsAtIso, session.producerTimezone)}`}
           />
           <SessionField
             icon={<MapPin size={15} aria-hidden />}

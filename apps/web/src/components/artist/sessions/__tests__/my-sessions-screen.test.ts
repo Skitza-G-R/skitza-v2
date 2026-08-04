@@ -59,10 +59,10 @@ describe("artist Sessions standing hub", () => {
     expect(rowSrc).toMatch(/heldExpiryReason === "approval_timeout"/);
   });
 
-  it("renders date and time in the artist's global timezone", () => {
-    expect(rowSrc).toMatch(/monthShort\(session\.startsAtISO, session\.artistTimezone\)/);
-    expect(rowSrc).toMatch(/dayNumber\(session\.startsAtISO, session\.artistTimezone\)/);
-    expect(rowSrc).toMatch(/formatSessionTime\(session\.startsAtISO, session\.artistTimezone\)/);
+  it("renders date and time in the producer's booking timezone", () => {
+    expect(rowSrc).toMatch(/monthShort\(session\.startsAtISO, session\.producerTimezone\)/);
+    expect(rowSrc).toMatch(/dayNumber\(session\.startsAtISO, session\.producerTimezone\)/);
+    expect(rowSrc).toMatch(/formatSessionTime\(session\.startsAtISO, session\.producerTimezone\)/);
   });
 });
 

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { formatCalendarTime } from "~/app/(producer)/dashboard/calendar/calendar-time";
+
 import {
   allowanceBookHref,
   allowanceCanBook,
@@ -9,6 +11,7 @@ import {
   buildProgressDots,
   formatSessionDate,
   formatSessionTime,
+  formatSessionTimeZoneLabel,
   formatShekels,
   progressMode,
 } from "../book-data";
@@ -95,8 +98,9 @@ describe("artistSessionDisplay", () => {
         ["rejected", "reserved"],
         ["completed", "completed"],
         ["cancelled", "cancelled_on_time"],
-      ].map(([status, outcome]) =>
-        artistSessionDisplay({ status: status as never, outcome: outcome as never }).label,
+      ].map(
+        ([status, outcome]) =>
+          artistSessionDisplay({ status: status as never, outcome: outcome as never }).label,
       ),
     ).toEqual(["Held", "Confirmed", "Declined", "Completed", "Cancelled"]);
   });
@@ -136,6 +140,32 @@ describe("formatSessionDate / formatSessionTime (producer timezone)", () => {
     const iso = "2026-06-09T22:30:00.000Z";
     expect(formatSessionDate(iso, "Asia/Jerusalem")).toBe("Wed, Jun 10");
     expect(formatSessionTime(iso, "Asia/Jerusalem")).toBe("1:30 AM");
+  });
+
+  it("derives the Producer IANA timezone offset for the appointment date", () => {
+    const summer = "2026-08-10T06:00:00.000Z";
+    const winter = "2026-12-10T07:00:00.000Z";
+
+    expect(formatSessionTime(summer, "Asia/Jerusalem")).toBe("9:00 AM");
+    expect(formatSessionTimeZoneLabel(summer, "Asia/Jerusalem")).toBe("Asia/Jerusalem · GMT+3");
+    expect(formatSessionTime(winter, "Asia/Jerusalem")).toBe("9:00 AM");
+    expect(formatSessionTimeZoneLabel(winter, "Asia/Jerusalem")).toBe("Asia/Jerusalem · GMT+2");
+  });
+
+  it("keeps Artist and Producer displays on the same Producer wall clock", () => {
+    const instant = new Date("2026-08-10T06:00:00.000Z");
+
+    expect(formatSessionTime(instant.toISOString(), "Asia/Jerusalem")).toBe("9:00 AM");
+    expect(formatCalendarTime(instant, "Asia/Jerusalem")).toBe("09:00");
+  });
+
+  it("labels each repeated DST wall clock with its exact offset", () => {
+    expect(formatSessionTimeZoneLabel("2026-11-01T05:30:00.000Z", "America/New_York")).toBe(
+      "America/New_York · GMT-4",
+    );
+    expect(formatSessionTimeZoneLabel("2026-11-01T06:30:00.000Z", "America/New_York")).toBe(
+      "America/New_York · GMT-5",
+    );
   });
 });
 

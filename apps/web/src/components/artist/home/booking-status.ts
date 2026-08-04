@@ -14,6 +14,7 @@ type ArtistHomeSession = Readonly<{
   packageName: string;
   startsAt: Date;
   durationMin: number;
+  producerTimezone?: string | null;
   status: SessionStatus;
   outcome: SessionOutcome;
   heldExpiryReason: "approval_timeout" | null;
@@ -44,13 +45,14 @@ export function artistHomeBookingStatusActions(input: {
         left.session.id.localeCompare(right.session.id),
     )
     .map(({ session, display }) => {
-      const when = isSameArtistDay(session.startsAt, input.now, input.artistTimezone)
+      const producerTimezone = session.producerTimezone || input.artistTimezone;
+      const when = isSameArtistDay(session.startsAt, input.now, producerTimezone)
         ? `Today, ${formatArtistTimeRange(
             session.startsAt,
             session.durationMin,
-            input.artistTimezone,
+            producerTimezone,
           )}`
-        : formatArtistDateTime(session.startsAt, input.artistTimezone);
+        : formatArtistDateTime(session.startsAt, producerTimezone);
       const detail = [display.label, display.secondary, when].filter(Boolean).join(" · ");
 
       return {
@@ -64,7 +66,7 @@ export function artistHomeBookingStatusActions(input: {
         occurredAt: session.startsAt,
         mainEligible:
           session.startsAt.getTime() <= input.now.getTime() ||
-          isSameArtistDay(session.startsAt, input.now, input.artistTimezone),
+          isSameArtistDay(session.startsAt, input.now, producerTimezone),
       };
     });
 }

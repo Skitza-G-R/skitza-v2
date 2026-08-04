@@ -68,13 +68,13 @@ describe("focused short booking process", () => {
     expect(clientSrc).not.toMatch(/handleSwitchStudio/);
   });
 
-  it("shows artist time and secondary studio time only when zones differ", () => {
-    expect(clientSrc).toMatch(/artistTimeZone/);
-    expect(clientSrc).toMatch(/studioTimeZone/);
-    expect(clientSrc).toMatch(/zonesDiffer/);
-    expect(clientSrc).toMatch(/Studio time/);
+  it("shows every booking step in the producer timezone", () => {
+    expect(clientSrc).not.toMatch(/availability\.artistTimeZone/);
+    expect(clientSrc).toMatch(/timeZone=\{availability\.studioTimeZone\}/);
+    expect(clientSrc).toMatch(/formatSessionTimeZoneLabel/);
+    expect(clientSrc).toMatch(/formatTime\(slot\.startsAtISO, timeZone, true\)/);
     expect(clientSrc).toMatch(/formatGmtClockTime\(new Date\(iso\), timeZone\)/);
-    expect(clientSrc).not.toMatch(/timeZoneName: "short"/);
+    expect(clientSrc).not.toMatch(/zonesDiffer/);
   });
 
   it("uses the approved final booking labels", () => {

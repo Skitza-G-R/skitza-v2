@@ -56,6 +56,28 @@ describe("Artist Home booking status", () => {
     ]);
   });
 
+  it("uses producer time for Home session labels while retaining artist time as a fallback", () => {
+    const producerTime = {
+      ...session("producer-time", "confirmed", "2026-01-14T07:00:00.000Z"),
+      producerTimezone: "Asia/Jerusalem",
+    };
+    const legacyWithoutProducerTime = {
+      ...session("legacy-time", "confirmed", "2026-01-14T08:00:00.000Z"),
+      producerTimezone: null,
+    };
+    const actions = artistHomeBookingStatusActions({
+      sessions: [producerTime, legacyWithoutProducerTime],
+      producerId: PRODUCER_ID,
+      artistTimezone: "America/New_York",
+      now: new Date("2026-01-14T06:30:00.000Z"),
+    });
+
+    expect(actions.map((action) => action.detail)).toEqual([
+      "Confirmed · Today, 09:00–11:00",
+      "Confirmed · Today, 03:00–05:00",
+    ]);
+  });
+
   it("orders the nearest session first and links each exact owned session", () => {
     const actions = artistHomeBookingStatusActions({
       sessions: [
