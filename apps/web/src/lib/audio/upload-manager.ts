@@ -37,7 +37,14 @@ let records: ManagedUploadRecord[] = [];
 const EMPTY_UPLOADS: readonly ManagedUploadRecord[] = [];
 let visibleRecords: readonly ManagedUploadRecord[] = EMPTY_UPLOADS;
 const actions = new Map<string, UploadActions>();
-const terminalRemovalTimers = new Map<string, ReturnType<typeof setTimeout>>();
+type TerminalRemovalState = {
+  status: "done" | "error";
+  timer: ReturnType<typeof setTimeout> | null;
+  remainingMs: number;
+  startedAtMs: number | null;
+};
+const terminalRemovalStates = new Map<string, TerminalRemovalState>();
+let errorVisibilityDocument: Document | null = null;
 const listeners = new Set<() => void>();
 
 function emit(): void {
@@ -47,27 +54,117 @@ function emit(): void {
   for (const listener of listeners) listener();
 }
 
+function visibilityDocument(): Document | null {
+  return typeof document === "undefined" ? null : document;
+}
+
+function documentIsVisible(): boolean {
+  const currentDocument = visibilityDocument();
+  return currentDocument === null || currentDocument.visibilityState === "visible";
+}
+
+function detachErrorVisibilityListener(): void {
+  if (!errorVisibilityDocument) return;
+  errorVisibilityDocument.removeEventListener("visibilitychange", handleVisibilityChange);
+  errorVisibilityDocument = null;
+}
+
+function syncErrorVisibilityListener(): void {
+  const hasErrorState = Array.from(terminalRemovalStates.values()).some(
+    (state) => state.status === "error",
+  );
+  const currentDocument = visibilityDocument();
+  if (!hasErrorState || !currentDocument) {
+    detachErrorVisibilityListener();
+    return;
+  }
+  if (errorVisibilityDocument === currentDocument) return;
+
+  detachErrorVisibilityListener();
+  currentDocument.addEventListener("visibilitychange", handleVisibilityChange);
+  errorVisibilityDocument = currentDocument;
+}
+
+function removeTerminalRecord(id: string, status: "done" | "error"): void {
+  const current = records.find((candidate) => candidate.id === id);
+  if (!current || current.status !== status) return;
+  removeRecord(id);
+}
+
+function startErrorRemovalTimer(id: string, state: TerminalRemovalState): void {
+  if (state.status !== "error" || state.timer !== null) return;
+  if (state.remainingMs <= 0) {
+    removeTerminalRecord(id, "error");
+    return;
+  }
+
+  state.startedAtMs = Date.now();
+  state.timer = setTimeout(() => {
+    const currentState = terminalRemovalStates.get(id);
+    if (currentState !== state || currentState.status !== "error") return;
+    state.timer = null;
+    state.startedAtMs = null;
+    state.remainingMs = 0;
+    removeTerminalRecord(id, "error");
+  }, state.remainingMs);
+}
+
+function pauseErrorRemovalTimer(state: TerminalRemovalState): void {
+  if (state.status !== "error" || state.timer === null) return;
+  clearTimeout(state.timer);
+  if (state.startedAtMs !== null) {
+    state.remainingMs = Math.max(0, state.remainingMs - (Date.now() - state.startedAtMs));
+  }
+  state.timer = null;
+  state.startedAtMs = null;
+}
+
+function handleVisibilityChange(): void {
+  const isVisible = errorVisibilityDocument?.visibilityState === "visible";
+  for (const [id, state] of Array.from(terminalRemovalStates.entries())) {
+    if (state.status !== "error") continue;
+    if (isVisible) startErrorRemovalTimer(id, state);
+    else pauseErrorRemovalTimer(state);
+  }
+}
+
 function clearTerminalRemovalTimer(id: string): void {
-  const timer = terminalRemovalTimers.get(id);
-  if (timer !== undefined) clearTimeout(timer);
-  terminalRemovalTimers.delete(id);
+  const state = terminalRemovalStates.get(id);
+  if (state?.timer !== null && state?.timer !== undefined) clearTimeout(state.timer);
+  terminalRemovalStates.delete(id);
+  syncErrorVisibilityListener();
 }
 
 function syncTerminalRemoval(record: ManagedUploadRecord): void {
   clearTerminalRemovalTimer(record.id);
   if (record.status !== "done" && record.status !== "error") return;
 
-  const terminalStatus = record.status;
-  const delay = terminalStatus === "done" ? UPLOAD_SUCCESS_FEEDBACK_MS : UPLOAD_ERROR_FEEDBACK_MS;
-  terminalRemovalTimers.set(
-    record.id,
-    setTimeout(() => {
-      terminalRemovalTimers.delete(record.id);
-      const current = records.find((candidate) => candidate.id === record.id);
-      if (!current || current.status !== terminalStatus) return;
-      removeRecord(record.id);
-    }, delay),
-  );
+  if (record.status === "done") {
+    const state: TerminalRemovalState = {
+      status: "done",
+      timer: null,
+      remainingMs: UPLOAD_SUCCESS_FEEDBACK_MS,
+      startedAtMs: Date.now(),
+    };
+    state.timer = setTimeout(() => {
+      const currentState = terminalRemovalStates.get(record.id);
+      if (currentState !== state || currentState.status !== "done") return;
+      state.timer = null;
+      removeTerminalRecord(record.id, "done");
+    }, UPLOAD_SUCCESS_FEEDBACK_MS);
+    terminalRemovalStates.set(record.id, state);
+    return;
+  }
+
+  const state: TerminalRemovalState = {
+    status: "error",
+    timer: null,
+    remainingMs: UPLOAD_ERROR_FEEDBACK_MS,
+    startedAtMs: null,
+  };
+  terminalRemovalStates.set(record.id, state);
+  if (documentIsVisible()) startErrorRemovalTimer(record.id, state);
+  syncErrorVisibilityListener();
 }
 
 function updateRecord(
