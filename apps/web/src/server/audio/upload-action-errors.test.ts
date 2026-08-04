@@ -31,4 +31,16 @@ describe("safe upload action errors", () => {
       ),
     ).toBe("Upload link preparation failed. This upload was canceled.");
   });
+
+  it("classifies the first-Version safe signing marker as presign, not initiation", () => {
+    expect(
+      toSafeUploadStageError(
+        "initiation",
+        new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Upload link preparation failed. Please try again.",
+        }),
+      ),
+    ).toBe("Upload link preparation failed. Please try again.");
+  });
 });
