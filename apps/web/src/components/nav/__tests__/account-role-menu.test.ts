@@ -59,6 +59,7 @@ describe("SK-161 account role menu", () => {
     const model: AccountRoleMenuModel = {
       currentRole: "artist",
       currentLabel: "Artist · Current role",
+      paymentsHref: "/artist/payments?studio=studio-1",
       settingsHref: "/artist/settings",
       roleAction: {
         label: "Switch to Producer",
@@ -76,6 +77,7 @@ describe("SK-161 account role menu", () => {
     expect(children.map((child) => child.type)).toEqual([
       UserButton.Action,
       UserButton.Link,
+      UserButton.Link,
       UserButton.Action,
     ]);
     const statusItem = children[0] as ReactElement<{
@@ -84,8 +86,15 @@ describe("SK-161 account role menu", () => {
     }>;
     expect(statusItem.props.label).toBe("Artist · Current role");
     expect(typeof statusItem.props.onClick).toBe("function");
+    const paymentsItem = children[1] as ReactElement<{
+      href: string;
+      label: string;
+    }>;
+    expect(paymentsItem.props.label).toBe("Payments");
+    expect(paymentsItem.props.href).toBe("/artist/payments?studio=studio-1");
 
     const mobileMenu = renderAccountRoleMenuItems(model, {
+      includePayments: false,
       includeSettings: false,
     });
     const mobileChildren = Children.toArray(
