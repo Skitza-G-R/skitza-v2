@@ -90,7 +90,7 @@ afterEach(() => {
 });
 
 describe("ArtistBottomNav liquid-glass adapter", () => {
-  it("renders four studio-aware tabs in a fixed shared frame", () => {
+  it("renders five studio-aware tabs in a fixed shared frame", () => {
     render(<ArtistBottomNav studios={[...STUDIOS]} initialStudioId="studio-1" />);
 
     const nav = screen.getByRole("navigation", { name: "Artist app tabs" });
@@ -104,59 +104,81 @@ describe("ArtistBottomNav liquid-glass adapter", () => {
     expect(frame?.className).toContain("pointer-events-none");
     expect(frame?.className).not.toContain("bottom-0");
     expect(nav.className).toContain("pointer-events-auto");
-    expect(nav.style.getPropertyValue("--sk-nav-column-count")).toBe("4");
-    expect(nav.style.getPropertyValue("--sk-nav-column-width")).toBe("25%");
-    expect(tabs).toHaveLength(4);
+    expect(nav.style.getPropertyValue("--sk-nav-column-count")).toBe("5");
+    expect(nav.style.getPropertyValue("--sk-nav-column-width")).toBe("20%");
+    expect(tabs).toHaveLength(5);
     expect(tabs.map((tab) => tab.getAttribute("href"))).toEqual([
       "/artist?studio=studio-2",
       "/artist/music?studio=studio-2",
       "/artist/sessions?studio=studio-2",
+      "/artist/payments?studio=studio-2",
       "/artist/store?studio=studio-2",
     ]);
     expect(tabs[0]?.getAttribute("aria-current")).toBe("page");
+    expect(tabs.every((tab) => tab.classList.contains("min-w-0"))).toBe(true);
+    expect(tabs.every((tab) => tab.style.minHeight === "68px")).toBe(true);
   });
 
-  it("sizes and tracks the lens from the actual four-tab geometry", () => {
-    render(<ArtistBottomNav studios={[...STUDIOS]} initialStudioId="studio-1" />);
+  it.each([360, 390])(
+    "fits practical five-tab targets and lens geometry at a true %ipx viewport",
+    (viewportWidth) => {
+      render(<ArtistBottomNav studios={[...STUDIOS]} initialStudioId="studio-1" />);
 
-    const nav = screen.getByRole("navigation", { name: "Artist app tabs" });
-    const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
-    Object.defineProperty(nav, "getBoundingClientRect", {
-      value: () => makeRect(0, 700, 360, 68),
-    });
-    tabs.forEach((tab, index) => {
-      Object.defineProperty(tab, "getBoundingClientRect", {
-        value: () => makeRect(index * 90, 700, 90, 68),
+      const nav = screen.getByRole("navigation", { name: "Artist app tabs" });
+      const tabs = [...nav.querySelectorAll<HTMLElement>("[data-liquid-glass-nav-tab]")];
+      const frameInset = 12;
+      const navWidth = viewportWidth - frameInset * 2;
+      const tabWidth = navWidth / 5;
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: viewportWidth,
       });
-    });
+      Object.defineProperty(nav, "getBoundingClientRect", {
+        value: () => makeRect(frameInset, 700, navWidth, 68),
+      });
+      tabs.forEach((tab, index) => {
+        Object.defineProperty(tab, "getBoundingClientRect", {
+          value: () => makeRect(frameInset + index * tabWidth, 700, tabWidth, 68),
+        });
+      });
 
-    act(() => {
-      window.dispatchEvent(new Event("resize"));
-    });
-    expect(nav.style.getPropertyValue("--sk-nav-lens-width")).toBe("88px");
-    expect(nav.style.getPropertyValue("--sk-nav-lens-x")).toBe("45px");
+      act(() => {
+        window.dispatchEvent(new Event("resize"));
+      });
+      expect(tabWidth).toBeGreaterThanOrEqual(44);
+      expect(nav.style.getPropertyValue("--sk-nav-lens-width")).toBe(
+        `${String(Math.round((tabWidth - 2) * 10) / 10)}px`,
+      );
+      expect(nav.style.getPropertyValue("--sk-nav-lens-x")).toBe(
+        `${String(Math.round((tabWidth / 2) * 10) / 10)}px`,
+      );
 
-    const musicTab = tabs[1];
-    expect(musicTab).toBeDefined();
-    if (!musicTab) throw new Error("Expected the Music tab");
-    const navigateMusic = vi.spyOn(musicTab, "click").mockImplementation(() => undefined);
+      const musicTab = tabs[1];
+      expect(musicTab).toBeDefined();
+      if (!musicTab) throw new Error("Expected the Music tab");
+      const navigateMusic = vi.spyOn(musicTab, "click").mockImplementation(() => undefined);
 
-    dispatchPointer(tabs[0] ?? nav, "pointerdown", {
-      clientX: 45,
-      clientY: 734,
-    });
-    dispatchPointer(nav, "pointermove", {
-      clientX: 135,
-      clientY: 734,
-    });
+      dispatchPointer(tabs[0] ?? nav, "pointerdown", {
+        clientX: frameInset + tabWidth / 2,
+        clientY: 734,
+      });
+      dispatchPointer(nav, "pointermove", {
+        clientX: frameInset + tabWidth * 1.5,
+        clientY: 734,
+      });
 
-    act(() => {
-      flushAnimationFrames();
-    });
+      act(() => {
+        flushAnimationFrames();
+      });
 
-    expect(navigateMusic).toHaveBeenCalledOnce();
-    expect(nav.style.getPropertyValue("--sk-nav-lens-width")).toBe("88px");
-    expect(nav.style.getPropertyValue("--sk-nav-lens-x")).toBe("135px");
-    expect(tabs[1]?.style.getPropertyValue("--sk-nav-proximity")).toBe("1.000");
-  });
+      expect(navigateMusic).toHaveBeenCalledOnce();
+      expect(nav.style.getPropertyValue("--sk-nav-lens-width")).toBe(
+        `${String(Math.round((tabWidth - 2) * 10) / 10)}px`,
+      );
+      expect(nav.style.getPropertyValue("--sk-nav-lens-x")).toBe(
+        `${String(Math.round(tabWidth * 1.5 * 10) / 10)}px`,
+      );
+      expect(tabs[1]?.style.getPropertyValue("--sk-nav-proximity")).toBe("1.000");
+    },
+  );
 });

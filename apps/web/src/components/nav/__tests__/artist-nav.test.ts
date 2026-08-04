@@ -18,31 +18,33 @@ const ACCOUNT_ROLE_MENU = readFileSync(
 );
 const SWITCHER = readFileSync(join(here, "..", "..", "artist", "studio-switcher.tsx"), "utf8");
 
-describe("artist four-tab navigation", () => {
-  it("uses Home, Music, Sessions, and Store in the mobile main navigation", () => {
-    expect(BOTTOM.match(/\{\s*href:\s*"\/artist[^"]*"/g)).toHaveLength(4);
+describe("artist five-tab navigation", () => {
+  it("uses Home, Music, Sessions, Payments, and Store in the mobile main navigation", () => {
+    expect(BOTTOM.match(/\{\s*href:\s*"\/artist[^"]*"/g)).toHaveLength(5);
     for (const [href, label] of [
       ["/artist", "Home"],
       ["/artist/music", "Music"],
       ["/artist/sessions", "Sessions"],
+      ["/artist/payments", "Payments"],
       ["/artist/store", "Store"],
     ] as const) {
       expect(BOTTOM).toContain(`{ href: "${href}", label: "${label}"`);
     }
-    expect(BOTTOM).not.toMatch(/label:\s*["'](?:Book|Payments)["']/);
+    expect(BOTTOM).not.toMatch(/label:\s*["']Book["']/);
   });
 
-  it("uses the same four destinations in the desktop main navigation", () => {
-    expect(SIDEBAR.match(/\{\s*id:\s*"[^"]+"/g)).toHaveLength(4);
+  it("uses the same five destinations in the desktop main navigation", () => {
+    expect(SIDEBAR.match(/\{\s*id:\s*"[^"]+"/g)).toHaveLength(5);
     for (const [href, label] of [
       ["/artist", "Home"],
       ["/artist/music", "Music"],
       ["/artist/sessions", "Sessions"],
+      ["/artist/payments", "Payments"],
       ["/artist/store", "Store"],
     ] as const) {
       expect(SIDEBAR).toMatch(new RegExp(`href:\\s*"${href}",\\s*label:\\s*"${label}"`));
     }
-    expect(SIDEBAR).not.toMatch(/label:\s*["'](?:Book|Payments)["']/);
+    expect(SIDEBAR).not.toMatch(/label:\s*["']Book["']/);
   });
 
   it("keeps Settings in both artist account controls", () => {
@@ -55,11 +57,13 @@ describe("artist four-tab navigation", () => {
     }
     expect(USER_BUTTON).toContain("renderAccountRoleMenuItems(menuModel)");
     expect(USER_BUTTON).toMatch(
-      /renderAccountRoleMenuItems\(menuModel, \{\s*includePayments: false,\s*includeSettings: false,\s*\}\)/,
+      /renderAccountRoleMenuItems\(menuModel, \{\s*includeSettings: false,\s*\}\)/,
     );
+    expect(USER_BUTTON).not.toContain("paymentsHref");
     expect(USER_BUTTON).toContain('className="sk-account-sheet-motion');
     expect(ACCOUNT_ROLE_MENU).toContain("<UserButton.MenuItems>");
     expect(ACCOUNT_ROLE_MENU).toContain('label="Settings"');
+    expect(ACCOUNT_ROLE_MENU).not.toContain('label="Payments"');
   });
 
   it("mounts notification bells on mobile and desktop artist chrome", () => {
@@ -127,6 +131,9 @@ describe("artist navigation active states", () => {
     expect(isArtistNavItemActive("/artist/music", "/artist")).toBe(false);
     expect(isArtistNavItemActive("/artist/music/song-1", "/artist/music")).toBe(true);
     expect(isArtistNavItemActive("/artist/sessions/session-1", "/artist/sessions")).toBe(true);
+    expect(isArtistNavItemActive("/artist/payments", "/artist/payments")).toBe(true);
+    expect(isArtistNavItemActive("/artist/payments/history", "/artist/payments")).toBe(true);
+    expect(isArtistNavItemActive("/artist/settings", "/artist/payments")).toBe(false);
   });
 
   it("treats standing store resource routes as Store", () => {

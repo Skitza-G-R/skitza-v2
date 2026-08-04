@@ -14,7 +14,7 @@ import { isArtistNavItemActive } from "./artist-nav-active";
 import type { IconName } from "./icons";
 import { LiquidGlassBottomNav, type LiquidGlassBottomNavTab } from "./liquid-glass-bottom-nav";
 
-type ArtistTabId = "home" | "music" | "sessions" | "store";
+type ArtistTabId = "home" | "music" | "sessions" | "payments" | "store";
 
 type ArtistTab = {
   id: ArtistTabId;
@@ -27,6 +27,7 @@ const TABS: readonly ArtistTab[] = [
   { href: "/artist", label: "Home", icon: "home", id: "home" },
   { href: "/artist/music", label: "Music", icon: "music", id: "music" },
   { href: "/artist/sessions", label: "Sessions", icon: "calendar", id: "sessions" },
+  { href: "/artist/payments", label: "Payments", icon: "payments", id: "payments" },
   { href: "/artist/store", label: "Store", icon: "store", id: "store" },
 ] as const;
 
