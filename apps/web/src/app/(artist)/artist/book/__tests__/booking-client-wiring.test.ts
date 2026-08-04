@@ -43,8 +43,18 @@ describe("focused short booking process", () => {
 
   it("uses a focused overlay and package → day → time → review steps", () => {
     expect(clientSrc).toMatch(/type Step = "package" \| "day" \| "time" \| "review"/);
-    expect(clientSrc).toMatch(/fixed inset-0 z-\[60\]/);
+    expect(clientSrc).toMatch(
+      /sk-native-screen fixed inset-x-0 top-\[var\(--sk-viewport-offset-top,0px\)\] z-\[60\]/,
+    );
+    expect(clientSrc).toMatch(/sk-native-scroll mx-auto flex min-h-0/);
     expect(clientSrc).toMatch(/<FunnelTopBar/);
+  });
+
+  it("keeps the booking action in normal flow after the final option", () => {
+    expect(clientSrc).toMatch(/<div className="mt-7">/);
+    expect(clientSrc).not.toMatch(/<div className="mt-7 flex-1">/);
+    expect(clientSrc).toMatch(/<div className="mt-8 shrink-0/);
+    expect(clientSrc).not.toMatch(/<div className="sticky bottom-0 mt-8/);
   });
 
   it("starts with next available days and reveals the calendar only on request", () => {
