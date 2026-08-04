@@ -29,12 +29,46 @@ const ERROR_TOAST_DURATION_MS = 7000;
 
 interface ToastOptions {
   durationMs?: number;
+  id?: string | number;
   action?: { label: string; onClick: () => void };
+  onDismiss?: () => void;
+  onAutoClose?: () => void;
 }
 
 interface ToastContextValue {
   toast: (message: string, variant?: ToastVariant, options?: ToastOptions) => void;
+  dismissToast: (id: string | number) => void;
 }
+
+function showToast(message: string, variant: ToastVariant = "info", options?: ToastOptions): void {
+  const sonnerOptions: NonNullable<Parameters<typeof sonnerToast>[1]> = {
+    duration:
+      options?.durationMs ??
+      (variant === "error" ? ERROR_TOAST_DURATION_MS : DEFAULT_TOAST_DURATION_MS),
+  };
+  if (options?.id != null) sonnerOptions.id = options.id;
+  if (options?.onDismiss != null) sonnerOptions.onDismiss = options.onDismiss;
+  if (options?.onAutoClose != null) sonnerOptions.onAutoClose = options.onAutoClose;
+  if (options?.action != null) {
+    sonnerOptions.action = {
+      label: options.action.label,
+      onClick: options.action.onClick,
+    };
+  }
+  if (variant === "success") {
+    sonnerToast.success(message, sonnerOptions);
+  } else if (variant === "error") {
+    sonnerToast.error(message, sonnerOptions);
+  } else {
+    sonnerToast(message, sonnerOptions);
+  }
+}
+
+function dismissToast(id: string | number): void {
+  sonnerToast.dismiss(id);
+}
+
+const TOAST_CONTEXT_VALUE: ToastContextValue = { toast: showToast, dismissToast };
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   return (
@@ -58,10 +92,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           closeButtonAriaLabel: "Dismiss message",
           classNames: {
             toast: [
-              "!w-[min(22rem,calc(100vw-2rem))] !min-h-0",
+              "!w-[min(19rem,calc(100vw-1rem))] !min-h-0",
               "!border !border-[rgb(var(--border-subtle))]",
               "!bg-[rgb(var(--bg-elevated))]",
-              "!px-3.5 !py-2.5 !pr-10",
+              "!px-3 !py-2 !pr-9",
               "!text-[rgb(var(--fg-default))]",
               "!rounded-[var(--radius-md)]",
               "!shadow-[0_10px_28px_-14px_rgb(0_0_0/0.34)]",
@@ -75,7 +109,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               "!bg-[rgb(var(--bg-elevated))]",
             ].join(" "),
             error: [
-              "!border-[rgb(var(--fg-danger)/0.6)]",
+              "!border-[rgb(var(--border-subtle))]",
               "!bg-[rgb(var(--bg-elevated))]",
               "!text-[rgb(var(--fg-default))]",
             ].join(" "),
@@ -105,26 +139,5 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 }
 
 export function useToast(): ToastContextValue {
-  return {
-    toast: (message, variant = "info", options) => {
-      const sonnerOptions: Parameters<typeof sonnerToast>[1] = {
-        duration:
-          options?.durationMs ??
-          (variant === "error" ? ERROR_TOAST_DURATION_MS : DEFAULT_TOAST_DURATION_MS),
-      };
-      if (options?.action != null) {
-        sonnerOptions.action = {
-          label: options.action.label,
-          onClick: options.action.onClick,
-        };
-      }
-      if (variant === "success") {
-        sonnerToast.success(message, sonnerOptions);
-      } else if (variant === "error") {
-        sonnerToast.error(message, sonnerOptions);
-      } else {
-        sonnerToast(message, sonnerOptions);
-      }
-    },
-  };
+  return TOAST_CONTEXT_VALUE;
 }

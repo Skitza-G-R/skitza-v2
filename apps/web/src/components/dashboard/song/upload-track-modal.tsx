@@ -76,6 +76,13 @@ type ActiveMultipartUpload = ResumableEntry & {
   completionToken: string;
 };
 
+type FirstVersionCancellationResult = { ok: true } | { ok: false; error: string };
+
+type ActiveFirstVersionCancellation = {
+  intentId: string;
+  cancel: () => Promise<FirstVersionCancellationResult>;
+};
+
 // M1 — some drag-and-drop scenarios (Finder, certain browsers) hand us
 // a File with an empty `type`. The audio/ prefix check rejects those
 // files even when the filename ends in .wav / .flac / .m4a. Fall back
@@ -172,6 +179,7 @@ export function UploadTrackModal({
   // the Cancel button's destructive label.
   const activeUploadRef = useRef<ActiveMultipartUpload | null>(null);
   const activeFirstVersionIntentRef = useRef<string | null>(null);
+  const activeFirstVersionCancellationRef = useRef<ActiveFirstVersionCancellation | null>(null);
   const activeCancellationRef = useRef<UploadCancellationRequest | null>(null);
   const activePutAbortRef = useRef<AbortController | null>(null);
   const managedUploadRef = useRef<ManagedUploadHandle | null>(null);
@@ -201,8 +209,10 @@ export function UploadTrackModal({
     setUploadError(null);
     setIsDragging(false);
     activeUploadRef.current = null;
-    activeFirstVersionIntentRef.current = null;
-    firstVersionOperationKeyRef.current = crypto.randomUUID();
+    if (!activeFirstVersionIntentRef.current) {
+      activeFirstVersionCancellationRef.current = null;
+      firstVersionOperationKeyRef.current = crypto.randomUUID();
+    }
   }, [open, mode, trackId, initialProjectId, defaultLabel, tracks, projects]);
 
   useEffect(() => {
@@ -247,21 +257,80 @@ export function UploadTrackModal({
     !selectedProjectId ||
     (mode === "new-version" && !trackId);
 
+  function clearActiveFirstVersionIntent(intentId: string): void {
+    if (activeFirstVersionIntentRef.current === intentId) {
+      activeFirstVersionIntentRef.current = null;
+    }
+    if (activeFirstVersionCancellationRef.current?.intentId === intentId) {
+      activeFirstVersionCancellationRef.current = null;
+    }
+  }
+
+  function registerFirstVersionCancellation(
+    intentId: string,
+    managed: ManagedUploadHandle,
+  ): () => Promise<FirstVersionCancellationResult> {
+    let cancellationSucceeded = false;
+    let inFlight: Promise<FirstVersionCancellationResult> | null = null;
+    const cancel = (): Promise<FirstVersionCancellationResult> => {
+      if (cancellationSucceeded) return Promise.resolve({ ok: true });
+      if (inFlight) return inFlight;
+      const attempt = (async (): Promise<FirstVersionCancellationResult> => {
+        try {
+          const result = await cancelFirstVersionUploadAction({ intentId });
+          if (!result.ok) return { ok: false, error: result.error };
+          cancellationSucceeded = true;
+          clearActiveFirstVersionIntent(intentId);
+          return { ok: true };
+        } catch {
+          return { ok: false, error: uploadStageFailure("cancellation") };
+        }
+      })();
+      inFlight = attempt;
+      void attempt.then(() => {
+        if (!cancellationSucceeded && inFlight === attempt) inFlight = null;
+      });
+      return attempt;
+    };
+
+    activeFirstVersionCancellationRef.current = { intentId, cancel };
+    managed.setTerminalDispose(async () => {
+      const result = await cancel();
+      return { ok: result.ok };
+    });
+    return cancel;
+  }
+
+  async function cancelActiveFirstVersionIntent(): Promise<FirstVersionCancellationResult> {
+    const intentId = activeFirstVersionIntentRef.current;
+    if (!intentId) return { ok: true };
+    const registered = activeFirstVersionCancellationRef.current;
+    if (registered?.intentId === intentId) return registered.cancel();
+    try {
+      const result = await cancelFirstVersionUploadAction({ intentId });
+      if (!result.ok) return { ok: false, error: result.error };
+      clearActiveFirstVersionIntent(intentId);
+      return { ok: true };
+    } catch {
+      return { ok: false, error: uploadStageFailure("cancellation") };
+    }
+  }
+
   // ─── File handlers ─────────────────────────────────────────────────
-  const handleFilePick = (f: File | null) => {
+  const handleFilePick = async (f: File | null) => {
     if (pending) return;
+    if (f && !isAudioFile(f)) {
+      toast("Please pick an audio file (WAV / MP3).", "error");
+      return;
+    }
     const previousIntentId = activeFirstVersionIntentRef.current;
     if (previousIntentId) {
-      activeFirstVersionIntentRef.current = null;
-      void cancelFirstVersionUploadAction({ intentId: previousIntentId });
+      const canceled = await cancelActiveFirstVersionIntent();
+      if (!canceled.ok || activeFirstVersionIntentRef.current === previousIntentId) return;
       firstVersionOperationKeyRef.current = crypto.randomUUID();
     }
     if (!f) {
       setFile(null);
-      return;
-    }
-    if (!isAudioFile(f)) {
-      toast("Please pick an audio file (WAV / MP3).", "error");
       return;
     }
     setUploadError(null);
@@ -270,14 +339,14 @@ export function UploadTrackModal({
 
   const handleFileInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] ?? null;
-    handleFilePick(f);
+    void handleFilePick(f);
   };
 
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(false);
     const f = e.dataTransfer.files[0] ?? null;
-    handleFilePick(f);
+    void handleFilePick(f);
   };
 
   // ─── Submit / orchestration ────────────────────────────────────────
@@ -295,14 +364,8 @@ export function UploadTrackModal({
     const managed = managedUploadRef.current;
     if (managed) {
       void cancelManagedUpload(managed.id);
-    }
-    const firstVersionIntentId = activeFirstVersionIntentRef.current;
-    if (firstVersionIntentId) {
-      void cancelFirstVersionUploadAction({ intentId: firstVersionIntentId }).finally(() => {
-        if (activeFirstVersionIntentRef.current === firstVersionIntentId) {
-          activeFirstVersionIntentRef.current = null;
-        }
-      });
+    } else if (activeFirstVersionIntentRef.current) {
+      void cancelActiveFirstVersionIntent();
     }
     // Publish and reconcile an exact cancellation. Keep the identity in
     // the ref until that finishes so any upload failure can safely await
@@ -354,6 +417,7 @@ export function UploadTrackModal({
     const managed = beginManagedUpload({
       fileName: submittedFile.name,
       label: mode === "library" ? "Upload audio" : "Add Song",
+      terminalFeedback: "toast",
     });
     managedUploadRef.current = managed;
     let finishOperation: () => void = () => {};
@@ -376,6 +440,11 @@ export function UploadTrackModal({
     startTransition(async () => {
       setProgress(0);
       managed.setPreparing();
+      let cancelPreparedIntent: (() => Promise<FirstVersionCancellationResult>) | null = null;
+      const cancellationState: { attempted: boolean; failure: string | null } = {
+        attempted: false,
+        failure: null,
+      };
       try {
         let durationMs: number | undefined;
         try {
@@ -397,17 +466,23 @@ export function UploadTrackModal({
         });
         if (!prepared.ok) throw new Error(prepared.error);
         if (prepared.data.status === "completed") {
-          activeFirstVersionIntentRef.current = null;
+          clearActiveFirstVersionIntent(prepared.data.intentId);
           finishSuccessfulUpload(managed);
           return;
         }
 
         const intentId = prepared.data.intentId;
         activeFirstVersionIntentRef.current = intentId;
+        const cancelExactIntent = registerFirstVersionCancellation(intentId, managed);
+        cancelPreparedIntent = async () => {
+          cancellationState.attempted = true;
+          const result = await cancelExactIntent();
+          if (!result.ok) cancellationState.failure = result.error;
+          return result;
+        };
         if (uploadCancellationRequested(cancellation)) {
-          const canceled = await cancelFirstVersionUploadAction({ intentId });
+          const canceled = await cancelPreparedIntent();
           if (!canceled.ok) throw new Error(canceled.error);
-          activeFirstVersionIntentRef.current = null;
           throw new Error("Upload stopped.");
         }
 
@@ -429,9 +504,8 @@ export function UploadTrackModal({
           throw new Error(uploadTransferFailure({ status: putResponse.status }));
         }
         if (uploadCancellationRequested(cancellation)) {
-          const canceled = await cancelFirstVersionUploadAction({ intentId });
+          const canceled = await cancelPreparedIntent();
           if (!canceled.ok) throw new Error(canceled.error);
-          activeFirstVersionIntentRef.current = null;
           throw new Error("Upload stopped.");
         }
         setProgress(90);
@@ -439,7 +513,7 @@ export function UploadTrackModal({
         managed.setCompleting();
         const completed = await completeFirstVersionUploadAction({ intentId });
         if (!completed.ok) throw new Error(completed.error);
-        activeFirstVersionIntentRef.current = null;
+        clearActiveFirstVersionIntent(intentId);
         if (stage !== "no-change") {
           const stageResult = await setTrackStageAction({
             trackId: completed.data.trackId,
@@ -453,17 +527,16 @@ export function UploadTrackModal({
         finishSuccessfulUpload(managed);
       } catch (error) {
         const intentId = activeFirstVersionIntentRef.current;
-        let cancellationFailure: string | null = null;
-        if (intentId && uploadCancellationRequested(cancellation)) {
-          const canceled = await cancelFirstVersionUploadAction({ intentId });
-          if (canceled.ok) activeFirstVersionIntentRef.current = null;
-          else cancellationFailure = canceled.error;
+        if (intentId && uploadCancellationRequested(cancellation) && !cancellationState.attempted) {
+          cancellationState.attempted = true;
+          const canceled = cancelPreparedIntent
+            ? await cancelPreparedIntent()
+            : await cancelActiveFirstVersionIntent();
+          if (!canceled.ok) cancellationState.failure = canceled.error;
         }
         const message =
-          cancellationFailure ??
+          cancellationState.failure ??
           (error instanceof Error ? error.message : uploadStageFailure("initiation"));
-        toast(message, "error");
-        setUploadError(message);
         setProgress(0);
         managed.fail(message);
       } finally {
@@ -490,6 +563,7 @@ export function UploadTrackModal({
     const managed = beginManagedUpload({
       fileName: submittedFile.name,
       label: mode === "new-version" ? "Upload new version" : "Add song",
+      terminalFeedback: "toast",
     });
     managedUploadRef.current = managed;
     let finishOperation: () => void = () => {};
@@ -698,8 +772,6 @@ export function UploadTrackModal({
         const msg =
           cancellationFailure ??
           (err instanceof Error ? err.message : uploadStageFailure("initiation"));
-        toast(msg, "error");
-        setUploadError(msg);
         setProgress(0);
         managed.fail(msg);
       } finally {

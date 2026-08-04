@@ -73,7 +73,6 @@ export async function createFirstVersionUploadUrl(
         Bucket: BUCKETS.audio,
         Key: input.key,
         ContentType: contentType,
-        ContentLength: input.sizeBytes,
         CacheControl: "no-store",
         Metadata: {
           [FIRST_VERSION_COMPLETION_TOKEN_METADATA]: input.completionToken,
@@ -81,7 +80,12 @@ export async function createFirstVersionUploadUrl(
       }),
       {
         expiresIn: UPLOAD_URL_TTL_SECONDS,
-        signableHeaders: new Set(["content-type", metadataHeader]),
+        // Browser JavaScript cannot set Content-Length; the networking stack
+        // owns it. Completion still verifies the exact stored size. Sign only
+        // headers the browser sends, and keep x-amz metadata out of the query
+        // so the upload-token header is part of the SigV4 contract.
+        signableHeaders: new Set(["content-type", "cache-control"]),
+        unhoistableHeaders: new Set([metadataHeader]),
       },
     );
   } catch {

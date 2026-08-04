@@ -50,6 +50,18 @@ describe("Toast feedback", () => {
     expect(SRC).toMatch(/variant === "error"[\s\S]{0,120}ERROR_TOAST_DURATION_MS/);
   });
 
+  it("supports stable ids, lifecycle callbacks, and programmatic dismissal", () => {
+    expect(SRC).toContain("id?: string | number");
+    expect(SRC).toContain("onDismiss?: () => void");
+    expect(SRC).toContain("onAutoClose?: () => void");
+    expect(SRC).toContain("sonnerToast.dismiss(id)");
+  });
+
+  it("keeps error toasts compact and calm", () => {
+    expect(SRC).toContain("!w-[min(19rem,calc(100vw-1rem))]");
+    expect(SRC).not.toMatch(/error:[\s\S]{0,180}--fg-danger\)\/0\.6/);
+  });
+
   it("mounts exactly one toast provider and one Sonner toaster in the app", () => {
     const appSource = sourceFiles(WEB_SRC)
       .map((path) => readFileSync(path, "utf8"))
