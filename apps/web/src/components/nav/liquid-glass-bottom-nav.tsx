@@ -483,7 +483,9 @@ export function LiquidGlassBottomNav<Id extends string>({
       data-liquid-glass-bottom-nav-frame={position}
       className={cn(
         "liquid-glass-bottom-nav-frame z-30 shrink-0 lg:hidden",
-        position === "fixed" ? "fixed inset-x-0 bottom-0" : "relative",
+        position === "fixed"
+          ? "fixed inset-x-0 top-[var(--sk-viewport-offset-top,0px)] flex h-[var(--sk-viewport-height,100dvh)] items-end pointer-events-none"
+          : "relative",
         frameClassName,
       )}
       style={{
@@ -506,6 +508,7 @@ export function LiquidGlassBottomNav<Id extends string>({
         onPointerLeave={handlePointerLeave}
         className={cn(
           "liquid-glass-bottom-nav__glass mx-auto grid w-full max-w-[420px]",
+          position === "fixed" && "pointer-events-auto",
           navClassName,
         )}
         style={navStyle}

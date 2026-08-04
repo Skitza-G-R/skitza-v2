@@ -315,7 +315,7 @@ export function BookingClient({
         ) : null}
       </header>
 
-      <div className="mt-7 flex-1">
+      <div className="mt-7">
         {step === "package" ? (
           <PackageStep
             packages={activePackages}
@@ -368,7 +368,7 @@ export function BookingClient({
         ) : null}
       </div>
 
-      <div className="sticky bottom-0 mt-8 bg-[rgb(var(--bg-background))] pt-3 pb-[max(env(safe-area-inset-bottom),20px)]">
+      <div className="mt-8 shrink-0 bg-[rgb(var(--bg-background))] pb-[max(env(safe-area-inset-bottom),20px)]">
         {step === "package" ? (
           <PrimaryCta
             disabled={!selectedPackage || !online || isPending}
@@ -429,9 +429,9 @@ function FocusedFrame({
   children: React.ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-[60] overflow-y-auto bg-[rgb(var(--bg-background))]">
+    <div className="sk-native-screen fixed inset-x-0 top-[var(--sk-viewport-offset-top,0px)] z-[60] flex flex-col overflow-hidden bg-[rgb(var(--bg-background))]">
       <FunnelTopBar title={title} {...(sub ? { sub } : {})} onBack={onBack} />
-      <main className="mx-auto flex min-h-[calc(100dvh-57px)] w-full max-w-[560px] flex-col px-5 pt-8 sm:px-7">
+      <main className="sk-native-scroll mx-auto flex min-h-0 w-full max-w-[560px] flex-1 flex-col px-5 pt-8 sm:px-7">
         {children}
       </main>
     </div>

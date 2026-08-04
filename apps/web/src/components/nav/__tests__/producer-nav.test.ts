@@ -106,7 +106,10 @@ describe("producer mobile nav viewport anchoring", () => {
 
   it("keeps the glass nav in the shell footer instead of fixing it to the document viewport", () => {
     expect(BOTTOM).toContain('position="in-flow"');
-    expect(SHARED_BOTTOM).toContain('"fixed inset-x-0 bottom-0" : "relative"');
+    expect(SHARED_BOTTOM).toContain(
+      '"fixed inset-x-0 top-[var(--sk-viewport-offset-top,0px)] flex h-[var(--sk-viewport-height,100dvh)] items-end pointer-events-none"',
+    );
+    expect(SHARED_BOTTOM).toContain(': "relative"');
     expect(SHARED_BOTTOM).toContain(
       ") max(8px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px))",
     );

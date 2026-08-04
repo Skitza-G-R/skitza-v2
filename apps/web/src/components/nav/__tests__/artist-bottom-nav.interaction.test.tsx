@@ -98,6 +98,12 @@ describe("ArtistBottomNav liquid-glass adapter", () => {
     const tabs = [...nav.querySelectorAll<HTMLAnchorElement>("[data-liquid-glass-nav-tab]")];
 
     expect(frame?.dataset.liquidGlassBottomNavFrame).toBe("fixed");
+    expect(frame?.className).toContain("top-[var(--sk-viewport-offset-top,0px)]");
+    expect(frame?.className).toContain("h-[var(--sk-viewport-height,100dvh)]");
+    expect(frame?.className).toContain("items-end");
+    expect(frame?.className).toContain("pointer-events-none");
+    expect(frame?.className).not.toContain("bottom-0");
+    expect(nav.className).toContain("pointer-events-auto");
     expect(nav.style.getPropertyValue("--sk-nav-column-count")).toBe("4");
     expect(nav.style.getPropertyValue("--sk-nav-column-width")).toBe("25%");
     expect(tabs).toHaveLength(4);
