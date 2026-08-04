@@ -292,6 +292,8 @@ export default async function CalendarPage({
               blackouts={availabilityBlackouts}
               settings={availabilitySettings}
               initialWeekStart={availabilityWeekStart}
+              timeZone={calendarTimeZone}
+              initialNow={initialNow.toISOString()}
             />
           }
         />
