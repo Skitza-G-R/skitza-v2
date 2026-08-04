@@ -5,12 +5,8 @@ import {
   type ArtistHomeAction,
   withoutArtistHomeDuplicate,
 } from "~/components/artist/home/home-priority";
-import {
-  artistGreeting,
-  formatArtistDateTime,
-  formatArtistTimeRange,
-  isSameArtistDay,
-} from "~/components/artist/home/home-timezone";
+import { artistHomeBookingStatusActions } from "~/components/artist/home/booking-status";
+import { artistGreeting } from "~/components/artist/home/home-timezone";
 import { ProfessionalArtistHome } from "~/components/artist/home/professional-home";
 import { RuntimeScreenSafeViewWriter } from "~/components/runtime-state/runtime-screen-view";
 import { resolveArtistStudioId, withArtistStudio } from "~/lib/artist-studio-context";
@@ -80,22 +76,13 @@ export default async function ArtistHomePage({ searchParams }: ArtistHomePagePro
 
   const candidates: ArtistHomeAction[] = [];
   const now = new Date();
-  if (home.nextSession && isSameArtistDay(home.nextSession.startsAt, now, artistTimezone)) {
-    candidates.push({
-      id: home.nextSession.id,
-      kind: "today_session",
-      title: home.nextSession.productName,
-      detail: `Today, ${formatArtistTimeRange(
-        home.nextSession.startsAt,
-        home.nextSession.durationMin,
-        artistTimezone,
-      )}`,
-      href: withArtistStudio(`/artist/sessions/${home.nextSession.id}`, activeStudio.producerId),
-      actionLabel: "View session",
-      upcomingAt: home.nextSession.startsAt,
-      occurredAt: home.nextSession.startsAt,
-    });
-  }
+  const bookingStatusActions = artistHomeBookingStatusActions({
+    sessions: sessions.sessions,
+    producerId: activeStudio.producerId,
+    artistTimezone,
+    now,
+  });
+  candidates.push(...bookingStatusActions);
 
   const selectedPayments = [
     ...paymentReadModel.artistBuckets.waiting.projects,
@@ -179,7 +166,7 @@ export default async function ArtistHomePage({ searchParams }: ArtistHomePagePro
   candidates.push(serviceAction);
 
   const main = selectArtistHomeMainAction(candidates) ?? serviceAction;
-  const supporting: ArtistHomeAction[] = [];
+  const supporting: ArtistHomeAction[] = [...bookingStatusActions];
 
   if (currentRequest.current?.status === "pending") {
     supporting.push({
@@ -214,21 +201,8 @@ export default async function ArtistHomePage({ searchParams }: ArtistHomePagePro
       occurredAt: proofUnderReview.purchase.acceptedAt,
     });
   }
-  if (home.nextSession && !isSameArtistDay(home.nextSession.startsAt, now, artistTimezone)) {
-    supporting.push({
-      id: home.nextSession.id,
-      kind: "today_session",
-      title: home.nextSession.productName,
-      detail: formatArtistDateTime(home.nextSession.startsAt, artistTimezone),
-      href: withArtistStudio(`/artist/sessions/${home.nextSession.id}`, activeStudio.producerId),
-      actionLabel: "View",
-      upcomingAt: home.nextSession.startsAt,
-      occurredAt: home.nextSession.startsAt,
-    });
-  }
-
   const meaningfulItems =
-    home.nextSession !== null ||
+    bookingStatusActions.length > 0 ||
     selectedPayments.length > 0 ||
     selectedAllowances.length > 0 ||
     home.latestMix !== null ||

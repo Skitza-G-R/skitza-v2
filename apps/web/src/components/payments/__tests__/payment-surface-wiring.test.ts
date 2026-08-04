@@ -144,7 +144,8 @@ describe("SK-69 payment surface wiring", () => {
     expect(dashboardPage).toContain("pendingApprovals={pendingApprovals}");
     expect(artistHome).toContain("<ProfessionalArtistHome");
     expect(artistHome).toContain('kind: "payment_action"');
-    expect(artistHome).toContain('kind: "today_session"');
+    expect(artistHome).toContain("artistHomeBookingStatusActions({");
+    expect(artistHome).toContain("sessions: sessions.sessions");
     expect(artistHome).toContain('kind: "ready_to_schedule"');
     expect(artistHome).not.toContain("<PurchaseStatusCard");
     expect(artistHome).not.toContain("<ArtistPaymentActionsCard");

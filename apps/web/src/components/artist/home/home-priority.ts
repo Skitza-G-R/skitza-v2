@@ -1,4 +1,5 @@
 export type ArtistHomeActionKind =
+  | "session_status"
   | "today_session"
   | "payment_action"
   | "ready_to_schedule"
@@ -24,6 +25,7 @@ export type ArtistHomeAction = Readonly<{
 }>;
 
 const PRIORITY: Record<ArtistHomeActionKind, number> = {
+  session_status: 0,
   today_session: 0,
   payment_action: 1,
   ready_to_schedule: 2,
