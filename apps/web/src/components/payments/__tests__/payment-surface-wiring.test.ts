@@ -57,6 +57,8 @@ const producerPaymentWorkspaceData = read(
   "payments",
   "producer-payment-workspace-data.ts",
 );
+const paymentHistoryAdapter = read("components", "payments", "payment-history-adapter.ts");
+const purchaseLedgerRouter = read("server", "trpc", "routers", "purchase-ledger.ts");
 const projectPage = read("app", "(producer)", "dashboard", "clients-projects", "[id]", "page.tsx");
 const songPage = read(
   "app",
@@ -168,6 +170,17 @@ describe("SK-69 payment surface wiring", () => {
     expect(readDb).toContain("activeArtistClientOwner");
     expect(readDb).toContain("eq(purchases.producerId, scope.producerId)");
     expect(readDb).not.toMatch(/paymentProofs\.(storageKey|objectEtag|storageBucket)/);
+  });
+
+  it("filters exact owned artists only after the producer-scoped overview read", () => {
+    expect(producerPayments).toContain("purchaseLedger.overview()");
+    expect(purchaseLedgerRouter).toMatch(
+      /overview: producerProcedure\.query[\s\S]*?producerId: ctx\.producerId/,
+    );
+    expect(paymentHistoryAdapter).toContain("counterpartyId:");
+    expect(paymentHistoryAdapter).toContain("purchase.clientContactId");
+    expect(producerPaymentWorkspace).toContain('aria-label="Filter by artist"');
+    expect(producerPaymentWorkspace).toContain("row.purchase.counterpartyId");
   });
 
   it("completes payment through the exact purchase and installment returned by the existing flow", () => {

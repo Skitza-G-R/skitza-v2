@@ -42,6 +42,7 @@ const SHARED_PROJECT: PaymentHistoryProject = {
       id: "purchase-sk69",
       reference: "SK-69SAFE",
       title: "Single production",
+      counterpartyId: "client-maya",
       counterpartyLabel: "Maya Cohen",
       currency: "ILS",
       status: { label: "Overdue", tone: "danger" },
@@ -203,6 +204,46 @@ const SHARED_PURCHASE = SHARED_PROJECT.purchases[0];
 if (!SHARED_PURCHASE) {
   throw new Error("The SK-69 safe browser fixture requires its shared purchase.");
 }
+
+const REVIEW_PROJECT: PaymentHistoryProject = {
+  ...SHARED_PROJECT,
+  id: "project-sk183-review",
+  title: "Paper Moons",
+  status: { label: "Active", tone: "active" },
+  currencyTotals: [{ currency: "ILS", dueNowCents: 60_000, totalRemainingCents: 60_000 }],
+  purchases: [
+    {
+      ...SHARED_PURCHASE,
+      id: "purchase-sk183-review",
+      reference: "SK-183NOA",
+      title: "Vocal production",
+      counterpartyId: "client-noa",
+      counterpartyLabel: "Noa Green",
+      status: { label: "Needs review", tone: "accent" },
+      acceptance: {
+        acceptedAtIso: "2026-06-01T09:00:00.000Z",
+        acceptedByLabel: "Noa Green accepted the exact terms",
+        statement: "Price, plan, agreement, and schedule are the immutable accepted record.",
+      },
+      proofs: [
+        ...SHARED_PURCHASE.proofs,
+        {
+          id: "proof-sk183-review",
+          installmentLabel: "Payment 2",
+          amountCents: 60_000,
+          currency: "ILS",
+          status: "pending",
+          originalFileName: "noa-transfer.pdf",
+          submittedAtIso: "2026-08-03T11:00:00.000Z",
+          reviewedAtIso: null,
+          note: "Final installment transfer.",
+          rejectionNote: null,
+          detailAvailable: true,
+        },
+      ],
+    },
+  ],
+};
 
 const UPCOMING_PROJECT: PaymentHistoryProject = {
   ...SHARED_PROJECT,
@@ -448,6 +489,11 @@ const WORKSPACE_BUCKETS: readonly PaymentWorkspaceBucket[] = [
   { id: "history", label: "History", projects: [] },
 ];
 
+const PRODUCER_WORKSPACE_BUCKETS: readonly PaymentWorkspaceBucket[] = [
+  { id: "needs_review", label: "Needs review", projects: [REVIEW_PROJECT] },
+  ...WORKSPACE_BUCKETS.filter((bucket) => bucket.id !== "needs_review"),
+];
+
 const SECTIONS: Record<
   Exclude<Surface, "dashboard" | "artist-home" | "requests">,
   PaymentHistorySectionDescriptor
@@ -528,7 +574,7 @@ export function Sk69PaymentsDevScreen() {
       <section data-testid={`sk69-surface-${surface}`}>
         {surface === "producer-payments" ? (
           <ProducerPaymentWorkspace
-            buckets={WORKSPACE_BUCKETS}
+            buckets={PRODUCER_WORKSPACE_BUCKETS}
             scope="global"
             defaultView="open"
           />

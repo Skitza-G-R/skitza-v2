@@ -171,6 +171,7 @@ export interface PaymentHistoryPurchase {
   studioId?: string;
   reference: string;
   title: string;
+  counterpartyId?: string | null;
   counterpartyLabel: string | null;
   currency: string;
   status: PaymentHistoryStatus;

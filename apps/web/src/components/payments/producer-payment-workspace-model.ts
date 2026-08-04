@@ -31,6 +31,12 @@ export interface PaymentWorkspaceFilters {
   currency: string;
   /** `"all"` or one exact project id. */
   projectId: string;
+  /** `"all"` or one exact, producer-owned client contact id. */
+  counterpartyId: string;
+  /** Inclusive UTC calendar date for accepted purchases, or an empty string. */
+  acceptedFrom: string;
+  /** Inclusive UTC calendar date for accepted purchases, or an empty string. */
+  acceptedTo: string;
 }
 
 export interface PaymentWorkspaceGroup {
@@ -132,6 +138,22 @@ function rowMatchesView(row: PaymentWorkspaceRow, view: PaymentWorkspaceView): b
   return row.bucketId === view;
 }
 
+function acceptedDateKey(row: PaymentWorkspaceRow): string | null {
+  const acceptedAtIso = row.purchase.acceptance.acceptedAtIso;
+  if (!acceptedAtIso) return null;
+
+  const acceptedAt = new Date(acceptedAtIso);
+  if (Number.isNaN(acceptedAt.getTime())) return null;
+  return acceptedAt.toISOString().slice(0, 10);
+}
+
+export function isPaymentWorkspaceDateRangeValid(
+  acceptedFrom: string,
+  acceptedTo: string,
+): boolean {
+  return acceptedFrom.length === 0 || acceptedTo.length === 0 || acceptedFrom <= acceptedTo;
+}
+
 /**
  * Turns bucketed payment-history projections into one row per purchase.
  * The first projection of a duplicate purchase wins, preserving its exact project.
@@ -164,12 +186,27 @@ export function filterPaymentWorkspaceRows(
   rows: readonly PaymentWorkspaceRow[],
   filters: PaymentWorkspaceFilters,
 ): PaymentWorkspaceRow[] {
+  if (!isPaymentWorkspaceDateRangeValid(filters.acceptedFrom, filters.acceptedTo)) return [];
+
   const queryTokens = normalized(filters.query).split(/\s+/u).filter(Boolean);
 
   const filtered = uniqueRows(rows).filter((row) => {
     if (!rowMatchesView(row, filters.view)) return false;
     if (filters.currency !== "all" && row.purchase.currency !== filters.currency) return false;
     if (filters.projectId !== "all" && row.project.id !== filters.projectId) return false;
+    if (
+      filters.counterpartyId !== "all" &&
+      row.purchase.counterpartyId !== filters.counterpartyId
+    ) {
+      return false;
+    }
+
+    if (filters.acceptedFrom || filters.acceptedTo) {
+      const acceptedDate = acceptedDateKey(row);
+      if (!acceptedDate) return false;
+      if (filters.acceptedFrom && acceptedDate < filters.acceptedFrom) return false;
+      if (filters.acceptedTo && acceptedDate > filters.acceptedTo) return false;
+    }
 
     if (queryTokens.length === 0) return true;
 
