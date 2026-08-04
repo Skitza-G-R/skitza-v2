@@ -65,7 +65,6 @@ import {
   studioLocalDateTimeUtcCandidates,
 } from "~/server/domain/session-booking/service";
 import { sessionBookingRepository } from "~/server/domain/session-booking/db";
-import { getArtistProfile } from "~/server/artist/profile";
 import { emitArtistSessionNotification } from "~/server/artist/notification-emitters";
 import { assertWritableCommentTarget, CommentDomainError } from "~/server/domain/comments/service";
 import { listSameClientPurchaseTargets } from "~/server/domain/purchase-targeting/db";
@@ -1137,13 +1136,13 @@ type ArtistBookingBlockedReason =
   | "allowance_exhausted"
   | null;
 
-function presentArtistSession(row: ArtistSessionRow, now: Date, artistTimezone: string) {
+function presentArtistSession(row: ArtistSessionRow, now: Date) {
   return {
     id: row.booking.id,
     producerId: row.booking.producerId,
     producerName: row.producerName ?? "Your producer",
     producerSlug: row.producerSlug,
-    artistTimezone,
+    artistTimezone: row.producerTimezone,
     producerTimezone: row.producerTimezone,
     projectId: row.booking.projectId,
     projectTitle: row.projectTitle,
@@ -1195,20 +1194,17 @@ const bookSubrouter = router({
     )
     .query(async ({ ctx, input }) => {
       const now = new Date();
-      const [producerRows, artistProfile] = await Promise.all([
-        ctx.db
-          .select({
-            timeZone: producers.timezone,
-            cancellationPolicyHours: producers.cancellationPolicyHours,
-          })
-          .from(producers)
-          .where(eq(producers.id, input.producerId))
-          .limit(1),
-        getArtistProfile(ctx.db, ctx.clerkUserId),
-      ]);
+      const producerRows = await ctx.db
+        .select({
+          timeZone: producers.timezone,
+          cancellationPolicyHours: producers.cancellationPolicyHours,
+        })
+        .from(producers)
+        .where(eq(producers.id, input.producerId))
+        .limit(1);
       const producer = producerRows[0];
       if (!producer) throw new TRPCError({ code: "NOT_FOUND" });
-      const artistTimeZone = artistProfile.timezone ?? "UTC";
+      const bookingTimeZone = producer.timeZone;
 
       let ignoredBookingId: string | undefined;
       let selectedTerms:
@@ -1463,7 +1459,7 @@ const bookSubrouter = router({
         blocks.sort((left, right) => left.startMin - right.startMin);
       }
 
-      const slotsByArtistDay = new Map<
+      const slotsByBookingDay = new Map<
         string,
         Array<{
           startsAt: Date;
@@ -1515,21 +1511,21 @@ const bookSubrouter = router({
                 continue;
               }
               seenStarts.add(startsAt.getTime());
-              const artistDate = studioLocalDateKey(startsAt, artistTimeZone);
-              const slots = slotsByArtistDay.get(artistDate) ?? [];
+              const bookingDate = studioLocalDateKey(startsAt, bookingTimeZone);
+              const slots = slotsByBookingDay.get(bookingDate) ?? [];
               slots.push({
                 startsAt,
                 endsAt: new Date(startsAt.getTime() + durationMin * 60 * 1000),
                 studioDate: dateStr,
                 studioStartMin: startMin,
               });
-              slotsByArtistDay.set(artistDate, slots);
+              slotsByBookingDay.set(bookingDate, slots);
             }
           }
         }
       }
 
-      const days = [...slotsByArtistDay.entries()]
+      const days = [...slotsByBookingDay.entries()]
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([date, slots]) => ({
           date,
@@ -1538,9 +1534,11 @@ const bookSubrouter = router({
 
       return {
         days,
-        artistTimeZone,
-        studioTimeZone: producer.timeZone,
-        today: studioLocalDateKey(now, artistTimeZone),
+        // Keep the existing transport keys while pinning both to the one
+        // booking clock: the Producer's configured IANA timezone.
+        artistTimeZone: bookingTimeZone,
+        studioTimeZone: bookingTimeZone,
+        today: studioLocalDateKey(now, bookingTimeZone),
       };
     }),
 
@@ -1773,7 +1771,7 @@ const bookSubrouter = router({
     .input(z.object({ producerId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const now = new Date();
-      const [sessionRows, allowanceRows, artistProfile] = await Promise.all([
+      const [sessionRows, allowanceRows] = await Promise.all([
         loadArtistSessionRows(ctx.db, ctx.clerkUserId, undefined, input.producerId),
         ctx.db
           .select({
@@ -1828,9 +1826,7 @@ const bookSubrouter = router({
             ),
           )
           .orderBy(desc(purchaseSessionAllowances.createdAt)),
-        getArtistProfile(ctx.db, ctx.clerkUserId),
       ]);
-      const artistTimezone = artistProfile.timezone ?? "UTC";
 
       const usesByAllowance = new Map<
         string,
@@ -1849,7 +1845,7 @@ const bookSubrouter = router({
       }
 
       return {
-        sessions: sessionRows.map((row) => presentArtistSession(row, now, artistTimezone)),
+        sessions: sessionRows.map((row) => presentArtistSession(row, now)),
         allowances: allowanceRows.map((allowance) => {
           const uses = usesByAllowance.get(allowance.sessionAllowanceId) ?? [];
           const sessionsUsed = new Set(
@@ -1914,13 +1910,10 @@ const bookSubrouter = router({
   session: artistProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const [rows, artistProfile] = await Promise.all([
-        loadArtistSessionRows(ctx.db, ctx.clerkUserId, input.id),
-        getArtistProfile(ctx.db, ctx.clerkUserId),
-      ]);
+      const rows = await loadArtistSessionRows(ctx.db, ctx.clerkUserId, input.id);
       const row = rows[0];
       if (!row) throw new TRPCError({ code: "NOT_FOUND" });
-      return presentArtistSession(row, new Date(), artistProfile.timezone ?? "UTC");
+      return presentArtistSession(row, new Date());
     }),
 
   cancel: artistProcedure
@@ -2469,6 +2462,7 @@ export const artistRouter = router({
             producerId: bookings.producerId,
             producerName: producers.displayName,
             producerSlug: producers.slug,
+            producerTimezone: producers.timezone,
             commercialSnapshot: purchases.commercialSnapshot,
           })
           .from(bookings)
@@ -2663,6 +2657,7 @@ export const artistRouter = router({
             producerId: nextRow.producerId,
             producerName: nextRow.producerName ?? "Untitled Studio",
             producerSlug: nextRow.producerSlug,
+            producerTimezone: nextRow.producerTimezone,
             productName: purchaseProductName(nextRow.commercialSnapshot, "Session"),
           }
         : null;

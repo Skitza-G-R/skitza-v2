@@ -80,7 +80,10 @@ export default async function ArtistHomePage({ searchParams }: ArtistHomePagePro
 
   const candidates: ArtistHomeAction[] = [];
   const now = new Date();
-  if (home.nextSession && isSameArtistDay(home.nextSession.startsAt, now, artistTimezone)) {
+  if (
+    home.nextSession &&
+    isSameArtistDay(home.nextSession.startsAt, now, home.nextSession.producerTimezone)
+  ) {
     candidates.push({
       id: home.nextSession.id,
       kind: "today_session",
@@ -88,7 +91,7 @@ export default async function ArtistHomePage({ searchParams }: ArtistHomePagePro
       detail: `Today, ${formatArtistTimeRange(
         home.nextSession.startsAt,
         home.nextSession.durationMin,
-        artistTimezone,
+        home.nextSession.producerTimezone,
       )}`,
       href: withArtistStudio(`/artist/sessions/${home.nextSession.id}`, activeStudio.producerId),
       actionLabel: "View session",
@@ -214,12 +217,15 @@ export default async function ArtistHomePage({ searchParams }: ArtistHomePagePro
       occurredAt: proofUnderReview.purchase.acceptedAt,
     });
   }
-  if (home.nextSession && !isSameArtistDay(home.nextSession.startsAt, now, artistTimezone)) {
+  if (
+    home.nextSession &&
+    !isSameArtistDay(home.nextSession.startsAt, now, home.nextSession.producerTimezone)
+  ) {
     supporting.push({
       id: home.nextSession.id,
       kind: "today_session",
       title: home.nextSession.productName,
-      detail: formatArtistDateTime(home.nextSession.startsAt, artistTimezone),
+      detail: formatArtistDateTime(home.nextSession.startsAt, home.nextSession.producerTimezone),
       href: withArtistStudio(`/artist/sessions/${home.nextSession.id}`, activeStudio.producerId),
       actionLabel: "View",
       upcomingAt: home.nextSession.startsAt,

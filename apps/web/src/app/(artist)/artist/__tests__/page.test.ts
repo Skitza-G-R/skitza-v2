@@ -24,13 +24,13 @@ describe("/artist page composition", () => {
     expect(SRC).toMatch(/Promise\.all/);
   });
 
-  it("uses the saved artist IANA timezone for Home date labels", () => {
+  it("uses artist time for the greeting and producer time for session labels", () => {
     expect(SRC).toContain("caller.artistPlatform.profile.get()");
     expect(SRC).toContain('artistProfile.timezone ?? "UTC"');
     expect(SRC).toContain("artistGreeting(new Date(), firstName, artistTimezone)");
-    expect(SRC).toContain("isSameArtistDay(");
-    expect(SRC).toContain("formatArtistTimeRange(");
-    expect(SRC).toContain("formatArtistDateTime(");
+    expect(SRC).toMatch(/isSameArtistDay\([^)]*home\.nextSession\.producerTimezone/s);
+    expect(SRC).toMatch(/formatArtistTimeRange\([^)]*home\.nextSession\.producerTimezone/s);
+    expect(SRC).toMatch(/formatArtistDateTime\([^)]*home\.nextSession\.producerTimezone/s);
   });
 
   it("does not reintroduce old dashboard or multi-studio Home sections", () => {
