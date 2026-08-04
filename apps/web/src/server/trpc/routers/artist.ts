@@ -2563,6 +2563,7 @@ export const artistRouter = router({
               and ${artistNotifications.subjectType} = 'track_version'
               and ${artistNotifications.subjectId} = ${trackVersions.id}
               and ${artistNotifications.inAppVisible} is true
+              and ${artistNotifications.archivedAt} is null
               and ${artistNotifications.openedAt} is null
           )`,
           })

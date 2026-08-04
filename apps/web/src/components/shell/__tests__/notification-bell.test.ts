@@ -153,6 +153,14 @@ describe("notification read state and tabs", () => {
 });
 
 describe("NotificationBell interaction contract", () => {
+  it("opens on Unread and exposes persisted dismissal controls", () => {
+    expect(SRC).toContain('useState<NotificationTab>("unread")');
+    expect(SRC).toContain("archiveNotification");
+    expect(SRC).toContain("archiveAllNotifications");
+    expect(SRC).toContain("Clear all");
+    expect(SRC).toContain("Dismiss ${item.title}");
+  });
+
   it("renders an anchored desktop popover and a full-width mobile Sheet", () => {
     expect(SRC).toContain('data-testid="notification-popover"');
     expect(SRC).toContain('data-testid="notification-sheet"');
@@ -185,9 +193,10 @@ describe("NotificationBell interaction contract", () => {
     expect(SRC).toContain('aria-haspopup="dialog"');
   });
 
-  it("keeps mark-all failures visible and lets item navigation proceed", () => {
+  it("keeps archive failures visible and lets item navigation proceed", () => {
     expect(SRC).toContain('role="alert"');
     expect(SRC).toContain('data-testid="notification-error"');
+    expect(SRC).toContain("setDismissedIds");
     expect(SRC).toMatch(/catch \{[\s\S]*?setError\(FALLBACK_ERROR\)/);
     expect(SRC).toMatch(/handleItemClick[\s\S]*?finally \{[\s\S]*?router\.push/);
   });

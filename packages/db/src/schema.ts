@@ -1352,6 +1352,7 @@ export const artistNotifications = pgTable(
     switcherDotWorthy: boolean("switcher_dot_worthy").notNull().default(false),
     readAt: timestamp("read_at", { withTimezone: true }),
     openedAt: timestamp("opened_at", { withTimezone: true }),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
@@ -1362,15 +1363,20 @@ export const artistNotifications = pgTable(
     feedIdx: index("artist_notifications_recipient_feed_idx").on(
       t.recipientClerkUserId,
       t.inAppVisible,
+      t.archivedAt,
       t.createdAt.desc(),
       t.id.desc(),
     ),
     unreadIdx: index("artist_notifications_recipient_unread_idx")
       .on(t.recipientClerkUserId, t.createdAt.desc(), t.id.desc())
-      .where(sql`${t.inAppVisible} IS TRUE AND ${t.readAt} IS NULL`),
+      .where(
+        sql`${t.inAppVisible} IS TRUE AND ${t.archivedAt} IS NULL AND ${t.readAt} IS NULL`,
+      ),
     unseenDotIdx: index("artist_notifications_recipient_studio_dot_idx")
       .on(t.recipientClerkUserId, t.producerId, t.createdAt.desc(), t.id.desc())
-      .where(sql`${t.switcherDotWorthy} IS TRUE AND ${t.openedAt} IS NULL`),
+      .where(
+        sql`${t.switcherDotWorthy} IS TRUE AND ${t.archivedAt} IS NULL AND ${t.openedAt} IS NULL`,
+      ),
     identityShape: check(
       "artist_notifications_identity_shape",
       sql`${t.recipientClerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
@@ -1389,6 +1395,10 @@ export const artistNotifications = pgTable(
       "artist_notifications_timestamp_shape",
       sql`(${t.readAt} IS NULL OR ${t.readAt} >= ${t.createdAt})
         AND (${t.openedAt} IS NULL OR ${t.openedAt} >= ${t.createdAt})`,
+    ),
+    archivedTimestampShape: check(
+      "artist_notifications_archived_timestamp_shape",
+      sql`${t.archivedAt} IS NULL OR ${t.archivedAt} >= ${t.createdAt}`,
     ),
   }),
 );
