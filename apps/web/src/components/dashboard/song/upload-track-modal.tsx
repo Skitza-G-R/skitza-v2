@@ -353,6 +353,7 @@ export function UploadTrackModal({
     const managed = beginManagedUpload({
       fileName: submittedFile.name,
       label: mode === "library" ? "Upload audio" : "Add Song",
+      terminalFeedback: "toast",
     });
     managedUploadRef.current = managed;
     let finishOperation: () => void = () => {};
@@ -449,8 +450,6 @@ export function UploadTrackModal({
           activeFirstVersionIntentRef.current = null;
         }
         const message = error instanceof Error ? error.message : "Upload failed. Please retry.";
-        toast(message, "error");
-        setUploadError(message);
         setProgress(0);
         managed.fail(message);
       } finally {
@@ -477,6 +476,7 @@ export function UploadTrackModal({
     const managed = beginManagedUpload({
       fileName: submittedFile.name,
       label: mode === "new-version" ? "Upload new version" : "Add song",
+      terminalFeedback: "toast",
     });
     managedUploadRef.current = managed;
     let finishOperation: () => void = () => {};
@@ -672,8 +672,6 @@ export function UploadTrackModal({
           await requestVersionCleanup(versionCleanup, deleteVersionAction);
         }
         const msg = err instanceof Error ? err.message : "Upload failed. Please retry.";
-        toast(msg, "error");
-        setUploadError(msg);
         setProgress(0);
         managed.fail(msg);
       } finally {

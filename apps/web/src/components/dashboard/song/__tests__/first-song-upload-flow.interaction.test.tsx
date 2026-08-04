@@ -14,6 +14,7 @@ const mocked = vi.hoisted(() => ({
   addTrackAction: vi.fn(),
   addVersionAction: vi.fn(),
   beginManagedUpload: vi.fn(),
+  managedFail: vi.fn(),
 }));
 
 vi.mock("@radix-ui/react-dialog", () => ({
@@ -98,7 +99,7 @@ beforeEach(() => {
   mocked.beginManagedUpload.mockReturnValue({
     id: "managed-first",
     dismiss: vi.fn(),
-    fail: vi.fn(),
+    fail: mocked.managedFail,
     setCancel: vi.fn(),
     setCompleting: vi.fn(),
     setPreparing: vi.fn(),
@@ -190,6 +191,9 @@ describe("first Song upload journey", () => {
     await waitFor(() => {
       expect(mocked.prepareFirstVersionUploadAction).toHaveBeenCalledTimes(1);
     });
+    expect(mocked.managedFail).toHaveBeenCalledWith("Network interrupted");
+    expect(mocked.toast).not.toHaveBeenCalledWith("Network interrupted", "error");
+    expect(screen.queryByText("Network interrupted")).toBeNull();
     expect(mocked.completeFirstVersionUploadAction).not.toHaveBeenCalled();
     expect(mocked.addTrackAction).not.toHaveBeenCalled();
     expect(mocked.addVersionAction).not.toHaveBeenCalled();

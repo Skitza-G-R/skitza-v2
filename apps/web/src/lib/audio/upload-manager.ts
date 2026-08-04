@@ -20,6 +20,7 @@ export type ManagedUploadRecord = {
   error: string | null;
   canRetry: boolean;
   canCancel: boolean;
+  terminalFeedback: "dock" | "toast";
   updatedAt: string;
 };
 
@@ -40,11 +41,11 @@ const actions = new Map<string, UploadActions>();
 type TerminalRemovalState = {
   status: "done" | "error";
   timer: ReturnType<typeof setTimeout> | null;
-  remainingMs: number;
-  startedAtMs: number | null;
+  expiresAtMs: number;
 };
 const terminalRemovalStates = new Map<string, TerminalRemovalState>();
-let errorVisibilityDocument: Document | null = null;
+let errorLifecycleDocument: Document | null = null;
+let errorLifecycleWindow: Window | null = null;
 const listeners = new Set<() => void>();
 
 function emit(): void {
@@ -54,35 +55,50 @@ function emit(): void {
   for (const listener of listeners) listener();
 }
 
-function visibilityDocument(): Document | null {
+function browserDocument(): Document | null {
   return typeof document === "undefined" ? null : document;
 }
 
-function documentIsVisible(): boolean {
-  const currentDocument = visibilityDocument();
-  return currentDocument === null || currentDocument.visibilityState === "visible";
+function browserWindow(): Window | null {
+  return typeof window === "undefined" ? null : window;
 }
 
-function detachErrorVisibilityListener(): void {
-  if (!errorVisibilityDocument) return;
-  errorVisibilityDocument.removeEventListener("visibilitychange", handleVisibilityChange);
-  errorVisibilityDocument = null;
+function detachErrorLifecycleListeners(): void {
+  errorLifecycleDocument?.removeEventListener("visibilitychange", reconcileExpiredErrors);
+  errorLifecycleWindow?.removeEventListener("focus", reconcileExpiredErrors);
+  errorLifecycleDocument = null;
+  errorLifecycleWindow = null;
 }
 
-function syncErrorVisibilityListener(): void {
+function syncErrorLifecycleListeners(): void {
   const hasErrorState = Array.from(terminalRemovalStates.values()).some(
     (state) => state.status === "error",
   );
-  const currentDocument = visibilityDocument();
-  if (!hasErrorState || !currentDocument) {
-    detachErrorVisibilityListener();
+  const currentDocument = browserDocument();
+  const currentWindow = browserWindow();
+  if (!hasErrorState) {
+    detachErrorLifecycleListeners();
     return;
   }
-  if (errorVisibilityDocument === currentDocument) return;
+  if (errorLifecycleDocument !== currentDocument) {
+    errorLifecycleDocument?.removeEventListener("visibilitychange", reconcileExpiredErrors);
+    currentDocument?.addEventListener("visibilitychange", reconcileExpiredErrors);
+    errorLifecycleDocument = currentDocument;
+  }
+  if (errorLifecycleWindow !== currentWindow) {
+    errorLifecycleWindow?.removeEventListener("focus", reconcileExpiredErrors);
+    currentWindow?.addEventListener("focus", reconcileExpiredErrors);
+    errorLifecycleWindow = currentWindow;
+  }
+}
 
-  detachErrorVisibilityListener();
-  currentDocument.addEventListener("visibilitychange", handleVisibilityChange);
-  errorVisibilityDocument = currentDocument;
+function reconcileExpiredErrors(): void {
+  const now = Date.now();
+  for (const [id, state] of Array.from(terminalRemovalStates.entries())) {
+    if (state.status === "error" && now >= state.expiresAtMs) {
+      removeTerminalRecord(id, "error");
+    }
+  }
 }
 
 function removeTerminalRecord(id: string, status: "done" | "error"): void {
@@ -93,46 +109,25 @@ function removeTerminalRecord(id: string, status: "done" | "error"): void {
 
 function startErrorRemovalTimer(id: string, state: TerminalRemovalState): void {
   if (state.status !== "error" || state.timer !== null) return;
-  if (state.remainingMs <= 0) {
+  const remainingMs = state.expiresAtMs - Date.now();
+  if (remainingMs <= 0) {
     removeTerminalRecord(id, "error");
     return;
   }
 
-  state.startedAtMs = Date.now();
   state.timer = setTimeout(() => {
     const currentState = terminalRemovalStates.get(id);
     if (currentState !== state || currentState.status !== "error") return;
     state.timer = null;
-    state.startedAtMs = null;
-    state.remainingMs = 0;
     removeTerminalRecord(id, "error");
-  }, state.remainingMs);
-}
-
-function pauseErrorRemovalTimer(state: TerminalRemovalState): void {
-  if (state.status !== "error" || state.timer === null) return;
-  clearTimeout(state.timer);
-  if (state.startedAtMs !== null) {
-    state.remainingMs = Math.max(0, state.remainingMs - (Date.now() - state.startedAtMs));
-  }
-  state.timer = null;
-  state.startedAtMs = null;
-}
-
-function handleVisibilityChange(): void {
-  const isVisible = errorVisibilityDocument?.visibilityState === "visible";
-  for (const [id, state] of Array.from(terminalRemovalStates.entries())) {
-    if (state.status !== "error") continue;
-    if (isVisible) startErrorRemovalTimer(id, state);
-    else pauseErrorRemovalTimer(state);
-  }
+  }, remainingMs);
 }
 
 function clearTerminalRemovalTimer(id: string): void {
   const state = terminalRemovalStates.get(id);
   if (state?.timer !== null && state?.timer !== undefined) clearTimeout(state.timer);
   terminalRemovalStates.delete(id);
-  syncErrorVisibilityListener();
+  syncErrorLifecycleListeners();
 }
 
 function syncTerminalRemoval(record: ManagedUploadRecord): void {
@@ -143,8 +138,7 @@ function syncTerminalRemoval(record: ManagedUploadRecord): void {
     const state: TerminalRemovalState = {
       status: "done",
       timer: null,
-      remainingMs: UPLOAD_SUCCESS_FEEDBACK_MS,
-      startedAtMs: Date.now(),
+      expiresAtMs: Date.now() + UPLOAD_SUCCESS_FEEDBACK_MS,
     };
     state.timer = setTimeout(() => {
       const currentState = terminalRemovalStates.get(record.id);
@@ -159,12 +153,11 @@ function syncTerminalRemoval(record: ManagedUploadRecord): void {
   const state: TerminalRemovalState = {
     status: "error",
     timer: null,
-    remainingMs: UPLOAD_ERROR_FEEDBACK_MS,
-    startedAtMs: null,
+    expiresAtMs: Date.now() + UPLOAD_ERROR_FEEDBACK_MS,
   };
   terminalRemovalStates.set(record.id, state);
-  if (documentIsVisible()) startErrorRemovalTimer(record.id, state);
-  syncErrorVisibilityListener();
+  startErrorRemovalTimer(record.id, state);
+  syncErrorLifecycleListeners();
 }
 
 function updateRecord(
@@ -234,6 +227,7 @@ export type ManagedUploadHandle = {
 export function beginManagedUpload(input: {
   fileName: string;
   label: string;
+  terminalFeedback?: "dock" | "toast";
 }): ManagedUploadHandle {
   const accountId = requireUploadRuntimeAccountId();
   const id = crypto.randomUUID();
@@ -259,6 +253,7 @@ export function beginManagedUpload(input: {
       error: null,
       canRetry: false,
       canCancel: false,
+      terminalFeedback: input.terminalFeedback ?? "dock",
       updatedAt: now,
     },
   ];

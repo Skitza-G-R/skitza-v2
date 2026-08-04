@@ -13,6 +13,7 @@ import {
   releaseManagedUploadsForAccount,
   retryManagedUpload,
   setUploadRuntimeAccountId,
+  UPLOAD_ERROR_FEEDBACK_MS,
   useManagedUploads,
 } from "~/lib/audio/upload-manager";
 import {
@@ -271,14 +272,66 @@ function AppUploadRuntime({ accountId }: { accountId: string | null | undefined 
     };
   }, [accountId]);
 
-  return <UploadActivityDock />;
+  return (
+    <>
+      <UploadErrorToasts />
+      <UploadActivityDock />
+    </>
+  );
+}
+
+function UploadErrorToasts() {
+  const uploads = useManagedUploads();
+  const { dismissToast, toast } = useToast();
+  const shownErrorsRef = useRef(new Map<string, string>());
+
+  useEffect(() => {
+    const currentIds = new Set<string>();
+    for (const upload of uploads) {
+      if (upload.status !== "error" || upload.terminalFeedback !== "toast") continue;
+      const toastId = `upload-error:${upload.id}`;
+      currentIds.add(upload.id);
+      if (shownErrorsRef.current.get(upload.id) === upload.updatedAt) continue;
+      shownErrorsRef.current.set(upload.id, upload.updatedAt);
+      toast(upload.error ?? "Upload failed. Try again.", "error", {
+        id: toastId,
+        durationMs: UPLOAD_ERROR_FEEDBACK_MS,
+        ...(upload.canRetry
+          ? {
+              action: {
+                label: "Retry",
+                onClick: () => {
+                  void retryManagedUpload(upload.id);
+                },
+              },
+            }
+          : {}),
+        onDismiss: () => {
+          dismissManagedUpload(upload.id);
+        },
+        onAutoClose: () => {
+          dismissManagedUpload(upload.id);
+        },
+      });
+    }
+
+    for (const uploadId of Array.from(shownErrorsRef.current.keys())) {
+      if (currentIds.has(uploadId)) continue;
+      dismissToast(`upload-error:${uploadId}`);
+      shownErrorsRef.current.delete(uploadId);
+    }
+  }, [dismissToast, toast, uploads]);
+
+  return null;
 }
 
 function UploadActivityDock() {
   const uploads = useManagedUploads();
   const playback = usePlaybackSnapshot();
-  if (uploads.length === 0) return null;
-  const visible = uploads.slice(-3);
+  const visible = uploads
+    .filter((upload) => managedUploadIsActive(upload) || upload.terminalFeedback !== "toast")
+    .slice(-3);
+  if (visible.length === 0) return null;
 
   return (
     <aside

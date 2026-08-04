@@ -170,18 +170,23 @@ describe("SK-110 root media runtime", () => {
     expect(ROOT_RUNTIME).not.toContain('"pagehide"');
   });
 
-  it("surfaces persistent progress, error, retry, and stop controls", () => {
+  it("keeps active progress in the dock and routes upload errors to one toast", () => {
     expect(ROOT_RUNTIME).toContain('aria-label="Upload activity"');
     expect(ROOT_RUNTIME).toContain('role="progressbar"');
     expect(ROOT_RUNTIME).toContain("upload.error");
     expect(ROOT_RUNTIME).toContain("retryManagedUpload");
     expect(ROOT_RUNTIME).toContain("cancelManagedUpload");
+    expect(ROOT_RUNTIME).toContain('terminalFeedback !== "toast"');
+    expect(ROOT_RUNTIME).toContain("const toastId = `upload-error:${upload.id}`");
+    expect(ROOT_RUNTIME).toContain("id: toastId");
+    expect(ROOT_RUNTIME).toContain('label: "Retry"');
   });
 
-  it("gives terminal upload feedback a manual close control", () => {
+  it("does not render toast-owned terminal feedback in the upload dock", () => {
     expect(ROOT_RUNTIME).toContain("dismissManagedUpload");
-    expect(ROOT_RUNTIME).toContain('aria-label="Dismiss upload status"');
-    expect(ROOT_RUNTIME).toContain('upload.status === "error" || upload.status === "done"');
+    expect(ROOT_RUNTIME).toMatch(
+      /uploads\s*\.filter\([\s\S]{0,180}?managedUploadIsActive\(upload\)[\s\S]{0,180}?terminalFeedback !== "toast"/,
+    );
   });
 
   it("gives upload actions coarse touch targets and clears the audio dock", () => {

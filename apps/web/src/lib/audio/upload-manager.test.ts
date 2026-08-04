@@ -16,20 +16,29 @@ import {
 const ACCOUNT_A = "user_a";
 const ACCOUNT_B = "user_b";
 
-function installVisibilityDocument(initialState: "hidden" | "visible" = "visible") {
+function installBrowserLifecycle(initialState: "hidden" | "visible" = "visible") {
   const browserDocument = Object.assign(new EventTarget(), {
     visibilityState: initialState,
   });
+  const browserWindow = new EventTarget();
   const addEventListener = vi.spyOn(browserDocument, "addEventListener");
   const removeEventListener = vi.spyOn(browserDocument, "removeEventListener");
+  const addWindowEventListener = vi.spyOn(browserWindow, "addEventListener");
+  const removeWindowEventListener = vi.spyOn(browserWindow, "removeEventListener");
   vi.stubGlobal("document", browserDocument);
+  vi.stubGlobal("window", browserWindow);
 
   return {
     addEventListener,
     removeEventListener,
+    addWindowEventListener,
+    removeWindowEventListener,
     setVisibility(state: "hidden" | "visible") {
       browserDocument.visibilityState = state;
       browserDocument.dispatchEvent(new Event("visibilitychange"));
+    },
+    focus() {
+      browserWindow.dispatchEvent(new Event("focus"));
     },
   };
 }
@@ -153,106 +162,109 @@ describe("app-level upload registry", () => {
     expect(managedUploadsSnapshot()).toEqual([]);
   });
 
-  it("starts the readable error window only after a hidden app becomes visible", () => {
+  it("expires error feedback on wall-clock time while the app is hidden", () => {
     vi.useFakeTimers();
-    const visibility = installVisibilityDocument("hidden");
+    installBrowserLifecycle("hidden");
     setUploadRuntimeAccountId(ACCOUNT_A);
     const upload = beginManagedUpload({ fileName: "hidden.wav", label: "Hidden upload" });
     upload.setRetry(() => Promise.resolve());
 
     upload.fail("The connection stopped while the app was hidden.");
-    vi.advanceTimersByTime(UPLOAD_ERROR_FEEDBACK_MS * 2);
-    expect(managedUploadsSnapshot()[0]?.status).toBe("error");
-
-    visibility.setVisibility("visible");
     vi.advanceTimersByTime(UPLOAD_ERROR_FEEDBACK_MS - 1);
     expect(managedUploadsSnapshot()).toHaveLength(1);
     vi.advanceTimersByTime(1);
     expect(managedUploadsSnapshot()).toEqual([]);
   });
 
-  it("pauses and resumes an error with the exact readable time remaining", () => {
+  it("clears a throttled error on iOS-style visibility and focus recovery", () => {
     vi.useFakeTimers();
-    const visibility = installVisibilityDocument();
+    vi.setSystemTime(new Date("2026-08-04T12:00:00.000Z"));
+    const lifecycle = installBrowserLifecycle("hidden");
     setUploadRuntimeAccountId(ACCOUNT_A);
-    const upload = beginManagedUpload({ fileName: "paused.wav", label: "Paused upload" });
+    const visibilityUpload = beginManagedUpload({
+      fileName: "visibility.wav",
+      label: "Visibility upload",
+    });
 
-    upload.fail("Network error");
-    vi.advanceTimersByTime(3000);
-    visibility.setVisibility("hidden");
-    vi.advanceTimersByTime(UPLOAD_ERROR_FEEDBACK_MS * 2);
-    expect(managedUploadsSnapshot()[0]?.status).toBe("error");
+    visibilityUpload.fail("Network error");
+    vi.setSystemTime(new Date("2026-08-04T12:00:09.000Z"));
+    lifecycle.setVisibility("visible");
+    expect(managedUploadsSnapshot()).toEqual([]);
 
-    visibility.setVisibility("visible");
-    vi.advanceTimersByTime(UPLOAD_ERROR_FEEDBACK_MS - 3001);
-    expect(managedUploadsSnapshot()).toHaveLength(1);
-    vi.advanceTimersByTime(1);
+    const focusUpload = beginManagedUpload({ fileName: "focus.wav", label: "Focus upload" });
+    focusUpload.fail("Network error");
+    vi.setSystemTime(new Date("2026-08-04T12:00:18.000Z"));
+    lifecycle.focus();
     expect(managedUploadsSnapshot()).toEqual([]);
   });
 
-  it("keeps the retry action available while the app is hidden", async () => {
+  it("keeps the retry action available during the readable error window", async () => {
     vi.useFakeTimers();
-    const visibility = installVisibilityDocument("hidden");
+    installBrowserLifecycle("hidden");
     setUploadRuntimeAccountId(ACCOUNT_A);
     const retry = vi.fn(() => Promise.resolve());
     const upload = beginManagedUpload({ fileName: "retry.wav", label: "Retry upload" });
     upload.setRetry(retry);
 
     upload.fail("Network error");
-    vi.advanceTimersByTime(UPLOAD_ERROR_FEEDBACK_MS * 2);
-    visibility.setVisibility("visible");
+    vi.advanceTimersByTime(UPLOAD_ERROR_FEEDBACK_MS - 1);
 
     await expect(retryManagedUpload(upload.id)).resolves.toBe(true);
     expect(retry).toHaveBeenCalledOnce();
     expect(managedUploadsSnapshot()[0]?.status).toBe("preparing");
   });
 
-  it("does not duplicate the error timer or visibility listener", () => {
+  it("does not duplicate the error timer or lifecycle listeners", () => {
     vi.useFakeTimers();
     const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
-    const visibility = installVisibilityDocument();
+    const lifecycle = installBrowserLifecycle();
     setUploadRuntimeAccountId(ACCOUNT_A);
     const upload = beginManagedUpload({ fileName: "single.wav", label: "Single timer" });
 
     upload.fail("Network error");
     expect(setTimeoutSpy).toHaveBeenCalledTimes(1);
-    expect(visibility.addEventListener).toHaveBeenCalledTimes(1);
+    expect(lifecycle.addEventListener).toHaveBeenCalledTimes(1);
+    expect(lifecycle.addWindowEventListener).toHaveBeenCalledTimes(1);
 
     vi.advanceTimersByTime(2000);
-    visibility.setVisibility("hidden");
-    visibility.setVisibility("hidden");
+    lifecycle.setVisibility("hidden");
+    lifecycle.setVisibility("visible");
+    lifecycle.focus();
     expect(setTimeoutSpy).toHaveBeenCalledTimes(1);
-    visibility.setVisibility("visible");
-    visibility.setVisibility("visible");
-    expect(setTimeoutSpy).toHaveBeenCalledTimes(2);
-    expect(visibility.addEventListener).toHaveBeenCalledTimes(1);
+    expect(lifecycle.addEventListener).toHaveBeenCalledTimes(1);
+    expect(lifecycle.addWindowEventListener).toHaveBeenCalledTimes(1);
 
     vi.advanceTimersByTime(UPLOAD_ERROR_FEEDBACK_MS - 2000);
     expect(managedUploadsSnapshot()).toEqual([]);
-    expect(visibility.removeEventListener).toHaveBeenCalledTimes(1);
+    expect(lifecycle.removeEventListener).toHaveBeenCalledTimes(1);
+    expect(lifecycle.removeWindowEventListener).toHaveBeenCalledTimes(1);
   });
 
-  it("cleans the visibility listener when error feedback is removed or reset", () => {
+  it("cleans the lifecycle listeners when error feedback is removed or reset", () => {
     vi.useFakeTimers();
-    const visibility = installVisibilityDocument();
+    const lifecycle = installBrowserLifecycle();
     setUploadRuntimeAccountId(ACCOUNT_A);
     const dismissed = beginManagedUpload({ fileName: "dismiss.wav", label: "Dismiss" });
     dismissed.fail("Network error");
 
-    expect(visibility.addEventListener).toHaveBeenCalledTimes(1);
+    expect(lifecycle.addEventListener).toHaveBeenCalledTimes(1);
+    expect(lifecycle.addWindowEventListener).toHaveBeenCalledTimes(1);
     expect(dismissManagedUpload(dismissed.id)).toBe(true);
-    expect(visibility.removeEventListener).toHaveBeenCalledTimes(1);
+    expect(lifecycle.removeEventListener).toHaveBeenCalledTimes(1);
+    expect(lifecycle.removeWindowEventListener).toHaveBeenCalledTimes(1);
 
     const reset = beginManagedUpload({ fileName: "reset.wav", label: "Reset" });
     reset.fail("Network error");
-    expect(visibility.addEventListener).toHaveBeenCalledTimes(2);
+    expect(lifecycle.addEventListener).toHaveBeenCalledTimes(2);
+    expect(lifecycle.addWindowEventListener).toHaveBeenCalledTimes(2);
     releaseManagedUploadsForAccount(ACCOUNT_A);
-    expect(visibility.removeEventListener).toHaveBeenCalledTimes(2);
+    expect(lifecycle.removeEventListener).toHaveBeenCalledTimes(2);
+    expect(lifecycle.removeWindowEventListener).toHaveBeenCalledTimes(2);
   });
 
   it("keeps success feedback on its existing wall-clock timer while hidden", () => {
     vi.useFakeTimers();
-    const visibility = installVisibilityDocument("hidden");
+    const visibility = installBrowserLifecycle("hidden");
     setUploadRuntimeAccountId(ACCOUNT_A);
     const upload = beginManagedUpload({ fileName: "done.wav", label: "Done" });
 

@@ -329,6 +329,12 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     expect(SRC).toMatch(/useToast/);
     expect(SRC).toMatch(/toast\([^)]*?,\s*["']success["']\)/);
     expect(SRC).toMatch(/toast\([^)]*?,\s*["']error["']\)/);
+    expect(SRC).not.toMatch(
+      /const message = error instanceof Error[\s\S]{0,180}?toast\(message, "error"\)[\s\S]{0,120}?setUploadError\(message\)/,
+    );
+    expect(SRC).not.toMatch(
+      /const msg = err instanceof Error[\s\S]{0,180}?toast\(msg, "error"\)[\s\S]{0,120}?setUploadError\(msg\)/,
+    );
   });
 
   it("calls router.refresh after a successful upload", () => {
