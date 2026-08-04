@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -6,18 +6,30 @@ import { describe, expect, it } from "vitest";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "toast.tsx"), "utf8");
+const WEB_SRC = join(here, "..", "..", "..");
 
-describe("Toast (dark theme)", () => {
-  it("uses --bg-sidebar as the toast surface", () => {
-    expect(SRC).toMatch(/--bg-sidebar/);
+function sourceFiles(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) return sourceFiles(path);
+    return entry.name.endsWith(".tsx") && !entry.name.endsWith(".test.tsx") ? [path] : [];
+  });
+}
+
+describe("Toast feedback", () => {
+  it("uses the adaptive elevated surface", () => {
+    expect(SRC).toMatch(/--bg-elevated/);
   });
 
-  it("uses a near-white foreground on the dark surface", () => {
-    expect(SRC).toMatch(/rgb\(255_255_255\/0\.95\)/);
+  it("uses the normal adaptive foreground", () => {
+    expect(SRC).toMatch(/--fg-default/);
   });
 
-  it("sets the SonnerToaster theme to dark", () => {
-    expect(SRC).toMatch(/theme=["']dark["']/);
+  it("keeps messages away from bottom navigation and actions", () => {
+    expect(SRC).toMatch(/position=["']top-center["']/);
+    expect(SRC).toContain("mobileOffset");
+    expect(SRC).toContain("safe-area-inset-top");
+    expect(SRC).toContain("visibleToasts={2}");
   });
 
   it("renders the action button in brand-primary for visual prominence", () => {
@@ -26,5 +38,23 @@ describe("Toast (dark theme)", () => {
 
   it("keeps the public useToast API (message, variant, options)", () => {
     expect(SRC).toMatch(/toast:\s*\(\s*message[\s\S]{0,300}variant[\s\S]{0,300}options/);
+  });
+
+  it("gives every toast an accessible manual close control", () => {
+    expect(SRC).toMatch(/<SonnerToaster[\s\S]{0,500}?closeButton/);
+    expect(SRC).toContain('closeButtonAriaLabel: "Dismiss message"');
+  });
+
+  it("uses a longer readable duration for errors", () => {
+    expect(SRC).toContain("ERROR_TOAST_DURATION_MS");
+    expect(SRC).toMatch(/variant === "error"[\s\S]{0,120}ERROR_TOAST_DURATION_MS/);
+  });
+
+  it("mounts exactly one toast provider and one Sonner toaster in the app", () => {
+    const appSource = sourceFiles(WEB_SRC)
+      .map((path) => readFileSync(path, "utf8"))
+      .join("\n");
+    expect(appSource.match(/<ToastProvider(?:\s|>)/g)).toHaveLength(1);
+    expect(appSource.match(/<SonnerToaster(?:\s|>)/g)).toHaveLength(1);
   });
 });

@@ -1,11 +1,13 @@
 "use client";
 
 import { useClerk, useUser } from "@clerk/nextjs";
+import { X } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
 
 import {
   cancelManagedUpload,
   cancelManagedUploadsForAccount,
+  dismissManagedUpload,
   hasActiveManagedUploads,
   managedUploadIsActive,
   releaseManagedUploadsForAccount,
@@ -282,7 +284,7 @@ function UploadActivityDock() {
     <aside
       aria-label="Upload activity"
       className={[
-        "fixed right-3 z-[55] grid w-[min(22rem,calc(100vw-1.5rem))] gap-2 transition-[bottom] motion-reduce:transition-none",
+        "fixed right-2 z-[55] grid w-[min(20rem,calc(100vw-1rem))] gap-2 transition-[bottom] motion-reduce:transition-none sm:right-3 sm:w-[min(20rem,calc(100vw-1.5rem))]",
         playback.track
           ? "bottom-[calc(10rem+env(safe-area-inset-bottom))] lg:bottom-[6.5rem]"
           : "bottom-[calc(5.5rem+env(safe-area-inset-bottom))] lg:bottom-4",
@@ -290,6 +292,7 @@ function UploadActivityDock() {
     >
       {visible.map((upload) => {
         const active = managedUploadIsActive(upload);
+        const terminal = upload.status === "error" || upload.status === "done";
         const progressLabel =
           upload.status === "preparing"
             ? "Preparing…"
@@ -305,10 +308,11 @@ function UploadActivityDock() {
         return (
           <section
             key={upload.id}
+            data-upload-status={upload.status}
             data-native-update-block={active ? "active" : undefined}
             aria-busy={active}
-            className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3.5 py-3 shadow-[var(--shadow-lg)]"
-            aria-live="polite"
+            className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2.5 shadow-[0_10px_28px_-14px_rgb(0_0_0/0.34)]"
+            aria-live={upload.status === "error" ? "assertive" : "polite"}
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
@@ -317,9 +321,23 @@ function UploadActivityDock() {
                 </p>
                 <p className="truncate text-xs text-[rgb(var(--fg-muted))]">{upload.fileName}</p>
               </div>
-              <span className="shrink-0 text-xs font-semibold text-[rgb(var(--fg-muted))] tabular-nums">
-                {upload.status === "uploading" ? `${String(upload.progress)}%` : null}
-              </span>
+              <div className="flex shrink-0 items-center gap-1">
+                <span className="text-xs font-semibold text-[rgb(var(--fg-muted))] tabular-nums">
+                  {upload.status === "uploading" ? `${String(upload.progress)}%` : null}
+                </span>
+                {terminal ? (
+                  <button
+                    type="button"
+                    aria-label="Dismiss upload status"
+                    className="sk-press inline-flex min-h-11 min-w-11 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-sunken))] hover:text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none"
+                    onClick={() => {
+                      dismissManagedUpload(upload.id);
+                    }}
+                  >
+                    <X aria-hidden="true" className="size-4" strokeWidth={2} />
+                  </button>
+                ) : null}
+              </div>
             </div>
 
             {active ? (
@@ -339,7 +357,7 @@ function UploadActivityDock() {
 
             <div className="mt-2 flex items-center justify-between gap-3">
               <p
-                className={`text-xs ${
+                className={`min-w-0 text-xs leading-4 ${
                   upload.status === "error"
                     ? "text-[rgb(var(--fg-danger))]"
                     : "text-[rgb(var(--fg-muted))]"

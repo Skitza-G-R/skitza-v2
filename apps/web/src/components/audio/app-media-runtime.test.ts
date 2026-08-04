@@ -178,8 +178,14 @@ describe("SK-110 root media runtime", () => {
     expect(ROOT_RUNTIME).toContain("cancelManagedUpload");
   });
 
+  it("gives terminal upload feedback a manual close control", () => {
+    expect(ROOT_RUNTIME).toContain("dismissManagedUpload");
+    expect(ROOT_RUNTIME).toContain('aria-label="Dismiss upload status"');
+    expect(ROOT_RUNTIME).toContain('upload.status === "error" || upload.status === "done"');
+  });
+
   it("gives upload actions coarse touch targets and clears the audio dock", () => {
-    expect(ROOT_RUNTIME.match(/sk-press inline-flex min-h-11 min-w-11/g)).toHaveLength(2);
+    expect(ROOT_RUNTIME.match(/sk-press inline-flex min-h-11 min-w-11/g)).toHaveLength(3);
     expect(ROOT_RUNTIME).toContain("playback.track");
     expect(ROOT_RUNTIME).toContain(
       "bottom-[calc(10rem+env(safe-area-inset-bottom))] lg:bottom-[6.5rem]",

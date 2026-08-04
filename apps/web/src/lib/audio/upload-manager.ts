@@ -29,11 +29,15 @@ type UploadActions = {
   retry?: () => Promise<void>;
 };
 
+export const UPLOAD_SUCCESS_FEEDBACK_MS = 4000;
+export const UPLOAD_ERROR_FEEDBACK_MS = 9000;
+
 let activeAccountId: string | null = null;
 let records: ManagedUploadRecord[] = [];
 const EMPTY_UPLOADS: readonly ManagedUploadRecord[] = [];
 let visibleRecords: readonly ManagedUploadRecord[] = EMPTY_UPLOADS;
 const actions = new Map<string, UploadActions>();
+const terminalRemovalTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const listeners = new Set<() => void>();
 
 function emit(): void {
@@ -43,17 +47,45 @@ function emit(): void {
   for (const listener of listeners) listener();
 }
 
+function clearTerminalRemovalTimer(id: string): void {
+  const timer = terminalRemovalTimers.get(id);
+  if (timer !== undefined) clearTimeout(timer);
+  terminalRemovalTimers.delete(id);
+}
+
+function syncTerminalRemoval(record: ManagedUploadRecord): void {
+  clearTerminalRemovalTimer(record.id);
+  if (record.status !== "done" && record.status !== "error") return;
+
+  const terminalStatus = record.status;
+  const delay = terminalStatus === "done" ? UPLOAD_SUCCESS_FEEDBACK_MS : UPLOAD_ERROR_FEEDBACK_MS;
+  terminalRemovalTimers.set(
+    record.id,
+    setTimeout(() => {
+      terminalRemovalTimers.delete(record.id);
+      const current = records.find((candidate) => candidate.id === record.id);
+      if (!current || current.status !== terminalStatus) return;
+      removeRecord(record.id);
+    }, delay),
+  );
+}
+
 function updateRecord(
   id: string,
   update: (record: ManagedUploadRecord) => ManagedUploadRecord,
 ): void {
-  records = records.map((record) =>
-    record.id === id ? { ...update(record), updatedAt: new Date().toISOString() } : record,
-  );
+  let updatedRecord: ManagedUploadRecord | undefined;
+  records = records.map((record) => {
+    if (record.id !== id) return record;
+    updatedRecord = { ...update(record), updatedAt: new Date().toISOString() };
+    return updatedRecord;
+  });
+  if (updatedRecord) syncTerminalRemoval(updatedRecord);
   emit();
 }
 
 function removeRecord(id: string): void {
+  clearTerminalRemovalTimer(id);
   records = records.filter((record) => record.id !== id);
   actions.delete(id);
   emit();
@@ -112,6 +144,7 @@ export function beginManagedUpload(input: {
   for (const record of records) {
     if (record.accountId === accountId && (record.status === "done" || record.status === "error")) {
       actions.delete(record.id);
+      clearTerminalRemovalTimer(record.id);
     }
   }
   records = [
@@ -208,6 +241,14 @@ export function managedUploadIsActive(record: ManagedUploadRecord): boolean {
   );
 }
 
+export function dismissManagedUpload(id: string): boolean {
+  const record = records.find((candidate) => candidate.id === id);
+  if (!record || record.accountId !== activeAccountId || managedUploadIsActive(record))
+    return false;
+  removeRecord(id);
+  return true;
+}
+
 export function hasActiveManagedUploads(accountId = activeAccountId): boolean {
   return (
     accountId !== null &&
@@ -286,7 +327,10 @@ export async function cancelManagedUploadsForAccount(accountId: string): Promise
  */
 export function releaseManagedUploadsForAccount(accountId: string): void {
   for (const record of records) {
-    if (record.accountId === accountId) actions.delete(record.id);
+    if (record.accountId === accountId) {
+      actions.delete(record.id);
+      clearTerminalRemovalTimer(record.id);
+    }
   }
   records = records.filter((record) => record.accountId !== accountId);
   emit();
