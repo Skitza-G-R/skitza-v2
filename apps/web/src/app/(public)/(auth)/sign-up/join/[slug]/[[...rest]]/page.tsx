@@ -27,8 +27,13 @@ type Props = {
 
 export default async function JoinSignUpPage({ params, searchParams }: Props) {
   const [{ slug, rest }, query] = await Promise.all([params, searchParams]);
-  const action = rest?.[0] === "unlock" ? "unlock" : "book";
-  const clerkRouteSegments = action === "unlock" ? rest?.slice(1) : rest;
+  const action =
+    rest?.[0] === "unlock"
+      ? "unlock"
+      : rest?.[0] === "home"
+        ? "home"
+        : "book";
+  const clerkRouteSegments = action === "book" ? rest : rest?.slice(1);
   const continuationHref = joinContinuationHref(slug, action);
   if (continuationHref === "/") notFound();
 
@@ -55,7 +60,7 @@ export default async function JoinSignUpPage({ params, searchParams }: Props) {
   }
 
   const signUpPath = `/sign-up/join/${slug}${
-    action === "unlock" ? "/unlock" : ""
+    action === "unlock" ? "/unlock" : action === "home" ? "/home" : ""
   }`;
   const signInHref = joinSignInHref(slug, action);
 

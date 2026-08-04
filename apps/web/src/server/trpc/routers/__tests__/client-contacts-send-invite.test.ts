@@ -198,7 +198,7 @@ describe("clientContacts.sendInvite", () => {
     // Normal client invites enter the verified artist signup flow. The URL is
     // deliberately independent from both the CRM contact and private offers.
     const inviteUrl = props?.inviteUrl;
-    expect(inviteUrl).toBe("https://skitza.app/sign-up/join/test-slug");
+    expect(inviteUrl).toBe("https://skitza.app/sign-up/join/test-slug/home");
     expect(inviteUrl).not.toContain(CONTACT_ID);
     expect(inviteUrl).not.toMatch(/offer/i);
     expect(updateMock).toHaveBeenCalledTimes(1);

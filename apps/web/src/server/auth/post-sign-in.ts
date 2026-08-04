@@ -23,7 +23,9 @@ function isJoinContinuationUrl(url: URL): boolean {
   if (entries.length !== 1) return false;
   return (
     entries[0]?.[0] === "action" &&
-    (entries[0][1] === "book" || entries[0][1] === "unlock")
+    (entries[0][1] === "book" ||
+      entries[0][1] === "unlock" ||
+      entries[0][1] === "home")
   );
 }
 
@@ -117,7 +119,11 @@ export function joinSignUpHrefFromTarget(
   const action = url.searchParams.get("action");
   return match?.[1]
     ? `/sign-up/join/${encodeURIComponent(match[1])}${
-        action === "unlock" ? "/unlock" : ""
+        action === "unlock"
+          ? "/unlock"
+          : action === "home"
+            ? "/home"
+            : ""
       }?intent=signup`
     : null;
 }

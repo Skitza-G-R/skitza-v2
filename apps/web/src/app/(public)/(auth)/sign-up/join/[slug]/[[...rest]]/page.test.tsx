@@ -128,6 +128,33 @@ describe("dedicated join signup route", () => {
     expect(mocks.signUp).not.toHaveBeenCalled();
   });
 
+  it("sends an authenticated direct Home invite through the validated continuation", async () => {
+    mocks.auth.mockResolvedValue({ userId: "existing-artist" });
+
+    await expect(page({ rest: ["home"] })).rejects.toThrow(
+      "__REDIRECT__:/join/northline-studio/continue?action=home",
+    );
+
+    expect(mocks.findTarget).toHaveBeenCalledWith(
+      "postgres://test.invalid/skitza",
+      "northline-studio",
+    );
+    expect(mocks.signUp).not.toHaveBeenCalled();
+  });
+
+  it("keeps a new Home invite on Home through Clerk completion", async () => {
+    const html = await render({ rest: ["home"] });
+
+    expect(html).toContain("data-clerk-sign-up");
+    expect(mocks.signUp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: "/sign-up/join/northline-studio/home",
+        fallbackRedirectUrl: "/join/northline-studio/continue?action=home",
+        forceRedirectUrl: "/join/northline-studio/continue?action=home",
+      }),
+    );
+  });
+
   it.each([
     {
       label: "Book",
@@ -138,6 +165,11 @@ describe("dedicated join signup route", () => {
       label: "Unlock",
       rest: ["unlock"],
       expected: "/sign-in?redirect_url=%2Fjoin%2Fnorthline-studio%2Fcontinue%3Faction%3Dunlock",
+    },
+    {
+      label: "Home",
+      rest: ["home"],
+      expected: "/sign-in?redirect_url=%2Fjoin%2Fnorthline-studio%2Fcontinue%3Faction%3Dhome",
     },
   ])(
     "sends a signed-out returning device to Sign in with exact $label intent",
@@ -162,6 +194,7 @@ describe("dedicated join signup route", () => {
   it.each([
     ["Book", ["verify-email-address"]],
     ["Unlock", ["unlock", "verify-email-address"]],
+    ["Home", ["home", "verify-email-address"]],
   ])("does not interrupt Clerk's nested %s route", async (_label, rest) => {
     mocks.cookieGet.mockReturnValue({ value: "1" });
 

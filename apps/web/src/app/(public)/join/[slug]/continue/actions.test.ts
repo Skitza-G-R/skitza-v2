@@ -142,6 +142,35 @@ describe("join continuation actions", () => {
     expect(store.set).toHaveBeenCalledTimes(1);
   });
 
+  it.each(["continueAsArtist", "resumeTrustedJoinIntent"] as const)(
+    "sends a verified %s Home invite to Home with validated studio context",
+    async (method) => {
+      const store = cookieStore();
+      cookiesMock.mockResolvedValue(store);
+      connectMock.mockResolvedValue("/artist/book?studio=studio-1");
+
+      const run = method === "continueAsArtist" ? continueAsArtist : resumeTrustedJoinIntent;
+      await expect(run("northline-studio", "home")).rejects.toThrow(
+        "__REDIRECT__:/artist?studio=studio-1",
+      );
+
+      expect(findTargetMock).toHaveBeenCalledWith(
+        "postgres://test.invalid/skitza",
+        "northline-studio",
+      );
+      expect(store.set).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("rejects an invented join action before resolving a target", async () => {
+    await expect(continueAsArtist("northline-studio", "https://evil.example")).rejects.toThrow(
+      "__NOT_FOUND__",
+    );
+
+    expect(findTargetMock).not.toHaveBeenCalled();
+    expect(connectMock).not.toHaveBeenCalled();
+  });
+
   it("sends an unverified email to bounded retry and account-switch recovery", async () => {
     const store = cookieStore();
     cookiesMock.mockResolvedValue(store);

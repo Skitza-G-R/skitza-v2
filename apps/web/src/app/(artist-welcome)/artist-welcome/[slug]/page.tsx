@@ -12,5 +12,5 @@ export default async function JoinedArtistWelcomePage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  redirect(joinContinuationHref(slug));
+  redirect(joinContinuationHref(slug, "home"));
 }

@@ -66,6 +66,11 @@ describe("auth page switch URLs", () => {
         "/join/northline-studio/continue?action=unlock",
       ),
     ).toBe("/sign-up/join/northline-studio/unlock?intent=signup");
+    expect(
+      signUpSwitchHref(
+        "/join/northline-studio/continue?action=home",
+      ),
+    ).toBe("/sign-up/join/northline-studio/home?intent=signup");
   });
 
   it("preserves a safe deep link when switching back to sign-in", () => {
