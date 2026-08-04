@@ -96,10 +96,11 @@ export default async function ArtistProjectPage({ params }: PageProps) {
 
   // Sessions on the artist L2 — same data the prior NowPlaying screen
   // surfaced. Dates flip to ISO so the SessionsPanel client component
-  // can render them with the device locale.
+  // can render them in the Producer's configured timezone.
   const sessions: SessionRow[] = sessionData.sessions.map((s) => ({
     id: s.id,
     startsAtIso: s.startsAt.toISOString(),
+    producerTimezone: sessionData.project.producerTimezone,
     durationMin: s.durationMin,
     status: s.status,
     packageName: s.packageName,

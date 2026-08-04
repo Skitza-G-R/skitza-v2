@@ -422,11 +422,15 @@ const musicSubrouter = router({
       // (kept for the artist-only sessions panel + breadcrumb work).
       // Defensive fallback because nothing prevents an orphan row.
       const [producerRow] = await ctx.db
-        .select({ displayName: producers.displayName })
+        .select({
+          displayName: producers.displayName,
+          timezone: producers.timezone,
+        })
         .from(producers)
         .where(eq(producers.id, project.producerId))
         .limit(1);
       const producerName = producerRow?.displayName ?? "Producer";
+      const producerTimezone = producerRow?.timezone ?? "UTC";
 
       // (2) Every version under this project, newest first. Same
       // collapsing trick the producer side uses (Map keyed by trackId,
@@ -542,6 +546,7 @@ const musicSubrouter = router({
           // sessions panel + the breadcrumb topbar publisher.
           producerId: project.producerId,
           producerName,
+          producerTimezone,
         },
         tracks,
         sessions: sessionRows.map((s) => ({
