@@ -30,12 +30,29 @@ const confirm = source.slice(
   source.indexOf("confirm: artistProcedure", source.indexOf("activePackages: artistProcedure")),
   source.indexOf("const storeSubrouter"),
 );
+const mySessions = source.slice(
+  source.indexOf("mySessions: artistProcedure"),
+  source.indexOf("session: artistProcedure", source.indexOf("mySessions: artistProcedure")),
+);
+const loadArtistSessionRows = source.slice(
+  source.indexOf("async function loadArtistSessionRows"),
+  source.indexOf("type ArtistSessionRow"),
+);
 const disconnect = source.slice(
   source.indexOf("disconnectProducer: artistProcedure"),
   source.indexOf("  // Nested sub-router"),
 );
 
 describe("artist.book purchase-owned session boundary", () => {
+  it("lists Home session status through the selected studio and exact artist relationship", () => {
+    expect(mySessions).toContain(
+      "loadArtistSessionRows(ctx.db, ctx.clerkUserId, undefined, input.producerId)",
+    );
+    expect(loadArtistSessionRows).toContain("eq(clientContacts.clerkUserId, clerkUserId)");
+    expect(loadArtistSessionRows).toContain("eq(clientContacts.producerId, purchases.producerId)");
+    expect(loadArtistSessionRows).toContain("isNull(clientContacts.archivedAt)");
+  });
+
   it("blocks calendar slots only for canonical active booking statuses", () => {
     expect(availability).toMatch(
       /inArray\(bookings\.status, \["pending_approval", "confirmed"\]\)/,

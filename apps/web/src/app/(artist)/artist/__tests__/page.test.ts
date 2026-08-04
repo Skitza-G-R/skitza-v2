@@ -24,13 +24,12 @@ describe("/artist page composition", () => {
     expect(SRC).toMatch(/Promise\.all/);
   });
 
-  it("uses the saved artist IANA timezone for Home date labels", () => {
+  it("uses the saved artist IANA timezone for Home booking labels", () => {
     expect(SRC).toContain("caller.artistPlatform.profile.get()");
     expect(SRC).toContain('artistProfile.timezone ?? "UTC"');
     expect(SRC).toContain("artistGreeting(new Date(), firstName, artistTimezone)");
-    expect(SRC).toContain("isSameArtistDay(");
-    expect(SRC).toContain("formatArtistTimeRange(");
-    expect(SRC).toContain("formatArtistDateTime(");
+    expect(SRC).toContain("artistHomeBookingStatusActions({");
+    expect(SRC).toContain("artistTimezone,");
   });
 
   it("does not reintroduce old dashboard or multi-studio Home sections", () => {
@@ -38,8 +37,10 @@ describe("/artist page composition", () => {
     expect(SRC).not.toMatch(/BookSessionTiles|studiosForTiles/);
   });
 
-  it("uses exact session details and plain payment labels", () => {
-    expect(SRC).toMatch(/\/artist\/sessions\/\$\{home\.nextSession\.id\}/);
+  it("derives Home booking status from real session rows and keeps plain payment labels", () => {
+    expect(SRC).toContain("sessions: sessions.sessions");
+    expect(SRC).toContain("producerId: activeStudio.producerId");
+    expect(SRC).not.toContain("artistNotifications");
     expect(SRC).toMatch(/First payment/);
     expect(SRC).toMatch(/Remaining balance/);
   });
