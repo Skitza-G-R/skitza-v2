@@ -14,6 +14,7 @@ import {
   getUploadRuntimeAccountId,
   requireUploadRuntimeAccountId,
 } from "~/lib/audio/upload-manager";
+import { uploadStageFailure, uploadTransferFailure } from "~/lib/audio/upload-stage-errors";
 
 export type UploadState =
   | { kind: "idle" }
@@ -838,7 +839,7 @@ export function useMultipartUpload() {
     if (uploadCancellationRequested(cancellation)) {
       const cancelled = await cancelResumableEntry(entry);
       if (!cancelled.ok) {
-        managed.fail("Couldn’t stop this upload yet. Skitza kept its recovery record.");
+        managed.fail(uploadStageFailure("cancellation"));
       }
       return;
     }
@@ -865,9 +866,11 @@ export function useMultipartUpload() {
           body: blob,
           signal: abortController.signal,
         });
-      } catch (e) {
+      } catch {
         await cancelResumableEntry(entry);
-        const message = e instanceof Error ? e.message : "Network error";
+        const message = uploadCancellationRequested(cancellation)
+          ? "Upload stopped."
+          : uploadTransferFailure({ partNumber: p.partNumber });
         setState({
           kind: "error",
           message,
@@ -877,11 +880,15 @@ export function useMultipartUpload() {
       }
       if (!resp.ok) {
         await cancelResumableEntry(entry);
+        const message = uploadTransferFailure({
+          partNumber: p.partNumber,
+          status: resp.status,
+        });
         setState({
           kind: "error",
-          message: `Part ${String(p.partNumber)} failed (HTTP ${String(resp.status)})`,
+          message,
         });
-        managed.fail(`Part ${String(p.partNumber)} failed (HTTP ${String(resp.status)})`);
+        managed.fail(message);
         return;
       }
       const eTag = (resp.headers.get("etag") ?? "").replace(/"/g, "");
