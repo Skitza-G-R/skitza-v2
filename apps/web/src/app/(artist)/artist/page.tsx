@@ -82,7 +82,7 @@ export default async function ArtistHomePage({ searchParams }: ArtistHomePagePro
     artistTimezone,
     now,
   });
-  candidates.push(...bookingStatusActions);
+  candidates.push(...bookingStatusActions.filter(({ mainEligible }) => mainEligible));
 
   const selectedPayments = [
     ...paymentReadModel.artistBuckets.waiting.projects,
