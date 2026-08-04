@@ -69,12 +69,14 @@ type AccountRoleMenuInput = {
   producerStatus: ProducerProfileStatus;
   hasArtistAccount: boolean;
   otherRoleUnreadCount: number;
+  paymentsHref?: string;
   settingsHref: string;
 };
 
 export type AccountRoleMenuModel = Readonly<{
   currentRole: RuntimeRole;
   currentLabel: string;
+  paymentsHref: string | null;
   settingsHref: string;
   roleAction: Readonly<{
     label: string;
@@ -90,6 +92,7 @@ export function useAccountRoleMenuModel({
   producerStatus,
   hasArtistAccount,
   otherRoleUnreadCount,
+  paymentsHref,
   settingsHref,
 }: AccountRoleMenuInput): AccountRoleMenuModel {
   const otherRole: RuntimeRole = currentRole === "artist" ? "producer" : "artist";
@@ -149,6 +152,7 @@ export function useAccountRoleMenuModel({
   return {
     currentRole,
     currentLabel,
+    paymentsHref: paymentsHref ?? null,
     settingsHref,
     roleAction: roleAction
       ? { ...roleAction, onSelect: onRoleActionSelect }
@@ -163,8 +167,9 @@ export function useAccountRoleMenuModel({
  */
 export function renderAccountRoleMenuItems(
   model: AccountRoleMenuModel,
-  options?: { includeSettings?: boolean },
+  options?: { includePayments?: boolean; includeSettings?: boolean },
 ): ReactElement {
+  const includePayments = options?.includePayments ?? true;
   const includeSettings = options?.includeSettings ?? true;
   return (
     <UserButton.MenuItems>
@@ -173,6 +178,13 @@ export function renderAccountRoleMenuItems(
         labelIcon={<CurrentRoleStatusIcon role={model.currentRole} />}
         onClick={keepCurrentRoleMenuOpen}
       />
+      {includePayments && model.paymentsHref ? (
+        <UserButton.Link
+          label="Payments"
+          labelIcon={<Icon name="payments" size={16} />}
+          href={model.paymentsHref}
+        />
+      ) : null}
       {includeSettings ? (
         <UserButton.Link
           label="Settings"

@@ -54,8 +54,8 @@ describe("artist four-tab navigation", () => {
       );
     }
     expect(USER_BUTTON).toContain("renderAccountRoleMenuItems(menuModel)");
-    expect(USER_BUTTON).toContain(
-      "renderAccountRoleMenuItems(menuModel, { includeSettings: false })",
+    expect(USER_BUTTON).toMatch(
+      /renderAccountRoleMenuItems\(menuModel, \{\s*includePayments: false,\s*includeSettings: false,\s*\}\)/,
     );
     expect(USER_BUTTON).toContain('className="sk-account-sheet-motion');
     expect(ACCOUNT_ROLE_MENU).toContain("<UserButton.MenuItems>");
