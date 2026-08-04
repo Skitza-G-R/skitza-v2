@@ -39,6 +39,18 @@ describe("accepted-purchase proof API security", () => {
     expect(artistProofRouter).not.toMatch(/purchaseRequestId|storageKey|objectEtag/);
   });
 
+  it("keeps the clearer availability message behind the existing server-owned proof gate", () => {
+    expect(serviceSource).toMatch(
+      /proofUploadsAvailable = proofUploadAvailability\.status === "available"/,
+    );
+    expect(serviceSource).toMatch(
+      /if \(!state\.proofUploadsAvailable\)[\s\S]*?not ready for another payment proof/,
+    );
+    expect(serviceSource).toMatch(
+      /assertProofAmount\(input\.amountCents, installmentRemainingCents\(installment, ledger\)\)/,
+    );
+  });
+
   it("scopes producer reads and decisions to ctx.producerId", () => {
     const producerProofRouter = purchaseSource.slice(
       purchaseSource.lastIndexOf("  proofOfPayment: router({"),

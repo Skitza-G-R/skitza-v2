@@ -55,6 +55,10 @@ import {
   verifyOwnedProofUploadToken,
   verifyProofUploadToken,
 } from "./tokens";
+import {
+  resolveArtistProofUploadAvailability,
+  type ArtistProofUploadAvailability,
+} from "./artist-upload-availability";
 
 export type PaymentProofDomainErrorCode =
   | "INVALID_INPUT"
@@ -131,6 +135,7 @@ export type ArtistPaymentProofState = Readonly<{
   producerName: string;
   projectTitle: string;
   proofUploadsAvailable: boolean;
+  proofUploadAvailability: ArtistProofUploadAvailability;
   currency: string;
   totalCents: number;
   paidCents: number;
@@ -523,11 +528,26 @@ export async function loadArtistPaymentProofState(
   const selectedProofs = proofs.filter((proof) => proof.installmentId === selected.id);
   const pending = selectedProofs.find((proof) => proof.status === "pending") ?? null;
   const amountDueNowCents = installmentRemainingCents(selected, ledger);
-  const proofUploadsAvailable =
-    context.lifecycleStatus !== "canceled" &&
-    pending === null &&
-    amountDueNowCents > 0 &&
-    isInstallmentPayableForInstructions(selected, now);
+  const paidInFull = exactPurchasePaidInFull(installments, ledger);
+  const nextOutstandingInstallment = installments.find(
+    (installment) =>
+      installment.status !== "canceled" && installmentRemainingCents(installment, ledger) > 0,
+  );
+  const proofUploadAvailability = resolveArtistProofUploadAvailability({
+    purchaseCanceled: context.lifecycleStatus === "canceled",
+    hasPendingProof: pending !== null,
+    paidInFull,
+    selectedPayable: isInstallmentPayableForInstructions(selected, now),
+    selectedRemainingCents: amountDueNowCents,
+    nextOutstandingInstallment: nextOutstandingInstallment
+      ? {
+          position: nextOutstandingInstallment.position,
+          dueTrigger: nextOutstandingInstallment.dueTrigger,
+          dueAt: nextOutstandingInstallment.dueAt,
+        }
+      : null,
+  });
+  const proofUploadsAvailable = proofUploadAvailability.status === "available";
   const serverSecret = requireServerSecret(input.serverSecret);
 
   return Object.freeze({
@@ -543,6 +563,7 @@ export async function loadArtistPaymentProofState(
     producerName: context.producerName ?? "Your producer",
     projectTitle: context.projectTitle,
     proofUploadsAvailable,
+    proofUploadAvailability,
     currency: context.currency,
     totalCents: context.totalCents,
     paidCents: ledger.paidCents,
@@ -550,7 +571,7 @@ export async function loadArtistPaymentProofState(
     remainingCents: exactPurchaseRemainingCents(installments, ledger),
     amountDueNowCents,
     availableToSubmitCents: proofUploadsAvailable ? amountDueNowCents : 0,
-    paidInFull: exactPurchasePaidInFull(installments, ledger),
+    paidInFull,
     proofs: proofs.map((proof) => {
       const installment = installmentById.get(proof.installmentId);
       if (!installment) {

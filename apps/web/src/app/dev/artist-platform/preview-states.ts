@@ -183,6 +183,13 @@ export const ARTIST_PLATFORM_PREVIEW_GROUPS: readonly ArtistPlatformPreviewGroup
         detail: "Payment summary with the next installment ready.",
       },
       {
+        label: "Next installment scheduled",
+        href: "/dev/screens/s9-scheduled",
+        chrome: "Standing",
+        activeDestination: "store",
+        detail: "Payment summary before the final payment trigger is reached.",
+      },
+      {
         label: "Fully verified",
         href: "/dev/screens/s9-paid",
         chrome: "Standing",

@@ -33,7 +33,7 @@ export default async function ArtistPurchasePaymentPage({ params }: PageProps) {
         verifiedCents={state.paidCents}
         remainingCents={state.remainingCents}
         currentInstallmentPosition={state.installmentPosition}
-        proofUploadsAvailable={state.proofUploadsAvailable}
+        proofUploadAvailability={state.proofUploadAvailability}
         proofs={state.proofs.map((proof) => ({
           proofId: proof.proofId,
           installmentId: proof.installmentId,

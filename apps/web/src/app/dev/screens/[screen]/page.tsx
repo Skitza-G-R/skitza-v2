@@ -844,7 +844,29 @@ export default async function DevScreenPage({ params }: Params) {
           verifiedCents={120_000}
           remainingCents={120_000}
           currentInstallmentPosition={2}
-          proofUploadsAvailable
+          proofUploadAvailability={{ status: "available" }}
+          proofs={[DEV_ARTIST_CONFIRMED_PROOF]}
+        />,
+      );
+    case "s9-scheduled":
+      return withArtistPlatformStandingChrome(
+        screen,
+        <PaymentSummaryScreen
+          purchaseId={DEV_ARTIST_PURCHASE_ID}
+          studioId={DEV_ARTIST_STUDIO_ID}
+          productName={MOCK_PRODUCT.name}
+          producerName={MOCK_PRODUCER.name}
+          currency="ILS"
+          totalCents={240_000}
+          verifiedCents={120_000}
+          remainingCents={120_000}
+          currentInstallmentPosition={2}
+          proofUploadAvailability={{
+            status: "not_due",
+            installmentPosition: 2,
+            dueTrigger: "artist_approval",
+            dueAt: null,
+          }}
           proofs={[DEV_ARTIST_CONFIRMED_PROOF]}
         />,
       );
@@ -861,7 +883,7 @@ export default async function DevScreenPage({ params }: Params) {
           verifiedCents={240_000}
           remainingCents={0}
           currentInstallmentPosition={2}
-          proofUploadsAvailable
+          proofUploadAvailability={{ status: "paid_in_full" }}
           proofs={[DEV_ARTIST_CONFIRMED_PROOF, DEV_ARTIST_FINAL_PROOF]}
         />,
       );

@@ -101,7 +101,8 @@ describe("SK-69 payment surface wiring", () => {
     expect(producerPayments).toContain("toProducerPaymentWorkspaceBuckets(model.producerBuckets)");
     expect(producerPayments).toContain("ProducerPaymentWorkspace");
     expect(producerPayments).not.toContain("PaymentHistoryView");
-    expect(artistPayments).toContain("PaymentHistoryView");
+    expect(artistPayments).toContain("ArtistPaymentsOverview");
+    expect(artistPayments).not.toMatch(/\bPaymentHistoryView\b/);
   });
 
   it("feeds canonical project and client views from the same read projection", () => {
@@ -179,7 +180,7 @@ describe("SK-69 payment surface wiring", () => {
       "caller.artist.purchase.proofOfPayment.state({ purchaseId })",
     );
     expect(artistPurchasePayment).toContain(
-      "proofUploadsAvailable={state.proofUploadsAvailable}",
+      "proofUploadAvailability={state.proofUploadAvailability}",
     );
     expect(artistPurchasePayment).not.toContain("caller.artist.purchase.paymentInstructions");
     expect(artistPurchasePayment).toContain("<PaymentSummaryScreen");
