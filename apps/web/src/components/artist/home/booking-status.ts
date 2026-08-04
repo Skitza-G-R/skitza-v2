@@ -19,20 +19,25 @@ type ArtistHomeSession = Readonly<{
   heldExpiryReason: "approval_timeout" | null;
 }>;
 
+export type ArtistHomeBookingStatusAction = ArtistHomeAction &
+  Readonly<{ mainEligible: boolean }>;
+
 export function artistHomeBookingStatusActions(input: {
   sessions: readonly ArtistHomeSession[];
   producerId: string;
   artistTimezone: string;
   now: Date;
-}): ArtistHomeAction[] {
+}): ArtistHomeBookingStatusAction[] {
   return input.sessions
-    .filter(
-      (session) =>
-        session.producerId === input.producerId &&
-        session.startsAt.getTime() >= input.now.getTime(),
-    )
     .map((session) => ({ session, display: artistSessionDisplay(session) }))
-    .filter(({ display }) => display.status === "held" || display.status === "confirmed")
+    .filter(({ session, display }) => {
+      if (session.producerId !== input.producerId) return false;
+      const startsAt = session.startsAt.getTime();
+      const now = input.now.getTime();
+      if (display.status === "held") return startsAt > now;
+      if (display.status !== "confirmed") return false;
+      return startsAt + session.durationMin * 60_000 > now;
+    })
     .sort(
       (left, right) =>
         left.session.startsAt.getTime() - right.session.startsAt.getTime() ||
@@ -57,6 +62,9 @@ export function artistHomeBookingStatusActions(input: {
         actionLabel: "View session",
         upcomingAt: session.startsAt,
         occurredAt: session.startsAt,
+        mainEligible:
+          session.startsAt.getTime() <= input.now.getTime() ||
+          isSameArtistDay(session.startsAt, input.now, input.artistTimezone),
       };
     });
 }

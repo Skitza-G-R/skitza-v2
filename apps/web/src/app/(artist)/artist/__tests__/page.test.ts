@@ -40,6 +40,10 @@ describe("/artist page composition", () => {
   it("derives Home booking status from real session rows and keeps plain payment labels", () => {
     expect(SRC).toContain("sessions: sessions.sessions");
     expect(SRC).toContain("producerId: activeStudio.producerId");
+    expect(SRC).toContain(
+      "candidates.push(...bookingStatusActions.filter(({ mainEligible }) => mainEligible))",
+    );
+    expect(SRC).toContain("const supporting: ArtistHomeAction[] = [...bookingStatusActions]");
     expect(SRC).not.toContain("artistNotifications");
     expect(SRC).toMatch(/First payment/);
     expect(SRC).toMatch(/Remaining balance/);
