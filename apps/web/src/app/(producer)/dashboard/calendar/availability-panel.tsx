@@ -35,6 +35,7 @@ import {
   type WeekStart,
 } from "~/lib/time/week-start";
 import { runOptimisticPreferenceSave } from "~/lib/optimistic-preference-save";
+import { formatResolvedTimeZoneLabel } from "~/lib/timezone-display";
 
 import {
   addBlackout,
@@ -1130,16 +1131,8 @@ function buildSlots(): string[] {
 
 function getTimezoneLabel(): string {
   try {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const offsetMin = -new Date().getTimezoneOffset();
-    const sign = offsetMin >= 0 ? "+" : "-";
-    const h = Math.floor(Math.abs(offsetMin) / 60);
-    const m = Math.abs(offsetMin) % 60;
-    const offset =
-      m === 0
-        ? `${sign}${String(h)}`
-        : `${sign}${String(h)}:${String(m).padStart(2, "0")}`;
-    return `${tz} · GMT${offset}`;
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    return formatResolvedTimeZoneLabel(timeZone);
   } catch {
     return "Local time";
   }

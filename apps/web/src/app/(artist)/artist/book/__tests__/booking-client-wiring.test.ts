@@ -63,6 +63,8 @@ describe("focused short booking process", () => {
     expect(clientSrc).toMatch(/studioTimeZone/);
     expect(clientSrc).toMatch(/zonesDiffer/);
     expect(clientSrc).toMatch(/Studio time/);
+    expect(clientSrc).toMatch(/formatGmtClockTime\(new Date\(iso\), timeZone\)/);
+    expect(clientSrc).not.toMatch(/timeZoneName: "short"/);
   });
 
   it("uses the approved final booking labels", () => {
