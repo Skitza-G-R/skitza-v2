@@ -4,10 +4,13 @@ import {
   beginManagedUpload,
   cancelManagedUpload,
   cancelManagedUploadsForAccount,
+  dismissManagedUpload,
   managedUploadsSnapshot,
   releaseManagedUploadsForAccount,
   retryManagedUpload,
   setUploadRuntimeAccountId,
+  UPLOAD_ERROR_FEEDBACK_MS,
+  UPLOAD_SUCCESS_FEEDBACK_MS,
 } from "./upload-manager";
 
 const ACCOUNT_A = "user_a";
@@ -17,6 +20,7 @@ afterEach(() => {
   releaseManagedUploadsForAccount(ACCOUNT_A);
   releaseManagedUploadsForAccount(ACCOUNT_B);
   setUploadRuntimeAccountId(null);
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -82,6 +86,68 @@ describe("app-level upload registry", () => {
 
     await expect(retryManagedUpload(upload.id)).resolves.toBe(false);
     expect(retry).not.toHaveBeenCalled();
+  });
+
+  it("removes completed upload feedback after the success window", () => {
+    vi.useFakeTimers();
+    setUploadRuntimeAccountId(ACCOUNT_A);
+    const upload = beginManagedUpload({ fileName: "done.wav", label: "Final mix" });
+
+    upload.succeed();
+
+    expect(managedUploadsSnapshot()[0]?.status).toBe("done");
+    vi.advanceTimersByTime(UPLOAD_SUCCESS_FEEDBACK_MS - 1);
+    expect(managedUploadsSnapshot()).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(managedUploadsSnapshot()).toEqual([]);
+  });
+
+  it("keeps active uploads visible past every terminal feedback window", () => {
+    vi.useFakeTimers();
+    setUploadRuntimeAccountId(ACCOUNT_A);
+    const upload = beginManagedUpload({ fileName: "long.wav", label: "Long upload" });
+    upload.setUploading(42);
+
+    vi.advanceTimersByTime(UPLOAD_ERROR_FEEDBACK_MS * 2);
+
+    expect(managedUploadsSnapshot()[0]).toMatchObject({
+      status: "uploading",
+      progress: 42,
+    });
+  });
+
+  it("removes readable error feedback after the longer error window", () => {
+    vi.useFakeTimers();
+    setUploadRuntimeAccountId(ACCOUNT_A);
+    const upload = beginManagedUpload({ fileName: "broken.wav", label: "Broken upload" });
+    upload.setRetry(() => Promise.resolve());
+
+    upload.fail("The connection stopped before the upload finished.");
+
+    expect(managedUploadsSnapshot()[0]).toMatchObject({
+      status: "error",
+      canRetry: true,
+    });
+    vi.advanceTimersByTime(UPLOAD_ERROR_FEEDBACK_MS - 1);
+    expect(managedUploadsSnapshot()).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(managedUploadsSnapshot()).toEqual([]);
+  });
+
+  it("lets terminal feedback be closed manually but protects active work", () => {
+    vi.useFakeTimers();
+    setUploadRuntimeAccountId(ACCOUNT_A);
+    const upload = beginManagedUpload({ fileName: "mix.wav", label: "Mix" });
+
+    upload.setUploading(18);
+    expect(dismissManagedUpload(upload.id)).toBe(false);
+    expect(managedUploadsSnapshot()).toHaveLength(1);
+
+    upload.fail("Network error");
+    expect(dismissManagedUpload(upload.id)).toBe(true);
+    expect(managedUploadsSnapshot()).toEqual([]);
+    vi.runAllTimers();
+    expect(managedUploadsSnapshot()).toEqual([]);
   });
 
   it("removes Stop once server completion begins", async () => {
