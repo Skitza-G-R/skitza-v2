@@ -163,8 +163,8 @@ describe("PurchaseStatusCard (home heartbeat, S6)", () => {
   });
 
   it("keeps Sessions as distinct prioritized destinations", () => {
-    expect(HOME_SRC).toContain('kind: "today_session"');
-    expect(HOME_SRC).toContain('actionLabel: "View session"');
+    expect(HOME_SRC).toContain("artistHomeBookingStatusActions({");
+    expect(HOME_SRC).toContain("sessions: sessions.sessions");
     expect(HOME_SRC).toContain('kind: "ready_to_schedule"');
     expect(HOME_SRC).toMatch(
       /withArtistStudio\(\s*`\/artist\/book\?allowance=\$\{allowance\.sessionAllowanceId\}`,\s*activeStudio\.producerId,\s*\)/,

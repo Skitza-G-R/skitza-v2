@@ -119,9 +119,8 @@ describe("trusted artist studio continuity", () => {
       /nextSessionRows[\s\S]*producerId:\s*bookings\.producerId[\s\S]*const nextSession/,
     );
     expect(artistRouter).toMatch(/const nextSession[\s\S]*producerId:\s*nextRow\.producerId/);
-    expect(home).toContain(
-      "withArtistStudio(`/artist/sessions/${home.nextSession.id}`, activeStudio.producerId)",
-    );
+    expect(home).toContain("artistHomeBookingStatusActions({");
+    expect(home).toContain("sessions: sessions.sessions");
     expect(home).toMatch(
       /withArtistStudio\(\s*`\/artist\/book\?allowance=\$\{allowance\.sessionAllowanceId\}`,\s*activeStudio\.producerId,\s*\)/,
     );
