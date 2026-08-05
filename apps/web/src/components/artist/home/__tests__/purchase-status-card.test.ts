@@ -96,9 +96,13 @@ describe("PurchaseStatusCard (home heartbeat, S6)", () => {
       line: "Gili Studio approved your request, but the offer is temporarily unavailable.",
       sub: "No terms have been accepted or frozen",
     });
-    expect(HOME_SRC).not.toContain('stage === "awaiting_payment"');
-    expect(HOME_SRC).not.toContain("continuationAvailable");
-    expect(HOME_SRC).toContain('currentRequest.current?.status === "pending"');
+    expect(HOME_SRC).toMatch(
+      /currentPurchaseRequest\?\.status === "approved" &&\s*currentPurchaseRequest\.productId/,
+    );
+    expect(HOME_SRC).toContain("currentPurchaseRequest.acceptanceAvailable");
+    expect(HOME_SRC).toContain('withArtistStudio("/artist/store"');
+    expect(HOME_SRC).toContain('"View services"');
+    expect(HOME_SRC).toContain('currentPurchaseRequest?.status === "pending"');
   });
 
   it("preserves the request currency and minor units on Artist Home", () => {
