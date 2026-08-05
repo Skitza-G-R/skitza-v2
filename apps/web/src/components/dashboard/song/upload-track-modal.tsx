@@ -247,15 +247,18 @@ export function UploadTrackModal({
     !selectedProjectId ||
     (mode === "new-version" && !trackId);
 
+  function retireActiveFirstVersionAttempt(): void {
+    const previousIntentId = activeFirstVersionIntentRef.current;
+    if (!previousIntentId) return;
+    activeFirstVersionIntentRef.current = null;
+    void cancelFirstVersionUploadAction({ intentId: previousIntentId });
+    firstVersionOperationKeyRef.current = crypto.randomUUID();
+  }
+
   // ─── File handlers ─────────────────────────────────────────────────
   const handleFilePick = (f: File | null) => {
     if (pending) return;
-    const previousIntentId = activeFirstVersionIntentRef.current;
-    if (previousIntentId) {
-      activeFirstVersionIntentRef.current = null;
-      void cancelFirstVersionUploadAction({ intentId: previousIntentId });
-      firstVersionOperationKeyRef.current = crypto.randomUUID();
-    }
+    retireActiveFirstVersionAttempt();
     if (!f) {
       setFile(null);
       return;
@@ -333,6 +336,7 @@ export function UploadTrackModal({
     // We re-bind via const so the async closure below keeps the
     // narrowed type even after React re-renders.
     const submittedFile = file;
+    if (isNewSong) retireActiveFirstVersionAttempt();
     startUpload(submittedFile);
   };
 
