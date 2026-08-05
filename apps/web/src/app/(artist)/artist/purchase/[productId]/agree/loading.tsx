@@ -13,7 +13,7 @@ function Block({ className }: { className: string }) {
 export default function Loading() {
   return (
     <div
-      className="fixed inset-0 z-[60] overflow-hidden"
+      className="sk-native-screen fixed inset-x-0 top-[var(--sk-viewport-offset-top,0px)] z-[60] overflow-hidden"
       style={{ background: "rgb(var(--bg-background))" }}
     >
       <div className="mx-auto w-full max-w-[440px] px-5 pt-[72px]">
