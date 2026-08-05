@@ -184,6 +184,7 @@ export function UploadTrackModal({
   const activePutAbortRef = useRef<AbortController | null>(null);
   const managedUploadRef = useRef<ManagedUploadHandle | null>(null);
   const firstVersionOperationKeyRef = useRef("");
+  const firstVersionFormSubmitRef = useRef(false);
 
   useEffect(() => startMultipartCancellationRecovery(), []);
 
@@ -400,9 +401,19 @@ export function UploadTrackModal({
     // We re-bind via const so the async closure below keeps the
     // narrowed type even after React re-renders.
     const submittedFile = file;
-    void (async () => {
-      if (isNewSong && !(await retireActiveFirstVersionAttempt())) return;
+    if (isNewSong && (firstVersionFormSubmitRef.current || managedUploadRef.current)) return;
+    if (!isNewSong) {
       startUpload(submittedFile);
+      return;
+    }
+    firstVersionFormSubmitRef.current = true;
+    void (async () => {
+      try {
+        if (!(await retireActiveFirstVersionAttempt())) return;
+        startUpload(submittedFile);
+      } finally {
+        firstVersionFormSubmitRef.current = false;
+      }
     })();
   };
 
