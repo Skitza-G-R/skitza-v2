@@ -234,10 +234,10 @@ export function ReviewAgreeScreen(props: ReviewAgreeScreenProps) {
 
   return (
     <div
-      className="fixed inset-0 z-[60] overflow-y-auto"
+      className="sk-native-screen fixed inset-x-0 top-[var(--sk-viewport-offset-top,0px)] z-[60] flex flex-col overflow-hidden"
       style={{ background: "rgb(var(--bg-background))" }}
     >
-      <div className="relative mx-auto flex min-h-dvh w-full max-w-[440px] flex-col">
+      <div className="relative mx-auto flex min-h-0 w-full max-w-[440px] flex-1 flex-col overflow-hidden">
         <FunnelTopBar
           title="Review exact agreement"
           sub="FINAL ACCEPTANCE"
@@ -246,7 +246,7 @@ export function ReviewAgreeScreen(props: ReviewAgreeScreenProps) {
           }}
         />
 
-        <main className="flex-1 px-5 pt-3.5 pb-[190px]">
+        <main className="sk-native-scroll min-h-0 flex-1 overflow-y-auto px-5 pt-3.5 pb-6">
           <h1 className="reveal-up font-syne text-[26px] leading-[1.1] font-extrabold tracking-[-0.035em] text-[rgb(var(--fg-default))]">
             Accept these exact terms
           </h1>
@@ -534,7 +534,7 @@ export function ReviewAgreeScreen(props: ReviewAgreeScreenProps) {
         </main>
 
         <div
-          className="sk-safe-bottom sticky bottom-0 z-10 px-[18px] pt-3.5 pb-3.5"
+          className="sk-safe-bottom z-10 shrink-0 px-[18px] pt-3.5 pb-3.5"
           style={{
             background:
               "linear-gradient(180deg, rgb(var(--bg-background) / 0) 0%, rgb(var(--bg-background) / 0.96) 22%)",

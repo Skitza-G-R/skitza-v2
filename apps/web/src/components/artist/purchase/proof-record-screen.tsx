@@ -115,8 +115,8 @@ export function ProofRecordScreen({
           : "Back to payment summary";
 
   return (
-    <div className="fixed inset-0 z-[60] overflow-y-auto bg-[rgb(var(--bg-background))]">
-      <div className="relative mx-auto flex min-h-dvh w-full max-w-[440px] flex-col overflow-x-clip">
+    <div className="sk-native-screen fixed inset-x-0 top-[var(--sk-viewport-offset-top,0px)] z-[60] flex flex-col overflow-hidden overflow-x-clip bg-[rgb(var(--bg-background))]">
+      <div className="relative mx-auto flex min-h-0 w-full max-w-[440px] flex-1 flex-col overflow-hidden">
         <FunnelTopBar
           title="Payment proof"
           sub={`INSTALLMENT ${String(proof.installmentPosition)}`}
@@ -125,7 +125,7 @@ export function ProofRecordScreen({
           }}
         />
 
-        <main className="flex-1 px-4 pt-3 pb-40 min-[390px]:px-5">
+        <main className="sk-native-scroll min-h-0 flex-1 px-4 pt-3 pb-6 min-[390px]:px-5">
           <p className="mb-1 truncate text-xs font-semibold text-[rgb(var(--fg-muted))]">
             {productName}
           </p>
@@ -282,7 +282,7 @@ export function ProofRecordScreen({
         </main>
 
         <div
-          className="sticky bottom-0 z-10 px-4 pt-4 pb-[calc(0.875rem+env(safe-area-inset-bottom,0px))] min-[390px]:px-5"
+          className="z-10 shrink-0 px-4 pt-4 pb-[calc(0.875rem+env(safe-area-inset-bottom,0px))] min-[390px]:px-5"
           style={{
             background:
               "linear-gradient(180deg, rgb(var(--bg-background)/0), rgb(var(--bg-background)) 24%)",

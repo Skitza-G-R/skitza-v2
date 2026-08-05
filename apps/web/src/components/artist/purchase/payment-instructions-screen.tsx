@@ -63,8 +63,8 @@ export function PaymentInstructionsScreen({
   }
 
   return (
-    <div className="min-h-dvh bg-[rgb(var(--bg-background))]">
-      <div className="mx-auto flex min-h-dvh w-full max-w-[480px] flex-col overflow-x-hidden">
+    <div className="sk-native-screen fixed inset-x-0 top-[var(--sk-viewport-offset-top,0px)] z-[60] flex flex-col overflow-hidden bg-[rgb(var(--bg-background))]">
+      <div className="mx-auto flex min-h-0 w-full max-w-[480px] flex-1 flex-col overflow-hidden">
         <FunnelTopBar
           title="Payment instructions"
           sub="PAID DIRECTLY TO THE STUDIO"
@@ -79,7 +79,7 @@ export function PaymentInstructionsScreen({
           }}
         />
 
-        <main className="flex-1 px-4 pt-4 pb-40 min-[390px]:px-5">
+        <main className="sk-native-scroll min-h-0 flex-1 px-4 pt-4 pb-6 min-[390px]:px-5">
           <h1 className="sr-only">Payment instructions</h1>
 
           <section
@@ -191,7 +191,7 @@ export function PaymentInstructionsScreen({
 
         {proofHref || previewProofHref ? (
           <div
-            className="sticky bottom-0 z-10 px-4 pt-5 pb-[calc(0.875rem+env(safe-area-inset-bottom,0px))] min-[390px]:px-5"
+            className="z-10 shrink-0 px-4 pt-5 pb-[calc(0.875rem+env(safe-area-inset-bottom,0px))] min-[390px]:px-5"
             style={{
               background:
                 "linear-gradient(180deg, rgb(var(--bg-background)/0), rgb(var(--bg-background)) 24%)",

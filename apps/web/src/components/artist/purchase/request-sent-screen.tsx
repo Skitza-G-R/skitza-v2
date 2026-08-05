@@ -43,7 +43,7 @@ export function RequestSentScreen({
 
   return (
     <div
-      className="fixed inset-0 z-[60] overflow-hidden"
+      className="sk-native-screen fixed inset-x-0 top-[var(--sk-viewport-offset-top,0px)] z-[60] flex flex-col overflow-hidden"
       style={{
         background:
           "radial-gradient(130% 70% at 50% -4%, rgb(var(--brand-primary) / 0.18), transparent 52%), radial-gradient(100% 60% at 50% 110%, rgb(17 16 9 / 0.04), transparent 60%), rgb(var(--bg-background))",
@@ -58,8 +58,8 @@ export function RequestSentScreen({
         </div>
       </div>
 
-      <div className="h-full overflow-y-auto">
-        <div className="mx-auto flex min-h-dvh w-full max-w-[440px] flex-col">
+      <div className="sk-native-scroll min-h-0 flex-1">
+        <div className="mx-auto flex min-h-full w-full max-w-[440px] flex-col">
           {/* hero */}
           <div className="sk-safe-top flex flex-col items-center px-[30px] pt-[72px] text-center">
             {/* emblem with rippling rings (foundation: two staggered sk-ripple rings) */}
@@ -196,7 +196,11 @@ export function RequestSentScreen({
                         >
                           {step.title}
                           <span className="sr-only">
-                            {step.done ? " — completed" : i === 1 ? " — current step" : " — upcoming"}
+                            {step.done
+                              ? " — completed"
+                              : i === 1
+                                ? " — current step"
+                                : " — upcoming"}
                           </span>
                         </div>
                         <div

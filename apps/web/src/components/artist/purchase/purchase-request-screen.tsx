@@ -76,8 +76,8 @@ export function PurchaseRequestScreen({
   }
 
   return (
-    <div className="min-h-dvh bg-[rgb(var(--bg-background))]">
-      <div className="mx-auto flex min-h-dvh w-full max-w-[480px] flex-col">
+    <div className="sk-native-screen fixed inset-x-0 top-[var(--sk-viewport-offset-top,0px)] z-[60] flex flex-col overflow-hidden bg-[rgb(var(--bg-background))]">
+      <div className="mx-auto flex min-h-0 w-full max-w-[480px] flex-1 flex-col overflow-hidden">
         <FunnelTopBar
           title="Request to book"
           sub="NO PAYMENT YET"
@@ -87,7 +87,7 @@ export function PurchaseRequestScreen({
             );
           }}
         />
-        <main className="flex-1 px-4 pt-4 pb-32 min-[390px]:px-5">
+        <main className="sk-native-scroll min-h-0 flex-1 px-4 pt-4 pb-6 min-[390px]:px-5">
           <section className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4">
             <h1 className="font-display text-[21px] font-bold tracking-[-0.025em] text-[rgb(var(--fg-default))]">
               {productName}
@@ -170,7 +170,7 @@ export function PurchaseRequestScreen({
           ) : null}
         </main>
 
-        <div className="sticky bottom-0 px-4 pt-4 pb-[calc(0.875rem+env(safe-area-inset-bottom,0px))] min-[390px]:px-5">
+        <div className="shrink-0 px-4 pt-4 pb-[calc(0.875rem+env(safe-area-inset-bottom,0px))] min-[390px]:px-5">
           <button
             type="button"
             onClick={() => {
