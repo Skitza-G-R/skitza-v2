@@ -43,9 +43,36 @@ describe("/artist page composition", () => {
     expect(SRC).toContain(
       "candidates.push(...bookingStatusActions.filter(({ mainEligible }) => mainEligible))",
     );
-    expect(SRC).toContain("const supporting: ArtistHomeAction[] = [...bookingStatusActions]");
+    expect(SRC).toContain("const supporting: ArtistHomeAction[] = [");
+    expect(SRC).toContain("...bookingStatusActions,");
     expect(SRC).not.toContain("artistNotifications");
     expect(SRC).toMatch(/First payment/);
     expect(SRC).toMatch(/Remaining balance/);
+  });
+
+  it("promotes an approved product request into the exact payment-plan continuation", () => {
+    const approvedBranch = SRC.match(
+      /if \(\s*currentPurchaseRequest\?\.status === "approved"[\s\S]*?\n {2}\}/,
+    )?.[0];
+
+    expect(approvedBranch).toBeDefined();
+    expect(approvedBranch).toContain("currentPurchaseRequest.acceptanceAvailable");
+    expect(approvedBranch).toContain("currentPurchaseRequest.productId");
+    expect(approvedBranch).toContain("candidates.push(approvedRequestAction)");
+    expect(approvedBranch).toContain('kind: "payment_action"');
+    expect(approvedBranch).toMatch(
+      /href: currentPurchaseRequest\.acceptanceAvailable\s*\? withArtistStudio\(\s*`\/artist\/purchase\/\$\{currentPurchaseRequest\.productId\}\/pay\?req=\$\{currentPurchaseRequest\.id\}`/,
+    );
+    expect(approvedBranch).toContain("activeStudio.producerId");
+    expect(approvedBranch).toContain('withArtistStudio("/artist/store"');
+    expect(approvedBranch).toContain('"Choose a payment plan"');
+    expect(approvedBranch).toContain('"View services"');
+    expect(SRC).toContain("...(approvedRequestAction ? [approvedRequestAction] : [])");
+    expect(SRC.indexOf("...(approvedRequestAction ? [approvedRequestAction] : [])")).toBeLessThan(
+      SRC.indexOf("...bookingStatusActions,"),
+    );
+    expect(SRC.indexOf('currentPurchaseRequest?.status === "approved"')).toBeLessThan(
+      SRC.indexOf("const main = selectArtistHomeMainAction(candidates)"),
+    );
   });
 });

@@ -109,6 +109,31 @@ export default async function ArtistHomePage({ searchParams }: ArtistHomePagePro
     });
   }
 
+  const currentPurchaseRequest = currentRequest.current;
+  let approvedRequestAction: ArtistHomeAction | null = null;
+  if (currentPurchaseRequest?.status === "approved" && currentPurchaseRequest.productId) {
+    approvedRequestAction = {
+      id: currentPurchaseRequest.id,
+      kind: "payment_action",
+      title: `${currentPurchaseRequest.productNameSnapshot} was approved`,
+      detail: currentPurchaseRequest.acceptanceAvailable
+        ? `Choose a payment plan and review the agreement with ${activeStudio.name}.`
+        : `${activeStudio.name} approved your request, but this offer is temporarily unavailable.`,
+      href: currentPurchaseRequest.acceptanceAvailable
+        ? withArtistStudio(
+            `/artist/purchase/${currentPurchaseRequest.productId}/pay?req=${currentPurchaseRequest.id}`,
+            activeStudio.producerId,
+          )
+        : withArtistStudio("/artist/store", activeStudio.producerId),
+      actionLabel: currentPurchaseRequest.acceptanceAvailable
+        ? "Choose a payment plan"
+        : "View services",
+      upcomingAt: null,
+      occurredAt: currentPurchaseRequest.statusChangedAt ?? currentPurchaseRequest.createdAt,
+    };
+    candidates.push(approvedRequestAction);
+  }
+
   const selectedAllowances = sessions.allowances.filter(
     (allowance) => allowance.producerId === activeStudio.producerId && allowance.canBook,
   );
@@ -166,21 +191,24 @@ export default async function ArtistHomePage({ searchParams }: ArtistHomePagePro
   candidates.push(serviceAction);
 
   const main = selectArtistHomeMainAction(candidates) ?? serviceAction;
-  const supporting: ArtistHomeAction[] = [...bookingStatusActions];
+  const supporting: ArtistHomeAction[] = [
+    ...(approvedRequestAction ? [approvedRequestAction] : []),
+    ...bookingStatusActions,
+  ];
 
-  if (currentRequest.current?.status === "pending") {
+  if (currentPurchaseRequest?.status === "pending") {
     supporting.push({
-      id: currentRequest.current.id,
+      id: currentPurchaseRequest.id,
       kind: "payment_action",
-      title: `${currentRequest.current.productNameSnapshot} is under review`,
+      title: `${currentPurchaseRequest.productNameSnapshot} is under review`,
       detail: `${activeStudio.name} will respond to your request.`,
       href: withArtistStudio(
-        `/artist/purchase/${currentRequest.current.productId ?? currentRequest.current.id}/sent?req=${currentRequest.current.id}`,
+        `/artist/purchase/${currentPurchaseRequest.productId ?? currentPurchaseRequest.id}/sent?req=${currentPurchaseRequest.id}`,
         activeStudio.producerId,
       ),
       actionLabel: "View",
       upcomingAt: null,
-      occurredAt: currentRequest.current.createdAt,
+      occurredAt: currentPurchaseRequest.createdAt,
     });
   }
   const proofUnderReview = selectedPayments.find(
@@ -206,7 +234,7 @@ export default async function ArtistHomePage({ searchParams }: ArtistHomePagePro
     selectedPayments.length > 0 ||
     selectedAllowances.length > 0 ||
     home.latestMix !== null ||
-    currentRequest.current !== null;
+    currentPurchaseRequest !== null;
   const quietRows = withoutArtistHomeDuplicate(supporting, main).slice(0, 3);
 
   return (
