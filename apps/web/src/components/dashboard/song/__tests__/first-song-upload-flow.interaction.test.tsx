@@ -347,6 +347,83 @@ describe("first Song upload journey", () => {
     expect(mocked.completeFirstVersionUploadAction).not.toHaveBeenCalled();
   });
 
+  it("uses a fresh operation key when the form Upload button resubmits after PUT failure", async () => {
+    let firstOperationKey: string | undefined;
+    const operationKeys: string[] = [];
+    mocked.prepareFirstVersionUploadAction.mockImplementation(
+      (input: { operationKey: string }) => {
+        operationKeys.push(input.operationKey);
+        if (!firstOperationKey) {
+          firstOperationKey = input.operationKey;
+          return Promise.resolve({
+            ok: true as const,
+            data: {
+              status: "ready" as const,
+              intentId: "44444444-4444-4444-8444-444444444444",
+              projectId: PROJECT_ID,
+              trackId: TRACK_ID,
+              versionId: VERSION_ID,
+              uploadUrl: "https://upload.example.test/first-version",
+              headers: { "Content-Type": "audio/wav" },
+              expiresInSeconds: 900,
+            },
+          });
+        }
+        if (input.operationKey === firstOperationKey) {
+          return Promise.resolve({
+            ok: false as const,
+            error: "This upload was canceled. Choose the file again.",
+          });
+        }
+        return Promise.resolve({
+          ok: true as const,
+          data: {
+            status: "ready" as const,
+            intentId: "55555555-5555-4555-8555-555555555555",
+            projectId: PROJECT_ID,
+            trackId: TRACK_ID,
+            versionId: VERSION_ID,
+            uploadUrl: "https://upload.example.test/first-version",
+            headers: { "Content-Type": "audio/wav" },
+            expiresInSeconds: 900,
+          },
+        });
+      },
+    );
+    vi.mocked(fetch)
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+      } as Response);
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    await user.upload(
+      screen.getByLabelText<HTMLInputElement>(/^Audio file/),
+      new File([new Uint8Array([0])], "first-version.wav", { type: "audio/wav" }),
+    );
+    await user.type(screen.getByLabelText(/^Song title/), "Fresh retry identity");
+    await user.click(screen.getByRole("button", { name: "Upload" }));
+
+    await waitFor(() => {
+      expect(mocked.managedFail).toHaveBeenCalledWith(
+        "Audio transfer failed. Check your connection and try again.",
+      );
+    });
+    await user.click(screen.getByRole("button", { name: "Upload" }));
+
+    await waitFor(() => {
+      expect(mocked.completeFirstVersionUploadAction).toHaveBeenCalledOnce();
+    });
+    expect(operationKeys).toHaveLength(2);
+    expect(operationKeys[1]).not.toBe(operationKeys[0]);
+    expect(mocked.cancelFirstVersionUploadAction).toHaveBeenCalledWith({
+      intentId: "44444444-4444-4444-8444-444444444444",
+    });
+  });
+
   it("keeps the exact failed intent and selected file when replacement cancellation fails", async () => {
     const intentId = "44444444-4444-4444-8444-444444444444";
     mocked.prepareFirstVersionUploadAction.mockResolvedValue({

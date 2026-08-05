@@ -316,6 +316,15 @@ export function UploadTrackModal({
     }
   }
 
+  async function retireActiveFirstVersionAttempt(): Promise<boolean> {
+    const previousIntentId = activeFirstVersionIntentRef.current;
+    if (!previousIntentId) return true;
+    const canceled = await cancelActiveFirstVersionIntent();
+    if (!canceled.ok || activeFirstVersionIntentRef.current === previousIntentId) return false;
+    firstVersionOperationKeyRef.current = crypto.randomUUID();
+    return true;
+  }
+
   // ─── File handlers ─────────────────────────────────────────────────
   const handleFilePick = async (f: File | null) => {
     if (pending) return;
@@ -323,12 +332,7 @@ export function UploadTrackModal({
       toast("Please pick an audio file (WAV / MP3).", "error");
       return;
     }
-    const previousIntentId = activeFirstVersionIntentRef.current;
-    if (previousIntentId) {
-      const canceled = await cancelActiveFirstVersionIntent();
-      if (!canceled.ok || activeFirstVersionIntentRef.current === previousIntentId) return;
-      firstVersionOperationKeyRef.current = crypto.randomUUID();
-    }
+    if (!(await retireActiveFirstVersionAttempt())) return;
     if (!f) {
       setFile(null);
       return;
@@ -396,7 +400,10 @@ export function UploadTrackModal({
     // We re-bind via const so the async closure below keeps the
     // narrowed type even after React re-renders.
     const submittedFile = file;
-    startUpload(submittedFile);
+    void (async () => {
+      if (isNewSong && !(await retireActiveFirstVersionAttempt())) return;
+      startUpload(submittedFile);
+    })();
   };
 
   function finishSuccessfulUpload(managed: ManagedUploadHandle) {
