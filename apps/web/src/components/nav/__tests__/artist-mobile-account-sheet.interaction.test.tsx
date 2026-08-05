@@ -116,13 +116,17 @@ function dispatchPointer(
   fireEvent(target, event);
 }
 
-function renderButton() {
+function renderButton({
+  settingsHref = "/artist/settings?studio=studio-1",
+}: {
+  settingsHref?: string;
+} = {}) {
   render(
     <ArtistMobileUserButton
       userId="user-1"
       producerStatus="complete"
       producerUnreadCount={0}
-      settingsHref="/artist/settings?studio=studio-1"
+      settingsHref={settingsHref}
       ringClassName="ring-[rgb(var(--border-subtle))]"
     />,
   );
@@ -189,8 +193,22 @@ describe("Artist mobile account sheet", () => {
     expect(sheet.classList.contains("sk-account-sheet-motion")).toBe(true);
     expect(handle.classList.contains("touch-none")).toBe(true);
     expect(document.querySelector(".sk-account-sheet-overlay-motion")).not.toBeNull();
+    expect(screen.queryByRole("link", { name: "Payments" })).toBeNull();
     expect(screen.getByRole("link", { name: "Settings" }).getAttribute("href")).toBe(
       "/artist/settings?studio=studio-1",
+    );
+  });
+
+  it("keeps Payments out of the account sheet without studio query context", () => {
+    mocks.search = "";
+    renderButton({
+      settingsHref: "/artist/settings",
+    });
+
+    openAccountSheet();
+    expect(screen.queryByRole("link", { name: "Payments" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Settings" }).getAttribute("href")).toBe(
+      "/artist/settings",
     );
   });
 

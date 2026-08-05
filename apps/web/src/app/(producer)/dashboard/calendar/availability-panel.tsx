@@ -35,6 +35,7 @@ import {
   type WeekStart,
 } from "~/lib/time/week-start";
 import { runOptimisticPreferenceSave } from "~/lib/optimistic-preference-save";
+import { formatResolvedTimeZoneLabel } from "~/lib/timezone-display";
 
 import {
   addBlackout,
@@ -80,6 +81,8 @@ export type AvailabilityPanelProps = {
   // Settings redesign). The toggle here persists to the same column,
   // so editing in one place updates the other on next visit.
   initialWeekStart: WeekStart;
+  timeZone: string;
+  initialNow: string;
 };
 
 export function AvailabilityPanel({
@@ -87,6 +90,8 @@ export function AvailabilityPanel({
   blackouts: initialBlackouts,
   settings,
   initialWeekStart,
+  timeZone,
+  initialNow,
 }: AvailabilityPanelProps) {
   const { toast } = useToast();
   const online = useOnlineStatus();
@@ -123,6 +128,8 @@ export function AvailabilityPanel({
           }}
           weekStartSaving={weekStartSaving}
           online={online}
+          timeZone={timeZone}
+          initialNow={initialNow}
         />
         <BlockedDatesCard blackouts={initialBlackouts} online={online} />
       </div>
@@ -507,6 +514,8 @@ function BookingPrefsCard({
   onWeekStartChange,
   weekStartSaving,
   online,
+  timeZone,
+  initialNow,
 }: {
   autoConfirm: boolean;
   cancelHours: number;
@@ -514,6 +523,8 @@ function BookingPrefsCard({
   onWeekStartChange: (next: WeekStart) => void;
   weekStartSaving: boolean;
   online: boolean;
+  timeZone: string;
+  initialNow: string;
 }) {
   const [draftAuto, setDraftAuto] = useState(autoConfirm);
   const [draftCancel, setDraftCancel] = useState(cancelHours);
@@ -686,7 +697,7 @@ function BookingPrefsCard({
         <div>
           <Eyebrow label="Timezone" />
           <p className="mt-1.5 font-mono text-[12px] text-[rgb(var(--fg-muted))]">
-            {getTimezoneLabel()}
+            {getTimezoneLabel(timeZone, initialNow)}
           </p>
         </div>
       </div>
@@ -1128,18 +1139,9 @@ function buildSlots(): string[] {
   return out;
 }
 
-function getTimezoneLabel(): string {
+function getTimezoneLabel(timeZone: string, initialNow: string): string {
   try {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const offsetMin = -new Date().getTimezoneOffset();
-    const sign = offsetMin >= 0 ? "+" : "-";
-    const h = Math.floor(Math.abs(offsetMin) / 60);
-    const m = Math.abs(offsetMin) % 60;
-    const offset =
-      m === 0
-        ? `${sign}${String(h)}`
-        : `${sign}${String(h)}:${String(m).padStart(2, "0")}`;
-    return `${tz} · GMT${offset}`;
+    return formatResolvedTimeZoneLabel(timeZone, new Date(initialNow));
   } catch {
     return "Local time";
   }

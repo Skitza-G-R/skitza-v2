@@ -7,6 +7,7 @@ import { auth } from "@clerk/nextjs/server";
 
 import { appRouter } from "~/server/trpc/routers/_app";
 import type { WorkflowStage } from "~/lib/clients/workflow-stage";
+import { toSafeUploadStageError } from "~/server/audio/upload-action-errors";
 
 // ─── Result types ────────────────────────────────────────────────────
 // Mirrors the convention in clients-actions.ts so the Upload Track
@@ -90,7 +91,7 @@ export async function prepareFirstVersionUploadAction(input: {
     return { ok: true, data };
   } catch (err) {
     console.error("[upload-actions]", err);
-    return { ok: false, error: toMessage(err) };
+    return { ok: false, error: toSafeUploadStageError("initiation", err) };
   }
 }
 
@@ -109,7 +110,7 @@ export async function completeFirstVersionUploadAction(input: {
     return { ok: true, data };
   } catch (err) {
     console.error("[upload-actions]", err);
-    return { ok: false, error: toMessage(err) };
+    return { ok: false, error: toSafeUploadStageError("completion", err) };
   }
 }
 
@@ -123,7 +124,7 @@ export async function cancelFirstVersionUploadAction(input: {
     return { ok: true, data };
   } catch (err) {
     console.error("[upload-actions]", err);
-    return { ok: false, error: toMessage(err) };
+    return { ok: false, error: toSafeUploadStageError("cancellation", err) };
   }
 }
 
@@ -185,7 +186,7 @@ export async function addVersionAction(input: {
     };
   } catch (err) {
     console.error("[upload-actions]", err);
-    return { ok: false, error: toMessage(err) };
+    return { ok: false, error: toSafeUploadStageError("initiation", err) };
   }
 }
 
@@ -228,7 +229,7 @@ export async function initMultipartAction(input: {
     return { ok: true, data: res };
   } catch (err) {
     console.error("[upload-actions]", err);
-    return { ok: false, error: toMessage(err) };
+    return { ok: false, error: toSafeUploadStageError("initiation", err) };
   }
 }
 
@@ -245,7 +246,7 @@ export async function signPartAction(input: {
     return { ok: true, data: res };
   } catch (err) {
     console.error("[upload-actions]", err);
-    return { ok: false, error: toMessage(err) };
+    return { ok: false, error: toSafeUploadStageError("presign", err) };
   }
 }
 
@@ -279,7 +280,7 @@ export async function completeMultipartAction(input: {
     return { ok: true, data: res };
   } catch (err) {
     console.error("[upload-actions]", err);
-    return { ok: false, error: toMessage(err) };
+    return { ok: false, error: toSafeUploadStageError("completion", err) };
   }
 }
 
@@ -301,7 +302,7 @@ export async function abortMultipartAction(input: {
     return { ok: true, data: res };
   } catch (err) {
     console.error("[upload-actions]", err);
-    return { ok: false, error: toMessage(err) };
+    return { ok: false, error: toSafeUploadStageError("cancellation", err) };
   }
 }
 

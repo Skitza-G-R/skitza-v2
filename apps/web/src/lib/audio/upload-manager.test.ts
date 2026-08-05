@@ -4,19 +4,53 @@ import {
   beginManagedUpload,
   cancelManagedUpload,
   cancelManagedUploadsForAccount,
+  dismissManagedUpload,
   managedUploadsSnapshot,
   releaseManagedUploadsForAccount,
   retryManagedUpload,
   setUploadRuntimeAccountId,
+  UPLOAD_ERROR_FEEDBACK_MS,
+  UPLOAD_SUCCESS_FEEDBACK_MS,
 } from "./upload-manager";
 
 const ACCOUNT_A = "user_a";
 const ACCOUNT_B = "user_b";
 
-afterEach(() => {
-  releaseManagedUploadsForAccount(ACCOUNT_A);
-  releaseManagedUploadsForAccount(ACCOUNT_B);
+function installBrowserLifecycle(initialState: "hidden" | "visible" = "visible") {
+  const browserDocument = Object.assign(new EventTarget(), {
+    visibilityState: initialState,
+  });
+  const browserWindow = new EventTarget();
+  const addEventListener = vi.spyOn(browserDocument, "addEventListener");
+  const removeEventListener = vi.spyOn(browserDocument, "removeEventListener");
+  const addWindowEventListener = vi.spyOn(browserWindow, "addEventListener");
+  const removeWindowEventListener = vi.spyOn(browserWindow, "removeEventListener");
+  vi.stubGlobal("document", browserDocument);
+  vi.stubGlobal("window", browserWindow);
+
+  return {
+    addEventListener,
+    removeEventListener,
+    addWindowEventListener,
+    removeWindowEventListener,
+    setVisibility(state: "hidden" | "visible") {
+      browserDocument.visibilityState = state;
+      browserDocument.dispatchEvent(new Event("visibilitychange"));
+    },
+    focus() {
+      browserWindow.dispatchEvent(new Event("focus"));
+    },
+  };
+}
+
+afterEach(async () => {
+  await Promise.all([
+    releaseManagedUploadsForAccount(ACCOUNT_A),
+    releaseManagedUploadsForAccount(ACCOUNT_B),
+  ]);
   setUploadRuntimeAccountId(null);
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -82,6 +116,269 @@ describe("app-level upload registry", () => {
 
     await expect(retryManagedUpload(upload.id)).resolves.toBe(false);
     expect(retry).not.toHaveBeenCalled();
+  });
+
+  it("removes completed upload feedback after the success window", () => {
+    vi.useFakeTimers();
+    setUploadRuntimeAccountId(ACCOUNT_A);
+    const upload = beginManagedUpload({ fileName: "done.wav", label: "Final mix" });
+
+    upload.succeed();
+
+    expect(managedUploadsSnapshot()[0]?.status).toBe("done");
+    vi.advanceTimersByTime(UPLOAD_SUCCESS_FEEDBACK_MS - 1);
+    expect(managedUploadsSnapshot()).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(managedUploadsSnapshot()).toEqual([]);
+  });
+
+  it("keeps active uploads visible past every terminal feedback window", () => {
+    vi.useFakeTimers();
+    setUploadRuntimeAccountId(ACCOUNT_A);
+    const upload = beginManagedUpload({ fileName: "long.wav", label: "Long upload" });
+    upload.setUploading(42);
+
+    vi.advanceTimersByTime(UPLOAD_ERROR_FEEDBACK_MS * 2);
+
+    expect(managedUploadsSnapshot()[0]).toMatchObject({
+      status: "uploading",
+      progress: 42,
+    });
+  });
+
+  it("removes readable error feedback after the longer error window", () => {
+    vi.useFakeTimers();
+    setUploadRuntimeAccountId(ACCOUNT_A);
+    const upload = beginManagedUpload({ fileName: "broken.wav", label: "Broken upload" });
+    upload.setRetry(() => Promise.resolve());
+
+    upload.fail("The connection stopped before the upload finished.");
+
+    expect(managedUploadsSnapshot()[0]).toMatchObject({
+      status: "error",
+      canRetry: true,
+    });
+    vi.advanceTimersByTime(UPLOAD_ERROR_FEEDBACK_MS - 1);
+    expect(managedUploadsSnapshot()).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(managedUploadsSnapshot()).toEqual([]);
+  });
+
+  it("expires error feedback on wall-clock time while the app is hidden", () => {
+    vi.useFakeTimers();
+    installBrowserLifecycle("hidden");
+    setUploadRuntimeAccountId(ACCOUNT_A);
+    const upload = beginManagedUpload({ fileName: "hidden.wav", label: "Hidden upload" });
+    upload.setRetry(() => Promise.resolve());
+
+    upload.fail("The connection stopped while the app was hidden.");
+    vi.advanceTimersByTime(UPLOAD_ERROR_FEEDBACK_MS - 1);
+    expect(managedUploadsSnapshot()).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(managedUploadsSnapshot()).toEqual([]);
+  });
+
+  it("clears a throttled error on iOS-style visibility and focus recovery", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-04T12:00:00.000Z"));
+    const lifecycle = installBrowserLifecycle("hidden");
+    setUploadRuntimeAccountId(ACCOUNT_A);
+    const visibilityUpload = beginManagedUpload({
+      fileName: "visibility.wav",
+      label: "Visibility upload",
+    });
+
+    visibilityUpload.fail("Network error");
+    vi.setSystemTime(new Date("2026-08-04T12:00:09.000Z"));
+    lifecycle.setVisibility("visible");
+    expect(managedUploadsSnapshot()).toEqual([]);
+
+    const focusUpload = beginManagedUpload({ fileName: "focus.wav", label: "Focus upload" });
+    focusUpload.fail("Network error");
+    vi.setSystemTime(new Date("2026-08-04T12:00:18.000Z"));
+    lifecycle.focus();
+    expect(managedUploadsSnapshot()).toEqual([]);
+  });
+
+  it("keeps the retry action available during the readable error window", async () => {
+    vi.useFakeTimers();
+    installBrowserLifecycle("hidden");
+    setUploadRuntimeAccountId(ACCOUNT_A);
+    const retry = vi.fn(() => Promise.resolve());
+    const upload = beginManagedUpload({ fileName: "retry.wav", label: "Retry upload" });
+    upload.setRetry(retry);
+
+    upload.fail("Network error");
+    vi.advanceTimersByTime(UPLOAD_ERROR_FEEDBACK_MS - 1);
+
+    await expect(retryManagedUpload(upload.id)).resolves.toBe(true);
+    expect(retry).toHaveBeenCalledOnce();
+    expect(managedUploadsSnapshot()[0]?.status).toBe("preparing");
+  });
+
+  it("disposes terminal work exactly once when feedback is dismissed manually", async () => {
+    setUploadRuntimeAccountId(ACCOUNT_A);
+    const dispose = vi.fn(() => Promise.resolve({ ok: true }));
+    const upload = beginManagedUpload({ fileName: "dismiss.wav", label: "Dismiss upload" });
+    upload.setTerminalDispose(dispose);
+    upload.fail("Network error");
+
+    setUploadRuntimeAccountId(ACCOUNT_B);
+    expect(dismissManagedUpload(upload.id)).toBe(false);
+    expect(dispose).not.toHaveBeenCalled();
+
+    setUploadRuntimeAccountId(ACCOUNT_A);
+    expect(dismissManagedUpload(upload.id)).toBe(true);
+    await Promise.resolve();
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(dismissManagedUpload(upload.id)).toBe(false);
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it("disposes terminal work exactly once at the absolute error expiry", async () => {
+    vi.useFakeTimers();
+    setUploadRuntimeAccountId(ACCOUNT_A);
+    const dispose = vi.fn(() => Promise.resolve({ ok: true }));
+    const upload = beginManagedUpload({ fileName: "expired.wav", label: "Expired upload" });
+    upload.setTerminalDispose(dispose);
+    upload.fail("Network error");
+
+    vi.advanceTimersByTime(UPLOAD_ERROR_FEEDBACK_MS);
+    await Promise.resolve();
+
+    expect(managedUploadsSnapshot()).toEqual([]);
+    expect(dispose).toHaveBeenCalledOnce();
+    vi.runAllTimers();
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it("awaits terminal disposal exactly once when an account is released", async () => {
+    setUploadRuntimeAccountId(ACCOUNT_A);
+    const events: string[] = [];
+    const dispose = vi.fn(async () => {
+      events.push("dispose");
+      await Promise.resolve();
+      events.push("settled");
+      return { ok: true };
+    });
+    const upload = beginManagedUpload({ fileName: "release.wav", label: "Release upload" });
+    upload.setTerminalDispose(dispose);
+    upload.fail("Network error");
+
+    await releaseManagedUploadsForAccount(ACCOUNT_A);
+
+    expect(events).toEqual(["dispose", "settled"]);
+    expect(dispose).toHaveBeenCalledOnce();
+    await releaseManagedUploadsForAccount(ACCOUNT_A);
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it("preserves Retry without disposing or cancelling the failed attempt", async () => {
+    setUploadRuntimeAccountId(ACCOUNT_A);
+    const dispose = vi.fn(() => Promise.resolve({ ok: true }));
+    const upload = beginManagedUpload({ fileName: "retry.wav", label: "Retry upload" });
+    const retry = vi.fn(() => {
+      upload.dismiss();
+      return Promise.resolve();
+    });
+    upload.setTerminalDispose(dispose);
+    upload.setRetry(retry);
+    upload.fail("Network error");
+
+    await expect(retryManagedUpload(upload.id)).resolves.toBe(true);
+
+    expect(retry).toHaveBeenCalledOnce();
+    expect(dispose).not.toHaveBeenCalled();
+    expect(managedUploadsSnapshot()).toEqual([]);
+  });
+
+  it("never disposes a completed upload", async () => {
+    setUploadRuntimeAccountId(ACCOUNT_A);
+    const dispose = vi.fn(() => Promise.resolve({ ok: true }));
+    const upload = beginManagedUpload({ fileName: "done.wav", label: "Done upload" });
+    upload.setTerminalDispose(dispose);
+    upload.succeed();
+
+    expect(dismissManagedUpload(upload.id)).toBe(true);
+    await Promise.resolve();
+    expect(dispose).not.toHaveBeenCalled();
+  });
+
+  it("does not duplicate the error timer or lifecycle listeners", () => {
+    vi.useFakeTimers();
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    const lifecycle = installBrowserLifecycle();
+    setUploadRuntimeAccountId(ACCOUNT_A);
+    const upload = beginManagedUpload({ fileName: "single.wav", label: "Single timer" });
+
+    upload.fail("Network error");
+    expect(setTimeoutSpy).toHaveBeenCalledTimes(1);
+    expect(lifecycle.addEventListener).toHaveBeenCalledTimes(1);
+    expect(lifecycle.addWindowEventListener).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(2000);
+    lifecycle.setVisibility("hidden");
+    lifecycle.setVisibility("visible");
+    lifecycle.focus();
+    expect(setTimeoutSpy).toHaveBeenCalledTimes(1);
+    expect(lifecycle.addEventListener).toHaveBeenCalledTimes(1);
+    expect(lifecycle.addWindowEventListener).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(UPLOAD_ERROR_FEEDBACK_MS - 2000);
+    expect(managedUploadsSnapshot()).toEqual([]);
+    expect(lifecycle.removeEventListener).toHaveBeenCalledTimes(1);
+    expect(lifecycle.removeWindowEventListener).toHaveBeenCalledTimes(1);
+  });
+
+  it("cleans the lifecycle listeners when error feedback is removed or reset", () => {
+    vi.useFakeTimers();
+    const lifecycle = installBrowserLifecycle();
+    setUploadRuntimeAccountId(ACCOUNT_A);
+    const dismissed = beginManagedUpload({ fileName: "dismiss.wav", label: "Dismiss" });
+    dismissed.fail("Network error");
+
+    expect(lifecycle.addEventListener).toHaveBeenCalledTimes(1);
+    expect(lifecycle.addWindowEventListener).toHaveBeenCalledTimes(1);
+    expect(dismissManagedUpload(dismissed.id)).toBe(true);
+    expect(lifecycle.removeEventListener).toHaveBeenCalledTimes(1);
+    expect(lifecycle.removeWindowEventListener).toHaveBeenCalledTimes(1);
+
+    const reset = beginManagedUpload({ fileName: "reset.wav", label: "Reset" });
+    reset.fail("Network error");
+    expect(lifecycle.addEventListener).toHaveBeenCalledTimes(2);
+    expect(lifecycle.addWindowEventListener).toHaveBeenCalledTimes(2);
+    void releaseManagedUploadsForAccount(ACCOUNT_A);
+    expect(lifecycle.removeEventListener).toHaveBeenCalledTimes(2);
+    expect(lifecycle.removeWindowEventListener).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps success feedback on its existing wall-clock timer while hidden", () => {
+    vi.useFakeTimers();
+    const visibility = installBrowserLifecycle("hidden");
+    setUploadRuntimeAccountId(ACCOUNT_A);
+    const upload = beginManagedUpload({ fileName: "done.wav", label: "Done" });
+
+    upload.succeed();
+    vi.advanceTimersByTime(UPLOAD_SUCCESS_FEEDBACK_MS);
+
+    expect(managedUploadsSnapshot()).toEqual([]);
+    expect(visibility.addEventListener).not.toHaveBeenCalled();
+  });
+
+  it("lets terminal feedback be closed manually but protects active work", () => {
+    vi.useFakeTimers();
+    setUploadRuntimeAccountId(ACCOUNT_A);
+    const upload = beginManagedUpload({ fileName: "mix.wav", label: "Mix" });
+
+    upload.setUploading(18);
+    expect(dismissManagedUpload(upload.id)).toBe(false);
+    expect(managedUploadsSnapshot()).toHaveLength(1);
+
+    upload.fail("Network error");
+    expect(dismissManagedUpload(upload.id)).toBe(true);
+    expect(managedUploadsSnapshot()).toEqual([]);
+    vi.runAllTimers();
+    expect(managedUploadsSnapshot()).toEqual([]);
   });
 
   it("removes Stop once server completion begins", async () => {

@@ -29,7 +29,7 @@ function dayNumber(iso: string, timeZone: string): string {
 
 export function SessionRow({ session }: { session: SessionListItem }) {
   const router = useRouter();
-  const time = formatSessionTime(session.startsAtISO, session.artistTimezone);
+  const time = formatSessionTime(session.startsAtISO, session.producerTimezone);
 
   return (
     <button
@@ -41,10 +41,10 @@ export function SessionRow({ session }: { session: SessionListItem }) {
     >
       <div className="flex w-12 shrink-0 flex-col items-center">
         <span className="font-amount text-[10px] font-bold tracking-[0.12em] text-[rgb(var(--brand-primary))] uppercase">
-          {monthShort(session.startsAtISO, session.artistTimezone)}
+          {monthShort(session.startsAtISO, session.producerTimezone)}
         </span>
         <span className="font-amount text-[20px] leading-none font-bold text-[rgb(var(--fg-default))]">
-          {dayNumber(session.startsAtISO, session.artistTimezone)}
+          {dayNumber(session.startsAtISO, session.producerTimezone)}
         </span>
       </div>
 

@@ -17,6 +17,16 @@ import {
 
 type PageProps = { params: Promise<{ versionId: string }> };
 
+const MISSING_PUBLIC_LINK_SECRET = "Missing or weak SONG_PUBLIC_LINK_SECRET";
+
+function isMissingPublicLinkSecret(error: unknown): boolean {
+  if (!(error instanceof TRPCError) || error.code !== "INTERNAL_SERVER_ERROR") return false;
+  return (
+    error.message === MISSING_PUBLIC_LINK_SECRET ||
+    (error.cause instanceof Error && error.cause.message === MISSING_PUBLIC_LINK_SECRET)
+  );
+}
+
 // L3 song page — full waveform + timestamped comments + version
 // switcher. Routed at /artist/music/song/<versionId> so we can carry
 // the producer's URL convention without colliding with the existing
@@ -69,7 +79,12 @@ export default async function ArtistSongPage({ params }: PageProps) {
       publicUrl: sharing.publicUrl ? `${PUBLIC_BRAND_ORIGIN}${sharing.publicUrl}` : null,
     };
   } catch (error) {
-    if (!(error instanceof TRPCError) || error.code !== "NOT_FOUND") throw error;
+    if (
+      (!(error instanceof TRPCError) || error.code !== "NOT_FOUND") &&
+      !isMissingPublicLinkSecret(error)
+    ) {
+      throw error;
+    }
   }
 
   const entitlementEntries = await Promise.all(

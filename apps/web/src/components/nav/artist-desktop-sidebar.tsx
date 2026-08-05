@@ -25,7 +25,7 @@ import { Wordmark } from "./wordmark";
 // the artist app (the prior implementation had a single header + main
 // + bottom nav across all viewports). The locked design (notes/
 // shell.artist-desktop.jsx) specifies 248px dark sidebar with five
-// nav items. The artist product uses four standing destinations.
+// nav items. The artist product uses five standing destinations.
 //
 // "Messages" appears in the design source but no /artist/messages
 // route exists yet — dropped for Phase 2 per Gili's Q3 ruling on the
@@ -54,6 +54,7 @@ const NAV_ITEMS: readonly ArtistDesktopNav[] = [
   { id: "home", href: "/artist", label: "Home", icon: "home" },
   { id: "music", href: "/artist/music", label: "Music", icon: "music" },
   { id: "sessions", href: "/artist/sessions", label: "Sessions", icon: "calendar" },
+  { id: "payments", href: "/artist/payments", label: "Payments", icon: "payments" },
   { id: "store", href: "/artist/store", label: "Store", icon: "tag" },
 ] as const;
 

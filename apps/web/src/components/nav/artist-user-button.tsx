@@ -259,7 +259,9 @@ export function ArtistMobileUserButton({
 
   return (
     <UserButton __experimental_asProvider>
-      {renderAccountRoleMenuItems(menuModel, { includeSettings: false })}
+      {renderAccountRoleMenuItems(menuModel, {
+        includeSettings: false,
+      })}
       <div className="relative flex h-11 w-11 items-center justify-center">
         <button
           ref={accountButtonRef}

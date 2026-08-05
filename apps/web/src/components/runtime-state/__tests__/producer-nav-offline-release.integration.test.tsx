@@ -185,12 +185,12 @@ function renderOfflineNavigation(): {
 function startMusicToClients(nav: HTMLElement, musicTab: HTMLElement): void {
   dispatchPointer(musicTab, "pointerdown", {
     pointerId: 71,
-    clientX: 55,
+    clientX: 125,
     clientY: 734,
   });
   dispatchPointer(nav, "pointermove", {
     pointerId: 71,
-    clientX: 125,
+    clientX: 195,
     clientY: 734,
   });
   expect(screen.getByText("Saved Clients")).toBeTruthy();
@@ -199,7 +199,7 @@ function startMusicToClients(nav: HTMLElement, musicTab: HTMLElement): void {
 function releaseOnClients(nav: HTMLElement): void {
   dispatchPointer(nav, "pointerup", {
     pointerId: 71,
-    clientX: 125,
+    clientX: 195,
     clientY: 734,
   });
 }
@@ -210,13 +210,13 @@ describe("producer nav and runtime-shell offline integration", () => {
     startMusicToClients(nav, musicTab);
     dispatchPointer(nav, "pointermove", {
       pointerId: 71,
-      clientX: 55,
+      clientX: 125,
       clientY: 734,
     });
     expect(screen.getByText("Saved Music")).toBeTruthy();
     dispatchPointer(nav, "pointermove", {
       pointerId: 71,
-      clientX: 125,
+      clientX: 195,
       clientY: 734,
     });
     expect(screen.getByText("Saved Clients")).toBeTruthy();

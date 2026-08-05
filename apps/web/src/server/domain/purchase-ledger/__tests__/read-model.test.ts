@@ -443,6 +443,7 @@ describe("SK-69 payment read model", () => {
       dueNowCents: 1_000,
       totalRemainingCents: 1_000,
       collection: "history",
+      showPayNextPayment: false,
     });
     expect(model.totals).toEqual([
       {

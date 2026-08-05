@@ -23,7 +23,10 @@ describe("artist notification surface", () => {
   it("keeps read and open actions separate", () => {
     expect(bell).toContain("markArtistNotificationReadAction");
     expect(bell).toContain("openArtistNotificationAction");
-    expect(bell).toContain("markAllArtistNotificationsReadAction");
+    expect(bell).toContain("archiveArtistNotificationAction");
+    expect(bell).toContain("archiveAllArtistNotificationsAction");
+    expect(bell).toContain('useState<ArtistNotificationTab>("unread")');
+    expect(bell).toContain("Clear all");
     expect(bell).toContain("router.refresh()");
   });
 

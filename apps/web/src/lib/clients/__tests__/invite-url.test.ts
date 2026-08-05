@@ -4,12 +4,14 @@ import { buildClientInviteUrl } from "../invite-url";
 
 describe("buildClientInviteUrl", () => {
   it("builds the canonical verified artist signup URL", () => {
-    expect(buildClientInviteUrl("gili-asraf")).toBe("https://skitza.app/sign-up/join/gili-asraf");
+    expect(buildClientInviteUrl("gili-asraf")).toBe(
+      "https://skitza.app/sign-up/join/gili-asraf/home",
+    );
   });
 
   it("encodes the producer slug and normalizes an environment-specific origin", () => {
     expect(buildClientInviteUrl("producer/name with spaces", "https://preview.example/")).toBe(
-      "https://preview.example/sign-up/join/producer%2Fname%20with%20spaces",
+      "https://preview.example/sign-up/join/producer%2Fname%20with%20spaces/home",
     );
   });
 

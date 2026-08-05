@@ -53,7 +53,13 @@ import { currentTrackArtistApprovalAction } from "~/server/domain/version-upload
 import { createStoredAudioIdentityFingerprint } from "~/server/domain/first-version-uploads/service";
 import { SITE_URL, sendTrackVersionUploadedEmail } from "~/server/email/send";
 import { emitArtistNewVersionNotification } from "~/server/artist/notification-emitters";
-import { BUCKETS, getR2, getR2SingleAttempt, isAudioKeyForTrackVersion } from "~/server/storage/r2";
+import {
+  BUCKETS,
+  getR2,
+  getR2BrowserUpload,
+  getR2SingleAttempt,
+  isAudioKeyForTrackVersion,
+} from "~/server/storage/r2";
 
 export {
   reconcilePendingMultipartCancellation,
@@ -1109,7 +1115,7 @@ export const audioRouter = router({
         PartNumber: input.partNumber,
       });
       const issuedAt = new Date();
-      const url = await getSignedUrl(getR2(), cmd, {
+      const url = await getSignedUrl(getR2BrowserUpload(), cmd, {
         expiresIn: AUDIO_PART_URL_TTL_SECONDS,
         signingDate: issuedAt,
       });

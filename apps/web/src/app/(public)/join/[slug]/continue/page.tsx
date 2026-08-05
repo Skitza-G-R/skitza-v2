@@ -41,7 +41,7 @@ function hasProducerProfile(
 
 export default async function JoinContinuationPage({ params, searchParams }: Props) {
   const [{ slug }, query, session] = await Promise.all([params, searchParams, auth()]);
-  if (query.action !== "book" && query.action !== "unlock") notFound();
+  if (query.action !== "book" && query.action !== "unlock" && query.action !== "home") notFound();
   const requestedAction: JoinIntentAction = query.action;
   if (!session.userId) redirect(joinSignInHref(slug, requestedAction));
 
@@ -158,12 +158,20 @@ export default async function JoinContinuationPage({ params, searchParams }: Pro
       <JoinContinuationShell>
         <div data-auth-page="join-resume">
           <AuthHero
-            eyebrow={requestedAction === "book" ? "Booking" : "Your music"}
+            eyebrow={
+              requestedAction === "book"
+                ? "Booking"
+                : requestedAction === "unlock"
+                  ? "Your music"
+                  : "Artist Home"
+            }
             title={`Opening ${studioName}…`}
             blurb={
               requestedAction === "book"
                 ? "Taking you straight to booking."
-                : "Opening your Artist workspace and unlocked tracks."
+                : requestedAction === "unlock"
+                  ? "Opening your Artist workspace and unlocked tracks."
+                  : "Opening your Artist Home with this studio selected."
             }
             showAccentPeriod={false}
           />
@@ -183,14 +191,18 @@ export default async function JoinContinuationPage({ params, searchParams }: Pro
               ? `Join ${studioName} as an Artist?`
               : requestedAction === "book"
                 ? "Continue to booking"
-                : `Continue to ${studioName}`
+                : requestedAction === "unlock"
+                  ? `Continue to ${studioName}`
+                  : "Continue to Artist Home"
           }
           blurb={
             producerConfirmation
               ? "Your Producer workspace will stay exactly as it is. You can switch back anytime."
               : requestedAction === "book"
                 ? "Your original booking intent expired. Continue to reconnect and open booking."
-                : "Your unlock request expired. Continue to open this studio in your Artist workspace."
+                : requestedAction === "unlock"
+                  ? "Your unlock request expired. Continue to open this studio in your Artist workspace."
+                  : `Continue to connect with ${studioName} and open your Artist Home.`
           }
           showAccentPeriod={!producerConfirmation}
         />
@@ -205,7 +217,9 @@ export default async function JoinContinuationPage({ params, searchParams }: Pro
                 ? "Continue as Artist"
                 : requestedAction === "book"
                   ? "Continue to booking"
-                  : "Continue to your studio"}
+                  : requestedAction === "unlock"
+                    ? "Continue to your studio"
+                    : "Continue to Artist Home"}
             </Button>
           </form>
           {producerConfirmation ? (

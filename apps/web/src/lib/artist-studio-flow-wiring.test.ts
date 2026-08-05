@@ -63,7 +63,8 @@ describe("trusted artist studio continuity", () => {
     expect(payPage).toContain("studioId={data.producerId}");
     expect(agreePage).toContain("studioId={preview.producerId}");
     expect(offerPage).toContain("studioId={offer.producerId}");
-    expect(paymentPage).toContain("studioId={state.producerId}");
+    expect(paymentPage).toContain("const studioId = purchase.studioId");
+    expect(paymentPage).toContain("studioId={studioId}");
   });
 
   it("validates Book query state against owned studios but keeps an owned reschedule producer", () => {
@@ -119,9 +120,8 @@ describe("trusted artist studio continuity", () => {
       /nextSessionRows[\s\S]*producerId:\s*bookings\.producerId[\s\S]*const nextSession/,
     );
     expect(artistRouter).toMatch(/const nextSession[\s\S]*producerId:\s*nextRow\.producerId/);
-    expect(home).toContain(
-      "withArtistStudio(`/artist/sessions/${home.nextSession.id}`, activeStudio.producerId)",
-    );
+    expect(home).toContain("artistHomeBookingStatusActions({");
+    expect(home).toContain("sessions: sessions.sessions");
     expect(home).toMatch(
       /withArtistStudio\(\s*`\/artist\/book\?allowance=\$\{allowance\.sessionAllowanceId\}`,\s*activeStudio\.producerId,\s*\)/,
     );

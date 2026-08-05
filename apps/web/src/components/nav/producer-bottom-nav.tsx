@@ -22,9 +22,9 @@ type ProducerMobileTab = {
 };
 
 const PROD_TABS: readonly ProducerMobileTab[] = [
+  { id: "today", label: "Today", href: "/dashboard", icon: "home" },
   { id: "music", label: "Music", href: "/dashboard/music", icon: "music" },
   { id: "clients-projects", label: "Clients", href: "/dashboard/clients-projects", icon: "users" },
-  { id: "today", label: "Today", href: "/dashboard", icon: "home" },
   { id: "calendar", label: "Calendar", href: "/dashboard/calendar?tab=sessions", icon: "calendar" },
   { id: "payments", label: "Payments", href: "/dashboard/payments", icon: "payments" },
 ] as const;

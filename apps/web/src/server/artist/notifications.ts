@@ -152,6 +152,7 @@ export async function listArtistNotifications(
   const conditions = [
     eq(artistNotifications.recipientClerkUserId, input.clerkUserId),
     eq(artistNotifications.inAppVisible, true),
+    isNull(artistNotifications.archivedAt),
   ];
   if (input.filter === "unread") {
     conditions.push(isNull(artistNotifications.readAt));
@@ -198,6 +199,7 @@ export async function artistNotificationUnreadCount(db: Db, clerkUserId: string)
       and(
         eq(artistNotifications.recipientClerkUserId, clerkUserId),
         eq(artistNotifications.inAppVisible, true),
+        isNull(artistNotifications.archivedAt),
         isNull(artistNotifications.readAt),
       ),
     );
@@ -215,6 +217,7 @@ export async function artistNotificationStudioDotProducerIds(
       and(
         eq(artistNotifications.recipientClerkUserId, clerkUserId),
         eq(artistNotifications.switcherDotWorthy, true),
+        isNull(artistNotifications.archivedAt),
         isNull(artistNotifications.openedAt),
       ),
     );
@@ -233,6 +236,7 @@ export async function markArtistNotificationRead(
       and(
         eq(artistNotifications.id, notificationId),
         eq(artistNotifications.recipientClerkUserId, clerkUserId),
+        isNull(artistNotifications.archivedAt),
         isNull(artistNotifications.readAt),
       ),
     )
@@ -247,6 +251,7 @@ export async function markArtistNotificationRead(
       and(
         eq(artistNotifications.id, notificationId),
         eq(artistNotifications.recipientClerkUserId, clerkUserId),
+        isNull(artistNotifications.archivedAt),
       ),
     )
     .limit(1);
@@ -261,7 +266,70 @@ export async function markAllArtistNotificationsRead(db: Db, clerkUserId: string
       and(
         eq(artistNotifications.recipientClerkUserId, clerkUserId),
         eq(artistNotifications.inAppVisible, true),
+        isNull(artistNotifications.archivedAt),
         isNull(artistNotifications.readAt),
+      ),
+    )
+    .returning({ id: artistNotifications.id });
+  return changed.length;
+}
+
+export async function archiveArtistNotification(
+  db: Db,
+  clerkUserId: string,
+  notificationId: string,
+): Promise<boolean> {
+  const now = new Date();
+  const changed = await db
+    .update(artistNotifications)
+    .set({
+      archivedAt: now,
+      readAt: sql`coalesce(${artistNotifications.readAt}, ${now})`,
+    })
+    .where(
+      and(
+        eq(artistNotifications.id, notificationId),
+        eq(artistNotifications.recipientClerkUserId, clerkUserId),
+        eq(artistNotifications.inAppVisible, true),
+        isNull(artistNotifications.archivedAt),
+      ),
+    )
+    .returning({ id: artistNotifications.id });
+
+  if (changed.length > 0) return true;
+
+  // A retry after a successful archive remains successful, while a missing
+  // or other-user id fails closed without revealing ownership details.
+  const [owned] = await db
+    .select({ id: artistNotifications.id })
+    .from(artistNotifications)
+    .where(
+      and(
+        eq(artistNotifications.id, notificationId),
+        eq(artistNotifications.recipientClerkUserId, clerkUserId),
+        eq(artistNotifications.inAppVisible, true),
+      ),
+    )
+    .limit(1);
+  return owned !== undefined;
+}
+
+export async function archiveAllArtistNotifications(
+  db: Db,
+  clerkUserId: string,
+): Promise<number> {
+  const now = new Date();
+  const changed = await db
+    .update(artistNotifications)
+    .set({
+      archivedAt: now,
+      readAt: sql`coalesce(${artistNotifications.readAt}, ${now})`,
+    })
+    .where(
+      and(
+        eq(artistNotifications.recipientClerkUserId, clerkUserId),
+        eq(artistNotifications.inAppVisible, true),
+        isNull(artistNotifications.archivedAt),
       ),
     )
     .returning({ id: artistNotifications.id });
@@ -287,6 +355,7 @@ export async function acknowledgeArtistTrackVersionNotification(
         eq(artistNotifications.subjectType, "track_version"),
         eq(artistNotifications.subjectId, trackVersionId),
         eq(artistNotifications.inAppVisible, true),
+        isNull(artistNotifications.archivedAt),
         isNull(artistNotifications.openedAt),
       ),
     )
@@ -556,6 +625,7 @@ export async function openArtistNotification(
         eq(artistNotifications.id, notificationId),
         eq(artistNotifications.recipientClerkUserId, clerkUserId),
         eq(artistNotifications.inAppVisible, true),
+        isNull(artistNotifications.archivedAt),
       ),
     )
     .limit(1);
@@ -585,6 +655,7 @@ export async function openArtistNotification(
       and(
         eq(artistNotifications.id, notification.id),
         eq(artistNotifications.recipientClerkUserId, clerkUserId),
+        isNull(artistNotifications.archivedAt),
       ),
     )
     .returning({ id: artistNotifications.id });

@@ -153,6 +153,8 @@ export function ProfessionalArtistHome({
 
 function mainLabel(kind: ArtistHomeAction["kind"]): string {
   switch (kind) {
+    case "session_status":
+      return "Booking status";
     case "today_session":
       return "Today";
     case "payment_action":

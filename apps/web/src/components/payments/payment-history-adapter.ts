@@ -12,6 +12,7 @@ import type {
   PaymentHistoryInstallment,
   PaymentHistoryProject,
   PaymentHistoryPurchase,
+  PaymentHistoryRecordStatus,
   PaymentHistoryRole,
   PaymentHistorySectionDescriptor,
   PaymentHistoryStatus,
@@ -87,12 +88,30 @@ function frozenTerms(
   };
 }
 
-function purchaseStatus(purchase: PaymentPurchaseProjection): PaymentHistoryStatus {
-  if (purchase.lifecycleStatus === "canceled") return { label: "Canceled", tone: "neutral" };
-  if (purchase.fullyPaid) return { label: "Paid in full", tone: "success" };
+function purchaseRecordStatus(purchase: PaymentPurchaseProjection): PaymentHistoryRecordStatus {
+  if (purchase.lifecycleStatus === "canceled") return "canceled";
+  if (purchase.totalCents === 0 && purchase.installments.length === 0) {
+    return "no_payment_required";
+  }
   if (purchase.waivedCents > 0 && purchase.totalRemainingCents === 0) {
+    return "settled_by_waiver";
+  }
+  if (purchase.fullyPaid) return "paid_in_full";
+  return "open";
+}
+
+function purchaseStatus(
+  purchase: PaymentPurchaseProjection,
+  recordStatus: PaymentHistoryRecordStatus,
+): PaymentHistoryStatus {
+  if (recordStatus === "canceled") return { label: "Canceled", tone: "neutral" };
+  if (recordStatus === "no_payment_required") {
+    return { label: "No payment required", tone: "neutral" };
+  }
+  if (recordStatus === "settled_by_waiver") {
     return { label: "Settled by waiver", tone: "neutral" };
   }
+  if (recordStatus === "paid_in_full") return { label: "Paid in full", tone: "success" };
   if (purchase.producerBucket === "needs_review") {
     return { label: "Needs review", tone: "accent" };
   }
@@ -161,6 +180,7 @@ function mapPurchase(
   purchase: PaymentPurchaseProjection,
   role: PaymentHistoryRole,
 ): PaymentHistoryPurchase {
+  const recordStatus = purchaseRecordStatus(purchase);
   const installmentPosition = new Map(
     purchase.installments.map((installment) => [installment.id, installment.position]),
   );
@@ -198,9 +218,11 @@ function mapPurchase(
     studioId: purchase.producerId,
     reference: purchase.refNumber,
     title: purchase.commercialSnapshot.productOrOfferName,
+    counterpartyId: role === "producer" ? purchase.clientContactId : null,
     counterpartyLabel: role === "producer" ? purchase.clientName : purchase.producerName,
     currency: purchase.currency,
-    status: purchaseStatus(purchase),
+    status: purchaseStatus(purchase, recordStatus),
+    recordStatus,
     defaultOpen:
       purchase.collection === "active" ||
       purchase.proofs.some((proof) => proof.status === "pending" || proof.status === "rejected"),

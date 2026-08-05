@@ -34,12 +34,13 @@ describe("artist exact availability slot contract", () => {
     expect(availability).not.toMatch(/available = false;\s*break/);
   });
 
-  it("returns exact instants grouped in the artist timezone", () => {
-    expect(availability).toMatch(/studioLocalDateKey\(startsAt, artistTimeZone\)/);
+  it("returns exact instants grouped in the producer timezone", () => {
+    expect(availability).toMatch(/const bookingTimeZone = producer\.timeZone/);
+    expect(availability).toMatch(/studioLocalDateKey\(startsAt, bookingTimeZone\)/);
     expect(availability).toMatch(/startsAt,/);
     expect(availability).toMatch(/endsAt:/);
-    expect(availability).toMatch(/artistTimeZone/);
-    expect(availability).toMatch(/studioTimeZone: producer\.timeZone/);
+    expect(availability).toMatch(/artistTimeZone:\s*bookingTimeZone/);
+    expect(availability).toMatch(/studioTimeZone:\s*bookingTimeZone/);
   });
 
   it("renders only server-authored day.slots and submits startsAtISO", () => {

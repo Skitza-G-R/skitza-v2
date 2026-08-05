@@ -18,6 +18,13 @@ export interface PaymentHistoryStatus {
   tone: PaymentHistoryTone;
 }
 
+export type PaymentHistoryRecordStatus =
+  | "open"
+  | "no_payment_required"
+  | "paid_in_full"
+  | "settled_by_waiver"
+  | "canceled";
+
 export interface PaymentHistorySectionDescriptor {
   id: string;
   eyebrow: string;
@@ -171,9 +178,11 @@ export interface PaymentHistoryPurchase {
   studioId?: string;
   reference: string;
   title: string;
+  counterpartyId?: string | null;
   counterpartyLabel: string | null;
   currency: string;
   status: PaymentHistoryStatus;
+  recordStatus: PaymentHistoryRecordStatus;
   defaultOpen: boolean;
   totalCents: number;
   paidCents: number;
@@ -282,7 +291,8 @@ export function PaymentHistorySection({
               project={project}
               role={role}
               showCurrencyTotals={
-                projects.length !== 1 || !currencyTotalsMatch(currencyTotals, project.currencyTotals)
+                projects.length !== 1 ||
+                !currencyTotalsMatch(currencyTotals, project.currencyTotals)
               }
             />
           ))}
@@ -428,14 +438,16 @@ export function PaymentHistoryPurchaseDetails({
   purchase,
   role,
   idPrefix = `purchase-${purchase.id}`,
+  showPaymentAction = true,
 }: {
   purchase: PaymentHistoryPurchase;
   role: PaymentHistoryRole;
   idPrefix?: string;
+  showPaymentAction?: boolean;
 }) {
   return (
     <div className="min-w-0 space-y-5 border-t border-[rgb(var(--border-subtle))] p-3 sm:p-4">
-      <PaymentSnapshot purchase={purchase} role={role} />
+      <PaymentSnapshot purchase={purchase} role={role} showPaymentAction={showPaymentAction} />
       <PurchaseDelivery delivery={purchase.delivery} currency={purchase.currency} />
       <FrozenAgreement
         terms={purchase.frozenTerms}
@@ -458,9 +470,11 @@ export function PaymentHistoryPurchaseDetails({
 function PaymentSnapshot({
   purchase,
   role,
+  showPaymentAction,
 }: {
   purchase: PaymentHistoryPurchase;
   role: PaymentHistoryRole;
+  showPaymentAction: boolean;
 }) {
   return (
     <section aria-label="Next payment and current instructions" className="min-w-0">
@@ -489,10 +503,10 @@ function PaymentSnapshot({
             </p>
           )}
 
-          {role === "artist" && purchase.showPayNextPayment ? (
+          {role === "artist" && showPaymentAction && purchase.showPayNextPayment ? (
             <Button
               asChild
-              className="mt-3 min-h-11 min-w-11 w-full rounded-[var(--radius-sm)] sm:min-h-0 sm:min-w-0 sm:w-auto"
+              className="mt-3 min-h-11 w-full min-w-11 rounded-[var(--radius-sm)] sm:min-h-0 sm:w-auto sm:min-w-0"
               size="sm"
             >
               <Link
@@ -550,6 +564,7 @@ function PurchaseDelivery({
   currency: string;
 }) {
   const paid = delivery.key === "paid";
+  const noPaymentRequired = delivery.key === "no_payment_required";
   const early = delivery.key === "early_override";
   return (
     <section
@@ -566,14 +581,20 @@ function PurchaseDelivery({
             <Badge
               className={[
                 "rounded-[var(--radius-sm)] border-0 px-2 py-0.5 text-[9.5px]",
-                paid
+                paid || noPaymentRequired
                   ? "bg-[rgb(var(--fg-success)/0.12)] text-[rgb(var(--fg-success))]"
                   : early
                     ? "bg-[rgb(var(--brand-primary)/0.14)] text-[rgb(var(--brand-primary-text))]"
                     : "bg-[rgb(var(--fg-danger)/0.1)] text-[rgb(var(--fg-danger))]",
               ].join(" ")}
             >
-              {paid ? "Paid" : early ? "Selected version only" : "Locked"}
+              {paid
+                ? "Paid"
+                : noPaymentRequired
+                  ? "No payment due"
+                  : early
+                    ? "Selected version only"
+                    : "Locked"}
             </Badge>
           </div>
           <p className="mt-1 max-w-[68ch] text-[11.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
@@ -763,47 +784,53 @@ function InstallmentSchedule({
   return (
     <section aria-label="Payment schedule" className="min-w-0">
       <Eyebrow>Schedule</Eyebrow>
-      <ol className="mt-2 min-w-0 space-y-2">
-        {schedule.map((installment) => (
-          <li
-            key={installment.id}
-            className="min-w-0 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] p-3"
-          >
-            <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-[12px] font-bold break-words text-[rgb(var(--fg-default))]">
-                  {String(installment.position)}. {installment.label}
-                </p>
-                <p className="mt-0.5 text-[10.5px] break-words text-[rgb(var(--fg-muted))]">
-                  {formatDate(installment.dueAtIso)} · {installment.trigger ?? "No trigger set"}
-                </p>
+      {schedule.length === 0 ? (
+        <p className="mt-2 text-[12px] text-[rgb(var(--fg-muted))]">
+          No installments were created because this accepted purchase requires no payment.
+        </p>
+      ) : (
+        <ol className="mt-2 min-w-0 space-y-2">
+          {schedule.map((installment) => (
+            <li
+              key={installment.id}
+              className="min-w-0 rounded-[var(--radius-md)] border border-[rgb(var(--border-subtle))] p-3"
+            >
+              <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-[12px] font-bold break-words text-[rgb(var(--fg-default))]">
+                    {String(installment.position)}. {installment.label}
+                  </p>
+                  <p className="mt-0.5 text-[10.5px] break-words text-[rgb(var(--fg-muted))]">
+                    {formatDate(installment.dueAtIso)} · {installment.trigger ?? "No trigger set"}
+                  </p>
+                </div>
+                <StatusBadge status={installment.status} />
               </div>
-              <StatusBadge status={installment.status} />
-            </div>
-            <dl className="mt-2 grid min-w-0 grid-cols-2 gap-2 border-t border-[rgb(var(--border-subtle))] pt-2 sm:grid-cols-4">
-              <MoneyDatum label="Amount" cents={installment.amountCents} currency={currency} />
-              <MoneyDatum label="Paid" cents={installment.paidCents} currency={currency} />
-              <MoneyDatum label="Waived" cents={installment.waivedCents} currency={currency} />
-              <MoneyDatum
-                label="Remaining"
-                cents={installment.remainingCents}
-                currency={currency}
-              />
-            </dl>
-            {role === "producer" &&
-            installment.remainingCents > 0 &&
-            installment.dueAtIso !== null &&
-            installment.status.label !== "Canceled" &&
-            installment.status.label !== "Needs review" ? (
-              <PaymentReminderButton
-                purchaseId={purchaseId}
-                installmentId={installment.id}
-                installmentLabel={`purchase ${purchaseReference}, installment ${String(installment.position)}: ${installment.label}`}
-              />
-            ) : null}
-          </li>
-        ))}
-      </ol>
+              <dl className="mt-2 grid min-w-0 grid-cols-2 gap-2 border-t border-[rgb(var(--border-subtle))] pt-2 sm:grid-cols-4">
+                <MoneyDatum label="Amount" cents={installment.amountCents} currency={currency} />
+                <MoneyDatum label="Paid" cents={installment.paidCents} currency={currency} />
+                <MoneyDatum label="Waived" cents={installment.waivedCents} currency={currency} />
+                <MoneyDatum
+                  label="Remaining"
+                  cents={installment.remainingCents}
+                  currency={currency}
+                />
+              </dl>
+              {role === "producer" &&
+              installment.remainingCents > 0 &&
+              installment.dueAtIso !== null &&
+              installment.status.label !== "Canceled" &&
+              installment.status.label !== "Needs review" ? (
+                <PaymentReminderButton
+                  purchaseId={purchaseId}
+                  installmentId={installment.id}
+                  installmentLabel={`purchase ${purchaseReference}, installment ${String(installment.position)}: ${installment.label}`}
+                />
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      )}
     </section>
   );
 }

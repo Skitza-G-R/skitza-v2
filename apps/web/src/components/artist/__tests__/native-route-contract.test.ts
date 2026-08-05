@@ -114,7 +114,7 @@ describe("signed-in artist native route contract", () => {
       "sign-out-link.tsx",
     );
 
-    expect(welcome).toContain("redirect(joinContinuationHref(slug))");
+    expect(welcome).toContain('redirect(joinContinuationHref(slug, "home"))');
     expect(welcome).not.toContain("connectVerifiedArtistToProducer");
     expect(signOut).toContain('role="alert"');
   });

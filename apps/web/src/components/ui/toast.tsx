@@ -24,63 +24,113 @@ import { Toaster as SonnerToaster, toast as sonnerToast } from "sonner";
 
 type ToastVariant = "success" | "info" | "error";
 
+const DEFAULT_TOAST_DURATION_MS = 3600;
+const ERROR_TOAST_DURATION_MS = 7000;
+
 interface ToastOptions {
   durationMs?: number;
+  id?: string | number;
   action?: { label: string; onClick: () => void };
+  onDismiss?: () => void;
+  onAutoClose?: () => void;
 }
 
 interface ToastContextValue {
-  toast: (
-    message: string,
-    variant?: ToastVariant,
-    options?: ToastOptions,
-  ) => void;
+  toast: (message: string, variant?: ToastVariant, options?: ToastOptions) => void;
+  dismissToast: (id: string | number) => void;
 }
+
+function showToast(message: string, variant: ToastVariant = "info", options?: ToastOptions): void {
+  const sonnerOptions: NonNullable<Parameters<typeof sonnerToast>[1]> = {
+    duration:
+      options?.durationMs ??
+      (variant === "error" ? ERROR_TOAST_DURATION_MS : DEFAULT_TOAST_DURATION_MS),
+  };
+  if (options?.id != null) sonnerOptions.id = options.id;
+  if (options?.onDismiss != null) sonnerOptions.onDismiss = options.onDismiss;
+  if (options?.onAutoClose != null) sonnerOptions.onAutoClose = options.onAutoClose;
+  if (options?.action != null) {
+    sonnerOptions.action = {
+      label: options.action.label,
+      onClick: options.action.onClick,
+    };
+  }
+  if (variant === "success") {
+    sonnerToast.success(message, sonnerOptions);
+  } else if (variant === "error") {
+    sonnerToast.error(message, sonnerOptions);
+  } else {
+    sonnerToast(message, sonnerOptions);
+  }
+}
+
+function dismissToast(id: string | number): void {
+  sonnerToast.dismiss(id);
+}
+
+const TOAST_CONTEXT_VALUE: ToastContextValue = { toast: showToast, dismissToast };
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <>
       {children}
       <SonnerToaster
-        position="bottom-center"
-        offset={16}
+        position="top-center"
+        offset={{ top: "calc(env(safe-area-inset-top) + 12px)" }}
+        mobileOffset={{
+          top: "calc(env(safe-area-inset-top) + 10px)",
+          right: 12,
+          left: 12,
+        }}
         gap={8}
-        theme="dark"
+        visibleToasts={2}
+        expand={false}
+        closeButton
+        theme="system"
         toastOptions={{
-          duration: 3000,
+          duration: DEFAULT_TOAST_DURATION_MS,
+          closeButtonAriaLabel: "Dismiss message",
           classNames: {
             toast: [
-              "!bg-[rgb(var(--bg-sidebar))]",
-              "!border !border-[rgb(255_255_255/0.08)]",
-              "!text-[rgb(255_255_255/0.95)]",
+              "!w-[min(19rem,calc(100vw-1rem))] !min-h-0",
+              "!border !border-[rgb(var(--border-subtle))]",
+              "!bg-[rgb(var(--bg-elevated))]",
+              "!px-3 !py-2 !pr-9",
+              "!text-[rgb(var(--fg-default))]",
               "!rounded-[var(--radius-md)]",
-              "!shadow-[0_8px_24px_-6px_rgba(0,0,0,0.45),0_2px_6px_-2px_rgba(0,0,0,0.30)]",
-              "!font-mono !text-[13px]",
+              "!shadow-[0_10px_28px_-14px_rgb(0_0_0/0.34)]",
+              "!text-sm",
               "sk-toast-in",
             ].join(" "),
-            title: "!font-medium !tracking-tight !text-[rgb(255_255_255/0.95)]",
-            description: "!text-[rgb(255_255_255/0.65)]",
+            title: "!font-medium !leading-5 !tracking-tight !text-[rgb(var(--fg-default))]",
+            description: "!text-[rgb(var(--fg-muted))]",
             success: [
               "!border-[rgb(var(--brand-primary)/0.55)]",
-              "!bg-[rgb(var(--bg-sidebar))]",
+              "!bg-[rgb(var(--bg-elevated))]",
             ].join(" "),
             error: [
-              "!border-[rgb(var(--fg-danger)/0.6)]",
-              "!bg-[rgb(var(--bg-sidebar))]",
-              "!text-[rgb(255_255_255/0.95)]",
+              "!border-[rgb(var(--border-subtle))]",
+              "!bg-[rgb(var(--bg-elevated))]",
+              "!text-[rgb(var(--fg-default))]",
+            ].join(" "),
+            closeButton: [
+              "!size-8 !rounded-full",
+              "!border-[rgb(var(--border-subtle))]",
+              "!bg-[rgb(var(--bg-elevated))]",
+              "!text-[rgb(var(--fg-muted))]",
+              "hover:!text-[rgb(var(--fg-default))]",
+              "focus-visible:!ring-2 focus-visible:!ring-[rgb(var(--brand-primary))]",
             ].join(" "),
             actionButton: [
-              "!font-bold",
+              "!min-h-8 !font-bold",
               "!text-[rgb(var(--brand-primary))]",
               "!bg-transparent",
-              "hover:!bg-[rgb(255_255_255/0.05)]",
-              "!px-2 !py-1 !rounded-[6px]",
+              "hover:!bg-[rgb(var(--bg-sunken))]",
+              "!px-2.5 !py-1 !rounded-[var(--radius-sm)]",
             ].join(" "),
-            cancelButton: [
-              "!font-medium",
-              "!text-[rgb(255_255_255/0.55)]",
-              "!bg-transparent",
-            ].join(" "),
+            cancelButton: ["!font-medium", "!text-[rgb(var(--fg-muted))]", "!bg-transparent"].join(
+              " ",
+            ),
           },
         }}
       />
@@ -89,25 +139,5 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 }
 
 export function useToast(): ToastContextValue {
-  return {
-    toast: (message, variant = "info", options) => {
-      const sonnerOptions: Parameters<typeof sonnerToast>[1] = {};
-      if (options?.durationMs != null) {
-        sonnerOptions.duration = options.durationMs;
-      }
-      if (options?.action != null) {
-        sonnerOptions.action = {
-          label: options.action.label,
-          onClick: options.action.onClick,
-        };
-      }
-      if (variant === "success") {
-        sonnerToast.success(message, sonnerOptions);
-      } else if (variant === "error") {
-        sonnerToast.error(message, sonnerOptions);
-      } else {
-        sonnerToast(message, sonnerOptions);
-      }
-    },
-  };
+  return TOAST_CONTEXT_VALUE;
 }

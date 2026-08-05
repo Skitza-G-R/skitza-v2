@@ -51,6 +51,25 @@ afterEach(() => {
 });
 
 describe("first Version upload storage", () => {
+  it("replaces presigner failures with a user-safe link-preparation error", async () => {
+    mocks.getSignedUrl.mockRejectedValueOnce(
+      new Error(
+        "request failed for https://storage.invalid/?X-Amz-Credential=private-token",
+      ),
+    );
+
+    const failure = await createFirstVersionUploadUrl(
+      { key: "staging/upload.wav", ...expectation },
+      {} as never,
+    ).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({
+      name: "FirstVersionUploadPresignError",
+      message: "Upload link preparation failed. Please try again.",
+    });
+    expect(String(failure)).not.toContain("private-token");
+  });
+
   it("returns every signed browser PUT header", async () => {
     mocks.getSignedUrl.mockResolvedValueOnce("https://upload.example.test/intent");
     const client = {};
@@ -73,9 +92,13 @@ describe("first Version upload storage", () => {
       Bucket: "isolated-first-version-audio",
       Key: "staging/upload.wav",
       ContentType: "audio/wav",
-      ContentLength: 4_096,
       CacheControl: "no-store",
       Metadata: { "skitza-upload-token": expectation.completionToken },
+    });
+    expect((signedCommand as PutObjectCommand).input).not.toHaveProperty("ContentLength");
+    expect(mocks.getSignedUrl.mock.calls[0]?.[2]).toMatchObject({
+      signableHeaders: new Set(["content-type", "cache-control"]),
+      unhoistableHeaders: new Set(["x-amz-meta-skitza-upload-token"]),
     });
   });
 

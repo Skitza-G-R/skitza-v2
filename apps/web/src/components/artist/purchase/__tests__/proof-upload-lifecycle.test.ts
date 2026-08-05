@@ -51,8 +51,8 @@ function baseInput(
   };
 }
 
-afterEach(() => {
-  releaseManagedUploadsForAccount(ACCOUNT_ID);
+afterEach(async () => {
+  await releaseManagedUploadsForAccount(ACCOUNT_ID);
   setUploadRuntimeAccountId(null);
   vi.restoreAllMocks();
   vi.unstubAllGlobals();

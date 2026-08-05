@@ -8,6 +8,7 @@ import {
   buildPaymentWorkspaceRows,
   filterPaymentWorkspaceRows,
   groupPaymentWorkspaceRows,
+  isPaymentWorkspaceDateRangeValid,
   summarizePaymentWorkspaceRows,
   workspaceViewCount,
   type PaymentWorkspaceBucket,
@@ -66,6 +67,9 @@ const allFilters = {
   query: "",
   currency: "all",
   projectId: "all",
+  counterpartyId: "all",
+  acceptedFrom: "",
+  acceptedTo: "",
 };
 
 describe("producer payment workspace model", () => {
@@ -170,6 +174,92 @@ describe("producer payment workspace model", () => {
         ...allFilters,
         currency: "USD",
         projectId: "ils-project",
+      }),
+    ).toEqual([]);
+  });
+
+  it("composes an exact artist filter with an inclusive accepted-date range", () => {
+    const mayaJuly = purchase("maya-july", {
+      counterpartyId: "client-maya",
+      counterpartyLabel: "Maya Stone",
+      acceptance: {
+        acceptedAtIso: "2026-07-01T00:00:00.000Z",
+        acceptedByLabel: "Maya Stone",
+        statement: null,
+      },
+    });
+    const duplicateName = purchase("other-maya", {
+      counterpartyId: "client-other-maya",
+      counterpartyLabel: "Maya Stone",
+      acceptance: {
+        acceptedAtIso: "2026-07-15T12:00:00.000Z",
+        acceptedByLabel: "Maya Stone",
+        statement: null,
+      },
+    });
+    const mayaAugust = purchase("maya-august", {
+      counterpartyId: "client-maya",
+      counterpartyLabel: "Maya Stone",
+      acceptance: {
+        acceptedAtIso: "2026-08-01T00:00:00.000Z",
+        acceptedByLabel: "Maya Stone",
+        statement: null,
+      },
+    });
+    const rows = [
+      row("history", mayaJuly),
+      row("history", duplicateName),
+      row("history", mayaAugust),
+    ];
+
+    expect(
+      filterPaymentWorkspaceRows(rows, {
+        ...allFilters,
+        view: "history",
+        counterpartyId: "client-maya",
+        acceptedFrom: "2026-07-01",
+        acceptedTo: "2026-07-31",
+      }).map(({ id }) => id),
+    ).toEqual(["maya-july"]);
+  });
+
+  it("includes both accepted-date boundaries and fails closed for invalid ranges", () => {
+    const start = purchase("start", {
+      acceptance: {
+        acceptedAtIso: "2026-07-01T00:00:00.000Z",
+        acceptedByLabel: null,
+        statement: null,
+      },
+    });
+    const end = purchase("end", {
+      acceptance: {
+        acceptedAtIso: "2026-07-31T23:59:59.999Z",
+        acceptedByLabel: null,
+        statement: null,
+      },
+    });
+    const outside = purchase("outside", {
+      acceptance: {
+        acceptedAtIso: "2026-08-01T00:00:00.000Z",
+        acceptedByLabel: null,
+        statement: null,
+      },
+    });
+    const rows = [row("upcoming", start), row("upcoming", end), row("upcoming", outside)];
+
+    expect(
+      filterPaymentWorkspaceRows(rows, {
+        ...allFilters,
+        acceptedFrom: "2026-07-01",
+        acceptedTo: "2026-07-31",
+      }).map(({ id }) => id),
+    ).toEqual(["end", "start"]);
+    expect(isPaymentWorkspaceDateRangeValid("2026-07-31", "2026-07-01")).toBe(false);
+    expect(
+      filterPaymentWorkspaceRows(rows, {
+        ...allFilters,
+        acceptedFrom: "2026-07-31",
+        acceptedTo: "2026-07-01",
       }),
     ).toEqual([]);
   });

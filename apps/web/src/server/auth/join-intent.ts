@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 export const JOIN_INTENT_COOKIE = "skitza-join-intent";
 export const JOIN_INTENT_MAX_AGE_SECONDS = 10 * 60;
-export type JoinIntentAction = "book" | "unlock";
+export type JoinIntentAction = "book" | "unlock" | "home";
 
 const JOIN_SLUG_PATTERN = /^[a-z0-9-]{3,48}$/;
 
@@ -38,7 +38,7 @@ export function verifiedJoinIntentAction(input: {
     return null;
   }
   const match =
-    /^(\d+)\.([a-z0-9-]+)\.(book|unlock)\.([A-Za-z0-9_-]{43})$/.exec(
+    /^(\d+)\.([a-z0-9-]+)\.(book|unlock|home)\.([A-Za-z0-9_-]{43})$/.exec(
       input.token,
     );
   if (!match) return null;

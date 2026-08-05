@@ -38,15 +38,21 @@ const artistActivePackages = sourceBlock(
 );
 
 describe("SK-68 artist session router boundary", () => {
-  it("authors schedule candidates in the producer timezone and groups them in artist time", () => {
+  it("authors and groups schedule candidates in the producer timezone", () => {
     expect(artistAvailability).toMatch(/timeZone:\s*producers\.timezone/);
     expect(artistAvailability).toMatch(/today:/);
-    expect(artistAvailability).toMatch(/artistTimeZone/);
-    expect(artistAvailability).toMatch(/studioTimeZone:\s*producer\.timeZone/);
-    expect(artistAvailability).toMatch(/studioLocalDateKey/);
+    expect(artistAvailability).toMatch(/const bookingTimeZone = producer\.timeZone/);
+    expect(artistAvailability).toMatch(/artistTimeZone:\s*bookingTimeZone/);
+    expect(artistAvailability).toMatch(/studioTimeZone:\s*bookingTimeZone/);
+    expect(artistAvailability).toMatch(/studioLocalDateKey\(startsAt, bookingTimeZone\)/);
+    expect(artistAvailability).toMatch(/today:\s*studioLocalDateKey\(now, bookingTimeZone\)/);
     expect(artistAvailability).toMatch(
       /producerLocalDateRange\([^)]*sessionAvailabilityHorizonDays\(minLeadHours\)/s,
     );
+  });
+
+  it("presents every artist session in the owning producer timezone", () => {
+    expect(artistSource).toMatch(/artistTimezone:\s*row\.producerTimezone/);
   });
 
   it("keeps valid exact candidates when another start in the block is invalid", () => {

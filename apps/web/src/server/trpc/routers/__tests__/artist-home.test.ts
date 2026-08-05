@@ -151,6 +151,7 @@ vi.mock("@skitza/db", () => ({
     subjectType: { __column: "artist_notifications.subject_type" },
     subjectId: { __column: "artist_notifications.subject_id" },
     inAppVisible: { __column: "artist_notifications.in_app_visible" },
+    archivedAt: { __column: "artist_notifications.archived_at" },
     openedAt: { __column: "artist_notifications.opened_at" },
   },
   clientContacts: clientContactsMarker,
@@ -168,6 +169,7 @@ vi.mock("@skitza/db", () => ({
     id: { __column: "producers.id" },
     displayName: { __column: "producers.display_name" },
     slug: { __column: "producers.slug" },
+    timezone: { __column: "producers.timezone" },
   },
   availabilityBlackouts: { __table: "availability_blackouts" },
   availabilityBlocks: { __table: "availability_blocks" },
@@ -231,6 +233,7 @@ describe("artist.home", () => {
         durationMin: 240,
         producerName: "Gili Studio",
         producerSlug: "gili",
+        producerTimezone: "Asia/Jerusalem",
         commercialSnapshot: snapshot,
       },
     ]);
@@ -239,6 +242,7 @@ describe("artist.home", () => {
     expect(result.nextSession).toMatchObject({
       id: "booking-1",
       productName: "4-hour Mix Session",
+      producerTimezone: "Asia/Jerusalem",
     });
   });
 

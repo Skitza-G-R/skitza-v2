@@ -27,6 +27,7 @@ import {
   artistSessionDisplay,
   formatSessionDate,
   formatSessionTime,
+  formatSessionTimeZoneLabel,
   locationLabel,
   type SessionDetail,
 } from "./book-data";
@@ -47,7 +48,6 @@ export function SessionDetailScreen({ session }: { session: SessionDetail }) {
     outcome: session.outcome,
     heldExpiryReason: session.heldExpiryReason,
   });
-  const studioTimeDiffers = session.artistTimezone !== session.producerTimezone;
 
   function reschedule() {
     if (!online) {
@@ -104,17 +104,14 @@ export function SessionDetailScreen({ session }: { session: SessionDetail }) {
 
             {/* date + time — large in white Syne, time in font-amount */}
             <div className="font-syne mt-3 text-[30px] leading-[1.04] font-extrabold tracking-[-0.035em] text-white">
-              {formatSessionDate(session.startsAtISO, session.artistTimezone)} at{" "}
+              {formatSessionDate(session.startsAtISO, session.producerTimezone)} at{" "}
               <span className="font-amount font-extrabold">
-                {formatSessionTime(session.startsAtISO, session.artistTimezone)}
+                {formatSessionTime(session.startsAtISO, session.producerTimezone)}
               </span>
             </div>
-            {studioTimeDiffers ? (
-              <p className="mt-2 text-[11.5px] text-[rgb(255_255_255_/_0.55)]">
-                Studio time · {formatSessionDate(session.startsAtISO, session.producerTimezone)} at{" "}
-                {formatSessionTime(session.startsAtISO, session.producerTimezone)}
-              </p>
-            ) : null}
+            <p className="mt-2 text-[11.5px] text-[rgb(255_255_255_/_0.55)]">
+              {formatSessionTimeZoneLabel(session.startsAtISO, session.producerTimezone)}
+            </p>
             {display.secondary ? (
               <p className="mt-2 text-[11.5px] text-[rgb(255_255_255_/_0.55)]">
                 {display.secondary}

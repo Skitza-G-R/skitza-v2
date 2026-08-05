@@ -84,7 +84,6 @@ describe("SK-161 account role menu", () => {
     }>;
     expect(statusItem.props.label).toBe("Artist · Current role");
     expect(typeof statusItem.props.onClick).toBe("function");
-
     const mobileMenu = renderAccountRoleMenuItems(model, {
       includeSettings: false,
     });

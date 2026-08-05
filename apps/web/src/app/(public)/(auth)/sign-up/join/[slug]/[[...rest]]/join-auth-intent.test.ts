@@ -27,9 +27,11 @@ describe("join-aware Clerk authentication", () => {
     expect(source).toContain("forceRedirectUrl={continuationHref}");
   });
 
-  it("keeps unlock signup distinct from the default Book continuation", () => {
-    expect(source).toContain('rest?.[0] === "unlock" ? "unlock" : "book"');
-    expect(source).toContain('action === "unlock" ? "/unlock" : ""');
+  it("keeps Home and Unlock signup distinct from the default Book continuation", () => {
+    expect(source).toContain('rest?.[0] === "unlock"');
+    expect(source).toContain('rest?.[0] === "home"');
+    expect(source).toContain('action === "unlock" ? "/unlock"');
+    expect(source).toContain('action === "home" ? "/home" : ""');
   });
 
   it("preserves the Artist slug through Sign up → Sign in → Sign up", () => {

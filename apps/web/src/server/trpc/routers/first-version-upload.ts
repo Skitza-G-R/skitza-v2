@@ -27,8 +27,10 @@ import {
   assertFirstVersionUploadDestination,
   createFirstVersionRequestDigest,
   createStoredAudioIdentityFingerprint,
+  presignFirstVersionUploadWithCompensation,
 } from "~/server/domain/first-version-uploads/service";
 import {
+  FirstVersionUploadPresignError,
   buildFirstVersionStagingKey,
   computeFirstVersionUploadPeaks,
   createFirstVersionUploadUrl,
@@ -55,6 +57,12 @@ const prepareInput = z.object({
 });
 
 function mapFirstVersionUploadError(error: unknown): never {
+  if (error instanceof FirstVersionUploadPresignError) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: error.message,
+    });
+  }
   if (!(error instanceof FirstVersionUploadError)) throw error;
   switch (error.code) {
     case "BAD_REQUEST":
@@ -285,11 +293,27 @@ export const firstVersionUploadRouter = router({
           { producerId: ctx.producerId, projectId: input.projectId },
         );
       }
-      const capability = await createFirstVersionUploadUrl({
-        key: intent.stagingAudioR2Key,
-        sizeBytes: intent.audioSizeBytes,
-        contentType: intent.audioContentType,
-        completionToken: intent.completionToken,
+      const capability = await presignFirstVersionUploadWithCompensation({
+        newlyInserted: Boolean(inserted),
+        presign: () =>
+          createFirstVersionUploadUrl({
+            key: intent.stagingAudioR2Key,
+            sizeBytes: intent.audioSizeBytes,
+            contentType: intent.audioContentType,
+            completionToken: intent.completionToken,
+          }),
+        compensate: async () => {
+          await ctx.db
+            .delete(firstVersionUploadIntents)
+            .where(
+              and(
+                eq(firstVersionUploadIntents.id, intent.id),
+                eq(firstVersionUploadIntents.producerId, ctx.producerId),
+                isNull(firstVersionUploadIntents.completedAt),
+                isNull(firstVersionUploadIntents.canceledAt),
+              ),
+            );
+        },
       });
       return {
         status: "ready" as const,

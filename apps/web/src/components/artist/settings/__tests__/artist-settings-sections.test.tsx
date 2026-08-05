@@ -63,7 +63,10 @@ const PREFERENCES = {
   },
 } satisfies ResolvedArtistNotificationPreferences;
 
-function renderSettings(initialActive: (typeof ARTIST_SETTINGS_SECTION_KEYS)[number] = "profile") {
+function renderSettings(
+  initialActive: (typeof ARTIST_SETTINGS_SECTION_KEYS)[number] = "profile",
+  initialTimezone = "America/New_York",
+) {
   return render(
     <ArtistSettingsClient
       initialActive={initialActive}
@@ -74,7 +77,7 @@ function renderSettings(initialActive: (typeof ARTIST_SETTINGS_SECTION_KEYS)[num
         imageUrl: null,
         joinedLabel: "May 2026",
       }}
-      initialTimezone="America/New_York"
+      initialTimezone={initialTimezone}
       initialPreferences={PREFERENCES}
       connectedStudios={[
         {
@@ -166,6 +169,16 @@ describe("artist Settings section contract", () => {
     fireEvent.click(screen.getByRole("button", { name: "Disconnect studio" }));
     expect(actionMocks.previewDisconnect).not.toHaveBeenCalled();
     expect(actionMocks.commitDisconnect).not.toHaveBeenCalled();
+  });
+
+  it("shows GMT for the stored UTC timezone value", () => {
+    renderSettings("timezone", "UTC");
+
+    const timezone = screen.getByLabelText<HTMLSelectElement>("Your timezone");
+    const gmtOption = screen.getByRole<HTMLOptionElement>("option", { name: "GMT" });
+
+    expect(timezone.value).toBe("UTC");
+    expect(gmtOption.value).toBe("UTC");
   });
 
   it("keeps the producer-pattern swipe and server deep-link wiring", () => {

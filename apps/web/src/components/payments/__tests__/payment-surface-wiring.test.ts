@@ -57,6 +57,8 @@ const producerPaymentWorkspaceData = read(
   "payments",
   "producer-payment-workspace-data.ts",
 );
+const paymentHistoryAdapter = read("components", "payments", "payment-history-adapter.ts");
+const purchaseLedgerRouter = read("server", "trpc", "routers", "purchase-ledger.ts");
 const projectPage = read("app", "(producer)", "dashboard", "clients-projects", "[id]", "page.tsx");
 const songPage = read(
   "app",
@@ -101,7 +103,8 @@ describe("SK-69 payment surface wiring", () => {
     expect(producerPayments).toContain("toProducerPaymentWorkspaceBuckets(model.producerBuckets)");
     expect(producerPayments).toContain("ProducerPaymentWorkspace");
     expect(producerPayments).not.toContain("PaymentHistoryView");
-    expect(artistPayments).toContain("PaymentHistoryView");
+    expect(artistPayments).toContain("ArtistPaymentsOverview");
+    expect(artistPayments).not.toMatch(/\bPaymentHistoryView\b/);
   });
 
   it("feeds canonical project and client views from the same read projection", () => {
@@ -144,7 +147,8 @@ describe("SK-69 payment surface wiring", () => {
     expect(dashboardPage).toContain("pendingApprovals={pendingApprovals}");
     expect(artistHome).toContain("<ProfessionalArtistHome");
     expect(artistHome).toContain('kind: "payment_action"');
-    expect(artistHome).toContain('kind: "today_session"');
+    expect(artistHome).toContain("artistHomeBookingStatusActions({");
+    expect(artistHome).toContain("sessions: sessions.sessions");
     expect(artistHome).toContain('kind: "ready_to_schedule"');
     expect(artistHome).not.toContain("<PurchaseStatusCard");
     expect(artistHome).not.toContain("<ArtistPaymentActionsCard");
@@ -170,6 +174,17 @@ describe("SK-69 payment surface wiring", () => {
     expect(readDb).not.toMatch(/paymentProofs\.(storageKey|objectEtag|storageBucket)/);
   });
 
+  it("filters exact owned artists only after the producer-scoped overview read", () => {
+    expect(producerPayments).toContain("purchaseLedger.overview()");
+    expect(purchaseLedgerRouter).toMatch(
+      /overview: producerProcedure\.query[\s\S]*?producerId: ctx\.producerId/,
+    );
+    expect(paymentHistoryAdapter).toContain("counterpartyId:");
+    expect(paymentHistoryAdapter).toContain("purchase.clientContactId");
+    expect(producerPaymentWorkspace).toContain('aria-label="Filter by artist"');
+    expect(producerPaymentWorkspace).toContain("row.purchase.counterpartyId");
+  });
+
   it("completes payment through the exact purchase and installment returned by the existing flow", () => {
     expect(paymentHistory).toMatch(
       /withArtistStudio\([\s\S]{0,120}`\/artist\/payments\/\$\{encodeURIComponent\(purchase\.id\)\}`[\s\S]{0,80}purchase\.studioId/,
@@ -179,11 +194,11 @@ describe("SK-69 payment surface wiring", () => {
       "caller.artist.purchase.proofOfPayment.state({ purchaseId })",
     );
     expect(artistPurchasePayment).toContain(
-      "proofUploadsAvailable={state.proofUploadsAvailable}",
+      "proofUploadAvailability={state?.proofUploadAvailability ?? null}",
     );
     expect(artistPurchasePayment).not.toContain("caller.artist.purchase.paymentInstructions");
     expect(artistPurchasePayment).toContain("<PaymentSummaryScreen");
-    expect(artistPurchasePayment).toContain("studioId={state.producerId}");
+    expect(artistPurchasePayment).toContain("studioId={studioId}");
 
     expect(artistPaymentSummary).toContain(
       "`/artist/payments/${encodeURIComponent(purchaseId)}/instructions`",
@@ -218,5 +233,16 @@ describe("SK-69 payment surface wiring", () => {
       "data.proofs.find((proof) => proof.proofId === proofId)",
     );
     expect(artistExactProof).toContain("if (!exact) notFound()");
+  });
+
+  it("opens every accepted purchase from the rich ledger and skips proof state without installments", () => {
+    expect(artistPurchasePayment).toContain("caller.artist.purchase.payments()");
+    expect(artistPurchasePayment).toContain("findArtistPaymentRecord(sections, purchaseId)");
+    expect(artistPurchasePayment).toMatch(
+      /recordUsesProofFlow\(purchase\)[\s\S]*proofOfPayment\.state/,
+    );
+    expect(artistPurchasePayment).toContain("purchaseRecord={purchase}");
+    expect(artistPaymentSummary).toContain("PaymentHistoryPurchaseDetails");
+    expect(artistPaymentSummary).toContain("Full purchase record");
   });
 });

@@ -87,6 +87,40 @@ export async function markAllArtistNotificationsReadAction(): Promise<
   }
 }
 
+export async function archiveArtistNotificationAction(input: {
+  notificationId: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const artist = await caller();
+  if (!artist) return { ok: false, error: "Sign in to update notifications." };
+  try {
+    await artist.artistPlatform.notifications.archive(input);
+    revalidatePath("/artist", "layout");
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof TRPCError && error.code === "NOT_FOUND"
+          ? "Notification not found."
+          : "Notification couldn’t be removed. Try again.",
+    };
+  }
+}
+
+export async function archiveAllArtistNotificationsAction(): Promise<
+  { ok: true } | { ok: false; error: string }
+> {
+  const artist = await caller();
+  if (!artist) return { ok: false, error: "Sign in to update notifications." };
+  try {
+    await artist.artistPlatform.notifications.archiveAll();
+    revalidatePath("/artist", "layout");
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Notifications couldn’t be cleared. Try again." };
+  }
+}
+
 export async function openArtistNotificationAction(input: {
   notificationId: string;
 }): Promise<{ ok: true; href: string } | { ok: false; error: string }> {

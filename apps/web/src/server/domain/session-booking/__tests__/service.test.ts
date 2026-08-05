@@ -251,6 +251,23 @@ function availableSlot(overrides: Partial<SlotPolicyInput> = {}): SlotPolicyInpu
 }
 
 describe("authoritative producer availability", () => {
+  it("stores Producer-local summer and winter wall clocks as exact UTC instants", () => {
+    expect(
+      sessionStartFromLocalSlot({
+        date: "2026-08-10",
+        startMin: 9 * 60,
+        producerTimeZone: "Asia/Jerusalem",
+      }).toISOString(),
+    ).toBe("2026-08-10T06:00:00.000Z");
+    expect(
+      sessionStartFromLocalSlot({
+        date: "2026-12-10",
+        startMin: 9 * 60,
+        producerTimeZone: "Asia/Jerusalem",
+      }).toISOString(),
+    ).toBe("2026-12-10T07:00:00.000Z");
+  });
+
   it("derives availability date keys from the producer timezone", () => {
     const instant = new Date("2026-07-19T21:30:00.000Z");
 

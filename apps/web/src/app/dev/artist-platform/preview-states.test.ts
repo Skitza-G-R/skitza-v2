@@ -51,6 +51,7 @@ describe("artist platform preview handoff", () => {
         "/dev/screens/s9-awaiting",
         "/dev/screens/s9-rejected",
         "/dev/screens/s9-partial",
+        "/dev/screens/s9-scheduled",
         "/dev/screens/s9-paid",
       ]),
     );
@@ -90,6 +91,7 @@ describe("artist platform preview handoff", () => {
       "s9-awaiting": "store",
       "s9-rejected": "store",
       "s9-partial": "store",
+      "s9-scheduled": "store",
       "s9-paid": "store",
     });
   });

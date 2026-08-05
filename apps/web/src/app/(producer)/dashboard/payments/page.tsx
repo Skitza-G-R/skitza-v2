@@ -34,8 +34,8 @@ export default async function PaymentsPage() {
           Payments
         </h1>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[rgb(var(--fg-muted))]">
-          See what needs attention, then filter by client, project, status, or currency. Every
-          balance stays attached to its accepted purchase.
+          Review payment proofs first, then narrow the ledger by artist, accepted date, status, or
+          currency. Every balance stays attached to its accepted purchase.
         </p>
       </header>
 

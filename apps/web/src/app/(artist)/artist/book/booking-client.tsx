@@ -5,10 +5,15 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { FunnelTopBar, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
-import { bookingActionLabel, locationLabel } from "~/components/artist/sessions/book-data";
+import {
+  bookingActionLabel,
+  formatSessionTimeZoneLabel,
+  locationLabel,
+} from "~/components/artist/sessions/book-data";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { withArtistStudio } from "~/lib/artist-studio-context";
 import { markMeaningfulInstallAction } from "~/lib/pwa/install-guidance";
+import { formatGmtClockTime } from "~/lib/timezone-display";
 
 import { confirmBookingAction, rescheduleBookingAction } from "./actions";
 import { findPrepaidSessionByAllowance } from "./prepaid-session-selection";
@@ -104,10 +109,10 @@ function formatInstant(
 }
 
 function formatTime(iso: string, timeZone: string, includeZone = false): string {
+  if (includeZone) return formatGmtClockTime(new Date(iso), timeZone);
   return formatInstant(iso, timeZone, {
     hour: "numeric",
     minute: "2-digit",
-    ...(includeZone ? { timeZoneName: "short" } : {}),
   });
 }
 
@@ -315,7 +320,7 @@ export function BookingClient({
         ) : null}
       </header>
 
-      <div className="mt-7 flex-1">
+      <div className="mt-7">
         {step === "package" ? (
           <PackageStep
             packages={activePackages}
@@ -341,7 +346,7 @@ export function BookingClient({
         {step === "time" && selectedDay ? (
           <TimeStep
             day={selectedDay}
-            artistTimeZone={availability.artistTimeZone}
+            timeZone={availability.studioTimeZone}
             selectedStartsAtISO={selectedStartsAtISO}
             onSelect={chooseTime}
           />
@@ -352,8 +357,7 @@ export function BookingClient({
             slot={selectedSlot}
             package={selectedPackage}
             producerName={activeStudio?.name ?? "Your producer"}
-            artistTimeZone={availability.artistTimeZone}
-            studioTimeZone={availability.studioTimeZone}
+            timeZone={availability.studioTimeZone}
             autoConfirm={selectedPackage.autoConfirm}
           />
         ) : null}
@@ -368,7 +372,7 @@ export function BookingClient({
         ) : null}
       </div>
 
-      <div className="sticky bottom-0 mt-8 bg-[rgb(var(--bg-background))] pt-3 pb-[max(env(safe-area-inset-bottom),20px)]">
+      <div className="mt-8 shrink-0 bg-[rgb(var(--bg-background))] pb-[max(env(safe-area-inset-bottom),20px)]">
         {step === "package" ? (
           <PrimaryCta
             disabled={!selectedPackage || !online || isPending}
@@ -429,9 +433,9 @@ function FocusedFrame({
   children: React.ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-[60] overflow-y-auto bg-[rgb(var(--bg-background))]">
+    <div className="sk-native-screen fixed inset-x-0 top-[var(--sk-viewport-offset-top,0px)] z-[60] flex flex-col overflow-hidden bg-[rgb(var(--bg-background))]">
       <FunnelTopBar title={title} {...(sub ? { sub } : {})} onBack={onBack} />
-      <main className="mx-auto flex min-h-[calc(100dvh-57px)] w-full max-w-[560px] flex-col px-5 pt-8 sm:px-7">
+      <main className="sk-native-scroll mx-auto flex min-h-0 w-full max-w-[560px] flex-1 flex-col px-5 pt-8 sm:px-7">
         {children}
       </main>
     </div>
@@ -646,42 +650,49 @@ function MonthCalendar({
 
 function TimeStep({
   day,
-  artistTimeZone,
+  timeZone,
   selectedStartsAtISO,
   onSelect,
 }: {
   day: AvailabilityDay;
-  artistTimeZone: string;
+  timeZone: string;
   selectedStartsAtISO: string | null;
   onSelect: (startsAtISO: string) => void;
 }) {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-      {day.slots.map((slot) => {
-        const selected = slot.startsAtISO === selectedStartsAtISO;
-        return (
-          <button
-            key={slot.startsAtISO}
-            type="button"
-            aria-pressed={selected}
-            onClick={() => {
-              onSelect(slot.startsAtISO);
-            }}
-            className="sk-press min-h-14 rounded-[var(--radius-lg)] border px-3 py-3 text-sm font-semibold"
-            style={{
-              background: selected
-                ? "rgb(var(--brand-primary))"
-                : "rgb(var(--bg-elevated))",
-              color: selected ? "rgb(var(--bg-sidebar))" : "rgb(var(--fg-default))",
-              borderColor: selected
-                ? "rgb(var(--brand-primary-dark))"
-                : "rgb(var(--border-subtle))",
-            }}
-          >
-            {formatTime(slot.startsAtISO, artistTimeZone, true)}
-          </button>
-        );
-      })}
+    <div>
+      {day.slots[0] ? (
+        <p className="mb-3 font-mono text-[10px] font-semibold tracking-[0.08em] text-[rgb(var(--fg-muted))]">
+          {timeZone}
+        </p>
+      ) : null}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        {day.slots.map((slot) => {
+          const selected = slot.startsAtISO === selectedStartsAtISO;
+          return (
+            <button
+              key={slot.startsAtISO}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => {
+                onSelect(slot.startsAtISO);
+              }}
+              className="sk-press min-h-14 rounded-[var(--radius-lg)] border px-3 py-3 text-sm font-semibold"
+              style={{
+                background: selected
+                  ? "rgb(var(--brand-primary))"
+                  : "rgb(var(--bg-elevated))",
+                color: selected ? "rgb(var(--bg-sidebar))" : "rgb(var(--fg-default))",
+                borderColor: selected
+                  ? "rgb(var(--brand-primary-dark))"
+                  : "rgb(var(--border-subtle))",
+              }}
+            >
+              {formatTime(slot.startsAtISO, timeZone, true)}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -690,18 +701,15 @@ function ReviewStep({
   slot,
   package: selectedPackage,
   producerName,
-  artistTimeZone,
-  studioTimeZone,
+  timeZone,
   autoConfirm,
 }: {
   slot: ExactSlot;
   package: ActivePackage;
   producerName: string;
-  artistTimeZone: string;
-  studioTimeZone: string;
+  timeZone: string;
   autoConfirm: boolean;
 }) {
-  const zonesDiffer = artistTimeZone !== studioTimeZone;
   return (
     <section
       className="overflow-hidden rounded-[var(--radius-xl)] border bg-[rgb(var(--bg-elevated))]"
@@ -712,17 +720,14 @@ function ReviewStep({
           Your time
         </p>
         <h2 className="font-display mt-2 text-[25px] leading-tight font-extrabold tracking-[-0.03em]">
-          {formatInstantDate(slot.startsAtISO, artistTimeZone)}
+          {formatInstantDate(slot.startsAtISO, timeZone)}
         </h2>
         <p className="mt-1 text-[18px] font-semibold">
-          {formatTime(slot.startsAtISO, artistTimeZone, true)}
+          {formatTime(slot.startsAtISO, timeZone)}
         </p>
-        {zonesDiffer ? (
-          <p className="mt-3 text-[12px] text-[rgb(255_255_255_/_0.58)]">
-            Studio time · {formatInstantDate(slot.startsAtISO, studioTimeZone)} ·{" "}
-            {formatTime(slot.startsAtISO, studioTimeZone, true)}
-          </p>
-        ) : null}
+        <p className="mt-3 text-[12px] text-[rgb(255_255_255_/_0.58)]">
+          {formatSessionTimeZoneLabel(slot.startsAtISO, timeZone)}
+        </p>
       </div>
       <dl className="divide-y divide-[rgb(var(--border-subtle))] px-5">
         <ReviewRow label="Package" value={selectedPackage.packageName} />
