@@ -70,7 +70,23 @@ const activeData = {
   ],
 } satisfies PaymentHistoryViewData;
 
-const emptyData = {
+const emptyWaitingData = {
+  ...activeData,
+  section: {
+    ...activeData.section,
+    id: "waiting",
+    title: "Waiting for payment",
+    emptyTitle: "Nothing to pay",
+  },
+  projects: [],
+} satisfies PaymentHistoryViewData;
+
+const emptyActiveData = {
+  ...activeData,
+  projects: [],
+} satisfies PaymentHistoryViewData;
+
+const emptyHistoryData = {
   ...activeData,
   section: { ...activeData.section, id: "history", title: "History" },
   projects: [],
@@ -85,7 +101,7 @@ function sectionWithPurchase(row: PaymentHistoryPurchase): PaymentHistoryViewDat
 describe("ArtistPaymentsOverview", () => {
   it("shows one compact purchase row with the exact payment action and history count", () => {
     const html = renderToStaticMarkup(
-      <ArtistPaymentsOverview sections={[activeData, emptyData]} />,
+      <ArtistPaymentsOverview sections={[emptyWaitingData, activeData, emptyHistoryData]} />,
     );
 
     expect(html).toContain("Single production");
@@ -101,15 +117,19 @@ describe("ArtistPaymentsOverview", () => {
     expect(html).not.toContain("<details");
   });
 
-  it("keeps the empty history state quiet and explicit", () => {
-    const html = renderToStaticMarkup(<ArtistPaymentsOverview sections={[emptyData]} />);
+  it("keeps the empty waiting state quiet and explicit", () => {
+    const html = renderToStaticMarkup(
+      <ArtistPaymentsOverview sections={[emptyWaitingData, emptyActiveData, emptyHistoryData]} />,
+    );
 
     expect(html).toContain("Nothing to pay");
   });
 
   it("routes a zero-total record to its accepted terms instead of a proof-only dead end", () => {
     const html = renderToStaticMarkup(
-      <ArtistPaymentsOverview sections={[sectionWithPurchase(zeroTotalPurchase)]} />,
+      <ArtistPaymentsOverview
+        sections={[emptyWaitingData, sectionWithPurchase(zeroTotalPurchase), emptyHistoryData]}
+      />,
     );
 
     expect(html).toContain("Royalty-only production");
@@ -122,7 +142,9 @@ describe("ArtistPaymentsOverview", () => {
 
   it("never advertises proof upload for a canceled purchase", () => {
     const html = renderToStaticMarkup(
-      <ArtistPaymentsOverview sections={[sectionWithPurchase(canceledPurchase)]} />,
+      <ArtistPaymentsOverview
+        sections={[emptyWaitingData, sectionWithPurchase(canceledPurchase), emptyHistoryData]}
+      />,
     );
 
     expect(html).toContain("View closed record");

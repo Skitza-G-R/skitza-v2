@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { ArtistPaymentActionsCard } from "~/components/artist/home/payment-actions-card";
+import { ArtistPaymentsOverview } from "~/components/artist/payments/artist-payments-overview";
 import { PurchaseStatusCard } from "~/components/artist/home/purchase-status-card";
 import { PurchaseRequestsList } from "~/components/dashboard/requests/purchase-requests-list";
 import {
@@ -293,9 +294,7 @@ const EXTREME_MONEY_PROJECT: PaymentHistoryProject = {
   id: "project-sk120-extreme-money",
   title: "Symphonic Album & Global Release Campaign",
   status: { label: "Active", tone: "active" },
-  currencyTotals: [
-    { currency: "ILS", dueNowCents: 123_456_789, totalRemainingCents: 530_865_309 },
-  ],
+  currencyTotals: [{ currency: "ILS", dueNowCents: 123_456_789, totalRemainingCents: 530_865_309 }],
   purchases: [
     {
       ...SHARED_PURCHASE,
@@ -489,7 +488,7 @@ const SECTIONS: Record<
 
 export function Sk69PaymentsDevScreen() {
   const [surface, setSurface] = useState<Surface>("producer-payments");
-  const paymentHistorySurface = surface === "artist-payments" || surface === "project";
+  const paymentHistorySurface = surface === "project";
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-[1180px] px-4 py-5 sm:px-6 sm:py-8">
@@ -528,15 +527,42 @@ export function Sk69PaymentsDevScreen() {
 
       <section data-testid={`sk69-surface-${surface}`}>
         {surface === "producer-payments" ? (
-          <ProducerPaymentWorkspace
-            buckets={WORKSPACE_BUCKETS}
-            scope="global"
-            defaultView="open"
+          <ProducerPaymentWorkspace buckets={WORKSPACE_BUCKETS} scope="global" defaultView="open" />
+        ) : null}
+        {surface === "artist-payments" ? (
+          <ArtistPaymentsOverview
+            sections={[
+              {
+                section: {
+                  ...SECTIONS["artist-payments"],
+                  id: "sk69-artist-waiting",
+                  title: "Waiting for payment",
+                },
+                currencyTotals: SHARED_PROJECT.currencyTotals,
+                projects: [SHARED_PROJECT],
+              },
+              {
+                section: SECTIONS["artist-payments"],
+                currencyTotals: EXTREME_MONEY_PROJECT.currencyTotals,
+                projects: [EXTREME_MONEY_PROJECT],
+              },
+              {
+                section: {
+                  ...SECTIONS["artist-payments"],
+                  id: "sk69-artist-history",
+                  title: "History",
+                  emptyTitle: "No payment history",
+                  emptyDescription: "Completed and closed purchases appear here.",
+                },
+                currencyTotals: [],
+                projects: [],
+              },
+            ]}
           />
         ) : null}
         {paymentHistorySurface ? (
           <PaymentHistoryView
-            role={surface === "artist-payments" ? "artist" : "producer"}
+            role="producer"
             data={{
               section: SECTIONS[surface],
               currencyTotals: SHARED_PROJECT.currencyTotals,

@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useState } from "react";
 
 import { Badge } from "~/components/ui/badge";
 import { withArtistStudio } from "~/lib/artist-studio-context";
@@ -12,15 +15,118 @@ import type {
 export function ArtistPaymentsOverview({
   sections,
 }: {
-  sections: readonly PaymentHistoryViewData[];
+  sections: readonly [
+    waiting: PaymentHistoryViewData,
+    active: PaymentHistoryViewData,
+    history: PaymentHistoryViewData,
+  ];
 }) {
+  const tabs = [
+    {
+      key: "waiting",
+      label: "Waiting",
+      data: sections[0],
+    },
+    {
+      key: "active",
+      label: "Balance & actions",
+      data: sections[1],
+    },
+    {
+      key: "history",
+      label: "History",
+      data: sections[2],
+    },
+  ] as const;
+  type TabKey = (typeof tabs)[number]["key"];
+  const [activeTab, setActiveTab] = useState<TabKey>(() =>
+    purchaseCount(sections[0]) > 0
+      ? "waiting"
+      : purchaseCount(sections[1]) > 0
+        ? "active"
+        : "waiting",
+  );
+  const activeIndex = tabs.findIndex((tab) => tab.key === activeTab);
+  const active = tabs[activeIndex] ?? tabs[0];
+
   return (
-    <div className="space-y-8">
-      {sections.map((data) => (
-        <ArtistPaymentSection key={data.section.id} data={data} />
-      ))}
+    <div>
+      <nav aria-label="Payment sections" className="mb-5">
+        <div
+          role="tablist"
+          aria-label="Payment sections"
+          className="grid grid-cols-3 gap-1 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-overlay)/0.6)] p-1"
+        >
+          {tabs.map((tab, index) => {
+            const selected = tab.key === activeTab;
+            const count = purchaseCount(tab.data);
+            const countLabel = `${String(count)} ${count === 1 ? "purchase" : "purchases"}`;
+
+            return (
+              <button
+                key={tab.key}
+                id={`artist-payments-${tab.key}-tab`}
+                type="button"
+                role="tab"
+                aria-label={`${tab.label}, ${countLabel}`}
+                aria-selected={selected}
+                aria-controls="artist-payments-tab-panel"
+                tabIndex={selected ? 0 : -1}
+                onClick={() => {
+                  setActiveTab(tab.key);
+                }}
+                onKeyDown={(event) => {
+                  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+                  event.preventDefault();
+                  const nextIndex =
+                    event.key === "Home"
+                      ? 0
+                      : event.key === "End"
+                        ? tabs.length - 1
+                        : event.key === "ArrowRight"
+                          ? (index + 1) % tabs.length
+                          : (index - 1 + tabs.length) % tabs.length;
+                  const nextTab = tabs[nextIndex];
+                  if (!nextTab) return;
+                  setActiveTab(nextTab.key);
+                  document.getElementById(`artist-payments-${nextTab.key}-tab`)?.focus();
+                }}
+                className={`sk-press flex min-h-11 min-w-0 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] px-1.5 text-center text-[10.5px] leading-tight font-bold transition-[background,color,box-shadow] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none motion-reduce:transition-none sm:px-3 sm:text-[12.5px] ${
+                  selected
+                    ? "bg-[rgb(var(--bg-sidebar))] text-[rgb(var(--fg-onsidebar))] shadow-[0_4px_14px_rgb(17_16_9/0.14)]"
+                    : "text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-elevated))] hover:text-[rgb(var(--fg-default))]"
+                }`}
+              >
+                <span className="min-w-0">{tab.label}</span>
+                <span
+                  aria-hidden="true"
+                  className={`shrink-0 font-mono text-[9px] tabular-nums ${
+                    selected
+                      ? "text-[rgb(var(--fg-onsidebar)/0.68)]"
+                      : "text-[rgb(var(--fg-subtle))]"
+                  }`}
+                >
+                  {String(count)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
+      <div
+        id="artist-payments-tab-panel"
+        role="tabpanel"
+        aria-labelledby={`artist-payments-${active.key}-tab`}
+      >
+        <ArtistPaymentSection data={active.data} />
+      </div>
     </div>
   );
+}
+
+function purchaseCount(data: PaymentHistoryViewData): number {
+  return data.projects.reduce((total, project) => total + project.purchases.length, 0);
 }
 
 function ArtistPaymentSection({ data }: { data: PaymentHistoryViewData }) {
@@ -31,16 +137,13 @@ function ArtistPaymentSection({ data }: { data: PaymentHistoryViewData }) {
 
   return (
     <section aria-labelledby={headingId}>
-      <header className="mb-3 flex items-baseline justify-between gap-3 border-b border-[rgb(var(--border-subtle))] pb-2.5">
+      <header className="mb-3 border-b border-[rgb(var(--border-subtle))] pb-2.5">
         <h2
           id={headingId}
           className="font-display text-[19px] font-bold tracking-[-0.025em] text-[rgb(var(--fg-default))]"
         >
           {data.section.title}
         </h2>
-        <span className="font-mono text-[10px] font-semibold text-[rgb(var(--fg-muted))]">
-          {String(rows.length)} {rows.length === 1 ? "purchase" : "purchases"}
-        </span>
       </header>
 
       {rows.length === 0 ? (
