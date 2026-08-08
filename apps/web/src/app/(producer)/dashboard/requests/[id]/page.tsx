@@ -56,11 +56,24 @@ export default async function ProducerPurchaseRequestPage({ params, searchParams
           purchaseId: commercialTerms.purchaseId,
         })
       : { available: true as const, proofs: [] };
+  const targetProjects = request.targetProjects.map((project) => ({
+    ...project,
+    updatedAtIso: project.updatedAt.toISOString(),
+  }));
+  const total = snapshot
+    ? formatMoney(snapshot.totalCents, snapshot.currency, {
+        withCents: snapshot.totalCents % 100 !== 0,
+      })
+    : null;
+  const submittedAt = new Intl.DateTimeFormat("en", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(request.createdAt);
 
   return (
     <>
       <SetTopBarBreadcrumb crumbs={[{ label: request.artistName }]} />
-      <main className="mx-auto w-full max-w-[720px] px-4 py-6 sm:px-6 sm:py-10">
+      <main className="mx-auto w-full max-w-[1120px] px-4 py-6 sm:px-6 sm:py-10 lg:px-8">
         <Link
           href="/dashboard/requests"
           className="inline-flex min-h-11 items-center text-sm font-medium text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]"
@@ -68,63 +81,35 @@ export default async function ProducerPurchaseRequestPage({ params, searchParams
           ← Back to requests
         </Link>
 
-        <header className="mt-4 border-b border-[rgb(var(--border-subtle))] pb-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="font-mono text-[11px] font-semibold tracking-[0.14em] text-[rgb(var(--fg-muted))] uppercase">
-              {request.refNumber}
-            </p>
-            <span className="rounded-[var(--radius-sm)] bg-[rgb(var(--bg-sunken))] px-2.5 py-1 text-xs font-semibold text-[rgb(var(--fg-secondary))] capitalize">
-              {accepted ? "Accepted" : request.status}
-            </span>
-          </div>
-          <h1 className="font-display mt-3 text-[clamp(1.75rem,4vw,2.5rem)] leading-tight font-extrabold tracking-[-0.035em] [overflow-wrap:anywhere] break-words text-[rgb(var(--fg-default))]">
-            {productName}
-          </h1>
-          <p className="mt-2 text-sm text-[rgb(var(--fg-secondary))]">
-            Requested by {request.artistName} · {request.artistEmail}
-          </p>
-          {snapshot ? (
-            <p className="font-display mt-4 text-2xl font-extrabold text-[rgb(var(--fg-default))] tabular-nums">
-              {formatMoney(snapshot.totalCents, snapshot.currency, {
-                withCents: snapshot.totalCents % 100 !== 0,
-              })}
-            </p>
-          ) : null}
-          <p className="mt-1 text-xs text-[rgb(var(--fg-muted))]">
-            {accepted
-              ? "Authoritative accepted total"
+        <PurchaseRequestReview
+          key={request.id}
+          id={request.id}
+          initialStatus={request.status}
+          initialProjectId={request.projectId}
+          targetProjects={targetProjects}
+          canApprove={commercialTerms.kind === "proposal" && commercialTerms.approvalAvailable}
+          artistName={request.artistName}
+          artistEmail={request.artistEmail}
+          productName={productName}
+          total={total}
+          totalCaption={
+            accepted
+              ? "Accepted total"
               : snapshot
-                ? "Current proposal total"
-                : "Current proposal unavailable"}
-          </p>
-        </header>
-
-        {commercialTerms.kind !== "accepted" && request.status !== "converted" ? (
-          <PurchaseRequestReview
-            key={request.id}
-            id={request.id}
-            initialStatus={request.status}
-            initialUndoableUntilIso={request.undoableUntil?.toISOString() ?? null}
-            initialProjectId={request.projectId}
-            targetProjects={request.targetProjects.map((project) => ({
-              ...project,
-              updatedAtIso: project.updatedAt.toISOString(),
-            }))}
-            canApprove={
-              commercialTerms.kind === "proposal" && commercialTerms.approvalAvailable
-            }
-          />
-        ) : null}
-
-        {commercialTerms.kind === "accepted" ? (
-          <AcceptedRequestPaymentProofActions proofs={pendingProofs.proofs} />
-        ) : null}
-
-        <PurchaseRequestCommercialDetails
-          commercialTerms={commercialTerms}
+                ? "Proposal total"
+                : "Current proposal unavailable"
+          }
+          submittedAt={submittedAt}
+          reference={request.refNumber}
           brief={request.brief}
-          submittedAt={request.createdAt}
-        />
+        >
+          <div className="space-y-7">
+            {commercialTerms.kind === "accepted" ? (
+              <AcceptedRequestPaymentProofActions proofs={pendingProofs.proofs} />
+            ) : null}
+            <PurchaseRequestCommercialDetails commercialTerms={commercialTerms} />
+          </div>
+        </PurchaseRequestReview>
       </main>
     </>
   );

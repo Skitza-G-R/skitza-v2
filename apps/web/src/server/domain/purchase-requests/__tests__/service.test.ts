@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   assertPurchaseRequestOperationReplay,
   preparePurchaseRequestOperation,
-  purchaseRequestApprovalUndoDeadline,
   transitionPurchaseRequest,
 } from "../service";
 
@@ -95,23 +94,5 @@ describe("purchase request transitions", () => {
         new Date("2026-07-17T08:03:00.000Z"),
       ),
     ).toMatchObject({ changed: false, status: "declined", declinedAt });
-  });
-
-  it("allows approval undo only before the exact deadline", () => {
-    const approvedAt = new Date("2026-07-17T08:01:00.000Z");
-    const approved = {
-      ...pending,
-      status: "approved" as const,
-      approvedAt,
-      statusChangedAt: approvedAt,
-    };
-    const deadline = purchaseRequestApprovalUndoDeadline(approvedAt);
-
-    expect(
-      transitionPurchaseRequest(approved, "undo_approval", new Date(deadline.getTime() - 1)),
-    ).toMatchObject({ changed: true, status: "pending", approvedAt: null });
-    expect(() => transitionPurchaseRequest(approved, "undo_approval", deadline)).toThrow(
-      /undo window has elapsed/i,
-    );
   });
 });

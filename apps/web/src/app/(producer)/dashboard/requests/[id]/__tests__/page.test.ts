@@ -20,15 +20,15 @@ describe("producer purchase request detail", () => {
     expect(page).not.toMatch(/agreementUrl|contractUrlSnapshot/);
   });
 
-  it("adds the Gate 1 review controls while preserving the detail route", () => {
-    expect(page).toMatch(/commercialTerms\.kind !== "accepted"[\s\S]*PurchaseRequestReview/);
+  it("renders the action-first review while preserving the detail route", () => {
+    expect(page).toMatch(/<PurchaseRequestReview/);
     expect(page).toMatch(
       /canApprove=\{[\s\S]*commercialTerms\.kind === "proposal" && commercialTerms\.approvalAvailable/,
     );
     expect(page).toMatch(/initialStatus=\{request\.status\}/);
-    expect(page).toMatch(
-      /initialUndoableUntilIso=\{request\.undoableUntil\?\.toISOString\(\) \?\? null\}/,
-    );
+    expect(page).toMatch(/artistName=\{request\.artistName\}/);
+    expect(page).toMatch(/reference=\{request\.refNumber\}/);
+    expect(page).not.toMatch(/undoableUntil|initialUndoableUntilIso/);
     expect(page).toMatch(/href="\/dashboard\/requests"/);
   });
 

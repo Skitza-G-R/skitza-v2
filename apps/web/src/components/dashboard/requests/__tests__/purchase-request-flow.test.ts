@@ -90,12 +90,11 @@ describe("producer purchase request flow", () => {
     expect(listSource).toContain("Terms unavailable");
   });
 
-  it("wraps approve, decline, and undo in authenticated server actions", () => {
+  it("wraps approve and decline in authenticated server actions without undo", () => {
     expect(actionsSource).toMatch(/^"use server";/);
     expect(actionsSource).toMatch(/producer\.purchase\.approve/);
     expect(actionsSource).toMatch(/producer\.purchase\.decline/);
-    expect(actionsSource).toMatch(/producer\.purchase\.undoApproval/);
-    expect(actionsSource).toMatch(/transition\.undoableUntil\.toISOString\(\)/);
+    expect(actionsSource).not.toMatch(/undoApproval|undoPurchaseApproval|undoableUntil/);
     expect(actionsSource).toMatch(/revalidatePath\("\/dashboard"\)/);
     expect(actionsSource).toMatch(/revalidatePath\(REQUESTS_PATH\)/);
     expect(actionsSource).toContain("This purchase request is no longer available.");
@@ -113,11 +112,9 @@ describe("producer purchase request flow", () => {
     expect(detailPageSource).toMatch(/<PurchaseRequestCommercialDetails/);
     expect(detailPageSource).not.toMatch(/contractUrlSnapshot|agreementUrlSnapshot/);
     expect(detailPageSource).not.toMatch(/safeAgreementUrl/);
-    expect(detailPageSource).toMatch(
-      /initialUndoableUntilIso=\{request\.undoableUntil\?\.toISOString\(\) \?\? null\}/,
-    );
-    expect(purchaseRouterSource).toMatch(
-      /undoableUntil:[\s\S]*purchaseRequestApprovalUndoDeadline\(approvedAt\)/,
+    expect(detailPageSource).not.toMatch(/initialUndoableUntilIso|undoableUntil/);
+    expect(purchaseRouterSource).not.toMatch(
+      /undoApproval|undo_approval|purchaseRequestApprovalUndoDeadline|undoableUntil/,
     );
     expect(detailPageSource).not.toMatch(/booking\.packages|from\(products\)/);
   });
@@ -146,29 +143,36 @@ describe("producer purchase request flow", () => {
     expect(detailPageSource).toMatch(/notFound\(\)/);
   });
 
-  it("shows accessible decisions, private decline context, and inline failures", () => {
+  it("shows accessible confirmations, generic decline copy, and inline failures", () => {
     expect(reviewSource).toMatch(/approvePurchaseRequest/);
     expect(reviewSource).toMatch(/declinePurchaseRequest/);
-    expect(reviewSource).toMatch(/undoPurchaseApproval/);
-    expect(reviewSource).toMatch(/isApprovalUndoAvailable\(undoableUntilIso\)/);
-    expect(reviewSource).toMatch(/setUndoableUntilIso\(result\.undoableUntilIso\)/);
-    expect(reviewSource).toContain("Private note (optional)");
-    expect(reviewSource).toContain("The artist receives a generic update.");
-    expect(reviewSource).toMatch(/disabled=\{isPending \|\| !canApprove \|\| !online\}/);
+    expect(reviewSource).not.toMatch(/undoPurchaseApproval|undoableUntil|declineReason/);
+    expect(reviewSource).not.toContain("Private note");
+    expect(reviewSource).toContain("receives a simple decline message");
+    expect(reviewSource).toContain("This action cannot be undone");
+    expect(reviewSource).toContain("No payment happens yet");
+    expect(reviewSource).toMatch(/onOpenAutoFocus/);
     expect(reviewSource).toContain("useOnlineStatus");
     expect(reviewSource).toContain("Reconnect to approve this request.");
-    expect(reviewSource).toContain("artist cannot continue while the Store product is hidden");
-    expect(reviewSource).toMatch(/aria-describedby="decline-reason-help"/);
     expect(reviewSource).toMatch(/role=\{error \? "alert" : undefined\}/);
+    expect(reviewSource).toMatch(/router\.push\("\/dashboard"\)/);
   });
 
-  it("keeps target reset available and describes the truthful acceptance sequence", () => {
-    expect(reviewSource).toMatch(/projectId !== null \|\| targetProjects\.length > 0/);
-    expect(reviewSource).toMatch(/project\.workflowStage/);
-    expect(reviewSource).toContain("choose an enabled plan");
-    expect(reviewSource).toContain("review the exact agreement");
-    expect(reviewSource).toContain("external payment instructions");
-    expect(reviewSource).not.toContain("continue to payment");
+  it("keeps project choice compact and repeats it in approval confirmation", () => {
+    expect(reviewSource).toContain("Start a new project");
+    expect(reviewSource).toContain("Choose a project");
+    expect(reviewSource).toContain("Change");
+    expect(reviewSource).toMatch(/targetProjects\.map/);
+    expect(reviewSource).toMatch(/confirmation === "approve"[\s\S]*Project/);
+    expect(reviewSource).not.toMatch(/<select/);
+  });
+
+  it("uses the locked desktop and mobile action layouts", () => {
+    expect(reviewSource).toContain("lg:grid-cols-[minmax(0,1fr)_20rem]");
+    expect(reviewSource).toContain("sticky top-6 hidden lg:block");
+    expect(reviewSource).toContain("fixed inset-x-0 bottom-0");
+    expect(reviewSource).toContain('status === "pending"');
+    expect(reviewSource).toContain("bg-[rgb(var(--brand-primary))]");
   });
 
   it("refreshes externally-created requests and invalidates producer surfaces", () => {

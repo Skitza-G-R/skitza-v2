@@ -10,8 +10,7 @@ import { appRouter } from "~/server/trpc/routers/_app";
 const REQUESTS_PATH = "/dashboard/requests";
 
 export type PurchaseRequestActionResult =
-  | { ok: true; status: "pending" | "declined" }
-  | { ok: true; status: "approved"; undoableUntilIso: string }
+  | { ok: true; status: "approved" | "declined" }
   | { ok: false; error: string };
 
 async function callerOrError(): Promise<
@@ -60,11 +59,7 @@ export async function approvePurchaseRequest(input: {
   try {
     const transition = await result.caller.producer.purchase.approve({ id: input.id });
     revalidateRequestSurfaces(input.id);
-    return {
-      ok: true,
-      status: "approved",
-      undoableUntilIso: transition.undoableUntil.toISOString(),
-    };
+    return { ok: true, status: transition.status };
   } catch (error) {
     return { ok: false, error: actionErrorMessage(error) };
   }
@@ -72,34 +67,14 @@ export async function approvePurchaseRequest(input: {
 
 export async function declinePurchaseRequest(input: {
   id: string;
-  reason?: string;
 }): Promise<PurchaseRequestActionResult> {
   const result = await callerOrError();
   if (!result.ok) return result;
 
   try {
-    const reason = input.reason?.trim();
-    await result.caller.producer.purchase.decline({
-      id: input.id,
-      ...(reason ? { reason } : {}),
-    });
+    await result.caller.producer.purchase.decline({ id: input.id });
     revalidateRequestSurfaces(input.id);
     return { ok: true, status: "declined" };
-  } catch (error) {
-    return { ok: false, error: actionErrorMessage(error) };
-  }
-}
-
-export async function undoPurchaseApproval(input: {
-  id: string;
-}): Promise<PurchaseRequestActionResult> {
-  const result = await callerOrError();
-  if (!result.ok) return result;
-
-  try {
-    await result.caller.producer.purchase.undoApproval({ id: input.id });
-    revalidateRequestSurfaces(input.id);
-    return { ok: true, status: "pending" };
   } catch (error) {
     return { ok: false, error: actionErrorMessage(error) };
   }

@@ -355,8 +355,8 @@ export function classifyUrgency(args: ClassifyArgs): UrgencyKind | null {
 }
 
 export const producerRouter = router({
-  // Purchase flow (SK-37 / BE-1). approve / decline / undoApproval /
-  // list (Gate 1) plus the frozen BE-2/3 stubs. Defined in ./purchase
+  // Purchase flow (SK-37 / BE-1). approve / decline / list (Gate 1)
+  // plus the frozen BE-2/3 stubs. Defined in ./purchase
   // so the backend track stays out of the screens track's files.
   purchase: producerPurchaseRouter,
 
