@@ -152,6 +152,7 @@ const PENDING_AUDIO_COLUMNS = [
   "pending_audio_cancel_requested_at",
   "pending_audio_cleanup_etag",
   "pending_audio_complete_attempted_at",
+  "pending_audio_complete_write_once_protected_at",
   "pending_audio_completion_token",
   "pending_audio_create_attempted_at",
   "pending_audio_initiation_digest",
@@ -483,7 +484,7 @@ async function assertDatabaseSchemaState(
 
 /**
  * Pre-0027 targets have none of the pending-upload columns. A completed or
- * partially applied target must have the exact eleven-column journal shape, and
+ * partially applied target must have the exact twelve-column journal shape, and
  * any unresolved journal entry is an unapproved storage recovery reference.
  * It cannot be folded into the reset manifest or silently deleted.
  */
@@ -510,6 +511,7 @@ export async function assertNoUnresolvedPendingAudioUploads(
     WHERE "pending_audio_cancel_requested_at" IS NOT NULL
        OR "pending_audio_cleanup_etag" IS NOT NULL
        OR "pending_audio_complete_attempted_at" IS NOT NULL
+       OR "pending_audio_complete_write_once_protected_at" IS NOT NULL
        OR "pending_audio_r2_key" IS NOT NULL
        OR "pending_audio_initiation_digest" IS NOT NULL
        OR "pending_audio_completion_token" IS NOT NULL
@@ -663,8 +665,7 @@ const PRESERVED_PAYLOAD_EXPRESSION: Readonly<
 > = {
   availability_blackouts: "to_jsonb(source)",
   availability_blocks: "to_jsonb(source)",
-  client_contacts:
-    "to_jsonb(source) - ARRAY['producer_archived_at']::text[]",
+  client_contacts: "to_jsonb(source) - ARRAY['producer_archived_at']::text[]",
   portfolio_tracks: "to_jsonb(source)",
   producer_external_links: "to_jsonb(source)",
   producer_notes: "to_jsonb(source)",
@@ -1488,9 +1489,7 @@ export class Sk90DatabaseRehearsalAdapter {
           stop("DATABASE_VERIFICATION_MISMATCH");
         }
         if (sourceState === "baseline") {
-          await client.query(
-            'LOCK TABLE "skitza_migrations"."applied" IN ACCESS EXCLUSIVE MODE',
-          );
+          await client.query('LOCK TABLE "skitza_migrations"."applied" IN ACCESS EXCLUSIVE MODE');
           await client.query(
             `LOCK TABLE ${SK90_REQUIRED_LOCK_TABLES.map((table) => `"public"."${table}"`).join(", ")} IN ACCESS EXCLUSIVE MODE`,
           );
@@ -1513,9 +1512,7 @@ export class Sk90DatabaseRehearsalAdapter {
             stop("RESTORE_PROOF_MISMATCH");
           }
         } else {
-          await client.query(
-            'LOCK TABLE "skitza_migrations"."applied" IN ACCESS EXCLUSIVE MODE',
-          );
+          await client.query('LOCK TABLE "skitza_migrations"."applied" IN ACCESS EXCLUSIVE MODE');
           await client.query(
             `LOCK TABLE ${SK90_POST_RESET_LOCK_TABLES.map((table) => `"public"."${table}"`).join(", ")} IN ACCESS EXCLUSIVE MODE`,
           );
@@ -1550,10 +1547,7 @@ export class Sk90DatabaseRehearsalAdapter {
           markerFingerprint: row.marker_fingerprint as Sha256Digest,
         });
         if (
-          !sameDigest(
-            existingMarker.markerFingerprint,
-            input.expectedExistingMarkerFingerprint,
-          )
+          !sameDigest(existingMarker.markerFingerprint, input.expectedExistingMarkerFingerprint)
         ) {
           stop("RESTORE_PROOF_MISMATCH");
         }

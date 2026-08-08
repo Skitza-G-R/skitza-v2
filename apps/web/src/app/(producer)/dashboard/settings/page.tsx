@@ -93,10 +93,11 @@ export default async function SettingsPage({
   // Parallel fetches: profile + current payment instructions from tRPC,
   // and Clerk user (for the Google avatar + email).
   const caller = appRouter.createCaller({ userId });
-  const [user, profile, paymentInstructions] = await Promise.all([
+  const [user, profile, paymentInstructions, storageUsage] = await Promise.all([
     currentUser(),
     caller.producer.me(),
     caller.producer.purchase.paymentInstructions.get(),
+    caller.audio.storageUsage(),
   ]);
 
   // Derive initials for the avatar fallback (when the Clerk user has no
@@ -137,6 +138,7 @@ export default async function SettingsPage({
         email: profile.email,
         slug: profile.slug,
       }}
+      storageUsage={storageUsage}
     />
   );
 }

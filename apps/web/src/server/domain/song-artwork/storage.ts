@@ -15,6 +15,7 @@ import {
   getR2BrowserUpload,
   hasValidProofFileSignature,
 } from "~/server/storage/r2";
+import { exactObjectIsAbsentInBucket } from "~/server/audio/multipart-storage-recovery";
 
 import {
   assertSongArtworkObjectEtag,
@@ -71,6 +72,8 @@ type SongArtworkObjectMetadata = Readonly<{
   objectEtag: string;
 }>;
 
+export type SongArtworkDeletionIdentity = SongArtworkObjectMetadata & Readonly<{ key: string }>;
+
 export type FinalizedSongArtworkObject = SongArtworkObjectMetadata &
   Readonly<{ storageKey: string }>;
 
@@ -83,6 +86,75 @@ export type DeliveredSongArtworkObject = Readonly<{
 
 function storageError(message: string): never {
   throw new SongArtworkStorageError(message);
+}
+
+function isMissingObject(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as {
+    name?: string;
+    $metadata?: { httpStatusCode?: number };
+  };
+  return candidate.name === "NotFound" || candidate.$metadata?.httpStatusCode === 404;
+}
+
+async function observeArtworkDeletionObject(
+  client: S3Client,
+  key: string,
+): Promise<SongArtworkObjectMetadata | null> {
+  try {
+    const object = await client.send(
+      new HeadObjectCommand({
+        Bucket: BUCKETS.docs,
+        Key: key,
+      }),
+    );
+    const contentType = (object.ContentType ?? "").toLowerCase();
+    const sizeBytes = object.ContentLength ?? 0;
+    const objectEtag = object.ETag ?? "";
+    const metadata = { contentType, sizeBytes };
+    assertSongArtworkUploadMetadata(metadata);
+    return {
+      ...metadata,
+      objectEtag: assertSongArtworkObjectEtag(objectEtag),
+    };
+  } catch (error) {
+    if (isMissingObject(error)) {
+      try {
+        if (await exactObjectIsAbsentInBucket(BUCKETS.docs, key, client)) return null;
+      } catch {
+        storageError("The artwork could not be verified for deletion");
+      }
+    }
+    if (error instanceof SongArtworkStorageError) throw error;
+    storageError("The artwork could not be verified for deletion");
+  }
+}
+
+/** Delete one immutable finalized artwork key and prove it is absent. */
+export async function reconcilePrivateSongArtworkDeletion(
+  input: SongArtworkDeletionIdentity,
+  client: S3Client = getR2(),
+): Promise<void> {
+  if (!input.key.startsWith("song-artwork/")) {
+    storageError("The artwork deletion key is invalid");
+  }
+  const observed = await observeArtworkDeletionObject(client, input.key);
+  if (!observed) return;
+  if (
+    observed.contentType !== input.contentType ||
+    observed.sizeBytes !== input.sizeBytes ||
+    observed.objectEtag !== input.objectEtag
+  ) {
+    storageError("The artwork changed before it could be deleted");
+  }
+  try {
+    await client.send(new DeleteObjectCommand({ Bucket: BUCKETS.docs, Key: input.key }));
+  } catch {
+    // An ambiguous provider response is resolved by the authoritative HEAD below.
+  }
+  if (await observeArtworkDeletionObject(client, input.key)) {
+    storageError("The artwork deletion could not be verified");
+  }
 }
 
 async function headObject(

@@ -5,6 +5,7 @@ import { useDropzone, type FileRejection } from "react-dropzone";
 
 import { cn } from "~/lib/cn";
 import { useMultipartUpload } from "~/lib/audio/use-multipart-upload";
+import { AUDIO_UPLOAD_MAX_BYTES } from "~/lib/audio/storage-limits";
 
 // AudioUploader — a drop-zone card wrapping `useMultipartUpload`.
 //
@@ -18,8 +19,6 @@ import { useMultipartUpload } from "~/lib/audio/use-multipart-upload";
 // The native file picker is opened via the visually hidden
 // `getInputProps()` input — any click/keyboard activation on the root
 // triggers it. `react-dropzone` handles focus management.
-
-const MAX_SIZE_BYTES = 500 * 1024 * 1024;
 
 interface AudioUploaderProps {
   trackVersionId: string;
@@ -52,7 +51,7 @@ export function AudioUploader({
       return;
     }
     if (first.code === "file-too-large") {
-      setRejectError("File is too large. Max 500 MB.");
+      setRejectError("File is too large. Max 100 MB.");
     } else if (first.code === "file-invalid-type") {
       setRejectError(
         "That's not an audio file. Try WAV, MP3, FLAC, M4A, or AIFF.",
@@ -66,7 +65,7 @@ export function AudioUploader({
     onDrop,
     onDropRejected,
     accept: { "audio/*": [".wav", ".mp3", ".flac", ".m4a", ".aiff"] },
-    maxSize: MAX_SIZE_BYTES,
+    maxSize: AUDIO_UPLOAD_MAX_BYTES,
     multiple: false,
   });
 
@@ -104,7 +103,7 @@ export function AudioUploader({
             Drop your track
           </p>
           <p className="mt-1 text-sm text-[rgb(var(--fg-muted))]">
-            WAV, MP3, FLAC, M4A or AIFF — up to 500 MB
+            WAV, MP3, FLAC, M4A or AIFF — up to 100 MB
           </p>
         </div>
       )}

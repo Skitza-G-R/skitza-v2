@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   CopyObjectCommand,
   DeleteObjectCommand,
@@ -9,6 +10,7 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 import { computePeaksFromBytes } from "~/server/audio/peaks";
+import { exactObjectIsAbsent } from "~/server/audio/multipart-storage-recovery";
 import { uploadStageFailure } from "~/lib/audio/upload-stage-errors";
 import { BUCKETS, encodeR2CopySource, getR2, getR2BrowserUpload } from "~/server/storage/r2";
 import { verifyFirstVersionObject } from "./service";
@@ -16,6 +18,11 @@ import { verifyFirstVersionObject } from "./service";
 const UPLOAD_URL_TTL_SECONDS = 15 * 60;
 const PEAKS_COMPUTE_TIMEOUT_MS = 30_000;
 export const FIRST_VERSION_COMPLETION_TOKEN_METADATA = "skitza-upload-token";
+const FIRST_VERSION_STAGING_SEAL_METADATA = "skitza-staging-seal";
+const FIRST_VERSION_STAGING_SEAL_SOURCE_METADATA = "skitza-staging-seal-source";
+const FIRST_VERSION_STAGING_SEAL_CONTENT_TYPE =
+  "application/x-skitza-sealed-first-version-staging-marker";
+const FIRST_VERSION_STAGING_SEAL_ATTEMPTS = 4;
 
 export class FirstVersionUploadPresignError extends Error {
   constructor() {
@@ -46,6 +53,81 @@ type FirstVersionObjectExpectation = Readonly<{
   completionToken: string;
 }>;
 
+export type FirstVersionStagingDeletionIdentity = FirstVersionObjectExpectation;
+
+type FirstVersionSealObservation =
+  | Readonly<{ kind: "absent" }>
+  | Readonly<{ kind: "present"; objectEtag: string }>
+  | Readonly<{ kind: "marker"; sealFingerprint: string }>;
+
+function stagingSealSourceIdentity(objectEtag: string | null): string {
+  if (objectEtag === null) return "absent";
+  return `sha256:${createHash("sha256").update(objectEtag, "utf8").digest("hex")}`;
+}
+
+function stagingSealFingerprint(
+  input: FirstVersionObjectExpectation,
+  sourceIdentity: string,
+): string {
+  return `sha256:${createHash("sha256")
+    .update(
+      JSON.stringify({
+        key: input.key,
+        sizeBytes: input.sizeBytes,
+        contentType: input.contentType.trim().toLowerCase(),
+        completionToken: input.completionToken,
+        sourceIdentity,
+      }),
+      "utf8",
+    )
+    .digest("hex")}`;
+}
+
+async function observeFirstVersionSealObject(
+  input: FirstVersionObjectExpectation,
+  client: S3Client,
+): Promise<FirstVersionSealObservation> {
+  let head;
+  try {
+    head = await client.send(
+      new HeadObjectCommand({
+        Bucket: BUCKETS.audio,
+        Key: input.key,
+      }),
+    );
+  } catch (headError) {
+    if (await exactObjectIsAbsent(input.key, client)) return { kind: "absent" };
+    throw headError;
+  }
+  const marker = head.Metadata?.[FIRST_VERSION_STAGING_SEAL_METADATA];
+  if (marker !== undefined) {
+    const sourceIdentity = head.Metadata?.[FIRST_VERSION_STAGING_SEAL_SOURCE_METADATA];
+    const completionToken = head.Metadata?.[FIRST_VERSION_COMPLETION_TOKEN_METADATA];
+    if (
+      !/^sha256:[0-9a-f]{64}$/.test(marker) ||
+      (sourceIdentity !== "absent" && !/^sha256:[0-9a-f]{64}$/.test(sourceIdentity ?? "")) ||
+      marker !== stagingSealFingerprint(input, sourceIdentity ?? "") ||
+      completionToken !== input.completionToken ||
+      head.ContentLength !== 1 ||
+      head.ContentType?.trim().toLowerCase() !== FIRST_VERSION_STAGING_SEAL_CONTENT_TYPE ||
+      typeof head.ETag !== "string" ||
+      head.ETag.trim().length === 0
+    ) {
+      throw new Error("The first-Version staging seal marker was invalid");
+    }
+    return { kind: "marker", sealFingerprint: marker };
+  }
+  const completionToken = head.Metadata?.[FIRST_VERSION_COMPLETION_TOKEN_METADATA];
+  if (
+    completionToken !== input.completionToken ||
+    typeof head.ETag !== "string" ||
+    head.ETag.trim().length === 0
+  ) {
+    throw new Error("The first-Version staging object ownership changed before sealing");
+  }
+  return { kind: "present", objectEtag: head.ETag };
+}
+
 function isMissingObject(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const candidate = error as {
@@ -62,10 +144,12 @@ export async function createFirstVersionUploadUrl(
   uploadUrl: string;
   headers: Record<string, string>;
   expiresInSeconds: number;
+  expiresAt: Date;
 }> {
   const contentType = input.contentType.trim().toLowerCase();
   const metadataHeader = `x-amz-meta-${FIRST_VERSION_COMPLETION_TOKEN_METADATA}`;
   let uploadUrl: string;
+  let expiresAt: Date;
   try {
     uploadUrl = await getSignedUrl(
       client,
@@ -74,20 +158,28 @@ export async function createFirstVersionUploadUrl(
         Key: input.key,
         ContentType: contentType,
         CacheControl: "no-store",
+        ContentLength: input.sizeBytes,
+        IfNoneMatch: "*",
         Metadata: {
           [FIRST_VERSION_COMPLETION_TOKEN_METADATA]: input.completionToken,
         },
       }),
       {
         expiresIn: UPLOAD_URL_TTL_SECONDS,
-        // Browser JavaScript cannot set Content-Length; the networking stack
-        // owns it. Completion still verifies the exact stored size. Sign only
-        // headers the browser sends, and keep x-amz metadata out of the query
-        // so the upload-token header is part of the SigV4 contract.
-        signableHeaders: new Set(["content-type", "cache-control"]),
+        // Fetch owns Content-Length, but a Blob has a deterministic length and
+        // the browser sends it. Signing that automatic header lets R2 reject a
+        // different byte count before completion. If-None-Match is returned to
+        // JavaScript because the browser must send that conditional explicitly.
+        signableHeaders: new Set([
+          "content-type",
+          "cache-control",
+          "content-length",
+          "if-none-match",
+        ]),
         unhoistableHeaders: new Set([metadataHeader]),
       },
     );
+    expiresAt = presignedUrlExpiry(uploadUrl);
   } catch {
     throw new FirstVersionUploadPresignError();
   }
@@ -96,10 +188,36 @@ export async function createFirstVersionUploadUrl(
     headers: {
       "Content-Type": contentType,
       "Cache-Control": "no-store",
+      "If-None-Match": "*",
       [metadataHeader]: input.completionToken,
     },
     expiresInSeconds: UPLOAD_URL_TTL_SECONDS,
+    expiresAt,
   };
+}
+
+function presignedUrlExpiry(uploadUrl: string): Date {
+  const query = new URL(uploadUrl).searchParams;
+  const signedAt = query.get("X-Amz-Date");
+  const expiresText = query.get("X-Amz-Expires");
+  const match = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(signedAt ?? "");
+  const expiresSeconds = Number(expiresText);
+  if (!match || !Number.isInteger(expiresSeconds) || expiresSeconds <= 0) {
+    throw new Error("The upload capability expiry was invalid");
+  }
+  const signedAtMs = Date.UTC(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+    Number(match[4]),
+    Number(match[5]),
+    Number(match[6]),
+  );
+  const expiresAt = new Date(signedAtMs + expiresSeconds * 1_000);
+  if (!Number.isFinite(expiresAt.getTime())) {
+    throw new Error("The upload capability expiry was invalid");
+  }
+  return expiresAt;
 }
 
 export async function observeFirstVersionUpload(
@@ -239,4 +357,75 @@ export async function deleteFirstVersionUploadIfExact(
     }),
   );
   return true;
+}
+
+/**
+ * Final keys are server-only and cannot be recreated by a browser capability.
+ * A canceled/expired intent may nevertheless own one after a completion
+ * transaction rolled back, so quota is released only after exact absence.
+ */
+export async function reconcileFirstVersionFinalDeletion(
+  input: FirstVersionObjectExpectation,
+  client: S3Client = getR2(),
+): Promise<void> {
+  if (input.key.startsWith("first-version-staging/")) {
+    throw new Error("The first-Version final deletion key was invalid");
+  }
+  await deleteFirstVersionUploadIfExact(input, client).catch(() => false);
+  if (!(await exactObjectIsAbsent(input.key, client))) {
+    throw new Error("The first-Version final object could not be erased safely");
+  }
+}
+
+/**
+ * Atomically replace the exact staging upload (or its proven absence) with a
+ * permanent, intent-bound marker. The marker is deliberately retained: every
+ * browser URL is write-once, so the occupied key permanently rejects stale or
+ * in-flight If-None-Match PUTs.
+ */
+export async function sealFirstVersionStagingUpload(
+  input: FirstVersionStagingDeletionIdentity,
+  client: S3Client = getR2(),
+): Promise<void> {
+  if (!input.key.startsWith("first-version-staging/producers/")) {
+    throw new Error("The first-Version staging seal key was invalid");
+  }
+  for (let attempt = 0; attempt < FIRST_VERSION_STAGING_SEAL_ATTEMPTS; attempt += 1) {
+    const observation = await observeFirstVersionSealObject(input, client);
+    if (observation.kind === "marker") return;
+    const sourceIdentity = stagingSealSourceIdentity(
+      observation.kind === "present" ? observation.objectEtag : null,
+    );
+    try {
+      await client.send(
+        new PutObjectCommand({
+          Bucket: BUCKETS.audio,
+          Key: input.key,
+          ...(observation.kind === "present"
+            ? { IfMatch: observation.objectEtag }
+            : { IfNoneMatch: "*" }),
+          Body: new Uint8Array([0]),
+          ContentType: FIRST_VERSION_STAGING_SEAL_CONTENT_TYPE,
+          CacheControl: "no-store",
+          Metadata: {
+            [FIRST_VERSION_COMPLETION_TOKEN_METADATA]: input.completionToken,
+            [FIRST_VERSION_STAGING_SEAL_METADATA]: stagingSealFingerprint(input, sourceIdentity),
+            [FIRST_VERSION_STAGING_SEAL_SOURCE_METADATA]: sourceIdentity,
+          },
+        }),
+      );
+    } catch {
+      // A concurrent conditional upload or ambiguous provider response is
+      // resolved by observing the exact key again on the next iteration.
+    }
+  }
+  throw new Error("The first-Version staging object could not be sealed safely");
+}
+
+/** Song deletion uses the same permanent staging tombstone receipt. */
+export async function reconcileFirstVersionStagingDeletion(
+  input: FirstVersionStagingDeletionIdentity,
+  client: S3Client = getR2(),
+): Promise<void> {
+  await sealFirstVersionStagingUpload(input, client);
 }

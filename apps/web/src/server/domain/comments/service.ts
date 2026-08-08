@@ -11,6 +11,7 @@ export type WritableCommentTarget = {
   trackId: string;
   trackProjectId: string;
   trackArchivedAt: Date | null;
+  versionAudioDeletedAt: Date | null;
   projectId: string;
   projectLifecycleStatus: CommentProjectLifecycleStatus;
 };
@@ -53,11 +54,12 @@ export function assertWritableCommentTarget(
 
   if (
     target.trackArchivedAt !== null ||
+    target.versionAudioDeletedAt !== null ||
     (target.projectLifecycleStatus !== "active" && target.projectLifecycleStatus !== "paused")
   ) {
     throw new CommentDomainError(
       "INACTIVE",
-      "Comments are closed for this project or archived track",
+      "Comments are closed for this project, Song, or deleted Version",
     );
   }
 }

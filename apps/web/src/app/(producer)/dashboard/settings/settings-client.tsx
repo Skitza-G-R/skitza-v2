@@ -65,14 +65,27 @@ interface FormState {
   paymentInstructions: PaymentInstructionsState;
 }
 
+interface StorageUsageState {
+  usedBytes: number;
+  reservedBytes: number;
+  committedBytes: number;
+  availableBytes: number;
+  limitBytes: number;
+  warningBytes: number;
+  isAtOrAboveWarning: boolean;
+  isFull: boolean;
+}
+
 export function SettingsClient({
   initialActive,
   initial,
   identity,
+  storageUsage,
 }: {
   initialActive: SettingsSectionKey;
   initial: InitialState;
   identity: IdentityState;
+  storageUsage: StorageUsageState;
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -257,7 +270,7 @@ export function SettingsClient({
           {active === "profile" && (
             <ProfileSection form={form} setForm={setForm} identity={identity} />
           )}
-          {active === "plan" && <PlanSection plan={initial.plan} />}
+          {active === "plan" && <PlanSection storageUsage={storageUsage} />}
           {active === "notif" && <NotifSection />}
           {active === "int" && (
             <IntegrationsSection
@@ -409,38 +422,36 @@ function ProfileSection({
   );
 }
 
-/* ─── Plan section (fake but pretty) ───────────────────────────────── */
-function PlanSection({ plan }: { plan: "free" | "pro" }) {
-  if (plan === "pro") return <PlanProView />;
-  return <PlanFreeView />;
+/* ─── Beta plan section ────────────────────────────────────────────── */
+function PlanSection({ storageUsage }: { storageUsage: StorageUsageState }) {
+  return <PlanFreeView storageUsage={storageUsage} />;
 }
 
-function PlanFreeView() {
-  // Free-plan limits ("3 artists, 5 GB") for the suffix copy. Actual
-  // usage measurement (count of producer.artists rows, sum of
-  // audioAsset bytes) lands in a separate task — until then the cells
-  // show em-dash placeholders so the producer never sees wrong
-  // numbers and loses trust in the rest of the page.
-  const artistsLim = 3;
-  const storageLim = 5;
+function PlanFreeView({ storageUsage }: { storageUsage: StorageUsageState }) {
+  const usagePct = (storageUsage.committedBytes / storageUsage.limitBytes) * 100;
+  const warningCopy = storageUsage.isFull
+    ? "Your audio storage is full. Delete an old Version or Song before uploading."
+    : storageUsage.isAtOrAboveWarning
+      ? "You're close to the beta storage limit. Delete old Versions or Songs you no longer need."
+      : null;
   return (
     <section className="s-reveal" aria-labelledby="settings-plan-h">
       <header className="s-section-head">
         <span className="s-section-eyebrow">Plan &amp; billing</span>
-        <h2 id="settings-plan-h">Plan</h2>
-        <p>You&apos;re on the Free plan. Upgrade to Pro for more artists and storage.</p>
+        <h2 id="settings-plan-h">Beta access</h2>
+        <p>Every beta producer has 1 GB of audio storage.</p>
       </header>
 
       <div className="s-card">
         <div className="s-plan-hero s-plan-hero-free">
           <div className="s-plan-crown s-plan-crown-free">
             <span className="s-dot" style={{ background: "rgb(255 255 255 / 0.4)" }} />
-            Current plan
+            Current access
           </div>
           <div className="flex flex-wrap items-baseline gap-3">
-            <h3>Free</h3>
+            <h3>Beta</h3>
             <span className="s-mono" style={{ fontSize: 13, color: "rgb(255 255 255 / 0.7)" }}>
-              $0 / month
+              Free during beta
             </span>
           </div>
           <div
@@ -451,119 +462,30 @@ function PlanFreeView() {
               maxWidth: 460,
             }}
           >
-            Up to 3 artists · 5 GB storage · Standard storefront.
+            Your completed audio Versions share one 1 GB storage limit.
           </div>
         </div>
         <div className="s-usage-grid">
           <UsageCell
-            num="—"
-            suffix={`of ${artistsLim.toString()} artists`}
-            label="Artists"
-            barPct={0}
+            num={formatStorageBytes(storageUsage.usedBytes)}
+            suffix="of 1 GB"
+            label="Audio used"
+            barPct={usagePct}
+            barAmber={storageUsage.isAtOrAboveWarning}
           />
           <UsageCell
-            num="—"
-            suffix={`of ${storageLim.toString()} GB`}
-            label="Storage"
-            barPct={0}
-            barAmber
+            num={formatStorageBytes(storageUsage.availableBytes)}
+            suffix="available"
+            label="Space left"
+            barPct={Math.max(0, 100 - usagePct)}
           />
         </div>
-        <p className="s-usage-soft">
-          Live usage tracking ships shortly — we&apos;ll fill these in automatically once it&apos;s
-          on.
-        </p>
-      </div>
-
-      <div className="s-card">
-        <div className="s-row">
-          <div>
-            <div className="s-row-label">Pro plan</div>
-            <div className="s-row-hint">Lift the limits without leaving the app.</div>
-          </div>
-          <div className="s-row-field" style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <div style={{ flex: 1 }}>
-              <div className="s-mono" style={{ fontSize: 12, color: "rgb(var(--fg-muted))" }}>
-                Unlimited artists · 100 GB storage · Custom storefront
-              </div>
-              <div
-                className="mt-1 font-extrabold"
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontSize: 18,
-                  letterSpacing: "-0.02em",
-                }}
-              >
-                $29{" "}
-                <span
-                  className="s-mono"
-                  style={{
-                    fontWeight: 500,
-                    fontSize: 12,
-                    color: "rgb(var(--fg-muted))",
-                  }}
-                >
-                  / month
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function PlanProView() {
-  // Pro plan: 100 GB storage cap is the documented limit, artists are
-  // unlimited. Real usage figures land alongside the Free-plan
-  // measurement (same task) — until then, em-dash placeholders.
-  const storageLim = 100;
-  return (
-    <section className="s-reveal" aria-labelledby="settings-plan-h">
-      <header className="s-section-head">
-        <span className="s-section-eyebrow">Plan &amp; billing</span>
-        <h2 id="settings-plan-h">Plan</h2>
-        <p>You&apos;re on Pro.</p>
-      </header>
-
-      <div className="s-card">
-        <div className="s-plan-hero s-plan-hero-pro">
-          <div className="s-plan-crown s-plan-crown-pro">
-            <span className="s-dot" style={{ background: "rgb(var(--brand-primary))" }} />
-            Current plan · Renews Jun 12, 2026
-          </div>
-          <div className="flex flex-wrap items-baseline gap-3">
-            <h3>Pro</h3>
-            <span className="s-mono" style={{ fontSize: 13, color: "rgb(255 255 255 / 0.7)" }}>
-              $29 / month
-            </span>
-          </div>
-          <div
-            className="mt-2"
-            style={{
-              fontSize: 13,
-              color: "rgb(255 255 255 / 0.7)",
-              maxWidth: 460,
-            }}
-          >
-            Unlimited artists · 100 GB storage · Custom storefront.
-          </div>
-        </div>
-        <div className="s-usage-grid">
-          <UsageCell num="—" suffix="artists · no limit" label="Artists" barPct={0} />
-          <UsageCell
-            num="—"
-            suffix={`of ${storageLim.toString()} GB`}
-            label="Storage"
-            barPct={0}
-            barAmber
-          />
-        </div>
-        <p className="s-usage-soft">
-          Live usage tracking ships shortly — we&apos;ll fill these in automatically once it&apos;s
-          on.
-        </p>
+        {storageUsage.reservedBytes > 0 ? (
+          <p className="s-usage-soft">
+            {formatStorageBytes(storageUsage.reservedBytes)} is held for an upload in progress.
+          </p>
+        ) : null}
+        {warningCopy ? <p className="s-storage-warning">{warningCopy}</p> : null}
       </div>
     </section>
   );
@@ -598,6 +520,17 @@ function UsageCell({
       </div>
     </div>
   );
+}
+
+function formatStorageBytes(bytes: number): string {
+  if (bytes < 1_000) return `${String(bytes)} B`;
+  if (bytes < 1_000_000) return `${trimTrailingZeros(bytes / 1_000)} KB`;
+  if (bytes < 1_000_000_000) return `${trimTrailingZeros(bytes / 1_000_000)} MB`;
+  return `${trimTrailingZeros(bytes / 1_000_000_000, 2)} GB`;
+}
+
+function trimTrailingZeros(value: number, digits = 1): string {
+  return value.toFixed(digits).replace(/\.?0+$/, "");
 }
 
 /* ─── Notifications section ────────────────────────────────────────── */

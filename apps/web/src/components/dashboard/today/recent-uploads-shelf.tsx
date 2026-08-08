@@ -73,6 +73,7 @@ export function cardHref(u: RecentUpload): string {
 export function cardPlayDetail(u: RecentUpload): PlayerTrack {
   return {
     id: u.versionId,
+    songId: u.trackId,
     audioUrl: u.audioUrl,
     title: u.title,
     subtitle: `${u.projectClientName} · ${u.versionLabel}`,
@@ -95,19 +96,16 @@ export function RecentUploadsShelf({ uploads }: RecentUploadsShelfProps) {
   if (!model.render) return null;
 
   return (
-    <section
-      aria-labelledby="recent-uploads-heading"
-      data-tour-id="recent-uploads"
-    >
+    <section aria-labelledby="recent-uploads-heading" data-tour-id="recent-uploads">
       {/* Section eyebrow + heading — section spacing owned by the
           page-level `space-y-12` wrapper. */}
       <div className="mb-4">
-        <p className="font-mono text-[0.66rem] uppercase tracking-[0.2em] text-[rgb(var(--fg-muted))]">
+        <p className="font-mono text-[0.66rem] tracking-[0.2em] text-[rgb(var(--fg-muted))] uppercase">
           Studio · Recent uploads
         </p>
         <h2
           id="recent-uploads-heading"
-          className="mt-1 font-display text-2xl tracking-tight text-[rgb(var(--fg-primary))]"
+          className="font-display mt-1 text-2xl tracking-tight text-[rgb(var(--fg-primary))]"
         >
           Recent uploads
         </h2>
@@ -130,10 +128,7 @@ export function RecentUploadsShelf({ uploads }: RecentUploadsShelfProps) {
 // all uploads with filters + a richer waveform list.
 function ViewAllCard() {
   return (
-    <Link
-      href="/dashboard/music"
-      className="group flex w-36 shrink-0 flex-col gap-2"
-    >
+    <Link href="/dashboard/music" className="group flex w-36 shrink-0 flex-col gap-2">
       <div
         // Solid border (was dashed). Dashed reads as "drop zone" or
         // "empty state" — per UX-critic on PR #48, "View all" is the

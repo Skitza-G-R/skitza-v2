@@ -14,6 +14,7 @@ import { projectSongUploadHref } from "~/lib/clients/project-song-upload-href";
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import {
+  deleteMusicSong,
   editMusicSongArtist,
   markMusicSongReleased,
   renameMusicSong,
@@ -145,6 +146,7 @@ export default async function MusicPage({ searchParams }: PageProps) {
           editArtist={editMusicSongArtist}
           setArchived={setMusicSongArchived}
           markReleased={markMusicSongReleased}
+          deleteSong={deleteMusicSong}
         />
       </div>
     </div>

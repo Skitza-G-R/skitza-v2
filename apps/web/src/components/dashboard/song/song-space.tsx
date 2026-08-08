@@ -142,7 +142,7 @@ export function SongSpace({
           ? "Paused project"
           : "Active project";
   const releaseNotice = songReleased
-    ? " Released is permanent; stored audio can now be permanently deleted after a warning."
+    ? " Released is permanent and stays separate from Done / Delivered."
     : "";
   // Phase 4: the Upload Track modal lives at the SongSpace level so both
   // the SongSpaceHero CTA and the VersionsTab drop zone open the same
@@ -151,11 +151,7 @@ export function SongSpace({
   const [uploadOpen, setUploadOpen] = useState(initialUploadOpen && canUpload);
   const consumedUploadQuery = useRef(false);
   useEffect(() => {
-    if (
-      consumedUploadQuery.current ||
-      !initialUploadOpen ||
-      searchParams.get("upload") !== "1"
-    ) {
+    if (consumedUploadQuery.current || !initialUploadOpen || searchParams.get("upload") !== "1") {
       return;
     }
     consumedUploadQuery.current = true;
@@ -189,13 +185,14 @@ export function SongSpace({
     if (!latest || latest.audioDeletedAtIso != null || latest.audioUrl === null) return;
     playerPlay({
       id: latest.id,
+      songId: song.id,
       audioUrl: latest.audioUrl,
       title: song.title,
       subtitle: `${project.name} · ${latest.versionLabel}`,
       durationMs: latest.durationMs,
       cachePolicy: "account-unlocked",
     });
-  }, [latest, song.title, project.name]);
+  }, [latest, song.id, song.title, project.name]);
 
   // Default label for the modal — auto-bumps to V{revisionCount+1}. The
   // modal can also derive this from tracks[].versionCount, but we lock
@@ -292,39 +289,35 @@ export function SongSpace({
 
       <SongTabs active={active} onChange={setActive} versionsCount={versions.length} />
 
-      <div
-        data-tab-swipe-surface
-        className="[touch-action:pan-y_pinch-zoom]"
-        {...tabSwipeHandlers}
-      >
+      <div data-tab-swipe-surface className="[touch-action:pan-y_pinch-zoom]" {...tabSwipeHandlers}>
         <div data-tab-swipe-panel>
-        {active === "overview" ? (
-          <OverviewTab
-            song={{ workflowStage: song.workflowStage, title: song.title }}
-            project={{ name: project.name }}
-            latestVersions={versions}
-            client={client}
-            mode={mode}
-            emptyVersionsMessage={
-              canUpload
-                ? "No versions yet — upload the first one to get started."
-                : newWorkBlockedReason
-            }
-            onShowAllVersions={() => {
-              setActive("versions");
-            }}
-          />
-        ) : null}
-        {active === "versions" ? (
-          <VersionsTab
-            song={{ title: song.title }}
-            project={{ name: project.name }}
-            versions={versions}
-            blockedReason={newWorkBlockedReason}
-            {...(canUpload ? { onAddVersion: openUpload } : {})}
-          />
-        ) : null}
-        {active === "sessions" ? <SessionsTab sessions={sessions} /> : null}
+          {active === "overview" ? (
+            <OverviewTab
+              song={{ id: song.id, workflowStage: song.workflowStage, title: song.title }}
+              project={{ name: project.name }}
+              latestVersions={versions}
+              client={client}
+              mode={mode}
+              emptyVersionsMessage={
+                canUpload
+                  ? "No versions yet — upload the first one to get started."
+                  : newWorkBlockedReason
+              }
+              onShowAllVersions={() => {
+                setActive("versions");
+              }}
+            />
+          ) : null}
+          {active === "versions" ? (
+            <VersionsTab
+              song={{ id: song.id, title: song.title }}
+              project={{ name: project.name }}
+              versions={versions}
+              blockedReason={newWorkBlockedReason}
+              {...(canUpload ? { onAddVersion: openUpload } : {})}
+            />
+          ) : null}
+          {active === "sessions" ? <SessionsTab sessions={sessions} /> : null}
         </div>
       </div>
       {paymentHistory ? <PaymentHistoryView role="producer" data={paymentHistory} /> : null}

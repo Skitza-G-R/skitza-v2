@@ -79,6 +79,13 @@ import {
   SongManagementDomainError,
 } from "~/server/domain/song-management/service";
 import { r2ExactAudioStoragePort } from "~/server/domain/song-management/storage";
+import { SongDeletionError } from "~/server/domain/song-deletion/errors";
+import { reconcilePrivateSongArtworkDeletion } from "~/server/domain/song-artwork/storage";
+import {
+  reconcileFirstVersionFinalDeletion,
+  reconcileFirstVersionStagingDeletion,
+} from "~/server/domain/first-version-uploads/storage";
+import { reconcileLegacyPeaksDeletion } from "~/server/domain/song-deletion/storage";
 import { assertWritableCommentTarget, CommentDomainError } from "~/server/domain/comments/service";
 import { versionApprovalRepository } from "~/server/domain/version-approval/db";
 import {
@@ -136,6 +143,20 @@ function mapPendingMultipartCancellationError(error: unknown): never {
     throw new TRPCError({ code: "CONFLICT", message: error.message });
   }
   throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message });
+}
+
+function mapSongDeletionError(error: unknown): never {
+  if (!(error instanceof SongDeletionError)) throw error;
+  if (error.code === "NOT_FOUND") {
+    throw new TRPCError({ code: "NOT_FOUND", message: error.message });
+  }
+  if (error.code === "DELETE_SONG_REQUIRED" || error.code === "CONFLICT") {
+    throw new TRPCError({ code: "CONFLICT", message: error.message });
+  }
+  if (error.code === "INTEGRITY_ERROR") {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message });
+  }
+  throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
 }
 
 function mapCommentDomainError(error: unknown): never {
@@ -444,6 +465,7 @@ export const projectRouter = router({
                   pendingAudioStartedAt: null,
                   pendingAudioCreateAttemptedAt: null,
                   pendingAudioCompleteAttemptedAt: null,
+                  pendingAudioCompleteWriteOnceProtectedAt: null,
                   pendingAudioPartUrlsExpireAt: null,
                   pendingAudioCancelRequestedAt: null,
                   pendingAudioCleanupEtag: null,
@@ -1110,6 +1132,8 @@ export const projectRouter = router({
           pendingAudioStartedAt: trackVersions.pendingAudioStartedAt,
           pendingAudioCreateAttemptedAt: trackVersions.pendingAudioCreateAttemptedAt,
           pendingAudioCompleteAttemptedAt: trackVersions.pendingAudioCompleteAttemptedAt,
+          pendingAudioCompleteWriteOnceProtectedAt:
+            trackVersions.pendingAudioCompleteWriteOnceProtectedAt,
           pendingAudioPartUrlsExpireAt: trackVersions.pendingAudioPartUrlsExpireAt,
           pendingAudioCancelRequestedAt: trackVersions.pendingAudioCancelRequestedAt,
           pendingAudioCleanupEtag: trackVersions.pendingAudioCleanupEtag,
@@ -1134,6 +1158,7 @@ export const projectRouter = router({
         row.pendingAudioStartedAt !== null ||
         row.pendingAudioCreateAttemptedAt !== null ||
         row.pendingAudioCompleteAttemptedAt !== null ||
+        row.pendingAudioCompleteWriteOnceProtectedAt !== null ||
         row.pendingAudioPartUrlsExpireAt !== null ||
         row.pendingAudioCancelRequestedAt !== null ||
         row.pendingAudioCleanupEtag !== null
@@ -1172,6 +1197,7 @@ export const projectRouter = router({
             isNull(trackVersions.pendingAudioStartedAt),
             isNull(trackVersions.pendingAudioCreateAttemptedAt),
             isNull(trackVersions.pendingAudioCompleteAttemptedAt),
+            isNull(trackVersions.pendingAudioCompleteWriteOnceProtectedAt),
             isNull(trackVersions.pendingAudioPartUrlsExpireAt),
             isNull(trackVersions.pendingAudioCancelRequestedAt),
             isNull(trackVersions.pendingAudioCleanupEtag),
@@ -1216,6 +1242,16 @@ export const projectRouter = router({
           r2ExactAudioStoragePort(),
           deletion.identity,
         );
+        await ctx.db
+          .update(trackVersions)
+          .set({ audioStorageDeletedAt: new Date() })
+          .where(
+            and(
+              eq(trackVersions.id, deletion.versionId),
+              eq(trackVersions.producerId, ctx.producerId),
+              isNull(trackVersions.audioStorageDeletedAt),
+            ),
+          );
         return {
           ok: true as const,
           storage: storage.kind,
@@ -1226,6 +1262,74 @@ export const projectRouter = router({
         };
       } catch (error) {
         mapSongManagementDomainError(error);
+      }
+    }),
+
+  permanentlyDeleteSongVersion: producerProcedure
+    .input(
+      z.object({
+        versionId: z.string().uuid(),
+        operationKey: z.string().uuid(),
+        confirmation: z.literal("DELETE_VERSION"),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED" });
+        const { permanentlyDeleteSongVersion } =
+          await import("~/server/domain/song-deletion/service");
+        return await permanentlyDeleteSongVersion(
+          ctx.db,
+          {
+            audio: r2ExactAudioStoragePort(),
+            reconcileArtworkDeletion: reconcilePrivateSongArtworkDeletion,
+            reconcileFirstVersionFinalDeletion,
+            reconcileFirstVersionStagingDeletion,
+            reconcilePeaksDeletion: reconcileLegacyPeaksDeletion,
+          },
+          {
+            producerId: ctx.producerId,
+            actorClerkUserId: ctx.userId,
+            operationKey: input.operationKey,
+            versionId: input.versionId,
+          },
+        );
+      } catch (error) {
+        mapSongDeletionError(error);
+      }
+    }),
+
+  permanentlyDeleteSong: producerProcedure
+    .input(
+      z.object({
+        trackId: z.string().uuid(),
+        operationKey: z.string().uuid(),
+        confirmation: z.literal("DELETE_SONG"),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED" });
+        const { permanentlyDeleteSong: permanentlyDeleteSongHistory } =
+          await import("~/server/domain/song-deletion/service");
+        return await permanentlyDeleteSongHistory(
+          ctx.db,
+          {
+            audio: r2ExactAudioStoragePort(),
+            reconcileArtworkDeletion: reconcilePrivateSongArtworkDeletion,
+            reconcileFirstVersionFinalDeletion,
+            reconcileFirstVersionStagingDeletion,
+            reconcilePeaksDeletion: reconcileLegacyPeaksDeletion,
+          },
+          {
+            producerId: ctx.producerId,
+            actorClerkUserId: ctx.userId,
+            operationKey: input.operationKey,
+            trackId: input.trackId,
+          },
+        );
+      } catch (error) {
+        mapSongDeletionError(error);
       }
     }),
 
@@ -1371,7 +1475,11 @@ export const projectRouter = router({
             .limit(1)
             .for("update");
           const [version] = await tx
-            .select({ id: trackVersions.id, trackId: trackVersions.trackId })
+            .select({
+              id: trackVersions.id,
+              trackId: trackVersions.trackId,
+              audioDeletedAt: trackVersions.audioDeletedAt,
+            })
             .from(trackVersions)
             .where(eq(trackVersions.id, input.versionId))
             .limit(1)
@@ -1390,6 +1498,7 @@ export const projectRouter = router({
               trackId: track.id,
               trackProjectId: track.projectId,
               trackArchivedAt: track.archivedAt,
+              versionAudioDeletedAt: version.audioDeletedAt,
               projectId: project.id,
               projectLifecycleStatus: project.lifecycleStatus,
             },
@@ -1444,7 +1553,7 @@ export const projectRouter = router({
       const { row, project, track, producerName, artistClerkUserId } = saved;
 
       after(async () => {
-        let emailEnabled = true;
+        let emailEnabled = false;
         try {
           const delivery = await emitArtistProducerCommentNotification(ctx.db, {
             recipientClerkUserId: artistClerkUserId,

@@ -12,11 +12,16 @@ import {
   type Db,
 } from "@skitza/db";
 
+import { expectedAudioMultipartPartSize } from "~/lib/audio/storage-limits";
 import {
   listExactMultipartUploadIds,
   MULTIPART_CREATE_UNCERTAINTY_MS,
 } from "~/server/audio/multipart-storage-recovery";
 import { PendingMultipartCancellationError } from "~/server/audio/pending-multipart-cancellation";
+import {
+  assertProducerAudioStorageAvailable,
+  lockProducerAudioStorageQuota,
+} from "~/server/domain/audio-storage/quota";
 import { assertActiveVersionUploadLifecycle } from "~/server/domain/version-uploads/service";
 import { currentTrackArtistApprovalAction } from "~/server/domain/version-uploads/db";
 import {
@@ -116,6 +121,7 @@ export async function createOrResumePendingMultipartUpload(
   const discovered = await discoverOwnedVersion(ctx, input.trackVersionId);
 
   const staged = await ctx.db.transaction(async (tx): Promise<PendingInitiation> => {
+    await lockProducerAudioStorageQuota(tx, ctx.producerId);
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${discovered.projectId}, 0))`,
     );
@@ -148,6 +154,8 @@ export async function createOrResumePendingMultipartUpload(
         pendingAudioStartedAt: trackVersions.pendingAudioStartedAt,
         pendingAudioCreateAttemptedAt: trackVersions.pendingAudioCreateAttemptedAt,
         pendingAudioCompleteAttemptedAt: trackVersions.pendingAudioCompleteAttemptedAt,
+        pendingAudioCompleteWriteOnceProtectedAt:
+          trackVersions.pendingAudioCompleteWriteOnceProtectedAt,
         pendingAudioPartUrlsExpireAt: trackVersions.pendingAudioPartUrlsExpireAt,
         pendingAudioCancelRequestedAt: trackVersions.pendingAudioCancelRequestedAt,
         pendingAudioCleanupEtag: trackVersions.pendingAudioCleanupEtag,
@@ -199,6 +207,7 @@ export async function createOrResumePendingMultipartUpload(
         }) ||
         version.pendingAudioCancelRequestedAt !== null ||
         version.pendingAudioCompleteAttemptedAt !== null ||
+        version.pendingAudioCompleteWriteOnceProtectedAt !== null ||
         version.pendingAudioCleanupEtag !== null
       ) {
         throw new PendingMultipartCancellationError(
@@ -214,6 +223,8 @@ export async function createOrResumePendingMultipartUpload(
       };
     }
 
+    await assertProducerAudioStorageAvailable(tx, ctx.producerId, input.sizeBytes);
+
     const startedAt = new Date();
     const [journaled] = await tx
       .update(trackVersions)
@@ -226,6 +237,7 @@ export async function createOrResumePendingMultipartUpload(
         pendingAudioStartedAt: startedAt,
         pendingAudioCreateAttemptedAt: null,
         pendingAudioCompleteAttemptedAt: null,
+        pendingAudioCompleteWriteOnceProtectedAt: null,
         pendingAudioPartUrlsExpireAt: null,
         pendingAudioCancelRequestedAt: null,
         pendingAudioCleanupEtag: null,
@@ -250,6 +262,7 @@ export async function createOrResumePendingMultipartUpload(
           isNull(trackVersions.pendingAudioStartedAt),
           isNull(trackVersions.pendingAudioCreateAttemptedAt),
           isNull(trackVersions.pendingAudioCompleteAttemptedAt),
+          isNull(trackVersions.pendingAudioCompleteWriteOnceProtectedAt),
           isNull(trackVersions.pendingAudioPartUrlsExpireAt),
           isNull(trackVersions.pendingAudioCancelRequestedAt),
           isNull(trackVersions.pendingAudioCleanupEtag),
@@ -358,6 +371,8 @@ async function reconcilePendingInitiation(
         pendingAudioStartedAt: trackVersions.pendingAudioStartedAt,
         pendingAudioCreateAttemptedAt: trackVersions.pendingAudioCreateAttemptedAt,
         pendingAudioCompleteAttemptedAt: trackVersions.pendingAudioCompleteAttemptedAt,
+        pendingAudioCompleteWriteOnceProtectedAt:
+          trackVersions.pendingAudioCompleteWriteOnceProtectedAt,
         pendingAudioPartUrlsExpireAt: trackVersions.pendingAudioPartUrlsExpireAt,
         pendingAudioCancelRequestedAt: trackVersions.pendingAudioCancelRequestedAt,
         pendingAudioCleanupEtag: trackVersions.pendingAudioCleanupEtag,
@@ -405,6 +420,7 @@ async function reconcilePendingInitiation(
       pending.completionToken !== staged.completionToken ||
       pending.sizeBytes !== staged.sizeBytes ||
       version.pendingAudioCompleteAttemptedAt !== null ||
+      version.pendingAudioCompleteWriteOnceProtectedAt !== null ||
       version.pendingAudioPartUrlsExpireAt !== null ||
       version.pendingAudioCancelRequestedAt !== null ||
       version.pendingAudioCleanupEtag !== null
@@ -473,6 +489,7 @@ async function reconcilePendingInitiation(
               ? isNull(trackVersions.pendingAudioCreateAttemptedAt)
               : eq(trackVersions.pendingAudioCreateAttemptedAt, pending.createAttemptedAt),
             isNull(trackVersions.pendingAudioCompleteAttemptedAt),
+            isNull(trackVersions.pendingAudioCompleteWriteOnceProtectedAt),
             isNull(trackVersions.pendingAudioPartUrlsExpireAt),
             isNull(trackVersions.pendingAudioCancelRequestedAt),
             isNull(trackVersions.pendingAudioCleanupEtag),
@@ -511,6 +528,7 @@ async function reconcilePendingInitiation(
             ? isNull(trackVersions.pendingAudioCreateAttemptedAt)
             : eq(trackVersions.pendingAudioCreateAttemptedAt, pending.createAttemptedAt),
           isNull(trackVersions.pendingAudioCompleteAttemptedAt),
+          isNull(trackVersions.pendingAudioCompleteWriteOnceProtectedAt),
           isNull(trackVersions.pendingAudioPartUrlsExpireAt),
           isNull(trackVersions.pendingAudioCancelRequestedAt),
           isNull(trackVersions.pendingAudioCleanupEtag),
@@ -551,8 +569,14 @@ export function latestPendingAudioPartCapabilityExpiry(current: Date | null, iss
  */
 export async function authorizePendingMultipartPart(
   ctx: Readonly<{ db: Db; producerId: string }>,
-  input: Readonly<{ trackVersionId: string; key: string; uploadId: string; issuedAt: Date }>,
-): Promise<Readonly<{ expiresAt: Date }>> {
+  input: Readonly<{
+    trackVersionId: string;
+    key: string;
+    uploadId: string;
+    partNumber: number;
+    issuedAt: Date;
+  }>,
+): Promise<Readonly<{ expiresAt: Date; contentLength: number }>> {
   const discovered = await discoverOwnedVersion(ctx, input.trackVersionId);
   return ctx.db.transaction(async (tx) => {
     await tx.execute(
@@ -581,6 +605,8 @@ export async function authorizePendingMultipartPart(
         pendingAudioStartedAt: trackVersions.pendingAudioStartedAt,
         pendingAudioCreateAttemptedAt: trackVersions.pendingAudioCreateAttemptedAt,
         pendingAudioCompleteAttemptedAt: trackVersions.pendingAudioCompleteAttemptedAt,
+        pendingAudioCompleteWriteOnceProtectedAt:
+          trackVersions.pendingAudioCompleteWriteOnceProtectedAt,
         pendingAudioPartUrlsExpireAt: trackVersions.pendingAudioPartUrlsExpireAt,
         pendingAudioCancelRequestedAt: trackVersions.pendingAudioCancelRequestedAt,
         pendingAudioCleanupEtag: trackVersions.pendingAudioCleanupEtag,
@@ -634,12 +660,24 @@ export async function authorizePendingMultipartPart(
       !(version.pendingAudioStartedAt instanceof Date) ||
       !(version.pendingAudioCreateAttemptedAt instanceof Date) ||
       version.pendingAudioCompleteAttemptedAt !== null ||
+      version.pendingAudioCompleteWriteOnceProtectedAt !== null ||
       version.pendingAudioCancelRequestedAt !== null ||
       version.pendingAudioCleanupEtag !== null
     ) {
       throw new PendingMultipartCancellationError(
         "CONFLICT",
         "The multipart upload identity is no longer active",
+      );
+    }
+
+    const contentLength = expectedAudioMultipartPartSize(
+      version.pendingAudioSizeBytes,
+      input.partNumber,
+    );
+    if (contentLength === null) {
+      throw new PendingMultipartCancellationError(
+        "CONFLICT",
+        "The multipart part number is outside the pending upload",
       );
     }
 
@@ -668,6 +706,7 @@ export async function authorizePendingMultipartPart(
             ? isNull(trackVersions.pendingAudioPartUrlsExpireAt)
             : eq(trackVersions.pendingAudioPartUrlsExpireAt, version.pendingAudioPartUrlsExpireAt),
           isNull(trackVersions.pendingAudioCompleteAttemptedAt),
+          isNull(trackVersions.pendingAudioCompleteWriteOnceProtectedAt),
           isNull(trackVersions.pendingAudioCancelRequestedAt),
           isNull(trackVersions.pendingAudioCleanupEtag),
         ),
@@ -679,7 +718,7 @@ export async function authorizePendingMultipartPart(
         "The multipart upload changed before the part capability was saved",
       );
     }
-    return { expiresAt };
+    return { expiresAt, contentLength };
   });
 }
 
@@ -801,6 +840,7 @@ function readPendingInitiation(
     pendingAudioStartedAt: Date | null;
     pendingAudioCreateAttemptedAt: Date | null;
     pendingAudioCompleteAttemptedAt: Date | null;
+    pendingAudioCompleteWriteOnceProtectedAt: Date | null;
     pendingAudioPartUrlsExpireAt: Date | null;
   }>,
 ): Readonly<{
@@ -824,6 +864,7 @@ function readPendingInitiation(
       version.pendingAudioUploadId !== null ||
       version.pendingAudioCreateAttemptedAt !== null ||
       version.pendingAudioCompleteAttemptedAt !== null ||
+      version.pendingAudioCompleteWriteOnceProtectedAt !== null ||
       version.pendingAudioPartUrlsExpireAt !== null
     ) {
       throw new PendingMultipartCancellationError(
@@ -856,6 +897,12 @@ function readPendingInitiation(
         version.pendingAudioCreateAttemptedAt === null ||
         version.pendingAudioPartUrlsExpireAt === null ||
         version.pendingAudioCompleteAttemptedAt < version.pendingAudioCreateAttemptedAt)) ||
+    (version.pendingAudioCompleteWriteOnceProtectedAt !== null &&
+      (!(version.pendingAudioCompleteWriteOnceProtectedAt instanceof Date) ||
+        !Number.isFinite(version.pendingAudioCompleteWriteOnceProtectedAt.getTime()) ||
+        !(version.pendingAudioCompleteAttemptedAt instanceof Date) ||
+        version.pendingAudioCompleteWriteOnceProtectedAt.getTime() !==
+          version.pendingAudioCompleteAttemptedAt.getTime())) ||
     (version.pendingAudioUploadId !== null && version.pendingAudioUploadId.trim().length === 0) ||
     !/^sha256:[0-9a-f]{64}$/.test(version.pendingAudioInitiationDigest) ||
     !/^[0-9a-f]{64}$/.test(version.pendingAudioCompletionToken) ||

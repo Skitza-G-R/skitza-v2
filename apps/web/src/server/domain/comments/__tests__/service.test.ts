@@ -8,6 +8,7 @@ const target = (overrides: Partial<WritableCommentTarget> = {}): WritableComment
   trackId: "track-1",
   trackProjectId: "project-1",
   trackArchivedAt: null,
+  versionAudioDeletedAt: null,
   projectId: "project-1",
   projectLifecycleStatus: "active",
   ...overrides,
@@ -38,6 +39,12 @@ describe("assertWritableCommentTarget", () => {
   it("rejects comments on an archived track", () => {
     expect(() => {
       assertWritableCommentTarget(target({ trackArchivedAt: new Date() }), expected);
+    }).toThrow(expect.objectContaining({ code: "INACTIVE" }));
+  });
+
+  it("rejects comments on a Version being permanently deleted", () => {
+    expect(() => {
+      assertWritableCommentTarget(target({ versionAudioDeletedAt: new Date() }), expected);
     }).toThrow(expect.objectContaining({ code: "INACTIVE" }));
   });
 

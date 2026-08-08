@@ -95,7 +95,7 @@ The app must never allow a song or audio version to exist without a project. A s
 
 A version is exactly one uploaded audio file belonging to a song.
 
-A producer may mark an exact version final or ready. The artist may separately approve that exact version. Stored audio may later be permanently deleted under the Released rules while lightweight history and comments remain.
+A producer may mark an exact version final or ready. The artist may separately approve that exact version. A producer may later permanently delete a Version or its entire Song after a strong warning.
 
 ### 3.5 Purchase
 
@@ -363,26 +363,26 @@ All Add Song, upload, row, and empty-state actions must work.
 - Artist approval locks new uploads for that song.
 - Reopen song keeps approval history, unlocks new work, and requires approval of the corrected final version.
 
-### 7.4 Released songs and permanent audio deletion
+### 7.4 Permanent Version and Song deletion
 
-Released is a separate, producer-confirmed per-song state. Done / Delivered does not imply Released. Marking a song Released is one-way because it unlocks permanent deletion of protected audio.
+Released remains a separate, producer-confirmed per-song state, but deletion is not gated by Released. After a strong warning, the producer may delete approved, producer-final, newest, only, public, or unreleased audio.
 
-Before Released, current, producer-marked-final, or last stored audio cannot be deleted until another safe playable version exists.
+**Delete Version:**
 
-After Released, a producer may permanently delete any stored audio, including the final or last remaining audio. No Spotify or Apple Music link is required.
+- is available from that Version's three-dot menu;
+- permanently removes that Version's real R2 audio object, comments, approval, notifications, download overrides, historical artist access, and public history;
+- removes any portfolio entry using that exact audio instead of retargeting it;
+- keeps the Song, Project, client, purchase, agreement, payments, and bookings;
+- is replaced by **Delete Song** when it is the only Version.
 
-Deletion must:
+**Delete Song:**
 
-- show a strong warning;
-- remove the real stored object;
-- keep lightweight version name, upload date, and comment history;
-- keep resolved comments visible in gray;
-- remove playback and download access;
-- remove the version from the public switcher.
+- is available from the Song artwork/card three-dot menu and the main Song-page menu;
+- permanently removes the Song, every Version and audio object, comments, approvals, notifications, download overrides, portfolio entry, public link, and Song/Version history;
+- keeps the Project even when it becomes empty;
+- keeps the client, purchase, agreement, payments, and bookings, removing only the booking's Song link.
 
-If versions remain, public playback and portfolio use the newest remaining version.
-
-Deleting the last stored audio removes the song from portfolio and disables the public link.
+Deletion has no trash, undo, bulk action, or artist email in beta. It must revoke playback before storage reconciliation, delete only exact producer-owned R2 identities, retain retry state across partial failure, and remove database history only after every target audio object is authoritatively absent.
 
 ### 7.5 Song archive
 
@@ -789,7 +789,8 @@ Do not restore magic-link sharing or Project Share.
 - Portfolio has no version switcher.
 - New versions become portfolio playback after warning.
 - Completed/Canceled project and song archive do not remove a public song.
-- Deleting last audio removes it.
+- Deleting a Version removes any portfolio entry using that exact audio; it does not retarget the entry.
+- Deleting a Song removes its portfolio entry.
 - Portfolio follows song/audio state and never serves stale copied audio.
 
 ## 14. Audio and file protection
@@ -804,6 +805,18 @@ Do not restore magic-link sharing or Project Share.
 No browser can completely prevent recording playable audio. The goal is to block normal download and permanent direct-file access.
 
 Audio formats remain WAV, FLAC, MP3, and AAC, with a 100 MB per-file limit. Version comments remain timestamped and private to artist/producer.
+
+### 14.1 Beta producer audio storage
+
+- The beta limit is 1 GB (1,000,000,000 bytes) of audio per producer.
+- Warn at 800 MB (800,000,000 bytes).
+- Every separately uploaded completed Version counts once. Active upload reservations also hold capacity so concurrent uploads cannot pass the limit.
+- Portfolio references to the same audio do not count again. Artwork, payment proofs, documents, and generated waveform data do not count.
+- Block an upload before it starts when the selected file would exceed 100 MB or the producer total would exceed 1 GB. Landing exactly on either limit is allowed.
+- A producer already at or above the limit may still play, download, and delete existing work, but may not upload more.
+- Settings and the upload flow show real usage. Beta full-storage copy tells the producer to delete an old Version or Song; it does not mention upgrading.
+- Archive does not free storage. Only confirmed R2 deletion frees storage.
+- This is one global beta policy with no per-producer override and can change when paid plans launch.
 
 ## 15. Navigation, archives, and action surfaces
 

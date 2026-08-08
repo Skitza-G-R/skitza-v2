@@ -14,6 +14,8 @@ import {
 
 export type PlayerTrack = {
   id: string;
+  /** Stable Song identity, when the caller has it, for exact cross-page cleanup. */
+  songId?: string;
   audioUrl: string | null;
   title: string;
   subtitle: string;
@@ -266,6 +268,7 @@ export function normalizePlayerTrack(value: unknown): PlayerTrack | null {
   const track = value as Record<string, unknown>;
   if (
     !boundedString(track.id, PLAYER_ID_MAX_LENGTH, false) ||
+    !(track.songId === undefined || boundedString(track.songId, PLAYER_ID_MAX_LENGTH, false)) ||
     !(
       track.audioUrl === null || boundedString(track.audioUrl, PLAYER_AUDIO_URL_MAX_LENGTH, false)
     ) ||
@@ -279,6 +282,7 @@ export function normalizePlayerTrack(value: unknown): PlayerTrack | null {
   const artwork = sanitizedArtwork(track.artwork);
   return {
     id: track.id,
+    ...(typeof track.songId === "string" ? { songId: track.songId } : {}),
     audioUrl: track.audioUrl,
     title: track.title,
     subtitle: track.subtitle,
@@ -329,6 +333,7 @@ function storedPlayerTrack(value: unknown, origin: string): PlayerTrack | null {
   }
   return {
     id: normalized.id,
+    ...(normalized.songId === undefined ? {} : { songId: normalized.songId }),
     audioUrl: normalized.audioUrl,
     title: normalized.title,
     subtitle: normalized.subtitle,

@@ -75,13 +75,7 @@ describe("RecentUploadsShelf shelfRenderModel — empty / sparse / full", () => 
     const ids = ["v1", "v2", "v3", "v4", "v5", "v6", "v7"];
     const m = shelfRenderModel(ids.map((id) => makeUpload({ versionId: id })));
     expect(m.render).toBe(true);
-    expect(m.visibleCards.map((u) => u.versionId)).toEqual([
-      "v1",
-      "v2",
-      "v3",
-      "v4",
-      "v5",
-    ]);
+    expect(m.visibleCards.map((u) => u.versionId)).toEqual(["v1", "v2", "v3", "v4", "v5"]);
     expect(m.showViewAll).toBe(true);
   });
 
@@ -116,6 +110,7 @@ describe("RecentUploadsShelf cardPlayDetail — custom-event payload", () => {
     // expose `id` so the player keys its <audio> element by it.
     expect(d).toEqual({
       id: "v-42",
+      songId: "t-1",
       audioUrl: "https://r2/x.mp3",
       title: "Sunset Mix",
       subtitle: "Bob's EP · v3",
@@ -224,14 +219,7 @@ describe("RecentUploadCard source — accessibility + RTL discipline", () => {
 });
 
 describe("TrackCover source — role + aria-hidden", () => {
-  const TRACK_COVER_PATH = join(
-    here,
-    "..",
-    "..",
-    "..",
-    "audio",
-    "track-cover.tsx",
-  );
+  const TRACK_COVER_PATH = join(here, "..", "..", "..", "audio", "track-cover.tsx");
   const trackCoverSrc = readFileSync(TRACK_COVER_PATH, "utf8");
 
   it('renders role="img" and aria-hidden so screen-readers skip the gradient', () => {

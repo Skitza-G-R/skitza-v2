@@ -178,3 +178,43 @@ export async function deleteMusicVersionAudio(input: {
     revalidateMusic(input.projectId, input.versionId);
   }
 }
+
+export async function deleteMusicVersion(input: {
+  projectId: string;
+  versionId: string;
+}): Promise<MusicManagementActionResult> {
+  const context = await callerOrError();
+  if (!context.ok) return context;
+  try {
+    await context.caller.project.permanentlyDeleteSongVersion({
+      versionId: input.versionId,
+      operationKey: input.versionId,
+      confirmation: "DELETE_VERSION",
+    });
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: toMessage(error) };
+  } finally {
+    revalidateMusic(input.projectId, input.versionId);
+  }
+}
+
+export async function deleteMusicSong(input: {
+  projectId: string;
+  trackId: string;
+}): Promise<MusicManagementActionResult> {
+  const context = await callerOrError();
+  if (!context.ok) return context;
+  try {
+    await context.caller.project.permanentlyDeleteSong({
+      trackId: input.trackId,
+      operationKey: input.trackId,
+      confirmation: "DELETE_SONG",
+    });
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: toMessage(error) };
+  } finally {
+    revalidateMusic(input.projectId);
+  }
+}

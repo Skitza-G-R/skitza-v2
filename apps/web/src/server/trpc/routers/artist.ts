@@ -621,7 +621,11 @@ const musicSubrouter = router({
             .limit(1)
             .for("update");
           const [version] = await tx
-            .select({ id: trackVersions.id, trackId: trackVersions.trackId })
+            .select({
+              id: trackVersions.id,
+              trackId: trackVersions.trackId,
+              audioDeletedAt: trackVersions.audioDeletedAt,
+            })
             .from(trackVersions)
             .where(eq(trackVersions.id, input.trackVersionId))
             .limit(1)
@@ -656,6 +660,7 @@ const musicSubrouter = router({
               trackId: track.id,
               trackProjectId: track.projectId,
               trackArchivedAt: track.archivedAt,
+              versionAudioDeletedAt: version.audioDeletedAt,
               projectId: project.id,
               projectLifecycleStatus: project.lifecycleStatus,
             },

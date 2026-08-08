@@ -142,7 +142,31 @@ describe("durable multipart initiation", () => {
     expect(authorize).toContain('.for("update")');
     expect(authorize).toContain("pendingAudioPartUrlsExpireAt: expiresAt");
     expect(authorize).toContain("isNull(trackVersions.pendingAudioCompleteAttemptedAt)");
+    expect(authorize).toContain("isNull(trackVersions.pendingAudioCompleteWriteOnceProtectedAt)");
     expect(authorize).toContain("isNull(trackVersions.pendingAudioCancelRequestedAt)");
     expect(authorize).toContain("isNull(trackVersions.pendingAudioCleanupEtag)");
+  });
+
+  it("authorizes only the exact part number and byte length from the durable total", () => {
+    const authorize = INITIATION_SOURCE.slice(
+      INITIATION_SOURCE.indexOf("export async function authorizePendingMultipartPart"),
+      INITIATION_SOURCE.indexOf("async function discoverOwnedVersion"),
+    );
+
+    expect(authorize).toContain("expectedAudioMultipartPartSize(");
+    expect(authorize).toContain("version.pendingAudioSizeBytes");
+    expect(authorize).toContain("input.partNumber");
+    expect(authorize).toContain("if (contentLength === null)");
+    expect(authorize).toContain("return { expiresAt, contentLength }");
+  });
+
+  it("initializes and binds only rows with no write-once completion protection", () => {
+    expect(INITIATION_SOURCE).toContain("pendingAudioCompleteWriteOnceProtectedAt: null");
+    expect(INITIATION_SOURCE).toContain(
+      "version.pendingAudioCompleteWriteOnceProtectedAt !== null",
+    );
+    expect(INITIATION_SOURCE).toContain(
+      "isNull(trackVersions.pendingAudioCompleteWriteOnceProtectedAt)",
+    );
   });
 });

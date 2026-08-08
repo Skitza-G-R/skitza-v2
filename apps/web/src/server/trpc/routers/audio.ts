@@ -1,6 +1,5 @@
 import {
   CompleteMultipartUploadCommand,
-  DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
   UploadPartCommand,
@@ -25,10 +24,19 @@ import {
 } from "@skitza/db";
 import { z } from "zod";
 
+import { AUDIO_UPLOAD_MAX_BYTES } from "~/lib/audio/storage-limits";
 import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { computePeaksFromBytes } from "~/server/audio/peaks";
-import { exactObjectIsAbsent } from "~/server/audio/multipart-storage-recovery";
+import {
+  abortMultipartUploadAndObserve,
+  exactObjectIsAbsent,
+  listExactMultipartUploadIds,
+  observeMultipartTerminalSealObject,
+  putMultipartTerminalSeal,
+  reconcileMultipartTerminalSeal,
+  tokenBoundCompletedObjectCleanupMatches,
+} from "~/server/audio/multipart-storage-recovery";
 import {
   AUDIO_PART_URL_TTL_SECONDS,
   authorizePendingMultipartPart,
@@ -51,6 +59,12 @@ import {
 } from "~/server/domain/version-uploads/service";
 import { currentTrackArtistApprovalAction } from "~/server/domain/version-uploads/db";
 import { createStoredAudioIdentityFingerprint } from "~/server/domain/first-version-uploads/service";
+import {
+  AudioStorageQuotaError,
+  lockProducerAudioStorageQuota,
+  readProducerAudioStorageQuota,
+} from "~/server/domain/audio-storage/quota";
+import { reconcileProducerFirstVersionUploadReservations } from "~/server/domain/first-version-uploads/reconciliation";
 import { SITE_URL, sendTrackVersionUploadedEmail } from "~/server/email/send";
 import { emitArtistNewVersionNotification } from "~/server/artist/notification-emitters";
 import {
@@ -74,10 +88,6 @@ export {
 // falls back to its own decode) than block the response forever.
 const PEAKS_COMPUTE_TIMEOUT_MS = 30_000;
 
-// 500MB is the cap for a single audio upload — comfortably above a
-// 24-bit/48kHz stereo WAV at album length, well under R2's 5TB object
-// limit, and small enough that a browser can hold one part in memory.
-const MAX_BYTES = 500 * 1024 * 1024;
 const AUDIO_UPLOAD_COMPLETION_TOKEN_METADATA = "skitza-upload-token";
 
 // Content types we accept. Browsers disagree on what to send for the
@@ -111,10 +121,10 @@ export function validateUploadInput(input: {
   sizeBytes: number;
   contentType: string;
 }): void {
-  if (input.sizeBytes > MAX_BYTES) {
+  if (input.sizeBytes > AUDIO_UPLOAD_MAX_BYTES) {
     throw new TRPCError({
       code: "BAD_REQUEST",
-      message: "File too large. Max 500MB.",
+      message: "File too large. Max 100MB.",
     });
   }
   if (!ALLOWED_TYPES.has(input.contentType.toLowerCase())) {
@@ -163,7 +173,7 @@ export function validateCompletedAudioObjectIdentity(input: {
     typeof observedSizeBytes !== "number" ||
     !Number.isSafeInteger(observedSizeBytes) ||
     observedSizeBytes <= 0 ||
-    observedSizeBytes > MAX_BYTES ||
+    observedSizeBytes > AUDIO_UPLOAD_MAX_BYTES ||
     observedSizeBytes !== input.claimedSizeBytes ||
     input.completionToken.length !== 64 ||
     input.observedCompletionToken !== input.completionToken
@@ -197,18 +207,15 @@ export function completedAudioObjectIdentityMatches(input: {
 
 export type PendingAudioCleanupIdentity = Readonly<{
   key: string;
+  uploadId: string;
   objectEtag: string;
   sizeBytes: number;
   completionToken: string;
 }>;
 
 export type PendingAudioCleanupPort = Readonly<{
-  head(key: string): Promise<Readonly<{
-    eTag: string | undefined;
-    sizeBytes: number | undefined;
-    completionToken: string | undefined;
-  }> | null>;
-  deleteExact(input: Readonly<{ key: string; ifMatch: string }>): Promise<void>;
+  abortExact(input: PendingAudioCleanupIdentity): Promise<boolean>;
+  sealExact(input: PendingAudioCleanupIdentity): Promise<boolean>;
   clearExact(input: PendingAudioCleanupIdentity): Promise<boolean>;
 }>;
 
@@ -216,23 +223,8 @@ export async function reconcilePendingAudioCleanup(
   input: PendingAudioCleanupIdentity,
   port: PendingAudioCleanupPort,
 ): Promise<boolean> {
-  const observed = await port.head(input.key);
-  if (observed === null) return port.clearExact(input);
-  if (
-    !completedAudioObjectIdentityMatches({
-      objectEtag: input.objectEtag,
-      sizeBytes: input.sizeBytes,
-      completionToken: input.completionToken,
-      observedEtag: observed.eTag,
-      observedSizeBytes: observed.sizeBytes,
-      observedCompletionToken: observed.completionToken,
-    })
-  ) {
-    return false;
-  }
-
-  await port.deleteExact({ key: input.key, ifMatch: input.objectEtag });
-  if ((await port.head(input.key)) !== null) return false;
+  if (!(await port.abortExact(input))) return false;
+  if (!(await port.sealExact(input))) return false;
   return port.clearExact(input);
 }
 
@@ -250,6 +242,7 @@ type PendingAudioCompletionState = Readonly<{
   pendingAudioStartedAt: Date | null;
   pendingAudioCreateAttemptedAt: Date | null;
   pendingAudioCompleteAttemptedAt: Date | null;
+  pendingAudioCompleteWriteOnceProtectedAt: Date | null;
   pendingAudioPartUrlsExpireAt: Date | null;
   pendingAudioCancelRequestedAt: Date | null;
   pendingAudioCleanupEtag: string | null;
@@ -317,6 +310,7 @@ export function resolvePendingAudioCompletion(
     (hasAnyPending && !hasAllPending) ||
     (state.pendingAudioCleanupEtag !== null && !hasAllPending) ||
     (state.pendingAudioCompleteAttemptedAt !== null && !hasAllPending) ||
+    (state.pendingAudioCompleteWriteOnceProtectedAt !== null && !hasAllPending) ||
     (state.pendingAudioPartUrlsExpireAt !== null && !hasAllPending) ||
     (state.pendingAudioCleanupEtag !== null && state.pendingAudioCleanupEtag.trim().length === 0) ||
     (state.pendingAudioCleanupEtag !== null && state.pendingAudioCompleteAttemptedAt === null) ||
@@ -342,6 +336,12 @@ export function resolvePendingAudioCompletion(
         !(state.pendingAudioCreateAttemptedAt instanceof Date) ||
         state.pendingAudioPartUrlsExpireAt === null ||
         state.pendingAudioCompleteAttemptedAt < state.pendingAudioCreateAttemptedAt)) ||
+    (state.pendingAudioCompleteWriteOnceProtectedAt !== null &&
+      (!(state.pendingAudioCompleteWriteOnceProtectedAt instanceof Date) ||
+        !Number.isFinite(state.pendingAudioCompleteWriteOnceProtectedAt.getTime()) ||
+        !(state.pendingAudioCompleteAttemptedAt instanceof Date) ||
+        state.pendingAudioCompleteWriteOnceProtectedAt.getTime() !==
+          state.pendingAudioCompleteAttemptedAt.getTime())) ||
     (state.pendingAudioCancelRequestedAt !== null &&
       state.pendingAudioCompleteAttemptedAt !== null &&
       state.pendingAudioCancelRequestedAt < state.pendingAudioCompleteAttemptedAt) ||
@@ -401,6 +401,7 @@ async function cleanupCompletedAudioObjectIfIdentityMatches(
     if (!cleanupEtag) return false;
 
     const intentPublished = await ctx.db.transaction(async (tx) => {
+      await lockProducerAudioStorageQuota(tx, ctx.producerId);
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.projectId}, 0))`);
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.purchaseId}, 0))`);
       const [version] = await tx
@@ -422,6 +423,8 @@ async function cleanupCompletedAudioObjectIfIdentityMatches(
           pendingAudioStartedAt: trackVersions.pendingAudioStartedAt,
           pendingAudioCreateAttemptedAt: trackVersions.pendingAudioCreateAttemptedAt,
           pendingAudioCompleteAttemptedAt: trackVersions.pendingAudioCompleteAttemptedAt,
+          pendingAudioCompleteWriteOnceProtectedAt:
+            trackVersions.pendingAudioCompleteWriteOnceProtectedAt,
           pendingAudioPartUrlsExpireAt: trackVersions.pendingAudioPartUrlsExpireAt,
           pendingAudioCancelRequestedAt: trackVersions.pendingAudioCancelRequestedAt,
           pendingAudioCleanupEtag: trackVersions.pendingAudioCleanupEtag,
@@ -449,7 +452,10 @@ async function cleanupCompletedAudioObjectIfIdentityMatches(
         version.pendingAudioSizeBytes !== input.sizeBytes ||
         version.pendingAudioStartedAt === null ||
         version.pendingAudioCreateAttemptedAt === null ||
-        version.pendingAudioCompleteAttemptedAt === null ||
+        !(version.pendingAudioCompleteAttemptedAt instanceof Date) ||
+        !(version.pendingAudioCompleteWriteOnceProtectedAt instanceof Date) ||
+        version.pendingAudioCompleteWriteOnceProtectedAt.getTime() !==
+          version.pendingAudioCompleteAttemptedAt.getTime() ||
         version.pendingAudioPartUrlsExpireAt === null ||
         version.pendingAudioCancelRequestedAt !== null
       ) {
@@ -468,21 +474,20 @@ async function cleanupCompletedAudioObjectIfIdentityMatches(
         return version.pendingAudioCleanupEtag === cleanupEtag;
       }
 
-      if (await exactObjectIsAbsent(input.key)) return false;
-      const head = await getR2().send(
-        new HeadObjectCommand({ Bucket: BUCKETS.audio, Key: input.key }),
-      );
-      if (
-        !completedAudioObjectIdentityMatches({
-          objectEtag: input.objectEtag,
-          sizeBytes: input.sizeBytes,
-          completionToken: input.completionToken,
-          observedEtag: head.ETag,
-          observedSizeBytes: head.ContentLength,
-          observedCompletionToken: head.Metadata?.[AUDIO_UPLOAD_COMPLETION_TOKEN_METADATA],
-        })
-      ) {
-        return false;
+      if (!(await exactObjectIsAbsent(input.key))) {
+        const head = await getR2().send(
+          new HeadObjectCommand({ Bucket: BUCKETS.audio, Key: input.key }),
+        );
+        if (
+          !tokenBoundCompletedObjectCleanupMatches({
+            expectedEtag: cleanupEtag,
+            expectedCompletionToken: input.completionToken,
+            observedEtag: head.ETag,
+            observedCompletionToken: head.Metadata?.[AUDIO_UPLOAD_COMPLETION_TOKEN_METADATA],
+          })
+        ) {
+          return false;
+        }
       }
       const [published] = await tx
         .update(trackVersions)
@@ -505,6 +510,10 @@ async function cleanupCompletedAudioObjectIfIdentityMatches(
               trackVersions.pendingAudioCompleteAttemptedAt,
               version.pendingAudioCompleteAttemptedAt,
             ),
+            eq(
+              trackVersions.pendingAudioCompleteWriteOnceProtectedAt,
+              version.pendingAudioCompleteWriteOnceProtectedAt,
+            ),
             eq(trackVersions.pendingAudioPartUrlsExpireAt, version.pendingAudioPartUrlsExpireAt),
             isNull(trackVersions.pendingAudioCancelRequestedAt),
             isNull(trackVersions.pendingAudioCleanupEtag),
@@ -516,6 +525,7 @@ async function cleanupCompletedAudioObjectIfIdentityMatches(
     if (!intentPublished) return false;
 
     return await ctx.db.transaction(async (tx) => {
+      await lockProducerAudioStorageQuota(tx, ctx.producerId);
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.projectId}, 0))`);
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.purchaseId}, 0))`);
       const [version] = await tx
@@ -537,6 +547,8 @@ async function cleanupCompletedAudioObjectIfIdentityMatches(
           pendingAudioStartedAt: trackVersions.pendingAudioStartedAt,
           pendingAudioCreateAttemptedAt: trackVersions.pendingAudioCreateAttemptedAt,
           pendingAudioCompleteAttemptedAt: trackVersions.pendingAudioCompleteAttemptedAt,
+          pendingAudioCompleteWriteOnceProtectedAt:
+            trackVersions.pendingAudioCompleteWriteOnceProtectedAt,
           pendingAudioPartUrlsExpireAt: trackVersions.pendingAudioPartUrlsExpireAt,
           pendingAudioCancelRequestedAt: trackVersions.pendingAudioCancelRequestedAt,
           pendingAudioCleanupEtag: trackVersions.pendingAudioCleanupEtag,
@@ -563,7 +575,10 @@ async function cleanupCompletedAudioObjectIfIdentityMatches(
         version.pendingAudioSizeBytes !== input.sizeBytes ||
         version.pendingAudioStartedAt === null ||
         version.pendingAudioCreateAttemptedAt === null ||
-        version.pendingAudioCompleteAttemptedAt === null ||
+        !(version.pendingAudioCompleteAttemptedAt instanceof Date) ||
+        !(version.pendingAudioCompleteWriteOnceProtectedAt instanceof Date) ||
+        version.pendingAudioCompleteWriteOnceProtectedAt.getTime() !==
+          version.pendingAudioCompleteAttemptedAt.getTime() ||
         version.pendingAudioPartUrlsExpireAt === null ||
         version.pendingAudioCancelRequestedAt !== null ||
         version.pendingAudioCleanupEtag !== cleanupEtag
@@ -582,35 +597,40 @@ async function cleanupCompletedAudioObjectIfIdentityMatches(
       const initiationDigest = version.pendingAudioInitiationDigest;
       const createAttemptedAt = version.pendingAudioCreateAttemptedAt;
       const completeAttemptedAt = version.pendingAudioCompleteAttemptedAt;
+      const completeWriteOnceProtectedAt = version.pendingAudioCompleteWriteOnceProtectedAt;
       const partUrlsExpireAt = version.pendingAudioPartUrlsExpireAt;
 
       return reconcilePendingAudioCleanup(
         {
           key: input.key,
+          uploadId: input.uploadId,
           objectEtag: cleanupEtag,
           sizeBytes: input.sizeBytes,
           completionToken: input.completionToken,
         },
         {
-          async head(key) {
-            if (await exactObjectIsAbsent(key)) return null;
-            const head = await getR2().send(
-              new HeadObjectCommand({ Bucket: BUCKETS.audio, Key: key }),
-            );
-            return {
-              eTag: head.ETag,
-              sizeBytes: head.ContentLength,
-              completionToken: head.Metadata?.[AUDIO_UPLOAD_COMPLETION_TOKEN_METADATA],
-            };
+          async abortExact(exact) {
+            const aborted = await abortMultipartUploadAndObserve(exact.key, exact.uploadId);
+            if (!aborted.absent) return false;
+            return (await listExactMultipartUploadIds(exact.key)).length === 0;
           },
-          async deleteExact({ key, ifMatch }) {
-            await getR2().send(
-              new DeleteObjectCommand({
-                Bucket: BUCKETS.audio,
-                Key: key,
-                IfMatch: ifMatch,
-              }),
+          async sealExact(exact) {
+            const sealed = await reconcileMultipartTerminalSeal(
+              {
+                key: exact.key,
+                uploadId: exact.uploadId,
+                completionToken: exact.completionToken,
+                objectEtag: exact.objectEtag,
+              },
+              {
+                head: observeMultipartTerminalSealObject,
+                // The cleanup ETag was already journaled before storage
+                // mutation. A different late object remains fail-closed.
+                publishCleanupEtag: () => Promise.resolve(false),
+                putSeal: putMultipartTerminalSeal,
+              },
             );
+            return sealed !== null;
           },
           async clearExact(exact) {
             const [cleared] = await tx
@@ -624,6 +644,7 @@ async function cleanupCompletedAudioObjectIfIdentityMatches(
                 pendingAudioStartedAt: null,
                 pendingAudioCreateAttemptedAt: null,
                 pendingAudioCompleteAttemptedAt: null,
+                pendingAudioCompleteWriteOnceProtectedAt: null,
                 pendingAudioPartUrlsExpireAt: null,
                 pendingAudioCancelRequestedAt: null,
                 pendingAudioCleanupEtag: null,
@@ -644,6 +665,10 @@ async function cleanupCompletedAudioObjectIfIdentityMatches(
                   isNotNull(trackVersions.pendingAudioStartedAt),
                   eq(trackVersions.pendingAudioCreateAttemptedAt, createAttemptedAt),
                   eq(trackVersions.pendingAudioCompleteAttemptedAt, completeAttemptedAt),
+                  eq(
+                    trackVersions.pendingAudioCompleteWriteOnceProtectedAt,
+                    completeWriteOnceProtectedAt,
+                  ),
                   eq(trackVersions.pendingAudioPartUrlsExpireAt, partUrlsExpireAt),
                   isNull(trackVersions.pendingAudioCancelRequestedAt),
                   eq(trackVersions.pendingAudioCleanupEtag, exact.objectEtag),
@@ -664,6 +689,13 @@ async function cleanupCompletedAudioObjectIfIdentityMatches(
 }
 
 class AudioObjectObservationPending extends Error {}
+
+export class CompletedAudioObjectCleanupRequiredError extends Error {
+  constructor(readonly objectEtag: string) {
+    super("The token-bound completed audio object must be cleaned up");
+    this.name = "CompletedAudioObjectCleanupRequiredError";
+  }
+}
 
 type AudioCompletionObservation = Readonly<{
   eTag: string | undefined;
@@ -699,6 +731,7 @@ function r2AudioMultipartCompletionPort(): AudioMultipartCompletionPort {
           Bucket: BUCKETS.audio,
           Key: input.key,
           UploadId: input.uploadId,
+          IfNoneMatch: "*",
           MultipartUpload: {
             Parts: input.parts.map((part) => ({
               PartNumber: part.partNumber,
@@ -724,15 +757,33 @@ async function observeCompletedAudioObject(
   try {
     const head = await input.port.head(input.key);
     if (head === null) return null;
-    return validateCompletedAudioObjectIdentity({
-      claimedSizeBytes: input.claimedSizeBytes,
-      completionToken: input.completionToken,
-      completedEtag: input.completedEtag,
-      observedEtag: head.eTag,
-      observedSizeBytes: head.sizeBytes,
-      observedCompletionToken: head.completionToken,
-    });
+    try {
+      return validateCompletedAudioObjectIdentity({
+        claimedSizeBytes: input.claimedSizeBytes,
+        completionToken: input.completionToken,
+        completedEtag: input.completedEtag,
+        observedEtag: head.eTag,
+        observedSizeBytes: head.sizeBytes,
+        observedCompletionToken: head.completionToken,
+      });
+    } catch (error) {
+      const cleanupEtag = head.eTag?.trim();
+      if (
+        error instanceof TRPCError &&
+        cleanupEtag &&
+        tokenBoundCompletedObjectCleanupMatches({
+          expectedEtag: null,
+          expectedCompletionToken: input.completionToken,
+          observedEtag: head.eTag,
+          observedCompletionToken: head.completionToken,
+        })
+      ) {
+        throw new CompletedAudioObjectCleanupRequiredError(cleanupEtag);
+      }
+      throw error;
+    }
   } catch (error) {
+    if (error instanceof CompletedAudioObjectCleanupRequiredError) throw error;
     if (error instanceof TRPCError) throw error;
     throw new AudioObjectObservationPending();
   }
@@ -879,6 +930,11 @@ function mapVersionUploadDomainError(error: unknown): never {
   throw new TRPCError({ code: "NOT_FOUND" });
 }
 
+function mapAudioStorageQuotaError(error: unknown): never {
+  if (!(error instanceof AudioStorageQuotaError)) throw error;
+  throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+}
+
 function requireSongUploadPublicExposureAcknowledgement(input: {
   linkEnabled: boolean;
   portfolioPublished: boolean;
@@ -937,6 +993,7 @@ type UploadPlaceholder = Readonly<{
   pendingAudioStartedAt: Date | null;
   pendingAudioCreateAttemptedAt: Date | null;
   pendingAudioCompleteAttemptedAt: Date | null;
+  pendingAudioCompleteWriteOnceProtectedAt: Date | null;
   pendingAudioPartUrlsExpireAt: Date | null;
   pendingAudioCancelRequestedAt: Date | null;
   pendingAudioCleanupEtag: string | null;
@@ -958,6 +1015,7 @@ function assertAvailableUploadPlaceholder(version: UploadPlaceholder): void {
     version.pendingAudioStartedAt ||
     version.pendingAudioCreateAttemptedAt ||
     version.pendingAudioCompleteAttemptedAt ||
+    version.pendingAudioCompleteWriteOnceProtectedAt ||
     version.pendingAudioPartUrlsExpireAt ||
     version.pendingAudioCancelRequestedAt ||
     version.pendingAudioCleanupEtag
@@ -1004,6 +1062,8 @@ async function assertOwnsVersion(
       pendingAudioStartedAt: trackVersions.pendingAudioStartedAt,
       pendingAudioCreateAttemptedAt: trackVersions.pendingAudioCreateAttemptedAt,
       pendingAudioCompleteAttemptedAt: trackVersions.pendingAudioCompleteAttemptedAt,
+      pendingAudioCompleteWriteOnceProtectedAt:
+        trackVersions.pendingAudioCompleteWriteOnceProtectedAt,
       pendingAudioPartUrlsExpireAt: trackVersions.pendingAudioPartUrlsExpireAt,
       pendingAudioCancelRequestedAt: trackVersions.pendingAudioCancelRequestedAt,
       pendingAudioCleanupEtag: trackVersions.pendingAudioCleanupEtag,
@@ -1066,6 +1126,13 @@ async function assertOwnsVersion(
 }
 
 export const audioRouter = router({
+  storageUsage: producerProcedure.query(({ ctx }) =>
+    readProducerAudioStorageQuota(ctx.db, ctx.producerId),
+  ),
+  reconcileStorageUsage: producerProcedure.mutation(({ ctx }) =>
+    reconcileProducerFirstVersionUploadReservations(ctx.db, ctx.producerId),
+  ),
+
   // Start a multipart upload. Client then calls signPart N times and
   // completeMultipart once. Returns { uploadId, key } — the key is a
   // producer-scoped path, used as an ownership handle for later calls.
@@ -1074,7 +1141,7 @@ export const audioRouter = router({
       z.object({
         trackVersionId: z.string().uuid(),
         filename: z.string().min(1).max(255),
-        sizeBytes: z.number().int().positive().max(MAX_BYTES),
+        sizeBytes: z.number().int().positive().max(AUDIO_UPLOAD_MAX_BYTES),
         contentType: z.string(),
       }),
     )
@@ -1084,6 +1151,7 @@ export const audioRouter = router({
         return await createOrResumePendingMultipartUpload(ctx, input);
       } catch (error) {
         if (error instanceof VersionUploadDomainError) mapVersionUploadDomainError(error);
+        if (error instanceof AudioStorageQuotaError) mapAudioStorageQuotaError(error);
         mapPendingMultipartCancellationError(error);
       }
     }),
@@ -1108,25 +1176,28 @@ export const audioRouter = router({
       ) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
+      const issuedAt = new Date();
+      let contentLength: number;
+      try {
+        // Commit the exact byte capability and its expiry before any signed
+        // URL can leave the server.
+        ({ contentLength } = await authorizePendingMultipartPart(ctx, { ...input, issuedAt }));
+      } catch (error) {
+        if (error instanceof VersionUploadDomainError) mapVersionUploadDomainError(error);
+        mapPendingMultipartCancellationError(error);
+      }
       const cmd = new UploadPartCommand({
         Bucket: BUCKETS.audio,
         Key: input.key,
         UploadId: input.uploadId,
         PartNumber: input.partNumber,
+        ContentLength: contentLength,
       });
-      const issuedAt = new Date();
       const url = await getSignedUrl(getR2BrowserUpload(), cmd, {
         expiresIn: AUDIO_PART_URL_TTL_SECONDS,
         signingDate: issuedAt,
+        signableHeaders: new Set(["content-length"]),
       });
-      try {
-        // Signing is local. The exact expiry is committed before this URL can
-        // leave the server; a failed journal write discards the local string.
-        await authorizePendingMultipartPart(ctx, { ...input, issuedAt });
-      } catch (error) {
-        if (error instanceof VersionUploadDomainError) mapVersionUploadDomainError(error);
-        mapPendingMultipartCancellationError(error);
-      }
       return { url };
     }),
 
@@ -1147,7 +1218,7 @@ export const audioRouter = router({
           )
           .min(1),
         trackVersionId: z.string().uuid(),
-        sizeBytes: z.number().int().positive().max(MAX_BYTES),
+        sizeBytes: z.number().int().positive().max(AUDIO_UPLOAD_MAX_BYTES),
         completionToken: z.string().regex(/^[0-9a-f]{64}$/),
         acknowledgePublicExposure: z.boolean(),
         durationMs: z.number().int().positive().optional(),
@@ -1227,6 +1298,8 @@ export const audioRouter = router({
               pendingAudioStartedAt: trackVersions.pendingAudioStartedAt,
               pendingAudioCreateAttemptedAt: trackVersions.pendingAudioCreateAttemptedAt,
               pendingAudioCompleteAttemptedAt: trackVersions.pendingAudioCompleteAttemptedAt,
+              pendingAudioCompleteWriteOnceProtectedAt:
+                trackVersions.pendingAudioCompleteWriteOnceProtectedAt,
               pendingAudioPartUrlsExpireAt: trackVersions.pendingAudioPartUrlsExpireAt,
               pendingAudioCancelRequestedAt: trackVersions.pendingAudioCancelRequestedAt,
               pendingAudioCleanupEtag: trackVersions.pendingAudioCleanupEtag,
@@ -1384,11 +1457,33 @@ export const audioRouter = router({
         });
       }
       if (staged.kind === "inactive_pending") {
-        const observed = await observePendingCompletedAudioObject({
-          key: input.key,
-          claimedSizeBytes: input.sizeBytes,
-          completionToken: input.completionToken,
-        });
+        let observed: { objectEtag: string; sizeBytes: number } | null;
+        try {
+          observed = await observePendingCompletedAudioObject({
+            key: input.key,
+            claimedSizeBytes: input.sizeBytes,
+            completionToken: input.completionToken,
+          });
+        } catch (error) {
+          if (!(error instanceof CompletedAudioObjectCleanupRequiredError)) throw error;
+          const cleanupFinished = await cleanupCompletedAudioObjectIfIdentityMatches(ctx, {
+            key: input.key,
+            uploadId: input.uploadId,
+            objectEtag: error.objectEtag,
+            sizeBytes: input.sizeBytes,
+            completionToken: input.completionToken,
+            trackVersionId: input.trackVersionId,
+            trackId,
+            projectId,
+            purchaseId,
+          });
+          throw new TRPCError({
+            code: cleanupFinished ? "PRECONDITION_FAILED" : "INTERNAL_SERVER_ERROR",
+            message: cleanupFinished
+              ? "This inactive upload did not match and was safely cleaned up."
+              : "The inactive upload cleanup is still being verified. Please retry.",
+          });
+        }
         if (observed === null) {
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
@@ -1449,6 +1544,8 @@ export const audioRouter = router({
               pendingAudioStartedAt: trackVersions.pendingAudioStartedAt,
               pendingAudioCreateAttemptedAt: trackVersions.pendingAudioCreateAttemptedAt,
               pendingAudioCompleteAttemptedAt: trackVersions.pendingAudioCompleteAttemptedAt,
+              pendingAudioCompleteWriteOnceProtectedAt:
+                trackVersions.pendingAudioCompleteWriteOnceProtectedAt,
               pendingAudioPartUrlsExpireAt: trackVersions.pendingAudioPartUrlsExpireAt,
               pendingAudioCancelRequestedAt: trackVersions.pendingAudioCancelRequestedAt,
               pendingAudioCleanupEtag: trackVersions.pendingAudioCleanupEtag,
@@ -1538,7 +1635,10 @@ export const audioRouter = router({
           const completeAttemptedAt = new Date();
           const [journaled] = await tx
             .update(trackVersions)
-            .set({ pendingAudioCompleteAttemptedAt: completeAttemptedAt })
+            .set({
+              pendingAudioCompleteAttemptedAt: completeAttemptedAt,
+              pendingAudioCompleteWriteOnceProtectedAt: completeAttemptedAt,
+            })
             .where(
               and(
                 eq(trackVersions.id, input.trackVersionId),
@@ -1567,6 +1667,7 @@ export const audioRouter = router({
                   lockedVersion.pendingAudioPartUrlsExpireAt,
                 ),
                 isNull(trackVersions.pendingAudioCompleteAttemptedAt),
+                isNull(trackVersions.pendingAudioCompleteWriteOnceProtectedAt),
                 isNull(trackVersions.pendingAudioCancelRequestedAt),
                 isNull(trackVersions.pendingAudioCleanupEtag),
               ),
@@ -1594,115 +1695,143 @@ export const audioRouter = router({
         claimedSizeBytes: input.sizeBytes,
         completionToken: input.completionToken,
       } as const;
-      const completedObject = completionBoundary.completeWasAttempted
-        ? await completeOrRecoverMultipart({ ...completionInput, completeWasAttempted: true })
-        : await ctx.db.transaction(async (tx) => {
-            // The attempt marker is already committed. Reacquire both locks
-            // so cancellation in the commit/call gap wins safely; if this
-            // transaction wins, it keeps them through the sole remote call.
-            await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${projectId}, 0))`);
-            await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${purchaseId}, 0))`);
-            const [lockedVersion] = await tx
-              .select({
-                trackId: trackVersions.trackId,
-                purchaseId: trackVersions.purchaseId,
-                versionProducerId: trackVersions.producerId,
-                projectId: projectTracks.projectId,
-                trackArchivedAt: projectTracks.archivedAt,
-                projectProducerId: projects.producerId,
-                projectLifecycleStatus: projects.lifecycleStatus,
-                purchaseProducerId: purchases.producerId,
-                purchaseProjectId: purchases.projectId,
-                purchaseLifecycleStatus: purchases.lifecycleStatus,
-                audioUrl: trackVersions.audioUrl,
-                audioR2Key: trackVersions.audioR2Key,
-                sizeBytes: trackVersions.sizeBytes,
-                audioObjectEtag: trackVersions.audioObjectEtag,
-                audioIdentityFingerprint: trackVersions.audioIdentityFingerprint,
-                audioDeletedAt: trackVersions.audioDeletedAt,
-                pendingAudioR2Key: trackVersions.pendingAudioR2Key,
-                pendingAudioUploadId: trackVersions.pendingAudioUploadId,
-                pendingAudioInitiationDigest: trackVersions.pendingAudioInitiationDigest,
-                pendingAudioCompletionToken: trackVersions.pendingAudioCompletionToken,
-                pendingAudioSizeBytes: trackVersions.pendingAudioSizeBytes,
-                pendingAudioStartedAt: trackVersions.pendingAudioStartedAt,
-                pendingAudioCreateAttemptedAt: trackVersions.pendingAudioCreateAttemptedAt,
-                pendingAudioCompleteAttemptedAt: trackVersions.pendingAudioCompleteAttemptedAt,
-                pendingAudioPartUrlsExpireAt: trackVersions.pendingAudioPartUrlsExpireAt,
-                pendingAudioCancelRequestedAt: trackVersions.pendingAudioCancelRequestedAt,
-                pendingAudioCleanupEtag: trackVersions.pendingAudioCleanupEtag,
-              })
-              .from(trackVersions)
-              .innerJoin(
-                projectTracks,
-                and(
-                  eq(projectTracks.id, trackVersions.trackId),
-                  eq(projectTracks.purchaseId, trackVersions.purchaseId),
-                ),
-              )
-              .innerJoin(projects, eq(projects.id, projectTracks.projectId))
-              .innerJoin(
-                purchases,
-                and(
-                  eq(purchases.id, trackVersions.purchaseId),
-                  eq(purchases.projectId, projectTracks.projectId),
-                ),
-              )
-              .where(
-                and(
-                  eq(trackVersions.id, input.trackVersionId),
-                  eq(trackVersions.producerId, ctx.producerId),
-                ),
-              )
-              .limit(1)
-              .for("update");
-            if (
-              !lockedVersion ||
-              lockedVersion.trackId !== trackId ||
-              lockedVersion.purchaseId !== purchaseId ||
-              lockedVersion.projectId !== projectId ||
-              lockedVersion.versionProducerId !== ctx.producerId ||
-              lockedVersion.projectProducerId !== ctx.producerId ||
-              lockedVersion.purchaseProducerId !== ctx.producerId ||
-              lockedVersion.purchaseProjectId !== projectId ||
-              lockedVersion.audioDeletedAt !== null
-            ) {
-              throw new VersionUploadDomainError(
-                "NOT_FOUND",
-                "The purchase-owned version binding changed before remote completion",
+      let completedObject: { objectEtag: string; sizeBytes: number };
+      try {
+        completedObject = completionBoundary.completeWasAttempted
+          ? await completeOrRecoverMultipart({ ...completionInput, completeWasAttempted: true })
+          : await ctx.db.transaction(async (tx) => {
+              // The attempt marker is already committed. Reacquire both locks
+              // so cancellation in the commit/call gap wins safely; if this
+              // transaction wins, it keeps them through the sole remote call.
+              await tx.execute(
+                sql`select pg_advisory_xact_lock(hashtextextended(${projectId}, 0))`,
               );
-            }
-            await assertVersionUploadAllowed(
-              tx,
-              {
-                producerId: lockedVersion.projectProducerId,
-                projectId: lockedVersion.projectId,
-                purchaseId: lockedVersion.purchaseId,
-                projectLifecycleStatus: lockedVersion.projectLifecycleStatus,
-                purchaseLifecycleStatus: lockedVersion.purchaseLifecycleStatus,
-                trackArchivedAt: lockedVersion.trackArchivedAt,
-              },
-              { producerId: ctx.producerId, projectId, purchaseId },
-              lockedVersion.trackId,
-            );
-            if (
-              resolvePendingAudioCompletion(lockedVersion, {
-                key: input.key,
-                uploadId: input.uploadId,
-                completionToken: input.completionToken,
-                sizeBytes: input.sizeBytes,
-              }) !== "observe_only"
-            ) {
-              throw new TRPCError({
-                code: "CONFLICT",
-                message: "The completion boundary changed before the remote call.",
+              await tx.execute(
+                sql`select pg_advisory_xact_lock(hashtextextended(${purchaseId}, 0))`,
+              );
+              const [lockedVersion] = await tx
+                .select({
+                  trackId: trackVersions.trackId,
+                  purchaseId: trackVersions.purchaseId,
+                  versionProducerId: trackVersions.producerId,
+                  projectId: projectTracks.projectId,
+                  trackArchivedAt: projectTracks.archivedAt,
+                  projectProducerId: projects.producerId,
+                  projectLifecycleStatus: projects.lifecycleStatus,
+                  purchaseProducerId: purchases.producerId,
+                  purchaseProjectId: purchases.projectId,
+                  purchaseLifecycleStatus: purchases.lifecycleStatus,
+                  audioUrl: trackVersions.audioUrl,
+                  audioR2Key: trackVersions.audioR2Key,
+                  sizeBytes: trackVersions.sizeBytes,
+                  audioObjectEtag: trackVersions.audioObjectEtag,
+                  audioIdentityFingerprint: trackVersions.audioIdentityFingerprint,
+                  audioDeletedAt: trackVersions.audioDeletedAt,
+                  pendingAudioR2Key: trackVersions.pendingAudioR2Key,
+                  pendingAudioUploadId: trackVersions.pendingAudioUploadId,
+                  pendingAudioInitiationDigest: trackVersions.pendingAudioInitiationDigest,
+                  pendingAudioCompletionToken: trackVersions.pendingAudioCompletionToken,
+                  pendingAudioSizeBytes: trackVersions.pendingAudioSizeBytes,
+                  pendingAudioStartedAt: trackVersions.pendingAudioStartedAt,
+                  pendingAudioCreateAttemptedAt: trackVersions.pendingAudioCreateAttemptedAt,
+                  pendingAudioCompleteAttemptedAt: trackVersions.pendingAudioCompleteAttemptedAt,
+                  pendingAudioCompleteWriteOnceProtectedAt:
+                    trackVersions.pendingAudioCompleteWriteOnceProtectedAt,
+                  pendingAudioPartUrlsExpireAt: trackVersions.pendingAudioPartUrlsExpireAt,
+                  pendingAudioCancelRequestedAt: trackVersions.pendingAudioCancelRequestedAt,
+                  pendingAudioCleanupEtag: trackVersions.pendingAudioCleanupEtag,
+                })
+                .from(trackVersions)
+                .innerJoin(
+                  projectTracks,
+                  and(
+                    eq(projectTracks.id, trackVersions.trackId),
+                    eq(projectTracks.purchaseId, trackVersions.purchaseId),
+                  ),
+                )
+                .innerJoin(projects, eq(projects.id, projectTracks.projectId))
+                .innerJoin(
+                  purchases,
+                  and(
+                    eq(purchases.id, trackVersions.purchaseId),
+                    eq(purchases.projectId, projectTracks.projectId),
+                  ),
+                )
+                .where(
+                  and(
+                    eq(trackVersions.id, input.trackVersionId),
+                    eq(trackVersions.producerId, ctx.producerId),
+                  ),
+                )
+                .limit(1)
+                .for("update");
+              if (
+                !lockedVersion ||
+                lockedVersion.trackId !== trackId ||
+                lockedVersion.purchaseId !== purchaseId ||
+                lockedVersion.projectId !== projectId ||
+                lockedVersion.versionProducerId !== ctx.producerId ||
+                lockedVersion.projectProducerId !== ctx.producerId ||
+                lockedVersion.purchaseProducerId !== ctx.producerId ||
+                lockedVersion.purchaseProjectId !== projectId ||
+                lockedVersion.audioDeletedAt !== null
+              ) {
+                throw new VersionUploadDomainError(
+                  "NOT_FOUND",
+                  "The purchase-owned version binding changed before remote completion",
+                );
+              }
+              await assertVersionUploadAllowed(
+                tx,
+                {
+                  producerId: lockedVersion.projectProducerId,
+                  projectId: lockedVersion.projectId,
+                  purchaseId: lockedVersion.purchaseId,
+                  projectLifecycleStatus: lockedVersion.projectLifecycleStatus,
+                  purchaseLifecycleStatus: lockedVersion.purchaseLifecycleStatus,
+                  trackArchivedAt: lockedVersion.trackArchivedAt,
+                },
+                { producerId: ctx.producerId, projectId, purchaseId },
+                lockedVersion.trackId,
+              );
+              if (
+                resolvePendingAudioCompletion(lockedVersion, {
+                  key: input.key,
+                  uploadId: input.uploadId,
+                  completionToken: input.completionToken,
+                  sizeBytes: input.sizeBytes,
+                }) !== "observe_only"
+              ) {
+                throw new TRPCError({
+                  code: "CONFLICT",
+                  message: "The completion boundary changed before the remote call.",
+                });
+              }
+              return completeOrRecoverMultipart({
+                ...completionInput,
+                completeWasAttempted: false,
               });
-            }
-            return completeOrRecoverMultipart({
-              ...completionInput,
-              completeWasAttempted: false,
             });
-          });
+      } catch (error) {
+        if (!(error instanceof CompletedAudioObjectCleanupRequiredError)) throw error;
+        const cleanupFinished = await cleanupCompletedAudioObjectIfIdentityMatches(ctx, {
+          key: input.key,
+          uploadId: input.uploadId,
+          objectEtag: error.objectEtag,
+          sizeBytes: input.sizeBytes,
+          completionToken: input.completionToken,
+          trackVersionId: input.trackVersionId,
+          trackId,
+          projectId,
+          purchaseId,
+        });
+        throw new TRPCError({
+          code: cleanupFinished ? "BAD_REQUEST" : "INTERNAL_SERVER_ERROR",
+          message: cleanupFinished
+            ? "The completed upload did not match and was safely cleaned up. Please start again."
+            : "The completed upload cleanup is still being verified. Please retry.",
+        });
+      }
       const { objectEtag, sizeBytes: observedSizeBytes } = completedObject;
       const audioIdentityFingerprint = createAudioIdentityFingerprint({
         key: input.key,
@@ -1769,6 +1898,8 @@ export const audioRouter = router({
               pendingAudioStartedAt: trackVersions.pendingAudioStartedAt,
               pendingAudioCreateAttemptedAt: trackVersions.pendingAudioCreateAttemptedAt,
               pendingAudioCompleteAttemptedAt: trackVersions.pendingAudioCompleteAttemptedAt,
+              pendingAudioCompleteWriteOnceProtectedAt:
+                trackVersions.pendingAudioCompleteWriteOnceProtectedAt,
               pendingAudioPartUrlsExpireAt: trackVersions.pendingAudioPartUrlsExpireAt,
               pendingAudioCancelRequestedAt: trackVersions.pendingAudioCancelRequestedAt,
               pendingAudioCleanupEtag: trackVersions.pendingAudioCleanupEtag,
@@ -1861,6 +1992,7 @@ export const audioRouter = router({
               pendingAudioStartedAt: null,
               pendingAudioCreateAttemptedAt: null,
               pendingAudioCompleteAttemptedAt: null,
+              pendingAudioCompleteWriteOnceProtectedAt: null,
               pendingAudioPartUrlsExpireAt: null,
               pendingAudioCancelRequestedAt: null,
               pendingAudioCleanupEtag: null,
@@ -1884,6 +2016,12 @@ export const audioRouter = router({
                 isNotNull(trackVersions.pendingAudioStartedAt),
                 isNotNull(trackVersions.pendingAudioCreateAttemptedAt),
                 isNotNull(trackVersions.pendingAudioCompleteAttemptedAt),
+                lockedVersion.pendingAudioCompleteWriteOnceProtectedAt === null
+                  ? isNull(trackVersions.pendingAudioCompleteWriteOnceProtectedAt)
+                  : eq(
+                      trackVersions.pendingAudioCompleteWriteOnceProtectedAt,
+                      lockedVersion.pendingAudioCompleteWriteOnceProtectedAt,
+                    ),
                 isNotNull(trackVersions.pendingAudioPartUrlsExpireAt),
                 isNull(trackVersions.pendingAudioCancelRequestedAt),
                 isNull(trackVersions.pendingAudioCleanupEtag),
@@ -1973,7 +2111,7 @@ export const audioRouter = router({
         const trackTitle = trackRow.title;
         const producerName = producerRow?.displayName ?? "Your producer";
         after(async () => {
-          let emailEnabled = true;
+          let emailEnabled = false;
           try {
             const delivery = await emitArtistNewVersionNotification(ctx.db, {
               recipientClerkUserId: artistContact?.clerkUserId ?? null,
@@ -2013,7 +2151,7 @@ export const audioRouter = router({
         key: z.string(),
         uploadId: z.string().min(1),
         trackVersionId: z.string().uuid(),
-        sizeBytes: z.number().int().positive().max(MAX_BYTES),
+        sizeBytes: z.number().int().positive().max(AUDIO_UPLOAD_MAX_BYTES),
         completionToken: z.string().regex(/^[0-9a-f]{64}$/),
       }),
     )

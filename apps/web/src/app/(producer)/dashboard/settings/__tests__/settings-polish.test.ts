@@ -33,24 +33,27 @@ describe("Settings polish — reduced motion", () => {
 });
 
 describe("Settings polish — no fake usage numbers", () => {
-  it("PlanFreeView does not hard-code fake artistsUsed or storageUsed", () => {
-    // Wrong numbers cost trust permanently. Real usage measurement
-    // lands in a separate task; until then, the cells show em-dash
-    // placeholders and a soft 'Usage tracking soon' line. We pin the
-    // *absence* of the old fake values so a future revert can't sneak
-    // them back in.
+  it("reads real producer audio usage and passes it into Settings", () => {
+    const page = readFileSync(join(SETTINGS_DIR, "page.tsx"), "utf8");
+    expect(page).toContain("caller.audio.storageUsage()");
+    expect(page).toContain("storageUsage={storageUsage}");
+    expect(client).toContain("storageUsage: StorageUsageState");
+    expect(client).toContain("storageUsage.usedBytes");
+    expect(client).toContain("storageUsage.availableBytes");
+  });
+
+  it("does not hard-code old fake storage plans or upgrade copy", () => {
     expect(client).not.toMatch(/const\s+artistsUsed\s*=\s*\d/);
     expect(client).not.toMatch(/const\s+storageUsed\s*=\s*[\d.]+\s*;/);
+    expect(client).not.toContain("5 GB storage");
+    expect(client).not.toContain("100 GB storage");
+    expect(client).not.toMatch(/upgrade to pro/i);
   });
 
-  it("PlanProView does not hard-code fake artistsCount", () => {
-    expect(client).not.toMatch(/const\s+artistsCount\s*=\s*\d/);
-  });
-
-  it("renders an em-dash placeholder for usage numbers", () => {
-    // Em-dash is the conventional 'no data yet' glyph in this design
-    // system (matches the Overview empty state pattern).
-    expect(client).toMatch(/UsageCell[\s\S]{0,200}num=\{?["'`]—["'`]/);
+  it("shows the universal 1 GB beta limit and its warning state", () => {
+    expect(client).toContain("Every beta producer has 1 GB of audio storage.");
+    expect(client).toContain("storageUsage.isAtOrAboveWarning");
+    expect(client).toContain("Delete old Versions or Songs");
   });
 });
 
@@ -149,6 +152,12 @@ describe("Settings polish — mobile section rail geometry", () => {
     expect(mobileNav).toContain("position: sticky");
     expect(mobileNav).toMatch(/top:\s*0;/);
     expect(mobileNav).not.toMatch(/top:\s*40px/);
+  });
+
+  it("keeps a visible keyboard focus ring after resetting button styles", () => {
+    expect(css).toMatch(
+      /\.s-nav button:focus-visible\s*{[^}]*outline:\s*2px solid rgb\(var\(--brand-primary\)\)/,
+    );
   });
 });
 
