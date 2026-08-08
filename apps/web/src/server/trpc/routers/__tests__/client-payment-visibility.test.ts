@@ -14,6 +14,10 @@ const clientPage = readFileSync(
   join(webSrc, "app", "(producer)", "dashboard", "clients-projects", "clients", "[id]", "page.tsx"),
   "utf8",
 );
+const clientPaymentsData = readFileSync(
+  join(webSrc, "components", "dashboard", "clients", "client-payments-data.ts"),
+  "utf8",
+);
 const requestPage = readFileSync(
   join(webSrc, "app", "(producer)", "dashboard", "requests", "[id]", "page.tsx"),
   "utf8",
@@ -43,10 +47,12 @@ describe("producer client payment visibility", () => {
     expect(clientContacts).toContain("clientMoneyRepository");
     expect(clientContacts).toContain("getClientMoneyLedger");
     expect(clientPage).toContain("caller.purchaseLedger.client({ clientContactId: id })");
-    expect(clientPage).toContain("toProducerPaymentWorkspaceBuckets(payments.producerBuckets)");
+    expect(clientPage).toContain("toClientPaymentsData(paymentModel");
     expect(clientPage).toMatch(
-      /<ClientSpaceWorkspace[\s\S]*?paymentBuckets=\{paymentBuckets\}[\s\S]*?needsReviewCount=\{needsReviewCount\}/,
+      /<ClientSpaceWorkspace[\s\S]*?payments=\{payments\}[\s\S]*?initialTab=\{initialTab\}/,
     );
+    expect(clientPaymentsData).toContain("model.projects.map");
+    expect(clientPaymentsData).not.toMatch(/\bdb\b|ctx\.producerId|clientContactId:/);
     expect(clientPage).not.toContain("ClientMoneyLedger");
     expect(clientPage).not.toMatch(/proofOfPayment\.history|<ClientPaymentProofs/);
   });

@@ -85,6 +85,12 @@ const clientSpaceWorkspace = read(
   "clients",
   "client-space-workspace.tsx",
 );
+const clientPaymentsPanel = read(
+  "components",
+  "dashboard",
+  "clients",
+  "client-payments-panel.tsx",
+);
 const dashboardPage = read("app", "(producer)", "dashboard", "page.tsx");
 const artistHome = read("app", "(artist)", "artist", "page.tsx");
 const requestsPage = read("app", "(producer)", "dashboard", "requests", "page.tsx");
@@ -117,18 +123,18 @@ describe("SK-69 payment surface wiring", () => {
     expect(songPage).toContain("/dashboard/music/");
     expect(songPage).toContain("projectSongUploadHref");
     expect(songPage).not.toContain("purchaseLedger");
-    expect(clientPage).toContain("toProducerPaymentWorkspaceBuckets(payments.producerBuckets)");
+    expect(clientPage).toContain("toClientPaymentsData(paymentModel");
     expect(clientPage).toContain("<ClientSpaceWorkspace");
     expect(clientPage).not.toContain("<ProducerPaymentWorkspace");
     expect(clientSpaceWorkspace).toContain(
-      'import { ProducerPaymentWorkspace } from "~/components/payments/producer-payment-workspace"',
+      'import { ClientPaymentsPanel } from "./client-payments-panel"',
     );
 
     const compactClientWorkspace = clientSpaceWorkspace.replace(/\s+/g, " ");
     expect(compactClientWorkspace).toContain(
-      '<ProducerPaymentWorkspace buckets={paymentBuckets} scope="client" clientLabel={clientName} defaultView="open" presentation="client-tab" />',
+      "<ClientPaymentsPanel state={payments} clientName={clientName} />",
     );
-    expect(clientSpaceWorkspace.match(/<ProducerPaymentWorkspace/g)).toHaveLength(1);
+    expect(clientSpaceWorkspace).not.toContain("ProducerPaymentWorkspace");
   });
 
   it("does not add a second client proof queue beside the canonical workspace", () => {
@@ -138,6 +144,18 @@ describe("SK-69 payment surface wiring", () => {
       expect(clientSurface).not.toMatch(/proofOfPayment\.(history|view)/);
       expect(clientSurface).not.toContain("<PaymentProofReview");
     }
+  });
+
+  it("keeps each exact proof reachable from both Project and Client Payments", () => {
+    expect(paymentHistory).toContain(
+      "href={`/dashboard/payments/${encodeURIComponent(proof.id)}`}",
+    );
+    expect(clientPaymentsPanel).toContain(
+      "href={`/dashboard/payments/${encodeURIComponent(row.action.proofId)}`}",
+    );
+    expect(clientPaymentsPanel).toContain(
+      "href={`/dashboard/payments/${encodeURIComponent(proof.id)}`}",
+    );
   });
 
   it("keeps purchase, proof/payment, and session actions separate on dashboard and Home", () => {

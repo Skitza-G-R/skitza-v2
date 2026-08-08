@@ -84,10 +84,6 @@ vi.mock("~/components/native/use-tab-swipe", () => ({
   useTabSwipe: () => ({}),
 }));
 
-vi.mock("~/components/payments/producer-payment-workspace", () => ({
-  ProducerPaymentWorkspace: () => null,
-}));
-
 vi.mock("~/components/runtime-state/online-required-link", () => ({
   useOnlineStatus: () => true,
 }));
@@ -153,9 +149,7 @@ function WorkspaceHarness({ initialStatus }: { initialStatus: ProjectLifecycleSt
           nextAction: "Review the next milestone",
         },
       ]}
-      paymentBuckets={[]}
-      paymentTotals={[]}
-      needsReviewCount={0}
+      payments={{ status: "error", message: "Payments unavailable." }}
       producerSlug="maya-produces"
       offerConfig={null}
     />

@@ -26,9 +26,13 @@ describe("SK-146 Client Space server shell", () => {
     expect(source).not.toContain("clientContacts.detail({ id })");
   });
 
-  it("turns a rejected detail or canonical ledger read into notFound", () => {
+  it("keeps notFound for the client while surfacing a truthful payment-read error", () => {
+    expect(compactSource).toContain('if (detailResult.status === "rejected") notFound();');
     expect(compactSource).toContain(
-      'if (detailResult.status === "rejected" || paymentsResult.status === "rejected") { notFound(); }',
+      'const paymentModel = paymentsResult.status === "fulfilled" ? paymentsResult.value : null;',
+    );
+    expect(compactSource).toContain(
+      'status: "error", message: "Balances and payment history are unavailable. Refresh this page to try again.",',
     );
   });
 
@@ -42,25 +46,34 @@ describe("SK-146 Client Space server shell", () => {
 
     const producerFallback = source.slice(
       source.indexOf("const producerProfile ="),
-      source.indexOf("const paymentBuckets ="),
+      source.indexOf("const paymentTotals ="),
     );
     expect(producerFallback).not.toContain("notFound");
   });
 
   it("maps the canonical ledger into the client workspace", () => {
     expect(source).toContain('from "~/components/dashboard/clients/client-space-workspace"');
-    expect(source).toContain("toProducerPaymentWorkspaceBuckets(payments.producerBuckets)");
-    expect(compactSource).toContain(
+    expect(source).toContain("toClientPaymentsData(paymentModel");
+    expect(compactSource).not.toContain(
       "const paymentTotals: ClientSpacePaymentTotal[] = payments.totals.map((total) => ({ currency: total.currency, dueNowCents: total.dueNowCents, totalRemainingCents: total.totalRemainingCents, }));",
+    );
+    expect(compactSource).toContain(
+      "const paymentTotals: ClientSpacePaymentTotal[] = paymentModel?.totals.map((total) => ({ currency: total.currency, dueNowCents: total.dueNowCents, totalRemainingCents: total.totalRemainingCents, })) ?? [];",
     );
     expect(compactSource).toContain(
       'purchase.proofs.filter((proof) => proof.status === "pending").length',
     );
     expect(compactSource).toMatch(
-      /<ClientSpaceWorkspace key=\{detail\.contact\.id\} client=\{client\} projects=\{projects\} paymentBuckets=\{paymentBuckets\} paymentTotals=\{paymentTotals\} needsReviewCount=\{needsReviewCount\}/,
+      /<ClientSpaceWorkspace[\s\S]*?key=\{`\$\{detail\.contact\.id\}:\$\{initialTab\}`\}[\s\S]*?client=\{client\}[\s\S]*?projects=\{projects\}[\s\S]*?payments=\{payments\}[\s\S]*?initialTab=\{initialTab\}/,
     );
     expect(source).not.toMatch(/<ProducerPaymentWorkspace/);
     expect(source).not.toMatch(/<ClientMoneyLedger/);
+  });
+
+  it("opens only the locked payments query directly and defaults every other query", () => {
+    expect(compactSource).toContain("const query = await searchParams;");
+    expect(compactSource).toContain("const initialTab = resolveClientSpaceInitialTab(query.tab);");
+    expect(source).toContain('from "~/components/dashboard/clients/client-space-tabs"');
   });
 
   it("keeps private offers lazy behind the client workspace", () => {

@@ -5,11 +5,13 @@ import {
   ClientSpaceWorkspace,
   type ClientSpaceClientData,
   type ClientSpaceOfferConfig,
+  type ClientSpacePaymentsState,
   type ClientSpacePaymentTotal,
 } from "~/components/dashboard/clients/client-space-workspace";
+import { toClientPaymentsData } from "~/components/dashboard/clients/client-payments-data";
 import type { ClientSpaceProjectData } from "~/components/dashboard/clients/client-space-project-row";
+import { resolveClientSpaceInitialTab } from "~/components/dashboard/clients/client-space-tabs";
 import { SetTopBarBreadcrumb } from "~/components/shell/topbar-breadcrumb-context";
-import { toProducerPaymentWorkspaceBuckets } from "~/components/payments/producer-payment-workspace-data";
 import { stageLabel, type WorkflowStage } from "~/lib/clients/workflow-stage";
 import { coerceTaxMode } from "~/lib/tax-mode";
 import { CLIENT_ARCHIVE_BLOCKED_MESSAGE } from "~/server/domain/client-management/service";
@@ -17,6 +19,7 @@ import { appRouter } from "~/server/trpc/routers/_app";
 
 type PageProps = {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ tab?: string | string[] | undefined }>;
 };
 
 type ProjectLifecycleStatus =
@@ -37,12 +40,15 @@ const LIFECYCLE_PRESENTATION: Record<
   canceled: { statusLabel: "Canceled", statusTone: "neutral" },
 };
 
-export default async function ClientDetailPage({ params }: PageProps) {
+export default async function ClientDetailPage({ params, searchParams }: PageProps) {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
 
   const { id } = await params;
+  const query = await searchParams;
+  const initialTab = resolveClientSpaceInitialTab(query.tab);
   const caller = appRouter.createCaller({ userId });
+  const paymentReadStartedAt = new Date();
 
   // Keep SK-145's lean Client Space query and independent reads. Tabs are
   // local after this snapshot, so changing sections never refetches the route.
@@ -51,19 +57,16 @@ export default async function ClientDetailPage({ params }: PageProps) {
     caller.purchaseLedger.client({ clientContactId: id }),
     caller.producer.me(),
   ]);
-  if (detailResult.status === "rejected" || paymentsResult.status === "rejected") {
-    notFound();
-  }
+  if (detailResult.status === "rejected") notFound();
 
   const detail = detailResult.value;
-  const payments = paymentsResult.value;
+  const paymentModel = paymentsResult.status === "fulfilled" ? paymentsResult.value : null;
   const producerProfile =
     producerProfileResult.status === "fulfilled" ? producerProfileResult.value : null;
   if (producerProfileResult.status === "rejected") {
     console.warn("[clients/detail] producer.me failed", producerProfileResult.reason);
   }
 
-  const paymentBuckets = toProducerPaymentWorkspaceBuckets(payments.producerBuckets);
   const client: ClientSpaceClientData = {
     id: detail.contact.id,
     name: detail.contact.name,
@@ -97,24 +100,38 @@ export default async function ClientDetailPage({ params }: PageProps) {
     nextAction: projectNextAction(project),
   }));
 
-  const paymentTotals: ClientSpacePaymentTotal[] = payments.totals.map((total) => ({
-    currency: total.currency,
-    dueNowCents: total.dueNowCents,
-    totalRemainingCents: total.totalRemainingCents,
-  }));
+  const paymentTotals: ClientSpacePaymentTotal[] =
+    paymentModel?.totals.map((total) => ({
+      currency: total.currency,
+      dueNowCents: total.dueNowCents,
+      totalRemainingCents: total.totalRemainingCents,
+    })) ?? [];
   const needsReviewCount =
-    paymentBuckets
-      .find((bucket) => bucket.id === "needs_review")
-      ?.projects.reduce(
-        (count, project) =>
-          count +
-          project.purchases.reduce(
-            (projectCount, purchase) =>
-              projectCount + purchase.proofs.filter((proof) => proof.status === "pending").length,
-            0,
-          ),
-        0,
-      ) ?? 0;
+    paymentModel?.producerBuckets.needs_review.projects.reduce(
+      (count, project) =>
+        count +
+        project.purchases.reduce(
+          (projectCount, purchase) =>
+            projectCount + purchase.proofs.filter((proof) => proof.status === "pending").length,
+          0,
+        ),
+      0,
+    ) ?? 0;
+  const payments: ClientSpacePaymentsState =
+    paymentModel && producerProfile
+      ? {
+          status: "ready",
+          data: toClientPaymentsData(paymentModel, {
+            asOf: paymentReadStartedAt,
+            producerTimeZone: producerProfile.timezone,
+          }),
+          totals: paymentTotals,
+          needsReviewCount,
+        }
+      : {
+          status: "error",
+          message: "Balances and payment history are unavailable. Refresh this page to try again.",
+        };
   const offerConfig: ClientSpaceOfferConfig | null = producerProfile
     ? {
         defaultCurrency: clientOfferCurrency(producerProfile.defaultCurrency),
@@ -128,14 +145,13 @@ export default async function ClientDetailPage({ params }: PageProps) {
       <div className="mx-auto w-full max-w-[1180px] px-4 pt-4 pb-28 sm:px-6 sm:pt-6 lg:px-8 lg:pt-7 lg:pb-10">
         <SetTopBarBreadcrumb crumbs={[{ label: detail.contact.name }]} />
         <ClientSpaceWorkspace
-          key={detail.contact.id}
+          key={`${detail.contact.id}:${initialTab}`}
           client={client}
           projects={projects}
-          paymentBuckets={paymentBuckets}
-          paymentTotals={paymentTotals}
-          needsReviewCount={needsReviewCount}
+          payments={payments}
           producerSlug={producerProfile?.slug ?? ""}
           offerConfig={offerConfig}
+          initialTab={initialTab}
         />
       </div>
     </main>

@@ -20,9 +20,10 @@ function sourceBetween(source: string, start: string, end: string): string {
 }
 
 describe("ClientSpaceWorkspace tabs", () => {
-  it("starts on Projects from local state on every mount without URL persistence", () => {
+  it("starts from the server-locked tab and keeps later tab changes local", () => {
+    expect(WORKSPACE).toMatch(/initialTab = "projects"/);
     expect(WORKSPACE).toMatch(
-      /const \[activeTab, setActiveTab\] = useState<ClientSpaceTab>\("projects"\)/,
+      /const \[activeTab, setActiveTab\] = useState<ClientSpaceTab>\(initialTab\)/,
     );
     expect(WORKSPACE).not.toMatch(
       /useRouter|usePathname|useSearchParams|URLSearchParams|window\.history|router\.(?:push|replace)|localStorage|sessionStorage/,
@@ -120,12 +121,11 @@ describe("ClientSpaceWorkspace compact content contracts", () => {
     expect(WORKSPACE).not.toMatch(/StatTile|HeroGlowOrbs|heroBg\(/);
   });
 
-  it("wires Payments to the client-specific open-first payment presentation", () => {
+  it("wires Payments to the distinct compact client payment presentation", () => {
     const payments = sourceBetween(WORKSPACE, "function PaymentsPanel", "function DetailsPanel");
 
-    expect(payments).toMatch(
-      /<ProducerPaymentWorkspace[\s\S]*?buckets=\{paymentBuckets\}[\s\S]*?scope="client"[\s\S]*?clientLabel=\{clientName\}[\s\S]*?defaultView="open"[\s\S]*?presentation="client-tab"/,
-    );
+    expect(payments).toContain("<ClientPaymentsPanel state={payments} clientName={clientName} />");
+    expect(payments).not.toContain("ProducerPaymentWorkspace");
   });
 
   it("renders compact read-only Details with one Edit action and every locked section", () => {
