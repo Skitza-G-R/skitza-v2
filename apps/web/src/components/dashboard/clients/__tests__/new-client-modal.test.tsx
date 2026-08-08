@@ -55,6 +55,16 @@ describe("NewClientModal", () => {
     expect(SRC).toMatch(/We(?:&rsquo;|')ll email an invite after you add them\./);
   });
 
+  it("explains that manual addition is optional without adding a public-link CTA", () => {
+    const descriptionStart = SRC.indexOf("<DialogPrimitive.Description");
+    const descriptionEnd = SRC.indexOf("</DialogPrimitive.Description>", descriptionStart);
+    const description = SRC.slice(descriptionStart, descriptionEnd);
+
+    expect(description).toMatch(/Most artists can join through your permanent public link\./);
+    expect(description).toMatch(/Adding them here is\s*optional\./);
+    expect(description).not.toMatch(/<a\b|<Link\b|href=|<button\b|onClick=/);
+  });
+
   it("renders the 'Add client' primary CTA text", () => {
     expect(SRC).toContain("Add client");
   });

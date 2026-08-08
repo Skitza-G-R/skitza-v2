@@ -123,9 +123,6 @@ export function PaymentStep({
               <span className="font-display block text-[15px] font-bold text-[rgb(var(--fg-default))]">
                 50% / 50%
               </span>
-              <span className="mt-0.5 block text-[12px] leading-snug text-[rgb(var(--fg-muted))]">
-                Half at agreement acceptance. Half when the artist approves the final version.
-              </span>
             </span>
             <span className="col-start-2 mt-1 text-[12px] font-medium text-[rgb(var(--fg-muted))] tabular-nums sm:col-start-3 sm:mt-0 sm:text-right">
               {paymentPreview("split", previewTotalCents, currency, previewInstallments)}

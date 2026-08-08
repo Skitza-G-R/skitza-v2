@@ -3,11 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ProductDetailScreen } from "../product-detail-screen";
 import { ReviewAgreeScreen } from "../review-agree-screen";
-import type {
-  Producer,
-  PurchaseAcceptancePreview,
-  PurchaseProduct,
-} from "../purchase-data";
+import type { Producer, PurchaseAcceptancePreview, PurchaseProduct } from "../purchase-data";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -169,7 +165,12 @@ describe("artist commercial-term rendering", () => {
     expect(html).toContain("Due at acceptance");
     expect(html).toContain("Artist owns the final approved master.");
     expect(html).toContain("3 included song spaces");
-    expect(html).toContain("This exact agreement is frozen at acceptance.");
+    const exactAgreementDetails = html.match(/<details[^>]*>[\s\S]*?<\/details>/)?.[0];
+    expect(exactAgreementDetails).toBeDefined();
+    expect(exactAgreementDetails).not.toMatch(/<details[^>]*\sopen(?:=|\s|>)/);
+    expect(exactAgreementDetails).toContain("<summary");
+    expect(exactAgreementDetails).toContain("View full exact agreement");
+    expect(exactAgreementDetails).toContain("This exact agreement is frozen at acceptance.");
     expect(html).toContain("I accept this exact agreement and payment plan.");
   });
 });

@@ -55,6 +55,7 @@ export function PaymentInstructionsScreen({
   const liveProofRoute = Boolean(proofHref && !previewProofHref);
   const canUpload = proofUploadsAvailable && Boolean(proofHref || previewProofHref);
   const uploadDisabled = !canUpload || (!online && liveProofRoute);
+  const formattedAmountDueNow = formatPurchaseMoney(amountDueNowCents, currency);
 
   function openProofUpload() {
     if (uploadDisabled) return;
@@ -93,7 +94,7 @@ export function PaymentInstructionsScreen({
               Amount due now
             </p>
             <p className="font-amount mt-1.5 text-[42px] leading-none font-bold tracking-[-0.04em] text-white tabular-nums">
-              {formatPurchaseMoney(amountDueNowCents, currency)}
+              {formattedAmountDueNow}
             </p>
             {productName || planLabel ? (
               <p className="mt-2 text-[12.5px] leading-snug font-medium [overflow-wrap:anywhere] text-white/80">
@@ -105,6 +106,57 @@ export function PaymentInstructionsScreen({
                 ? "Pay the producer outside Skitza, then upload your receipt here."
                 : "Pay the producer outside Skitza and keep your receipt."}
             </p>
+          </section>
+
+          <section className="mt-[18px]" aria-labelledby="payment-steps-heading">
+            <h2 id="payment-steps-heading" className="mb-[9px]">
+              <Eyebrow>Two steps</Eyebrow>
+            </h2>
+            <ol
+              role="list"
+              className="list-none overflow-hidden rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] shadow-[var(--shadow-sm)]"
+            >
+              <li className="flex min-w-0 items-start gap-3 px-4 py-3.5">
+                <span
+                  aria-hidden
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary)/0.16)] font-mono text-[11px] font-bold text-[rgb(var(--brand-primary-text))]"
+                >
+                  1
+                </span>
+                <div className="min-w-0 pt-0.5">
+                  <p className="text-[13.5px] font-bold [overflow-wrap:anywhere] text-[rgb(var(--fg-default))]">
+                    {hasPaymentMethod
+                      ? `Pay exactly ${formattedAmountDueNow} now`
+                      : `Get the details, then pay exactly ${formattedAmountDueNow}`}
+                  </p>
+                  <p className="mt-1 text-[12.5px] leading-relaxed [overflow-wrap:anywhere] text-[rgb(var(--fg-muted))]">
+                    {hasPaymentMethod
+                      ? "Use one payment method below."
+                      : `${producerName} will send Bank or Bit details directly.`}
+                  </p>
+                </div>
+              </li>
+              <li className="flex min-w-0 items-start gap-3 border-t border-[rgb(var(--border-subtle))] px-4 py-3.5">
+                <span
+                  aria-hidden
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[rgb(var(--brand-primary)/0.16)] font-mono text-[11px] font-bold text-[rgb(var(--brand-primary-text))]"
+                >
+                  2
+                </span>
+                <div className="min-w-0 pt-0.5">
+                  <p className="text-[13.5px] font-bold [overflow-wrap:anywhere] text-[rgb(var(--fg-default))]">
+                    {proofUploadsAvailable
+                      ? "Return here and upload proof"
+                      : "Keep your receipt and return here later"}
+                  </p>
+                  <p className="mt-1 text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
+                    {proofUploadsAvailable
+                      ? "Upload a photo or file of your transfer after you pay."
+                      : "Proof upload is temporarily unavailable."}
+                  </p>
+                </div>
+              </li>
+            </ol>
           </section>
 
           {hasPaymentMethod ? (
@@ -151,8 +203,9 @@ export function PaymentInstructionsScreen({
                   {producerName} will send payment details directly
                 </h2>
                 <p className="mt-1 text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
-                  They will share their Bank or Bit details with you directly. Once you have paid,
-                  come back here and upload your proof.
+                  {proofUploadsAvailable
+                    ? "No payment method is saved here yet. Use the details they send for Step 1."
+                    : "Use the details they send, then keep your receipt until proof upload is available again."}
                 </p>
               </div>
             </section>

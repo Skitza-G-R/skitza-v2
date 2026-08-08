@@ -160,7 +160,8 @@ export function NewClientModal({ open, onClose, onCreated }: NewClientModalProps
                 id="new-client-modal-body"
                 className="mt-1 text-[13px] leading-snug text-[rgb(var(--fg-muted))]"
               >
-                Add their details and send an invite.
+                Most artists can join through your permanent public link. Adding them here is
+                optional.
               </DialogPrimitive.Description>
             </div>
             <button

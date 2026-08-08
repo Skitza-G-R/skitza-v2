@@ -67,7 +67,7 @@ export function PaymentStepClient({
     startTransition(async () => {
       try {
         const bankTransfer = bankFieldsTouched
-          ? serializeBankTransferDetails(bankFields)
+          ? serializeBankTransferDetails(bankFields, parsedBankDetails.preservedText)
           : initialInstructions.bankTransfer;
         const result = await saveOnboardingPaymentInstructions({
           bankTransfer,

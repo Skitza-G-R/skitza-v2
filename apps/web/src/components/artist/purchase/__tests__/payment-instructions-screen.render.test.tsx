@@ -36,6 +36,12 @@ describe("payment instruction method states", () => {
 
     expect(html).toContain("Bank transfer");
     expect(html).toContain("Bank 10 · Branch 123 · 456789");
+    expect(html).toContain("<ol");
+    expect(html).toContain('role="list"');
+    expect(html).toContain("Two steps");
+    expect(html).toContain("Pay exactly ₪1,200 now");
+    expect(html).toContain("Use one payment method below.");
+    expect(html).toContain("Return here and upload proof");
     expect(html).toContain("I’ve paid — upload proof");
   });
 
@@ -51,6 +57,10 @@ describe("payment instruction method states", () => {
     const html = renderInstructions({ note: "Use your surname as the transfer reference." });
 
     expect(html).toContain("North Room will send payment details directly");
+    expect(html).toContain("Get the details, then pay exactly ₪1,200");
+    expect(html).toContain("North Room will send Bank or Bit details directly.");
+    expect(html).toContain("Use the details they send for Step 1.");
+    expect(html).toContain("Return here and upload proof");
     expect(html).toContain("Use your surname as the transfer reference.");
     expect(html).toContain("I’ve paid — upload proof");
   });
@@ -59,6 +69,14 @@ describe("payment instruction method states", () => {
     const html = renderInstructions(null, false);
 
     expect(html).toContain("Proof upload temporarily unavailable");
+    expect(html).toContain("Get the details, then pay exactly ₪1,200");
+    expect(html).toContain("Keep your receipt and return here later");
+    expect(html).toContain("Proof upload is temporarily unavailable.");
+    expect(html).toContain(
+      "Use the details they send, then keep your receipt until proof upload is available again.",
+    );
+    expect(html).not.toContain("Return here and upload proof");
+    expect(html).not.toContain("come back here and upload your proof");
     expect(html).toContain("disabled");
     expect(html).not.toContain("I’ve paid — upload proof");
   });

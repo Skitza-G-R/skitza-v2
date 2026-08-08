@@ -43,7 +43,11 @@ describe("PaymentStep", () => {
     expect(html).toContain("$50.02");
     expect(html).toContain("$25.03");
     expect(html).toContain("$100.03 at acceptance");
-    expect(html).toContain("$50.01 when the artist approves the final version");
+    expect(html).toContain(
+      "$50.02 at acceptance · $50.01 when the artist approves the final version",
+    );
+    expect(html.match(/when the artist approves the final version/g)).toHaveLength(1);
+    expect(html).not.toContain("Half at agreement acceptance");
     expect(html).not.toMatch(/after approval|on delivery/i);
     expect(html).toContain('aria-label="Decrease monthly payments"');
     expect(html).toContain('aria-label="Increase monthly payments"');
