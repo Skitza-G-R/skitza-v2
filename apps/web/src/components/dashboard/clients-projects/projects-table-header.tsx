@@ -1,108 +1,99 @@
 "use client";
 
-import { ArrowUpDown } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 
-import type { SortValue } from "./sort-value";
-
-// Sortable column header for the Projects table mode (G18). Mirrors
-// ProjectRow's 8-column grid so each header cell sits over its
-// matching row column. Clicking a sortable column sets the parent's
-// sort state to that column's value; non-sortable columns render as
-// plain labels.
-//
-// DESIGN.md §4.1 calls out the layout switcher as available on both
-// tabs — this is the table half of that pair. The cards half stays
-// as the existing vertical ProjectRow stack.
+export type ProjectListSort = "oldest" | "newest" | "phase" | "project";
 
 interface ProjectsTableHeaderProps {
-  sort: SortValue;
-  onSortChange: (next: SortValue) => void;
+  sort: ProjectListSort;
+  onSortChange: (next: ProjectListSort) => void;
 }
 
-interface ColumnSpec {
-  label: string;
-  /** Sort value this column drives; undefined = non-sortable. */
-  sortKey?: SortValue;
-  /** Right-align numeric / date columns to match ProjectRow's layout. */
-  align?: "left" | "right";
+function SortIcon({ active, descending = false }: { active: boolean; descending?: boolean }) {
+  if (!active) return <ArrowUpDown size={12} strokeWidth={2.1} aria-hidden />;
+  return descending ? (
+    <ArrowDown size={12} strokeWidth={2.1} aria-hidden />
+  ) : (
+    <ArrowUp size={12} strokeWidth={2.1} aria-hidden />
+  );
 }
 
-// Column lineup matches ProjectRow's grid order:
-//   24px(grip) 44px(badge) 1.6fr(title) 1fr(client) 120px(progress)
-//   100px(balance) 110px(deadline) 36px(chevron)
-const COLUMNS: ColumnSpec[] = [
-  { label: "" }, // grip
-  { label: "" }, // badge
-  { label: "Project", sortKey: "name", align: "left" },
-  { label: "Client", align: "left" },
-  { label: "Progress", sortKey: "progress", align: "left" },
-  { label: "Balance", sortKey: "balance", align: "right" },
-  { label: "Deadline", sortKey: "deadline", align: "right" },
-  { label: "" }, // chevron
-];
+function sortableHeaderClass(active: boolean): string {
+  return [
+    "inline-flex min-h-11 items-center gap-1.5 text-left text-[11px] font-bold tracking-[0.1em] uppercase",
+    "focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none",
+    active
+      ? "text-[rgb(var(--fg-default))]"
+      : "text-[rgb(var(--fg-muted))] hover:text-[rgb(var(--fg-default))]",
+  ].join(" ");
+}
 
-export function ProjectsTableHeader({
-  sort,
-  onSortChange,
-}: ProjectsTableHeaderProps) {
+/** Five-column semantic table header for the producer's root Projects list. */
+export function ProjectsTableHeader({ sort, onSortChange }: ProjectsTableHeaderProps) {
+  const startedActive = sort === "oldest" || sort === "newest";
+
   return (
-    <div
-      role="row"
-      // SK-47: hidden below md — mobile renders ProjectRow as a 2-line
-      // card, so the 8-column header has nothing to align with there.
-      className="hidden items-center gap-3 border-b px-3 py-2 md:grid"
-      style={{
-        gridTemplateColumns:
-          "24px 44px minmax(0,1.6fr) minmax(0,1fr) 120px 100px 110px 36px",
-        borderBottomColor: "rgb(var(--border-subtle))",
-      }}
-    >
-      {COLUMNS.map((col, i) => {
-        const isSortable = col.sortKey !== undefined;
-        const isActive = isSortable && sort === col.sortKey;
-        const alignClass = col.align === "right" ? "text-right" : "text-left";
-        const content = (
-          <span
-            className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.12em] ${alignClass}`}
-            style={{
-              color: isActive
-                ? "rgb(var(--fg-default))"
-                : "rgb(var(--fg-muted))",
-            }}
-          >
-            {col.label}
-            {isSortable ? (
-              <ArrowUpDown
-                size={10}
-                strokeWidth={2.2}
-                aria-hidden
-                style={{ opacity: isActive ? 1 : 0.45 }}
-              />
-            ) : null}
-          </span>
-        );
-        return (
-          <div key={`col-${String(i)}`} className={`min-w-0 ${alignClass}`}>
-            {isSortable && col.sortKey ? (
-              <button
-                type="button"
-                onClick={() => {
-                  if (col.sortKey) onSortChange(col.sortKey);
-                }}
-                aria-sort={isActive ? "ascending" : "none"}
-                className="inline-flex w-full items-center gap-1 hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary)/0.4)]"
-                style={{
-                  justifyContent: col.align === "right" ? "flex-end" : "flex-start",
-                }}
-              >
-                {content}
-              </button>
-            ) : (
-              content
-            )}
-          </div>
-        );
-      })}
-    </div>
+    <tr className="border-b border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background)/0.72)]">
+      <th
+        scope="col"
+        aria-sort={sort === "project" ? "ascending" : "none"}
+        className="px-4 py-1 text-left"
+      >
+        <button
+          type="button"
+          onClick={() => {
+            onSortChange("project");
+          }}
+          className={sortableHeaderClass(sort === "project")}
+        >
+          Project
+          <SortIcon active={sort === "project"} />
+        </button>
+      </th>
+      <th
+        scope="col"
+        className="px-4 py-1 text-left text-[11px] font-bold tracking-[0.1em] text-[rgb(var(--fg-muted))] uppercase"
+      >
+        Client
+      </th>
+      <th
+        scope="col"
+        aria-sort={startedActive ? (sort === "newest" ? "descending" : "ascending") : "none"}
+        className="px-4 py-1 text-left"
+      >
+        <button
+          type="button"
+          onClick={() => {
+            onSortChange(sort === "oldest" ? "newest" : "oldest");
+          }}
+          className={sortableHeaderClass(startedActive)}
+        >
+          Started
+          <SortIcon active={startedActive} descending={sort === "newest"} />
+        </button>
+      </th>
+      <th
+        scope="col"
+        aria-sort={sort === "phase" ? "ascending" : "none"}
+        className="px-4 py-1 text-left"
+      >
+        <button
+          type="button"
+          onClick={() => {
+            onSortChange("phase");
+          }}
+          className={sortableHeaderClass(sort === "phase")}
+        >
+          Phase
+          <SortIcon active={sort === "phase"} />
+        </button>
+      </th>
+      <th
+        scope="col"
+        className="px-3 py-1 text-right text-[11px] font-bold tracking-[0.1em] text-[rgb(var(--fg-muted))] uppercase"
+      >
+        Actions
+      </th>
+    </tr>
   );
 }

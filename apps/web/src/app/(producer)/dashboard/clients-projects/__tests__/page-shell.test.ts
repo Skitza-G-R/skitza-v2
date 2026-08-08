@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(here, "..", "page.tsx"), "utf-8");
 
-describe("clients-projects/page.tsx — Phase 1 rewrite", () => {
+describe("clients-projects/page.tsx — SK-202 root list", () => {
   it("imports the new WorkspaceListView", () => {
     expect(SRC).toContain("WorkspaceListView");
     expect(SRC).toContain("~/components/dashboard/clients-projects/workspace-list-view");
@@ -20,11 +20,13 @@ describe("clients-projects/page.tsx — Phase 1 rewrite", () => {
     expect(SRC).toMatch(/<WorkspaceListView/);
   });
 
-  it("passes projects + clients + kpis + producerSlug to the view", () => {
+  it("passes projects + clients + producerSlug to the view without project KPIs or reorder", () => {
     expect(SRC).toMatch(/projects=\{/);
     expect(SRC).toMatch(/clients=\{/);
-    expect(SRC).toMatch(/kpis=\{/);
     expect(SRC).toMatch(/producerSlug=\{/);
+    expect(SRC).not.toMatch(/kpis=\{/);
+    expect(SRC).not.toContain("onReorderProjects");
+    expect(SRC).not.toContain("reorderProjectsAction");
   });
 
   // Phase 1 G7 — page must pass the producer's product list so the
@@ -57,13 +59,19 @@ describe("clients-projects/page.tsx — Phase 1 rewrite", () => {
     expect(SRC).not.toContain('view: "by-client"');
   });
 
+  it("renders the truthful root-list failure when the combined fetch fails", () => {
+    expect(SRC).toContain("ProjectsListFailure");
+    expect(SRC).toContain("workspace load failed");
+    expect(SRC).toMatch(/!loadResult\.ok[\s\S]{0,160}<ProjectsListFailure/);
+  });
+
   it("fetches the producer's slug via producer.me()", () => {
     expect(SRC).toContain("producer.me");
   });
 
-  it("removes the import of the old ProjectsList", () => {
-    expect(SRC).not.toContain("projects-list");
-    expect(SRC).not.toContain("ProjectsList");
+  it("does not restore the removed legacy ProjectsList implementation", () => {
+    expect(SRC).not.toMatch(/from\s+["'][^"']*\/projects-list["']/);
+    expect(SRC).not.toMatch(/<ProjectsList(?:\s|>)/);
   });
 
   it("removes the import of the old ClientsListScreen", () => {
