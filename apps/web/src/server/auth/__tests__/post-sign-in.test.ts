@@ -11,6 +11,7 @@ import {
   normalizeSameOriginPostSignInTarget,
   postSignInDestination,
   postSignInResolverHref,
+  postSignUpResolverHref,
   sanitizePostSignInTarget,
   trustedAuthRequestOrigin,
 } from "../post-sign-in";
@@ -95,6 +96,13 @@ describe("sanitizePostSignInTarget", () => {
       "/join/studio-slug/continue?action=home",
       {
         href: "/join/studio-slug/continue?action=home",
+        platform: "artist",
+      },
+    ],
+    [
+      "/join/studio-slug/continue?action=store",
+      {
+        href: "/join/studio-slug/continue?action=store",
         platform: "artist",
       },
     ],
@@ -195,6 +203,49 @@ describe("postSignInResolverHref", () => {
   );
 });
 
+describe("postSignUpResolverHref", () => {
+  it("sends only a successful normal-invite signup to the validated Store continuation", () => {
+    expect(
+      postSignUpResolverHref(
+        "/join/northline-studio/continue?action=home",
+      ),
+    ).toBe(
+      "/auth/resolve?next=%2Fjoin%2Fnorthline-studio%2Fcontinue%3Faction%3Dstore",
+    );
+
+    expect(
+      postSignInResolverHref(
+        "/join/northline-studio/continue?action=home",
+      ),
+    ).toBe(
+      "/auth/resolve?next=%2Fjoin%2Fnorthline-studio%2Fcontinue%3Faction%3Dhome",
+    );
+  });
+
+  it.each(["book", "unlock"])(
+    "keeps the explicit %s signup route unchanged",
+    (action) => {
+      const target = `/join/northline-studio/continue?action=${action}`;
+      expect(postSignUpResolverHref(target)).toBe(
+        postSignInResolverHref(target),
+      );
+    },
+  );
+
+  it("drops an invalid Producer context instead of constructing a destination", () => {
+    expect(
+      postSignUpResolverHref(
+        "/join/Invalid/continue?action=home",
+      ),
+    ).toBe("/auth/resolve");
+    expect(
+      postSignUpResolverHref(
+        "https://evil.example/join/northline-studio/continue?action=home",
+      ),
+    ).toBe("/auth/resolve");
+  });
+});
+
 describe("joinSignUpMetadataFromTarget", () => {
   it("derives Artist metadata only from a strictly validated join continuation", () => {
     expect(
@@ -210,6 +261,11 @@ describe("joinSignUpMetadataFromTarget", () => {
     expect(
       joinSignUpMetadataFromTarget(
         "/join/northline-studio/continue?action=home",
+      ),
+    ).toEqual({ signupOrigin: "join", producerSlug: "northline-studio" });
+    expect(
+      joinSignUpMetadataFromTarget(
+        "/join/northline-studio/continue?action=store",
       ),
     ).toEqual({ signupOrigin: "join", producerSlug: "northline-studio" });
   });
@@ -240,6 +296,11 @@ describe("joinSignUpHrefFromTarget", () => {
     expect(
       joinSignUpHrefFromTarget(
         "/join/northline-studio/continue?action=home",
+      ),
+    ).toBe("/sign-up/join/northline-studio/home?intent=signup");
+    expect(
+      joinSignUpHrefFromTarget(
+        "/join/northline-studio/continue?action=store",
       ),
     ).toBe("/sign-up/join/northline-studio/home?intent=signup");
   });

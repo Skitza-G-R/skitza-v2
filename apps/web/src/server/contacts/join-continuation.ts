@@ -63,6 +63,10 @@ export function joinArtistHref(target: JoinTargetProducer): string {
   return `/artist?${new URLSearchParams({ studio: target.id }).toString()}`;
 }
 
+export function joinStoreHref(target: JoinTargetProducer): string {
+  return `/artist/store?${new URLSearchParams({ studio: target.id }).toString()}`;
+}
+
 export function joinEntryMode(
   memberships: UserAccountMemberships,
 ): "direct" | "producer-confirmation" {

@@ -7,6 +7,7 @@ import { notFound, redirect } from "next/navigation";
 import {
   clearJoinIntentCookie,
   JOIN_INTENT_COOKIE,
+  type JoinContinuationAction,
   type JoinIntentAction,
   joinIntentSecret,
   verifyJoinIntentToken,
@@ -16,6 +17,7 @@ import {
   connectCurrentUserForJoin,
   findJoinTargetProducer,
   joinArtistHref,
+  joinStoreHref,
   JoinContinuationError,
 } from "~/server/contacts/join-continuation";
 import {
@@ -26,12 +28,38 @@ import {
 } from "~/server/contacts/join-recovery";
 import { joinSignInHref } from "~/server/auth/post-sign-in";
 
-function requireJoinAction(action: string): JoinIntentAction {
+function requireJoinAction(action: string): JoinContinuationAction {
+  if (
+    action !== "book" &&
+    action !== "unlock" &&
+    action !== "home" &&
+    action !== "store"
+  ) {
+    notFound();
+  }
+  return action;
+}
+
+function requireTrustedJoinAction(action: string): JoinIntentAction {
   if (action !== "book" && action !== "unlock" && action !== "home") notFound();
   return action;
 }
 
-function redirectForKnownJoinError(error: unknown, slug: string, action: JoinIntentAction): never {
+function completedJoinHref(
+  action: JoinContinuationAction,
+  target: Parameters<typeof joinArtistHref>[0],
+  bookingHref: string,
+): string {
+  if (action === "book") return bookingHref;
+  if (action === "store") return joinStoreHref(target);
+  return joinArtistHref(target);
+}
+
+function redirectForKnownJoinError(
+  error: unknown,
+  slug: string,
+  action: JoinContinuationAction,
+): never {
   if (error instanceof JoinContinuationError && error.code === "SELF_JOIN") {
     redirect(`/join/${encodeURIComponent(slug)}`);
   }
@@ -59,7 +87,7 @@ export async function continueAsArtist(slug: string, rawAction: string): Promise
   try {
     const bookingHref = await connectCurrentUserForJoin({ dbUrl, userId, target });
     clearJoinIntentCookie(await cookies(), process.env.NODE_ENV === "production");
-    redirect(action === "book" ? bookingHref : joinArtistHref(target));
+    redirect(completedJoinHref(action, target, bookingHref));
   } catch (error) {
     redirectForKnownJoinError(error, slug, action);
   }
@@ -69,7 +97,7 @@ export async function resumeTrustedJoinIntent(
   slug: string,
   rawAction: string,
 ): Promise<{ ok: false }> {
-  const action = requireJoinAction(rawAction);
+  const action = requireTrustedJoinAction(rawAction);
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("missing DATABASE_URL");
   const { userId } = await auth();
@@ -97,7 +125,7 @@ export async function resumeTrustedJoinIntent(
   try {
     const bookingHref = await connectCurrentUserForJoin({ dbUrl, userId, target });
     clearJoinIntentCookie(cookieStore, process.env.NODE_ENV === "production");
-    redirect(action === "book" ? bookingHref : joinArtistHref(target));
+    redirect(completedJoinHref(action, target, bookingHref));
   } catch (error) {
     redirectForKnownJoinError(error, slug, action);
   }

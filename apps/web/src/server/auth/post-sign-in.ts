@@ -1,5 +1,5 @@
 import type { UserAccountMemberships } from "./role";
-import type { JoinIntentAction } from "./join-intent";
+import type { JoinContinuationAction } from "./join-intent";
 
 export type AuthPlatform = "artist" | "producer";
 
@@ -25,7 +25,8 @@ function isJoinContinuationUrl(url: URL): boolean {
     entries[0]?.[0] === "action" &&
     (entries[0][1] === "book" ||
       entries[0][1] === "unlock" ||
-      entries[0][1] === "home")
+      entries[0][1] === "home" ||
+      entries[0][1] === "store")
   );
 }
 
@@ -92,7 +93,7 @@ export function sanitizePostSignInTarget(
 
 export function joinContinuationHref(
   slug: string,
-  action: JoinIntentAction = "book",
+  action: JoinContinuationAction = "book",
 ): string {
   if (!JOIN_SLUG_PATTERN.test(slug)) return "/";
   return `/join/${slug}/continue?action=${action}`;
@@ -100,7 +101,7 @@ export function joinContinuationHref(
 
 export function joinSignInHref(
   slug: string,
-  action: JoinIntentAction = "book",
+  action: JoinContinuationAction = "book",
 ): string {
   const continuationHref = joinContinuationHref(slug, action);
   if (continuationHref === "/") return "/sign-in";
@@ -121,7 +122,7 @@ export function joinSignUpHrefFromTarget(
     ? `/sign-up/join/${encodeURIComponent(match[1])}${
         action === "unlock"
           ? "/unlock"
-          : action === "home"
+          : action === "home" || action === "store"
             ? "/home"
             : ""
       }?intent=signup`
@@ -216,6 +217,30 @@ export function postSignInResolverHref(
   rawTarget?: string | null,
 ): string {
   return hrefWithNestedTarget("/auth/resolve", rawTarget);
+}
+
+/**
+ * Clerk exposes separate post-sign-in and post-sign-up destinations. A normal
+ * Producer invite keeps its existing Home target for a returning account, but
+ * a newly created account continues through the Store-specific join action.
+ * The continuation route revalidates the Producer before any connection write.
+ */
+export function postSignUpResolverHref(
+  rawTarget?: string | null,
+): string {
+  const target = sanitizePostSignInTarget(rawTarget);
+  if (!target) return "/auth/resolve";
+
+  const url = new URL(target.href, AUTH_TARGET_ORIGIN);
+  if (isJoinContinuationUrl(url) && url.searchParams.get("action") === "home") {
+    url.searchParams.set("action", "store");
+    return hrefWithNestedTarget(
+      "/auth/resolve",
+      `${url.pathname}${url.search}`,
+    );
+  }
+
+  return hrefWithNestedTarget("/auth/resolve", target.href);
 }
 
 export function roleChooserHref(rawTarget?: string | null): string {

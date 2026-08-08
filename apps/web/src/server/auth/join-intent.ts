@@ -3,6 +3,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 export const JOIN_INTENT_COOKIE = "skitza-join-intent";
 export const JOIN_INTENT_MAX_AGE_SECONDS = 10 * 60;
 export type JoinIntentAction = "book" | "unlock" | "home";
+export type JoinContinuationAction = JoinIntentAction | "store";
 
 const JOIN_SLUG_PATTERN = /^[a-z0-9-]{3,48}$/;
 

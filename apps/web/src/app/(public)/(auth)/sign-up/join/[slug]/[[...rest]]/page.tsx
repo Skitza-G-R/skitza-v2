@@ -35,7 +35,11 @@ export default async function JoinSignUpPage({ params, searchParams }: Props) {
         : "book";
   const clerkRouteSegments = action === "book" ? rest : rest?.slice(1);
   const continuationHref = joinContinuationHref(slug, action);
-  if (continuationHref === "/") notFound();
+  const postSignUpContinuationHref = joinContinuationHref(
+    slug,
+    action === "home" ? "store" : action,
+  );
+  if (continuationHref === "/" || postSignUpContinuationHref === "/") notFound();
 
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("missing DATABASE_URL");
@@ -80,8 +84,8 @@ export default async function JoinSignUpPage({ params, searchParams }: Props) {
       <SignUp
         path={signUpPath}
         signInUrl={signInHref}
-        fallbackRedirectUrl={continuationHref}
-        forceRedirectUrl={continuationHref}
+        fallbackRedirectUrl={postSignUpContinuationHref}
+        forceRedirectUrl={postSignUpContinuationHref}
         unsafeMetadata={{ signupOrigin: "join", producerSlug: slug }}
       />
     </div>

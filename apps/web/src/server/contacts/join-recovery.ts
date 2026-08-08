@@ -1,4 +1,4 @@
-import type { JoinIntentAction } from "~/server/auth/join-intent";
+import type { JoinContinuationAction } from "~/server/auth/join-intent";
 import { ProjectOwnershipDomainError } from "~/server/domain/project-ownership/service";
 
 import { JoinContinuationError } from "./join-continuation";
@@ -15,7 +15,7 @@ export function isJoinAccountConflict(error: unknown): error is ProjectOwnership
   return error instanceof ProjectOwnershipDomainError && error.code === "OWNER_CONFLICT";
 }
 
-export function joinAccountConflictHref(slug: string, action: JoinIntentAction): string {
+export function joinAccountConflictHref(slug: string, action: JoinContinuationAction): string {
   const query = new URLSearchParams({
     action,
     problem: JOIN_ACCOUNT_CONFLICT,
@@ -34,7 +34,7 @@ export function joinRetryProblem(error: unknown): JoinRetryProblem | null {
 
 export function joinRetryHref(
   slug: string,
-  action: JoinIntentAction,
+  action: JoinContinuationAction,
   problem: JoinRetryProblem,
 ): string {
   const query = new URLSearchParams({ action, problem });

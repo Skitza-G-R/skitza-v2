@@ -7,6 +7,7 @@ import {
   joinSignUpMetadataFromTarget,
   normalizeSameOriginPostSignInTarget,
   postSignInResolverHref,
+  postSignUpResolverHref,
   trustedAuthRequestOrigin,
 } from "~/server/auth/post-sign-in";
 
@@ -30,6 +31,7 @@ export default async function Page({ searchParams }: Props) {
     requestOrigin,
   );
   const resolverHref = postSignInResolverHref(requestedHref);
+  const signUpResolverHref = postSignUpResolverHref(requestedHref);
   const signUpHref = signUpSwitchHref(requestedHref);
   const joinMetadata = joinSignUpMetadataFromTarget(requestedHref);
 
@@ -41,8 +43,8 @@ export default async function Page({ searchParams }: Props) {
         {...(joinMetadata ? { unsafeMetadata: joinMetadata } : {})}
         fallbackRedirectUrl={resolverHref}
         forceRedirectUrl={resolverHref}
-        signUpFallbackRedirectUrl={resolverHref}
-        signUpForceRedirectUrl={resolverHref}
+        signUpFallbackRedirectUrl={signUpResolverHref}
+        signUpForceRedirectUrl={signUpResolverHref}
       />
     </div>
   );

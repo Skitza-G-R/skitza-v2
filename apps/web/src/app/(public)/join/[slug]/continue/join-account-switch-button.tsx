@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import { useSafeSignOut } from "~/components/audio/app-media-runtime";
 import { Button } from "~/components/ui/button";
-import type { JoinIntentAction } from "~/server/auth/join-intent";
+import type { JoinContinuationAction } from "~/server/auth/join-intent";
 import { joinSignInHref } from "~/server/auth/post-sign-in";
 
 export function JoinAccountSwitchButton({
@@ -12,7 +12,7 @@ export function JoinAccountSwitchButton({
   action,
 }: {
   slug: string;
-  action: JoinIntentAction;
+  action: JoinContinuationAction;
 }) {
   const signOut = useSafeSignOut();
   const [pending, setPending] = useState(false);
