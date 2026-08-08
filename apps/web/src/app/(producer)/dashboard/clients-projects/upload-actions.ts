@@ -15,6 +15,17 @@ import { toSafeUploadStageError } from "~/server/audio/upload-action-errors";
 export type ActionResult = { ok: true } | { ok: false; error: string };
 export type ActionDataResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
+export interface AudioStorageUsage {
+  usedBytes: number;
+  reservedBytes: number;
+  committedBytes: number;
+  availableBytes: number;
+  limitBytes: number;
+  warningBytes: number;
+  isAtOrAboveWarning: boolean;
+  isFull: boolean;
+}
+
 const CLIENTS_PROJECTS_PATH = "/dashboard/clients-projects";
 const MUSIC_LIBRARY_PATH = "/dashboard/music";
 
@@ -51,6 +62,32 @@ function toMessage(err: unknown): string {
     }
   }
   return err instanceof Error ? err.message : "Something went wrong.";
+}
+
+export async function getAudioStorageUsageAction(): Promise<ActionDataResult<AudioStorageUsage>> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const data = await c.caller.audio.storageUsage();
+    return { ok: true, data };
+  } catch (err) {
+    console.error("[upload-actions]", err);
+    return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function reconcileAudioStorageUsageAction(): Promise<
+  ActionDataResult<AudioStorageUsage>
+> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const data = await c.caller.audio.reconcileStorageUsage();
+    return { ok: true, data };
+  } catch (err) {
+    console.error("[upload-actions]", err);
+    return { ok: false, error: toMessage(err) };
+  }
 }
 
 export type PreparedFirstVersionUpload =

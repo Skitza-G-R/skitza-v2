@@ -160,4 +160,41 @@ describe("durable multipart cancellation stability", () => {
       /const remainingUploadIds = await listExactMultipartUploadIds[\s\S]*remainingUploadIds\.length > 0[\s\S]*refreshCancellationObservation[\s\S]*const uploadsAfterAbort = await listExactMultipartUploadIds[\s\S]*uploadsAfterAbort\.length !== 0[\s\S]*refreshCancellationObservation/,
     );
   });
+
+  it("keeps legacy completes fail-closed and orders abort before protected terminal sealing", () => {
+    const reconcile = SOURCE.slice(
+      SOURCE.indexOf("export async function reconcilePendingMultipartCancellation"),
+      SOURCE.indexOf("export type PendingMultipartCancellationExpectedIdentity"),
+    );
+    const abort = reconcile.indexOf("await port.abortExact(input)");
+    const rolloutGate = reconcile.indexOf("if (!input.terminalSealAllowed) return false");
+    const seal = reconcile.indexOf("reconcileMultipartTerminalSeal");
+    const clear = reconcile.indexOf("port.clearExact");
+
+    expect(abort).toBeGreaterThanOrEqual(0);
+    expect(rolloutGate).toBeGreaterThan(abort);
+    expect(seal).toBeGreaterThan(rolloutGate);
+    expect(clear).toBeGreaterThan(seal);
+    expect(SOURCE).toContain("version.pendingAudioCompleteAttemptedAt === null ||");
+    expect(SOURCE).toContain("version.pendingAudioCompleteWriteOnceProtectedAt.getTime() ===");
+    expect(SOURCE).toContain("trackVersions.pendingAudioCompleteWriteOnceProtectedAt");
+  });
+
+  it("takes the producer quota lock first in every cancellation transaction", () => {
+    const transactionStarts = Array.from(
+      SOURCE.matchAll(/ctx\.db\.transaction\(async \(tx\)/g),
+      (match) => match.index,
+    );
+
+    expect(transactionStarts).toHaveLength(5);
+    for (const [index, start] of transactionStarts.entries()) {
+      const end = transactionStarts[index + 1] ?? SOURCE.length;
+      const transaction = SOURCE.slice(start, end);
+      const quotaLock = transaction.indexOf("lockProducerAudioStorageQuota(tx");
+      const projectLock = transaction.indexOf("pg_advisory_xact_lock(hashtextextended");
+
+      expect(quotaLock).toBeGreaterThanOrEqual(0);
+      expect(projectLock).toBeGreaterThan(quotaLock);
+    }
+  });
 });

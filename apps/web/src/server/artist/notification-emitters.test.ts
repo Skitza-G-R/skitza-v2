@@ -1,9 +1,21 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getArtistProfileMock, insertedValues, dbMock } = vi.hoisted(() => {
+const { getArtistProfileMock, insertedValues, selectedRows, dbMock } = vi.hoisted(() => {
   const getArtistProfileMock = vi.fn();
   const insertedValues: Record<string, unknown>[] = [];
-  const dbMock = {
+  const selectedRows: Record<string, unknown>[][] = [];
+  const dbMock: Record<string, unknown> = {
+    execute: () => Promise.resolve({ rows: [] }),
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          limit: () => Promise.resolve(selectedRows.shift() ?? [{ id: "live-target" }]),
+        }),
+      }),
+    }),
     insert: () => ({
       values: (value: Record<string, unknown>) => {
         insertedValues.push(value);
@@ -15,7 +27,8 @@ const { getArtistProfileMock, insertedValues, dbMock } = vi.hoisted(() => {
       },
     }),
   };
-  return { getArtistProfileMock, insertedValues, dbMock };
+  dbMock.transaction = (callback: (tx: unknown) => unknown) => callback(dbMock);
+  return { getArtistProfileMock, insertedValues, selectedRows, dbMock };
 });
 
 vi.mock("./profile", () => ({
@@ -30,10 +43,6 @@ vi.mock("./profile", () => ({
   getArtistProfile: getArtistProfileMock,
 }));
 
-vi.mock("@skitza/db", () => ({
-  artistNotifications: { id: "artist_notifications.id" },
-}));
-
 import {
   emitArtistNewVersionNotification,
   emitArtistProducerCommentNotification,
@@ -42,6 +51,11 @@ import {
   emitArtistSessionNotification,
 } from "./notification-emitters";
 
+const notificationEmitterSource = readFileSync(
+  join(process.cwd(), "src/server/artist/notification-emitters.ts"),
+  "utf8",
+);
+
 const recipient = "user_artist_1";
 const producerId = "11111111-1111-4111-8111-111111111111";
 const subjectId = "22222222-2222-4222-8222-222222222222";
@@ -49,6 +63,7 @@ const relatedId = "33333333-3333-4333-8333-333333333333";
 
 beforeEach(() => {
   insertedValues.length = 0;
+  selectedRows.length = 0;
   getArtistProfileMock.mockReset().mockResolvedValue({
     timezone: null,
     notificationPreferences: {
@@ -172,6 +187,82 @@ describe("artist notification event emitters", () => {
       destinationHref: `/artist/music/song/${subjectId}?comment=${relatedId}`,
       dedupeKey: `track-comment:${relatedId}:created`,
     });
+  });
+
+  it("suppresses a late notification and email after its Version disappears", async () => {
+    selectedRows.push([]);
+    const result = await emitArtistNewVersionNotification(dbMock as never, {
+      recipientClerkUserId: recipient,
+      producerId,
+      trackVersionId: subjectId,
+      producerName: "North Studio",
+      trackTitle: "Afterglow",
+      versionLabel: "V3",
+    });
+
+    expect(result).toEqual({ inserted: false, emailEnabled: false });
+    expect(insertedValues).toEqual([]);
+  });
+
+  it("suppresses a late notification and email after its comment disappears", async () => {
+    selectedRows.push([{ id: subjectId }], []);
+    const result = await emitArtistProducerCommentNotification(dbMock as never, {
+      recipientClerkUserId: recipient,
+      producerId,
+      trackVersionId: subjectId,
+      commentId: relatedId,
+      producerName: "North Studio",
+      trackTitle: "Afterglow",
+    });
+
+    expect(result).toEqual({ inserted: false, emailEnabled: false });
+    expect(insertedValues).toEqual([]);
+  });
+
+  it("locks and proves a live music target before inserting its notification", () => {
+    const emitterStart = notificationEmitterSource.indexOf("async function emitArtistNotification");
+    const guardedStart = notificationEmitterSource.indexOf("if (liveMusicTarget)", emitterStart);
+    const transaction = notificationEmitterSource.indexOf("return db.transaction", guardedStart);
+    const quotaLock = notificationEmitterSource.indexOf(
+      "await lockProducerAudioStorageQuota(tx, event.producerId)",
+      transaction,
+    );
+    const versionLookup = notificationEmitterSource.indexOf(
+      ".select({ id: trackVersions.id })",
+      quotaLock,
+    );
+    const missingVersion = notificationEmitterSource.indexOf(
+      "if (!version) return { inserted: false, emailEnabled: false }",
+      versionLookup,
+    );
+    const commentLookup = notificationEmitterSource.indexOf(
+      ".select({ id: trackComments.id })",
+      missingVersion,
+    );
+    const missingComment = notificationEmitterSource.indexOf(
+      "if (!comment) return { inserted: false, emailEnabled: false }",
+      commentLookup,
+    );
+    const insert = notificationEmitterSource.indexOf(
+      ".insert(artistNotifications)",
+      missingComment,
+    );
+    const guardedEnd = notificationEmitterSource.indexOf(
+      "if (!values) return { inserted: false, emailEnabled };",
+      insert,
+    );
+
+    expect(emitterStart).toBeGreaterThanOrEqual(0);
+    expect(guardedStart).toBeGreaterThan(emitterStart);
+    expect(transaction).toBeGreaterThan(guardedStart);
+    expect(quotaLock).toBeGreaterThan(transaction);
+    expect(versionLookup).toBeGreaterThan(quotaLock);
+    expect(missingVersion).toBeGreaterThan(versionLookup);
+    expect(commentLookup).toBeGreaterThan(missingVersion);
+    expect(missingComment).toBeGreaterThan(commentLookup);
+    expect(insert).toBeGreaterThan(missingComment);
+    expect(guardedEnd).toBeGreaterThan(insert);
+    expect(notificationEmitterSource.slice(guardedStart, guardedEnd)).not.toMatch(/catch\s*\(/);
   });
 
   it("snapshots a disabled in-app preference without creating a studio dot", async () => {

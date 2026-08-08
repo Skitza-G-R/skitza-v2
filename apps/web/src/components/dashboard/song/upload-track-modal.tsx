@@ -25,11 +25,20 @@ import {
   completeFirstVersionUploadAction,
   completeMultipartAction,
   deleteVersionAction,
+  getAudioStorageUsageAction,
   initMultipartAction,
   prepareFirstVersionUploadAction,
+  reconcileAudioStorageUsageAction,
   setTrackStageAction,
   signPartAction,
+  type AudioStorageUsage,
 } from "~/app/(producer)/dashboard/clients-projects/upload-actions";
+import {
+  AUDIO_MULTIPART_PART_SIZE_BYTES,
+  AUDIO_STORAGE_FULL_MESSAGE,
+  AUDIO_UPLOAD_MAX_BYTES,
+  PRODUCER_AUDIO_STORAGE_LIMIT_BYTES,
+} from "~/lib/audio/storage-limits";
 import {
   cancelInitializedUploadIfRequested,
   createUploadCancellationRequest,
@@ -64,9 +73,11 @@ import {
 // a temporary intent and become durable only when Song + V1 commit together;
 // existing Songs retain the hardened multipart Version path.
 
-const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
 const OFFLINE_UPLOAD_MESSAGE =
   "Reconnect to upload. This attempt has not started; your file and form details remain here.";
+const FILE_TOO_LARGE_MESSAGE = "Audio files can be up to 100 MB.";
+const STORAGE_WARNING_MESSAGE =
+  "You're close to the 1 GB beta limit. Delete old Versions or Songs you no longer need.";
 
 type ActiveMultipartUpload = ResumableEntry & {
   key: string;
@@ -172,6 +183,9 @@ export function UploadTrackModal({
   const [isDragging, setIsDragging] = useState(false);
   const [progress, setProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [storageUsage, setStorageUsage] = useState<AudioStorageUsage | null>(null);
+  const [storageUsageLoading, setStorageUsageLoading] = useState(false);
+  const [storageUsageError, setStorageUsageError] = useState<string | null>(null);
 
   // Active upload state — kept in a ref so the abort handler reads the
   // freshest value even if the user closes mid-upload before React
@@ -217,6 +231,34 @@ export function UploadTrackModal({
   }, [open, mode, trackId, initialProjectId, defaultLabel, tracks, projects]);
 
   useEffect(() => {
+    if (!open) return;
+    let ignore = false;
+    setStorageUsage(null);
+    setStorageUsageError(null);
+    setStorageUsageLoading(true);
+    void getAudioStorageUsageAction()
+      .then((result) => {
+        if (ignore) return;
+        if (result.ok) {
+          setStorageUsage(result.data);
+          return;
+        }
+        setStorageUsageError("We couldn't check your storage. Close this window and try again.");
+      })
+      .catch(() => {
+        if (!ignore) {
+          setStorageUsageError("We couldn't check your storage. Close this window and try again.");
+        }
+      })
+      .finally(() => {
+        if (!ignore) setStorageUsageLoading(false);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [open]);
+
+  useEffect(() => {
     if (online) {
       setUploadError((current) => (current === OFFLINE_UPLOAD_MESSAGE ? null : current));
     }
@@ -248,10 +290,28 @@ export function UploadTrackModal({
   const selectedPublicExposure =
     destinationTracks.find((track) => track.id === selectedTrackId)?.publicExposure ?? "none";
   const needsSongName = isNewSong && newSongName.trim().length === 0;
-  const visibleUploadError = !online ? OFFLINE_UPLOAD_MESSAGE : uploadError;
+  const projectedStorageBytes =
+    storageUsage && file ? storageUsage.committedBytes + file.size : null;
+  const storageLimitExceeded =
+    storageUsage !== null &&
+    (storageUsage.isFull ||
+      (projectedStorageBytes !== null && projectedStorageBytes > storageUsage.limitBytes));
+  const visibleUploadError = !online
+    ? OFFLINE_UPLOAD_MESSAGE
+    : storageLimitExceeded && uploadError === AUDIO_STORAGE_FULL_MESSAGE
+      ? null
+      : uploadError;
+  const storageWarningReached =
+    storageUsage !== null &&
+    !storageLimitExceeded &&
+    (storageUsage.isAtOrAboveWarning ||
+      (projectedStorageBytes !== null && projectedStorageBytes >= storageUsage.warningBytes));
   const submitDisabled =
     pending ||
     !online ||
+    storageUsageLoading ||
+    !storageUsage ||
+    storageLimitExceeded ||
     !file ||
     (!isNewSong && label.trim().length === 0) ||
     needsSongName ||
@@ -264,6 +324,42 @@ export function UploadTrackModal({
     }
     if (activeFirstVersionCancellationRef.current?.intentId === intentId) {
       activeFirstVersionCancellationRef.current = null;
+    }
+  }
+
+  async function refreshStorageUsageAfterQuotaRejection(): Promise<void> {
+    setStorageUsageLoading(true);
+    setStorageUsageError(null);
+    try {
+      const result = await getAudioStorageUsageAction();
+      if (!result.ok) {
+        setStorageUsage(null);
+        setStorageUsageError("We couldn't check your storage. Close this window and try again.");
+        return;
+      }
+      setStorageUsage(result.data);
+    } catch {
+      setStorageUsage(null);
+      setStorageUsageError("We couldn't check your storage. Close this window and try again.");
+    } finally {
+      setStorageUsageLoading(false);
+    }
+  }
+
+  async function cleanUpOldUploads(): Promise<void> {
+    setStorageUsageLoading(true);
+    setStorageUsageError(null);
+    try {
+      const result = await reconcileAudioStorageUsageAction();
+      if (!result.ok) {
+        setStorageUsageError("We couldn't clean up old uploads. Try again.");
+        return;
+      }
+      setStorageUsage(result.data);
+    } catch {
+      setStorageUsageError("We couldn't clean up old uploads. Try again.");
+    } finally {
+      setStorageUsageLoading(false);
     }
   }
 
@@ -331,6 +427,12 @@ export function UploadTrackModal({
     if (pending) return;
     if (f && !isAudioFile(f)) {
       toast("Please pick an audio file (WAV / MP3).", "error");
+      return;
+    }
+    if (f && f.size > AUDIO_UPLOAD_MAX_BYTES) {
+      setFile(null);
+      setUploadError(FILE_TOO_LARGE_MESSAGE);
+      toast(FILE_TOO_LARGE_MESSAGE, "error");
       return;
     }
     if (!(await retireActiveFirstVersionAttempt())) return;
@@ -518,7 +620,10 @@ export function UploadTrackModal({
           if (uploadCancellationRequested(cancellation)) throw new Error("Upload stopped.");
           throw new Error(uploadTransferFailure());
         }
-        if (!putResponse.ok) {
+        // A write-once retry can race or find the exact prior PUT already at
+        // the key. Completion is the authoritative token/size/type check, so
+        // conditional 409/412 responses continue there instead of re-uploading.
+        if (!putResponse.ok && putResponse.status !== 409 && putResponse.status !== 412) {
           throw new Error(uploadTransferFailure({ status: putResponse.status }));
         }
         if (uploadCancellationRequested(cancellation)) {
@@ -556,7 +661,13 @@ export function UploadTrackModal({
           cancellationState.failure ??
           (error instanceof Error ? error.message : uploadStageFailure("initiation"));
         setProgress(0);
-        managed.fail(message);
+        if (message.includes(AUDIO_STORAGE_FULL_MESSAGE)) {
+          setUploadError(AUDIO_STORAGE_FULL_MESSAGE);
+          managed.dismiss();
+          await refreshStorageUsageAfterQuotaRejection();
+        } else {
+          managed.fail(message);
+        }
       } finally {
         finishOperation();
         if (activeCancellationRef.current === cancellation) activeCancellationRef.current = null;
@@ -677,12 +788,15 @@ export function UploadTrackModal({
         //    rather than parallel so the progress bar tracks honestly
         //    and a network blip aborts cleanly without orphaning N
         //    parallel signed URLs.
-        const partCount = Math.max(1, Math.ceil(submittedFile.size / CHUNK_SIZE));
+        const partCount = Math.max(
+          1,
+          Math.ceil(submittedFile.size / AUDIO_MULTIPART_PART_SIZE_BYTES),
+        );
         for (let i = 0; i < partCount; i++) {
           if (uploadCancellationRequested(cancellation)) throw new Error("Upload stopped.");
           const partNumber = i + 1;
-          const start = i * CHUNK_SIZE;
-          const end = Math.min(start + CHUNK_SIZE, submittedFile.size);
+          const start = i * AUDIO_MULTIPART_PART_SIZE_BYTES;
+          const end = Math.min(start + AUDIO_MULTIPART_PART_SIZE_BYTES, submittedFile.size);
           const chunk = submittedFile.slice(start, end);
 
           const sres = await signPartAction({
@@ -791,7 +905,13 @@ export function UploadTrackModal({
           cancellationFailure ??
           (err instanceof Error ? err.message : uploadStageFailure("initiation"));
         setProgress(0);
-        managed.fail(msg);
+        if (msg.includes(AUDIO_STORAGE_FULL_MESSAGE)) {
+          setUploadError(AUDIO_STORAGE_FULL_MESSAGE);
+          managed.dismiss();
+          await refreshStorageUsageAfterQuotaRejection();
+        } else {
+          managed.fail(msg);
+        }
       } finally {
         finishOperation();
         if (activeCancellationRef.current === cancellation) {
@@ -863,6 +983,39 @@ export function UploadTrackModal({
           <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pt-4 pb-4">
               <div className="flex flex-col gap-3">
+                <div
+                  className="rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3"
+                  aria-live="polite"
+                >
+                  <div className="grid grid-cols-2 gap-2">
+                    <StorageFigure
+                      label="Used"
+                      value={
+                        storageUsageLoading
+                          ? "Checking…"
+                          : formatStorageBytes(storageUsage?.usedBytes)
+                      }
+                    />
+                    <StorageFigure
+                      label="Available"
+                      value={
+                        storageUsageLoading
+                          ? "Checking…"
+                          : formatStorageBytes(storageUsage?.availableBytes)
+                      }
+                    />
+                  </div>
+                  {file && storageUsage ? (
+                    <div className="mt-2 border-t border-[rgb(var(--border-subtle))] pt-2 text-[12px] leading-snug text-[rgb(var(--fg-muted))]">
+                      After upload: {formatStorageBytes(projectedStorageBytes)} of 1 GB
+                    </div>
+                  ) : (
+                    <div className="mt-2 border-t border-[rgb(var(--border-subtle))] pt-2 text-[11px] leading-snug text-[rgb(var(--fg-muted))]">
+                      Beta audio limit: {formatStorageBytes(PRODUCER_AUDIO_STORAGE_LIMIT_BYTES)}
+                    </div>
+                  )}
+                </div>
+
                 {/* The file always comes first. Destination details appear only afterward. */}
                 <div>
                   <FieldLabel htmlFor="upload-track-file" required>
@@ -1167,6 +1320,47 @@ export function UploadTrackModal({
                   </p>
                 ) : null}
 
+                {storageUsageError ? (
+                  <p role="alert" className="text-sm text-[rgb(var(--fg-danger))]">
+                    {storageUsageError}
+                  </p>
+                ) : null}
+
+                {storageLimitExceeded ? (
+                  <div
+                    id="upload-track-storage-error"
+                    role="alert"
+                    className="rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary)/0.1)] px-3 py-2.5 text-sm leading-snug text-[rgb(var(--fg-default))]"
+                  >
+                    <p>{AUDIO_STORAGE_FULL_MESSAGE}</p>
+                    {storageUsage.isFull && storageUsage.reservedBytes > 0 ? (
+                      <div className="mt-2">
+                        <p className="text-xs text-[rgb(var(--fg-muted))]">
+                          Cleanup only removes failed or canceled upload leftovers. It never removes
+                          Songs or Versions.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => void cleanUpOldUploads()}
+                          disabled={storageUsageLoading}
+                          className="mt-2 min-h-11 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-background))] px-3 py-2 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {storageUsageLoading ? "Cleaning up…" : "Clean up old uploads"}
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {storageWarningReached ? (
+                  <p
+                    role="status"
+                    className="rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary)/0.1)] px-3 py-2.5 text-sm leading-snug text-[rgb(var(--fg-default))]"
+                  >
+                    {STORAGE_WARNING_MESSAGE}
+                  </p>
+                ) : null}
+
                 {visibleUploadError ? (
                   <p
                     id="upload-track-error"
@@ -1191,7 +1385,13 @@ export function UploadTrackModal({
               <button
                 type="submit"
                 disabled={submitDisabled}
-                aria-describedby={visibleUploadError ? "upload-track-error" : undefined}
+                aria-describedby={
+                  storageLimitExceeded
+                    ? "upload-track-storage-error"
+                    : visibleUploadError
+                      ? "upload-track-error"
+                      : undefined
+                }
                 className="sk-press inline-flex min-h-11 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] px-4 py-2 text-[13px] font-semibold text-[rgb(17_16_9)] shadow-[0_4px_14px_-2px_rgb(var(--brand-primary)/0.5)] disabled:opacity-50 disabled:shadow-none sm:min-h-0"
                 style={{ background: "rgb(var(--brand-primary))" }}
               >
@@ -1229,6 +1429,19 @@ function FieldLabel({
   );
 }
 
+function StorageFigure({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[10px] font-bold tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase">
+        {label}
+      </div>
+      <div className="mt-1 truncate text-[13px] font-semibold text-[rgb(var(--fg-default))]">
+        {value}
+      </div>
+    </div>
+  );
+}
+
 // Derive the next sensible version label for a given track id. For a
 // new song we suggest "V1"; otherwise V{N+1} based on the upstream
 // versionCount. The producer can always overwrite.
@@ -1240,9 +1453,19 @@ function deriveNextLabel(tracks: UploadTrackModalTrack[], trackIdOrNew: string):
 }
 
 function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${String(bytes)} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return formatStorageBytes(bytes);
+}
+
+function formatStorageBytes(bytes: number | null | undefined): string {
+  if (bytes === null || bytes === undefined) return "—";
+  if (bytes < 1_000) return `${String(bytes)} B`;
+  if (bytes < 1_000_000) return `${trimTrailingZeros(bytes / 1_000)} KB`;
+  if (bytes < 1_000_000_000) return `${trimTrailingZeros(bytes / 1_000_000)} MB`;
+  return `${trimTrailingZeros(bytes / 1_000_000_000, 2)} GB`;
+}
+
+function trimTrailingZeros(value: number, digits = 1): string {
+  return value.toFixed(digits).replace(/\.?0+$/, "");
 }
 
 function audioContentType(file: File): string {

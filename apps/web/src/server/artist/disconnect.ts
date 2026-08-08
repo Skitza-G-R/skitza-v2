@@ -24,6 +24,7 @@ import {
 
 import { purchaseLedgerRepositoryForTransaction } from "~/server/domain/purchase-ledger/db";
 import { readPurchaseLedger } from "~/server/domain/purchase-ledger/service";
+import { lockProducerAudioStorageQuota } from "~/server/domain/audio-storage/quota";
 
 type TransactionDb = Parameters<Parameters<Db["transaction"]>[0]>[0];
 type DisconnectQueryDb = Db | TransactionDb;
@@ -60,13 +61,7 @@ type DisconnectSnapshot = Readonly<{
     id: string;
     sessionAllowanceId: string;
     startsAt: Date;
-    status:
-      | "pending_approval"
-      | "confirmed"
-      | "rejected"
-      | "cancelled"
-      | "completed"
-      | "no_show";
+    status: "pending_approval" | "confirmed" | "rejected" | "cancelled" | "completed" | "no_show";
     outcome:
       | "reserved"
       | "completed"
@@ -135,17 +130,11 @@ export function evaluateArtistDisconnectBlockers(
     blockers.push({
       kind: "active_purchase",
       count: activePurchases,
-      label: pluralLabel(
-        activePurchases,
-        "purchase is still active",
-        "purchases are still active",
-      ),
+      label: pluralLabel(activePurchases, "purchase is still active", "purchases are still active"),
     });
   }
 
-  const pendingProofs = snapshot.paymentProofs.filter(
-    (proof) => proof.status === "pending",
-  ).length;
+  const pendingProofs = snapshot.paymentProofs.filter((proof) => proof.status === "pending").length;
   if (pendingProofs > 0) {
     blockers.push({
       kind: "pending_payment_proof",
@@ -317,16 +306,10 @@ async function loadDisconnectSnapshot(
     .from(bookings)
     .innerJoin(
       purchases,
-      and(
-        eq(purchases.id, bookings.purchaseId),
-        eq(purchases.producerId, bookings.producerId),
-      ),
+      and(eq(purchases.id, bookings.purchaseId), eq(purchases.producerId, bookings.producerId)),
     )
     .where(
-      and(
-        eq(bookings.producerId, producerId),
-        inArray(purchases.clientContactId, [...contactIds]),
-      ),
+      and(eq(bookings.producerId, producerId), inArray(purchases.clientContactId, [...contactIds])),
     );
 
   const allowanceRows = await db
@@ -606,6 +589,7 @@ export async function commitArtistStudioDisconnect(
 
   return db.transaction(
     async (tx) => {
+      await lockProducerAudioStorageQuota(tx, input.producerId);
       await tx.execute(
         sql`select pg_advisory_xact_lock(hashtextextended(${`artist-disconnect:${input.clerkUserId}:${input.producerId}`}, 0))`,
       );

@@ -154,6 +154,7 @@ describe("playback restoration", () => {
     const values = new Map<string, string>();
     const forgedTrack = {
       id: VERSION_ID,
+      songId: "song-1",
       audioUrl: `/api/audio/stream/${VERSION_ID}`,
       title: "Private mix",
       subtitle: "Artist",
@@ -185,6 +186,7 @@ describe("playback restoration", () => {
       "cachePolicy",
       "durationMs",
       "id",
+      "songId",
       "subtitle",
       "title",
     ]);
@@ -203,6 +205,22 @@ describe("playback restoration", () => {
     expect(rewritten).not.toContain("signedDownloadUrl");
     expect(rewritten).not.toContain("storageKey");
     expect(rewritten).not.toContain("artwork");
+  });
+
+  it("preserves a valid optional Song identity and rejects malformed identity", () => {
+    const track = {
+      id: VERSION_ID,
+      songId: "song-1",
+      audioUrl: `/api/audio/stream/${VERSION_ID}`,
+      title: "Song identity mix",
+      subtitle: "Artist",
+      durationMs: 20_000,
+      cachePolicy: "account-unlocked" as const,
+    };
+
+    expect(normalizePlayerTrack(track)).toEqual(track);
+    expect(normalizePlayerTrack({ ...track, songId: "" })).toBeNull();
+    expect(normalizePlayerTrack({ ...track, songId: "x".repeat(257) })).toBeNull();
   });
 
   it("drops malformed or secret-bearing artwork before Media Session can see it", () => {

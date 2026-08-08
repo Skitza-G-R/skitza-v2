@@ -94,6 +94,7 @@ describe("activeVersionToPlayerTrack — PlayerTrack payload", () => {
     const t = { ...baseTrack, title: "Sunset Mix" };
     const p = activeVersionToPlayerTrack(t, v, "producer");
     expect(p.id).toBe("v-42");
+    expect(p.songId).toBe(t.id);
     expect(p.audioUrl).toBe("https://r2/x.mp3");
     expect(p.title).toBe("Sunset Mix");
     expect(p.durationMs).toBe(200_000);
@@ -287,7 +288,7 @@ describe("deleted-audio version selection", () => {
   });
 });
 
-describe("deleteVersionAudioPolicy — pre-Released protection and Released warnings", () => {
+describe("deleteVersionAudioPolicy — legacy audio-only protection", () => {
   const current = makeVersion({ id: "v-3", label: "V3" });
   const older = makeVersion({ id: "v-2", label: "V2" });
   const finalOlder = makeVersion({
@@ -296,7 +297,7 @@ describe("deleteVersionAudioPolicy — pre-Released protection and Released warn
     producerMarkedFinalAtIso: "2026-07-18T10:00:00Z",
   });
 
-  it("blocks the newest playable current version before Released", () => {
+  it("blocks the newest playable current version when protection applies", () => {
     const policy = deleteVersionAudioPolicy({
       versions: [current, older],
       version: current,
@@ -305,10 +306,10 @@ describe("deleteVersionAudioPolicy — pre-Released protection and Released warn
     expect(policy.isCurrent).toBe(true);
     expect(policy.isReleased).toBe(false);
     expect(policy.canDelete).toBe(false);
-    expect(policy.details.join(" ")).toMatch(/Before Released.*current/i);
+    expect(policy.details.join(" ")).toMatch(/current.*legacy audio-only cleanup/i);
   });
 
-  it("blocks a producer-marked-final version before Released even when it is not current", () => {
+  it("blocks a producer-marked-final version when protection applies", () => {
     const policy = deleteVersionAudioPolicy({
       versions: [current, older, finalOlder],
       version: finalOlder,
@@ -320,7 +321,7 @@ describe("deleteVersionAudioPolicy — pre-Released protection and Released warn
     expect(policy.details.join(" ")).toMatch(/final/i);
   });
 
-  it("allows an older ordinary version before Released", () => {
+  it("allows an older ordinary version in the legacy flow", () => {
     const policy = deleteVersionAudioPolicy({
       versions: [current, older],
       version: older,
@@ -332,7 +333,7 @@ describe("deleteVersionAudioPolicy — pre-Released protection and Released warn
     expect(policy.canDelete).toBe(true);
   });
 
-  it("blocks the last stored audio before Released", () => {
+  it("blocks the last stored audio when protection applies", () => {
     const policy = deleteVersionAudioPolicy({
       versions: [older],
       version: older,
@@ -342,7 +343,7 @@ describe("deleteVersionAudioPolicy — pre-Released protection and Released warn
     expect(policy.canDelete).toBe(false);
   });
 
-  it("allows final/last audio after Released with the strongest public consequences", () => {
+  it("uses the strongest public consequences for allowed final/last audio", () => {
     const policy = deleteVersionAudioPolicy({
       versions: [finalOlder],
       version: finalOlder,

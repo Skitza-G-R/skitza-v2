@@ -10,7 +10,7 @@ import { VersionRow, type VersionRowVersionData } from "~/components/dashboard/s
 // (the parent passes the list in display order).
 
 interface VersionsTabProps {
-  song: { title: string };
+  song: { id: string; title: string };
   project: { name: string };
   versions: VersionRowVersionData[];
   /** Phase 4 — opens the UploadTrackModal from the parent SongSpace. */
@@ -57,7 +57,13 @@ export function VersionsTab({
         </p>
       ) : versions.length > 0 ? (
         versions.map((v) => (
-          <VersionRow key={v.id} version={v} songTitle={song.title} projectName={project.name} />
+          <VersionRow
+            key={v.id}
+            version={v}
+            songId={song.id}
+            songTitle={song.title}
+            projectName={project.name}
+          />
         ))
       ) : null}
     </section>

@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SongPage, type L3Actions, type SongPageData } from "../song-page";
 
 const mocks = vi.hoisted(() => ({
+  routerPush: vi.fn(),
+  routerRefresh: vi.fn(),
   playerClose: vi.fn(),
   playerLoad: vi.fn(),
   playerPlay: vi.fn(),
@@ -27,6 +29,10 @@ const mocks = vi.hoisted(() => ({
     audioDurationSec: null as number | null,
     volume: 1,
   },
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: mocks.routerPush, refresh: mocks.routerRefresh }),
 }));
 
 vi.mock("~/components/audio/waveform-50", () => ({
@@ -159,6 +165,8 @@ function songActions(): L3Actions {
 }
 
 beforeEach(() => {
+  mocks.routerPush.mockReset();
+  mocks.routerRefresh.mockReset();
   mocks.playerClose.mockReset();
   mocks.playerLoad.mockReset();
   mocks.playerPlay.mockReset();
@@ -207,14 +215,14 @@ describe("SongPage professional player interactions", () => {
     );
 
     expect(
-      screen.getByRole("link", {
-        name: "Open After the Rain — Single project",
-      }).getAttribute("href"),
+      screen
+        .getByRole("link", {
+          name: "Open After the Rain — Single project",
+        })
+        .getAttribute("href"),
     ).toBe("/dashboard/clients-projects/project-1");
 
-    await user.click(
-      screen.getByRole("button", { name: "Upload new Version for After the Rain" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Upload new Version for After the Rain" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Upload new version" });
     expect(dialog.getAttribute("data-project-id")).toBe("project-1");
@@ -379,6 +387,44 @@ describe("SongPage professional player interactions", () => {
 });
 
 describe("SongPage More actions interactions", () => {
+  it("routes a deleted current Version to the surviving Version and preserves Project origin", async () => {
+    installMatchMedia(true);
+    const user = userEvent.setup();
+    const data = songData(false);
+    const current = data.versions[0];
+    if (!current) throw new Error("Expected the Song fixture to include a Version.");
+    data.versions.push({
+      ...current,
+      id: "version-0",
+      label: "Mix v0",
+      uploadedAtIso: "2026-07-17T09:30:00.000Z",
+    });
+    const deleteVersion = vi.fn(() => Promise.resolve({ ok: true as const }));
+
+    render(
+      <SongPage
+        data={data}
+        actions={{ ...songActions(), deleteVersion }}
+        producerProjectHref="/dashboard/clients-projects/project-1"
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Choose version. Mix v1 selected" }));
+    const history = await screen.findByRole("group", { name: "Version history" });
+    await user.click(within(history).getByRole("button", { name: "More actions for Mix v1" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete Mix v1?" });
+    await user.click(within(dialog).getByRole("button", { name: "Delete Version" }));
+
+    await waitFor(() => {
+      expect(deleteVersion).toHaveBeenCalledWith({
+        projectId: "project-1",
+        versionId: "version-1",
+      });
+      expect(mocks.routerPush).toHaveBeenCalledWith("/dashboard/music/version-0?from=project-1");
+    });
+    expect(mocks.routerRefresh).toHaveBeenCalledOnce();
+  });
+
   it("hands mobile Sheet focus to Rename song, then returns it to More actions", async () => {
     installMatchMedia(false);
     const user = userEvent.setup();

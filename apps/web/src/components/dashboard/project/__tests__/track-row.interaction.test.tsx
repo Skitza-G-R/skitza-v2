@@ -87,6 +87,7 @@ describe("TrackRow interactions", () => {
 
     expect(mocks.playerPlay).toHaveBeenCalledWith({
       id: "version-3",
+      songId: "song-1",
       audioUrl: "https://audio.example/night-drive.mp3",
       title: "Night Drive",
       subtitle: "First Album · V3",

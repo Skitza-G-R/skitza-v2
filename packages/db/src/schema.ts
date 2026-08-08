@@ -47,116 +47,116 @@ export const producers = pgTable(
   "producers",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-  clerkUserId: text("clerk_user_id").notNull().unique(),
-  email: text("email").notNull(),
-  displayName: text("display_name"),
-  slug: text("slug").notNull().unique(),
-  brand: jsonb("brand")
-    .$type<{ logoUrl?: string; primary?: string; accent?: string; font?: string }>()
-    .default({}),
-  defaultCurrency: text("default_currency").notNull().default("USD"),
-  timezone: text("timezone").notNull().default("UTC"),
-  // Batch B — availability editor defaults. `defaultSessionMin` is the
-  // producer's preferred session length in minutes; used to prefill the
-  // duration picker when creating new products and as a global default
-  // for the slot grid when a product omits its own duration. Common
-  // presets in the UI: 60 / 90 / 120 / 180 / 240 (or custom integer).
-  defaultSessionMin: integer("default_session_min").notNull().default(60),
-  // When true, incoming public booking requests transition straight to
-  // `confirmed` instead of `pending` — saves the producer a manual
-  // approval click per request. Read by the booking.publicRequest path.
-  autoConfirmBookings: boolean("auto_confirm_bookings").notNull().default(false),
-  // Hours of advance notice required to cancel a confirmed booking.
-  // Stored today; enforcement (cancel-by-artist flow) is a follow-up.
-  cancellationPolicyHours: integer("cancellation_policy_hours").notNull().default(24),
-  // ─── Batch G — Autopilot toggles ─────────────────────────────────
-  // Five named behaviors the producer can flip on/off. No rule-builder,
-  // no conditions — each column is a discrete outcome. See migration
-  // 0027 for the column-level rationale. Defaults:
-  //   * welcomeEmail=false / requestTestimonial=false /
-  //     autoArchive=false — opt-in.
-  //   * unpaidReminder=true — approved purchase reminders default on.
-  //   * commentNotify=true — matches existing unconditional behavior.
-  autopilotWelcomeEmail: boolean("autopilot_welcome_email").notNull().default(false),
-  autopilotUnpaidReminder: boolean("autopilot_unpaid_reminder").notNull().default(true),
-  autopilotRequestTestimonial: boolean("autopilot_request_testimonial").notNull().default(false),
-  autopilotCommentNotify: boolean("autopilot_comment_notify").notNull().default(true),
-  autopilotAutoArchive: boolean("autopilot_auto_archive").notNull().default(false),
-  serviceRoles: text("service_roles").array().default([]),
-  // ─── Marketing-grade meta fields ─────────────────────────────────
-  // Surfaced by the 4-stat band on /join/<slug> ("Genres / Released /
-  // Streams / Response"). Curated freeform strings — NOT computed from
-  // real bookings/streams data (Phase H owns that). Nullable so a
-  // producer who never opens Settings keeps the static React defaults
-  // in place; the meta-strip hides any block whose value is null.
-  // Migration 0006.
-  genres: text("genres").array(),
-  releasedSummary: text("released_summary"),
-  streamsSummary: text("streams_summary"),
-  // Hours of typical response time. 24/48/168 cover the dropdown
-  // options "Within 24h" / "Within 48h" / "Within 1 week"; null hides
-  // the response stat block entirely (the producer chose "Hidden").
-  responseHours: integer("response_hours"),
-  // BE-2 off-app payments (v1): free-text bank-transfer details + Bit
-  // phone number the artist sees on the payment-instructions screen.
-  // Empty object → the screen shows the "producer will send details"
-  // variant. Migration 0022.
-  paymentDetails: jsonb("payment_details")
-    .$type<{ bankTransfer?: string; bitPhone?: string; note?: string }>()
-    .notNull()
-    .default({}),
-  // Settings redesign — plan tier for the Plan & billing section.
-  // UI-only for v1 (no Stripe subscription wiring yet): the section
-  // renders a hard-coded 'free' / 'pro' hero + usage meters but does
-  // not gate features. Real billing follows in a separate task.
-  plan: text("plan").notNull().default("free"),
-  // Calendar week-grid orientation. Used by the Calendar's week view
-  // and the onboarding availability step. Two values: 'sunday' | 'monday'
-  // — long form matches the existing `useWeekStartPref` hook in
-  // lib/time/week-start.ts so the same string flows from DB → server →
-  // client without translation. Settings → Currency & region writes
-  // here; Calendar / Onboarding read from here.
-  weekStart: text("week_start").notNull().default("sunday"),
-  // Per-event notification preferences. Shape:
-  //   { booking: { email: bool, app: bool }, approval: {...}, ... }
-  // Six known event keys (booking, approval, payment, overdue, comment,
-  // weekly) — see NOTIFICATION_EVENTS in the settings client. Empty
-  // object means "use defaults" (the UI fills in the design's defaults
-  // when a key is missing). Wiring each event to a real email/in-app
-  // dispatch follows in a separate task; for v1 the toggles just
-  // persist.
-  notificationPrefs: jsonb("notification_prefs")
-    .$type<Record<string, { email: boolean; app: boolean }>>()
-    .notNull()
-    .default({}),
-  // Business-level tax disclosure. Drives buyer-facing copy on every
-  // product surface and the frozen accepted-purchase total.
-  // Three modes (v2 — migration 0019 renamed the prior 'none' /
-  // 'vat_included' / 'vat_exempt' tuple):
-  //   * 'tax_free'     — no tax. Footnote: "Tax-free." Covers both
-  //                      "no tax involved" (non-IL) and the Osek Patur
-  //                      legal exemption (small-business IL). No math
-  //                      change at checkout.
-  //   * 'tax_included' — listed prices already include taxRatePct%.
-  //                      Footnote: "Includes {rate}% tax." No math
-  //                      change — artist pays the displayed number.
-  //   * 'tax_added'    — listed prices are PRE-TAX. The owed total is
-  //                      price × (1 + rate/100). Footnote:
-  //                      "+ {rate}% tax at checkout." The product
-  //                      editor's Pricing step shows a live preview
-  //                      so the producer sees the after-tax amount
-  //                      the artist actually pays.
-  // Free-text on disk (not pgEnum) so adding regional / per-currency
-  // tax variants later is a single-row UPDATE rather than a CREATE
-  // TYPE dance.
-  taxMode: text("tax_mode").notNull().default("tax_free"),
-  // Tax rate the producer declares as a percentage (whole-number int
-  // — fractional rates are rare and the UI input is integer-only).
-  // Default 18 matches Israeli VAT. Irrelevant when taxMode='tax_free',
-  // but the column stays populated so the value sticks if the producer
-  // toggles modes back and forth.
-  taxRatePct: integer("tax_rate_pct").notNull().default(18),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    clerkUserId: text("clerk_user_id").notNull().unique(),
+    email: text("email").notNull(),
+    displayName: text("display_name"),
+    slug: text("slug").notNull().unique(),
+    brand: jsonb("brand")
+      .$type<{ logoUrl?: string; primary?: string; accent?: string; font?: string }>()
+      .default({}),
+    defaultCurrency: text("default_currency").notNull().default("USD"),
+    timezone: text("timezone").notNull().default("UTC"),
+    // Batch B — availability editor defaults. `defaultSessionMin` is the
+    // producer's preferred session length in minutes; used to prefill the
+    // duration picker when creating new products and as a global default
+    // for the slot grid when a product omits its own duration. Common
+    // presets in the UI: 60 / 90 / 120 / 180 / 240 (or custom integer).
+    defaultSessionMin: integer("default_session_min").notNull().default(60),
+    // When true, incoming public booking requests transition straight to
+    // `confirmed` instead of `pending` — saves the producer a manual
+    // approval click per request. Read by the booking.publicRequest path.
+    autoConfirmBookings: boolean("auto_confirm_bookings").notNull().default(false),
+    // Hours of advance notice required to cancel a confirmed booking.
+    // Stored today; enforcement (cancel-by-artist flow) is a follow-up.
+    cancellationPolicyHours: integer("cancellation_policy_hours").notNull().default(24),
+    // ─── Batch G — Autopilot toggles ─────────────────────────────────
+    // Five named behaviors the producer can flip on/off. No rule-builder,
+    // no conditions — each column is a discrete outcome. See migration
+    // 0027 for the column-level rationale. Defaults:
+    //   * welcomeEmail=false / requestTestimonial=false /
+    //     autoArchive=false — opt-in.
+    //   * unpaidReminder=true — approved purchase reminders default on.
+    //   * commentNotify=true — matches existing unconditional behavior.
+    autopilotWelcomeEmail: boolean("autopilot_welcome_email").notNull().default(false),
+    autopilotUnpaidReminder: boolean("autopilot_unpaid_reminder").notNull().default(true),
+    autopilotRequestTestimonial: boolean("autopilot_request_testimonial").notNull().default(false),
+    autopilotCommentNotify: boolean("autopilot_comment_notify").notNull().default(true),
+    autopilotAutoArchive: boolean("autopilot_auto_archive").notNull().default(false),
+    serviceRoles: text("service_roles").array().default([]),
+    // ─── Marketing-grade meta fields ─────────────────────────────────
+    // Surfaced by the 4-stat band on /join/<slug> ("Genres / Released /
+    // Streams / Response"). Curated freeform strings — NOT computed from
+    // real bookings/streams data (Phase H owns that). Nullable so a
+    // producer who never opens Settings keeps the static React defaults
+    // in place; the meta-strip hides any block whose value is null.
+    // Migration 0006.
+    genres: text("genres").array(),
+    releasedSummary: text("released_summary"),
+    streamsSummary: text("streams_summary"),
+    // Hours of typical response time. 24/48/168 cover the dropdown
+    // options "Within 24h" / "Within 48h" / "Within 1 week"; null hides
+    // the response stat block entirely (the producer chose "Hidden").
+    responseHours: integer("response_hours"),
+    // BE-2 off-app payments (v1): free-text bank-transfer details + Bit
+    // phone number the artist sees on the payment-instructions screen.
+    // Empty object → the screen shows the "producer will send details"
+    // variant. Migration 0022.
+    paymentDetails: jsonb("payment_details")
+      .$type<{ bankTransfer?: string; bitPhone?: string; note?: string }>()
+      .notNull()
+      .default({}),
+    // Settings redesign — plan tier for the Plan & billing section.
+    // UI-only for v1 (no Stripe subscription wiring yet): the section
+    // renders a hard-coded 'free' / 'pro' hero + usage meters but does
+    // not gate features. Real billing follows in a separate task.
+    plan: text("plan").notNull().default("free"),
+    // Calendar week-grid orientation. Used by the Calendar's week view
+    // and the onboarding availability step. Two values: 'sunday' | 'monday'
+    // — long form matches the existing `useWeekStartPref` hook in
+    // lib/time/week-start.ts so the same string flows from DB → server →
+    // client without translation. Settings → Currency & region writes
+    // here; Calendar / Onboarding read from here.
+    weekStart: text("week_start").notNull().default("sunday"),
+    // Per-event notification preferences. Shape:
+    //   { booking: { email: bool, app: bool }, approval: {...}, ... }
+    // Six known event keys (booking, approval, payment, overdue, comment,
+    // weekly) — see NOTIFICATION_EVENTS in the settings client. Empty
+    // object means "use defaults" (the UI fills in the design's defaults
+    // when a key is missing). Wiring each event to a real email/in-app
+    // dispatch follows in a separate task; for v1 the toggles just
+    // persist.
+    notificationPrefs: jsonb("notification_prefs")
+      .$type<Record<string, { email: boolean; app: boolean }>>()
+      .notNull()
+      .default({}),
+    // Business-level tax disclosure. Drives buyer-facing copy on every
+    // product surface and the frozen accepted-purchase total.
+    // Three modes (v2 — migration 0019 renamed the prior 'none' /
+    // 'vat_included' / 'vat_exempt' tuple):
+    //   * 'tax_free'     — no tax. Footnote: "Tax-free." Covers both
+    //                      "no tax involved" (non-IL) and the Osek Patur
+    //                      legal exemption (small-business IL). No math
+    //                      change at checkout.
+    //   * 'tax_included' — listed prices already include taxRatePct%.
+    //                      Footnote: "Includes {rate}% tax." No math
+    //                      change — artist pays the displayed number.
+    //   * 'tax_added'    — listed prices are PRE-TAX. The owed total is
+    //                      price × (1 + rate/100). Footnote:
+    //                      "+ {rate}% tax at checkout." The product
+    //                      editor's Pricing step shows a live preview
+    //                      so the producer sees the after-tax amount
+    //                      the artist actually pays.
+    // Free-text on disk (not pgEnum) so adding regional / per-currency
+    // tax variants later is a single-row UPDATE rather than a CREATE
+    // TYPE dance.
+    taxMode: text("tax_mode").notNull().default("tax_free"),
+    // Tax rate the producer declares as a percentage (whole-number int
+    // — fractional rates are rare and the UI input is integer-only).
+    // Default 18 matches Israeli VAT. Irrelevant when taxMode='tax_free',
+    // but the column stays populated so the value sticks if the producer
+    // toggles modes back and forth.
+    taxRatePct: integer("tax_rate_pct").notNull().default(18),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
@@ -387,9 +387,7 @@ export const bookingTransitionActorKind = pgEnum("booking_transition_actor_kind"
   "system",
 ]);
 
-export const bookingHeldExpiryReason = pgEnum("booking_held_expiry_reason", [
-  "approval_timeout",
-]);
+export const bookingHeldExpiryReason = pgEnum("booking_held_expiry_reason", ["approval_timeout"]);
 
 export const bookings = pgTable(
   "bookings",
@@ -464,10 +462,7 @@ export const bookings = pgTable(
       t.purchaseId,
     ),
     purchaseStartsIdx: index("bookings_purchase_starts_idx").on(t.purchaseId, t.startsAt),
-    allowanceUseIdx: index("bookings_allowance_use_idx").on(
-      t.sessionAllowanceId,
-      t.allowanceUseId,
-    ),
+    allowanceUseIdx: index("bookings_allowance_use_idx").on(t.sessionAllowanceId, t.allowanceUseId),
     purchaseProjectFk: foreignKey({
       columns: [t.purchaseId, t.projectId],
       foreignColumns: [purchases.id, purchases.projectId],
@@ -846,6 +841,13 @@ export const trackVersions = pgTable(
     pendingAudioCompleteAttemptedAt: timestamp("pending_audio_complete_attempted_at", {
       withTimezone: true,
     }),
+    // New CompleteMultipart capabilities are conditional writes. Equality to
+    // complete-attempted-at proves the protection marker committed in the same
+    // CAS; legacy attempted rows deliberately retain NULL and stay fail-closed.
+    pendingAudioCompleteWriteOnceProtectedAt: timestamp(
+      "pending_audio_complete_write_once_protected_at",
+      { withTimezone: true },
+    ),
     // Latest expiry of any server-issued UploadPart capability. It is evidence
     // that cancellation must retain the exact recovery journal; expiry alone
     // cannot prove an already-started request has finished.
@@ -876,6 +878,10 @@ export const trackVersions = pgTable(
     producerMarkedFinalAt: timestamp("producer_marked_final_at", { withTimezone: true }),
     // One-way tombstone for both failed placeholders and completed audio.
     audioDeletedAt: timestamp("audio_deleted_at", { withTimezone: true }),
+    // Set only after the exact R2 object is confirmed absent. Keeping this
+    // separate from the logical tombstone prevents quota from being released
+    // during a partial storage-deletion failure.
+    audioStorageDeletedAt: timestamp("audio_storage_deleted_at", { withTimezone: true }),
   },
   (t) => ({
     idPurchaseUnique: unique("track_versions_id_purchase_unique").on(t.id, t.purchaseId),
@@ -911,6 +917,12 @@ export const trackVersions = pgTable(
     trackLiveUploadedIdx: index("track_versions_track_live_uploaded_idx")
       .on(t.trackId, t.uploadedAt.desc(), t.id.desc())
       .where(sql`${t.audioDeletedAt} IS NULL AND ${t.audioUrl} IS NOT NULL`),
+    producerStoredAudioIdx: index("track_versions_producer_stored_audio_idx")
+      .on(t.producerId)
+      .where(sql`${t.sizeBytes} IS NOT NULL AND ${t.audioStorageDeletedAt} IS NULL`),
+    producerPendingAudioIdx: index("track_versions_producer_pending_audio_idx")
+      .on(t.producerId)
+      .where(sql`${t.pendingAudioSizeBytes} IS NOT NULL`),
     audioIdentityShape: check(
       "track_versions_audio_identity_shape",
       sql`(
@@ -929,6 +941,7 @@ export const trackVersions = pgTable(
           AND ${t.pendingAudioStartedAt} IS NULL
           AND ${t.pendingAudioCreateAttemptedAt} IS NULL
           AND ${t.pendingAudioCompleteAttemptedAt} IS NULL
+          AND ${t.pendingAudioCompleteWriteOnceProtectedAt} IS NULL
           AND ${t.pendingAudioPartUrlsExpireAt} IS NULL
           AND ${t.pendingAudioCancelRequestedAt} IS NULL
           AND ${t.pendingAudioCleanupEtag} IS NULL
@@ -954,6 +967,7 @@ export const trackVersions = pgTable(
           AND ${t.pendingAudioStartedAt} IS NULL
           AND ${t.pendingAudioCreateAttemptedAt} IS NULL
           AND ${t.pendingAudioCompleteAttemptedAt} IS NULL
+          AND ${t.pendingAudioCompleteWriteOnceProtectedAt} IS NULL
           AND ${t.pendingAudioPartUrlsExpireAt} IS NULL
           AND ${t.pendingAudioCancelRequestedAt} IS NULL
           AND ${t.pendingAudioCleanupEtag} IS NULL
@@ -969,12 +983,21 @@ export const trackVersions = pgTable(
           AND (${t.pendingAudioCreateAttemptedAt} IS NULL OR ${t.pendingAudioCreateAttemptedAt} >= ${t.pendingAudioStartedAt})
           AND (${t.pendingAudioUploadId} IS NULL OR ${t.pendingAudioCreateAttemptedAt} IS NOT NULL)
           AND (${t.pendingAudioCompleteAttemptedAt} IS NULL OR (${t.pendingAudioUploadId} IS NOT NULL AND ${t.pendingAudioPartUrlsExpireAt} IS NOT NULL AND ${t.pendingAudioCompleteAttemptedAt} >= ${t.pendingAudioCreateAttemptedAt}))
+          AND (${t.pendingAudioCompleteWriteOnceProtectedAt} IS NULL OR (${t.pendingAudioCompleteAttemptedAt} IS NOT NULL AND ${t.pendingAudioCompleteWriteOnceProtectedAt} = ${t.pendingAudioCompleteAttemptedAt}))
           AND (${t.pendingAudioPartUrlsExpireAt} IS NULL OR (${t.pendingAudioUploadId} IS NOT NULL AND ${t.pendingAudioPartUrlsExpireAt} >= ${t.pendingAudioCreateAttemptedAt}))
           AND (${t.pendingAudioCancelRequestedAt} IS NULL OR (${t.pendingAudioCancelRequestedAt} >= ${t.pendingAudioStartedAt} AND (${t.pendingAudioCompleteAttemptedAt} IS NULL OR ${t.pendingAudioCancelRequestedAt} >= ${t.pendingAudioCompleteAttemptedAt})))
           AND (${t.pendingAudioCleanupEtag} IS NULL OR (${t.pendingAudioCompleteAttemptedAt} IS NOT NULL AND NULLIF(btrim(${t.pendingAudioCleanupEtag}), '') IS NOT NULL))
           AND ((${t.pendingAudioCancelRequestedAt} IS NULL AND ${t.audioDeletedAt} IS NULL) OR (${t.pendingAudioCancelRequestedAt} IS NOT NULL AND ${t.audioDeletedAt} IS NOT NULL))
         )
       ) IS TRUE`,
+    ),
+    pendingAudioCompleteWriteOnceShape: check(
+      "track_versions_pending_audio_complete_write_once_shape",
+      sql`${t.pendingAudioCompleteWriteOnceProtectedAt} IS NULL OR (${t.pendingAudioCompleteAttemptedAt} IS NOT NULL AND ${t.pendingAudioCompleteWriteOnceProtectedAt} = ${t.pendingAudioCompleteAttemptedAt})`,
+    ),
+    audioStorageDeletedShape: check(
+      "track_versions_audio_storage_deleted_shape",
+      sql`${t.audioStorageDeletedAt} IS NULL OR (${t.audioDeletedAt} IS NOT NULL AND ${t.audioStorageDeletedAt} >= ${t.audioDeletedAt})`,
     ),
     protectedAudioUrl: check(
       "track_versions_protected_audio_url",
@@ -1133,11 +1156,13 @@ export const registeredAccounts = pgTable(
       t.providerState,
       t.clerkUserId,
     ),
-    providerCreatedIdx: index("registered_accounts_provider_created_idx").on(
-      sql`CASE WHEN ${t.providerCreatedAt} IS NULL THEN 1 ELSE 0 END`,
-      t.providerCreatedAt.desc().nullsLast(),
-      t.clerkUserId.desc(),
-    ).where(sql`${t.providerState} <> 'deleted'`),
+    providerCreatedIdx: index("registered_accounts_provider_created_idx")
+      .on(
+        sql`CASE WHEN ${t.providerCreatedAt} IS NULL THEN 1 ELSE 0 END`,
+        t.providerCreatedAt.desc().nullsLast(),
+        t.clerkUserId.desc(),
+      )
+      .where(sql`${t.providerState} <> 'deleted'`),
     emailSearchIdx: index("registered_accounts_email_search_idx").on(
       sql`lower(${t.primaryEmail}) text_pattern_ops`,
       t.clerkUserId,
@@ -1222,9 +1247,7 @@ export const clerkUserSyncReceipts = pgTable(
     providerUpdatedAt: timestamp("provider_updated_at", {
       withTimezone: true,
     }).notNull(),
-    processedAt: timestamp("processed_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    processedAt: timestamp("processed_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
     userIdx: index("clerk_user_sync_receipts_user_idx").on(
@@ -1295,10 +1318,7 @@ export const artistProfiles = pgTable(
         AND char_length(${t.timezone}) BETWEEN 1 AND 100
       )`,
     ),
-    timestampShape: check(
-      "artist_profiles_timestamp_shape",
-      sql`${t.updatedAt} >= ${t.createdAt}`,
-    ),
+    timestampShape: check("artist_profiles_timestamp_shape", sql`${t.updatedAt} >= ${t.createdAt}`),
   }),
 );
 
@@ -1323,10 +1343,12 @@ export const artistNotificationKind = pgEnum("artist_notification_kind", [
   "producer_comment_created",
 ]);
 
-export const artistNotificationSubjectType = pgEnum(
-  "artist_notification_subject_type",
-  ["purchase_request", "payment_proof", "booking", "track_version"],
-);
+export const artistNotificationSubjectType = pgEnum("artist_notification_subject_type", [
+  "purchase_request",
+  "payment_proof",
+  "booking",
+  "track_version",
+]);
 
 export const artistNotifications = pgTable(
   "artist_notifications",
@@ -1369,9 +1391,7 @@ export const artistNotifications = pgTable(
     ),
     unreadIdx: index("artist_notifications_recipient_unread_idx")
       .on(t.recipientClerkUserId, t.createdAt.desc(), t.id.desc())
-      .where(
-        sql`${t.inAppVisible} IS TRUE AND ${t.archivedAt} IS NULL AND ${t.readAt} IS NULL`,
-      ),
+      .where(sql`${t.inAppVisible} IS TRUE AND ${t.archivedAt} IS NULL AND ${t.readAt} IS NULL`),
     unseenDotIdx: index("artist_notifications_recipient_studio_dot_idx")
       .on(t.recipientClerkUserId, t.producerId, t.createdAt.desc(), t.id.desc())
       .where(
@@ -1408,20 +1428,17 @@ export type NewArtistNotification = typeof artistNotifications.$inferInsert;
 
 // Immutable authorization captured at disconnect. Active connection checks
 // never consult this table; only dedicated read-only Past studio surfaces do.
-export const artistHistoricalResourceType = pgEnum(
-  "artist_historical_resource_type",
-  [
-    "studio",
-    "purchase",
-    "project",
-    "track",
-    "track_version",
-    "track_comment",
-    "payment_proof",
-    "booking",
-    "track_version_download",
-  ],
-);
+export const artistHistoricalResourceType = pgEnum("artist_historical_resource_type", [
+  "studio",
+  "purchase",
+  "project",
+  "track",
+  "track_version",
+  "track_comment",
+  "payment_proof",
+  "booking",
+  "track_version_download",
+]);
 
 export const artistHistoricalAccessGrants = pgTable(
   "artist_historical_access_grants",
@@ -1461,10 +1478,8 @@ export const artistHistoricalAccessGrants = pgTable(
   }),
 );
 
-export type ArtistHistoricalAccessGrant =
-  typeof artistHistoricalAccessGrants.$inferSelect;
-export type NewArtistHistoricalAccessGrant =
-  typeof artistHistoricalAccessGrants.$inferInsert;
+export type ArtistHistoricalAccessGrant = typeof artistHistoricalAccessGrants.$inferSelect;
+export type NewArtistHistoricalAccessGrant = typeof artistHistoricalAccessGrants.$inferInsert;
 
 // ─── Notifications / Inbox (Phase E) ────────────────────────────────
 // One unified feed of everything that needs the producer's attention:
@@ -1919,9 +1934,11 @@ export const purchaseRequests = pgTable(
       t.createdAt,
       t.clientContactId,
     ),
-    adminClientActivityIdx: index(
-      "purchase_requests_admin_client_activity_idx",
-    ).on(t.clientContactId, t.createdAt.desc(), t.id.desc()),
+    adminClientActivityIdx: index("purchase_requests_admin_client_activity_idx").on(
+      t.clientContactId,
+      t.createdAt.desc(),
+      t.id.desc(),
+    ),
     requestedSongQtyPositive: check(
       "purchase_requests_requested_song_qty_positive",
       sql`${t.requestedSongQty} IS NULL OR ${t.requestedSongQty} > 0`,
@@ -2183,6 +2200,19 @@ export const firstVersionUploadIntents = pgTable(
     durationMs: integer("duration_ms"),
     completionToken: text("completion_token").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    latestUploadUrlExpiresAt: timestamp("latest_upload_url_expires_at", { withTimezone: true }),
+    // Operator-only post-cutover gate. Application code never infers or writes
+    // this timestamp. Rollout must first rotate/revoke the legacy R2 signing
+    // credential; only then may an operator mark exact rows and invoke the
+    // explicit reconciliation path. Until then the rows remain quota-reserved
+    // and hard-deletion-blocked.
+    legacyUploadCapabilitiesRevokedAt: timestamp("legacy_upload_capabilities_revoked_at", {
+      withTimezone: true,
+    }),
+    uploadUrlWriteOnceProtectedAt: timestamp("upload_url_write_once_protected_at", {
+      withTimezone: true,
+    }),
+    stagingSealedAt: timestamp("staging_sealed_at", { withTimezone: true }),
     canceledAt: timestamp("canceled_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -2220,6 +2250,9 @@ export const firstVersionUploadIntents = pgTable(
       t.canceledAt,
       t.expiresAt,
     ),
+    producerUnsealedIdx: index("first_version_upload_intents_producer_unsealed_idx")
+      .on(t.producerId, t.expiresAt)
+      .where(sql`${t.stagingSealedAt} IS NULL`),
     identityShape: check(
       "first_version_upload_intents_identity_shape",
       sql`${t.requestDigest} ~ '^sha256:[0-9a-f]{64}$' AND ${t.completionToken} ~ '^[0-9a-f]{64}$' AND NULLIF(btrim(${t.stagingAudioR2Key}), '') IS NOT NULL AND char_length(${t.stagingAudioR2Key}) <= 1024 AND NULLIF(btrim(${t.audioR2Key}), '') IS NOT NULL AND char_length(${t.audioR2Key}) <= 1024 AND ${t.stagingAudioR2Key} <> ${t.audioR2Key}`,
@@ -2231,6 +2264,10 @@ export const firstVersionUploadIntents = pgTable(
     stateShape: check(
       "first_version_upload_intents_state_shape",
       sql`NOT (${t.canceledAt} IS NOT NULL AND ${t.completedAt} IS NOT NULL) AND ${t.expiresAt} > ${t.createdAt} AND ${t.updatedAt} >= ${t.createdAt}`,
+    ),
+    stagingSealShape: check(
+      "first_version_upload_intents_staging_seal_shape",
+      sql`(${t.legacyUploadCapabilitiesRevokedAt} IS NULL OR ${t.legacyUploadCapabilitiesRevokedAt} >= ${t.createdAt}) AND (${t.uploadUrlWriteOnceProtectedAt} IS NULL OR (${t.latestUploadUrlExpiresAt} IS NOT NULL AND ${t.uploadUrlWriteOnceProtectedAt} >= ${t.createdAt} AND ${t.uploadUrlWriteOnceProtectedAt} <= ${t.latestUploadUrlExpiresAt})) AND (${t.stagingSealedAt} IS NULL OR (${t.stagingSealedAt} >= ${t.createdAt} AND ((${t.latestUploadUrlExpiresAt} IS NULL AND ${t.uploadUrlWriteOnceProtectedAt} IS NULL) OR (${t.latestUploadUrlExpiresAt} IS NOT NULL AND ((${t.uploadUrlWriteOnceProtectedAt} IS NOT NULL AND ${t.stagingSealedAt} >= ${t.uploadUrlWriteOnceProtectedAt}) OR (${t.legacyUploadCapabilitiesRevokedAt} IS NOT NULL AND ${t.stagingSealedAt} >= ${t.legacyUploadCapabilitiesRevokedAt}))))))`,
     ),
   }),
 );
@@ -2384,9 +2421,11 @@ export const paymentProofs = pgTable(
       t.status,
       t.createdAt,
     ),
-    adminClientActivityIdx: index(
-      "payment_proofs_admin_client_activity_idx",
-    ).on(t.clientContactId, t.createdAt.desc(), t.id.desc()),
+    adminClientActivityIdx: index("payment_proofs_admin_client_activity_idx").on(
+      t.clientContactId,
+      t.createdAt.desc(),
+      t.id.desc(),
+    ),
     positiveAmount: check("payment_proofs_positive_amount", sql`${t.amountCents} > 0`),
     nonnegativeSize: check("payment_proofs_nonnegative_size", sql`${t.sizeBytes} >= 0`),
     privateBucketOnly: check(
@@ -3155,6 +3194,120 @@ export const songPublicAccessEvents = pgTable(
 export type SongPublicAccessEvent = typeof songPublicAccessEvents.$inferSelect;
 export type NewSongPublicAccessEvent = typeof songPublicAccessEvents.$inferInsert;
 
+// Durable recovery receipt for a producer-authorized hard delete. Target Song
+// and Version ids intentionally have no FK: the receipt must survive the
+// history rows it removes so retries can prove the exact R2 objects were
+// already deleted and return the committed result idempotently.
+export type SongDeletionAudioManifestItem = Readonly<{
+  versionId: string;
+  key: string;
+  objectEtag: string;
+  sizeBytes: number;
+  fingerprint: string;
+}>;
+
+export type SongDeletionArtworkManifestItem = Readonly<{
+  key: string;
+  contentType: string;
+  sizeBytes: number;
+  objectEtag: string;
+}>;
+
+export type SongDeletionFirstVersionStagingManifestItem = Readonly<{
+  versionId: string;
+  key: string;
+  contentType: string;
+  sizeBytes: number;
+  completionToken: string;
+}>;
+
+export type SongDeletionFirstVersionFinalManifestItem = Readonly<{
+  versionId: string;
+  key: string;
+  contentType: string;
+  sizeBytes: number;
+  completionToken: string;
+}>;
+
+export type SongDeletionPeaksManifestItem = Readonly<{
+  versionId: string;
+  key: string;
+}>;
+
+export const songDeletionOperations = pgTable(
+  "song_deletion_operations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    producerId: uuid("producer_id")
+      .notNull()
+      .references(() => producers.id, { onDelete: "cascade" }),
+    operationKey: text("operation_key").notNull(),
+    requestDigest: text("request_digest").notNull(),
+    kind: text("kind").$type<"version" | "song">().notNull(),
+    projectId: uuid("project_id").notNull(),
+    purchaseId: uuid("purchase_id").notNull(),
+    trackId: uuid("track_id").notNull(),
+    versionId: uuid("version_id"),
+    targetVersionIds: jsonb("target_version_ids").$type<string[]>().notNull(),
+    actorClerkUserId: text("actor_clerk_user_id").notNull(),
+    audioManifest: jsonb("audio_manifest").$type<SongDeletionAudioManifestItem[]>().notNull(),
+    artworkManifest: jsonb("artwork_manifest")
+      .$type<SongDeletionArtworkManifestItem[]>()
+      .default([])
+      .notNull(),
+    firstVersionStagingManifest: jsonb("first_version_staging_manifest")
+      .$type<SongDeletionFirstVersionStagingManifestItem[]>()
+      .default([])
+      .notNull(),
+    firstVersionFinalManifest: jsonb("first_version_final_manifest")
+      .$type<SongDeletionFirstVersionFinalManifestItem[]>()
+      .default([])
+      .notNull(),
+    peaksManifest: jsonb("peaks_manifest")
+      .$type<SongDeletionPeaksManifestItem[]>()
+      .default([])
+      .notNull(),
+    audioBytes: bigint("audio_bytes", { mode: "number" }).notNull(),
+    preparedAt: timestamp("prepared_at", { withTimezone: true }).notNull().defaultNow(),
+    storageVerifiedAt: timestamp("storage_verified_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (t) => ({
+    producerOperationUnique: unique("song_deletion_operations_producer_operation_unique").on(
+      t.producerId,
+      t.operationKey,
+    ),
+    producerStateIdx: index("song_deletion_operations_producer_state_idx").on(
+      t.producerId,
+      t.completedAt,
+      t.preparedAt,
+    ),
+    producerTrackIdx: index("song_deletion_operations_producer_track_idx").on(
+      t.producerId,
+      t.trackId,
+      t.preparedAt,
+    ),
+    identityShape: check(
+      "song_deletion_operations_identity_shape",
+      sql`${t.requestDigest} ~ '^sha256:[0-9a-f]{64}$' AND NULLIF(btrim(${t.operationKey}), '') IS NOT NULL AND char_length(${t.operationKey}) <= 200 AND NULLIF(btrim(${t.actorClerkUserId}), '') IS NOT NULL AND char_length(${t.actorClerkUserId}) <= 200`,
+    ),
+    targetShape: check(
+      "song_deletion_operations_target_shape",
+      sql`jsonb_typeof(${t.targetVersionIds}) = 'array' AND ((${t.kind} = 'version' AND ${t.versionId} IS NOT NULL AND ${t.targetVersionIds} = jsonb_build_array(${t.versionId}::text)) OR (${t.kind} = 'song' AND ${t.versionId} IS NULL))`,
+    ),
+    manifestShape: check(
+      "song_deletion_operations_manifest_shape",
+      sql`jsonb_typeof(${t.audioManifest}) = 'array' AND jsonb_typeof(${t.artworkManifest}) = 'array' AND jsonb_typeof(${t.firstVersionStagingManifest}) = 'array' AND jsonb_typeof(${t.firstVersionFinalManifest}) = 'array' AND jsonb_typeof(${t.peaksManifest}) = 'array' AND ${t.audioBytes} >= 0`,
+    ),
+    timestampShape: check(
+      "song_deletion_operations_timestamp_shape",
+      sql`(${t.storageVerifiedAt} IS NULL OR ${t.storageVerifiedAt} >= ${t.preparedAt}) AND (${t.completedAt} IS NULL OR (${t.storageVerifiedAt} IS NOT NULL AND ${t.completedAt} >= ${t.storageVerifiedAt}))`,
+    ),
+  }),
+);
+export type SongDeletionOperation = typeof songDeletionOperations.$inferSelect;
+export type NewSongDeletionOperation = typeof songDeletionOperations.$inferInsert;
+
 // ─── SK-132: founder-admin safety and operational data ─────────────
 // These records are deliberately independent from customer-facing routes.
 // Every row carries an explicit Live/Test environment, and every retry-safe
@@ -3269,15 +3422,8 @@ export const adminActionHistory = pgTable(
       t.occurredAt.desc(),
       t.id,
     ),
-    targetAccountOccurredIdx: index(
-      "admin_action_history_target_account_occurred_idx",
-    )
-      .on(
-        t.environment,
-        t.targetAccountClerkUserId,
-        t.occurredAt.desc(),
-        t.id.desc(),
-      )
+    targetAccountOccurredIdx: index("admin_action_history_target_account_occurred_idx")
+      .on(t.environment, t.targetAccountClerkUserId, t.occurredAt.desc(), t.id.desc())
       .where(sql`${t.targetAccountClerkUserId} IS NOT NULL`),
     environmentShape: check(
       "admin_action_history_environment_shape",

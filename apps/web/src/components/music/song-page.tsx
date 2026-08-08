@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   useEffect,
   useId,
@@ -149,6 +150,8 @@ export type L3Actions = {
     versionId: string;
     operationKey: string;
   }) => Promise<MusicL3DeleteAudioActionResult>;
+  deleteVersion?: (input: { projectId: string; versionId: string }) => Promise<MusicL3ActionResult>;
+  deleteSong?: (input: { projectId: string; trackId: string }) => Promise<MusicL3ActionResult>;
   setDownloadOverride?: (input: {
     purchaseId: string;
     versionId: string;
@@ -302,8 +305,8 @@ export type DeleteVersionAudioPolicy = {
 
 /**
  * The UI mirrors the server's deletion guard so producers learn why audio is
- * protected before they submit. The server remains authoritative if release
- * state changes while the confirmation dialog is open.
+ * protected before they submit. The server remains authoritative if state
+ * changes while the confirmation dialog is open.
  */
 export function deleteVersionAudioPolicy(input: {
   versions: readonly SongPageVersion[];
@@ -363,8 +366,8 @@ export function deleteVersionAudioPolicy(input: {
       isReleased,
       strongWarning: false,
       details: [
-        `Before Released, the ${protectedRoles.join(", ")} audio is protected from permanent deletion.`,
-        "Move the song to Released or keep another playable version before deleting this audio.",
+        `The ${protectedRoles.join(", ")} audio is protected in this legacy audio-only cleanup flow.`,
+        "Use Delete Version or Delete Song to permanently remove it with its history.",
       ],
     };
   }
@@ -379,9 +382,7 @@ export function deleteVersionAudioPolicy(input: {
     );
   }
   if (isFinal) {
-    details.push(
-      "This is producer-marked-final audio. Released songs allow it, so check the selection carefully.",
-    );
+    details.push("This is producer-marked-final audio. Check the selection carefully.");
   }
   if (isLast) {
     details.push(
@@ -423,6 +424,7 @@ export function activeVersionToPlayerTrack(
       version.delivery.permission === "version_override");
   return {
     id: version.id,
+    songId: track.id,
     audioUrl: version.audioUrl,
     title: track.title,
     subtitle: `${label} · ${version.label}`,
@@ -490,6 +492,8 @@ type OpenSongManagement = {
     | "set-archived"
     | "mark-released"
     | "rename-version"
+    | "delete-version"
+    | "delete-song"
     | "delete-version-audio"
     | "download-override"
     | "approve-version"
@@ -498,6 +502,17 @@ type OpenSongManagement = {
 };
 
 const DESKTOP_MORE_ACTIONS_MEDIA_QUERY = "(min-width: 1024px)";
+
+function SongDeletionRedirect({ href }: { href: string }) {
+  const router = useRouter();
+
+  useEffect(() => {
+    router.push(href);
+    router.refresh();
+  }, [href, router]);
+
+  return null;
+}
 
 export function SongPage({
   data,
@@ -536,49 +551,56 @@ export function SongPage({
   const [optimisticDeletedAtByVersion, setOptimisticDeletedAtByVersion] = useState<
     Record<string, string>
   >({});
+  const [optimisticallyDeletedVersionIds, setOptimisticallyDeletedVersionIds] = useState<
+    readonly string[]
+  >([]);
   const [deliveryPermissionOverrides, setDeliveryPermissionOverrides] = useState<
     Record<string, VersionDeliveryPermission>
   >({});
   const [versionUploadOpen, setVersionUploadOpen] = useState(false);
+  const [songDeletionRedirectHref, setSongDeletionRedirectHref] = useState<string | null>(null);
   const versions = useMemo(
     () =>
-      data.versions.map((version) => {
-        const label = versionLabelOverrides[version.id];
-        const deletedAt = optimisticDeletedAtByVersion[version.id];
-        const readyOverride = producerReadyOverrides[version.id];
-        const deliveryPermissionOverride = deliveryPermissionOverrides[version.id];
-        const currentArtistApproval =
-          artistApprovalVersionOverride === undefined
-            ? version.artistApprovedAtIso
-            : artistApprovalVersionOverride === version.id
-              ? new Date().toISOString()
-              : null;
-        const previousApproval = previousApprovalOverrides[version.id];
-        return {
-          ...version,
-          ...(label === undefined ? {} : { label }),
-          ...(deletedAt === undefined ? {} : { audioUrl: null, audioDeletedAtIso: deletedAt }),
-          delivery: {
-            ...version.delivery,
-            permission:
-              deletedAt === undefined
-                ? (deliveryPermissionOverride ?? version.delivery.permission)
-                : "audio_deleted",
-          },
-          ...(readyOverride === undefined
-            ? {}
-            : { producerMarkedFinalAtIso: readyOverride ? new Date().toISOString() : null }),
-          artistApprovedAtIso: currentArtistApproval,
-          ...(previousApproval === undefined
-            ? {}
-            : { previouslyArtistApprovedAtIso: previousApproval }),
-        };
-      }),
+      data.versions
+        .filter((version) => !optimisticallyDeletedVersionIds.includes(version.id))
+        .map((version) => {
+          const label = versionLabelOverrides[version.id];
+          const deletedAt = optimisticDeletedAtByVersion[version.id];
+          const readyOverride = producerReadyOverrides[version.id];
+          const deliveryPermissionOverride = deliveryPermissionOverrides[version.id];
+          const currentArtistApproval =
+            artistApprovalVersionOverride === undefined
+              ? version.artistApprovedAtIso
+              : artistApprovalVersionOverride === version.id
+                ? new Date().toISOString()
+                : null;
+          const previousApproval = previousApprovalOverrides[version.id];
+          return {
+            ...version,
+            ...(label === undefined ? {} : { label }),
+            ...(deletedAt === undefined ? {} : { audioUrl: null, audioDeletedAtIso: deletedAt }),
+            delivery: {
+              ...version.delivery,
+              permission:
+                deletedAt === undefined
+                  ? (deliveryPermissionOverride ?? version.delivery.permission)
+                  : "audio_deleted",
+            },
+            ...(readyOverride === undefined
+              ? {}
+              : { producerMarkedFinalAtIso: readyOverride ? new Date().toISOString() : null }),
+            artistApprovedAtIso: currentArtistApproval,
+            ...(previousApproval === undefined
+              ? {}
+              : { previouslyArtistApprovedAtIso: previousApproval }),
+          };
+        }),
     [
       artistApprovalVersionOverride,
       data.versions,
       deliveryPermissionOverrides,
       optimisticDeletedAtByVersion,
+      optimisticallyDeletedVersionIds,
       previousApprovalOverrides,
       producerReadyOverrides,
       versionLabelOverrides,
@@ -690,6 +712,7 @@ export function SongPage({
   const moreButtonRef = useRef<HTMLButtonElement | null>(null);
   const versionButtonRef = useRef<HTMLButtonElement | null>(null);
   const openingManagementFromSheetRef = useRef(false);
+  const openingManagementFromVersionRef = useRef(false);
   const deliveryOverrideButtonRef = useRef<HTMLButtonElement | null>(null);
   const artworkInputRef = useRef<HTMLInputElement | null>(null);
   const notesDragStartYRef = useRef<number | null>(null);
@@ -1193,13 +1216,14 @@ export function SongPage({
     }
   }
 
-  function openManagementDialog(kind: OpenSongManagement["kind"]) {
-    if (!activeVersion) return;
+  function openManagementDialog(kind: OpenSongManagement["kind"], versionId = activeVersion?.id) {
+    if (!versionId) return;
     setOverflowOpen(false);
-    setManagementDialog({ kind, versionId: activeVersion.id });
+    setManagementDialog({ kind, versionId });
   }
 
   function openMoreActionsManagementDialog(kind: OpenSongManagement["kind"]) {
+    openingManagementFromVersionRef.current = false;
     openingManagementFromSheetRef.current = !isDesktopMoreActions;
     openManagementDialog(kind);
   }
@@ -1324,6 +1348,48 @@ export function SongPage({
           ...current,
           [targetVersion.id]: enabled ? "version_override" : "payment_required",
         }));
+      }
+      return result;
+    }
+
+    if (managementDialog.kind === "delete-song") {
+      if (!actions.deleteSong) return { ok: false, error: "Song deletion is unavailable." };
+      const result = await actions.deleteSong({
+        projectId: common.projectId,
+        trackId: common.trackId,
+      });
+      if (result.ok) {
+        if (versions.some((version) => version.id === nowPlaying.trackId)) playerClose();
+        setSongDeletionRedirectHref(projectHref);
+      }
+      return result;
+    }
+
+    if (managementDialog.kind === "delete-version") {
+      if (!actions.deleteVersion) {
+        return { ok: false, error: "Version deletion is unavailable." };
+      }
+      if (versions.length <= 1) {
+        return { ok: false, error: "This is the only Version. Delete the Song instead." };
+      }
+      const result = await actions.deleteVersion({
+        projectId: common.projectId,
+        versionId: common.versionId,
+      });
+      if (!result.ok) return result;
+      if (nowPlaying.trackId === targetVersion.id) playerClose();
+      const remaining = versions.filter((version) => version.id !== targetVersion.id);
+      setOptimisticallyDeletedVersionIds((current) =>
+        current.includes(targetVersion.id) ? current : [...current, targetVersion.id],
+      );
+      const nextVersion = newestPlayableSongPageVersion(remaining) ?? remaining[0];
+      if (nextVersion) {
+        setActiveVersionId(nextVersion.id);
+        setSongDeletionRedirectHref(
+          `/dashboard/music/${encodeURIComponent(nextVersion.id)}${
+            producerProjectHref ? `?from=${encodeURIComponent(data.track.projectId)}` : ""
+          }`,
+        );
       }
       return result;
     }
@@ -1495,8 +1561,8 @@ export function SongPage({
           strongWarning: true,
           details: [
             "Use this only after the song has been officially released.",
-            "After release, current, producer-marked-final, and last remaining audio may be permanently deleted.",
-            "Marking Released does not delete audio by itself.",
+            "This status is separate from Done / Delivered.",
+            "Marking Released does not change playback, Versions, comments, or stored audio.",
           ],
         };
         break;
@@ -1550,6 +1616,49 @@ export function SongPage({
         };
         break;
       }
+      case "delete-version":
+        managementConfig = {
+          id: `delete-version:${managementVersion.id}`,
+          title: `Delete ${managementVersion.label}?`,
+          description:
+            "This permanently removes this Version, its audio, notes, approval, downloads, notifications, and public history.",
+          confirmLabel: "Delete Version",
+          pendingLabel: "Deleting Version…",
+          cancelLabel: "Keep Version",
+          destructive: true,
+          strongWarning: true,
+          blockedReason:
+            versions.length <= 1 ? "This is the only Version. Delete the Song instead." : null,
+          details: [
+            "This cannot be undone.",
+            managementVersion.artistApprovedAtIso
+              ? "The artist-approved Version will be permanently removed."
+              : managementVersion.producerMarkedFinalAtIso
+                ? "The producer-final Version will be permanently removed."
+                : "The selected Version will be permanently removed.",
+            "The Song, Project, purchase, payments, and bookings stay.",
+          ],
+        };
+        break;
+      case "delete-song":
+        managementConfig = {
+          id: `delete-song:${data.track.id}`,
+          title: `Delete ${songTitle}?`,
+          description:
+            "This permanently removes the Song and every Version and audio file in its history.",
+          confirmLabel: "Delete Song",
+          pendingLabel: "Deleting Song…",
+          cancelLabel: "Keep Song",
+          destructive: true,
+          strongWarning: true,
+          details: [
+            `All ${String(versions.length)} Version${versions.length === 1 ? "" : "s"}, notes, approvals, downloads, notifications, and public history will be removed.`,
+            "Portfolio entries using this Song will be removed.",
+            "The Project, client, purchase, payments, agreement, and bookings stay.",
+            "This cannot be undone.",
+          ],
+        };
+        break;
       case "delete-version-audio":
         if (managementPolicy) {
           managementConfig = managementPolicy.isStorageCleanupRetry
@@ -1569,9 +1678,9 @@ export function SongPage({
                 title: `Permanently delete ${managementVersion.label} audio?`,
                 description: managementPolicy.canDelete
                   ? managementPolicy.strongWarning
-                    ? "This Released song permits producer-marked-final or last-audio deletion. Review every consequence."
+                    ? "Review every consequence before removing this protected stored audio."
                     : "The audio file is removed from storage, playback, downloads, and public switching."
-                  : "This audio is protected until the song is marked Released.",
+                  : "This audio cannot be removed with this legacy audio-only cleanup action.",
                 confirmLabel: "Permanently delete audio",
                 pendingLabel: "Deleting audio…",
                 cancelLabel: "Keep audio",
@@ -1579,7 +1688,7 @@ export function SongPage({
                 strongWarning: managementPolicy.strongWarning,
                 blockedReason: managementPolicy.canDelete
                   ? null
-                  : "Keep another safe playable version or mark the song Released before deleting this audio.",
+                  : "Use Delete Version or Delete Song if you need to permanently remove it.",
                 details: managementPolicy.details,
               };
         }
@@ -1727,42 +1836,64 @@ export function SongPage({
                     ? "Previously approved"
                     : delivery.badge;
           return (
-            <button
+            <div
               key={version.id}
-              type="button"
-              aria-current={selected ? "true" : undefined}
-              onClick={() => {
-                handleVersionSelect(version);
-              }}
               className={[
-                "flex min-h-14 w-full items-center justify-between gap-4 px-3 py-2.5 text-left transition-colors",
+                "flex min-h-14 w-full items-stretch transition-colors",
                 selected
                   ? "bg-[rgb(var(--brand-primary)/0.1)]"
                   : "hover:bg-[rgb(var(--fg-default)/0.04)]",
               ].join(" ")}
             >
-              <span className="min-w-0">
-                <span className="block truncate font-mono text-[12px] font-bold text-[rgb(var(--fg-default))]">
-                  {version.label}
-                </span>
-                <span className="mt-0.5 block truncate text-[11px] text-[rgb(var(--fg-muted))]">
-                  {fmtRelativeIso(version.uploadedAtIso)} ·{" "}
-                  {version.durationMs ? fmtMs(version.durationMs) : "Duration pending"}
-                </span>
-              </span>
-              <span
-                className={[
-                  "shrink-0 text-[11px] font-semibold",
-                  version.artistApprovedAtIso
-                    ? "text-[rgb(var(--fg-success-text))]"
-                    : selected
-                      ? "text-[rgb(var(--brand-primary-dark))]"
-                      : "text-[rgb(var(--fg-muted))]",
-                ].join(" ")}
+              <button
+                type="button"
+                aria-current={selected ? "true" : undefined}
+                onClick={() => {
+                  handleVersionSelect(version);
+                }}
+                className="flex min-w-0 flex-1 items-center justify-between gap-3 px-3 py-2.5 text-left"
               >
-                {selected ? "Selected" : state}
-              </span>
-            </button>
+                <span className="min-w-0">
+                  <span className="block truncate font-mono text-[12px] font-bold text-[rgb(var(--fg-default))]">
+                    {version.label}
+                  </span>
+                  <span className="mt-0.5 block truncate text-[11px] text-[rgb(var(--fg-muted))]">
+                    {fmtRelativeIso(version.uploadedAtIso)} ·{" "}
+                    {version.durationMs ? fmtMs(version.durationMs) : "Duration pending"}
+                  </span>
+                </span>
+                <span
+                  className={[
+                    "shrink-0 text-[11px] font-semibold",
+                    version.artistApprovedAtIso
+                      ? "text-[rgb(var(--fg-success-text))]"
+                      : selected
+                        ? "text-[rgb(var(--brand-primary-dark))]"
+                        : "text-[rgb(var(--fg-muted))]",
+                  ].join(" ")}
+                >
+                  {selected ? "Selected" : state}
+                </span>
+              </button>
+              {role === "producer" && (actions.deleteVersion || actions.deleteSong) ? (
+                <button
+                  type="button"
+                  aria-label={`More actions for ${version.label}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setVersionMenuOpen(false);
+                    openingManagementFromVersionRef.current = true;
+                    openManagementDialog(
+                      versions.length === 1 ? "delete-song" : "delete-version",
+                      version.id,
+                    );
+                  }}
+                  className="sk-press inline-flex min-h-11 w-11 shrink-0 items-center justify-center self-center rounded-full text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--fg-default)/0.07)] hover:text-[rgb(var(--fg-default))]"
+                >
+                  <MoreIcon />
+                </button>
+              ) : null}
+            </div>
           );
         })}
       </div>
@@ -2190,328 +2321,337 @@ export function SongPage({
   }
 
   return (
-    <main
-      data-test="professional-song-page"
-      className="sk-page-enter relative isolate min-h-full overflow-x-clip bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-default))]"
-    >
-      <SetTopBarBreadcrumb crumbs={topbarCrumbs} />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[320px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.09)] via-[rgb(var(--bg-background)/0.72)] to-[rgb(var(--bg-background))]"
-      />
-
-      {role === "producer" && actions.prepareArtwork && actions.completeArtwork ? (
-        <input
-          ref={artworkInputRef}
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          className="sr-only"
-          aria-label="Choose song cover"
-          onChange={(event) => {
-            const file = event.currentTarget.files?.[0];
-            if (file) void handleArtworkFile(file);
-          }}
+    <>
+      {songDeletionRedirectHref ? <SongDeletionRedirect href={songDeletionRedirectHref} /> : null}
+      <main
+        data-test="professional-song-page"
+        className="sk-page-enter relative isolate min-h-full overflow-x-clip bg-[rgb(var(--bg-background))] text-[rgb(var(--fg-default))]"
+      >
+        <SetTopBarBreadcrumb crumbs={topbarCrumbs} />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[320px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.09)] via-[rgb(var(--bg-background)/0.72)] to-[rgb(var(--bg-background))]"
         />
-      ) : null}
 
-      <div className="relative z-10 mx-auto w-full max-w-[1120px] px-4 py-4 pb-24 sm:px-6 sm:py-6 lg:py-8 lg:pb-10">
-        <header className="mb-4">
-          <Card className="relative grid grid-cols-[88px_minmax(0,1fr)] items-start gap-x-3 p-4 sm:grid-cols-[108px_minmax(0,1fr)] sm:gap-x-5 sm:p-5 lg:grid-cols-[120px_minmax(0,1fr)]">
-            {renderArtwork("h-[88px] w-[88px] sm:h-[108px] sm:w-[108px] lg:h-[120px] lg:w-[120px]")}
-            <div className="min-w-0 pt-0.5">
-              <Link
-                href={projectHref}
-                aria-label={"Open " + data.track.projectTitle + " project"}
-                className="inline-flex min-h-11 max-w-[calc(100%-3rem)] items-center text-[11.5px] font-semibold text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-default))]"
-              >
-                <span className="truncate">{data.track.projectTitle}</span>
-              </Link>
-              <h1 className="font-display mt-1 line-clamp-2 text-[26px] leading-[1.02] font-extrabold tracking-[-0.035em] text-[rgb(var(--fg-default))] sm:text-[30px] lg:text-[34px]">
-                {songTitle}
-              </h1>
-              {(songArtist ?? clientLabel) ? (
-                <p className="mt-1.5 truncate text-[13px] font-medium text-[rgb(var(--fg-muted))]">
-                  {songArtist ?? clientLabel}
-                </p>
-              ) : null}
-            </div>
-            <div className="absolute top-4 right-4 sm:top-5 sm:right-5">{renderMoreControl()}</div>
-
-            <div className="col-span-2 mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-[rgb(var(--fg-muted))] lg:col-span-1 lg:col-start-2 lg:mt-2">
-              <span className="font-mono tabular-nums">
-                {effectiveDurationMs ? fmtMs(effectiveDurationMs) : "Duration pending"}
-              </span>
-              <span aria-hidden>·</span>
-              <span>
-                Uploaded{" "}
-                <span className="font-mono">{fmtRelativeIso(activeVersion.uploadedAtIso)}</span>
-              </span>
-              {songReleased ? (
-                <>
-                  <span aria-hidden>·</span>
-                  <span>Released</span>
-                </>
-              ) : null}
-              {songArchived || projectArchivedLabel ? (
-                <>
-                  <span aria-hidden>·</span>
-                  <span>{songArchived ? "Song archived" : projectArchivedLabel}</span>
-                </>
-              ) : null}
-              {activeVersionDeleted ? (
-                <>
-                  <span aria-hidden>·</span>
-                  <span>Audio deleted</span>
-                </>
-              ) : null}
-              {wasPreviouslyArtistApproved && !isExactArtistApproved ? (
-                <>
-                  <span aria-hidden>·</span>
-                  <span>Previously approved</span>
-                </>
-              ) : null}
-            </div>
-            <div className="col-span-2 mt-4 flex flex-wrap items-center gap-2 lg:col-span-1 lg:col-start-2 lg:mt-3">
-              {renderVersionControl()}
-              {renderVersionUploadControl()}
-              {renderWorkflowControl()}
-            </div>
-          </Card>
-        </header>
-
-        {error && !notesOpen ? (
-          <p
-            role="alert"
-            className="mb-4 rounded-[var(--radius-md)] border border-[rgb(var(--fg-danger)/0.28)] bg-[rgb(var(--fg-danger)/0.07)] px-3 py-2 text-[12px] text-[rgb(var(--fg-danger))]"
-          >
-            {error}
-          </p>
+        {role === "producer" && actions.prepareArtwork && actions.completeArtwork ? (
+          <input
+            ref={artworkInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="sr-only"
+            aria-label="Choose song cover"
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0];
+              if (file) void handleArtworkFile(file);
+            }}
+          />
         ) : null}
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.7fr)_minmax(320px,1fr)] lg:items-stretch">
-          <section className="flex min-w-0 flex-col gap-4">
-            <div className="rounded-[var(--radius-xl)] border border-[rgb(var(--fg-onsidebar)/0.1)] bg-[rgb(var(--bg-sidebar))] px-4 py-5 text-[rgb(var(--fg-onsidebar))] shadow-[var(--shadow-md)] [--fg-muted:200_192_178] sm:px-5 lg:px-6 lg:py-6">
-              {activeVersionDeleted ? (
-                <div
-                  role="status"
-                  className="flex min-h-[184px] flex-col items-center justify-center border-y border-[rgb(var(--fg-onsidebar)/0.1)] text-center"
-                >
-                  <p className="text-[13px] font-bold text-[rgb(var(--fg-onsidebar)/0.74)]">
-                    Audio deleted
-                  </p>
-                  <p className="mt-1 text-[11px] text-[rgb(var(--fg-onsidebar)/0.5)]">
-                    The version details and notes remain available.
-                  </p>
-                </div>
-              ) : (
-                <>
-                  <Waveform50
-                    appearance="studio"
-                    density={{ mobile: 96, desktop: 200 }}
-                    durationMs={effectiveDurationMs ?? 240_000}
-                    comments={waveformComments}
-                    seed={activeVersion.id}
-                    initialMs={displayedCurrentMs}
-                    initialPeaks={activeVersion.peaks}
-                    peaksUrl={
-                      activeVersionPlayable ? (activeVersion.audioUrl ?? undefined) : undefined
-                    }
-                    onProgress={setCurrentMs}
-                    onSeek={(ms) => {
-                      setCurrentMs(ms);
-                      if (
-                        playbackSnapshot.track?.id !== activeVersion.id &&
-                        isSongPageVersionPlayable(activeVersion)
-                      ) {
-                        playerLoad(
-                          activeVersionToPlayerTrack(playbackTrackData, activeVersion, role),
-                          {
-                            currentMs: ms,
-                            playing: false,
-                          },
-                        );
-                      }
-                    }}
-                    onCommentSelect={(comment) => {
-                      handleJumpToComment(comment.timeMs);
-                      if (!isDesktopMoreActions) setNotesOpen(true);
-                      window.setTimeout(() => {
-                        document
-                          .getElementById("song-note-" + comment.id)
-                          ?.scrollIntoView({ block: "center" });
-                      }, 0);
-                    }}
-                    height={isDesktopMoreActions ? 142 : 104}
-                  />
-                </>
+        <div className="relative z-10 mx-auto w-full max-w-[1120px] px-4 py-4 pb-24 sm:px-6 sm:py-6 lg:py-8 lg:pb-10">
+          <header className="mb-4">
+            <Card className="relative grid grid-cols-[88px_minmax(0,1fr)] items-start gap-x-3 p-4 sm:grid-cols-[108px_minmax(0,1fr)] sm:gap-x-5 sm:p-5 lg:grid-cols-[120px_minmax(0,1fr)]">
+              {renderArtwork(
+                "h-[88px] w-[88px] sm:h-[108px] sm:w-[108px] lg:h-[120px] lg:w-[120px]",
               )}
+              <div className="min-w-0 pt-0.5">
+                <Link
+                  href={projectHref}
+                  aria-label={"Open " + data.track.projectTitle + " project"}
+                  className="inline-flex min-h-11 max-w-[calc(100%-3rem)] items-center text-[11.5px] font-semibold text-[rgb(var(--fg-muted))] transition-colors hover:text-[rgb(var(--fg-default))]"
+                >
+                  <span className="truncate">{data.track.projectTitle}</span>
+                </Link>
+                <h1 className="font-display mt-1 line-clamp-2 text-[26px] leading-[1.02] font-extrabold tracking-[-0.035em] text-[rgb(var(--fg-default))] sm:text-[30px] lg:text-[34px]">
+                  {songTitle}
+                </h1>
+                {(songArtist ?? clientLabel) ? (
+                  <p className="mt-1.5 truncate text-[13px] font-medium text-[rgb(var(--fg-muted))]">
+                    {songArtist ?? clientLabel}
+                  </p>
+                ) : null}
+              </div>
+              <div className="absolute top-4 right-4 sm:top-5 sm:right-5">
+                {renderMoreControl()}
+              </div>
 
-              <div className="mt-5 grid grid-cols-[1fr_auto_1fr] items-center">
-                <span aria-hidden />
-                <div className="flex items-center justify-center gap-4 sm:gap-6">
-                  <button
-                    type="button"
-                    aria-label="Back 15 seconds"
-                    onClick={() => {
-                      handleSkip(-15_000);
-                    }}
-                    disabled={!activeVersionPlayable}
-                    className="sk-press inline-flex h-12 w-12 flex-col items-center justify-center rounded-full text-[rgb(var(--fg-onsidebar)/0.72)] transition-colors hover:bg-[rgb(var(--fg-onsidebar)/0.07)] hover:text-[rgb(var(--fg-onsidebar))] disabled:opacity-35"
-                  >
-                    <SkipBackIcon />
-                    <span className="mt-0.5 font-mono text-[10px]">15</span>
-                  </button>
-                  <button
-                    type="button"
-                    data-test="waveform-play-button"
-                    onClick={handlePlayToggle}
-                    disabled={playState.disabled}
-                    aria-label={playState.label}
-                    className="sk-press inline-flex h-[60px] w-[60px] items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-primary))] shadow-[0_8px_24px_rgb(var(--brand-primary)/0.22)] transition-colors hover:bg-[rgb(var(--brand-primary-hover))] disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    {isPlayingThis ? <PauseIcon size={18} /> : <PlayIcon size={18} />}
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Forward 15 seconds"
-                    onClick={() => {
-                      handleSkip(15_000);
-                    }}
-                    disabled={!activeVersionPlayable}
-                    className="sk-press inline-flex h-12 w-12 flex-col items-center justify-center rounded-full text-[rgb(var(--fg-onsidebar)/0.72)] transition-colors hover:bg-[rgb(var(--fg-onsidebar)/0.07)] hover:text-[rgb(var(--fg-onsidebar))] disabled:opacity-35"
-                  >
-                    <SkipForwardIcon />
-                    <span className="mt-0.5 font-mono text-[10px]">15</span>
-                  </button>
-                </div>
+              <div className="col-span-2 mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-[rgb(var(--fg-muted))] lg:col-span-1 lg:col-start-2 lg:mt-2">
+                <span className="font-mono tabular-nums">
+                  {effectiveDurationMs ? fmtMs(effectiveDurationMs) : "Duration pending"}
+                </span>
+                <span aria-hidden>·</span>
+                <span>
+                  Uploaded{" "}
+                  <span className="font-mono">{fmtRelativeIso(activeVersion.uploadedAtIso)}</span>
+                </span>
+                {songReleased ? (
+                  <>
+                    <span aria-hidden>·</span>
+                    <span>Released</span>
+                  </>
+                ) : null}
+                {songArchived || projectArchivedLabel ? (
+                  <>
+                    <span aria-hidden>·</span>
+                    <span>{songArchived ? "Song archived" : projectArchivedLabel}</span>
+                  </>
+                ) : null}
+                {activeVersionDeleted ? (
+                  <>
+                    <span aria-hidden>·</span>
+                    <span>Audio deleted</span>
+                  </>
+                ) : null}
+                {wasPreviouslyArtistApproved && !isExactArtistApproved ? (
+                  <>
+                    <span aria-hidden>·</span>
+                    <span>Previously approved</span>
+                  </>
+                ) : null}
+              </div>
+              <div className="col-span-2 mt-4 flex flex-wrap items-center gap-2 lg:col-span-1 lg:col-start-2 lg:mt-3">
+                {renderVersionControl()}
+                {renderVersionUploadControl()}
+                {renderWorkflowControl()}
+              </div>
+            </Card>
+          </header>
 
-                <div className="hidden items-center justify-end gap-3 text-[rgb(var(--fg-onsidebar)/0.58)] xl:flex">
-                  <VolumeIcon />
-                  <label className="sr-only" htmlFor="song-player-volume">
-                    Player volume
-                  </label>
-                  <input
-                    id="song-player-volume"
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    value={playbackSnapshot.volume}
-                    onChange={(event) => {
-                      playerSetVolume(Number(event.currentTarget.value));
-                    }}
-                    className="h-11 w-28 accent-[rgb(var(--brand-primary))]"
-                  />
+          {error && !notesOpen ? (
+            <p
+              role="alert"
+              className="mb-4 rounded-[var(--radius-md)] border border-[rgb(var(--fg-danger)/0.28)] bg-[rgb(var(--fg-danger)/0.07)] px-3 py-2 text-[12px] text-[rgb(var(--fg-danger))]"
+            >
+              {error}
+            </p>
+          ) : null}
+
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.7fr)_minmax(320px,1fr)] lg:items-stretch">
+            <section className="flex min-w-0 flex-col gap-4">
+              <div className="rounded-[var(--radius-xl)] border border-[rgb(var(--fg-onsidebar)/0.1)] bg-[rgb(var(--bg-sidebar))] px-4 py-5 text-[rgb(var(--fg-onsidebar))] shadow-[var(--shadow-md)] [--fg-muted:200_192_178] sm:px-5 lg:px-6 lg:py-6">
+                {activeVersionDeleted ? (
+                  <div
+                    role="status"
+                    className="flex min-h-[184px] flex-col items-center justify-center border-y border-[rgb(var(--fg-onsidebar)/0.1)] text-center"
+                  >
+                    <p className="text-[13px] font-bold text-[rgb(var(--fg-onsidebar)/0.74)]">
+                      Audio deleted
+                    </p>
+                    <p className="mt-1 text-[11px] text-[rgb(var(--fg-onsidebar)/0.5)]">
+                      The version details and notes remain available.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <Waveform50
+                      appearance="studio"
+                      density={{ mobile: 96, desktop: 200 }}
+                      durationMs={effectiveDurationMs ?? 240_000}
+                      comments={waveformComments}
+                      seed={activeVersion.id}
+                      initialMs={displayedCurrentMs}
+                      initialPeaks={activeVersion.peaks}
+                      peaksUrl={
+                        activeVersionPlayable ? (activeVersion.audioUrl ?? undefined) : undefined
+                      }
+                      onProgress={setCurrentMs}
+                      onSeek={(ms) => {
+                        setCurrentMs(ms);
+                        if (
+                          playbackSnapshot.track?.id !== activeVersion.id &&
+                          isSongPageVersionPlayable(activeVersion)
+                        ) {
+                          playerLoad(
+                            activeVersionToPlayerTrack(playbackTrackData, activeVersion, role),
+                            {
+                              currentMs: ms,
+                              playing: false,
+                            },
+                          );
+                        }
+                      }}
+                      onCommentSelect={(comment) => {
+                        handleJumpToComment(comment.timeMs);
+                        if (!isDesktopMoreActions) setNotesOpen(true);
+                        window.setTimeout(() => {
+                          document
+                            .getElementById("song-note-" + comment.id)
+                            ?.scrollIntoView({ block: "center" });
+                        }, 0);
+                      }}
+                      height={isDesktopMoreActions ? 142 : 104}
+                    />
+                  </>
+                )}
+
+                <div className="mt-5 grid grid-cols-[1fr_auto_1fr] items-center">
+                  <span aria-hidden />
+                  <div className="flex items-center justify-center gap-4 sm:gap-6">
+                    <button
+                      type="button"
+                      aria-label="Back 15 seconds"
+                      onClick={() => {
+                        handleSkip(-15_000);
+                      }}
+                      disabled={!activeVersionPlayable}
+                      className="sk-press inline-flex h-12 w-12 flex-col items-center justify-center rounded-full text-[rgb(var(--fg-onsidebar)/0.72)] transition-colors hover:bg-[rgb(var(--fg-onsidebar)/0.07)] hover:text-[rgb(var(--fg-onsidebar))] disabled:opacity-35"
+                    >
+                      <SkipBackIcon />
+                      <span className="mt-0.5 font-mono text-[10px]">15</span>
+                    </button>
+                    <button
+                      type="button"
+                      data-test="waveform-play-button"
+                      onClick={handlePlayToggle}
+                      disabled={playState.disabled}
+                      aria-label={playState.label}
+                      className="sk-press inline-flex h-[60px] w-[60px] items-center justify-center rounded-full bg-[rgb(var(--brand-primary))] text-[rgb(var(--fg-primary))] shadow-[0_8px_24px_rgb(var(--brand-primary)/0.22)] transition-colors hover:bg-[rgb(var(--brand-primary-hover))] disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {isPlayingThis ? <PauseIcon size={18} /> : <PlayIcon size={18} />}
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Forward 15 seconds"
+                      onClick={() => {
+                        handleSkip(15_000);
+                      }}
+                      disabled={!activeVersionPlayable}
+                      className="sk-press inline-flex h-12 w-12 flex-col items-center justify-center rounded-full text-[rgb(var(--fg-onsidebar)/0.72)] transition-colors hover:bg-[rgb(var(--fg-onsidebar)/0.07)] hover:text-[rgb(var(--fg-onsidebar))] disabled:opacity-35"
+                    >
+                      <SkipForwardIcon />
+                      <span className="mt-0.5 font-mono text-[10px]">15</span>
+                    </button>
+                  </div>
+
+                  <div className="hidden items-center justify-end gap-3 text-[rgb(var(--fg-onsidebar)/0.58)] xl:flex">
+                    <VolumeIcon />
+                    <label className="sr-only" htmlFor="song-player-volume">
+                      Player volume
+                    </label>
+                    <input
+                      id="song-player-volume"
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={playbackSnapshot.volume}
+                      onChange={(event) => {
+                        playerSetVolume(Number(event.currentTarget.value));
+                      }}
+                      className="h-11 w-28 accent-[rgb(var(--brand-primary))]"
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="lg:hidden">
-              <button
-                type="button"
-                aria-label={"Open Notes, " + String(allCommentsForVersion.length) + " notes"}
-                onClick={() => {
-                  setNotesOpen(true);
-                }}
-                className="sk-press flex min-h-14 w-full items-center justify-between rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 text-[13px] font-bold text-[rgb(var(--fg-default))] shadow-[var(--shadow-sm)] transition-colors hover:border-[rgb(var(--border-strong))] hover:bg-[rgb(var(--bg-overlay))]"
-              >
-                <span>Notes</span>
-                <span className="rounded-[var(--radius-sm)] bg-[rgb(var(--bg-sunken))] px-2 py-1 font-mono text-[11px] text-[rgb(var(--fg-muted))]">
-                  {String(allCommentsForVersion.length)}
-                </span>
-              </button>
-            </div>
+              <div className="lg:hidden">
+                <button
+                  type="button"
+                  aria-label={"Open Notes, " + String(allCommentsForVersion.length) + " notes"}
+                  onClick={() => {
+                    setNotesOpen(true);
+                  }}
+                  className="sk-press flex min-h-14 w-full items-center justify-between rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 text-[13px] font-bold text-[rgb(var(--fg-default))] shadow-[var(--shadow-sm)] transition-colors hover:border-[rgb(var(--border-strong))] hover:bg-[rgb(var(--bg-overlay))]"
+                >
+                  <span>Notes</span>
+                  <span className="rounded-[var(--radius-sm)] bg-[rgb(var(--bg-sunken))] px-2 py-1 font-mono text-[11px] text-[rgb(var(--fg-muted))]">
+                    {String(allCommentsForVersion.length)}
+                  </span>
+                </button>
+              </div>
 
-            <div>
-              <VersionDeliveryPanel
-                role={role}
-                artistStudioId={artistStudioId}
-                version={activeVersion}
-                delivery={activeDelivery}
-                downloadHref={downloadHref}
-                canUseDownloadAction={canUseDownloadAction}
-                canManageOverride={Boolean(actions.setDownloadOverride)}
-                overrideButtonRef={deliveryOverrideButtonRef}
-                onManageOverride={() => {
-                  openManagementDialog("download-override");
-                }}
-              />
-            </div>
-          </section>
+              <div>
+                <VersionDeliveryPanel
+                  role={role}
+                  artistStudioId={artistStudioId}
+                  version={activeVersion}
+                  delivery={activeDelivery}
+                  downloadHref={downloadHref}
+                  canUseDownloadAction={canUseDownloadAction}
+                  canManageOverride={Boolean(actions.setDownloadOverride)}
+                  overrideButtonRef={deliveryOverrideButtonRef}
+                  onManageOverride={() => {
+                    openManagementDialog("download-override");
+                  }}
+                />
+              </div>
+            </section>
 
-          {isDesktopMoreActions ? (
-            <aside className="flex min-h-[420px]" aria-label="Song notes">
-              {renderNotesPanel("desktop")}
-            </aside>
-          ) : null}
+            {isDesktopMoreActions ? (
+              <aside className="flex min-h-[420px]" aria-label="Song notes">
+                {renderNotesPanel("desktop")}
+              </aside>
+            ) : null}
+          </div>
         </div>
-      </div>
 
-      <Sheet
-        open={notesOpen && !isDesktopMoreActions}
-        onOpenChange={(open) => {
-          if (!open) closeNotes();
-        }}
-      >
-        <SheetContent
-          side="bottom"
-          aria-describedby="song-notes-description"
-          onPointerDown={(event) => {
-            const top = event.currentTarget.getBoundingClientRect().top;
-            notesDragStartYRef.current = event.clientY - top <= 84 ? event.clientY : null;
-          }}
-          onPointerUp={(event) => {
-            const start = notesDragStartYRef.current;
-            notesDragStartYRef.current = null;
-            if (start !== null && event.clientY - start > 80) closeNotes();
-          }}
-          className="w-full gap-0 overflow-hidden px-0 pt-2 pb-[env(safe-area-inset-bottom)] sm:px-0 sm:pt-2 sm:pb-[env(safe-area-inset-bottom)]"
-        >
-          <SheetTitle className="sr-only">Song notes</SheetTitle>
-          <SheetDescription id="song-notes-description" className="sr-only">
-            Review timestamped notes and add a note at the current playback time.
-          </SheetDescription>
-          {renderNotesPanel("sheet")}
-        </SheetContent>
-      </Sheet>
-
-      {role === "producer" && versionUpload ? (
-        <UploadTrackModal
-          open={versionUploadOpen}
-          onClose={() => {
-            setVersionUploadOpen(false);
-          }}
-          projectId={versionUpload.projectId}
-          mode="new-version"
-          trackId={versionUpload.trackId}
-          defaultLabel={versionUpload.defaultLabel}
-          tracks={[
-            {
-              id: versionUpload.trackId,
-              title: songTitle,
-              versionCount: versionUpload.versionCount,
-              publicExposure: versionUpload.publicExposure,
-            },
-          ]}
-        />
-      ) : null}
-
-      {managementConfig ? (
-        <SongManagementDialog
-          open={managementDialog !== null}
-          config={managementConfig}
+        <Sheet
+          open={notesOpen && !isDesktopMoreActions}
           onOpenChange={(open) => {
-            if (!open) setManagementDialog(null);
+            if (!open) closeNotes();
           }}
-          onSubmit={handleManagementSubmit}
-          returnFocusRef={
-            managementDialog?.kind === "download-override"
-              ? deliveryOverrideButtonRef
-              : moreButtonRef
-          }
-        />
-      ) : null}
-    </main>
+        >
+          <SheetContent
+            side="bottom"
+            aria-describedby="song-notes-description"
+            onPointerDown={(event) => {
+              const top = event.currentTarget.getBoundingClientRect().top;
+              notesDragStartYRef.current = event.clientY - top <= 84 ? event.clientY : null;
+            }}
+            onPointerUp={(event) => {
+              const start = notesDragStartYRef.current;
+              notesDragStartYRef.current = null;
+              if (start !== null && event.clientY - start > 80) closeNotes();
+            }}
+            className="w-full gap-0 overflow-hidden px-0 pt-2 pb-[env(safe-area-inset-bottom)] sm:px-0 sm:pt-2 sm:pb-[env(safe-area-inset-bottom)]"
+          >
+            <SheetTitle className="sr-only">Song notes</SheetTitle>
+            <SheetDescription id="song-notes-description" className="sr-only">
+              Review timestamped notes and add a note at the current playback time.
+            </SheetDescription>
+            {renderNotesPanel("sheet")}
+          </SheetContent>
+        </Sheet>
+
+        {role === "producer" && versionUpload ? (
+          <UploadTrackModal
+            open={versionUploadOpen}
+            onClose={() => {
+              setVersionUploadOpen(false);
+            }}
+            projectId={versionUpload.projectId}
+            mode="new-version"
+            trackId={versionUpload.trackId}
+            defaultLabel={versionUpload.defaultLabel}
+            tracks={[
+              {
+                id: versionUpload.trackId,
+                title: songTitle,
+                versionCount: versionUpload.versionCount,
+                publicExposure: versionUpload.publicExposure,
+              },
+            ]}
+          />
+        ) : null}
+
+        {managementConfig ? (
+          <SongManagementDialog
+            open={managementDialog !== null}
+            config={managementConfig}
+            onOpenChange={(open) => {
+              if (!open) setManagementDialog(null);
+            }}
+            onSubmit={handleManagementSubmit}
+            returnFocusRef={
+              managementDialog?.kind === "download-override"
+                ? deliveryOverrideButtonRef
+                : openingManagementFromVersionRef.current
+                  ? versionButtonRef
+                  : moreButtonRef
+            }
+          />
+        ) : null}
+      </main>
+    </>
   );
 }
 
@@ -2566,6 +2706,7 @@ function SongMoreActionsPanel({
       actions.setArchived ||
       actions.markReleased ||
       actions.renameVersion ||
+      actions.deleteSong ||
       actions.deleteVersionAudio,
     );
 
@@ -2685,7 +2826,17 @@ function SongMoreActionsPanel({
               Rename version
             </button>
           ) : null}
-          {actions.deleteVersionAudio && activeVersionPlayable ? (
+          {actions.deleteSong ? (
+            <button
+              type="button"
+              onClick={() => {
+                onOpenManagement("delete-song");
+              }}
+              className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold text-[rgb(var(--fg-danger))] transition-colors hover:bg-[rgb(var(--fg-danger)/0.08)]"
+            >
+              Delete song
+            </button>
+          ) : actions.deleteVersionAudio && activeVersionPlayable ? (
             <button
               type="button"
               onClick={() => {
@@ -2694,16 +2845,6 @@ function SongMoreActionsPanel({
               className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold text-[rgb(var(--fg-danger))] transition-colors hover:bg-[rgb(var(--fg-danger)/0.08)]"
             >
               Permanently delete audio
-            </button>
-          ) : actions.deleteVersionAudio && activeVersionDeleted ? (
-            <button
-              type="button"
-              onClick={() => {
-                onOpenManagement("delete-version-audio");
-              }}
-              className="flex min-h-11 w-full items-center rounded-[var(--radius-lg)] px-3 text-left text-[13px] font-semibold text-[rgb(var(--fg-danger))] transition-colors hover:bg-[rgb(var(--fg-danger)/0.08)]"
-            >
-              Retry storage cleanup
             </button>
           ) : null}
         </>

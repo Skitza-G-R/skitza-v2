@@ -74,6 +74,7 @@ export function TrackRow({ track, index }: TrackRowProps) {
     }
     playerPlay({
       id: playback.versionId,
+      songId: track.id,
       audioUrl: playback.audioUrl,
       title: track.title,
       subtitle: `${playback.projectName} · ${playback.versionLabel}`,

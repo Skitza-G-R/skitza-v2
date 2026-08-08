@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+import { AUDIO_UPLOAD_MAX_BYTES } from "~/lib/audio/storage-limits";
+
 export type FirstVersionProjectLifecycleStatus =
   | "waiting_for_payment"
   | "active"
@@ -75,7 +77,7 @@ export function assertFirstVersionAudioFile(
     input.sizeBytes <= 0 ||
     input.sizeBytes > FIRST_VERSION_MAX_AUDIO_BYTES
   ) {
-    throw new FirstVersionUploadError("BAD_REQUEST", "File too large. Max 500MB.");
+    throw new FirstVersionUploadError("BAD_REQUEST", "File too large. Max 100MB.");
   }
   if (!FIRST_VERSION_ALLOWED_AUDIO_TYPES.has(input.contentType.trim().toLowerCase())) {
     throw new FirstVersionUploadError(
@@ -203,6 +205,7 @@ export function verifyFirstVersionObject(
   if (
     !Number.isSafeInteger(input.expectedSizeBytes) ||
     input.expectedSizeBytes <= 0 ||
+    input.expectedSizeBytes > FIRST_VERSION_MAX_AUDIO_BYTES ||
     input.observedSizeBytes !== input.expectedSizeBytes ||
     !observedContentType ||
     observedContentType !== expectedContentType ||
@@ -222,7 +225,7 @@ export function verifyFirstVersionObject(
   };
 }
 
-export const FIRST_VERSION_MAX_AUDIO_BYTES = 500 * 1024 * 1024;
+export const FIRST_VERSION_MAX_AUDIO_BYTES = AUDIO_UPLOAD_MAX_BYTES;
 
 const FIRST_VERSION_ALLOWED_AUDIO_TYPES = new Set([
   "audio/wav",

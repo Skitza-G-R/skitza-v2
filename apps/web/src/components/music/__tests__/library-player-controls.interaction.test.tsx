@@ -87,6 +87,7 @@ describe("Music library grid player controls", () => {
     expect(playerMocks.playerPlay).toHaveBeenCalledTimes(1);
     expect(playerMocks.playerPlay).toHaveBeenCalledWith({
       id: "version-1",
+      songId: "song-1",
       audioUrl: "https://audio.example/version-1.mp3",
       title: "Lama",
       subtitle: "Lital Ohayon · V1",

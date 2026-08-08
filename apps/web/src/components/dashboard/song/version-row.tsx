@@ -52,6 +52,8 @@ export interface VersionRowVersionData {
 
 interface VersionRowProps {
   version: VersionRowVersionData;
+  /** Stable Song identity used to close playback after that Song is deleted elsewhere. */
+  songId: string;
   /** The song's display title — fed to the PersistentPlayer title. */
   songTitle: string;
   /** The album/project name — first half of the player subtitle. */
@@ -89,7 +91,7 @@ function relativeWhen(iso: string): string {
   }
 }
 
-export function VersionRow({ version, songTitle, projectName }: VersionRowProps) {
+export function VersionRow({ version, songId, songTitle, projectName }: VersionRowProps) {
   const { trackId } = useNowPlaying();
   const isDeleted = version.audioDeletedAtIso !== null && version.audioDeletedAtIso !== undefined;
   const hasAudio = !isDeleted && version.audioUrl !== null;
@@ -115,6 +117,7 @@ export function VersionRow({ version, songTitle, projectName }: VersionRowProps)
     if (!hasAudio || version.audioUrl === null) return;
     playerPlay({
       id: version.id,
+      songId,
       audioUrl: version.audioUrl,
       title: songTitle,
       subtitle: `${projectName} · ${versionLabel}`,
@@ -226,7 +229,9 @@ export function VersionRow({ version, songTitle, projectName }: VersionRowProps)
           <Play
             size={12}
             fill="currentColor"
-            aria-label={hasAudio ? "Play" : isDeleted ? "Audio deleted" : "Audio is still uploading"}
+            aria-label={
+              hasAudio ? "Play" : isDeleted ? "Audio deleted" : "Audio is still uploading"
+            }
           />
         </span>
       </div>

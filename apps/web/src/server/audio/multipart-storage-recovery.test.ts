@@ -3,6 +3,7 @@ import {
   ListMultipartUploadsCommand,
   ListObjectsV2Command,
   ListPartsCommand,
+  PutObjectCommand,
 } from "@aws-sdk/client-s3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -18,6 +19,12 @@ import {
   abortMultipartUploadAndObserve,
   exactObjectIsAbsent,
   listExactMultipartUploadIds,
+  MULTIPART_TERMINAL_SEAL_CONTENT_TYPE,
+  MULTIPART_TERMINAL_SEAL_METADATA,
+  multipartTerminalSealFingerprint,
+  putMultipartTerminalSeal,
+  reconcileMultipartTerminalSeal,
+  tokenBoundCompletedObjectCleanupMatches,
 } from "./multipart-storage-recovery";
 
 afterEach(() => {
@@ -25,6 +32,178 @@ afterEach(() => {
 });
 
 describe("multipart storage recovery", () => {
+  const sealIdentity = {
+    key: "owned/exact.wav",
+    uploadId: "server-upload-id",
+    completionToken: "a".repeat(64),
+    objectEtag: null,
+  } as const;
+
+  const sealObservation = {
+    eTag: '"seal-etag"',
+    sizeBytes: 1,
+    contentType: MULTIPART_TERMINAL_SEAL_CONTENT_TYPE,
+    completionToken: sealIdentity.completionToken,
+    sealFingerprint: multipartTerminalSealFingerprint(sealIdentity),
+  } as const;
+
+  it("authorizes cleanup by token and ETag without trusting the claimed byte size", () => {
+    const completionToken = "a".repeat(64);
+
+    expect(
+      tokenBoundCompletedObjectCleanupMatches({
+        expectedEtag: null,
+        expectedCompletionToken: completionToken,
+        observedEtag: '"oversized-object"',
+        observedCompletionToken: completionToken,
+      }),
+    ).toBe(true);
+    expect(
+      tokenBoundCompletedObjectCleanupMatches({
+        expectedEtag: '"oversized-object"',
+        expectedCompletionToken: completionToken,
+        observedEtag: '"replacement"',
+        observedCompletionToken: completionToken,
+      }),
+    ).toBe(false);
+    expect(
+      tokenBoundCompletedObjectCleanupMatches({
+        expectedEtag: null,
+        expectedCompletionToken: completionToken,
+        observedEtag: '"oversized-object"',
+        observedCompletionToken: "b".repeat(64),
+      }),
+    ).toBe(false);
+  });
+
+  it("seals after a late conditional completion wins the absent-key race", async () => {
+    let object:
+      | typeof sealObservation
+      | Readonly<{
+          eTag: string;
+          sizeBytes: number;
+          contentType: string;
+          completionToken: string;
+          sealFingerprint: undefined;
+        }>
+      | null = null;
+    const events: string[] = [];
+    let publishedEtag: string | null = null;
+
+    const result = await reconcileMultipartTerminalSeal(sealIdentity, {
+      head() {
+        events.push(object === null ? "head-absent" : "head-present");
+        return Promise.resolve(object);
+      },
+      publishCleanupEtag(exact) {
+        events.push("journal-etag");
+        publishedEtag = exact.objectEtag;
+        return Promise.resolve(true);
+      },
+      putSeal({ replaceEtag }) {
+        if (replaceEtag === null) {
+          events.push("put-if-absent-conflict");
+          object = {
+            eTag: '"late-complete-etag"',
+            sizeBytes: 100_000_001,
+            contentType: "audio/wav",
+            completionToken: sealIdentity.completionToken,
+            sealFingerprint: undefined,
+          };
+          return Promise.reject(new Error("late conditional complete won"));
+        }
+        events.push("put-if-match");
+        expect(replaceEtag).toBe('"late-complete-etag"');
+        object = sealObservation;
+        return Promise.resolve();
+      },
+    });
+
+    expect(result).toEqual({ ...sealIdentity, objectEtag: '"late-complete-etag"' });
+    expect(publishedEtag).toBe('"late-complete-etag"');
+    expect(events).toEqual([
+      "head-absent",
+      "put-if-absent-conflict",
+      "head-present",
+      "journal-etag",
+      "put-if-match",
+      "head-present",
+    ]);
+  });
+
+  it("accepts an ambiguously successful seal only after observing its fingerprint", async () => {
+    let object: typeof sealObservation | null = null;
+    let putCalls = 0;
+
+    await expect(
+      reconcileMultipartTerminalSeal(sealIdentity, {
+        head: () => Promise.resolve(object),
+        publishCleanupEtag: () => Promise.resolve(false),
+        putSeal() {
+          putCalls += 1;
+          object = sealObservation;
+          return Promise.reject(new Error("response lost after conditional put"));
+        },
+      }),
+    ).resolves.toEqual(sealIdentity);
+    expect(putCalls).toBe(1);
+  });
+
+  it("does not replace an object with a different completion token", async () => {
+    let putCalls = 0;
+    await expect(
+      reconcileMultipartTerminalSeal(sealIdentity, {
+        head: () =>
+          Promise.resolve({
+            eTag: '"unrelated"',
+            sizeBytes: 1,
+            contentType: "audio/wav",
+            completionToken: "b".repeat(64),
+            sealFingerprint: undefined,
+          }),
+        publishCleanupEtag: () => Promise.resolve(true),
+        putSeal() {
+          putCalls += 1;
+          return Promise.resolve();
+        },
+      }),
+    ).resolves.toBeNull();
+    expect(putCalls).toBe(0);
+  });
+
+  it("writes the one-byte token-bound marker with exact conditional headers", async () => {
+    storage.send.mockResolvedValue({ ETag: '"seal-etag"' });
+
+    await putMultipartTerminalSeal({ ...sealIdentity, replaceEtag: null });
+    await putMultipartTerminalSeal({ ...sealIdentity, replaceEtag: '"completed-etag"' });
+
+    expect(storage.send).toHaveBeenCalledTimes(2);
+    const absentCommand = storage.send.mock.calls[0]?.[0] as unknown;
+    const replacementCommand = storage.send.mock.calls[1]?.[0] as unknown;
+    if (
+      !(absentCommand instanceof PutObjectCommand) ||
+      !(replacementCommand instanceof PutObjectCommand)
+    ) {
+      throw new Error("Expected two concrete PutObject commands");
+    }
+    expect(absentCommand).toBeInstanceOf(PutObjectCommand);
+    expect(absentCommand.input).toMatchObject({
+      Key: sealIdentity.key,
+      IfNoneMatch: "*",
+      ContentLength: 1,
+      ContentType: MULTIPART_TERMINAL_SEAL_CONTENT_TYPE,
+      CacheControl: "no-store",
+    });
+    expect(absentCommand.input.Metadata).toMatchObject({
+      "skitza-upload-token": sealIdentity.completionToken,
+      [MULTIPART_TERMINAL_SEAL_METADATA]: multipartTerminalSealFingerprint(sealIdentity),
+    });
+    expect(replacementCommand.input).toMatchObject({
+      IfMatch: '"completed-etag"',
+      ContentLength: 1,
+    });
+  });
+
   it("exhaustively proves one exact object key is absent across sibling pages", async () => {
     let page = 0;
     storage.send.mockImplementation((command: unknown) => {

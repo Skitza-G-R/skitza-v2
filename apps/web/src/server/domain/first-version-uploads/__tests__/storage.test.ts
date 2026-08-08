@@ -2,6 +2,7 @@ import {
   CopyObjectCommand,
   DeleteObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -34,6 +35,8 @@ import {
   deleteFirstVersionUploadIfExact,
   finalizeFirstVersionUpload,
   observeFirstVersionUpload,
+  reconcileFirstVersionFinalDeletion,
+  reconcileFirstVersionStagingDeletion,
 } from "../storage";
 
 const expectation = {
@@ -70,20 +73,36 @@ describe("first Version upload storage", () => {
     expect(String(failure)).not.toContain("private-token");
   });
 
-  it("returns every signed browser PUT header", async () => {
+  it("rejects a presigned URL whose authoritative AWS expiry cannot be derived", async () => {
     mocks.getSignedUrl.mockResolvedValueOnce("https://upload.example.test/intent");
+
+    await expect(
+      createFirstVersionUploadUrl(
+        { key: "staging/upload.wav", ...expectation },
+        {} as never,
+      ),
+    ).rejects.toMatchObject({ name: "FirstVersionUploadPresignError" });
+  });
+
+  it("returns every signed browser PUT header", async () => {
+    mocks.getSignedUrl.mockResolvedValueOnce(
+      "https://upload.example.test/intent?X-Amz-Date=20260808T120000Z&X-Amz-Expires=900",
+    );
     const client = {};
 
     await expect(
       createFirstVersionUploadUrl({ key: "staging/upload.wav", ...expectation }, client as never),
     ).resolves.toEqual({
-      uploadUrl: "https://upload.example.test/intent",
+      uploadUrl:
+        "https://upload.example.test/intent?X-Amz-Date=20260808T120000Z&X-Amz-Expires=900",
       headers: {
         "Content-Type": "audio/wav",
         "Cache-Control": "no-store",
+        "If-None-Match": "*",
         "x-amz-meta-skitza-upload-token": expectation.completionToken,
       },
       expiresInSeconds: 900,
+      expiresAt: new Date("2026-08-08T12:15:00.000Z"),
     });
 
     const signedCommand = mocks.getSignedUrl.mock.calls[0]?.[1] as unknown;
@@ -93,11 +112,17 @@ describe("first Version upload storage", () => {
       Key: "staging/upload.wav",
       ContentType: "audio/wav",
       CacheControl: "no-store",
+      ContentLength: expectation.sizeBytes,
+      IfNoneMatch: "*",
       Metadata: { "skitza-upload-token": expectation.completionToken },
     });
-    expect((signedCommand as PutObjectCommand).input).not.toHaveProperty("ContentLength");
     expect(mocks.getSignedUrl.mock.calls[0]?.[2]).toMatchObject({
-      signableHeaders: new Set(["content-type", "cache-control"]),
+      signableHeaders: new Set([
+        "content-type",
+        "cache-control",
+        "content-length",
+        "if-none-match",
+      ]),
       unhoistableHeaders: new Set(["x-amz-meta-skitza-upload-token"]),
     });
   });
@@ -203,5 +228,180 @@ describe("first Version upload storage", () => {
       Key: "staging/upload.wav",
       IfMatch: '"exact-etag"',
     });
+  });
+
+  it("proves a rolled-back server-final key absent before reservation release", async () => {
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ContentLength: expectation.sizeBytes,
+        ContentType: expectation.contentType,
+        Metadata: { "skitza-upload-token": expectation.completionToken },
+        ETag: '"final-etag"',
+      })
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ IsTruncated: false, Contents: [] });
+
+    await expect(
+      reconcileFirstVersionFinalDeletion(
+        { key: "producers/p/tracks/v/audio.wav", ...expectation },
+        { send } as never,
+      ),
+    ).resolves.toBeUndefined();
+    expect(sentCommand(send, 1)).toBeInstanceOf(DeleteObjectCommand);
+    expect(sentCommand(send, 2)).toBeInstanceOf(ListObjectsV2Command);
+  });
+
+  it("retains an exact permanent marker that blocks every stale conditional PUT", async () => {
+    let state: "present" | "marker" = "present";
+    let markerFingerprint = "";
+    let markerSource = "";
+    const send = vi.fn((command: unknown) => {
+      if (command instanceof HeadObjectCommand) {
+        if (state === "marker") {
+          return {
+            ContentLength: 1,
+            ContentType: "application/x-skitza-sealed-first-version-staging-marker",
+            ETag: '"marker-etag"',
+            Metadata: {
+              "skitza-upload-token": expectation.completionToken,
+              "skitza-staging-seal": markerFingerprint,
+              "skitza-staging-seal-source": markerSource,
+            },
+          };
+        }
+        return {
+          ContentLength: expectation.sizeBytes,
+          ContentType: expectation.contentType,
+          Metadata: { "skitza-upload-token": expectation.completionToken },
+          ETag: '"exact-staging"',
+        };
+      }
+      if (command instanceof PutObjectCommand) {
+        markerFingerprint = command.input.Metadata?.["skitza-staging-seal"] ?? "";
+        markerSource = command.input.Metadata?.["skitza-staging-seal-source"] ?? "";
+        state = "marker";
+        return {};
+      }
+      throw new Error("Unexpected command");
+    });
+    const input = {
+      key: "first-version-staging/producers/p/intents/i/upload",
+      ...expectation,
+    };
+
+    await expect(reconcileFirstVersionStagingDeletion(input, { send } as never)).resolves.toBeUndefined();
+    await expect(reconcileFirstVersionStagingDeletion(input, { send } as never)).resolves.toBeUndefined();
+
+    const markerWrite = send.mock.calls
+      .map(([command]) => command)
+      .find((command) => command instanceof PutObjectCommand) as PutObjectCommand;
+    expect(markerWrite.input).toMatchObject({
+      Key: input.key,
+      IfMatch: '"exact-staging"',
+      ContentType: "application/x-skitza-sealed-first-version-staging-marker",
+    });
+    expect(
+      (markerWrite.input.Metadata?.["skitza-staging-seal"] ?? "").startsWith("sha256:"),
+    ).toBe(true);
+    expect(send.mock.calls.some(([command]) => command instanceof DeleteObjectCommand)).toBe(false);
+  });
+
+  it("seals a token-owned oversized or mistyped staging body by its observed ETag", async () => {
+    let sealMetadata: Record<string, string> | undefined;
+    const send = vi.fn((command: unknown) => {
+      if (command instanceof HeadObjectCommand && !sealMetadata) {
+        return {
+          ContentLength: 200_000_000,
+          ContentType: "application/octet-stream",
+          Metadata: { "skitza-upload-token": expectation.completionToken },
+          ETag: '"oversized-etag"',
+        };
+      }
+      if (command instanceof PutObjectCommand) {
+        sealMetadata = command.input.Metadata;
+        return {};
+      }
+      if (command instanceof HeadObjectCommand && sealMetadata) {
+        return {
+          ContentLength: 1,
+          ContentType: "application/x-skitza-sealed-first-version-staging-marker",
+          Metadata: sealMetadata,
+          ETag: '"marker-etag"',
+        };
+      }
+      throw new Error("Unexpected command");
+    });
+
+    await expect(
+      reconcileFirstVersionStagingDeletion(
+        {
+          key: "first-version-staging/producers/p/intents/i/upload",
+          ...expectation,
+        },
+        { send } as never,
+      ),
+    ).resolves.toBeUndefined();
+
+    const markerWrite = sentCommand(send, 1) as PutObjectCommand;
+    expect(markerWrite.input.IfMatch).toBe('"oversized-etag"');
+  });
+
+  it("seals proven absence with If-None-Match so a concurrent browser PUT must lose", async () => {
+    let sealMetadata: Record<string, string> | undefined;
+    const send = vi.fn((command: unknown) => {
+      if (command instanceof HeadObjectCommand && !sealMetadata) {
+        throw Object.assign(new Error("missing"), { name: "NotFound" });
+      }
+      if (command instanceof ListObjectsV2Command) {
+        return { IsTruncated: false, Contents: [] };
+      }
+      if (command instanceof PutObjectCommand) {
+        sealMetadata = command.input.Metadata;
+        return {};
+      }
+      if (command instanceof HeadObjectCommand && sealMetadata) {
+        return {
+          ContentLength: 1,
+          ContentType: "application/x-skitza-sealed-first-version-staging-marker",
+          Metadata: sealMetadata,
+          ETag: '"marker-etag"',
+        };
+      }
+      throw new Error("Unexpected command");
+    });
+
+    await reconcileFirstVersionStagingDeletion(
+      {
+        key: "first-version-staging/producers/p/intents/i/upload",
+        ...expectation,
+      },
+      { send } as never,
+    );
+
+    const markerWrite = send.mock.calls
+      .map(([command]) => command)
+      .find((command) => command instanceof PutObjectCommand) as PutObjectCommand;
+    expect(markerWrite.input.IfNoneMatch).toBe("*");
+  });
+
+  it("refuses hard-delete staging cleanup when the intent token changed", async () => {
+    const send = vi.fn().mockResolvedValueOnce({
+      ContentLength: expectation.sizeBytes,
+      ContentType: expectation.contentType,
+      Metadata: { "skitza-upload-token": "b".repeat(64) },
+      ETag: '"changed"',
+    });
+
+    await expect(
+      reconcileFirstVersionStagingDeletion(
+        {
+          key: "first-version-staging/producers/p/intents/i/upload",
+          ...expectation,
+        },
+        { send } as never,
+      ),
+    ).rejects.toThrow("ownership changed before sealing");
+    expect(send).toHaveBeenCalledTimes(1);
   });
 });

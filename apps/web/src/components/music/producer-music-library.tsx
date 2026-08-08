@@ -13,6 +13,7 @@ import {
   type MusicLibraryRow,
 } from "~/components/music/library-screen";
 import type {
+  DeleteSongAction,
   EditSongArtistAction,
   MarkSongReleasedAction,
   RenameSongAction,
@@ -29,6 +30,7 @@ export function ProducerMusicLibrary({
   editArtist,
   setArchived,
   markReleased,
+  deleteSong,
 }: {
   tracks: MusicLibraryRow[];
   projectRows: MusicLibraryProjectRow[];
@@ -39,6 +41,7 @@ export function ProducerMusicLibrary({
   editArtist: EditSongArtistAction;
   setArchived: SetSongArchivedAction;
   markReleased?: MarkSongReleasedAction;
+  deleteSong?: DeleteSongAction;
 }) {
   const router = useRouter();
   const [uploadOpen, setUploadOpen] = useState(initialUploadOpen);
@@ -64,6 +67,7 @@ export function ProducerMusicLibrary({
         editArtist={editArtist}
         setArchived={setArchived}
         {...(markReleased ? { markReleased } : {})}
+        {...(deleteSong ? { deleteSong } : {})}
       />
       <UploadTrackModal
         open={uploadOpen}

@@ -1,11 +1,17 @@
 import {
+  and,
   artistNotifications,
+  eq,
+  isNull,
+  trackComments,
+  trackVersions,
   type ArtistNotification,
   type ArtistNotificationPreferenceCategory,
   type Db,
   type NewArtistNotification,
 } from "@skitza/db";
 
+import { lockProducerAudioStorageQuota } from "~/server/domain/audio-storage/quota";
 import { defaultArtistNotificationPreferences, getArtistProfile } from "./profile";
 
 type ArtistEvent = Readonly<
@@ -30,10 +36,16 @@ export type ArtistNotificationEmitResult = Readonly<{
   emailEnabled: boolean;
 }>;
 
+type LiveMusicTarget = Readonly<{
+  trackVersionId: string;
+  commentId?: string;
+}>;
+
 async function emitArtistNotification(
   db: Db,
   recipientClerkUserId: string | null,
   event: ArtistEvent,
+  liveMusicTarget?: LiveMusicTarget,
 ): Promise<ArtistNotificationEmitResult> {
   const preferences = recipientClerkUserId
     ? (await getArtistProfile(db, recipientClerkUserId)).notificationPreferences
@@ -41,25 +53,67 @@ async function emitArtistNotification(
   const preference = preferences[event.category];
   const emailEnabled = preference.transactionalEmail || preference.activityEmail;
 
-  if (!recipientClerkUserId) {
-    return { inserted: false, emailEnabled };
+  const values = recipientClerkUserId
+    ? {
+        recipientClerkUserId,
+        producerId: event.producerId,
+        kind: event.kind,
+        subjectType: event.subjectType,
+        subjectId: event.subjectId,
+        destinationHref: event.destinationHref,
+        title: event.title.slice(0, 160),
+        body: (event.body ?? "").slice(0, 280),
+        dedupeKey: event.dedupeKey,
+        inAppVisible: preference.inApp,
+        switcherDotWorthy: preference.inApp && event.switcherDotWorthy,
+      }
+    : null;
+
+  if (liveMusicTarget) {
+    return db.transaction(async (tx) => {
+      await lockProducerAudioStorageQuota(tx, event.producerId);
+      const [version] = await tx
+        .select({ id: trackVersions.id })
+        .from(trackVersions)
+        .where(
+          and(
+            eq(trackVersions.id, liveMusicTarget.trackVersionId),
+            eq(trackVersions.producerId, event.producerId),
+            isNull(trackVersions.audioDeletedAt),
+          ),
+        )
+        .limit(1);
+      if (!version) return { inserted: false, emailEnabled: false };
+
+      if (liveMusicTarget.commentId) {
+        const [comment] = await tx
+          .select({ id: trackComments.id })
+          .from(trackComments)
+          .where(
+            and(
+              eq(trackComments.id, liveMusicTarget.commentId),
+              eq(trackComments.versionId, liveMusicTarget.trackVersionId),
+              eq(trackComments.producerId, event.producerId),
+            ),
+          )
+          .limit(1);
+        if (!comment) return { inserted: false, emailEnabled: false };
+      }
+
+      if (!values) return { inserted: false, emailEnabled };
+      const inserted = await tx
+        .insert(artistNotifications)
+        .values(values)
+        .onConflictDoNothing()
+        .returning({ id: artistNotifications.id });
+      return { inserted: inserted.length === 1, emailEnabled };
+    });
   }
 
+  if (!values) return { inserted: false, emailEnabled };
   const inserted = await db
     .insert(artistNotifications)
-    .values({
-      recipientClerkUserId,
-      producerId: event.producerId,
-      kind: event.kind,
-      subjectType: event.subjectType,
-      subjectId: event.subjectId,
-      destinationHref: event.destinationHref,
-      title: event.title.slice(0, 160),
-      body: (event.body ?? "").slice(0, 280),
-      dedupeKey: event.dedupeKey,
-      inAppVisible: preference.inApp,
-      switcherDotWorthy: preference.inApp && event.switcherDotWorthy,
-    })
+    .values(values)
     .onConflictDoNothing()
     .returning({ id: artistNotifications.id });
 
@@ -189,18 +243,23 @@ export async function emitArtistNewVersionNotification(
     versionLabel: string;
   },
 ): Promise<ArtistNotificationEmitResult> {
-  return emitArtistNotification(db, input.recipientClerkUserId, {
-    category: "new_music",
-    producerId: input.producerId,
-    kind: "track_version_created",
-    subjectType: "track_version",
-    subjectId: input.trackVersionId,
-    destinationHref: `/artist/music/song/${input.trackVersionId}`,
-    title: `New version of ${input.trackTitle}`,
-    body: `${input.producerName} uploaded ${input.versionLabel}.`,
-    dedupeKey: `track-version:${input.trackVersionId}:created`,
-    switcherDotWorthy: true,
-  });
+  return emitArtistNotification(
+    db,
+    input.recipientClerkUserId,
+    {
+      category: "new_music",
+      producerId: input.producerId,
+      kind: "track_version_created",
+      subjectType: "track_version",
+      subjectId: input.trackVersionId,
+      destinationHref: `/artist/music/song/${input.trackVersionId}`,
+      title: `New version of ${input.trackTitle}`,
+      body: `${input.producerName} uploaded ${input.versionLabel}.`,
+      dedupeKey: `track-version:${input.trackVersionId}:created`,
+      switcherDotWorthy: true,
+    },
+    { trackVersionId: input.trackVersionId },
+  );
 }
 
 export async function emitArtistProducerCommentNotification(
@@ -214,16 +273,21 @@ export async function emitArtistProducerCommentNotification(
     trackTitle: string;
   },
 ): Promise<ArtistNotificationEmitResult> {
-  return emitArtistNotification(db, input.recipientClerkUserId, {
-    category: "producer_comment",
-    producerId: input.producerId,
-    kind: "producer_comment_created",
-    subjectType: "track_version",
-    subjectId: input.trackVersionId,
-    destinationHref: `/artist/music/song/${input.trackVersionId}?comment=${input.commentId}`,
-    title: `New comment on ${input.trackTitle}`,
-    body: `${input.producerName} commented on ${input.trackTitle}.`,
-    dedupeKey: `track-comment:${input.commentId}:created`,
-    switcherDotWorthy: true,
-  });
+  return emitArtistNotification(
+    db,
+    input.recipientClerkUserId,
+    {
+      category: "producer_comment",
+      producerId: input.producerId,
+      kind: "producer_comment_created",
+      subjectType: "track_version",
+      subjectId: input.trackVersionId,
+      destinationHref: `/artist/music/song/${input.trackVersionId}?comment=${input.commentId}`,
+      title: `New comment on ${input.trackTitle}`,
+      body: `${input.producerName} commented on ${input.trackTitle}.`,
+      dedupeKey: `track-comment:${input.commentId}:created`,
+      switcherDotWorthy: true,
+    },
+    { trackVersionId: input.trackVersionId, commentId: input.commentId },
+  );
 }

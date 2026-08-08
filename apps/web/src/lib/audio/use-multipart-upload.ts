@@ -9,6 +9,7 @@ import {
   signAudioPart,
 } from "~/app/(producer)/dashboard/audio-upload-actions";
 import { deleteVersionAction } from "~/app/(producer)/dashboard/clients-projects/upload-actions";
+import { AUDIO_MULTIPART_PART_SIZE_BYTES } from "~/lib/audio/storage-limits";
 import {
   beginManagedUpload,
   getUploadRuntimeAccountId,
@@ -46,7 +47,6 @@ export function computeParts(totalBytes: number, partSize: number): PartRange[] 
 
 const STORAGE_PREFIX = "skitza:upload:";
 const VERSION_CLEANUP_STORAGE_PREFIX = "skitza:upload-version-cleanup:";
-const PART_SIZE = 5 * 1024 * 1024; // 5 MB per part
 export const CANCELLATION_RETRY_MS = 61_000;
 // A signed part URL is valid for 900 seconds. Two full signing windows plus
 // a retry buffer avoid cancelling a slow live PUT in another tab.
@@ -648,9 +648,7 @@ function scanLegacyUploadJournal(): LegacyJournalScan {
         parsed !== null &&
         isUuid((parsed as Record<string, unknown>).trackVersionId)
       ) {
-        scan.blockingUploadVersionIds.add(
-          (parsed as { trackVersionId: string }).trackVersionId,
-        );
+        scan.blockingUploadVersionIds.add((parsed as { trackVersionId: string }).trackVersionId);
       }
       scan.malformedKeys.push(storageKey);
     }
@@ -818,7 +816,7 @@ export function useMultipartUpload() {
       managed.fail(init.error);
       return;
     }
-    const parts = computeParts(opts.file.size, PART_SIZE);
+    const parts = computeParts(opts.file.size, AUDIO_MULTIPART_PART_SIZE_BYTES);
     const completed: Array<{ partNumber: number; eTag: string }> = [];
     const startedAt = new Date().toISOString();
     entry = {

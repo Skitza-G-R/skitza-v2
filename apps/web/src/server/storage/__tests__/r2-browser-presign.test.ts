@@ -37,6 +37,28 @@ describe("R2 browser upload presigning", () => {
     expect(query.get("X-Amz-Content-Sha256")).toBe("UNSIGNED-PAYLOAD");
   });
 
+  it("signs the server-authorized multipart part byte length", async () => {
+    const contentLength = 5 * 1024 * 1024;
+    const signed = await getSignedUrl(
+      getR2BrowserUpload(),
+      new UploadPartCommand({
+        Bucket: "test-audio",
+        Key: "producers/producer/tracks/version/audio.wav",
+        UploadId: "test-upload",
+        PartNumber: 1,
+        ContentLength: contentLength,
+      }),
+      {
+        expiresIn: 60,
+        signingDate: new Date("2026-08-04T00:00:00.000Z"),
+        signableHeaders: new Set(["content-length"]),
+      },
+    );
+    const query = new URL(signed).searchParams;
+
+    expect((query.get("X-Amz-SignedHeaders") ?? "").split(";")).toContain("content-length");
+  });
+
   it("signs the exact headers sent by a 39.2 MB first-Version browser PUT", async () => {
     const upload = await createFirstVersionUploadUrl({
       key: "first-version-staging/producers/producer/intents/intent/upload",
@@ -51,7 +73,9 @@ describe("R2 browser upload presigning", () => {
       .filter((header) => !signedHeaders.has(header));
 
     expect(unsignedBrowserHeaders).toEqual([]);
-    expect(signedHeaders).not.toContain("content-length");
+    expect(signedHeaders).toContain("content-length");
+    expect(signedHeaders).toContain("if-none-match");
+    expect(upload.headers["If-None-Match"]).toBe("*");
     expect(query.has("x-amz-meta-skitza-upload-token")).toBe(false);
     expect(query.has("x-amz-checksum-crc32")).toBe(false);
     expect(query.has("x-amz-sdk-checksum-algorithm")).toBe(false);

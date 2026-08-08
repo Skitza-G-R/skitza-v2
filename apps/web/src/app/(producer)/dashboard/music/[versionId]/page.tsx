@@ -9,6 +9,8 @@ import { classifySongUploadPublicExposure } from "~/server/domain/song-publicati
 import { appRouter } from "~/server/trpc/routers/_app";
 
 import {
+  deleteMusicSong,
+  deleteMusicVersion,
   deleteMusicVersionAudio,
   editMusicSongArtist,
   markMusicSongReleased,
@@ -193,6 +195,8 @@ export default async function ProducerSongPage({ params, searchParams }: PagePro
         setArchived: setMusicSongArchived,
         markReleased: markMusicSongReleased,
         renameVersion: renameMusicVersion,
+        deleteVersion: deleteMusicVersion,
+        deleteSong: deleteMusicSong,
         deleteVersionAudio: deleteMusicVersionAudio,
       }}
     />

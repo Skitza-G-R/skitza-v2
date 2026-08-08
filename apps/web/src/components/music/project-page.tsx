@@ -10,6 +10,7 @@ import { playerPlay, playerToggle, useNowPlaying } from "~/components/audio/pers
 import { ProjectCover } from "~/components/music/project-cover";
 import {
   SongManagementControls,
+  type DeleteSongAction,
   type EditSongArtistAction,
   type MarkSongReleasedAction,
   type RenameSongAction,
@@ -164,6 +165,7 @@ export function ProjectPage({
   editArtist,
   setArchived,
   markReleased,
+  deleteSong,
 }: {
   data: ProjectPageData;
   role?: ProjectPageRole;
@@ -175,6 +177,7 @@ export function ProjectPage({
   editArtist?: EditSongArtistAction;
   setArchived?: SetSongArchivedAction;
   markReleased?: MarkSongReleasedAction;
+  deleteSong?: DeleteSongAction;
 }) {
   const nowPlaying = useNowPlaying();
 
@@ -201,6 +204,7 @@ export function ProjectPage({
     if (!versionId) return null;
     return {
       id: versionId,
+      songId: t.trackId,
       audioUrl: t.audioUrl,
       title: t.title,
       subtitle: `${artistLabel} · ${t.versionLabel ?? "No version"}`,
@@ -449,6 +453,7 @@ export function ProjectPage({
               {...(editArtist ? { editArtist } : {})}
               {...(setArchived ? { setArchived } : {})}
               {...(markReleased ? { markReleased } : {})}
+              {...(deleteSong ? { deleteSong } : {})}
             />
             <footer
               className="mt-7 flex flex-col gap-1 pt-4 font-mono text-[11.5px] text-[rgb(var(--fg-muted))]"
@@ -523,6 +528,7 @@ function Tracklist({
   editArtist,
   setArchived,
   markReleased,
+  deleteSong,
 }: {
   items: ProjectPageMusicItem[];
   projectId: string;
@@ -536,6 +542,7 @@ function Tracklist({
   editArtist?: EditSongArtistAction;
   setArchived?: SetSongArchivedAction;
   markReleased?: MarkSongReleasedAction;
+  deleteSong?: DeleteSongAction;
 }) {
   const cols = "44px minmax(0,1fr) 86px 60px 72px 96px";
   return (
@@ -578,6 +585,7 @@ function Tracklist({
             {...(editArtist ? { editArtist } : {})}
             {...(setArchived ? { setArchived } : {})}
             {...(markReleased ? { markReleased } : {})}
+            {...(deleteSong ? { deleteSong } : {})}
           />
         ))}
       </ul>
@@ -603,6 +611,7 @@ function Tracklist({
             {...(editArtist ? { editArtist } : {})}
             {...(setArchived ? { setArchived } : {})}
             {...(markReleased ? { markReleased } : {})}
+            {...(deleteSong ? { deleteSong } : {})}
           />
         ))}
       </ul>
@@ -636,6 +645,7 @@ function ProjectMusicDesktopRow({
   editArtist,
   setArchived,
   markReleased,
+  deleteSong,
 }: {
   item: ProjectPageMusicItem;
   index: number;
@@ -651,6 +661,7 @@ function ProjectMusicDesktopRow({
   editArtist?: EditSongArtistAction;
   setArchived?: SetSongArchivedAction;
   markReleased?: MarkSongReleasedAction;
+  deleteSong?: DeleteSongAction;
 }) {
   const rowStyle: React.CSSProperties = {
     gridTemplateColumns: cols,
@@ -722,9 +733,7 @@ function ProjectMusicDesktopRow({
   const canPlay = isProjectPageTrackPlayable(item);
   const current = canPlay && nowPlayingId === versionId;
   const playingHere = current && isPlaying;
-  const rowHref = versionId
-    ? projectSongHref(role, versionId, projectId, artistStudioId)
-    : null;
+  const rowHref = versionId ? projectSongHref(role, versionId, projectId, artistStudioId) : null;
   const actionHref = projectItemActionHref(item.actionHref, producerActionHref);
   return (
     <li
@@ -852,6 +861,7 @@ function ProjectMusicDesktopRow({
               editArtist={editArtist}
               setArchived={setArchived}
               {...(markReleased ? { markReleased } : {})}
+              {...(deleteSong ? { deleteSong } : {})}
             />
           ) : null}
         </span>
@@ -874,6 +884,7 @@ function ProjectMusicMobileRow({
   editArtist,
   setArchived,
   markReleased,
+  deleteSong,
 }: {
   item: ProjectPageMusicItem;
   index: number;
@@ -888,6 +899,7 @@ function ProjectMusicMobileRow({
   editArtist?: EditSongArtistAction;
   setArchived?: SetSongArchivedAction;
   markReleased?: MarkSongReleasedAction;
+  deleteSong?: DeleteSongAction;
 }) {
   const rowStyle: React.CSSProperties = {
     borderRadius: 12,
@@ -940,9 +952,7 @@ function ProjectMusicMobileRow({
   const canPlay = isProjectPageTrackPlayable(item);
   const current = canPlay && nowPlayingId === versionId;
   const playingHere = current && isPlaying;
-  const rowHref = versionId
-    ? projectSongHref(role, versionId, projectId, artistStudioId)
-    : null;
+  const rowHref = versionId ? projectSongHref(role, versionId, projectId, artistStudioId) : null;
   const actionHref = projectItemActionHref(item.actionHref, producerActionHref);
   return (
     <li
@@ -1052,6 +1062,7 @@ function ProjectMusicMobileRow({
             editArtist={editArtist}
             setArchived={setArchived}
             {...(markReleased ? { markReleased } : {})}
+            {...(deleteSong ? { deleteSong } : {})}
           />
         ) : null}
       </div>

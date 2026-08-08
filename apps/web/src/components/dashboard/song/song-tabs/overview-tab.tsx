@@ -22,6 +22,7 @@ import { WorkflowStepper } from "~/components/dashboard/song/workflow-stepper";
 // already sits in the SongSpaceHero meta line.
 
 interface OverviewTabSong {
+  id: string;
   workflowStage: WorkflowStage;
   title: string;
 }
@@ -128,6 +129,7 @@ export function OverviewTab({
                 <VersionRow
                   key={v.id}
                   version={v}
+                  songId={song.id}
                   songTitle={song.title}
                   projectName={project.name}
                 />

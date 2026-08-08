@@ -634,7 +634,7 @@ describe("SK-90 executable database rehearsal adapter", () => {
     await expect(collectCatalogFingerprint(client)).resolves.toMatch(/^sha256:[0-9a-f]{64}$/);
   });
 
-  it("accepts the pre-0027 absence or an empty complete eleven-column pending-upload journal", async () => {
+  it("accepts the pre-0027 absence or an empty complete twelve-column pending-upload journal", async () => {
     const preCutover: NeonPoolClientLike = {
       query: () => Promise.resolve({ rows: [] }),
       release: () => undefined,
@@ -652,6 +652,7 @@ describe("SK-90 executable database rehearsal adapter", () => {
                   { column_name: "pending_audio_cancel_requested_at" },
                   { column_name: "pending_audio_cleanup_etag" },
                   { column_name: "pending_audio_complete_attempted_at" },
+                  { column_name: "pending_audio_complete_write_once_protected_at" },
                   { column_name: "pending_audio_completion_token" },
                   { column_name: "pending_audio_create_attempted_at" },
                   { column_name: "pending_audio_initiation_digest" },
@@ -755,6 +756,7 @@ describe("SK-90 executable database rehearsal adapter", () => {
                   { column_name: "pending_audio_cancel_requested_at" },
                   { column_name: "pending_audio_cleanup_etag" },
                   { column_name: "pending_audio_complete_attempted_at" },
+                  { column_name: "pending_audio_complete_write_once_protected_at" },
                   { column_name: "pending_audio_completion_token" },
                   { column_name: "pending_audio_create_attempted_at" },
                   { column_name: "pending_audio_initiation_digest" },
@@ -776,6 +778,7 @@ describe("SK-90 executable database rehearsal adapter", () => {
     expect(statements[1]).toContain('"pending_audio_cancel_requested_at" IS NOT NULL');
     expect(statements[1]).toContain('"pending_audio_create_attempted_at" IS NOT NULL');
     expect(statements[1]).toContain('"pending_audio_complete_attempted_at" IS NOT NULL');
+    expect(statements[1]).toContain('"pending_audio_complete_write_once_protected_at" IS NOT NULL');
     expect(statements[1]).toContain('"pending_audio_initiation_digest" IS NOT NULL');
     expect(statements[1]).toContain('"pending_audio_part_urls_expire_at" IS NOT NULL');
     expect(statements[1]).toContain('"pending_audio_upload_id" IS NOT NULL');

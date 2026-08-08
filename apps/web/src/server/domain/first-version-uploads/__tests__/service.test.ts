@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   FirstVersionUploadError,
+  assertFirstVersionAudioFile,
   assertFirstVersionUploadDestination,
   presignFirstVersionUploadWithCompensation,
   verifyFirstVersionObject,
@@ -21,6 +22,28 @@ describe("first Version upload boundary", () => {
     includedSongSpaces: 2,
     allocatedSongSpaces: 1,
   };
+
+  it("enforces the same decimal 100MB cap as later Versions", () => {
+    expect(() => {
+      assertFirstVersionAudioFile({
+        filename: "mix.wav",
+        sizeBytes: 100_000_000,
+        contentType: "audio/wav",
+      });
+    }).not.toThrow();
+    expect(() => {
+      assertFirstVersionAudioFile({
+        filename: "mix.wav",
+        sizeBytes: 100_000_001,
+        contentType: "audio/wav",
+      });
+    }).toThrow(
+      expect.objectContaining<Partial<FirstVersionUploadError>>({
+        code: "BAD_REQUEST",
+        message: "File too large. Max 100MB.",
+      }),
+    );
+  });
 
   it("accepts an active producer-owned Project and internal purchase link", () => {
     expect(

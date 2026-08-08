@@ -96,12 +96,8 @@ describe("artist.book purchase-owned session boundary", () => {
     expect(repositorySource).toContain("session-booking:allowance:${anchors.sessionAllowanceId}");
     expect(repositorySource).toContain("return work(transactionAdapter(tx))");
     expect(domainSource).toMatch(/assertSessionBookingAllowed\(\{/);
-    expect(domainSource).toMatch(
-      /distinctConsumingUses\.set\(use\.allowanceUseId, use\.outcome\)/,
-    );
-    expect(domainSource).toMatch(
-      /existingOutcomes:\s*\[\.\.\.distinctConsumingUses\.values\(\)\]/,
-    );
+    expect(domainSource).toMatch(/distinctConsumingUses\.set\(use\.allowanceUseId, use\.outcome\)/);
+    expect(domainSource).toMatch(/existingOutcomes:\s*\[\.\.\.distinctConsumingUses\.values\(\)\]/);
     expect(domainSource).toMatch(/requestedDurationMin: input\.durationMin/);
   });
 
@@ -151,13 +147,22 @@ describe("artist.book purchase-owned session boundary", () => {
     const commit = disconnectDomainSource.slice(
       disconnectDomainSource.indexOf("export async function commitArtistStudioDisconnect"),
     );
+    const quotaLock = commit.indexOf("lockProducerAudioStorageQuota(tx, input.producerId)");
+    const disconnectLock = commit.indexOf("artist-disconnect:", quotaLock);
+    const relationshipLock = commit.indexOf('.for("update")', disconnectLock);
     const snapshot = commit.indexOf("loadDisconnectSnapshot");
     const blockerPolicy = commit.indexOf("evaluateArtistDisconnectBlockers", snapshot);
-    const blocked = commit.indexOf('new ArtistDisconnectError(\n          "BLOCKED"', blockerPolicy);
+    const blocked = commit.indexOf(
+      'new ArtistDisconnectError(\n          "BLOCKED"',
+      blockerPolicy,
+    );
     const grantCapture = commit.indexOf("captureHistoricalGrants", blocked);
     const archive = commit.indexOf(".update(clientContacts)", grantCapture);
 
-    expect(snapshot).toBeGreaterThanOrEqual(0);
+    expect(quotaLock).toBeGreaterThanOrEqual(0);
+    expect(disconnectLock).toBeGreaterThan(quotaLock);
+    expect(relationshipLock).toBeGreaterThan(disconnectLock);
+    expect(snapshot).toBeGreaterThan(relationshipLock);
     expect(blockerPolicy).toBeGreaterThan(snapshot);
     expect(blocked).toBeGreaterThan(blockerPolicy);
     expect(grantCapture).toBeGreaterThan(blocked);

@@ -7,6 +7,7 @@ import { appRouter } from "~/server/trpc/routers/_app";
 import { ProjectPage, type ProjectPageData } from "~/components/music/project-page";
 import { projectSongUploadHref } from "~/lib/clients/project-song-upload-href";
 import {
+  deleteMusicSong,
   editMusicSongArtist,
   markMusicSongReleased,
   renameMusicSong,
@@ -108,6 +109,7 @@ export default async function ProducerProjectPage({ params }: PageProps) {
       editArtist={editMusicSongArtist}
       setArchived={setMusicSongArchived}
       markReleased={markMusicSongReleased}
+      deleteSong={deleteMusicSong}
     />
   );
 }
