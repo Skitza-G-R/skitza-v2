@@ -25,6 +25,7 @@ export type ArtistPlatformPreviewDestination =
   | "home"
   | "music"
   | "sessions"
+  | "payments"
   | "store"
   | "settings"
   | "notifications";
@@ -56,6 +57,12 @@ const PREVIEW_NAV_ITEMS: readonly PreviewNavItem[] = [
     icon: "calendar",
   },
   {
+    destination: "payments",
+    href: "/dev/screens/sk69-payments-flow",
+    label: "Payments",
+    icon: "payments",
+  },
+  {
     destination: "store",
     href: "/dev/screens/artist-store",
     label: "Store",
@@ -67,6 +74,7 @@ const DESTINATION_LABELS: Readonly<Record<ArtistPlatformPreviewDestination, stri
   home: "Home",
   music: "Music",
   sessions: "Sessions",
+  payments: "Payments",
   store: "Store",
   settings: "Settings",
   notifications: "Notifications",

@@ -25,10 +25,10 @@ import { ArtistRouteStatus } from "./artist-route-status";
 //   Mobile (<lg):
 //     warm-canvas top bar   (Wordmark + StudioSwitcher + UserButton)
 //     main content          (warm canvas, scrollable)
-//     dark bottom nav       (4 tabs: Home / Music / Sessions / Store)
+//     dark bottom nav       (5 tabs: Home / Music / Sessions / Payments / Store)
 //
 //   Desktop (lg+):
-//     dark left sidebar     (Wordmark + 4 nav items + UserButton)
+//     dark left sidebar     (Wordmark + 5 nav items + UserButton)
 //     main content          (warm canvas, scrollable)
 //
 // `isProducer` is intentionally consumed inside the responsive layout
