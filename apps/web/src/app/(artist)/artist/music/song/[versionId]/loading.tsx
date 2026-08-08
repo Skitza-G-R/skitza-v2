@@ -7,7 +7,7 @@ export default function ArtistSongLoading() {
         aria-hidden
         className="pointer-events-none absolute inset-x-0 top-0 h-[320px] bg-gradient-to-b from-[rgb(var(--brand-primary)/0.09)] via-[rgb(var(--bg-background)/0.72)] to-[rgb(var(--bg-background))]"
       />
-      <div className="relative z-10 mx-auto w-full max-w-[1120px] px-4 py-4 pb-24 sm:px-6 sm:py-6 lg:py-8 lg:pb-10">
+      <div className="relative z-10 mx-auto w-full max-w-[1120px] px-4 py-4 sm:px-6 sm:py-6 lg:py-8 lg:pb-10">
         <div className="relative mb-4 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-4 shadow-[var(--shadow-sm)] sm:p-5">
           <div className="grid grid-cols-[88px_minmax(0,1fr)] items-start gap-x-3 sm:grid-cols-[108px_minmax(0,1fr)] sm:gap-x-5 lg:grid-cols-[120px_minmax(0,1fr)]">
             <Skeleton className="h-[88px] w-[88px] rounded-[var(--radius-lg)] sm:h-[108px] sm:w-[108px] lg:h-[120px] lg:w-[120px]" />
