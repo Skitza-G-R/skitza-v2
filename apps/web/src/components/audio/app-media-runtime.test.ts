@@ -182,6 +182,13 @@ describe("SK-110 root media runtime", () => {
     expect(ROOT_RUNTIME).toContain('label: "Retry"');
   });
 
+  it("presents staged audio as ready while the active dock still owns cancellation", () => {
+    expect(ROOT_RUNTIME).toContain('upload.status === "ready"');
+    expect(ROOT_RUNTIME).toContain('"Ready to save"');
+    expect(ROOT_RUNTIME).toContain("managedUploadIsActive(upload)");
+    expect(ROOT_RUNTIME).toContain("cancelManagedUpload(upload.id)");
+  });
+
   it("does not render toast-owned terminal feedback in the upload dock", () => {
     expect(ROOT_RUNTIME).toContain("dismissManagedUpload");
     expect(ROOT_RUNTIME).toMatch(

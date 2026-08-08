@@ -76,10 +76,22 @@ describe("SK-90 project song ownership", () => {
     expect(firstVersionSource).toMatch(/allocatedSongSpaces:\s*allocatedRows\.length/);
   });
 
-  it("creates Song + V1 only in the atomic completion transaction", () => {
-    expect(modalSource).toContain("prepareFirstVersionUploadAction");
+  it("creates durable Song and Version rows only in staged finalization", () => {
+    const stageProcedure = firstVersionSource.slice(
+      firstVersionSource.indexOf("  stage: producerProcedure"),
+      firstVersionSource.indexOf("  prepare: producerProcedure"),
+    );
+    const finalizeProcedure = firstVersionSource.slice(
+      firstVersionSource.indexOf("  finalize: producerProcedure"),
+      firstVersionSource.indexOf("  complete: producerProcedure"),
+    );
+
+    expect(modalSource).toContain("stageAudioUploadAction");
+    expect(modalSource).toContain("finalizeAudioUploadAction");
     expect(modalSource).not.toContain("addTrackAction");
-    expect(firstVersionSource).toMatch(
+    expect(modalSource).not.toContain("addVersionAction");
+    expect(stageProcedure).not.toMatch(/insert\(projectTracks\)|insert\(trackVersions\)/);
+    expect(finalizeProcedure).toMatch(
       /tx\.insert\(projectTracks\)[\s\S]*?tx\.insert\(trackVersions\)[\s\S]*?completedAt/,
     );
   });

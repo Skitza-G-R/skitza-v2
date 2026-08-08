@@ -6,6 +6,10 @@ const audioRouter = readFileSync(
   new URL("../../../trpc/routers/audio.ts", import.meta.url),
   "utf8",
 );
+const stagedAudioRouter = readFileSync(
+  new URL("../../../trpc/routers/first-version-upload.ts", import.meta.url),
+  "utf8",
+);
 const projectPage = readFileSync(
   new URL("../../../../app/(producer)/dashboard/clients-projects/[id]/page.tsx", import.meta.url),
   "utf8",
@@ -58,6 +62,29 @@ describe("public song upload acknowledgement wiring", () => {
     );
   });
 
+  it("rechecks locked public state before a staged later-Version crosses finalization", () => {
+    const finalize = stagedAudioRouter.slice(
+      stagedAudioRouter.indexOf("  finalize:"),
+      stagedAudioRouter.indexOf("\n\n  complete:"),
+    );
+    const checks = [...finalize.matchAll(/requireSongUploadPublicExposureAcknowledgement\(/g)].map(
+      (match) => match.index,
+    );
+    const bindingWrite = finalize.indexOf("isNull(firstVersionUploadIntents.finalizationDigest)");
+    const remoteBoundary = finalize.indexOf("finalizeFirstVersionUpload");
+    const versionInsert = finalize.indexOf("tx.insert(trackVersions)");
+
+    expect(stagedAudioRouter).toMatch(/acknowledgePublicExposure:\s*z\.boolean\(\)/);
+    expect(checks).toHaveLength(2);
+    expect(checks[0]).toBeLessThan(bindingWrite);
+    expect(checks[1]).toBeLessThan(remoteBoundary);
+    expect(remoteBoundary).toBeLessThan(versionInsert);
+    expect(finalize).toMatch(
+      /\.from\(songPublicLinks\)[\s\S]*?eq\(songPublicLinks\.trackId, lockedIntent\.trackId\)[\s\S]*?eq\(songPublicLinks\.purchaseId, lockedIntent\.purchaseId\)[\s\S]*?eq\(songPublicLinks\.producerId, ctx\.producerId\)[\s\S]*?\.for\("update"\)/,
+    );
+    expect(finalize).toContain("acknowledged: normalized.acknowledgePublicExposure");
+  });
+
   it("shows the exact active surfaces and forwards acknowledgement only with that warning", () => {
     expect(projectPage).toContain("classifySongUploadPublicExposure");
     expect(projectUploadController).toContain("UploadTrackModal");
@@ -65,7 +92,10 @@ describe("public song upload acknowledgement wiring", () => {
     expect(projectUploadController).not.toContain("Workflow");
     expect(uploadModal).toContain("This song is public.");
     expect(uploadModal).toContain("public link and portfolio");
-    expect(uploadModal).toMatch(/acknowledgePublicExposure:\s*selectedPublicExposure !== "none"/);
+    expect(uploadModal).toContain(
+      'const acknowledgesPublicExposure = selectedPublicExposure !== "none"',
+    );
+    expect(uploadModal).toMatch(/acknowledgePublicExposure:\s*acknowledgesPublicExposure/);
   });
 
   it("keeps the server-action contract required and unmodified", () => {

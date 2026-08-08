@@ -26,6 +26,41 @@ export interface AudioStorageUsage {
   isFull: boolean;
 }
 
+export type StagedAudioUpload =
+  | {
+      status: "completed";
+      intentId: string;
+      projectId: string;
+      trackId: string;
+      versionId: string;
+    }
+  | {
+      status: "ready";
+      intentId: string;
+      versionId: string;
+      uploadUrl: string;
+      headers: Record<string, string>;
+      expiresInSeconds: number;
+    };
+
+export type FinalizeAudioUploadInput = {
+  intentId: string;
+  destination:
+    | { kind: "new-song"; projectId: string; title: string; artist?: string | null }
+    | { kind: "new-version"; projectId: string; trackId: string };
+  label: string;
+  description?: string | null;
+  durationMs?: number | null;
+  acknowledgePublicExposure: boolean;
+};
+
+export type FinalizedAudioUpload = {
+  projectId: string;
+  trackId: string;
+  versionId: string;
+  url: string;
+};
+
 const CLIENTS_PROJECTS_PATH = "/dashboard/clients-projects";
 const MUSIC_LIBRARY_PATH = "/dashboard/music";
 
@@ -87,6 +122,63 @@ export async function reconcileAudioStorageUsageAction(): Promise<
   } catch (err) {
     console.error("[upload-actions]", err);
     return { ok: false, error: toMessage(err) };
+  }
+}
+
+export async function stageAudioUploadAction(input: {
+  operationKey: string;
+  filename: string;
+  sizeBytes: number;
+  contentType: string;
+}): Promise<ActionDataResult<StagedAudioUpload>> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const data = await c.caller.firstVersionUpload.stage(input);
+    return { ok: true, data };
+  } catch (err) {
+    console.error("[upload-actions]", err);
+    return { ok: false, error: toSafeUploadStageError("initiation", err) };
+  }
+}
+
+export async function finalizeAudioUploadAction(
+  input: FinalizeAudioUploadInput,
+): Promise<ActionDataResult<FinalizedAudioUpload>> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const data = await c.caller.firstVersionUpload.finalize(input);
+    revalidatePath(CLIENTS_PROJECTS_PATH);
+    revalidatePath(`${CLIENTS_PROJECTS_PATH}/${data.projectId}`);
+    revalidatePath(MUSIC_LIBRARY_PATH);
+    revalidatePath(`${MUSIC_LIBRARY_PATH}/${data.versionId}`);
+    revalidatePath(`${MUSIC_LIBRARY_PATH}/project/${data.projectId}`);
+    revalidatePath("/dashboard/portfolio");
+    revalidatePath("/artist", "layout");
+    revalidatePath("/artist/music");
+    revalidatePath(`/artist/music/${data.projectId}`);
+    revalidatePath(`/artist/music/song/${data.versionId}`);
+    revalidatePath("/join/[slug]", "page");
+    revalidatePath("/listen/[token]", "page");
+    return { ok: true, data };
+  } catch (err) {
+    console.error("[upload-actions]", err);
+    return { ok: false, error: toSafeUploadStageError("completion", err) };
+  }
+}
+
+export async function cancelStagedAudioUploadAction(input: {
+  intentId: string;
+}): Promise<ActionDataResult<{ ok: true; completed: boolean }>> {
+  const c = await callerOrError();
+  if (!c.ok) return c;
+  try {
+    const data = await c.caller.firstVersionUpload.cancel(input);
+    return { ok: true, data };
+  } catch (err) {
+    console.error("[upload-actions]", err);
+    return { ok: false, error: toSafeUploadStageError("cancellation", err) };
   }
 }
 

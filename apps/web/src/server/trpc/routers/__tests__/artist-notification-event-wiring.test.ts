@@ -130,4 +130,38 @@ describe("artist notification event wiring", () => {
       /emailEnabled = delivery\.emailEnabled[\s\S]*if \(!emailEnabled\) return[\s\S]*sendTrackVersionUploadedEmail/,
     );
   });
+
+  it("emits generic staged-audio delivery only after committed Version creation", () => {
+    const finalize = procedure(
+      firstVersionUploadSource,
+      "  finalize: producerProcedure",
+      "  complete: producerProcedure",
+    );
+    const delivery = procedure(
+      firstVersionUploadSource,
+      "function scheduleStagedAudioArtistDelivery",
+      "export const firstVersionUploadRouter",
+    );
+    const versionInsert = finalize.indexOf("tx.insert(trackVersions)");
+    const intentCompletion = finalize.indexOf("completedAt: sql`now()`", versionInsert);
+    const committedResult = finalize.indexOf("if (completed.terminalError)", intentCompletion);
+    const notification = finalize.indexOf("scheduleStagedAudioArtistDelivery", committedResult);
+
+    expect(versionInsert).toBeGreaterThan(0);
+    expect(intentCompletion).toBeGreaterThan(versionInsert);
+    expect(committedResult).toBeGreaterThan(intentCompletion);
+    expect(notification).toBeGreaterThan(committedResult);
+    expect(finalize).toMatch(/if \(completed\.newlyCompleted\)/);
+    expect(delivery).toMatch(
+      /eq\(clientContacts\.id, projectRow\.clientContactId\)[\s\S]*eq\(clientContacts\.producerId, producerId\)[\s\S]*isNull\(clientContacts\.archivedAt\)/,
+    );
+    expect(delivery).toMatch(
+      /eq\(projectTracks\.id, intent\.trackId\)[\s\S]*eq\(projectTracks\.projectId, intent\.projectId\)[\s\S]*eq\(projectTracks\.purchaseId, intent\.purchaseId\)/,
+    );
+    expect(delivery).toContain("trackTitle: trackRow.title");
+    expect(delivery).toMatch(
+      /emailEnabled = delivery\.emailEnabled[\s\S]*if \(!emailEnabled\) return[\s\S]*sendTrackVersionUploadedEmail/,
+    );
+    expect(delivery).toContain("reviewUrl: `${SITE_URL}/artist/music/song/${intent.versionId}`");
+  });
 });

@@ -349,15 +349,17 @@ function UploadActivityDock() {
         const progressLabel =
           upload.status === "preparing"
             ? "Preparing…"
-            : upload.status === "completing"
-              ? "Finishing…"
-              : upload.status === "cancelling"
-                ? "Stopping…"
-                : upload.status === "done"
-                  ? "Upload complete"
-                  : upload.status === "error"
-                    ? (upload.error ?? "Upload failed")
-                    : `Uploading · ${String(upload.progress)}%`;
+            : upload.status === "ready"
+              ? "Ready to save"
+              : upload.status === "completing"
+                ? "Finishing…"
+                : upload.status === "cancelling"
+                  ? "Stopping…"
+                  : upload.status === "done"
+                    ? "Upload complete"
+                    : upload.status === "error"
+                      ? (upload.error ?? "Upload failed")
+                      : `Uploading · ${String(upload.progress)}%`;
         return (
           <section
             key={upload.id}

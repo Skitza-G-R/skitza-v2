@@ -330,8 +330,17 @@ Never hard-delete a historical project or orphan its records.
   it is a New Song or New Version and before it asks for any missing destination details.
 - Project uses **Add Song** with the Project already selected.
 - Song uses **Upload new Version** with the Project and Song already selected.
+- Choosing or dropping a supported audio file starts a temporary, producer-scoped storage transfer
+  immediately while the producer completes the destination and metadata. This temporary upload is
+  not a Song or Version. Cancel, replace, failure, expiry, and retry must clean or reconcile the
+  exact staged object without exposing durable music records.
 - A new Song and V1 are created together only after the exact uploaded audio object succeeds and is
   verified. Cancellation, failure, and retry must never expose an empty or ghost Song.
+- A later Version is also created only when the producer explicitly finalizes the staged upload; it
+  must not require an empty Version placeholder while bytes transfer.
+- After a successful first or later Version upload, the producer opens that exact new Version.
+  Deliberately opened playable historical Version URLs continue to open the requested Version;
+  newest-by-default behavior applies to Song entry points, not to exact Version deep links.
 - A purchase may remain linked internally for commercial/download entitlement, but the producer is
   never required to start from a purchase to add a Song.
 - Every successful Version is automatically available to the linked artist through existing access

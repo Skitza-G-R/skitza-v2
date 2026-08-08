@@ -119,6 +119,69 @@ export function createFirstVersionRequestDigest(
   return `sha256:${createHash("sha256").update(canonicalRequest, "utf8").digest("hex")}`;
 }
 
+/**
+ * File-only identity used by the shared Upload audio modal. Destination and
+ * metadata are intentionally excluded: the browser starts this transfer as
+ * soon as a file is chosen, before the producer finishes those fields.
+ */
+export function createStagedAudioRequestDigest(
+  input: Readonly<{
+    filename: string;
+    sizeBytes: number;
+    contentType: string;
+  }>,
+): string {
+  const encodePart = (value: string): string =>
+    `${Buffer.byteLength(value, "utf8").toString()}:${value}`;
+  const canonicalRequest = [
+    "skitza-staged-audio-upload-v1",
+    input.filename,
+    input.sizeBytes.toString(),
+    input.contentType.trim().toLowerCase(),
+  ]
+    .map(encodePart)
+    .join("|");
+  return `sha256:${createHash("sha256").update(canonicalRequest, "utf8").digest("hex")}`;
+}
+
+/**
+ * Freezes every durable, outcome-affecting value before the first remote copy
+ * attempt. Public-exposure acknowledgement is deliberately not part of this
+ * digest: it authorizes the current locked public state, but is not stored on
+ * the Song or Version.
+ */
+export function createAudioFinalizationDigest(
+  input: Readonly<{
+    createsTrack: boolean;
+    projectId: string;
+    purchaseId: string;
+    trackId: string;
+    title: string;
+    artist: string | null;
+    label: string;
+    description: string | null;
+    durationMs: number | null;
+  }>,
+): string {
+  const encodePart = (value: string): string =>
+    `${Buffer.byteLength(value, "utf8").toString()}:${value}`;
+  const canonicalRequest = [
+    "skitza-staged-audio-finalization-v1",
+    input.createsTrack ? "new-song" : "new-version",
+    input.projectId,
+    input.purchaseId,
+    input.trackId,
+    input.title,
+    input.artist ?? "",
+    input.label,
+    input.description ?? "",
+    input.durationMs?.toString() ?? "",
+  ]
+    .map(encodePart)
+    .join("|");
+  return `sha256:${createHash("sha256").update(canonicalRequest, "utf8").digest("hex")}`;
+}
+
 export function createStoredAudioIdentityFingerprint(
   input: Readonly<{
     key: string;

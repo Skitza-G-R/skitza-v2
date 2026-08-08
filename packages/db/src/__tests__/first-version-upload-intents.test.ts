@@ -14,8 +14,8 @@ const config = getTableConfig(firstVersionUploadIntents);
 
 describe("SK-163 atomic first Version upload schema", () => {
   it("stores a retryable upload intent without creating a Song or Version", () => {
-    expect(firstVersionUploadIntents.projectId.notNull).toBe(true);
-    expect(firstVersionUploadIntents.purchaseId.notNull).toBe(true);
+    expect(firstVersionUploadIntents.projectId.notNull).toBe(false);
+    expect(firstVersionUploadIntents.purchaseId.notNull).toBe(false);
     expect(firstVersionUploadIntents.trackId.notNull).toBe(true);
     expect(firstVersionUploadIntents.versionId.notNull).toBe(true);
     expect(firstVersionUploadIntents.completedAt.notNull).toBe(false);
@@ -23,11 +23,16 @@ describe("SK-163 atomic first Version upload schema", () => {
     expect(config.uniqueConstraints.map((constraint) => constraint.name)).toEqual(
       expect.arrayContaining([
         "first_version_upload_intents_operation_unique",
-        "first_version_upload_intents_track_unique",
         "first_version_upload_intents_version_unique",
         "first_version_upload_intents_staging_audio_key_unique",
         "first_version_upload_intents_audio_key_unique",
       ]),
+    );
+    expect(config.uniqueConstraints.map((constraint) => constraint.name)).not.toContain(
+      "first_version_upload_intents_track_unique",
+    );
+    expect(config.indexes.map((index) => index.config.name)).toContain(
+      "first_version_upload_intents_track_idx",
     );
   });
 
@@ -44,6 +49,7 @@ describe("SK-163 atomic first Version upload schema", () => {
         "first_version_upload_intents_identity_shape",
         "first_version_upload_intents_content_shape",
         "first_version_upload_intents_state_shape",
+        "first_version_upload_intents_finalization_shape",
       ]),
     );
   });
