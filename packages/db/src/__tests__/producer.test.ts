@@ -21,12 +21,15 @@ describeIfDb("Producer table", () => {
     const [inserted] = await db!
       .insert(producers)
       .values({ clerkUserId: testClerkId, email: "test@example.com", slug: testClerkId })
-      .returning();
+      .returning({
+        id: producers.id,
+        defaultCurrency: producers.defaultCurrency,
+      });
     expect(inserted!.id).toMatch(/^[0-9a-f-]{36}$/);
     expect(inserted!.defaultCurrency).toBe("USD");
 
     const [found] = await db!
-      .select()
+      .select({ email: producers.email })
       .from(producers)
       .where(eq(producers.clerkUserId, testClerkId));
     expect(found!.email).toBe("test@example.com");

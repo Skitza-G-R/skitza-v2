@@ -21,7 +21,7 @@ describeIfDb("Extended tables (portfolio_tracks)", () => {
     const [row] = await db!
       .insert(producers)
       .values({ clerkUserId: key, email: `${key}@example.com`, slug: key })
-      .returning();
+      .returning({ id: producers.id });
     createdProducerIds.push(row!.id);
     return row!.id;
   }
