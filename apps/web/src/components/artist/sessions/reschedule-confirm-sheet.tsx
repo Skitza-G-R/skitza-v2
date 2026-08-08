@@ -1,8 +1,8 @@
 "use client";
 
-// S12 inline bottom sheet for an on-time artist cancellation. The stable
+// S12 inline bottom sheet for an artist cancellation request. The stable
 // operation key makes retries safe if the connection drops after the server
-// commits the cancellation.
+// saves the request.
 
 import { useRef, useState } from "react";
 
@@ -57,7 +57,7 @@ export function RescheduleConfirmSheet({
       className="fixed inset-0 z-[70] flex items-end justify-center"
       role="dialog"
       aria-modal="true"
-      aria-label="Cancel session"
+      aria-label="Request cancellation"
     >
       {/* scrim */}
       <button
@@ -95,11 +95,11 @@ export function RescheduleConfirmSheet({
           </span>
           <div className="min-w-0 flex-1">
             <h2 className="font-syne text-[18px] leading-tight font-extrabold tracking-[-0.02em] text-[rgb(var(--fg-default))]">
-              Cancel this session?
+              Ask to cancel this session?
             </h2>
             <p className="mt-1.5 text-[13.5px] leading-relaxed text-[rgb(var(--fg-secondary))]">
-              {producerName} will be notified, and this use returns to your session allowance. Any
-              refund follows your signed agreement, off-app.
+              {producerName} will review your request. Your session and session credit stay in place
+              until they approve it.
             </p>
           </div>
         </div>
@@ -138,13 +138,13 @@ export function RescheduleConfirmSheet({
                   className="inline-block h-4 w-4 animate-spin rounded-full border-2 motion-reduce:animate-none"
                   style={{ borderColor: "rgb(255 255 255 / 0.35)", borderTopColor: "white" }}
                 />
-                Cancelling…
+                Sending request…
               </>
             ) : !online ? (
               "Reconnect to cancel"
             ) : (
               <>
-                <Check width={16} height={16} /> Yes, cancel it
+                <Check width={16} height={16} /> Send cancellation request
               </>
             )}
           </button>

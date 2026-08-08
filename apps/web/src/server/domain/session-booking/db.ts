@@ -2,8 +2,10 @@ import {
   and,
   availabilityBlackouts,
   availabilityBlocks,
+  bookingChangeRequests,
   bookingTransitionEvents,
   bookings,
+  calendarSyncJobs,
   clientContacts,
   eq,
   inArray,
@@ -14,6 +16,8 @@ import {
   purchaseSessionAllowances,
   sql,
   type Booking,
+  type BookingChangeRequest,
+  type CalendarSyncJob,
   type Db,
 } from "@skitza/db";
 
@@ -22,8 +26,12 @@ import { purchaseLedgerAdvisoryLockKey } from "../purchase-ledger/db";
 import {
   SessionBookingDomainError,
   type NewSessionBookingRecord,
+  type NewCalendarSyncJobRecord,
+  type NewSessionBookingChangeRequestRecord,
+  type CalendarSyncJobRecord,
   type SessionBookingAtomicScope,
   type SessionBookingContext,
+  type SessionBookingChangeRequestRecord,
   type SessionBookingCreateContext,
   type SessionBookingRecord,
   type SessionBookingRepository,
@@ -70,6 +78,22 @@ function bookingRecord(row: Booking): SessionBookingRecord {
   };
 }
 
+function changeRequestRecord(row: BookingChangeRequest): SessionBookingChangeRequestRecord {
+  return row;
+}
+
+function calendarJobRecord(row: CalendarSyncJob): CalendarSyncJobRecord {
+  return {
+    id: row.id,
+    bookingId: row.bookingId,
+    producerId: row.producerId,
+    operation: row.operation,
+    desiredRevision: row.desiredRevision,
+    idempotencyKey: row.idempotencyKey,
+    payloadSnapshot: row.payloadSnapshot,
+  };
+}
+
 async function contextDetails(
   tx: TransactionDb,
   producerId: string,
@@ -97,6 +121,8 @@ async function contextDetails(
 function createContextFromRow(
   row: {
     producerId: string;
+    producerName: string | null;
+    producerEmail: string;
     timeZone: string;
     autoConfirmBookings: boolean;
     cancellationPolicyHours: number;
@@ -125,6 +151,8 @@ function createContextFromRow(
   return {
     producer: {
       id: row.producerId,
+      name: row.producerName?.trim() || "Skitza producer",
+      email: row.producerEmail,
       timeZone: row.timeZone,
       autoConfirmBookings: row.autoConfirmBookings,
       cancellationPolicyHours: row.cancellationPolicyHours,
@@ -167,6 +195,8 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
       const [row] = await tx
         .select({
           producerId: producers.id,
+          producerName: producers.displayName,
+          producerEmail: producers.email,
           timeZone: producers.timezone,
           autoConfirmBookings: producers.autoConfirmBookings,
           cancellationPolicyHours: producers.cancellationPolicyHours,
@@ -231,11 +261,100 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
       return createContextFromRow(row, await contextDetails(tx, row.producerId));
     },
 
+    loadProducerManualCreateContext: async (input) => {
+      // This is deliberately separate from the artist loader above. Producer
+      // authorization is established by producerProcedure and the tenant id;
+      // the selected contact remains an existing producer-owned client even
+      // when they have not created a Clerk artist account yet.
+      const rows = await tx
+        .select({
+          producerId: producers.id,
+          producerName: producers.displayName,
+          producerEmail: producers.email,
+          timeZone: producers.timezone,
+          autoConfirmBookings: producers.autoConfirmBookings,
+          cancellationPolicyHours: producers.cancellationPolicyHours,
+          maxSessionsPerDay: producers.maxSessionsPerDay,
+          projectId: projects.id,
+          projectTitle: projects.title,
+          projectLifecycleStatus: projects.lifecycleStatus,
+          purchaseId: purchases.id,
+          purchaseLifecycleStatus: purchases.lifecycleStatus,
+          purchaseCommercialSnapshot: purchases.commercialSnapshot,
+          allowanceId: purchaseSessionAllowances.id,
+          bookingEnabledSnapshot: purchaseSessionAllowances.bookingEnabledSnapshot,
+          allowanceKind: purchaseSessionAllowances.kind,
+          sessionLimit: purchaseSessionAllowances.sessionLimit,
+          durationMin: purchaseSessionAllowances.durationMin,
+          locationType: purchaseSessionAllowances.locationType,
+          bufferMinutes: purchaseSessionAllowances.bufferMinutes,
+          minLeadHours: purchaseSessionAllowances.minLeadHours,
+          allowanceClosedAt: purchaseSessionAllowances.closedAt,
+          artistClerkUserId: clientContacts.clerkUserId,
+          artistName: clientContacts.name,
+          artistEmail: clientContacts.email,
+        })
+        .from(purchases)
+        .innerJoin(
+          projects,
+          and(
+            eq(projects.id, purchases.projectId),
+            eq(projects.producerId, purchases.producerId),
+            eq(projects.clientContactId, purchases.clientContactId),
+          ),
+        )
+        .innerJoin(
+          purchaseSessionAllowances,
+          and(
+            eq(purchaseSessionAllowances.purchaseId, purchases.id),
+            eq(purchaseSessionAllowances.producerId, purchases.producerId),
+            eq(purchaseSessionAllowances.bookingEnabledSnapshot, true),
+            isNull(purchaseSessionAllowances.closedAt),
+          ),
+        )
+        .innerJoin(
+          clientContacts,
+          and(
+            eq(clientContacts.id, purchases.clientContactId),
+            eq(clientContacts.producerId, purchases.producerId),
+            isNull(clientContacts.archivedAt),
+          ),
+        )
+        .innerJoin(producers, eq(producers.id, purchases.producerId))
+        .where(
+          and(
+            eq(purchases.producerId, input.producerId),
+            eq(purchases.projectId, input.projectId),
+            eq(purchases.clientContactId, input.clientContactId),
+            eq(purchases.lifecycleStatus, "active"),
+            eq(projects.lifecycleStatus, "active"),
+          ),
+        )
+        .for("update");
+      if (rows.length > 1) {
+        throw new SessionBookingDomainError(
+          "INVALID_ALLOWANCE",
+          "This project has more than one active session package",
+        );
+      }
+      const row = rows[0];
+      if (
+        !row ||
+        row.purchaseId !== input.purchaseId ||
+        row.allowanceId !== input.sessionAllowanceId
+      ) {
+        return null;
+      }
+      return createContextFromRow(row, await contextDetails(tx, row.producerId));
+    },
+
     loadBookingContext: async (input) => {
       const [row] = await tx
         .select({
           booking: bookings,
           producerId: producers.id,
+          producerName: producers.displayName,
+          producerEmail: producers.email,
           timeZone: producers.timezone,
           autoConfirmBookings: producers.autoConfirmBookings,
           cancellationPolicyHours: producers.cancellationPolicyHours,
@@ -339,6 +458,49 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
         )
         .limit(1);
       return row ?? null;
+    },
+
+    loadChangeRequest: async (input) => {
+      const [row] = await tx
+        .select()
+        .from(bookingChangeRequests)
+        .where(
+          and(
+            eq(bookingChangeRequests.id, input.requestId),
+            input.producerId ? eq(bookingChangeRequests.producerId, input.producerId) : undefined,
+          ),
+        )
+        .limit(1)
+        .for("update");
+      return row ? changeRequestRecord(row) : null;
+    },
+
+    findChangeRequestByOperationKey: async (bookingId, operationKey) => {
+      const [row] = await tx
+        .select()
+        .from(bookingChangeRequests)
+        .where(
+          and(
+            eq(bookingChangeRequests.bookingId, bookingId),
+            eq(bookingChangeRequests.requestOperationKey, operationKey),
+          ),
+        )
+        .limit(1);
+      return row ? changeRequestRecord(row) : null;
+    },
+
+    findPendingChangeRequest: async (bookingId) => {
+      const [row] = await tx
+        .select()
+        .from(bookingChangeRequests)
+        .where(
+          and(
+            eq(bookingChangeRequests.bookingId, bookingId),
+            eq(bookingChangeRequests.status, "pending"),
+          ),
+        )
+        .limit(1);
+      return row ? changeRequestRecord(row) : null;
     },
 
     listAllowanceUses: async (producerId, sessionAllowanceId) =>
@@ -461,6 +623,95 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
         throw new SessionBookingDomainError("INVALID_STATUS", "Booking audit insert failed");
       return row satisfies StoredSessionBookingTransitionEvent;
     },
+
+    insertChangeRequest: async (input: NewSessionBookingChangeRequestRecord) => {
+      const { occurredAt, ...values } = input;
+      const [row] = await tx
+        .insert(bookingChangeRequests)
+        .values({ ...values, createdAt: occurredAt, updatedAt: occurredAt })
+        .returning();
+      if (!row) {
+        throw new SessionBookingDomainError("INVALID_STATUS", "Change request insert failed");
+      }
+      return changeRequestRecord(row);
+    },
+
+    decideChangeRequest: async (input) => {
+      const [row] = await tx
+        .update(bookingChangeRequests)
+        .set({
+          status: input.status,
+          decisionOperationKey: input.decisionOperationKey,
+          decisionOperationDigest: input.decisionOperationDigest,
+          decidedByClerkUserId: input.decidedByClerkUserId,
+          decidedAt: input.decidedAt,
+          replacementBookingId: input.replacementBookingId,
+          updatedAt: input.decidedAt,
+        })
+        .where(
+          and(
+            eq(bookingChangeRequests.id, input.requestId),
+            eq(bookingChangeRequests.producerId, input.producerId),
+            eq(bookingChangeRequests.status, "pending"),
+          ),
+        )
+        .returning();
+      if (!row) {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "The session change request changed while this command was running",
+        );
+      }
+      return changeRequestRecord(row);
+    },
+
+    findCalendarSyncJob: async (input) => {
+      const [row] = await tx
+        .select()
+        .from(calendarSyncJobs)
+        .where(
+          and(
+            eq(calendarSyncJobs.desiredRevision, input.desiredRevision),
+            sql`${calendarSyncJobs.payloadSnapshot}->>'uid' = ${input.uid}`,
+          ),
+        )
+        .limit(1);
+      return row ? calendarJobRecord(row) : null;
+    },
+
+    findCalendarSyncJobForEvent: async (input) => {
+      const [row] = await tx
+        .select()
+        .from(calendarSyncJobs)
+        .where(
+          and(
+            eq(calendarSyncJobs.bookingId, input.bookingId),
+            sql`${calendarSyncJobs.payloadSnapshot}->>'method' = ${input.method}`,
+            sql`${calendarSyncJobs.payloadSnapshot}->>'dtstampUtc' = ${input.occurredAt.toISOString()}`,
+          ),
+        )
+        .limit(1);
+      return row ? calendarJobRecord(row) : null;
+    },
+
+    insertCalendarSyncJob: async (input: NewCalendarSyncJobRecord) => {
+      const { occurredAt, ...values } = input;
+      const [row] = await tx
+        .insert(calendarSyncJobs)
+        .values({
+          ...values,
+          status: "pending",
+          attemptCount: 0,
+          nextAttemptAt: occurredAt,
+          createdAt: occurredAt,
+          updatedAt: occurredAt,
+        })
+        .returning();
+      if (!row) {
+        throw new SessionBookingDomainError("INVALID_STATUS", "Calendar delivery insert failed");
+      }
+      return calendarJobRecord(row);
+    },
   };
 }
 
@@ -491,6 +742,40 @@ async function discoverBookingScope(
   return row ?? null;
 }
 
+async function discoverChangeRequestScope(
+  tx: TransactionDb,
+  scope: Extract<SessionBookingAtomicScope, { kind: "change_request" }>,
+): Promise<{
+  producerId: string;
+  projectId: string;
+  purchaseId: string;
+  sessionAllowanceId: string;
+} | null> {
+  const [row] = await tx
+    .select({
+      producerId: bookings.producerId,
+      projectId: bookings.projectId,
+      purchaseId: bookings.purchaseId,
+      sessionAllowanceId: bookings.sessionAllowanceId,
+    })
+    .from(bookingChangeRequests)
+    .innerJoin(
+      bookings,
+      and(
+        eq(bookings.id, bookingChangeRequests.bookingId),
+        eq(bookings.producerId, bookingChangeRequests.producerId),
+      ),
+    )
+    .where(
+      and(
+        eq(bookingChangeRequests.id, scope.requestId),
+        eq(bookingChangeRequests.producerId, scope.producerId),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
 export function sessionBookingScheduleAdvisoryLockKey(producerId: string): string {
   const normalized = producerId.trim();
   if (!normalized) throw new Error("Producer id must not be empty");
@@ -500,9 +785,57 @@ export function sessionBookingScheduleAdvisoryLockKey(producerId: string): strin
 /** Shared lock order: producer schedule -> project -> purchase -> allowance. */
 export function sessionBookingRepository(db: Db): SessionBookingRepository {
   return {
+    findProducerManualSessionBookingByOperationKey: async (input) => {
+      const [row] = await db
+        .select()
+        .from(bookings)
+        .where(
+          and(
+            eq(bookings.producerId, input.producerId),
+            eq(bookings.operationKey, input.operationKey),
+          ),
+        )
+        .limit(1);
+      if (!row) return null;
+
+      const [event] = await db
+        .select()
+        .from(bookingTransitionEvents)
+        .where(
+          and(
+            eq(bookingTransitionEvents.bookingId, row.id),
+            eq(bookingTransitionEvents.operationKey, input.operationKey),
+          ),
+        )
+        .limit(1);
+      const [calendarJob] = event
+        ? await db
+            .select({ id: calendarSyncJobs.id })
+            .from(calendarSyncJobs)
+            .where(
+              and(
+                eq(calendarSyncJobs.bookingId, row.id),
+                sql`${calendarSyncJobs.payloadSnapshot}->>'method' = 'REQUEST'`,
+                sql`${calendarSyncJobs.payloadSnapshot}->>'dtstampUtc' = ${event.occurredAt.toISOString()}`,
+              ),
+            )
+            .limit(1)
+        : [];
+      return {
+        booking: bookingRecord(row),
+        event: event ?? null,
+        calendarSyncJobId: calendarJob?.id ?? null,
+      };
+    },
+
     atomically: (scope, work) =>
       db.transaction(async (tx) => {
-        const anchors = scope.kind === "create" ? scope : await discoverBookingScope(tx, scope);
+        const anchors =
+          scope.kind === "create"
+            ? scope
+            : scope.kind === "booking"
+              ? await discoverBookingScope(tx, scope)
+              : await discoverChangeRequestScope(tx, scope);
         if (!anchors) {
           throw new SessionBookingDomainError("NOT_FOUND", "The session was not found");
         }

@@ -28,8 +28,9 @@ describe("SK-112 real push event wiring", () => {
   });
 
   it("maps producer decisions to exact artist items only on real transitions", () => {
-    expect(booking.match(/category: "booking"/g)).toHaveLength(3);
-    expect(booking.match(/`\/artist\/sessions\/\$\{result\.booking\.id\}`/g)).toHaveLength(3);
+    expect(booking.match(/category: "booking"/g)).toHaveLength(6);
+    expect(booking.match(/`\/artist\/sessions\/\$\{result\.booking\.id\}`/g)).toHaveLength(5);
+    expect(booking).toContain("`/artist/sessions/${destinationBookingId}`");
 
     expect(purchase).toMatch(
       /if \(result\.transition\.changed\)[\s\S]*?category: "purchase_status"[\s\S]*?`\/artist\/purchase\/\$\{request\.productId\}\/pay\?req=\$\{request\.id\}`/,

@@ -415,6 +415,45 @@ export const bookingTransitionActorKind = pgEnum("booking_transition_actor_kind"
 
 export const bookingHeldExpiryReason = pgEnum("booking_held_expiry_reason", ["approval_timeout"]);
 
+export const bookingChangeRequestKind = pgEnum("booking_change_request_kind", [
+  "cancel",
+  "reschedule",
+]);
+
+export const bookingChangeRequestStatus = pgEnum("booking_change_request_status", [
+  "pending",
+  "approved",
+  "rejected",
+]);
+
+export const calendarSyncJobOperation = pgEnum("calendar_sync_job_operation", ["send_ics"]);
+
+export const calendarSyncJobStatus = pgEnum("calendar_sync_job_status", [
+  "pending",
+  "processing",
+  "completed",
+  "terminal",
+]);
+
+// Immutable delivery input captured in the same transaction as the booking
+// revision it represents. Workers render this snapshot instead of rereading
+// mutable producer/contact data, so every retry sends the same RFC 5545 event.
+export type CalendarSyncJobPayloadSnapshot = Readonly<{
+  schemaVersion: 1;
+  method: "REQUEST" | "CANCEL";
+  uid: string;
+  sequence: number;
+  dtstampUtc: string;
+  startsAtUtc: string;
+  endsAtUtc: string;
+  summary: string;
+  // System-generated event context only; producer-authored notes are not part
+  // of the manual-session contract.
+  description: string;
+  organizer: Readonly<{ name: string; email: string }>;
+  attendee: Readonly<{ name: string; email: string }>;
+}>;
+
 export const bookings = pgTable(
   "bookings",
   {
@@ -482,6 +521,11 @@ export const bookings = pgTable(
   },
   (t) => ({
     idProducerUnique: unique("bookings_id_producer_unique").on(t.id, t.producerId),
+    idProducerRescheduledFromUnique: unique("bookings_id_producer_rescheduled_from_unique").on(
+      t.id,
+      t.producerId,
+      t.rescheduledFromBookingId,
+    ),
     idLifecycleUnique: unique("bookings_id_lifecycle_unique").on(
       t.id,
       t.producerId,
@@ -678,6 +722,460 @@ export const bookingTransitionEvents = pgTable(
 );
 export type BookingTransitionEvent = typeof bookingTransitionEvents.$inferSelect;
 export type NewBookingTransitionEvent = typeof bookingTransitionEvents.$inferInsert;
+
+// Artist cancellation/reschedule intent is durable and separate from the
+// booking lifecycle. A pending request leaves the confirmed booking unchanged;
+// only an approved producer decision may point at a reschedule replacement.
+export const bookingChangeRequests = pgTable(
+  "booking_change_requests",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    bookingId: uuid("booking_id").notNull(),
+    producerId: uuid("producer_id").notNull(),
+    kind: bookingChangeRequestKind("kind").notNull(),
+    status: bookingChangeRequestStatus("status").notNull().default("pending"),
+    proposedStartsAt: timestamp("proposed_starts_at", { withTimezone: true }),
+    requestOperationKey: text("request_operation_key").notNull(),
+    requestOperationDigest: text("request_operation_digest").notNull(),
+    requestedByClerkUserId: text("requested_by_clerk_user_id").notNull(),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull(),
+    decisionOperationKey: text("decision_operation_key"),
+    decisionOperationDigest: text("decision_operation_digest"),
+    decidedByClerkUserId: text("decided_by_clerk_user_id"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    replacementBookingId: uuid("replacement_booking_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    requestOperationUnique: unique("booking_change_requests_request_operation_unique").on(
+      t.bookingId,
+      t.requestOperationKey,
+    ),
+    decisionOperationUnique: uniqueIndex("booking_change_requests_decision_operation_unique")
+      .on(t.bookingId, t.decisionOperationKey)
+      .where(sql`${t.decisionOperationKey} IS NOT NULL`),
+    onePendingPerBooking: uniqueIndex("booking_change_requests_one_pending_per_booking")
+      .on(t.bookingId)
+      .where(sql`${t.status} = 'pending'`),
+    replacementBookingUnique: uniqueIndex("booking_change_requests_replacement_booking_unique")
+      .on(t.replacementBookingId)
+      .where(sql`${t.replacementBookingId} IS NOT NULL`),
+    bookingProducerFk: foreignKey({
+      columns: [t.bookingId, t.producerId],
+      foreignColumns: [bookings.id, bookings.producerId],
+      name: "booking_change_requests_booking_producer_fk",
+    }).onDelete("restrict"),
+    replacementBookingProducerFk: foreignKey({
+      columns: [t.replacementBookingId, t.producerId],
+      foreignColumns: [bookings.id, bookings.producerId],
+      name: "booking_change_requests_replacement_booking_producer_fk",
+    }).onDelete("restrict"),
+    replacementBookingLineageFk: foreignKey({
+      columns: [t.replacementBookingId, t.producerId, t.bookingId],
+      foreignColumns: [bookings.id, bookings.producerId, bookings.rescheduledFromBookingId],
+      name: "booking_change_requests_replacement_booking_lineage_fk",
+    }).onDelete("restrict"),
+    producerStatusRequestedIdx: index("booking_change_requests_producer_status_requested_idx").on(
+      t.producerId,
+      t.status,
+      t.requestedAt,
+      t.id,
+    ),
+    bookingRequestedIdx: index("booking_change_requests_booking_requested_idx").on(
+      t.bookingId,
+      t.requestedAt,
+      t.id,
+    ),
+    requestIdentityShape: check(
+      "booking_change_requests_request_identity_shape",
+      sql`(
+        NULLIF(btrim(${t.requestOperationKey}), '') IS NOT NULL
+        AND char_length(${t.requestOperationKey}) <= 200
+        AND NULLIF(btrim(${t.requestOperationDigest}), '') IS NOT NULL
+        AND ${t.requestedByClerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
+      ) IS TRUE`,
+    ),
+    proposedStartShape: check(
+      "booking_change_requests_proposed_start_shape",
+      sql`(
+        (${t.kind} = 'cancel' AND ${t.proposedStartsAt} IS NULL)
+        OR (${t.kind} = 'reschedule' AND ${t.proposedStartsAt} IS NOT NULL)
+      ) IS TRUE`,
+    ),
+    replacementIdentityShape: check(
+      "booking_change_requests_replacement_identity_shape",
+      sql`${t.replacementBookingId} IS NULL OR ${t.replacementBookingId} <> ${t.bookingId}`,
+    ),
+    decisionShape: check(
+      "booking_change_requests_decision_shape",
+      sql`(
+        (
+          ${t.status} = 'pending'
+          AND ${t.decisionOperationKey} IS NULL
+          AND ${t.decisionOperationDigest} IS NULL
+          AND ${t.decidedByClerkUserId} IS NULL
+          AND ${t.decidedAt} IS NULL
+          AND ${t.replacementBookingId} IS NULL
+        )
+        OR (
+          ${t.status} IN ('approved', 'rejected')
+          AND NULLIF(btrim(${t.decisionOperationKey}), '') IS NOT NULL
+          AND char_length(${t.decisionOperationKey}) <= 200
+          AND NULLIF(btrim(${t.decisionOperationDigest}), '') IS NOT NULL
+          AND ${t.decidedByClerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
+          AND ${t.decidedAt} IS NOT NULL
+          AND ${t.decidedAt} >= ${t.requestedAt}
+          AND (
+            (${t.status} = 'approved' AND ${t.kind} = 'reschedule' AND ${t.replacementBookingId} IS NOT NULL)
+            OR (${t.status} = 'approved' AND ${t.kind} = 'cancel' AND ${t.replacementBookingId} IS NULL)
+            OR (${t.status} = 'rejected' AND ${t.replacementBookingId} IS NULL)
+          )
+        )
+      ) IS TRUE`,
+    ),
+    timestampShape: check(
+      "booking_change_requests_timestamp_shape",
+      sql`${t.updatedAt} >= ${t.createdAt}`,
+    ),
+  }),
+);
+export type BookingChangeRequest = typeof bookingChangeRequests.$inferSelect;
+export type NewBookingChangeRequest = typeof bookingChangeRequests.$inferInsert;
+
+// Transactional base outbox for recoverable calendar invitation delivery.
+// Google-specific connection/link state intentionally does not belong here.
+export const calendarSyncJobs = pgTable(
+  "calendar_sync_jobs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    bookingId: uuid("booking_id").notNull(),
+    producerId: uuid("producer_id").notNull(),
+    operation: calendarSyncJobOperation("operation").notNull(),
+    status: calendarSyncJobStatus("status").notNull().default("pending"),
+    desiredRevision: integer("desired_revision").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    payloadSnapshot: jsonb("payload_snapshot").$type<CalendarSyncJobPayloadSnapshot>().notNull(),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    firstAttemptAt: timestamp("first_attempt_at", { withTimezone: true }),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    providerDedupeExpiresAt: timestamp("provider_dedupe_expires_at", { withTimezone: true }),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).defaultNow(),
+    leaseToken: text("lease_token"),
+    leaseAcquiredAt: timestamp("lease_acquired_at", { withTimezone: true }),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    providerMessageId: text("provider_message_id"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    terminalAt: timestamp("terminal_at", { withTimezone: true }),
+    terminalError: text("terminal_error"),
+    manualRetryCount: integer("manual_retry_count").notNull().default(0),
+    lastManualRetryAt: timestamp("last_manual_retry_at", { withTimezone: true }),
+    lastManualRetryActor: text("last_manual_retry_actor"),
+    lastManualRetryOperationKey: text("last_manual_retry_operation_key"),
+    lastManualRetryOperationDigest: text("last_manual_retry_operation_digest"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    idempotencyUnique: unique("calendar_sync_jobs_idempotency_unique").on(t.idempotencyKey),
+    idProducerUnique: unique("calendar_sync_jobs_id_producer_unique").on(t.id, t.producerId),
+    bookingOperationRevisionUnique: unique(
+      "calendar_sync_jobs_booking_operation_revision_unique",
+    ).on(t.bookingId, t.operation, t.desiredRevision),
+    uidRevisionUnique: uniqueIndex("calendar_sync_jobs_uid_revision_unique").on(
+      sql`(${t.payloadSnapshot}->>'uid')`,
+      t.desiredRevision,
+    ),
+    bookingProducerFk: foreignKey({
+      columns: [t.bookingId, t.producerId],
+      foreignColumns: [bookings.id, bookings.producerId],
+      name: "calendar_sync_jobs_booking_producer_fk",
+    }).onDelete("restrict"),
+    claimIdx: index("calendar_sync_jobs_claim_idx").on(
+      t.status,
+      t.nextAttemptAt,
+      t.leaseExpiresAt,
+      t.id,
+    ),
+    bookingRevisionIdx: index("calendar_sync_jobs_booking_revision_idx").on(
+      t.bookingId,
+      t.desiredRevision,
+      t.createdAt,
+      t.id,
+    ),
+    producerUpdatedIdx: index("calendar_sync_jobs_producer_updated_idx").on(
+      t.producerId,
+      t.updatedAt,
+      t.id,
+    ),
+    identityShape: check(
+      "calendar_sync_jobs_identity_shape",
+      sql`(
+        ${t.desiredRevision} > 0
+        AND NULLIF(btrim(${t.idempotencyKey}), '') IS NOT NULL
+        AND char_length(${t.idempotencyKey}) <= 256
+        AND ${t.attemptCount} >= 0
+        AND ${t.manualRetryCount} >= 0
+      ) IS TRUE`,
+    ),
+    payloadShape: check(
+      "calendar_sync_jobs_payload_shape",
+      sql`(
+        jsonb_typeof(${t.payloadSnapshot}) = 'object'
+        AND ${t.payloadSnapshot}->>'schemaVersion' = '1'
+        AND ${t.payloadSnapshot}->>'method' IN ('REQUEST', 'CANCEL')
+        AND (${t.payloadSnapshot}->>'sequence') ~ '^[0-9]+$'
+        AND (${t.payloadSnapshot}->>'sequence')::integer = ${t.desiredRevision}
+        AND NULLIF(btrim(${t.payloadSnapshot}->>'uid'), '') IS NOT NULL
+        AND char_length(${t.payloadSnapshot}->>'uid') <= 255
+        AND NULLIF(btrim(${t.payloadSnapshot}->>'dtstampUtc'), '') IS NOT NULL
+        AND right(${t.payloadSnapshot}->>'dtstampUtc', 1) = 'Z'
+        AND NULLIF(btrim(${t.payloadSnapshot}->>'startsAtUtc'), '') IS NOT NULL
+        AND right(${t.payloadSnapshot}->>'startsAtUtc', 1) = 'Z'
+        AND NULLIF(btrim(${t.payloadSnapshot}->>'endsAtUtc'), '') IS NOT NULL
+        AND right(${t.payloadSnapshot}->>'endsAtUtc', 1) = 'Z'
+        AND NULLIF(btrim(${t.payloadSnapshot}->>'summary'), '') IS NOT NULL
+        AND jsonb_typeof(${t.payloadSnapshot}->'description') = 'string'
+        AND jsonb_typeof(${t.payloadSnapshot}->'organizer') = 'object'
+        AND NULLIF(btrim(${t.payloadSnapshot}->'organizer'->>'name'), '') IS NOT NULL
+        AND NULLIF(btrim(${t.payloadSnapshot}->'organizer'->>'email'), '') IS NOT NULL
+        AND jsonb_typeof(${t.payloadSnapshot}->'attendee') = 'object'
+        AND NULLIF(btrim(${t.payloadSnapshot}->'attendee'->>'name'), '') IS NOT NULL
+        AND NULLIF(btrim(${t.payloadSnapshot}->'attendee'->>'email'), '') IS NOT NULL
+      ) IS TRUE`,
+    ),
+    attemptShape: check(
+      "calendar_sync_jobs_attempt_shape",
+      sql`(
+        (
+          ${t.attemptCount} = 0
+          AND ${t.firstAttemptAt} IS NULL
+          AND ${t.lastAttemptAt} IS NULL
+          AND ${t.providerDedupeExpiresAt} IS NULL
+        )
+        OR (
+          ${t.attemptCount} > 0
+          AND ${t.firstAttemptAt} IS NOT NULL
+          AND ${t.lastAttemptAt} >= ${t.firstAttemptAt}
+          AND ${t.providerDedupeExpiresAt} > ${t.firstAttemptAt}
+        )
+      ) IS TRUE`,
+    ),
+    stateShape: check(
+      "calendar_sync_jobs_state_shape",
+      sql`(
+        (
+          ${t.status} = 'pending'
+          AND ${t.nextAttemptAt} IS NOT NULL
+          AND ${t.leaseToken} IS NULL
+          AND ${t.leaseAcquiredAt} IS NULL
+          AND ${t.leaseExpiresAt} IS NULL
+          AND ${t.providerMessageId} IS NULL
+          AND ${t.completedAt} IS NULL
+          AND ${t.terminalAt} IS NULL
+          AND ${t.terminalError} IS NULL
+        )
+        OR (
+          ${t.status} = 'processing'
+          AND ${t.nextAttemptAt} IS NULL
+          AND NULLIF(btrim(${t.leaseToken}), '') IS NOT NULL
+          AND ${t.leaseAcquiredAt} IS NOT NULL
+          AND ${t.leaseAcquiredAt} = ${t.lastAttemptAt}
+          AND ${t.leaseExpiresAt} > ${t.leaseAcquiredAt}
+          AND ${t.attemptCount} > 0
+          AND ${t.providerMessageId} IS NULL
+          AND ${t.completedAt} IS NULL
+          AND ${t.terminalAt} IS NULL
+          AND ${t.terminalError} IS NULL
+        )
+        OR (
+          ${t.status} = 'completed'
+          AND ${t.nextAttemptAt} IS NULL
+          AND ${t.leaseToken} IS NULL
+          AND ${t.leaseAcquiredAt} IS NULL
+          AND ${t.leaseExpiresAt} IS NULL
+          AND ${t.attemptCount} > 0
+          AND NULLIF(btrim(${t.providerMessageId}), '') IS NOT NULL
+          AND ${t.completedAt} IS NOT NULL
+          AND ${t.terminalAt} IS NULL
+          AND ${t.terminalError} IS NULL
+        )
+        OR (
+          ${t.status} = 'terminal'
+          AND ${t.nextAttemptAt} IS NULL
+          AND ${t.leaseToken} IS NULL
+          AND ${t.leaseAcquiredAt} IS NULL
+          AND ${t.leaseExpiresAt} IS NULL
+          AND ${t.attemptCount} > 0
+          AND ${t.providerMessageId} IS NULL
+          AND ${t.completedAt} IS NULL
+          AND ${t.terminalAt} IS NOT NULL
+          AND NULLIF(btrim(${t.terminalError}), '') IS NOT NULL
+        )
+      ) IS TRUE`,
+    ),
+    timestampShape: check(
+      "calendar_sync_jobs_timestamp_shape",
+      sql`(
+        ${t.updatedAt} >= ${t.createdAt}
+        AND (${t.firstAttemptAt} IS NULL OR ${t.firstAttemptAt} >= ${t.createdAt})
+        AND (${t.lastAttemptAt} IS NULL OR ${t.lastAttemptAt} >= ${t.firstAttemptAt})
+        AND (${t.completedAt} IS NULL OR ${t.completedAt} >= ${t.lastAttemptAt})
+        AND (${t.terminalAt} IS NULL OR ${t.terminalAt} >= ${t.lastAttemptAt})
+        AND (${t.lastManualRetryAt} IS NULL OR ${t.lastManualRetryAt} >= ${t.createdAt})
+        AND (${t.lastManualRetryAt} IS NULL OR ${t.updatedAt} >= ${t.lastManualRetryAt})
+      ) IS TRUE`,
+    ),
+    manualRetryShape: check(
+      "calendar_sync_jobs_manual_retry_shape",
+      sql`(
+        (
+          ${t.manualRetryCount} = 0
+          AND ${t.lastManualRetryAt} IS NULL
+          AND ${t.lastManualRetryActor} IS NULL
+          AND ${t.lastManualRetryOperationKey} IS NULL
+          AND ${t.lastManualRetryOperationDigest} IS NULL
+        )
+        OR (
+          ${t.manualRetryCount} > 0
+          AND ${t.lastManualRetryAt} IS NOT NULL
+          AND NULLIF(btrim(${t.lastManualRetryActor}), '') IS NOT NULL
+          AND NULLIF(btrim(${t.lastManualRetryOperationKey}), '') IS NOT NULL
+          AND ${t.lastManualRetryOperationDigest} ~ '^sha256:[0-9a-f]{64}$'
+        )
+      ) IS TRUE`,
+    ),
+    errorShape: check(
+      "calendar_sync_jobs_error_shape",
+      sql`(
+        (
+          ${t.lastError} IS NULL
+          OR (
+            NULLIF(btrim(${t.lastError}), '') IS NOT NULL
+            AND char_length(${t.lastError}) <= 4000
+          )
+        )
+        AND (
+          ${t.terminalError} IS NULL
+          OR char_length(${t.terminalError}) <= 4000
+        )
+        AND (
+          ${t.leaseToken} IS NULL
+          OR char_length(${t.leaseToken}) <= 200
+        )
+        AND (
+          ${t.lastManualRetryActor} IS NULL
+          OR char_length(${t.lastManualRetryActor}) <= 200
+        )
+        AND (
+          ${t.lastManualRetryOperationKey} IS NULL
+          OR char_length(${t.lastManualRetryOperationKey}) <= 200
+        )
+      ) IS TRUE`,
+    ),
+  }),
+);
+export type CalendarSyncJob = typeof calendarSyncJobs.$inferSelect;
+export type NewCalendarSyncJob = typeof calendarSyncJobs.$inferInsert;
+
+// Append-only audit of each deliberate operator reissue. The current job row
+// holds the active provider identity; this table preserves every prior
+// terminal delivery cycle so rotating the Resend idempotency key never erases
+// the ambiguous failure that required human intervention.
+export const calendarSyncJobManualRetries = pgTable(
+  "calendar_sync_job_manual_retries",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    jobId: uuid("job_id").notNull(),
+    producerId: uuid("producer_id").notNull(),
+    retryNumber: integer("retry_number").notNull(),
+    operationKey: text("operation_key").notNull(),
+    operationDigest: text("operation_digest").notNull(),
+    actorIdentity: text("actor_identity").notNull(),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull(),
+    priorIdempotencyKey: text("prior_idempotency_key").notNull(),
+    newIdempotencyKey: text("new_idempotency_key").notNull(),
+    priorAttemptCount: integer("prior_attempt_count").notNull(),
+    priorFirstAttemptAt: timestamp("prior_first_attempt_at", { withTimezone: true }).notNull(),
+    priorLastAttemptAt: timestamp("prior_last_attempt_at", { withTimezone: true }).notNull(),
+    priorProviderDedupeExpiresAt: timestamp("prior_provider_dedupe_expires_at", {
+      withTimezone: true,
+    }).notNull(),
+    priorLastError: text("prior_last_error"),
+    priorTerminalAt: timestamp("prior_terminal_at", { withTimezone: true }).notNull(),
+    priorTerminalError: text("prior_terminal_error").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (t) => ({
+    jobRetryUnique: unique("calendar_sync_job_manual_retries_job_retry_unique").on(
+      t.jobId,
+      t.retryNumber,
+    ),
+    operationUnique: unique("calendar_sync_job_manual_retries_operation_unique").on(t.operationKey),
+    newIdempotencyUnique: unique("calendar_sync_job_manual_retries_new_idempotency_unique").on(
+      t.newIdempotencyKey,
+    ),
+    jobProducerFk: foreignKey({
+      columns: [t.jobId, t.producerId],
+      foreignColumns: [calendarSyncJobs.id, calendarSyncJobs.producerId],
+      name: "calendar_sync_job_manual_retries_job_producer_fk",
+    }).onDelete("restrict"),
+    producerRequestedIdx: index("calendar_sync_job_manual_retries_producer_requested_idx").on(
+      t.producerId,
+      t.requestedAt,
+      t.id,
+    ),
+    identityShape: check(
+      "calendar_sync_job_manual_retries_identity_shape",
+      sql`(
+        ${t.retryNumber} > 0
+        AND NULLIF(btrim(${t.operationKey}), '') IS NOT NULL
+        AND char_length(${t.operationKey}) <= 200
+        AND ${t.operationDigest} ~ '^sha256:[0-9a-f]{64}$'
+        AND NULLIF(btrim(${t.actorIdentity}), '') IS NOT NULL
+        AND char_length(${t.actorIdentity}) <= 200
+        AND NULLIF(btrim(${t.priorIdempotencyKey}), '') IS NOT NULL
+        AND char_length(${t.priorIdempotencyKey}) <= 256
+        AND NULLIF(btrim(${t.newIdempotencyKey}), '') IS NOT NULL
+        AND char_length(${t.newIdempotencyKey}) <= 256
+        AND ${t.newIdempotencyKey} <> ${t.priorIdempotencyKey}
+      ) IS TRUE`,
+    ),
+    priorAttemptShape: check(
+      "calendar_sync_job_manual_retries_prior_attempt_shape",
+      sql`(
+        ${t.priorAttemptCount} > 0
+        AND ${t.priorLastAttemptAt} >= ${t.priorFirstAttemptAt}
+        AND ${t.priorProviderDedupeExpiresAt} > ${t.priorFirstAttemptAt}
+      ) IS TRUE`,
+    ),
+    timestampShape: check(
+      "calendar_sync_job_manual_retries_timestamp_shape",
+      sql`(
+        ${t.priorTerminalAt} >= ${t.priorLastAttemptAt}
+        AND ${t.requestedAt} >= ${t.priorTerminalAt}
+        AND ${t.createdAt} = ${t.requestedAt}
+      ) IS TRUE`,
+    ),
+    errorShape: check(
+      "calendar_sync_job_manual_retries_error_shape",
+      sql`(
+        NULLIF(btrim(${t.priorTerminalError}), '') IS NOT NULL
+        AND char_length(${t.priorTerminalError}) <= 4000
+        AND (
+          ${t.priorLastError} IS NULL
+          OR (
+            NULLIF(btrim(${t.priorLastError}), '') IS NOT NULL
+            AND char_length(${t.priorLastError}) <= 4000
+          )
+        )
+      ) IS TRUE`,
+    ),
+  }),
+);
+export type CalendarSyncJobManualRetry = typeof calendarSyncJobManualRetries.$inferSelect;
+export type NewCalendarSyncJobManualRetry = typeof calendarSyncJobManualRetries.$inferInsert;
 
 // ─── Projects (stable client-owned workspaces) ─────────────────────
 // A project is the durable container for one producer/client relationship.

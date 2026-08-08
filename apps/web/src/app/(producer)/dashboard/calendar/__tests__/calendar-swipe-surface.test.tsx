@@ -6,6 +6,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { CalendarSwipeSurface } from "../calendar-swipe-surface";
 
 const routerPush = vi.hoisted(() => vi.fn());
+const manualOptions = { studioTimeZone: "UTC", clients: [] } as const;
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: routerPush }),
@@ -57,6 +58,7 @@ describe("CalendarSwipeSurface", () => {
         scheduleEyebrow="THIS WEEK"
         sessionsContent={<p>Sessions content</p>}
         availabilityContent={<p>Availability content</p>}
+        manualOptions={manualOptions}
       />,
     );
     const surface = screen.getByRole("tabpanel");
@@ -127,6 +129,7 @@ describe("CalendarSwipeSurface", () => {
         scheduleEyebrow="THIS WEEK"
         sessionsContent={<p>Sessions content</p>}
         availabilityContent={<p>Availability content</p>}
+        manualOptions={manualOptions}
       />,
     );
 

@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
+import type { CalendarSyncJobPayloadSnapshot } from "@skitza/db";
 import {
   SessionBookingDomainError,
   assertSessionBookingAllowed,
-  assertSessionSlotAvailable,
+  classifySessionSlot,
   sessionStartFromLocalSlot,
   sessionUseConsumesAllowance,
 } from "~/server/booking";
@@ -112,6 +113,8 @@ export type SessionBookingAllowance = Readonly<{
 export type SessionBookingCreateContext = Readonly<{
   producer: Readonly<{
     id: string;
+    name: string;
+    email: string;
     timeZone: string;
     autoConfirmBookings: boolean;
     cancellationPolicyHours: number;
@@ -161,6 +164,47 @@ export type SessionBookingTransitionEventDraft = Readonly<{
 export type StoredSessionBookingTransitionEvent = SessionBookingTransitionEventDraft &
   Readonly<{ id: string }>;
 
+export type SessionBookingChangeRequestKind = "cancel" | "reschedule";
+export type SessionBookingChangeRequestStatus = "pending" | "approved" | "rejected";
+export type SessionBookingChangeRequestRecord = Readonly<{
+  id: string;
+  bookingId: string;
+  producerId: string;
+  kind: SessionBookingChangeRequestKind;
+  status: SessionBookingChangeRequestStatus;
+  proposedStartsAt: Date | null;
+  requestOperationKey: string;
+  requestOperationDigest: string;
+  requestedByClerkUserId: string;
+  requestedAt: Date;
+  decisionOperationKey: string | null;
+  decisionOperationDigest: string | null;
+  decidedByClerkUserId: string | null;
+  decidedAt: Date | null;
+  replacementBookingId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}>;
+
+export type NewSessionBookingChangeRequestRecord = Omit<
+  SessionBookingChangeRequestRecord,
+  "id" | "createdAt" | "updatedAt"
+> &
+  Readonly<{ occurredAt: Date }>;
+
+export type CalendarSyncJobRecord = Readonly<{
+  id: string;
+  bookingId: string;
+  producerId: string;
+  operation: "send_ics";
+  desiredRevision: number;
+  idempotencyKey: string;
+  payloadSnapshot: CalendarSyncJobPayloadSnapshot;
+}>;
+
+export type NewCalendarSyncJobRecord = Omit<CalendarSyncJobRecord, "id"> &
+  Readonly<{ occurredAt: Date }>;
+
 export type SessionBookingAtomicScope =
   | Readonly<{
       kind: "create";
@@ -169,7 +213,8 @@ export type SessionBookingAtomicScope =
       purchaseId: string;
       sessionAllowanceId: string;
     }>
-  | Readonly<{ kind: "booking"; bookingId: string; producerId?: string }>;
+  | Readonly<{ kind: "booking"; bookingId: string; producerId?: string }>
+  | Readonly<{ kind: "change_request"; requestId: string; producerId: string }>;
 
 export interface SessionBookingTransaction {
   loadCreateContext(input: {
@@ -178,6 +223,13 @@ export interface SessionBookingTransaction {
     purchaseId: string;
     sessionAllowanceId: string;
     actorClerkUserId: string;
+  }): Promise<SessionBookingCreateContext | null>;
+  loadProducerManualCreateContext(input: {
+    producerId: string;
+    clientContactId: string;
+    projectId: string;
+    purchaseId: string;
+    sessionAllowanceId: string;
   }): Promise<SessionBookingCreateContext | null>;
   loadBookingContext(input: {
     bookingId: string;
@@ -193,6 +245,15 @@ export interface SessionBookingTransaction {
     bookingId: string,
     operationKey: string,
   ): Promise<StoredSessionBookingTransitionEvent | null>;
+  loadChangeRequest(input: {
+    requestId: string;
+    producerId?: string;
+  }): Promise<SessionBookingChangeRequestRecord | null>;
+  findChangeRequestByOperationKey(
+    bookingId: string,
+    operationKey: string,
+  ): Promise<SessionBookingChangeRequestRecord | null>;
+  findPendingChangeRequest(bookingId: string): Promise<SessionBookingChangeRequestRecord | null>;
   listAllowanceUses(
     producerId: string,
     sessionAllowanceId: string,
@@ -219,9 +280,40 @@ export interface SessionBookingTransaction {
   insertTransitionEvent(
     input: SessionBookingTransitionEventDraft,
   ): Promise<StoredSessionBookingTransitionEvent>;
+  insertChangeRequest(
+    input: NewSessionBookingChangeRequestRecord,
+  ): Promise<SessionBookingChangeRequestRecord>;
+  decideChangeRequest(input: {
+    requestId: string;
+    producerId: string;
+    status: "approved" | "rejected";
+    decisionOperationKey: string;
+    decisionOperationDigest: string;
+    decidedByClerkUserId: string;
+    decidedAt: Date;
+    replacementBookingId: string | null;
+  }): Promise<SessionBookingChangeRequestRecord>;
+  findCalendarSyncJob(input: {
+    uid: string;
+    desiredRevision: number;
+  }): Promise<CalendarSyncJobRecord | null>;
+  findCalendarSyncJobForEvent(input: {
+    bookingId: string;
+    method: "REQUEST" | "CANCEL";
+    occurredAt: Date;
+  }): Promise<CalendarSyncJobRecord | null>;
+  insertCalendarSyncJob(input: NewCalendarSyncJobRecord): Promise<CalendarSyncJobRecord>;
 }
 
 export interface SessionBookingRepository {
+  findProducerManualSessionBookingByOperationKey(input: {
+    producerId: string;
+    operationKey: string;
+  }): Promise<Readonly<{
+    booking: SessionBookingRecord;
+    event: StoredSessionBookingTransitionEvent | null;
+    calendarSyncJobId: string | null;
+  }> | null>;
   atomically<T>(
     scope: SessionBookingAtomicScope,
     work: (transaction: SessionBookingTransaction) => Promise<T>,
@@ -277,6 +369,97 @@ function assertOperationReplay(
       "This operation key already belongs to a different booking command",
     );
   }
+}
+
+function calendarSyncPayload(input: {
+  context: SessionBookingCreateContext;
+  booking: SessionBookingRecord;
+  method: "REQUEST" | "CANCEL";
+  occurredAt: Date;
+}): CalendarSyncJobPayloadSnapshot {
+  const producerName = input.context.producer.name.trim() || "Skitza producer";
+  return {
+    schemaVersion: 1,
+    method: input.method,
+    uid: `booking-${input.booking.allowanceUseId}@skitza.app`,
+    sequence: input.booking.calendarRevision,
+    dtstampUtc: input.occurredAt.toISOString(),
+    startsAtUtc: input.booking.startsAt.toISOString(),
+    endsAtUtc: new Date(
+      input.booking.startsAt.getTime() + input.booking.durationMin * 60 * 1000,
+    ).toISOString(),
+    summary: input.booking.title?.trim() || input.context.purchase.defaultSessionTitle,
+    description: "A confirmed Skitza session.",
+    organizer: { name: producerName, email: input.context.producer.email },
+    attendee: { name: input.booking.artistName, email: input.booking.artistEmail },
+  };
+}
+
+function calendarPayloadDigest(payload: CalendarSyncJobPayloadSnapshot): string {
+  return operationDigest("calendar-sync-payload", {
+    schemaVersion: payload.schemaVersion,
+    method: payload.method,
+    uid: payload.uid,
+    sequence: payload.sequence,
+    dtstampUtc: payload.dtstampUtc,
+    startsAtUtc: payload.startsAtUtc,
+    endsAtUtc: payload.endsAtUtc,
+    summary: payload.summary,
+    description: payload.description,
+    organizerName: payload.organizer.name,
+    organizerEmail: payload.organizer.email,
+    attendeeName: payload.attendee.name,
+    attendeeEmail: payload.attendee.email,
+  });
+}
+
+async function enqueueCalendarSyncJob(
+  transaction: SessionBookingTransaction,
+  context: SessionBookingCreateContext,
+  booking: SessionBookingRecord,
+  method: "REQUEST" | "CANCEL",
+  occurredAt: Date,
+): Promise<CalendarSyncJobRecord> {
+  const payloadSnapshot = calendarSyncPayload({ context, booking, method, occurredAt });
+  const existing = await transaction.findCalendarSyncJob({
+    uid: payloadSnapshot.uid,
+    desiredRevision: booking.calendarRevision,
+  });
+  const idempotencyKey = `calendar:send_ics:${payloadSnapshot.uid}:${String(booking.calendarRevision)}`;
+  if (existing) {
+    if (
+      existing.bookingId !== booking.id ||
+      existing.producerId !== booking.producerId ||
+      existing.idempotencyKey !== idempotencyKey ||
+      calendarPayloadDigest(existing.payloadSnapshot) !== calendarPayloadDigest(payloadSnapshot)
+    ) {
+      throw new SessionBookingDomainError(
+        "OPERATION_KEY_CONFLICT",
+        "This calendar revision already belongs to a different delivery command",
+      );
+    }
+    return existing;
+  }
+  return transaction.insertCalendarSyncJob({
+    bookingId: booking.id,
+    producerId: booking.producerId,
+    operation: "send_ics",
+    desiredRevision: booking.calendarRevision,
+    idempotencyKey,
+    payloadSnapshot,
+    occurredAt,
+  });
+}
+
+async function calendarSyncJobIdForEvent(
+  transaction: SessionBookingTransaction,
+  bookingId: string,
+  method: "REQUEST" | "CANCEL",
+  occurredAt: Date,
+): Promise<string | null> {
+  return (
+    (await transaction.findCalendarSyncJobForEvent({ bookingId, method, occurredAt }))?.id ?? null
+  );
 }
 
 function bookingAtTransition(
@@ -432,6 +615,7 @@ export type CreateSessionBookingInput = Readonly<{
   title?: string | null;
   origin?: SessionBookingOrigin;
   billingTreatment?: SessionBookingBillingTreatment;
+  acknowledgedWarnings?: readonly string[];
   now?: Date;
 }> &
   SessionBookingRequestedStart;
@@ -439,6 +623,7 @@ export type CreateSessionBookingInput = Readonly<{
 export type CreateSessionBookingResult = Readonly<{
   booking: SessionBookingRecord;
   created: boolean;
+  calendarSyncJobId: string | null;
 }>;
 
 async function createSessionBookingInTransaction(
@@ -455,9 +640,15 @@ async function createSessionBookingInTransaction(
     billingTreatment?: SessionBookingBillingTreatment;
     calendarRevision?: number;
     actorKind?: "artist" | "producer";
+    slotActor?: "artist" | "producer";
+    forceConfirmed?: boolean;
+    preloadedContext?: SessionBookingCreateContext;
+    acknowledgedWarnings?: readonly string[];
+    requireExactWarningAcknowledgements?: boolean;
+    manualClientContactId?: string;
   }>,
 ): Promise<CreateSessionBookingResult> {
-  const context = await transaction.loadCreateContext(input);
+  const context = options.preloadedContext ?? (await transaction.loadCreateContext(input));
   if (!context) {
     throw new SessionBookingDomainError(
       "NOT_FOUND",
@@ -484,6 +675,8 @@ async function createSessionBookingInTransaction(
       titleIntent,
       origin,
       billingTreatment,
+      acknowledgedWarnings: [...(options.acknowledgedWarnings ?? [])].sort(),
+      manualClientContactId: options.manualClientContactId ?? null,
       rescheduledFromBookingId: options.rescheduledFromBookingId,
     });
   const replay = await transaction.findBookingByOperationKey(input.producerId, input.operationKey);
@@ -508,7 +701,14 @@ async function createSessionBookingInTransaction(
       );
     }
     assertOperationReplay(event, digest);
-    return { booking: bookingAtTransition(replay, event), created: false };
+    return {
+      booking: bookingAtTransition(replay, event),
+      created: false,
+      calendarSyncJobId:
+        event.toStatus === "confirmed"
+          ? await calendarSyncJobIdForEvent(transaction, replay.id, "REQUEST", event.occurredAt)
+          : null,
+    };
   }
 
   // The repository enters this helper only after taking the shared schedule,
@@ -548,7 +748,8 @@ async function createSessionBookingInTransaction(
     startsAt,
     now,
   });
-  assertSessionSlotAvailable({
+  const slotIssues = classifySessionSlot({
+    actor: options.slotActor ?? (options.actorKind === "producer" ? "producer" : "artist"),
     startsAt,
     durationMin: context.allowance.durationMin,
     bufferMinutes: context.allowance.bufferMinutes,
@@ -561,8 +762,28 @@ async function createSessionBookingInTransaction(
     minLeadHours: context.allowance.minLeadHours,
     ...(options.ignoredBookingId ? { ignoreBookingId: options.ignoredBookingId } : {}),
   });
+  const hardConflict = slotIssues.find((issue) => issue.severity === "hard_conflict");
+  if (hardConflict) {
+    throw new SessionBookingDomainError(hardConflict.code, hardConflict.message);
+  }
+  const warningCodes: string[] = slotIssues
+    .filter((issue) => issue.severity === "warning")
+    .map((issue) => issue.code);
+  const acknowledgedWarnings = new Set(options.acknowledgedWarnings ?? []);
+  const unacknowledged = warningCodes.filter((code) => !acknowledgedWarnings.has(code));
+  const unexpected = options.requireExactWarningAcknowledgements
+    ? [...acknowledgedWarnings].filter((code) => !warningCodes.includes(code))
+    : [];
+  if (unacknowledged.length > 0 || unexpected.length > 0) {
+    throw new SessionBookingDomainError(
+      "WARNING_ACKNOWLEDGEMENT_REQUIRED",
+      "The acknowledged scheduling warnings no longer match the current preview",
+    );
+  }
 
-  const status = initialSessionBookingStatus(context.producer.autoConfirmBookings);
+  const status = options.forceConfirmed
+    ? "confirmed"
+    : initialSessionBookingStatus(context.producer.autoConfirmBookings);
   const heldExpiresAt =
     status === "pending_approval"
       ? new Date(Math.min(now.getTime() + 24 * 60 * 60 * 1000, startsAt.getTime()))
@@ -612,7 +833,11 @@ async function createSessionBookingInTransaction(
     newStartsAt: booking.startsAt,
     occurredAt: now,
   });
-  return { booking, created: true };
+  const calendarSyncJob =
+    booking.status === "confirmed"
+      ? await enqueueCalendarSyncJob(transaction, context, booking, "REQUEST", now)
+      : null;
+  return { booking, created: true, calendarSyncJobId: calendarSyncJob?.id ?? null };
 }
 
 export async function createSessionBooking(
@@ -641,6 +866,148 @@ export async function createSessionBooking(
   );
 }
 
+export type CreateProducerManualSessionBookingInput = Readonly<{
+  producerId: string;
+  clientContactId: string;
+  projectId: string;
+  purchaseId: string;
+  sessionAllowanceId: string;
+  actorClerkUserId: string;
+  startsAt: Date;
+  title?: string | null;
+  billingTreatment: SessionBookingBillingTreatment;
+  acknowledgedWarnings: readonly string[];
+  operationKey: string;
+  now?: Date;
+}>;
+
+export type FindProducerManualSessionBookingReplayInput = Omit<
+  CreateProducerManualSessionBookingInput,
+  "purchaseId" | "sessionAllowanceId" | "actorClerkUserId" | "now"
+>;
+
+function producerManualSessionBookingDigest(
+  input: FindProducerManualSessionBookingReplayInput,
+  booking: SessionBookingRecord,
+): string {
+  const titleIntent =
+    input.title == null
+      ? "use_default"
+      : normalizeSessionBookingTitle(input.title, "Session", false);
+  return operationDigest("create", {
+    producerId: input.producerId,
+    projectId: input.projectId,
+    purchaseId: booking.purchaseId,
+    sessionAllowanceId: booking.sessionAllowanceId,
+    ...requestedStartOperationIdentity({ startsAt: input.startsAt }),
+    durationMin: booking.durationMin,
+    titleIntent,
+    origin: "producer_manual",
+    billingTreatment: input.billingTreatment,
+    acknowledgedWarnings: [...input.acknowledgedWarnings].sort(),
+    manualClientContactId: input.clientContactId,
+    rescheduledFromBookingId: null,
+  });
+}
+
+export async function findProducerManualSessionBookingReplay(
+  repository: SessionBookingRepository,
+  input: FindProducerManualSessionBookingReplayInput,
+): Promise<CreateSessionBookingResult | null> {
+  assertOperationKey(input.operationKey);
+  const stored = await repository.findProducerManualSessionBookingByOperationKey({
+    producerId: input.producerId,
+    operationKey: input.operationKey,
+  });
+  if (!stored) return null;
+
+  const digest = producerManualSessionBookingDigest(input, stored.booking);
+  assertOperationReplay(stored.booking, digest);
+  if (
+    stored.booking.projectId !== input.projectId ||
+    stored.booking.origin !== "producer_manual" ||
+    stored.booking.rescheduledFromBookingId !== null ||
+    !stored.event ||
+    stored.event.kind !== "created" ||
+    stored.event.operationKey !== input.operationKey
+  ) {
+    throw new SessionBookingDomainError(
+      "OPERATION_KEY_CONFLICT",
+      "This operation key belongs to another booking command",
+    );
+  }
+  assertOperationReplay(stored.event, digest);
+  if (stored.event.toStatus === "confirmed" && !stored.calendarSyncJobId) {
+    throw new SessionBookingDomainError(
+      "OPERATION_KEY_CONFLICT",
+      "The stored manual session is missing its calendar delivery command",
+    );
+  }
+  return {
+    booking: bookingAtTransition(stored.booking, stored.event),
+    created: false,
+    calendarSyncJobId: stored.calendarSyncJobId,
+  };
+}
+
+export async function createProducerManualSessionBooking(
+  repository: SessionBookingRepository,
+  input: CreateProducerManualSessionBookingInput,
+): Promise<CreateSessionBookingResult> {
+  assertOperationKey(input.operationKey);
+  const replay = await findProducerManualSessionBookingReplay(repository, input);
+  if (replay) return replay;
+  return repository.atomically(
+    {
+      kind: "create",
+      producerId: input.producerId,
+      projectId: input.projectId,
+      purchaseId: input.purchaseId,
+      sessionAllowanceId: input.sessionAllowanceId,
+    },
+    async (transaction) => {
+      const context = await transaction.loadProducerManualCreateContext({
+        producerId: input.producerId,
+        clientContactId: input.clientContactId,
+        projectId: input.projectId,
+        purchaseId: input.purchaseId,
+        sessionAllowanceId: input.sessionAllowanceId,
+      });
+      if (!context) {
+        throw new SessionBookingDomainError(
+          "NOT_FOUND",
+          "This client project no longer has one active bookable session package",
+        );
+      }
+      return createSessionBookingInTransaction(
+        transaction,
+        {
+          producerId: input.producerId,
+          projectId: input.projectId,
+          purchaseId: input.purchaseId,
+          sessionAllowanceId: input.sessionAllowanceId,
+          actorClerkUserId: input.actorClerkUserId,
+          startsAt: input.startsAt,
+          operationKey: input.operationKey,
+          ...(input.now ? { now: input.now } : {}),
+        },
+        {
+          rescheduledFromBookingId: null,
+          transitionKind: "created",
+          ...(input.title !== undefined ? { title: input.title } : {}),
+          origin: "producer_manual",
+          billingTreatment: input.billingTreatment,
+          actorKind: "producer",
+          forceConfirmed: true,
+          preloadedContext: context,
+          acknowledgedWarnings: input.acknowledgedWarnings,
+          manualClientContactId: input.clientContactId,
+        },
+      );
+    },
+  );
+}
+
 type BookingTransitionInput = Readonly<{
   bookingId: string;
   producerId?: string;
@@ -653,6 +1020,7 @@ type BookingTransitionInput = Readonly<{
 type BookingTransitionResult = Readonly<{
   booking: SessionBookingRecord;
   changed: boolean;
+  calendarSyncJobId: string | null;
 }>;
 
 async function transitionSessionBooking(
@@ -668,6 +1036,8 @@ async function transitionSessionBooking(
       outcome: SessionUseOutcome;
     }>;
     cancelPendingReplacement?: boolean;
+    calendarMethod?: "CANCEL";
+    requireNoPendingChangeRequest?: boolean;
   }>,
 ): Promise<BookingTransitionResult> {
   assertOperationKey(input.operationKey);
@@ -692,7 +1062,27 @@ async function transitionSessionBooking(
       const replay = await transaction.findTransitionEvent(input.bookingId, input.operationKey);
       if (replay) {
         assertOperationReplay(replay, digest);
-        return { booking: bookingAtTransition(context.booking, replay), changed: false };
+        return {
+          booking: bookingAtTransition(context.booking, replay),
+          changed: false,
+          calendarSyncJobId: spec.calendarMethod
+            ? await calendarSyncJobIdForEvent(
+                transaction,
+                context.booking.id,
+                spec.calendarMethod,
+                replay.occurredAt,
+              )
+            : null,
+        };
+      }
+      if (
+        spec.requireNoPendingChangeRequest &&
+        (await transaction.findPendingChangeRequest(context.booking.id))
+      ) {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "Decide the pending artist change request before changing this session",
+        );
       }
 
       const now = commandNow(input.now);
@@ -722,6 +1112,10 @@ async function transitionSessionBooking(
         newStartsAt: null,
         occurredAt: now,
       });
+      const calendarSyncJob =
+        spec.calendarMethod && context.booking.status === "confirmed"
+          ? await enqueueCalendarSyncJob(transaction, context, updated, spec.calendarMethod, now)
+          : null;
       if (spec.cancelPendingReplacement) {
         const replacement = await transaction.findReplacementBooking(context.booking.id);
         if (replacement?.status === "pending_approval") {
@@ -751,7 +1145,7 @@ async function transitionSessionBooking(
           });
         }
       }
-      return { booking: updated, changed: true };
+      return { booking: updated, changed: true, calendarSyncJobId: calendarSyncJob?.id ?? null };
     },
   );
 }
@@ -799,7 +1193,16 @@ export async function confirmSessionBooking(
       const replay = await transaction.findTransitionEvent(input.bookingId, input.operationKey);
       if (replay) {
         assertOperationReplay(replay, digest);
-        return { booking: bookingAtTransition(context.booking, replay), changed: false };
+        return {
+          booking: bookingAtTransition(context.booking, replay),
+          changed: false,
+          calendarSyncJobId: await calendarSyncJobIdForEvent(
+            transaction,
+            context.booking.id,
+            "REQUEST",
+            replay.occurredAt,
+          ),
+        };
       }
       const now = commandNow(input.now);
       assertPending(context);
@@ -888,7 +1291,14 @@ export async function confirmSessionBooking(
           occurredAt: now,
         });
       }
-      return { booking: updated, changed: true };
+      const calendarSyncJob = await enqueueCalendarSyncJob(
+        transaction,
+        context,
+        updated,
+        "REQUEST",
+        now,
+      );
+      return { booking: updated, changed: true, calendarSyncJobId: calendarSyncJob.id };
     },
   );
 }
@@ -930,7 +1340,11 @@ export async function expireHeldSessionBooking(
       const replay = await transaction.findTransitionEvent(input.bookingId, input.operationKey);
       if (replay) {
         assertOperationReplay(replay, digest);
-        return { booking: bookingAtTransition(context.booking, replay), changed: false };
+        return {
+          booking: bookingAtTransition(context.booking, replay),
+          changed: false,
+          calendarSyncJobId: null,
+        };
       }
       assertPending(context);
       const now = commandNow(input.now);
@@ -969,7 +1383,7 @@ export async function expireHeldSessionBooking(
         newStartsAt: null,
         occurredAt: now,
       });
-      return { booking: updated, changed: true };
+      return { booking: updated, changed: true, calendarSyncJobId: null };
     },
   );
 }
@@ -988,6 +1402,8 @@ export function cancelProducerSessionBooking(
     },
     next: () => ({ status: "cancelled", outcome: "cancelled_by_producer" }),
     cancelPendingReplacement: true,
+    calendarMethod: "CANCEL",
+    requireNoPendingChangeRequest: true,
   });
 }
 
@@ -1026,6 +1442,8 @@ export function cancelArtistSessionBooking(
     },
     next: () => ({ status: "cancelled", outcome: "cancelled_on_time" }),
     cancelPendingReplacement: true,
+    calendarMethod: "CANCEL",
+    requireNoPendingChangeRequest: true,
   });
 }
 
@@ -1053,6 +1471,8 @@ export function recordLateArtistCancellation(
       }
     },
     next: () => ({ status: "cancelled", outcome: "cancelled_late" }),
+    calendarMethod: "CANCEL",
+    requireNoPendingChangeRequest: true,
   });
 }
 
@@ -1076,6 +1496,7 @@ export function markSessionNoShow(
       }
     },
     next: () => ({ status: "no_show", outcome: "no_show" }),
+    requireNoPendingChangeRequest: true,
   });
 }
 
@@ -1103,6 +1524,7 @@ export function completeSessionBooking(
       }
     },
     next: () => ({ status: "completed", outcome: "completed" }),
+    requireNoPendingChangeRequest: true,
   });
 }
 
@@ -1118,6 +1540,7 @@ export type RescheduleArtistSessionBookingResult = Readonly<{
   booking: SessionBookingRecord;
   replacedBooking: SessionBookingRecord;
   created: boolean;
+  calendarSyncJobId: string | null;
 }>;
 
 export async function rescheduleArtistSessionBooking(
@@ -1163,6 +1586,15 @@ export async function rescheduleArtistSessionBooking(
             ? bookingAtTransition(context.booking, originalEvent)
             : context.booking,
           created: false,
+          calendarSyncJobId:
+            replacementEvent.toStatus === "confirmed"
+              ? await calendarSyncJobIdForEvent(
+                  transaction,
+                  replacementReplay.id,
+                  "REQUEST",
+                  replacementEvent.occurredAt,
+                )
+              : null,
         };
       }
       const orphanedReplay = await transaction.findTransitionEvent(
@@ -1181,6 +1613,12 @@ export async function rescheduleArtistSessionBooking(
         throw new SessionBookingDomainError(
           "INVALID_STATUS",
           "Only a confirmed session can be rescheduled",
+        );
+      }
+      if (await transaction.findPendingChangeRequest(context.booking.id)) {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "Decide the pending artist change request before rescheduling this session",
         );
       }
       if (
@@ -1257,6 +1695,614 @@ export async function rescheduleArtistSessionBooking(
         booking: replacementResult.booking,
         replacedBooking: replaced,
         created: true,
+        calendarSyncJobId: replacementResult.calendarSyncJobId,
+      };
+    },
+  );
+}
+
+export type PreviewProducerSessionRescheduleResult = Readonly<{
+  booking: SessionBookingRecord;
+  proposedStartsAt: Date;
+  hardConflicts: readonly Readonly<{ code: string; message: string }>[];
+  warnings: readonly Readonly<{ code: string; message: string }>[];
+}>;
+
+function assertConfirmedForReschedule(context: SessionBookingContext): void {
+  if (context.booking.status !== "confirmed") {
+    throw new SessionBookingDomainError(
+      "INVALID_STATUS",
+      "Only a confirmed session can be rescheduled",
+    );
+  }
+}
+
+async function producerRescheduleIssues(
+  transaction: SessionBookingTransaction,
+  context: SessionBookingContext,
+  startsAt: Date,
+  now: Date,
+) {
+  return classifySessionSlot({
+    actor: "producer",
+    startsAt,
+    durationMin: context.booking.durationMin,
+    bufferMinutes: context.allowance.bufferMinutes,
+    producerTimeZone: context.producer.timeZone,
+    availabilityBlocks: context.availabilityBlocks,
+    blackouts: context.blackouts,
+    existingBookings: await transaction.listScheduleEntries(context.booking.producerId),
+    maxSessionsPerDay: context.producer.maxSessionsPerDay,
+    now,
+    minLeadHours: context.allowance.minLeadHours,
+    ignoreBookingId: context.booking.id,
+  });
+}
+
+export async function previewProducerSessionReschedule(
+  repository: SessionBookingRepository,
+  input: Readonly<{
+    bookingId: string;
+    producerId: string;
+    startsAt: Date;
+    now?: Date;
+  }>,
+): Promise<PreviewProducerSessionRescheduleResult> {
+  return repository.atomically(
+    { kind: "booking", bookingId: input.bookingId, producerId: input.producerId },
+    async (transaction) => {
+      const context = await transaction.loadBookingContext({
+        bookingId: input.bookingId,
+        producerId: input.producerId,
+      });
+      if (!context) throw new SessionBookingDomainError("NOT_FOUND", "The session was not found");
+      assertConfirmedForReschedule(context);
+      if (await transaction.findPendingChangeRequest(context.booking.id)) {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "Decide the pending artist change request before rescheduling this session",
+        );
+      }
+      const startsAt = requestedSessionStart(
+        { startsAt: input.startsAt },
+        context.producer.timeZone,
+      );
+      const issues = await producerRescheduleIssues(
+        transaction,
+        context,
+        startsAt,
+        commandNow(input.now),
+      );
+      return {
+        booking: context.booking,
+        proposedStartsAt: startsAt,
+        hardConflicts: issues.filter((issue) => issue.severity === "hard_conflict"),
+        warnings: issues.filter((issue) => issue.severity === "warning"),
+      };
+    },
+  );
+}
+
+export type RescheduleProducerSessionBookingInput = Readonly<{
+  bookingId: string;
+  producerId: string;
+  actorClerkUserId: string;
+  startsAt: Date;
+  warningAcknowledgements: readonly string[];
+  operationKey: string;
+  now?: Date;
+}>;
+
+export async function rescheduleProducerSessionBooking(
+  repository: SessionBookingRepository,
+  input: RescheduleProducerSessionBookingInput,
+): Promise<RescheduleArtistSessionBookingResult> {
+  assertOperationKey(input.operationKey);
+  return repository.atomically(
+    { kind: "booking", bookingId: input.bookingId, producerId: input.producerId },
+    async (transaction) => {
+      const context = await transaction.loadBookingContext({
+        bookingId: input.bookingId,
+        producerId: input.producerId,
+      });
+      if (!context) throw new SessionBookingDomainError("NOT_FOUND", "The session was not found");
+      const digest = operationDigest("producer-reschedule", {
+        bookingId: input.bookingId,
+        producerId: input.producerId,
+        startsAt: input.startsAt.toISOString(),
+        warningAcknowledgements: [...input.warningAcknowledgements].sort(),
+      });
+      const replacementReplay = await transaction.findReplacementBooking(input.bookingId);
+      if (replacementReplay) {
+        assertOperationReplay(replacementReplay, digest);
+        const replacementEvent = await transaction.findTransitionEvent(
+          replacementReplay.id,
+          input.operationKey,
+        );
+        const originalEvent = await transaction.findTransitionEvent(
+          input.bookingId,
+          input.operationKey,
+        );
+        if (!replacementEvent || !originalEvent) {
+          throw new SessionBookingDomainError(
+            "OPERATION_KEY_CONFLICT",
+            "The stored reschedule command is incomplete",
+          );
+        }
+        assertOperationReplay(replacementEvent, digest);
+        assertOperationReplay(originalEvent, digest);
+        return {
+          booking: bookingAtTransition(replacementReplay, replacementEvent),
+          replacedBooking: bookingAtTransition(context.booking, originalEvent),
+          created: false,
+          calendarSyncJobId: await calendarSyncJobIdForEvent(
+            transaction,
+            replacementReplay.id,
+            "REQUEST",
+            replacementEvent.occurredAt,
+          ),
+        };
+      }
+      assertConfirmedForReschedule(context);
+      if (await transaction.findPendingChangeRequest(context.booking.id)) {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "Decide the pending artist change request before rescheduling this session",
+        );
+      }
+      const now = commandNow(input.now);
+      const replacementResult = await createSessionBookingInTransaction(
+        transaction,
+        {
+          producerId: context.booking.producerId,
+          projectId: context.booking.projectId,
+          purchaseId: context.booking.purchaseId,
+          sessionAllowanceId: context.booking.sessionAllowanceId,
+          actorClerkUserId: input.actorClerkUserId,
+          startsAt: input.startsAt,
+          operationKey: input.operationKey,
+          now,
+        },
+        {
+          rescheduledFromBookingId: context.booking.id,
+          allowanceUseId: context.booking.allowanceUseId,
+          ignoredBookingId: context.booking.id,
+          transitionKind: "rescheduled",
+          operationDigestOverride: digest,
+          title: context.booking.title,
+          origin: context.booking.origin,
+          billingTreatment: context.booking.billingTreatment,
+          calendarRevision: context.booking.calendarRevision + 1,
+          actorKind: "producer",
+          slotActor: "producer",
+          forceConfirmed: true,
+          preloadedContext: context,
+          acknowledgedWarnings: input.warningAcknowledgements,
+          requireExactWarningAcknowledgements: true,
+        },
+      );
+      const replacedBooking = await transaction.updateBooking({
+        bookingId: context.booking.id,
+        producerId: context.booking.producerId,
+        expectedStatus: "confirmed",
+        status: "cancelled",
+        outcome: "cancelled_on_time",
+        occurredAt: now,
+      });
+      await transaction.insertTransitionEvent({
+        bookingId: replacedBooking.id,
+        producerId: replacedBooking.producerId,
+        operationKey: input.operationKey,
+        operationDigest: digest,
+        kind: "rescheduled",
+        actorKind: "producer",
+        actorId: input.actorClerkUserId,
+        fromStatus: context.booking.status,
+        toStatus: replacedBooking.status,
+        fromOutcome: context.booking.outcome,
+        toOutcome: replacedBooking.outcome,
+        oldStartsAt: context.booking.startsAt,
+        newStartsAt: replacementResult.booking.startsAt,
+        occurredAt: now,
+      });
+      return {
+        booking: replacementResult.booking,
+        replacedBooking,
+        created: true,
+        calendarSyncJobId: replacementResult.calendarSyncJobId,
+      };
+    },
+  );
+}
+
+export type SubmitArtistSessionChangeRequestInput = Readonly<{
+  bookingId: string;
+  actorClerkUserId: string;
+  kind: SessionBookingChangeRequestKind;
+  proposedStartsAt?: Date;
+  operationKey: string;
+  now?: Date;
+}>;
+
+export async function submitArtistSessionChangeRequest(
+  repository: SessionBookingRepository,
+  input: SubmitArtistSessionChangeRequestInput,
+): Promise<Readonly<{ request: SessionBookingChangeRequestRecord; replayed: boolean }>> {
+  assertOperationKey(input.operationKey);
+  return repository.atomically(
+    { kind: "booking", bookingId: input.bookingId },
+    async (transaction) => {
+      const context = await transaction.loadBookingContext({
+        bookingId: input.bookingId,
+        actorClerkUserId: input.actorClerkUserId,
+      });
+      if (!context) throw new SessionBookingDomainError("NOT_FOUND", "The session was not found");
+      if (input.kind === "reschedule" && !(input.proposedStartsAt instanceof Date)) {
+        throw new SessionBookingDomainError(
+          "INVALID_SLOT",
+          "A reschedule request requires a replacement time",
+        );
+      }
+      const proposedStartsAt =
+        input.kind === "reschedule"
+          ? requestedSessionStart(
+              { startsAt: input.proposedStartsAt as Date },
+              context.producer.timeZone,
+            )
+          : null;
+      if (input.kind === "cancel" && input.proposedStartsAt !== undefined) {
+        throw new SessionBookingDomainError(
+          "INVALID_SLOT",
+          "A cancellation request cannot include a replacement time",
+        );
+      }
+      const digest = operationDigest("artist-change-request", {
+        bookingId: input.bookingId,
+        kind: input.kind,
+        proposedStartsAt: proposedStartsAt?.toISOString() ?? null,
+      });
+      const replay = await transaction.findChangeRequestByOperationKey(
+        input.bookingId,
+        input.operationKey,
+      );
+      if (replay) {
+        assertOperationReplay({ operationDigest: replay.requestOperationDigest }, digest);
+        return { request: replay, replayed: true };
+      }
+      if (context.booking.status !== "confirmed") {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "Only a confirmed session can have a change request",
+        );
+      }
+      if (await transaction.findPendingChangeRequest(input.bookingId)) {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "This session already has a pending change request",
+        );
+      }
+      const now = commandNow(input.now);
+      if (now.getTime() >= context.booking.startsAt.getTime()) {
+        throw new SessionBookingDomainError(
+          "CANCELLATION_WINDOW",
+          "A session that has started can no longer be changed",
+        );
+      }
+      if (
+        input.kind === "reschedule" &&
+        artistCancellationOutcome({
+          startsAt: context.booking.startsAt,
+          now,
+          cancellationPolicyHours: context.booking.cancellationPolicyHoursSnapshot,
+        }) !== "cancelled_on_time"
+      ) {
+        throw new SessionBookingDomainError(
+          "CANCELLATION_WINDOW",
+          "This session is too close to request a reschedule",
+        );
+      }
+      if (proposedStartsAt) {
+        const slotIssue = classifySessionSlot({
+          actor: "artist",
+          startsAt: proposedStartsAt,
+          durationMin: context.booking.durationMin,
+          bufferMinutes: context.allowance.bufferMinutes,
+          producerTimeZone: context.producer.timeZone,
+          availabilityBlocks: context.availabilityBlocks,
+          blackouts: context.blackouts,
+          existingBookings: await transaction.listScheduleEntries(context.booking.producerId),
+          maxSessionsPerDay: context.producer.maxSessionsPerDay,
+          now,
+          minLeadHours: context.allowance.minLeadHours,
+          ignoreBookingId: context.booking.id,
+        })[0];
+        if (slotIssue) {
+          throw new SessionBookingDomainError(slotIssue.code, slotIssue.message);
+        }
+      }
+      const request = await transaction.insertChangeRequest({
+        bookingId: context.booking.id,
+        producerId: context.booking.producerId,
+        kind: input.kind,
+        status: "pending",
+        proposedStartsAt,
+        requestOperationKey: input.operationKey,
+        requestOperationDigest: digest,
+        requestedByClerkUserId: input.actorClerkUserId,
+        requestedAt: now,
+        decisionOperationKey: null,
+        decisionOperationDigest: null,
+        decidedByClerkUserId: null,
+        decidedAt: null,
+        replacementBookingId: null,
+        occurredAt: now,
+      });
+      return { request, replayed: false };
+    },
+  );
+}
+
+export type DecideProducerSessionChangeRequestInput = Readonly<{
+  requestId: string;
+  producerId: string;
+  actorClerkUserId: string;
+  decision: "approved" | "rejected";
+  operationKey: string;
+  reason?: string | null;
+  now?: Date;
+}>;
+
+export type DecideProducerSessionChangeRequestResult = Readonly<{
+  request: SessionBookingChangeRequestRecord;
+  booking?: SessionBookingRecord;
+  replacementBooking?: SessionBookingRecord;
+  changed: boolean;
+  calendarSyncJobId: string | null;
+}>;
+
+export async function decideProducerSessionChangeRequest(
+  repository: SessionBookingRepository,
+  input: DecideProducerSessionChangeRequestInput,
+): Promise<DecideProducerSessionChangeRequestResult> {
+  assertOperationKey(input.operationKey);
+  return repository.atomically(
+    { kind: "change_request", requestId: input.requestId, producerId: input.producerId },
+    async (transaction) => {
+      const request = await transaction.loadChangeRequest({
+        requestId: input.requestId,
+        producerId: input.producerId,
+      });
+      if (!request) {
+        throw new SessionBookingDomainError(
+          "NOT_FOUND",
+          "The session change request was not found",
+        );
+      }
+      const context = await transaction.loadBookingContext({
+        bookingId: request.bookingId,
+        producerId: input.producerId,
+      });
+      if (!context) throw new SessionBookingDomainError("NOT_FOUND", "The session was not found");
+      const digest = operationDigest("producer-change-request-decision", {
+        requestId: input.requestId,
+        producerId: input.producerId,
+        decision: input.decision,
+        reason: input.reason?.trim() || null,
+      });
+      if (request.status !== "pending") {
+        if (request.decisionOperationKey !== input.operationKey) {
+          throw new SessionBookingDomainError(
+            "INVALID_STATUS",
+            "This session change request was already decided",
+          );
+        }
+        assertOperationReplay({ operationDigest: request.decisionOperationDigest ?? "" }, digest);
+        const sourceEvent = await transaction.findTransitionEvent(
+          request.bookingId,
+          input.operationKey,
+        );
+        const booking = sourceEvent ? bookingAtTransition(context.booking, sourceEvent) : undefined;
+        const replacementContext = request.replacementBookingId
+          ? await transaction.loadBookingContext({
+              bookingId: request.replacementBookingId,
+              producerId: input.producerId,
+            })
+          : null;
+        const replacementEvent = replacementContext
+          ? await transaction.findTransitionEvent(replacementContext.booking.id, input.operationKey)
+          : null;
+        return {
+          request,
+          ...(booking ? { booking } : {}),
+          ...(replacementContext
+            ? {
+                replacementBooking: replacementEvent
+                  ? bookingAtTransition(replacementContext.booking, replacementEvent)
+                  : replacementContext.booking,
+              }
+            : {}),
+          changed: false,
+          calendarSyncJobId:
+            request.status === "approved"
+              ? request.kind === "cancel" && sourceEvent
+                ? await calendarSyncJobIdForEvent(
+                    transaction,
+                    request.bookingId,
+                    "CANCEL",
+                    sourceEvent.occurredAt,
+                  )
+                : replacementContext && replacementEvent
+                  ? await calendarSyncJobIdForEvent(
+                      transaction,
+                      replacementContext.booking.id,
+                      "REQUEST",
+                      replacementEvent.occurredAt,
+                    )
+                  : null
+              : null,
+        };
+      }
+      const now = commandNow(input.now);
+      if (input.decision === "rejected") {
+        const rejected = await transaction.decideChangeRequest({
+          requestId: request.id,
+          producerId: request.producerId,
+          status: "rejected",
+          decisionOperationKey: input.operationKey,
+          decisionOperationDigest: digest,
+          decidedByClerkUserId: input.actorClerkUserId,
+          decidedAt: now,
+          replacementBookingId: null,
+        });
+        return { request: rejected, changed: true, calendarSyncJobId: null };
+      }
+      assertConfirmedForReschedule(context);
+      if (request.kind === "cancel") {
+        const outcome = artistCancellationOutcome({
+          startsAt: context.booking.startsAt,
+          now: request.requestedAt,
+          cancellationPolicyHours: context.booking.cancellationPolicyHoursSnapshot,
+        });
+        const booking = await transaction.updateBooking({
+          bookingId: context.booking.id,
+          producerId: context.booking.producerId,
+          expectedStatus: "confirmed",
+          status: "cancelled",
+          outcome,
+          occurredAt: now,
+        });
+        await transaction.insertTransitionEvent({
+          bookingId: booking.id,
+          producerId: booking.producerId,
+          operationKey: input.operationKey,
+          operationDigest: digest,
+          kind: "artist_cancelled",
+          actorKind: "producer",
+          actorId: input.actorClerkUserId,
+          fromStatus: context.booking.status,
+          toStatus: booking.status,
+          fromOutcome: context.booking.outcome,
+          toOutcome: booking.outcome,
+          oldStartsAt: context.booking.startsAt,
+          newStartsAt: null,
+          occurredAt: now,
+        });
+        const calendarSyncJob = await enqueueCalendarSyncJob(
+          transaction,
+          context,
+          booking,
+          "CANCEL",
+          now,
+        );
+        const approved = await transaction.decideChangeRequest({
+          requestId: request.id,
+          producerId: request.producerId,
+          status: "approved",
+          decisionOperationKey: input.operationKey,
+          decisionOperationDigest: digest,
+          decidedByClerkUserId: input.actorClerkUserId,
+          decidedAt: now,
+          replacementBookingId: null,
+        });
+        return {
+          request: approved,
+          booking,
+          changed: true,
+          calendarSyncJobId: calendarSyncJob.id,
+        };
+      }
+      if (!request.proposedStartsAt) {
+        throw new SessionBookingDomainError(
+          "INVALID_SLOT",
+          "The requested replacement time is missing",
+        );
+      }
+      if (
+        artistCancellationOutcome({
+          startsAt: context.booking.startsAt,
+          now: request.requestedAt,
+          cancellationPolicyHours: context.booking.cancellationPolicyHoursSnapshot,
+        }) !== "cancelled_on_time"
+      ) {
+        throw new SessionBookingDomainError(
+          "CANCELLATION_WINDOW",
+          "The reschedule request was submitted after the cancellation cutoff",
+        );
+      }
+      if (await transaction.findReplacementBooking(context.booking.id)) {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "This session already has an immutable replacement",
+        );
+      }
+      const replacement = await createSessionBookingInTransaction(
+        transaction,
+        {
+          producerId: context.booking.producerId,
+          projectId: context.booking.projectId,
+          purchaseId: context.booking.purchaseId,
+          sessionAllowanceId: context.booking.sessionAllowanceId,
+          actorClerkUserId: input.actorClerkUserId,
+          startsAt: request.proposedStartsAt,
+          operationKey: input.operationKey,
+          now,
+        },
+        {
+          rescheduledFromBookingId: context.booking.id,
+          allowanceUseId: context.booking.allowanceUseId,
+          ignoredBookingId: context.booking.id,
+          transitionKind: "rescheduled",
+          operationDigestOverride: digest,
+          title: context.booking.title,
+          origin: context.booking.origin,
+          billingTreatment: context.booking.billingTreatment,
+          calendarRevision: context.booking.calendarRevision + 1,
+          actorKind: "producer",
+          slotActor: "artist",
+          forceConfirmed: true,
+          preloadedContext: context,
+        },
+      );
+      const booking = await transaction.updateBooking({
+        bookingId: context.booking.id,
+        producerId: context.booking.producerId,
+        expectedStatus: "confirmed",
+        status: "cancelled",
+        outcome: "cancelled_on_time",
+        occurredAt: now,
+      });
+      await transaction.insertTransitionEvent({
+        bookingId: booking.id,
+        producerId: booking.producerId,
+        operationKey: input.operationKey,
+        operationDigest: digest,
+        kind: "rescheduled",
+        actorKind: "producer",
+        actorId: input.actorClerkUserId,
+        fromStatus: context.booking.status,
+        toStatus: booking.status,
+        fromOutcome: context.booking.outcome,
+        toOutcome: booking.outcome,
+        oldStartsAt: context.booking.startsAt,
+        newStartsAt: replacement.booking.startsAt,
+        occurredAt: now,
+      });
+      const approved = await transaction.decideChangeRequest({
+        requestId: request.id,
+        producerId: request.producerId,
+        status: "approved",
+        decisionOperationKey: input.operationKey,
+        decisionOperationDigest: digest,
+        decidedByClerkUserId: input.actorClerkUserId,
+        decidedAt: now,
+        replacementBookingId: replacement.booking.id,
+      });
+      return {
+        request: approved,
+        booking,
+        replacementBooking: replacement.booking,
+        changed: true,
+        calendarSyncJobId: replacement.calendarSyncJobId,
       };
     },
   );

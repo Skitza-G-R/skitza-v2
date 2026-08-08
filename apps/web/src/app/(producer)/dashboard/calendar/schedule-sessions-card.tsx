@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { CancelSessionModal } from "./cancel-session-modal";
+import { ChangeRequestDecision } from "./change-request-decision";
 import { calendarDateTimeParts, formatCalendarTime } from "./calendar-time";
 import { KIND_COLORS, inferSessionKind } from "./session-kind";
 import type { RawBookingStatus, SessionListItem } from "./session-row";
+import { RescheduleSessionModal } from "./reschedule-session-modal";
 
 type Filter = "upcoming" | "past" | "all";
 type DisplayStatus = "confirmed" | "pending" | "completed" | "no_show" | "rejected" | "cancelled";
@@ -24,6 +26,7 @@ export function ScheduleSessionsCard({
   const now = useMemo(() => new Date(initialNow), [initialNow]);
   const [filter, setFilter] = useState<Filter>("upcoming");
   const [cancelTarget, setCancelTarget] = useState<SessionListItem | null>(null);
+  const [rescheduleTarget, setRescheduleTarget] = useState<SessionListItem | null>(null);
   const selectedRef = useRef<HTMLLIElement>(null);
   const buckets = useMemo(() => bucketSessions(sessions, now), [sessions, now]);
   const filtered = buckets[filter];
@@ -110,6 +113,7 @@ export function ScheduleSessionsCard({
                   now={now}
                   timeZone={timeZone}
                   onCancel={setCancelTarget}
+                  onReschedule={setRescheduleTarget}
                 />
               </li>
             );
@@ -125,6 +129,16 @@ export function ScheduleSessionsCard({
           session={cancelTarget}
         />
       ) : null}
+      {rescheduleTarget ? (
+        <RescheduleSessionModal
+          open
+          onOpenChange={(next) => {
+            if (!next) setRescheduleTarget(null);
+          }}
+          session={rescheduleTarget}
+          timeZone={timeZone}
+        />
+      ) : null}
     </section>
   );
 }
@@ -134,11 +148,13 @@ function CompactSessionRow({
   now,
   timeZone,
   onCancel,
+  onReschedule,
 }: {
   session: SessionListItem;
   now: Date;
   timeZone: string;
   onCancel: (session: SessionListItem) => void;
+  onReschedule: (session: SessionListItem) => void;
 }) {
   const start = new Date(session.startsAt);
   const end = new Date(start.getTime() + session.durationMin * 60_000);
@@ -172,24 +188,83 @@ function CompactSessionRow({
             {formatCalendarTime(start, timeZone)}–{formatCalendarTime(end, timeZone)}
           </span>
         </div>
+        {session.billingTreatment === "complimentary" ||
+        session.billingTreatment === "billable_extra" ||
+        session.artistRsvpStatus ? (
+          <p className="mt-1 truncate text-[9.5px] text-[rgb(var(--fg-muted))]">
+            {[
+              session.billingTreatment === "complimentary" ? "Complimentary" : null,
+              session.billingTreatment === "billable_extra" ? "Payment due" : null,
+              session.artistRsvpStatus
+                ? `Invite: ${compactRsvpLabel(session.artistRsvpStatus)}`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+        ) : null}
         <div className="mt-1.5 flex min-w-0 items-center justify-between gap-2">
           <CompactStatus status={status} />
-          {cancellable ? (
-            <button
-              type="button"
-              aria-label={`Cancel session with ${session.artistName}`}
-              title="Cancel session"
-              onClick={() => {
-                onCancel(session);
-              }}
-              className="sk-press inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-danger))] transition-colors hover:bg-[rgb(var(--fg-danger)/0.08)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--fg-danger))] focus-visible:outline-none motion-reduce:active:scale-100"
-            >
-              <XMini />
-            </button>
+          {cancellable && !session.changeRequest ? (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                aria-label={`Reschedule session with ${session.artistName}`}
+                title="Reschedule session"
+                onClick={() => {
+                  onReschedule(session);
+                }}
+                className="sk-press inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(var(--bg-overlay))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none motion-reduce:active:scale-100"
+              >
+                <ClockMini />
+              </button>
+              <button
+                type="button"
+                aria-label={`Cancel session with ${session.artistName}`}
+                title="Cancel session"
+                onClick={() => {
+                  onCancel(session);
+                }}
+                className="sk-press inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[rgb(var(--fg-danger))] transition-colors hover:bg-[rgb(var(--fg-danger)/0.08)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--fg-danger))] focus-visible:outline-none motion-reduce:active:scale-100"
+              >
+                <XMini />
+              </button>
+            </div>
           ) : null}
         </div>
       </div>
+      {session.changeRequest ? (
+        <div className="col-span-2">
+          <ChangeRequestDecision session={session} timeZone={timeZone} compact />
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function compactRsvpLabel(status: NonNullable<SessionListItem["artistRsvpStatus"]>): string {
+  if (status === "accepted") return "accepted";
+  if (status === "declined") return "declined";
+  if (status === "tentative") return "maybe";
+  return "awaiting reply";
+}
+
+function ClockMini() {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
   );
 }
 
