@@ -175,6 +175,15 @@ describeWithTestDatabase("SK-145 route reads — isolated disposable Postgres", 
             "reminder_sent_1h" timestamptz,
             "created_at" timestamptz not null
           )`,
+          `create table "booking_change_requests" (
+            "id" uuid primary key,
+            "booking_id" uuid not null,
+            "producer_id" uuid not null,
+            "kind" text not null,
+            "proposed_starts_at" timestamptz,
+            "requested_at" timestamptz not null,
+            "status" text not null
+          )`,
           `create table "project_tracks" (
             "id" uuid primary key,
             "project_id" uuid not null,
