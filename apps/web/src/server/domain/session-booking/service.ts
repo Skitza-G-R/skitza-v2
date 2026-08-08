@@ -1,51 +1,44 @@
 import { createHash, randomUUID } from "node:crypto";
+import {
+  SessionBookingDomainError,
+  assertSessionBookingAllowed,
+  assertSessionSlotAvailable,
+  sessionStartFromLocalSlot,
+  sessionUseConsumesAllowance,
+} from "~/server/booking";
+import type {
+  SessionBookingBillingTreatment,
+  SessionBookingScheduleEntry,
+  SessionUseOutcome,
+} from "~/server/booking";
 
-export type SessionUseOutcome =
-  | "reserved"
-  | "completed"
-  | "cancelled_on_time"
-  | "cancelled_by_producer"
-  | "cancelled_late"
-  | "no_show";
-
-export type SessionBookingErrorCode =
-  | "PURCHASE_INACTIVE"
-  | "PROJECT_INACTIVE"
-  | "ALLOWANCE_CLOSED"
-  | "DURATION_MISMATCH"
-  | "LEAD_TIME_VIOLATION"
-  | "ALLOWANCE_EXHAUSTED"
-  | "INVALID_ALLOWANCE"
-  | "INVALID_SLOT"
-  | "OUTSIDE_AVAILABILITY"
-  | "BLACKOUT"
-  | "BOOKING_CONFLICT"
-  | "NOT_FOUND"
-  | "INVALID_STATUS"
-  | "CANCELLATION_WINDOW"
-  | "OPERATION_KEY_CONFLICT"
-  | "BOOKING_DISABLED"
-  | "HELD_EXPIRED"
-  | "TOO_EARLY";
-
-export class SessionBookingDomainError extends Error {
-  readonly code: SessionBookingErrorCode;
-
-  constructor(code: SessionBookingErrorCode, message: string) {
-    super(message);
-    this.name = "SessionBookingDomainError";
-    this.code = code;
-  }
-}
-
-export function sessionUseConsumesAllowance(outcome: SessionUseOutcome): boolean {
-  return (
-    outcome === "reserved" ||
-    outcome === "completed" ||
-    outcome === "cancelled_late" ||
-    outcome === "no_show"
-  );
-}
+export {
+  SessionBookingDomainError,
+  assertSessionBookingAllowed,
+  assertSessionSlotAvailable,
+  classifySessionSlot,
+  producerLocalDateKey,
+  producerLocalDateKeys,
+  producerLocalDateRange,
+  sessionAllowanceCanBook,
+  sessionAvailabilityHorizonDays,
+  sessionBillingOptions,
+  sessionStartFromLocalSlot,
+  sessionUseConsumesAllowance,
+  studioLocalDateKey,
+  studioLocalDateTimeToUtc,
+  studioLocalDateTimeUtcCandidates,
+} from "~/server/booking";
+export type {
+  ClassifySessionSlotInput,
+  SessionBillingOptions,
+  SessionBookingBillingTreatment,
+  SessionBookingErrorCode,
+  SessionBookingScheduleEntry,
+  SessionSlotIssue,
+  SessionSlotIssueCode,
+  SessionUseOutcome,
+} from "~/server/booking";
 
 export type SessionBookingStatus =
   | "pending_approval"
@@ -56,6 +49,8 @@ export type SessionBookingStatus =
   | "no_show";
 
 export type SessionBookingActorKind = "artist" | "producer" | "system";
+export type SessionBookingOrigin = "legacy" | "artist_request" | "producer_manual";
+export type SessionBookingArtistRsvpStatus = "needs_action" | "accepted" | "declined" | "tentative";
 export type SessionBookingTransitionKind =
   | "created"
   | "confirmed"
@@ -72,6 +67,9 @@ export type SessionBookingRecord = Readonly<{
   projectId: string;
   purchaseId: string;
   sessionAllowanceId: string;
+  title: string | null;
+  origin: SessionBookingOrigin;
+  billingTreatment: SessionBookingBillingTreatment;
   artistName: string;
   artistEmail: string;
   startsAt: Date;
@@ -90,7 +88,11 @@ export type SessionBookingRecord = Readonly<{
   outcome: SessionUseOutcome;
   statusChangedAt: Date | null;
   outcomeChangedAt: Date | null;
+  calendarRevision: number;
+  artistRsvpStatus: SessionBookingArtistRsvpStatus | null;
+  artistRsvpRespondedAt: Date | null;
   createdAt: Date;
+  updatedAt: Date;
 }>;
 
 export type SessionBookingAllowance = Readonly<{
@@ -113,6 +115,7 @@ export type SessionBookingCreateContext = Readonly<{
     timeZone: string;
     autoConfirmBookings: boolean;
     cancellationPolicyHours: number;
+    maxSessionsPerDay: number | null;
   }>;
   project: Readonly<{
     id: string;
@@ -121,6 +124,7 @@ export type SessionBookingCreateContext = Readonly<{
   purchase: Readonly<{
     id: string;
     lifecycleStatus: "waiting_for_payment" | "active" | "canceled";
+    defaultSessionTitle: string;
   }>;
   allowance: SessionBookingAllowance;
   artist: Readonly<{ clerkUserId: string | null; name: string; email: string }>;
@@ -131,16 +135,9 @@ export type SessionBookingCreateContext = Readonly<{
 export type SessionBookingContext = SessionBookingCreateContext &
   Readonly<{ booking: SessionBookingRecord }>;
 
-export type SessionBookingScheduleEntry = Readonly<{
-  id: string;
-  startsAt: Date;
-  durationMin: number;
-  bufferMinutes: number;
-}>;
-
 export type NewSessionBookingRecord = Omit<
   SessionBookingRecord,
-  "id" | "statusChangedAt" | "outcomeChangedAt" | "createdAt"
+  "id" | "statusChangedAt" | "outcomeChangedAt" | "createdAt" | "updatedAt"
 > &
   Readonly<{ occurredAt: Date }>;
 
@@ -204,6 +201,7 @@ export interface SessionBookingTransaction {
       bookingId: string;
       allowanceUseId: string;
       outcome: SessionUseOutcome;
+      billingTreatment: SessionBookingBillingTreatment;
     }>[]
   >;
   listScheduleEntries(producerId: string): Promise<readonly SessionBookingScheduleEntry[]>;
@@ -251,371 +249,6 @@ export function artistCancellationOutcome(input: {
   }
   const deadline = input.startsAt.getTime() - input.cancellationPolicyHours * 60 * 60 * 1000;
   return input.now.getTime() < deadline ? "cancelled_on_time" : "cancelled_late";
-}
-
-type WallClock = Readonly<{
-  year: number;
-  month: number;
-  day: number;
-  hour: number;
-  minute: number;
-  weekday: number;
-}>;
-
-function wallClockAt(instant: Date, timeZone: string): WallClock {
-  let formatter: Intl.DateTimeFormat;
-  try {
-    formatter = new Intl.DateTimeFormat("en-US", {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      weekday: "short",
-      hourCycle: "h23",
-    });
-  } catch {
-    throw new SessionBookingDomainError("INVALID_SLOT", "The studio timezone is invalid");
-  }
-  const parts = Object.fromEntries(
-    formatter
-      .formatToParts(instant)
-      .filter((part) => part.type !== "literal")
-      .map((part) => [part.type, part.value]),
-  );
-  const weekdays: Record<string, number> = {
-    Sun: 0,
-    Mon: 1,
-    Tue: 2,
-    Wed: 3,
-    Thu: 4,
-    Fri: 5,
-    Sat: 6,
-  };
-  return {
-    year: Number(parts.year),
-    month: Number(parts.month),
-    day: Number(parts.day),
-    hour: Number(parts.hour),
-    minute: Number(parts.minute),
-    weekday: weekdays[parts.weekday ?? ""] ?? -1,
-  };
-}
-
-function dateKey(wall: Pick<WallClock, "year" | "month" | "day">): string {
-  return `${String(wall.year).padStart(4, "0")}-${String(wall.month).padStart(2, "0")}-${String(wall.day).padStart(2, "0")}`;
-}
-
-export function studioLocalDateTimeUtcCandidates(input: {
-  date: string;
-  startMin: number;
-  timeZone: string;
-}): Date[] {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(input.date);
-  if (
-    !match ||
-    !Number.isSafeInteger(input.startMin) ||
-    input.startMin < 0 ||
-    input.startMin > 1439
-  ) {
-    throw new SessionBookingDomainError("INVALID_SLOT", "The session date or time is invalid");
-  }
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const validation = new Date(Date.UTC(year, month - 1, day));
-  if (
-    validation.getUTCFullYear() !== year ||
-    validation.getUTCMonth() !== month - 1 ||
-    validation.getUTCDate() !== day
-  ) {
-    throw new SessionBookingDomainError("INVALID_SLOT", "The session date is invalid");
-  }
-  const hour = Math.floor(input.startMin / 60);
-  const minute = input.startMin % 60;
-  const wallUtc = Date.UTC(year, month - 1, day, hour, minute);
-  const offsets = new Set<number>();
-  for (const deltaHours of [-36, -24, -12, 0, 12, 24, 36]) {
-    const sample = new Date(wallUtc + deltaHours * 60 * 60 * 1000);
-    const wall = wallClockAt(sample, input.timeZone);
-    offsets.add(
-      Date.UTC(wall.year, wall.month - 1, wall.day, wall.hour, wall.minute) - sample.getTime(),
-    );
-  }
-  const candidates = [...offsets]
-    .map((offset) => new Date(wallUtc - offset))
-    .filter((candidate) => {
-      const wall = wallClockAt(candidate, input.timeZone);
-      return (
-        wall.year === year &&
-        wall.month === month &&
-        wall.day === day &&
-        wall.hour === hour &&
-        wall.minute === minute
-      );
-    })
-    .sort((left, right) => left.getTime() - right.getTime());
-  return candidates;
-}
-
-export function studioLocalDateTimeToUtc(input: {
-  date: string;
-  startMin: number;
-  timeZone: string;
-}): Date {
-  const earliest = studioLocalDateTimeUtcCandidates(input)[0];
-  if (!earliest) {
-    throw new SessionBookingDomainError(
-      "INVALID_SLOT",
-      "That studio-local time does not exist because of a daylight-saving change",
-    );
-  }
-  return earliest;
-}
-
-export function studioLocalDateKey(instant: Date, timeZone: string): string {
-  return dateKey(wallClockAt(instant, timeZone));
-}
-
-export const sessionStartFromLocalSlot = (input: {
-  date: string;
-  startMin: number;
-  producerTimeZone: string;
-}): Date =>
-  studioLocalDateTimeToUtc({
-    date: input.date,
-    startMin: input.startMin,
-    timeZone: input.producerTimeZone,
-  });
-
-export const producerLocalDateKey = studioLocalDateKey;
-
-export function producerLocalDateKeys(startDate: string, count: number): string[] {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(startDate);
-  if (!match || !Number.isSafeInteger(count) || count < 0 || count > 14 + 365) {
-    throw new SessionBookingDomainError("INVALID_SLOT", "The studio calendar range is invalid");
-  }
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const anchor = new Date(Date.UTC(year, month - 1, day));
-  if (
-    anchor.getUTCFullYear() !== year ||
-    anchor.getUTCMonth() !== month - 1 ||
-    anchor.getUTCDate() !== day
-  ) {
-    throw new SessionBookingDomainError("INVALID_SLOT", "The studio calendar date is invalid");
-  }
-  return Array.from({ length: count }, (_, index) => {
-    const date = new Date(Date.UTC(year, month - 1, day + index));
-    return `${String(date.getUTCFullYear()).padStart(4, "0")}-${String(
-      date.getUTCMonth() + 1,
-    ).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
-  });
-}
-
-export function producerLocalDateRange(
-  now: Date,
-  producerTimeZone: string,
-  count: number,
-): string[] {
-  return producerLocalDateKeys(producerLocalDateKey(now, producerTimeZone), count);
-}
-
-export function sessionAvailabilityHorizonDays(minLeadHours: number, baseDays = 14): number {
-  if (
-    !Number.isSafeInteger(minLeadHours) ||
-    minLeadHours < 0 ||
-    minLeadHours > 365 * 24 ||
-    !Number.isSafeInteger(baseDays) ||
-    baseDays <= 0
-  ) {
-    throw new SessionBookingDomainError(
-      "INVALID_ALLOWANCE",
-      "The purchased session lead time is invalid",
-    );
-  }
-  const horizonDays = baseDays + Math.ceil(minLeadHours / 24);
-  if (horizonDays > 14 + 365) {
-    throw new SessionBookingDomainError(
-      "INVALID_ALLOWANCE",
-      "The purchased session lead time exceeds the calendar horizon",
-    );
-  }
-  return horizonDays;
-}
-
-export function assertSessionSlotAvailable(
-  input: Readonly<{
-    startsAt: Date;
-    durationMin: number;
-    bufferMinutes: number;
-    producerTimeZone: string;
-    availabilityBlocks: readonly Readonly<{ weekday: number; startMin: number; endMin: number }>[];
-    blackouts: readonly Readonly<{ startDate: string; endDate: string }>[];
-    existingBookings: readonly SessionBookingScheduleEntry[];
-    ignoreBookingId?: string;
-  }>,
-): void {
-  if (
-    Number.isNaN(input.startsAt.getTime()) ||
-    !Number.isSafeInteger(input.durationMin) ||
-    input.durationMin <= 0 ||
-    !Number.isSafeInteger(input.bufferMinutes) ||
-    input.bufferMinutes < 0
-  ) {
-    throw new SessionBookingDomainError("INVALID_SLOT", "The requested session slot is invalid");
-  }
-  const startWall = wallClockAt(input.startsAt, input.producerTimeZone);
-  const endsAt = new Date(input.startsAt.getTime() + input.durationMin * 60 * 1000);
-  const endWall = wallClockAt(endsAt, input.producerTimeZone);
-  const startDate = dateKey(startWall);
-  const endDate = dateKey(endWall);
-  const startMin = startWall.hour * 60 + startWall.minute;
-  const nextDate = producerLocalDateKeys(startDate, 2)[1];
-  const endsAtNextMidnight = endDate === nextDate && endWall.hour === 0 && endWall.minute === 0;
-  const endMin = endsAtNextMidnight ? 24 * 60 : endWall.hour * 60 + endWall.minute;
-  if (
-    startWall.weekday < 0 ||
-    (endDate !== startDate && !endsAtNextMidnight) ||
-    !input.availabilityBlocks.some(
-      (block) =>
-        block.weekday === startWall.weekday && startMin >= block.startMin && endMin <= block.endMin,
-    )
-  ) {
-    throw new SessionBookingDomainError(
-      "OUTSIDE_AVAILABILITY",
-      "The requested session is outside the producer's availability",
-    );
-  }
-  if (
-    input.blackouts.some(
-      (blackout) => startDate >= blackout.startDate && startDate <= blackout.endDate,
-    )
-  ) {
-    throw new SessionBookingDomainError("BLACKOUT", "The producer is unavailable on this date");
-  }
-
-  const requestedEnd = endsAt.getTime();
-  const requestedBufferMs = input.bufferMinutes * 60 * 1000;
-  const conflict = input.existingBookings.some((existing) => {
-    if (existing.id === input.ignoreBookingId) return false;
-    if (
-      Number.isNaN(existing.startsAt.getTime()) ||
-      !Number.isSafeInteger(existing.durationMin) ||
-      existing.durationMin <= 0 ||
-      !Number.isSafeInteger(existing.bufferMinutes) ||
-      existing.bufferMinutes < 0
-    ) {
-      throw new SessionBookingDomainError("INVALID_SLOT", "An existing session slot is invalid");
-    }
-    const existingEnd =
-      existing.startsAt.getTime() + (existing.durationMin + existing.bufferMinutes) * 60 * 1000;
-    return (
-      input.startsAt.getTime() < existingEnd &&
-      existing.startsAt.getTime() < requestedEnd + requestedBufferMs
-    );
-  });
-  if (conflict) {
-    throw new SessionBookingDomainError(
-      "BOOKING_CONFLICT",
-      "The session slot is no longer available",
-    );
-  }
-}
-
-export function assertSessionBookingAllowed(
-  input: Readonly<{
-    purchaseLifecycleStatus: "waiting_for_payment" | "active" | "canceled";
-    projectLifecycleStatus: "waiting_for_payment" | "active" | "paused" | "completed" | "canceled";
-    allowance: Readonly<{
-      bookingEnabledSnapshot: boolean;
-      kind: "fixed" | "unlimited";
-      sessionLimit: number | null;
-      durationMin: number;
-      minLeadHours: number;
-      closedAt: Date | null;
-    }>;
-    existingOutcomes: readonly SessionUseOutcome[];
-    requestedDurationMin: number;
-    startsAt: Date;
-    now: Date;
-  }>,
-): void {
-  if (input.purchaseLifecycleStatus !== "active") {
-    throw new SessionBookingDomainError(
-      "PURCHASE_INACTIVE",
-      "The purchase is not active for session booking",
-    );
-  }
-  if (input.projectLifecycleStatus !== "active") {
-    throw new SessionBookingDomainError(
-      "PROJECT_INACTIVE",
-      "The project is not active for session booking",
-    );
-  }
-  if (input.allowance.closedAt !== null) {
-    throw new SessionBookingDomainError("ALLOWANCE_CLOSED", "The session allowance is closed");
-  }
-  if (!input.allowance.bookingEnabledSnapshot) {
-    throw new SessionBookingDomainError(
-      "BOOKING_DISABLED",
-      "This purchase does not include artist session booking",
-    );
-  }
-  if (
-    !Number.isSafeInteger(input.allowance.durationMin) ||
-    input.allowance.durationMin <= 0 ||
-    !Number.isSafeInteger(input.allowance.minLeadHours) ||
-    input.allowance.minLeadHours < 0
-  ) {
-    throw new SessionBookingDomainError("INVALID_ALLOWANCE", "The session allowance is invalid");
-  }
-  if (input.requestedDurationMin !== input.allowance.durationMin) {
-    throw new SessionBookingDomainError(
-      "DURATION_MISMATCH",
-      "The requested duration does not match the purchased session allowance",
-    );
-  }
-  if (Number.isNaN(input.startsAt.getTime()) || Number.isNaN(input.now.getTime())) {
-    throw new SessionBookingDomainError("INVALID_ALLOWANCE", "The session time is invalid");
-  }
-  const earliestStart = input.now.getTime() + input.allowance.minLeadHours * 60 * 60 * 1000;
-  if (input.startsAt.getTime() < earliestStart) {
-    throw new SessionBookingDomainError(
-      "LEAD_TIME_VIOLATION",
-      "The session does not meet the purchased minimum lead time",
-    );
-  }
-
-  if (input.allowance.kind === "unlimited") {
-    if (input.allowance.sessionLimit !== null) {
-      throw new SessionBookingDomainError(
-        "INVALID_ALLOWANCE",
-        "An unlimited allowance cannot have a fixed limit",
-      );
-    }
-    return;
-  }
-
-  if (
-    !Number.isSafeInteger(input.allowance.sessionLimit) ||
-    input.allowance.sessionLimit === null ||
-    input.allowance.sessionLimit <= 0
-  ) {
-    throw new SessionBookingDomainError(
-      "INVALID_ALLOWANCE",
-      "A fixed allowance must have a positive limit",
-    );
-  }
-  const used = input.existingOutcomes.filter(sessionUseConsumesAllowance).length;
-  if (used >= input.allowance.sessionLimit) {
-    throw new SessionBookingDomainError(
-      "ALLOWANCE_EXHAUSTED",
-      "No purchased sessions remain on this allowance",
-    );
-  }
 }
 
 function assertOperationKey(operationKey: string): void {
@@ -711,8 +344,7 @@ export function sessionBookingCapabilities(input: {
     // it until the session starts, independently of the confirmed-session
     // cancellation policy. Confirmed sessions use the strict cutoff.
     canCancel:
-      activeBooking &&
-      (heldBeforeStart || (input.booking.status === "confirmed" && isOnTime)),
+      activeBooking && (heldBeforeStart || (input.booking.status === "confirmed" && isOnTime)),
     canReschedule:
       input.booking.status === "confirmed" &&
       isOnTime &&
@@ -722,44 +354,24 @@ export function sessionBookingCapabilities(input: {
   };
 }
 
-export function sessionAllowanceCanBook(input: {
-  purchaseLifecycleStatus: "waiting_for_payment" | "active" | "canceled";
-  projectLifecycleStatus: "waiting_for_payment" | "active" | "paused" | "completed" | "canceled";
-  allowanceClosedAt: Date | null;
-  bookingEnabledSnapshot?: boolean;
-  allowanceKind: "fixed" | "unlimited";
-  sessionLimit: number | null;
-  existingOutcomes?: readonly SessionUseOutcome[];
-  existingUses?: readonly Readonly<{
-    allowanceUseId: string;
-    outcome: SessionUseOutcome;
-  }>[];
-}): boolean {
-  if (
-    input.purchaseLifecycleStatus !== "active" ||
-    input.projectLifecycleStatus !== "active" ||
-    input.allowanceClosedAt !== null ||
-    input.bookingEnabledSnapshot === false
-  ) {
-    return false;
-  }
-  if (input.allowanceKind === "unlimited") return input.sessionLimit === null;
-  if (input.sessionLimit === null || input.sessionLimit <= 0) return false;
-  const used =
-    input.existingUses === undefined
-      ? (input.existingOutcomes ?? []).filter(sessionUseConsumesAllowance).length
-      : new Set(
-          input.existingUses
-            .filter((use) => sessionUseConsumesAllowance(use.outcome))
-            .map((use) => use.allowanceUseId),
-        ).size;
-  return used < input.sessionLimit;
-}
-
 type SessionBookingRequestedStart = Readonly<{
   startsAt?: Date;
   localSlot?: Readonly<{ date: string; startMin: number }>;
 }>;
+
+function normalizeSessionBookingTitle(
+  requestedTitle: string | null | undefined,
+  defaultTitle: string,
+  allowNull: boolean,
+): string | null {
+  if (requestedTitle === null && allowNull) return null;
+  const title = requestedTitle ?? defaultTitle;
+  const normalized = title.trim();
+  if (normalized.length < 1) {
+    throw new SessionBookingDomainError("INVALID_SLOT", "The session title is invalid");
+  }
+  return normalized;
+}
 
 function commandNow(injectedNow?: Date): Date {
   const now = injectedNow ? new Date(injectedNow) : new Date();
@@ -816,8 +428,10 @@ export type CreateSessionBookingInput = Readonly<{
   purchaseId: string;
   sessionAllowanceId: string;
   actorClerkUserId: string;
-  durationMin: number;
   operationKey: string;
+  title?: string | null;
+  origin?: SessionBookingOrigin;
+  billingTreatment?: SessionBookingBillingTreatment;
   now?: Date;
 }> &
   SessionBookingRequestedStart;
@@ -836,6 +450,11 @@ async function createSessionBookingInTransaction(
     ignoredBookingId?: string;
     transitionKind: "created" | "rescheduled";
     operationDigestOverride?: string;
+    title?: string | null;
+    origin?: SessionBookingOrigin;
+    billingTreatment?: SessionBookingBillingTreatment;
+    calendarRevision?: number;
+    actorKind?: "artist" | "producer";
   }>,
 ): Promise<CreateSessionBookingResult> {
   const context = await transaction.loadCreateContext(input);
@@ -845,6 +464,14 @@ async function createSessionBookingInTransaction(
       "The purchased session allowance was not found",
     );
   }
+  const title = normalizeSessionBookingTitle(
+    options.title,
+    context.purchase.defaultSessionTitle,
+    options.transitionKind === "rescheduled",
+  );
+  const origin = options.origin ?? "artist_request";
+  const billingTreatment = options.billingTreatment ?? "included";
+  const titleIntent = options.title == null ? "use_default" : title;
   const digest =
     options.operationDigestOverride ??
     operationDigest("create", {
@@ -853,7 +480,10 @@ async function createSessionBookingInTransaction(
       purchaseId: input.purchaseId,
       sessionAllowanceId: input.sessionAllowanceId,
       ...requestedStartOperationIdentity(input),
-      durationMin: input.durationMin,
+      durationMin: context.allowance.durationMin,
+      titleIntent,
+      origin,
+      billingTreatment,
       rescheduledFromBookingId: options.rescheduledFromBookingId,
     });
   const replay = await transaction.findBookingByOperationKey(input.producerId, input.operationKey);
@@ -890,32 +520,45 @@ async function createSessionBookingInTransaction(
   const now = commandNow(input.now);
 
   const uses = await transaction.listAllowanceUses(input.producerId, input.sessionAllowanceId);
-  const distinctConsumingUses = new Map<string, SessionUseOutcome>();
+  const distinctConsumingUses = new Map<
+    string,
+    Readonly<{
+      allowanceUseId: string;
+      outcome: SessionUseOutcome;
+      billingTreatment: SessionBookingBillingTreatment;
+    }>
+  >();
   for (const use of uses) {
     if (
       use.bookingId !== options.ignoredBookingId &&
-      sessionUseConsumesAllowance(use.outcome)
+      sessionUseConsumesAllowance(use.outcome, use.billingTreatment)
     ) {
-      distinctConsumingUses.set(use.allowanceUseId, use.outcome);
+      distinctConsumingUses.set(use.allowanceUseId, use);
     }
   }
   assertSessionBookingAllowed({
     purchaseLifecycleStatus: context.purchase.lifecycleStatus,
     projectLifecycleStatus: context.project.lifecycleStatus,
     allowance: context.allowance,
-    existingOutcomes: [...distinctConsumingUses.values()],
-    requestedDurationMin: input.durationMin,
+    existingOutcomes: [...distinctConsumingUses.values()].map((use) => use.outcome),
+    existingUses: [...distinctConsumingUses.values()],
+    billingTreatment,
+    billingTreatmentMode: options.transitionKind === "rescheduled" ? "preserve" : "choose",
+    requestedDurationMin: context.allowance.durationMin,
     startsAt,
     now,
   });
   assertSessionSlotAvailable({
     startsAt,
-    durationMin: input.durationMin,
+    durationMin: context.allowance.durationMin,
     bufferMinutes: context.allowance.bufferMinutes,
     producerTimeZone: context.producer.timeZone,
     availabilityBlocks: context.availabilityBlocks,
     blackouts: context.blackouts,
     existingBookings: await transaction.listScheduleEntries(input.producerId),
+    maxSessionsPerDay: context.producer.maxSessionsPerDay,
+    now,
+    minLeadHours: context.allowance.minLeadHours,
     ...(options.ignoredBookingId ? { ignoreBookingId: options.ignoredBookingId } : {}),
   });
 
@@ -929,10 +572,13 @@ async function createSessionBookingInTransaction(
     projectId: input.projectId,
     purchaseId: input.purchaseId,
     sessionAllowanceId: input.sessionAllowanceId,
+    title,
+    origin,
+    billingTreatment,
     artistName: context.artist.name,
     artistEmail: context.artist.email,
     startsAt,
-    durationMin: input.durationMin,
+    durationMin: context.allowance.durationMin,
     operationKey: input.operationKey,
     operationDigest: digest,
     rescheduledFromBookingId: options.rescheduledFromBookingId,
@@ -945,6 +591,9 @@ async function createSessionBookingInTransaction(
     heldExpiryReason: null,
     status,
     outcome: "reserved",
+    calendarRevision: options.calendarRevision ?? 1,
+    artistRsvpStatus: null,
+    artistRsvpRespondedAt: null,
     occurredAt: now,
   });
   await transaction.insertTransitionEvent({
@@ -953,7 +602,7 @@ async function createSessionBookingInTransaction(
     operationKey: input.operationKey,
     operationDigest: digest,
     kind: options.transitionKind,
-    actorKind: "artist",
+    actorKind: options.actorKind ?? "artist",
     actorId: input.actorClerkUserId,
     fromStatus: null,
     toStatus: booking.status,
@@ -983,6 +632,11 @@ export async function createSessionBooking(
       createSessionBookingInTransaction(transaction, input, {
         rescheduledFromBookingId: null,
         transitionKind: "created",
+        ...(input.title !== undefined ? { title: input.title } : {}),
+        ...(input.origin !== undefined ? { origin: input.origin } : {}),
+        ...(input.billingTreatment !== undefined
+          ? { billingTreatment: input.billingTreatment }
+          : {}),
       }),
   );
 }
@@ -1551,7 +1205,6 @@ export async function rescheduleArtistSessionBooking(
           sessionAllowanceId: context.booking.sessionAllowanceId,
           actorClerkUserId: input.actorClerkUserId,
           startsAt,
-          durationMin: context.booking.durationMin,
           operationKey: input.operationKey,
           now,
         },
@@ -1561,6 +1214,10 @@ export async function rescheduleArtistSessionBooking(
           ignoredBookingId: context.booking.id,
           transitionKind: "rescheduled",
           operationDigestOverride: digest,
+          title: context.booking.title,
+          origin: context.booking.origin,
+          billingTreatment: context.booking.billingTreatment,
+          calendarRevision: context.booking.calendarRevision + 1,
         },
       );
       if (!replacementResult.created) {

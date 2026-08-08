@@ -4,11 +4,13 @@ import {
   artistCancellationOutcome,
   assertSessionBookingAllowed,
   assertSessionSlotAvailable,
+  classifySessionSlot,
   initialSessionBookingStatus,
   producerLocalDateKey,
   producerLocalDateRange,
   sessionAllowanceCanBook,
   sessionAvailabilityHorizonDays,
+  sessionBillingOptions,
   sessionBookingCapabilities,
   sessionStartFromLocalSlot,
   sessionUseConsumesAllowance,
@@ -49,6 +51,57 @@ describe("session allowance booking policy", () => {
         "no_show",
       ].map((outcome) => sessionUseConsumesAllowance(outcome as never)),
     ).toEqual([true, true, false, false, true, true]);
+    expect(sessionUseConsumesAllowance("reserved", "complimentary")).toBe(false);
+    expect(sessionUseConsumesAllowance("completed", "billable_extra")).toBe(false);
+  });
+
+  it("offers included by default until fixed credit is exhausted", () => {
+    expect(
+      sessionBillingOptions({
+        allowanceKind: "fixed",
+        sessionLimit: 2,
+        existingUses: [
+          { allowanceUseId: "one", outcome: "completed", billingTreatment: "included" },
+          { allowanceUseId: "gift", outcome: "completed", billingTreatment: "complimentary" },
+        ],
+      }),
+    ).toEqual({
+      remainingIncluded: 1,
+      defaultTreatment: "included",
+      allowedTreatments: ["included", "complimentary"],
+    });
+
+    expect(
+      sessionBillingOptions({
+        allowanceKind: "fixed",
+        sessionLimit: 1,
+        existingUses: [
+          { allowanceUseId: "one", outcome: "completed", billingTreatment: "included" },
+        ],
+      }),
+    ).toEqual({
+      remainingIncluded: 0,
+      defaultTreatment: null,
+      allowedTreatments: ["complimentary", "billable_extra"],
+    });
+  });
+
+  it("never offers billable extra while unlimited included credit remains", () => {
+    expect(
+      sessionBillingOptions({
+        allowanceKind: "unlimited",
+        sessionLimit: null,
+        existingUses: Array.from({ length: 10 }, (_, index) => ({
+          allowanceUseId: String(index),
+          outcome: "completed" as const,
+          billingTreatment: "included" as const,
+        })),
+      }),
+    ).toEqual({
+      remainingIncluded: null,
+      defaultTreatment: "included",
+      allowedTreatments: ["included", "complimentary"],
+    });
   });
 
   it("allows an exact active fixed allowance with capacity", () => {
@@ -451,7 +504,7 @@ describe("authoritative producer availability", () => {
           existingBookings: [existingBefore],
         }),
       );
-    }).toThrow(expect.objectContaining({ code: "BOOKING_CONFLICT" }));
+    }).toThrow(expect.objectContaining({ code: "BUFFER_CONFLICT" }));
     expect(() => {
       assertSessionSlotAvailable(
         availableSlot({
@@ -478,7 +531,7 @@ describe("authoritative producer availability", () => {
           existingBookings: [existingAfter],
         }),
       );
-    }).toThrow(expect.objectContaining({ code: "BOOKING_CONFLICT" }));
+    }).toThrow(expect.objectContaining({ code: "BUFFER_CONFLICT" }));
     expect(() => {
       assertSessionSlotAvailable(
         availableSlot({
@@ -490,6 +543,33 @@ describe("authoritative producer availability", () => {
         }),
       );
     }).not.toThrow();
+  });
+
+  it("keeps Skitza overlap hard but makes producer availability, buffer, and cap issues warnings", () => {
+    const core = {
+      id: "core",
+      startsAt: new Date("2026-07-19T15:45:00.000Z"),
+      durationMin: 30,
+      bufferMinutes: 0,
+    };
+    const issues = classifySessionSlot({
+      ...availableSlot({
+        availabilityBlocks: [],
+        blackouts: [{ startDate: "2026-07-20", endDate: "2026-07-20" }],
+        existingBookings: [core],
+        maxSessionsPerDay: 1,
+      }),
+      actor: "producer",
+    });
+
+    expect(issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "OUTSIDE_AVAILABILITY", severity: "warning" }),
+        expect.objectContaining({ code: "BLACKOUT", severity: "warning" }),
+        expect.objectContaining({ code: "BOOKING_CONFLICT", severity: "hard_conflict" }),
+        expect.objectContaining({ code: "DAILY_LIMIT", severity: "warning" }),
+      ]),
+    );
   });
 
   it("lets a reschedule ignore only the booking it is replacing", () => {

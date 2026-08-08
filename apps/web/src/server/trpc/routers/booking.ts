@@ -1145,7 +1145,7 @@ export const bookingRouter = router({
 
     // Producer-level booking settings surfaced on the availability
     // editor: default session length, auto-confirm toggle, cancellation
-    // policy. Kept alongside the week editor so a single round-trip
+    // policy, and optional daily cap. Kept alongside the week editor so a single round-trip
     // fetches everything the editor needs.
     getSettings: producerProcedure.query(async ({ ctx }) => {
       const [row] = await ctx.db
@@ -1153,6 +1153,7 @@ export const bookingRouter = router({
           defaultSessionMin: producers.defaultSessionMin,
           autoConfirmBookings: producers.autoConfirmBookings,
           cancellationPolicyHours: producers.cancellationPolicyHours,
+          maxSessionsPerDay: producers.maxSessionsPerDay,
         })
         .from(producers)
         .where(eq(producers.id, ctx.producerId))
@@ -1161,6 +1162,7 @@ export const bookingRouter = router({
         defaultSessionMin: row?.defaultSessionMin ?? 60,
         autoConfirmBookings: row?.autoConfirmBookings ?? false,
         cancellationPolicyHours: row?.cancellationPolicyHours ?? 24,
+        maxSessionsPerDay: row?.maxSessionsPerDay ?? null,
       };
     }),
 
@@ -1185,6 +1187,7 @@ export const bookingRouter = router({
             .min(0)
             .max(30 * 24)
             .optional(),
+          maxSessionsPerDay: z.number().int().positive().max(2_147_483_647).nullable().optional(),
         }),
       )
       .mutation(async ({ ctx, input }) => {
@@ -1242,7 +1245,7 @@ export const bookingRouter = router({
         artistEmail: booking.artistEmail,
         startsAt: booking.startsAt,
         durationMin: booking.durationMin,
-        packageName: purchaseProductName(commercialSnapshot, "Session"),
+        packageName: booking.title ?? purchaseProductName(commercialSnapshot, "Session"),
       }));
     }),
 

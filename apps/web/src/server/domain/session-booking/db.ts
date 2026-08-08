@@ -41,6 +41,9 @@ function bookingRecord(row: Booking): SessionBookingRecord {
     projectId: row.projectId,
     purchaseId: row.purchaseId,
     sessionAllowanceId: row.sessionAllowanceId,
+    title: row.title,
+    origin: row.origin,
+    billingTreatment: row.billingTreatment,
     artistName: row.artistName,
     artistEmail: row.artistEmail,
     startsAt: row.startsAt,
@@ -59,7 +62,11 @@ function bookingRecord(row: Booking): SessionBookingRecord {
     outcome: row.outcome,
     statusChangedAt: row.statusChangedAt,
     outcomeChangedAt: row.outcomeChangedAt,
+    calendarRevision: row.calendarRevision,
+    artistRsvpStatus: row.artistRsvpStatus,
+    artistRsvpRespondedAt: row.artistRsvpRespondedAt,
     createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }
 
@@ -93,10 +100,13 @@ function createContextFromRow(
     timeZone: string;
     autoConfirmBookings: boolean;
     cancellationPolicyHours: number;
+    maxSessionsPerDay: number | null;
     projectId: string;
+    projectTitle: string;
     projectLifecycleStatus: SessionBookingCreateContext["project"]["lifecycleStatus"];
     purchaseId: string;
     purchaseLifecycleStatus: SessionBookingCreateContext["purchase"]["lifecycleStatus"];
+    purchaseCommercialSnapshot: { productOrOfferName: string } | null;
     allowanceId: string;
     bookingEnabledSnapshot: boolean;
     allowanceKind: "fixed" | "unlimited";
@@ -118,9 +128,17 @@ function createContextFromRow(
       timeZone: row.timeZone,
       autoConfirmBookings: row.autoConfirmBookings,
       cancellationPolicyHours: row.cancellationPolicyHours,
+      maxSessionsPerDay: row.maxSessionsPerDay,
     },
     project: { id: row.projectId, lifecycleStatus: row.projectLifecycleStatus },
-    purchase: { id: row.purchaseId, lifecycleStatus: row.purchaseLifecycleStatus },
+    purchase: {
+      id: row.purchaseId,
+      lifecycleStatus: row.purchaseLifecycleStatus,
+      defaultSessionTitle:
+        row.purchaseCommercialSnapshot?.productOrOfferName.trim() ||
+        row.projectTitle.trim() ||
+        "Session",
+    },
     allowance: {
       id: row.allowanceId,
       purchaseId: row.purchaseId,
@@ -152,10 +170,13 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
           timeZone: producers.timezone,
           autoConfirmBookings: producers.autoConfirmBookings,
           cancellationPolicyHours: producers.cancellationPolicyHours,
+          maxSessionsPerDay: producers.maxSessionsPerDay,
           projectId: projects.id,
+          projectTitle: projects.title,
           projectLifecycleStatus: projects.lifecycleStatus,
           purchaseId: purchases.id,
           purchaseLifecycleStatus: purchases.lifecycleStatus,
+          purchaseCommercialSnapshot: purchases.commercialSnapshot,
           allowanceId: purchaseSessionAllowances.id,
           bookingEnabledSnapshot: purchaseSessionAllowances.bookingEnabledSnapshot,
           allowanceKind: purchaseSessionAllowances.kind,
@@ -218,10 +239,13 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
           timeZone: producers.timezone,
           autoConfirmBookings: producers.autoConfirmBookings,
           cancellationPolicyHours: producers.cancellationPolicyHours,
+          maxSessionsPerDay: producers.maxSessionsPerDay,
           projectId: projects.id,
+          projectTitle: projects.title,
           projectLifecycleStatus: projects.lifecycleStatus,
           purchaseId: purchases.id,
           purchaseLifecycleStatus: purchases.lifecycleStatus,
+          purchaseCommercialSnapshot: purchases.commercialSnapshot,
           allowanceId: purchaseSessionAllowances.id,
           bookingEnabledSnapshot: purchaseSessionAllowances.bookingEnabledSnapshot,
           allowanceKind: purchaseSessionAllowances.kind,
@@ -323,6 +347,7 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
           bookingId: bookings.id,
           allowanceUseId: bookings.allowanceUseId,
           outcome: bookings.outcome,
+          billingTreatment: bookings.billingTreatment,
         })
         .from(bookings)
         .where(
@@ -364,6 +389,9 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
           projectId: input.projectId,
           purchaseId: input.purchaseId,
           sessionAllowanceId: input.sessionAllowanceId,
+          title: input.title,
+          origin: input.origin,
+          billingTreatment: input.billingTreatment,
           artistName: input.artistName,
           artistEmail: input.artistEmail,
           startsAt: input.startsAt,
@@ -382,7 +410,11 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
           statusChangedAt: input.occurredAt,
           outcome: input.outcome,
           outcomeChangedAt: input.occurredAt,
+          calendarRevision: input.calendarRevision,
+          artistRsvpStatus: input.artistRsvpStatus,
+          artistRsvpRespondedAt: input.artistRsvpRespondedAt,
           createdAt: input.occurredAt,
+          updatedAt: input.occurredAt,
         })
         .returning();
       if (!row) throw new SessionBookingDomainError("INVALID_STATUS", "Booking insert failed");
@@ -397,6 +429,8 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
           statusChangedAt: input.occurredAt,
           outcome: input.outcome,
           outcomeChangedAt: input.occurredAt,
+          calendarRevision: sql`${bookings.calendarRevision} + 1`,
+          updatedAt: input.occurredAt,
           ...(input.heldExpiredAt
             ? {
                 heldExpiredAt: input.heldExpiredAt,

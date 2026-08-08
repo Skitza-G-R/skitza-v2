@@ -35,6 +35,7 @@ function createContext(
   overrides: {
     autoConfirmBookings?: boolean;
     cancellationPolicyHours?: number;
+    maxSessionsPerDay?: number | null;
     projectLifecycleStatus?: SessionBookingCreateContext["project"]["lifecycleStatus"];
     purchaseLifecycleStatus?: SessionBookingCreateContext["purchase"]["lifecycleStatus"];
     allowanceKind?: "fixed" | "unlimited";
@@ -52,6 +53,7 @@ function createContext(
       timeZone: "UTC",
       autoConfirmBookings: overrides.autoConfirmBookings ?? false,
       cancellationPolicyHours: overrides.cancellationPolicyHours ?? 24,
+      maxSessionsPerDay: overrides.maxSessionsPerDay ?? null,
     },
     project: {
       id: "project-sk68",
@@ -60,6 +62,7 @@ function createContext(
     purchase: {
       id: "purchase-sk68",
       lifecycleStatus: overrides.purchaseLifecycleStatus ?? "active",
+      defaultSessionTitle: "Studio session",
     },
     allowance: {
       id: "allowance-sk68",
@@ -189,6 +192,7 @@ class MemorySessionBookingRepository
       bookingId: string;
       allowanceUseId: string;
       outcome: SessionUseOutcome;
+      billingTreatment: SessionBookingRecord["billingTreatment"];
     }>[]
   > {
     await Promise.resolve();
@@ -201,6 +205,7 @@ class MemorySessionBookingRepository
         bookingId: booking.id,
         allowanceUseId: booking.allowanceUseId,
         outcome: booking.outcome,
+        billingTreatment: booking.billingTreatment,
       }));
   }
 
@@ -245,6 +250,7 @@ class MemorySessionBookingRepository
       statusChangedAt: occurredAt,
       outcomeChangedAt: occurredAt,
       createdAt: occurredAt,
+      updatedAt: occurredAt,
     };
     this.bookings.push(booking);
     return booking;
@@ -274,6 +280,8 @@ class MemorySessionBookingRepository
       outcome: input.outcome,
       statusChangedAt: input.occurredAt,
       outcomeChangedAt: input.occurredAt,
+      calendarRevision: existing.calendarRevision + 1,
+      updatedAt: input.occurredAt,
       ...(input.heldExpiredAt
         ? {
             heldExpiredAt: input.heldExpiredAt,
@@ -312,7 +320,6 @@ function createInput(
     sessionAllowanceId: "allowance-sk68",
     actorClerkUserId: "artist-clerk-sk68",
     startsAt: new Date("2026-07-20T10:00:00.000Z"),
-    durationMin: 60,
     operationKey: "create-sk68",
     now: baseNow,
     ...overrides,
@@ -341,7 +348,7 @@ function producerCommand(bookingId: string, operationKey: string, now = baseNow)
 function consumedUses(repository: MemorySessionBookingRepository): number {
   return new Set(
     repository.bookings
-      .filter((booking) => sessionUseConsumesAllowance(booking.outcome))
+      .filter((booking) => sessionUseConsumesAllowance(booking.outcome, booking.billingTreatment))
       .map((booking) => booking.allowanceUseId),
   ).size;
 }
@@ -356,6 +363,14 @@ describe("session booking lifecycle commands", () => {
     );
 
     expect(first.created).toBe(true);
+    expect(first.booking).toMatchObject({
+      title: "Studio session",
+      origin: "artist_request",
+      billingTreatment: "included",
+      durationMin: 60,
+      calendarRevision: 1,
+      artistRsvpStatus: null,
+    });
     expect(replay).toMatchObject({ created: false, booking: { id: first.booking.id } });
     expect(repository.bookings).toHaveLength(1);
     expect(repository.events).toHaveLength(1);
@@ -366,6 +381,65 @@ describe("session booking lifecycle commands", () => {
         createInput({ startsAt: new Date("2026-07-20T12:00:00.000Z") }),
       ),
     ).rejects.toMatchObject({ code: "OPERATION_KEY_CONFLICT" });
+  });
+
+  it("binds normalized title, origin, and billing treatment to create idempotency", async () => {
+    const repository = new MemorySessionBookingRepository();
+    const input = createInput({
+      operationKey: "metadata-bound-create",
+      title: "  Vocal production  ",
+      origin: "producer_manual",
+      billingTreatment: "complimentary",
+    });
+    const first = await createSessionBooking(repository, input);
+    const replay = await createSessionBooking(repository, input);
+
+    expect(first.booking).toMatchObject({
+      title: "Vocal production",
+      origin: "producer_manual",
+      billingTreatment: "complimentary",
+    });
+    expect(replay).toMatchObject({ created: false, booking: { id: first.booking.id } });
+
+    for (const changed of [
+      { title: "Mix review" },
+      { origin: "artist_request" as const },
+      { billingTreatment: "included" as const },
+    ]) {
+      await expect(
+        createSessionBooking(repository, { ...input, ...changed }),
+      ).rejects.toMatchObject({ code: "OPERATION_KEY_CONFLICT" });
+    }
+  });
+
+  it("falls back to the normalized purchase title for a null new-booking title", async () => {
+    const repository = new MemorySessionBookingRepository();
+    const created = await createSessionBooking(
+      repository,
+      createInput({ operationKey: "null-title-create", title: null }),
+    );
+
+    expect(created.booking.title).toBe("Studio session");
+  });
+
+  it("replays a default-title create after the project fallback title changes", async () => {
+    const repository = new MemorySessionBookingRepository();
+    const input = createInput({ operationKey: "stable-default-title" });
+    const created = await createSessionBooking(repository, input);
+    repository.context = {
+      ...repository.context,
+      purchase: {
+        ...repository.context.purchase,
+        defaultSessionTitle: "Renamed project",
+      },
+    };
+
+    const replay = await createSessionBooking(repository, input);
+
+    expect(replay).toMatchObject({
+      created: false,
+      booking: { id: created.booking.id, title: "Studio session" },
+    });
   });
 
   it("replays the original create result after the booking later changes", async () => {
@@ -563,6 +637,21 @@ describe("session booking lifecycle commands", () => {
     await expect(createSessionBooking(blackout, createInput())).rejects.toMatchObject({
       code: "BLACKOUT",
     });
+  });
+
+  it("enforces the producer-local daily cap in the locked create command", async () => {
+    const repository = new MemorySessionBookingRepository(createContext({ maxSessionsPerDay: 1 }));
+    await createSessionBooking(repository, createInput());
+
+    await expect(
+      createSessionBooking(
+        repository,
+        createInput({
+          operationKey: "daily-cap-second",
+          startsAt: new Date("2026-07-20T12:00:00.000Z"),
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "DAILY_LIMIT" });
   });
 
   it("returns an on-time artist cancellation and replays it exactly once", async () => {
@@ -873,6 +962,10 @@ describe("session booking lifecycle commands", () => {
       booking: {
         rescheduledFromBookingId: original.booking.id,
         outcome: "reserved",
+        title: original.booking.title,
+        origin: original.booking.origin,
+        billingTreatment: original.booking.billingTreatment,
+        calendarRevision: original.booking.calendarRevision + 1,
       },
       replacedBooking: {
         id: original.booking.id,
@@ -886,6 +979,11 @@ describe("session booking lifecycle commands", () => {
       replacedBooking: { id: original.booking.id },
     });
     expect(repository.bookings).toHaveLength(2);
+    expect(repository.bookings.find((booking) => booking.id === original.booking.id)).toMatchObject(
+      {
+        calendarRevision: original.booking.calendarRevision + 1,
+      },
+    );
     expect(consumedUses(repository)).toBe(1);
     const rescheduleEvents = repository.events.filter(
       (event) => event.operationKey === command.operationKey,
@@ -903,37 +1001,83 @@ describe("session booking lifecycle commands", () => {
     ).rejects.toMatchObject({ code: "OPERATION_KEY_CONFLICT" });
   });
 
-  it(
-    "keeps the confirmed original active while a manual-approval replacement is Held",
-    async () => {
-      const repository = new MemorySessionBookingRepository(
-        createContext({ sessionLimit: 1, autoConfirmBookings: true }),
-      );
-      const original = await createSessionBooking(repository, createInput());
-      repository.context = createContext({ sessionLimit: 1, autoConfirmBookings: false });
-
-      const replacement = await rescheduleArtistSessionBooking(repository, {
-        ...artistCommand(original.booking.id, "manual-reschedule-shared-credit"),
+  it("transfers billable-extra treatment even after an included credit is restored", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ sessionLimit: 1, autoConfirmBookings: true }),
+    );
+    const included = await createSessionBooking(
+      repository,
+      createInput({ operationKey: "included-before-extra" }),
+    );
+    const billable = await createSessionBooking(
+      repository,
+      createInput({
+        operationKey: "billable-source",
         startsAt: new Date("2026-07-20T12:00:00.000Z"),
-      });
+        billingTreatment: "billable_extra",
+      }),
+    );
+    await cancelArtistSessionBooking(
+      repository,
+      artistCommand(included.booking.id, "restore-included-credit"),
+    );
 
-      expect(replacement.booking.status).toBe("pending_approval");
-      expect(replacement.replacedBooking.status).toBe("confirmed");
-      expect(consumedUses(repository)).toBe(1);
+    expect(consumedUses(repository)).toBe(0);
+    const replacement = await rescheduleArtistSessionBooking(repository, {
+      ...artistCommand(billable.booking.id, "reschedule-billable-extra"),
+      startsAt: new Date("2026-07-20T14:00:00.000Z"),
+    });
 
-      await confirmSessionBooking(
-        repository,
-        producerCommand(replacement.booking.id, "approve-reschedule"),
-      );
-      expect(
-        repository.bookings.find((booking) => booking.id === replacement.booking.id),
-      ).toMatchObject({ status: "confirmed", outcome: "reserved" });
-      expect(
-        repository.bookings.find((booking) => booking.id === original.booking.id),
-      ).toMatchObject({ status: "cancelled", outcome: "cancelled_on_time" });
-      expect(consumedUses(repository)).toBe(1);
-    },
-  );
+    expect(replacement.booking).toMatchObject({
+      billingTreatment: "billable_extra",
+      allowanceUseId: billable.booking.allowanceUseId,
+    });
+    expect(consumedUses(repository)).toBe(0);
+  });
+
+  it("preserves a legacy null title only when creating its reschedule replacement", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ sessionLimit: 1, autoConfirmBookings: true }),
+    );
+    const original = await createSessionBooking(repository, createInput());
+    repository.bookings[0] = { ...original.booking, title: null, origin: "legacy" };
+
+    const replacement = await rescheduleArtistSessionBooking(repository, {
+      ...artistCommand(original.booking.id, "reschedule-legacy-null-title"),
+      startsAt: new Date("2026-07-20T12:00:00.000Z"),
+    });
+
+    expect(replacement.booking).toMatchObject({ title: null, origin: "legacy" });
+  });
+
+  it("keeps the confirmed original active while a manual-approval replacement is Held", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ sessionLimit: 1, autoConfirmBookings: true }),
+    );
+    const original = await createSessionBooking(repository, createInput());
+    repository.context = createContext({ sessionLimit: 1, autoConfirmBookings: false });
+
+    const replacement = await rescheduleArtistSessionBooking(repository, {
+      ...artistCommand(original.booking.id, "manual-reschedule-shared-credit"),
+      startsAt: new Date("2026-07-20T12:00:00.000Z"),
+    });
+
+    expect(replacement.booking.status).toBe("pending_approval");
+    expect(replacement.replacedBooking.status).toBe("confirmed");
+    expect(consumedUses(repository)).toBe(1);
+
+    await confirmSessionBooking(
+      repository,
+      producerCommand(replacement.booking.id, "approve-reschedule"),
+    );
+    expect(
+      repository.bookings.find((booking) => booking.id === replacement.booking.id),
+    ).toMatchObject({ status: "confirmed", outcome: "reserved" });
+    expect(repository.bookings.find((booking) => booking.id === original.booking.id)).toMatchObject(
+      { status: "cancelled", outcome: "cancelled_on_time" },
+    );
+    expect(consumedUses(repository)).toBe(1);
+  });
 
   it("uses the booking-time cancellation-policy snapshot after settings change", async () => {
     const repository = new MemorySessionBookingRepository(

@@ -1,6 +1,7 @@
 import {
   and,
   asc,
+  artistProfiles,
   artistNotifications,
   availabilityBlackouts,
   availabilityBlocks,
@@ -32,10 +33,7 @@ import { z } from "zod";
 import { router } from "../init";
 import { artistProcedure } from "../artist-procedure";
 import { artistPurchaseRouter } from "./purchase";
-import {
-  ArtistDisconnectError,
-  commitArtistStudioDisconnect,
-} from "~/server/artist/disconnect";
+import { ArtistDisconnectError, commitArtistStudioDisconnect } from "~/server/artist/disconnect";
 import { groupStudiosForArtist } from "~/server/artist/identity";
 import {
   activeArtistClientOwner,
@@ -51,19 +49,17 @@ import {
 import { decodeDescription } from "~/app/(producer)/dashboard/store/description-encoding";
 import { emitBookingRequested, emitCommentCreated } from "~/server/notifications/emit";
 import {
-  assertSessionSlotAvailable,
   cancelArtistSessionBooking,
   createSessionBooking,
-  producerLocalDateRange,
   rescheduleArtistSessionBooking,
-  sessionAllowanceCanBook,
-  sessionAvailabilityHorizonDays,
   sessionBookingCapabilities,
-  SessionBookingDomainError,
-  sessionUseConsumesAllowance,
-  studioLocalDateKey,
-  studioLocalDateTimeUtcCandidates,
 } from "~/server/domain/session-booking/service";
+import {
+  generateArtistExactSessionSlots,
+  SessionBookingDomainError,
+  sessionAllowanceCanBook,
+  sessionUseConsumesAllowance,
+} from "~/server/booking";
 import { sessionBookingRepository } from "~/server/domain/session-booking/db";
 import { emitArtistSessionNotification } from "~/server/artist/notification-emitters";
 import { assertWritableCommentTarget, CommentDomainError } from "~/server/domain/comments/service";
@@ -82,6 +78,7 @@ import {
 } from "~/server/domain/version-approval/service";
 import { deliverPushToProducer, deliverPushToVersionProducer } from "~/server/push/delivery";
 import { privateSongArtworkPath } from "~/server/domain/song-artwork/urls";
+import { getArtistProfile } from "~/server/artist/profile";
 
 function purchaseProductName(
   snapshot: PurchaseCommercialSnapshot | null,
@@ -421,16 +418,21 @@ const musicSubrouter = router({
       // "the other party on this project") AND as `producerName`
       // (kept for the artist-only sessions panel + breadcrumb work).
       // Defensive fallback because nothing prevents an orphan row.
-      const [producerRow] = await ctx.db
-        .select({
-          displayName: producers.displayName,
-          timezone: producers.timezone,
-        })
-        .from(producers)
-        .where(eq(producers.id, project.producerId))
-        .limit(1);
+      const [producerRows, artistProfile] = await Promise.all([
+        ctx.db
+          .select({
+            displayName: producers.displayName,
+            timezone: producers.timezone,
+          })
+          .from(producers)
+          .where(eq(producers.id, project.producerId))
+          .limit(1),
+        getArtistProfile(ctx.db, ctx.clerkUserId),
+      ]);
+      const producerRow = producerRows[0];
       const producerName = producerRow?.displayName ?? "Producer";
       const producerTimezone = producerRow?.timezone ?? "UTC";
+      const artistTimezone = artistProfile.timezone ?? producerTimezone;
 
       // (2) Every version under this project, newest first. Same
       // collapsing trick the producer side uses (Map keyed by trackId,
@@ -547,6 +549,7 @@ const musicSubrouter = router({
           producerId: project.producerId,
           producerName,
           producerTimezone,
+          artistTimezone,
         },
         tracks,
         sessions: sessionRows.map((s) => ({
@@ -1029,6 +1032,8 @@ function mapSessionBookingDomainError(error: unknown): never {
   if (
     error.code === "ALLOWANCE_EXHAUSTED" ||
     error.code === "BOOKING_CONFLICT" ||
+    error.code === "BUFFER_CONFLICT" ||
+    error.code === "DAILY_LIMIT" ||
     error.code === "OPERATION_KEY_CONFLICT"
   ) {
     throw new TRPCError({ code: "CONFLICT", message: error.message });
@@ -1074,6 +1079,7 @@ async function loadArtistSessionRows(
       producerEmail: producers.email,
       producerSlug: producers.slug,
       producerTimezone: producers.timezone,
+      artistTimezone: artistProfiles.timezone,
       autoConfirm: producers.autoConfirmBookings,
       cancellationPolicyHours: producers.cancellationPolicyHours,
       projectTitle: projects.title,
@@ -1119,6 +1125,7 @@ async function loadArtistSessionRows(
         isNull(clientContacts.archivedAt),
       ),
     )
+    .leftJoin(artistProfiles, eq(artistProfiles.clerkUserId, clientContacts.clerkUserId))
     .innerJoin(producers, eq(producers.id, bookings.producerId))
     .where(
       and(
@@ -1147,13 +1154,13 @@ function presentArtistSession(row: ArtistSessionRow, now: Date) {
     producerId: row.booking.producerId,
     producerName: row.producerName ?? "Your producer",
     producerSlug: row.producerSlug,
-    artistTimezone: row.producerTimezone,
+    artistTimezone: row.artistTimezone ?? row.producerTimezone,
     producerTimezone: row.producerTimezone,
     projectId: row.booking.projectId,
     projectTitle: row.projectTitle,
     purchaseId: row.booking.purchaseId,
     sessionAllowanceId: row.booking.sessionAllowanceId,
-    packageName: purchaseProductName(row.commercialSnapshot, row.projectTitle),
+    packageName: row.booking.title ?? purchaseProductName(row.commercialSnapshot, row.projectTitle),
     startsAt: row.booking.startsAt,
     durationMin: row.booking.durationMin,
     locationType: row.locationType,
@@ -1162,6 +1169,9 @@ function presentArtistSession(row: ArtistSessionRow, now: Date) {
     autoConfirm: row.autoConfirm,
     status: row.booking.status,
     outcome: row.booking.outcome,
+    billingTreatment: row.booking.billingTreatment,
+    artistRsvpStatus: row.booking.artistRsvpStatus,
+    artistRsvpRespondedAt: row.booking.artistRsvpRespondedAt,
     rescheduledFromBookingId: row.booking.rescheduledFromBookingId,
     heldExpiryReason: row.booking.heldExpiryReason,
     policy: {
@@ -1199,17 +1209,21 @@ const bookSubrouter = router({
     )
     .query(async ({ ctx, input }) => {
       const now = new Date();
-      const producerRows = await ctx.db
-        .select({
-          timeZone: producers.timezone,
-          cancellationPolicyHours: producers.cancellationPolicyHours,
-        })
-        .from(producers)
-        .where(eq(producers.id, input.producerId))
-        .limit(1);
+      const [producerRows, artistProfile] = await Promise.all([
+        ctx.db
+          .select({
+            timeZone: producers.timezone,
+            cancellationPolicyHours: producers.cancellationPolicyHours,
+            maxSessionsPerDay: producers.maxSessionsPerDay,
+          })
+          .from(producers)
+          .where(eq(producers.id, input.producerId))
+          .limit(1),
+        getArtistProfile(ctx.db, ctx.clerkUserId),
+      ]);
       const producer = producerRows[0];
       if (!producer) throw new TRPCError({ code: "NOT_FOUND" });
-      const bookingTimeZone = producer.timeZone;
+      const artistTimeZone = artistProfile.timezone ?? producer.timeZone;
 
       let ignoredBookingId: string | undefined;
       let selectedTerms:
@@ -1372,6 +1386,7 @@ const bookSubrouter = router({
           bookingId: bookings.id,
           allowanceUseId: bookings.allowanceUseId,
           outcome: bookings.outcome,
+          billingTreatment: bookings.billingTreatment,
         })
         .from(bookings)
         .where(
@@ -1408,6 +1423,7 @@ const bookSubrouter = router({
           bookingEnabledSnapshot: selectedTerms.bookingEnabledSnapshot,
           allowanceKind: selectedTerms.allowanceKind,
           sessionLimit: selectedTerms.sessionLimit,
+          billingTreatmentMode: input.bookingId ? "preserve" : "choose",
           existingUses: allowanceUseRows.filter((row) => row.bookingId !== ignoredBookingId),
         }) && sourceBookingCanReschedule;
 
@@ -1453,97 +1469,26 @@ const bookSubrouter = router({
           ),
       ]);
 
-      type BlockShape = { startMin: number; endMin: number };
-      const blocksByWeekday = new Map<number, BlockShape[]>();
-      for (const b of blockRows) {
-        const blocks = blocksByWeekday.get(b.weekday) ?? [];
-        blocks.push({ startMin: b.startMin, endMin: b.endMin });
-        blocksByWeekday.set(b.weekday, blocks);
-      }
-      for (const blocks of blocksByWeekday.values()) {
-        blocks.sort((left, right) => left.startMin - right.startMin);
-      }
-
-      const slotsByBookingDay = new Map<
-        string,
-        Array<{
-          startsAt: Date;
-          endsAt: Date;
-          studioDate: string;
-          studioStartMin: number;
-        }>
-      >();
-      const seenStarts = new Set<number>();
-      for (const dateStr of producerLocalDateRange(
+      const generated = generateArtistExactSessionSlots({
         now,
-        producer.timeZone,
-        sessionAvailabilityHorizonDays(minLeadHours),
-      )) {
-        const weekdayNumber = new Date(`${dateStr}T00:00:00.000Z`).getUTCDay();
-        const blocks = blocksByWeekday.get(weekdayNumber) ?? [];
-        if (!allowanceCanBook) continue;
-        for (const block of blocks) {
-          for (
-            let startMin = block.startMin;
-            startMin + durationMin <= block.endMin;
-            startMin += 30
-          ) {
-            const candidates = studioLocalDateTimeUtcCandidates({
-              date: dateStr,
-              startMin,
-              timeZone: producer.timeZone,
-            });
-            for (const startsAt of candidates) {
-              if (
-                startsAt.getTime() < now.getTime() + minLeadHours * 60 * 60 * 1000 ||
-                seenStarts.has(startsAt.getTime())
-              ) {
-                continue;
-              }
-              try {
-                assertSessionSlotAvailable({
-                  startsAt,
-                  durationMin,
-                  bufferMinutes,
-                  producerTimeZone: producer.timeZone,
-                  availabilityBlocks: blockRows,
-                  blackouts: blackoutRows,
-                  existingBookings: bookingRows,
-                  ...(ignoredBookingId ? { ignoreBookingId: ignoredBookingId } : {}),
-                });
-              } catch (error) {
-                if (!(error instanceof SessionBookingDomainError)) throw error;
-                continue;
-              }
-              seenStarts.add(startsAt.getTime());
-              const bookingDate = studioLocalDateKey(startsAt, bookingTimeZone);
-              const slots = slotsByBookingDay.get(bookingDate) ?? [];
-              slots.push({
-                startsAt,
-                endsAt: new Date(startsAt.getTime() + durationMin * 60 * 1000),
-                studioDate: dateStr,
-                studioStartMin: startMin,
-              });
-              slotsByBookingDay.set(bookingDate, slots);
-            }
-          }
-        }
-      }
-
-      const days = [...slotsByBookingDay.entries()]
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([date, slots]) => ({
-          date,
-          slots: slots.sort((left, right) => left.startsAt.getTime() - right.startsAt.getTime()),
-        }));
+        canBook: allowanceCanBook,
+        producerTimeZone: producer.timeZone,
+        artistTimeZone,
+        durationMin,
+        bufferMinutes,
+        minLeadHours,
+        maxSessionsPerDay: producer.maxSessionsPerDay,
+        availabilityBlocks: blockRows,
+        blackouts: blackoutRows,
+        existingBookings: bookingRows,
+        ...(ignoredBookingId ? { ignoreBookingId: ignoredBookingId } : {}),
+      });
 
       return {
-        days,
-        // Keep the existing transport keys while pinning both to the one
-        // booking clock: the Producer's configured IANA timezone.
-        artistTimeZone: bookingTimeZone,
-        studioTimeZone: bookingTimeZone,
-        today: studioLocalDateKey(now, bookingTimeZone),
+        days: generated.days,
+        artistTimeZone,
+        studioTimeZone: producer.timeZone,
+        today: generated.today,
       };
     }),
 
@@ -1637,6 +1582,7 @@ const bookSubrouter = router({
             .select({
               allowanceUseId: bookings.allowanceUseId,
               outcome: bookings.outcome,
+              billingTreatment: bookings.billingTreatment,
             })
             .from(bookings)
             .where(
@@ -1648,7 +1594,7 @@ const bookSubrouter = router({
             );
           const sessionsUsed = new Set(
             rows
-              .filter((row) => sessionUseConsumesAllowance(row.outcome))
+              .filter((row) => sessionUseConsumesAllowance(row.outcome, row.billingTreatment))
               .map((row) => row.allowanceUseId),
           ).size;
           const unlimitedSessions = allowance.allowanceKind === "unlimited";
@@ -1686,7 +1632,6 @@ const bookSubrouter = router({
       z.object({
         producerId: z.string().uuid(),
         startsAt: z.date(),
-        durationMin: z.number().int().min(1).max(24 * 60),
         projectId: z.string().uuid(),
         purchaseId: z.string().uuid(),
         sessionAllowanceId: z.string().uuid(),
@@ -1703,7 +1648,6 @@ const bookSubrouter = router({
           sessionAllowanceId: input.sessionAllowanceId,
           actorClerkUserId: ctx.clerkUserId,
           startsAt: input.startsAt,
-          durationMin: input.durationMin,
           operationKey: input.operationKey,
         });
       } catch (error) {
@@ -1838,6 +1782,7 @@ const bookSubrouter = router({
         Array<{
           allowanceUseId: string;
           outcome: (typeof bookings.outcome.enumValues)[number];
+          billingTreatment: (typeof bookings.billingTreatment.enumValues)[number];
         }>
       >();
       for (const row of sessionRows) {
@@ -1845,6 +1790,7 @@ const bookSubrouter = router({
         uses.push({
           allowanceUseId: row.booking.allowanceUseId,
           outcome: row.booking.outcome,
+          billingTreatment: row.booking.billingTreatment,
         });
         usesByAllowance.set(row.booking.sessionAllowanceId, uses);
       }
@@ -1855,7 +1801,7 @@ const bookSubrouter = router({
           const uses = usesByAllowance.get(allowance.sessionAllowanceId) ?? [];
           const sessionsUsed = new Set(
             uses
-              .filter((use) => sessionUseConsumesAllowance(use.outcome))
+              .filter((use) => sessionUseConsumesAllowance(use.outcome, use.billingTreatment))
               .map((use) => use.allowanceUseId),
           ).size;
           const sessionsRemaining =

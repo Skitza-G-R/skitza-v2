@@ -6,15 +6,12 @@ import { describe, expect, it } from "vitest";
 
 import { SessionsPanel, type SessionRow } from "../sessions-panel";
 
-function session(
-  id: string,
-  startsAtIso: string,
-  producerTimezone: string,
-): SessionRow {
+function session(id: string, startsAtIso: string, artistTimezone: string): SessionRow {
   return {
     id,
     startsAtIso,
-    producerTimezone,
+    artistTimezone,
+    producerTimezone: "Asia/Jerusalem",
     durationMin: 90,
     status: "confirmed",
     packageName: "Studio session",
@@ -22,7 +19,7 @@ function session(
 }
 
 describe("Artist project session timezone presentation", () => {
-  it("carries the Producer timezone through the project query and page mapping", () => {
+  it("carries Artist and Studio timezones through the project query and page mapping", () => {
     const routerSource = readFileSync(
       join(process.cwd(), "src/server/trpc/routers/artist.ts"),
       "utf8",
@@ -35,18 +32,17 @@ describe("Artist project session timezone presentation", () => {
     expect(routerSource).toMatch(
       /displayName:\s*producers\.displayName,\s*timezone:\s*producers\.timezone/,
     );
-    expect(routerSource).toMatch(/producerName,\s*producerTimezone,\s*},\s*tracks,\s*sessions:/);
-    expect(pageSource).toMatch(
-      /producerTimezone:\s*sessionData\.project\.producerTimezone/,
+    expect(routerSource).toMatch(
+      /producerName,\s*producerTimezone,\s*artistTimezone,\s*},\s*tracks,\s*sessions:/,
     );
+    expect(pageSource).toMatch(/artistTimezone:\s*sessionData\.project\.artistTimezone/);
+    expect(pageSource).toMatch(/producerTimezone:\s*sessionData\.project\.producerTimezone/);
   });
 
-  it("keeps a cross-midnight instant on the Producer's local calendar day", () => {
+  it("keeps a cross-midnight instant on the Artist's local calendar day", () => {
     const html = renderToStaticMarkup(
       <SessionsPanel
-        sessions={[
-          session("summer", "2026-06-10T01:30:00.000Z", "America/New_York"),
-        ]}
+        sessions={[session("summer", "2026-06-10T01:30:00.000Z", "America/New_York")]}
       />,
     );
 
@@ -55,7 +51,7 @@ describe("Artist project session timezone presentation", () => {
     expect(html).not.toContain("Wed, Jun 10");
   });
 
-  it("derives the Producer's offset for each side of a DST transition", () => {
+  it("derives the Artist's offset for each side of a DST transition", () => {
     const html = renderToStaticMarkup(
       <SessionsPanel
         sessions={[

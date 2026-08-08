@@ -101,7 +101,7 @@ export function MySessionsScreen({
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="font-mono text-[10px] font-bold tracking-[0.16em] text-[rgb(var(--brand-primary-dark))] uppercase">
-            Studio time
+            Your time
           </p>
           <h1 className="font-display mt-1 text-[30px] leading-none font-extrabold tracking-[-0.035em] text-[rgb(var(--fg-default))]">
             Sessions
