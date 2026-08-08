@@ -73,6 +73,21 @@ describe("NewClientModal", () => {
     expect(SRC).toContain("Cancel");
   });
 
+  it("keeps both actions visible while only the form fields scroll on short phone screens", () => {
+    expect(SRC).toMatch(
+      /DialogPrimitive\.Content[\s\S]*?className="[^"]*flex[^"]*flex-col[^"]*overflow-hidden[^"]*p-0/,
+    );
+    expect(SRC).toMatch(/style=\{\{\s*overflow:\s*"hidden",\s*paddingBottom:\s*0\s*\}\}/);
+    expect(SRC).toMatch(/<form[^>]*className="[^"]*min-h-0[^"]*flex-1[^"]*flex-col/);
+    expect(SRC).toMatch(
+      /className="[^"]*min-h-0[^"]*flex-1[^"]*overflow-y-auto[^"]*overscroll-contain/,
+    );
+    expect(SRC).toMatch(/className="[^"]*shrink-0[^"]*border-t/);
+    expect(SRC).toContain("env(safe-area-inset-bottom, 0px)");
+    expect(SRC).not.toContain("sticky bottom-0");
+    expect(SRC).not.toContain("-mb-5");
+  });
+
   it("calls createClientAction Server Action (not direct tRPC client)", () => {
     // The repo uses Server Actions exclusively — no client-side useMutation.
     expect(SRC).toMatch(/createClientAction/);

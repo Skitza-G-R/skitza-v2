@@ -24,18 +24,26 @@ function formatAmount(cents: number, currency: string): string {
   }).format(cents / 100);
 }
 
+function splitPaymentPreview(
+  totalCents: number,
+  currency: string,
+): readonly [atAcceptance: string, afterFinalApproval: string] {
+  const second = Math.floor(totalCents / 2);
+  const first = totalCents - second;
+
+  return [
+    `${formatAmount(first, currency)} at acceptance`,
+    `${formatAmount(second, currency)} after final approval`,
+  ];
+}
+
 function paymentPreview(
-  kind: "full" | "split" | "monthly",
+  kind: "full" | "monthly",
   totalCents: number,
   currency: string,
   installments: number,
 ): string {
   if (kind === "full") return `${formatAmount(totalCents, currency)} at acceptance`;
-  if (kind === "split") {
-    const second = Math.floor(totalCents / 2);
-    const first = totalCents - second;
-    return `${formatAmount(first, currency)} at acceptance · ${formatAmount(second, currency)} when the artist approves the final version`;
-  }
 
   const later = Math.floor(totalCents / installments);
   const first = totalCents - later * (installments - 1);
@@ -56,6 +64,7 @@ export function PaymentStep({
       ? "payment-step-rate-help"
       : undefined;
   const previewInstallments = Math.max(2, Math.min(12, selection.monthlyInstallments));
+  const splitPreview = splitPaymentPreview(previewTotalCents, currency);
 
   function patch(next: Partial<PaymentSelectionDraft>) {
     onChange({ ...selection, ...next });
@@ -123,9 +132,10 @@ export function PaymentStep({
               <span className="font-display block text-[15px] font-bold text-[rgb(var(--fg-default))]">
                 50% / 50%
               </span>
-            </span>
-            <span className="col-start-2 mt-1 text-[12px] font-medium text-[rgb(var(--fg-muted))] tabular-nums sm:col-start-3 sm:mt-0 sm:text-right">
-              {paymentPreview("split", previewTotalCents, currency, previewInstallments)}
+              <span className="mt-1 block text-[12px] leading-snug font-medium text-[rgb(var(--fg-muted))] tabular-nums">
+                <span className="block">{splitPreview[0]}</span>
+                <span className="block">{splitPreview[1]}</span>
+              </span>
             </span>
           </label>
 
