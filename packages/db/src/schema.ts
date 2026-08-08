@@ -69,6 +69,9 @@ export const producers = pgTable(
     // Hours of advance notice required to cancel a confirmed booking.
     // Stored today; enforcement (cancel-by-artist flow) is a follow-up.
     cancellationPolicyHours: integer("cancellation_policy_hours").notNull().default(24),
+    // Optional producer-local daily booking cap. NULL keeps the calendar
+    // unlimited; positive values participate in the shared availability rules.
+    maxSessionsPerDay: integer("max_sessions_per_day"),
     // ─── Batch G — Autopilot toggles ─────────────────────────────────
     // Five named behaviors the producer can flip on/off. No rule-builder,
     // no conditions — each column is a discrete outcome. See migration
@@ -167,6 +170,10 @@ export const producers = pgTable(
     adminNameSearchIdx: index("producers_admin_name_search_idx").on(
       sql`lower(${t.displayName}) text_pattern_ops`,
       t.clerkUserId,
+    ),
+    maxSessionsPerDayShape: check(
+      "producers_max_sessions_per_day_shape",
+      sql`${t.maxSessionsPerDay} IS NULL OR ${t.maxSessionsPerDay} > 0`,
     ),
   }),
 );
@@ -352,6 +359,25 @@ export type NewBlackout = typeof availabilityBlackouts.$inferInsert;
 // Booking status — enum so typos can't drift into the column. Holding
 // all statuses in one table (vs. a separate `booking_requests`) keeps
 // the audit trail + producer dashboard single-source-of-truth.
+export const bookingOrigin = pgEnum("booking_origin", [
+  "legacy",
+  "artist_request",
+  "producer_manual",
+]);
+
+export const bookingBillingTreatment = pgEnum("booking_billing_treatment", [
+  "included",
+  "complimentary",
+  "billable_extra",
+]);
+
+export const bookingArtistRsvpStatus = pgEnum("booking_artist_rsvp_status", [
+  "needs_action",
+  "accepted",
+  "declined",
+  "tentative",
+]);
+
 export const bookingStatus = pgEnum("booking_status", [
   "pending_approval",
   "confirmed",
@@ -412,6 +438,11 @@ export const bookings = pgTable(
     artistEmail: text("artist_email").notNull(),
     artistPhone: text("artist_phone"),
     notes: text("notes"),
+    // Legacy rows may retain NULL and use the purchase/project fallback in
+    // application reads. Every new booking command writes a normalized title.
+    title: text("title"),
+    origin: bookingOrigin("origin").notNull().default("legacy"),
+    billingTreatment: bookingBillingTreatment("billing_treatment").notNull().default("included"),
     startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
     durationMin: integer("duration_min").notNull(),
     operationKey: text("operation_key").notNull(),
@@ -436,9 +467,18 @@ export const bookings = pgTable(
     statusChangedAt: timestamp("status_changed_at", { withTimezone: true }),
     outcome: sessionUseOutcome("outcome").notNull().default("reserved"),
     outcomeChangedAt: timestamp("outcome_changed_at", { withTimezone: true }),
+    // Monotonic Skitza-side version used by future calendar delivery and
+    // reconciliation. Legacy inserts begin at zero; current app commands
+    // explicitly start new bookings at revision one.
+    calendarRevision: integer("calendar_revision").notNull().default(0),
+    artistRsvpStatus: bookingArtistRsvpStatus("artist_rsvp_status"),
+    artistRsvpRespondedAt: timestamp("artist_rsvp_responded_at", {
+      withTimezone: true,
+    }),
     reminderSent24h: timestamp("reminder_sent_24h", { withTimezone: true }),
     reminderSent1h: timestamp("reminder_sent_1h", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
     idProducerUnique: unique("bookings_id_producer_unique").on(t.id, t.producerId),
@@ -489,6 +529,23 @@ export const bookings = pgTable(
       name: "bookings_song_purchase_fk",
     }).onDelete("restrict"),
     positiveDuration: check("bookings_positive_duration", sql`${t.durationMin} > 0`),
+    titleShape: check(
+      "bookings_title_shape",
+      sql`${t.title} IS NULL OR NULLIF(btrim(${t.title}), '') IS NOT NULL`,
+    ),
+    calendarRevisionShape: check(
+      "bookings_calendar_revision_shape",
+      sql`${t.calendarRevision} >= 0`,
+    ),
+    artistRsvpShape: check(
+      "bookings_artist_rsvp_shape",
+      sql`(
+        (${t.artistRsvpStatus} IS NULL AND ${t.artistRsvpRespondedAt} IS NULL)
+        OR (${t.artistRsvpStatus} = 'needs_action' AND ${t.artistRsvpRespondedAt} IS NULL)
+        OR (${t.artistRsvpStatus} IN ('accepted', 'declined', 'tentative') AND ${t.artistRsvpRespondedAt} IS NOT NULL)
+      ) IS TRUE`,
+    ),
+    updatedAtShape: check("bookings_updated_at_shape", sql`${t.updatedAt} >= ${t.createdAt}`),
     operationShape: check(
       "bookings_operation_shape",
       sql`NULLIF(btrim(${t.operationKey}), '') IS NOT NULL AND NULLIF(btrim(${t.operationDigest}), '') IS NOT NULL`,

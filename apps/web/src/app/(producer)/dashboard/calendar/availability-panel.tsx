@@ -29,11 +29,7 @@ import {
 } from "~/components/ui/dialog";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { useToast } from "~/components/ui/toast";
-import {
-  orderByWeekStart,
-  useWeekStartPref,
-  type WeekStart,
-} from "~/lib/time/week-start";
+import { orderByWeekStart, useWeekStartPref, type WeekStart } from "~/lib/time/week-start";
 import { runOptimisticPreferenceSave } from "~/lib/optimistic-preference-save";
 import { formatResolvedTimeZoneLabel } from "~/lib/timezone-display";
 
@@ -76,6 +72,7 @@ export type AvailabilityPanelProps = {
   settings: {
     autoConfirmBookings: boolean;
     cancellationPolicyHours: number;
+    maxSessionsPerDay: number | null;
   };
   // Producer's stored week-start preference (DB-backed since the
   // Settings redesign). The toggle here persists to the same column,
@@ -101,10 +98,7 @@ export function AvailabilityPanel({
       toast(message, "error");
     },
   );
-  const orderedDays = useMemo(
-    () => orderByWeekStart(DAYS, weekStart),
-    [weekStart],
-  );
+  const orderedDays = useMemo(() => orderByWeekStart(DAYS, weekStart), [weekStart]);
 
   return (
     // Two columns share the viewport-locked panel; each scrolls
@@ -118,6 +112,7 @@ export function AvailabilityPanel({
         <BookingPrefsCard
           autoConfirm={settings.autoConfirmBookings}
           cancelHours={settings.cancellationPolicyHours}
+          maxSessionsPerDay={settings.maxSessionsPerDay}
           weekStart={weekStart}
           onWeekStartChange={(next) => {
             if (!online) {
@@ -209,7 +204,7 @@ function WorkingHoursCard({
         <button
           type="button"
           onClick={copyMonToWeekdays}
-          className="sk-press -m-2 p-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[rgb(var(--brand-primary-dark))] transition-opacity hover:opacity-70"
+          className="sk-press -m-2 p-2 font-mono text-[10px] tracking-[0.12em] text-[rgb(var(--brand-primary-dark))] uppercase transition-opacity hover:opacity-70"
           style={{ fontWeight: 700 }}
         >
           Copy Mon to weekdays
@@ -271,9 +266,7 @@ function WorkingHoursCard({
             onChangeWindow={(id, patch) => {
               setDraft((prev) => ({
                 ...prev,
-                [d.num]: (prev[d.num] ?? []).map((w) =>
-                  w.id === id ? { ...w, ...patch } : w,
-                ),
+                [d.num]: (prev[d.num] ?? []).map((w) => (w.id === id ? { ...w, ...patch } : w)),
               }));
             }}
           />
@@ -288,7 +281,7 @@ function WorkingHoursCard({
           type="button"
           onClick={handleSave}
           disabled={!dirty || isPending || !online}
-          className="sk-press inline-flex h-11 items-center justify-center rounded-[10px] bg-[rgb(var(--fg-default))] px-4 text-[12.5px] text-[rgb(var(--fg-inverse))] transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] disabled:cursor-not-allowed disabled:opacity-50 lg:h-9"
+          className="sk-press inline-flex h-11 items-center justify-center rounded-[10px] bg-[rgb(var(--fg-default))] px-4 text-[12.5px] text-[rgb(var(--fg-inverse))] transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-primary))] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 lg:h-9"
           style={{ fontWeight: 700 }}
         >
           {isPending ? "Saving…" : "Save changes"}
@@ -298,13 +291,7 @@ function WorkingHoursCard({
   );
 }
 
-function MiniChart({
-  totals,
-  days,
-}: {
-  totals: Record<number, number>;
-  days: readonly DayInfo[];
-}) {
+function MiniChart({ totals, days }: { totals: Record<number, number>; days: readonly DayInfo[] }) {
   const max = 12; // 12h cap for the bar height; covers most schedules.
   return (
     <div className="rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-overlay)/0.4)] px-3 py-3">
@@ -375,10 +362,7 @@ function DayRow({
       }}
     >
       <PillToggle label={`${dayLabel} availability`} on={isOn} onChange={onToggle} />
-      <span
-        className="text-[13.5px] text-[rgb(var(--fg-default))]"
-        style={{ fontWeight: 700 }}
-      >
+      <span className="text-[13.5px] text-[rgb(var(--fg-default))]" style={{ fontWeight: 700 }}>
         {dayLabel}
       </span>
       {/* SK-56: phones stack each time window on its own line (the
@@ -391,7 +375,10 @@ function DayRow({
             {windows.map((w, i) => (
               <span key={w.id} className="flex items-center gap-1.5">
                 {i > 0 ? (
-                  <span aria-hidden className="hidden h-4 w-px bg-[rgb(var(--border-subtle))] lg:block" />
+                  <span
+                    aria-hidden
+                    className="hidden h-4 w-px bg-[rgb(var(--border-subtle))] lg:block"
+                  />
                 ) : null}
                 <TimeSelect
                   value={minToHHMM(w.startMin)}
@@ -428,7 +415,7 @@ function DayRow({
             </button>
           </>
         ) : (
-          <span className="text-[12.5px] italic text-[rgb(var(--fg-faint))]">Closed</span>
+          <span className="text-[12.5px] text-[rgb(var(--fg-faint))] italic">Closed</span>
         )}
       </div>
       <span className="col-start-3 row-start-1 font-mono text-[11px] text-[rgb(var(--fg-muted))] lg:col-start-4">
@@ -465,9 +452,7 @@ function PillToggle({
         aria-hidden
         className={[
           "relative inline-flex h-[22px] w-[36px] flex-shrink-0 rounded-full transition-colors motion-reduce:transition-none",
-          on
-            ? "bg-[rgb(var(--brand-primary))]"
-            : "bg-[rgb(var(--border-strong))]",
+          on ? "bg-[rgb(var(--brand-primary))]" : "bg-[rgb(var(--border-strong))]",
         ].join(" ")}
       >
         <span
@@ -479,13 +464,7 @@ function PillToggle({
   );
 }
 
-function TimeSelect({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-}) {
+function TimeSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const slots = useMemo(buildSlots, []);
   return (
     <select
@@ -507,9 +486,31 @@ function TimeSelect({
 
 // ── Booking prefs card ──────────────────────────────────────────────
 
+const DAILY_LIMIT_ERROR =
+  "Enter a whole number from 1 to 2,147,483,647, or clear the field for no limit.";
+const DAILY_LIMIT_MAX = 2_147_483_647;
+
+export function parseDailySessionLimit(
+  input: string,
+): { ok: true; value: number | null } | { ok: false; error: string } {
+  const trimmed = input.trim();
+  if (trimmed === "") return { ok: true, value: null };
+  if (!/^\d+$/.test(trimmed)) return { ok: false, error: DAILY_LIMIT_ERROR };
+  const value = Number(trimmed);
+  if (!Number.isSafeInteger(value) || value < 1 || value > DAILY_LIMIT_MAX) {
+    return { ok: false, error: DAILY_LIMIT_ERROR };
+  }
+  return { ok: true, value };
+}
+
+function dailyLimitInputValue(value: number | null): string {
+  return value === null ? "" : String(value);
+}
+
 function BookingPrefsCard({
   autoConfirm,
   cancelHours,
+  maxSessionsPerDay,
   weekStart,
   onWeekStartChange,
   weekStartSaving,
@@ -519,6 +520,7 @@ function BookingPrefsCard({
 }: {
   autoConfirm: boolean;
   cancelHours: number;
+  maxSessionsPerDay: number | null;
   weekStart: WeekStart;
   onWeekStartChange: (next: WeekStart) => void;
   weekStartSaving: boolean;
@@ -528,6 +530,12 @@ function BookingPrefsCard({
 }) {
   const [draftAuto, setDraftAuto] = useState(autoConfirm);
   const [draftCancel, setDraftCancel] = useState(cancelHours);
+  const [draftDailyLimit, setDraftDailyLimit] = useState(() =>
+    dailyLimitInputValue(maxSessionsPerDay),
+  );
+  const [savedDailyLimit, setSavedDailyLimit] = useState(maxSessionsPerDay);
+  const [dailyLimitStatus, setDailyLimitStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [dailyLimitError, setDailyLimitError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const saveLock = useRef({ current: false });
   const { toast } = useToast();
@@ -544,6 +552,7 @@ function BookingPrefsCard({
     patch: {
       autoConfirmBookings?: boolean;
       cancellationPolicyHours?: number;
+      maxSessionsPerDay?: number | null;
     };
     apply: () => void;
     rollback: () => void;
@@ -565,6 +574,47 @@ function BookingPrefsCard({
       setPending: setIsSaving,
       errorLabel,
     });
+  }
+
+  const dailyLimitDirty = draftDailyLimit.trim() !== dailyLimitInputValue(savedDailyLimit);
+
+  async function saveDailyLimit() {
+    const parsed = parseDailySessionLimit(draftDailyLimit);
+    if (!parsed.ok) {
+      setDailyLimitError(parsed.error);
+      setDailyLimitStatus("idle");
+      return;
+    }
+    if (!dailyLimitDirty || saveLock.current.current) return;
+    if (!online) {
+      setDailyLimitError("Reconnect to save the daily session limit.");
+      setDailyLimitStatus("idle");
+      return;
+    }
+
+    saveLock.current.current = true;
+    setIsSaving(true);
+    setDailyLimitError(null);
+    setDailyLimitStatus("saving");
+    try {
+      const result = await updateAvailabilitySettings({
+        maxSessionsPerDay: parsed.value,
+      });
+      if (!result.ok) {
+        setDailyLimitError(`Daily session limit wasn’t saved. ${result.error}`);
+        setDailyLimitStatus("idle");
+        return;
+      }
+      setSavedDailyLimit(parsed.value);
+      setDraftDailyLimit(dailyLimitInputValue(parsed.value));
+      setDailyLimitStatus("saved");
+    } catch {
+      setDailyLimitError("Daily session limit wasn’t saved. Try again.");
+      setDailyLimitStatus("idle");
+    } finally {
+      saveLock.current.current = false;
+      setIsSaving(false);
+    }
   }
 
   return (
@@ -625,10 +675,7 @@ function BookingPrefsCard({
             producers see their week the way they think about it. */}
         <div className="flex items-center justify-between gap-3 rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] p-3">
           <div className="min-w-0">
-            <p
-              className="text-[12.5px] text-[rgb(var(--fg-default))]"
-              style={{ fontWeight: 700 }}
-            >
+            <p className="text-[12.5px] text-[rgb(var(--fg-default))]" style={{ fontWeight: 700 }}>
               Week starts on
             </p>
             <p className="mt-0.5 text-[10.5px] text-[rgb(var(--fg-muted))]">
@@ -692,6 +739,85 @@ function BookingPrefsCard({
             Artists must cancel this many hours before their session.
           </p>
         </div>
+
+        <form
+          noValidate
+          aria-busy={dailyLimitStatus === "saving"}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void saveDailyLimit();
+          }}
+        >
+          <div className="flex items-baseline justify-between gap-3">
+            <label
+              htmlFor="daily-session-limit"
+              className="font-mono text-[9.5px] tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase"
+              style={{ fontWeight: 700 }}
+            >
+              Daily session limit
+            </label>
+            <span className="text-[9.5px] text-[rgb(var(--fg-muted))]">Optional</span>
+          </div>
+          <div className="mt-1.5 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+            <input
+              id="daily-session-limit"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={DAILY_LIMIT_MAX}
+              step={1}
+              placeholder="No limit"
+              value={draftDailyLimit}
+              disabled={isSaving}
+              aria-invalid={dailyLimitError ? "true" : undefined}
+              aria-describedby="daily-session-limit-help daily-session-limit-feedback"
+              onChange={(event) => {
+                setDraftDailyLimit(event.target.value);
+                setDailyLimitError(null);
+                setDailyLimitStatus("idle");
+              }}
+              onBlur={() => {
+                if (!dailyLimitDirty) return;
+                const parsed = parseDailySessionLimit(draftDailyLimit);
+                setDailyLimitError(parsed.ok ? null : parsed.error);
+              }}
+              className="h-11 min-w-0 rounded-[var(--radius-lg)] border border-[rgb(var(--border-control))] bg-[rgb(var(--bg-elevated))] px-3 font-mono text-[13px] text-[rgb(var(--fg-default))] transition-colors outline-none placeholder:text-[rgb(var(--fg-muted))] focus:border-[rgb(var(--focus-ring))] focus:ring-2 focus:ring-[rgb(var(--focus-ring)/0.2)] disabled:cursor-wait disabled:opacity-60 lg:h-9 lg:rounded-[var(--radius-md)]"
+            />
+            <button
+              type="submit"
+              disabled={!dailyLimitDirty || isSaving || !online}
+              className="sk-press inline-flex h-11 min-w-[68px] items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--fg-default))] px-3 text-[12px] text-[rgb(var(--fg-inverse))] transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 lg:h-9 lg:rounded-[var(--radius-md)]"
+              style={{ fontWeight: 700 }}
+            >
+              {dailyLimitStatus === "saving" ? "Saving…" : "Save"}
+            </button>
+          </div>
+          <p
+            id="daily-session-limit-help"
+            className="mt-1.5 text-[10.5px] leading-snug text-[rgb(var(--fg-muted))]"
+          >
+            Maximum sessions on a studio day. Clear the field for no limit.
+          </p>
+          <p
+            id="daily-session-limit-feedback"
+            role="status"
+            aria-atomic="true"
+            className={[
+              "mt-1 min-h-[15px] text-[10.5px] leading-snug",
+              dailyLimitError ? "text-[rgb(var(--fg-danger-text))]" : "text-[rgb(var(--fg-muted))]",
+            ].join(" ")}
+          >
+            {!online
+              ? "Reconnect to save this preference."
+              : dailyLimitError
+                ? dailyLimitError
+                : dailyLimitStatus === "saving"
+                  ? "Saving…"
+                  : dailyLimitStatus === "saved"
+                    ? "Saved"
+                    : null}
+          </p>
+        </form>
 
         {/* Timezone is informational until producers can persist a choice. */}
         <div>
@@ -802,7 +928,7 @@ function BlockedDatesCard({
           onClick={() => {
             setOpen(true);
           }}
-          className="sk-press -m-2 p-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[rgb(var(--brand-primary-dark))] transition-opacity hover:opacity-70 disabled:opacity-50"
+          className="sk-press -m-2 p-2 font-mono text-[10px] tracking-[0.12em] text-[rgb(var(--brand-primary-dark))] uppercase transition-opacity hover:opacity-70 disabled:opacity-50"
           style={{ fontWeight: 700 }}
         >
           + Block dates
@@ -810,9 +936,7 @@ function BlockedDatesCard({
       </header>
 
       {blackouts.length === 0 ? (
-        <p className="px-4 py-5 text-[12.5px] text-[rgb(var(--fg-muted))]">
-          No blocked dates.
-        </p>
+        <p className="px-4 py-5 text-[12.5px] text-[rgb(var(--fg-muted))]">No blocked dates.</p>
       ) : (
         <ul className="flex flex-col gap-1.5 p-3">
           {blackouts.map((b) => (
@@ -944,95 +1068,96 @@ function BlockDatesModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-[460px]">
-      <div className="px-6 pt-6">
-        <div
-          className="inline-flex h-10 w-10 items-center justify-center rounded-[10px] text-[rgb(var(--brand-primary-dark))]"
-          style={{
-            background: "linear-gradient(135deg, rgb(var(--brand-primary) / 0.18), rgb(var(--brand-primary) / 0.06))",
-          }}
-        >
-          <PalmIcon />
-        </div>
-        <DialogTitle
-          className="mt-3 text-[20px]"
-          style={{ fontWeight: 800, letterSpacing: "-0.025em" }}
-        >
-          Block dates
-        </DialogTitle>
-        <DialogDescription className="mt-1 text-[12.5px]">
-          Mark a range as unavailable. Existing bookings stay on the calendar.
-        </DialogDescription>
-      </div>
-
-      <div className="space-y-3 px-6 py-4">
-        <Field label="Reason (optional)">
-          <input
-            type="text"
-            autoFocus
-            value={reason}
-            onChange={(e) => {
-              setReason(e.target.value);
-            }}
-            placeholder="Family vacation"
-            className="h-11 w-full rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[12.5px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-faint))] focus:border-[rgb(var(--brand-primary))] focus:outline-none lg:h-9"
-          />
-        </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="From">
-            <input
-              type="date"
-              value={from}
-              onChange={(e) => {
-                setFrom(e.target.value);
-              }}
-              className="h-11 w-full rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 font-mono text-[12px] text-[rgb(var(--fg-default))] focus:border-[rgb(var(--brand-primary))] focus:outline-none lg:h-9"
-              style={{ fontWeight: 600 }}
-            />
-          </Field>
-          <Field label="To">
-            <input
-              type="date"
-              value={to}
-              onChange={(e) => {
-                setTo(e.target.value);
-              }}
-              min={from}
-              className="h-11 w-full rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 font-mono text-[12px] text-[rgb(var(--fg-default))] focus:border-[rgb(var(--brand-primary))] focus:outline-none lg:h-9"
-              style={{ fontWeight: 600 }}
-            />
-          </Field>
-        </div>
-        {from ? (
+        <div className="px-6 pt-6">
           <div
-            className="rounded-[10px] border border-[rgb(var(--brand-primary)/0.35)] bg-[rgb(var(--brand-primary)/0.08)] px-3 py-2 font-mono text-[11.5px] text-[rgb(var(--brand-primary-dark))]"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-[10px] text-[rgb(var(--brand-primary-dark))]"
+            style={{
+              background:
+                "linear-gradient(135deg, rgb(var(--brand-primary) / 0.18), rgb(var(--brand-primary) / 0.06))",
+            }}
+          >
+            <PalmIcon />
+          </div>
+          <DialogTitle
+            className="mt-3 text-[20px]"
+            style={{ fontWeight: 800, letterSpacing: "-0.025em" }}
+          >
+            Block dates
+          </DialogTitle>
+          <DialogDescription className="mt-1 text-[12.5px]">
+            Mark a range as unavailable. Existing bookings stay on the calendar.
+          </DialogDescription>
+        </div>
+
+        <div className="space-y-3 px-6 py-4">
+          <Field label="Reason (optional)">
+            <input
+              type="text"
+              autoFocus
+              value={reason}
+              onChange={(e) => {
+                setReason(e.target.value);
+              }}
+              placeholder="Family vacation"
+              className="h-11 w-full rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[12.5px] text-[rgb(var(--fg-default))] placeholder:text-[rgb(var(--fg-faint))] focus:border-[rgb(var(--brand-primary))] focus:outline-none lg:h-9"
+            />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="From">
+              <input
+                type="date"
+                value={from}
+                onChange={(e) => {
+                  setFrom(e.target.value);
+                }}
+                className="h-11 w-full rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 font-mono text-[12px] text-[rgb(var(--fg-default))] focus:border-[rgb(var(--brand-primary))] focus:outline-none lg:h-9"
+                style={{ fontWeight: 600 }}
+              />
+            </Field>
+            <Field label="To">
+              <input
+                type="date"
+                value={to}
+                onChange={(e) => {
+                  setTo(e.target.value);
+                }}
+                min={from}
+                className="h-11 w-full rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 font-mono text-[12px] text-[rgb(var(--fg-default))] focus:border-[rgb(var(--brand-primary))] focus:outline-none lg:h-9"
+                style={{ fontWeight: 600 }}
+              />
+            </Field>
+          </div>
+          {from ? (
+            <div
+              className="rounded-[10px] border border-[rgb(var(--brand-primary)/0.35)] bg-[rgb(var(--brand-primary)/0.08)] px-3 py-2 font-mono text-[11.5px] text-[rgb(var(--brand-primary-dark))]"
+              style={{ fontWeight: 600 }}
+            >
+              Blocking: {formatBlackoutRange(from, to || from)}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 rounded-b-[var(--radius-lg)] border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated)/0.4)] px-6 py-4">
+          <button
+            type="button"
+            onClick={() => {
+              onOpenChange(false);
+            }}
+            className="sk-press inline-flex h-11 items-center justify-center rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 text-[12.5px] text-[rgb(var(--fg-secondary))] transition-colors hover:text-[rgb(var(--fg-default))] lg:h-9"
             style={{ fontWeight: 600 }}
           >
-            Blocking: {formatBlackoutRange(from, to || from)}
-          </div>
-        ) : null}
-      </div>
-
-      <div className="flex items-center justify-end gap-2 rounded-b-[var(--radius-lg)] border-t border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated)/0.4)] px-6 py-4">
-        <button
-          type="button"
-          onClick={() => {
-            onOpenChange(false);
-          }}
-          className="sk-press inline-flex h-11 items-center justify-center rounded-[10px] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-4 text-[12.5px] text-[rgb(var(--fg-secondary))] transition-colors hover:text-[rgb(var(--fg-default))] lg:h-9"
-          style={{ fontWeight: 600 }}
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={handleAdd}
-          disabled={!from || isPending || !online}
-          className="sk-press inline-flex h-11 items-center justify-center rounded-[10px] bg-[rgb(var(--fg-default))] px-4 text-[12.5px] text-[rgb(var(--fg-inverse))] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 lg:h-9"
-          style={{ fontWeight: 700 }}
-        >
-          {isPending ? "Saving…" : "Block dates"}
-        </button>
-      </div>
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleAdd}
+            disabled={!from || isPending || !online}
+            className="sk-press inline-flex h-11 items-center justify-center rounded-[10px] bg-[rgb(var(--fg-default))] px-4 text-[12.5px] text-[rgb(var(--fg-inverse))] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 lg:h-9"
+            style={{ fontWeight: 700 }}
+          >
+            {isPending ? "Saving…" : "Block dates"}
+          </button>
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -1082,14 +1207,10 @@ function sameBlocks(a: readonly Block[], b: readonly Block[]): boolean {
   if (a.length !== b.length) return false;
   const norm = (xs: readonly Block[]) =>
     [...xs]
-      .sort(
-        (x, y) =>
-          x.weekday - y.weekday !== 0 ? x.weekday - y.weekday : x.startMin - y.startMin,
+      .sort((x, y) =>
+        x.weekday - y.weekday !== 0 ? x.weekday - y.weekday : x.startMin - y.startMin,
       )
-      .map(
-        (x) =>
-          `${String(x.weekday)}:${String(x.startMin)}:${String(x.endMin)}`,
-      )
+      .map((x) => `${String(x.weekday)}:${String(x.startMin)}:${String(x.endMin)}`)
       .join("|");
   return norm(a) === norm(b);
 }
@@ -1099,11 +1220,8 @@ function computeTotals(draft: Draft): Record<number, number> {
   for (const d of DAYS) {
     const ws = draft[d.num] ?? [];
     out[d.num] =
-      Math.round(
-        (ws.reduce((acc, w) => acc + Math.max(0, w.endMin - w.startMin), 0) /
-          60) *
-          10,
-      ) / 10;
+      Math.round((ws.reduce((acc, w) => acc + Math.max(0, w.endMin - w.startMin), 0) / 60) * 10) /
+      10;
   }
   return out;
 }
@@ -1154,16 +1272,13 @@ function formatBlackoutRange(start: string, end: string): string {
   if (start === end) {
     return startD.toLocaleDateString("en-US", fmt);
   }
-  return `${startD.toLocaleDateString("en-US", fmt)} – ${endD.toLocaleDateString(
-    "en-US",
-    fmt,
-  )}`;
+  return `${startD.toLocaleDateString("en-US", fmt)} – ${endD.toLocaleDateString("en-US", fmt)}`;
 }
 
 function Eyebrow({ label }: { label: string }) {
   return (
     <p
-      className="font-mono text-[10px] uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]"
+      className="font-mono text-[10px] tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase"
       style={{ fontWeight: 700 }}
     >
       {label}
@@ -1171,17 +1286,11 @@ function Eyebrow({ label }: { label: string }) {
   );
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="flex flex-col gap-1.5">
       <span
-        className="font-mono text-[9.5px] uppercase tracking-[0.12em] text-[rgb(var(--fg-muted))]"
+        className="font-mono text-[9.5px] tracking-[0.12em] text-[rgb(var(--fg-muted))] uppercase"
         style={{ fontWeight: 700 }}
       >
         {label}

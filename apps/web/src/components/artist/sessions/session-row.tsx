@@ -4,7 +4,8 @@
 // routes to the session detail (S12). Left: a compact date block (short
 // weekday + day number, mirroring upcoming-sessions-card.tsx). Middle: the
 // product + producer line. Right: the shared StatusPill (confirmed / held /
-// done). Date and time are both rendered in the producer's timezone.
+// done). Date and time are rendered in the Artist's timezone, with Studio time
+// added only when the two configured timezones differ.
 
 import { useRouter } from "next/navigation";
 
@@ -29,7 +30,7 @@ function dayNumber(iso: string, timeZone: string): string {
 
 export function SessionRow({ session }: { session: SessionListItem }) {
   const router = useRouter();
-  const time = formatSessionTime(session.startsAtISO, session.producerTimezone);
+  const time = formatSessionTime(session.startsAtISO, session.artistTimezone);
 
   return (
     <button
@@ -41,10 +42,10 @@ export function SessionRow({ session }: { session: SessionListItem }) {
     >
       <div className="flex w-12 shrink-0 flex-col items-center">
         <span className="font-amount text-[10px] font-bold tracking-[0.12em] text-[rgb(var(--brand-primary))] uppercase">
-          {monthShort(session.startsAtISO, session.producerTimezone)}
+          {monthShort(session.startsAtISO, session.artistTimezone)}
         </span>
         <span className="font-amount text-[20px] leading-none font-bold text-[rgb(var(--fg-default))]">
-          {dayNumber(session.startsAtISO, session.producerTimezone)}
+          {dayNumber(session.startsAtISO, session.artistTimezone)}
         </span>
       </div>
 

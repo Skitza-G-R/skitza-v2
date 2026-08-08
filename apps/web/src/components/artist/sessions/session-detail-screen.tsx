@@ -28,6 +28,7 @@ import {
   formatSessionDate,
   formatSessionTime,
   formatSessionTimeZoneLabel,
+  formatStudioTimeLine,
   locationLabel,
   type SessionDetail,
 } from "./book-data";
@@ -48,6 +49,11 @@ export function SessionDetailScreen({ session }: { session: SessionDetail }) {
     outcome: session.outcome,
     heldExpiryReason: session.heldExpiryReason,
   });
+  const studioTime = formatStudioTimeLine(
+    session.startsAtISO,
+    session.artistTimezone,
+    session.producerTimezone,
+  );
 
   function reschedule() {
     if (!online) {
@@ -104,14 +110,19 @@ export function SessionDetailScreen({ session }: { session: SessionDetail }) {
 
             {/* date + time — large in white Syne, time in font-amount */}
             <div className="font-syne mt-3 text-[30px] leading-[1.04] font-extrabold tracking-[-0.035em] text-white">
-              {formatSessionDate(session.startsAtISO, session.producerTimezone)} at{" "}
+              {formatSessionDate(session.startsAtISO, session.artistTimezone)} at{" "}
               <span className="font-amount font-extrabold">
-                {formatSessionTime(session.startsAtISO, session.producerTimezone)}
+                {formatSessionTime(session.startsAtISO, session.artistTimezone)}
               </span>
             </div>
             <p className="mt-2 text-[11.5px] text-[rgb(255_255_255_/_0.55)]">
-              {formatSessionTimeZoneLabel(session.startsAtISO, session.producerTimezone)}
+              {formatSessionTimeZoneLabel(session.startsAtISO, session.artistTimezone)}
             </p>
+            {studioTime ? (
+              <p className="mt-1 text-[11px] leading-snug text-[rgb(255_255_255_/_0.55)]">
+                {studioTime}
+              </p>
+            ) : null}
             {display.secondary ? (
               <p className="mt-2 text-[11.5px] text-[rgb(255_255_255_/_0.55)]">
                 {display.secondary}
@@ -226,9 +237,7 @@ export function SessionDetailScreen({ session }: { session: SessionDetail }) {
                   className="sk-press flex w-full items-center justify-center gap-[8px] rounded-[var(--radius-lg)] border border-[rgb(var(--fg-danger)/0.3)] bg-[rgb(var(--bg-elevated))] px-[22px] py-[15px] text-[15px] font-semibold text-[rgb(var(--fg-danger-text))] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <CloseIcon width={15} height={15} />{" "}
-                  {session.status === "pending_approval"
-                    ? "Withdraw request"
-                    : "Cancel session"}
+                  {session.status === "pending_approval" ? "Withdraw request" : "Cancel session"}
                 </button>
               ) : null}
 

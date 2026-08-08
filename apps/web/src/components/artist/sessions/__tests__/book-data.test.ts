@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import { formatCalendarTime } from "~/app/(producer)/dashboard/calendar/calendar-time";
-
 import {
   allowanceBookHref,
   allowanceCanBook,
@@ -12,7 +10,9 @@ import {
   formatSessionDate,
   formatSessionTime,
   formatSessionTimeZoneLabel,
+  formatStudioTimeLine,
   formatShekels,
+  groupSlotsByLocalDate,
   progressMode,
 } from "../book-data";
 
@@ -128,21 +128,21 @@ describe("artistSessionDisplay", () => {
   });
 });
 
-describe("formatSessionDate / formatSessionTime (producer timezone)", () => {
-  it("formats the same instant in the producer's IANA timezone", () => {
+describe("artist-primary session timezone presentation", () => {
+  it("formats an exact instant in any supplied IANA timezone", () => {
     const iso = "2026-06-09T14:30:00.000Z";
     expect(formatSessionDate(iso, "Asia/Jerusalem")).toBe("Tue, Jun 9");
     expect(formatSessionTime(iso, "Asia/Jerusalem")).toBe("5:30 PM");
     expect(formatSessionTime(iso, "America/New_York")).toBe("10:30 AM");
   });
 
-  it("moves the calendar date when the producer's local day has crossed midnight", () => {
+  it("moves the calendar date when the selected local day has crossed midnight", () => {
     const iso = "2026-06-09T22:30:00.000Z";
     expect(formatSessionDate(iso, "Asia/Jerusalem")).toBe("Wed, Jun 10");
     expect(formatSessionTime(iso, "Asia/Jerusalem")).toBe("1:30 AM");
   });
 
-  it("derives the Producer IANA timezone offset for the appointment date", () => {
+  it("derives the date-correct IANA timezone offset", () => {
     const summer = "2026-08-10T06:00:00.000Z";
     const winter = "2026-12-10T07:00:00.000Z";
 
@@ -152,11 +152,13 @@ describe("formatSessionDate / formatSessionTime (producer timezone)", () => {
     expect(formatSessionTimeZoneLabel(winter, "Asia/Jerusalem")).toBe("Asia/Jerusalem · GMT+2");
   });
 
-  it("keeps Artist and Producer displays on the same Producer wall clock", () => {
-    const instant = new Date("2026-08-10T06:00:00.000Z");
+  it("shows Studio time only when the Artist and Studio timezones differ", () => {
+    const iso = "2026-06-09T22:30:00.000Z";
 
-    expect(formatSessionTime(instant.toISOString(), "Asia/Jerusalem")).toBe("9:00 AM");
-    expect(formatCalendarTime(instant, "Asia/Jerusalem")).toBe("09:00");
+    expect(formatStudioTimeLine(iso, "Asia/Jerusalem", "Asia/Jerusalem")).toBeNull();
+    expect(formatStudioTimeLine(iso, "America/New_York", "Asia/Jerusalem")).toBe(
+      "Studio time · Wed, Jun 10 · 1:30 AM GMT+3",
+    );
   });
 
   it("labels each repeated DST wall clock with its exact offset", () => {
@@ -166,6 +168,34 @@ describe("formatSessionDate / formatSessionTime (producer timezone)", () => {
     expect(formatSessionTimeZoneLabel("2026-11-01T06:30:00.000Z", "America/New_York")).toBe(
       "America/New_York · GMT-5",
     );
+  });
+
+  it("regroups exact slots by Artist-local date without losing repeated DST instants", () => {
+    const slots = groupSlotsByLocalDate(
+      [
+        {
+          slots: [
+            { startsAtISO: "2026-11-01T05:30:00.000Z", id: "earlier" },
+            { startsAtISO: "2026-11-01T06:30:00.000Z", id: "later" },
+          ],
+        },
+        {
+          slots: [{ startsAtISO: "2026-11-02T01:30:00.000Z", id: "next-day" }],
+        },
+      ],
+      "America/New_York",
+    );
+
+    expect(slots).toEqual([
+      {
+        date: "2026-11-01",
+        slots: [
+          { startsAtISO: "2026-11-01T05:30:00.000Z", id: "earlier" },
+          { startsAtISO: "2026-11-01T06:30:00.000Z", id: "later" },
+          { startsAtISO: "2026-11-02T01:30:00.000Z", id: "next-day" },
+        ],
+      },
+    ]);
   });
 });
 

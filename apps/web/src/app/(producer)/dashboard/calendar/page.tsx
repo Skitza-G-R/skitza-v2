@@ -144,6 +144,7 @@ export default async function CalendarPage({
   const availabilitySettings = {
     autoConfirmBookings: settings.autoConfirmBookings,
     cancellationPolicyHours: settings.cancellationPolicyHours,
+    maxSessionsPerDay: settings.maxSessionsPerDay,
   };
   // Week-start preference (DB-backed since the Settings redesign). The
   // panel renders a Sunday/Monday toggle that writes back to the same

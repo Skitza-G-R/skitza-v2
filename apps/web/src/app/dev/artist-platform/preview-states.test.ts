@@ -125,7 +125,7 @@ describe("artist platform preview handoff", () => {
     expect(shellSource).toContain("<ArtistNotificationBell");
     expect(shellSource).toContain('initialOpen: activeDestination === "notifications"');
     expect(shellSource).toContain("previewOnly");
-    for (const label of ["Home", "Music", "Sessions", "Store"]) {
+    for (const label of ["Home", "Music", "Sessions", "Payments", "Store"]) {
       expect(shellSource).toContain(`label: "${label}"`);
     }
   });

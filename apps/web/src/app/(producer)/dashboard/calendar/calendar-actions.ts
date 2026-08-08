@@ -118,6 +118,7 @@ export async function updateAvailabilitySettings(input: {
   defaultSessionMin?: number;
   autoConfirmBookings?: boolean;
   cancellationPolicyHours?: number;
+  maxSessionsPerDay?: number | null;
 }): Promise<ActionResult> {
   const c = await callerOrError();
   if (!c.ok) return c;

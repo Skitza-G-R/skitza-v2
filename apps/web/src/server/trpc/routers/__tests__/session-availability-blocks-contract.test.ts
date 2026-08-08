@@ -4,6 +4,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const artistSource = readFileSync(join(process.cwd(), "src/server/trpc/routers/artist.ts"), "utf8");
+const bookingEngineSource = readFileSync(
+  join(process.cwd(), "src/server/booking/availability.ts"),
+  "utf8",
+);
 const bookingClientSource = readFileSync(
   join(process.cwd(), "src/app/(artist)/artist/book/booking-client.tsx"),
   "utf8",
@@ -25,22 +29,26 @@ describe("artist exact availability slot contract", () => {
   );
 
   it("evaluates every 30-minute start in every producer-local block independently", () => {
-    expect(availability).toMatch(/for \(const block of blocks\)/);
-    expect(availability).toMatch(/startMin \+= 30/);
-    expect(availability).toMatch(/studioLocalDateTimeUtcCandidates/);
-    expect(availability).toMatch(/for \(const startsAt of candidates\)/);
-    expect(availability).toMatch(/assertSessionSlotAvailable/);
-    expect(availability).toMatch(/continue;/);
-    expect(availability).not.toMatch(/available = false;\s*break/);
+    expect(availability).toContain("generateArtistExactSessionSlots({");
+    expect(bookingEngineSource).toMatch(
+      /for \(const block of blocksByWeekday\.get\(weekday\) \?\? \[\]\)/,
+    );
+    expect(bookingEngineSource).toMatch(/studioStartMin \+= slotIncrementMin/);
+    expect(bookingEngineSource).toContain("studioLocalDateTimeUtcCandidates");
+    expect(bookingEngineSource).toMatch(/for \(const startsAt of studioLocalDateTimeUtcCandidates/);
+    expect(bookingEngineSource).toContain("assertSessionSlotAvailable({");
+    expect(bookingEngineSource).not.toMatch(/available = false;\s*break/);
   });
 
-  it("returns exact instants grouped in the producer timezone", () => {
-    expect(availability).toMatch(/const bookingTimeZone = producer\.timeZone/);
-    expect(availability).toMatch(/studioLocalDateKey\(startsAt, bookingTimeZone\)/);
-    expect(availability).toMatch(/startsAt,/);
-    expect(availability).toMatch(/endsAt:/);
-    expect(availability).toMatch(/artistTimeZone:\s*bookingTimeZone/);
-    expect(availability).toMatch(/studioTimeZone:\s*bookingTimeZone/);
+  it("returns exact instants grouped in the artist timezone", () => {
+    expect(availability).toMatch(
+      /const artistTimeZone = artistProfile\.timezone \?\? producer\.timeZone/,
+    );
+    expect(bookingEngineSource).toMatch(/zonedLocalDateKey\(startsAt, input\.artistTimeZone\)/);
+    expect(bookingEngineSource).toMatch(/startsAt,/);
+    expect(bookingEngineSource).toMatch(/endsAt:/);
+    expect(availability).toMatch(/artistTimeZone,/);
+    expect(availability).toMatch(/studioTimeZone:\s*producer\.timeZone/);
   });
 
   it("renders only server-authored day.slots and submits startsAtISO", () => {

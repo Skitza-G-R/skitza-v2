@@ -4,6 +4,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const artistSource = readFileSync(join(process.cwd(), "src/server/trpc/routers/artist.ts"), "utf8");
+const bookingEngineSource = readFileSync(
+  join(process.cwd(), "src/server/booking/availability.ts"),
+  "utf8",
+);
 const producerSource = readFileSync(
   join(process.cwd(), "src/server/trpc/routers/booking.ts"),
   "utf8",
@@ -31,6 +35,11 @@ const artistAvailability = sourceBlock(
   "availability: artistProcedure",
   "activePackages: artistProcedure",
 );
+const artistMusicProject = sourceBlock(
+  artistSource,
+  "project: artistProcedure",
+  "addComment: artistProcedure",
+);
 const artistActivePackages = sourceBlock(
   artistBook,
   "activePackages: artistProcedure",
@@ -38,29 +47,39 @@ const artistActivePackages = sourceBlock(
 );
 
 describe("SK-68 artist session router boundary", () => {
-  it("authors and groups schedule candidates in the producer timezone", () => {
+  it("authors slots in the studio timezone and groups them in the artist timezone", () => {
     expect(artistAvailability).toMatch(/timeZone:\s*producers\.timezone/);
     expect(artistAvailability).toMatch(/today:/);
-    expect(artistAvailability).toMatch(/const bookingTimeZone = producer\.timeZone/);
-    expect(artistAvailability).toMatch(/artistTimeZone:\s*bookingTimeZone/);
-    expect(artistAvailability).toMatch(/studioTimeZone:\s*bookingTimeZone/);
-    expect(artistAvailability).toMatch(/studioLocalDateKey\(startsAt, bookingTimeZone\)/);
-    expect(artistAvailability).toMatch(/today:\s*studioLocalDateKey\(now, bookingTimeZone\)/);
     expect(artistAvailability).toMatch(
-      /producerLocalDateRange\([^)]*sessionAvailabilityHorizonDays\(minLeadHours\)/s,
+      /const artistTimeZone = artistProfile\.timezone \?\? producer\.timeZone/,
     );
+    expect(artistAvailability).toMatch(/artistTimeZone,/);
+    expect(artistAvailability).toMatch(/studioTimeZone:\s*producer\.timeZone/);
+    expect(artistAvailability).toContain("generateArtistExactSessionSlots({");
+    expect(artistAvailability).toContain("today: generated.today");
+    expect(bookingEngineSource).toContain("producerLocalDateRange(");
+    expect(bookingEngineSource).toContain("sessionAvailabilityHorizonDays(input.minLeadHours)");
+    expect(bookingEngineSource).toContain("zonedLocalDateKey(startsAt, input.artistTimeZone)");
   });
 
-  it("presents every artist session in the owning producer timezone", () => {
-    expect(artistSource).toMatch(/artistTimezone:\s*row\.producerTimezone/);
+  it("presents artist-local time with a safe producer-timezone fallback", () => {
+    expect(artistSource).toMatch(
+      /artistTimezone:\s*row\.artistTimezone \?\? row\.producerTimezone/,
+    );
+    expect(artistSource).toMatch(/producerTimezone:\s*row\.producerTimezone/);
+    expect(artistMusicProject).toContain("getArtistProfile(ctx.db, ctx.clerkUserId)");
+    expect(artistMusicProject).toMatch(
+      /const artistTimezone = artistProfile\.timezone \?\? producerTimezone/,
+    );
+    expect(artistMusicProject).toContain("artistTimezone,");
   });
 
   it("keeps valid exact candidates when another start in the block is invalid", () => {
-    expect(artistAvailability).toMatch(/startMin \+= 30/);
-    expect(artistAvailability).toMatch(/studioLocalDateTimeUtcCandidates/);
-    expect(artistAvailability).toMatch(/for \(const startsAt of candidates\)/);
-    expect(artistAvailability).toMatch(/catch \(error\)[\s\S]*continue;/);
-    expect(artistAvailability).not.toMatch(/available = false;\s*break/);
+    expect(artistAvailability).not.toMatch(/startMin \+= 30|studioLocalDateTimeUtcCandidates/);
+    expect(bookingEngineSource).toMatch(/studioStartMin \+= slotIncrementMin/);
+    expect(bookingEngineSource).toContain("studioLocalDateTimeUtcCandidates");
+    expect(bookingEngineSource).toMatch(/catch \(error\)[\s\S]*continue;/);
+    expect(bookingEngineSource).not.toMatch(/available = false;\s*break/);
   });
 
   it("authorizes availability against the exact purchased allowance and its stored terms", () => {
@@ -97,6 +116,9 @@ describe("SK-68 artist session router boundary", () => {
     expect(artistAvailability).toContain("ignoredBookingId = owned.bookingId");
     expect(artistAvailability).toContain("row.bookingId !== ignoredBookingId");
     expect(artistAvailability).toMatch(/ignoreBookingId: ignoredBookingId/);
+    expect(artistAvailability).toContain(
+      'billingTreatmentMode: input.bookingId ? "preserve" : "choose"',
+    );
   });
 
   it("uses artist authentication for every read and command", () => {
@@ -160,13 +182,14 @@ describe("SK-68 artist session router boundary", () => {
     }
   });
 
-  it("accepts every frozen purchased duration from 1 minute through 24 hours", () => {
+  it("derives the frozen purchased duration instead of accepting it from the browser", () => {
     const create = sourceBlock(
       artistBook,
       "confirm: artistProcedure",
       "mySessions: artistProcedure",
     );
-    expect(create).toMatch(/durationMin:\s*z\.number\(\)\.int\(\)\.min\(1\)\.max\(24 \* 60\)/);
+    expect(create).not.toMatch(/durationMin:\s*z\./);
+    expect(create).not.toMatch(/durationMin:\s*input\.durationMin/);
   });
 
   it("leaves timezone conversion and clock sampling inside atomic domain commands", () => {

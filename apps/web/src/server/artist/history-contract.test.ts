@@ -77,6 +77,15 @@ describe("Past-studio exact historical access contract", () => {
     expect(pastStudioPage).toContain("/sessions/${encodeURIComponent(session.id)}");
   });
 
+  it("keeps Artist time primary on an exact historical session", () => {
+    expect(historySource).toMatch(
+      /artistTimezone:\s*profileRows\[0\]\?\.timezone \?\? row\.producerTimezone/,
+    );
+    expect(sessionPage).toMatch(/formatSessionDate\(startsAtIso, session\.artistTimezone\)/);
+    expect(sessionPage).toMatch(/formatSessionTime\(startsAtIso, session\.artistTimezone\)/);
+    expect(sessionPage).toContain("formatStudioTimeLine(");
+  });
+
   it("keeps zero-active-studio history reachable without creating a switcher studio", () => {
     expect(roleSource).toContain("hasAnyClientContacts");
     expect(roleSource).toContain(".where(eq(clientContacts.clerkUserId, params.userId))");

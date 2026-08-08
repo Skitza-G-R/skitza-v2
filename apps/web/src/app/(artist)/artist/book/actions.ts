@@ -16,7 +16,6 @@ import { appRouter } from "~/server/trpc/routers/_app";
 export async function confirmBookingAction(input: {
   producerId: string;
   startsAt: string;
-  durationMin: number;
   projectId: string;
   purchaseId: string;
   sessionAllowanceId: string;

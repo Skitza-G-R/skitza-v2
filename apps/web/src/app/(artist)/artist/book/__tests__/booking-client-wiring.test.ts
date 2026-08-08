@@ -20,9 +20,7 @@ describe("artist Book server wiring", () => {
   });
 
   it("locks reschedule to the original purchase-owned allowance", () => {
-    expect(pageSrc).toMatch(
-      /row\.sessionAllowanceId === rescheduleSession\.sessionAllowanceId/,
-    );
+    expect(pageSrc).toMatch(/row\.sessionAllowanceId === rescheduleSession\.sessionAllowanceId/);
   });
 
   it("serializes server-authored exact instants before the client boundary", () => {
@@ -33,9 +31,7 @@ describe("artist Book server wiring", () => {
 
 describe("focused short booking process", () => {
   it("does not trap the fixed frame inside a transformed reveal wrapper", () => {
-    expect(pageSrc).toMatch(
-      /<div className="mx-auto w-full max-w-\[480px\] space-y-5">/,
-    );
+    expect(pageSrc).toMatch(/<div className="mx-auto w-full max-w-\[480px\] space-y-5">/);
     expect(pageSrc).not.toMatch(
       /<div className="reveal-up mx-auto w-full max-w-\[480px\] space-y-5">/,
     );
@@ -68,13 +64,20 @@ describe("focused short booking process", () => {
     expect(clientSrc).not.toMatch(/handleSwitchStudio/);
   });
 
-  it("shows every booking step in the producer timezone", () => {
-    expect(clientSrc).not.toMatch(/availability\.artistTimeZone/);
-    expect(clientSrc).toMatch(/timeZone=\{availability\.studioTimeZone\}/);
+  it("shows Artist-local booking dates and times first", () => {
+    expect(clientSrc).toMatch(
+      /groupSlotsByLocalDate\(availability\.days, availability\.artistTimeZone\)/,
+    );
+    expect(clientSrc).toMatch(/artistTimeZone=\{availability\.artistTimeZone\}/);
+    expect(clientSrc).toMatch(/studioTimeZone=\{availability\.studioTimeZone\}/);
     expect(clientSrc).toMatch(/formatSessionTimeZoneLabel/);
-    expect(clientSrc).toMatch(/formatTime\(slot\.startsAtISO, timeZone, true\)/);
+    expect(clientSrc).toMatch(/formatTime\(slot\.startsAtISO, artistTimeZone, true\)/);
     expect(clientSrc).toMatch(/formatGmtClockTime\(new Date\(iso\), timeZone\)/);
-    expect(clientSrc).not.toMatch(/zonesDiffer/);
+  });
+
+  it("adds concise Studio time only on Review", () => {
+    expect(clientSrc.match(/formatStudioTimeLine\(/g)).toHaveLength(1);
+    expect(clientSrc).toMatch(/studioTime \?/);
   });
 
   it("uses the approved final booking labels", () => {
@@ -89,7 +92,8 @@ describe("exact booking commands", () => {
     expect(clientSrc).toMatch(/projectId: selectedPackage\.projectId/);
     expect(clientSrc).toMatch(/purchaseId: selectedPackage\.purchaseId/);
     expect(clientSrc).toMatch(/sessionAllowanceId: selectedPackage\.sessionAllowanceId/);
-    expect(clientSrc).toMatch(/durationMin: selectedPackage\.durationMin/);
+    expect(actionsSrc).not.toMatch(/durationMin:\s*number/);
+    expect(clientSrc).not.toMatch(/durationMin: selectedPackage\.durationMin/);
     expect(clientSrc).not.toMatch(/startMin: selected/);
     expect(clientSrc).not.toMatch(/block: selected/);
   });

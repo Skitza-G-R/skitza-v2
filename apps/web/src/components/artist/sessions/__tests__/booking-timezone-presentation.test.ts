@@ -9,35 +9,22 @@ const read = (...parts: string[]) => readFileSync(join(here, ...parts), "utf8");
 
 const detailSource = read("..", "session-detail-screen.tsx");
 const confirmationSource = read("..", "confirmation-hero.tsx");
-const pastStudioSource = read(
-  "..",
-  "..",
-  "..",
-  "..",
-  "app",
-  "(artist)",
-  "artist",
-  "settings",
-  "studios",
-  "[producerId]",
-  "sessions",
-  "[sessionId]",
-  "page.tsx",
-);
+const rowSource = read("..", "session-row.tsx");
 
-describe("producer-authored booking timezone presentation", () => {
-  it("uses producer time for live and historical Artist session details", () => {
-    expect(detailSource).not.toMatch(/session\.artistTimezone/);
+describe("Artist-primary booking timezone presentation", () => {
+  it("uses Artist time first across the live session surfaces", () => {
+    for (const source of [detailSource, confirmationSource, rowSource]) {
+      expect(source).toMatch(/session\.artistTimezone/);
+    }
     expect(detailSource).toMatch(/session\.producerTimezone/);
+    expect(detailSource).toMatch(/formatStudioTimeLine/);
+    expect(confirmationSource).not.toMatch(/formatStudioTimeLine/);
+    expect(rowSource).not.toMatch(/formatStudioTimeLine/);
     expect(detailSource).toMatch(/formatSessionTimeZoneLabel/);
-
-    expect(pastStudioSource).not.toMatch(/session\.artistTimezone/);
-    expect(pastStudioSource).toMatch(/session\.producerTimezone/);
-    expect(pastStudioSource).toMatch(/formatSessionTimeZoneLabel/);
   });
 
-  it("shows the date-correct producer timezone on booking confirmation", () => {
+  it("shows the date-correct Artist timezone on booking confirmation", () => {
     expect(confirmationSource).toMatch(/formatSessionTimeZoneLabel/);
-    expect(confirmationSource).toMatch(/session\.producerTimezone/);
+    expect(confirmationSource).toMatch(/session\.artistTimezone/);
   });
 });

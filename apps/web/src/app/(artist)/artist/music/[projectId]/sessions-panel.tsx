@@ -21,6 +21,7 @@ import {
 export type SessionRow = {
   id: string;
   startsAtIso: string;
+  artistTimezone: string;
   producerTimezone: string;
   durationMin: number;
   status: string;
@@ -30,19 +31,16 @@ export type SessionRow = {
 export function SessionsPanel({ sessions }: { sessions: SessionRow[] }) {
   return (
     <section>
-      <h2 className="font-mono text-[0.66rem] uppercase tracking-wider text-[rgb(var(--fg-muted))] mb-3">
+      <h2 className="mb-3 font-mono text-[0.66rem] tracking-wider text-[rgb(var(--fg-muted))] uppercase">
         Sessions
       </h2>
       <ul className="space-y-2">
         {sessions.map((session) => {
           const startsAt = new Date(session.startsAtIso);
           const isPast = startsAt < new Date();
-          const date = formatSessionDate(session.startsAtIso, session.producerTimezone);
-          const time = formatSessionTime(session.startsAtIso, session.producerTimezone);
-          const timezone = formatSessionTimeZoneLabel(
-            session.startsAtIso,
-            session.producerTimezone,
-          );
+          const date = formatSessionDate(session.startsAtIso, session.artistTimezone);
+          const time = formatSessionTime(session.startsAtIso, session.artistTimezone);
+          const timezone = formatSessionTimeZoneLabel(session.startsAtIso, session.artistTimezone);
           const statusLabel = isPast
             ? "Completed"
             : session.status === "pending_approval"

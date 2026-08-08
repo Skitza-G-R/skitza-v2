@@ -8,6 +8,8 @@ import { FunnelTopBar, PrimaryCta } from "~/components/artist/funnel/funnel-ui";
 import {
   bookingActionLabel,
   formatSessionTimeZoneLabel,
+  formatStudioTimeLine,
+  groupSlotsByLocalDate,
   locationLabel,
 } from "~/components/artist/sessions/book-data";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
@@ -100,11 +102,7 @@ function formatDuration(minutes: number): string {
   return `${String(hours)} hr ${String(remainder)} min`;
 }
 
-function formatInstant(
-  iso: string,
-  timeZone: string,
-  options: Intl.DateTimeFormatOptions,
-): string {
+function formatInstant(iso: string, timeZone: string, options: Intl.DateTimeFormatOptions): string {
   return new Date(iso).toLocaleString(undefined, { ...options, timeZone });
 }
 
@@ -160,12 +158,12 @@ export function BookingClient({
   const [isPending, startTransition] = useTransition();
   const operationKey = useRef<string | null>(null);
 
-  const selectedPackage = findPrepaidSessionByAllowance(
-    activePackages,
-    selectedAllowanceId,
+  const selectedPackage = findPrepaidSessionByAllowance(activePackages, selectedAllowanceId);
+  const artistDays = useMemo(
+    () => groupSlotsByLocalDate(availability.days, availability.artistTimeZone),
+    [availability.artistTimeZone, availability.days],
   );
-  const selectedDay =
-    availability.days.find((day) => day.date === selectedDate) ?? null;
+  const selectedDay = artistDays.find((day) => day.date === selectedDate) ?? null;
   const selectedSlot =
     selectedDay?.slots.find((slot) => slot.startsAtISO === selectedStartsAtISO) ?? null;
 
@@ -244,7 +242,6 @@ export function BookingClient({
           : await confirmBookingAction({
               producerId: activeStudioId,
               startsAt: selectedSlot.startsAtISO,
-              durationMin: selectedPackage.durationMin,
               projectId: selectedPackage.projectId,
               purchaseId: selectedPackage.purchaseId,
               sessionAllowanceId: selectedPackage.sessionAllowanceId,
@@ -334,7 +331,7 @@ export function BookingClient({
 
         {step === "day" ? (
           <DayStep
-            days={availability.days}
+            days={artistDays}
             showCalendar={showCalendar}
             onToggleCalendar={() => {
               setShowCalendar((visible) => !visible);
@@ -346,7 +343,7 @@ export function BookingClient({
         {step === "time" && selectedDay ? (
           <TimeStep
             day={selectedDay}
-            timeZone={availability.studioTimeZone}
+            artistTimeZone={availability.artistTimeZone}
             selectedStartsAtISO={selectedStartsAtISO}
             onSelect={chooseTime}
           />
@@ -357,7 +354,8 @@ export function BookingClient({
             slot={selectedSlot}
             package={selectedPackage}
             producerName={activeStudio?.name ?? "Your producer"}
-            timeZone={availability.studioTimeZone}
+            artistTimeZone={availability.artistTimeZone}
+            studioTimeZone={availability.studioTimeZone}
             autoConfirm={selectedPackage.autoConfirm}
           />
         ) : null}
@@ -468,12 +466,8 @@ function PackageStep({
             }}
             className="sk-press w-full rounded-[var(--radius-lg)] border p-4 text-left"
             style={{
-              background: selected
-                ? "rgb(var(--brand-primary) / 0.08)"
-                : "rgb(var(--bg-elevated))",
-              borderColor: selected
-                ? "rgb(var(--brand-primary))"
-                : "rgb(var(--border-subtle))",
+              background: selected ? "rgb(var(--brand-primary) / 0.08)" : "rgb(var(--bg-elevated))",
+              borderColor: selected ? "rgb(var(--brand-primary))" : "rgb(var(--border-subtle))",
               boxShadow: "var(--shadow-sm)",
             }}
           >
@@ -572,7 +566,9 @@ function MonthCalendar({
   if (!key) return null;
   const [year, month] = key.split("-").map(Number);
   if (!year || !month) return null;
-  const available = new Set(days.filter((day) => monthKey(day.date) === key).map((day) => day.date));
+  const available = new Set(
+    days.filter((day) => monthKey(day.date) === key).map((day) => day.date),
+  );
   const firstWeekday = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
   const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
   const cells = [
@@ -650,12 +646,12 @@ function MonthCalendar({
 
 function TimeStep({
   day,
-  timeZone,
+  artistTimeZone,
   selectedStartsAtISO,
   onSelect,
 }: {
   day: AvailabilityDay;
-  timeZone: string;
+  artistTimeZone: string;
   selectedStartsAtISO: string | null;
   onSelect: (startsAtISO: string) => void;
 }) {
@@ -663,7 +659,7 @@ function TimeStep({
     <div>
       {day.slots[0] ? (
         <p className="mb-3 font-mono text-[10px] font-semibold tracking-[0.08em] text-[rgb(var(--fg-muted))]">
-          {timeZone}
+          {artistTimeZone}
         </p>
       ) : null}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -677,18 +673,16 @@ function TimeStep({
               onClick={() => {
                 onSelect(slot.startsAtISO);
               }}
-              className="sk-press min-h-14 rounded-[var(--radius-lg)] border px-3 py-3 text-sm font-semibold"
+              className="sk-press min-h-14 rounded-[var(--radius-lg)] border px-2.5 py-3 text-sm font-semibold"
               style={{
-                background: selected
-                  ? "rgb(var(--brand-primary))"
-                  : "rgb(var(--bg-elevated))",
+                background: selected ? "rgb(var(--brand-primary))" : "rgb(var(--bg-elevated))",
                 color: selected ? "rgb(var(--bg-sidebar))" : "rgb(var(--fg-default))",
                 borderColor: selected
                   ? "rgb(var(--brand-primary-dark))"
                   : "rgb(var(--border-subtle))",
               }}
             >
-              {formatTime(slot.startsAtISO, timeZone, true)}
+              {formatTime(slot.startsAtISO, artistTimeZone, true)}
             </button>
           );
         })}
@@ -701,15 +695,18 @@ function ReviewStep({
   slot,
   package: selectedPackage,
   producerName,
-  timeZone,
+  artistTimeZone,
+  studioTimeZone,
   autoConfirm,
 }: {
   slot: ExactSlot;
   package: ActivePackage;
   producerName: string;
-  timeZone: string;
+  artistTimeZone: string;
+  studioTimeZone: string;
   autoConfirm: boolean;
 }) {
+  const studioTime = formatStudioTimeLine(slot.startsAtISO, artistTimeZone, studioTimeZone);
   return (
     <section
       className="overflow-hidden rounded-[var(--radius-xl)] border bg-[rgb(var(--bg-elevated))]"
@@ -720,14 +717,19 @@ function ReviewStep({
           Your time
         </p>
         <h2 className="font-display mt-2 text-[25px] leading-tight font-extrabold tracking-[-0.03em]">
-          {formatInstantDate(slot.startsAtISO, timeZone)}
+          {formatInstantDate(slot.startsAtISO, artistTimeZone)}
         </h2>
         <p className="mt-1 text-[18px] font-semibold">
-          {formatTime(slot.startsAtISO, timeZone)}
+          {formatTime(slot.startsAtISO, artistTimeZone)}
         </p>
         <p className="mt-3 text-[12px] text-[rgb(255_255_255_/_0.58)]">
-          {formatSessionTimeZoneLabel(slot.startsAtISO, timeZone)}
+          {formatSessionTimeZoneLabel(slot.startsAtISO, artistTimeZone)}
         </p>
+        {studioTime ? (
+          <p className="mt-1.5 text-[11px] leading-snug text-[rgb(255_255_255_/_0.58)]">
+            {studioTime}
+          </p>
+        ) : null}
       </div>
       <dl className="divide-y divide-[rgb(var(--border-subtle))] px-5">
         <ReviewRow label="Package" value={selectedPackage.packageName} />

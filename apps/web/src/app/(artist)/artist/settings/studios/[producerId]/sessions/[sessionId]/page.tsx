@@ -9,6 +9,7 @@ import {
   formatSessionDate,
   formatSessionTime,
   formatSessionTimeZoneLabel,
+  formatStudioTimeLine,
   locationLabel,
 } from "~/components/artist/sessions/book-data";
 import { PastStudioRecordShell } from "~/components/artist/settings/past-studio-record-shell";
@@ -50,6 +51,11 @@ export default async function ArtistPastStudioSessionPage({ params }: PageProps)
   });
   const backHref = `/artist/settings/studios/${encodeURIComponent(producerId)}`;
   const startsAtIso = session.startsAt.toISOString();
+  const studioTime = formatStudioTimeLine(
+    startsAtIso,
+    session.artistTimezone,
+    session.producerTimezone,
+  );
 
   return (
     <PastStudioRecordShell
@@ -64,18 +70,21 @@ export default async function ArtistPastStudioSessionPage({ params }: PageProps)
           {durationLabel(session.durationMin)} session
         </p>
         <h2 className="font-display mt-2 text-[clamp(1.7rem,7vw,2.6rem)] leading-tight font-extrabold tracking-[-0.04em]">
-          {formatSessionDate(startsAtIso, session.producerTimezone)} at{" "}
+          {formatSessionDate(startsAtIso, session.artistTimezone)} at{" "}
           <span className="font-mono">
-            {formatSessionTime(startsAtIso, session.producerTimezone)}
+            {formatSessionTime(startsAtIso, session.artistTimezone)}
           </span>
         </h2>
         <p className="mt-2 text-[11.5px] text-[rgb(255_255_255_/_0.55)]">
-          {formatSessionTimeZoneLabel(startsAtIso, session.producerTimezone)}
+          {formatSessionTimeZoneLabel(startsAtIso, session.artistTimezone)}
         </p>
-        {display.secondary ? (
-          <p className="mt-2 text-[11.5px] text-[rgb(255_255_255_/_0.55)]">
-            {display.secondary}
+        {studioTime ? (
+          <p className="mt-1 text-[11px] leading-snug text-[rgb(255_255_255_/_0.55)]">
+            {studioTime}
           </p>
+        ) : null}
+        {display.secondary ? (
+          <p className="mt-2 text-[11.5px] text-[rgb(255_255_255_/_0.55)]">{display.secondary}</p>
         ) : null}
       </section>
 
@@ -84,12 +93,13 @@ export default async function ArtistPastStudioSessionPage({ params }: PageProps)
           <SessionField
             icon={<CalendarDays size={15} aria-hidden />}
             label="Date"
-            value={formatSessionDate(startsAtIso, session.producerTimezone)}
+            value={formatSessionDate(startsAtIso, session.artistTimezone)}
           />
           <SessionField
             icon={<Clock3 size={15} aria-hidden />}
             label="Time"
-            value={`${formatSessionTime(startsAtIso, session.producerTimezone)} · ${formatSessionTimeZoneLabel(startsAtIso, session.producerTimezone)}`}
+            value={`${formatSessionTime(startsAtIso, session.artistTimezone)} · ${formatSessionTimeZoneLabel(startsAtIso, session.artistTimezone)}`}
+            secondary={studioTime}
           />
           <SessionField
             icon={<MapPin size={15} aria-hidden />}
@@ -106,10 +116,12 @@ function SessionField({
   icon,
   label,
   value,
+  secondary,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
+  secondary?: string | null;
 }) {
   return (
     <div>
@@ -117,9 +129,10 @@ function SessionField({
         {icon}
         {label}
       </dt>
-      <dd className="mt-1.5 text-[12.5px] font-semibold text-[rgb(var(--fg-default))]">
-        {value}
-      </dd>
+      <dd className="mt-1.5 text-[12.5px] font-semibold text-[rgb(var(--fg-default))]">{value}</dd>
+      {secondary ? (
+        <dd className="mt-1 text-[10.5px] leading-snug text-[rgb(var(--fg-muted))]">{secondary}</dd>
+      ) : null}
     </div>
   );
 }

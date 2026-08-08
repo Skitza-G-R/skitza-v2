@@ -1,22 +1,23 @@
 # Skitza — Product Requirements Document
 
-**Version:** 5.0
-**Date:** 16 July 2026
+**Version:** 5.1
+**Date:** 8 August 2026
 **Status:** Durable product source of truth
 
 ## 1. Authority and scope
 
-This PRD incorporates Gili's approved Linear master plan, **Approved complete plan — Clients, Projects, Music, Store & Payments**, approved on 16 July 2026.
+This PRD incorporates Gili's approved Linear master plan, **Approved complete plan — Clients, Projects, Music, Store & Payments**, approved on 16 July 2026, and the approved **Manual sessions and Google Calendar sync** contract, finalized on 8 August 2026.
 
 When sources conflict, use this order:
 
 1. Gili's latest explicit decision.
-2. The approved complete Linear master plan.
-3. Current code.
-4. This PRD.
-5. Older plans and backlog behavior.
+2. The approved Manual sessions and Google Calendar sync contract for its scope.
+3. The approved complete Linear master plan.
+4. Current code.
+5. This PRD.
+6. Older plans and backlog behavior.
 
-The approved master plan replaces older behavior for Clients, Projects, Music, Store, sessions, sharing, agreements, Payments, payment proofs, and downloads.
+The approved plans replace older behavior for Clients, Projects, Music, Store, sessions, sharing, agreements, Payments, payment proofs, and downloads. For Calendar scope, the August contract supersedes older manual-session rules and artist Google Calendar connection plans.
 
 It does not authorize a production reset, migration, merge, deployment, or promotion. Those actions require separate exact approval from Gili.
 
@@ -491,25 +492,45 @@ Normal Invite client remains separate from private offers. Fix its route. Do not
 
 ## 9. Sessions
 
-A session product uses the unified purchase workflow.
+A session is a real booking tied to one client, one project, and that project's purchase-owned bookable entitlement. Sessions never float outside a project.
 
-- It creates a new project by default or may deliberately join an existing same-client project.
-- A purchase stores fixed or Unlimited allowance, duration, location, booking buffer, and lead time.
-- Each session use is separate.
-- Paid booking opens only after the complete first installment is confirmed.
-- Free offer booking opens after acceptance.
-- Paused project blocks new booking.
-- On-time artist cancellation returns the use.
-- Producer cancellation returns the use.
-- Late cancellation and no-show consume the use.
-- Automatic confirmation confirms eligible times when enabled.
-- Otherwise producer approval is required.
-- Artist Cancel and Reschedule are real actions.
-- Project completion closes unused allowance without warning.
-- Reopen does not restore closed allowance.
-- More sessions require a new purchase.
+### 9.1 Artist booking and allowance
 
-Producer inline session editing from Calendar remains a separate backlog responsibility.
+- A purchase snapshots whether booking is enabled, fixed or Unlimited allowance, duration, buffer, and lead time. Each booking separately snapshots the producer's cancellation policy. Later product or policy edits do not rewrite an existing entitlement or booking.
+- Paid booking opens after the required first installment is confirmed. A true free offer opens after acceptance. A paused project blocks new artist booking.
+- Every booking use is separate. Automatic confirmation confirms an eligible artist-selected time when enabled; otherwise the time is held for producer approval.
+- Rescheduling transfers the original allowance treatment and never consumes a second use.
+- An allowed future cancellation or producer cancellation restores one consumed included use exactly once. Late cancellation and no-show consume it; completed sessions never restore it.
+- Project completion closes unused allowance. Reopening the project does not restore it.
+- The artist may request cancellation or rescheduling. The producer decides the request under the booking's snapshotted cancellation policy.
+
+### 9.2 Producer-created manual session
+
+- The producer selects an existing client and one of that client's existing projects. The project must have a real bookable product and usable duration snapshot; the form cannot create a client, project, product, or floating session.
+- The form asks for client, project, date, start time, billing treatment, and an editable title that defaults from the project or product. Artist identity, product, duration, entitlement, and ownership are derived and validated on the server.
+- Duration is fixed by the product entitlement. There are no manual location, note, participant, recurrence, or Google Meet fields.
+- Creation immediately confirms the session, shows it in the producer Calendar and authorized artist Sessions, notifies the artist, and sends one recoverable calendar invitation.
+- When an included use remains, `included` is the default and `complimentary` is the only override. When none remains, the producer must choose `complimentary` or `billable_extra`. Only `included` consumes allowance; `billable_extra` records payment due but does not create an invoice or charge.
+- Another active Skitza session is always a hard conflict. Working-hours, buffer, daily-limit, and unrelated Google-busy conflicts are explicit warnings the producer may override.
+
+### 9.3 Timezone display
+
+- Availability is authored in the producer's saved IANA studio timezone and stored/submitted as UTC instants.
+- Artist-facing dates, day grouping, `Today`, and time controls use the artist's saved IANA timezone.
+- When the artist and studio timezones differ, Review and Session detail show artist time first and a secondary `Studio time` line. Offsets are derived for the appointment date, including daylight-saving transitions.
+
+### 9.4 Producer Google Calendar add-on
+
+- Skitza remains the booking source of truth. Only the producer connects Google; the artist receives an attendee invitation or `.ics` fallback and does not connect a Google account.
+- The producer chooses one writable destination calendar for Skitza events and one or more calendars whose busy intervals block artist availability. Recurring and all-day busy intervals block; events marked free do not. Skitza never stores or displays unrelated event details.
+- Confirmed sessions create linked events containing only the approved title, time, artist attendee, artist-safe Skitza link, and private linkage metadata. Pending approval or payment creates a private opaque hold without an artist attendee; confirmation promotes the same event, while rejection or expiry removes it. First connection creates events only for future confirmed sessions.
+- Linked title, date, and start time sync both ways. Duration remains product-derived: resizing is corrected, a deliberate Google move outside normal availability or over unrelated busy time is accepted, and a move that overlaps another active Skitza session is rejected and restored.
+- Cancelling in Skitza cancels or removes the linked Google event and notifies the artist.
+- Deleting a linked Google event never cancels Skitza. It creates a missing-event state with Restore event and Cancel session choices.
+- The booked artist's RSVP is shown in producer and artist session views without changing booking status. Google-only guests remain only in Google.
+- Google failure, disconnection, stale data, or renewed-permission needs never roll back or close Skitza booking. Skitza marks the session Not synced, retries, and uses one idempotent `.ics` invitation fallback when needed.
+- Disconnecting leaves existing Google events in place. Same-account reconnect reuses links without duplicates; connecting a different Google account is an explicit switch and never reuses the old account's event IDs. Concurrent Skitza and Google edits resolve in favor of Skitza, and healthy sync normally converges within one minute.
+- Connection controls remain hidden until connect, calendar selection, delivery, failure recovery, reconnect, and disconnect work end to end.
 
 ## 10. Agreements, tax, and immutable snapshots
 
@@ -824,7 +845,7 @@ Audio formats remain WAV, FLAC, MP3, and AAC, with a 100 MB per-file limit. Vers
 
 - Home
 - Music
-- Book
+- Sessions
 - Store
 - Payments
 
@@ -879,7 +900,8 @@ Remove without replacement:
 Keep and make real:
 
 - Library Upload audio
-- artist session Cancel and Reschedule
+- producer New session and artist cancellation/reschedule request actions
+- producer decisions for artist cancellation/reschedule requests
 - automatic session confirmation according to setting
 - normal Invite client and its route
 - Store editor actions
@@ -950,6 +972,12 @@ This PRD does not authorize running a reset or migration.
 - Guest comments or public downloads.
 - Producer-style project management for artists.
 - Store products/prices on public portfolio or before sign-in.
+- Artist Google OAuth, Google Appointment Schedule, or any second artist booking entry point.
+- Importing ordinary external-calendar events as Skitza sessions, clients, or projects.
+- Outlook, Apple Calendar, generic CalDAV, or other calendar providers in this scope.
+- Creating a client, project, or product from the producer manual-session form, or adding manual location, notes, participants, recurrence, or Google Meet.
+- Letting Google resize product-derived duration or syncing Google-only guests into Skitza.
+- Automatic invoice creation, charge, refund, or payment movement for a manual session.
 - Normal song moves across projects with financial history.
 - Permanent deletion of historical clients, projects, purchases, agreements, payments, or proofs.
 - Restoring magic-link sharing or Project Share.

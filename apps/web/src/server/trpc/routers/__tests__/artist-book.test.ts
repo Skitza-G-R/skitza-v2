@@ -10,6 +10,10 @@ const domainSource = readFileSync(
   join(here, "..", "..", "..", "domain", "session-booking", "service.ts"),
   "utf8",
 );
+const bookingEngineSource = readFileSync(
+  join(here, "..", "..", "..", "booking", "availability.ts"),
+  "utf8",
+);
 const repositorySource = readFileSync(
   join(here, "..", "..", "..", "domain", "session-booking", "db.ts"),
   "utf8",
@@ -60,6 +64,14 @@ describe("artist.book purchase-owned session boundary", () => {
     expect(availability).not.toMatch(/pending_payment|depositPaid|finalPaid/);
   });
 
+  it("delegates exact slot generation to the shared server-only booking engine", () => {
+    expect(availability).toContain("generateArtistExactSessionSlots({");
+    expect(availability).not.toMatch(/startMin \+= 30|studioLocalDateTimeUtcCandidates/);
+    expect(bookingEngineSource).toMatch(/studioStartMin \+= slotIncrementMin/);
+    expect(bookingEngineSource).toContain("studioLocalDateTimeUtcCandidates");
+    expect(bookingEngineSource).toContain("assertSessionSlotAvailable({");
+  });
+
   it("lists active purchase allowances through stable client-contact ownership", () => {
     expect(activePackages).toMatch(/\.from\(purchases\)/);
     expect(activePackages).toMatch(/\.innerJoin\(\s*projects/);
@@ -74,7 +86,9 @@ describe("artist.book purchase-owned session boundary", () => {
   it("derives allowance usage from purchase-owned booking outcomes", () => {
     expect(activePackages).toMatch(/eq\(bookings\.purchaseId, allowance\.purchaseId\)/);
     expect(activePackages).toMatch(/eq\(bookings\.sessionAllowanceId, allowance\.allowanceId\)/);
-    expect(activePackages).toMatch(/sessionUseConsumesAllowance\(row\.outcome\)/);
+    expect(activePackages).toMatch(
+      /sessionUseConsumesAllowance\(row\.outcome, row\.billingTreatment\)/,
+    );
     expect(activePackages).toMatch(/durationMin: allowance\.durationMin/);
     expect(activePackages).not.toMatch(/purchaseRequests|packageNameSnapshot|sessionCountSnapshot/);
   });
@@ -91,14 +105,17 @@ describe("artist.book purchase-owned session boundary", () => {
     expect(confirm).not.toMatch(/\.insert\(bookings\)|\.update\(bookings\)/);
   });
 
-  it("serializes producer slots and the exact allowance before policy evaluation", () => {
+  it("serializes the producer schedule and exact allowance before policy evaluation", () => {
     expect(repositorySource).toContain("sessionBookingScheduleAdvisoryLockKey(anchors.producerId)");
     expect(repositorySource).toContain("session-booking:allowance:${anchors.sessionAllowanceId}");
     expect(repositorySource).toContain("return work(transactionAdapter(tx))");
     expect(domainSource).toMatch(/assertSessionBookingAllowed\(\{/);
-    expect(domainSource).toMatch(/distinctConsumingUses\.set\(use\.allowanceUseId, use\.outcome\)/);
-    expect(domainSource).toMatch(/existingOutcomes:\s*\[\.\.\.distinctConsumingUses\.values\(\)\]/);
-    expect(domainSource).toMatch(/requestedDurationMin: input\.durationMin/);
+    expect(domainSource).toMatch(/distinctConsumingUses\.set\(use\.allowanceUseId, use\)/);
+    expect(domainSource).toMatch(
+      /existingOutcomes:\s*\[\.\.\.distinctConsumingUses\.values\(\)\]\.map\(\(use\) => use\.outcome\)/,
+    );
+    expect(domainSource).toMatch(/existingUses:\s*\[\.\.\.distinctConsumingUses\.values\(\)\]/);
+    expect(domainSource).toMatch(/requestedDurationMin: context\.allowance\.durationMin/);
   });
 
   it("locks lifecycle and allowance rows before evaluating capacity", () => {
@@ -185,19 +202,23 @@ describe("artist.book purchase-owned session boundary", () => {
     expect(repositorySource).toMatch(
       /inArray\(bookings\.status, \["pending_approval", "confirmed"\]\)/,
     );
-    expect(domainSource).toMatch(
-      /input\.startsAt\.getTime\(\) < existingEnd &&\s*existing\.startsAt\.getTime\(\) < requestedEnd \+ requestedBufferMs/,
+    expect(bookingEngineSource).toContain("existing.startsAt.getTime() < requestedEnd");
+    expect(bookingEngineSource).toContain(
+      "existing.startsAt.getTime() < requestedEnd + requestedBufferMs",
     );
     expect(confirm).not.toMatch(/pending_payment/);
   });
 
-  it("persists exact project, purchase, and allowance ownership without legacy credits", () => {
+  it("persists exact ownership and server-derived booking metadata", () => {
     expect(domainSource).toMatch(/const status = initialSessionBookingStatus/);
     expect(domainSource).toMatch(/projectId: input\.projectId/);
     expect(domainSource).toMatch(/purchaseId: input\.purchaseId/);
     expect(domainSource).toMatch(/sessionAllowanceId: input\.sessionAllowanceId/);
-    expect(domainSource).not.toMatch(
-      /purchaseRequests|depositPaid|finalPaid|legacy|packageNameSnapshot/,
-    );
+    expect(domainSource).toMatch(/const title = normalizeSessionBookingTitle/);
+    expect(domainSource).toMatch(/const origin = options\.origin \?\? "artist_request"/);
+    expect(domainSource).toMatch(/\s+title,\s+origin,\s+billingTreatment,/);
+    expect(domainSource).toMatch(/billingTreatment,/);
+    expect(domainSource).toMatch(/calendarRevision: options\.calendarRevision \?\? 1/);
+    expect(domainSource).not.toMatch(/purchaseRequests|depositPaid|finalPaid|packageNameSnapshot/);
   });
 });

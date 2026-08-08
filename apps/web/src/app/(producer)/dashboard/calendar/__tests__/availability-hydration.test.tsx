@@ -12,10 +12,7 @@ vi.mock("next/navigation", () => ({
 
 const ORIGINAL_TZ = process.env.TZ;
 
-function renderAvailability(
-  processTimeZone: string,
-  initialNow: string,
-): string {
+function renderAvailability(processTimeZone: string, initialNow: string): string {
   process.env.TZ = processTimeZone;
 
   const props = {
@@ -24,6 +21,7 @@ function renderAvailability(
     settings: {
       autoConfirmBookings: false,
       cancellationPolicyHours: 12,
+      maxSessionsPerDay: null,
     },
     initialWeekStart: "sunday" as const,
     timeZone: "Asia/Jerusalem",

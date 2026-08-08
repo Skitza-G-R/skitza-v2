@@ -160,4 +160,21 @@ describe("artist Sessions scalable tabs", () => {
     expect(navigationMocks.push).not.toHaveBeenCalled();
     expect(screen.getByText("Upcoming package")).toBeTruthy();
   });
+
+  it("keeps the compact session list in Artist time when zones differ", () => {
+    renderSessions();
+    expect(screen.queryByText(/Studio time ·/)).toBeNull();
+    cleanup();
+
+    render(
+      <MySessionsScreen
+        sessions={[{ ...UPCOMING_SESSION, artistTimezone: "America/New_York" }]}
+        allowances={[ALLOWANCE]}
+        nowISO="2026-07-30T08:00:00.000Z"
+        previewOnly
+      />,
+    );
+
+    expect(screen.queryByText(/Studio time ·/)).toBeNull();
+  });
 });

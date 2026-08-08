@@ -44,37 +44,92 @@ export function bookingActionLabel(gate3On: boolean): "Request this time" | "Boo
   return gate3On ? "Request this time" : "Book this time";
 }
 
-// ── Producer-local session date/time formatting ───────────────────────
-// Booking instants stay UTC internally. Every booking surface renders that
-// instant in the Producer's configured IANA timezone so Artist and Producer
-// see the same appointment wall clock.
+// ── Artist-primary session date/time formatting ───────────────────
+// Booking instants stay UTC internally. Artist surfaces render the Artist's
+// configured IANA timezone first and add a concise Studio-time line only when
+// the two configured timezones differ.
 
-export function formatSessionDate(iso: string, producerTimezone: string): string {
+export function formatSessionDate(iso: string, timeZone: string): string {
   return new Date(iso).toLocaleDateString("en-US", {
     weekday: "short",
     month: "short",
     day: "numeric",
-    timeZone: producerTimezone,
+    timeZone,
   });
 }
 
-export function formatSessionTime(iso: string, producerTimezone: string): string {
+export function formatSessionTime(iso: string, timeZone: string): string {
   return new Date(iso).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
-    timeZone: producerTimezone,
+    timeZone,
   });
 }
 
-export function formatSessionTimeZoneLabel(iso: string, producerTimezone: string): string {
+function sessionTimeZoneOffset(iso: string, timeZone: string): string {
   const offset = new Intl.DateTimeFormat("en-US", {
-    timeZone: producerTimezone,
+    timeZone,
     timeZoneName: "shortOffset",
   })
     .formatToParts(new Date(iso))
     .find((part) => part.type === "timeZoneName")?.value;
-  return `${producerTimezone} · ${offset ?? "GMT"}`;
+  return offset ?? "GMT";
+}
+
+export function formatSessionTimeZoneLabel(iso: string, timeZone: string): string {
+  return `${timeZone} · ${sessionTimeZoneOffset(iso, timeZone)}`;
+}
+
+function sessionLocalDateKey(iso: string, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone,
+  }).formatToParts(new Date(iso));
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+  if (!year || !month || !day) return iso.slice(0, 10);
+  return `${year}-${month}-${day}`;
+}
+
+export function formatStudioTimeLine(
+  iso: string,
+  artistTimeZone: string,
+  studioTimeZone: string,
+): string | null {
+  if (artistTimeZone === studioTimeZone) return null;
+  const studioDate =
+    sessionLocalDateKey(iso, artistTimeZone) === sessionLocalDateKey(iso, studioTimeZone)
+      ? ""
+      : `${formatSessionDate(iso, studioTimeZone)} · `;
+  return `Studio time · ${studioDate}${formatSessionTime(iso, studioTimeZone)} ${sessionTimeZoneOffset(iso, studioTimeZone)}`;
+}
+
+export function groupSlotsByLocalDate<TSlot extends { startsAtISO: string }>(
+  days: readonly { slots: readonly TSlot[] }[],
+  timeZone: string,
+): Array<{ date: string; slots: TSlot[] }> {
+  const grouped = new Map<string, TSlot[]>();
+  for (const day of days) {
+    for (const slot of day.slots) {
+      const date = sessionLocalDateKey(slot.startsAtISO, timeZone);
+      const slots = grouped.get(date) ?? [];
+      slots.push(slot);
+      grouped.set(date, slots);
+    }
+  }
+  return [...grouped.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([date, slots]) => ({
+      date,
+      slots: slots.sort(
+        (left, right) =>
+          new Date(left.startsAtISO).getTime() - new Date(right.startsAtISO).getTime(),
+      ),
+    }));
 }
 
 // ── Domain types ──────────────────────────────────────────────────────
