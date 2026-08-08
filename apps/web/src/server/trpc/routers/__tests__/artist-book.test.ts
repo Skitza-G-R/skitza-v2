@@ -164,6 +164,9 @@ describe("artist.book purchase-owned session boundary", () => {
     const commit = disconnectDomainSource.slice(
       disconnectDomainSource.indexOf("export async function commitArtistStudioDisconnect"),
     );
+    const quotaLock = commit.indexOf("lockProducerAudioStorageQuota(tx, input.producerId)");
+    const disconnectLock = commit.indexOf("artist-disconnect:", quotaLock);
+    const relationshipLock = commit.indexOf('.for("update")', disconnectLock);
     const snapshot = commit.indexOf("loadDisconnectSnapshot");
     const blockerPolicy = commit.indexOf("evaluateArtistDisconnectBlockers", snapshot);
     const blocked = commit.indexOf(
@@ -173,7 +176,10 @@ describe("artist.book purchase-owned session boundary", () => {
     const grantCapture = commit.indexOf("captureHistoricalGrants", blocked);
     const archive = commit.indexOf(".update(clientContacts)", grantCapture);
 
-    expect(snapshot).toBeGreaterThanOrEqual(0);
+    expect(quotaLock).toBeGreaterThanOrEqual(0);
+    expect(disconnectLock).toBeGreaterThan(quotaLock);
+    expect(relationshipLock).toBeGreaterThan(disconnectLock);
+    expect(snapshot).toBeGreaterThan(relationshipLock);
     expect(blockerPolicy).toBeGreaterThan(snapshot);
     expect(blocked).toBeGreaterThan(blockerPolicy);
     expect(grantCapture).toBeGreaterThan(blocked);

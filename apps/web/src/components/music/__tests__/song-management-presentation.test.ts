@@ -124,6 +124,26 @@ describe("song management source guards", () => {
     join(here, "..", "producer-music-library.tsx"),
     "utf8",
   );
+  const producerMusicPageSource = readFileSync(
+    join(here, "..", "..", "..", "app", "(producer)", "dashboard", "music", "page.tsx"),
+    "utf8",
+  );
+  const producerProjectPageSource = readFileSync(
+    join(
+      here,
+      "..",
+      "..",
+      "..",
+      "app",
+      "(producer)",
+      "dashboard",
+      "music",
+      "project",
+      "[projectId]",
+      "page.tsx",
+    ),
+    "utf8",
+  );
 
   it("renders an independent producer song-status filter outside project lifecycle filtering", () => {
     expect(librarySource).toContain('aria-label="Song status"');
@@ -181,9 +201,24 @@ describe("song management source guards", () => {
     expect(controlsSource).toContain("Mark as Released");
     expect(controlsSource).toContain("One-way change");
     expect(controlsSource).toContain("released || !markReleased");
-    expect(controlsSource).toContain("Released songs allow permanent deletion");
+    expect(controlsSource).toContain("This status is separate from Done / Delivered");
+    expect(controlsSource).not.toContain("Released songs allow permanent deletion");
+    expect(controlsSource).not.toContain("unlock released-audio cleanup");
     expect(librarySource).toContain('role === "producer"');
     expect(projectSource).toContain('role === "producer"');
+  });
+
+  it("threads permanent song deletion through every producer Library and Project row menu", () => {
+    for (const source of [librarySource, producerLibrarySource, projectSource]) {
+      expect(source).toContain("deleteSong");
+    }
+    expect(producerMusicPageSource).toContain("deleteMusicSong");
+    expect(producerMusicPageSource).toContain("deleteSong={deleteMusicSong}");
+    expect(producerProjectPageSource).toContain("deleteMusicSong");
+    expect(producerProjectPageSource).toContain("deleteSong={deleteMusicSong}");
+    expect(controlsSource).toContain("Delete song permanently");
+    expect(controlsSource).toContain("All versions and their audio files");
+    expect(controlsSource).toContain("cannot be undone");
   });
 
   it("uses 44px controls and radius-lg text actions in a mobile-safe dialog", () => {

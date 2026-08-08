@@ -3,11 +3,16 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   S3Client,
 } from "@aws-sdk/client-s3";
 import { describe, expect, it } from "vitest";
 
-import { createPrivateSongArtworkUpload, finalizePrivateSongArtworkUpload } from "../storage";
+import {
+  createPrivateSongArtworkUpload,
+  finalizePrivateSongArtworkUpload,
+  reconcilePrivateSongArtworkDeletion,
+} from "../storage";
 import {
   createSongArtworkUploadToken,
   songArtworkObjectKeys,
@@ -24,6 +29,9 @@ class FakeArtworkStorage {
   readonly objects = new Map<string, StoredObject>();
   readonly copyInputs: CopyObjectCommand["input"][] = [];
   readonly deletedKeys: string[] = [];
+  deleteFailure: Error | null = null;
+  listFailure: Error | null = null;
+  preserveObjectOnDelete = false;
 
   client(): S3Client {
     return {
@@ -35,7 +43,10 @@ class FakeArtworkStorage {
     if (command instanceof HeadObjectCommand) {
       const object = this.objects.get(command.input.Key ?? "");
       if (!object || (command.input.IfMatch && command.input.IfMatch !== object.etag)) {
-        throw new Error("not found");
+        throw Object.assign(new Error("not found"), {
+          name: "NotFound",
+          $metadata: { httpStatusCode: 404 },
+        });
       }
       return {
         ContentType: object.contentType,
@@ -75,8 +86,19 @@ class FakeArtworkStorage {
     if (command instanceof DeleteObjectCommand) {
       const key = command.input.Key ?? "";
       this.deletedKeys.push(key);
-      this.objects.delete(key);
+      if (!this.preserveObjectOnDelete) this.objects.delete(key);
+      if (this.deleteFailure) throw this.deleteFailure;
       return {};
+    }
+    if (command instanceof ListObjectsV2Command) {
+      if (this.listFailure) throw this.listFailure;
+      const prefix = command.input.Prefix ?? "";
+      return {
+        IsTruncated: false,
+        Contents: [...this.objects.keys()]
+          .filter((key) => key.startsWith(prefix))
+          .map((Key) => ({ Key })),
+      };
     }
     throw new Error("unsupported command");
   }
@@ -207,5 +229,88 @@ describe("private song artwork finalization", () => {
       ),
     ).rejects.toThrow("not a valid JPG, PNG, or WebP");
     expect(storage.copyInputs).toHaveLength(0);
+  });
+});
+
+describe("private song artwork deletion reconciliation", () => {
+  function storedFinalArtwork() {
+    const value = fixture();
+    const storage = new FakeArtworkStorage();
+    const object = {
+      body: PNG_BYTES,
+      contentType: "image/png",
+      etag: '"art-etag"',
+    };
+    storage.objects.set(value.finalKey, object);
+    return {
+      storage,
+      value,
+      identity: {
+        key: value.finalKey,
+        contentType: "image/png" as const,
+        sizeBytes: object.body.byteLength,
+        objectEtag: object.etag,
+      },
+    };
+  }
+
+  it("deletes only an exact immutable artwork identity and proves it is absent", async () => {
+    const { storage, value, identity } = storedFinalArtwork();
+
+    await expect(
+      reconcilePrivateSongArtworkDeletion(identity, storage.client()),
+    ).resolves.toBeUndefined();
+
+    expect(storage.deletedKeys).toEqual([value.finalKey]);
+    expect(storage.objects.has(value.finalKey)).toBe(false);
+  });
+
+  it("refuses an identity mismatch without issuing a delete", async () => {
+    const { storage, value, identity } = storedFinalArtwork();
+
+    await expect(
+      reconcilePrivateSongArtworkDeletion(
+        { ...identity, objectEtag: '"different-etag"' },
+        storage.client(),
+      ),
+    ).rejects.toThrow("artwork changed before it could be deleted");
+
+    expect(storage.deletedKeys).toEqual([]);
+    expect(storage.objects.has(value.finalKey)).toBe(true);
+  });
+
+  it("accepts an ambiguous delete response only when the final HEAD proves absence", async () => {
+    const { storage, value, identity } = storedFinalArtwork();
+    storage.deleteFailure = new Error("provider response was lost");
+
+    await expect(
+      reconcilePrivateSongArtworkDeletion(identity, storage.client()),
+    ).resolves.toBeUndefined();
+
+    expect(storage.deletedKeys).toEqual([value.finalKey]);
+    expect(storage.objects.has(value.finalKey)).toBe(false);
+  });
+
+  it("fails closed when an ambiguous delete leaves the exact object present", async () => {
+    const { storage, value, identity } = storedFinalArtwork();
+    storage.deleteFailure = new Error("provider response was lost");
+    storage.preserveObjectOnDelete = true;
+
+    await expect(reconcilePrivateSongArtworkDeletion(identity, storage.client())).rejects.toThrow(
+      "artwork deletion could not be verified",
+    );
+
+    expect(storage.deletedKeys).toEqual([value.finalKey]);
+    expect(storage.objects.has(value.finalKey)).toBe(true);
+  });
+
+  it("does not trust a flattened HEAD 404 when exact listing also fails", async () => {
+    const { storage, identity } = storedFinalArtwork();
+    storage.objects.clear();
+    storage.listFailure = new Error("bucket unavailable");
+
+    await expect(reconcilePrivateSongArtworkDeletion(identity, storage.client())).rejects.toThrow(
+      "artwork could not be verified for deletion",
+    );
   });
 });

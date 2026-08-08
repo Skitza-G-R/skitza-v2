@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
+  CompletedAudioObjectCleanupRequiredError,
   completedAudioObjectIdentityMatches,
   completeOrRecoverMultipart,
   createAudioIdentityFingerprint,
@@ -17,6 +18,10 @@ import {
   type PendingAudioCleanupPort,
   type PendingMultipartCancellationPort,
 } from "./audio";
+import {
+  MULTIPART_TERMINAL_SEAL_CONTENT_TYPE,
+  multipartTerminalSealFingerprint,
+} from "../../audio/multipart-storage-recovery";
 
 describe("track audio identity", () => {
   it("matches the database's length-prefixed UTF-8 canonical identity", () => {
@@ -47,14 +52,14 @@ describe("track audio identity", () => {
 });
 
 describe("audio upload validation", () => {
-  it("rejects files over 500MB", () => {
+  it("rejects files over the decimal 100MB cap", () => {
     expect(() => {
       validateUploadInput({
         filename: "x.wav",
-        sizeBytes: 501 * 1024 * 1024,
+        sizeBytes: 100_000_001,
         contentType: "audio/wav",
       });
-    }).toThrow(/500 ?MB/i);
+    }).toThrow(/100 ?MB/i);
   });
   it("rejects non-audio content types", () => {
     expect(() => {
@@ -165,11 +170,11 @@ describe("completed audio object identity", () => {
     ).toThrow(/identity/i);
     expect(() =>
       validateCompletedAudioObjectIdentity({
-        claimedSizeBytes: 501 * 1024 * 1024,
+        claimedSizeBytes: 100_000_001,
         completionToken: "a".repeat(64),
         completedEtag: '"stable-etag"',
         observedEtag: '"stable-etag"',
-        observedSizeBytes: 501 * 1024 * 1024,
+        observedSizeBytes: 100_000_001,
         observedCompletionToken: "a".repeat(64),
       }),
     ).toThrow(/identity/i);
@@ -233,13 +238,13 @@ describe("completed multipart reconciliation", () => {
     });
   });
 
-  it("fails closed on identity mismatch or repeated observation ambiguity", async () => {
+  it("fails closed on a different token-bound object or repeated observation ambiguity", async () => {
     let completeCalls = 0;
     const mismatch: AudioMultipartCompletionPort = {
       head() {
         return Promise.resolve({
           ...exactObservation,
-          sizeBytes: exactObservation.sizeBytes + 1,
+          completionToken: "b".repeat(64),
         });
       },
       complete() {
@@ -261,6 +266,49 @@ describe("completed multipart reconciliation", () => {
     };
     await expect(completeOrRecoverMultipart(input, ambiguous)).rejects.toThrow(/retry/i);
     expect(completeCalls).toBe(0);
+  });
+
+  it.each([exactObservation.sizeBytes + 1, 100_000_001])(
+    "retains the authoritative ETag for cleanup when the token-bound object has %i bytes",
+    async (observedSizeBytes) => {
+      let completeCalls = 0;
+      const port: AudioMultipartCompletionPort = {
+        head() {
+          return Promise.resolve({ ...exactObservation, sizeBytes: observedSizeBytes });
+        },
+        complete() {
+          completeCalls += 1;
+          return Promise.resolve({ eTag: exactObservation.eTag });
+        },
+      };
+
+      const error = await completeOrRecoverMultipart(input, port).catch(
+        (caught: unknown) => caught,
+      );
+      expect(error).toBeInstanceOf(CompletedAudioObjectCleanupRequiredError);
+      expect(error).toMatchObject({ objectEtag: exactObservation.eTag });
+      expect(completeCalls).toBe(0);
+    },
+  );
+
+  it("retains the authoritative ETag when completion creates an oversized object", async () => {
+    let completed = false;
+    let completeCalls = 0;
+    const port: AudioMultipartCompletionPort = {
+      head() {
+        return Promise.resolve(completed ? { ...exactObservation, sizeBytes: 100_000_001 } : null);
+      },
+      complete() {
+        completed = true;
+        completeCalls += 1;
+        return Promise.resolve({ eTag: exactObservation.eTag });
+      },
+    };
+
+    const error = await completeOrRecoverMultipart(input, port).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(CompletedAudioObjectCleanupRequiredError);
+    expect(error).toMatchObject({ objectEtag: exactObservation.eTag });
+    expect(completeCalls).toBe(1);
   });
 
   it("does not guess after a successful completion with repeatedly ambiguous HEAD", async () => {
@@ -347,6 +395,7 @@ describe("durable pending audio completion", () => {
     pendingAudioStartedAt: null,
     pendingAudioCreateAttemptedAt: null,
     pendingAudioCompleteAttemptedAt: null,
+    pendingAudioCompleteWriteOnceProtectedAt: null,
     pendingAudioPartUrlsExpireAt: null,
     pendingAudioCancelRequestedAt: null,
     pendingAudioCleanupEtag: null,
@@ -393,11 +442,39 @@ describe("durable pending audio completion", () => {
           pendingAudioStartedAt: new Date("2026-07-17T12:00:00.000Z"),
           pendingAudioCreateAttemptedAt: new Date("2026-07-17T12:00:01.000Z"),
           pendingAudioCompleteAttemptedAt: new Date("2026-07-17T12:00:03.000Z"),
+          pendingAudioCompleteWriteOnceProtectedAt: new Date("2026-07-17T12:00:03.000Z"),
           pendingAudioPartUrlsExpireAt: new Date("2026-07-17T12:15:02.000Z"),
         },
         input,
       ),
     ).toBe("observe_only");
+  });
+
+  it("keeps legacy completion attempts observable but rejects a forged protection boundary", () => {
+    const completeAttemptedAt = new Date("2026-07-17T12:00:03.000Z");
+    const legacyPending = {
+      ...placeholder,
+      pendingAudioR2Key: input.key,
+      pendingAudioUploadId: input.uploadId,
+      pendingAudioInitiationDigest: `sha256:${"1".repeat(64)}`,
+      pendingAudioCompletionToken: input.completionToken,
+      pendingAudioSizeBytes: input.sizeBytes,
+      pendingAudioStartedAt: new Date("2026-07-17T12:00:00.000Z"),
+      pendingAudioCreateAttemptedAt: new Date("2026-07-17T12:00:01.000Z"),
+      pendingAudioCompleteAttemptedAt: completeAttemptedAt,
+      pendingAudioPartUrlsExpireAt: new Date("2026-07-17T12:15:02.000Z"),
+    };
+
+    expect(resolvePendingAudioCompletion(legacyPending, input)).toBe("observe_only");
+    expect(() =>
+      resolvePendingAudioCompletion(
+        {
+          ...legacyPending,
+          pendingAudioCompleteWriteOnceProtectedAt: new Date(completeAttemptedAt.getTime() + 1),
+        },
+        input,
+      ),
+    ).toThrow(/pending audio upload/i);
   });
 
   it("recognizes an already-attached retry and rejects partial journal shapes", () => {
@@ -431,6 +508,7 @@ describe("durable pending audio completion", () => {
       pendingAudioStartedAt: new Date("2026-07-17T12:00:00.000Z"),
       pendingAudioCreateAttemptedAt: new Date("2026-07-17T12:00:01.000Z"),
       pendingAudioCompleteAttemptedAt: new Date("2026-07-17T12:00:03.000Z"),
+      pendingAudioCompleteWriteOnceProtectedAt: new Date("2026-07-17T12:00:03.000Z"),
       pendingAudioPartUrlsExpireAt: new Date("2026-07-17T12:15:02.000Z"),
       pendingAudioCancelRequestedAt: null,
       pendingAudioCleanupEtag: '"completed-etag"',
@@ -472,31 +550,43 @@ describe("durable multipart cancellation", () => {
     objectEtag: null,
     sizeBytes: 123_456,
     completionToken: "a".repeat(64),
+    terminalSealAllowed: true,
+  } as const;
+  const sealObservation = {
+    eTag: '"terminal-seal"',
+    sizeBytes: 1,
+    contentType: MULTIPART_TERMINAL_SEAL_CONTENT_TYPE,
+    completionToken: identity.completionToken,
+    sealFingerprint: multipartTerminalSealFingerprint(identity),
   } as const;
 
-  it("retries safely after remote abort succeeds and the database clear crashes", async () => {
-    let uploadExists = true;
+  it("retries safely after abort and terminal sealing succeed but the database clear crashes", async () => {
+    let sealed = false;
     let pending = true;
     let crashBeforeClear = true;
-    let abortCalls = 0;
+    const events: string[] = [];
     const port: PendingMultipartCancellationPort = {
       abortExact(exact) {
         expect(exact).toEqual(identity);
-        abortCalls += 1;
-        uploadExists = false;
+        events.push("abort-and-prove-absence");
         return Promise.resolve();
       },
       head() {
-        return Promise.resolve(null);
+        events.push(sealed ? "head-seal" : "head-absent");
+        return Promise.resolve(sealed ? sealObservation : null);
       },
-      publishDeleteIntent() {
-        return Promise.reject(new Error("delete intent must not run without a completed object"));
+      publishCleanupEtag() {
+        return Promise.reject(new Error("an absent key must not publish a cleanup ETag"));
       },
-      deleteExact() {
-        return Promise.reject(new Error("delete must not run without a completed object"));
+      putSeal(exact) {
+        expect(exact.replaceEtag).toBeNull();
+        events.push("put-seal-if-absent");
+        sealed = true;
+        return Promise.resolve();
       },
       clearExact(exact) {
         expect(exact).toEqual(identity);
+        events.push("clear-reservation");
         if (crashBeforeClear) return Promise.reject(new Error("simulated database crash"));
         pending = false;
         return Promise.resolve(true);
@@ -506,20 +596,40 @@ describe("durable multipart cancellation", () => {
     await expect(reconcilePendingMultipartCancellation(identity, port)).rejects.toThrow(
       /database crash/i,
     );
-    expect(uploadExists).toBe(false);
+    expect(sealed).toBe(true);
     expect(pending).toBe(true);
 
     crashBeforeClear = false;
     await expect(reconcilePendingMultipartCancellation(identity, port)).resolves.toBe(true);
     expect(pending).toBe(false);
-    expect(abortCalls).toBe(2);
+    expect(events).toEqual([
+      "abort-and-prove-absence",
+      "head-absent",
+      "put-seal-if-absent",
+      "head-seal",
+      "clear-reservation",
+      "abort-and-prove-absence",
+      "head-seal",
+      "clear-reservation",
+    ]);
   });
 
-  it("conditionally deletes and clears an exact completion that won the cancel race", async () => {
-    let object: Readonly<{ eTag: string; sizeBytes: number; completionToken: string }> | null = {
+  it("journals and replaces an oversized token-bound completion before clearing", async () => {
+    let object:
+      | typeof sealObservation
+      | Readonly<{
+          eTag: string;
+          sizeBytes: number;
+          contentType: string;
+          completionToken: string;
+          sealFingerprint: undefined;
+        }>
+      | null = {
       eTag: '"completed-etag"',
-      sizeBytes: identity.sizeBytes,
+      sizeBytes: 100_000_001,
+      contentType: "audio/wav",
       completionToken: identity.completionToken,
+      sealFingerprint: undefined,
     };
     let clearedIdentity: unknown;
     let publishedIdentity: unknown;
@@ -530,14 +640,14 @@ describe("durable multipart cancellation", () => {
       head() {
         return Promise.resolve(object);
       },
-      publishDeleteIntent(exact) {
+      publishCleanupEtag(exact) {
         publishedIdentity = exact;
         return Promise.resolve(true);
       },
-      deleteExact({ key, ifMatch }) {
-        expect(key).toBe(identity.key);
-        expect(ifMatch).toBe('"completed-etag"');
-        object = null;
+      putSeal(exact) {
+        expect(exact.key).toBe(identity.key);
+        expect(exact.replaceEtag).toBe('"completed-etag"');
+        object = sealObservation;
         return Promise.resolve();
       },
       clearExact(exact) {
@@ -551,8 +661,39 @@ describe("durable multipart cancellation", () => {
     expect(clearedIdentity).toEqual({ ...identity, objectEtag: '"completed-etag"' });
   });
 
+  it("keeps legacy unconditional completion attempts fail-closed after abort", async () => {
+    const events: string[] = [];
+    const port: PendingMultipartCancellationPort = {
+      abortExact() {
+        events.push("abort-and-prove-absence");
+        return Promise.resolve();
+      },
+      head() {
+        events.push("head");
+        return Promise.resolve(null);
+      },
+      publishCleanupEtag() {
+        events.push("journal-etag");
+        return Promise.resolve(true);
+      },
+      putSeal() {
+        events.push("put-seal");
+        return Promise.resolve();
+      },
+      clearExact() {
+        events.push("clear-reservation");
+        return Promise.resolve(true);
+      },
+    };
+
+    await expect(
+      reconcilePendingMultipartCancellation({ ...identity, terminalSealAllowed: false }, port),
+    ).resolves.toBe(false);
+    expect(events).toEqual(["abort-and-prove-absence"]);
+  });
+
   it("fails closed when a different completed object owns the key", async () => {
-    let deleteCalls = 0;
+    let sealCalls = 0;
     let clearCalls = 0;
     const port: PendingMultipartCancellationPort = {
       abortExact() {
@@ -562,14 +703,16 @@ describe("durable multipart cancellation", () => {
         return Promise.resolve({
           eTag: '"different-etag"',
           sizeBytes: identity.sizeBytes,
+          contentType: "audio/wav",
           completionToken: "b".repeat(64),
+          sealFingerprint: undefined,
         });
       },
-      publishDeleteIntent() {
-        return Promise.reject(new Error("mismatched objects must not publish delete intent"));
+      publishCleanupEtag() {
+        return Promise.reject(new Error("mismatched objects must not publish cleanup intent"));
       },
-      deleteExact() {
-        deleteCalls += 1;
+      putSeal() {
+        sealCalls += 1;
         return Promise.resolve();
       },
       clearExact() {
@@ -579,7 +722,7 @@ describe("durable multipart cancellation", () => {
     };
 
     await expect(reconcilePendingMultipartCancellation(identity, port)).resolves.toBe(false);
-    expect(deleteCalls).toBe(0);
+    expect(sealCalls).toBe(0);
     expect(clearCalls).toBe(0);
   });
 });
@@ -587,33 +730,32 @@ describe("durable multipart cancellation", () => {
 describe("durable completed-object cleanup", () => {
   const identity = {
     key: "producer/version/exact.wav",
+    uploadId: "exact-multipart-upload-id",
     objectEtag: '"completed-etag"',
     sizeBytes: 123_456,
     completionToken: "a".repeat(64),
   } as const;
 
-  it("recovers after delete succeeds and the database clear crashes", async () => {
-    let object: Readonly<{ eTag: string; sizeBytes: number; completionToken: string }> | null = {
-      eTag: identity.objectEtag,
-      sizeBytes: identity.sizeBytes,
-      completionToken: identity.completionToken,
-    };
+  it("recovers after abort and sealing succeed but the database clear crashes", async () => {
+    let sealed = false;
     let pending = true;
     let crashBeforeClear = true;
-    let deleteCalls = 0;
+    const events: string[] = [];
     const port: PendingAudioCleanupPort = {
-      head() {
-        return Promise.resolve(object);
+      abortExact(exact) {
+        expect(exact).toEqual(identity);
+        events.push("abort-and-prove-absence");
+        return Promise.resolve(true);
       },
-      deleteExact({ key, ifMatch }) {
-        expect(key).toBe(identity.key);
-        expect(ifMatch).toBe(identity.objectEtag);
-        deleteCalls += 1;
-        object = null;
-        return Promise.resolve();
+      sealExact(exact) {
+        expect(exact).toEqual(identity);
+        events.push(sealed ? "observe-seal" : "install-seal");
+        sealed = true;
+        return Promise.resolve(true);
       },
       clearExact(exact) {
         expect(exact).toEqual(identity);
+        events.push("clear-reservation");
         if (crashBeforeClear) return Promise.reject(new Error("simulated database crash"));
         pending = false;
         return Promise.resolve(true);
@@ -621,29 +763,32 @@ describe("durable completed-object cleanup", () => {
     };
 
     await expect(reconcilePendingAudioCleanup(identity, port)).rejects.toThrow(/database crash/i);
-    expect(object).toBeNull();
+    expect(sealed).toBe(true);
     expect(pending).toBe(true);
 
     crashBeforeClear = false;
     await expect(reconcilePendingAudioCleanup(identity, port)).resolves.toBe(true);
     expect(pending).toBe(false);
-    expect(deleteCalls).toBe(1);
+    expect(events).toEqual([
+      "abort-and-prove-absence",
+      "install-seal",
+      "clear-reservation",
+      "abort-and-prove-absence",
+      "observe-seal",
+      "clear-reservation",
+    ]);
   });
 
-  it("does not clear or delete when a different object owns the key", async () => {
-    let deleteCalls = 0;
+  it("does not seal or clear until multipart absence is proven", async () => {
+    let sealCalls = 0;
     let clearCalls = 0;
     const port: PendingAudioCleanupPort = {
-      head() {
-        return Promise.resolve({
-          eTag: '"replacement-etag"',
-          sizeBytes: identity.sizeBytes,
-          completionToken: "b".repeat(64),
-        });
+      abortExact() {
+        return Promise.resolve(false);
       },
-      deleteExact() {
-        deleteCalls += 1;
-        return Promise.resolve();
+      sealExact() {
+        sealCalls += 1;
+        return Promise.resolve(true);
       },
       clearExact() {
         clearCalls += 1;
@@ -652,7 +797,22 @@ describe("durable completed-object cleanup", () => {
     };
 
     await expect(reconcilePendingAudioCleanup(identity, port)).resolves.toBe(false);
-    expect(deleteCalls).toBe(0);
+    expect(sealCalls).toBe(0);
+    expect(clearCalls).toBe(0);
+  });
+
+  it("does not release the reservation when exact terminal sealing fails closed", async () => {
+    let clearCalls = 0;
+    const port: PendingAudioCleanupPort = {
+      abortExact: () => Promise.resolve(true),
+      sealExact: () => Promise.resolve(false),
+      clearExact() {
+        clearCalls += 1;
+        return Promise.resolve(true);
+      },
+    };
+
+    await expect(reconcilePendingAudioCleanup(identity, port)).resolves.toBe(false);
     expect(clearCalls).toBe(0);
   });
 });
@@ -818,6 +978,8 @@ describe("purchase-owned audio lifecycle boundary", () => {
     const signSource = AUDIO_SRC.slice(signStart, completeStart);
 
     expect(signSource).toContain("getSignedUrl(getR2BrowserUpload()");
+    expect(signSource).toContain("ContentLength: contentLength");
+    expect(signSource).toContain('signableHeaders: new Set(["content-length"])');
     expect(signSource).not.toContain("getSignedUrl(getR2(), cmd");
   });
 
@@ -832,7 +994,7 @@ describe("purchase-owned audio lifecycle boundary", () => {
     expect(signSource).toContain("authorizePendingMultipartPart");
     expect(signSource).toContain("signingDate: issuedAt");
     expect(signSource.indexOf("authorizePendingMultipartPart")).toBeLessThan(
-      signSource.indexOf("return { url }"),
+      signSource.indexOf("getSignedUrl(getR2BrowserUpload()"),
     );
     expect(INITIATION_SERVICE_SRC).toContain("assertActiveVersionUploadLifecycle");
     expect(AUDIO_SRC).toContain("purchaseLifecycleStatus: purchases.lifecycleStatus");
@@ -868,10 +1030,7 @@ describe("purchase-owned audio lifecycle boundary", () => {
     const cleanupResume = completeSource.indexOf('staged.kind === "cleanup_pending"');
     const remoteCompletion = completeSource.indexOf("completeOrRecoverMultipart");
     const decision = completeSource.indexOf("const decision = resolvePendingAudioCompletion");
-    const stagingLifecycleCheck = completeSource.indexOf(
-      "assertVersionUploadAllowed",
-      decision,
-    );
+    const stagingLifecycleCheck = completeSource.indexOf("assertVersionUploadAllowed", decision);
     const durableCleanupDecision = completeSource.indexOf(
       'decision === "cleanup_pending"',
       decision,
@@ -896,11 +1055,21 @@ describe("purchase-owned audio lifecycle boundary", () => {
     const completeSource = AUDIO_SRC.slice(completeStart);
     const validation = completeSource.indexOf("validateMultipartCompletionParts(input.parts)");
     const oneShotMarker = completeSource.indexOf(
-      ".set({ pendingAudioCompleteAttemptedAt: completeAttemptedAt })",
+      "pendingAudioCompleteWriteOnceProtectedAt: completeAttemptedAt",
+    );
+    const remoteComplete = AUDIO_SRC.indexOf("new CompleteMultipartUploadCommand");
+    const conditionalPublish = AUDIO_SRC.indexOf('IfNoneMatch: "*"', remoteComplete);
+    const protectedCompletionCall = completeSource.indexOf(
+      "completeOrRecoverMultipart",
+      oneShotMarker,
     );
 
     expect(validation).toBeGreaterThanOrEqual(0);
     expect(oneShotMarker).toBeGreaterThan(validation);
+    expect(remoteComplete).toBeGreaterThanOrEqual(0);
+    expect(conditionalPublish).toBeGreaterThan(remoteComplete);
+    expect(AUDIO_SRC.match(/new CompleteMultipartUploadCommand/g)).toHaveLength(1);
+    expect(protectedCompletionCall).toBeGreaterThan(oneShotMarker);
   });
 
   it("routes an inactive exact pending retry through head-only cleanup before multipart replay", () => {
@@ -939,21 +1108,33 @@ describe("purchase-owned audio lifecycle boundary", () => {
     expect(AUDIO_SRC).not.toContain("$metadata?.httpStatusCode === 404");
   });
 
-  it("identity-checks and conditionally deletes only the new object after any attach failure", () => {
+  it("identity-checks and conditionally seals only the protected object after attach failure", () => {
     const completeStart = AUDIO_SRC.indexOf("completeMultipart:");
     const abortStart = AUDIO_SRC.indexOf("abortMultipart:", completeStart);
     const completeSource = AUDIO_SRC.slice(completeStart, abortStart);
     const attachCatch = completeSource.indexOf("catch (error)");
 
-    expect(AUDIO_SRC).toContain("DeleteObjectCommand");
+    const cleanupStart = AUDIO_SRC.indexOf(
+      "async function cleanupCompletedAudioObjectIfIdentityMatches",
+    );
+    const cleanupEnd = AUDIO_SRC.indexOf("class AudioObjectObservationPending", cleanupStart);
+    const cleanupSource = AUDIO_SRC.slice(cleanupStart, cleanupEnd);
+    const protectedGate = cleanupSource.indexOf(
+      "version.pendingAudioCompleteWriteOnceProtectedAt instanceof Date",
+    );
+    const firstStorageObservation = cleanupSource.indexOf("exactObjectIsAbsent(input.key)");
+
+    expect(AUDIO_SRC).not.toContain("DeleteObjectCommand");
     expect(AUDIO_SRC).toContain("cleanupCompletedAudioObjectIfIdentityMatches");
     expect(AUDIO_SRC).toContain("eq(trackVersions.audioR2Key, input.key)");
     expect(AUDIO_SRC).toMatch(
       /version\.audioUrl !== null \|\|[\s\S]*?version\.audioR2Key !== null[\s\S]*?return false;/,
     );
-    expect(AUDIO_SRC).toMatch(
-      /new DeleteObjectCommand\(\{[\s\S]*?Key: key,[\s\S]*?IfMatch: ifMatch/,
-    );
+    expect(protectedGate).toBeGreaterThanOrEqual(0);
+    expect(firstStorageObservation).toBeGreaterThan(protectedGate);
+    expect(cleanupSource).toContain("abortMultipartUploadAndObserve(exact.key, exact.uploadId)");
+    expect(cleanupSource).toContain("reconcileMultipartTerminalSeal");
+    expect(cleanupSource).toContain("putSeal: putMultipartTerminalSeal");
     expect(AUDIO_SRC).toMatch(
       /observedCompletionToken: head\.Metadata\?\.\[AUDIO_UPLOAD_COMPLETION_TOKEN_METADATA\]/,
     );
@@ -964,16 +1145,79 @@ describe("purchase-owned audio lifecycle boundary", () => {
     expect(completeSource.slice(attachCatch)).toContain("mapVersionUploadDomainError(error)");
 
     const intentWrite = AUDIO_SRC.indexOf(".set({ pendingAudioCleanupEtag: cleanupEtag })");
-    const conditionalDelete = AUDIO_SRC.indexOf("new DeleteObjectCommand", intentWrite);
+    const conditionalSeal = AUDIO_SRC.indexOf("reconcileMultipartTerminalSeal", intentWrite);
     expect(intentWrite).toBeGreaterThanOrEqual(0);
-    expect(conditionalDelete).toBeGreaterThan(intentWrite);
-    const intentSource = AUDIO_SRC.slice(intentWrite, conditionalDelete);
+    expect(conditionalSeal).toBeGreaterThan(intentWrite);
+    const intentSource = AUDIO_SRC.slice(intentWrite, conditionalSeal);
     expect(intentSource).toContain("eq(trackVersions.producerId, ctx.producerId)");
     expect(intentSource).toContain("eq(trackVersions.trackId, input.trackId)");
     expect(intentSource).toContain("eq(trackVersions.purchaseId, input.purchaseId)");
     expect(intentSource).toContain("eq(trackVersions.pendingAudioR2Key, input.key)");
     expect(intentSource).toContain(
       "eq(trackVersions.pendingAudioCompletionToken, input.completionToken)",
+    );
+  });
+
+  it("journals and terminally seals token-bound size mismatches before releasing reservation", () => {
+    const observeStart = AUDIO_SRC.indexOf("async function observeCompletedAudioObject");
+    const completionStart = AUDIO_SRC.indexOf("completeMultipart:");
+    const abortStart = AUDIO_SRC.indexOf("abortMultipart:", completionStart);
+    const completionSource = AUDIO_SRC.slice(completionStart, abortStart);
+    const cleanupStart = AUDIO_SRC.indexOf(
+      "async function cleanupCompletedAudioObjectIfIdentityMatches",
+    );
+    const cleanupEnd = AUDIO_SRC.indexOf("class AudioObjectObservationPending", cleanupStart);
+    const cleanupSource = AUDIO_SRC.slice(cleanupStart, cleanupEnd);
+    const transactionStarts = Array.from(
+      cleanupSource.matchAll(/ctx\.db\.transaction\(async \(tx\)/g),
+      (match) => match.index,
+    );
+
+    expect(AUDIO_SRC.slice(observeStart, completionStart)).toContain(
+      "CompletedAudioObjectCleanupRequiredError",
+    );
+    expect(completionSource).toMatch(
+      /catch \(error\)[\s\S]*error instanceof CompletedAudioObjectCleanupRequiredError[\s\S]*cleanupCompletedAudioObjectIfIdentityMatches/,
+    );
+    expect(cleanupSource).toContain("pendingAudioCleanupEtag: cleanupEtag");
+    expect(cleanupSource).toContain("tokenBoundCompletedObjectCleanupMatches");
+    expect(cleanupSource).toContain("pendingAudioCompleteWriteOnceProtectedAt");
+    expect(cleanupSource).toContain("reconcileMultipartTerminalSeal");
+    expect(cleanupSource).toContain("pendingAudioSizeBytes: null");
+    expect(transactionStarts).toHaveLength(2);
+    for (const [index, start] of transactionStarts.entries()) {
+      const end = transactionStarts[index + 1] ?? cleanupSource.length;
+      const transaction = cleanupSource.slice(start, end);
+      const quotaLock = transaction.indexOf("lockProducerAudioStorageQuota(tx");
+      const projectLock = transaction.indexOf("pg_advisory_xact_lock(hashtextextended");
+      expect(quotaLock).toBeGreaterThanOrEqual(0);
+      expect(projectLock).toBeGreaterThan(quotaLock);
+    }
+  });
+
+  it("clears the write-once protection field with every full pending-audio reset", () => {
+    for (const source of [
+      AUDIO_SRC,
+      CANCELLATION_SERVICE_SRC,
+      INITIATION_SERVICE_SRC,
+      PROJECT_SRC,
+    ]) {
+      const completionClears = source.match(/pendingAudioCompleteAttemptedAt: null/g) ?? [];
+      const protectionClears =
+        source.match(/pendingAudioCompleteWriteOnceProtectedAt: null/g) ?? [];
+      expect(protectionClears).toHaveLength(completionClears.length);
+    }
+
+    const deleteStart = PROJECT_SRC.indexOf("deleteVersion:");
+    const deleteSource = PROJECT_SRC.slice(deleteStart);
+    expect(deleteSource).toContain(
+      "isNull(trackVersions.pendingAudioCompleteWriteOnceProtectedAt)",
+    );
+    expect(INITIATION_SERVICE_SRC).toContain(
+      "isNull(trackVersions.pendingAudioCompleteWriteOnceProtectedAt)",
+    );
+    expect(CANCELLATION_SERVICE_SRC).toContain(
+      "trackVersions.pendingAudioCompleteWriteOnceProtectedAt",
     );
   });
 

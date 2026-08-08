@@ -96,6 +96,45 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     expect(SRC).toContain("onDragOver");
   });
 
+  it("loads and displays real producer storage usage when opened", () => {
+    expect(SRC).toContain("getAudioStorageUsageAction");
+    expect(SRC).toContain("storageUsage?.usedBytes");
+    expect(SRC).toContain("storageUsage?.availableBytes");
+    expect(SRC).toContain("After upload:");
+  });
+
+  it("offers explicit cleanup for full storage without deleting Songs or Versions", () => {
+    expect(SRC).toContain("reconcileAudioStorageUsageAction");
+    expect(SRC).toContain("Clean up old uploads");
+    expect(SRC).toContain("It never removes");
+    expect(SRC).toContain("Songs or Versions");
+  });
+
+  it("continues to authoritative completion after conditional PUT conflicts", () => {
+    expect(SRC).toContain("putResponse.status !== 409");
+    expect(SRC).toContain("putResponse.status !== 412");
+    expect(SRC).toContain("completeFirstVersionUploadAction");
+  });
+
+  it("rejects files over the decimal 100 MB maximum in the browser", () => {
+    expect(SRC).toContain("AUDIO_UPLOAD_MAX_BYTES");
+    expect(SRC).toMatch(/f\.size > AUDIO_UPLOAD_MAX_BYTES/);
+    expect(SRC).toContain("Audio files can be up to 100 MB.");
+  });
+
+  it("disables a projected over-limit upload with deletion guidance", () => {
+    expect(SRC).toContain("projectedStorageBytes");
+    expect(SRC).toContain("storageLimitExceeded");
+    expect(SRC).toContain("AUDIO_STORAGE_FULL_MESSAGE");
+    expect(SRC).toMatch(/const submitDisabled =[\s\S]{0,220}?storageLimitExceeded/);
+  });
+
+  it("warns at the shared 800 MB threshold without blocking the upload", () => {
+    expect(SRC).toContain("storageUsage.warningBytes");
+    expect(SRC).toContain("storageWarningReached");
+    expect(SRC).toContain("You're close to the 1 GB beta limit.");
+  });
+
   // M1 — drag-and-drop scenarios (Finder, certain browsers) can hand
   // us a File with empty `type`. Fall back to an extension whitelist
   // so a correctly-named .wav / .flac / .m4a file isn't refused just
@@ -174,7 +213,7 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
   it("blocks offline submit and retry before allocating upload work", () => {
     expect(SRC).toContain("useOnlineStatus");
     expect(SRC).toContain("const online = useOnlineStatus()");
-    expect(SRC).toMatch(/const submitDisabled =[\s\S]{0,120}?!online/);
+    expect(SRC).toMatch(/const submitDisabled =[\s\S]{0,220}?!online/);
 
     const submitStart = SRC.indexOf("const handleSubmit");
     const uploadStart = SRC.indexOf("function startUpload", submitStart);
@@ -206,7 +245,9 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     expect(SRC).toContain(
       "Reconnect to upload. This attempt has not started; your file and form details remain here.",
     );
-    expect(SRC).toMatch(/visibleUploadError = !online \? OFFLINE_UPLOAD_MESSAGE : uploadError/);
+    expect(SRC).toMatch(
+      /visibleUploadError = !online[\s\S]{0,80}?OFFLINE_UPLOAD_MESSAGE[\s\S]{0,220}?: uploadError/,
+    );
     expect(SRC).toMatch(/role="alert"[\s\S]{0,180}?\{visibleUploadError\}/);
     expect(SRC).toMatch(/pending \? "Uploading…" : !online \? "Reconnect to upload" : "Upload"/);
   });
@@ -316,8 +357,9 @@ describe("UploadTrackModal — Phase 4 upload entry point", () => {
     expect(SRC).toMatch(/method:\s*["']PUT["']/);
   });
 
-  it("uses a 5MB chunk size constant", () => {
-    expect(SRC).toMatch(/CHUNK_SIZE\s*=\s*5\s*\*\s*1024\s*\*\s*1024/);
+  it("uses the shared server-aligned multipart chunk size", () => {
+    expect(SRC).toContain("AUDIO_MULTIPART_PART_SIZE_BYTES");
+    expect(SRC).not.toMatch(/CHUNK_SIZE\s*=/);
   });
 
   it("reads the ETag header off the PUT response and strips quotes", () => {

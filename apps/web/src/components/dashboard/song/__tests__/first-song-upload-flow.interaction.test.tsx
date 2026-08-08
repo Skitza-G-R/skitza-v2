@@ -16,10 +16,13 @@ const mocked = vi.hoisted(() => ({
   abortMultipartAction: vi.fn(),
   completeMultipartAction: vi.fn(),
   deleteVersionAction: vi.fn(),
+  getAudioStorageUsageAction: vi.fn(),
+  reconcileAudioStorageUsageAction: vi.fn(),
   initMultipartAction: vi.fn(),
   setTrackStageAction: vi.fn(),
   signPartAction: vi.fn(),
   beginManagedUpload: vi.fn(),
+  managedDismiss: vi.fn(),
   managedFail: vi.fn(),
   managedSetTerminalDispose: vi.fn(),
 }));
@@ -54,6 +57,8 @@ vi.mock("~/app/(producer)/dashboard/clients-projects/upload-actions", () => ({
   completeFirstVersionUploadAction: mocked.completeFirstVersionUploadAction,
   completeMultipartAction: mocked.completeMultipartAction,
   deleteVersionAction: mocked.deleteVersionAction,
+  getAudioStorageUsageAction: mocked.getAudioStorageUsageAction,
+  reconcileAudioStorageUsageAction: mocked.reconcileAudioStorageUsageAction,
   initMultipartAction: mocked.initMultipartAction,
   prepareFirstVersionUploadAction: mocked.prepareFirstVersionUploadAction,
   setTrackStageAction: mocked.setTrackStageAction,
@@ -82,6 +87,7 @@ vi.mock("~/lib/audio/upload-manager", () => ({
 }));
 
 import { UploadTrackModal } from "../upload-track-modal";
+import { AUDIO_STORAGE_FULL_MESSAGE } from "~/lib/audio/storage-limits";
 
 const originalCreateObjectUrl = Object.getOwnPropertyDescriptor(URL, "createObjectURL");
 
@@ -116,9 +122,35 @@ function Harness({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocked.getAudioStorageUsageAction.mockResolvedValue({
+    ok: true,
+    data: {
+      usedBytes: 200_000_000,
+      reservedBytes: 0,
+      committedBytes: 200_000_000,
+      availableBytes: 800_000_000,
+      limitBytes: 1_000_000_000,
+      warningBytes: 800_000_000,
+      isAtOrAboveWarning: false,
+      isFull: false,
+    },
+  });
+  mocked.reconcileAudioStorageUsageAction.mockResolvedValue({
+    ok: true,
+    data: {
+      usedBytes: 200_000_000,
+      reservedBytes: 0,
+      committedBytes: 200_000_000,
+      availableBytes: 800_000_000,
+      limitBytes: 1_000_000_000,
+      warningBytes: 800_000_000,
+      isAtOrAboveWarning: false,
+      isFull: false,
+    },
+  });
   mocked.beginManagedUpload.mockReturnValue({
     id: "managed-first",
-    dismiss: vi.fn(),
+    dismiss: mocked.managedDismiss,
     fail: mocked.managedFail,
     setCancel: vi.fn(),
     setCompleting: vi.fn(),
@@ -193,6 +225,183 @@ afterEach(() => {
 });
 
 describe("first Song upload journey", () => {
+  it("loads real storage usage when the modal opens", async () => {
+    render(<Harness />);
+
+    await waitFor(() => {
+      expect(mocked.getAudioStorageUsageAction).toHaveBeenCalledOnce();
+    });
+    expect(screen.getByText("200 MB")).not.toBeNull();
+    expect(screen.getByText("800 MB")).not.toBeNull();
+  });
+
+  it("lets a full producer explicitly clean failed upload leftovers and refresh usage", async () => {
+    mocked.getAudioStorageUsageAction.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        usedBytes: 900_000_000,
+        reservedBytes: 100_000_000,
+        committedBytes: 1_000_000_000,
+        availableBytes: 0,
+        limitBytes: 1_000_000_000,
+        warningBytes: 800_000_000,
+        isAtOrAboveWarning: true,
+        isFull: true,
+      },
+    });
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    expect(await screen.findByText(/never removes Songs or Versions/i)).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Clean up old uploads" }));
+
+    await waitFor(() => {
+      expect(mocked.reconcileAudioStorageUsageAction).toHaveBeenCalledOnce();
+    });
+    expect(screen.queryByRole("button", { name: "Clean up old uploads" })).toBeNull();
+  });
+
+  it("does not offer upload cleanup when completed Versions alone fill storage", async () => {
+    mocked.getAudioStorageUsageAction.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        usedBytes: 1_000_000_000,
+        reservedBytes: 0,
+        committedBytes: 1_000_000_000,
+        availableBytes: 0,
+        limitBytes: 1_000_000_000,
+        warningBytes: 800_000_000,
+        isAtOrAboveWarning: true,
+        isFull: true,
+      },
+    });
+    render(<Harness />);
+
+    expect(await screen.findByText(/Delete an old Version or Song/i)).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Clean up old uploads" })).toBeNull();
+    expect(mocked.reconcileAudioStorageUsageAction).not.toHaveBeenCalled();
+  });
+
+  it("rejects an audio file larger than 100 MB before upload setup", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    const oversized = new File([new Uint8Array([0])], "too-large.wav", {
+      type: "audio/wav",
+    });
+    Object.defineProperty(oversized, "size", { value: 100_000_001 });
+
+    await user.upload(screen.getByLabelText<HTMLInputElement>(/^Audio file/), oversized);
+
+    expect(await screen.findByText("Audio files can be up to 100 MB.")).not.toBeNull();
+    expect(screen.queryByText("too-large.wav")).toBeNull();
+    expect(mocked.prepareFirstVersionUploadAction).not.toHaveBeenCalled();
+  });
+
+  it("shows projected usage and disables upload when it would exceed 1 GB", async () => {
+    mocked.getAudioStorageUsageAction.mockResolvedValue({
+      ok: true,
+      data: {
+        usedBytes: 950_000_000,
+        reservedBytes: 0,
+        committedBytes: 950_000_000,
+        availableBytes: 50_000_000,
+        limitBytes: 1_000_000_000,
+        warningBytes: 800_000_000,
+        isAtOrAboveWarning: true,
+        isFull: false,
+      },
+    });
+    const user = userEvent.setup();
+    render(<Harness />);
+    const file = new File([new Uint8Array([0])], "projected.wav", { type: "audio/wav" });
+    Object.defineProperty(file, "size", { value: 60_000_000 });
+
+    await user.upload(screen.getByLabelText<HTMLInputElement>(/^Audio file/), file);
+
+    expect(await screen.findByText("After upload: 1.01 GB of 1 GB")).not.toBeNull();
+    expect(screen.getByText(/Delete an old Version or Song/)).not.toBeNull();
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Upload" }).disabled).toBe(true);
+  });
+
+  it("allows a 100 MB file that reaches exactly the 1 GB decimal boundary", async () => {
+    mocked.getAudioStorageUsageAction.mockResolvedValue({
+      ok: true,
+      data: {
+        usedBytes: 900_000_000,
+        reservedBytes: 0,
+        committedBytes: 900_000_000,
+        availableBytes: 100_000_000,
+        limitBytes: 1_000_000_000,
+        warningBytes: 800_000_000,
+        isAtOrAboveWarning: true,
+        isFull: false,
+      },
+    });
+    const user = userEvent.setup();
+    render(<Harness />);
+    const boundaryFile = new File([new Uint8Array([0])], "boundary.wav", {
+      type: "audio/wav",
+    });
+    Object.defineProperty(boundaryFile, "size", { value: 100_000_000 });
+
+    await user.upload(screen.getByLabelText<HTMLInputElement>(/^Audio file/), boundaryFile);
+    await user.type(screen.getByLabelText(/^Song title/), "Exact Boundary");
+
+    expect(await screen.findByText("After upload: 1 GB of 1 GB")).not.toBeNull();
+    expect(screen.queryByText("Audio files can be up to 100 MB.")).toBeNull();
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Upload" }).disabled).toBe(false);
+  });
+
+  it("refreshes stale usage and removes retry after the server rejects the quota race", async () => {
+    mocked.getAudioStorageUsageAction
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          usedBytes: 200_000_000,
+          reservedBytes: 0,
+          committedBytes: 200_000_000,
+          availableBytes: 800_000_000,
+          limitBytes: 1_000_000_000,
+          warningBytes: 800_000_000,
+          isAtOrAboveWarning: false,
+          isFull: false,
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          usedBytes: 950_000_000,
+          reservedBytes: 0,
+          committedBytes: 950_000_000,
+          availableBytes: 50_000_000,
+          limitBytes: 1_000_000_000,
+          warningBytes: 800_000_000,
+          isAtOrAboveWarning: true,
+          isFull: false,
+        },
+      });
+    mocked.prepareFirstVersionUploadAction.mockResolvedValue({
+      ok: false,
+      error: `Upload setup failed. ${AUDIO_STORAGE_FULL_MESSAGE}`,
+    });
+    const user = userEvent.setup();
+    render(<Harness />);
+    const file = new File([new Uint8Array([0])], "quota-race.wav", { type: "audio/wav" });
+    Object.defineProperty(file, "size", { value: 60_000_000 });
+
+    await user.upload(screen.getByLabelText<HTMLInputElement>(/^Audio file/), file);
+    await user.type(screen.getByLabelText(/^Song title/), "Quota Race");
+    await user.click(screen.getByRole("button", { name: "Upload" }));
+
+    await waitFor(() => {
+      expect(mocked.getAudioStorageUsageAction).toHaveBeenCalledTimes(2);
+    });
+    expect(screen.getByText(AUDIO_STORAGE_FULL_MESSAGE)).not.toBeNull();
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Upload" }).disabled).toBe(true);
+    expect(mocked.managedDismiss).toHaveBeenCalledOnce();
+    expect(mocked.managedFail).not.toHaveBeenCalled();
+  });
+
   it("chooses the file first and never creates a Song until atomic completion", async () => {
     const user = userEvent.setup();
     const closedWithoutFile = vi.fn();
@@ -306,6 +515,47 @@ describe("first Song upload journey", () => {
     expect(mocked.initMultipartAction).not.toHaveBeenCalled();
   });
 
+  it.each([409, 412])(
+    "continues to authoritative completion after a write-once PUT returns %s",
+    async (status) => {
+      mocked.prepareFirstVersionUploadAction.mockResolvedValue({
+        ok: true,
+        data: {
+          status: "ready",
+          intentId: "44444444-4444-4444-8444-444444444444",
+          projectId: PROJECT_ID,
+          trackId: TRACK_ID,
+          versionId: VERSION_ID,
+          uploadUrl: "https://upload.example.test/first-version",
+          headers: {
+            "Content-Type": "audio/wav",
+            "If-None-Match": "*",
+            "x-amz-meta-skitza-upload-token": "a".repeat(64),
+          },
+          expiresInSeconds: 900,
+        },
+      });
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: false,
+        status,
+        headers: new Headers(),
+      } as Response);
+      const user = userEvent.setup();
+      render(<Harness />);
+      await user.upload(
+        screen.getByLabelText<HTMLInputElement>(/^Audio file/),
+        new File([new Uint8Array([0])], "first-version.wav", { type: "audio/wav" }),
+      );
+      await user.type(screen.getByLabelText(/^Song title/), "Write Once Song");
+      await user.click(screen.getByRole("button", { name: "Upload" }));
+
+      await waitFor(() => {
+        expect(mocked.completeFirstVersionUploadAction).toHaveBeenCalledOnce();
+      });
+      expect(mocked.cancelFirstVersionUploadAction).not.toHaveBeenCalled();
+    },
+  );
+
   it("replaces the browser's generic Failed to fetch with the transfer stage", async () => {
     mocked.prepareFirstVersionUploadAction.mockResolvedValue({
       ok: true,
@@ -350,36 +600,15 @@ describe("first Song upload journey", () => {
   it("uses a fresh operation key when the form Upload button resubmits after PUT failure", async () => {
     let firstOperationKey: string | undefined;
     const operationKeys: string[] = [];
-    mocked.prepareFirstVersionUploadAction.mockImplementation(
-      (input: { operationKey: string }) => {
-        operationKeys.push(input.operationKey);
-        if (!firstOperationKey) {
-          firstOperationKey = input.operationKey;
-          return Promise.resolve({
-            ok: true as const,
-            data: {
-              status: "ready" as const,
-              intentId: "44444444-4444-4444-8444-444444444444",
-              projectId: PROJECT_ID,
-              trackId: TRACK_ID,
-              versionId: VERSION_ID,
-              uploadUrl: "https://upload.example.test/first-version",
-              headers: { "Content-Type": "audio/wav" },
-              expiresInSeconds: 900,
-            },
-          });
-        }
-        if (input.operationKey === firstOperationKey) {
-          return Promise.resolve({
-            ok: false as const,
-            error: "This upload was canceled. Choose the file again.",
-          });
-        }
+    mocked.prepareFirstVersionUploadAction.mockImplementation((input: { operationKey: string }) => {
+      operationKeys.push(input.operationKey);
+      if (!firstOperationKey) {
+        firstOperationKey = input.operationKey;
         return Promise.resolve({
           ok: true as const,
           data: {
             status: "ready" as const,
-            intentId: "55555555-5555-4555-8555-555555555555",
+            intentId: "44444444-4444-4444-8444-444444444444",
             projectId: PROJECT_ID,
             trackId: TRACK_ID,
             versionId: VERSION_ID,
@@ -388,8 +617,27 @@ describe("first Song upload journey", () => {
             expiresInSeconds: 900,
           },
         });
-      },
-    );
+      }
+      if (input.operationKey === firstOperationKey) {
+        return Promise.resolve({
+          ok: false as const,
+          error: "This upload was canceled. Choose the file again.",
+        });
+      }
+      return Promise.resolve({
+        ok: true as const,
+        data: {
+          status: "ready" as const,
+          intentId: "55555555-5555-4555-8555-555555555555",
+          projectId: PROJECT_ID,
+          trackId: TRACK_ID,
+          versionId: VERSION_ID,
+          uploadUrl: "https://upload.example.test/first-version",
+          headers: { "Content-Type": "audio/wav" },
+          expiresInSeconds: 900,
+        },
+      });
+    });
     vi.mocked(fetch)
       .mockRejectedValueOnce(new TypeError("Failed to fetch"))
       .mockResolvedValueOnce({

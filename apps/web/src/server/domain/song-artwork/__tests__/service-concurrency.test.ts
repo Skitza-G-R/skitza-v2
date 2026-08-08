@@ -15,14 +15,26 @@ describe("song artwork replacement concurrency", () => {
     expect(service).toContain("eq(projectTracks.id, payload.trackId)");
   });
 
-  it("takes a row lock before checking the signed base revision", () => {
-    const transactionStart = service.indexOf("const previous = await db.transaction");
+  it("strictly orders deletion and replacement guards before storage and the row update", () => {
+    const transactionStart = service.indexOf("const result = await db.transaction");
+    const producerLock = service.indexOf(
+      "lockProducerAudioStorageQuota(tx, input.producerId)",
+      transactionStart,
+    );
+    const artworkLock = service.indexOf("song-artwork:${payload.trackId}", producerLock);
+    const rowLock = service.indexOf('.for("update")', artworkLock);
+    const pendingGuard = service.indexOf("await assertNoPendingSongDeletion(tx", rowLock);
     const revisionCheck = service.indexOf("payload.baseRevision", transactionStart);
-    const guardedSection = service.slice(transactionStart, revisionCheck);
+    const finalize = service.indexOf("await storage.finalizeUpload(", revisionCheck);
+    const rowUpdate = service.indexOf(".update(projectTracks)", finalize);
 
     expect(transactionStart).toBeGreaterThan(-1);
-    expect(revisionCheck).toBeGreaterThan(transactionStart);
-    expect(guardedSection).toContain("eq(projectTracks.id, payload.trackId)");
-    expect(guardedSection).toContain('.for("update")');
+    expect(producerLock).toBeGreaterThan(transactionStart);
+    expect(artworkLock).toBeGreaterThan(producerLock);
+    expect(rowLock).toBeGreaterThan(artworkLock);
+    expect(pendingGuard).toBeGreaterThan(rowLock);
+    expect(revisionCheck).toBeGreaterThan(pendingGuard);
+    expect(finalize).toBeGreaterThan(revisionCheck);
+    expect(rowUpdate).toBeGreaterThan(finalize);
   });
 });

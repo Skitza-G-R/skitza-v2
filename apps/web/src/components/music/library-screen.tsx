@@ -12,6 +12,7 @@ import { withArtistStudio } from "~/lib/artist-studio-context";
 import { ProjectCover } from "./project-cover";
 import {
   SongManagementControls,
+  type DeleteSongAction,
   type EditSongArtistAction,
   type MarkSongReleasedAction,
   type RenameSongAction,
@@ -342,6 +343,7 @@ export function MusicLibraryScreen({
   editArtist,
   setArchived,
   markReleased,
+  deleteSong,
 }: {
   tracks: MusicLibraryRow[];
   projectRows?: MusicLibraryProjectRow[];
@@ -353,6 +355,7 @@ export function MusicLibraryScreen({
   editArtist?: EditSongArtistAction;
   setArchived?: SetSongArchivedAction;
   markReleased?: MarkSongReleasedAction;
+  deleteSong?: DeleteSongAction;
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -635,6 +638,7 @@ export function MusicLibraryScreen({
             {...(editArtist ? { editArtist } : {})}
             {...(setArchived ? { setArchived } : {})}
             {...(markReleased ? { markReleased } : {})}
+            {...(deleteSong ? { deleteSong } : {})}
           />
         ) : (
           <SongsTable
@@ -645,6 +649,7 @@ export function MusicLibraryScreen({
             {...(editArtist ? { editArtist } : {})}
             {...(setArchived ? { setArchived } : {})}
             {...(markReleased ? { markReleased } : {})}
+            {...(deleteSong ? { deleteSong } : {})}
           />
         )}
       </div>
@@ -1189,6 +1194,7 @@ export function SongsGrid({
   editArtist,
   setArchived,
   markReleased,
+  deleteSong,
 }: {
   songs: MusicLibraryRow[];
   role: MusicLibraryRole;
@@ -1197,6 +1203,7 @@ export function SongsGrid({
   editArtist?: EditSongArtistAction;
   setArchived?: SetSongArchivedAction;
   markReleased?: MarkSongReleasedAction;
+  deleteSong?: DeleteSongAction;
 }) {
   const nowPlaying = useNowPlaying();
 
@@ -1209,6 +1216,7 @@ export function SongsGrid({
     }
     playerPlay({
       id: versionId,
+      songId: song.trackId,
       audioUrl: song.audioUrl,
       title: song.trackTitle,
       subtitle: `${song.trackArtist ?? song.clientName ?? song.projectTitle} · ${song.label ?? "No version"}`,
@@ -1248,6 +1256,7 @@ export function SongsGrid({
               {...(editArtist ? { editArtist } : {})}
               {...(setArchived ? { setArchived } : {})}
               {...(markReleased ? { markReleased } : {})}
+              {...(deleteSong ? { deleteSong } : {})}
             />
           )}
         </li>
@@ -1265,6 +1274,7 @@ function SongCard({
   editArtist,
   setArchived,
   markReleased,
+  deleteSong,
 }: {
   song: MusicLibraryTrackRow;
   isPlaying: boolean;
@@ -1274,6 +1284,7 @@ function SongCard({
   editArtist?: EditSongArtistAction;
   setArchived?: SetSongArchivedAction;
   markReleased?: MarkSongReleasedAction;
+  deleteSong?: DeleteSongAction;
 }) {
   const gradient = gradientForSeed(song.projectId);
   const projectArchivedLabel = archivedProjectLabel(song.projectLifecycleStatus);
@@ -1304,6 +1315,7 @@ function SongCard({
             editArtist={editArtist}
             setArchived={setArchived}
             {...(markReleased ? { markReleased } : {})}
+            {...(deleteSong ? { deleteSong } : {})}
             overlay
           />
         </span>
@@ -1523,6 +1535,7 @@ function SongsTable({
   editArtist,
   setArchived,
   markReleased,
+  deleteSong,
 }: {
   songs: MusicLibraryRow[];
   role: MusicLibraryRole;
@@ -1531,6 +1544,7 @@ function SongsTable({
   editArtist?: EditSongArtistAction;
   setArchived?: SetSongArchivedAction;
   markReleased?: MarkSongReleasedAction;
+  deleteSong?: DeleteSongAction;
 }) {
   const nowPlaying = useNowPlaying();
   // 8 columns: play/idx, cover thumb, title, artist, version, notes,
@@ -1548,6 +1562,7 @@ function SongsTable({
     }
     playerPlay({
       id: versionId,
+      songId: song.trackId,
       audioUrl: song.audioUrl,
       title: song.trackTitle,
       subtitle: `${song.trackArtist ?? song.clientName ?? song.projectTitle} · ${song.label ?? "No version"}`,
@@ -1601,6 +1616,7 @@ function SongsTable({
                 {...(editArtist ? { editArtist } : {})}
                 {...(setArchived ? { setArchived } : {})}
                 {...(markReleased ? { markReleased } : {})}
+                {...(deleteSong ? { deleteSong } : {})}
               />
             ))}
           </ul>
@@ -1632,6 +1648,7 @@ function SongsTable({
             {...(editArtist ? { editArtist } : {})}
             {...(setArchived ? { setArchived } : {})}
             {...(markReleased ? { markReleased } : {})}
+            {...(deleteSong ? { deleteSong } : {})}
           />
         ))}
       </ul>
@@ -1652,6 +1669,7 @@ function LibrarySongDesktopRow({
   editArtist,
   setArchived,
   markReleased,
+  deleteSong,
 }: {
   item: MusicLibraryRow;
   index: number;
@@ -1665,6 +1683,7 @@ function LibrarySongDesktopRow({
   editArtist?: EditSongArtistAction;
   setArchived?: SetSongArchivedAction;
   markReleased?: MarkSongReleasedAction;
+  deleteSong?: DeleteSongAction;
 }) {
   const rowStyle: React.CSSProperties = {
     gridTemplateColumns: cols,
@@ -1872,6 +1891,7 @@ function LibrarySongDesktopRow({
               editArtist={editArtist}
               setArchived={setArchived}
               {...(markReleased ? { markReleased } : {})}
+              {...(deleteSong ? { deleteSong } : {})}
             />
           ) : null}
         </span>
@@ -1891,6 +1911,7 @@ function LibrarySongMobileRow({
   editArtist,
   setArchived,
   markReleased,
+  deleteSong,
 }: {
   item: MusicLibraryRow;
   role: MusicLibraryRole;
@@ -1902,6 +1923,7 @@ function LibrarySongMobileRow({
   editArtist?: EditSongArtistAction;
   setArchived?: SetSongArchivedAction;
   markReleased?: MarkSongReleasedAction;
+  deleteSong?: DeleteSongAction;
 }) {
   const rowStyle: React.CSSProperties = {
     borderBottom: "1px solid rgb(var(--border-subtle))",
@@ -2066,6 +2088,7 @@ function LibrarySongMobileRow({
             editArtist={editArtist}
             setArchived={setArchived}
             {...(markReleased ? { markReleased } : {})}
+            {...(deleteSong ? { deleteSong } : {})}
           />
         ) : null}
       </div>

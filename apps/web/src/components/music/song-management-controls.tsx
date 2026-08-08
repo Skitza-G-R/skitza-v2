@@ -8,13 +8,15 @@ import {
   ChevronRight,
   MoreHorizontal,
   Pencil,
+  Trash2,
   TriangleAlert,
   UserRoundPen,
   X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
+import { playerClose, usePlaybackSnapshot } from "~/components/audio/persistent-player";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 
 export type SongManagementResult = { ok: true } | { ok: false; error: string };
@@ -42,7 +44,12 @@ export type MarkSongReleasedAction = (input: {
   trackId: string;
 }) => Promise<SongManagementResult>;
 
-type ManagementMode = "menu" | "rename" | "artist" | "archive" | "release";
+export type DeleteSongAction = (input: {
+  projectId: string;
+  trackId: string;
+}) => Promise<SongManagementResult>;
+
+type ManagementMode = "menu" | "rename" | "artist" | "archive" | "release" | "delete";
 
 export function SongManagementControls({
   projectId,
@@ -55,6 +62,7 @@ export function SongManagementControls({
   editArtist,
   setArchived,
   markReleased,
+  deleteSong,
   overlay = false,
 }: {
   projectId: string;
@@ -67,11 +75,15 @@ export function SongManagementControls({
   editArtist: EditSongArtistAction;
   setArchived: SetSongArchivedAction;
   markReleased?: MarkSongReleasedAction;
+  deleteSong?: DeleteSongAction;
   /** Gives cover-art triggers enough contrast without changing semantics. */
   overlay?: boolean;
 }) {
   const router = useRouter();
   const online = useOnlineStatus();
+  const playback = usePlaybackSnapshot();
+  const playingSongIdRef = useRef(playback.track?.songId);
+  playingSongIdRef.current = playback.track?.songId;
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<ManagementMode>("menu");
   const [titleDraft, setTitleDraft] = useState(title);
@@ -100,7 +112,11 @@ export function SongManagementControls({
     setMode(nextMode);
   };
 
-  const runAction = async (action: () => Promise<SongManagementResult>) => {
+  const runAction = async (
+    action: () => Promise<SongManagementResult>,
+    failureMessage = "The song could not be updated. Please try again.",
+    onSuccess?: () => void,
+  ) => {
     if (pending) return;
     if (!online) {
       setError("Reconnect to update this song.");
@@ -114,11 +130,12 @@ export function SongManagementControls({
         setError(result.error);
         return;
       }
+      onSuccess?.();
       setOpen(false);
       reset();
       router.refresh();
     } catch {
-      setError("The song could not be updated. Please try again.");
+      setError(failureMessage);
     } finally {
       setPending(false);
     }
@@ -149,18 +166,31 @@ export function SongManagementControls({
     await runAction(() => markReleased({ projectId, trackId }));
   };
 
+  const submitDelete = async () => {
+    if (!deleteSong) return;
+    await runAction(
+      () => deleteSong({ projectId, trackId }),
+      "The song could not be deleted safely. Please try again.",
+      () => {
+        if (playingSongIdRef.current === trackId) playerClose();
+      },
+    );
+  };
+
   const heading =
     mode === "rename"
       ? "Rename song"
       : mode === "artist"
         ? "Edit artist credit"
-        : mode === "release"
-          ? "Mark as Released"
-          : mode === "archive"
-            ? archived
-              ? "Restore song"
-              : "Archive song"
-            : `Manage ${title}`;
+        : mode === "delete"
+          ? "Delete song permanently"
+          : mode === "release"
+            ? "Mark as Released"
+            : mode === "archive"
+              ? archived
+                ? "Restore song"
+                : "Archive song"
+              : `Manage ${title}`;
 
   return (
     <DialogPrimitive.Root
@@ -207,11 +237,13 @@ export function SongManagementControls({
                     ? "This changes the song title everywhere it appears."
                     : mode === "artist"
                       ? "Use the artist name exactly as it should appear in Music."
-                      : mode === "release"
-                        ? "Released is a one-way status change for this song."
-                        : archived
-                          ? "The song returns to active work, subject to the project and purchase status."
-                          : "The song stays available to listen to, but new work pauses until it is restored."}
+                      : mode === "delete"
+                        ? `This permanently removes ${title}, every version, and its history.`
+                        : mode === "release"
+                          ? "Released is a one-way status change for this song."
+                          : archived
+                            ? "The song returns to active work, subject to the project and purchase status."
+                            : "The song stays available to listen to, but new work pauses until it is restored."}
               </DialogPrimitive.Description>
             </div>
           </div>
@@ -283,11 +315,22 @@ export function SongManagementControls({
               ) : markReleased ? (
                 <ManagementChoice
                   label="Mark as Released"
-                  description="Finish the song and unlock released-audio cleanup."
+                  description="Record that this song was officially released."
                   icon={<BadgeCheck size={18} aria-hidden />}
                   onClick={() => {
                     showMode("release");
                   }}
+                />
+              ) : null}
+              {deleteSong ? (
+                <ManagementChoice
+                  label="Delete song"
+                  description="Permanently remove every version, audio file, and song history."
+                  icon={<Trash2 size={18} aria-hidden />}
+                  onClick={() => {
+                    showMode("delete");
+                  }}
+                  danger
                 />
               ) : null}
             </div>
@@ -425,6 +468,63 @@ export function SongManagementControls({
                 </button>
               </div>
             </div>
+          ) : mode === "delete" ? (
+            <div className="mt-5">
+              <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--fg-danger)/0.32)] bg-[rgb(var(--fg-danger)/0.08)] p-4">
+                <div className="flex items-start gap-3">
+                  <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--fg-danger)/0.14)] text-[rgb(var(--fg-danger))]">
+                    <TriangleAlert size={20} aria-hidden />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[12px] font-bold tracking-[0.08em] text-[rgb(var(--fg-danger))] uppercase">
+                      Permanent deletion
+                    </p>
+                    <ul className="mt-2 space-y-2 text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
+                      <li>All versions and their audio files will be permanently deleted.</li>
+                      <li>
+                        Comments, approvals, downloads, and public history will also be deleted.
+                      </li>
+                      <li>Any Portfolio entry using this song will be removed.</li>
+                      <li>The project, client, bookings, payment, and agreement will stay.</li>
+                      <li className="font-bold text-[rgb(var(--fg-danger))]">
+                        This cannot be undone.
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+              {error ? (
+                <p
+                  role="alert"
+                  className="mt-3 text-[12.5px] font-medium text-[rgb(var(--fg-danger))]"
+                >
+                  {error}
+                </p>
+              ) : null}
+              <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("menu");
+                    setError(null);
+                  }}
+                  disabled={pending}
+                  className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] px-4 text-[13px] font-semibold text-[rgb(var(--fg-muted))] hover:bg-[rgb(var(--bg-overlay))] disabled:opacity-45"
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void submitDelete();
+                  }}
+                  disabled={pending || !deleteSong}
+                  className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--fg-danger))] px-4 text-[13px] font-semibold text-white shadow-[0_4px_14px_-2px_rgb(var(--fg-danger)/0.38)] disabled:opacity-45"
+                >
+                  {pending ? "Deleting song…" : "Delete song permanently"}
+                </button>
+              </div>
+            </div>
           ) : (
             <div className="mt-5">
               <div className="rounded-[var(--radius-lg)] border border-[rgb(var(--fg-danger)/0.24)] bg-[rgb(var(--fg-danger)/0.07)] p-4">
@@ -438,11 +538,8 @@ export function SongManagementControls({
                     </p>
                     <ul className="mt-2 space-y-2 text-[12.5px] leading-relaxed text-[rgb(var(--fg-muted))]">
                       <li>The song will be marked Released and cannot be marked unreleased.</li>
-                      <li>
-                        Released songs allow permanent deletion of current, final, or last stored
-                        audio after a separate strong warning.
-                      </li>
-                      <li>Playback, version names, dates, and comments stay unchanged now.</li>
+                      <li>This status is separate from Done / Delivered.</li>
+                      <li>Playback, Versions, dates, comments, and stored audio stay unchanged.</li>
                     </ul>
                   </div>
                 </div>
@@ -491,23 +588,44 @@ function ManagementChoice({
   description,
   icon,
   onClick,
+  danger = false,
 }: {
   label: string;
   description: string;
   icon: React.ReactNode;
   onClick: () => void;
+  danger?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="sk-press flex min-h-11 w-full items-center gap-3 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 py-2.5 text-left hover:border-[rgb(var(--border-strong))] hover:bg-[rgb(var(--bg-overlay))]"
+      className={[
+        "sk-press flex min-h-11 w-full items-center gap-3 rounded-[var(--radius-lg)] border bg-[rgb(var(--bg-elevated))] px-3 py-2.5 text-left",
+        danger
+          ? "border-[rgb(var(--fg-danger)/0.24)] hover:border-[rgb(var(--fg-danger)/0.48)] hover:bg-[rgb(var(--fg-danger)/0.06)]"
+          : "border-[rgb(var(--border-subtle))] hover:border-[rgb(var(--border-strong))] hover:bg-[rgb(var(--bg-overlay))]",
+      ].join(" ")}
     >
-      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--bg-sunken))] text-[rgb(var(--fg-default))]">
+      <span
+        className={[
+          "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-lg)]",
+          danger
+            ? "bg-[rgb(var(--fg-danger)/0.10)] text-[rgb(var(--fg-danger))]"
+            : "bg-[rgb(var(--bg-sunken))] text-[rgb(var(--fg-default))]",
+        ].join(" ")}
+      >
         {icon}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-[13px] font-bold text-[rgb(var(--fg-default))]">{label}</span>
+        <span
+          className={[
+            "block text-[13px] font-bold",
+            danger ? "text-[rgb(var(--fg-danger))]" : "text-[rgb(var(--fg-default))]",
+          ].join(" ")}
+        >
+          {label}
+        </span>
         <span className="block text-[11px] leading-snug text-[rgb(var(--fg-muted))]">
           {description}
         </span>

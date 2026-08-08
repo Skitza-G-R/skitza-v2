@@ -77,6 +77,16 @@ function renderRegion({
         email: "studio@example.com",
         slug: "studio-north",
       }}
+      storageUsage={{
+        usedBytes: 200_000_000,
+        reservedBytes: 0,
+        committedBytes: 200_000_000,
+        availableBytes: 800_000_000,
+        limitBytes: 1_000_000_000,
+        warningBytes: 800_000_000,
+        isAtOrAboveWarning: false,
+        isFull: false,
+      }}
     />,
   );
 }

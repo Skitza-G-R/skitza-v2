@@ -898,6 +898,13 @@ export const trackVersions = pgTable(
     pendingAudioCompleteAttemptedAt: timestamp("pending_audio_complete_attempted_at", {
       withTimezone: true,
     }),
+    // New CompleteMultipart capabilities are conditional writes. Equality to
+    // complete-attempted-at proves the protection marker committed in the same
+    // CAS; legacy attempted rows deliberately retain NULL and stay fail-closed.
+    pendingAudioCompleteWriteOnceProtectedAt: timestamp(
+      "pending_audio_complete_write_once_protected_at",
+      { withTimezone: true },
+    ),
     // Latest expiry of any server-issued UploadPart capability. It is evidence
     // that cancellation must retain the exact recovery journal; expiry alone
     // cannot prove an already-started request has finished.
@@ -928,6 +935,10 @@ export const trackVersions = pgTable(
     producerMarkedFinalAt: timestamp("producer_marked_final_at", { withTimezone: true }),
     // One-way tombstone for both failed placeholders and completed audio.
     audioDeletedAt: timestamp("audio_deleted_at", { withTimezone: true }),
+    // Set only after the exact R2 object is confirmed absent. Keeping this
+    // separate from the logical tombstone prevents quota from being released
+    // during a partial storage-deletion failure.
+    audioStorageDeletedAt: timestamp("audio_storage_deleted_at", { withTimezone: true }),
   },
   (t) => ({
     idPurchaseUnique: unique("track_versions_id_purchase_unique").on(t.id, t.purchaseId),
@@ -963,6 +974,12 @@ export const trackVersions = pgTable(
     trackLiveUploadedIdx: index("track_versions_track_live_uploaded_idx")
       .on(t.trackId, t.uploadedAt.desc(), t.id.desc())
       .where(sql`${t.audioDeletedAt} IS NULL AND ${t.audioUrl} IS NOT NULL`),
+    producerStoredAudioIdx: index("track_versions_producer_stored_audio_idx")
+      .on(t.producerId)
+      .where(sql`${t.sizeBytes} IS NOT NULL AND ${t.audioStorageDeletedAt} IS NULL`),
+    producerPendingAudioIdx: index("track_versions_producer_pending_audio_idx")
+      .on(t.producerId)
+      .where(sql`${t.pendingAudioSizeBytes} IS NOT NULL`),
     audioIdentityShape: check(
       "track_versions_audio_identity_shape",
       sql`(
@@ -981,6 +998,7 @@ export const trackVersions = pgTable(
           AND ${t.pendingAudioStartedAt} IS NULL
           AND ${t.pendingAudioCreateAttemptedAt} IS NULL
           AND ${t.pendingAudioCompleteAttemptedAt} IS NULL
+          AND ${t.pendingAudioCompleteWriteOnceProtectedAt} IS NULL
           AND ${t.pendingAudioPartUrlsExpireAt} IS NULL
           AND ${t.pendingAudioCancelRequestedAt} IS NULL
           AND ${t.pendingAudioCleanupEtag} IS NULL
@@ -1006,6 +1024,7 @@ export const trackVersions = pgTable(
           AND ${t.pendingAudioStartedAt} IS NULL
           AND ${t.pendingAudioCreateAttemptedAt} IS NULL
           AND ${t.pendingAudioCompleteAttemptedAt} IS NULL
+          AND ${t.pendingAudioCompleteWriteOnceProtectedAt} IS NULL
           AND ${t.pendingAudioPartUrlsExpireAt} IS NULL
           AND ${t.pendingAudioCancelRequestedAt} IS NULL
           AND ${t.pendingAudioCleanupEtag} IS NULL
@@ -1021,12 +1040,21 @@ export const trackVersions = pgTable(
           AND (${t.pendingAudioCreateAttemptedAt} IS NULL OR ${t.pendingAudioCreateAttemptedAt} >= ${t.pendingAudioStartedAt})
           AND (${t.pendingAudioUploadId} IS NULL OR ${t.pendingAudioCreateAttemptedAt} IS NOT NULL)
           AND (${t.pendingAudioCompleteAttemptedAt} IS NULL OR (${t.pendingAudioUploadId} IS NOT NULL AND ${t.pendingAudioPartUrlsExpireAt} IS NOT NULL AND ${t.pendingAudioCompleteAttemptedAt} >= ${t.pendingAudioCreateAttemptedAt}))
+          AND (${t.pendingAudioCompleteWriteOnceProtectedAt} IS NULL OR (${t.pendingAudioCompleteAttemptedAt} IS NOT NULL AND ${t.pendingAudioCompleteWriteOnceProtectedAt} = ${t.pendingAudioCompleteAttemptedAt}))
           AND (${t.pendingAudioPartUrlsExpireAt} IS NULL OR (${t.pendingAudioUploadId} IS NOT NULL AND ${t.pendingAudioPartUrlsExpireAt} >= ${t.pendingAudioCreateAttemptedAt}))
           AND (${t.pendingAudioCancelRequestedAt} IS NULL OR (${t.pendingAudioCancelRequestedAt} >= ${t.pendingAudioStartedAt} AND (${t.pendingAudioCompleteAttemptedAt} IS NULL OR ${t.pendingAudioCancelRequestedAt} >= ${t.pendingAudioCompleteAttemptedAt})))
           AND (${t.pendingAudioCleanupEtag} IS NULL OR (${t.pendingAudioCompleteAttemptedAt} IS NOT NULL AND NULLIF(btrim(${t.pendingAudioCleanupEtag}), '') IS NOT NULL))
           AND ((${t.pendingAudioCancelRequestedAt} IS NULL AND ${t.audioDeletedAt} IS NULL) OR (${t.pendingAudioCancelRequestedAt} IS NOT NULL AND ${t.audioDeletedAt} IS NOT NULL))
         )
       ) IS TRUE`,
+    ),
+    pendingAudioCompleteWriteOnceShape: check(
+      "track_versions_pending_audio_complete_write_once_shape",
+      sql`${t.pendingAudioCompleteWriteOnceProtectedAt} IS NULL OR (${t.pendingAudioCompleteAttemptedAt} IS NOT NULL AND ${t.pendingAudioCompleteWriteOnceProtectedAt} = ${t.pendingAudioCompleteAttemptedAt})`,
+    ),
+    audioStorageDeletedShape: check(
+      "track_versions_audio_storage_deleted_shape",
+      sql`${t.audioStorageDeletedAt} IS NULL OR (${t.audioDeletedAt} IS NOT NULL AND ${t.audioStorageDeletedAt} >= ${t.audioDeletedAt})`,
     ),
     protectedAudioUrl: check(
       "track_versions_protected_audio_url",
@@ -2229,6 +2257,19 @@ export const firstVersionUploadIntents = pgTable(
     durationMs: integer("duration_ms"),
     completionToken: text("completion_token").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    latestUploadUrlExpiresAt: timestamp("latest_upload_url_expires_at", { withTimezone: true }),
+    // Operator-only post-cutover gate. Application code never infers or writes
+    // this timestamp. Rollout must first rotate/revoke the legacy R2 signing
+    // credential; only then may an operator mark exact rows and invoke the
+    // explicit reconciliation path. Until then the rows remain quota-reserved
+    // and hard-deletion-blocked.
+    legacyUploadCapabilitiesRevokedAt: timestamp("legacy_upload_capabilities_revoked_at", {
+      withTimezone: true,
+    }),
+    uploadUrlWriteOnceProtectedAt: timestamp("upload_url_write_once_protected_at", {
+      withTimezone: true,
+    }),
+    stagingSealedAt: timestamp("staging_sealed_at", { withTimezone: true }),
     canceledAt: timestamp("canceled_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -2266,6 +2307,9 @@ export const firstVersionUploadIntents = pgTable(
       t.canceledAt,
       t.expiresAt,
     ),
+    producerUnsealedIdx: index("first_version_upload_intents_producer_unsealed_idx")
+      .on(t.producerId, t.expiresAt)
+      .where(sql`${t.stagingSealedAt} IS NULL`),
     identityShape: check(
       "first_version_upload_intents_identity_shape",
       sql`${t.requestDigest} ~ '^sha256:[0-9a-f]{64}$' AND ${t.completionToken} ~ '^[0-9a-f]{64}$' AND NULLIF(btrim(${t.stagingAudioR2Key}), '') IS NOT NULL AND char_length(${t.stagingAudioR2Key}) <= 1024 AND NULLIF(btrim(${t.audioR2Key}), '') IS NOT NULL AND char_length(${t.audioR2Key}) <= 1024 AND ${t.stagingAudioR2Key} <> ${t.audioR2Key}`,
@@ -2277,6 +2321,10 @@ export const firstVersionUploadIntents = pgTable(
     stateShape: check(
       "first_version_upload_intents_state_shape",
       sql`NOT (${t.canceledAt} IS NOT NULL AND ${t.completedAt} IS NOT NULL) AND ${t.expiresAt} > ${t.createdAt} AND ${t.updatedAt} >= ${t.createdAt}`,
+    ),
+    stagingSealShape: check(
+      "first_version_upload_intents_staging_seal_shape",
+      sql`(${t.legacyUploadCapabilitiesRevokedAt} IS NULL OR ${t.legacyUploadCapabilitiesRevokedAt} >= ${t.createdAt}) AND (${t.uploadUrlWriteOnceProtectedAt} IS NULL OR (${t.latestUploadUrlExpiresAt} IS NOT NULL AND ${t.uploadUrlWriteOnceProtectedAt} >= ${t.createdAt} AND ${t.uploadUrlWriteOnceProtectedAt} <= ${t.latestUploadUrlExpiresAt})) AND (${t.stagingSealedAt} IS NULL OR (${t.stagingSealedAt} >= ${t.createdAt} AND ((${t.latestUploadUrlExpiresAt} IS NULL AND ${t.uploadUrlWriteOnceProtectedAt} IS NULL) OR (${t.latestUploadUrlExpiresAt} IS NOT NULL AND ((${t.uploadUrlWriteOnceProtectedAt} IS NOT NULL AND ${t.stagingSealedAt} >= ${t.uploadUrlWriteOnceProtectedAt}) OR (${t.legacyUploadCapabilitiesRevokedAt} IS NOT NULL AND ${t.stagingSealedAt} >= ${t.legacyUploadCapabilitiesRevokedAt}))))))`,
     ),
   }),
 );
@@ -3202,6 +3250,120 @@ export const songPublicAccessEvents = pgTable(
 );
 export type SongPublicAccessEvent = typeof songPublicAccessEvents.$inferSelect;
 export type NewSongPublicAccessEvent = typeof songPublicAccessEvents.$inferInsert;
+
+// Durable recovery receipt for a producer-authorized hard delete. Target Song
+// and Version ids intentionally have no FK: the receipt must survive the
+// history rows it removes so retries can prove the exact R2 objects were
+// already deleted and return the committed result idempotently.
+export type SongDeletionAudioManifestItem = Readonly<{
+  versionId: string;
+  key: string;
+  objectEtag: string;
+  sizeBytes: number;
+  fingerprint: string;
+}>;
+
+export type SongDeletionArtworkManifestItem = Readonly<{
+  key: string;
+  contentType: string;
+  sizeBytes: number;
+  objectEtag: string;
+}>;
+
+export type SongDeletionFirstVersionStagingManifestItem = Readonly<{
+  versionId: string;
+  key: string;
+  contentType: string;
+  sizeBytes: number;
+  completionToken: string;
+}>;
+
+export type SongDeletionFirstVersionFinalManifestItem = Readonly<{
+  versionId: string;
+  key: string;
+  contentType: string;
+  sizeBytes: number;
+  completionToken: string;
+}>;
+
+export type SongDeletionPeaksManifestItem = Readonly<{
+  versionId: string;
+  key: string;
+}>;
+
+export const songDeletionOperations = pgTable(
+  "song_deletion_operations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    producerId: uuid("producer_id")
+      .notNull()
+      .references(() => producers.id, { onDelete: "cascade" }),
+    operationKey: text("operation_key").notNull(),
+    requestDigest: text("request_digest").notNull(),
+    kind: text("kind").$type<"version" | "song">().notNull(),
+    projectId: uuid("project_id").notNull(),
+    purchaseId: uuid("purchase_id").notNull(),
+    trackId: uuid("track_id").notNull(),
+    versionId: uuid("version_id"),
+    targetVersionIds: jsonb("target_version_ids").$type<string[]>().notNull(),
+    actorClerkUserId: text("actor_clerk_user_id").notNull(),
+    audioManifest: jsonb("audio_manifest").$type<SongDeletionAudioManifestItem[]>().notNull(),
+    artworkManifest: jsonb("artwork_manifest")
+      .$type<SongDeletionArtworkManifestItem[]>()
+      .default([])
+      .notNull(),
+    firstVersionStagingManifest: jsonb("first_version_staging_manifest")
+      .$type<SongDeletionFirstVersionStagingManifestItem[]>()
+      .default([])
+      .notNull(),
+    firstVersionFinalManifest: jsonb("first_version_final_manifest")
+      .$type<SongDeletionFirstVersionFinalManifestItem[]>()
+      .default([])
+      .notNull(),
+    peaksManifest: jsonb("peaks_manifest")
+      .$type<SongDeletionPeaksManifestItem[]>()
+      .default([])
+      .notNull(),
+    audioBytes: bigint("audio_bytes", { mode: "number" }).notNull(),
+    preparedAt: timestamp("prepared_at", { withTimezone: true }).notNull().defaultNow(),
+    storageVerifiedAt: timestamp("storage_verified_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (t) => ({
+    producerOperationUnique: unique("song_deletion_operations_producer_operation_unique").on(
+      t.producerId,
+      t.operationKey,
+    ),
+    producerStateIdx: index("song_deletion_operations_producer_state_idx").on(
+      t.producerId,
+      t.completedAt,
+      t.preparedAt,
+    ),
+    producerTrackIdx: index("song_deletion_operations_producer_track_idx").on(
+      t.producerId,
+      t.trackId,
+      t.preparedAt,
+    ),
+    identityShape: check(
+      "song_deletion_operations_identity_shape",
+      sql`${t.requestDigest} ~ '^sha256:[0-9a-f]{64}$' AND NULLIF(btrim(${t.operationKey}), '') IS NOT NULL AND char_length(${t.operationKey}) <= 200 AND NULLIF(btrim(${t.actorClerkUserId}), '') IS NOT NULL AND char_length(${t.actorClerkUserId}) <= 200`,
+    ),
+    targetShape: check(
+      "song_deletion_operations_target_shape",
+      sql`jsonb_typeof(${t.targetVersionIds}) = 'array' AND ((${t.kind} = 'version' AND ${t.versionId} IS NOT NULL AND ${t.targetVersionIds} = jsonb_build_array(${t.versionId}::text)) OR (${t.kind} = 'song' AND ${t.versionId} IS NULL))`,
+    ),
+    manifestShape: check(
+      "song_deletion_operations_manifest_shape",
+      sql`jsonb_typeof(${t.audioManifest}) = 'array' AND jsonb_typeof(${t.artworkManifest}) = 'array' AND jsonb_typeof(${t.firstVersionStagingManifest}) = 'array' AND jsonb_typeof(${t.firstVersionFinalManifest}) = 'array' AND jsonb_typeof(${t.peaksManifest}) = 'array' AND ${t.audioBytes} >= 0`,
+    ),
+    timestampShape: check(
+      "song_deletion_operations_timestamp_shape",
+      sql`(${t.storageVerifiedAt} IS NULL OR ${t.storageVerifiedAt} >= ${t.preparedAt}) AND (${t.completedAt} IS NULL OR (${t.storageVerifiedAt} IS NOT NULL AND ${t.completedAt} >= ${t.storageVerifiedAt}))`,
+    ),
+  }),
+);
+export type SongDeletionOperation = typeof songDeletionOperations.$inferSelect;
+export type NewSongDeletionOperation = typeof songDeletionOperations.$inferInsert;
 
 // ─── SK-132: founder-admin safety and operational data ─────────────
 // These records are deliberately independent from customer-facing routes.

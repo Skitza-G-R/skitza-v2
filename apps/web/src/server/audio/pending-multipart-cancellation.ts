@@ -1,4 +1,4 @@
-import { DeleteObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
+import { HeadObjectCommand } from "@aws-sdk/client-s3";
 import {
   and,
   eq,
@@ -17,7 +17,13 @@ import {
   abortMultipartUploadAndObserve,
   exactObjectIsAbsent,
   listExactMultipartUploadIds,
+  observeMultipartTerminalSealObject,
+  putMultipartTerminalSeal,
+  reconcileMultipartTerminalSeal,
+  type MultipartTerminalSealIdentity,
+  type MultipartTerminalSealObservation,
 } from "~/server/audio/multipart-storage-recovery";
+import { lockProducerAudioStorageQuota } from "~/server/domain/audio-storage/quota";
 
 const AUDIO_UPLOAD_COMPLETION_TOKEN_METADATA = "skitza-upload-token";
 const MULTIPART_CANCELLATION_SETTLE_MS = 60 * 1000;
@@ -63,19 +69,18 @@ export type PendingMultipartCancellationIdentity = Readonly<{
   objectEtag: string | null;
   sizeBytes: number;
   completionToken: string;
+  terminalSealAllowed: boolean;
 }>;
 
 export type PendingMultipartCancellationPort = Readonly<{
   abortExact(input: PendingMultipartCancellationIdentity): Promise<void>;
-  head(key: string): Promise<Readonly<{
-    eTag: string | undefined;
-    sizeBytes: number | undefined;
-    completionToken: string | undefined;
-  }> | null>;
-  publishDeleteIntent(
+  head(key: string): Promise<MultipartTerminalSealObservation | null>;
+  publishCleanupEtag(
     input: PendingMultipartCancellationIdentity & Readonly<{ objectEtag: string }>,
   ): Promise<boolean>;
-  deleteExact(input: Readonly<{ key: string; ifMatch: string }>): Promise<void>;
+  putSeal(
+    input: MultipartTerminalSealIdentity & Readonly<{ replaceEtag: string | null }>,
+  ): Promise<void>;
   clearExact(input: PendingMultipartCancellationIdentity): Promise<boolean>;
 }>;
 
@@ -90,30 +95,14 @@ export async function reconcilePendingMultipartCancellation(
   port: PendingMultipartCancellationPort,
 ): Promise<boolean> {
   await port.abortExact(input);
-  const observed = await port.head(input.key);
-  if (observed === null) return port.clearExact(input);
-  if (
-    !pendingObjectIdentityMatches({
-      expectedEtag: input.objectEtag,
-      expectedSizeBytes: input.sizeBytes,
-      expectedCompletionToken: input.completionToken,
-      observedEtag: observed.eTag,
-      observedSizeBytes: observed.sizeBytes,
-      observedCompletionToken: observed.completionToken,
-    })
-  ) {
-    return false;
-  }
-
-  const objectEtag = observed.eTag?.trim();
-  if (!objectEtag) return false;
-  const exactCompleted = { ...input, objectEtag };
-  if (input.objectEtag === null && !(await port.publishDeleteIntent(exactCompleted))) {
-    return false;
-  }
-  await port.deleteExact({ key: input.key, ifMatch: objectEtag });
-  if ((await port.head(input.key)) !== null) return false;
-  return port.clearExact(exactCompleted);
+  if (!input.terminalSealAllowed) return false;
+  const sealed = await reconcileMultipartTerminalSeal(input, {
+    head: port.head,
+    publishCleanupEtag: port.publishCleanupEtag,
+    putSeal: port.putSeal,
+  });
+  if (sealed === null) return false;
+  return port.clearExact({ ...input, objectEtag: sealed.objectEtag });
 }
 
 export type PendingMultipartCancellationExpectedIdentity = Readonly<{
@@ -166,6 +155,7 @@ type CancellationScope = Readonly<{
   initiationDigest: string;
   createAttemptedAt: Date | null;
   completeAttemptedAt: Date | null;
+  completeWriteOnceProtectedAt: Date | null;
   partUrlsExpireAt: Date | null;
   audioDeletedAt: Date;
   cancellationObservedAt: Date;
@@ -241,6 +231,7 @@ export async function cancelPendingMultipartUpload(
   }
 
   const prepared = await ctx.db.transaction(async (tx): Promise<PreparedCancellation> => {
+    await lockProducerAudioStorageQuota(tx, ctx.producerId);
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${discovered.projectId}, 0))`,
     );
@@ -270,6 +261,8 @@ export async function cancelPendingMultipartUpload(
         pendingAudioStartedAt: trackVersions.pendingAudioStartedAt,
         pendingAudioCreateAttemptedAt: trackVersions.pendingAudioCreateAttemptedAt,
         pendingAudioCompleteAttemptedAt: trackVersions.pendingAudioCompleteAttemptedAt,
+        pendingAudioCompleteWriteOnceProtectedAt:
+          trackVersions.pendingAudioCompleteWriteOnceProtectedAt,
         pendingAudioPartUrlsExpireAt: trackVersions.pendingAudioPartUrlsExpireAt,
         pendingAudioCancelRequestedAt: trackVersions.pendingAudioCancelRequestedAt,
         pendingAudioCleanupEtag: trackVersions.pendingAudioCleanupEtag,
@@ -339,6 +332,7 @@ export async function cancelPendingMultipartUpload(
       (version.pendingAudioUploadId !== null && !hasAllPending) ||
       (version.pendingAudioCreateAttemptedAt !== null && !hasAllPending) ||
       (version.pendingAudioCompleteAttemptedAt !== null && !hasAllPending) ||
+      (version.pendingAudioCompleteWriteOnceProtectedAt !== null && !hasAllPending) ||
       (version.pendingAudioPartUrlsExpireAt !== null && !hasAllPending) ||
       (version.pendingAudioUploadId !== null && version.pendingAudioCreateAttemptedAt === null) ||
       (version.pendingAudioPartUrlsExpireAt !== null && version.pendingAudioUploadId === null) ||
@@ -435,6 +429,12 @@ export async function cancelPendingMultipartUpload(
                   trackVersions.pendingAudioCompleteAttemptedAt,
                   version.pendingAudioCompleteAttemptedAt,
                 ),
+            version.pendingAudioCompleteWriteOnceProtectedAt === null
+              ? isNull(trackVersions.pendingAudioCompleteWriteOnceProtectedAt)
+              : eq(
+                  trackVersions.pendingAudioCompleteWriteOnceProtectedAt,
+                  version.pendingAudioCompleteWriteOnceProtectedAt,
+                ),
             version.pendingAudioPartUrlsExpireAt === null
               ? isNull(trackVersions.pendingAudioPartUrlsExpireAt)
               : eq(
@@ -464,11 +464,13 @@ export async function cancelPendingMultipartUpload(
           projectId: discovered.projectId,
           purchaseId: discovered.purchaseId,
           completeAttemptedAt: version.pendingAudioCompleteAttemptedAt,
+          completeWriteOnceProtectedAt: version.pendingAudioCompleteWriteOnceProtectedAt,
           partUrlsExpireAt: version.pendingAudioPartUrlsExpireAt,
           audioDeletedAt,
           cancellationObservedAt,
           ...pendingIdentity,
           objectEtag: version.pendingAudioCleanupEtag,
+          terminalSealAllowed: false,
         },
       };
     }
@@ -481,12 +483,18 @@ export async function cancelPendingMultipartUpload(
         projectId: discovered.projectId,
         purchaseId: discovered.purchaseId,
         completeAttemptedAt: version.pendingAudioCompleteAttemptedAt,
+        completeWriteOnceProtectedAt: version.pendingAudioCompleteWriteOnceProtectedAt,
         partUrlsExpireAt: version.pendingAudioPartUrlsExpireAt,
         audioDeletedAt,
         cancellationObservedAt,
         ...pendingIdentity,
         uploadId: version.pendingAudioUploadId,
         objectEtag: version.pendingAudioCleanupEtag,
+        terminalSealAllowed:
+          version.pendingAudioCompleteAttemptedAt === null ||
+          (version.pendingAudioCompleteWriteOnceProtectedAt instanceof Date &&
+            version.pendingAudioCompleteWriteOnceProtectedAt.getTime() ===
+              version.pendingAudioCompleteAttemptedAt.getTime()),
       },
     };
   });
@@ -521,6 +529,7 @@ function readPendingBaseIdentity(
     pendingAudioStartedAt: Date | null;
     pendingAudioCreateAttemptedAt: Date | null;
     pendingAudioCompleteAttemptedAt: Date | null;
+    pendingAudioCompleteWriteOnceProtectedAt: Date | null;
     pendingAudioPartUrlsExpireAt: Date | null;
     pendingAudioCancelRequestedAt: Date | null;
   }>,
@@ -533,6 +542,7 @@ function readPendingBaseIdentity(
   const startedAt = version.pendingAudioStartedAt;
   const createAttemptedAt = version.pendingAudioCreateAttemptedAt;
   const completeAttemptedAt = version.pendingAudioCompleteAttemptedAt;
+  const completeWriteOnceProtectedAt = version.pendingAudioCompleteWriteOnceProtectedAt;
   const partUrlsExpireAt = version.pendingAudioPartUrlsExpireAt;
   if (
     typeof key !== "string" ||
@@ -560,6 +570,11 @@ function readPendingBaseIdentity(
         createAttemptedAt === null ||
         partUrlsExpireAt === null ||
         completeAttemptedAt < createAttemptedAt)) ||
+    (completeWriteOnceProtectedAt !== null &&
+      (!(completeWriteOnceProtectedAt instanceof Date) ||
+        !Number.isFinite(completeWriteOnceProtectedAt.getTime()) ||
+        !(completeAttemptedAt instanceof Date) ||
+        completeWriteOnceProtectedAt.getTime() !== completeAttemptedAt.getTime())) ||
     (version.pendingAudioCancelRequestedAt !== null &&
       completeAttemptedAt !== null &&
       version.pendingAudioCancelRequestedAt < completeAttemptedAt)
@@ -600,27 +615,6 @@ function expectedIdentityMatches(
     expected.uploadId === persisted.uploadId &&
     expected.sizeBytes === persisted.sizeBytes &&
     expected.completionToken === persisted.completionToken
-  );
-}
-
-function pendingObjectIdentityMatches(
-  input: Readonly<{
-    expectedEtag: string | null;
-    expectedSizeBytes: number;
-    expectedCompletionToken: string;
-    observedEtag: string | undefined;
-    observedSizeBytes: number | undefined;
-    observedCompletionToken: string | undefined;
-  }>,
-): boolean {
-  const observedEtag = input.observedEtag?.trim();
-  return (
-    typeof observedEtag === "string" &&
-    observedEtag.length > 0 &&
-    (input.expectedEtag === null || observedEtag === input.expectedEtag.trim()) &&
-    input.observedSizeBytes === input.expectedSizeBytes &&
-    input.expectedCompletionToken.length === 64 &&
-    input.observedCompletionToken === input.expectedCompletionToken
   );
 }
 
@@ -674,6 +668,7 @@ async function finishInitializingAudioCancellation(
   });
 
   return ctx.db.transaction(async (tx) => {
+    await lockProducerAudioStorageQuota(tx, input.producerId);
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.projectId}, 0))`);
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.purchaseId}, 0))`);
     const [cleared] = await tx
@@ -689,6 +684,7 @@ async function finishInitializingAudioCancellation(
               pendingAudioStartedAt: null,
               pendingAudioCreateAttemptedAt: null,
               pendingAudioCompleteAttemptedAt: null,
+              pendingAudioCompleteWriteOnceProtectedAt: null,
               pendingAudioPartUrlsExpireAt: null,
               pendingAudioCancelRequestedAt: null,
               pendingAudioCleanupEtag: null,
@@ -718,6 +714,7 @@ async function finishInitializingAudioCancellation(
             ? isNull(trackVersions.pendingAudioCreateAttemptedAt)
             : eq(trackVersions.pendingAudioCreateAttemptedAt, input.createAttemptedAt),
           isNull(trackVersions.pendingAudioCompleteAttemptedAt),
+          isNull(trackVersions.pendingAudioCompleteWriteOnceProtectedAt),
           isNull(trackVersions.pendingAudioPartUrlsExpireAt),
           eq(trackVersions.pendingAudioCancelRequestedAt, input.cancellationObservedAt),
           input.objectEtag === null
@@ -748,6 +745,7 @@ async function refreshCancellationObservation(
     sizeBytes: number;
     createAttemptedAt: Date | null;
     completeAttemptedAt: Date | null;
+    completeWriteOnceProtectedAt: Date | null;
     partUrlsExpireAt: Date | null;
     audioDeletedAt: Date;
     cancellationObservedAt: Date;
@@ -756,6 +754,7 @@ async function refreshCancellationObservation(
 ): Promise<Date> {
   return commitPendingMultipartActivityObservation(input, (effectiveCreateAttemptedAt) =>
     ctx.db.transaction(async (tx) => {
+      await lockProducerAudioStorageQuota(tx, ctx.producerId);
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.projectId}, 0))`);
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.purchaseId}, 0))`);
       const [refreshed] = await tx
@@ -781,6 +780,12 @@ async function refreshCancellationObservation(
             input.completeAttemptedAt === null
               ? isNull(trackVersions.pendingAudioCompleteAttemptedAt)
               : eq(trackVersions.pendingAudioCompleteAttemptedAt, input.completeAttemptedAt),
+            input.completeWriteOnceProtectedAt === null
+              ? isNull(trackVersions.pendingAudioCompleteWriteOnceProtectedAt)
+              : eq(
+                  trackVersions.pendingAudioCompleteWriteOnceProtectedAt,
+                  input.completeWriteOnceProtectedAt,
+                ),
             input.partUrlsExpireAt === null
               ? isNull(trackVersions.pendingAudioPartUrlsExpireAt)
               : eq(trackVersions.pendingAudioPartUrlsExpireAt, input.partUrlsExpireAt),
@@ -808,17 +813,18 @@ async function finishPendingAudioCancellation(
   input: CancellationScope,
 ): Promise<boolean> {
   let observedRemoteActivity = false;
+  let observedCleanupEtag = input.objectEtag;
   return reconcilePendingMultipartCancellation(input, {
     async abortExact(exact) {
       const initiallyObservedUploadIds = await listExactMultipartUploadIds(exact.key);
       if (initiallyObservedUploadIds.length > 0) {
         observedRemoteActivity = true;
-        await refreshCancellationObservation(ctx, input, input.objectEtag);
+        await refreshCancellationObservation(ctx, input, observedCleanupEtag);
       }
       const exactAbort = await abortMultipartUploadAndObserve(exact.key, exact.uploadId);
       if (exactAbort.observedRemoteActivity && !observedRemoteActivity) {
         observedRemoteActivity = true;
-        await refreshCancellationObservation(ctx, input, input.objectEtag);
+        await refreshCancellationObservation(ctx, input, observedCleanupEtag);
       }
       if (!exactAbort.absent) {
         throw new PendingMultipartCancellationError(
@@ -829,7 +835,7 @@ async function finishPendingAudioCancellation(
       const remainingUploadIds = await listExactMultipartUploadIds(exact.key);
       if (remainingUploadIds.length > 0) {
         observedRemoteActivity = true;
-        await refreshCancellationObservation(ctx, input, input.objectEtag);
+        await refreshCancellationObservation(ctx, input, observedCleanupEtag);
       }
       for (const uploadId of remainingUploadIds) {
         const remainingAbort = await abortMultipartUploadAndObserve(exact.key, uploadId);
@@ -843,7 +849,7 @@ async function finishPendingAudioCancellation(
       const uploadsAfterAbort = await listExactMultipartUploadIds(exact.key);
       if (uploadsAfterAbort.length !== 0) {
         observedRemoteActivity = true;
-        await refreshCancellationObservation(ctx, input, input.objectEtag);
+        await refreshCancellationObservation(ctx, input, observedCleanupEtag);
         throw new PendingMultipartCancellationError(
           "RECONCILIATION_PENDING",
           "Multipart uploads are still being reconciled",
@@ -851,20 +857,17 @@ async function finishPendingAudioCancellation(
       }
     },
     async head(key) {
-      if (await exactObjectIsAbsent(key)) return null;
+      const observed = await observeMultipartTerminalSealObject(key);
+      if (observed === null) return null;
       observedRemoteActivity = true;
-      await refreshCancellationObservation(ctx, input, input.objectEtag);
-      const head = await getR2().send(new HeadObjectCommand({ Bucket: BUCKETS.audio, Key: key }));
-      return {
-        eTag: head.ETag,
-        sizeBytes: head.ContentLength,
-        completionToken: head.Metadata?.[AUDIO_UPLOAD_COMPLETION_TOKEN_METADATA],
-      };
+      await refreshCancellationObservation(ctx, input, observedCleanupEtag);
+      return observed;
     },
-    async publishDeleteIntent(exact) {
+    async publishCleanupEtag(exact) {
       if (input.completeAttemptedAt === null) return false;
       const completeAttemptedAt = input.completeAttemptedAt;
       return ctx.db.transaction(async (tx) => {
+        await lockProducerAudioStorageQuota(tx, input.producerId);
         await tx.execute(
           sql`select pg_advisory_xact_lock(hashtextextended(${input.projectId}, 0))`,
         );
@@ -903,6 +906,10 @@ async function finishPendingAudioCancellation(
                 ? isNull(trackVersions.pendingAudioCreateAttemptedAt)
                 : eq(trackVersions.pendingAudioCreateAttemptedAt, input.createAttemptedAt),
               eq(trackVersions.pendingAudioCompleteAttemptedAt, completeAttemptedAt),
+              eq(
+                trackVersions.pendingAudioCompleteWriteOnceProtectedAt,
+                input.completeWriteOnceProtectedAt as Date,
+              ),
               input.partUrlsExpireAt === null
                 ? isNull(trackVersions.pendingAudioPartUrlsExpireAt)
                 : eq(trackVersions.pendingAudioPartUrlsExpireAt, input.partUrlsExpireAt),
@@ -911,16 +918,16 @@ async function finishPendingAudioCancellation(
             ),
           )
           .returning({ id: trackVersions.id });
+        if (published) observedCleanupEtag = exact.objectEtag;
         return published !== undefined;
       });
     },
-    async deleteExact({ key, ifMatch }) {
-      await getR2().send(
-        new DeleteObjectCommand({ Bucket: BUCKETS.audio, Key: key, IfMatch: ifMatch }),
-      );
+    async putSeal(exact) {
+      await putMultipartTerminalSeal(exact);
     },
     async clearExact(exact) {
       return ctx.db.transaction(async (tx) => {
+        await lockProducerAudioStorageQuota(tx, input.producerId);
         await tx.execute(
           sql`select pg_advisory_xact_lock(hashtextextended(${input.projectId}, 0))`,
         );
@@ -949,6 +956,7 @@ async function finishPendingAudioCancellation(
                   pendingAudioStartedAt: null,
                   pendingAudioCreateAttemptedAt: null,
                   pendingAudioCompleteAttemptedAt: null,
+                  pendingAudioCompleteWriteOnceProtectedAt: null,
                   pendingAudioPartUrlsExpireAt: null,
                   pendingAudioCancelRequestedAt: null,
                   pendingAudioCleanupEtag: null,
@@ -980,6 +988,12 @@ async function finishPendingAudioCancellation(
               input.completeAttemptedAt === null
                 ? isNull(trackVersions.pendingAudioCompleteAttemptedAt)
                 : eq(trackVersions.pendingAudioCompleteAttemptedAt, input.completeAttemptedAt),
+              input.completeWriteOnceProtectedAt === null
+                ? isNull(trackVersions.pendingAudioCompleteWriteOnceProtectedAt)
+                : eq(
+                    trackVersions.pendingAudioCompleteWriteOnceProtectedAt,
+                    input.completeWriteOnceProtectedAt,
+                  ),
               input.partUrlsExpireAt === null
                 ? isNull(trackVersions.pendingAudioPartUrlsExpireAt)
                 : eq(trackVersions.pendingAudioPartUrlsExpireAt, input.partUrlsExpireAt),

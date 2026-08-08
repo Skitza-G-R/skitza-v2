@@ -22,6 +22,11 @@ import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { privateVersionStreamPath } from "~/server/domain/audio-delivery/urls";
 import {
+  AudioStorageQuotaError,
+  assertProducerAudioStorageAvailable,
+  lockProducerAudioStorageQuota,
+} from "~/server/domain/audio-storage/quota";
+import {
   FirstVersionUploadError,
   assertFirstVersionAudioFile,
   assertFirstVersionUploadDestination,
@@ -29,19 +34,74 @@ import {
   createStoredAudioIdentityFingerprint,
   presignFirstVersionUploadWithCompensation,
 } from "~/server/domain/first-version-uploads/service";
+import { reconcileProducerFirstVersionUploadReservations } from "~/server/domain/first-version-uploads/reconciliation";
 import {
   FirstVersionUploadPresignError,
   buildFirstVersionStagingKey,
   computeFirstVersionUploadPeaks,
   createFirstVersionUploadUrl,
-  deleteFirstVersionUploadIfExact,
   finalizeFirstVersionUpload,
+  reconcileFirstVersionFinalDeletion,
+  sealFirstVersionStagingUpload,
 } from "~/server/domain/first-version-uploads/storage";
 import { emitArtistNewVersionNotification } from "~/server/artist/notification-emitters";
 import { SITE_URL, sendTrackVersionUploadedEmail } from "~/server/email/send";
 import { buildAudioKey } from "~/server/storage/r2";
 
 const INTENT_TTL_MS = 24 * 60 * 60 * 1_000;
+
+type FirstVersionUploadIntentRow = typeof firstVersionUploadIntents.$inferSelect;
+type FirstVersionSealDb = Parameters<typeof lockProducerAudioStorageQuota>[0];
+
+function firstVersionStagingIdentity(intent: FirstVersionUploadIntentRow) {
+  return {
+    key: intent.stagingAudioR2Key,
+    sizeBytes: intent.audioSizeBytes,
+    contentType: intent.audioContentType,
+    completionToken: intent.completionToken,
+  };
+}
+
+function firstVersionFinalIdentity(intent: FirstVersionUploadIntentRow) {
+  return {
+    key: intent.audioR2Key,
+    sizeBytes: intent.audioSizeBytes,
+    contentType: intent.audioContentType,
+    completionToken: intent.completionToken,
+  };
+}
+
+async function databaseTimeHasPassed(
+  db: FirstVersionSealDb,
+  timestamp: Date,
+): Promise<boolean> {
+  const result = await db.execute<{ passed: boolean }>(sql`
+    select now() >= ${timestamp} as "passed"
+  `);
+  return result.rows[0]?.passed === true;
+}
+
+function assertFirstVersionStagingCanSeal(intent: FirstVersionUploadIntentRow): void {
+  if (
+    intent.uploadUrlWriteOnceProtectedAt ||
+    intent.legacyUploadCapabilitiesRevokedAt ||
+    !intent.latestUploadUrlExpiresAt
+  ) {
+    return;
+  }
+  throw new FirstVersionUploadError(
+    "CONFLICT",
+    "This older upload cannot be cleared safely yet. Contact support before retrying.",
+  );
+}
+
+async function sealFirstVersionIntentStorage(
+  intent: FirstVersionUploadIntentRow,
+): Promise<void> {
+  if (intent.stagingSealedAt) return;
+  assertFirstVersionStagingCanSeal(intent);
+  await sealFirstVersionStagingUpload(firstVersionStagingIdentity(intent));
+}
 
 const prepareInput = z.object({
   operationKey: z.string().min(16).max(200),
@@ -62,6 +122,9 @@ function mapFirstVersionUploadError(error: unknown): never {
       code: "PRECONDITION_FAILED",
       message: error.message,
     });
+  }
+  if (error instanceof AudioStorageQuotaError) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
   }
   if (!(error instanceof FirstVersionUploadError)) throw error;
   switch (error.code) {
@@ -104,24 +167,6 @@ function assertIntentCanUpload(
   }
 }
 
-async function cleanIntentObjects(intent: {
-  stagingAudioR2Key: string;
-  audioR2Key: string;
-  audioSizeBytes: number;
-  audioContentType: string;
-  completionToken: string;
-}): Promise<void> {
-  const common = {
-    sizeBytes: intent.audioSizeBytes,
-    contentType: intent.audioContentType,
-    completionToken: intent.completionToken,
-  };
-  await Promise.allSettled([
-    deleteFirstVersionUploadIfExact({ key: intent.stagingAudioR2Key, ...common }),
-    deleteFirstVersionUploadIfExact({ key: intent.audioR2Key, ...common }),
-  ]);
-}
-
 export const firstVersionUploadRouter = router({
   prepare: producerProcedure.input(prepareInput).mutation(async ({ ctx, input }) => {
     try {
@@ -134,6 +179,8 @@ export const firstVersionUploadRouter = router({
         durationMs: input.durationMs ?? null,
       };
       const requestDigest = createFirstVersionRequestDigest(normalized);
+
+      await reconcileProducerFirstVersionUploadReservations(ctx.db, ctx.producerId);
 
       const [existing] = await ctx.db
         .select()
@@ -148,6 +195,12 @@ export const firstVersionUploadRouter = router({
       if (existing) {
         assertIntentCanUpload(existing, requestDigest);
         if (existing.completedAt) {
+          if (!existing.stagingSealedAt) {
+            throw new FirstVersionUploadError(
+              "CONFLICT",
+              "This upload still needs to be secured. Retry finishing the upload.",
+            );
+          }
           return {
             status: "completed" as const,
             intentId: existing.id,
@@ -155,6 +208,12 @@ export const firstVersionUploadRouter = router({
             trackId: existing.trackId,
             versionId: existing.versionId,
           };
+        }
+        if (existing.stagingSealedAt) {
+          throw new FirstVersionUploadError(
+            "CONFLICT",
+            "This upload was already secured. Retry finishing the upload.",
+          );
         }
       }
 
@@ -210,23 +269,6 @@ export const firstVersionUploadRouter = router({
         projectId: input.projectId,
       });
 
-      if (existing) {
-        const capability = await createFirstVersionUploadUrl({
-          key: existing.stagingAudioR2Key,
-          sizeBytes: existing.audioSizeBytes,
-          contentType: existing.audioContentType,
-          completionToken: existing.completionToken,
-        });
-        return {
-          status: "ready" as const,
-          intentId: existing.id,
-          projectId: existing.projectId,
-          trackId: existing.trackId,
-          versionId: existing.versionId,
-          ...capability,
-        };
-      }
-
       const intentId = randomUUID();
       const trackId = randomUUID();
       const versionId = randomUUID();
@@ -240,53 +282,100 @@ export const firstVersionUploadRouter = router({
         trackVersionId: versionId,
         filename: input.filename,
       });
-      const now = new Date();
-      const [inserted] = await ctx.db
-        .insert(firstVersionUploadIntents)
-        .values({
-          id: intentId,
-          producerId: ctx.producerId,
-          projectId: input.projectId,
-          purchaseId: activeDestination.purchaseId,
-          operationKey: input.operationKey,
-          requestDigest,
-          trackId,
-          versionId,
-          title: input.title,
-          artist: normalized.artist,
-          label: input.label,
-          description: normalized.description,
-          stagingAudioR2Key,
-          audioR2Key,
-          audioContentType: normalized.contentType,
-          audioSizeBytes: input.sizeBytes,
-          durationMs: normalized.durationMs,
-          completionToken,
-          expiresAt: new Date(now.getTime() + INTENT_TTL_MS),
-          createdAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoNothing()
-        .returning();
+      const { intent, inserted } = await ctx.db.transaction(async (tx) => {
+        await lockProducerAudioStorageQuota(tx, ctx.producerId);
 
-      const intent =
-        inserted ??
-        (
-          await ctx.db
-            .select()
-            .from(firstVersionUploadIntents)
-            .where(
-              and(
-                eq(firstVersionUploadIntents.producerId, ctx.producerId),
-                eq(firstVersionUploadIntents.operationKey, input.operationKey),
-              ),
-            )
-            .limit(1)
-        )[0];
-      if (!intent) {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Upload could not start" });
-      }
+        // The unlocked fast-path above keeps ordinary retries cheap. Recheck
+        // under the producer quota lock so two different server instances can
+        // never reserve the same operation twice.
+        const [racedExisting] = await tx
+          .select()
+          .from(firstVersionUploadIntents)
+          .where(
+            and(
+              eq(firstVersionUploadIntents.producerId, ctx.producerId),
+              eq(firstVersionUploadIntents.operationKey, input.operationKey),
+            ),
+          )
+          .limit(1);
+        if (racedExisting) {
+          assertIntentCanUpload(racedExisting, requestDigest);
+          if (racedExisting.stagingSealedAt && !racedExisting.completedAt) {
+            throw new FirstVersionUploadError(
+              "CONFLICT",
+              "This upload was already secured. Retry finishing the upload.",
+            );
+          }
+          return { intent: racedExisting, inserted: null };
+        }
+
+        await assertProducerAudioStorageAvailable(tx, ctx.producerId, input.sizeBytes);
+        const [newIntent] = await tx
+          .insert(firstVersionUploadIntents)
+          .values({
+            id: intentId,
+            producerId: ctx.producerId,
+            projectId: input.projectId,
+            purchaseId: activeDestination.purchaseId,
+            operationKey: input.operationKey,
+            requestDigest,
+            trackId,
+            versionId,
+            title: input.title,
+            artist: normalized.artist,
+            label: input.label,
+            description: normalized.description,
+            stagingAudioR2Key,
+            audioR2Key,
+            audioContentType: normalized.contentType,
+            audioSizeBytes: input.sizeBytes,
+            durationMs: normalized.durationMs,
+            completionToken,
+            expiresAt: sql`now() + make_interval(secs => ${INTENT_TTL_MS / 1_000})`,
+            createdAt: sql`now()`,
+            updatedAt: sql`now()`,
+          })
+          .onConflictDoNothing()
+          .returning();
+        const intent =
+          newIntent ??
+          (
+            await tx
+              .select()
+              .from(firstVersionUploadIntents)
+              .where(
+                and(
+                  eq(firstVersionUploadIntents.producerId, ctx.producerId),
+                  eq(firstVersionUploadIntents.operationKey, input.operationKey),
+                ),
+              )
+              .limit(1)
+          )[0];
+        if (!intent) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Upload could not start",
+          });
+        }
+        assertIntentCanUpload(intent, requestDigest);
+        return { intent, inserted: newIntent ?? null };
+      });
       assertIntentCanUpload(intent, requestDigest);
+      if (intent.completedAt) {
+        if (!intent.stagingSealedAt) {
+          throw new FirstVersionUploadError(
+            "CONFLICT",
+            "This upload still needs to be secured. Retry finishing the upload.",
+          );
+        }
+        return {
+          status: "completed" as const,
+          intentId: intent.id,
+          projectId: intent.projectId,
+          trackId: intent.trackId,
+          versionId: intent.versionId,
+        };
+      }
       if (!inserted) {
         assertFirstVersionUploadDestination(
           destinations.find((candidate) => candidate.purchaseId === intent.purchaseId) ?? null,
@@ -296,32 +385,126 @@ export const firstVersionUploadRouter = router({
       const capability = await presignFirstVersionUploadWithCompensation({
         newlyInserted: Boolean(inserted),
         presign: () =>
-          createFirstVersionUploadUrl({
-            key: intent.stagingAudioR2Key,
-            sizeBytes: intent.audioSizeBytes,
-            contentType: intent.audioContentType,
-            completionToken: intent.completionToken,
+          ctx.db.transaction(async (tx) => {
+            await lockProducerAudioStorageQuota(tx, ctx.producerId);
+            const [lockedIntent] = await tx
+              .select()
+              .from(firstVersionUploadIntents)
+              .where(
+                and(
+                  eq(firstVersionUploadIntents.id, intent.id),
+                  eq(firstVersionUploadIntents.producerId, ctx.producerId),
+                ),
+              )
+              .limit(1)
+              .for("update");
+            if (!lockedIntent) {
+              throw new FirstVersionUploadError("NOT_FOUND", "The upload intent was not found");
+            }
+            assertIntentCanUpload(lockedIntent, requestDigest);
+            if (lockedIntent.completedAt) {
+              if (!lockedIntent.stagingSealedAt) {
+                await sealFirstVersionIntentStorage(lockedIntent);
+                await tx
+                  .update(firstVersionUploadIntents)
+                  .set({
+                    stagingSealedAt: sql`now()`,
+                    updatedAt: sql`now()`,
+                  })
+                  .where(
+                    and(
+                      eq(firstVersionUploadIntents.id, lockedIntent.id),
+                      eq(firstVersionUploadIntents.producerId, ctx.producerId),
+                      isNull(firstVersionUploadIntents.stagingSealedAt),
+                    ),
+                  );
+              }
+              return { status: "completed" as const, capability: null };
+            }
+            if (lockedIntent.stagingSealedAt) {
+              throw new FirstVersionUploadError(
+                "CONFLICT",
+                "This upload was already secured. Retry finishing the upload.",
+              );
+            }
+            // Legacy unconditional URLs are not safely upgradable: a request
+            // already in flight could outlive URL expiry and overwrite a
+            // marker. Only an operator-recorded credential revocation unlocks
+            // those rows for reconciliation.
+            assertFirstVersionStagingCanSeal(lockedIntent);
+            const capability = await createFirstVersionUploadUrl({
+              key: lockedIntent.stagingAudioR2Key,
+              sizeBytes: lockedIntent.audioSizeBytes,
+              contentType: lockedIntent.audioContentType,
+              completionToken: lockedIntent.completionToken,
+            });
+            const [issued] = await tx
+              .update(firstVersionUploadIntents)
+              .set({
+                latestUploadUrlExpiresAt: sql`greatest(
+                  coalesce(${firstVersionUploadIntents.latestUploadUrlExpiresAt}, ${capability.expiresAt}),
+                  ${capability.expiresAt}
+                )`,
+                uploadUrlWriteOnceProtectedAt: sql`now()`,
+                updatedAt: sql`now()`,
+              })
+              .where(
+                and(
+                  eq(firstVersionUploadIntents.id, lockedIntent.id),
+                  eq(firstVersionUploadIntents.producerId, ctx.producerId),
+                  isNull(firstVersionUploadIntents.completedAt),
+                  isNull(firstVersionUploadIntents.canceledAt),
+                  isNull(firstVersionUploadIntents.stagingSealedAt),
+                ),
+              )
+              .returning({ id: firstVersionUploadIntents.id });
+            if (!issued) {
+              throw new FirstVersionUploadError(
+                "CONFLICT",
+                "The upload changed while its secure link was being prepared",
+              );
+            }
+            return {
+              status: "ready" as const,
+              capability: {
+                uploadUrl: capability.uploadUrl,
+                headers: capability.headers,
+                expiresInSeconds: capability.expiresInSeconds,
+              },
+            };
           }),
         compensate: async () => {
-          await ctx.db
-            .delete(firstVersionUploadIntents)
-            .where(
-              and(
-                eq(firstVersionUploadIntents.id, intent.id),
-                eq(firstVersionUploadIntents.producerId, ctx.producerId),
-                isNull(firstVersionUploadIntents.completedAt),
-                isNull(firstVersionUploadIntents.canceledAt),
-              ),
-            );
+          await ctx.db.transaction(async (tx) => {
+            await lockProducerAudioStorageQuota(tx, ctx.producerId);
+            await tx
+              .delete(firstVersionUploadIntents)
+              .where(
+                and(
+                  eq(firstVersionUploadIntents.id, intent.id),
+                  eq(firstVersionUploadIntents.producerId, ctx.producerId),
+                  isNull(firstVersionUploadIntents.completedAt),
+                  isNull(firstVersionUploadIntents.canceledAt),
+                ),
+              );
+          });
         },
       });
+      if (capability.status === "completed") {
+        return {
+          status: "completed" as const,
+          intentId: intent.id,
+          projectId: intent.projectId,
+          trackId: intent.trackId,
+          versionId: intent.versionId,
+        };
+      }
       return {
         status: "ready" as const,
         intentId: intent.id,
         projectId: intent.projectId,
         trackId: intent.trackId,
         versionId: intent.versionId,
-        ...capability,
+        ...capability.capability,
       };
     } catch (error) {
       mapFirstVersionUploadError(error);
@@ -331,55 +514,15 @@ export const firstVersionUploadRouter = router({
   complete: producerProcedure
     .input(z.object({ intentId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const [intent] = await ctx.db
-        .select()
-        .from(firstVersionUploadIntents)
-        .where(
-          and(
-            eq(firstVersionUploadIntents.id, input.intentId),
-            eq(firstVersionUploadIntents.producerId, ctx.producerId),
-          ),
-        )
-        .limit(1);
-      if (!intent) throw new TRPCError({ code: "NOT_FOUND" });
-      if (intent.completedAt) {
-        return {
-          projectId: intent.projectId,
-          trackId: intent.trackId,
-          versionId: intent.versionId,
-          url: privateVersionStreamPath(intent.versionId),
-        };
-      }
       try {
-        assertIntentCanUpload(intent, intent.requestDigest);
-        const stored = await finalizeFirstVersionUpload({
-          stagingKey: intent.stagingAudioR2Key,
-          finalKey: intent.audioR2Key,
-          sizeBytes: intent.audioSizeBytes,
-          contentType: intent.audioContentType,
-          completionToken: intent.completionToken,
-        });
-        const peaks = await computeFirstVersionUploadPeaks(intent.audioR2Key);
-        const audioIdentityFingerprint = createStoredAudioIdentityFingerprint({
-          key: intent.audioR2Key,
-          objectEtag: stored.objectEtag,
-          sizeBytes: stored.sizeBytes,
-        });
-        const url = privateVersionStreamPath(intent.versionId);
-
         const completed = await ctx.db.transaction(async (tx) => {
-          await tx.execute(
-            sql`select pg_advisory_xact_lock(hashtextextended(${intent.projectId}, 0))`,
-          );
-          await tx.execute(
-            sql`select pg_advisory_xact_lock(hashtextextended(${intent.purchaseId}, 0))`,
-          );
+          await lockProducerAudioStorageQuota(tx, ctx.producerId);
           const [lockedIntent] = await tx
             .select()
             .from(firstVersionUploadIntents)
             .where(
               and(
-                eq(firstVersionUploadIntents.id, intent.id),
+                eq(firstVersionUploadIntents.id, input.intentId),
                 eq(firstVersionUploadIntents.producerId, ctx.producerId),
               ),
             )
@@ -389,12 +532,90 @@ export const firstVersionUploadRouter = router({
             throw new FirstVersionUploadError("NOT_FOUND", "The upload intent was not found");
           }
           if (lockedIntent.completedAt) {
+            let completedIntent = lockedIntent;
+            if (!lockedIntent.stagingSealedAt) {
+              await sealFirstVersionIntentStorage(lockedIntent);
+              const [sealed] = await tx
+                .update(firstVersionUploadIntents)
+                .set({
+                  stagingSealedAt: sql`now()`,
+                  updatedAt: sql`now()`,
+                })
+                .where(
+                  and(
+                    eq(firstVersionUploadIntents.id, lockedIntent.id),
+                    eq(firstVersionUploadIntents.producerId, ctx.producerId),
+                    isNull(firstVersionUploadIntents.stagingSealedAt),
+                  ),
+                )
+                .returning();
+              if (!sealed) {
+                throw new FirstVersionUploadError(
+                  "CONFLICT",
+                  "The completed upload could not be secured",
+                );
+              }
+              completedIntent = sealed;
+            }
             return {
+              intent: completedIntent,
               projectId: lockedIntent.projectId,
               trackId: lockedIntent.trackId,
+              url: privateVersionStreamPath(lockedIntent.versionId),
               newlyCompleted: false,
+              terminalError: null,
             };
           }
+          const intentExpired = await databaseTimeHasPassed(tx, lockedIntent.expiresAt);
+          if (lockedIntent.canceledAt || intentExpired) {
+            if (!lockedIntent.stagingSealedAt) {
+              await reconcileFirstVersionFinalDeletion(firstVersionFinalIdentity(lockedIntent));
+              await sealFirstVersionIntentStorage(lockedIntent);
+              const [sealed] = await tx
+                .update(firstVersionUploadIntents)
+                .set({
+                  stagingSealedAt: sql`now()`,
+                  updatedAt: sql`now()`,
+                })
+                .where(
+                  and(
+                    eq(firstVersionUploadIntents.id, lockedIntent.id),
+                    eq(firstVersionUploadIntents.producerId, ctx.producerId),
+                    isNull(firstVersionUploadIntents.stagingSealedAt),
+                  ),
+                )
+                .returning({ id: firstVersionUploadIntents.id });
+              if (!sealed) {
+                throw new FirstVersionUploadError(
+                  "CONFLICT",
+                  "The inactive upload could not be secured",
+                );
+              }
+            }
+            return {
+              intent: lockedIntent,
+              projectId: lockedIntent.projectId,
+              trackId: lockedIntent.trackId,
+              url: privateVersionStreamPath(lockedIntent.versionId),
+              newlyCompleted: false,
+              terminalError: lockedIntent.canceledAt
+                ? ({
+                    code: "CANCELED" as const,
+                    message: "This upload was canceled. Choose the file again.",
+                  } as const)
+                : ({
+                    code: "EXPIRED" as const,
+                    message: "This upload expired. Choose the file again.",
+                  } as const),
+            };
+          }
+          assertIntentCanUpload(lockedIntent, lockedIntent.requestDigest);
+          await tx.execute(
+            sql`select pg_advisory_xact_lock(hashtextextended(${lockedIntent.projectId}, 0))`,
+          );
+          await tx.execute(
+            sql`select pg_advisory_xact_lock(hashtextextended(${lockedIntent.purchaseId}, 0))`,
+          );
           const [lockedProject] = await tx
             .select({
               id: projects.id,
@@ -402,7 +623,7 @@ export const firstVersionUploadRouter = router({
               lifecycleStatus: projects.lifecycleStatus,
             })
             .from(projects)
-            .where(eq(projects.id, intent.projectId))
+            .where(eq(projects.id, lockedIntent.projectId))
             .limit(1)
             .for("update");
           const [lockedPurchase] = await tx
@@ -414,7 +635,7 @@ export const firstVersionUploadRouter = router({
               commercialSnapshot: purchases.commercialSnapshot,
             })
             .from(purchases)
-            .where(eq(purchases.id, intent.purchaseId))
+            .where(eq(purchases.id, lockedIntent.purchaseId))
             .limit(1)
             .for("update");
           const allocatedRows = await tx
@@ -422,9 +643,9 @@ export const firstVersionUploadRouter = router({
             .from(projectTracks)
             .where(
               and(
-                eq(projectTracks.projectId, intent.projectId),
-                eq(projectTracks.purchaseId, intent.purchaseId),
-                ne(projectTracks.id, intent.trackId),
+                eq(projectTracks.projectId, lockedIntent.projectId),
+                eq(projectTracks.purchaseId, lockedIntent.purchaseId),
+                ne(projectTracks.id, lockedIntent.trackId),
               ),
             );
           assertFirstVersionUploadDestination(
@@ -442,15 +663,21 @@ export const firstVersionUploadRouter = router({
                   allocatedSongSpaces: allocatedRows.length,
                 }
               : null,
-            { producerId: ctx.producerId, projectId: intent.projectId },
+            { producerId: ctx.producerId, projectId: lockedIntent.projectId },
           );
-          assertIntentCanUpload(lockedIntent, intent.requestDigest);
+          assertIntentCanUpload(lockedIntent, lockedIntent.requestDigest);
+
+          if (!lockedIntent.stagingSealedAt) {
+            assertFirstVersionStagingCanSeal(lockedIntent);
+          }
+          const stored = await finalizeFirstVersionUpload({
+            stagingKey: lockedIntent.stagingAudioR2Key,
+            finalKey: lockedIntent.audioR2Key,
+            sizeBytes: lockedIntent.audioSizeBytes,
+            contentType: lockedIntent.audioContentType,
+            completionToken: lockedIntent.completionToken,
+          });
           if (
-            lockedIntent.purchaseId !== intent.purchaseId ||
-            lockedIntent.trackId !== intent.trackId ||
-            lockedIntent.versionId !== intent.versionId ||
-            lockedIntent.audioR2Key !== intent.audioR2Key ||
-            lockedIntent.stagingAudioR2Key !== intent.stagingAudioR2Key ||
             lockedIntent.audioSizeBytes !== stored.sizeBytes ||
             lockedIntent.audioContentType !== stored.contentType
           ) {
@@ -459,43 +686,56 @@ export const firstVersionUploadRouter = router({
               "The upload changed before it could be saved",
             );
           }
+          if (!lockedIntent.stagingSealedAt) {
+            await sealFirstVersionStagingUpload(firstVersionStagingIdentity(lockedIntent));
+          }
+          const peaks = await computeFirstVersionUploadPeaks(lockedIntent.audioR2Key);
+          const audioIdentityFingerprint = createStoredAudioIdentityFingerprint({
+            key: lockedIntent.audioR2Key,
+            objectEtag: stored.objectEtag,
+            sizeBytes: stored.sizeBytes,
+          });
+          const url = privateVersionStreamPath(lockedIntent.versionId);
 
           const [positionRow] = await tx
             .select({
               position: sql<number>`coalesce(max(${projectTracks.position}), -1) + 1`,
             })
             .from(projectTracks)
-            .where(eq(projectTracks.projectId, intent.projectId));
+            .where(eq(projectTracks.projectId, lockedIntent.projectId));
           await tx.insert(projectTracks).values({
-            id: intent.trackId,
-            projectId: intent.projectId,
-            purchaseId: intent.purchaseId,
-            title: intent.title,
-            artist: intent.artist,
+            id: lockedIntent.trackId,
+            projectId: lockedIntent.projectId,
+            purchaseId: lockedIntent.purchaseId,
+            title: lockedIntent.title,
+            artist: lockedIntent.artist,
             position: positionRow?.position ?? 0,
           });
           await tx.insert(trackVersions).values({
-            id: intent.versionId,
-            trackId: intent.trackId,
-            purchaseId: intent.purchaseId,
+            id: lockedIntent.versionId,
+            trackId: lockedIntent.trackId,
+            purchaseId: lockedIntent.purchaseId,
             producerId: ctx.producerId,
-            label: intent.label,
+            label: lockedIntent.label,
             audioUrl: url,
-            durationMs: intent.durationMs,
-            description: intent.description,
-            audioR2Key: intent.audioR2Key,
+            durationMs: lockedIntent.durationMs,
+            description: lockedIntent.description,
+            audioR2Key: lockedIntent.audioR2Key,
             sizeBytes: stored.sizeBytes,
             audioObjectEtag: stored.objectEtag,
             audioIdentityFingerprint,
             peaks,
           });
-          const completedAt = new Date();
           const [updatedIntent] = await tx
             .update(firstVersionUploadIntents)
-            .set({ completedAt, updatedAt: completedAt })
+            .set({
+              completedAt: sql`now()`,
+              stagingSealedAt: sql`now()`,
+              updatedAt: sql`now()`,
+            })
             .where(
               and(
-                eq(firstVersionUploadIntents.id, intent.id),
+                eq(firstVersionUploadIntents.id, lockedIntent.id),
                 eq(firstVersionUploadIntents.producerId, ctx.producerId),
                 isNull(firstVersionUploadIntents.completedAt),
                 isNull(firstVersionUploadIntents.canceledAt),
@@ -510,17 +750,29 @@ export const firstVersionUploadRouter = router({
           }
           await tx
             .update(projects)
-            .set({ updatedAt: completedAt })
-            .where(and(eq(projects.id, intent.projectId), eq(projects.producerId, ctx.producerId)));
-          return { projectId: intent.projectId, trackId: intent.trackId, newlyCompleted: true };
+            .set({ updatedAt: sql`now()` })
+            .where(
+              and(eq(projects.id, lockedIntent.projectId), eq(projects.producerId, ctx.producerId)),
+            );
+          return {
+            intent: lockedIntent,
+            projectId: lockedIntent.projectId,
+            trackId: lockedIntent.trackId,
+            url,
+            newlyCompleted: true,
+            terminalError: null,
+          };
         });
 
-        await deleteFirstVersionUploadIfExact({
-          key: intent.stagingAudioR2Key,
-          sizeBytes: intent.audioSizeBytes,
-          contentType: intent.audioContentType,
-          completionToken: intent.completionToken,
-        }).catch(() => false);
+        if (completed.terminalError) {
+          throw new FirstVersionUploadError(
+            completed.terminalError.code,
+            completed.terminalError.message,
+          );
+        }
+
+        const intent = completed.intent;
+        const url = completed.url;
 
         // Preserve the notification behavior of the previous V1 multipart
         // path, but only for the transaction that actually created Song + V1.
@@ -557,7 +809,7 @@ export const firstVersionUploadRouter = router({
                 )
                 .limit(1);
               const producerName = producerRow?.displayName ?? "Your producer";
-              let emailEnabled = true;
+              let emailEnabled = false;
               try {
                 const delivery = await emitArtistNewVersionNotification(ctx.db, {
                   recipientClerkUserId: artistContact?.clerkUserId ?? null,
@@ -595,12 +847,6 @@ export const firstVersionUploadRouter = router({
           url,
         };
       } catch (error) {
-        if (
-          error instanceof FirstVersionUploadError &&
-          (error.code === "CANCELED" || error.code === "EXPIRED")
-        ) {
-          await cleanIntentObjects(intent);
-        }
         mapFirstVersionUploadError(error);
       }
     }),
@@ -609,6 +855,7 @@ export const firstVersionUploadRouter = router({
     .input(z.object({ intentId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const intent = await ctx.db.transaction(async (tx) => {
+        await lockProducerAudioStorageQuota(tx, ctx.producerId);
         const [locked] = await tx
           .select()
           .from(firstVersionUploadIntents)
@@ -621,22 +868,80 @@ export const firstVersionUploadRouter = router({
           .limit(1)
           .for("update");
         if (!locked) return null;
-        if (locked.completedAt || locked.canceledAt) return locked;
-        const canceledAt = new Date();
+        if (
+          locked.latestUploadUrlExpiresAt &&
+          !locked.uploadUrlWriteOnceProtectedAt &&
+          !locked.legacyUploadCapabilitiesRevokedAt &&
+          !locked.stagingSealedAt
+        ) {
+          const [updated] = await tx
+            .update(firstVersionUploadIntents)
+            .set({
+              canceledAt: locked.completedAt
+                ? locked.canceledAt
+                : sql`coalesce(${firstVersionUploadIntents.canceledAt}, now())`,
+              updatedAt: sql`now()`,
+            })
+            .where(
+              and(
+                eq(firstVersionUploadIntents.id, locked.id),
+                eq(firstVersionUploadIntents.producerId, ctx.producerId),
+              ),
+            )
+            .returning();
+          return updated ?? locked;
+        }
+
+        let sealObserved = Boolean(locked.stagingSealedAt);
+        if (!sealObserved) {
+          try {
+            if (!locked.completedAt) {
+              await reconcileFirstVersionFinalDeletion(firstVersionFinalIdentity(locked));
+            }
+            await sealFirstVersionIntentStorage(locked);
+            sealObserved = true;
+          } catch (error) {
+            // Cancellation is still durable, but quota remains reserved until
+            // a later retry/lazy pass authoritatively observes the marker.
+            console.warn(
+              "[first-version-upload] cancel staging seal failed",
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
         const [updated] = await tx
           .update(firstVersionUploadIntents)
-          .set({ canceledAt, updatedAt: canceledAt })
+          .set({
+            ...(sealObserved
+              ? {
+                  stagingSealedAt: locked.stagingSealedAt ?? sql`now()`,
+                }
+              : {}),
+            canceledAt: locked.completedAt
+              ? locked.canceledAt
+              : sql`coalesce(${firstVersionUploadIntents.canceledAt}, now())`,
+            updatedAt: sql`now()`,
+          })
           .where(
             and(
               eq(firstVersionUploadIntents.id, locked.id),
-              isNull(firstVersionUploadIntents.completedAt),
-              isNull(firstVersionUploadIntents.canceledAt),
+              eq(firstVersionUploadIntents.producerId, ctx.producerId),
             ),
           )
           .returning();
         return updated ?? locked;
       });
-      if (intent && !intent.completedAt) await cleanIntentObjects(intent);
+      if (
+        intent?.latestUploadUrlExpiresAt &&
+        !intent.uploadUrlWriteOnceProtectedAt &&
+        !intent.legacyUploadCapabilitiesRevokedAt &&
+        !intent.stagingSealedAt
+      ) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "This older upload cannot be cleared safely yet. Contact support before retrying.",
+        });
+      }
       return { ok: true as const, completed: Boolean(intent?.completedAt) };
     }),
 });

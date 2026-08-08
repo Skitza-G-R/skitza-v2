@@ -13,7 +13,7 @@ import {
 } from "../schema";
 
 const migrationPath = fileURLToPath(
-  new URL("../../drizzle/0041_booking_availability_foundation.sql", import.meta.url),
+  new URL("../../drizzle/0043_booking_availability_foundation.sql", import.meta.url),
 );
 
 function checkNames(table: PgTable): string[] {

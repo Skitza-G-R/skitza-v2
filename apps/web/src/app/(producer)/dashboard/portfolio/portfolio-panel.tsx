@@ -392,6 +392,7 @@ function TrackRow({ row, onRemove }: { row: PortfolioTrackRow; onRemove: () => v
     }
     playerPlay({
       id: row.versionId,
+      songId: row.id,
       audioUrl: row.audioUrl,
       title: row.title,
       subtitle: row.artist ?? row.versionLabel,
@@ -409,6 +410,7 @@ function TrackRow({ row, onRemove }: { row: PortfolioTrackRow; onRemove: () => v
     if (!isCurrent) {
       playerPlay({
         id: row.versionId,
+        songId: row.id,
         audioUrl: row.audioUrl,
         title: row.title,
         subtitle: row.artist ?? row.versionLabel,
