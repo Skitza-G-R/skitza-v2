@@ -18,6 +18,7 @@ const FREE_BUSY_ENDPOINT = "https://www.googleapis.com/calendar/v3/freeBusy";
 const CALENDAR_EVENTS_ENDPOINT = "https://www.googleapis.com/calendar/v3/calendars";
 const CHANNELS_STOP_ENDPOINT = "https://www.googleapis.com/calendar/v3/channels/stop";
 const REVOKE_ENDPOINT = "https://oauth2.googleapis.com/revoke";
+const GOOGLE_USERINFO_EMAIL_SCOPE = "https://www.googleapis.com/auth/userinfo.email";
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_TOKEN_BYTES = 4 * 1024;
@@ -652,7 +653,11 @@ function fetchFailure(error: unknown): never {
 
 export function hasRequiredGoogleCalendarScopes(scopes: readonly string[]): boolean {
   const granted = new Set(scopes);
-  return GOOGLE_CALENDAR_SCOPES.every((scope) => granted.has(scope));
+  return GOOGLE_CALENDAR_SCOPES.every((scope) =>
+    scope === "email"
+      ? granted.has(scope) || granted.has(GOOGLE_USERINFO_EMAIL_SCOPE)
+      : granted.has(scope),
+  );
 }
 
 export function createGoogleCalendarProvider(
