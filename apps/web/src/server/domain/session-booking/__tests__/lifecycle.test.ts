@@ -733,6 +733,41 @@ describe("session booking lifecycle commands", () => {
     ).rejects.toMatchObject({ code: "BOOKING_CONFLICT" });
   });
 
+  it("makes fresh Google busy overrideable only for a producer manual create", async () => {
+    const repository = new MemorySessionBookingRepository();
+    const input = {
+      producerId: "producer-sk68",
+      clientContactId: "client-sk68",
+      projectId: "project-sk68",
+      purchaseId: "purchase-sk68",
+      sessionAllowanceId: "allowance-sk68",
+      actorClerkUserId: "producer-clerk-sk68",
+      startsAt: new Date("2026-07-20T10:00:00.000Z"),
+      billingTreatment: "included" as const,
+      googleBusyIntervals: [
+        {
+          startsAt: new Date("2026-07-20T10:15:00.000Z"),
+          endsAt: new Date("2026-07-20T10:45:00.000Z"),
+        },
+      ],
+      operationKey: "manual-google-busy",
+      now: baseNow,
+    };
+
+    await expect(
+      createProducerManualSessionBooking(repository, {
+        ...input,
+        acknowledgedWarnings: [],
+      }),
+    ).rejects.toMatchObject({ code: "WARNING_ACKNOWLEDGEMENT_REQUIRED" });
+    await expect(
+      createProducerManualSessionBooking(repository, {
+        ...input,
+        acknowledgedWarnings: ["GOOGLE_BUSY"],
+      }),
+    ).resolves.toMatchObject({ created: true, booking: { status: "confirmed" } });
+  });
+
   it("replays the same create intent and conflicts on the same key with a different digest", async () => {
     const repository = new MemorySessionBookingRepository();
     const first = await createSessionBooking(repository, createInput());
@@ -760,6 +795,42 @@ describe("session booking lifecycle commands", () => {
         createInput({ startsAt: new Date("2026-07-20T12:00:00.000Z") }),
       ),
     ).rejects.toMatchObject({ code: "OPERATION_KEY_CONFLICT" });
+  });
+
+  it("hard-blocks a new artist command on Google busy but preserves an earlier replay", async () => {
+    const repository = new MemorySessionBookingRepository();
+    const original = await createSessionBooking(repository, createInput());
+    const busy = [
+      {
+        startsAt: new Date("2026-07-20T10:15:00.000Z"),
+        endsAt: new Date("2026-07-20T10:45:00.000Z"),
+      },
+    ];
+
+    await expect(
+      createSessionBooking(repository, createInput({ googleBusyIntervals: busy })),
+    ).resolves.toMatchObject({ created: false, booking: { id: original.booking.id } });
+    await expect(
+      createSessionBooking(
+        repository,
+        createInput({ operationKey: "skitza-overlap-wins", googleBusyIntervals: busy }),
+      ),
+    ).rejects.toMatchObject({ code: "BOOKING_CONFLICT" });
+    await expect(
+      createSessionBooking(
+        repository,
+        createInput({
+          operationKey: "artist-google-busy",
+          startsAt: new Date("2026-07-20T12:00:00.000Z"),
+          googleBusyIntervals: [
+            {
+              startsAt: new Date("2026-07-20T12:15:00.000Z"),
+              endsAt: new Date("2026-07-20T12:45:00.000Z"),
+            },
+          ],
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "GOOGLE_BUSY" });
   });
 
   it("binds normalized title, origin, and billing treatment to create idempotency", async () => {
@@ -1685,6 +1756,19 @@ describe("session booking lifecycle commands", () => {
         operationKey: "forged-outside-hours-request",
       }),
     ).rejects.toMatchObject({ code: "OUTSIDE_AVAILABILITY" });
+    await expect(
+      submitArtistSessionChangeRequest(repository, {
+        ...base,
+        proposedStartsAt: new Date("2026-07-20T14:00:00.000Z"),
+        googleBusyIntervals: [
+          {
+            startsAt: new Date("2026-07-20T14:15:00.000Z"),
+            endsAt: new Date("2026-07-20T14:45:00.000Z"),
+          },
+        ],
+        operationKey: "google-busy-reschedule-request",
+      }),
+    ).rejects.toMatchObject({ code: "GOOGLE_BUSY" });
     expect(repository.changeRequests).toEqual([]);
   });
 
@@ -1843,6 +1927,41 @@ describe("session booking lifecycle commands", () => {
     });
   });
 
+  it("rechecks Google busy before approving an artist reschedule request", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ autoConfirmBookings: true, sessionLimit: 1 }),
+    );
+    const created = await createSessionBooking(repository, createInput());
+    const proposedStartsAt = new Date("2026-07-20T12:00:00.000Z");
+    const requested = await submitArtistSessionChangeRequest(repository, {
+      bookingId: created.booking.id,
+      actorClerkUserId: "artist-clerk-sk68",
+      kind: "reschedule",
+      proposedStartsAt,
+      operationKey: "artist-google-recheck-request",
+      now: baseNow,
+    });
+
+    await expect(
+      decideProducerSessionChangeRequest(repository, {
+        requestId: requested.request.id,
+        producerId: "producer-sk68",
+        actorClerkUserId: "producer-clerk-sk68",
+        decision: "approved",
+        operationKey: "approve-google-busy-request",
+        googleBusyIntervals: [
+          {
+            startsAt: proposedStartsAt,
+            endsAt: new Date(proposedStartsAt.getTime() + 30 * 60 * 1000),
+          },
+        ],
+        now: new Date("2026-07-19T07:00:00.000Z"),
+      }),
+    ).rejects.toMatchObject({ code: "GOOGLE_BUSY" });
+    expect(repository.changeRequests[0]).toMatchObject({ status: "pending" });
+    expect(repository.bookings).toHaveLength(1);
+  });
+
   it("previews producer warnings and recomputes the exact acknowledgements under lock", async () => {
     const repository = new MemorySessionBookingRepository(
       createContext({ autoConfirmBookings: true }),
@@ -1896,6 +2015,48 @@ describe("session booking lifecycle commands", () => {
       calendarSyncJobId: rescheduled.calendarSyncJobId,
     });
     expect(repository.calendarJobs).toHaveLength(2);
+  });
+
+  it("lets the producer explicitly override Google busy during a direct reschedule", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ autoConfirmBookings: true }),
+    );
+    const created = await createSessionBooking(repository, createInput());
+    const startsAt = new Date("2026-07-20T12:00:00.000Z");
+    const googleBusyIntervals = [
+      {
+        startsAt: startsAt,
+        endsAt: new Date(startsAt.getTime() + 30 * 60 * 1000),
+      },
+    ];
+    const preview = await previewProducerSessionReschedule(repository, {
+      bookingId: created.booking.id,
+      producerId: "producer-sk68",
+      startsAt,
+      googleBusyIntervals,
+      now: baseNow,
+    });
+    expect(preview.warnings.map((warning) => warning.code)).toEqual(["GOOGLE_BUSY"]);
+
+    const command = {
+      bookingId: created.booking.id,
+      producerId: "producer-sk68",
+      actorClerkUserId: "producer-clerk-sk68",
+      startsAt,
+      googleBusyIntervals,
+      warningAcknowledgements: [] as string[],
+      operationKey: "producer-google-busy-reschedule",
+      now: baseNow,
+    };
+    await expect(rescheduleProducerSessionBooking(repository, command)).rejects.toMatchObject({
+      code: "WARNING_ACKNOWLEDGEMENT_REQUIRED",
+    });
+    await expect(
+      rescheduleProducerSessionBooking(repository, {
+        ...command,
+        warningAcknowledgements: ["GOOGLE_BUSY"],
+      }),
+    ).resolves.toMatchObject({ created: true, booking: { startsAt } });
   });
 
   it("rolls back an approved cancellation when its calendar outbox insert fails", async () => {

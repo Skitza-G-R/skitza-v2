@@ -11,6 +11,7 @@ import {
   rescheduleSession,
   type ManualWarningCode,
 } from "./calendar-actions";
+import { GoogleBusyProtectionWarning } from "./google-busy-protection-warning";
 import type { SessionListItem } from "./session-row";
 
 type Preview = Extract<
@@ -93,7 +94,10 @@ export function RescheduleSessionModal({
         setError(result.preview.hardConflicts.map((issue) => issue.message).join(" "));
         return;
       }
-      if (result.preview.warnings.length > 0) {
+      if (
+        result.preview.warnings.length > 0 ||
+        result.preview.googleCalendarProtection === "reduced"
+      ) {
         setConfirmWarnings(true);
         return;
       }
@@ -115,7 +119,12 @@ export function RescheduleSessionModal({
       setError(result.error);
       return;
     }
-    toast("Session rescheduled. The artist’s calendar update is queued.", "success");
+    toast(
+      result.googleCalendarProtection === "reduced"
+        ? "Session rescheduled. Google busy-time protection was limited for this check; the artist’s calendar update is queued."
+        : "Session rescheduled. The artist’s calendar update is queued.",
+      result.googleCalendarProtection === "reduced" ? "info" : "success",
+    );
     onOpenChange(false);
   }
 
@@ -147,21 +156,29 @@ export function RescheduleSessionModal({
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7 sm:py-6">
           {confirmWarnings && preview ? (
             <div>
-              <h2 className="font-display text-xl font-bold">Check these warnings</h2>
+              <h2 className="font-display text-xl font-bold">
+                {preview.warnings.length > 0 ? "Check these warnings" : "Review this change"}
+              </h2>
               <p className="mt-2 text-sm leading-relaxed text-[rgb(var(--fg-secondary))]">
-                This time does not overlap another Skitza session, but it is outside one or more
-                studio preferences.
+                {preview.warnings.length > 0
+                  ? "This time does not overlap another Skitza session. Review these availability warnings before rescheduling."
+                  : "This time does not overlap another Skitza session, but Google busy times could not be checked."}
               </p>
-              <ul className="mt-5 space-y-3" aria-label="Scheduling warnings">
-                {preview.warnings.map((warning) => (
-                  <li
-                    key={warning.code}
-                    className="rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.35)] bg-[rgb(var(--brand-primary)/0.08)] px-4 py-3 text-sm"
-                  >
-                    {warning.message}
-                  </li>
-                ))}
-              </ul>
+              {preview.googleCalendarProtection === "reduced" ? (
+                <GoogleBusyProtectionWarning embedded />
+              ) : null}
+              {preview.warnings.length > 0 ? (
+                <ul className="mt-5 space-y-3" aria-label="Scheduling warnings">
+                  {preview.warnings.map((warning) => (
+                    <li
+                      key={warning.code}
+                      className="rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.35)] bg-[rgb(var(--brand-primary)/0.08)] px-4 py-3 text-sm"
+                    >
+                      {warning.message}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2">
@@ -225,7 +242,11 @@ export function RescheduleSessionModal({
                 onClick={saveAnyway}
                 className={primaryButtonClass}
               >
-                {isPending ? "Saving…" : "Reschedule anyway"}
+                {isPending
+                  ? "Saving…"
+                  : preview?.warnings.length
+                    ? "Reschedule anyway"
+                    : "Reschedule session"}
               </button>
             </>
           ) : (

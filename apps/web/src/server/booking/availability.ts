@@ -13,6 +13,7 @@ import type {
   SessionAvailabilityBlackout,
   SessionAvailabilityBlock,
   SessionBookingScheduleEntry,
+  SessionBusyInterval,
 } from "./types";
 
 export type SessionSlotIssueCode =
@@ -20,6 +21,7 @@ export type SessionSlotIssueCode =
   | "BLACKOUT"
   | "LEAD_TIME_VIOLATION"
   | "BOOKING_CONFLICT"
+  | "GOOGLE_BUSY"
   | "BUFFER_CONFLICT"
   | "DAILY_LIMIT";
 
@@ -37,6 +39,7 @@ export type ClassifySessionSlotInput = Readonly<{
   availabilityBlocks: readonly SessionAvailabilityBlock[];
   blackouts: readonly SessionAvailabilityBlackout[];
   existingBookings: readonly SessionBookingScheduleEntry[];
+  googleBusyIntervals?: readonly SessionBusyInterval[];
   maxSessionsPerDay?: number | null;
   ignoreBookingId?: string;
   now?: Date;
@@ -53,6 +56,7 @@ function slotIssue(
     actor === "producer" &&
     (code === "OUTSIDE_AVAILABILITY" ||
       code === "BLACKOUT" ||
+      code === "GOOGLE_BUSY" ||
       code === "BUFFER_CONFLICT" ||
       code === "DAILY_LIMIT");
   return {
@@ -163,6 +167,23 @@ export function classifySessionSlot(input: ClassifySessionSlotInput): readonly S
       slotIssue(input.actor, "BOOKING_CONFLICT", "The session overlaps another Skitza session"),
     );
   }
+  const googleBusyConflict = (input.googleBusyIntervals ?? []).some((busy) => {
+    if (
+      Number.isNaN(busy.startsAt.getTime()) ||
+      Number.isNaN(busy.endsAt.getTime()) ||
+      busy.startsAt.getTime() >= busy.endsAt.getTime()
+    ) {
+      throw new SessionBookingDomainError("INVALID_SLOT", "A Google busy interval is invalid");
+    }
+    return (
+      input.startsAt.getTime() < busy.endsAt.getTime() && busy.startsAt.getTime() < requestedEnd
+    );
+  });
+  if (googleBusyConflict) {
+    issues.push(
+      slotIssue(input.actor, "GOOGLE_BUSY", "This time overlaps a busy time in Google Calendar"),
+    );
+  }
   if (bufferConflict) {
     issues.push(
       slotIssue(input.actor, "BUFFER_CONFLICT", "The session overlaps the studio buffer"),
@@ -210,6 +231,7 @@ export function generateArtistExactSessionSlots(
     availabilityBlocks: readonly SessionAvailabilityBlock[];
     blackouts: readonly SessionAvailabilityBlackout[];
     existingBookings: readonly SessionBookingScheduleEntry[];
+    googleBusyIntervals?: readonly SessionBusyInterval[];
     ignoreBookingId?: string;
     slotIncrementMin?: number;
   }>,
@@ -268,6 +290,9 @@ export function generateArtistExactSessionSlots(
                 availabilityBlocks: input.availabilityBlocks,
                 blackouts: input.blackouts,
                 existingBookings: input.existingBookings,
+                ...(input.googleBusyIntervals
+                  ? { googleBusyIntervals: input.googleBusyIntervals }
+                  : {}),
                 now: input.now,
                 minLeadHours: input.minLeadHours,
                 ...(input.maxSessionsPerDay !== undefined

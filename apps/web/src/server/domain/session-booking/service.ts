@@ -8,6 +8,7 @@ import {
   sessionUseConsumesAllowance,
 } from "~/server/booking";
 import type {
+  SessionBusyInterval,
   SessionBookingBillingTreatment,
   SessionBookingScheduleEntry,
   SessionUseOutcome,
@@ -34,6 +35,7 @@ export type {
   ClassifySessionSlotInput,
   SessionBillingOptions,
   SessionBookingBillingTreatment,
+  SessionBusyInterval,
   SessionBookingErrorCode,
   SessionBookingScheduleEntry,
   SessionSlotIssue,
@@ -616,6 +618,7 @@ export type CreateSessionBookingInput = Readonly<{
   origin?: SessionBookingOrigin;
   billingTreatment?: SessionBookingBillingTreatment;
   acknowledgedWarnings?: readonly string[];
+  googleBusyIntervals?: readonly SessionBusyInterval[];
   now?: Date;
 }> &
   SessionBookingRequestedStart;
@@ -646,6 +649,7 @@ async function createSessionBookingInTransaction(
     acknowledgedWarnings?: readonly string[];
     requireExactWarningAcknowledgements?: boolean;
     manualClientContactId?: string;
+    googleBusyIntervals?: readonly SessionBusyInterval[];
   }>,
 ): Promise<CreateSessionBookingResult> {
   const context = options.preloadedContext ?? (await transaction.loadCreateContext(input));
@@ -757,6 +761,7 @@ async function createSessionBookingInTransaction(
     availabilityBlocks: context.availabilityBlocks,
     blackouts: context.blackouts,
     existingBookings: await transaction.listScheduleEntries(input.producerId),
+    ...(options.googleBusyIntervals ? { googleBusyIntervals: options.googleBusyIntervals } : {}),
     maxSessionsPerDay: context.producer.maxSessionsPerDay,
     now,
     minLeadHours: context.allowance.minLeadHours,
@@ -772,7 +777,9 @@ async function createSessionBookingInTransaction(
   const acknowledgedWarnings = new Set(options.acknowledgedWarnings ?? []);
   const unacknowledged = warningCodes.filter((code) => !acknowledgedWarnings.has(code));
   const unexpected = options.requireExactWarningAcknowledgements
-    ? [...acknowledgedWarnings].filter((code) => !warningCodes.includes(code))
+    ? [...acknowledgedWarnings].filter(
+        (code) => code !== "GOOGLE_BUSY" && !warningCodes.includes(code),
+      )
     : [];
   if (unacknowledged.length > 0 || unexpected.length > 0) {
     throw new SessionBookingDomainError(
@@ -862,6 +869,7 @@ export async function createSessionBooking(
         ...(input.billingTreatment !== undefined
           ? { billingTreatment: input.billingTreatment }
           : {}),
+        ...(input.googleBusyIntervals ? { googleBusyIntervals: input.googleBusyIntervals } : {}),
       }),
   );
 }
@@ -877,6 +885,7 @@ export type CreateProducerManualSessionBookingInput = Readonly<{
   title?: string | null;
   billingTreatment: SessionBookingBillingTreatment;
   acknowledgedWarnings: readonly string[];
+  googleBusyIntervals?: readonly SessionBusyInterval[];
   operationKey: string;
   now?: Date;
 }>;
@@ -1002,6 +1011,7 @@ export async function createProducerManualSessionBooking(
           preloadedContext: context,
           acknowledgedWarnings: input.acknowledgedWarnings,
           manualClientContactId: input.clientContactId,
+          ...(input.googleBusyIntervals ? { googleBusyIntervals: input.googleBusyIntervals } : {}),
         },
       );
     },
@@ -1532,6 +1542,7 @@ export type RescheduleArtistSessionBookingInput = Readonly<{
   bookingId: string;
   actorClerkUserId: string;
   operationKey: string;
+  googleBusyIntervals?: readonly SessionBusyInterval[];
   now?: Date;
 }> &
   SessionBookingRequestedStart;
@@ -1656,6 +1667,7 @@ export async function rescheduleArtistSessionBooking(
           origin: context.booking.origin,
           billingTreatment: context.booking.billingTreatment,
           calendarRevision: context.booking.calendarRevision + 1,
+          ...(input.googleBusyIntervals ? { googleBusyIntervals: input.googleBusyIntervals } : {}),
         },
       );
       if (!replacementResult.created) {
@@ -1722,6 +1734,7 @@ async function producerRescheduleIssues(
   context: SessionBookingContext,
   startsAt: Date,
   now: Date,
+  googleBusyIntervals: readonly SessionBusyInterval[] = [],
 ) {
   return classifySessionSlot({
     actor: "producer",
@@ -1732,6 +1745,7 @@ async function producerRescheduleIssues(
     availabilityBlocks: context.availabilityBlocks,
     blackouts: context.blackouts,
     existingBookings: await transaction.listScheduleEntries(context.booking.producerId),
+    googleBusyIntervals,
     maxSessionsPerDay: context.producer.maxSessionsPerDay,
     now,
     minLeadHours: context.allowance.minLeadHours,
@@ -1745,6 +1759,7 @@ export async function previewProducerSessionReschedule(
     bookingId: string;
     producerId: string;
     startsAt: Date;
+    googleBusyIntervals?: readonly SessionBusyInterval[];
     now?: Date;
   }>,
 ): Promise<PreviewProducerSessionRescheduleResult> {
@@ -1772,6 +1787,7 @@ export async function previewProducerSessionReschedule(
         context,
         startsAt,
         commandNow(input.now),
+        input.googleBusyIntervals,
       );
       return {
         booking: context.booking,
@@ -1789,6 +1805,7 @@ export type RescheduleProducerSessionBookingInput = Readonly<{
   actorClerkUserId: string;
   startsAt: Date;
   warningAcknowledgements: readonly string[];
+  googleBusyIntervals?: readonly SessionBusyInterval[];
   operationKey: string;
   now?: Date;
 }>;
@@ -1879,6 +1896,7 @@ export async function rescheduleProducerSessionBooking(
           preloadedContext: context,
           acknowledgedWarnings: input.warningAcknowledgements,
           requireExactWarningAcknowledgements: true,
+          ...(input.googleBusyIntervals ? { googleBusyIntervals: input.googleBusyIntervals } : {}),
         },
       );
       const replacedBooking = await transaction.updateBooking({
@@ -1920,6 +1938,7 @@ export type SubmitArtistSessionChangeRequestInput = Readonly<{
   actorClerkUserId: string;
   kind: SessionBookingChangeRequestKind;
   proposedStartsAt?: Date;
+  googleBusyIntervals?: readonly SessionBusyInterval[];
   operationKey: string;
   now?: Date;
 }>;
@@ -2011,6 +2030,7 @@ export async function submitArtistSessionChangeRequest(
           availabilityBlocks: context.availabilityBlocks,
           blackouts: context.blackouts,
           existingBookings: await transaction.listScheduleEntries(context.booking.producerId),
+          ...(input.googleBusyIntervals ? { googleBusyIntervals: input.googleBusyIntervals } : {}),
           maxSessionsPerDay: context.producer.maxSessionsPerDay,
           now,
           minLeadHours: context.allowance.minLeadHours,
@@ -2049,6 +2069,7 @@ export type DecideProducerSessionChangeRequestInput = Readonly<{
   decision: "approved" | "rejected";
   operationKey: string;
   reason?: string | null;
+  googleBusyIntervals?: readonly SessionBusyInterval[];
   now?: Date;
 }>;
 
@@ -2261,6 +2282,7 @@ export async function decideProducerSessionChangeRequest(
           slotActor: "artist",
           forceConfirmed: true,
           preloadedContext: context,
+          ...(input.googleBusyIntervals ? { googleBusyIntervals: input.googleBusyIntervals } : {}),
         },
       );
       const booking = await transaction.updateBooking({

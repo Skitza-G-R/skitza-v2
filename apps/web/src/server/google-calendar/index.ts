@@ -10,6 +10,8 @@ export {
   type GoogleCalendarEnvironment,
   type GoogleCalendarServerConfig,
 } from "./config";
+export { readGoogleCalendarBusyIntervals } from "./busy-reader";
+export type { GoogleCalendarBusyInterval } from "./freebusy";
 export {
   GoogleCalendarProviderError,
   createGoogleCalendarProvider,
@@ -20,6 +22,8 @@ export {
   GoogleCalendarServiceError,
   createGoogleCalendarService,
   type GoogleCalendarConnectionSnapshot,
+  type GoogleCalendarBusyHealth,
+  type GoogleCalendarBusyResult,
   type GoogleCalendarOAuthCompletion,
   type GoogleCalendarOAuthStart,
   type GoogleCalendarPublicCandidate,

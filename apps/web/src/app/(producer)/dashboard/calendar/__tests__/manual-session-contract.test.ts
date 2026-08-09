@@ -10,6 +10,7 @@ const artistRouterSource = readFileSync(
   "utf8",
 );
 const manualUi = readFileSync(new URL("../manual-session-modal.tsx", import.meta.url), "utf8");
+const calendarActions = readFileSync(new URL("../calendar-actions.ts", import.meta.url), "utf8");
 const decisionUi = readFileSync(new URL("../change-request-decision.tsx", import.meta.url), "utf8");
 const rescheduleUi = readFileSync(
   new URL("../reschedule-session-modal.tsx", import.meta.url),
@@ -59,6 +60,12 @@ describe("producer manual session contract", () => {
     expect(manualUi).toContain("multiple session packages");
     expect(manualUi).toContain("Check these warnings");
     expect(manualUi).toContain("Create anyway");
+    expect(calendarActions).toContain('"GOOGLE_BUSY"');
+    expect(manualUi).toContain("Review these availability warnings before creating the session.");
+    expect(manualUi).toMatch(
+      /result\.preview\.warnings\.length > 0 \|\|\s*protectionFrom\(result\.preview\) === "reduced"/,
+    );
+    expect(manualUi).toContain('protectionFrom(result.session) === "reduced"');
     expect(manualUi).toContain("h-11");
     expect(manualUi).not.toMatch(/Google Meet|participant|recurrence/i);
   });
@@ -91,10 +98,28 @@ describe("session change request contract", () => {
     expect(decisionUi).toContain("The current session stays unchanged unless you approve.");
     expect(decisionUi).toContain("Decline");
     expect(decisionUi).toContain("Approve");
+    expect(calendarActions).toContain("googleCalendarProtection: result.googleCalendarProtection");
+    expect(decisionUi).toContain('request.kind === "reschedule"');
+    expect(decisionUi).toContain('result.googleCalendarProtection === "reduced"');
+    expect(decisionUi).toContain(
+      "Artist request approved. Google busy-time protection was limited for this check.",
+    );
+    expect(decisionUi).toContain('reducedProtection ? "info" : "success"');
     expect(decisionUi).toContain("h-11");
     expect(rescheduleUi).toContain("The duration and billing treatment");
     expect(rescheduleUi).toContain("Check these warnings");
     expect(rescheduleUi).toContain("Reschedule anyway");
+    expect(rescheduleUi).toContain("GoogleBusyProtectionWarning");
+    expect(rescheduleUi).toMatch(
+      /result\.preview\.warnings\.length > 0 \|\|\s*result\.preview\.googleCalendarProtection === "reduced"/,
+    );
+    expect(rescheduleUi).toContain(
+      "This time does not overlap another Skitza session, but Google busy times could not be checked.",
+    );
+    expect(rescheduleUi).toContain("warning.code as ManualWarningCode");
+    expect(calendarActions).toContain("googleCalendarProtection: result.googleCalendarProtection");
+    expect(rescheduleUi).toContain('result.googleCalendarProtection === "reduced"');
+    expect(rescheduleUi).toContain("Google busy-time protection was limited for this check");
     expect(rescheduleUi).toContain("h-11");
   });
 });

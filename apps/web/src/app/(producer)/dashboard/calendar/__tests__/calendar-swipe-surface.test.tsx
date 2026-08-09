@@ -45,6 +45,47 @@ afterEach(() => {
 });
 
 describe("CalendarSwipeSurface", () => {
+  it("shows a plain reduced-protection warning without exposing provider details", () => {
+    const { rerender } = render(
+      <CalendarSwipeSurface
+        active="sessions"
+        eyebrows={{
+          schedule: "THIS WEEK",
+          sessions: "2 SESSIONS",
+          availability: "8H OPEN PER WEEK",
+        }}
+        scheduleEyebrow="THIS WEEK"
+        sessionsContent={<p>Sessions content</p>}
+        availabilityContent={<p>Availability content</p>}
+        manualOptions={manualOptions}
+        googleBusyProtectionReduced
+      />,
+    );
+
+    expect(screen.getByRole("status").textContent).toContain("Google busy-time check is limited");
+    expect(screen.getByRole("status").textContent).toContain(
+      "Booking stays open using your Skitza availability.",
+    );
+    expect(screen.getByRole("status").textContent).not.toMatch(/token|calendar id|provider|error/i);
+
+    rerender(
+      <CalendarSwipeSurface
+        active="sessions"
+        eyebrows={{
+          schedule: "THIS WEEK",
+          sessions: "2 SESSIONS",
+          availability: "8H OPEN PER WEEK",
+        }}
+        scheduleEyebrow="THIS WEEK"
+        sessionsContent={<p>Sessions content</p>}
+        availabilityContent={<p>Availability content</p>}
+        manualOptions={manualOptions}
+      />,
+    );
+
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
   it("shows the adjacent destination immediately and does not freeze while server navigation resolves", () => {
     vi.useFakeTimers();
     const { rerender } = render(

@@ -13,8 +13,10 @@ import {
   type ManualBillingTreatment,
   type ManualWarningCode,
 } from "./calendar-actions";
+import { GoogleBusyProtectionWarning } from "./google-busy-protection-warning";
 
 type Preview = Extract<Awaited<ReturnType<typeof previewManualSession>>, { ok: true }>["preview"];
+type GoogleCalendarProtection = "active" | "reduced";
 
 const BILLING_COPY: Readonly<Record<ManualBillingTreatment, { label: string; body: string }>> = {
   included: {
@@ -56,10 +58,12 @@ export function ManualSessionModal({
   open,
   onOpenChange,
   options,
+  onGoogleBusyProtectionReduced,
 }: {
   open: boolean;
   onOpenChange: (next: boolean) => void;
   options: ProducerManualSessionOptions;
+  onGoogleBusyProtectionReduced?: () => void;
 }) {
   const [clientId, setClientId] = useState("");
   const [projectId, setProjectId] = useState("");
@@ -157,7 +161,7 @@ export function ManualSessionModal({
         setError(result.preview.hardConflicts.map((issue) => issue.message).join(" "));
         return;
       }
-      if (result.preview.warnings.length > 0) {
+      if (result.preview.warnings.length > 0 || protectionFrom(result.preview) === "reduced") {
         setConfirmWarnings(true);
         return;
       }
@@ -180,6 +184,9 @@ export function ManualSessionModal({
       setConfirmWarnings(false);
       setError(result.error);
       return;
+    }
+    if (protectionFrom(result.session) === "reduced") {
+      onGoogleBusyProtectionReduced?.();
     }
     toast("Session confirmed. The artist’s calendar invite is queued.", "success");
     onOpenChange(false);
@@ -217,22 +224,28 @@ export function ManualSessionModal({
               tabIndex={-1}
               className="font-display text-xl font-bold outline-none"
             >
-              Check these warnings
+              {preview.warnings.length > 0 ? "Check these warnings" : "Review this booking"}
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-[rgb(var(--fg-secondary))]">
-              Nothing overlaps another Skitza session, but this time is outside one or more studio
-              preferences.
+              {preview.warnings.length > 0
+                ? "Nothing overlaps another Skitza session. Review these availability warnings before creating the session."
+                : "Nothing overlaps another Skitza session, but Google busy times could not be checked."}
             </p>
-            <ul className="mt-5 space-y-3" aria-label="Scheduling warnings">
-              {preview.warnings.map((warning) => (
-                <li
-                  key={warning.code}
-                  className="rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.35)] bg-[rgb(var(--brand-primary)/0.08)] px-4 py-3 text-sm text-[rgb(var(--fg-default))]"
-                >
-                  {warning.message}
-                </li>
-              ))}
-            </ul>
+            {protectionFrom(preview) === "reduced" ? (
+              <GoogleBusyProtectionWarning embedded />
+            ) : null}
+            {preview.warnings.length > 0 ? (
+              <ul className="mt-5 space-y-3" aria-label="Scheduling warnings">
+                {preview.warnings.map((warning) => (
+                  <li
+                    key={warning.code}
+                    className="rounded-[var(--radius-lg)] border border-[rgb(var(--brand-primary)/0.35)] bg-[rgb(var(--brand-primary)/0.08)] px-4 py-3 text-sm text-[rgb(var(--fg-default))]"
+                  >
+                    {warning.message}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7 sm:py-6">
@@ -420,7 +433,11 @@ export function ManualSessionModal({
                 onClick={createAnyway}
                 className={primaryButtonClass}
               >
-                {isPending ? "Creating…" : "Create anyway"}
+                {isPending
+                  ? "Creating…"
+                  : preview?.warnings.length
+                    ? "Create anyway"
+                    : "Create session"}
               </button>
             </>
           ) : (
@@ -481,3 +498,15 @@ const secondaryButtonClass =
   "sk-press inline-flex h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-control))] bg-[rgb(var(--bg-elevated))] px-4 text-sm font-semibold text-[rgb(var(--fg-secondary))] disabled:opacity-50";
 const primaryButtonClass =
   "sk-cta-press inline-flex h-11 items-center justify-center rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-5 text-sm font-bold text-[rgb(var(--bg-sidebar))] disabled:cursor-not-allowed disabled:opacity-50";
+
+function protectionFrom(value: unknown): GoogleCalendarProtection {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "googleCalendarProtection" in value &&
+    value.googleCalendarProtection === "reduced"
+  ) {
+    return "reduced";
+  }
+  return "active";
+}

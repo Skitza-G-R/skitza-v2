@@ -65,7 +65,15 @@ const PREVIEW_ACTIONS: GoogleCalendarControlActions = {
 const MANUAL_OPTIONS = { studioTimeZone: "Asia/Jerusalem", clients: [] } as const;
 const SECTION_BOUNDARIES = new Set(["today", "payments", "portfolio"]);
 
-export function GoogleCalendarPreview({ state }: { state: Sk192GoogleCalendarPreviewState }) {
+export function GoogleCalendarPreview({
+  state,
+  googleBusyProtectionReduced = false,
+  googleControlOpen = true,
+}: {
+  state: Sk192GoogleCalendarPreviewState;
+  googleBusyProtectionReduced?: boolean;
+  googleControlOpen?: boolean;
+}) {
   const model = previewModel(state);
   const defaultView = previewView(state);
 
@@ -96,12 +104,13 @@ export function GoogleCalendarPreview({ state }: { state: Sk192GoogleCalendarPre
                 }}
                 scheduleEyebrow="AUG 10 – 16"
                 manualOptions={MANUAL_OPTIONS}
+                googleBusyProtectionReduced={googleBusyProtectionReduced}
                 googleCalendarControl={
                   <GoogleCalendarControl
                     key={state}
                     model={model}
                     actions={PREVIEW_ACTIONS}
-                    defaultOpen
+                    defaultOpen={googleControlOpen}
                     defaultView={defaultView}
                   />
                 }

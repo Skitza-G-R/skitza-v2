@@ -23,6 +23,7 @@ import {
   sessionBillingOptions,
   sessionUseConsumesAllowance,
   type SessionBookingBillingTreatment,
+  type SessionBusyInterval,
   type SessionSlotIssue,
   type SessionUseOutcome,
 } from "~/server/booking";
@@ -293,11 +294,13 @@ export function publicProducerManualSessionOptions(
       id: client.id,
       name: client.name,
       email: client.email,
-      projects: client.projects.map(({ clientContactId: _clientContactId, entitlement, ...project }) => {
-        void _clientContactId;
-        void entitlement;
-        return project;
-      }),
+      projects: client.projects.map(
+        ({ clientContactId: _clientContactId, entitlement, ...project }) => {
+          void _clientContactId;
+          void entitlement;
+          return project;
+        },
+      ),
     })),
   };
 }
@@ -333,6 +336,7 @@ export type PreviewProducerManualSessionInput = Readonly<{
   startsAt: Date;
   title?: string;
   billingTreatment?: SessionBookingBillingTreatment;
+  googleBusyIntervals?: readonly SessionBusyInterval[];
   now?: Date;
 }>;
 
@@ -416,7 +420,10 @@ export async function previewProducerManualSession(
       .from(availabilityBlocks)
       .where(eq(availabilityBlocks.producerId, input.producerId)),
     db
-      .select({ startDate: availabilityBlackouts.startDate, endDate: availabilityBlackouts.endDate })
+      .select({
+        startDate: availabilityBlackouts.startDate,
+        endDate: availabilityBlackouts.endDate,
+      })
       .from(availabilityBlackouts)
       .where(eq(availabilityBlackouts.producerId, input.producerId)),
     db
@@ -453,6 +460,7 @@ export async function previewProducerManualSession(
     availabilityBlocks: blocks,
     blackouts,
     existingBookings: schedule,
+    ...(input.googleBusyIntervals ? { googleBusyIntervals: input.googleBusyIntervals } : {}),
     maxSessionsPerDay: producer.maxSessionsPerDay,
     minLeadHours: entitlement.minLeadHours,
     now,

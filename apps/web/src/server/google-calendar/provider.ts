@@ -1,14 +1,22 @@
 import { GOOGLE_CALENDAR_SCOPES, type GoogleCalendarServerConfig } from "./config";
+import {
+  GoogleCalendarBusyIntervalError,
+  normalizeGoogleCalendarBusyIntervals,
+  type GoogleCalendarBusyInterval,
+} from "./freebusy";
 
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const USERINFO_ENDPOINT = "https://openidconnect.googleapis.com/v1/userinfo";
 const CALENDAR_LIST_ENDPOINT = "https://www.googleapis.com/calendar/v3/users/me/calendarList";
+const FREE_BUSY_ENDPOINT = "https://www.googleapis.com/calendar/v3/freeBusy";
 const REVOKE_ENDPOINT = "https://oauth2.googleapis.com/revoke";
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_TOKEN_BYTES = 4 * 1024;
 const MAX_CALENDAR_PAGES = 100;
 const MAX_CALENDARS = 10_000;
+
+export const GOOGLE_CALENDAR_FREE_BUSY_MAX_CALENDARS = 50;
 
 export type GoogleCalendarAccessRole =
   | "freeBusyReader"
@@ -42,6 +50,11 @@ export type GoogleCalendarProviderCalendar = Readonly<{
   isPrimary: boolean;
 }>;
 
+export type GoogleCalendarProviderFreeBusyResult = Readonly<{
+  busyIntervals: readonly GoogleCalendarBusyInterval[];
+  failedCalendarCount: number;
+}>;
+
 export type GoogleCalendarProviderErrorCode =
   | "authorization_failed"
   | "identity_unverified"
@@ -71,6 +84,14 @@ export interface GoogleCalendarProvider {
     refreshToken: string,
   ): Promise<Omit<GoogleCalendarProviderTokens, "refreshToken">>;
   listCalendars(accessToken: string): Promise<readonly GoogleCalendarProviderCalendar[]>;
+  queryFreeBusy(
+    accessToken: string,
+    input: Readonly<{
+      calendarIds: readonly string[];
+      timeMin: Date;
+      timeMax: Date;
+    }>,
+  ): Promise<GoogleCalendarProviderFreeBusyResult>;
   revokeToken(token: string): Promise<void>;
 }
 
@@ -393,6 +414,110 @@ export function createGoogleCalendarProvider(
         pageToken = value.nextPageToken;
       }
       throw new GoogleCalendarProviderError("provider_invalid_response");
+    },
+
+    async queryFreeBusy(accessToken, { calendarIds, timeMin, timeMax }) {
+      const min = timeMin.getTime();
+      const max = timeMax.getTime();
+      const uniqueIds = new Set(calendarIds);
+      if (
+        !validatedToken(accessToken) ||
+        calendarIds.length < 1 ||
+        calendarIds.length > GOOGLE_CALENDAR_FREE_BUSY_MAX_CALENDARS ||
+        uniqueIds.size !== calendarIds.length ||
+        calendarIds.some(
+          (id) =>
+            typeof id !== "string" ||
+            !id ||
+            id !== id.trim() ||
+            Buffer.byteLength(id, "utf8") > MAX_TOKEN_BYTES,
+        ) ||
+        !Number.isFinite(min) ||
+        !Number.isFinite(max) ||
+        min >= max
+      ) {
+        throw new GoogleCalendarProviderError("provider_invalid_response");
+      }
+
+      const response = await providerFetch(FREE_BUSY_ENDPOINT, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          timeMin: timeMin.toISOString(),
+          timeMax: timeMax.toISOString(),
+          timeZone: "UTC",
+          calendarExpansionMax: GOOGLE_CALENDAR_FREE_BUSY_MAX_CALENDARS,
+          items: calendarIds.map((id) => ({ id })),
+        }),
+      });
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new GoogleCalendarProviderError("access_unauthorized");
+        }
+        if (response.status === 403) {
+          let insufficientPermissions = false;
+          try {
+            const errorResponse = await readJson(response);
+            const error = isRecord(errorResponse.error) ? errorResponse.error : null;
+            const reasons = error && Array.isArray(error.errors) ? error.errors : [];
+            insufficientPermissions = reasons.some(
+              (item) => isRecord(item) && item.reason === "insufficientPermissions",
+            );
+          } catch {
+            // Malformed provider errors remain a temporary provider failure.
+          }
+          if (insufficientPermissions) {
+            throw new GoogleCalendarProviderError("access_unauthorized");
+          }
+        }
+        throw new GoogleCalendarProviderError("provider_unavailable");
+      }
+
+      const value = await readJson(response);
+      if (!isRecord(value.calendars)) {
+        throw new GoogleCalendarProviderError("provider_invalid_response");
+      }
+      const rawIntervals: unknown[] = [];
+      let failedCalendarCount = 0;
+      for (const calendarId of calendarIds) {
+        const calendar = Object.hasOwn(value.calendars, calendarId)
+          ? value.calendars[calendarId]
+          : undefined;
+        if (!isRecord(calendar)) {
+          failedCalendarCount += 1;
+          continue;
+        }
+        if (calendar.errors !== undefined && !Array.isArray(calendar.errors)) {
+          throw new GoogleCalendarProviderError("provider_invalid_response");
+        }
+        if (Array.isArray(calendar.errors) && calendar.errors.length > 0) {
+          failedCalendarCount += 1;
+          continue;
+        }
+        if (!Array.isArray(calendar.busy)) {
+          failedCalendarCount += 1;
+          continue;
+        }
+        const busy: readonly unknown[] = calendar.busy;
+        for (const interval of busy) rawIntervals.push(interval);
+      }
+      try {
+        return {
+          busyIntervals: normalizeGoogleCalendarBusyIntervals({
+            intervals: rawIntervals,
+            timeMin,
+            timeMax,
+          }),
+          failedCalendarCount,
+        };
+      } catch (error) {
+        if (!(error instanceof GoogleCalendarBusyIntervalError)) throw error;
+        throw new GoogleCalendarProviderError("provider_invalid_response");
+      }
     },
 
     async revokeToken(token) {
