@@ -13,8 +13,10 @@
 
 import { useEffect, useRef } from "react";
 
+import { calendarSlotFromPointer, studioDateKey, type ManualSessionDraft } from "./calendar-slot";
 import { calendarDateTimeParts, formatCalendarTime } from "./calendar-time";
 import { isSameDay } from "./calendar-week";
+import { useManualSessionLauncher } from "./manual-session-launcher-context";
 import { deriveScheduleHourRange, type ScheduleAvailabilityBlock } from "./schedule-hours";
 
 export type ScheduleSession = {
@@ -25,6 +27,7 @@ export type ScheduleSession = {
   artistEmail: string;
   packageName: string | null;
   status: "pending_approval" | "confirmed";
+  canReschedule?: boolean;
 };
 
 // Hour row height is driven by `--hour-px` (set on the section via
@@ -43,6 +46,7 @@ export function ScheduleWeekGrid({
   showNowLine,
   initialNow,
   timeZone,
+  onRescheduleSession,
 }: {
   week: readonly Date[];
   sessions: readonly ScheduleSession[];
@@ -51,8 +55,10 @@ export function ScheduleWeekGrid({
   showNowLine: boolean;
   initialNow: string;
   timeZone: string;
+  onRescheduleSession?: (sessionId: string) => void;
 }) {
   const sectionRef = useRef<HTMLElement>(null);
+  const { openManualSession, provisionalSlot } = useManualSessionLauncher();
   const { startHour, endHour } = deriveScheduleHourRange(availabilityBlocks, sessions, timeZone);
   const hoursVisible = endHour - startHour;
 
@@ -153,8 +159,12 @@ export function ScheduleWeekGrid({
             hour={hour}
             hourIdx={hourIdx}
             todayIdx={todayIdx}
+            week={week}
             cellsPerDay={perDay}
             timeZone={timeZone}
+            openManualSession={openManualSession}
+            provisionalSlot={provisionalSlot}
+            onRescheduleSession={onRescheduleSession}
           />
         ))}
 
@@ -181,14 +191,22 @@ function HourRow({
   hour,
   hourIdx,
   todayIdx,
+  week,
   cellsPerDay,
   timeZone,
+  openManualSession,
+  provisionalSlot,
+  onRescheduleSession,
 }: {
   hour: number;
   hourIdx: number;
   todayIdx: number;
+  week: readonly Date[];
   cellsPerDay: readonly ScheduleSession[][];
   timeZone: string;
+  openManualSession: ReturnType<typeof useManualSessionLauncher>["openManualSession"];
+  provisionalSlot: ManualSessionDraft | null;
+  onRescheduleSession: ((sessionId: string) => void) | undefined;
 }) {
   return (
     <>
@@ -204,9 +222,29 @@ function HourRow({
       </div>
       {cellsPerDay.map((daySessions, dayIdx) => {
         const isToday = dayIdx === todayIdx;
+        const dayMarker = week[dayIdx];
+        if (!dayMarker) return null;
+        const studioDate = studioDateKey(dayMarker);
+        const provisionalStartsThisHour =
+          provisionalSlot?.studioDate === studioDate &&
+          Math.floor(provisionalSlot.studioStartMin / 60) === hour;
         return (
           <div
             key={dayIdx}
+            data-calendar-date={studioDate}
+            data-calendar-hour={hour}
+            onDoubleClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              openManualSession(
+                calendarSlotFromPointer({
+                  dayMarker,
+                  hour,
+                  clientY: event.clientY,
+                  cellTop: rect.top,
+                  cellHeight: rect.height,
+                }),
+              );
+            }}
             className="relative border-l border-[rgb(var(--border-subtle))] first-of-type:border-l-0"
             style={{
               height: HOUR_ROW_CSS,
@@ -220,8 +258,14 @@ function HourRow({
                 return calendarDateTimeParts(dt, timeZone).hour === hour;
               })
               .map((s) => (
-                <SessionBlock key={s.id} session={s} timeZone={timeZone} />
+                <SessionBlock
+                  key={s.id}
+                  session={s}
+                  timeZone={timeZone}
+                  onRescheduleSession={onRescheduleSession}
+                />
               ))}
+            {provisionalStartsThisHour ? <ProvisionalSessionBlock draft={provisionalSlot} /> : null}
           </div>
         );
       })}
@@ -229,11 +273,20 @@ function HourRow({
   );
 }
 
-function SessionBlock({ session, timeZone }: { session: ScheduleSession; timeZone: string }) {
+function SessionBlock({
+  session,
+  timeZone,
+  onRescheduleSession,
+}: {
+  session: ScheduleSession;
+  timeZone: string;
+  onRescheduleSession: ((sessionId: string) => void) | undefined;
+}) {
   const dt = new Date(session.startsAt);
   const minute = calendarDateTimeParts(dt, timeZone).minute;
   const lenHours = session.durationMin / 60;
   const isPending = session.status !== "confirmed";
+  const canReschedule = !isPending && session.canReschedule !== false;
   const isCompact = session.durationMin < 90;
 
   const timeLabel = formatCalendarTime(dt, timeZone);
@@ -257,8 +310,12 @@ function SessionBlock({ session, timeZone }: { session: ScheduleSession; timeZon
     <div
       role="group"
       aria-label={accessibleLabel}
+      onDoubleClick={(event) => {
+        event.stopPropagation();
+        if (canReschedule) onRescheduleSession?.(session.id);
+      }}
       className={[
-        "absolute right-1 left-1 overflow-hidden rounded-[10px] border",
+        "absolute right-1 left-1 z-[2] overflow-hidden rounded-[10px] border select-none",
         isPending
           ? "border-dashed text-[rgb(var(--fg-default))] shadow-[0_3px_10px_-6px_rgb(var(--brand-primary-dark)/0.35)]"
           : "text-[rgb(var(--fg-on-brand))] shadow-[0_5px_14px_-7px_rgb(var(--brand-primary-dark)/0.55)]",
@@ -278,7 +335,11 @@ function SessionBlock({ session, timeZone }: { session: ScheduleSession; timeZon
         paddingBottom: isCompact ? 5 : 8,
       }}
       title={`${session.artistName} · ${timeRangeLabel} · ${serviceLabel}${
-        isPending ? " · Pending" : ""
+        isPending
+          ? " · Pending"
+          : canReschedule
+            ? " · Double-click to change time"
+            : " · Change request pending"
       }`}
     >
       {/* Warm inset edge keeps the block legible over the grid lines. */}
@@ -327,6 +388,34 @@ function SessionBlock({ session, timeZone }: { session: ScheduleSession; timeZon
       </div>
     </div>
   );
+}
+
+function ProvisionalSessionBlock({ draft }: { draft: ManualSessionDraft }) {
+  const minute = draft.studioStartMin % 60;
+  const durationMin = draft.durationMin ?? 15;
+  const top = `calc(${String(minute / 60)} * ${HOUR_ROW_CSS} + 2px)`;
+  const height = `max(24px, calc(${String(durationMin / 60)} * ${HOUR_ROW_CSS} - 6px))`;
+
+  return (
+    <div
+      aria-hidden
+      data-provisional-session
+      className="reveal-up pointer-events-none absolute right-1 left-1 z-[1] overflow-hidden rounded-[10px] border border-dashed border-[rgb(var(--brand-primary-dark)/0.68)] bg-[rgb(var(--brand-primary)/0.13)] shadow-[0_6px_18px_-12px_rgb(var(--brand-primary-dark)/0.55)]"
+      style={{ top, height }}
+    >
+      <span className="absolute inset-x-2 top-2 font-mono text-[9px] font-bold tracking-[0.02em] text-[rgb(var(--brand-primary-text))] tabular-nums">
+        {formatStudioMinute(draft.studioStartMin)}–
+        {formatStudioMinute(draft.studioStartMin + durationMin)}
+      </span>
+    </div>
+  );
+}
+
+function formatStudioMinute(totalMinutes: number): string {
+  const normalized = totalMinutes % (24 * 60);
+  const hour = Math.floor(normalized / 60);
+  const minute = normalized % 60;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
 function NowLineOverlay({

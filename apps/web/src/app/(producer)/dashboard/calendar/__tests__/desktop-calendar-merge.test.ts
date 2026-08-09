@@ -22,9 +22,7 @@ describe("desktop Calendar schedule and sessions merge", () => {
   it("swipes across the two distinct responsive calendar surfaces", () => {
     expect(PAGE).toContain("<CalendarSwipeSurface");
     expect(SWIPE).toContain('["sessions", "availability"]');
-    expect(SWIPE).toContain(
-      'active === "availability" ? "availability" : "sessions"',
-    );
+    expect(SWIPE).toContain('active === "availability" ? "availability" : "sessions"');
     expect(SWIPE).toContain("useTabSwipe");
     expect(SWIPE).toContain("data-tab-swipe-surface");
     expect(SWIPE).toContain("[touch-action:pan-y_pinch-zoom]");
@@ -58,9 +56,11 @@ describe("desktop Calendar schedule and sessions merge", () => {
     expect(COMPACT).toContain("lg:h-7");
   });
 
-  it("keeps calendar session blocks informational", () => {
-    expect(GRID).not.toContain("onEditSession");
-    expect(GRID).not.toContain("onClick");
+  it("routes deliberate calendar double-clicks to the real reschedule flow", () => {
+    expect(GRID).toContain("onDoubleClick");
+    expect(GRID).toContain("onRescheduleSession");
+    expect(SCHEDULE).toContain("RescheduleSessionModal");
+    expect(SCHEDULE).not.toContain("EditSessionModal");
     expect(GRID).not.toContain("aria-label={`Edit ${serviceLabel}");
   });
 

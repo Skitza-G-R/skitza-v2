@@ -57,6 +57,15 @@ describe("producer manual session contract", () => {
   it("shows the short responsive form and warning confirmation", () => {
     expect(manualUi).toContain("Choose an existing client and project");
     expect(manualUi).toContain("fixed by this project’s package");
+    expect(manualUi).toContain('side="right"');
+    expect(manualUi).toContain("Book a session");
+    expect(manualUi).toContain('label="Client"');
+    expect(manualUi).toContain('label="Project"');
+    expect(manualUi).toContain("Edit title");
+    expect(manualUi).toContain("Payment due");
+    expect(manualUi).toContain("onDraftChange");
+    expect(manualUi).toContain("reveal-up-delay-2");
+    expect(manualUi).not.toContain("sm:grid-cols-2");
     expect(manualUi).toContain("multiple session packages");
     expect(manualUi).toContain("Check these warnings");
     expect(manualUi).toContain("Create anyway");

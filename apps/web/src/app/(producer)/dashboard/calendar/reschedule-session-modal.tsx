@@ -11,6 +11,7 @@ import {
   rescheduleSession,
   type ManualWarningCode,
 } from "./calendar-actions";
+import { newCalendarOperationKey } from "./calendar-operation-key";
 import { GoogleBusyProtectionWarning } from "./google-busy-protection-warning";
 import type { SessionListItem } from "./session-row";
 
@@ -56,7 +57,7 @@ export function RescheduleSessionModal({
     setPreview(null);
     setConfirmWarnings(false);
     setError(null);
-    operationKey.current = `producer-reschedule:${session.id}:${crypto.randomUUID()}`;
+    operationKey.current = newCalendarOperationKey(`producer-reschedule:${session.id}`);
   }, [open, session.id]);
 
   function input() {
@@ -69,7 +70,7 @@ export function RescheduleSessionModal({
     setPreview(null);
     setConfirmWarnings(false);
     setError(null);
-    operationKey.current = `producer-reschedule:${session.id}:${crypto.randomUUID()}`;
+    operationKey.current = newCalendarOperationKey(`producer-reschedule:${session.id}`);
   }
 
   function check() {
