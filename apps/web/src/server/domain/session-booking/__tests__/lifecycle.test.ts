@@ -5,20 +5,30 @@ import {
   cancelProducerSessionBooking,
   completeSessionBooking,
   confirmSessionBooking,
+  createProducerManualSessionBooking,
   createSessionBooking,
+  decideProducerSessionChangeRequest,
   expireHeldSessionBooking,
+  findProducerManualSessionBookingReplay,
   markSessionNoShow,
   recordLateArtistCancellation,
   rejectSessionBooking,
+  previewProducerSessionReschedule,
   rescheduleArtistSessionBooking,
+  rescheduleProducerSessionBooking,
   sessionBookingCapabilities,
   sessionUseConsumesAllowance,
+  submitArtistSessionChangeRequest,
 } from "../service";
 import type {
+  CalendarSyncJobRecord,
   CreateSessionBookingInput,
+  NewCalendarSyncJobRecord,
   NewSessionBookingRecord,
+  NewSessionBookingChangeRequestRecord,
   SessionBookingAtomicScope,
   SessionBookingContext,
+  SessionBookingChangeRequestRecord,
   SessionBookingCreateContext,
   SessionBookingRecord,
   SessionBookingRepository,
@@ -50,6 +60,8 @@ function createContext(
   return {
     producer: {
       id: "producer-sk68",
+      name: "SK-68 Producer",
+      email: "producer@example.invalid",
       timeZone: "UTC",
       autoConfirmBookings: overrides.autoConfirmBookings ?? false,
       cancellationPolicyHours: overrides.cancellationPolicyHours ?? 24,
@@ -95,19 +107,74 @@ class MemorySessionBookingRepository
   artistClerkLinked = true;
   readonly bookings: SessionBookingRecord[] = [];
   readonly events: StoredSessionBookingTransitionEvent[] = [];
+  readonly changeRequests: SessionBookingChangeRequestRecord[] = [];
+  readonly calendarJobs: CalendarSyncJobRecord[] = [];
+  failNextCalendarSyncInsert = false;
   #bookingSequence = 0;
   #eventSequence = 0;
+  #changeRequestSequence = 0;
+  #calendarJobSequence = 0;
   #queue: Promise<void> = Promise.resolve();
 
   constructor(context: SessionBookingCreateContext = createContext()) {
     this.context = context;
   }
 
+  async findProducerManualSessionBookingByOperationKey(input: {
+    producerId: string;
+    operationKey: string;
+  }) {
+    await Promise.resolve();
+    const booking = this.bookings.find(
+      (candidate) =>
+        candidate.producerId === input.producerId && candidate.operationKey === input.operationKey,
+    );
+    if (!booking) return null;
+    const event =
+      this.events.find(
+        (candidate) =>
+          candidate.bookingId === booking.id && candidate.operationKey === input.operationKey,
+      ) ?? null;
+    const calendarSyncJobId = event
+      ? (this.calendarJobs.find(
+          (job) =>
+            job.bookingId === booking.id &&
+            job.payloadSnapshot.method === "REQUEST" &&
+            job.payloadSnapshot.dtstampUtc === event.occurredAt.toISOString(),
+        )?.id ?? null)
+      : null;
+    return { booking, event, calendarSyncJobId };
+  }
+
   atomically<T>(
     _scope: SessionBookingAtomicScope,
     work: (transaction: SessionBookingTransaction) => Promise<T>,
   ): Promise<T> {
-    const result = this.#queue.then(() => work(this));
+    const result = this.#queue.then(async () => {
+      const bookings = [...this.bookings];
+      const events = [...this.events];
+      const changeRequests = [...this.changeRequests];
+      const calendarJobs = [...this.calendarJobs];
+      const sequences = {
+        booking: this.#bookingSequence,
+        event: this.#eventSequence,
+        changeRequest: this.#changeRequestSequence,
+        calendarJob: this.#calendarJobSequence,
+      };
+      try {
+        return await work(this);
+      } catch (error) {
+        this.bookings.splice(0, this.bookings.length, ...bookings);
+        this.events.splice(0, this.events.length, ...events);
+        this.changeRequests.splice(0, this.changeRequests.length, ...changeRequests);
+        this.calendarJobs.splice(0, this.calendarJobs.length, ...calendarJobs);
+        this.#bookingSequence = sequences.booking;
+        this.#eventSequence = sequences.event;
+        this.#changeRequestSequence = sequences.changeRequest;
+        this.#calendarJobSequence = sequences.calendarJob;
+        throw error;
+      }
+    });
     this.#queue = result.then(
       () => undefined,
       () => undefined,
@@ -131,6 +198,25 @@ class MemorySessionBookingRepository
       input.purchaseId === context.purchase.id &&
       input.sessionAllowanceId === context.allowance.id &&
       input.actorClerkUserId === context.artist.clerkUserId
+      ? context
+      : null;
+  }
+
+  async loadProducerManualCreateContext(input: {
+    producerId: string;
+    clientContactId: string;
+    projectId: string;
+    purchaseId: string;
+    sessionAllowanceId: string;
+  }): Promise<SessionBookingCreateContext | null> {
+    await Promise.resolve();
+    const context = this.context;
+    return !this.artistArchived &&
+      input.clientContactId === "client-sk68" &&
+      input.producerId === context.producer.id &&
+      input.projectId === context.project.id &&
+      input.purchaseId === context.purchase.id &&
+      input.sessionAllowanceId === context.allowance.id
       ? context
       : null;
   }
@@ -180,6 +266,44 @@ class MemorySessionBookingRepository
     return (
       this.events.find(
         (event) => event.bookingId === bookingId && event.operationKey === operationKey,
+      ) ?? null
+    );
+  }
+
+  async loadChangeRequest(input: {
+    requestId: string;
+    producerId?: string;
+  }): Promise<SessionBookingChangeRequestRecord | null> {
+    await Promise.resolve();
+    return (
+      this.changeRequests.find(
+        (request) =>
+          request.id === input.requestId &&
+          (input.producerId === undefined || request.producerId === input.producerId),
+      ) ?? null
+    );
+  }
+
+  async findChangeRequestByOperationKey(
+    bookingId: string,
+    operationKey: string,
+  ): Promise<SessionBookingChangeRequestRecord | null> {
+    await Promise.resolve();
+    return (
+      this.changeRequests.find(
+        (request) =>
+          request.bookingId === bookingId && request.requestOperationKey === operationKey,
+      ) ?? null
+    );
+  }
+
+  async findPendingChangeRequest(
+    bookingId: string,
+  ): Promise<SessionBookingChangeRequestRecord | null> {
+    await Promise.resolve();
+    return (
+      this.changeRequests.find(
+        (request) => request.bookingId === bookingId && request.status === "pending",
       ) ?? null
     );
   }
@@ -308,6 +432,103 @@ class MemorySessionBookingRepository
     this.events.push(event);
     return event;
   }
+
+  async insertChangeRequest(
+    input: NewSessionBookingChangeRequestRecord,
+  ): Promise<SessionBookingChangeRequestRecord> {
+    await Promise.resolve();
+    if (
+      this.changeRequests.some(
+        (request) => request.bookingId === input.bookingId && request.status === "pending",
+      )
+    ) {
+      throw new Error("duplicate pending request");
+    }
+    const { occurredAt, ...values } = input;
+    const request: SessionBookingChangeRequestRecord = {
+      ...values,
+      id: `request-${String(++this.#changeRequestSequence)}`,
+      createdAt: occurredAt,
+      updatedAt: occurredAt,
+    };
+    this.changeRequests.push(request);
+    return request;
+  }
+
+  async decideChangeRequest(input: {
+    requestId: string;
+    producerId: string;
+    status: "approved" | "rejected";
+    decisionOperationKey: string;
+    decisionOperationDigest: string;
+    decidedByClerkUserId: string;
+    decidedAt: Date;
+    replacementBookingId: string | null;
+  }): Promise<SessionBookingChangeRequestRecord> {
+    await Promise.resolve();
+    const index = this.changeRequests.findIndex(
+      (request) =>
+        request.id === input.requestId &&
+        request.producerId === input.producerId &&
+        request.status === "pending",
+    );
+    const existing = this.changeRequests[index];
+    if (!existing) throw new Error("request compare-and-swap failed");
+    const request: SessionBookingChangeRequestRecord = {
+      ...existing,
+      status: input.status,
+      decisionOperationKey: input.decisionOperationKey,
+      decisionOperationDigest: input.decisionOperationDigest,
+      decidedByClerkUserId: input.decidedByClerkUserId,
+      decidedAt: input.decidedAt,
+      replacementBookingId: input.replacementBookingId,
+      updatedAt: input.decidedAt,
+    };
+    this.changeRequests[index] = request;
+    return request;
+  }
+
+  async findCalendarSyncJob(input: {
+    uid: string;
+    desiredRevision: number;
+  }): Promise<CalendarSyncJobRecord | null> {
+    await Promise.resolve();
+    return (
+      this.calendarJobs.find(
+        (job) =>
+          job.payloadSnapshot.uid === input.uid && job.desiredRevision === input.desiredRevision,
+      ) ?? null
+    );
+  }
+
+  async findCalendarSyncJobForEvent(input: {
+    bookingId: string;
+    method: "REQUEST" | "CANCEL";
+    occurredAt: Date;
+  }): Promise<CalendarSyncJobRecord | null> {
+    await Promise.resolve();
+    return (
+      this.calendarJobs.find(
+        (job) =>
+          job.bookingId === input.bookingId &&
+          job.payloadSnapshot.method === input.method &&
+          job.payloadSnapshot.dtstampUtc === input.occurredAt.toISOString(),
+      ) ?? null
+    );
+  }
+
+  async insertCalendarSyncJob(input: NewCalendarSyncJobRecord): Promise<CalendarSyncJobRecord> {
+    await Promise.resolve();
+    if (this.failNextCalendarSyncInsert) {
+      this.failNextCalendarSyncInsert = false;
+      throw new Error("calendar outbox unavailable");
+    }
+    const { occurredAt: _occurredAt, ...values } = input;
+    void _occurredAt;
+    const job = { ...values, id: `calendar-job-${String(++this.#calendarJobSequence)}` };
+    this.calendarJobs.push(job);
+    return job;
+  }
 }
 
 function createInput(
@@ -354,6 +575,164 @@ function consumedUses(repository: MemorySessionBookingRepository): number {
 }
 
 describe("session booking lifecycle commands", () => {
+  it("creates a producer manual session as confirmed without weakening the artist identity gate", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ autoConfirmBookings: false }),
+    );
+    repository.artistClerkLinked = false;
+
+    await expect(createSessionBooking(repository, createInput())).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+
+    const result = await createProducerManualSessionBooking(repository, {
+      producerId: "producer-sk68",
+      clientContactId: "client-sk68",
+      projectId: "project-sk68",
+      purchaseId: "purchase-sk68",
+      sessionAllowanceId: "allowance-sk68",
+      actorClerkUserId: "producer-clerk-sk68",
+      startsAt: new Date("2026-07-20T10:00:00.000Z"),
+      title: "  Vocal session  ",
+      billingTreatment: "complimentary",
+      acknowledgedWarnings: [],
+      operationKey: "producer-manual-create",
+      now: baseNow,
+    });
+
+    expect(result).toMatchObject({
+      created: true,
+      booking: {
+        status: "confirmed",
+        origin: "producer_manual",
+        billingTreatment: "complimentary",
+        title: "Vocal session",
+        durationMin: 60,
+      },
+    });
+    expect(repository.events[0]).toMatchObject({
+      kind: "created",
+      actorKind: "producer",
+      actorId: "producer-clerk-sk68",
+    });
+  });
+
+  it("replays a committed manual create before mutable entitlement and title validation", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ autoConfirmBookings: false, sessionLimit: 1 }),
+    );
+    const input = {
+      producerId: "producer-sk68",
+      clientContactId: "client-sk68",
+      projectId: "project-sk68",
+      purchaseId: "purchase-sk68",
+      sessionAllowanceId: "allowance-sk68",
+      actorClerkUserId: "producer-clerk-sk68",
+      startsAt: new Date("2026-07-20T10:00:00.000Z"),
+      billingTreatment: "included" as const,
+      acknowledgedWarnings: [] as string[],
+      operationKey: "manual-replay-before-preview",
+      now: baseNow,
+    };
+    const created = await createProducerManualSessionBooking(repository, input);
+    const exhaustedReplay = await createProducerManualSessionBooking(repository, input);
+    expect(exhaustedReplay).toMatchObject({
+      created: false,
+      booking: { id: created.booking.id, title: "Studio session" },
+      calendarSyncJobId: created.calendarSyncJobId,
+    });
+
+    repository.context = {
+      ...repository.context,
+      project: { ...repository.context.project, lifecycleStatus: "paused" },
+      purchase: {
+        ...repository.context.purchase,
+        lifecycleStatus: "canceled",
+        defaultSessionTitle: "Renamed after booking",
+      },
+      allowance: { ...repository.context.allowance, closedAt: new Date(baseNow) },
+    };
+    const inactiveReplay = await createProducerManualSessionBooking(repository, input);
+    const routerReplay = await findProducerManualSessionBookingReplay(repository, input);
+    expect(inactiveReplay).toMatchObject({
+      created: false,
+      booking: { id: created.booking.id, title: "Studio session" },
+      calendarSyncJobId: created.calendarSyncJobId,
+    });
+    expect(routerReplay).toMatchObject({
+      created: false,
+      booking: { id: created.booking.id },
+      calendarSyncJobId: created.calendarSyncJobId,
+    });
+    expect(repository.bookings).toHaveLength(1);
+    expect(repository.calendarJobs).toHaveLength(1);
+
+    await expect(
+      findProducerManualSessionBookingReplay(repository, {
+        ...input,
+        billingTreatment: "complimentary",
+      }),
+    ).rejects.toMatchObject({ code: "OPERATION_KEY_CONFLICT" });
+    await expect(
+      findProducerManualSessionBookingReplay(repository, {
+        ...input,
+        startsAt: new Date("2026-07-20T12:00:00.000Z"),
+      }),
+    ).rejects.toMatchObject({ code: "OPERATION_KEY_CONFLICT" });
+    await expect(
+      createProducerManualSessionBooking(repository, {
+        ...input,
+        producerId: "another-producer",
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      findProducerManualSessionBookingReplay(repository, {
+        ...input,
+        producerId: "another-producer",
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("requires the producer to acknowledge fresh warnings and never permits a hard overlap", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ autoConfirmBookings: false }),
+    );
+    const outsideHours = {
+      producerId: "producer-sk68",
+      clientContactId: "client-sk68",
+      projectId: "project-sk68",
+      purchaseId: "purchase-sk68",
+      sessionAllowanceId: "allowance-sk68",
+      actorClerkUserId: "producer-clerk-sk68",
+      startsAt: new Date("2026-07-20T20:00:00.000Z"),
+      billingTreatment: "included" as const,
+      operationKey: "manual-warning",
+      now: baseNow,
+    };
+
+    await expect(
+      createProducerManualSessionBooking(repository, {
+        ...outsideHours,
+        acknowledgedWarnings: [],
+      }),
+    ).rejects.toMatchObject({ code: "WARNING_ACKNOWLEDGEMENT_REQUIRED" });
+
+    const warned = await createProducerManualSessionBooking(repository, {
+      ...outsideHours,
+      acknowledgedWarnings: ["OUTSIDE_AVAILABILITY"],
+    });
+    expect(warned.booking.status).toBe("confirmed");
+
+    await expect(
+      createProducerManualSessionBooking(repository, {
+        ...outsideHours,
+        operationKey: "manual-hard-overlap",
+        billingTreatment: "complimentary",
+        acknowledgedWarnings: ["OUTSIDE_AVAILABILITY", "BOOKING_CONFLICT"],
+      }),
+    ).rejects.toMatchObject({ code: "BOOKING_CONFLICT" });
+  });
+
   it("replays the same create intent and conflicts on the same key with a different digest", async () => {
     const repository = new MemorySessionBookingRepository();
     const first = await createSessionBooking(repository, createInput());
@@ -1222,5 +1601,346 @@ describe("session booking lifecycle commands", () => {
     ).rejects.toMatchObject({ code: "CANCELLATION_WINDOW" });
     expect(repository.bookings).toHaveLength(1);
     expect(repository.events).toHaveLength(1);
+  });
+
+  it("stores one durable artist request, replays it, and rejects changed or duplicate intent", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ autoConfirmBookings: true }),
+    );
+    const created = await createSessionBooking(repository, createInput());
+    const command = {
+      bookingId: created.booking.id,
+      actorClerkUserId: "artist-clerk-sk68",
+      kind: "cancel" as const,
+      operationKey: "artist-cancel-request",
+      now: baseNow,
+    };
+
+    const submitted = await submitArtistSessionChangeRequest(repository, command);
+    const replay = await submitArtistSessionChangeRequest(repository, command);
+
+    expect(submitted).toMatchObject({ replayed: false, request: { status: "pending" } });
+    expect(replay).toMatchObject({ replayed: true, request: { id: submitted.request.id } });
+    expect(repository.bookings[0]).toMatchObject({ status: "confirmed", calendarRevision: 1 });
+    expect(repository.changeRequests).toHaveLength(1);
+
+    await expect(
+      submitArtistSessionChangeRequest(repository, {
+        ...command,
+        kind: "reschedule",
+        proposedStartsAt: new Date("2026-07-20T12:00:00.000Z"),
+      }),
+    ).rejects.toMatchObject({ code: "OPERATION_KEY_CONFLICT" });
+    await expect(
+      submitArtistSessionChangeRequest(repository, {
+        ...command,
+        operationKey: "second-pending-request",
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_STATUS" });
+    await expect(
+      submitArtistSessionChangeRequest(repository, {
+        ...command,
+        actorClerkUserId: "another-artist",
+        operationKey: "cross-tenant-artist",
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      cancelProducerSessionBooking(
+        repository,
+        producerCommand(created.booking.id, "cancel-around-pending-request"),
+      ),
+    ).rejects.toMatchObject({ code: "INVALID_STATUS" });
+  });
+
+  it("rejects a forged artist reschedule request unless the exact slot is currently allowed", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ autoConfirmBookings: true, sessionLimit: 2 }),
+    );
+    const source = await createSessionBooking(repository, createInput());
+    await createSessionBooking(
+      repository,
+      createInput({
+        startsAt: new Date("2026-07-20T12:00:00.000Z"),
+        operationKey: "occupied-reschedule-slot",
+      }),
+    );
+    const base = {
+      bookingId: source.booking.id,
+      actorClerkUserId: "artist-clerk-sk68",
+      kind: "reschedule" as const,
+      now: baseNow,
+    };
+
+    await expect(
+      submitArtistSessionChangeRequest(repository, {
+        ...base,
+        proposedStartsAt: new Date("2026-07-20T12:00:00.000Z"),
+        operationKey: "forged-overlap-request",
+      }),
+    ).rejects.toMatchObject({ code: "BOOKING_CONFLICT" });
+    await expect(
+      submitArtistSessionChangeRequest(repository, {
+        ...base,
+        proposedStartsAt: new Date("2026-07-20T20:00:00.000Z"),
+        operationKey: "forged-outside-hours-request",
+      }),
+    ).rejects.toMatchObject({ code: "OUTSIDE_AVAILABILITY" });
+    expect(repository.changeRequests).toEqual([]);
+  });
+
+  it("approves an on-time cancellation after the cutoff using request time and enqueues once", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ autoConfirmBookings: true, sessionLimit: 1 }),
+    );
+    const created = await createSessionBooking(repository, createInput());
+    const submitted = await submitArtistSessionChangeRequest(repository, {
+      bookingId: created.booking.id,
+      actorClerkUserId: "artist-clerk-sk68",
+      kind: "cancel",
+      operationKey: "delayed-cancel-request",
+      now: baseNow,
+    });
+    const decision = {
+      requestId: submitted.request.id,
+      producerId: "producer-sk68",
+      actorClerkUserId: "producer-clerk-sk68",
+      decision: "approved" as const,
+      operationKey: "approve-delayed-cancel",
+      now: new Date("2026-07-19T12:00:00.000Z"),
+    };
+
+    await expect(
+      decideProducerSessionChangeRequest(repository, {
+        ...decision,
+        producerId: "another-producer",
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    const approved = await decideProducerSessionChangeRequest(repository, decision);
+    const replay = await decideProducerSessionChangeRequest(repository, decision);
+
+    expect(approved).toMatchObject({
+      changed: true,
+      request: { status: "approved" },
+      booking: { status: "cancelled", outcome: "cancelled_on_time", calendarRevision: 2 },
+    });
+    expect(approved.calendarSyncJobId).toBe(repository.calendarJobs[1]?.id);
+    expect(replay).toMatchObject({
+      changed: false,
+      calendarSyncJobId: approved.calendarSyncJobId,
+    });
+    expect(consumedUses(repository)).toBe(0);
+    expect(repository.calendarJobs).toHaveLength(2);
+    expect(repository.calendarJobs[1]?.payloadSnapshot).toMatchObject({
+      method: "CANCEL",
+      sequence: 2,
+      dtstampUtc: decision.now.toISOString(),
+    });
+    const requestReplay = await submitArtistSessionChangeRequest(repository, {
+      bookingId: created.booking.id,
+      actorClerkUserId: "artist-clerk-sk68",
+      kind: "cancel",
+      operationKey: "delayed-cancel-request",
+      now: baseNow,
+    });
+    expect(requestReplay).toMatchObject({
+      replayed: true,
+      request: { id: submitted.request.id, status: "approved" },
+    });
+  });
+
+  it("rejects a request without changing its booking, credit, event, or calendar delivery", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ autoConfirmBookings: true, sessionLimit: 1 }),
+    );
+    const created = await createSessionBooking(repository, createInput());
+    const submitted = await submitArtistSessionChangeRequest(repository, {
+      bookingId: created.booking.id,
+      actorClerkUserId: "artist-clerk-sk68",
+      kind: "cancel",
+      operationKey: "reject-no-op-request",
+      now: baseNow,
+    });
+    const before = {
+      booking: repository.bookings[0],
+      events: repository.events.length,
+      jobs: repository.calendarJobs.length,
+      uses: consumedUses(repository),
+    };
+    const command = {
+      requestId: submitted.request.id,
+      producerId: "producer-sk68",
+      actorClerkUserId: "producer-clerk-sk68",
+      decision: "rejected" as const,
+      operationKey: "reject-change-request",
+      reason: "Artist and producer agreed to keep the session",
+      now: new Date("2026-07-19T07:00:00.000Z"),
+    };
+
+    const rejected = await decideProducerSessionChangeRequest(repository, command);
+    const replay = await decideProducerSessionChangeRequest(repository, command);
+
+    expect(rejected).toMatchObject({ changed: true, request: { status: "rejected" } });
+    expect(replay).toMatchObject({ changed: false, request: { id: rejected.request.id } });
+    expect(repository.bookings[0]).toEqual(before.booking);
+    expect(repository.events).toHaveLength(before.events);
+    expect(repository.calendarJobs).toHaveLength(before.jobs);
+    expect(consumedUses(repository)).toBe(before.uses);
+    await expect(
+      decideProducerSessionChangeRequest(repository, {
+        ...command,
+        decision: "approved",
+      }),
+    ).rejects.toMatchObject({ code: "OPERATION_KEY_CONFLICT" });
+  });
+
+  it("approves a reschedule as an immutable confirmed replacement with one stable use and UID", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ autoConfirmBookings: true, sessionLimit: 1 }),
+    );
+    const created = await createSessionBooking(
+      repository,
+      createInput({ billingTreatment: "included", title: "Tracking" }),
+    );
+    const requested = await submitArtistSessionChangeRequest(repository, {
+      bookingId: created.booking.id,
+      actorClerkUserId: "artist-clerk-sk68",
+      kind: "reschedule",
+      proposedStartsAt: new Date("2026-07-20T12:00:00.000Z"),
+      operationKey: "artist-reschedule-request",
+      now: baseNow,
+    });
+    const result = await decideProducerSessionChangeRequest(repository, {
+      requestId: requested.request.id,
+      producerId: "producer-sk68",
+      actorClerkUserId: "producer-clerk-sk68",
+      decision: "approved",
+      operationKey: "approve-artist-reschedule",
+      now: new Date("2026-07-19T07:00:00.000Z"),
+    });
+
+    expect(result).toMatchObject({
+      changed: true,
+      request: { status: "approved" },
+      booking: { status: "cancelled", outcome: "cancelled_on_time", calendarRevision: 2 },
+      replacementBooking: {
+        status: "confirmed",
+        calendarRevision: 2,
+        billingTreatment: "included",
+        title: "Tracking",
+      },
+    });
+    expect(result.replacementBooking?.allowanceUseId).toBe(created.booking.allowanceUseId);
+    expect(result.request.replacementBookingId).toBe(result.replacementBooking?.id);
+    expect(consumedUses(repository)).toBe(1);
+    expect(repository.calendarJobs).toHaveLength(2);
+    expect(repository.calendarJobs.map((job) => job.payloadSnapshot.uid)).toEqual([
+      `booking-${created.booking.allowanceUseId}@skitza.app`,
+      `booking-${created.booking.allowanceUseId}@skitza.app`,
+    ]);
+    expect(repository.calendarJobs[1]?.payloadSnapshot).toMatchObject({
+      method: "REQUEST",
+      sequence: 2,
+    });
+  });
+
+  it("previews producer warnings and recomputes the exact acknowledgements under lock", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ autoConfirmBookings: true }),
+    );
+    const created = await createSessionBooking(repository, createInput());
+    const startsAt = new Date("2026-07-20T20:00:00.000Z");
+    const preview = await previewProducerSessionReschedule(repository, {
+      bookingId: created.booking.id,
+      producerId: "producer-sk68",
+      startsAt,
+      now: baseNow,
+    });
+
+    expect(preview.hardConflicts).toEqual([]);
+    expect(preview.warnings.map((warning) => warning.code)).toEqual(["OUTSIDE_AVAILABILITY"]);
+    const command = {
+      bookingId: created.booking.id,
+      producerId: "producer-sk68",
+      actorClerkUserId: "producer-clerk-sk68",
+      startsAt,
+      warningAcknowledgements: [] as string[],
+      operationKey: "producer-reschedule-warning",
+      now: baseNow,
+    };
+    await expect(rescheduleProducerSessionBooking(repository, command)).rejects.toMatchObject({
+      code: "WARNING_ACKNOWLEDGEMENT_REQUIRED",
+    });
+    await expect(
+      rescheduleProducerSessionBooking(repository, {
+        ...command,
+        warningAcknowledgements: ["OUTSIDE_AVAILABILITY", "BLACKOUT"],
+      }),
+    ).rejects.toMatchObject({ code: "WARNING_ACKNOWLEDGEMENT_REQUIRED" });
+
+    const rescheduled = await rescheduleProducerSessionBooking(repository, {
+      ...command,
+      warningAcknowledgements: ["OUTSIDE_AVAILABILITY"],
+    });
+    expect(rescheduled).toMatchObject({
+      created: true,
+      booking: { status: "confirmed", startsAt },
+      replacedBooking: { status: "cancelled" },
+    });
+    expect(rescheduled.calendarSyncJobId).toBe(repository.calendarJobs[1]?.id);
+    const replay = await rescheduleProducerSessionBooking(repository, {
+      ...command,
+      warningAcknowledgements: ["OUTSIDE_AVAILABILITY"],
+    });
+    expect(replay).toMatchObject({
+      created: false,
+      calendarSyncJobId: rescheduled.calendarSyncJobId,
+    });
+    expect(repository.calendarJobs).toHaveLength(2);
+  });
+
+  it("rolls back an approved cancellation when its calendar outbox insert fails", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ autoConfirmBookings: true, sessionLimit: 1 }),
+    );
+    const created = await createSessionBooking(repository, createInput());
+    const submitted = await submitArtistSessionChangeRequest(repository, {
+      bookingId: created.booking.id,
+      actorClerkUserId: "artist-clerk-sk68",
+      kind: "cancel",
+      operationKey: "atomic-cancel-request",
+      now: baseNow,
+    });
+    repository.failNextCalendarSyncInsert = true;
+
+    await expect(
+      decideProducerSessionChangeRequest(repository, {
+        requestId: submitted.request.id,
+        producerId: "producer-sk68",
+        actorClerkUserId: "producer-clerk-sk68",
+        decision: "approved",
+        operationKey: "atomic-cancel-decision",
+        now: new Date("2026-07-19T07:00:00.000Z"),
+      }),
+    ).rejects.toThrow("calendar outbox unavailable");
+    expect(repository.bookings).toHaveLength(1);
+    expect(repository.bookings[0]).toMatchObject({ status: "confirmed", calendarRevision: 1 });
+    expect(repository.changeRequests[0]).toMatchObject({ status: "pending" });
+    expect(repository.events).toHaveLength(1);
+    expect(repository.calendarJobs).toHaveLength(1);
+    expect(consumedUses(repository)).toBe(1);
+  });
+
+  it("rolls back a confirmed create when its calendar outbox insert fails", async () => {
+    const repository = new MemorySessionBookingRepository(
+      createContext({ autoConfirmBookings: true }),
+    );
+    repository.failNextCalendarSyncInsert = true;
+
+    await expect(createSessionBooking(repository, createInput())).rejects.toThrow(
+      "calendar outbox unavailable",
+    );
+    expect(repository.bookings).toEqual([]);
+    expect(repository.events).toEqual([]);
+    expect(repository.calendarJobs).toEqual([]);
   });
 });

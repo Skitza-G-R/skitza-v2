@@ -47,14 +47,17 @@ export default async function CalendarPage({
   // must already be available under the finger. Keep the existing reads but
   // start their union together; the active route still chooses which panel is
   // exposed to assistive technology and which deep-link is recorded.
-  const [list, upcoming, settings, workingHours, profile, blackouts] = await Promise.all([
-    selectedBookingRows ?? caller.booking.list(),
-    caller.booking.upcoming({ days: 21 }),
-    caller.booking.availability.getSettings(),
-    caller.booking.availability.list(),
-    caller.producer.me(),
-    caller.booking.blackouts.list(),
-  ]);
+  const [list, upcoming, settings, workingHours, profile, blackouts, manualOptions] =
+    await Promise.all([
+      selectedBookingRows ?? caller.booking.list(),
+      caller.booking.upcoming({ days: 21 }),
+      caller.booking.availability.getSettings(),
+      caller.booking.availability.list(),
+      caller.producer.me(),
+      caller.booking.blackouts.list(),
+      caller.booking.manual.options(),
+    ]);
+  const listById = new Map(list.map((booking) => [booking.id, booking]));
   const pending = list.filter((b) => b.status === "pending_approval");
   const scheduleAutoConfirm = settings.autoConfirmBookings;
   const calendarTimeZone = normalizeCalendarTimeZone(profile.timezone);
@@ -68,7 +71,7 @@ export default async function CalendarPage({
     artistEmail: b.artistEmail,
     startsAt: b.startsAt.toISOString(),
     durationMin: b.durationMin,
-    packageName: b.packageNameSnapshot,
+    packageName: b.title ?? b.packageNameSnapshot,
     message: b.notes,
     receivedAtIso: b.createdAt.toISOString(),
   }));
@@ -79,7 +82,7 @@ export default async function CalendarPage({
       durationMin: b.durationMin,
       artistName: b.artistName,
       artistEmail: b.artistEmail,
-      packageName: b.packageNameSnapshot,
+      packageName: b.title ?? b.packageNameSnapshot,
       status: "pending_approval",
     })),
     ...upcoming.map<ScheduleSession>((b) => ({
@@ -102,18 +105,27 @@ export default async function CalendarPage({
       artistEmail: b.artistEmail,
       startsAt: b.startsAt.toISOString(),
       durationMin: b.durationMin,
-      packageName: b.packageNameSnapshot,
+      packageName: b.title ?? b.packageNameSnapshot,
       status: "pending_approval",
+      billingTreatment: b.billingTreatment,
+      artistRsvpStatus: b.artistRsvpStatus,
+      changeRequest: presentChangeRequest(b.changeRequest),
     })),
-    ...upcoming.map<SessionListItem>((b) => ({
-      id: b.id,
-      artistName: b.artistName,
-      artistEmail: b.artistEmail,
-      startsAt: b.startsAt.toISOString(),
-      durationMin: b.durationMin,
-      packageName: b.packageName,
-      status: "confirmed",
-    })),
+    ...upcoming.map<SessionListItem>((b) => {
+      const full = listById.get(b.id);
+      return {
+        id: b.id,
+        artistName: b.artistName,
+        artistEmail: b.artistEmail,
+        startsAt: b.startsAt.toISOString(),
+        durationMin: b.durationMin,
+        packageName: b.packageName,
+        status: "confirmed",
+        billingTreatment: full?.billingTreatment ?? "included",
+        artistRsvpStatus: full?.artistRsvpStatus ?? null,
+        changeRequest: presentChangeRequest(full?.changeRequest ?? null),
+      };
+    }),
   ];
   const allSessions: SessionListItem[] = list.map((b) => ({
     id: b.id,
@@ -121,8 +133,11 @@ export default async function CalendarPage({
     artistEmail: b.artistEmail,
     startsAt: b.startsAt.toISOString(),
     durationMin: b.durationMin,
-    packageName: b.packageNameSnapshot,
+    packageName: b.title ?? b.packageNameSnapshot,
     status: b.status,
+    billingTreatment: b.billingTreatment,
+    artistRsvpStatus: b.artistRsvpStatus,
+    changeRequest: presentChangeRequest(b.changeRequest),
   }));
   const initialNow = new Date();
   const availabilityBlocks = workingHours.map((block) => ({
@@ -209,6 +224,7 @@ export default async function CalendarPage({
           active={active}
           eyebrows={eyebrows}
           scheduleEyebrow={scheduleEyebrow}
+          manualOptions={manualOptions}
           sessionsContent={
             active === "schedule" ? (
               <>
@@ -301,4 +317,23 @@ export default async function CalendarPage({
       </div>
     </div>
   );
+}
+
+type PresentedChangeRequest = NonNullable<SessionListItem["changeRequest"]>;
+
+function presentChangeRequest(
+  request: {
+    id: string;
+    kind: "cancel" | "reschedule";
+    proposedStartsAt: Date | null;
+    requestedAt: Date;
+  } | null,
+): PresentedChangeRequest | null {
+  if (!request) return null;
+  return {
+    id: request.id,
+    kind: request.kind,
+    proposedStartsAt: request.proposedStartsAt?.toISOString() ?? null,
+    requestedAt: request.requestedAt.toISOString(),
+  };
 }

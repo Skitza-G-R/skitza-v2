@@ -64,6 +64,28 @@ export function SessionRow({ session }: { session: SessionListItem }) {
             The studio did not confirm this request in time.
           </p>
         ) : null}
+        {session.changeRequest?.status === "pending" ? (
+          <p className="mt-1 text-[11.5px] leading-snug font-medium text-[rgb(var(--brand-primary-dark))]">
+            {session.changeRequest.kind === "reschedule"
+              ? "Reschedule request awaiting producer"
+              : "Cancellation request awaiting producer"}
+          </p>
+        ) : null}
+        {session.billingTreatment === "complimentary" ||
+        session.billingTreatment === "billable_extra" ||
+        session.artistRsvpStatus ? (
+          <p className="mt-1 truncate text-[10.5px] text-[rgb(var(--fg-muted))]">
+            {[
+              session.billingTreatment === "complimentary" ? "Complimentary" : null,
+              session.billingTreatment === "billable_extra" ? "Payment due" : null,
+              session.artistRsvpStatus
+                ? `Invite: ${artistRsvpShortLabel(session.artistRsvpStatus)}`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+        ) : null}
       </div>
 
       <div className="shrink-0">
@@ -71,4 +93,11 @@ export function SessionRow({ session }: { session: SessionListItem }) {
       </div>
     </button>
   );
+}
+
+function artistRsvpShortLabel(status: NonNullable<SessionListItem["artistRsvpStatus"]>): string {
+  if (status === "accepted") return "accepted";
+  if (status === "declined") return "declined";
+  if (status === "tentative") return "maybe";
+  return "awaiting reply";
 }

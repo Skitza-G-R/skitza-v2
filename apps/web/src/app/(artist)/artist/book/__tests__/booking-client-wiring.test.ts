@@ -82,7 +82,8 @@ describe("focused short booking process", () => {
 
   it("uses the approved final booking labels", () => {
     expect(clientSrc).toMatch(/bookingActionLabel\(!selectedPackage\.autoConfirm\)/);
-    expect(clientSrc).toMatch(/Reschedule to this time/);
+    expect(clientSrc).toMatch(/Request this time/);
+    expect(clientSrc).toMatch(/current time stays booked until your producer approves/);
   });
 });
 
@@ -108,9 +109,8 @@ describe("exact booking commands", () => {
     expect(clientSrc).toMatch(/id: rescheduleSessionId/);
   });
 
-  it("lands on the exact created replacement or booking", () => {
-    expect(clientSrc).toMatch(
-      /router\.push\(withArtistStudio\(`\/artist\/sessions\?just=\$\{response\.id\}`/,
-    );
+  it("returns to the unchanged session while a reschedule request is pending", () => {
+    expect(clientSrc).toMatch(/`\/artist\/sessions\/\$\{rescheduleSessionId\}`/);
+    expect(clientSrc).toMatch(/`\/artist\/sessions\?just=\$\{response\.id\}`/);
   });
 });

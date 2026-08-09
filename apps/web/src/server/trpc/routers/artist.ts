@@ -5,6 +5,7 @@ import {
   artistNotifications,
   availabilityBlackouts,
   availabilityBlocks,
+  bookingChangeRequests,
   bookings,
   clientContacts,
   desc,
@@ -40,19 +41,14 @@ import {
   assertArtistMusicProjectAvailable,
   resolveProjectOwnership,
 } from "~/server/artist/access";
-import {
-  SITE_URL,
-  sendBookingCancelledOrRescheduledEmail,
-  sendBookingConfirmedEmail,
-  sendNewCommentFromArtistEmail,
-} from "~/server/email/send";
+import { SITE_URL, sendNewCommentFromArtistEmail } from "~/server/email/send";
 import { decodeDescription } from "~/app/(producer)/dashboard/store/description-encoding";
 import { emitBookingRequested, emitCommentCreated } from "~/server/notifications/emit";
 import {
   cancelArtistSessionBooking,
   createSessionBooking,
-  rescheduleArtistSessionBooking,
   sessionBookingCapabilities,
+  submitArtistSessionChangeRequest,
 } from "~/server/domain/session-booking/service";
 import {
   generateArtistExactSessionSlots,
@@ -79,6 +75,7 @@ import {
 import { deliverPushToProducer, deliverPushToVersionProducer } from "~/server/push/delivery";
 import { privateSongArtworkPath } from "~/server/domain/song-artwork/urls";
 import { getArtistProfile } from "~/server/artist/profile";
+import { deliverCalendarSyncJobBestEffort } from "~/server/calendar/drain";
 
 function purchaseProductName(
   snapshot: PurchaseCommercialSnapshot | null,
@@ -1039,7 +1036,8 @@ function mapSessionBookingDomainError(error: unknown): never {
     error.code === "BOOKING_CONFLICT" ||
     error.code === "BUFFER_CONFLICT" ||
     error.code === "DAILY_LIMIT" ||
-    error.code === "OPERATION_KEY_CONFLICT"
+    error.code === "OPERATION_KEY_CONFLICT" ||
+    error.code === "INVALID_STATUS"
   ) {
     throw new TRPCError({ code: "CONFLICT", message: error.message });
   }
@@ -1071,6 +1069,11 @@ async function emitArtistSessionNotificationBestEffort(
   }
 }
 
+function deliverCalendarJobAfterResponse(db: Db, jobId: string | null): void {
+  if (!jobId) return;
+  after(() => deliverCalendarSyncJobBestEffort(db, jobId));
+}
+
 async function loadArtistSessionRows(
   db: Db,
   clerkUserId: string,
@@ -1095,6 +1098,12 @@ async function loadArtistSessionRows(
       locationType: purchaseSessionAllowances.locationType,
       bufferMinutes: purchaseSessionAllowances.bufferMinutes,
       minLeadHours: purchaseSessionAllowances.minLeadHours,
+      changeRequest: {
+        id: bookingChangeRequests.id,
+        kind: bookingChangeRequests.kind,
+        proposedStartsAt: bookingChangeRequests.proposedStartsAt,
+        requestedAt: bookingChangeRequests.requestedAt,
+      },
     })
     .from(bookings)
     .innerJoin(
@@ -1131,6 +1140,14 @@ async function loadArtistSessionRows(
       ),
     )
     .leftJoin(artistProfiles, eq(artistProfiles.clerkUserId, clientContacts.clerkUserId))
+    .leftJoin(
+      bookingChangeRequests,
+      and(
+        eq(bookingChangeRequests.bookingId, bookings.id),
+        eq(bookingChangeRequests.producerId, bookings.producerId),
+        eq(bookingChangeRequests.status, "pending"),
+      ),
+    )
     .innerJoin(producers, eq(producers.id, bookings.producerId))
     .where(
       and(
@@ -1179,6 +1196,14 @@ function presentArtistSession(row: ArtistSessionRow, now: Date) {
     artistRsvpRespondedAt: row.booking.artistRsvpRespondedAt,
     rescheduledFromBookingId: row.booking.rescheduledFromBookingId,
     heldExpiryReason: row.booking.heldExpiryReason,
+    changeRequest: row.changeRequest?.id
+      ? {
+          id: row.changeRequest.id,
+          kind: row.changeRequest.kind,
+          proposedStartsAt: row.changeRequest.proposedStartsAt,
+          requestedAt: row.changeRequest.requestedAt,
+        }
+      : null,
     policy: {
       cancellationPolicyHours: row.booking.cancellationPolicyHoursSnapshot,
       ...sessionBookingCapabilities({
@@ -1659,6 +1684,8 @@ const bookSubrouter = router({
         mapSessionBookingDomainError(error);
       }
 
+      deliverCalendarJobAfterResponse(ctx.db, result.calendarSyncJobId);
+
       if (result.created) {
         try {
           await emitBookingRequested(ctx.db, {
@@ -1691,7 +1718,7 @@ const bookSubrouter = router({
               created.commercialSnapshot,
               created.projectTitle,
             );
-            const emailEnabled = await emitArtistSessionNotificationBestEffort(ctx.db, {
+            await emitArtistSessionNotificationBestEffort(ctx.db, {
               recipientClerkUserId: ctx.clerkUserId,
               producerId: created.booking.producerId,
               bookingId: created.booking.id,
@@ -1700,18 +1727,6 @@ const bookSubrouter = router({
               kind: "booking_confirmed",
               sourceEventId: created.booking.id,
             });
-            if (!emailEnabled) return;
-            try {
-              await sendBookingConfirmedEmail(created.booking.artistEmail, {
-                artistName: created.booking.artistName,
-                producerName,
-                productName: sessionName,
-                startsAt: created.booking.startsAt,
-                producerTimezone: created.producerTimezone,
-              });
-            } catch (error) {
-              console.error("[email] auto-confirmed artist session failed", error);
-            }
           });
         }
       }
@@ -1883,38 +1898,53 @@ const bookSubrouter = router({
       const rows = await loadArtistSessionRows(ctx.db, ctx.clerkUserId, input.id);
       const before = rows[0];
       if (!before) throw new TRPCError({ code: "NOT_FOUND" });
+      if (before.booking.status === "pending_approval") {
+        let withdrawal;
+        try {
+          withdrawal = await cancelArtistSessionBooking(sessionBookingRepository(ctx.db), {
+            bookingId: input.id,
+            actorClerkUserId: ctx.clerkUserId,
+            operationKey: input.operationKey,
+          });
+        } catch (error) {
+          mapSessionBookingDomainError(error);
+        }
+        if (withdrawal.changed) {
+          after(async () => {
+            try {
+              await deliverPushToProducer(ctx.db, before.booking.producerId, {
+                category: "booking",
+                url: `/dashboard/calendar?booking=${before.booking.id}`,
+              });
+            } catch {
+              // Push is best effort and must not expose delivery details.
+            }
+          });
+        }
+        return {
+          id: withdrawal.booking.id,
+          status: "cancelled" as const,
+          outcome: withdrawal.booking.outcome as "cancelled_on_time",
+        };
+      }
+
       let result;
       try {
-        result = await cancelArtistSessionBooking(sessionBookingRepository(ctx.db), {
+        result = await submitArtistSessionChangeRequest(sessionBookingRepository(ctx.db), {
           bookingId: input.id,
           actorClerkUserId: ctx.clerkUserId,
+          kind: "cancel",
           operationKey: input.operationKey,
         });
       } catch (error) {
         mapSessionBookingDomainError(error);
       }
-      if (result.changed) {
-        after(async () => {
-          try {
-            await sendBookingCancelledOrRescheduledEmail(before.producerEmail, {
-              recipientName: before.producerName ?? "Your producer",
-              counterpartName: before.booking.artistName,
-              productName: purchaseProductName(before.commercialSnapshot, before.projectTitle),
-              status: "cancelled",
-              oldStartsAt: before.booking.startsAt,
-              newStartsAt: null,
-              producerTimezone: before.producerTimezone,
-              reason: null,
-            });
-          } catch (error) {
-            console.error("[email] artist session cancellation failed", error);
-          }
-        });
+      if (!result.replayed) {
         after(async () => {
           try {
             await deliverPushToProducer(ctx.db, before.booking.producerId, {
               category: "booking",
-              url: `/dashboard/calendar?booking=${result.booking.id}`,
+              url: `/dashboard/calendar?booking=${before.booking.id}`,
             });
           } catch {
             // Push is best effort and must not expose delivery details.
@@ -1922,9 +1952,9 @@ const bookSubrouter = router({
         });
       }
       return {
-        id: result.booking.id,
-        status: result.booking.status as "cancelled",
-        outcome: result.booking.outcome as "cancelled_on_time",
+        id: before.booking.id,
+        status: "request_sent" as const,
+        changeRequestId: result.request.id,
       };
     }),
 
@@ -1942,67 +1972,22 @@ const bookSubrouter = router({
       if (!before) throw new TRPCError({ code: "NOT_FOUND" });
       let result;
       try {
-        result = await rescheduleArtistSessionBooking(sessionBookingRepository(ctx.db), {
+        result = await submitArtistSessionChangeRequest(sessionBookingRepository(ctx.db), {
           bookingId: input.id,
           actorClerkUserId: ctx.clerkUserId,
-          startsAt: input.startsAt,
+          kind: "reschedule",
+          proposedStartsAt: input.startsAt,
           operationKey: input.operationKey,
         });
       } catch (error) {
         mapSessionBookingDomainError(error);
       }
-      if (result.created) {
-        after(async () => {
-          try {
-            await sendBookingCancelledOrRescheduledEmail(before.producerEmail, {
-              recipientName: before.producerName ?? "Your producer",
-              counterpartName: before.booking.artistName,
-              productName: purchaseProductName(before.commercialSnapshot, before.projectTitle),
-              status: "rescheduled",
-              oldStartsAt: before.booking.startsAt,
-              newStartsAt: result.booking.startsAt,
-              producerTimezone: before.producerTimezone,
-              reason: null,
-            });
-          } catch (error) {
-            console.error("[email] artist session reschedule failed", error);
-          }
-        });
-        if (result.booking.status === "confirmed") {
-          after(async () => {
-            const producerName = before.producerName ?? "Your producer";
-            const sessionName = purchaseProductName(before.commercialSnapshot, before.projectTitle);
-            const emailEnabled = await emitArtistSessionNotificationBestEffort(ctx.db, {
-              recipientClerkUserId: ctx.clerkUserId,
-              producerId: before.booking.producerId,
-              bookingId: result.booking.id,
-              producerName,
-              sessionName,
-              kind: "booking_changed",
-              sourceEventId: result.booking.id,
-            });
-            if (!emailEnabled) return;
-            try {
-              await sendBookingCancelledOrRescheduledEmail(before.booking.artistEmail, {
-                recipientName: before.booking.artistName,
-                counterpartName: producerName,
-                productName: sessionName,
-                status: "rescheduled",
-                oldStartsAt: before.booking.startsAt,
-                newStartsAt: result.booking.startsAt,
-                producerTimezone: before.producerTimezone,
-                reason: null,
-              });
-            } catch (error) {
-              console.error("[email] auto-confirmed artist reschedule failed", error);
-            }
-          });
-        }
+      if (!result.replayed) {
         after(async () => {
           try {
             await deliverPushToProducer(ctx.db, before.booking.producerId, {
               category: "booking",
-              url: `/dashboard/calendar?booking=${result.booking.id}`,
+              url: `/dashboard/calendar?booking=${before.booking.id}`,
             });
           } catch {
             // Push is best effort and must not expose delivery details.
@@ -2010,10 +1995,9 @@ const bookSubrouter = router({
         });
       }
       return {
-        id: result.booking.id,
-        replacementBookingId: result.booking.id,
-        status: result.booking.status as "pending_approval" | "confirmed",
-        replacedBookingId: result.replacedBooking.id,
+        id: before.booking.id,
+        status: "request_sent" as const,
+        changeRequestId: result.request.id,
       };
     }),
 
