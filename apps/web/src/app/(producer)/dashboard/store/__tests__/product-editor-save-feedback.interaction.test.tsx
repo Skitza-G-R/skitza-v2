@@ -241,7 +241,7 @@ describe("ProductEditor routine save feedback", () => {
     expect(onPersistDraft.mock.calls.at(-1)?.[0].draft.name).toBe("Full production!!");
   });
 
-  it("never reports Saved when the draft persistence write fails", () => {
+  it("reports an accessible error state and never Saved when draft persistence fails", () => {
     renderEditor({ currentStep: "details", onPersistDraft: vi.fn(() => false) });
 
     expect(screen.getByTestId("save-status").textContent).toBe("saving");
@@ -249,7 +249,7 @@ describe("ProductEditor routine save feedback", () => {
       vi.advanceTimersByTime(250);
     });
 
-    expect(screen.getByTestId("save-status").textContent).toBe("idle");
+    expect(screen.getByTestId("save-status").textContent).toBe("error");
   });
 
   it("navigates after a hidden product persists without the rejected success toast", async () => {
