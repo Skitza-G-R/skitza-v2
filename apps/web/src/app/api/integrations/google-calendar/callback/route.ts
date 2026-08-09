@@ -82,8 +82,7 @@ function safeErrorCode(error: unknown): SafeResultCode {
 }
 
 export async function GET(request: Request): Promise<Response> {
-  // Fail before auth and producer resolution while the hidden capability is
-  // unavailable, including Vercel Production.
+  // Fail before auth and producer resolution while the capability is unavailable.
   if (!isGoogleCalendarServerConfigured()) {
     return privateResponse("Not found", 404);
   }
