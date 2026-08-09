@@ -32,6 +32,11 @@ describe("EditorShell shell", () => {
     expect(SRC).toMatch(/<StepBar/);
   });
 
+  it("renders the accessible inline save status without the old Draft saved copy", () => {
+    expect(SRC).toMatch(/<SaveIndicator\s+status=\{saveStatus\}/);
+    expect(SRC).not.toContain("Draft saved");
+  });
+
   it("renders Back and Continue labels in the footer", () => {
     expect(SRC).toContain("Back");
     expect(SRC).toContain("Continue");
