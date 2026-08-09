@@ -31,9 +31,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const purchaseRequestId = request.nextUrl.searchParams.get("purchaseRequestId");
   const purchaseId = request.nextUrl.searchParams.get("purchaseId");
+  const documentId = request.nextUrl.searchParams.get("documentId");
   if ((purchaseRequestId === null) === (purchaseId === null)) return unavailable();
   if (purchaseRequestId !== null && !UUID_PATTERN.test(purchaseRequestId)) return unavailable();
   if (purchaseId !== null && !UUID_PATTERN.test(purchaseId)) return unavailable();
+  if (purchaseRequestId !== null && (documentId === null || !UUID_PATTERN.test(documentId))) {
+    return unavailable();
+  }
+  if (purchaseId !== null && documentId !== null) return unavailable();
 
   try {
     const db = createDb(databaseUrl);
@@ -41,6 +46,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       ? await authorizeCurrentRequestAgreementPdf(db, {
           clerkUserId: userId,
           purchaseRequestId,
+          expectedDocumentId: documentId ?? "",
         })
       : await authorizeAcceptedAgreementPdf(db, {
           clerkUserId: userId,

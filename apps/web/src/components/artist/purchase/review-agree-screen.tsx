@@ -497,7 +497,7 @@ export function ReviewAgreeScreen(props: ReviewAgreeScreenProps) {
             </div>
             {agreementPdf && isExactReview(props) ? (
               <a
-                href={`/api/agreement-pdfs/evidence?purchaseRequestId=${encodeURIComponent(props.purchaseRequestId)}`}
+                href={`/api/agreement-pdfs/evidence?purchaseRequestId=${encodeURIComponent(props.purchaseRequestId)}&documentId=${encodeURIComponent(agreementPdf.documentId)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 referrerPolicy="no-referrer"

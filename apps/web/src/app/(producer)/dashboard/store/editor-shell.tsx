@@ -116,7 +116,12 @@ export function EditorShell({
   const embedded = presentation === "embedded";
   const editorLabel = mode === "new" ? "New product" : `Edit ${productName ?? "product"}`;
   const closeClassName =
-    "sk-press absolute top-3 right-3 inline-flex h-11 w-11 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] sm:top-4 sm:right-4 sm:h-10 sm:w-10";
+    "sk-press absolute top-3 right-3 inline-flex h-11 w-11 items-center justify-center rounded-full text-[rgb(var(--fg-muted))] transition-colors hover:bg-[rgb(17_16_9/0.06)] hover:text-[rgb(var(--fg-default))] disabled:cursor-not-allowed disabled:opacity-50 sm:top-4 sm:right-4 sm:h-10 sm:w-10";
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (!nextOpen && pending) return;
+    onOpenChange(nextOpen);
+  }
 
   if (!open && embedded) return null;
 
@@ -141,15 +146,16 @@ export function EditorShell({
           <button
             type="button"
             aria-label="Close"
+            disabled={pending}
             onClick={() => {
-              onOpenChange(false);
+              handleOpenChange(false);
             }}
             className={closeClassName}
           >
             <X className="h-4 w-4" aria-hidden />
           </button>
         ) : (
-          <DialogPrimitive.Close aria-label="Close" className={closeClassName}>
+          <DialogPrimitive.Close aria-label="Close" className={closeClassName} disabled={pending}>
             <X className="h-4 w-4" aria-hidden />
           </DialogPrimitive.Close>
         )}
@@ -299,7 +305,7 @@ export function EditorShell({
   }
 
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
+    <DialogPrimitive.Root open={open} onOpenChange={handleOpenChange}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" />
         <DialogPrimitive.Content

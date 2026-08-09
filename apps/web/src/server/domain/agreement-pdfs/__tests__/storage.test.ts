@@ -1,13 +1,19 @@
 import { createHash } from "node:crypto";
 import {
   CopyObjectCommand,
+  DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
   type S3Client,
 } from "@aws-sdk/client-s3";
 import { describe, expect, it, vi } from "vitest";
 
-import { finalizePrivateAgreementPdfUpload } from "../storage";
+import {
+  agreementPdfFinalCandidate,
+  deletePrivateAgreementPdfFinalIfExact,
+  finalizePrivateAgreementPdfUpload,
+  resolvePrivateAgreementPdfFinalCandidate,
+} from "../storage";
 import type { AgreementPdfUploadTokenPayload } from "../tokens";
 
 const SECRET = "agreement-pdf-storage-secret-that-is-long-enough";
@@ -129,5 +135,110 @@ describe("private agreement PDF storage", () => {
       ),
     ).rejects.toThrow("not a valid PDF");
     expect(send.mock.calls.some(([command]) => command instanceof CopyObjectCommand)).toBe(false);
+  });
+
+  it("verifies an orphan by conditional HEAD before the documented plain delete", async () => {
+    const send = vi.fn((command: unknown) => {
+      if (command instanceof HeadObjectCommand) {
+        return Promise.resolve({
+          ContentType: "application/pdf",
+          ContentLength: PDF.byteLength,
+          ETag: '"exact-etag"',
+        });
+      }
+      return Promise.resolve({});
+    });
+    const client = { send } as unknown as S3Client;
+
+    await deletePrivateAgreementPdfFinalIfExact(
+      {
+        storageBucket: "docs",
+        storageKey: `agreement-pdfs/${"d".repeat(64)}`,
+        originalFileName: "agreement.pdf",
+        contentType: "application/pdf",
+        sizeBytes: PDF.byteLength,
+        objectEtag: '"exact-etag"',
+        sha256: "e".repeat(64),
+      },
+      client,
+    );
+
+    expect(send).toHaveBeenCalledTimes(2);
+    const head = send.mock.calls[0]?.[0];
+    const deletion = send.mock.calls[1]?.[0];
+    expect(head).toBeInstanceOf(HeadObjectCommand);
+    expect((head as HeadObjectCommand).input).toMatchObject({
+      Key: `agreement-pdfs/${"d".repeat(64)}`,
+      IfMatch: '"exact-etag"',
+    });
+    expect(deletion).toBeInstanceOf(DeleteObjectCommand);
+    expect((deletion as DeleteObjectCommand).input).toMatchObject({
+      Key: `agreement-pdfs/${"d".repeat(64)}`,
+    });
+    expect((deletion as DeleteObjectCommand).input.IfMatch).toBeUndefined();
+  });
+
+  it("derives a deterministic cleanup candidate before final verification resolves", async () => {
+    const candidate = agreementPdfFinalCandidate(SECRET, payload);
+    let headCount = 0;
+    const client = {
+      send: vi.fn((command: unknown) => {
+        if (command instanceof HeadObjectCommand) {
+          headCount += 1;
+          return Promise.resolve({
+            ContentType: "application/pdf",
+            ContentLength: PDF.byteLength,
+            ETag: '"candidate-etag"',
+          });
+        }
+        if (command instanceof GetObjectCommand) return Promise.resolve({ Body: body(PDF) });
+        return Promise.reject(new Error("unexpected command"));
+      }),
+    } as unknown as S3Client;
+
+    expect(candidate.storageKey).toMatch(/^agreement-pdfs\/[a-f0-9]{64}$/);
+    await expect(
+      resolvePrivateAgreementPdfFinalCandidate(candidate, client),
+    ).resolves.toMatchObject({
+      storageKey: candidate.storageKey,
+      objectEtag: '"candidate-etag"',
+      sha256: createHash("sha256").update(PDF).digest("hex"),
+    });
+    expect(headCount).toBe(1);
+  });
+
+  it("treats only a definite missing object as absent during cleanup", async () => {
+    const candidate = agreementPdfFinalCandidate(SECRET, payload);
+    const missing = {
+      send: vi.fn(() =>
+        Promise.reject(
+          Object.assign(new Error("missing"), {
+            name: "NoSuchKey",
+            $metadata: { httpStatusCode: 404 },
+          }),
+        ),
+      ),
+    } as unknown as S3Client;
+    const ambiguousMissing = {
+      send: vi.fn(() => Promise.reject(Object.assign(new Error("missing"), { name: "NoSuchKey" }))),
+    } as unknown as S3Client;
+    const unavailable = {
+      send: vi.fn(() =>
+        Promise.reject(
+          Object.assign(new Error("unavailable"), {
+            name: "ServiceUnavailable",
+            $metadata: { httpStatusCode: 503 },
+          }),
+        ),
+      ),
+    } as unknown as S3Client;
+
+    await expect(resolvePrivateAgreementPdfFinalCandidate(candidate, missing)).resolves.toBeNull();
+    await expect(
+      resolvePrivateAgreementPdfFinalCandidate(candidate, ambiguousMissing),
+    ).rejects.toThrow(/could not verify storage/i);
+    await expect(resolvePrivateAgreementPdfFinalCandidate(candidate, unavailable)).rejects.toThrow(
+      /could not verify storage/i,
+    );
   });
 });

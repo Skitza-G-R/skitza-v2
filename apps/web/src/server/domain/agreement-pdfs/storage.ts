@@ -62,6 +62,14 @@ type ObjectMetadata = Readonly<{
   objectEtag: string;
 }>;
 
+export type AgreementPdfFinalCandidate = Readonly<{
+  storageBucket: "docs";
+  storageKey: string;
+  originalFileName: string;
+  contentType: typeof AGREEMENT_PDF_CONTENT_TYPE;
+  sizeBytes: number;
+}>;
+
 function assertExpectedMetadata(
   value: Readonly<{
     contentType: string | undefined;
@@ -89,6 +97,16 @@ function assertExpectedMetadata(
     );
   }
   return { contentType: AGREEMENT_PDF_CONTENT_TYPE, sizeBytes, objectEtag };
+}
+
+function isDefiniteObjectAbsence(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const metadata = (error as Record<string, unknown>).$metadata;
+  return (
+    typeof metadata === "object" &&
+    metadata !== null &&
+    (metadata as Record<string, unknown>).httpStatusCode === 404
+  );
 }
 
 async function headObject(client: S3Client, key: string): Promise<ObjectMetadata | null> {
@@ -143,18 +161,70 @@ async function readVerifiedPdf(
 async function loadFinal(
   client: S3Client,
   finalKey: string,
-  payload: AgreementPdfUploadTokenPayload,
+  expected: Readonly<{ originalFileName: string; sizeBytes: number }>,
 ): Promise<AgreementPdfDocument | null> {
   const metadata = await headObject(client, finalKey);
   if (!metadata) return null;
-  const exact = assertExpectedMetadata(metadata, { sizeBytes: payload.sizeBytes });
+  const exact = assertExpectedMetadata(metadata, { sizeBytes: expected.sizeBytes });
   const { sha256 } = await readVerifiedPdf(client, finalKey, exact);
   return {
     storageBucket: "docs",
     storageKey: finalKey,
-    originalFileName: payload.originalFileName,
+    originalFileName: expected.originalFileName,
     contentType: AGREEMENT_PDF_CONTENT_TYPE,
     sizeBytes: exact.sizeBytes,
+    objectEtag: exact.objectEtag,
+    sha256,
+  };
+}
+
+export function agreementPdfFinalCandidate(
+  serverSecret: string,
+  payload: AgreementPdfUploadTokenPayload,
+): AgreementPdfFinalCandidate {
+  const { finalKey } = agreementPdfObjectKeys(serverSecret, payload.uploadId);
+  return Object.freeze({
+    storageBucket: "docs",
+    storageKey: finalKey,
+    originalFileName: payload.originalFileName,
+    contentType: AGREEMENT_PDF_CONTENT_TYPE,
+    sizeBytes: payload.sizeBytes,
+  });
+}
+
+export async function resolvePrivateAgreementPdfFinalCandidate(
+  candidate: Omit<AgreementPdfFinalCandidate, "storageBucket"> &
+    Readonly<{ storageBucket: string }>,
+  client = getR2(),
+): Promise<AgreementPdfDocument | null> {
+  if (
+    candidate.storageBucket !== "docs" ||
+    !/^agreement-pdfs\/[a-f0-9]{64}$/.test(candidate.storageKey) ||
+    agreementPdfFileError(candidate) !== null
+  ) {
+    throw new AgreementPdfStorageError("Private agreement metadata is invalid.");
+  }
+  let observed;
+  try {
+    observed = await client.send(
+      new HeadObjectCommand({ Bucket: BUCKETS.docs, Key: candidate.storageKey }),
+    );
+  } catch (error) {
+    if (isDefiniteObjectAbsence(error)) return null;
+    throw new AgreementPdfStorageError("Private agreement cleanup could not verify storage.");
+  }
+  const exact = assertExpectedMetadata(
+    {
+      contentType: observed.ContentType,
+      sizeBytes: observed.ContentLength,
+      objectEtag: observed.ETag,
+    },
+    { sizeBytes: candidate.sizeBytes },
+  );
+  const { sha256 } = await readVerifiedPdf(client, candidate.storageKey, exact);
+  return {
+    ...candidate,
+    storageBucket: "docs",
     objectEtag: exact.objectEtag,
     sha256,
   };
@@ -236,6 +306,55 @@ export async function deletePrivateAgreementPdfStaging(
 ): Promise<void> {
   const { stagingKey } = agreementPdfObjectKeys(serverSecret, payload.uploadId);
   await client.send(new DeleteObjectCommand({ Bucket: BUCKETS.docs, Key: stagingKey }));
+}
+
+/**
+ * Final keys are app-write-once. The caller holds the producer attachment
+ * lock and proves the key is unreferenced; a documented conditional HEAD
+ * verifies the exact immutable object before the plain R2 delete.
+ */
+export async function deletePrivateAgreementPdfFinalIfExact(
+  document: Omit<AgreementPdfDocument, "storageBucket"> & Readonly<{ storageBucket: string }>,
+  client = getR2(),
+): Promise<void> {
+  if (
+    document.storageBucket !== "docs" ||
+    !/^agreement-pdfs\/[a-f0-9]{64}$/.test(document.storageKey) ||
+    document.objectEtag.length === 0 ||
+    document.objectEtag.length > 200
+  ) {
+    throw new AgreementPdfStorageError("Private agreement metadata is invalid.");
+  }
+  let observed;
+  try {
+    observed = await client.send(
+      new HeadObjectCommand({
+        Bucket: BUCKETS.docs,
+        Key: document.storageKey,
+        IfMatch: document.objectEtag,
+      }),
+    );
+  } catch (error) {
+    if (isDefiniteObjectAbsence(error)) return;
+    throw new AgreementPdfStorageError("Private agreement cleanup could not verify storage.");
+  }
+  const exact = assertExpectedMetadata(
+    {
+      contentType: observed.ContentType,
+      sizeBytes: observed.ContentLength,
+      objectEtag: observed.ETag,
+    },
+    { sizeBytes: document.sizeBytes },
+  );
+  if (exact.objectEtag !== document.objectEtag) {
+    throw new AgreementPdfStorageError("Private agreement metadata is invalid.");
+  }
+  await client.send(
+    new DeleteObjectCommand({
+      Bucket: BUCKETS.docs,
+      Key: document.storageKey,
+    }),
+  );
 }
 
 async function deletePrivateAgreementPdfStagingQuietly(

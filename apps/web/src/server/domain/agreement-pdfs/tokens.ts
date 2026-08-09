@@ -132,18 +132,18 @@ export function createAgreementPdfUploadToken(
   return { token: `${encoded}.${sign(serverSecret, encoded).toString("base64url")}`, payload };
 }
 
-export function verifyOwnedAgreementPdfUploadToken(
+function verifyOwnedAgreementPdfUploadTokenInternal(
   serverSecret: string,
   token: string,
   expected: Readonly<{ producerId: string; viewerClerkUserId: string }>,
-  now = new Date(),
+  input: Readonly<{ requireUnexpired: boolean; now: Date }>,
 ): AgreementPdfUploadTokenPayload {
   if (
     typeof token !== "string" ||
     token.length === 0 ||
     token.length > MAX_TOKEN_LENGTH ||
     !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token) ||
-    Number.isNaN(now.getTime())
+    Number.isNaN(input.now.getTime())
   ) {
     tokenError();
   }
@@ -168,13 +168,42 @@ export function verifyOwnedAgreementPdfUploadToken(
   const payload = assertPayload(decoded);
   if (
     Buffer.from(canonicalPayload(payload), "utf8").toString("base64url") !== encoded ||
-    payload.expiresAtEpochSeconds <= Math.floor(now.getTime() / 1_000) ||
+    (input.requireUnexpired &&
+      payload.expiresAtEpochSeconds <= Math.floor(input.now.getTime() / 1_000)) ||
     payload.producerId !== expected.producerId ||
     payload.viewerClerkUserId !== expected.viewerClerkUserId
   ) {
     tokenError();
   }
   return payload;
+}
+
+export function verifyOwnedAgreementPdfUploadToken(
+  serverSecret: string,
+  token: string,
+  expected: Readonly<{ producerId: string; viewerClerkUserId: string }>,
+  now = new Date(),
+): AgreementPdfUploadTokenPayload {
+  return verifyOwnedAgreementPdfUploadTokenInternal(serverSecret, token, expected, {
+    requireUnexpired: true,
+    now,
+  });
+}
+
+/**
+ * Cancellation may arrive after the upload capability expires. The signature,
+ * canonical payload, producer, and signed-in actor remain mandatory; only the
+ * expiry check is relaxed because this path can delete the staging key only.
+ */
+export function verifyOwnedAgreementPdfUploadTokenForCleanup(
+  serverSecret: string,
+  token: string,
+  expected: Readonly<{ producerId: string; viewerClerkUserId: string }>,
+): AgreementPdfUploadTokenPayload {
+  return verifyOwnedAgreementPdfUploadTokenInternal(serverSecret, token, expected, {
+    requireUnexpired: false,
+    now: new Date(),
+  });
 }
 
 export function agreementPdfObjectKeys(

@@ -42,17 +42,40 @@ vi.mock("~/components/ui/toast", () => ({
 vi.mock("../editor-shell", () => ({
   EditorShell: ({
     children,
+    canContinue,
+    current,
+    onOpenChange,
+    onContinue,
     onPublish,
     onSaveHidden,
+    pending,
     saveStatus,
   }: {
     children: ReactNode;
+    canContinue: boolean;
+    current: string;
+    onOpenChange: (open: boolean) => void;
+    onContinue: () => void;
     onPublish: () => void;
     onSaveHidden: () => void;
+    pending: boolean;
     saveStatus: string;
   }) => (
     <div>
       <span data-testid="save-status">{saveStatus}</span>
+      <span data-testid="current-step">{current}</span>
+      <span data-testid="pending">{String(pending)}</span>
+      <button
+        type="button"
+        onClick={() => {
+          onOpenChange(false);
+        }}
+      >
+        Close editor
+      </button>
+      <button type="button" disabled={!canContinue} onClick={onContinue}>
+        Continue
+      </button>
       <button type="button" onClick={onSaveHidden}>
         Save hidden
       </button>
@@ -84,10 +107,38 @@ vi.mock("../editor-steps/includes-step", () => ({
 }));
 
 vi.mock("../editor-steps/logistics-step", () => ({ LogisticsStep: () => null }));
+vi.mock("../editor-steps/onboarding-tax-step", () => ({
+  OnboardingTaxStep: ({ value }: { value: string | null }) => (
+    <span data-testid="restored-tax-mode">{value ?? "unselected"}</span>
+  ),
+}));
 vi.mock("../editor-steps/payment-step", () => ({ PaymentStep: () => null }));
-vi.mock("../editor-steps/pricing-step", () => ({ PricingStep: () => null }));
+vi.mock("../editor-steps/pricing-step", () => ({
+  PricingStep: ({ taxMode, taxRatePct }: { taxMode: string; taxRatePct: number }) => (
+    <span data-testid="pricing-tax">{`${taxMode}:${String(taxRatePct)}`}</span>
+  ),
+}));
 vi.mock("../editor-steps/review-step", () => ({ ReviewStep: () => null }));
-vi.mock("../editor-steps/rights-agreement-step", () => ({ RightsAgreementStep: () => null }));
+vi.mock("../editor-steps/rights-agreement-step", () => ({
+  RightsAgreementStep: ({
+    onAgreementPdfSelect,
+  }: {
+    onAgreementPdfSelect: (file: File) => void;
+  }) => (
+    <button
+      type="button"
+      onClick={() => {
+        onAgreementPdfSelect(
+          new File([new TextEncoder().encode("%PDF-1.7")], "terms.pdf", {
+            type: "application/pdf",
+          }),
+        );
+      }}
+    >
+      Choose agreement PDF
+    </button>
+  ),
+}));
 vi.mock("../editor-steps/type-step", () => ({ TypeStep: () => null }));
 
 import { ProductEditor } from "../product-editor";
@@ -129,7 +180,9 @@ const VALID_DRAFT: ProducerStoreProductDraft["draft"] = {
   volumeTiers: [],
 };
 
-function persistedDraft(currentStep: "details" | "review"): ProducerStoreProductDraft {
+function persistedDraft(
+  currentStep: "details" | "review" | "tax" | "price" | "rights",
+): ProducerStoreProductDraft {
   return {
     open: true,
     mode: "new",
@@ -146,16 +199,21 @@ function renderEditor({
   onPersistDraft = vi.fn(() => true),
   onSubmitted = vi.fn(),
   onSubmittedResult = vi.fn(),
+  persisted,
+  newProductFlow = "store",
+  taxMode = "tax_free",
+  taxRatePct = 0,
 }: {
-  currentStep?: "details" | "review";
+  currentStep?: "details" | "review" | "tax" | "price" | "rights";
   onCreated?: (id: string) => void;
   onOpenChange?: (open: boolean) => void;
   onPersistDraft?: (draft: ProducerStoreProductDraft) => boolean;
   onSubmitted?: () => void;
-  onSubmittedResult?: (result: {
-    includesSessions: boolean;
-    bookingEnabled: boolean;
-  }) => void;
+  onSubmittedResult?: (result: { includesSessions: boolean; bookingEnabled: boolean }) => void;
+  persisted?: ProducerStoreProductDraft;
+  newProductFlow?: "store" | "onboarding";
+  taxMode?: "tax_free" | "tax_included" | "tax_added";
+  taxRatePct?: number;
 } = {}) {
   render(
     <ProductEditor
@@ -163,13 +221,14 @@ function renderEditor({
       onOpenChange={onOpenChange}
       product={null}
       defaultCurrency="ILS"
-      taxMode="tax_free"
-      taxRatePct={0}
+      taxMode={taxMode}
+      taxRatePct={taxRatePct}
       onCreated={onCreated}
       onSubmitted={onSubmitted}
       onSubmittedResult={onSubmittedResult}
-      persistedDraft={persistedDraft(currentStep)}
+      persistedDraft={persisted ?? persistedDraft(currentStep)}
       onPersistDraft={onPersistDraft}
+      newProductFlow={newProductFlow}
     />,
   );
 
@@ -192,15 +251,111 @@ beforeEach(() => {
   mocks.toast.mockReset();
   mocks.updatePackage.mockReset();
   mocks.updateProducer.mockReset();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => Promise.resolve({ ok: true })),
+  );
 });
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   vi.clearAllTimers();
   vi.useRealTimers();
 });
 
 describe("ProductEditor routine save feedback", () => {
+  it("keeps a restored onboarding tax choice explicitly unselected after reload", () => {
+    renderEditor({
+      currentStep: "tax",
+      newProductFlow: "onboarding",
+      persisted: {
+        ...persistedDraft("tax"),
+        draft: {
+          ...VALID_DRAFT,
+          taxMode: null,
+          taxRatePct: 18,
+        },
+      },
+    });
+
+    expect(screen.getByTestId("current-step").textContent).toBe("tax");
+    expect(screen.getByTestId("restored-tax-mode").textContent).toBe("unselected");
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty("disabled", true);
+    expect(mocks.updateProducer).not.toHaveBeenCalled();
+  });
+
+  it("requires a choice when a legacy onboarding draft has no tax fields", () => {
+    renderEditor({
+      currentStep: "tax",
+      newProductFlow: "onboarding",
+      persisted: persistedDraft("tax"),
+      taxMode: "tax_added",
+      taxRatePct: 18,
+    });
+
+    expect(screen.getByTestId("restored-tax-mode").textContent).toBe("unselected");
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty("disabled", true);
+    expect(mocks.updateProducer).not.toHaveBeenCalled();
+  });
+
+  it("refreshes a normal Store draft from the current Settings tax after reload", () => {
+    const onPersistDraft = vi.fn<(draft: ProducerStoreProductDraft) => boolean>(() => true);
+    renderEditor({
+      currentStep: "price",
+      onPersistDraft,
+      taxMode: "tax_added",
+      taxRatePct: 18,
+      persisted: {
+        ...persistedDraft("price"),
+        draft: {
+          ...VALID_DRAFT,
+          taxMode: "tax_free",
+          taxRatePct: 0,
+        },
+      },
+    });
+
+    expect(screen.getByTestId("pricing-tax").textContent).toBe("tax_added:18");
+    expect(onPersistDraft.mock.calls.at(-1)?.[0].draft).not.toHaveProperty("taxMode");
+    expect(onPersistDraft.mock.calls.at(-1)?.[0].draft).not.toHaveProperty("taxRatePct");
+  });
+
+  it("does not close or cancel the staged PDF while finalization is in flight", async () => {
+    const onOpenChange = vi.fn();
+    let finishSave!: (value: { ok: true; data: { id: string } }) => void;
+    const saveResult = new Promise<{ ok: true; data: { id: string } }>((resolve) => {
+      finishSave = resolve;
+    });
+    mocks.prepareAgreementPdfUpload.mockResolvedValue({
+      ok: true,
+      data: {
+        uploadUrl: "https://upload.invalid/private",
+        uploadToken: "staged-upload-token",
+      },
+    });
+    mocks.createPackage.mockReturnValue(saveResult);
+    renderEditor({ currentStep: "rights", onOpenChange });
+
+    fireEvent.click(screen.getByRole("button", { name: "Choose agreement PDF" }));
+    await flushReact();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(screen.getByTestId("current-step").textContent).toBe("review");
+
+    fireEvent.click(screen.getByRole("button", { name: "Save hidden" }));
+    await flushReact();
+    expect(screen.getByTestId("pending").textContent).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Close editor" }));
+
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(mocks.cancelAgreementPdfUpload).not.toHaveBeenCalled();
+
+    finishSave({ ok: true, data: { id: "saved-product" } });
+    await flushReact();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(mocks.cancelAgreementPdfUpload).not.toHaveBeenCalled();
+  });
+
   it("announces Saving… then Saved only after the debounced draft write succeeds", () => {
     const onPersistDraft = vi.fn<(draft: ProducerStoreProductDraft) => boolean>(() => true);
     renderEditor({ currentStep: "details", onPersistDraft });

@@ -61,6 +61,8 @@ describe("EditorShell shell", () => {
 
   it("has a close X button in the header", () => {
     expect(SRC).toMatch(/aria-label="Close"/);
+    expect(SRC).toMatch(/DialogPrimitive\.Close[\s\S]*?disabled=\{pending\}/);
+    expect(SRC).toContain("if (!nextOpen && pending) return");
   });
 
   it("uses popIn animation per the design brief", () => {

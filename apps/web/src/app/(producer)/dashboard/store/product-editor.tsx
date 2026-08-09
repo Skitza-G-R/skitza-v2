@@ -137,10 +137,7 @@ interface ProductEditorProps {
   previewPlacement?: "focal" | "secondary";
   onCreated?: (id: string) => void;
   onSubmitted: () => void;
-  onSubmittedResult?: (result: {
-    includesSessions: boolean;
-    bookingEnabled: boolean;
-  }) => void;
+  onSubmittedResult?: (result: { includesSessions: boolean; bookingEnabled: boolean }) => void;
   onDiscardDraft?: () => void;
   persistedDraft: ProducerStoreProductDraft | null;
   onPersistDraft: (draft: ProducerStoreProductDraft) => boolean;
@@ -196,21 +193,30 @@ function normalizeDraft(
   draft: PersistedDraft,
   fallbackTaxMode: import("~/lib/tax-mode").TaxMode,
   fallbackTaxRatePct: number,
+  preserveOnboardingTaxChoice: boolean,
 ): Draft {
   const includesSessions =
-    draft.includesSessions ??
-    draft.bookingEnabled ??
-    /^\d+\s*min$/i.test(draft.duration);
+    draft.includesSessions ?? draft.bookingEnabled ?? /^\d+\s*min$/i.test(draft.duration);
   return {
     ...draft,
     includesSessions,
     bookingEnabled: includesSessions,
-    taxMode: draft.taxMode ?? fallbackTaxMode,
-    taxRatePct: draft.taxRatePct ?? fallbackTaxRatePct,
+    taxMode: preserveOnboardingTaxChoice ? (draft.taxMode ?? null) : fallbackTaxMode,
+    taxRatePct: preserveOnboardingTaxChoice
+      ? (draft.taxRatePct ?? fallbackTaxRatePct)
+      : fallbackTaxRatePct,
     // Upload capabilities are intentionally never persisted. A staged file
     // restored after a reload has no usable token, so require a fresh upload.
     agreementPdf: draft.agreementPdf?.documentId ? draft.agreementPdf : null,
   };
+}
+
+function draftForPersistence(draft: Draft, onboarding: boolean): PersistedDraft {
+  if (onboarding) return draft;
+  const { taxMode: currentTaxMode, taxRatePct: currentTaxRatePct, ...persisted } = draft;
+  void currentTaxMode;
+  void currentTaxRatePct;
+  return persisted;
 }
 
 function kindToPresetType(kind: string): PresetType {
@@ -366,7 +372,7 @@ export function ProductEditor({
         ? persistedDraft
         : null;
     const nextDraft = restored?.draft
-      ? normalizeDraft(restored.draft, taxMode, taxRatePct)
+      ? normalizeDraft(restored.draft, taxMode, taxRatePct, newProductFlow === "onboarding")
       : product
         ? seedDraftFromProduct(product, defaultCurrency, taxMode, taxRatePct)
         : emptyDraft(defaultCurrency, taxMode, taxRatePct, newProductFlow === "onboarding");
@@ -390,7 +396,7 @@ export function ProductEditor({
       mode,
       productId,
       currentStep: nextStep,
-      draft: nextDraft,
+      draft: draftForPersistence(nextDraft, newProductFlow === "onboarding"),
     };
     latestPersistedDraftRef.current = nextRecord;
     const statusRequest = ++saveStatusRequestRef.current;
@@ -418,7 +424,7 @@ export function ProductEditor({
       mode,
       productId: product?.id ?? null,
       currentStep,
-      draft,
+      draft: draftForPersistence(draft, newProductFlow === "onboarding"),
     };
     latestPersistedDraftRef.current = nextRecord;
     const statusRequest = ++saveStatusRequestRef.current;
@@ -433,7 +439,7 @@ export function ProductEditor({
     return () => {
       window.clearTimeout(timeout);
     };
-  }, [currentStep, draft, mode, onPersistDraft, open, product?.id]);
+  }, [currentStep, draft, mode, newProductFlow, onPersistDraft, open, product?.id]);
 
   useEffect(() => {
     if (!open) return;
@@ -454,6 +460,7 @@ export function ProductEditor({
   }, [onPersistDraft, open]);
 
   function handleEditorOpenChange(nextOpen: boolean) {
+    if (!nextOpen && pending) return;
     if (!nextOpen) {
       const latest = latestPersistedDraftRef.current;
       const safeLatest =

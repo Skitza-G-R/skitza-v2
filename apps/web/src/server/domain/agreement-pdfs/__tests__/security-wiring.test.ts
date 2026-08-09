@@ -12,6 +12,7 @@ describe("private agreement PDF security wiring", () => {
     );
     expect(route).toContain("authorizeCurrentRequestAgreementPdf");
     expect(route).toContain("authorizeAcceptedAgreementPdf");
+    expect(route).toContain('searchParams.get("documentId")');
     expect(route).toContain('"Cache-Control": "private, no-store, max-age=0"');
     expect(route).toContain('"Content-Security-Policy": "default-src \'none\'; sandbox"');
     expect(route).not.toMatch(/storageKey|R2_BUCKET|GetObjectCommand/);
@@ -23,6 +24,7 @@ describe("private agreement PDF security wiring", () => {
       "utf8",
     );
     expect(source).toContain("findAgreementPdfRevision");
+    expect(source).toContain("resolved.documentId !== input.expectedDocumentId");
     expect(source).toContain("JSON.stringify(resolved) !== JSON.stringify(snapshot)");
     expect(source).toContain("eq(clientContacts.clerkUserId, input.clerkUserId)");
     expect(source).toContain("eq(producers.clerkUserId, input.clerkUserId)");

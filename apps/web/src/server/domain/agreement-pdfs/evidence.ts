@@ -55,7 +55,7 @@ function exactDocumentForAcceptedSnapshot(
 
 export async function authorizeCurrentRequestAgreementPdf(
   db: Pick<Db, "select">,
-  input: { clerkUserId: string; purchaseRequestId: string },
+  input: { clerkUserId: string; purchaseRequestId: string; expectedDocumentId: string },
 ): Promise<AgreementPdfDocument> {
   const [row] = await db
     .select({ contractUrl: products.contractUrl, requestStatus: purchaseRequests.status })
@@ -77,12 +77,13 @@ export async function authorizeCurrentRequestAgreementPdf(
     )
     .where(eq(purchaseRequests.id, input.purchaseRequestId))
     .limit(1);
-  const document =
-    row?.requestStatus === "approved"
-      ? currentAgreementPdfRevision(row.contractUrl)?.document
-      : null;
-  if (!document) unavailable();
-  return document;
+  const revision =
+    row?.requestStatus === "approved" ? currentAgreementPdfRevision(row.contractUrl) : null;
+  const resolved = agreementPdfClientSnapshot(revision);
+  if (!revision?.document || !resolved || resolved.documentId !== input.expectedDocumentId) {
+    unavailable();
+  }
+  return revision.document;
 }
 
 export async function authorizeAcceptedAgreementPdf(

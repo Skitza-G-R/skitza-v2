@@ -3,10 +3,63 @@ import { join } from "node:path";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  agreementPdfContractDocumentsForCleanup,
+  appendAgreementPdfRevision,
+  markAgreementPdfContractForCleanup,
+  type AgreementPdfDocument,
+} from "~/server/domain/agreement-pdfs/contract";
+
 const PRODUCER_ID = "producer-uuid-archive";
 const PRODUCT_ID = "00000000-0000-0000-0000-000000000d01";
 const FOREIGN_PRODUCT_ID = "00000000-0000-0000-0000-000000000d02";
 const MISSING_PRODUCT_ID = "00000000-0000-0000-0000-000000000d03";
+
+const agreementDocument: AgreementPdfDocument = {
+  storageBucket: "docs",
+  storageKey: `agreement-pdfs/${"c".repeat(64)}`,
+  originalFileName: "terms.pdf",
+  contentType: "application/pdf",
+  sizeBytes: 100,
+  objectEtag: '"etag"',
+  sha256: "d".repeat(64),
+};
+
+const agreementContract = appendAgreementPdfRevision(null, {
+  revisionId: "00000000-0000-4000-8000-000000000002",
+  effectiveAt: "2026-08-09T00:00:00.000Z",
+  document: agreementDocument,
+});
+const cleanupAgreementContract = markAgreementPdfContractForCleanup(agreementContract);
+
+const agreementPdfMocks = vi.hoisted(() => ({
+  deleteFinal: vi.fn<(document: AgreementPdfDocument) => Promise<void>>(),
+}));
+
+function agreementContractWithUniqueDocuments(count: number): {
+  contractUrl: string;
+  documents: AgreementPdfDocument[];
+} {
+  let contractUrl: string | null = null;
+  const documents: AgreementPdfDocument[] = [];
+  for (let index = 1; index <= count; index += 1) {
+    const hex = index.toString(16);
+    const document: AgreementPdfDocument = {
+      ...agreementDocument,
+      storageKey: `agreement-pdfs/${hex.padStart(64, "0")}`,
+      objectEtag: `"etag-${hex}"`,
+      sha256: hex.padStart(64, "0"),
+    };
+    documents.push(document);
+    contractUrl = appendAgreementPdfRevision(contractUrl, {
+      revisionId: `00000000-0000-4000-8000-${hex.padStart(12, "0")}`,
+      effectiveAt: "2026-08-09T00:00:00.000Z",
+      document,
+    });
+  }
+  if (!contractUrl) throw new Error("Expected at least one agreement document");
+  return { contractUrl, documents };
+}
 
 type Row = Record<string, unknown>;
 
@@ -36,6 +89,9 @@ const {
     __table: "products",
     id: column("products.id"),
     producerId: column("products.producer_id"),
+    contractUrl: column("products.contract_url"),
+    active: column("products.active"),
+    archivedAt: column("products.archived_at"),
   };
   const purchaseRequestsMarker = {
     __table: "purchase_requests",
@@ -97,8 +153,7 @@ const {
       then: <TResult1 = Row[], TResult2 = never>(
         onfulfilled?: ((value: Row[]) => TResult1 | PromiseLike<TResult1>) | null,
         onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
-      ): PromiseLike<TResult1 | TResult2> =>
-        Promise.resolve(rows).then(onfulfilled, onrejected),
+      ): PromiseLike<TResult1 | TResult2> => Promise.resolve(rows).then(onfulfilled, onrejected),
     };
     return query;
   }
@@ -120,6 +175,7 @@ const {
         }),
       };
     },
+    execute: () => Promise.resolve(),
     transaction: async (callback: (tx: unknown) => Promise<unknown>) => {
       transactionSpy();
       return callback(dbMock);
@@ -144,8 +200,22 @@ const {
   };
 });
 
+vi.mock("~/server/domain/agreement-pdfs/storage", () => ({
+  agreementPdfFinalCandidate: vi.fn(),
+  createPrivateAgreementPdfUpload: vi.fn(),
+  deletePrivateAgreementPdfFinalIfExact: agreementPdfMocks.deleteFinal,
+  deletePrivateAgreementPdfStaging: vi.fn(),
+  finalizePrivateAgreementPdfUpload: vi.fn(),
+  resolvePrivateAgreementPdfFinalCandidate: vi.fn(),
+}));
+
 vi.mock("@skitza/db", () => ({
   createDb: () => dbMock,
+  withNeonSessionAdvisoryLock: async (
+    _connectionString: string,
+    _lockKey: string,
+    callback: (db: unknown) => Promise<unknown>,
+  ) => callback(dbMock),
   producers: producersMarker,
   products: productsMarker,
   purchaseRequests: purchaseRequestsMarker,
@@ -176,6 +246,7 @@ beforeEach(() => {
   updateCalls.length = 0;
   deleteCalls.length = 0;
   transactionSpy.mockReset();
+  agreementPdfMocks.deleteFinal.mockReset().mockResolvedValue();
   process.env.DATABASE_URL = "postgresql://test/test";
 });
 
@@ -184,7 +255,9 @@ async function buildCaller() {
   return bookingRouter.createCaller({ userId: "user_test_archive" });
 }
 
-async function trpcFailure(operation: Promise<unknown>): Promise<{ code: string; message: string }> {
+async function trpcFailure(
+  operation: Promise<unknown>,
+): Promise<{ code: string; message: string }> {
   try {
     await operation;
   } catch (error) {
@@ -210,6 +283,246 @@ describe("booking products authoritative removal", () => {
     expect(updateCalls).toEqual([]);
     expect(deleteCalls).toEqual([{ table: productsMarker }]);
     expect(transactionSpy).toHaveBeenCalledOnce();
+  });
+
+  it("commits a terminal tombstone before deleting an unreferenced final agreement", async () => {
+    productRows.push(
+      [{ id: PRODUCT_ID, contractUrl: agreementContract }],
+      [
+        {
+          id: PRODUCT_ID,
+          active: false,
+          archivedAt: new Date(),
+          contractUrl: cleanupAgreementContract,
+        },
+      ],
+      [
+        {
+          id: PRODUCT_ID,
+          active: false,
+          archivedAt: new Date(),
+          contractUrl: cleanupAgreementContract,
+        },
+      ],
+      [
+        {
+          id: PRODUCT_ID,
+          active: false,
+          archivedAt: new Date(),
+          contractUrl: cleanupAgreementContract,
+        },
+      ],
+    );
+    const caller = await buildCaller();
+
+    await expect(caller.packages.archive({ id: PRODUCT_ID })).resolves.toEqual({
+      ok: true,
+      outcome: "deleted",
+    });
+
+    expect(transactionSpy).toHaveBeenCalledTimes(2);
+    expect(agreementPdfMocks.deleteFinal).toHaveBeenCalledWith(agreementDocument);
+    expect(updateCalls[0]?.patch).toMatchObject({
+      active: false,
+      contractUrl: cleanupAgreementContract,
+    });
+    expect(updateCalls[0]?.patch.archivedAt).toBeInstanceOf(Date);
+  });
+
+  it("preserves a final agreement still referenced by a duplicated product", async () => {
+    productRows.push(
+      [{ id: PRODUCT_ID, contractUrl: agreementContract }],
+      [
+        {
+          id: PRODUCT_ID,
+          active: false,
+          archivedAt: new Date(),
+          contractUrl: cleanupAgreementContract,
+        },
+      ],
+      [
+        { id: PRODUCT_ID, contractUrl: cleanupAgreementContract },
+        { id: "duplicate-product", contractUrl: agreementContract, archivedAt: new Date() },
+      ],
+      [
+        {
+          id: PRODUCT_ID,
+          active: false,
+          archivedAt: new Date(),
+          contractUrl: cleanupAgreementContract,
+        },
+      ],
+    );
+    const caller = await buildCaller();
+
+    await expect(caller.packages.archive({ id: PRODUCT_ID })).resolves.toEqual({
+      ok: true,
+      outcome: "deleted",
+    });
+
+    expect(agreementPdfMocks.deleteFinal).not.toHaveBeenCalled();
+  });
+
+  it("bounds max-ledger cleanup concurrency and settles every deletion attempt", async () => {
+    const maximumLedger = agreementContractWithUniqueDocuments(512);
+    const cleanupContract = markAgreementPdfContractForCleanup(maximumLedger.contractUrl);
+    productRows.push(
+      [{ id: PRODUCT_ID, contractUrl: maximumLedger.contractUrl }],
+      [
+        {
+          id: PRODUCT_ID,
+          active: false,
+          archivedAt: new Date(),
+          contractUrl: cleanupContract,
+        },
+      ],
+      [
+        {
+          id: PRODUCT_ID,
+          active: false,
+          archivedAt: new Date(),
+          contractUrl: cleanupContract,
+        },
+      ],
+    );
+    let active = 0;
+    let maxActive = 0;
+    agreementPdfMocks.deleteFinal.mockImplementation(async (document) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      try {
+        await Promise.resolve();
+        if (document.storageKey === maximumLedger.documents[0]?.storageKey) {
+          throw new Error("one R2 delete failed");
+        }
+      } finally {
+        active -= 1;
+      }
+    });
+    const caller = await buildCaller();
+
+    await expect(caller.packages.archive({ id: PRODUCT_ID })).rejects.toMatchObject({
+      code: "INTERNAL_SERVER_ERROR",
+    });
+
+    expect(agreementPdfMocks.deleteFinal).toHaveBeenCalledTimes(512);
+    expect(maxActive).toBe(16);
+    expect(agreementPdfMocks.deleteFinal.mock.calls.at(-1)?.[0]).toEqual(
+      maximumLedger.documents.at(-1),
+    );
+    expect(deleteCalls).toEqual([]);
+    expect(updateCalls[0]?.patch.contractUrl).toBe(cleanupContract);
+    expect(
+      agreementPdfContractDocumentsForCleanup(updateCalls[0]?.patch.contractUrl as string),
+    ).toHaveLength(512);
+  });
+
+  it("retries an already-tombstoned product after a partial cleanup failure", async () => {
+    productRows.push(
+      [{ id: PRODUCT_ID, contractUrl: agreementContract }],
+      [
+        {
+          id: PRODUCT_ID,
+          active: false,
+          archivedAt: new Date(),
+          contractUrl: cleanupAgreementContract,
+        },
+      ],
+      [
+        {
+          id: PRODUCT_ID,
+          active: false,
+          archivedAt: new Date(),
+          contractUrl: cleanupAgreementContract,
+        },
+      ],
+      [
+        {
+          id: PRODUCT_ID,
+          active: false,
+          archivedAt: new Date(),
+          contractUrl: cleanupAgreementContract,
+        },
+      ],
+      [
+        {
+          id: PRODUCT_ID,
+          active: false,
+          archivedAt: new Date(),
+          contractUrl: cleanupAgreementContract,
+        },
+      ],
+      [
+        {
+          id: PRODUCT_ID,
+          active: false,
+          archivedAt: new Date(),
+          contractUrl: cleanupAgreementContract,
+        },
+      ],
+      [
+        {
+          id: PRODUCT_ID,
+          active: false,
+          archivedAt: new Date(),
+          contractUrl: cleanupAgreementContract,
+        },
+      ],
+    );
+    agreementPdfMocks.deleteFinal.mockRejectedValueOnce(new Error("temporary R2 failure"));
+    const caller = await buildCaller();
+
+    await expect(caller.packages.archive({ id: PRODUCT_ID })).rejects.toMatchObject({
+      code: "INTERNAL_SERVER_ERROR",
+    });
+
+    expect(deleteCalls).toEqual([]);
+    expect(updateCalls[0]?.patch.contractUrl).toBe(cleanupAgreementContract);
+    expect(
+      agreementPdfContractDocumentsForCleanup(updateCalls[0]?.patch.contractUrl as string),
+    ).toEqual([agreementDocument]);
+
+    await expect(caller.packages.archive({ id: PRODUCT_ID })).resolves.toEqual({
+      ok: true,
+      outcome: "deleted",
+    });
+    expect(agreementPdfMocks.deleteFinal).toHaveBeenCalledTimes(2);
+    expect(deleteCalls).toEqual([{ table: productsMarker }]);
+  });
+
+  it("cannot restore, activate, or duplicate a terminal cleanup tombstone", async () => {
+    productRows.push(
+      [{ id: PRODUCT_ID, contractUrl: cleanupAgreementContract }],
+      [{ id: PRODUCT_ID, contractUrl: cleanupAgreementContract }],
+      [{ id: PRODUCT_ID, contractUrl: cleanupAgreementContract }],
+    );
+    const caller = await buildCaller();
+
+    await expect(caller.products.restore({ id: PRODUCT_ID })).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
+    await expect(caller.products.setActive({ id: PRODUCT_ID, active: true })).rejects.toMatchObject(
+      { code: "CONFLICT" },
+    );
+    await expect(caller.products.duplicate({ id: PRODUCT_ID })).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
+
+    expect(deleteCalls).toEqual([]);
+  });
+
+  it("keeps a cleanup tombstone hidden if older code cleared archivedAt", async () => {
+    productRows.push([
+      {
+        id: PRODUCT_ID,
+        active: false,
+        archivedAt: null,
+        contractUrl: cleanupAgreementContract,
+      },
+    ]);
+    const caller = await buildCaller();
+
+    await expect(caller.products.list()).resolves.toEqual([]);
   });
 
   it.each([
@@ -272,10 +585,7 @@ describe("booking products authoritative removal", () => {
       "if (result.created)",
       requestTransactionStart,
     );
-    const requestTransaction = purchaseRouter.slice(
-      requestTransactionStart,
-      requestTransactionEnd,
-    );
+    const requestTransaction = purchaseRouter.slice(requestTransactionStart, requestTransactionEnd);
     expect(requestTransaction).toMatch(
       /\.from\(products\)[\s\S]*?\.for\("share"\)[\s\S]*?\.insert\(purchaseRequests\)/,
     );

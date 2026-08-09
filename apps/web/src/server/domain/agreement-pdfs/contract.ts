@@ -7,6 +7,9 @@ import {
 } from "~/lib/agreement-pdf";
 
 const CONTRACT_PREFIX = "skitza-private-agreement:v1:";
+// The cleanup discriminator sits inside the live prefix deliberately. Older
+// deployments see `cleanup:<payload>` as invalid base64url and fail closed.
+const CLEANUP_CONTRACT_PREFIX = `${CONTRACT_PREFIX}cleanup:`;
 const MAX_LEDGER_BYTES = 1024 * 1024;
 const MAX_LEDGER_REVISIONS = 512;
 
@@ -41,7 +44,8 @@ export type AgreementPdfLedger = Readonly<{
 export type AgreementPdfContract =
   | Readonly<{ kind: "empty" }>
   | Readonly<{ kind: "legacy" }>
-  | Readonly<{ kind: "ledger"; ledger: AgreementPdfLedger }>;
+  | Readonly<{ kind: "ledger"; ledger: AgreementPdfLedger }>
+  | Readonly<{ kind: "cleanup"; ledger: AgreementPdfLedger }>;
 
 function fail(): never {
   throw new AgreementPdfContractError();
@@ -152,8 +156,14 @@ export function parseAgreementPdfContract(value: string | null | undefined): Agr
   if (value === null || value === undefined || value.trim().length === 0) {
     return Object.freeze({ kind: "empty" });
   }
-  if (!value.startsWith(CONTRACT_PREFIX)) return Object.freeze({ kind: "legacy" });
-  const encoded = value.slice(CONTRACT_PREFIX.length);
+  const kind = value.startsWith(CLEANUP_CONTRACT_PREFIX)
+    ? ("cleanup" as const)
+    : value.startsWith(CONTRACT_PREFIX)
+      ? ("ledger" as const)
+      : null;
+  if (!kind) return Object.freeze({ kind: "legacy" });
+  const prefix = kind === "ledger" ? CONTRACT_PREFIX : CLEANUP_CONTRACT_PREFIX;
+  const encoded = value.slice(prefix.length);
   if (
     encoded.length === 0 ||
     encoded.length > Math.ceil((MAX_LEDGER_BYTES * 4) / 3) + 4 ||
@@ -174,7 +184,7 @@ export function parseAgreementPdfContract(value: string | null | undefined): Agr
   }
   const ledger = parseLedger(decoded);
   if (JSON.stringify(ledger) !== json) fail();
-  return Object.freeze({ kind: "ledger", ledger });
+  return Object.freeze({ kind, ledger });
 }
 
 export function currentAgreementPdfRevision(
@@ -191,6 +201,70 @@ export function findAgreementPdfRevision(
   const parsed = parseAgreementPdfContract(value);
   if (parsed.kind !== "ledger") return null;
   return parsed.ledger.revisions.find((revision) => revision.revisionId === revisionId) ?? null;
+}
+
+export function agreementPdfContractReferencesStorageKey(
+  value: string | null | undefined,
+  storageKey: string,
+): boolean {
+  const parsed = parseAgreementPdfContract(value);
+  if (parsed.kind !== "ledger" && parsed.kind !== "cleanup") return false;
+  return parsed.ledger.revisions.some((revision) => revision.document?.storageKey === storageKey);
+}
+
+export function agreementPdfContractStorageKeys(
+  value: string | null | undefined,
+): readonly string[] {
+  const parsed = parseAgreementPdfContract(value);
+  if (parsed.kind !== "ledger" && parsed.kind !== "cleanup") return Object.freeze([]);
+  return Object.freeze([
+    ...new Set(
+      parsed.ledger.revisions.flatMap((revision) =>
+        revision.document ? [revision.document.storageKey] : [],
+      ),
+    ),
+  ]);
+}
+
+export function agreementPdfContractDocumentsForCleanup(
+  value: string | null | undefined,
+): readonly AgreementPdfDocument[] {
+  const parsed = parseAgreementPdfContract(value);
+  if (parsed.kind !== "ledger" && parsed.kind !== "cleanup") return Object.freeze([]);
+  const documents = new Map<string, AgreementPdfDocument>();
+  for (const revision of parsed.ledger.revisions) {
+    const document = revision.document;
+    if (!document) continue;
+    const existing = documents.get(document.storageKey);
+    if (existing && JSON.stringify(existing) !== JSON.stringify(document)) fail();
+    documents.set(document.storageKey, document);
+  }
+  return Object.freeze([...documents.values()]);
+}
+
+export function assertAgreementPdfContractCanAppend(value: string | null | undefined): void {
+  const parsed = parseAgreementPdfContract(value);
+  if (parsed.kind === "cleanup") fail();
+  const previous = parsed.kind === "ledger" ? parsed.ledger.revisions : [];
+  if (previous.length >= MAX_LEDGER_REVISIONS) fail();
+  const worstCaseRevision = {
+    revisionId: "ffffffff-ffff-4fff-bfff-ffffffffffff",
+    effectiveAt: "9999-12-31T23:59:59.999Z",
+    document: {
+      storageBucket: "docs",
+      storageKey: `agreement-pdfs/${"f".repeat(64)}`,
+      originalFileName: `${"x".repeat(196)}.pdf`,
+      contentType: AGREEMENT_PDF_CONTENT_TYPE,
+      sizeBytes: 15 * 1024 * 1024,
+      objectEtag: "x".repeat(200),
+      sha256: "f".repeat(64),
+    },
+  };
+  const candidateBytes = Buffer.byteLength(
+    JSON.stringify({ version: 1, revisions: [...previous, worstCaseRevision] }),
+    "utf8",
+  );
+  if (candidateBytes > MAX_LEDGER_BYTES) fail();
 }
 
 export function agreementPdfClientSnapshot(
@@ -212,11 +286,28 @@ export function appendAgreementPdfRevision(
   revision: AgreementPdfRevision,
 ): string {
   const parsed = parseAgreementPdfContract(currentValue);
+  if (parsed.kind === "cleanup") fail();
   const previous = parsed.kind === "ledger" ? parsed.ledger.revisions : [];
   const ledger = parseLedger({ version: 1, revisions: [...previous, revision] });
   const encoded = Buffer.from(JSON.stringify(ledger), "utf8").toString("base64url");
   if (encoded.length > Math.ceil((MAX_LEDGER_BYTES * 4) / 3) + 4) fail();
   return `${CONTRACT_PREFIX}${encoded}`;
+}
+
+/**
+ * Mark a no-history archived product's ledger as terminal cleanup metadata.
+ * The bytes stay canonical and discoverable, but no current agreement can be
+ * served or appended while object deletion is pending.
+ */
+export function markAgreementPdfContractForCleanup(value: string | null | undefined): string {
+  const parsed = parseAgreementPdfContract(value);
+  if (parsed.kind === "cleanup") return value as string;
+  if (parsed.kind !== "ledger" || !value?.startsWith(CONTRACT_PREFIX)) fail();
+  return `${CLEANUP_CONTRACT_PREFIX}${value.slice(CONTRACT_PREFIX.length)}`;
+}
+
+export function isAgreementPdfContractPendingCleanup(value: string | null | undefined): boolean {
+  return parseAgreementPdfContract(value).kind === "cleanup";
 }
 
 export function agreementPdfProducerSummary(value: string | null | undefined): Readonly<{

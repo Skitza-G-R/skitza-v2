@@ -5,6 +5,7 @@ import {
   agreementPdfObjectKeys,
   createAgreementPdfUploadToken,
   verifyOwnedAgreementPdfUploadToken,
+  verifyOwnedAgreementPdfUploadTokenForCleanup,
 } from "../tokens";
 
 const SECRET = "agreement-pdf-test-secret-that-is-long-enough";
@@ -45,5 +46,41 @@ describe("private agreement PDF upload tokens", () => {
     expect(keys.finalKey).toMatch(/^agreement-pdfs\/[a-f0-9]{64}$/);
     expect(JSON.stringify(keys)).not.toContain("producer");
     expect(JSON.stringify(keys)).not.toContain("terms.pdf");
+  });
+
+  it("allows an expired authentic owner token only for staging cleanup", () => {
+    const signed = createAgreementPdfUploadToken(
+      SECRET,
+      {
+        producerId: "producer-1",
+        viewerClerkUserId: "user-1",
+        originalFileName: "terms.pdf",
+        contentType: "application/pdf",
+        sizeBytes: 100,
+      },
+      new Date("2026-08-09T10:00:00.000Z"),
+    );
+    const afterExpiry = new Date("2026-08-09T11:00:00.000Z");
+
+    expect(() =>
+      verifyOwnedAgreementPdfUploadToken(
+        SECRET,
+        signed.token,
+        { producerId: "producer-1", viewerClerkUserId: "user-1" },
+        afterExpiry,
+      ),
+    ).toThrow(AgreementPdfTokenError);
+    expect(
+      verifyOwnedAgreementPdfUploadTokenForCleanup(SECRET, signed.token, {
+        producerId: "producer-1",
+        viewerClerkUserId: "user-1",
+      }),
+    ).toEqual(signed.payload);
+    expect(() =>
+      verifyOwnedAgreementPdfUploadTokenForCleanup(SECRET, signed.token, {
+        producerId: "producer-2",
+        viewerClerkUserId: "user-1",
+      }),
+    ).toThrow(AgreementPdfTokenError);
   });
 });
