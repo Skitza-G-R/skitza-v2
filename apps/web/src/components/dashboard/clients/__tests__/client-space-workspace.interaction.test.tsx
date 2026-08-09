@@ -143,10 +143,12 @@ function offer(
 function workspaceElement({
   clientId = "client-1",
   clientName = "Maya Stone",
+  initialTab,
   tags = [],
 }: {
   clientId?: string;
   clientName?: string;
+  initialTab?: "projects" | "payments" | "details";
   tags?: string[];
 } = {}) {
   return (
@@ -165,15 +167,14 @@ function workspaceElement({
         joinedAtIso: "2026-01-01T00:00:00.000Z",
       }}
       projects={[]}
-      paymentBuckets={[]}
-      paymentTotals={[]}
-      needsReviewCount={0}
+      payments={{ status: "error", message: "Payments unavailable." }}
       producerSlug="maya-produces"
       offerConfig={{
         defaultCurrency: "USD",
         taxMode: "tax_added",
         taxRatePct: 18,
       }}
+      {...(initialTab ? { initialTab } : {})}
     />
   );
 }
@@ -385,6 +386,19 @@ describe("ClientSpaceWorkspace offer refresh state", () => {
 });
 
 describe("ClientSpaceWorkspace rendered containment and focus", () => {
+  it("renders the locked Payments tab on the first frame", () => {
+    render(workspaceElement({ initialTab: "payments" }));
+
+    expect(screen.getByRole("tab", { name: "Payments" }).getAttribute("aria-selected")).toBe(
+      "true",
+    );
+    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(
+      "client-space-tab-payments",
+    );
+    expect(screen.getByRole("alert").textContent).toContain("Couldn’t load payments.");
+    expect(screen.queryByText("No active projects")).toBeNull();
+  });
+
   it.each([360, 390])(
     "contains unbroken Details tokens without clipping at %ipx",
     async (width) => {

@@ -11,9 +11,9 @@ const compactSource = source.replace(/\s+/g, " ");
 describe("SK-93 client detail preservation through SK-146", () => {
   it("passes the complete purchase-owned ledger into ClientSpaceWorkspace", () => {
     expect(source).toContain("caller.purchaseLedger.client({ clientContactId: id })");
-    expect(source).toContain("toProducerPaymentWorkspaceBuckets(payments.producerBuckets)");
+    expect(source).toContain("toClientPaymentsData(paymentModel");
     expect(compactSource).toMatch(
-      /<ClientSpaceWorkspace[\s\S]*?paymentBuckets=\{paymentBuckets\}[\s\S]*?paymentTotals=\{paymentTotals\}[\s\S]*?needsReviewCount=\{needsReviewCount\}/,
+      /<ClientSpaceWorkspace[\s\S]*?payments=\{payments\}[\s\S]*?initialTab=\{initialTab\}/,
     );
     expect(source).not.toMatch(/<ClientMoneyLedger/);
   });
@@ -28,8 +28,8 @@ describe("SK-93 client detail preservation through SK-146", () => {
 
   it("keeps archived project and payment history reachable through the tabs", () => {
     expect(source).toContain("const projects: ClientSpaceProjectData[] = detail.projects.map");
-    expect(source).toContain("paymentBuckets={paymentBuckets}");
-    expect(source).toContain("paymentTotals={paymentTotals}");
+    expect(source).toContain("toClientPaymentsData(paymentModel");
+    expect(source).toContain("payments={payments}");
     expect(source).not.toMatch(/detail\.projects\.filter/);
   });
 });

@@ -35,8 +35,6 @@ import {
   type PrivateOfferCurrency,
 } from "~/components/dashboard/offers/private-offer-composer";
 import { useTabSwipe } from "~/components/native/use-tab-swipe";
-import { ProducerPaymentWorkspace } from "~/components/payments/producer-payment-workspace";
-import type { PaymentWorkspaceBucket } from "~/components/payments/producer-payment-workspace-model";
 import { useOnlineStatus } from "~/components/runtime-state/online-required-link";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "~/components/ui/sheet";
 import { useToast } from "~/components/ui/toast";
@@ -47,18 +45,19 @@ import type { TaxMode } from "~/lib/tax-mode";
 
 import { ClientActionsMenu } from "./client-actions-menu";
 import { ClientArchiveConfirmModal } from "./client-archive-confirm-modal";
+import type { ClientPaymentsData } from "./client-payments-data";
+import { ClientPaymentsPanel } from "./client-payments-panel";
 import {
   ClientSpaceProjectRow,
   isArchivedClientSpaceProject,
   type ClientSpaceProjectData,
 } from "./client-space-project-row";
+import type { ClientSpaceTab } from "./client-space-tabs";
 import { EditClientModal } from "./edit-client-modal";
 import { InviteToAppModal } from "./invite-modal";
 import { LinkPill, type LinkPillState } from "./link-pill";
 import { NewProjectModal } from "./new-project-modal";
 import { RemoveClientConfirmModal } from "./remove-client-confirm-modal";
-
-export type ClientSpaceTab = "projects" | "payments" | "details";
 
 const CLIENT_SPACE_TABS: readonly ClientSpaceTab[] = ["projects", "payments", "details"];
 
@@ -103,14 +102,22 @@ export interface ClientSpaceOfferConfig {
   taxRatePct: number;
 }
 
+export type ClientSpacePaymentsState =
+  | Readonly<{
+      status: "ready";
+      data: ClientPaymentsData;
+      totals: readonly ClientSpacePaymentTotal[];
+      needsReviewCount: number;
+    }>
+  | Readonly<{ status: "error"; message: string }>;
+
 interface ClientSpaceWorkspaceProps {
   client: ClientSpaceClientData;
   projects: ClientSpaceProjectData[];
-  paymentBuckets: readonly PaymentWorkspaceBucket[];
-  paymentTotals: readonly ClientSpacePaymentTotal[];
-  needsReviewCount: number;
+  payments: ClientSpacePaymentsState;
   producerSlug: string;
   offerConfig: ClientSpaceOfferConfig | null;
+  initialTab?: ClientSpaceTab;
 }
 
 type OfferHistoryState =
@@ -124,13 +131,12 @@ const EMPTY_OFFER_HISTORY: OfferHistoryState = { status: "idle", offers: [] };
 export function ClientSpaceWorkspace({
   client,
   projects,
-  paymentBuckets,
-  paymentTotals,
-  needsReviewCount,
+  payments,
   producerSlug,
   offerConfig,
+  initialTab = "projects",
 }: ClientSpaceWorkspaceProps) {
-  const [activeTab, setActiveTab] = useState<ClientSpaceTab>("projects");
+  const [activeTab, setActiveTab] = useState<ClientSpaceTab>(initialTab);
   const [showArchived, setShowArchived] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
@@ -294,7 +300,10 @@ export function ClientSpaceWorkspace({
     });
   }
 
-  const attentionCopy = paymentAttentionCopy(paymentTotals, needsReviewCount);
+  const attentionCopy =
+    payments.status === "ready"
+      ? paymentAttentionCopy(payments.totals, payments.needsReviewCount)
+      : null;
 
   return (
     <div className="min-w-0">
@@ -406,7 +415,7 @@ export function ClientSpaceWorkspace({
             />
           ) : null}
           {activeTab === "payments" ? (
-            <PaymentsPanel clientName={client.name} paymentBuckets={paymentBuckets} />
+            <PaymentsPanel clientName={client.name} payments={payments} />
           ) : null}
           {activeTab === "details" ? (
             <DetailsPanel
@@ -801,10 +810,10 @@ function ProjectFilterButton({
 
 function PaymentsPanel({
   clientName,
-  paymentBuckets,
+  payments,
 }: {
   clientName: string;
-  paymentBuckets: readonly PaymentWorkspaceBucket[];
+  payments: ClientSpacePaymentsState;
 }) {
   return (
     <section aria-labelledby="client-payments-heading" className="min-w-0">
@@ -819,13 +828,7 @@ function PaymentsPanel({
           Payments
         </h2>
       </header>
-      <ProducerPaymentWorkspace
-        buckets={paymentBuckets}
-        scope="client"
-        clientLabel={clientName}
-        defaultView="open"
-        presentation="client-tab"
-      />
+      <ClientPaymentsPanel state={payments} clientName={clientName} />
     </section>
   );
 }

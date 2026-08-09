@@ -463,6 +463,7 @@ export function PaymentHistoryPurchaseDetails({
         purchaseId={purchase.id}
         purchaseReference={purchase.reference}
         role={role}
+        showPaymentAction={showPaymentAction}
       />
       <PurchaseHistories purchase={purchase} role={role} />
     </div>
@@ -789,12 +790,14 @@ function InstallmentSchedule({
   purchaseId,
   purchaseReference,
   role,
+  showPaymentAction,
 }: {
   schedule: readonly PaymentHistoryInstallment[];
   currency: string;
   purchaseId: string;
   purchaseReference: string;
   role: PaymentHistoryRole;
+  showPaymentAction: boolean;
 }) {
   return (
     <section aria-label="Payment schedule" className="min-w-0">
@@ -832,6 +835,7 @@ function InstallmentSchedule({
                 />
               </dl>
               {role === "producer" &&
+              showPaymentAction &&
               installment.remainingCents > 0 &&
               installment.dueAtIso !== null &&
               installment.status.label !== "Canceled" &&
