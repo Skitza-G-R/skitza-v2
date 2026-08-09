@@ -111,9 +111,10 @@ describe("reschedule-confirm-sheet.tsx wiring", () => {
     expect(sheetSrc).toMatch(/^"use client";/);
   });
 
-  it("asks to confirm and names the producer as notified", () => {
-    expect(sheetSrc).toMatch(/Cancel this session\?/);
-    expect(sheetSrc).toMatch(/will be notified/);
+  it("asks to send a request and explains that the producer decides", () => {
+    expect(sheetSrc).toMatch(/Ask to cancel this session\?/);
+    expect(sheetSrc).toMatch(/will review your request/);
+    expect(sheetSrc).toMatch(/session and session credit stay in place/);
     expect(sheetSrc).toMatch(/producerName/);
   });
 

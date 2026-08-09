@@ -5,6 +5,7 @@ import {
   asc,
   availabilityBlackouts,
   availabilityBlocks,
+  bookingChangeRequests,
   bookings,
   clientContacts,
   desc,
@@ -30,10 +31,7 @@ import { z } from "zod";
 import { router } from "../init";
 import { producerProcedure } from "../producer-procedure";
 import { stripUndefined } from "../strip-undefined";
-import {
-  sendBookingCancelledOrRescheduledEmail,
-  sendBookingConfirmedEmail,
-} from "~/server/email/send";
+import { sendBookingCancelledOrRescheduledEmail } from "~/server/email/send";
 import { mergePreservedPaymentPlans, normalizeProductPaymentPlans } from "~/lib/payment-plans";
 import {
   mergeAndValidateStoreProduct,
@@ -49,13 +47,41 @@ import {
   cancelProducerSessionBooking,
   completeSessionBooking,
   confirmSessionBooking,
+  createProducerManualSessionBooking,
+  decideProducerSessionChangeRequest,
+  findProducerManualSessionBookingReplay,
+  getSessionBookingGoogleCalendarSyncStatuses,
+  GOOGLE_CALENDAR_SYNC_STATUS_BATCH_LIMIT,
   markSessionNoShow,
+  previewProducerSessionReschedule,
   recordLateArtistCancellation,
   rejectSessionBooking,
+  restoreMissingSessionBookingGoogleCalendarEvent,
+  rescheduleProducerSessionBooking,
+  retrySessionBookingGoogleCalendarSync,
   SessionBookingDomainError,
 } from "~/server/domain/session-booking/service";
+import {
+  listProducerManualSessionOptions,
+  previewProducerManualSession,
+  publicProducerManualSessionOptions,
+} from "~/server/domain/session-booking/manual";
 import { deliverPushToProjectArtist } from "~/server/push/delivery";
 import { emitArtistSessionNotification } from "~/server/artist/notification-emitters";
+import { deliverCalendarSyncJobBestEffort } from "~/server/calendar/drain";
+import { readGoogleCalendarBusyIntervals } from "~/server/google-calendar";
+
+type GoogleCalendarProtection = "active" | "reduced";
+
+function publicGoogleCalendarProtection(
+  protection: "google_aware" | "skitza_only",
+): GoogleCalendarProtection {
+  return protection === "google_aware" ? "active" : "reduced";
+}
+
+function sessionWindowEnd(startsAt: Date, durationMin = 24 * 60): Date {
+  return new Date(startsAt.getTime() + Math.max(durationMin, 1) * 60 * 1000);
+}
 
 function mapStoreProductCommercialError(error: unknown): never {
   if (error instanceof StoreProductCommercialError) {
@@ -67,7 +93,15 @@ function mapStoreProductCommercialError(error: unknown): never {
 function mapSessionBookingDomainError(error: unknown): never {
   if (!(error instanceof SessionBookingDomainError)) throw error;
   if (error.code === "NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND" });
-  if (error.code === "OPERATION_KEY_CONFLICT") {
+  if (
+    error.code === "OPERATION_KEY_CONFLICT" ||
+    error.code === "BOOKING_CONFLICT" ||
+    error.code === "GOOGLE_BUSY" ||
+    error.code === "BUFFER_CONFLICT" ||
+    error.code === "DAILY_LIMIT" ||
+    error.code === "LEAD_TIME_VIOLATION" ||
+    error.code === "INVALID_STATUS"
+  ) {
     throw new TRPCError({ code: "CONFLICT", message: error.message });
   }
   if (
@@ -75,7 +109,8 @@ function mapSessionBookingDomainError(error: unknown): never {
     error.code === "PURCHASE_INACTIVE" ||
     error.code === "ALLOWANCE_CLOSED" ||
     error.code === "CANCELLATION_WINDOW" ||
-    error.code === "TOO_EARLY"
+    error.code === "TOO_EARLY" ||
+    error.code === "WARNING_ACKNOWLEDGEMENT_REQUIRED"
   ) {
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
   }
@@ -164,6 +199,22 @@ async function emitArtistBookingNotificationBestEffort(
     return true;
   }
 }
+
+function deliverCalendarJobAfterResponse(
+  db: Parameters<typeof sessionBookingRepository>[0],
+  jobId: string | null,
+): void {
+  if (!jobId) return;
+  after(() => deliverCalendarSyncJobBestEffort(db, jobId));
+}
+
+const producerSchedulingWarningCode = z.enum([
+  "OUTSIDE_AVAILABILITY",
+  "BLACKOUT",
+  "BUFFER_CONFLICT",
+  "DAILY_LIMIT",
+  "GOOGLE_BUSY",
+]);
 
 type RecentPaymentCompatibility = {
   id: string;
@@ -1037,6 +1088,64 @@ export const bookingRouter = router({
   // schema alias.
   packages: productsRouter,
 
+  googleCalendarSync: router({
+    status: producerProcedure
+      .input(
+        z.object({
+          ids: z.array(z.string().uuid()).max(GOOGLE_CALENDAR_SYNC_STATUS_BATCH_LIMIT),
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        getSessionBookingGoogleCalendarSyncStatuses(sessionBookingRepository(ctx.db), {
+          bookingIds: input.ids,
+          producerId: ctx.producerId,
+        }),
+      ),
+
+    retry: producerProcedure
+      .input(
+        z.object({
+          id: z.string().uuid(),
+          operationKey: z.string().trim().min(1).max(200),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await retrySessionBookingGoogleCalendarSync(sessionBookingRepository(ctx.db), {
+            bookingId: input.id,
+            producerId: ctx.producerId,
+            actorClerkUserId: producerActorClerkUserId(ctx.userId),
+            operationKey: input.operationKey,
+          });
+        } catch (error) {
+          mapSessionBookingDomainError(error);
+        }
+      }),
+
+    restore: producerProcedure
+      .input(
+        z.object({
+          id: z.string().uuid(),
+          operationKey: z.string().trim().min(1).max(200),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await restoreMissingSessionBookingGoogleCalendarEvent(
+            sessionBookingRepository(ctx.db),
+            {
+              bookingId: input.id,
+              producerId: ctx.producerId,
+              actorClerkUserId: producerActorClerkUserId(ctx.userId),
+              operationKey: input.operationKey,
+            },
+          );
+        } catch (error) {
+          mapSessionBookingDomainError(error);
+        }
+      }),
+  }),
+
   // ── Blackouts (producer-only) ────────────────────────────────────
   blackouts: router({
     list: producerProcedure.query(async ({ ctx }) => {
@@ -1206,6 +1315,399 @@ export const bookingRouter = router({
       }),
   }),
 
+  manual: router({
+    options: producerProcedure.query(async ({ ctx }) =>
+      publicProducerManualSessionOptions(
+        await listProducerManualSessionOptions(ctx.db, ctx.producerId),
+      ),
+    ),
+
+    preview: producerProcedure
+      .input(
+        z.object({
+          clientId: z.string().uuid(),
+          projectId: z.string().uuid(),
+          startsAt: z.date(),
+          title: z.string().trim().min(1).max(200).optional(),
+          billingTreatment: z.enum(["included", "complimentary", "billable_extra"]).optional(),
+        }),
+      )
+      .query(async ({ ctx, input }) => {
+        const googleBusy = await readGoogleCalendarBusyIntervals({
+          db: ctx.db,
+          producerId: ctx.producerId,
+          timeMin: input.startsAt,
+          timeMax: sessionWindowEnd(input.startsAt),
+        });
+        try {
+          const preview = await previewProducerManualSession(ctx.db, {
+            producerId: ctx.producerId,
+            clientId: input.clientId,
+            projectId: input.projectId,
+            startsAt: input.startsAt,
+            ...(input.title !== undefined ? { title: input.title } : {}),
+            ...(input.billingTreatment !== undefined
+              ? { billingTreatment: input.billingTreatment }
+              : {}),
+            googleBusyIntervals: googleBusy.intervals,
+          });
+          const { internal: _internal, ...publicPreview } = preview;
+          void _internal;
+          return {
+            ...publicPreview,
+            googleCalendarProtection: publicGoogleCalendarProtection(googleBusy.protection),
+          };
+        } catch (error) {
+          mapSessionBookingDomainError(error);
+        }
+      }),
+
+    create: producerProcedure
+      .input(
+        z.object({
+          clientId: z.string().uuid(),
+          projectId: z.string().uuid(),
+          startsAt: z.date(),
+          title: z.string().trim().min(1).max(200).optional(),
+          billingTreatment: z.enum(["included", "complimentary", "billable_extra"]),
+          acknowledgedWarnings: z.array(producerSchedulingWarningCode).max(5).default([]),
+          operationKey: z.string().trim().min(1).max(200),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        let replay;
+        try {
+          replay = await findProducerManualSessionBookingReplay(sessionBookingRepository(ctx.db), {
+            producerId: ctx.producerId,
+            clientContactId: input.clientId,
+            projectId: input.projectId,
+            startsAt: input.startsAt,
+            ...(input.title !== undefined ? { title: input.title } : {}),
+            billingTreatment: input.billingTreatment,
+            acknowledgedWarnings: input.acknowledgedWarnings,
+            operationKey: input.operationKey,
+          });
+        } catch (error) {
+          mapSessionBookingDomainError(error);
+        }
+        if (replay) {
+          deliverCalendarJobAfterResponse(ctx.db, replay.calendarSyncJobId);
+          return {
+            id: replay.booking.id,
+            status: replay.booking.status as "confirmed",
+            title: replay.booking.title ?? "Session",
+            startsAt: replay.booking.startsAt,
+            durationMin: replay.booking.durationMin,
+            googleCalendarProtection: "active" as const,
+          };
+        }
+
+        let preview;
+        try {
+          preview = await previewProducerManualSession(ctx.db, {
+            producerId: ctx.producerId,
+            clientId: input.clientId,
+            projectId: input.projectId,
+            startsAt: input.startsAt,
+            ...(input.title ? { title: input.title } : {}),
+            billingTreatment: input.billingTreatment,
+          });
+          if (preview.hardConflicts[0]) {
+            throw new SessionBookingDomainError(
+              preview.hardConflicts[0].code,
+              preview.hardConflicts[0].message,
+            );
+          }
+        } catch (error) {
+          mapSessionBookingDomainError(error);
+        }
+
+        const googleBusy = await readGoogleCalendarBusyIntervals({
+          db: ctx.db,
+          producerId: ctx.producerId,
+          timeMin: input.startsAt,
+          timeMax: sessionWindowEnd(input.startsAt, preview.durationMin),
+        });
+
+        let result;
+        try {
+          result = await createProducerManualSessionBooking(sessionBookingRepository(ctx.db), {
+            producerId: ctx.producerId,
+            clientContactId: input.clientId,
+            projectId: input.projectId,
+            purchaseId: preview.internal.purchaseId,
+            sessionAllowanceId: preview.internal.sessionAllowanceId,
+            actorClerkUserId: producerActorClerkUserId(ctx.userId),
+            startsAt: input.startsAt,
+            ...(input.title ? { title: input.title } : {}),
+            billingTreatment: input.billingTreatment,
+            acknowledgedWarnings: input.acknowledgedWarnings,
+            operationKey: input.operationKey,
+            googleBusyIntervals: googleBusy.intervals,
+          });
+        } catch (error) {
+          mapSessionBookingDomainError(error);
+        }
+
+        deliverCalendarJobAfterResponse(ctx.db, result.calendarSyncJobId);
+
+        if (result.created) {
+          after(async () => {
+            const message = await loadProducerBookingMessageContext(
+              ctx.db,
+              ctx.producerId,
+              result.booking.id,
+            );
+            if (!message) return;
+            await emitArtistBookingNotificationBestEffort(ctx.db, {
+              recipientClerkUserId: message.artistClerkUserId,
+              producerId: ctx.producerId,
+              bookingId: result.booking.id,
+              producerName: message.producerDisplayName ?? "Your producer",
+              sessionName: result.booking.title ?? preview.productName,
+              kind: "booking_confirmed",
+              sourceEventId: result.booking.id,
+            });
+            try {
+              await deliverPushToProjectArtist(ctx.db, result.booking.projectId, {
+                category: "booking",
+                url: `/artist/sessions/${result.booking.id}`,
+              });
+            } catch {
+              // Push is best effort. The durable calendar invitation is
+              // delivered separately by calendar_sync_jobs.
+            }
+          });
+        }
+        return {
+          id: result.booking.id,
+          status: result.booking.status as "confirmed",
+          title: result.booking.title ?? preview.title,
+          startsAt: result.booking.startsAt,
+          durationMin: result.booking.durationMin,
+          googleCalendarProtection: publicGoogleCalendarProtection(googleBusy.protection),
+        };
+      }),
+  }),
+
+  reschedule: router({
+    preview: producerProcedure
+      .input(z.object({ id: z.string().uuid(), startsAt: z.date() }))
+      .query(async ({ ctx, input }) => {
+        const before = await loadProducerBookingMessageContext(ctx.db, ctx.producerId, input.id);
+        if (!before) throw new TRPCError({ code: "NOT_FOUND" });
+        const googleBusy = await readGoogleCalendarBusyIntervals({
+          db: ctx.db,
+          producerId: ctx.producerId,
+          timeMin: input.startsAt,
+          timeMax: sessionWindowEnd(input.startsAt, before.booking.durationMin),
+        });
+        try {
+          const preview = await previewProducerSessionReschedule(sessionBookingRepository(ctx.db), {
+            bookingId: input.id,
+            producerId: ctx.producerId,
+            startsAt: input.startsAt,
+            googleBusyIntervals: googleBusy.intervals,
+          });
+          return {
+            proposedStartsAt: preview.proposedStartsAt,
+            durationMin: preview.booking.durationMin,
+            hardConflicts: preview.hardConflicts,
+            warnings: preview.warnings,
+            googleCalendarProtection: publicGoogleCalendarProtection(googleBusy.protection),
+          };
+        } catch (error) {
+          mapSessionBookingDomainError(error);
+        }
+      }),
+
+    create: producerProcedure
+      .input(
+        z.object({
+          id: z.string().uuid(),
+          startsAt: z.date(),
+          acknowledgedWarnings: z.array(producerSchedulingWarningCode).max(5).default([]),
+          operationKey: z.string().trim().min(1).max(200),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const before = await loadProducerBookingMessageContext(ctx.db, ctx.producerId, input.id);
+        if (!before) throw new TRPCError({ code: "NOT_FOUND" });
+        const [existingOperation] = await ctx.db
+          .select({ id: bookings.id })
+          .from(bookings)
+          .where(
+            and(
+              eq(bookings.producerId, ctx.producerId),
+              eq(bookings.operationKey, input.operationKey),
+            ),
+          )
+          .limit(1);
+        const googleBusy = existingOperation
+          ? null
+          : await readGoogleCalendarBusyIntervals({
+              db: ctx.db,
+              producerId: ctx.producerId,
+              timeMin: input.startsAt,
+              timeMax: sessionWindowEnd(input.startsAt, before.booking.durationMin),
+            });
+        let result;
+        try {
+          result = await rescheduleProducerSessionBooking(sessionBookingRepository(ctx.db), {
+            bookingId: input.id,
+            producerId: ctx.producerId,
+            actorClerkUserId: producerActorClerkUserId(ctx.userId),
+            startsAt: input.startsAt,
+            warningAcknowledgements: input.acknowledgedWarnings,
+            operationKey: input.operationKey,
+            ...(googleBusy ? { googleBusyIntervals: googleBusy.intervals } : {}),
+          });
+        } catch (error) {
+          mapSessionBookingDomainError(error);
+        }
+
+        deliverCalendarJobAfterResponse(ctx.db, result.calendarSyncJobId);
+        if (result.created) {
+          after(async () => {
+            await emitArtistBookingNotificationBestEffort(ctx.db, {
+              recipientClerkUserId: before.artistClerkUserId,
+              producerId: ctx.producerId,
+              bookingId: result.booking.id,
+              producerName: before.producerDisplayName ?? "Your producer",
+              sessionName:
+                result.booking.title ?? purchaseProductName(before.commercialSnapshot, "Session"),
+              kind: "booking_changed",
+              sourceEventId: result.booking.id,
+            });
+            try {
+              await deliverPushToProjectArtist(ctx.db, result.booking.projectId, {
+                category: "booking",
+                url: `/artist/sessions/${result.booking.id}`,
+              });
+            } catch {
+              // Push is best effort; the in-app row and durable invite are authoritative.
+            }
+          });
+        }
+        return {
+          id: result.booking.id,
+          replacedBookingId: result.replacedBooking.id,
+          startsAt: result.booking.startsAt,
+          status: result.booking.status as "confirmed",
+          googleCalendarProtection: googleBusy
+            ? publicGoogleCalendarProtection(googleBusy.protection)
+            : ("active" as const),
+        };
+      }),
+  }),
+
+  changeRequest: router({
+    decide: producerProcedure
+      .input(
+        z.object({
+          requestId: z.string().uuid(),
+          decision: z.enum(["approved", "rejected"]),
+          operationKey: z.string().trim().min(1).max(200),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const [request] = await ctx.db
+          .select({
+            bookingId: bookingChangeRequests.bookingId,
+            kind: bookingChangeRequests.kind,
+            status: bookingChangeRequests.status,
+            proposedStartsAt: bookingChangeRequests.proposedStartsAt,
+            decisionOperationKey: bookingChangeRequests.decisionOperationKey,
+          })
+          .from(bookingChangeRequests)
+          .where(
+            and(
+              eq(bookingChangeRequests.id, input.requestId),
+              eq(bookingChangeRequests.producerId, ctx.producerId),
+            ),
+          )
+          .limit(1);
+        if (!request) throw new TRPCError({ code: "NOT_FOUND" });
+        const before = await loadProducerBookingMessageContext(
+          ctx.db,
+          ctx.producerId,
+          request.bookingId,
+        );
+        if (!before) throw new TRPCError({ code: "NOT_FOUND" });
+        const decisionReplay =
+          request.status !== "pending" && request.decisionOperationKey === input.operationKey;
+        const googleBusy =
+          input.decision === "approved" &&
+          request.kind === "reschedule" &&
+          request.proposedStartsAt &&
+          !decisionReplay &&
+          request.status === "pending"
+            ? await readGoogleCalendarBusyIntervals({
+                db: ctx.db,
+                producerId: ctx.producerId,
+                timeMin: request.proposedStartsAt,
+                timeMax: sessionWindowEnd(request.proposedStartsAt, before.booking.durationMin),
+              })
+            : null;
+
+        let result;
+        try {
+          result = await decideProducerSessionChangeRequest(sessionBookingRepository(ctx.db), {
+            requestId: input.requestId,
+            producerId: ctx.producerId,
+            actorClerkUserId: producerActorClerkUserId(ctx.userId),
+            decision: input.decision,
+            operationKey: input.operationKey,
+            ...(googleBusy ? { googleBusyIntervals: googleBusy.intervals } : {}),
+          });
+        } catch (error) {
+          mapSessionBookingDomainError(error);
+        }
+
+        deliverCalendarJobAfterResponse(ctx.db, result.calendarSyncJobId);
+        const destinationBookingId = result.replacementBooking?.id ?? request.bookingId;
+        if (result.changed) {
+          after(async () => {
+            const notificationKind =
+              input.decision === "rejected"
+                ? "booking_declined"
+                : request.kind === "cancel"
+                  ? "booking_cancelled"
+                  : "booking_changed";
+            await emitArtistBookingNotificationBestEffort(ctx.db, {
+              recipientClerkUserId: before.artistClerkUserId,
+              producerId: ctx.producerId,
+              bookingId: destinationBookingId,
+              producerName: before.producerDisplayName ?? "Your producer",
+              sessionName:
+                result.replacementBooking?.title ??
+                before.booking.title ??
+                purchaseProductName(before.commercialSnapshot, "Session"),
+              kind: notificationKind,
+              sourceEventId: input.requestId,
+            });
+            try {
+              await deliverPushToProjectArtist(ctx.db, before.booking.projectId, {
+                category: "booking",
+                url: `/artist/sessions/${destinationBookingId}`,
+              });
+            } catch {
+              // Push is best effort; the request decision is stored durably.
+            }
+          });
+        }
+
+        return {
+          requestId: result.request.id,
+          status: result.request.status,
+          bookingId: destinationBookingId,
+          googleCalendarProtection: googleBusy
+            ? publicGoogleCalendarProtection(googleBusy.protection)
+            : ("active" as const),
+        };
+      }),
+  }),
+
   // ── Bookings (producer-only views + status transitions) ──────────
   upcoming: producerProcedure
     .input(
@@ -1349,7 +1851,16 @@ export const bookingRouter = router({
         input?.status ? eq(bookings.status, input.status) : undefined,
       );
       const rows = await ctx.db
-        .select({ booking: bookings, commercialSnapshot: purchases.commercialSnapshot })
+        .select({
+          booking: bookings,
+          commercialSnapshot: purchases.commercialSnapshot,
+          changeRequest: {
+            id: bookingChangeRequests.id,
+            kind: bookingChangeRequests.kind,
+            proposedStartsAt: bookingChangeRequests.proposedStartsAt,
+            requestedAt: bookingChangeRequests.requestedAt,
+          },
+        })
         .from(bookings)
         .innerJoin(
           purchases,
@@ -1359,14 +1870,30 @@ export const bookingRouter = router({
             eq(purchases.producerId, bookings.producerId),
           ),
         )
+        .leftJoin(
+          bookingChangeRequests,
+          and(
+            eq(bookingChangeRequests.bookingId, bookings.id),
+            eq(bookingChangeRequests.producerId, bookings.producerId),
+            eq(bookingChangeRequests.status, "pending"),
+          ),
+        )
         .where(filter)
         .orderBy(asc(bookings.startsAt));
-      return rows.map(({ booking, commercialSnapshot }) => ({
+      return rows.map(({ booking, commercialSnapshot, changeRequest }) => ({
         ...booking,
         packageNameSnapshot: purchaseProductName(commercialSnapshot, "Session"),
         unitPriceCents: commercialSnapshot.lineItems[0]?.unitPriceCents ?? null,
         songQty:
           commercialSnapshot.lineItems.reduce((total, item) => total + item.quantity, 0) || null,
+        changeRequest: changeRequest?.id
+          ? {
+              id: changeRequest.id,
+              kind: changeRequest.kind,
+              proposedStartsAt: changeRequest.proposedStartsAt,
+              requestedAt: changeRequest.requestedAt,
+            }
+          : null,
       }));
     }),
 
@@ -1391,11 +1918,12 @@ export const bookingRouter = router({
       } catch (error) {
         mapSessionBookingDomainError(error);
       }
+      deliverCalendarJobAfterResponse(ctx.db, result.calendarSyncJobId);
       if (result.changed) {
         after(async () => {
           const sessionName = purchaseProductName(before.commercialSnapshot, "Session");
           const changed = before.booking.rescheduledFromBookingId !== null;
-          const emailEnabled = await emitArtistBookingNotificationBestEffort(ctx.db, {
+          await emitArtistBookingNotificationBestEffort(ctx.db, {
             recipientClerkUserId: before.artistClerkUserId,
             producerId: ctx.producerId,
             bookingId: result.booking.id,
@@ -1404,31 +1932,6 @@ export const bookingRouter = router({
             kind: changed ? "booking_changed" : "booking_confirmed",
             sourceEventId: result.booking.id,
           });
-          if (!emailEnabled) return;
-          try {
-            if (changed) {
-              await sendBookingCancelledOrRescheduledEmail(before.booking.artistEmail, {
-                recipientName: before.booking.artistName,
-                counterpartName: before.producerDisplayName ?? "Your producer",
-                productName: sessionName,
-                status: "rescheduled",
-                oldStartsAt: before.originalStartsAt ?? before.booking.startsAt,
-                newStartsAt: result.booking.startsAt,
-                producerTimezone: before.producerTimezone,
-                reason: null,
-              });
-            } else {
-              await sendBookingConfirmedEmail(before.booking.artistEmail, {
-                artistName: before.booking.artistName,
-                producerName: before.producerDisplayName ?? "Your producer",
-                productName: sessionName,
-                startsAt: before.booking.startsAt,
-                producerTimezone: before.producerTimezone,
-              });
-            }
-          } catch {
-            console.error("[email] booking confirmation failed");
-          }
         });
         after(async () => {
           try {
@@ -1467,6 +1970,7 @@ export const bookingRouter = router({
       } catch (error) {
         mapSessionBookingDomainError(error);
       }
+      deliverCalendarJobAfterResponse(ctx.db, result.calendarSyncJobId);
       if (result.changed) {
         after(async () => {
           const emailEnabled = await emitArtistBookingNotificationBestEffort(ctx.db, {
@@ -1531,9 +2035,10 @@ export const bookingRouter = router({
       } catch (error) {
         mapSessionBookingDomainError(error);
       }
+      deliverCalendarJobAfterResponse(ctx.db, result.calendarSyncJobId);
       if (result.changed) {
         after(async () => {
-          const emailEnabled = await emitArtistBookingNotificationBestEffort(ctx.db, {
+          await emitArtistBookingNotificationBestEffort(ctx.db, {
             recipientClerkUserId: before.artistClerkUserId,
             producerId: ctx.producerId,
             bookingId: result.booking.id,
@@ -1542,21 +2047,6 @@ export const bookingRouter = router({
             kind: "booking_cancelled",
             sourceEventId: result.booking.id,
           });
-          if (!emailEnabled) return;
-          try {
-            await sendBookingCancelledOrRescheduledEmail(before.booking.artistEmail, {
-              recipientName: before.booking.artistName,
-              counterpartName: before.producerDisplayName ?? "Your producer",
-              productName: purchaseProductName(before.commercialSnapshot, "Session"),
-              status: "cancelled",
-              oldStartsAt: before.booking.startsAt,
-              newStartsAt: null,
-              producerTimezone: before.producerTimezone,
-              reason: input.reason ?? null,
-            });
-          } catch (error) {
-            console.error("[email] producer session cancellation failed", error);
-          }
         });
         after(async () => {
           try {
@@ -1600,22 +2090,18 @@ export const bookingRouter = router({
       } catch (error) {
         mapSessionBookingDomainError(error);
       }
+      deliverCalendarJobAfterResponse(ctx.db, result.calendarSyncJobId);
       if (result.changed) {
         after(async () => {
-          try {
-            await sendBookingCancelledOrRescheduledEmail(before.booking.artistEmail, {
-              recipientName: before.booking.artistName,
-              counterpartName: before.producerDisplayName ?? "Your producer",
-              productName: purchaseProductName(before.commercialSnapshot, "Session"),
-              status: "cancelled",
-              oldStartsAt: before.booking.startsAt,
-              newStartsAt: null,
-              producerTimezone: before.producerTimezone,
-              reason: input.reason ?? null,
-            });
-          } catch (error) {
-            console.error("[email] late artist cancellation record failed", error);
-          }
+          await emitArtistBookingNotificationBestEffort(ctx.db, {
+            recipientClerkUserId: before.artistClerkUserId,
+            producerId: ctx.producerId,
+            bookingId: result.booking.id,
+            producerName: before.producerDisplayName ?? "Your producer",
+            sessionName: purchaseProductName(before.commercialSnapshot, "Session"),
+            kind: "booking_cancelled",
+            sourceEventId: result.booking.id,
+          });
         });
       }
       return {

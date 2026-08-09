@@ -10,8 +10,14 @@ export async function cancelSessionAction(input: { id: string; operationKey: str
   | {
       ok: true;
       id: string;
+      status: "request_sent";
+      changeRequestId: string;
+    }
+  | {
+      ok: true;
+      id: string;
       status: "cancelled";
-      outcome: "cancelled_on_time" | "cancelled_late";
+      outcome: "cancelled_on_time";
     }
   | { ok: false; error: string }
 > {
@@ -26,6 +32,6 @@ export async function cancelSessionAction(input: { id: string; operationKey: str
     return { ok: true, ...result };
   } catch (error) {
     if (error instanceof TRPCError) return { ok: false, error: error.message };
-    return { ok: false, error: "Could not cancel this session" };
+    return { ok: false, error: "Could not update this session" };
   }
 }

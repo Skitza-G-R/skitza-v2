@@ -41,7 +41,9 @@ export function SessionDetailScreen({ session }: { session: SessionDetail }) {
   const [liveError, setLiveError] = useState<string | null>(null);
 
   const isActive = session.status === "pending_approval" || session.status === "confirmed";
-  const canChange = session.policy.canCancel || session.policy.canReschedule;
+  const hasPendingChangeRequest = session.changeRequest?.status === "pending";
+  const canChange =
+    !hasPendingChangeRequest && (session.policy.canCancel || session.policy.canReschedule);
 
   const durationLabel = formatDuration(session.durationMin);
   const display = artistSessionDisplay({
@@ -152,6 +154,27 @@ export function SessionDetailScreen({ session }: { session: SessionDetail }) {
                 </div>
               </div>
             </div>
+            {session.billingTreatment === "complimentary" ||
+            session.billingTreatment === "billable_extra" ||
+            session.artistRsvpStatus ? (
+              <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-bold tracking-[0.08em] uppercase">
+                {session.billingTreatment === "complimentary" ? (
+                  <span className="rounded-[6px] bg-[rgb(255_255_255_/_0.08)] px-2 py-1 text-[rgb(255_255_255_/_0.72)]">
+                    Complimentary
+                  </span>
+                ) : null}
+                {session.billingTreatment === "billable_extra" ? (
+                  <span className="rounded-[6px] bg-[rgb(var(--brand-primary)/0.18)] px-2 py-1 text-[rgb(var(--brand-primary))]">
+                    Payment due
+                  </span>
+                ) : null}
+                {session.artistRsvpStatus ? (
+                  <span className="rounded-[6px] bg-[rgb(255_255_255_/_0.08)] px-2 py-1 text-[rgb(255_255_255_/_0.72)]">
+                    Invite · {rsvpLabel(session.artistRsvpStatus)}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           {!isActive ? (
@@ -162,7 +185,29 @@ export function SessionDetailScreen({ session }: { session: SessionDetail }) {
             </div>
           ) : null}
 
-          {/* within-policy → a calm GREEN note (you can change this yourself);
+          {isActive && hasPendingChangeRequest ? (
+            <div
+              className="sk-rise rounded-card mt-4 px-4 py-3.5"
+              style={{
+                animationDelay: "100ms",
+                background: "rgb(var(--brand-primary) / 0.08)",
+                border: "1px solid rgb(var(--brand-primary) / 0.28)",
+              }}
+              role="status"
+            >
+              <p className="text-[12px] font-bold tracking-[0.08em] text-[rgb(var(--brand-primary-dark))] uppercase">
+                Request sent
+              </p>
+              <p className="mt-1 text-[13px] leading-relaxed text-[rgb(var(--fg-secondary))]">
+                {session.changeRequest?.kind === "reschedule" &&
+                session.changeRequest.proposedStartsAtISO
+                  ? `You asked to move this session to ${formatSessionDate(session.changeRequest.proposedStartsAtISO, session.artistTimezone)} at ${formatSessionTime(session.changeRequest.proposedStartsAtISO, session.artistTimezone)}. Your current time stays booked until ${session.producerName} decides.`
+                  : `You asked to cancel this session. It stays booked until ${session.producerName} decides.`}
+              </p>
+            </div>
+          ) : null}
+
+          {/* within-policy → a calm note explaining the producer decision;
               too close → the muted PolicyNotice (message the producer) */}
           {isActive && canChange ? (
             <div
@@ -185,11 +230,11 @@ export function SessionDetailScreen({ session }: { session: SessionDetail }) {
               <p className="text-[12.5px] leading-snug text-[rgb(var(--fg-secondary))]">
                 {session.status === "pending_approval"
                   ? `You can withdraw this held request until it begins. ${session.producerName} will be notified.`
-                  : `You can change this yourself until the ${String(session.policy.cancellationPolicyHours)}h cutoff. ${session.producerName} will be notified.`}
+                  : `You can ask ${session.producerName} to change this until the ${String(session.policy.cancellationPolicyHours)}h cutoff. Your session stays booked while they decide.`}
               </p>
             </div>
           ) : null}
-          {isActive && !canChange ? (
+          {isActive && !canChange && !hasPendingChangeRequest ? (
             <div className="sk-rise mt-4" style={{ animationDelay: "100ms" }}>
               <PolicyNotice producerName={session.producerName} />
             </div>
@@ -224,7 +269,7 @@ export function SessionDetailScreen({ session }: { session: SessionDetail }) {
                   className="sk-cta-press relative flex w-full items-center justify-center gap-[9px] overflow-hidden rounded-[var(--radius-lg)] bg-[rgb(var(--brand-primary))] px-[22px] py-4 text-[16px] font-semibold text-[rgb(var(--bg-sidebar))] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <span className="relative z-[2] inline-flex items-center gap-[9px]">
-                    <ClockIcon width={16} height={16} /> Reschedule
+                    <ClockIcon width={16} height={16} /> Request reschedule
                   </span>
                 </button>
               ) : null}
@@ -237,7 +282,9 @@ export function SessionDetailScreen({ session }: { session: SessionDetail }) {
                   className="sk-press flex w-full items-center justify-center gap-[8px] rounded-[var(--radius-lg)] border border-[rgb(var(--fg-danger)/0.3)] bg-[rgb(var(--bg-elevated))] px-[22px] py-[15px] text-[15px] font-semibold text-[rgb(var(--fg-danger-text))] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <CloseIcon width={15} height={15} />{" "}
-                  {session.status === "pending_approval" ? "Withdraw request" : "Cancel session"}
+                  {session.status === "pending_approval"
+                    ? "Withdraw request"
+                    : "Request cancellation"}
                 </button>
               ) : null}
 
@@ -251,6 +298,21 @@ export function SessionDetailScreen({ session }: { session: SessionDetail }) {
       </div>
     </div>
   );
+}
+
+function rsvpLabel(
+  status: NonNullable<SessionDetail["artistRsvpStatus"]>,
+): "Awaiting reply" | "Accepted" | "Declined" | "Maybe" {
+  switch (status) {
+    case "accepted":
+      return "Accepted";
+    case "declined":
+      return "Declined";
+    case "tentative":
+      return "Maybe";
+    default:
+      return "Awaiting reply";
+  }
 }
 
 function producerInitials(name: string): string {

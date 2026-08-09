@@ -9,6 +9,7 @@ const bookingRouter = readFileSync(join(here, "..", "booking.ts"), "utf8");
 const listStart = bookingRouter.lastIndexOf("  list: producerProcedure");
 const listEnd = bookingRouter.indexOf("\n\n  confirm: producerProcedure", listStart);
 const bookingList = bookingRouter.slice(listStart, listEnd);
+const statusEnum = bookingList.match(/status:\s*z\s*\.enum\(\[([\s\S]*?)\]\)/)?.[1] ?? "";
 
 describe("canonical booking list status and purchase projection", () => {
   it("accepts only canonical persisted booking statuses", () => {
@@ -20,10 +21,10 @@ describe("canonical booking list status and purchase projection", () => {
       "completed",
       "no_show",
     ]) {
-      expect(bookingList).toContain(`"${status}"`);
+      expect(statusEnum).toContain(`"${status}"`);
     }
-    expect(bookingList).not.toContain('"pending"');
-    expect(bookingList).not.toContain('"pending_payment"');
+    expect(statusEnum).not.toContain('"pending"');
+    expect(statusEnum).not.toContain('"pending_payment"');
     expect(bookingList).not.toContain("normalizePersistedBookingStatus");
   });
 

@@ -49,14 +49,7 @@ describe("trusted artist studio continuity", () => {
       "page.tsx",
     );
     const offerPage = source("app", "(artist)", "artist", "offers", "[offerId]", "page.tsx");
-    const paymentPage = source(
-      "app",
-      "(artist)",
-      "artist",
-      "payments",
-      "[purchaseId]",
-      "page.tsx",
-    );
+    const paymentPage = source("app", "(artist)", "artist", "payments", "[purchaseId]", "page.tsx");
 
     expect(productPage).toContain("studioId={row.producerId}");
     expect(sentPage).toContain("studioId={request.producerId}");
@@ -85,15 +78,11 @@ describe("trusted artist studio continuity", () => {
     const song = source("components", "music", "song-page.tsx");
     const payments = source("components", "payments", "payment-history.tsx");
 
-    expect(home).toContain(
-      "caller.artist.home({ producerId: activeStudio.producerId })",
-    );
+    expect(home).toContain("caller.artist.home({ producerId: activeStudio.producerId })");
     expect(home).toContain(
       "caller.artist.book.mySessions({ producerId: activeStudio.producerId })",
     );
-    expect(home).toContain(
-      ".filter((project) => project.producerId === activeStudio.producerId)",
-    );
+    expect(home).toContain(".filter((project) => project.producerId === activeStudio.producerId)");
     expect(home).toContain(
       "withArtistStudio(`/artist/payments/${purchase.id}`, activeStudio.producerId)",
     );
@@ -128,33 +117,23 @@ describe("trusted artist studio continuity", () => {
 
     expect(bookPage).toContain("<BookEyebrow studioId={activeStudioId} />");
     expect(bookPage).toContain('withArtistStudio("/artist/sessions", studioId)');
-    expect(bookingClient).toContain(
-      "withArtistStudio(`/artist/sessions?just=${response.id}`, activeStudioId)",
+    expect(bookingClient).toMatch(
+      /withArtistStudio\([\s\S]*?rescheduleSessionId[\s\S]*?`\/artist\/sessions\?just=\$\{response\.id\}`,[\s\S]*?activeStudioId/,
     );
-    expect(bookingClient.match(/withArtistStudio\("\/artist\/store", activeStudioId\)/g)).toHaveLength(
-      1,
-    );
+    expect(
+      bookingClient.match(/withArtistStudio\("\/artist\/store", activeStudioId\)/g),
+    ).toHaveLength(1);
 
-    expect(sessionsPage).toContain(
-      "resolveArtistStudioId(studios, sp.studio, savedStudioId)",
-    );
-    expect(sessionsPage).toContain(
-      "caller.artist.book.mySessions({ producerId })",
-    );
+    expect(sessionsPage).toContain("resolveArtistStudioId(studios, sp.studio, savedStudioId)");
+    expect(sessionsPage).toContain("caller.artist.book.mySessions({ producerId })");
     expect(sessionsScreen).toContain("allowanceBookHref(bookableAllowance)");
     expect(sessionsScreen).toContain('withArtistStudio("/artist/store", studioId)');
     expect(sessionRow).toContain(
       "withArtistStudio(`/artist/sessions/${session.id}`, session.producerId)",
     );
-    expect(sessionDetail).toContain(
-      'withArtistStudio("/artist/sessions", session.producerId)',
-    );
-    expect(sessionDetail).toContain(
-      "router.push(`/artist/sessions/${session.id}/reschedule`)",
-    );
-    expect(sessionDetail).toContain(
-      "router.push(`/artist/sessions/${session.id}/cancel`)",
-    );
+    expect(sessionDetail).toContain('withArtistStudio("/artist/sessions", session.producerId)');
+    expect(sessionDetail).toContain("router.push(`/artist/sessions/${session.id}/reschedule`)");
+    expect(sessionDetail).toContain("router.push(`/artist/sessions/${session.id}/cancel`)");
 
     expect(noChargeDomain).toContain("producerId: payload.producerId");
     expect(noChargeAgreement.match(/withArtistStudio\([\s\S]*preview\.producerId/g)).not.toBeNull();

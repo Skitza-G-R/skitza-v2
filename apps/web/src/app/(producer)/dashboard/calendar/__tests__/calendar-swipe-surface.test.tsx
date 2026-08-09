@@ -6,6 +6,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { CalendarSwipeSurface } from "../calendar-swipe-surface";
 
 const routerPush = vi.hoisted(() => vi.fn());
+const manualOptions = { studioTimeZone: "UTC", clients: [] } as const;
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: routerPush }),
@@ -44,6 +45,47 @@ afterEach(() => {
 });
 
 describe("CalendarSwipeSurface", () => {
+  it("shows a plain reduced-protection warning without exposing provider details", () => {
+    const { rerender } = render(
+      <CalendarSwipeSurface
+        active="sessions"
+        eyebrows={{
+          schedule: "THIS WEEK",
+          sessions: "2 SESSIONS",
+          availability: "8H OPEN PER WEEK",
+        }}
+        scheduleEyebrow="THIS WEEK"
+        sessionsContent={<p>Sessions content</p>}
+        availabilityContent={<p>Availability content</p>}
+        manualOptions={manualOptions}
+        googleBusyProtectionReduced
+      />,
+    );
+
+    expect(screen.getByRole("status").textContent).toContain("Google busy-time check is limited");
+    expect(screen.getByRole("status").textContent).toContain(
+      "Booking stays open using your Skitza availability.",
+    );
+    expect(screen.getByRole("status").textContent).not.toMatch(/token|calendar id|provider|error/i);
+
+    rerender(
+      <CalendarSwipeSurface
+        active="sessions"
+        eyebrows={{
+          schedule: "THIS WEEK",
+          sessions: "2 SESSIONS",
+          availability: "8H OPEN PER WEEK",
+        }}
+        scheduleEyebrow="THIS WEEK"
+        sessionsContent={<p>Sessions content</p>}
+        availabilityContent={<p>Availability content</p>}
+        manualOptions={manualOptions}
+      />,
+    );
+
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
   it("shows the adjacent destination immediately and does not freeze while server navigation resolves", () => {
     vi.useFakeTimers();
     const { rerender } = render(
@@ -57,8 +99,11 @@ describe("CalendarSwipeSurface", () => {
         scheduleEyebrow="THIS WEEK"
         sessionsContent={<p>Sessions content</p>}
         availabilityContent={<p>Availability content</p>}
+        manualOptions={manualOptions}
+        googleCalendarControl={<button type="button">Google calendar control</button>}
       />,
     );
+    expect(screen.getByRole("button", { name: "Google calendar control" })).not.toBeNull();
     const surface = screen.getByRole("tabpanel");
     const track = surface.parentElement;
     expect(track?.getAttribute("data-calendar-swipe-active")).toBe("sessions");
@@ -127,6 +172,8 @@ describe("CalendarSwipeSurface", () => {
         scheduleEyebrow="THIS WEEK"
         sessionsContent={<p>Sessions content</p>}
         availabilityContent={<p>Availability content</p>}
+        manualOptions={manualOptions}
+        googleCalendarControl={<button type="button">Google calendar control</button>}
       />,
     );
 
