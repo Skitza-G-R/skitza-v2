@@ -1,10 +1,8 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 
-import {
-  WorkspaceListView,
-  type WorkspaceKPIs,
-} from "~/components/dashboard/clients-projects/workspace-list-view";
+import { WorkspaceListView } from "~/components/dashboard/clients-projects/workspace-list-view";
 import type { ProjectRowData } from "~/components/dashboard/projects/project-row";
 import type { ClientCardData } from "~/components/dashboard/clients/client-card";
 import { ProducerRuntimeSafeView } from "~/components/dashboard/runtime/producer-runtime-safe-view";
@@ -13,14 +11,11 @@ import { mapProducerWorkspaceSafeScreen } from "~/lib/runtime-state/screen-view-
 import { CLIENT_ARCHIVE_BLOCKED_MESSAGE } from "~/server/domain/client-management/service";
 import { appRouter } from "~/server/trpc/routers/_app";
 
-import { reorderProjectsAction } from "./clients-actions";
+import { ProjectsListFailure } from "./projects-list-failure";
+import { ProjectsListLoading } from "./projects-list-loading";
 
-// /dashboard/clients-projects — producer's "Clients & Projects"
-// workspace. Phase 1 redesign (Task 16) — the page now renders a single
-// <WorkspaceListView> which owns the KPI strip, tab switcher, filter
-// chips, sort dropdown, layout switcher, and per-row drag-to-reorder
-// handlers. The old tabs + list-screen composition was replaced as
-// part of the big-bang visual rebuild.
+// /dashboard/clients-projects — producer's combined Projects and Clients
+// workspace. Projects opens first; the client roster remains secondary.
 //
 // One combined producer-scoped workspace fetch returns both the flat
 // project rows and per-client aggregates. The router loads the shared
@@ -44,15 +39,36 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
   const sp = (await searchParams) ?? {};
   const autoOpenNewProject = sp.newProject === "1";
 
+  return (
+    <Suspense fallback={<ProjectsListLoading />}>
+      <ProjectsPageContent userId={userId} autoOpenNewProject={autoOpenNewProject} />
+    </Suspense>
+  );
+}
+
+async function ProjectsPageContent({
+  userId,
+  autoOpenNewProject,
+}: {
+  userId: string;
+  autoOpenNewProject: boolean;
+}) {
   const caller = appRouter.createCaller({ userId });
 
-  const [workspaceResult, me] = await Promise.all([
+  const loadResult = await Promise.all([
     caller.clientContacts.listWithProjects({ view: "workspace" }),
     safeMe(caller),
-  ]);
-  if (workspaceResult.view !== "workspace") {
-    throw new Error("Clients & Projects workspace projection was unavailable");
+  ]).then(
+    ([workspaceResult, me]) => ({ ok: true as const, workspaceResult, me }),
+    (error: unknown) => {
+      console.error("[clients-projects] workspace load failed", error);
+      return { ok: false as const };
+    },
+  );
+  if (!loadResult.ok || loadResult.workspaceResult.view !== "workspace") {
+    return <ProjectsListFailure />;
   }
+  const { workspaceResult, me } = loadResult;
 
   const producerSlug = me.slug ?? "";
   const producerCurrency = me.defaultCurrency;
@@ -96,40 +112,12 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
         : new Date(c.firstSeenAt).toISOString(),
   }));
 
-  // ── KPIs ────────────────────────────────────────────────────────
-  // Commercial totals fail closed until purchase payments provides the
-  // canonical ledger projection. Needs attention is based only on
-  // unresolved artist comments. Next deadline is the earliest explicit
-  // project deadline across active work.
   let needsAttention = 0;
-  let nextDeadlineAt: Date | null = null;
-  let nextDeadlineProjectTitle: string | null = null;
   for (const p of workspaceResult.projects) {
     if (p.isActive && p.unresolvedComments > 0) {
       needsAttention += 1;
     }
-    if (p.deadlineAt && p.isActive) {
-      const at = p.deadlineAt instanceof Date ? p.deadlineAt : new Date(p.deadlineAt);
-      if (!Number.isNaN(at.getTime())) {
-        if (!nextDeadlineAt || at < nextDeadlineAt) {
-          nextDeadlineAt = at;
-          nextDeadlineProjectTitle = p.title;
-        }
-      }
-    }
   }
-
-  const kpis: WorkspaceKPIs = {
-    earnings: null,
-    outstanding: null,
-    needsAttention,
-    nextDeadline: formatDeadlineShort(nextDeadlineAt),
-    currency: producerCurrency,
-    // Surface the project title on the Next deadline tile's sub line.
-    // Spread-conditional keeps exactOptionalPropertyTypes happy when
-    // there's no upcoming deadline at all.
-    ...(nextDeadlineProjectTitle ? { nextDeadlineLabel: nextDeadlineProjectTitle } : {}),
-  };
 
   return (
     <div className="relative isolate">
@@ -157,10 +145,8 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
         <WorkspaceListView
           projects={projectRows}
           clients={clientRows}
-          kpis={kpis}
           producerSlug={producerSlug}
           initialNewProjectOpen={autoOpenNewProject}
-          onReorderProjects={reorderProjectsAction}
         />
       </div>
     </div>

@@ -2,10 +2,7 @@ import { notFound } from "next/navigation";
 import type { PurchaseCommercialSnapshot } from "@skitza/db";
 import type { ReactNode } from "react";
 
-import {
-  WorkspaceListView,
-  type WorkspaceKPIs,
-} from "~/components/dashboard/clients-projects/workspace-list-view";
+import { WorkspaceListView } from "~/components/dashboard/clients-projects/workspace-list-view";
 import {
   ClientSpaceHero,
   type ClientSpaceHeroData,
@@ -191,6 +188,7 @@ const DEV_PROJECTS = [
     status: "In production",
     statusTone: "ok",
     currency: "ILS",
+    createdAtIso: "2026-05-18T07:00:00.000Z",
     updatedAtIso: "2026-07-14T07:00:00.000Z",
     deadlineAtIso: "2026-07-28T12:00:00.000Z",
     canPermanentlyDelete: false,
@@ -208,8 +206,63 @@ const DEV_PROJECTS = [
     status: "Needs attention",
     statusTone: "danger",
     currency: "ILS",
+    createdAtIso: "2026-06-05T07:00:00.000Z",
     updatedAtIso: "2026-07-13T07:00:00.000Z",
     deadlineAtIso: "2026-07-17T12:00:00.000Z",
+    canPermanentlyDelete: false,
+  },
+  {
+    id: "project-dana-paused",
+    title: "Late-night vocal EP",
+    lifecycleStatus: "paused",
+    workflowStage: "mixing",
+    client: "Dana Levi",
+    clientEmail: "dana@example.com",
+    progress: null,
+    balance: null,
+    deadline: "—",
+    status: "Paused",
+    statusTone: "warn",
+    currency: "ILS",
+    createdAtIso: "2026-06-28T07:00:00.000Z",
+    updatedAtIso: "2026-07-12T07:00:00.000Z",
+    deadlineAtIso: null,
+    canPermanentlyDelete: false,
+  },
+  {
+    id: "project-noa-complete",
+    title: "Summer single",
+    lifecycleStatus: "completed",
+    workflowStage: "done",
+    client: "Noa Bar",
+    clientEmail: "noa@example.com",
+    progress: 100,
+    balance: 0,
+    deadline: "—",
+    status: "Archived · Completed",
+    statusTone: "neutral",
+    currency: "ILS",
+    createdAtIso: "2026-04-08T07:00:00.000Z",
+    updatedAtIso: "2026-07-01T07:00:00.000Z",
+    deadlineAtIso: null,
+    canPermanentlyDelete: false,
+  },
+  {
+    id: "project-ari-canceled",
+    title: "Acoustic sessions",
+    lifecycleStatus: "canceled",
+    workflowStage: "production",
+    client: "Ari Tal",
+    clientEmail: "ari@example.com",
+    progress: null,
+    balance: null,
+    deadline: "—",
+    status: "Archived · Canceled",
+    statusTone: "neutral",
+    currency: "ILS",
+    createdAtIso: "2026-04-19T07:00:00.000Z",
+    updatedAtIso: "2026-06-25T07:00:00.000Z",
+    deadlineAtIso: null,
     canPermanentlyDelete: false,
   },
 ] satisfies ProjectRowData[];
@@ -269,15 +322,6 @@ const DEV_CLIENTS = [
     joinedAtIso: "2026-04-12T07:00:00.000Z",
   },
 ] satisfies ClientCardData[];
-
-const DEV_WORKSPACE_KPIS = {
-  earnings: 150_000,
-  outstanding: 120_000,
-  needsAttention: 1,
-  nextDeadline: "3d",
-  nextDeadlineLabel: "Maya — Debut single",
-  currency: "ILS",
-} satisfies WorkspaceKPIs;
 
 const DEV_CLIENT_HERO = {
   id: "client-lior",
@@ -903,12 +947,7 @@ export default async function DevScreenPage({ params }: Params) {
           tabIndex={-1}
           className="mx-auto max-w-[1400px] px-4 py-5 sm:px-6 lg:px-8"
         >
-          <WorkspaceListView
-            projects={DEV_PROJECTS}
-            clients={DEV_CLIENTS}
-            kpis={DEV_WORKSPACE_KPIS}
-            producerSlug="gili"
-          />
+          <WorkspaceListView projects={DEV_PROJECTS} clients={DEV_CLIENTS} producerSlug="gili" />
         </main>
       );
     case "client-space":
