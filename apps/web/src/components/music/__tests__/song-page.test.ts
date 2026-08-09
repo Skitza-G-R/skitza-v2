@@ -508,8 +508,11 @@ describe("song-page.tsx — resolved comments sink to the bottom + grey out (fou
     expect(songPageSrc).toMatch(/sort\(\s*\([^)]*\)\s*=>\s*\{[\s\S]*?resolved/i);
   });
 
-  it("defaults showResolved to true (so a Resolve action visibly sinks the comment, not deletes it)", () => {
-    expect(songPageSrc).toMatch(/useState<boolean>\(true\)|useState\(true\)/);
+  it("hides resolved comments by default and initially offers to show them", () => {
+    expect(songPageSrc).toMatch(
+      /const \[showResolved, setShowResolved\] = useState<boolean>\(false\)/,
+    );
+    expect(songPageSrc).toContain('{showResolved ? "Hide resolved" : "Show resolved"}');
   });
 });
 
