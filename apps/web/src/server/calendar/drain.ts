@@ -2,6 +2,7 @@ import type { Db } from "@skitza/db";
 
 import { sendSessionCalendarEmail } from "~/server/email/send";
 import {
+  createGoogleCalendarLinkedEventReader,
   createGoogleCalendarProvider,
   createGoogleCalendarRepository,
   createGoogleCalendarWorkerAccess,
@@ -10,7 +11,36 @@ import {
 } from "~/server/google-calendar";
 import { processCalendarSyncJobs } from "./delivery";
 import { processGoogleCalendarSyncJobs } from "./google-delivery";
+import { processGoogleCalendarReconciliations } from "./google-reconciliation";
 import { calendarDeliveryRepository } from "./repository";
+import { sessionBookingRepository } from "../domain/session-booking/db";
+import { applyGoogleCalendarSessionReconciliation } from "../domain/session-booking/service";
+
+/** Bounded wake used after a verified webhook has durably enqueued known-link jobs. */
+export async function reconcileGoogleCalendarBestEffort(db: Db): Promise<void> {
+  if (!isGoogleCalendarServerConfigured()) return;
+  try {
+    const config = loadGoogleCalendarServerConfig();
+    const provider = createGoogleCalendarProvider({ config });
+    const googleRepository = createGoogleCalendarRepository(db);
+    const bookingRepository = sessionBookingRepository(db);
+    await processGoogleCalendarReconciliations(
+      {
+        repository: calendarDeliveryRepository(db),
+        reader: createGoogleCalendarLinkedEventReader({
+          repository: googleRepository,
+          provider,
+          config,
+        }),
+        apply: (prepared, lookup, input) =>
+          applyGoogleCalendarSessionReconciliation(bookingRepository, prepared, lookup, input),
+      },
+      { limit: 10 },
+    );
+  } catch {
+    console.error("[calendar] Google Calendar reconciliation wake failed");
+  }
+}
 
 export async function deliverCalendarSyncJobBestEffort(
   db: Db,

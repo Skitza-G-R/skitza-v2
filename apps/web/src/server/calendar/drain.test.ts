@@ -4,7 +4,11 @@ const mocks = vi.hoisted(() => ({
   sendSessionCalendarEmail: vi.fn(),
   processCalendarSyncJobs: vi.fn(),
   processGoogleCalendarSyncJobs: vi.fn(),
+  processGoogleCalendarReconciliations: vi.fn(),
   calendarDeliveryRepository: vi.fn(),
+  sessionBookingRepository: vi.fn(),
+  applyGoogleCalendarSessionReconciliation: vi.fn(),
+  createGoogleCalendarLinkedEventReader: vi.fn(),
   createGoogleCalendarProvider: vi.fn(),
   createGoogleCalendarRepository: vi.fn(),
   createGoogleCalendarWorkerAccess: vi.fn(),
@@ -21,10 +25,20 @@ vi.mock("./delivery", () => ({
 vi.mock("./google-delivery", () => ({
   processGoogleCalendarSyncJobs: mocks.processGoogleCalendarSyncJobs,
 }));
+vi.mock("./google-reconciliation", () => ({
+  processGoogleCalendarReconciliations: mocks.processGoogleCalendarReconciliations,
+}));
 vi.mock("./repository", () => ({
   calendarDeliveryRepository: mocks.calendarDeliveryRepository,
 }));
+vi.mock("../domain/session-booking/db", () => ({
+  sessionBookingRepository: mocks.sessionBookingRepository,
+}));
+vi.mock("../domain/session-booking/service", () => ({
+  applyGoogleCalendarSessionReconciliation: mocks.applyGoogleCalendarSessionReconciliation,
+}));
 vi.mock("~/server/google-calendar", () => ({
+  createGoogleCalendarLinkedEventReader: mocks.createGoogleCalendarLinkedEventReader,
   createGoogleCalendarProvider: mocks.createGoogleCalendarProvider,
   createGoogleCalendarRepository: mocks.createGoogleCalendarRepository,
   createGoogleCalendarWorkerAccess: mocks.createGoogleCalendarWorkerAccess,
@@ -32,7 +46,7 @@ vi.mock("~/server/google-calendar", () => ({
   loadGoogleCalendarServerConfig: mocks.loadGoogleCalendarServerConfig,
 }));
 
-import { deliverCalendarSyncJobBestEffort } from "./drain";
+import { deliverCalendarSyncJobBestEffort, reconcileGoogleCalendarBestEffort } from "./drain";
 
 describe("deliverCalendarSyncJobBestEffort", () => {
   beforeEach(() => {
@@ -47,7 +61,11 @@ describe("deliverCalendarSyncJobBestEffort", () => {
       fallbackEnqueued: 0,
       fallbackJobIds: [],
     });
+    mocks.processGoogleCalendarReconciliations.mockReset().mockResolvedValue({});
     mocks.calendarDeliveryRepository.mockReset().mockReturnValue({ kind: "repository" });
+    mocks.sessionBookingRepository.mockReset().mockReturnValue({ kind: "booking-repository" });
+    mocks.applyGoogleCalendarSessionReconciliation.mockReset().mockResolvedValue({});
+    mocks.createGoogleCalendarLinkedEventReader.mockReset().mockReturnValue({ kind: "reader" });
     mocks.createGoogleCalendarProvider.mockReset().mockReturnValue({ kind: "provider" });
     mocks.createGoogleCalendarRepository.mockReset().mockReturnValue({ kind: "google-repository" });
     mocks.createGoogleCalendarWorkerAccess.mockReset().mockReturnValue({ kind: "access" });
@@ -130,5 +148,60 @@ describe("deliverCalendarSyncJobBestEffort", () => {
       ),
     ).resolves.toBeUndefined();
     expect(error).toHaveBeenCalledWith("[calendar] immediate invitation delivery failed");
+  });
+});
+
+describe("reconcileGoogleCalendarBestEffort", () => {
+  beforeEach(() => {
+    mocks.processGoogleCalendarReconciliations.mockReset().mockResolvedValue({});
+    mocks.calendarDeliveryRepository.mockReset().mockReturnValue({ kind: "repository" });
+    mocks.sessionBookingRepository.mockReset().mockReturnValue({ kind: "booking-repository" });
+    mocks.applyGoogleCalendarSessionReconciliation.mockReset().mockResolvedValue({});
+    mocks.createGoogleCalendarLinkedEventReader.mockReset().mockReturnValue({ kind: "reader" });
+    mocks.createGoogleCalendarProvider.mockReset().mockReturnValue({ kind: "provider" });
+    mocks.createGoogleCalendarRepository.mockReset().mockReturnValue({ kind: "google-repository" });
+    mocks.isGoogleCalendarServerConfigured.mockReset().mockReturnValue(true);
+    mocks.loadGoogleCalendarServerConfig.mockReset().mockReturnValue({ kind: "config" });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("does nothing when Google Calendar is not configured", async () => {
+    mocks.isGoogleCalendarServerConfigured.mockReturnValue(false);
+
+    await reconcileGoogleCalendarBestEffort({ kind: "db" } as never);
+
+    expect(mocks.createGoogleCalendarProvider).not.toHaveBeenCalled();
+    expect(mocks.processGoogleCalendarReconciliations).not.toHaveBeenCalled();
+  });
+
+  it("runs one bounded known-link reconciliation wake", async () => {
+    const db = { kind: "db" } as never;
+
+    await reconcileGoogleCalendarBestEffort(db);
+
+    expect(mocks.processGoogleCalendarReconciliations).toHaveBeenCalledTimes(1);
+    const [dependencies, options] = mocks.processGoogleCalendarReconciliations.mock.calls[0] as [
+      { repository: unknown; reader: unknown; apply: unknown },
+      { limit: number },
+    ];
+    expect(dependencies.repository).toEqual({ kind: "repository" });
+    expect(dependencies.reader).toEqual({ kind: "reader" });
+    expect(typeof dependencies.apply).toBe("function");
+    expect(options).toEqual({ limit: 10 });
+  });
+
+  it("keeps provider details out of a failed wake log", async () => {
+    mocks.processGoogleCalendarReconciliations.mockRejectedValueOnce(
+      new Error("provider-event-id secret-token"),
+    );
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(
+      reconcileGoogleCalendarBestEffort({ kind: "db" } as never),
+    ).resolves.toBeUndefined();
+    expect(error).toHaveBeenCalledWith("[calendar] Google Calendar reconciliation wake failed");
   });
 });

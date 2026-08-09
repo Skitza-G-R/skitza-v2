@@ -9,6 +9,8 @@
 
 import { calendarDateTimeParts, formatCalendarTime } from "./calendar-time";
 import { ChangeRequestDecision } from "./change-request-decision";
+import { GoogleCalendarSessionSyncStatus } from "./google-calendar-session-sync";
+import type { GoogleCalendarSessionSync } from "./google-calendar-session-sync-model";
 import { KIND_COLORS, inferSessionKind } from "./session-kind";
 
 export type RawBookingStatus =
@@ -29,6 +31,7 @@ export type SessionListItem = {
   status: RawBookingStatus;
   billingTreatment?: "included" | "complimentary" | "billable_extra";
   artistRsvpStatus?: "needs_action" | "accepted" | "declined" | "tentative" | null;
+  calendarSync?: GoogleCalendarSessionSync | null;
   changeRequest?: {
     id: string;
     kind: "cancel" | "reschedule";
@@ -179,6 +182,7 @@ function BodyColumn({
             .join(" · ")}
         </p>
       ) : null}
+      <GoogleCalendarSessionSyncStatus bookingId={session.id} sync={session.calendarSync} />
     </div>
   );
 }

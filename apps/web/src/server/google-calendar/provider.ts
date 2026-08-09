@@ -16,12 +16,21 @@ const USERINFO_ENDPOINT = "https://openidconnect.googleapis.com/v1/userinfo";
 const CALENDAR_LIST_ENDPOINT = "https://www.googleapis.com/calendar/v3/users/me/calendarList";
 const FREE_BUSY_ENDPOINT = "https://www.googleapis.com/calendar/v3/freeBusy";
 const CALENDAR_EVENTS_ENDPOINT = "https://www.googleapis.com/calendar/v3/calendars";
+const CHANNELS_STOP_ENDPOINT = "https://www.googleapis.com/calendar/v3/channels/stop";
 const REVOKE_ENDPOINT = "https://oauth2.googleapis.com/revoke";
+const GOOGLE_USERINFO_EMAIL_SCOPE = "https://www.googleapis.com/auth/userinfo.email";
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_TOKEN_BYTES = 4 * 1024;
 const MAX_CALENDAR_PAGES = 100;
 const MAX_CALENDARS = 10_000;
+const MAX_CHANNEL_ID_BYTES = 64;
+const MAX_CHANNEL_TOKEN_BYTES = 256;
+const MAX_RESOURCE_ID_BYTES = 2 * 1024;
+const MAX_EVENT_TEXT_LENGTH = 1_024;
+const MAX_RFC3339_LENGTH = 64;
+
+export const GOOGLE_CALENDAR_WATCH_MAX_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 export const GOOGLE_CALENDAR_FREE_BUSY_MAX_CALENDARS = 50;
 
@@ -79,6 +88,39 @@ export type GoogleCalendarEventRecord = Readonly<{
   linkage: GoogleCalendarEventLinkage | null;
 }>;
 
+export type GoogleCalendarLinkedEventTiming =
+  | Readonly<{ kind: "timed"; startsAt: Date; endsAt: Date }>
+  | Readonly<{ kind: "unsupported" }>;
+
+export type GoogleCalendarLinkedEventArtistRsvp =
+  | "needs_action"
+  | "accepted"
+  | "declined"
+  | "tentative";
+
+/**
+ * The only inbound event shape allowed to leave the provider boundary.
+ * Google-only attendees, descriptions, locations, Meet data, and reminders
+ * are deliberately discarded while parsing the provider response.
+ */
+export type GoogleCalendarLinkedEventRecord = GoogleCalendarEventRecord &
+  Readonly<{
+    updatedAt: Date;
+    summary: string | null;
+    timing: GoogleCalendarLinkedEventTiming;
+    artistRsvp: GoogleCalendarLinkedEventArtistRsvp | null;
+  }>;
+
+export type GoogleCalendarLinkedEventLookup =
+  | Readonly<{ outcome: "found"; event: GoogleCalendarLinkedEventRecord }>
+  | Readonly<{ outcome: "missing" | "not_modified" }>;
+
+export type GoogleCalendarWatchRecord = Readonly<{
+  channelId: string;
+  resourceId: string;
+  expiresAt: Date;
+}>;
+
 export type GoogleCalendarProviderErrorCode =
   | "authorization_failed"
   | "identity_unverified"
@@ -132,6 +174,15 @@ export interface GoogleCalendarProvider {
     accessToken: string,
     input: Readonly<{ calendarId: string; eventId: string }>,
   ): Promise<GoogleCalendarEventRecord>;
+  getLinkedEvent(
+    accessToken: string,
+    input: Readonly<{
+      calendarId: string;
+      eventId: string;
+      artistEmail: string;
+      ifNoneMatch?: string;
+    }>,
+  ): Promise<GoogleCalendarLinkedEventLookup>;
   patchEvent(
     accessToken: string,
     input: Readonly<{
@@ -149,6 +200,20 @@ export interface GoogleCalendarProvider {
       sendUpdates: GoogleCalendarSendUpdates;
       etag?: string;
     }>,
+  ): Promise<void>;
+  watchEvents(
+    accessToken: string,
+    input: Readonly<{
+      calendarId: string;
+      channelId: string;
+      address: string;
+      token: string;
+      ttlSeconds?: number;
+    }>,
+  ): Promise<GoogleCalendarWatchRecord>;
+  stopChannel(
+    accessToken: string,
+    input: Readonly<{ channelId: string; resourceId: string }>,
   ): Promise<void>;
   revokeToken(token: string): Promise<void>;
 }
@@ -215,6 +280,74 @@ function isEventStatus(value: unknown): value is GoogleCalendarEventStatus {
   return value === "confirmed" || value === "tentative" || value === "cancelled";
 }
 
+function hasUnsafeControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 31 || code === 127) return true;
+  }
+  return false;
+}
+
+function validatedOpaqueValue(value: unknown, maxBytes: number): string | null {
+  if (
+    typeof value !== "string" ||
+    !value ||
+    value !== value.trim() ||
+    Buffer.byteLength(value, "utf8") > maxBytes ||
+    hasUnsafeControlCharacter(value)
+  ) {
+    return null;
+  }
+  return value;
+}
+
+function validatedChannelId(value: unknown): string | null {
+  const channelId = validatedOpaqueValue(value, MAX_CHANNEL_ID_BYTES);
+  return channelId &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(channelId)
+    ? channelId
+    : null;
+}
+
+function parseLinkedEventSummary(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const summary = value.trim();
+  return summary && summary.length <= MAX_EVENT_TEXT_LENGTH && !hasUnsafeControlCharacter(summary)
+    ? summary
+    : null;
+}
+
+function parseEventDateTime(value: unknown): Date | null {
+  if (!isRecord(value) || typeof value.dateTime !== "string") return null;
+  const dateTime = value.dateTime;
+  if (!dateTime || dateTime.length > MAX_RFC3339_LENGTH || hasUnsafeControlCharacter(dateTime)) {
+    return null;
+  }
+  const parsed = new Date(dateTime);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function parseArtistRsvp(
+  attendees: unknown,
+  artistEmail: string,
+): GoogleCalendarLinkedEventArtistRsvp | null {
+  if (!Array.isArray(attendees)) return null;
+  for (const attendee of attendees) {
+    if (!isRecord(attendee) || normalizedEmail(attendee.email) !== artistEmail) continue;
+    switch (attendee.responseStatus) {
+      case "needsAction":
+        return "needs_action";
+      case "accepted":
+      case "declined":
+      case "tentative":
+        return attendee.responseStatus;
+      default:
+        return null;
+    }
+  }
+  return null;
+}
+
 function parseEventRecord(
   value: Record<string, unknown>,
   expectedEventId: string,
@@ -254,6 +387,34 @@ function parseEventRecord(
     etag,
     status: value.status,
     linkage,
+  };
+}
+
+function parseLinkedEventRecord(
+  value: Record<string, unknown>,
+  expectedEventId: string,
+  artistEmail: string,
+): GoogleCalendarLinkedEventRecord {
+  const event = parseEventRecord(value, expectedEventId);
+  const updatedAt =
+    typeof value.updated === "string" && value.updated.length <= MAX_RFC3339_LENGTH
+      ? new Date(value.updated)
+      : new Date(Number.NaN);
+  if (Number.isNaN(updatedAt.getTime())) {
+    throw new GoogleCalendarProviderError("provider_invalid_response");
+  }
+  const startsAt = parseEventDateTime(value.start);
+  const endsAt = parseEventDateTime(value.end);
+  const timing =
+    startsAt && endsAt && startsAt.getTime() < endsAt.getTime()
+      ? ({ kind: "timed", startsAt, endsAt } as const)
+      : ({ kind: "unsupported" } as const);
+  return {
+    ...event,
+    updatedAt,
+    summary: parseLinkedEventSummary(value.summary),
+    timing,
+    artistRsvp: parseArtistRsvp(value.attendees, artistEmail),
   };
 }
 
@@ -330,6 +491,44 @@ function hasLiteralValue(value: unknown, expected: string | boolean): boolean {
 function eventUrl(calendarId: string, eventId?: string): URL {
   const suffix = eventId ? `/${encodeURIComponent(eventId)}` : "";
   return new URL(`${CALENDAR_EVENTS_ENDPOINT}/${encodeURIComponent(calendarId)}/events${suffix}`);
+}
+
+function watchUrl(calendarId: string): URL {
+  return new URL(`${CALENDAR_EVENTS_ENDPOINT}/${encodeURIComponent(calendarId)}/events/watch`);
+}
+
+function validatedWebhookAddress(value: string): string | null {
+  let address: URL;
+  try {
+    address = new URL(value);
+  } catch {
+    return null;
+  }
+  if (
+    address.protocol !== "https:" ||
+    address.username ||
+    address.password ||
+    address.search ||
+    address.hash ||
+    !address.hostname
+  ) {
+    return null;
+  }
+  return address.toString();
+}
+
+function parsedExpiration(value: unknown): Date | null {
+  const text =
+    typeof value === "number" && Number.isSafeInteger(value) && value > 0
+      ? String(value)
+      : typeof value === "string" && /^[1-9][0-9]{0,18}$/u.test(value)
+        ? value
+        : null;
+  if (!text) return null;
+  const milliseconds = Number(text);
+  if (!Number.isSafeInteger(milliseconds)) return null;
+  const expiresAt = new Date(milliseconds);
+  return Number.isNaN(expiresAt.getTime()) ? null : expiresAt;
 }
 
 function normalizeEventWrite(event: GoogleCalendarEventWrite): GoogleCalendarEventWrite {
@@ -454,7 +653,11 @@ function fetchFailure(error: unknown): never {
 
 export function hasRequiredGoogleCalendarScopes(scopes: readonly string[]): boolean {
   const granted = new Set(scopes);
-  return GOOGLE_CALENDAR_SCOPES.every((scope) => granted.has(scope));
+  return GOOGLE_CALENDAR_SCOPES.every((scope) =>
+    scope === "email"
+      ? granted.has(scope) || granted.has(GOOGLE_USERINFO_EMAIL_SCOPE)
+      : granted.has(scope),
+  );
 }
 
 export function createGoogleCalendarProvider(
@@ -864,6 +1067,42 @@ export function createGoogleCalendarProvider(
       return parseEventRecord(await readJson(response), eventId);
     },
 
+    async getLinkedEvent(
+      accessToken,
+      { calendarId, eventId, artistEmail: rawArtistEmail, ifNoneMatch },
+    ) {
+      assertEventRequestInput({
+        accessToken,
+        calendarId,
+        eventId,
+        ...(ifNoneMatch === undefined ? {} : { etag: ifNoneMatch }),
+      });
+      const artistEmail = normalizedEmail(rawArtistEmail);
+      if (!artistEmail) {
+        throw new GoogleCalendarProviderError("provider_invalid_response");
+      }
+      const url = eventUrl(calendarId, eventId);
+      url.searchParams.set(
+        "fields",
+        "id,etag,status,updated,summary,start(dateTime,date),end(dateTime,date),extendedProperties,attendees(email,responseStatus)",
+      );
+      const response = await providerFetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json",
+          ...(ifNoneMatch === undefined ? {} : { "If-None-Match": ifNoneMatch }),
+        },
+      });
+      if (response.status === 304) return { outcome: "not_modified" };
+      if (response.status === 404 || response.status === 410) return { outcome: "missing" };
+      if (!response.ok) return throwEventProviderError(response);
+      return {
+        outcome: "found",
+        event: parseLinkedEventRecord(await readJson(response), eventId, artistEmail),
+      };
+    },
+
     async patchEvent(accessToken, { calendarId, event, sendUpdates, etag }) {
       assertEventRequestInput({
         accessToken,
@@ -917,6 +1156,73 @@ export function createGoogleCalendarProvider(
           ...(etag === undefined ? {} : { "If-Match": etag }),
         },
       });
+      if (!response.ok) return throwEventProviderError(response);
+    },
+
+    async watchEvents(
+      accessToken,
+      { calendarId, channelId, address: rawAddress, token, ttlSeconds: rawTtlSeconds },
+    ) {
+      const address = validatedWebhookAddress(rawAddress);
+      const ttlSeconds = rawTtlSeconds ?? GOOGLE_CALENDAR_WATCH_MAX_TTL_SECONDS;
+      if (
+        !validatedToken(accessToken) ||
+        !validatedCalendarId(calendarId) ||
+        !validatedChannelId(channelId) ||
+        !address ||
+        !validatedOpaqueValue(token, MAX_CHANNEL_TOKEN_BYTES) ||
+        !Number.isSafeInteger(ttlSeconds) ||
+        ttlSeconds < 1 ||
+        ttlSeconds > GOOGLE_CALENDAR_WATCH_MAX_TTL_SECONDS
+      ) {
+        throw new GoogleCalendarProviderError("provider_invalid_response");
+      }
+      const response = await providerFetch(watchUrl(calendarId), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: channelId,
+          type: "web_hook",
+          address,
+          token,
+          params: { ttl: String(ttlSeconds) },
+        }),
+      });
+      if (!response.ok) return throwEventProviderError(response);
+      const value = await readJson(response);
+      const resourceId = validatedOpaqueValue(value.resourceId, MAX_RESOURCE_ID_BYTES);
+      const expiresAt = parsedExpiration(value.expiration);
+      if (value.id !== channelId || !resourceId || /\s/u.test(resourceId) || !expiresAt) {
+        throw new GoogleCalendarProviderError("provider_invalid_response");
+      }
+      return { channelId, resourceId, expiresAt };
+    },
+
+    async stopChannel(accessToken, { channelId, resourceId }) {
+      if (
+        !validatedToken(accessToken) ||
+        !validatedChannelId(channelId) ||
+        !validatedOpaqueValue(resourceId, MAX_RESOURCE_ID_BYTES) ||
+        /\s/u.test(resourceId)
+      ) {
+        throw new GoogleCalendarProviderError("provider_invalid_response");
+      }
+      const response = await providerFetch(CHANNELS_STOP_ENDPOINT, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ id: channelId, resourceId }),
+      });
+      // Channel stop is idempotent from Skitza's point of view. An already
+      // expired or already stopped channel needs no further provider action.
+      if (response.status === 404 || response.status === 410) return;
       if (!response.ok) return throwEventProviderError(response);
     },
 

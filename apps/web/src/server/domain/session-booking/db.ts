@@ -10,6 +10,7 @@ import {
   bookings,
   calendarSyncJobs,
   clientContacts,
+  desc,
   eq,
   googleCalendarConnections,
   googleCalendarSelections,
@@ -41,6 +42,7 @@ import {
   type SessionBookingContext,
   type SessionBookingChangeRequestRecord,
   type SessionBookingCreateContext,
+  type SessionBookingGoogleReconciliationContext,
   type SessionBookingRecord,
   type SessionBookingRepository,
   type SessionBookingTransaction,
@@ -101,19 +103,31 @@ function calendarJobRecord(row: CalendarSyncJob): CalendarSyncJobRecord {
     desiredRevision: row.desiredRevision,
     idempotencyKey: row.idempotencyKey,
     payloadSnapshot: row.payloadSnapshot,
+    manualRetryCount: row.manualRetryCount,
+    lastManualRetryAt: row.lastManualRetryAt,
+    lastManualRetryActor: row.lastManualRetryActor,
+    lastManualRetryOperationKey: row.lastManualRetryOperationKey,
+    lastManualRetryOperationDigest: row.lastManualRetryOperationDigest,
   };
 }
 
-function bookingCalendarLinkRecord(row: {
-  id: string;
-  producerId: string;
-  allowanceUseId: string;
-  currentBookingId: string;
-  connectionId: string;
-  accountVersion: number;
-  desiredRevision: number;
-}): BookingCalendarLinkRecord {
-  return row;
+function bookingCalendarLinkRecord(row: BookingCalendarLink): BookingCalendarLinkRecord {
+  return {
+    id: row.id,
+    producerId: row.producerId,
+    allowanceUseId: row.allowanceUseId,
+    currentBookingId: row.currentBookingId,
+    connectionId: row.connectionId,
+    accountVersion: row.accountVersion,
+    desiredRevision: row.desiredRevision,
+    providerEventEtag: row.providerEventEtag,
+    providerEventUpdatedAt: row.providerEventUpdatedAt,
+    providerState: row.providerState,
+    syncState: row.syncState,
+    syncStateChangedAt: row.syncStateChangedAt,
+    lastInboundReconciledAt: row.lastInboundReconciledAt,
+    lastSyncErrorCode: row.lastSyncErrorCode,
+  };
 }
 
 async function contextDetails(
@@ -565,6 +579,76 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
           ),
         ),
 
+    loadGoogleCalendarReconciliationContext: async (input) => {
+      const [job] = await tx
+        .select()
+        .from(calendarSyncJobs)
+        .where(
+          and(
+            eq(calendarSyncJobs.id, input.jobId),
+            eq(calendarSyncJobs.producerId, input.producerId),
+            eq(calendarSyncJobs.bookingCalendarLinkId, input.bookingCalendarLinkId),
+            eq(calendarSyncJobs.operation, "reconcile_google_event"),
+            eq(calendarSyncJobs.status, "processing"),
+            eq(calendarSyncJobs.leaseToken, input.leaseToken),
+          ),
+        )
+        .limit(1)
+        .for("update");
+      if (!job) return null;
+      const [link] = await tx
+        .select()
+        .from(bookingCalendarLinks)
+        .where(
+          and(
+            eq(bookingCalendarLinks.id, input.bookingCalendarLinkId),
+            eq(bookingCalendarLinks.producerId, input.producerId),
+          ),
+        )
+        .limit(1)
+        .for("update");
+      if (!link || job.desiredRevision > link.desiredRevision) return null;
+      return {
+        link: bookingCalendarLinkRecord(link),
+        currentBookingId: link.currentBookingId,
+        capturedRevision: job.desiredRevision,
+      } satisfies SessionBookingGoogleReconciliationContext;
+    },
+
+    loadBookingCalendarRecoveryLink: async (input) => {
+      const [link] = await tx
+        .select()
+        .from(bookingCalendarLinks)
+        .where(
+          and(
+            eq(bookingCalendarLinks.currentBookingId, input.bookingId),
+            eq(bookingCalendarLinks.producerId, input.producerId),
+            eq(bookingCalendarLinks.providerState, "active"),
+          ),
+        )
+        .orderBy(sql`${bookingCalendarLinks.accountVersion} desc`)
+        .limit(1)
+        .for("update");
+      return link ? bookingCalendarLinkRecord(link) : null;
+    },
+
+    findGoogleCalendarRecoveryJob: async (input) => {
+      const [row] = await tx
+        .select()
+        .from(calendarSyncJobs)
+        .where(
+          and(
+            eq(calendarSyncJobs.producerId, input.producerId),
+            eq(calendarSyncJobs.bookingCalendarLinkId, input.bookingCalendarLinkId),
+            inArray(calendarSyncJobs.operation, ["upsert_google_event", "delete_google_event"]),
+            eq(calendarSyncJobs.lastManualRetryOperationKey, input.operationKey),
+          ),
+        )
+        .orderBy(sql`${calendarSyncJobs.createdAt} desc`)
+        .limit(1);
+      return row ? calendarJobRecord(row) : null;
+    },
+
     insertBooking: async (input: NewSessionBookingRecord) => {
       const [row] = await tx
         .insert(bookings)
@@ -634,6 +718,43 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
         throw new SessionBookingDomainError(
           "INVALID_STATUS",
           "The session changed while this command was running",
+        );
+      }
+      return bookingRecord(row);
+    },
+
+    updateBookingCalendarProjection: async (input) => {
+      const [row] = await tx
+        .update(bookings)
+        .set({
+          calendarRevision: input.nextCalendarRevision,
+          ...(Object.prototype.hasOwnProperty.call(input, "title")
+            ? { title: input.title ?? null }
+            : {}),
+          ...(Object.prototype.hasOwnProperty.call(input, "artistRsvpStatus")
+            ? {
+                artistRsvpStatus: input.artistRsvpStatus ?? null,
+                artistRsvpRespondedAt: input.artistRsvpRespondedAt ?? null,
+              }
+            : {}),
+          updatedAt: sql<Date>`greatest(
+            ${input.occurredAt},
+            ${bookings.updatedAt} + interval '1 millisecond'
+          )`,
+        })
+        .where(
+          and(
+            eq(bookings.id, input.bookingId),
+            eq(bookings.producerId, input.producerId),
+            eq(bookings.status, "confirmed"),
+            eq(bookings.calendarRevision, input.expectedCalendarRevision),
+          ),
+        )
+        .returning();
+      if (!row) {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "The session changed while Google Calendar was being checked",
         );
       }
       return bookingRecord(row);
@@ -713,6 +834,7 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
             eq(calendarSyncJobs.producerId, input.producerId),
             eq(calendarSyncJobs.bookingCalendarLinkId, input.bookingCalendarLinkId),
             eq(calendarSyncJobs.desiredRevision, input.desiredRevision),
+            inArray(calendarSyncJobs.operation, ["upsert_google_event", "delete_google_event"]),
           ),
         )
         .limit(1);
@@ -806,6 +928,18 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
           .set({
             currentBookingId: input.bookingId,
             desiredRevision: input.desiredRevision,
+            ...(existing.syncState === "missing" || existing.syncState === "conflict"
+              ? {}
+              : {
+                  syncState: "pending" as const,
+                  syncStateChangedAt:
+                    existing.syncState === "pending"
+                      ? existing.syncStateChangedAt
+                      : new Date(
+                          Math.max(input.occurredAt.getTime(), existing.updatedAt.getTime() + 1),
+                        ),
+                  lastSyncErrorCode: null,
+                }),
             updatedAt: new Date(
               Math.max(input.occurredAt.getTime(), existing.updatedAt.getTime() + 1),
             ),
@@ -860,13 +994,19 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
                 "provider_event_id",
               ),
               providerEventEtag: sql<string | null>`null`.as("provider_event_etag"),
+              providerEventUpdatedAt: sql<Date | null>`null`.as("provider_event_updated_at"),
               providerState: sql<"uncreated">`'uncreated'`.as("provider_state"),
+              syncState: sql<"pending">`'pending'`.as("sync_state"),
+              syncStateChangedAt: sql<Date>`${input.occurredAt}`.as("sync_state_changed_at"),
+              lastInboundReconciledAt: sql<Date | null>`null`.as("last_inbound_reconciled_at"),
+              lastSyncErrorCode: sql<null>`null`.as("last_sync_error_code"),
               desiredRevision: sql<number>`${input.desiredRevision}`.as("desired_revision"),
               lastGoogleRevision: sql<number>`0`.as("last_google_revision"),
               lastGoogleSyncedAt: sql<Date | null>`null`.as("last_google_synced_at"),
               invitationRevision: sql<number>`0`.as("invitation_revision"),
               invitationChannel: sql<"ics" | "google" | null>`null`.as("invitation_channel"),
               invitationReservedAt: sql<Date | null>`null`.as("invitation_reserved_at"),
+              invitationAttemptedAt: sql<Date | null>`null`.as("invitation_attempted_at"),
               invitationDeliveredAt: sql<Date | null>`null`.as("invitation_delivered_at"),
               createdAt: sql<Date>`${input.occurredAt}`.as("created_at"),
               updatedAt: sql<Date>`${input.occurredAt}`.as("updated_at"),
@@ -911,6 +1051,101 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
         .for("update");
       if (!createdOrRaced) return null;
       return advanceLink(createdOrRaced);
+    },
+
+    advanceGoogleCalendarLink: async (input) => {
+      const [existing] = await tx
+        .select()
+        .from(bookingCalendarLinks)
+        .where(
+          and(
+            eq(bookingCalendarLinks.id, input.linkId),
+            eq(bookingCalendarLinks.producerId, input.producerId),
+            eq(bookingCalendarLinks.currentBookingId, input.expectedCurrentBookingId),
+            eq(bookingCalendarLinks.desiredRevision, input.expectedDesiredRevision),
+          ),
+        )
+        .limit(1)
+        .for("update");
+      if (!existing) {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "The calendar link changed while Google Calendar was being checked",
+        );
+      }
+      const occurredAt = new Date(
+        Math.max(input.occurredAt.getTime(), existing.updatedAt.getTime() + 1),
+      );
+      const syncFactsChanged =
+        existing.syncState !== input.syncState ||
+        existing.lastSyncErrorCode !== input.lastSyncErrorCode;
+      const [updated] = await tx
+        .update(bookingCalendarLinks)
+        .set({
+          currentBookingId: input.currentBookingId,
+          desiredRevision: input.desiredRevision,
+          syncState: input.syncState,
+          syncStateChangedAt: syncFactsChanged ? occurredAt : existing.syncStateChangedAt,
+          lastSyncErrorCode: input.lastSyncErrorCode,
+          ...(input.providerEventEtag === undefined
+            ? {}
+            : { providerEventEtag: input.providerEventEtag }),
+          ...(input.providerEventUpdatedAt === undefined
+            ? {}
+            : { providerEventUpdatedAt: input.providerEventUpdatedAt }),
+          ...(input.lastInboundReconciledAt === undefined
+            ? {}
+            : { lastInboundReconciledAt: input.lastInboundReconciledAt }),
+          updatedAt: occurredAt,
+        })
+        .where(
+          and(
+            eq(bookingCalendarLinks.id, existing.id),
+            eq(bookingCalendarLinks.producerId, existing.producerId),
+            eq(bookingCalendarLinks.currentBookingId, input.expectedCurrentBookingId),
+            eq(bookingCalendarLinks.desiredRevision, input.expectedDesiredRevision),
+          ),
+        )
+        .returning();
+      if (!updated) {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "The calendar link changed while Google Calendar was being checked",
+        );
+      }
+      return bookingCalendarLinkRecord(updated);
+    },
+
+    completeGoogleCalendarReconciliationJob: async (input) => {
+      const completedAt = sql<Date>`greatest(
+        ${input.completedAt},
+        ${calendarSyncJobs.updatedAt} + interval '1 millisecond'
+      )`;
+      const rows = await tx
+        .update(calendarSyncJobs)
+        .set({
+          status: "completed",
+          nextAttemptAt: null,
+          leaseToken: null,
+          leaseAcquiredAt: null,
+          leaseExpiresAt: null,
+          providerMessageId: "reconciled",
+          completedAt,
+          updatedAt: completedAt,
+        })
+        .where(
+          and(
+            eq(calendarSyncJobs.id, input.jobId),
+            eq(calendarSyncJobs.producerId, input.producerId),
+            eq(calendarSyncJobs.bookingCalendarLinkId, input.bookingCalendarLinkId),
+            eq(calendarSyncJobs.operation, "reconcile_google_event"),
+            eq(calendarSyncJobs.desiredRevision, input.capturedRevision),
+            eq(calendarSyncJobs.status, "processing"),
+            eq(calendarSyncJobs.leaseToken, input.leaseToken),
+          ),
+        )
+        .returning({ id: calendarSyncJobs.id });
+      return rows.length === 1;
     },
 
     insertCalendarSyncJob: async (input: NewCalendarSyncJobRecord) => {
@@ -1004,6 +1239,55 @@ export function sessionBookingScheduleAdvisoryLockKey(producerId: string): strin
 /** Shared lock order: producer schedule -> project -> purchase -> allowance. */
 export function sessionBookingRepository(db: Db): SessionBookingRepository {
   return {
+    findBookingGoogleCalendarSyncStatuses: async (input) => {
+      if (input.bookingIds.length === 0) return [];
+      const rows = await db
+        .select({
+          bookingId: bookingCalendarLinks.currentBookingId,
+          syncState: bookingCalendarLinks.syncState,
+          connectionStatus: googleCalendarConnections.status,
+        })
+        .from(bookingCalendarLinks)
+        .innerJoin(
+          bookings,
+          and(
+            eq(bookings.id, bookingCalendarLinks.currentBookingId),
+            eq(bookings.producerId, bookingCalendarLinks.producerId),
+          ),
+        )
+        .innerJoin(
+          googleCalendarConnections,
+          and(
+            eq(googleCalendarConnections.id, bookingCalendarLinks.connectionId),
+            eq(googleCalendarConnections.producerId, bookingCalendarLinks.producerId),
+            eq(googleCalendarConnections.accountVersion, bookingCalendarLinks.accountVersion),
+          ),
+        )
+        .where(
+          and(
+            eq(bookingCalendarLinks.producerId, input.producerId),
+            eq(bookings.producerId, input.producerId),
+            inArray(bookingCalendarLinks.currentBookingId, [...input.bookingIds]),
+          ),
+        )
+        .orderBy(desc(bookingCalendarLinks.accountVersion), desc(bookingCalendarLinks.updatedAt));
+      const statusByBookingId = new Map<
+        string,
+        (typeof rows)[number]["syncState"] | "disconnected"
+      >();
+      for (const row of rows) {
+        if (statusByBookingId.has(row.bookingId)) continue;
+        statusByBookingId.set(
+          row.bookingId,
+          row.connectionStatus === "connected" ? row.syncState : "disconnected",
+        );
+      }
+      return input.bookingIds.flatMap((bookingId) => {
+        const status = statusByBookingId.get(bookingId);
+        return status ? [{ bookingId, status }] : [];
+      });
+    },
+
     findProducerManualSessionBookingByOperationKey: async (input) => {
       const [row] = await db
         .select()

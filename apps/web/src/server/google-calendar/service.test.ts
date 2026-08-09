@@ -9,9 +9,14 @@ import type {
   GoogleCalendarCandidateRecord,
   GoogleCalendarConnectionRecord,
   GoogleCalendarRepository,
+  GoogleCalendarStoredWatchRecord,
   GoogleCalendarStoredOAuthState,
+  GoogleCalendarWatchTarget,
 } from "./repository";
-import { GoogleCalendarServiceError, createGoogleCalendarService } from "./service";
+import {
+  GoogleCalendarServiceError,
+  createGoogleCalendarService as createGoogleCalendarServiceImpl,
+} from "./service";
 
 const PRODUCER_ID = "11111111-1111-4111-8111-111111111111";
 const ALL_SCOPES = [
@@ -33,6 +38,15 @@ const CONFIG = {
   calendarIdFingerprintSecret: FINGERPRINT_SECRET,
 } satisfies GoogleCalendarServerConfig;
 
+function createGoogleCalendarService(
+  input: Parameters<typeof createGoogleCalendarServiceImpl>[0],
+) {
+  return createGoogleCalendarServiceImpl({
+    now: () => new Date("2026-08-09T10:00:00.000Z"),
+    ...input,
+  });
+}
+
 function isReady(rows: readonly GoogleCalendarCandidateRecord[]): boolean {
   return (
     rows.filter(
@@ -45,6 +59,9 @@ class MemoryGoogleCalendarRepository implements GoogleCalendarRepository {
   connection: GoogleCalendarConnectionRecord | null = null;
   states = new Map<string, GoogleCalendarStoredOAuthState>();
   candidates: GoogleCalendarCandidateRecord[] = [];
+  watches: GoogleCalendarStoredWatchRecord[] = [];
+  linkedWatchTargets: GoogleCalendarWatchTarget[] = [];
+  syncSummary = { syncing: 0, notSynced: 0, missing: 0, conflicts: 0 };
   initialSyncCalls: Parameters<GoogleCalendarRepository["enqueueFutureConfirmedEvents"]>[0][] = [];
 
   async getConnection(producerId: string) {
@@ -242,6 +259,185 @@ class MemoryGoogleCalendarRepository implements GoogleCalendarRepository {
     );
   }
 
+  async getConnectionSyncSummary() {
+    await Promise.resolve();
+    return this.syncSummary;
+  }
+
+  async listCalendarWatches(
+    command: Parameters<GoogleCalendarRepository["listCalendarWatches"]>[0],
+  ) {
+    await Promise.resolve();
+    return this.watches.filter(
+      (watch) =>
+        watch.producerId === command.producerId &&
+        watch.connectionId === command.connectionId &&
+        watch.accountVersion === command.accountVersion &&
+        (watch.state === "renewing" || watch.state === "active"),
+    );
+  }
+
+  async listRequiredCalendarWatchTargets(
+    command: Parameters<GoogleCalendarRepository["listRequiredCalendarWatchTargets"]>[0],
+  ) {
+    await Promise.resolve();
+    const current = this.candidates
+      .filter(
+        (candidate) =>
+          candidate.producerId === command.producerId &&
+          candidate.connectionId === command.connectionId &&
+          candidate.accountVersion === command.accountVersion &&
+          candidate.isDestination,
+      )
+      .map(
+        (candidate): GoogleCalendarWatchTarget => ({
+          producerId: candidate.producerId,
+          connectionId: candidate.connectionId,
+          accountVersion: candidate.accountVersion,
+          destinationSelectionId: candidate.id,
+          destinationCalendarId: candidate.providerCalendarId,
+          destinationCalendarIdFingerprint: candidate.providerCalendarIdFingerprint,
+        }),
+      );
+    const fingerprints = new Set<string>();
+    return [...current, ...this.linkedWatchTargets]
+      .filter(
+        (target) =>
+          target.producerId === command.producerId &&
+          target.connectionId === command.connectionId &&
+          target.accountVersion === command.accountVersion,
+      )
+      .filter((target) => {
+        if (fingerprints.has(target.destinationCalendarIdFingerprint)) return false;
+        fingerprints.add(target.destinationCalendarIdFingerprint);
+        return true;
+      });
+  }
+
+  async reserveCalendarWatch(
+    command: Parameters<GoogleCalendarRepository["reserveCalendarWatch"]>[0],
+  ) {
+    await Promise.resolve();
+    if (
+      this.watches.some(
+        (watch) =>
+          watch.state === "renewing" &&
+          watch.connectionId === command.connectionId &&
+          watch.accountVersion === command.accountVersion &&
+          watch.destinationCalendarIdFingerprint === command.destinationCalendarIdFingerprint,
+      )
+    ) {
+      return null;
+    }
+    const watch: GoogleCalendarStoredWatchRecord = {
+      id: command.id,
+      producerId: command.producerId,
+      connectionId: command.connectionId,
+      accountVersion: command.accountVersion,
+      destinationSelectionId: command.destinationSelectionId,
+      destinationCalendarId: command.destinationCalendarId,
+      destinationCalendarIdFingerprint: command.destinationCalendarIdFingerprint,
+      renewalOfWatchId: command.renewalOfWatchId,
+      providerChannelId: command.providerChannelId,
+      providerResourceId: null,
+      channelTokenDigest: command.channelTokenDigest,
+      state: "renewing",
+      expiresAt: null,
+      activatedAt: null,
+      endedAt: null,
+      createdAt: command.reservedAt,
+    };
+    this.watches.push(watch);
+    return watch;
+  }
+
+  async activateCalendarWatch(
+    command: Parameters<GoogleCalendarRepository["activateCalendarWatch"]>[0],
+  ) {
+    await Promise.resolve();
+    const index = this.watches.findIndex(
+      (watch) => watch.id === command.watchId && watch.producerId === command.producerId,
+    );
+    const reserved = this.watches[index];
+    if (!reserved || reserved.state !== "renewing") return false;
+    this.watches = this.watches.map((watch) =>
+      watch.id === reserved.renewalOfWatchId
+        ? { ...watch, state: "retired", endedAt: command.activatedAt }
+        : watch,
+    );
+    this.watches[index] = {
+      ...reserved,
+      providerResourceId: command.providerResourceId,
+      state: "active",
+      expiresAt: command.expiresAt,
+      activatedAt: command.activatedAt,
+    };
+    return true;
+  }
+
+  async endCalendarWatch(command: Parameters<GoogleCalendarRepository["endCalendarWatch"]>[0]) {
+    await Promise.resolve();
+    const index = this.watches.findIndex(
+      (watch) =>
+        watch.id === command.watchId &&
+        watch.producerId === command.producerId &&
+        (watch.state === "renewing" || watch.state === "active"),
+    );
+    const watch = this.watches[index];
+    if (!watch) return false;
+    this.watches[index] = { ...watch, state: command.state, endedAt: command.endedAt };
+    return true;
+  }
+
+  async listCalendarWatchesDueForRenewal(
+    command: Parameters<GoogleCalendarRepository["listCalendarWatchesDueForRenewal"]>[0],
+  ) {
+    await Promise.resolve();
+    return this.watches
+      .filter(
+        (watch) =>
+          this.connection?.status === "connected" &&
+          watch.producerId === this.connection.producerId &&
+          watch.connectionId === this.connection.id &&
+          watch.accountVersion === this.connection.accountVersion &&
+          watch.state === "active" &&
+          watch.expiresAt !== null &&
+          watch.expiresAt.getTime() <= command.renewBefore.getTime(),
+      )
+      .slice(0, command.limit);
+  }
+
+  async listCalendarWatchRepairProducerIds(
+    command: Parameters<GoogleCalendarRepository["listCalendarWatchRepairProducerIds"]>[0],
+  ) {
+    await Promise.resolve();
+    const connection = this.connection;
+    if (!connection || connection.status !== "connected") return [];
+    const targets = await this.listRequiredCalendarWatchTargets({
+      producerId: connection.producerId,
+      connectionId: connection.id,
+      accountVersion: connection.accountVersion,
+      now: command.now,
+    });
+    const required = new Set(targets.map((target) => target.destinationCalendarIdFingerprint));
+    const live = this.watches.filter(
+      (watch) =>
+        watch.producerId === connection.producerId &&
+        watch.connectionId === connection.id &&
+        watch.accountVersion === connection.accountVersion &&
+        (watch.state === "renewing" || watch.state === "active"),
+    );
+    const needsRepair =
+      targets.some(
+        (target) =>
+          !live.some(
+            (watch) =>
+              watch.destinationCalendarIdFingerprint === target.destinationCalendarIdFingerprint,
+          ),
+      ) || live.some((watch) => !required.has(watch.destinationCalendarIdFingerprint));
+    return needsRepair ? [connection.producerId].slice(0, command.limit) : [];
+  }
+
   async saveCalendarSelection(
     command: Parameters<GoogleCalendarRepository["saveCalendarSelection"]>[0],
   ) {
@@ -300,6 +496,13 @@ class MemoryGoogleCalendarRepository implements GoogleCalendarRepository {
       return false;
     }
     this.candidates = [];
+    this.watches = this.watches.map((watch) =>
+      watch.connectionId === connection.id &&
+      watch.accountVersion === connection.accountVersion &&
+      (watch.state === "renewing" || watch.state === "active")
+        ? { ...watch, state: "retired", endedAt: command.disconnectedAt }
+        : watch,
+    );
     this.connection = {
       ...connection,
       status: "disconnected",
@@ -350,6 +553,19 @@ function calendar(accessRole: "owner" | "reader" = "owner") {
   ] as const;
 }
 
+function calendarsForDestinationSwitch() {
+  return [
+    ...calendar(),
+    {
+      providerCalendarId: "private-second-calendar-id",
+      displayName: "Second studio calendar",
+      timezone: "Asia/Jerusalem",
+      accessRole: "owner",
+      isPrimary: false,
+    },
+  ] as const;
+}
+
 function createProvider() {
   return {
     exchangeAuthorizationCode: vi.fn(() => Promise.resolve(authorization())),
@@ -371,8 +587,17 @@ function createProvider() {
     ),
     insertEvent: vi.fn<GoogleCalendarProvider["insertEvent"]>(),
     getEvent: vi.fn<GoogleCalendarProvider["getEvent"]>(),
+    getLinkedEvent: vi.fn<GoogleCalendarProvider["getLinkedEvent"]>(),
     patchEvent: vi.fn<GoogleCalendarProvider["patchEvent"]>(),
     deleteEvent: vi.fn<GoogleCalendarProvider["deleteEvent"]>(),
+    watchEvents: vi.fn<GoogleCalendarProvider["watchEvents"]>((_accessToken, input) =>
+      Promise.resolve({
+        channelId: input.channelId,
+        resourceId: "opaque-resource-id",
+        expiresAt: new Date("2026-08-16T10:00:00.000Z"),
+      }),
+    ),
+    stopChannel: vi.fn<GoogleCalendarProvider["stopChannel"]>(),
     revokeToken: vi.fn(() => Promise.resolve()),
   } satisfies GoogleCalendarProvider;
 }
@@ -402,6 +627,17 @@ function storedConnection(
   const connection = repository.connection;
   if (!connection) throw new Error("Missing test connection");
   return connection;
+}
+
+function watchTarget(candidate: GoogleCalendarCandidateRecord): GoogleCalendarWatchTarget {
+  return {
+    producerId: candidate.producerId,
+    connectionId: candidate.connectionId,
+    accountVersion: candidate.accountVersion,
+    destinationSelectionId: candidate.id,
+    destinationCalendarId: candidate.providerCalendarId,
+    destinationCalendarIdFingerprint: candidate.providerCalendarIdFingerprint,
+  };
 }
 
 describe("Google Calendar service lifecycle", () => {
@@ -646,7 +882,12 @@ describe("Google Calendar service lifecycle", () => {
   it("refreshes CalendarList before save and rejects a destination that lost write access", async () => {
     const repository = new MemoryGoogleCalendarRepository();
     const provider = createProvider();
-    const service = createGoogleCalendarService({ repository, provider, config: CONFIG });
+    const service = createGoogleCalendarService({
+      repository,
+      provider,
+      config: CONFIG,
+      now: () => new Date("2026-08-09T10:00:00.000Z"),
+    });
     const connected = await connect(service);
     const calendarId = connected.calendars[0]?.id;
     if (!calendarId) throw new Error("Missing test calendar");
@@ -659,6 +900,14 @@ describe("Google Calendar service lifecycle", () => {
     expect(repository.initialSyncCalls).toEqual([
       expect.objectContaining({ producerId: PRODUCER_ID, limit: 100 }),
     ]);
+    expect(provider.watchEvents).toHaveBeenCalledWith(
+      "access-google-subject-a",
+      expect.objectContaining({
+        calendarId: "private-primary-calendar-id",
+        address: "https://preview.test/api/webhooks/google-calendar",
+      }),
+    );
+    expect(repository.watches.filter((watch) => watch.state === "active")).toHaveLength(1);
     provider.listCalendars.mockResolvedValueOnce(calendar("reader"));
     await expect(
       service.saveSelection({
@@ -668,6 +917,241 @@ describe("Google Calendar service lifecycle", () => {
       }),
     ).rejects.toSatisfy((error: unknown) => expectServiceError(error, "invalid_selection"));
     expect(repository.connection?.status).toBe("needs_selection");
+  });
+
+  it("renews an expiring watch before stopping its predecessor", async () => {
+    let clock = new Date("2026-08-09T10:00:00.000Z");
+    const repository = new MemoryGoogleCalendarRepository();
+    const provider = createProvider();
+    const service = createGoogleCalendarService({
+      repository,
+      provider,
+      config: CONFIG,
+      now: () => new Date(clock),
+    });
+    const connected = await connect(service);
+    const calendarId = connected.calendars[0]?.id;
+    if (!calendarId) throw new Error("Missing test calendar");
+    await service.saveSelection({
+      producerId: PRODUCER_ID,
+      destinationCalendarId: calendarId,
+      availabilityCalendarIds: [calendarId],
+    });
+    const predecessor = repository.watches.find((watch) => watch.state === "active");
+    if (!predecessor?.providerResourceId) throw new Error("Missing active watch");
+
+    clock = new Date("2026-08-15T10:00:00.000Z");
+    provider.watchEvents.mockImplementationOnce((_accessToken, input) =>
+      Promise.resolve({
+        channelId: input.channelId,
+        resourceId: "renewed-resource-id",
+        expiresAt: new Date("2026-08-22T10:00:00.000Z"),
+      }),
+    );
+    await expect(service.renewWatches()).resolves.toEqual({
+      scanned: 1,
+      renewed: 1,
+      active: 0,
+      failed: 0,
+    });
+    expect(provider.stopChannel).toHaveBeenCalledWith("refreshed-access", {
+      channelId: predecessor.providerChannelId,
+      resourceId: predecessor.providerResourceId,
+    });
+    expect(repository.watches.filter((watch) => watch.state === "active")).toHaveLength(1);
+    expect(repository.watches.find((watch) => watch.id === predecessor.id)?.state).toBe("retired");
+  });
+
+  it("keeps and renews the prior destination while a future linked event still needs it", async () => {
+    let clock = new Date("2026-08-09T10:00:00.000Z");
+    const repository = new MemoryGoogleCalendarRepository();
+    const provider = createProvider();
+    provider.listCalendars.mockResolvedValue(calendarsForDestinationSwitch());
+    const service = createGoogleCalendarService({
+      repository,
+      provider,
+      config: CONFIG,
+      now: () => new Date(clock),
+    });
+    const connected = await connect(service);
+    const firstId = connected.calendars[0]?.id;
+    const secondId = connected.calendars[1]?.id;
+    if (!firstId || !secondId) throw new Error("Missing destination-switch calendars");
+    await service.saveSelection({
+      producerId: PRODUCER_ID,
+      destinationCalendarId: firstId,
+      availabilityCalendarIds: [firstId],
+    });
+    const firstTargetCandidate = repository.candidates.find(
+      (candidate) => candidate.id === firstId,
+    );
+    const predecessor = repository.watches.find((watch) => watch.state === "active");
+    if (!firstTargetCandidate || !predecessor?.providerResourceId) {
+      throw new Error("Missing first destination watch");
+    }
+    repository.linkedWatchTargets = [watchTarget(firstTargetCandidate)];
+
+    await service.saveSelection({
+      producerId: PRODUCER_ID,
+      destinationCalendarId: secondId,
+      availabilityCalendarIds: [secondId],
+    });
+    expect(repository.watches.filter((watch) => watch.state === "active")).toHaveLength(2);
+    expect(provider.stopChannel).not.toHaveBeenCalled();
+
+    const firstFingerprint = firstTargetCandidate.providerCalendarIdFingerprint;
+    clock = new Date("2026-08-15T10:00:00.000Z");
+    repository.watches = repository.watches.map((watch) =>
+      watch.destinationCalendarIdFingerprint === firstFingerprint && watch.state === "active"
+        ? { ...watch, expiresAt: new Date("2026-08-16T10:00:00.000Z") }
+        : watch.state === "active"
+          ? { ...watch, expiresAt: new Date("2026-08-30T10:00:00.000Z") }
+          : watch,
+    );
+    provider.watchEvents.mockClear();
+    provider.stopChannel.mockClear();
+    provider.watchEvents.mockImplementationOnce((_accessToken, request) =>
+      Promise.resolve({
+        channelId: request.channelId,
+        resourceId: "renewed-prior-destination-resource",
+        expiresAt: new Date("2026-08-22T10:00:00.000Z"),
+      }),
+    );
+
+    await expect(service.renewWatches()).resolves.toEqual({
+      scanned: 1,
+      renewed: 1,
+      active: 0,
+      failed: 0,
+    });
+    expect(provider.watchEvents).toHaveBeenCalledWith(
+      "refreshed-access",
+      expect.objectContaining({ calendarId: "private-primary-calendar-id" }),
+    );
+    expect(provider.stopChannel).toHaveBeenCalledWith("refreshed-access", {
+      channelId: predecessor.providerChannelId,
+      resourceId: predecessor.providerResourceId,
+    });
+    expect(
+      repository.watches.filter(
+        (watch) =>
+          watch.state === "active" && watch.destinationCalendarIdFingerprint === firstFingerprint,
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("retires the prior destination after its last future linked event is gone", async () => {
+    const repository = new MemoryGoogleCalendarRepository();
+    const provider = createProvider();
+    provider.listCalendars.mockResolvedValue(calendarsForDestinationSwitch());
+    const service = createGoogleCalendarService({
+      repository,
+      provider,
+      config: CONFIG,
+      now: () => new Date("2026-08-09T10:00:00.000Z"),
+    });
+    const connected = await connect(service);
+    const firstId = connected.calendars[0]?.id;
+    const secondId = connected.calendars[1]?.id;
+    if (!firstId || !secondId) throw new Error("Missing destination-switch calendars");
+    await service.saveSelection({
+      producerId: PRODUCER_ID,
+      destinationCalendarId: firstId,
+      availabilityCalendarIds: [firstId],
+    });
+    const predecessor = repository.watches.find((watch) => watch.state === "active");
+    if (!predecessor?.providerResourceId) throw new Error("Missing first destination watch");
+
+    await service.saveSelection({
+      producerId: PRODUCER_ID,
+      destinationCalendarId: secondId,
+      availabilityCalendarIds: [secondId],
+    });
+
+    expect(provider.stopChannel).toHaveBeenCalledWith("access-google-subject-a", {
+      channelId: predecessor.providerChannelId,
+      resourceId: predecessor.providerResourceId,
+    });
+    expect(repository.watches.find((watch) => watch.id === predecessor.id)?.state).toBe("retired");
+    expect(repository.watches.filter((watch) => watch.state === "active")).toHaveLength(1);
+  });
+
+  it("rejects linked watch targets from another producer or account version", async () => {
+    const repository = new MemoryGoogleCalendarRepository();
+    const provider = createProvider();
+    provider.listCalendars.mockResolvedValue(calendarsForDestinationSwitch());
+    const service = createGoogleCalendarService({ repository, provider, config: CONFIG });
+    const connected = await connect(service);
+    const firstId = connected.calendars[0]?.id;
+    const secondId = connected.calendars[1]?.id;
+    if (!firstId || !secondId) throw new Error("Missing destination-switch calendars");
+    await service.saveSelection({
+      producerId: PRODUCER_ID,
+      destinationCalendarId: firstId,
+      availabilityCalendarIds: [firstId],
+    });
+    const firstTargetCandidate = repository.candidates.find(
+      (candidate) => candidate.id === firstId,
+    );
+    const predecessor = repository.watches.find((watch) => watch.state === "active");
+    if (!firstTargetCandidate || !predecessor) throw new Error("Missing first destination watch");
+    const target = watchTarget(firstTargetCandidate);
+    repository.linkedWatchTargets = [
+      { ...target, producerId: "22222222-2222-4222-8222-222222222222" },
+      { ...target, accountVersion: target.accountVersion + 1 },
+    ];
+
+    await service.saveSelection({
+      producerId: PRODUCER_ID,
+      destinationCalendarId: secondId,
+      availabilityCalendarIds: [secondId],
+    });
+
+    expect(repository.watches.find((watch) => watch.id === predecessor.id)?.state).toBe("retired");
+    expect(repository.watches.filter((watch) => watch.state === "active")).toHaveLength(1);
+  });
+
+  it("repairs a connected destination when post-selection watch creation was missed", async () => {
+    const repository = new MemoryGoogleCalendarRepository();
+    const provider = createProvider();
+    const service = createGoogleCalendarService({ repository, provider, config: CONFIG });
+    const connected = await connect(service);
+    const calendarId = connected.calendars[0]?.id;
+    if (!calendarId) throw new Error("Missing test calendar");
+    await service.saveSelection({
+      producerId: PRODUCER_ID,
+      destinationCalendarId: calendarId,
+      availabilityCalendarIds: [calendarId],
+    });
+    repository.watches = repository.watches.map((watch) => ({
+      ...watch,
+      state: "retired",
+      endedAt: new Date(),
+    }));
+
+    await expect(service.maintainWatches()).resolves.toEqual({
+      scanned: 1,
+      created: 1,
+      renewed: 0,
+      active: 0,
+      failed: 0,
+    });
+    expect(repository.watches.filter((watch) => watch.state === "active")).toHaveLength(1);
+  });
+
+  it("returns only safe aggregate sync health", async () => {
+    const repository = new MemoryGoogleCalendarRepository();
+    repository.syncSummary = { syncing: 2, notSynced: 1, missing: 3, conflicts: 4 };
+    const provider = createProvider();
+    const service = createGoogleCalendarService({ repository, provider, config: CONFIG });
+    await connect(service);
+    const snapshot = await service.status(PRODUCER_ID);
+    expect(snapshot).toEqual(
+      expect.objectContaining({
+        syncSummary: { syncing: 2, notSynced: 1, missing: 3, conflicts: 4 },
+      }),
+    );
+    expect(JSON.stringify(snapshot)).not.toContain("providerEventId");
   });
 
   it("retries CalendarList from status when selection setup has no candidates", async () => {
@@ -686,16 +1170,30 @@ describe("Google Calendar service lifecycle", () => {
   it("revokes any independently readable token and always completes local disconnect", async () => {
     const repository = new MemoryGoogleCalendarRepository();
     const provider = createProvider();
-    const service = createGoogleCalendarService({ repository, provider, config: CONFIG });
-    await connect(service);
+    const service = createGoogleCalendarService({
+      repository,
+      provider,
+      config: CONFIG,
+      now: () => new Date("2026-08-09T10:00:00.000Z"),
+    });
+    const connected = await connect(service);
+    const calendarId = connected.calendars[0]?.id;
+    if (!calendarId) throw new Error("Missing test calendar");
+    await service.saveSelection({
+      producerId: PRODUCER_ID,
+      destinationCalendarId: calendarId,
+      availabilityCalendarIds: [calendarId],
+    });
     const connection = repository.connection;
     if (!connection?.refreshToken) throw new Error("Missing test connection");
     repository.connection = {
       ...connection,
       refreshToken: { ...connection.refreshToken, authTag: "broken" },
     };
+    provider.stopChannel.mockRejectedValueOnce(new Error("private provider failure"));
     provider.revokeToken.mockRejectedValueOnce(new Error("private provider failure"));
     await service.disconnect(PRODUCER_ID);
+    expect(provider.stopChannel).toHaveBeenCalled();
     expect(provider.revokeToken).toHaveBeenCalledWith("access-google-subject-a");
     expect(storedConnection(repository).status).toBe("disconnected");
     expect(storedConnection(repository).accessToken).toBeNull();

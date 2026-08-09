@@ -195,6 +195,65 @@ afterEach(async () => {
 });
 
 describe("SongPage professional player interactions", () => {
+  it.each(["artist", "producer"] as const)(
+    "hides resolved notes by default for the %s route and reveals them on request",
+    async (role) => {
+      installMatchMedia(true);
+      const user = userEvent.setup();
+      const data = songData(false);
+      data.comments = [
+        {
+          id: "open-note",
+          versionId: "version-1",
+          timeMs: 12_000,
+          body: "Keep the vocal forward",
+          fromProducer: true,
+          authorName: "Producer",
+          createdAtIso: "2026-07-18T10:00:00.000Z",
+          resolvedAtIso: null,
+        },
+        {
+          id: "resolved-note",
+          versionId: "version-1",
+          timeMs: 24_000,
+          body: "Old drum note",
+          fromProducer: false,
+          authorName: "Artist",
+          createdAtIso: "2026-07-18T10:05:00.000Z",
+          resolvedAtIso: "2026-07-18T11:00:00.000Z",
+        },
+      ];
+
+      render(<SongPage data={data} role={role} actions={songActions()} />);
+
+      expect(screen.getByText("Keep the vocal forward")).not.toBeNull();
+      expect(screen.queryByText("Old drum note")).toBeNull();
+
+      await user.click(screen.getByRole("button", { name: "Show resolved" }));
+
+      expect(screen.getByText("Old drum note")).not.toBeNull();
+      expect(screen.getByRole("button", { name: "Hide resolved" })).not.toBeNull();
+    },
+  );
+
+  it.each([
+    { role: "artist" as const, reservesBottomNav: false },
+    { role: "producer" as const, reservesBottomNav: true },
+  ])(
+    "keeps the shared Song page bottom-nav reservation scoped to $role",
+    ({ role, reservesBottomNav }) => {
+      installMatchMedia(false);
+
+      render(<SongPage data={songData(false)} role={role} actions={songActions()} />);
+
+      const page = document.querySelector<HTMLElement>('[data-test="professional-song-page"]');
+      const content = page?.querySelector<HTMLElement>(":scope > div.relative.z-10");
+      expect(content).not.toBeNull();
+      expect(content?.classList.contains("pb-24")).toBe(reservesBottomNav);
+      expect(content?.classList.contains("lg:pb-10")).toBe(true);
+    },
+  );
+
   it("keeps a project-origin return link and opens the next-version uploader", async () => {
     installMatchMedia(true);
     const user = userEvent.setup();

@@ -3,7 +3,11 @@ import { randomBytes } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 
 import type { GoogleCalendarServerConfig } from "./config";
-import { GoogleCalendarProviderError, createGoogleCalendarProvider } from "./provider";
+import {
+  GoogleCalendarProviderError,
+  createGoogleCalendarProvider,
+  hasRequiredGoogleCalendarScopes,
+} from "./provider";
 
 const SECRET = randomBytes(32);
 const CONFIG = {
@@ -14,13 +18,18 @@ const CONFIG = {
   encryption: { activeVersion: 1, keys: new Map([[1, SECRET]]) },
   calendarIdFingerprintSecret: SECRET,
 } satisfies GoogleCalendarServerConfig;
-const ALL_SCOPES = [
-  "openid",
-  "email",
+const GOOGLE_USERINFO_EMAIL_SCOPE = "https://www.googleapis.com/auth/userinfo.email";
+const REQUIRED_CALENDAR_SCOPES = [
   "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
   "https://www.googleapis.com/auth/calendar.events.freebusy",
   "https://www.googleapis.com/auth/calendar.events",
+] as const;
+const CANONICAL_GOOGLE_SCOPES = [
+  "openid",
+  GOOGLE_USERINFO_EMAIL_SCOPE,
+  ...REQUIRED_CALENDAR_SCOPES,
 ].join(" ");
+const SHORT_EMAIL_ALIAS_SCOPES = ["openid", "email", ...REQUIRED_CALENDAR_SCOPES];
 
 function json(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
@@ -30,6 +39,23 @@ function json(value: unknown, status = 200): Response {
 }
 
 describe("Google Calendar REST provider", () => {
+  it("accepts Google's canonical email scope without relaxing any Calendar scope", () => {
+    const canonicalScopes = CANONICAL_GOOGLE_SCOPES.split(" ");
+
+    expect(hasRequiredGoogleCalendarScopes(canonicalScopes)).toBe(true);
+    expect(hasRequiredGoogleCalendarScopes(SHORT_EMAIL_ALIAS_SCOPES)).toBe(true);
+    expect(
+      hasRequiredGoogleCalendarScopes(
+        canonicalScopes.filter((scope) => scope !== GOOGLE_USERINFO_EMAIL_SCOPE),
+      ),
+    ).toBe(false);
+    for (const calendarScope of REQUIRED_CALENDAR_SCOPES) {
+      expect(
+        hasRequiredGoogleCalendarScopes(canonicalScopes.filter((scope) => scope !== calendarScope)),
+      ).toBe(false);
+    }
+  });
+
   it("uses trusted UserInfo and never trusts decoded id_token claims", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
@@ -38,7 +64,7 @@ describe("Google Calendar REST provider", () => {
           access_token: "access-token",
           refresh_token: "refresh-token",
           expires_in: 3_600,
-          scope: ALL_SCOPES,
+          scope: CANONICAL_GOOGLE_SCOPES,
           id_token: "eyJhbGciOiJub25lIn0.fake-attacker-claims.",
         }),
       )
@@ -70,7 +96,7 @@ describe("Google Calendar REST provider", () => {
           access_token: "access-token",
           refresh_token: "refresh-token",
           expires_in: 3_600,
-          scope: ALL_SCOPES,
+          scope: CANONICAL_GOOGLE_SCOPES,
         }),
       )
       .mockResolvedValueOnce(

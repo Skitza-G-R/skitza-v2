@@ -53,6 +53,12 @@ const PREVIEW_CALENDARS: readonly GoogleCalendarOption[] = [
 ] as const;
 
 const PREVIEW_ACTION_SUCCESS: GoogleCalendarActionResult = { ok: true };
+const PREVIEW_SYNC_SUMMARY = {
+  syncing: 0,
+  notSynced: 0,
+  missing: 0,
+  conflicts: 0,
+} as const;
 const PREVIEW_ACTIONS: GoogleCalendarControlActions = {
   connect: () => Promise.resolve(PREVIEW_ACTION_SUCCESS),
   refreshCalendars: () => Promise.resolve(PREVIEW_ACTION_SUCCESS),
@@ -69,12 +75,16 @@ export function GoogleCalendarPreview({
   state,
   googleBusyProtectionReduced = false,
   googleControlOpen = true,
+  modelOverride,
+  sessionsContent,
 }: {
   state: Sk192GoogleCalendarPreviewState;
   googleBusyProtectionReduced?: boolean;
   googleControlOpen?: boolean;
+  modelOverride?: GoogleCalendarUiModel;
+  sessionsContent?: ReactNode;
 }) {
-  const model = previewModel(state);
+  const model = modelOverride ?? previewModel(state);
   const defaultView = previewView(state);
 
   return (
@@ -114,7 +124,7 @@ export function GoogleCalendarPreview({
                     defaultView={defaultView}
                   />
                 }
-                sessionsContent={<PreviewSchedule />}
+                sessionsContent={sessionsContent ?? <PreviewSchedule />}
                 availabilityContent={<PreviewAvailability />}
               />
             </div>
@@ -291,6 +301,7 @@ function previewModel(state: Sk192GoogleCalendarPreviewState): GoogleCalendarUiM
         status: "selection_required",
         accountLabel: "Northline Studio account",
         calendars: PREVIEW_CALENDARS,
+        syncSummary: PREVIEW_SYNC_SUMMARY,
         selection: { destinationSelectionKey: null, busySelectionKeys: ["studio-sessions"] },
       };
     case "empty-selection":
@@ -298,17 +309,20 @@ function previewModel(state: Sk192GoogleCalendarPreviewState): GoogleCalendarUiM
         status: "selection_required",
         accountLabel: "Northline Studio account",
         calendars: [],
+        syncSummary: PREVIEW_SYNC_SUMMARY,
         selection: { destinationSelectionKey: null, busySelectionKeys: [] },
       };
     case "disconnected":
       return {
         status: "disconnected",
         accountLabel: "Northline Studio account",
+        syncSummary: PREVIEW_SYNC_SUMMARY,
       };
     case "reconnect":
       return {
         status: "reconnect_required",
         accountLabel: "Northline Studio account",
+        syncSummary: PREVIEW_SYNC_SUMMARY,
       };
     case "connected":
     case "switch":
@@ -317,6 +331,7 @@ function previewModel(state: Sk192GoogleCalendarPreviewState): GoogleCalendarUiM
         status: "connected",
         accountLabel: "Northline Studio account",
         calendars: PREVIEW_CALENDARS,
+        syncSummary: PREVIEW_SYNC_SUMMARY,
         selection: {
           destinationSelectionKey: "studio-sessions",
           busySelectionKeys: ["studio-sessions", "personal-busy-time"],

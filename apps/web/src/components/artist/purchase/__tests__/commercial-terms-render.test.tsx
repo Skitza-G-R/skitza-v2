@@ -175,7 +175,12 @@ describe("artist commercial-term rendering", () => {
     expect(html).toContain("Due at acceptance");
     expect(html).toContain("Artist owns the final approved master.");
     expect(html).toContain("3 included song spaces");
-    expect(html).toContain("This exact agreement is frozen at acceptance.");
+    const exactAgreementDetails = html.match(/<details[^>]*>[\s\S]*?<\/details>/)?.[0];
+    expect(exactAgreementDetails).toBeDefined();
+    expect(exactAgreementDetails).not.toMatch(/<details[^>]*\sopen(?:=|\s|>)/);
+    expect(exactAgreementDetails).toContain("<summary");
+    expect(exactAgreementDetails).toContain("View full exact agreement");
+    expect(exactAgreementDetails).toContain("This exact agreement is frozen at acceptance.");
     expect(html).toContain("Open PDF agreement · private-terms.pdf");
     expect(html).toContain(
       "purchaseRequestId=00000000-0000-4000-8000-000000000088&amp;documentId=00000000-0000-4000-8000-000000000089",

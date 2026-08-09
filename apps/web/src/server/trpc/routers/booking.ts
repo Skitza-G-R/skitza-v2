@@ -53,11 +53,15 @@ import {
   createProducerManualSessionBooking,
   decideProducerSessionChangeRequest,
   findProducerManualSessionBookingReplay,
+  getSessionBookingGoogleCalendarSyncStatuses,
+  GOOGLE_CALENDAR_SYNC_STATUS_BATCH_LIMIT,
   markSessionNoShow,
   previewProducerSessionReschedule,
   recordLateArtistCancellation,
   rejectSessionBooking,
+  restoreMissingSessionBookingGoogleCalendarEvent,
   rescheduleProducerSessionBooking,
+  retrySessionBookingGoogleCalendarSync,
   SessionBookingDomainError,
 } from "~/server/domain/session-booking/service";
 import {
@@ -1604,6 +1608,64 @@ export const bookingRouter = router({
   // Identical surface; removal tracked alongside the legacy `packages`
   // schema alias.
   packages: productsRouter,
+
+  googleCalendarSync: router({
+    status: producerProcedure
+      .input(
+        z.object({
+          ids: z.array(z.string().uuid()).max(GOOGLE_CALENDAR_SYNC_STATUS_BATCH_LIMIT),
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        getSessionBookingGoogleCalendarSyncStatuses(sessionBookingRepository(ctx.db), {
+          bookingIds: input.ids,
+          producerId: ctx.producerId,
+        }),
+      ),
+
+    retry: producerProcedure
+      .input(
+        z.object({
+          id: z.string().uuid(),
+          operationKey: z.string().trim().min(1).max(200),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await retrySessionBookingGoogleCalendarSync(sessionBookingRepository(ctx.db), {
+            bookingId: input.id,
+            producerId: ctx.producerId,
+            actorClerkUserId: producerActorClerkUserId(ctx.userId),
+            operationKey: input.operationKey,
+          });
+        } catch (error) {
+          mapSessionBookingDomainError(error);
+        }
+      }),
+
+    restore: producerProcedure
+      .input(
+        z.object({
+          id: z.string().uuid(),
+          operationKey: z.string().trim().min(1).max(200),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await restoreMissingSessionBookingGoogleCalendarEvent(
+            sessionBookingRepository(ctx.db),
+            {
+              bookingId: input.id,
+              producerId: ctx.producerId,
+              actorClerkUserId: producerActorClerkUserId(ctx.userId),
+              operationKey: input.operationKey,
+            },
+          );
+        } catch (error) {
+          mapSessionBookingDomainError(error);
+        }
+      }),
+  }),
 
   // ── Blackouts (producer-only) ────────────────────────────────────
   blackouts: router({

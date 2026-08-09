@@ -11,17 +11,20 @@ import {
   gt,
   inArray,
   isNull,
+  lte,
   notExists,
   notInArray,
   sql,
   googleCalendarConnections,
   googleCalendarOAuthStates,
   googleCalendarSelections,
+  googleCalendarWatches,
   type Db,
   type GoogleCalendarConnection,
   type GoogleCalendarOAuthState,
   type GoogleCalendarSelection,
   type GoogleCalendarSyncJobPayloadSnapshot,
+  type GoogleCalendarWatch,
 } from "@skitza/db";
 
 import type { EncryptedGoogleCalendarValue } from "./crypto";
@@ -29,7 +32,9 @@ import type {
   GoogleCalendarCandidateRecord,
   GoogleCalendarConnectionRecord,
   GoogleCalendarRepository,
+  GoogleCalendarStoredWatchRecord,
   GoogleCalendarStoredOAuthState,
+  GoogleCalendarWatchTarget,
 } from "./repository";
 
 function afterTimestamp(requested: Date, existing: Date): Date {
@@ -133,6 +138,66 @@ function oauthStateRecord(row: GoogleCalendarOAuthState): GoogleCalendarStoredOA
     expiresAt: row.expiresAt,
     consumedAt: row.consumedAt,
     createdAt: row.createdAt,
+  };
+}
+
+function watchRecord(row: GoogleCalendarWatch): GoogleCalendarStoredWatchRecord {
+  const destinationCalendarId = encryptedValue({
+    ciphertext: row.destinationCalendarIdCiphertext,
+    iv: row.destinationCalendarIdIv,
+    authTag: row.destinationCalendarIdAuthTag,
+    keyVersion: row.destinationCalendarIdKeyVersion,
+  });
+  if (!destinationCalendarId) {
+    throw new Error("Invalid protected Google Calendar watch row");
+  }
+  return {
+    id: row.id,
+    producerId: row.producerId,
+    connectionId: row.connectionId,
+    accountVersion: row.accountVersion,
+    destinationSelectionId: row.destinationSelectionId,
+    destinationCalendarId,
+    destinationCalendarIdFingerprint: row.destinationCalendarIdFingerprint,
+    renewalOfWatchId: row.renewalOfWatchId,
+    providerChannelId: row.providerChannelId,
+    providerResourceId: row.providerResourceId,
+    channelTokenDigest: row.channelTokenDigest,
+    state: row.state,
+    expiresAt: row.expiresAt,
+    activatedAt: row.activatedAt,
+    endedAt: row.endedAt,
+    createdAt: row.createdAt,
+  };
+}
+
+function watchTargetRecord(row: {
+  producerId: string;
+  connectionId: string;
+  accountVersion: number;
+  destinationSelectionId: string;
+  destinationCalendarIdCiphertext: string;
+  destinationCalendarIdIv: string;
+  destinationCalendarIdAuthTag: string;
+  destinationCalendarIdKeyVersion: number;
+  destinationCalendarIdFingerprint: string;
+}): GoogleCalendarWatchTarget {
+  const destinationCalendarId = encryptedValue({
+    ciphertext: row.destinationCalendarIdCiphertext,
+    iv: row.destinationCalendarIdIv,
+    authTag: row.destinationCalendarIdAuthTag,
+    keyVersion: row.destinationCalendarIdKeyVersion,
+  });
+  if (!destinationCalendarId) {
+    throw new Error("Invalid protected Google Calendar watch target");
+  }
+  return {
+    producerId: row.producerId,
+    connectionId: row.connectionId,
+    accountVersion: row.accountVersion,
+    destinationSelectionId: row.destinationSelectionId,
+    destinationCalendarId,
+    destinationCalendarIdFingerprint: row.destinationCalendarIdFingerprint,
   };
 }
 
@@ -286,6 +351,22 @@ export function createGoogleCalendarRepository(db: Db): GoogleCalendarRepository
           ? afterTimestamp(authorizedAt, existing.refreshTokenUpdatedAt ?? existing.createdAt)
           : existing.refreshTokenUpdatedAt;
         if (changesSubject) {
+          await tx
+            .update(googleCalendarWatches)
+            .set({
+              state: "retired",
+              endedAt: authorizedAt,
+              lastErrorCode: null,
+              updatedAt: advancedTimestamp(googleCalendarWatches.updatedAt, authorizedAt),
+            })
+            .where(
+              and(
+                eq(googleCalendarWatches.connectionId, existing.id),
+                eq(googleCalendarWatches.producerId, command.producerId),
+                eq(googleCalendarWatches.accountVersion, existing.accountVersion),
+                inArray(googleCalendarWatches.state, ["renewing", "active"]),
+              ),
+            );
           await tx
             .delete(googleCalendarSelections)
             .where(
@@ -533,6 +614,473 @@ export function createGoogleCalendarRepository(db: Db): GoogleCalendarRepository
           asc(googleCalendarSelections.id),
         );
       return rows.map(selectionRecord);
+    },
+
+    async getConnectionSyncSummary(command) {
+      const [row] = await db
+        .select({
+          syncing: sql<number>`count(*) filter (where ${bookingCalendarLinks.syncState} = 'pending')::integer`,
+          notSynced: sql<number>`count(*) filter (where ${bookingCalendarLinks.syncState} = 'not_synced')::integer`,
+          missing: sql<number>`count(*) filter (where ${bookingCalendarLinks.syncState} = 'missing')::integer`,
+          conflicts: sql<number>`count(*) filter (where ${bookingCalendarLinks.syncState} = 'conflict')::integer`,
+        })
+        .from(bookingCalendarLinks)
+        .where(
+          and(
+            eq(bookingCalendarLinks.producerId, command.producerId),
+            eq(bookingCalendarLinks.connectionId, command.connectionId),
+            eq(bookingCalendarLinks.accountVersion, command.accountVersion),
+          ),
+        );
+      return {
+        syncing: row?.syncing ?? 0,
+        notSynced: row?.notSynced ?? 0,
+        missing: row?.missing ?? 0,
+        conflicts: row?.conflicts ?? 0,
+      };
+    },
+
+    async listCalendarWatches(command) {
+      const rows = await db
+        .select()
+        .from(googleCalendarWatches)
+        .where(
+          and(
+            eq(googleCalendarWatches.producerId, command.producerId),
+            eq(googleCalendarWatches.connectionId, command.connectionId),
+            eq(googleCalendarWatches.accountVersion, command.accountVersion),
+            inArray(googleCalendarWatches.state, ["renewing", "active"]),
+          ),
+        )
+        .orderBy(asc(googleCalendarWatches.createdAt), asc(googleCalendarWatches.id));
+      return rows.map(watchRecord);
+    },
+
+    async listRequiredCalendarWatchTargets(command) {
+      if (Number.isNaN(command.now.getTime())) {
+        throw new Error("Invalid Google Calendar watch target time");
+      }
+      const targetColumns = {
+        producerId: googleCalendarSelections.producerId,
+        connectionId: googleCalendarSelections.connectionId,
+        accountVersion: googleCalendarSelections.accountVersion,
+        destinationSelectionId: googleCalendarSelections.id,
+        destinationCalendarIdCiphertext: googleCalendarSelections.providerCalendarIdCiphertext,
+        destinationCalendarIdIv: googleCalendarSelections.providerCalendarIdIv,
+        destinationCalendarIdAuthTag: googleCalendarSelections.providerCalendarIdAuthTag,
+        destinationCalendarIdKeyVersion: googleCalendarSelections.providerCalendarIdKeyVersion,
+        destinationCalendarIdFingerprint: googleCalendarSelections.providerCalendarIdFingerprint,
+      };
+      const [currentDestinations, linkedDestinations] = await Promise.all([
+        db
+          .select(targetColumns)
+          .from(googleCalendarSelections)
+          .innerJoin(
+            googleCalendarConnections,
+            and(
+              eq(googleCalendarConnections.id, googleCalendarSelections.connectionId),
+              eq(googleCalendarConnections.producerId, googleCalendarSelections.producerId),
+              eq(googleCalendarConnections.accountVersion, googleCalendarSelections.accountVersion),
+            ),
+          )
+          .where(
+            and(
+              eq(googleCalendarSelections.producerId, command.producerId),
+              eq(googleCalendarSelections.connectionId, command.connectionId),
+              eq(googleCalendarSelections.accountVersion, command.accountVersion),
+              eq(googleCalendarSelections.isDestination, true),
+              eq(googleCalendarConnections.status, "connected"),
+            ),
+          )
+          .orderBy(asc(googleCalendarSelections.id)),
+        db
+          .select({
+            producerId: bookingCalendarLinks.producerId,
+            connectionId: bookingCalendarLinks.connectionId,
+            accountVersion: bookingCalendarLinks.accountVersion,
+            destinationSelectionId: bookingCalendarLinks.destinationSelectionId,
+            destinationCalendarIdCiphertext: bookingCalendarLinks.destinationCalendarIdCiphertext,
+            destinationCalendarIdIv: bookingCalendarLinks.destinationCalendarIdIv,
+            destinationCalendarIdAuthTag: bookingCalendarLinks.destinationCalendarIdAuthTag,
+            destinationCalendarIdKeyVersion: bookingCalendarLinks.destinationCalendarIdKeyVersion,
+            destinationCalendarIdFingerprint: bookingCalendarLinks.destinationCalendarIdFingerprint,
+          })
+          .from(bookingCalendarLinks)
+          .innerJoin(
+            bookings,
+            and(
+              eq(bookings.id, bookingCalendarLinks.currentBookingId),
+              eq(bookings.producerId, bookingCalendarLinks.producerId),
+              eq(bookings.allowanceUseId, bookingCalendarLinks.allowanceUseId),
+            ),
+          )
+          .innerJoin(
+            googleCalendarConnections,
+            and(
+              eq(googleCalendarConnections.id, bookingCalendarLinks.connectionId),
+              eq(googleCalendarConnections.producerId, bookingCalendarLinks.producerId),
+              eq(googleCalendarConnections.accountVersion, bookingCalendarLinks.accountVersion),
+            ),
+          )
+          .where(
+            and(
+              eq(bookingCalendarLinks.producerId, command.producerId),
+              eq(bookingCalendarLinks.connectionId, command.connectionId),
+              eq(bookingCalendarLinks.accountVersion, command.accountVersion),
+              eq(bookingCalendarLinks.providerState, "active"),
+              inArray(bookings.status, ["pending_approval", "confirmed"]),
+              gt(bookings.startsAt, command.now),
+              eq(googleCalendarConnections.status, "connected"),
+            ),
+          )
+          .orderBy(
+            asc(bookings.startsAt),
+            asc(bookingCalendarLinks.destinationCalendarIdFingerprint),
+            asc(bookingCalendarLinks.id),
+          ),
+      ]);
+      const targets: GoogleCalendarWatchTarget[] = [];
+      const fingerprints = new Set<string>();
+      for (const row of [...currentDestinations, ...linkedDestinations]) {
+        if (fingerprints.has(row.destinationCalendarIdFingerprint)) continue;
+        fingerprints.add(row.destinationCalendarIdFingerprint);
+        targets.push(watchTargetRecord(row));
+      }
+      return targets;
+    },
+
+    async reserveCalendarWatch(command) {
+      const [inserted] = await db
+        .insert(googleCalendarWatches)
+        .values({
+          id: command.id,
+          producerId: command.producerId,
+          connectionId: command.connectionId,
+          accountVersion: command.accountVersion,
+          destinationSelectionId: command.destinationSelectionId,
+          destinationCalendarIdCiphertext: command.destinationCalendarId.ciphertext,
+          destinationCalendarIdIv: command.destinationCalendarId.iv,
+          destinationCalendarIdAuthTag: command.destinationCalendarId.authTag,
+          destinationCalendarIdKeyVersion: command.destinationCalendarId.keyVersion,
+          destinationCalendarIdFingerprint: command.destinationCalendarIdFingerprint,
+          renewalOfWatchId: command.renewalOfWatchId,
+          providerChannelId: command.providerChannelId,
+          providerResourceId: null,
+          channelTokenDigest: command.channelTokenDigest,
+          state: "renewing",
+          expiresAt: null,
+          createdAt: command.reservedAt,
+          updatedAt: command.reservedAt,
+        })
+        .onConflictDoNothing()
+        .returning();
+      return inserted ? watchRecord(inserted) : null;
+    },
+
+    async activateCalendarWatch(command) {
+      return db.transaction(async (tx) => {
+        const [reserved] = await tx
+          .select()
+          .from(googleCalendarWatches)
+          .where(
+            and(
+              eq(googleCalendarWatches.id, command.watchId),
+              eq(googleCalendarWatches.producerId, command.producerId),
+            ),
+          )
+          .limit(1)
+          .for("update");
+        if (
+          !reserved ||
+          reserved.state !== "renewing" ||
+          reserved.providerResourceId !== null ||
+          reserved.expiresAt !== null ||
+          command.expiresAt.getTime() <= command.activatedAt.getTime()
+        ) {
+          return false;
+        }
+        const [active] = await tx
+          .select()
+          .from(googleCalendarWatches)
+          .where(
+            and(
+              eq(googleCalendarWatches.connectionId, reserved.connectionId),
+              eq(googleCalendarWatches.producerId, reserved.producerId),
+              eq(googleCalendarWatches.accountVersion, reserved.accountVersion),
+              eq(
+                googleCalendarWatches.destinationCalendarIdFingerprint,
+                reserved.destinationCalendarIdFingerprint,
+              ),
+              eq(googleCalendarWatches.state, "active"),
+            ),
+          )
+          .limit(1)
+          .for("update");
+        if (
+          (active && reserved.renewalOfWatchId !== active.id) ||
+          (!active && reserved.renewalOfWatchId !== null)
+        ) {
+          return false;
+        }
+        if (active) {
+          await tx
+            .update(googleCalendarWatches)
+            .set({
+              state: "retired",
+              endedAt: command.activatedAt,
+              lastErrorCode: null,
+              updatedAt: advancedTimestamp(googleCalendarWatches.updatedAt, command.activatedAt),
+            })
+            .where(
+              and(
+                eq(googleCalendarWatches.id, active.id),
+                eq(googleCalendarWatches.producerId, active.producerId),
+                eq(googleCalendarWatches.state, "active"),
+              ),
+            );
+        }
+        const [activated] = await tx
+          .update(googleCalendarWatches)
+          .set({
+            providerResourceId: command.providerResourceId,
+            state: "active",
+            expiresAt: command.expiresAt,
+            activatedAt: command.activatedAt,
+            lastErrorCode: null,
+            updatedAt: advancedTimestamp(googleCalendarWatches.updatedAt, command.activatedAt),
+          })
+          .where(
+            and(
+              eq(googleCalendarWatches.id, reserved.id),
+              eq(googleCalendarWatches.producerId, reserved.producerId),
+              eq(googleCalendarWatches.state, "renewing"),
+              isNull(googleCalendarWatches.providerResourceId),
+            ),
+          )
+          .returning({ id: googleCalendarWatches.id });
+        return activated !== undefined;
+      });
+    },
+
+    async endCalendarWatch(command) {
+      const [ended] = await db
+        .update(googleCalendarWatches)
+        .set({
+          state: command.state,
+          endedAt: command.endedAt,
+          lastErrorCode: command.errorCode,
+          updatedAt: advancedTimestamp(googleCalendarWatches.updatedAt, command.endedAt),
+        })
+        .where(
+          and(
+            eq(googleCalendarWatches.id, command.watchId),
+            eq(googleCalendarWatches.producerId, command.producerId),
+            inArray(googleCalendarWatches.state, ["renewing", "active"]),
+          ),
+        )
+        .returning({ id: googleCalendarWatches.id });
+      return ended !== undefined;
+    },
+
+    async listCalendarWatchesDueForRenewal(command) {
+      if (
+        Number.isNaN(command.renewBefore.getTime()) ||
+        !Number.isSafeInteger(command.limit) ||
+        command.limit < 1 ||
+        command.limit > 100
+      ) {
+        throw new Error("Invalid Google Calendar watch renewal batch");
+      }
+      const rows = await db
+        .select({ watch: googleCalendarWatches })
+        .from(googleCalendarWatches)
+        .innerJoin(
+          googleCalendarConnections,
+          and(
+            eq(googleCalendarConnections.id, googleCalendarWatches.connectionId),
+            eq(googleCalendarConnections.producerId, googleCalendarWatches.producerId),
+            eq(googleCalendarConnections.accountVersion, googleCalendarWatches.accountVersion),
+          ),
+        )
+        .where(
+          and(
+            eq(googleCalendarConnections.status, "connected"),
+            eq(googleCalendarWatches.state, "active"),
+            lte(googleCalendarWatches.expiresAt, command.renewBefore),
+          ),
+        )
+        .orderBy(asc(googleCalendarWatches.expiresAt), asc(googleCalendarWatches.id))
+        .limit(command.limit);
+      return rows.map((row) => watchRecord(row.watch));
+    },
+
+    async listCalendarWatchRepairProducerIds(command) {
+      if (
+        Number.isNaN(command.now.getTime()) ||
+        !Number.isSafeInteger(command.limit) ||
+        command.limit < 1 ||
+        command.limit > 100
+      ) {
+        throw new Error("Invalid Google Calendar watch repair batch");
+      }
+      const missingCurrent = await db
+        .selectDistinct({ producerId: googleCalendarConnections.producerId })
+        .from(googleCalendarConnections)
+        .innerJoin(
+          googleCalendarSelections,
+          and(
+            eq(googleCalendarSelections.connectionId, googleCalendarConnections.id),
+            eq(googleCalendarSelections.producerId, googleCalendarConnections.producerId),
+            eq(googleCalendarSelections.accountVersion, googleCalendarConnections.accountVersion),
+            eq(googleCalendarSelections.isDestination, true),
+          ),
+        )
+        .where(
+          and(
+            eq(googleCalendarConnections.status, "connected"),
+            notExists(
+              db
+                .select({ one: sql<number>`1` })
+                .from(googleCalendarWatches)
+                .where(
+                  and(
+                    eq(googleCalendarWatches.connectionId, googleCalendarConnections.id),
+                    eq(googleCalendarWatches.producerId, googleCalendarConnections.producerId),
+                    eq(
+                      googleCalendarWatches.accountVersion,
+                      googleCalendarConnections.accountVersion,
+                    ),
+                    eq(
+                      googleCalendarWatches.destinationCalendarIdFingerprint,
+                      googleCalendarSelections.providerCalendarIdFingerprint,
+                    ),
+                    inArray(googleCalendarWatches.state, ["renewing", "active"]),
+                  ),
+                ),
+            ),
+          ),
+        )
+        .orderBy(asc(googleCalendarConnections.producerId))
+        .limit(command.limit);
+      const missingLinked = await db
+        .selectDistinct({ producerId: bookingCalendarLinks.producerId })
+        .from(bookingCalendarLinks)
+        .innerJoin(
+          bookings,
+          and(
+            eq(bookings.id, bookingCalendarLinks.currentBookingId),
+            eq(bookings.producerId, bookingCalendarLinks.producerId),
+            eq(bookings.allowanceUseId, bookingCalendarLinks.allowanceUseId),
+          ),
+        )
+        .innerJoin(
+          googleCalendarConnections,
+          and(
+            eq(googleCalendarConnections.id, bookingCalendarLinks.connectionId),
+            eq(googleCalendarConnections.producerId, bookingCalendarLinks.producerId),
+            eq(googleCalendarConnections.accountVersion, bookingCalendarLinks.accountVersion),
+          ),
+        )
+        .where(
+          and(
+            eq(googleCalendarConnections.status, "connected"),
+            eq(bookingCalendarLinks.providerState, "active"),
+            inArray(bookings.status, ["pending_approval", "confirmed"]),
+            gt(bookings.startsAt, command.now),
+            notExists(
+              db
+                .select({ one: sql<number>`1` })
+                .from(googleCalendarWatches)
+                .where(
+                  and(
+                    eq(googleCalendarWatches.connectionId, bookingCalendarLinks.connectionId),
+                    eq(googleCalendarWatches.producerId, bookingCalendarLinks.producerId),
+                    eq(googleCalendarWatches.accountVersion, bookingCalendarLinks.accountVersion),
+                    eq(
+                      googleCalendarWatches.destinationCalendarIdFingerprint,
+                      bookingCalendarLinks.destinationCalendarIdFingerprint,
+                    ),
+                    inArray(googleCalendarWatches.state, ["renewing", "active"]),
+                  ),
+                ),
+            ),
+          ),
+        )
+        .orderBy(asc(bookingCalendarLinks.producerId))
+        .limit(command.limit);
+      const staleWatch = await db
+        .selectDistinct({ producerId: googleCalendarWatches.producerId })
+        .from(googleCalendarWatches)
+        .innerJoin(
+          googleCalendarConnections,
+          and(
+            eq(googleCalendarConnections.id, googleCalendarWatches.connectionId),
+            eq(googleCalendarConnections.producerId, googleCalendarWatches.producerId),
+            eq(googleCalendarConnections.accountVersion, googleCalendarWatches.accountVersion),
+          ),
+        )
+        .where(
+          and(
+            eq(googleCalendarConnections.status, "connected"),
+            inArray(googleCalendarWatches.state, ["renewing", "active"]),
+            notExists(
+              db
+                .select({ one: sql<number>`1` })
+                .from(googleCalendarSelections)
+                .where(
+                  and(
+                    eq(googleCalendarSelections.connectionId, googleCalendarWatches.connectionId),
+                    eq(googleCalendarSelections.producerId, googleCalendarWatches.producerId),
+                    eq(
+                      googleCalendarSelections.accountVersion,
+                      googleCalendarWatches.accountVersion,
+                    ),
+                    eq(googleCalendarSelections.isDestination, true),
+                    eq(
+                      googleCalendarSelections.providerCalendarIdFingerprint,
+                      googleCalendarWatches.destinationCalendarIdFingerprint,
+                    ),
+                  ),
+                ),
+            ),
+            notExists(
+              db
+                .select({ one: sql<number>`1` })
+                .from(bookingCalendarLinks)
+                .innerJoin(
+                  bookings,
+                  and(
+                    eq(bookings.id, bookingCalendarLinks.currentBookingId),
+                    eq(bookings.producerId, bookingCalendarLinks.producerId),
+                    eq(bookings.allowanceUseId, bookingCalendarLinks.allowanceUseId),
+                  ),
+                )
+                .where(
+                  and(
+                    eq(bookingCalendarLinks.connectionId, googleCalendarWatches.connectionId),
+                    eq(bookingCalendarLinks.producerId, googleCalendarWatches.producerId),
+                    eq(bookingCalendarLinks.accountVersion, googleCalendarWatches.accountVersion),
+                    eq(
+                      bookingCalendarLinks.destinationCalendarIdFingerprint,
+                      googleCalendarWatches.destinationCalendarIdFingerprint,
+                    ),
+                    eq(bookingCalendarLinks.providerState, "active"),
+                    inArray(bookings.status, ["pending_approval", "confirmed"]),
+                    gt(bookings.startsAt, command.now),
+                  ),
+                ),
+            ),
+          ),
+        )
+        .orderBy(asc(googleCalendarWatches.producerId))
+        .limit(command.limit);
+      return [
+        ...new Set(
+          [...missingCurrent, ...missingLinked, ...staleWatch].map((row) => row.producerId),
+        ),
+      ]
+        .sort()
+        .slice(0, command.limit);
     },
 
     async saveCalendarSelection(command) {
@@ -920,6 +1468,22 @@ export function createGoogleCalendarRepository(db: Db): GoogleCalendarRepository
         ) {
           return false;
         }
+        await tx
+          .update(googleCalendarWatches)
+          .set({
+            state: "retired",
+            endedAt: command.disconnectedAt,
+            lastErrorCode: null,
+            updatedAt: advancedTimestamp(googleCalendarWatches.updatedAt, command.disconnectedAt),
+          })
+          .where(
+            and(
+              eq(googleCalendarWatches.connectionId, command.connectionId),
+              eq(googleCalendarWatches.producerId, command.producerId),
+              eq(googleCalendarWatches.accountVersion, command.accountVersion),
+              inArray(googleCalendarWatches.state, ["renewing", "active"]),
+            ),
+          );
         await tx
           .delete(googleCalendarSelections)
           .where(

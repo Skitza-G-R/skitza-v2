@@ -28,27 +28,44 @@ export const DEV_ARTIST_STUDIOS = [
 ] satisfies Studio[];
 
 export const DEV_ARTIST_HOME_MAIN = {
+  id: "00000000-0000-4000-8000-000000000222",
+  kind: "today_session",
+  title: "Mix review",
+  detail: "Today, 18:00–19:30",
+  href: "/dev/screens/artist-session-detail",
+  actionLabel: "View session",
+  upcomingAt: new Date("2026-08-04T15:00:00.000Z"),
+  occurredAt: new Date("2026-08-04T15:00:00.000Z"),
+} satisfies ArtistHomeAction;
+
+export const DEV_ARTIST_HOME_NEW_SONG = {
   id: "00000000-0000-4000-8000-000000000221",
   kind: "new_song",
   title: "Neon Afterglow",
   detail: "Mix v3 · Northline Studio",
-  href: "/dev/screens/artist-project-completed",
+  href: "/dev/screens/sk98-artist-song",
   actionLabel: "Open song",
   upcomingAt: null,
   occurredAt: new Date("2026-08-04T08:20:00.000Z"),
   isNew: true,
+  audio: {
+    url: "/landing/demo.mp4",
+    title: "Neon Afterglow",
+    subtitle: "Northline Studio",
+    durationMs: null,
+  },
 } satisfies ArtistHomeAction;
 
 export const DEV_ARTIST_HOME_SUPPORTING = [
   {
-    id: "00000000-0000-4000-8000-000000000222",
-    kind: "today_session",
-    title: "Mix review",
-    detail: "Today, 18:00–19:30",
-    href: "/dev/screens/artist-session-detail",
+    id: "00000000-0000-4000-8000-000000000224",
+    kind: "payment_action",
+    title: "₪600.00 due",
+    detail: "Neon Afterglow · Remaining balance",
+    href: "/dev/screens/artist-home",
     actionLabel: "View",
-    upcomingAt: new Date("2026-08-04T15:00:00.000Z"),
-    occurredAt: new Date("2026-08-04T15:00:00.000Z"),
+    upcomingAt: null,
+    occurredAt: new Date("2026-08-03T15:00:00.000Z"),
   },
   {
     id: "00000000-0000-4000-8000-000000000223",

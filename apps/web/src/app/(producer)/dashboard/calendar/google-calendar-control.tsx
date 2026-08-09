@@ -24,6 +24,7 @@ import {
   type GoogleCalendarControlActions,
   type GoogleCalendarOption,
   type GoogleCalendarSelection,
+  type GoogleCalendarSyncSummary,
   type GoogleCalendarUiModel,
 } from "./google-calendar-ui-model";
 
@@ -195,7 +196,7 @@ export function GoogleCalendarControl({
             <CalendarSync size={17} aria-hidden />
           )}
           <span className="hidden lg:inline">{triggerVisibleLabel(model)}</span>
-          <TriggerStatusDot status={model.status} />
+          <TriggerStatusDot model={model} />
         </Button>
       </DialogTrigger>
 
@@ -360,6 +361,7 @@ function SummaryPanel({
         />
         <div className="space-y-3 px-5 py-4 sm:px-6">
           <AccountStrip label="Previous account" value={model.accountLabel} />
+          <SyncHealthSummary summary={model.syncSummary} disconnected />
           <PrivacyNote />
         </div>
         <PanelFooter feedback={feedback} pendingMessage={pendingMessage}>
@@ -402,6 +404,7 @@ function SummaryPanel({
         />
         <div className="space-y-3 px-5 py-4 sm:px-6">
           <AccountStrip label="Connected account" value={model.accountLabel} />
+          <SyncHealthSummary summary={model.syncSummary} disconnected />
           <PrivacyNote />
         </div>
         <PanelFooter feedback={feedback} pendingMessage={pendingMessage}>
@@ -451,6 +454,7 @@ function SummaryPanel({
         />
         <div className="space-y-4 px-5 py-4 sm:px-6">
           <AccountStrip label="Connected account" value={model.accountLabel} />
+          <SyncHealthSummary summary={model.syncSummary} />
           <RoutingSummary
             title="Events go to"
             calendars={destination ? [destination] : []}
@@ -1090,6 +1094,54 @@ function RoutingSummary({
   );
 }
 
+function SyncHealthSummary({
+  summary,
+  disconnected = false,
+}: {
+  summary: GoogleCalendarSyncSummary;
+  disconnected?: boolean;
+}) {
+  const attention = summary.notSynced + summary.missing + summary.conflicts;
+  const title = disconnected
+    ? "Sync is paused"
+    : attention > 0
+      ? `${String(attention)} ${attention === 1 ? "session needs" : "sessions need"} attention`
+      : summary.syncing > 0
+        ? `${String(summary.syncing)} ${summary.syncing === 1 ? "session is" : "sessions are"} syncing`
+        : "Calendar sync is up to date";
+  const items = [
+    summary.syncing > 0 ? `${String(summary.syncing)} syncing` : null,
+    summary.notSynced > 0 ? `${String(summary.notSynced)} not synced` : null,
+    summary.missing > 0 ? `${String(summary.missing)} missing` : null,
+    summary.conflicts > 0
+      ? `${String(summary.conflicts)} conflict${summary.conflicts === 1 ? "" : "s"}`
+      : null,
+  ].filter((item): item is string => item !== null);
+
+  return (
+    <section
+      aria-label="Google Calendar sync status"
+      className={[
+        "rounded-[var(--radius-md)] border px-3.5 py-3",
+        disconnected || attention > 0
+          ? "border-[rgb(var(--fg-warning)/0.3)] bg-[rgb(var(--fg-warning)/0.08)]"
+          : "border-[rgb(var(--fg-success)/0.25)] bg-[rgb(var(--fg-success)/0.07)]",
+      ].join(" ")}
+    >
+      <p className="text-[12.5px] font-bold text-[rgb(var(--fg-default))]">{title}</p>
+      {items.length > 0 ? (
+        <p className="mt-1 text-[11.5px] text-[rgb(var(--fg-muted))]">{items.join(" · ")}</p>
+      ) : (
+        <p className="mt-1 text-[11.5px] text-[rgb(var(--fg-muted))]">
+          {disconnected
+            ? "Reconnect Google to continue syncing sessions."
+            : "Linked sessions match Google Calendar."}
+        </p>
+      )}
+    </section>
+  );
+}
+
 function StatusBadge({ label, tone }: { label: string; tone: "success" | "warning" | "danger" }) {
   const toneClass =
     tone === "success"
@@ -1106,10 +1158,14 @@ function StatusBadge({ label, tone }: { label: string; tone: "success" | "warnin
   );
 }
 
-function TriggerStatusDot({ status }: { status: GoogleCalendarUiModel["status"] }) {
-  if (status === "not_connected" || status === "connecting") return null;
+function TriggerStatusDot({ model }: { model: GoogleCalendarUiModel }) {
+  if (model.status === "not_connected" || model.status === "connecting") return null;
+  const hasAttention =
+    model.syncSummary.notSynced + model.syncSummary.missing + model.syncSummary.conflicts > 0;
   const dotClass =
-    status === "connected" ? "bg-[rgb(var(--fg-success))]" : "bg-[rgb(var(--brand-primary))]";
+    model.status === "connected" && !hasAttention
+      ? "bg-[rgb(var(--fg-success))]"
+      : "bg-[rgb(var(--brand-primary))]";
   return (
     <span
       aria-hidden
@@ -1170,7 +1226,7 @@ function triggerAriaLabel(model: GoogleCalendarUiModel): string {
     case "selection_required":
       return "Finish Google Calendar setup";
     case "connected":
-      return "Manage Google Calendar";
+      return connectedTriggerCopy(model, "Manage Google Calendar");
     case "reconnect_required":
       return "Reconnect Google Calendar";
   }
@@ -1187,10 +1243,21 @@ function triggerVisibleLabel(model: GoogleCalendarUiModel): string {
     case "selection_required":
       return "Finish setup";
     case "connected":
-      return "Google connected";
+      return connectedTriggerCopy(model, "Google synced");
     case "reconnect_required":
       return "Reconnect Google";
   }
+}
+
+function connectedTriggerCopy(
+  model: Extract<GoogleCalendarUiModel, { status: "connected" }>,
+  healthyCopy: string,
+): string {
+  const attention =
+    model.syncSummary.notSynced + model.syncSummary.missing + model.syncSummary.conflicts;
+  if (attention > 0) return `${String(attention)} sync ${attention === 1 ? "issue" : "issues"}`;
+  if (model.syncSummary.syncing > 0) return `${String(model.syncSummary.syncing)} syncing`;
+  return healthyCopy;
 }
 
 function actionPendingCopy(action: PendingAction): string {

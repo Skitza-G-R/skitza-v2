@@ -24,14 +24,24 @@ describe("producer payment instructions settings", () => {
     expect(clientSource).toMatch(/res\.saved\?\.paymentInstructions/);
   });
 
-  it("edits bank transfer, Bit, and an optional note", () => {
+  it("edits four structured Bank fields, Bit, and an optional note", () => {
     expect(clientSource).toMatch(/Payment instructions/);
     expect(clientSource).toMatch(/Bank transfer/);
+    expect(clientSource).toMatch(/Account owner/);
+    expect(clientSource).toMatch(/Account number/);
     expect(clientSource).toMatch(/Bit/);
     expect(clientSource).toMatch(/Payment note/);
-    expect(clientSource).toMatch(/patch\.paymentInstructions = form\.paymentInstructions/);
+    expect(clientSource).toMatch(/serializeBankTransferDetails/);
+    expect(clientSource).toMatch(/updateProducer\(\{ paymentInstructions: next \}\)/);
     expect(clientSource).toMatch(/maxLength=\{500\}/);
     expect(clientSource).toMatch(/maxLength=\{32\}/);
+  });
+
+  it("keeps legacy Bank text unless a Bank field actually changes", () => {
+    expect(clientSource).toMatch(/parseBankTransferDetails/);
+    expect(clientSource).toMatch(/bankFieldsMatch/);
+    expect(clientSource).toMatch(/draft\.originalBankTransfer/);
+    expect(clientSource).toMatch(/Kept as-is unless you edit a bank field above/);
   });
 
   it("makes Skitza's record-keeper boundary explicit", () => {
@@ -60,17 +70,20 @@ describe("producer payment instructions settings", () => {
     expect(clientSource).not.toMatch(/publicly visible/i);
   });
 
-  it("keeps Save and Discard visible after payment details change", () => {
-    expect(clientSource).toContain('className={`s-savebar${dirty ? " s-show" : ""}`}');
+  it("uses local Edit, Save, and Cancel while retaining the global savebar", () => {
+    expect(clientSource).toMatch(/Save payment details/);
+    expect(clientSource).toMatch(/Cancel/);
+    expect(clientSource).toMatch(/data-mode=\{editing \? "edit" : "read"\}/);
+    expect(clientSource).toContain('className={dirty ? "s-savebar s-show" : "s-savebar"}');
   });
 
-  it("keeps the Bank and Bit setup compact on desktop and mobile", () => {
+  it("keeps the structured Bank and Bit setup compact on desktop and mobile", () => {
     expect(clientSource).toContain('className="s-reveal s-payment-section"');
-    expect(clientSource).toMatch(/id="settings-bank-transfer"[\s\S]{0,160}rows=\{3\}/);
+    expect(clientSource).toMatch(/className="s-payment-bank-grid"/);
     expect(clientSource).toMatch(/id="settings-payment-note"[\s\S]{0,160}rows=\{2\}/);
     expect(cssSource).toMatch(/\.s-payment-method\s*{[^}]*padding:\s*14px 16px/);
     expect(cssSource).toMatch(
-      /\.s-payment-method-bank \.s-textarea\s*{[^}]*min-height:\s*72px/,
+      /@media \(max-width: 640px\)[\s\S]*?\.s-payment-bank-grid\s*{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
     );
   });
 });

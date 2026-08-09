@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   GoogleCalendarConfigurationError,
+  googleCalendarWebhookAddress,
   isGoogleCalendarCapabilityAvailable,
   loadGoogleCalendarServerConfig,
   type GoogleCalendarEnvironment,
@@ -87,5 +88,17 @@ describe("Google Calendar server configuration", () => {
         }),
       ),
     ).toThrow(GoogleCalendarConfigurationError);
+  });
+
+  it("derives the fixed same-origin webhook without adding configuration", () => {
+    const config = loadGoogleCalendarServerConfig(
+      validEnvironment({
+        GOOGLE_CALENDAR_REDIRECT_URI:
+          "https://preview.skitza.app/api/integrations/google-calendar/callback",
+      }),
+    );
+    expect(googleCalendarWebhookAddress(config)).toBe(
+      "https://preview.skitza.app/api/webhooks/google-calendar",
+    );
   });
 });

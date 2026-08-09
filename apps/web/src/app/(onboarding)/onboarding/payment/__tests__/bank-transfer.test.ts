@@ -32,6 +32,34 @@ describe("onboarding bank-transfer serialization", () => {
     ).toBe("");
   });
 
+  it("keeps unknown legacy lines when structured fields are serialized", () => {
+    const preservedSource = [
+      "Account owner: Gili Asraf",
+      "Bank: Hapoalim",
+      "Use reference SKITZA when sending the transfer",
+    ].join("\n");
+
+    expect(
+      serializeBankTransferDetails(
+        {
+          accountOwner: "Gili Asraf",
+          bank: "Hapoalim",
+          branch: "700",
+          accountNumber: "12-345678",
+        },
+        preservedSource,
+      ),
+    ).toBe(
+      [
+        "Account owner: Gili Asraf",
+        "Bank: Hapoalim",
+        "Branch: 700",
+        "Account number: 12-345678",
+        "Use reference SKITZA when sending the transfer",
+      ].join("\n"),
+    );
+  });
+
   it("hydrates the structured fields from the serialized value", () => {
     const raw = [
       "Account owner: Gili Asraf",
@@ -60,6 +88,24 @@ describe("onboarding bank-transfer serialization", () => {
         accountNumber: "",
       },
       preservedText: "Hapoalim 613 / 12-345678",
+    });
+  });
+
+  it("preserves the complete source when structured and legacy lines are mixed", () => {
+    const raw = [
+      "Account owner: Gili Asraf",
+      "Bank: Hapoalim",
+      "Use reference SKITZA when sending the transfer",
+    ].join("\n");
+
+    expect(parseBankTransferDetails(raw)).toEqual({
+      fields: {
+        accountOwner: "Gili Asraf",
+        bank: "Hapoalim",
+        branch: "",
+        accountNumber: "",
+      },
+      preservedText: raw,
     });
   });
 });

@@ -49,11 +49,38 @@ const FIELD_LABELS: ReadonlyArray<{
   },
 ];
 
-export function serializeBankTransferDetails(fields: BankTransferFields): string {
-  return FIELD_LABELS.flatMap(({ key, label }) => {
+function matchBankTransferLine(candidate: string): {
+  key: keyof BankTransferFields;
+  value: string;
+} | null {
+  for (const { key, patterns } of FIELD_LABELS) {
+    const match = patterns.map((pattern) => candidate.match(pattern)).find(Boolean);
+    const value = match?.[1]?.trim();
+    if (value) return { key, value };
+  }
+
+  return null;
+}
+
+export function serializeBankTransferDetails(
+  fields: BankTransferFields,
+  preservedSource?: string | null,
+): string {
+  const structuredLines = FIELD_LABELS.flatMap(({ key, label }) => {
     const value = fields[key].trim();
     return value ? [`${label}: ${value}`] : [];
-  }).join("\n");
+  });
+  const preservedLines = preservedSource
+    ? preservedSource
+        .trim()
+        .split(/\r?\n/)
+        .filter((line) => {
+          const candidate = line.trim();
+          return candidate.length > 0 && matchBankTransferLine(candidate) === null;
+        })
+    : [];
+
+  return [...structuredLines, ...preservedLines].join("\n");
 }
 
 export function parseBankTransferDetails(raw: string): ParsedBankTransferDetails {
@@ -72,19 +99,9 @@ export function parseBankTransferDetails(raw: string): ParsedBankTransferDetails
     const candidate = line.trim();
     if (!candidate) continue;
 
-    let matched = false;
-    for (const { key, patterns } of FIELD_LABELS) {
-      const match = patterns
-        .map((pattern) => candidate.match(pattern))
-        .find((result) => result !== null);
-      const value = match?.[1]?.trim();
-      if (!value) continue;
-      fields[key] = value;
-      matched = true;
-      break;
-    }
-
-    if (!matched) unrecognizedLines.push(candidate);
+    const match = matchBankTransferLine(candidate);
+    if (match) fields[match.key] = match.value;
+    else unrecognizedLines.push(candidate);
   }
 
   return {

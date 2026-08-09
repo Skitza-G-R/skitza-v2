@@ -62,4 +62,51 @@ describe("Google Calendar Drizzle repository contract", () => {
     expect(initialSync).toContain("invitationAttemptedAt: sql<Date | null>`null`");
     expect(initialSync).toContain('notificationMode: "none"');
   });
+
+  it("keeps pending holds and confirmed events on old destinations watched", () => {
+    const targetStart = source.indexOf("async listRequiredCalendarWatchTargets(command)");
+    const targetEnd = source.indexOf("async reserveCalendarWatch(command)", targetStart);
+    const targets = source.slice(targetStart, targetEnd);
+
+    expect(targets).toContain("eq(googleCalendarSelections.isDestination, true)");
+    expect(targets).toContain("eq(bookingCalendarLinks.producerId, command.producerId)");
+    expect(targets).toContain("eq(bookingCalendarLinks.connectionId, command.connectionId)");
+    expect(targets).toContain("eq(bookingCalendarLinks.accountVersion, command.accountVersion)");
+    expect(targets).toContain('eq(bookingCalendarLinks.providerState, "active")');
+    expect(targets).toContain(
+      'inArray(bookings.status, ["pending_approval", "confirmed"])',
+    );
+    expect(targets).toContain("gt(bookings.startsAt, command.now)");
+    expect(targets).toContain("fingerprints.has(row.destinationCalendarIdFingerprint)");
+  });
+
+  it("does not keep terminal old-destination links watched", () => {
+    const targetStart = source.indexOf("async listRequiredCalendarWatchTargets(command)");
+    const targetEnd = source.indexOf("async reserveCalendarWatch(command)", targetStart);
+    const targets = source.slice(targetStart, targetEnd);
+    const repairStart = source.indexOf("async listCalendarWatchRepairProducerIds(command)");
+    const repairEnd = source.indexOf("async saveCalendarSelection(command)", repairStart);
+    const repair = source.slice(repairStart, repairEnd);
+
+    for (const section of [targets, repair]) {
+      expect(section).toContain(
+        'inArray(bookings.status, ["pending_approval", "confirmed"])',
+      );
+      expect(section).not.toMatch(
+        /inArray\(bookings\.status, \[[^\]]*(?:rejected|cancelled|completed|no_show)/u,
+      );
+    }
+  });
+
+  it("renews current-account watch snapshots without requiring is_destination", () => {
+    const renewalStart = source.indexOf("async listCalendarWatchesDueForRenewal(command)");
+    const renewalEnd = source.indexOf("async listCalendarWatchRepairProducerIds(command)");
+    const renewal = source.slice(renewalStart, renewalEnd);
+
+    expect(renewal).toContain(
+      "eq(googleCalendarConnections.accountVersion, googleCalendarWatches.accountVersion)",
+    );
+    expect(renewal).toContain('eq(googleCalendarConnections.status, "connected")');
+    expect(renewal).not.toContain("googleCalendarSelections.isDestination");
+  });
 });
