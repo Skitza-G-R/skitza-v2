@@ -34,7 +34,8 @@ const OFFLINE_MESSAGE = "You’re offline. This screen will stay open until you 
 /**
  * Producer adapter for the shared liquid-glass surface. The nav stays inside
  * the fixed producer shell's flex column, while the adapter retains the
- * producer-only offline guard and fully prefetched routes.
+ * producer-only offline guard. Home opts into Next's lightweight default
+ * prefetch while the runtime bridge keeps full-route warming serial.
  */
 export function ProducerBottomNav(): ReactNode {
   const pathname = usePathname();
@@ -44,7 +45,7 @@ export function ProducerBottomNav(): ReactNode {
   const tabs: readonly LiquidGlassBottomNavTab<ActiveKey>[] = PROD_TABS.map((tab) => ({
     ...tab,
     active: active === tab.id,
-    prefetch: true,
+    prefetch: tab.id === "today" ? null : false,
     navigationBlocked: !online,
   }));
 

@@ -16,9 +16,14 @@ vi.mock("next/link", () => ({
   default: ({
     href,
     children,
+    prefetch,
     ...props
-  }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string; children: ReactNode }) => (
-    <a href={href} {...props}>
+  }: AnchorHTMLAttributes<HTMLAnchorElement> & {
+    href: string;
+    children: ReactNode;
+    prefetch?: boolean | null;
+  }) => (
+    <a href={href} data-next-prefetch={prefetch == null ? "auto" : String(prefetch)} {...props}>
       {children}
     </a>
   ),
@@ -75,6 +80,23 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("ProfessionalArtistHome new Version action", () => {
+  it("does not prefetch a protected Song Page when the new Version is the main action", () => {
+    render(
+      <ProfessionalArtistHome
+        greeting="Good morning, Maya."
+        studioName="Northline Studio"
+        main={newVersion}
+        newSong={null}
+        supporting={[]}
+        welcome={false}
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: "Open song" }).getAttribute("data-next-prefetch")).toBe(
+      "false",
+    );
+  });
+
   it("keeps the exact new Version visible beside higher-priority session and payment content", () => {
     render(
       <ProfessionalArtistHome
@@ -90,9 +112,9 @@ describe("ProfessionalArtistHome new Version action", () => {
     expect(screen.getByRole("heading", { name: "Mix review" })).not.toBeNull();
     expect(screen.getByText("₪600.00 due")).not.toBeNull();
     expect(screen.getByText("Neon Afterglow")).not.toBeNull();
-    expect(screen.getByRole("link", { name: "Open song" }).getAttribute("href")).toBe(
-      "/artist/music/song/version-later?studio=studio-1",
-    );
+    const songLink = screen.getByRole("link", { name: "Open song" });
+    expect(songLink.getAttribute("href")).toBe("/artist/music/song/version-later?studio=studio-1");
+    expect(songLink.getAttribute("data-next-prefetch")).toBe("false");
   });
 
   it("acknowledges the exact played Version and removes only its temporary row", async () => {

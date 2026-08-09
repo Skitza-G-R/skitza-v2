@@ -162,6 +162,10 @@ describe("sanitizePostSignInTarget", () => {
 });
 
 describe("postSignInResolverHref", () => {
+  it("drops the generic Producer signup target before an ordinary sign-in resolves", () => {
+    expect(postSignInResolverHref("/onboarding")).toBe("/auth/resolve");
+  });
+
   it("nests a safe deep link under the authenticated resolver", () => {
     expect(
       postSignInResolverHref("/artist/music/song/version-1?studio=studio-a"),
@@ -352,6 +356,31 @@ describe("same-origin Clerk transfer targets", () => {
 });
 
 describe("postSignInDestination", () => {
+  it("does not replay generic Producer signup intent for a completed account", () => {
+    expect(postSignInDestination(producerOnly, "/onboarding")).toBe(
+      "/dashboard",
+    );
+    expect(
+      postSignInDestination(
+        {
+          isAuthenticated: true,
+          producer: { status: "incomplete", profile: incompleteProducer },
+          artist: { hasAccess: false, hasActiveConnections: false },
+        },
+        "/onboarding",
+      ),
+    ).toBe("/onboarding");
+  });
+
+  it("preserves an explicit Create-a-studio onboarding action", () => {
+    expect(
+      postSignInDestination(
+        producerOnly,
+        "/onboarding/studio?intent=create-studio",
+      ),
+    ).toBe("/onboarding/studio?intent=create-studio");
+  });
+
   it("preserves a matching artist deep link", () => {
     expect(
       postSignInDestination(

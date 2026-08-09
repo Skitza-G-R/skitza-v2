@@ -1,9 +1,10 @@
 import type { RuntimeRole } from "./runtime-state";
 
 /**
- * Main-menu Links leave automatic viewport prefetching disabled. The runtime
- * shell owns an ordered queue instead, so a cold iPhone launch does not start
- * every authenticated RSC request together.
+ * Main-menu Home Links use Next's default lightweight prefetch; sibling Links
+ * disable automatic viewport prefetching. The runtime shell owns the ordered
+ * full-route queue so a cold iPhone launch does not start every authenticated
+ * RSC request together.
  */
 export const RUNTIME_MAIN_NAVIGATION_LINK_PREFETCH = false as const;
 export const RUNTIME_NAVIGATION_READY_MAX_AGE_MS = 150_000;

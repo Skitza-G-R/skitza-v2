@@ -184,6 +184,11 @@ describe("song management source guards", () => {
     expect(projectSource).toContain("const canPlay = isProjectPageTrackPlayable(item)");
   });
 
+  it("does not fan out protected song-detail prefetches from Library or Project lists", () => {
+    expect(librarySource.match(/prefetch=\{false\}/g)).toHaveLength(3);
+    expect(projectSource.match(/prefetch=\{false\}/g)).toHaveLength(2);
+  });
+
   it("distinguishes intentional deletion from a song awaiting its first upload", () => {
     for (const source of [librarySource, projectSource]) {
       expect(source).toContain("audioDeletedAtIso?: string | null");

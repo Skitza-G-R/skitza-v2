@@ -48,7 +48,7 @@ export function CancelSessionScreen({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] overflow-y-auto bg-[rgb(var(--bg-background))]">
+    <div className="sk-native-screen fixed inset-x-0 top-[var(--sk-viewport-offset-top,0px)] z-[60] flex flex-col overflow-hidden bg-[rgb(var(--bg-background))]">
       <FunnelTopBar
         title={held ? "Withdraw request" : "Request cancellation"}
         sub={producerName}
@@ -56,7 +56,7 @@ export function CancelSessionScreen({
           router.push(detailHref);
         }}
       />
-      <main className="mx-auto flex min-h-[calc(100dvh-57px)] w-full max-w-[440px] flex-col px-5 pt-12 pb-[max(env(safe-area-inset-bottom),24px)]">
+      <main className="sk-native-scroll mx-auto flex min-h-0 w-full max-w-[440px] flex-1 flex-col px-5 pt-12 pb-[max(env(safe-area-inset-bottom),24px)]">
         <div className="flex flex-1 flex-col items-center text-center">
           <span
             className="flex h-16 w-16 items-center justify-center rounded-full"

@@ -159,7 +159,7 @@ export function CalendarSwipeSurface({
               "flex min-h-0 min-w-0 flex-1 flex-col",
               sessionsActive
                 ? "relative"
-                : "pointer-events-none absolute inset-x-0 top-0 min-h-full",
+                : "pointer-events-none absolute inset-0 overflow-hidden",
             ].join(" ")}
           >
             {sessionsContent}
@@ -174,7 +174,7 @@ export function CalendarSwipeSurface({
             className={[
               "flex min-h-0 min-w-0 flex-1 flex-col",
               sessionsActive
-                ? "pointer-events-none absolute inset-x-0 top-0 min-h-full"
+                ? "pointer-events-none absolute inset-0 overflow-hidden"
                 : "relative",
             ].join(" ")}
           >

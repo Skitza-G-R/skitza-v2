@@ -127,6 +127,7 @@ export default async function ProjectDetail({ params, searchParams }: PageProps)
             data.project.id,
           )}`
         : projectSongUploadHref(data.project.id, t.id),
+      detailPrefetch: detailVersion === undefined,
     };
     if (latest?.label) base.currentVersion = latest.label;
     if (noteCount > 0) base.noteCount = noteCount;

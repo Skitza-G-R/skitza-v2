@@ -44,7 +44,7 @@ export type LiquidGlassBottomNavTab<Id extends string = string> = Readonly<{
   href: string;
   icon: IconName;
   active: boolean;
-  prefetch?: boolean;
+  prefetch?: boolean | null;
   /**
    * Keeps the Link focusable so a blocked activation can explain why it
    * cannot navigate. The shared surface prevents the navigation and invokes
@@ -541,7 +541,7 @@ export function LiquidGlassBottomNav<Id extends string>({
             href={tab.href}
             draggable={false}
             data-sk-nav-destination={tab.href}
-            prefetch={tab.prefetch ?? false}
+            prefetch={tab.prefetch === undefined ? false : tab.prefetch}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
                 clearReleaseClickGuard();

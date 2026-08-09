@@ -214,7 +214,11 @@ async function loadLockedBatchRows(
         inArray(trackVersions.id, [...scope.versionIds]),
       ),
     )
-    .for("share");
+    // The joined producer row proves the Clerk actor owns this tenant, but it
+    // is profile data and must not participate in the delivery lock graph.
+    // Lock only the exact Version rows protected by the project/purchase
+    // advisory locks above; a bare FOR SHARE would lock every joined table.
+    .for("share", { of: trackVersions });
 
   if (rows.length !== scope.versionIds.length) notFound();
   const rowsByVersionId = new Map(rows.map((row) => [row.versionId, row]));

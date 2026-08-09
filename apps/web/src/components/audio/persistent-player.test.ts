@@ -241,6 +241,10 @@ describe("PersistentPlayer source — expand + skip controls", () => {
     expect(playerSrc).toContain("expandHrefForTrack(");
   });
 
+  it("does not prefetch the protected Song Page until the player link is clicked", () => {
+    expect(playerSrc.match(/prefetch=\{false\}/g)).toHaveLength(4);
+  });
+
   it("renders fixed 15-second back / forward controls with aria-labels", () => {
     expect(playerSrc).toContain('aria-label="Back 15 seconds"');
     expect(playerSrc).toContain('aria-label="Forward 15 seconds"');

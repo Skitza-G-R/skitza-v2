@@ -308,7 +308,7 @@ function SidebarBody({
         <Link
           href="/dashboard"
           data-sk-nav-destination="/dashboard"
-          prefetch={false}
+          prefetch={null}
           onClick={(event) => {
             captureRuntimeMainNavigationTarget(event.currentTarget);
           }}
@@ -482,7 +482,7 @@ function NavItem({
     <Link
       href={item.href}
       data-sk-nav-destination={item.href}
-      prefetch={false}
+      prefetch={item.id === "today" ? null : false}
       onClick={(event) => {
         captureRuntimeMainNavigationTarget(event.currentTarget);
       }}

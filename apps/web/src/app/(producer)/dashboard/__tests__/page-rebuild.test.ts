@@ -167,6 +167,20 @@ describe("Today page — retired Story 06 components are NOT imported", () => {
 // ─── Source-grep — preserved infrastructure ────────────────────────
 
 describe("Today page — preserved page chrome (auth-fix territory)", () => {
+  it("streams a Home fallback before the live dashboard fan-out finishes", () => {
+    expect(pageSource).toContain('import { Suspense } from "react"');
+    expect(pageSource).toContain("<Suspense fallback={<DashboardHomeFallback />}");
+    expect(pageSource).toContain("<DashboardHomeContent searchParams={searchParams} />");
+  });
+
+  it("keeps the optional setup-package read inside the main parallel fan-out", () => {
+    expect(pageSource).toContain(
+      "skipOnboarding ? caller.booking.packages.list() : Promise.resolve(null)",
+    );
+    expect(pageSource).toMatch(/const \[\s*packages,\s*today,[\s\S]*?\] = await Promise\.all\(/);
+    expect(pageSource).not.toContain("detectOnboardingState(userId, caller)");
+  });
+
   it("keeps the gradient hero (relative isolate wrapper)", () => {
     expect(pageSource).toContain("relative isolate");
   });
