@@ -160,12 +160,9 @@ function PaymentsSummary({
             id="producer-payments-summary-heading"
             className="font-display mt-0.5 text-[18px] font-extrabold tracking-[-0.025em] text-[rgb(var(--fg-default))]"
           >
-            By currency
+            {periodLabel}
           </h2>
         </div>
-        <p className="shrink-0 text-[10px] font-semibold text-[rgb(var(--fg-muted))]">
-          {periodLabel}
-        </p>
       </header>
 
       <div className="divide-y divide-[rgb(var(--border-subtle))]">
@@ -626,6 +623,7 @@ export function ProducerPaymentsDashboard({
   const [customFrom, setCustomFrom] = useState(customDefaults.from);
   const [customTo, setCustomTo] = useState(customDefaults.to);
   const [query, setQuery] = useState("");
+  const [clientContactId, setClientContactId] = useState("all");
   const [currency, setCurrency] = useState("all");
   const [projectId, setProjectId] = useState("all");
   const [status, setStatus] = useState<ProducerPaymentStatusFilter>("all");
@@ -647,6 +645,15 @@ export function ProducerPaymentsDashboard({
     () => [...new Set(data.records.map((record) => record.currency))].sort(),
     [data.records],
   );
+  const artistOptions = useMemo(() => {
+    const unique = new Map<string, string>();
+    for (const record of data.records) {
+      unique.set(record.clientContactId, record.clientName);
+    }
+    return [...unique]
+      .map(([id, name]) => ({ id, name }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }, [data.records]);
   const projects = useMemo(() => {
     const unique = new Map<string, string>();
     for (const record of data.records) unique.set(record.projectId, record.projectTitle);
@@ -658,11 +665,12 @@ export function ProducerPaymentsDashboard({
     () =>
       filterProducerPaymentRecords(data.records, {
         query,
+        clientContactId,
         currency,
         projectId,
         status,
       }),
-    [currency, data.records, projectId, query, status],
+    [clientContactId, currency, data.records, projectId, query, status],
   );
   const summary = useMemo(
     () => summarizeProducerPayments(filteredRecords, timeRange, producerTimeZone),
@@ -689,7 +697,10 @@ export function ProducerPaymentsDashboard({
   );
 
   const activeFilterCount =
-    Number(currency !== "all") + Number(projectId !== "all") + Number(status !== "all");
+    Number(clientContactId !== "all") +
+    Number(currency !== "all") +
+    Number(projectId !== "all") +
+    Number(status !== "all");
   const periodLabel = TIME_OPTIONS.find((option) => option.value === timePreset)?.label ?? "Custom";
   const noPayments = data.records.length === 0;
   const noMatches = !noPayments && filteredRecords.length === 0;
@@ -701,6 +712,7 @@ export function ProducerPaymentsDashboard({
 
   function resetFilters() {
     setQuery("");
+    setClientContactId("all");
     setCurrency("all");
     setProjectId("all");
     setStatus("all");
@@ -797,6 +809,10 @@ export function ProducerPaymentsDashboard({
           </p>
         ) : null}
 
+        {view === "overview" && timeRange.valid && !noPayments && !noMatches ? (
+          <PaymentsSummary totals={summary} periodLabel={periodLabel} />
+        ) : null}
+
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2">
           <label className="min-w-0">
             <span className="sr-only">Search payments</span>
@@ -827,8 +843,26 @@ export function ProducerPaymentsDashboard({
         {filtersOpen ? (
           <div
             id={`${instanceId}-filters`}
-            className="grid min-w-0 grid-cols-1 gap-3 border-t border-[rgb(var(--border-subtle))] pt-3 sm:grid-cols-3"
+            className="grid min-w-0 grid-cols-1 gap-3 border-t border-[rgb(var(--border-subtle))] pt-3 sm:grid-cols-2 lg:grid-cols-4"
           >
+            <label className="min-w-0 text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
+              Artist
+              <select
+                value={clientContactId}
+                onChange={(event) => {
+                  setClientContactId(event.target.value);
+                  setPage(1);
+                }}
+                className="mt-1 block min-h-11 w-full min-w-0 rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated))] px-3 text-[16px] font-semibold tracking-normal text-[rgb(var(--fg-default))] normal-case focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:min-h-9 sm:rounded-[var(--radius-md)] sm:text-[12px]"
+              >
+                <option value="all">All artists</option>
+                {artistOptions.map((artist) => (
+                  <option key={artist.id} value={artist.id}>
+                    {artist.name}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="min-w-0 text-[9px] font-bold tracking-[0.08em] text-[rgb(var(--fg-muted))] uppercase">
               Currency
               <select
@@ -886,7 +920,7 @@ export function ProducerPaymentsDashboard({
               <button
                 type="button"
                 onClick={resetFilters}
-                className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-transparent px-3 text-[11px] font-bold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:col-start-3 sm:min-h-9 sm:rounded-[var(--radius-md)]"
+                className="sk-press inline-flex min-h-11 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] bg-transparent px-3 text-[11px] font-bold text-[rgb(var(--fg-default))] focus-visible:ring-2 focus-visible:ring-[rgb(var(--focus-ring))] focus-visible:outline-none sm:col-span-2 sm:min-h-9 sm:rounded-[var(--radius-md)] lg:col-span-4 lg:justify-self-end"
               >
                 Reset filters
               </button>
@@ -929,8 +963,6 @@ export function ProducerPaymentsDashboard({
           aria-label="Overview"
           className="min-w-0 space-y-4"
         >
-          <PaymentsSummary totals={summary} periodLabel={periodLabel} />
-
           <div className="space-y-1" aria-live="polite">
             {nothingOwed ? (
               <p className="text-[11px] font-semibold text-[rgb(var(--fg-secondary))]">

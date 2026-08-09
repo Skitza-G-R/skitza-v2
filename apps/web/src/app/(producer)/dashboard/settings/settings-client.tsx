@@ -742,7 +742,7 @@ function IntegrationsSection({
               <h3>Bank &amp; Bit</h3>
               <p>Only approved artists see these details when payment is due.</p>
             </div>
-            <div className="s-payment-local-actions">
+            <div className="s-payment-local-actions" data-tab-swipe-ignore>
               {!editing ? (
                 <>
                   <span
@@ -1191,7 +1191,7 @@ const ICONS = {
       <path d="M6 8a6 6 0 1112 0c0 7 3 8 3 8H3s3-1 3-8M10 21a2 2 0 004 0" />
     </svg>
   ),
-  plug: () => (
+  wallet: () => (
     <svg
       width="14"
       height="14"
@@ -1201,7 +1201,9 @@ const ICONS = {
       strokeWidth="1.7"
       aria-hidden
     >
-      <path d="M9 3v6M15 3v6M6 9h12v3a6 6 0 11-12 0zM12 18v3" />
+      <path d="M4 7V5.5A2.5 2.5 0 016.5 3H18v4" />
+      <path d="M4 7h16a2 2 0 012 2v9a2 2 0 01-2 2H5a3 3 0 01-3-3V7.5A2.5 2.5 0 014.5 5H18" />
+      <path d="M17 12h5v4h-5a2 2 0 010-4z" />
     </svg>
   ),
   globe: () => (

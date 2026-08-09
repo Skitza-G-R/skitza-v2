@@ -254,6 +254,7 @@ describe("producer payments dashboard rows", () => {
     );
     const filters = {
       query: "",
+      clientContactId: "all",
       currency: "all",
       projectId: "all",
       status: "all" as const,
@@ -268,6 +269,9 @@ describe("producer payments dashboard rows", () => {
     expect(
       filterProducerPaymentRecords(records, { ...filters, query: "REF-SPECIAL" }),
     ).toHaveLength(1);
+    expect(
+      filterProducerPaymentRecords(records, { ...filters, clientContactId: "client-4" }),
+    ).toEqual([records[4]]);
 
     const artists = aggregateProducerPaymentArtists(
       records,
@@ -381,6 +385,7 @@ describe("producer payments dashboard rows", () => {
     });
     const matches = filterProducerPaymentRecords([upcoming, dueNow], {
       query: "",
+      clientContactId: "all",
       currency: "all",
       projectId: "all",
       status: "upcoming",
