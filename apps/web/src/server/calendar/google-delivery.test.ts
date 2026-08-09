@@ -109,8 +109,11 @@ function provider() {
     queryFreeBusy: vi.fn<GoogleCalendarProvider["queryFreeBusy"]>(),
     insertEvent: vi.fn<GoogleCalendarProvider["insertEvent"]>(),
     getEvent: vi.fn<GoogleCalendarProvider["getEvent"]>(),
+    getLinkedEvent: vi.fn<GoogleCalendarProvider["getLinkedEvent"]>(),
     patchEvent: vi.fn<GoogleCalendarProvider["patchEvent"]>(),
     deleteEvent: vi.fn<GoogleCalendarProvider["deleteEvent"]>(),
+    watchEvents: vi.fn<GoogleCalendarProvider["watchEvents"]>(),
+    stopChannel: vi.fn<GoogleCalendarProvider["stopChannel"]>(),
     revokeToken: vi.fn<GoogleCalendarProvider["revokeToken"]>(),
   } satisfies GoogleCalendarProvider;
 }

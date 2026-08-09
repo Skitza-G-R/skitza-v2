@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { appRouter } from "~/server/trpc/routers/_app";
 import { isGoogleCalendarServerConfigured } from "~/server/google-calendar/config";
+import { GOOGLE_CALENDAR_SYNC_STATUS_BATCH_LIMIT } from "~/server/domain/session-booking/service";
 
 import { AvailabilityPanel } from "./availability-panel";
 import { GoogleCalendarControlBoundary } from "./google-calendar-control-boundary";
@@ -70,6 +71,25 @@ export default async function CalendarPage({
       caller.booking.manual.options(),
       googleCalendarStatus,
     ]);
+  const googleCalendarModel = googleStatus ? presentGoogleCalendar(googleStatus) : null;
+  const googleCalendarSyncBookingIds = list
+    .filter((booking) => booking.status === "confirmed")
+    .map((booking) => booking.id)
+    .slice(0, GOOGLE_CALENDAR_SYNC_STATUS_BATCH_LIMIT);
+  const googleCalendarSyncStatuses =
+    googleCalendarModel &&
+    googleCalendarModel.status !== "not_connected" &&
+    googleCalendarSyncBookingIds.length > 0
+      ? await caller.booking.googleCalendarSync
+          .status({ ids: googleCalendarSyncBookingIds })
+          .catch(() => [])
+      : [];
+  const googleCalendarSyncByBookingId = new Map<
+    string,
+    NonNullable<SessionListItem["calendarSync"]>
+  >(
+    googleCalendarSyncStatuses.map((entry) => [entry.bookingId, { state: entry.status }] as const),
+  );
   const listById = new Map(list.map((booking) => [booking.id, booking]));
   const pending = list.filter((b) => b.status === "pending_approval");
   const scheduleAutoConfirm = settings.autoConfirmBookings;
@@ -122,6 +142,7 @@ export default async function CalendarPage({
       status: "pending_approval",
       billingTreatment: b.billingTreatment,
       artistRsvpStatus: b.artistRsvpStatus,
+      calendarSync: googleCalendarSyncByBookingId.get(b.id) ?? null,
       changeRequest: presentChangeRequest(b.changeRequest),
     })),
     ...upcoming.map<SessionListItem>((b) => {
@@ -136,6 +157,7 @@ export default async function CalendarPage({
         status: "confirmed",
         billingTreatment: full?.billingTreatment ?? "included",
         artistRsvpStatus: full?.artistRsvpStatus ?? null,
+        calendarSync: googleCalendarSyncByBookingId.get(b.id) ?? null,
         changeRequest: presentChangeRequest(full?.changeRequest ?? null),
       };
     }),
@@ -150,6 +172,7 @@ export default async function CalendarPage({
     status: b.status,
     billingTreatment: b.billingTreatment,
     artistRsvpStatus: b.artistRsvpStatus,
+    calendarSync: googleCalendarSyncByBookingId.get(b.id) ?? null,
     changeRequest: presentChangeRequest(b.changeRequest),
   }));
   const initialNow = new Date();
@@ -180,8 +203,6 @@ export default async function CalendarPage({
   // post-toggle persisted state.
   const availabilityWeekStart: "sunday" | "monday" =
     profile.weekStart === "monday" ? "monday" : "sunday";
-  const googleCalendarModel = googleStatus ? presentGoogleCalendar(googleStatus) : null;
-
   // Tab-aware eyebrow — gives the section dynamic context. Schedule
   // shows the current week date; Sessions shows totals; Availability
   // shows weekly hours open. The eyebrow stays static across client-

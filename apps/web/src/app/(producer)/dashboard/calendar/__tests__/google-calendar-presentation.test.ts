@@ -8,6 +8,7 @@ const needsSelection = {
   status: "needs_selection",
   connectionId: "00000000-0000-4000-8000-000000000001",
   accountEmail: "producer@example.test",
+  syncSummary: { syncing: 0, notSynced: 0, missing: 0, conflicts: 0 },
   calendars: [
     {
       id: "00000000-0000-4000-8000-000000000002",
@@ -43,6 +44,7 @@ describe("Google Calendar producer presentation", () => {
     ).toEqual({
       status: "disconnected",
       accountLabel: "producer@example.test",
+      syncSummary: needsSelection.syncSummary,
     });
   });
 
@@ -66,6 +68,7 @@ describe("Google Calendar producer presentation", () => {
           primary: false,
         },
       ],
+      syncSummary: needsSelection.syncSummary,
       selection: {
         destinationSelectionKey: "00000000-0000-4000-8000-000000000002",
         busySelectionKeys: ["00000000-0000-4000-8000-000000000002"],
@@ -98,7 +101,12 @@ describe("Google Calendar producer presentation", () => {
         connectionId: "00000000-0000-4000-8000-000000000001",
         accountEmail: "producer@example.test",
         calendars: [],
+        syncSummary: needsSelection.syncSummary,
       }),
-    ).toEqual({ status: "reconnect_required", accountLabel: "producer@example.test" });
+    ).toEqual({
+      status: "reconnect_required",
+      accountLabel: "producer@example.test",
+      syncSummary: needsSelection.syncSummary,
+    });
   });
 });

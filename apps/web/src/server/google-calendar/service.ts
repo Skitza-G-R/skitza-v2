@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { GoogleCalendarServerConfig } from "./config";
+import { googleCalendarWebhookAddress, type GoogleCalendarServerConfig } from "./config";
 import {
   decryptGoogleCalendarValue,
   deriveGoogleCalendarSelectionId,
@@ -17,6 +17,7 @@ import {
 } from "./oauth";
 import {
   GOOGLE_CALENDAR_FREE_BUSY_MAX_CALENDARS,
+  GOOGLE_CALENDAR_WATCH_MAX_TTL_SECONDS,
   GoogleCalendarProviderError,
   hasRequiredGoogleCalendarScopes,
   type GoogleCalendarAccessRole,
@@ -26,11 +27,19 @@ import type { GoogleCalendarBusyInterval } from "./freebusy";
 import type {
   GoogleCalendarCandidateRecord,
   GoogleCalendarConnectionRecord,
+  GoogleCalendarConnectionSyncSummary,
   GoogleCalendarConnectionStatus,
   GoogleCalendarRepository,
+  GoogleCalendarStoredWatchRecord,
+  GoogleCalendarWatchTarget,
 } from "./repository";
+import {
+  GOOGLE_CALENDAR_WATCH_RENEW_BEFORE_MS,
+  createGoogleCalendarWatchCredentials,
+} from "./watch";
 
 const ACCESS_TOKEN_REFRESH_SKEW_MS = 60_000;
+const STALE_WATCH_RESERVATION_MS = 15 * 60_000;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
 export type GoogleCalendarServiceErrorCode =
@@ -89,7 +98,25 @@ export type GoogleCalendarConnectionSnapshot =
       connectionId: string;
       accountEmail: string;
       calendars: readonly GoogleCalendarPublicCandidate[];
+      syncSummary: GoogleCalendarConnectionSyncSummary;
     }>;
+
+export type GoogleCalendarWatchEnsureResult = "active" | "created" | "unavailable";
+
+export type GoogleCalendarWatchRenewalResult = Readonly<{
+  scanned: number;
+  renewed: number;
+  active: number;
+  failed: number;
+}>;
+
+export type GoogleCalendarWatchMaintenanceResult = Readonly<{
+  scanned: number;
+  created: number;
+  renewed: number;
+  active: number;
+  failed: number;
+}>;
 
 export type GoogleCalendarOAuthStart = Readonly<{
   authorizationUrl: string;
@@ -266,6 +293,279 @@ export function createGoogleCalendarService(
     });
     if (!stored) throw new GoogleCalendarServiceError("stale_connection");
     return refreshed.accessToken;
+  }
+
+  function watchTargetCalendarId(target: GoogleCalendarWatchTarget): string {
+    return decryptGoogleCalendarValue(
+      target.destinationCalendarId,
+      {
+        producerId: target.producerId,
+        connectionId: target.connectionId,
+        selectionId: target.destinationSelectionId,
+        accountVersion: target.accountVersion,
+        purpose: "provider_calendar_id",
+      },
+      input.config.encryption,
+    );
+  }
+
+  async function stopChannelBestEffort(
+    accessToken: string,
+    watch: GoogleCalendarStoredWatchRecord,
+  ): Promise<boolean> {
+    if (!watch.providerResourceId) return false;
+    try {
+      await input.provider.stopChannel(accessToken, {
+        channelId: watch.providerChannelId,
+        resourceId: watch.providerResourceId,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function createOrRenewDestinationWatch(
+    connection: GoogleCalendarConnectionRecord,
+    target: GoogleCalendarWatchTarget,
+    accessToken: string,
+    predecessor: GoogleCalendarStoredWatchRecord | null,
+  ): Promise<GoogleCalendarWatchEnsureResult> {
+    const reservedAt = now();
+    const credentials = createGoogleCalendarWatchCredentials();
+    const watchId = randomUUID();
+    let reserved: GoogleCalendarStoredWatchRecord | null;
+    try {
+      reserved = await input.repository.reserveCalendarWatch({
+        id: watchId,
+        producerId: connection.producerId,
+        connectionId: connection.id,
+        accountVersion: connection.accountVersion,
+        destinationSelectionId: target.destinationSelectionId,
+        destinationCalendarId: target.destinationCalendarId,
+        destinationCalendarIdFingerprint: target.destinationCalendarIdFingerprint,
+        renewalOfWatchId: predecessor?.id ?? null,
+        providerChannelId: credentials.channelId,
+        channelTokenDigest: credentials.channelTokenDigest,
+        reservedAt,
+      });
+    } catch {
+      return "unavailable";
+    }
+    if (!reserved) return "unavailable";
+
+    let providerWatch: Awaited<ReturnType<GoogleCalendarProvider["watchEvents"]>> | null = null;
+    try {
+      providerWatch = await input.provider.watchEvents(accessToken, {
+        calendarId: watchTargetCalendarId(target),
+        channelId: credentials.channelId,
+        address: googleCalendarWebhookAddress(input.config),
+        token: credentials.channelToken,
+        ttlSeconds: GOOGLE_CALENDAR_WATCH_MAX_TTL_SECONDS,
+      });
+      const activatedAt = now();
+      const activated = await input.repository.activateCalendarWatch({
+        producerId: connection.producerId,
+        watchId,
+        providerResourceId: providerWatch.resourceId,
+        expiresAt: providerWatch.expiresAt,
+        activatedAt,
+      });
+      if (!activated) {
+        await Promise.allSettled([
+          input.provider.stopChannel(accessToken, {
+            channelId: providerWatch.channelId,
+            resourceId: providerWatch.resourceId,
+          }),
+          input.repository.endCalendarWatch({
+            producerId: connection.producerId,
+            watchId,
+            state: "retired",
+            errorCode: predecessor ? "watch_renew_failed" : "watch_create_failed",
+            endedAt: activatedAt,
+          }),
+        ]);
+        return "unavailable";
+      }
+      if (predecessor) {
+        await stopChannelBestEffort(accessToken, predecessor);
+      }
+      return "created";
+    } catch (error) {
+      const cleanup: Promise<unknown>[] = [
+        input.repository.endCalendarWatch({
+          producerId: connection.producerId,
+          watchId,
+          state: "retired",
+          errorCode: predecessor ? "watch_renew_failed" : "watch_create_failed",
+          endedAt: now(),
+        }),
+      ];
+      if (providerWatch) {
+        cleanup.push(
+          input.provider.stopChannel(accessToken, {
+            channelId: providerWatch.channelId,
+            resourceId: providerWatch.resourceId,
+          }),
+        );
+      }
+      await Promise.allSettled(cleanup);
+      if (error instanceof GoogleCalendarProviderError && error.code === "access_unauthorized") {
+        await Promise.allSettled([
+          input.repository.markReconnectRequired({
+            producerId: connection.producerId,
+            connectionId: connection.id,
+            accountVersion: connection.accountVersion,
+            errorCode: "access_unauthorized",
+            occurredAt: now(),
+          }),
+        ]);
+      }
+      return "unavailable";
+    }
+  }
+
+  type RequiredWatchMaintenanceRun = Readonly<{
+    outcome: GoogleCalendarWatchEnsureResult;
+    targetOutcomes: ReadonlyMap<string, GoogleCalendarWatchEnsureResult>;
+    retiredFingerprints: ReadonlySet<string>;
+  }>;
+
+  async function ensureRequiredWatches(
+    connection: GoogleCalendarConnectionRecord,
+    accessToken?: string,
+  ): Promise<RequiredWatchMaintenanceRun> {
+    const targetOutcomes = new Map<string, GoogleCalendarWatchEnsureResult>();
+    const retiredFingerprints = new Set<string>();
+    if (connection.status !== "connected") {
+      return { outcome: "unavailable", targetOutcomes, retiredFingerprints };
+    }
+    const currentTime = now();
+    const [targets, watches] = await Promise.all([
+      input.repository.listRequiredCalendarWatchTargets({
+        producerId: connection.producerId,
+        connectionId: connection.id,
+        accountVersion: connection.accountVersion,
+        now: currentTime,
+      }),
+      input.repository.listCalendarWatches({
+        producerId: connection.producerId,
+        connectionId: connection.id,
+        accountVersion: connection.accountVersion,
+      }),
+    ]);
+    const requiredFingerprints = new Set(
+      targets.map((target) => target.destinationCalendarIdFingerprint),
+    );
+    let token = accessToken;
+    async function accessTokenForMaintenance(): Promise<string> {
+      token ??= await activeAccessToken(connection);
+      return token;
+    }
+
+    for (const target of targets) {
+      const fingerprint = target.destinationCalendarIdFingerprint;
+      const sameDestination = watches.filter(
+        (watch) => watch.destinationCalendarIdFingerprint === fingerprint,
+      );
+      const renewing = sameDestination.find((watch) => watch.state === "renewing");
+      if (renewing) {
+        if (currentTime.getTime() - renewing.createdAt.getTime() < STALE_WATCH_RESERVATION_MS) {
+          targetOutcomes.set(fingerprint, "active");
+          continue;
+        }
+        await input.repository.endCalendarWatch({
+          producerId: renewing.producerId,
+          watchId: renewing.id,
+          state: "retired",
+          errorCode: renewing.renewalOfWatchId ? "watch_renew_failed" : "watch_create_failed",
+          endedAt: currentTime,
+        });
+      }
+      const active = sameDestination.find((watch) => watch.state === "active") ?? null;
+      if (
+        active?.expiresAt &&
+        active.expiresAt.getTime() > currentTime.getTime() + GOOGLE_CALENDAR_WATCH_RENEW_BEFORE_MS
+      ) {
+        targetOutcomes.set(fingerprint, "active");
+        continue;
+      }
+      let maintenanceToken: string;
+      try {
+        maintenanceToken = await accessTokenForMaintenance();
+      } catch {
+        targetOutcomes.set(fingerprint, "unavailable");
+        continue;
+      }
+      const result = await createOrRenewDestinationWatch(
+        connection,
+        target,
+        maintenanceToken,
+        active,
+      );
+      if (
+        result === "unavailable" &&
+        active?.expiresAt &&
+        active.expiresAt.getTime() <= currentTime.getTime()
+      ) {
+        await input.repository.endCalendarWatch({
+          producerId: active.producerId,
+          watchId: active.id,
+          state: "expired",
+          errorCode: "watch_renew_failed",
+          endedAt: now(),
+        });
+      }
+      targetOutcomes.set(fingerprint, result);
+    }
+
+    let retirementFailed = false;
+    const staleFingerprints = [
+      ...new Set(
+        watches
+          .filter((watch) => !requiredFingerprints.has(watch.destinationCalendarIdFingerprint))
+          .map((watch) => watch.destinationCalendarIdFingerprint),
+      ),
+    ];
+    for (const fingerprint of staleFingerprints) {
+      let fingerprintRetired = true;
+      for (const watch of watches.filter(
+        (candidate) => candidate.destinationCalendarIdFingerprint === fingerprint,
+      )) {
+        let stopped = watch.providerResourceId === null;
+        if (!stopped) {
+          try {
+            stopped = await stopChannelBestEffort(await accessTokenForMaintenance(), watch);
+          } catch {
+            stopped = false;
+          }
+        }
+        const ended = await input.repository.endCalendarWatch({
+          producerId: watch.producerId,
+          watchId: watch.id,
+          state: "retired",
+          errorCode: stopped ? null : "watch_stop_failed",
+          endedAt: now(),
+        });
+        fingerprintRetired &&= ended;
+      }
+      if (fingerprintRetired) {
+        retiredFingerprints.add(fingerprint);
+      } else {
+        retirementFailed = true;
+      }
+    }
+
+    const outcomes = [...targetOutcomes.values()];
+    const outcome =
+      targets.length === 0 ||
+      retirementFailed ||
+      outcomes.some((candidate) => candidate === "unavailable")
+        ? "unavailable"
+        : outcomes.some((candidate) => candidate === "created")
+          ? "created"
+          : "active";
+    return { outcome, targetOutcomes, retiredFingerprints };
   }
 
   type ProviderCalendars = Awaited<ReturnType<GoogleCalendarProvider["listCalendars"]>>;
@@ -713,12 +1013,18 @@ export function createGoogleCalendarService(
     async status(producerId: string): Promise<GoogleCalendarConnectionSnapshot> {
       const connection = await input.repository.getConnection(producerId);
       if (!connection) return { status: "not_connected" };
+      const syncSummary = await input.repository.getConnectionSyncSummary({
+        producerId,
+        connectionId: connection.id,
+        accountVersion: connection.accountVersion,
+      });
       if (connection.status === "disconnected") {
         return {
           status: "disconnected",
           connectionId: connection.id,
           accountEmail: connection.googleAccountEmail,
           calendars: [],
+          syncSummary,
         };
       }
       let snapshotConnection = connection;
@@ -742,6 +1048,7 @@ export function createGoogleCalendarService(
           connectionId: snapshotConnection.id,
           accountEmail: snapshotConnection.googleAccountEmail,
           calendars: [],
+          syncSummary,
         };
       }
       return {
@@ -749,6 +1056,7 @@ export function createGoogleCalendarService(
         connectionId: snapshotConnection.id,
         accountEmail: snapshotConnection.googleAccountEmail,
         calendars: calendars.map(publicCandidate),
+        syncSummary,
       };
     },
 
@@ -757,6 +1065,111 @@ export function createGoogleCalendarService(
       const accessToken = await activeAccessToken(connection);
       const candidates = await replaceCandidates(connection, accessToken);
       return candidates.map(publicCandidate);
+    },
+
+    async ensureWatch(producerId: string): Promise<GoogleCalendarWatchEnsureResult> {
+      try {
+        const connection = await input.repository.getConnection(producerId);
+        if (!connection || connection.status !== "connected") return "unavailable";
+        return (await ensureRequiredWatches(connection)).outcome;
+      } catch {
+        return "unavailable";
+      }
+    },
+
+    async renewWatches(
+      options: Readonly<{ limit?: number }> = {},
+    ): Promise<GoogleCalendarWatchRenewalResult> {
+      const limit = options.limit ?? 25;
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 25) {
+        throw new GoogleCalendarServiceError("provider_unavailable");
+      }
+      const due = await input.repository.listCalendarWatchesDueForRenewal({
+        renewBefore: new Date(now().getTime() + GOOGLE_CALENDAR_WATCH_RENEW_BEFORE_MS),
+        limit,
+      });
+      const runs = new Map<string, RequiredWatchMaintenanceRun>();
+      await Promise.all(
+        [...new Set(due.map((watch) => watch.producerId))].map(async (producerId) => {
+          try {
+            const connection = await input.repository.getConnection(producerId);
+            if (
+              !connection ||
+              connection.status !== "connected" ||
+              due.some(
+                (watch) =>
+                  watch.producerId === producerId &&
+                  (connection.id !== watch.connectionId ||
+                    connection.accountVersion !== watch.accountVersion),
+              )
+            ) {
+              return;
+            }
+            runs.set(producerId, await ensureRequiredWatches(connection));
+          } catch {
+            // Missing runs are mapped to a safe unavailable result below.
+          }
+        }),
+      );
+      const outcomes = due.map((watch): GoogleCalendarWatchEnsureResult => {
+        const run = runs.get(watch.producerId);
+        return (
+          run?.targetOutcomes.get(watch.destinationCalendarIdFingerprint) ??
+          (run?.retiredFingerprints.has(watch.destinationCalendarIdFingerprint)
+            ? "active"
+            : "unavailable")
+        );
+      });
+      return {
+        scanned: outcomes.length,
+        renewed: outcomes.filter((outcome) => outcome === "created").length,
+        active: outcomes.filter((outcome) => outcome === "active").length,
+        failed: outcomes.filter((outcome) => outcome === "unavailable").length,
+      };
+    },
+
+    async maintainWatches(
+      options: Readonly<{ limit?: number }> = {},
+    ): Promise<GoogleCalendarWatchMaintenanceResult> {
+      const limit = options.limit ?? 25;
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 25) {
+        throw new GoogleCalendarServiceError("provider_unavailable");
+      }
+      const maintenanceNow = now();
+      const [due, repairProducerIds] = await Promise.all([
+        input.repository.listCalendarWatchesDueForRenewal({
+          renewBefore: new Date(maintenanceNow.getTime() + GOOGLE_CALENDAR_WATCH_RENEW_BEFORE_MS),
+          limit,
+        }),
+        input.repository.listCalendarWatchRepairProducerIds({ now: maintenanceNow, limit }),
+      ]);
+      const dueProducerIds = new Set(due.map((watch) => watch.producerId));
+      const producerIds = [...new Set([...dueProducerIds, ...repairProducerIds])].slice(0, limit);
+      const outcomes = await Promise.all(
+        producerIds.map(async (producerId) => {
+          let outcome: GoogleCalendarWatchEnsureResult = "unavailable";
+          try {
+            const connection = await input.repository.getConnection(producerId);
+            if (connection?.status === "connected") {
+              outcome = (await ensureRequiredWatches(connection)).outcome;
+            }
+          } catch {
+            outcome = "unavailable";
+          }
+          return { producerId, outcome };
+        }),
+      );
+      return {
+        scanned: outcomes.length,
+        created: outcomes.filter(
+          ({ producerId, outcome }) => outcome === "created" && !dueProducerIds.has(producerId),
+        ).length,
+        renewed: outcomes.filter(
+          ({ producerId, outcome }) => outcome === "created" && dueProducerIds.has(producerId),
+        ).length,
+        active: outcomes.filter(({ outcome }) => outcome === "active").length,
+        failed: outcomes.filter(({ outcome }) => outcome === "unavailable").length,
+      };
     },
 
     async saveSelection(
@@ -794,23 +1207,50 @@ export function createGoogleCalendarService(
           result === "stale" ? "stale_connection" : "invalid_selection",
         );
       }
-      try {
-        // Selection is already committed. This no-network repair is
-        // idempotent, and the cron repeats it if this request stops here.
-        await input.repository.enqueueFutureConfirmedEvents({
+      // Selection is already committed. Both repairs are idempotent and the
+      // cron repeats them if this request stops after the commit.
+      await Promise.allSettled([
+        input.repository.enqueueFutureConfirmedEvents({
           producerId: options.producerId,
           now: now(),
           limit: 100,
-        });
-      } catch {
-        // The durable cron repair closes this post-commit gap.
-      }
+        }),
+        ensureRequiredWatches({ ...connection, status: "connected" }, accessToken),
+      ]);
     },
 
     async disconnect(producerId: string): Promise<void> {
       const connection = await input.repository.getConnection(producerId);
       if (!connection || connection.status === "disconnected") return;
       const tokens: string[] = [];
+      let watchAccessToken: string | null = null;
+      let watches: readonly GoogleCalendarStoredWatchRecord[] = [];
+      try {
+        [watchAccessToken, watches] = await Promise.all([
+          activeAccessToken(connection),
+          input.repository.listCalendarWatches({
+            producerId,
+            connectionId: connection.id,
+            accountVersion: connection.accountVersion,
+          }),
+        ]);
+      } catch {
+        try {
+          watches = await input.repository.listCalendarWatches({
+            producerId,
+            connectionId: connection.id,
+            accountVersion: connection.accountVersion,
+          });
+        } catch {
+          watches = [];
+        }
+      }
+      if (watchAccessToken) {
+        tokens.push(watchAccessToken);
+        await Promise.allSettled(
+          watches.map((watch) => stopChannelBestEffort(watchAccessToken, watch)),
+        );
+      }
       if (connection.refreshToken) {
         try {
           tokens.push(

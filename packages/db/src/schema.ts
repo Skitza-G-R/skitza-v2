@@ -430,6 +430,7 @@ export const calendarSyncJobOperation = pgEnum("calendar_sync_job_operation", [
   "send_ics",
   "upsert_google_event",
   "delete_google_event",
+  "reconcile_google_event",
 ]);
 
 export const calendarSyncDeliveryChannel = pgEnum("calendar_sync_delivery_channel", [
@@ -469,6 +470,39 @@ export const bookingCalendarLinkProviderState = pgEnum("booking_calendar_link_pr
   "uncreated",
   "active",
   "deleted",
+]);
+
+export const bookingCalendarLinkSyncState = pgEnum("booking_calendar_link_sync_state", [
+  "pending",
+  "synced",
+  "not_synced",
+  "conflict",
+  "missing",
+  "disconnected",
+]);
+
+export const googleCalendarWatchState = pgEnum("google_calendar_watch_state", [
+  "renewing",
+  "active",
+  "retired",
+  "expired",
+]);
+
+// Closed, non-sensitive failure vocabulary shared by watch health and linked
+// event health. Provider response bodies and identifiers never belong here.
+export const googleCalendarSyncErrorCode = pgEnum("google_calendar_sync_error_code", [
+  "provider_unavailable",
+  "rate_limited",
+  "permission_denied",
+  "reconnect_required",
+  "invalid_provider_event",
+  "stale_skitza_revision",
+  "skitza_overlap",
+  "watch_create_failed",
+  "watch_renew_failed",
+  "watch_stop_failed",
+  "reconciliation_failed",
+  "unknown",
 ]);
 
 // Immutable delivery input captured in the same transaction as the booking
@@ -521,9 +555,18 @@ export type GoogleCalendarSyncJobPayloadSnapshot =
       privateProperties: GoogleCalendarEventPrivateProperties;
     }>;
 
+export type GoogleCalendarReconcileJobPayloadSnapshot = Readonly<{
+  schemaVersion: 3;
+  action: "reconcile";
+  source: "webhook" | "recovery";
+  watchId: string | null;
+  messageNumber: string | null;
+}>;
+
 export type CalendarOutboxPayloadSnapshot =
   | CalendarSyncJobPayloadSnapshot
-  | GoogleCalendarSyncJobPayloadSnapshot;
+  | GoogleCalendarSyncJobPayloadSnapshot
+  | GoogleCalendarReconcileJobPayloadSnapshot;
 
 export const bookings = pgTable(
   "bookings",
@@ -929,6 +972,8 @@ export const calendarSyncJobs = pgTable(
     producerId: uuid("producer_id").notNull(),
     deliveryChannel: calendarSyncDeliveryChannel("delivery_channel").notNull().default("ics"),
     bookingCalendarLinkId: uuid("booking_calendar_link_id"),
+    googleCalendarWatchId: uuid("google_calendar_watch_id"),
+    webhookMessageNumber: text("webhook_message_number"),
     operation: calendarSyncJobOperation("operation").notNull(),
     status: calendarSyncJobStatus("status").notNull().default("pending"),
     desiredRevision: integer("desired_revision").notNull(),
@@ -963,9 +1008,16 @@ export const calendarSyncJobs = pgTable(
     )
       .on(t.bookingId, t.operation, t.desiredRevision)
       .where(sql`${t.deliveryChannel} = 'ics'`),
-    linkChannelRevisionUnique: uniqueIndex("calendar_sync_jobs_link_channel_revision_unique")
-      .on(t.bookingCalendarLinkId, t.deliveryChannel, t.desiredRevision)
-      .where(sql`${t.bookingCalendarLinkId} IS NOT NULL`),
+    linkOutboundRevisionUnique: uniqueIndex("calendar_sync_jobs_link_outbound_revision_unique")
+      .on(t.bookingCalendarLinkId, t.desiredRevision)
+      .where(
+        sql`${t.bookingCalendarLinkId} IS NOT NULL AND ${t.operation} IN ('upsert_google_event', 'delete_google_event')`,
+      ),
+    watchMessageLinkUnique: uniqueIndex("calendar_sync_jobs_watch_message_link_unique")
+      .on(t.googleCalendarWatchId, t.webhookMessageNumber, t.bookingCalendarLinkId)
+      .where(
+        sql`${t.operation} = 'reconcile_google_event' AND ${t.googleCalendarWatchId} IS NOT NULL`,
+      ),
     uidRevisionUnique: uniqueIndex("calendar_sync_jobs_uid_revision_unique").on(
       sql`(${t.payloadSnapshot}->>'uid')`,
       t.desiredRevision,
@@ -979,6 +1031,11 @@ export const calendarSyncJobs = pgTable(
       columns: [t.bookingCalendarLinkId, t.producerId],
       foreignColumns: [bookingCalendarLinks.id, bookingCalendarLinks.producerId],
       name: "calendar_sync_jobs_booking_calendar_link_producer_fk",
+    }).onDelete("restrict"),
+    googleCalendarWatchProducerFk: foreignKey({
+      columns: [t.googleCalendarWatchId, t.producerId],
+      foreignColumns: [googleCalendarWatches.id, googleCalendarWatches.producerId],
+      name: "calendar_sync_jobs_google_calendar_watch_producer_fk",
     }).onDelete("restrict"),
     claimIdx: index("calendar_sync_jobs_claim_idx").on(
       t.status,
@@ -1015,7 +1072,7 @@ export const calendarSyncJobs = pgTable(
           AND ${t.deliveryChannel} = 'ics'
         )
         OR (
-          ${t.operation} IN ('upsert_google_event', 'delete_google_event')
+          ${t.operation} IN ('upsert_google_event', 'delete_google_event', 'reconcile_google_event')
           AND ${t.deliveryChannel} = 'google'
           AND ${t.bookingCalendarLinkId} IS NOT NULL
         )
@@ -1113,6 +1170,31 @@ export const calendarSyncJobs = pgTable(
                   'schemaVersion', 'action', 'notificationMode', 'sequence', 'privateProperties'
                 ]::text[]) = '{}'::jsonb
                 AND ${t.payloadSnapshot}->>'notificationMode' IN ('none', 'all')
+              )
+            )
+          )
+          OR (
+            ${t.operation} = 'reconcile_google_event'
+            AND ${t.payloadSnapshot}->>'schemaVersion' = '3'
+            AND ${t.payloadSnapshot}->>'action' = 'reconcile'
+            AND (${t.payloadSnapshot} - ARRAY[
+              'schemaVersion', 'action', 'source', 'watchId', 'messageNumber'
+            ]::text[]) = '{}'::jsonb
+            AND ${t.payloadSnapshot}->>'source' IN ('webhook', 'recovery')
+            AND (
+              (
+                ${t.payloadSnapshot}->>'source' = 'webhook'
+                AND ${t.googleCalendarWatchId} IS NOT NULL
+                AND ${t.webhookMessageNumber} ~ '^[1-9][0-9]{0,38}$'
+                AND ${t.payloadSnapshot}->>'watchId' = ${t.googleCalendarWatchId}::text
+                AND ${t.payloadSnapshot}->>'messageNumber' = ${t.webhookMessageNumber}
+              )
+              OR (
+                ${t.payloadSnapshot}->>'source' = 'recovery'
+                AND ${t.googleCalendarWatchId} IS NULL
+                AND ${t.webhookMessageNumber} IS NULL
+                AND jsonb_typeof(${t.payloadSnapshot}->'watchId') = 'null'
+                AND jsonb_typeof(${t.payloadSnapshot}->'messageNumber') = 'null'
               )
             )
           )
@@ -1554,9 +1636,16 @@ export const bookingCalendarLinks = pgTable(
     destinationCalendarIdFingerprint: text("destination_calendar_id_fingerprint").notNull(),
     providerEventId: text("provider_event_id").notNull(),
     providerEventEtag: text("provider_event_etag"),
+    providerEventUpdatedAt: timestamp("provider_event_updated_at", { withTimezone: true }),
     providerState: bookingCalendarLinkProviderState("provider_state")
       .notNull()
       .default("uncreated"),
+    syncState: bookingCalendarLinkSyncState("sync_state").notNull().default("pending"),
+    syncStateChangedAt: timestamp("sync_state_changed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastInboundReconciledAt: timestamp("last_inbound_reconciled_at", { withTimezone: true }),
+    lastSyncErrorCode: googleCalendarSyncErrorCode("last_sync_error_code"),
     desiredRevision: integer("desired_revision").notNull(),
     lastGoogleRevision: integer("last_google_revision").notNull().default(0),
     lastGoogleSyncedAt: timestamp("last_google_synced_at", { withTimezone: true }),
@@ -1604,8 +1693,9 @@ export const bookingCalendarLinks = pgTable(
       t.connectionId,
       t.accountVersion,
       t.providerState,
+      t.syncState,
+      t.lastInboundReconciledAt,
       t.desiredRevision,
-      t.lastGoogleRevision,
       t.id,
     ),
     encryptedDestinationShape: check(
@@ -1661,6 +1751,24 @@ export const bookingCalendarLinks = pgTable(
         AND ${t.desiredRevision} >= ${t.invitationRevision}
       ) IS TRUE`,
     ),
+    syncStateShape: check(
+      "booking_calendar_links_sync_state_shape",
+      sql`(
+        (
+          ${t.syncState} IN ('pending', 'synced', 'missing', 'disconnected')
+          AND ${t.lastSyncErrorCode} IS NULL
+        )
+        OR (
+          ${t.syncState} = 'conflict'
+          AND ${t.lastSyncErrorCode} IN ('stale_skitza_revision', 'skitza_overlap')
+        )
+        OR (
+          ${t.syncState} = 'not_synced'
+          AND ${t.lastSyncErrorCode} IS NOT NULL
+          AND ${t.lastSyncErrorCode} NOT IN ('stale_skitza_revision', 'skitza_overlap')
+        )
+      ) IS TRUE`,
+    ),
     invitationShape: check(
       "booking_calendar_links_invitation_shape",
       sql`(
@@ -1700,6 +1808,11 @@ export const bookingCalendarLinks = pgTable(
       "booking_calendar_links_timestamp_shape",
       sql`(
         ${t.updatedAt} >= ${t.createdAt}
+        AND ${t.syncStateChangedAt} >= ${t.createdAt}
+        AND (
+          ${t.lastInboundReconciledAt} IS NULL
+          OR ${t.lastInboundReconciledAt} >= ${t.createdAt}
+        )
         AND (${t.lastGoogleSyncedAt} IS NULL OR ${t.lastGoogleSyncedAt} >= ${t.createdAt})
         AND (${t.invitationReservedAt} IS NULL OR ${t.invitationReservedAt} >= ${t.createdAt})
         AND (${t.invitationAttemptedAt} IS NULL OR ${t.invitationAttemptedAt} >= ${t.createdAt})
@@ -1710,6 +1823,142 @@ export const bookingCalendarLinks = pgTable(
 );
 export type BookingCalendarLink = typeof bookingCalendarLinks.$inferSelect;
 export type NewBookingCalendarLink = typeof bookingCalendarLinks.$inferInsert;
+
+// One provider push channel per row. A renewing successor overlaps the old
+// active row until provider creation succeeds, then activation and retirement
+// happen atomically. Only digests of high-entropy channel tokens are stored.
+export const googleCalendarWatches = pgTable(
+  "google_calendar_watches",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    producerId: uuid("producer_id").notNull(),
+    connectionId: uuid("connection_id").notNull(),
+    accountVersion: integer("account_version").notNull(),
+    destinationSelectionId: uuid("destination_selection_id").notNull(),
+    destinationCalendarIdCiphertext: text("destination_calendar_id_ciphertext").notNull(),
+    destinationCalendarIdIv: text("destination_calendar_id_iv").notNull(),
+    destinationCalendarIdAuthTag: text("destination_calendar_id_auth_tag").notNull(),
+    destinationCalendarIdKeyVersion: integer("destination_calendar_id_key_version").notNull(),
+    destinationCalendarIdFingerprint: text("destination_calendar_id_fingerprint").notNull(),
+    renewalOfWatchId: uuid("renewal_of_watch_id"),
+    providerChannelId: uuid("provider_channel_id").notNull(),
+    providerResourceId: text("provider_resource_id"),
+    channelTokenDigest: text("channel_token_digest").notNull(),
+    state: googleCalendarWatchState("state").notNull().default("renewing"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    lastMessageNumber: text("last_message_number").notNull().default("0"),
+    lastNotificationAt: timestamp("last_notification_at", { withTimezone: true }),
+    lastReconciledAt: timestamp("last_reconciled_at", { withTimezone: true }),
+    activatedAt: timestamp("activated_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    lastErrorCode: googleCalendarSyncErrorCode("last_error_code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    idProducerUnique: unique("google_calendar_watches_id_producer_unique").on(t.id, t.producerId),
+    channelUnique: unique("google_calendar_watches_channel_unique").on(t.providerChannelId),
+    connectionProducerFk: foreignKey({
+      columns: [t.connectionId, t.producerId],
+      foreignColumns: [googleCalendarConnections.id, googleCalendarConnections.producerId],
+      name: "google_calendar_watches_connection_producer_fk",
+    }).onDelete("restrict"),
+    renewalProducerFk: foreignKey({
+      columns: [t.renewalOfWatchId, t.producerId],
+      foreignColumns: [t.id, t.producerId],
+      name: "google_calendar_watches_renewal_producer_fk",
+    }).onDelete("restrict"),
+    oneActive: uniqueIndex("google_calendar_watches_one_active")
+      .on(t.connectionId, t.accountVersion, t.destinationCalendarIdFingerprint)
+      .where(sql`${t.state} = 'active'`),
+    oneRenewing: uniqueIndex("google_calendar_watches_one_renewing")
+      .on(t.connectionId, t.accountVersion, t.destinationCalendarIdFingerprint)
+      .where(sql`${t.state} = 'renewing'`),
+    renewalDueIdx: index("google_calendar_watches_renewal_due_idx").on(t.state, t.expiresAt, t.id),
+    webhookLookupIdx: index("google_calendar_watches_webhook_lookup_idx").on(
+      t.providerChannelId,
+      t.state,
+    ),
+    encryptedDestinationShape: check(
+      "google_calendar_watches_encrypted_destination_shape",
+      sql`(
+        ${t.destinationCalendarIdCiphertext} ~ '^[A-Za-z0-9_-]+$'
+        AND char_length(${t.destinationCalendarIdCiphertext}) <= 8192
+        AND ${t.destinationCalendarIdIv} ~ '^[A-Za-z0-9_-]{16}$'
+        AND ${t.destinationCalendarIdAuthTag} ~ '^[A-Za-z0-9_-]{22}$'
+        AND ${t.destinationCalendarIdKeyVersion} > 0
+        AND ${t.destinationCalendarIdFingerprint} ~ '^hmac-sha256:[0-9a-f]{64}$'
+      ) IS TRUE`,
+    ),
+    trustShape: check(
+      "google_calendar_watches_trust_shape",
+      sql`(
+        ${t.accountVersion} > 0
+        AND ${t.channelTokenDigest} ~ '^sha256:[0-9a-f]{64}$'
+        AND (
+          ${t.providerResourceId} IS NULL
+          OR (
+            NULLIF(btrim(${t.providerResourceId}), '') IS NOT NULL
+            AND ${t.providerResourceId} !~ '[[:space:]]'
+            AND char_length(${t.providerResourceId}) <= 2048
+          )
+        )
+        AND ${t.lastMessageNumber} ~ '^(0|[1-9][0-9]{0,38})$'
+      ) IS TRUE`,
+    ),
+    stateShape: check(
+      "google_calendar_watches_state_shape",
+      sql`(
+        (
+          ${t.state} = 'renewing'
+          AND ${t.activatedAt} IS NULL
+          AND ${t.endedAt} IS NULL
+          AND ${t.lastErrorCode} IS NULL
+          AND (
+            (${t.providerResourceId} IS NULL AND ${t.expiresAt} IS NULL)
+            OR (${t.providerResourceId} IS NOT NULL AND ${t.expiresAt} IS NOT NULL)
+          )
+        )
+        OR (
+          ${t.state} = 'active'
+          AND ${t.providerResourceId} IS NOT NULL
+          AND ${t.expiresAt} IS NOT NULL
+          AND ${t.activatedAt} IS NOT NULL
+          AND ${t.endedAt} IS NULL
+          AND ${t.lastErrorCode} IS NULL
+        )
+        OR (
+          ${t.state} IN ('retired', 'expired')
+          AND ${t.endedAt} IS NOT NULL
+        )
+      ) IS TRUE`,
+    ),
+    messageShape: check(
+      "google_calendar_watches_message_shape",
+      sql`(
+        (${t.lastMessageNumber} = '0' AND ${t.lastNotificationAt} IS NULL)
+        OR (${t.lastMessageNumber} <> '0' AND ${t.lastNotificationAt} IS NOT NULL)
+      ) IS TRUE`,
+    ),
+    timestampShape: check(
+      "google_calendar_watches_timestamp_shape",
+      sql`(
+        ${t.updatedAt} >= ${t.createdAt}
+        AND (${t.expiresAt} IS NULL OR ${t.expiresAt} > ${t.createdAt})
+        AND (${t.activatedAt} IS NULL OR ${t.activatedAt} >= ${t.createdAt})
+        AND (${t.endedAt} IS NULL OR ${t.endedAt} >= ${t.createdAt})
+        AND (${t.endedAt} IS NULL OR ${t.activatedAt} IS NULL OR ${t.endedAt} >= ${t.activatedAt})
+        AND (
+          ${t.lastNotificationAt} IS NULL
+          OR ${t.lastNotificationAt} >= ${t.createdAt}
+        )
+        AND (${t.lastReconciledAt} IS NULL OR ${t.lastReconciledAt} >= ${t.createdAt})
+      ) IS TRUE`,
+    ),
+  }),
+);
+export type GoogleCalendarWatch = typeof googleCalendarWatches.$inferSelect;
+export type NewGoogleCalendarWatch = typeof googleCalendarWatches.$inferInsert;
 
 // Complete CalendarList candidates for the current Google account version.
 // Provider IDs are encrypted for recovery and separately HMAC-fingerprinted

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  applyGoogleCalendarSessionReconciliation,
   cancelArtistSessionBooking,
   cancelProducerSessionBooking,
   completeSessionBooking,
@@ -10,9 +11,12 @@ import {
   decideProducerSessionChangeRequest,
   expireHeldSessionBooking,
   findProducerManualSessionBookingReplay,
+  getSessionBookingGoogleCalendarSyncStatuses,
   markSessionNoShow,
   recordLateArtistCancellation,
   rejectSessionBooking,
+  restoreMissingSessionBookingGoogleCalendarEvent,
+  retrySessionBookingGoogleCalendarSync,
   previewProducerSessionReschedule,
   rescheduleArtistSessionBooking,
   rescheduleProducerSessionBooking,
@@ -20,6 +24,7 @@ import {
   sessionUseConsumesAllowance,
   submitArtistSessionChangeRequest,
 } from "../service";
+import type { GoogleCalendarPreparedReconciliation } from "~/server/calendar/google-reconciliation";
 import type {
   BookingCalendarLinkRecord,
   CalendarSyncJobRecord,
@@ -112,6 +117,12 @@ class MemorySessionBookingRepository
   readonly calendarJobs: CalendarSyncJobRecord[] = [];
   readonly bookingCalendarLinks: BookingCalendarLinkRecord[] = [];
   readonly calendarJobOccurredAt = new Map<string, Date>();
+  activeReconciliation: Readonly<{
+    jobId: string;
+    linkId: string;
+    leaseToken: string;
+    capturedRevision: number;
+  }> | null = null;
   googleConnected = false;
   googleConnectionId = "google-connection-sk194";
   googleAccountVersion = 1;
@@ -124,6 +135,22 @@ class MemorySessionBookingRepository
 
   constructor(context: SessionBookingCreateContext = createContext()) {
     this.context = context;
+  }
+
+  async findBookingGoogleCalendarSyncStatuses(input: {
+    bookingIds: readonly string[];
+    producerId: string;
+  }) {
+    await Promise.resolve();
+    return input.bookingIds.flatMap((bookingId) => {
+      const link = this.bookingCalendarLinks.find(
+        (candidate) =>
+          candidate.currentBookingId === bookingId && candidate.producerId === input.producerId,
+      );
+      return link
+        ? [{ bookingId, status: this.googleConnected ? link.syncState : ("disconnected" as const) }]
+        : [];
+    });
   }
 
   async findProducerManualSessionBookingByOperationKey(input: {
@@ -162,6 +189,7 @@ class MemorySessionBookingRepository
       const calendarJobs = [...this.calendarJobs];
       const bookingCalendarLinks = [...this.bookingCalendarLinks];
       const calendarJobOccurredAt = new Map(this.calendarJobOccurredAt);
+      const activeReconciliation = this.activeReconciliation;
       const sequences = {
         booking: this.#bookingSequence,
         event: this.#eventSequence,
@@ -188,6 +216,7 @@ class MemorySessionBookingRepository
         this.#eventSequence = sequences.event;
         this.#changeRequestSequence = sequences.changeRequest;
         this.#calendarJobSequence = sequences.calendarJob;
+        this.activeReconciliation = activeReconciliation;
         throw error;
       }
     });
@@ -365,6 +394,59 @@ class MemorySessionBookingRepository
       }));
   }
 
+  async loadGoogleCalendarReconciliationContext(input: {
+    jobId: string;
+    producerId: string;
+    bookingCalendarLinkId: string;
+    leaseToken: string;
+  }) {
+    await Promise.resolve();
+    const active = this.activeReconciliation;
+    const link = this.bookingCalendarLinks.find(
+      (candidate) =>
+        candidate.id === input.bookingCalendarLinkId && candidate.producerId === input.producerId,
+    );
+    return active &&
+      link &&
+      active.jobId === input.jobId &&
+      active.linkId === input.bookingCalendarLinkId &&
+      active.leaseToken === input.leaseToken
+      ? {
+          link,
+          currentBookingId: link.currentBookingId,
+          capturedRevision: active.capturedRevision,
+        }
+      : null;
+  }
+
+  async loadBookingCalendarRecoveryLink(input: { bookingId: string; producerId: string }) {
+    await Promise.resolve();
+    return (
+      this.bookingCalendarLinks.find(
+        (link) =>
+          link.currentBookingId === input.bookingId &&
+          link.producerId === input.producerId &&
+          link.providerState === "active",
+      ) ?? null
+    );
+  }
+
+  async findGoogleCalendarRecoveryJob(input: {
+    producerId: string;
+    bookingCalendarLinkId: string;
+    operationKey: string;
+  }) {
+    await Promise.resolve();
+    return (
+      this.calendarJobs.find(
+        (job) =>
+          job.producerId === input.producerId &&
+          job.bookingCalendarLinkId === input.bookingCalendarLinkId &&
+          job.lastManualRetryOperationKey === input.operationKey,
+      ) ?? null
+    );
+  }
+
   async insertBooking(input: NewSessionBookingRecord): Promise<SessionBookingRecord> {
     await Promise.resolve();
     if (
@@ -428,6 +510,46 @@ class MemorySessionBookingRepository
             heldExpiryReason: input.heldExpiryReason ?? null,
           }
         : {}),
+    };
+    this.bookings[index] = updated;
+    return updated;
+  }
+
+  async updateBookingCalendarProjection(input: {
+    bookingId: string;
+    producerId: string;
+    expectedCalendarRevision: number;
+    nextCalendarRevision: number;
+    title?: string | null;
+    artistRsvpStatus?: SessionBookingRecord["artistRsvpStatus"];
+    artistRsvpRespondedAt?: Date | null;
+    occurredAt: Date;
+  }): Promise<SessionBookingRecord> {
+    await Promise.resolve();
+    const index = this.bookings.findIndex(
+      (booking) => booking.id === input.bookingId && booking.producerId === input.producerId,
+    );
+    const existing = this.bookings[index];
+    if (
+      !existing ||
+      existing.status !== "confirmed" ||
+      existing.calendarRevision !== input.expectedCalendarRevision
+    ) {
+      throw new Error("booking calendar compare-and-swap failed");
+    }
+    const updated: SessionBookingRecord = {
+      ...existing,
+      calendarRevision: input.nextCalendarRevision,
+      ...(Object.prototype.hasOwnProperty.call(input, "title")
+        ? { title: input.title ?? null }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(input, "artistRsvpStatus")
+        ? {
+            artistRsvpStatus: input.artistRsvpStatus ?? null,
+            artistRsvpRespondedAt: input.artistRsvpRespondedAt ?? null,
+          }
+        : {}),
+      updatedAt: input.occurredAt,
     };
     this.bookings[index] = updated;
     return updated;
@@ -530,6 +652,7 @@ class MemorySessionBookingRepository
       this.calendarJobs.find(
         (job) =>
           job.deliveryChannel === "google" &&
+          (job.operation === "upsert_google_event" || job.operation === "delete_google_event") &&
           job.producerId === input.producerId &&
           job.bookingCalendarLinkId === input.bookingCalendarLinkId &&
           job.desiredRevision === input.desiredRevision,
@@ -606,9 +729,90 @@ class MemorySessionBookingRepository
       connectionId: this.googleConnectionId,
       accountVersion: this.googleAccountVersion,
       desiredRevision: input.desiredRevision,
+      providerEventEtag: null,
+      providerEventUpdatedAt: null,
+      providerState: "uncreated",
+      syncState: "pending",
+      syncStateChangedAt: input.occurredAt,
+      lastInboundReconciledAt: null,
+      lastSyncErrorCode: null,
     };
     this.bookingCalendarLinks.push(link);
     return link;
+  }
+
+  async advanceGoogleCalendarLink(input: {
+    linkId: string;
+    producerId: string;
+    expectedCurrentBookingId: string;
+    expectedDesiredRevision: number;
+    currentBookingId: string;
+    desiredRevision: number;
+    syncState: BookingCalendarLinkRecord["syncState"];
+    lastSyncErrorCode: BookingCalendarLinkRecord["lastSyncErrorCode"];
+    providerEventEtag?: string;
+    providerEventUpdatedAt?: Date;
+    lastInboundReconciledAt?: Date;
+    occurredAt: Date;
+  }): Promise<BookingCalendarLinkRecord> {
+    await Promise.resolve();
+    const index = this.bookingCalendarLinks.findIndex(
+      (link) => link.id === input.linkId && link.producerId === input.producerId,
+    );
+    const existing = this.bookingCalendarLinks[index];
+    if (
+      !existing ||
+      existing.currentBookingId !== input.expectedCurrentBookingId ||
+      existing.desiredRevision !== input.expectedDesiredRevision
+    ) {
+      throw new Error("calendar link compare-and-swap failed");
+    }
+    const updated: BookingCalendarLinkRecord = {
+      ...existing,
+      currentBookingId: input.currentBookingId,
+      desiredRevision: input.desiredRevision,
+      syncState: input.syncState,
+      syncStateChangedAt:
+        existing.syncState === input.syncState &&
+        existing.lastSyncErrorCode === input.lastSyncErrorCode
+          ? existing.syncStateChangedAt
+          : input.occurredAt,
+      lastSyncErrorCode: input.lastSyncErrorCode,
+      ...(input.providerEventEtag === undefined
+        ? {}
+        : { providerEventEtag: input.providerEventEtag }),
+      ...(input.providerEventUpdatedAt === undefined
+        ? {}
+        : { providerEventUpdatedAt: input.providerEventUpdatedAt }),
+      ...(input.lastInboundReconciledAt === undefined
+        ? {}
+        : { lastInboundReconciledAt: input.lastInboundReconciledAt }),
+    };
+    this.bookingCalendarLinks[index] = updated;
+    return updated;
+  }
+
+  async completeGoogleCalendarReconciliationJob(input: {
+    jobId: string;
+    producerId: string;
+    bookingCalendarLinkId: string;
+    capturedRevision: number;
+    leaseToken: string;
+    completedAt: Date;
+  }): Promise<boolean> {
+    await Promise.resolve();
+    const active = this.activeReconciliation;
+    if (
+      !active ||
+      active.jobId !== input.jobId ||
+      active.linkId !== input.bookingCalendarLinkId ||
+      active.leaseToken !== input.leaseToken ||
+      active.capturedRevision !== input.capturedRevision
+    ) {
+      return false;
+    }
+    this.activeReconciliation = null;
+    return true;
   }
 
   async insertCalendarSyncJob(input: NewCalendarSyncJobRecord): Promise<CalendarSyncJobRecord> {
@@ -618,7 +822,15 @@ class MemorySessionBookingRepository
       throw new Error("calendar outbox unavailable");
     }
     const { occurredAt, ...values } = input;
-    const job = { ...values, id: `calendar-job-${String(++this.#calendarJobSequence)}` };
+    const job: CalendarSyncJobRecord = {
+      ...values,
+      id: `calendar-job-${String(++this.#calendarJobSequence)}`,
+      manualRetryCount: input.manualRetryCount ?? 0,
+      lastManualRetryAt: input.lastManualRetryAt ?? null,
+      lastManualRetryActor: input.lastManualRetryActor ?? null,
+      lastManualRetryOperationKey: input.lastManualRetryOperationKey ?? null,
+      lastManualRetryOperationDigest: input.lastManualRetryOperationDigest ?? null,
+    };
     this.calendarJobs.push(job);
     this.calendarJobOccurredAt.set(job.id, occurredAt);
     return job;
@@ -673,6 +885,72 @@ function googlePayload(job: CalendarSyncJobRecord | undefined) {
     throw new Error("Expected a Google calendar job");
   }
   return job.payloadSnapshot;
+}
+
+async function linkedConfirmedReconciliationFixture() {
+  const repository = new MemorySessionBookingRepository(
+    createContext({ autoConfirmBookings: true, sessionLimit: 3 }),
+  );
+  repository.googleConnected = true;
+  const created = await createSessionBooking(repository, createInput());
+  const existingLink = repository.bookingCalendarLinks[0];
+  if (!existingLink) throw new Error("Expected a Google Calendar link");
+  const link: BookingCalendarLinkRecord = {
+    ...existingLink,
+    providerState: "active",
+    providerEventEtag: '"etag-1"',
+    providerEventUpdatedAt: new Date("2026-08-09T11:00:00.000Z"),
+    syncState: "synced",
+    syncStateChangedAt: new Date("2026-08-09T11:00:00.000Z"),
+  };
+  repository.bookingCalendarLinks[0] = link;
+  repository.activeReconciliation = {
+    jobId: "00000000-0000-4000-8000-000000000101",
+    linkId: link.id,
+    leaseToken: "lease-domain-reconcile",
+    capturedRevision: created.booking.calendarRevision,
+  };
+  const prepared: GoogleCalendarPreparedReconciliation = {
+    job: {
+      id: repository.activeReconciliation.jobId,
+      bookingId: created.booking.id,
+      producerId: created.booking.producerId,
+      bookingCalendarLinkId: link.id,
+      desiredRevision: created.booking.calendarRevision,
+      payloadSnapshot: {
+        schemaVersion: 3,
+        action: "reconcile",
+        source: "recovery",
+        watchId: null,
+        messageNumber: null,
+      },
+      attemptCount: 1,
+    },
+    currentBookingId: created.booking.id,
+    artistEmail: created.booking.artistEmail,
+    link: {
+      id: link.id,
+      producerId: link.producerId,
+      connectionId: link.connectionId,
+      accountVersion: link.accountVersion,
+      destinationSelectionId: "00000000-0000-4000-8000-000000000102",
+      destinationCalendarIdCiphertext: "ciphertext",
+      destinationCalendarIdIv: "abcdefghijklmnop",
+      destinationCalendarIdAuthTag: "abcdefghijklmnopqrstuv",
+      destinationCalendarIdKeyVersion: 1,
+      providerEventId: "sk00000000000040008000000000000102",
+      providerEventEtag: link.providerEventEtag,
+      providerState: "active",
+      desiredRevision: link.desiredRevision,
+      lastGoogleRevision: 1,
+      invitationRevision: 1,
+      invitationChannel: "google",
+      invitationReservedAt: baseNow,
+      invitationAttemptedAt: baseNow,
+      invitationDeliveredAt: baseNow,
+    },
+  };
+  return { repository, created, prepared };
 }
 
 describe("session booking lifecycle commands", () => {
@@ -2487,5 +2765,465 @@ describe("session booking lifecycle commands", () => {
     expect(repository.events).toEqual([]);
     expect(repository.calendarJobs).toEqual([]);
     expect(repository.bookingCalendarLinks).toEqual([]);
+  });
+
+  it("accepts a Google title edit but restores the fixed session duration", async () => {
+    const { repository, created, prepared } = await linkedConfirmedReconciliationFixture();
+    const result = await applyGoogleCalendarSessionReconciliation(
+      repository,
+      prepared,
+      {
+        outcome: "found",
+        event: {
+          eventId: prepared.link.providerEventId,
+          etag: '"etag-2"',
+          status: "confirmed",
+          linkage: { opaqueLink: prepared.link.id, revision: 1, schemaVersion: 1 },
+          updatedAt: new Date("2026-08-09T12:00:00.000Z"),
+          summary: "  Updated mix review  ",
+          timing: {
+            kind: "timed",
+            startsAt: created.booking.startsAt,
+            endsAt: new Date(created.booking.startsAt.getTime() + 90 * 60 * 1_000),
+          },
+          artistRsvp: "accepted",
+        },
+      },
+      {
+        leaseToken: "lease-domain-reconcile",
+        reconciledAt: new Date("2026-08-09T12:00:01.000Z"),
+      },
+    );
+
+    expect(result).toEqual({ outcome: "corrected" });
+    expect(repository.bookings[0]).toMatchObject({
+      id: created.booking.id,
+      title: "Updated mix review",
+      durationMin: 60,
+      calendarRevision: 2,
+      artistRsvpStatus: "accepted",
+    });
+    expect(repository.bookingCalendarLinks[0]).toMatchObject({
+      currentBookingId: created.booking.id,
+      desiredRevision: 2,
+      syncState: "pending",
+      providerEventEtag: '"etag-2"',
+    });
+    const correction = googlePayload(repository.calendarJobs[1]);
+    expect(correction).toMatchObject({
+      action: "upsert",
+      notificationMode: "none",
+      sequence: 2,
+      summary: "Updated mix review",
+      startsAtUtc: created.booking.startsAt.toISOString(),
+      endsAtUtc: new Date(created.booking.startsAt.getTime() + 60 * 60 * 1_000).toISOString(),
+    });
+  });
+
+  it("accepts a conflict-free Google move as an immutable replacement outside studio rules", async () => {
+    const { repository, created, prepared } = await linkedConfirmedReconciliationFixture();
+    const movedStartsAt = new Date("2026-07-21T04:00:00.000Z");
+
+    await expect(
+      applyGoogleCalendarSessionReconciliation(
+        repository,
+        prepared,
+        {
+          outcome: "found",
+          event: {
+            eventId: prepared.link.providerEventId,
+            etag: '"etag-moved"',
+            status: "confirmed",
+            linkage: { opaqueLink: prepared.link.id, revision: 1, schemaVersion: 1 },
+            updatedAt: new Date("2026-08-09T12:05:00.000Z"),
+            summary: "Studio session",
+            timing: {
+              kind: "timed",
+              startsAt: movedStartsAt,
+              endsAt: new Date(movedStartsAt.getTime() + 60 * 60 * 1_000),
+            },
+            artistRsvp: null,
+          },
+        },
+        {
+          leaseToken: "lease-domain-reconcile",
+          reconciledAt: new Date("2026-08-09T12:05:01.000Z"),
+        },
+      ),
+    ).resolves.toEqual({ outcome: "corrected" });
+
+    expect(repository.bookings).toHaveLength(2);
+    expect(repository.bookings[0]).toMatchObject({
+      id: created.booking.id,
+      status: "cancelled",
+      calendarRevision: 2,
+    });
+    expect(repository.bookings[1]).toMatchObject({
+      startsAt: movedStartsAt,
+      durationMin: 60,
+      status: "confirmed",
+      rescheduledFromBookingId: created.booking.id,
+      allowanceUseId: created.booking.allowanceUseId,
+      calendarRevision: 2,
+    });
+    expect(repository.bookingCalendarLinks[0]).toMatchObject({
+      currentBookingId: repository.bookings[1]?.id,
+      desiredRevision: 2,
+    });
+  });
+
+  it("rejects a Google move that overlaps an active Skitza session and restores canonical data", async () => {
+    const { repository, created, prepared } = await linkedConfirmedReconciliationFixture();
+    const conflictStartsAt = new Date("2026-07-22T10:00:00.000Z");
+    repository.bookings.push({
+      ...created.booking,
+      id: "booking-conflict",
+      operationKey: "booking-conflict",
+      operationDigest: "sha256:conflict",
+      allowanceUseId: "allowance-use-conflict",
+      startsAt: conflictStartsAt,
+    });
+
+    const result = await applyGoogleCalendarSessionReconciliation(
+      repository,
+      prepared,
+      {
+        outcome: "found",
+        event: {
+          eventId: prepared.link.providerEventId,
+          etag: '"etag-conflict"',
+          status: "confirmed",
+          linkage: { opaqueLink: prepared.link.id, revision: 1, schemaVersion: 1 },
+          updatedAt: new Date("2026-08-09T12:10:00.000Z"),
+          summary: "Studio session",
+          timing: {
+            kind: "timed",
+            startsAt: conflictStartsAt,
+            endsAt: new Date(conflictStartsAt.getTime() + 60 * 60 * 1_000),
+          },
+          artistRsvp: null,
+        },
+      },
+      {
+        leaseToken: "lease-domain-reconcile",
+        reconciledAt: new Date("2026-08-09T12:10:01.000Z"),
+      },
+    );
+
+    expect(result).toEqual({ outcome: "conflict" });
+    expect(repository.bookings.filter((booking) => booking.rescheduledFromBookingId)).toEqual([]);
+    expect(repository.bookings[0]).toMatchObject({
+      id: created.booking.id,
+      status: "confirmed",
+      startsAt: created.booking.startsAt,
+      calendarRevision: 2,
+    });
+    expect(repository.bookingCalendarLinks[0]).toMatchObject({
+      syncState: "conflict",
+      lastSyncErrorCode: "skitza_overlap",
+    });
+    expect(googlePayload(repository.calendarJobs[1])).toMatchObject({
+      startsAtUtc: created.booking.startsAt.toISOString(),
+      notificationMode: "none",
+    });
+  });
+
+  it("advances sync health time when a conflict changes to a different safe error", async () => {
+    const { repository, created, prepared } = await linkedConfirmedReconciliationFixture();
+    const conflictStartsAt = new Date("2026-07-22T10:00:00.000Z");
+    const previousSyncStateChangedAt = new Date("2026-08-09T11:30:00.000Z");
+    const [link] = repository.bookingCalendarLinks;
+    if (!link) throw new Error("Expected a linked booking");
+    repository.bookingCalendarLinks[0] = {
+      ...link,
+      syncState: "conflict",
+      syncStateChangedAt: previousSyncStateChangedAt,
+      lastSyncErrorCode: "stale_skitza_revision",
+    };
+    repository.bookings.push({
+      ...created.booking,
+      id: "booking-conflict-error-change",
+      operationKey: "booking-conflict-error-change",
+      operationDigest: "sha256:conflict-error-change",
+      allowanceUseId: "allowance-use-conflict-error-change",
+      startsAt: conflictStartsAt,
+    });
+    const reconciledAt = new Date("2026-08-09T12:12:01.000Z");
+
+    await expect(
+      applyGoogleCalendarSessionReconciliation(
+        repository,
+        prepared,
+        {
+          outcome: "found",
+          event: {
+            eventId: prepared.link.providerEventId,
+            etag: '"etag-conflict-error-change"',
+            status: "confirmed",
+            linkage: { opaqueLink: prepared.link.id, revision: 1, schemaVersion: 1 },
+            updatedAt: new Date("2026-08-09T12:12:00.000Z"),
+            summary: "Studio session",
+            timing: {
+              kind: "timed",
+              startsAt: conflictStartsAt,
+              endsAt: new Date(conflictStartsAt.getTime() + 60 * 60 * 1_000),
+            },
+            artistRsvp: null,
+          },
+        },
+        { leaseToken: "lease-domain-reconcile", reconciledAt },
+      ),
+    ).resolves.toEqual({ outcome: "conflict" });
+
+    expect(repository.bookingCalendarLinks[0]).toMatchObject({
+      syncState: "conflict",
+      lastSyncErrorCode: "skitza_overlap",
+      syncStateChangedAt: reconciledAt,
+    });
+  });
+
+  it("does not persist provider facts older than the linked event watermark", async () => {
+    const { repository, created, prepared } = await linkedConfirmedReconciliationFixture();
+    const [originalLink] = repository.bookingCalendarLinks;
+    if (!originalLink?.providerEventUpdatedAt) throw new Error("Expected linked provider facts");
+
+    await expect(
+      applyGoogleCalendarSessionReconciliation(
+        repository,
+        prepared,
+        {
+          outcome: "found",
+          event: {
+            eventId: prepared.link.providerEventId,
+            etag: '"etag-older"',
+            status: "confirmed",
+            linkage: { opaqueLink: prepared.link.id, revision: 1, schemaVersion: 1 },
+            updatedAt: new Date("2026-08-09T10:59:59.000Z"),
+            summary: "Studio session",
+            timing: {
+              kind: "timed",
+              startsAt: created.booking.startsAt,
+              endsAt: new Date(created.booking.startsAt.getTime() + 60 * 60 * 1_000),
+            },
+            artistRsvp: null,
+          },
+        },
+        {
+          leaseToken: "lease-domain-reconcile",
+          reconciledAt: new Date("2026-08-09T12:14:00.000Z"),
+        },
+      ),
+    ).resolves.toEqual({ outcome: "conflict" });
+
+    expect(repository.bookingCalendarLinks[0]).toMatchObject({
+      providerEventEtag: originalLink.providerEventEtag,
+      providerEventUpdatedAt: originalLink.providerEventUpdatedAt,
+      syncState: "conflict",
+      lastSyncErrorCode: "stale_skitza_revision",
+    });
+  });
+
+  it("marks a missing Google event without cancelling the Skitza booking", async () => {
+    const { repository, created, prepared } = await linkedConfirmedReconciliationFixture();
+
+    await expect(
+      applyGoogleCalendarSessionReconciliation(
+        repository,
+        prepared,
+        { outcome: "missing" },
+        {
+          leaseToken: "lease-domain-reconcile",
+          reconciledAt: new Date("2026-08-09T12:15:00.000Z"),
+        },
+      ),
+    ).resolves.toEqual({ outcome: "missing" });
+
+    expect(repository.bookings[0]).toMatchObject({
+      id: created.booking.id,
+      status: "confirmed",
+      calendarRevision: 1,
+    });
+    expect(repository.bookingCalendarLinks[0]).toMatchObject({ syncState: "missing" });
+    expect(repository.calendarJobs).toHaveLength(1);
+  });
+
+  it("does not let a stale missing-event check override a newer Skitza revision", async () => {
+    const { repository, created, prepared } = await linkedConfirmedReconciliationFixture();
+    const [booking] = repository.bookings;
+    const [link] = repository.bookingCalendarLinks;
+    if (!booking || !link) throw new Error("Expected a linked booking");
+    repository.bookings[0] = { ...booking, calendarRevision: 2 };
+    repository.bookingCalendarLinks[0] = {
+      ...link,
+      desiredRevision: 2,
+      syncState: "pending",
+    };
+
+    await expect(
+      applyGoogleCalendarSessionReconciliation(
+        repository,
+        prepared,
+        { outcome: "missing" },
+        {
+          leaseToken: "lease-domain-reconcile",
+          reconciledAt: new Date("2026-08-09T12:16:00.000Z"),
+        },
+      ),
+    ).resolves.toEqual({ outcome: "conflict" });
+
+    expect(repository.bookings[0]).toMatchObject({
+      id: created.booking.id,
+      status: "confirmed",
+      calendarRevision: 2,
+    });
+    expect(repository.bookingCalendarLinks[0]).toMatchObject({
+      syncState: "conflict",
+      lastSyncErrorCode: "stale_skitza_revision",
+    });
+    expect(repository.calendarJobs).toHaveLength(1);
+  });
+
+  it("stores only the primary artist RSVP without changing the calendar revision", async () => {
+    const { repository, created, prepared } = await linkedConfirmedReconciliationFixture();
+
+    await expect(
+      applyGoogleCalendarSessionReconciliation(
+        repository,
+        prepared,
+        {
+          outcome: "found",
+          event: {
+            eventId: prepared.link.providerEventId,
+            etag: '"etag-rsvp"',
+            status: "confirmed",
+            linkage: { opaqueLink: prepared.link.id, revision: 1, schemaVersion: 1 },
+            updatedAt: new Date("2026-08-09T12:20:00.000Z"),
+            summary: "Studio session",
+            timing: {
+              kind: "timed",
+              startsAt: created.booking.startsAt,
+              endsAt: new Date(created.booking.startsAt.getTime() + 60 * 60 * 1_000),
+            },
+            artistRsvp: "declined",
+          },
+        },
+        {
+          leaseToken: "lease-domain-reconcile",
+          reconciledAt: new Date("2026-08-09T12:20:01.000Z"),
+        },
+      ),
+    ).resolves.toEqual({ outcome: "reconciled" });
+
+    expect(repository.bookings[0]).toMatchObject({
+      status: "confirmed",
+      calendarRevision: 1,
+      artistRsvpStatus: "declined",
+      artistRsvpRespondedAt: new Date("2026-08-09T12:20:00.000Z"),
+    });
+    expect(repository.calendarJobs).toHaveLength(1);
+  });
+
+  it("restores a missing event once and safely replays the producer operation key", async () => {
+    const { repository, created } = await linkedConfirmedReconciliationFixture();
+    repository.activeReconciliation = null;
+    const [link] = repository.bookingCalendarLinks;
+    if (!link) throw new Error("Expected a linked booking");
+    repository.bookingCalendarLinks[0] = {
+      ...link,
+      syncState: "missing",
+      lastSyncErrorCode: null,
+    };
+    const command = {
+      bookingId: created.booking.id,
+      producerId: created.booking.producerId,
+      actorClerkUserId: "producer-clerk-sk195",
+      operationKey: "restore-google-event-sk195",
+      now: new Date("2026-08-09T12:25:00.000Z"),
+    };
+
+    const first = await restoreMissingSessionBookingGoogleCalendarEvent(repository, command);
+    const replay = await restoreMissingSessionBookingGoogleCalendarEvent(repository, command);
+
+    expect(first).toEqual({ status: "missing", replayed: false });
+    expect(replay).toEqual({ status: "missing", replayed: true });
+    expect(repository.bookings[0]?.calendarRevision).toBe(2);
+    expect(repository.calendarJobs).toHaveLength(2);
+    expect(repository.calendarJobs[1]).toMatchObject({
+      manualRetryCount: 1,
+      lastManualRetryOperationKey: command.operationKey,
+    });
+    expect(googlePayload(repository.calendarJobs[1])).toMatchObject({
+      notificationMode: "none",
+      sequence: 2,
+    });
+  });
+
+  it("retries a failed linked event without exposing or changing its provider identity", async () => {
+    const { repository, created } = await linkedConfirmedReconciliationFixture();
+    repository.activeReconciliation = null;
+    const [link] = repository.bookingCalendarLinks;
+    if (!link) throw new Error("Expected a linked booking");
+    const linkId = link.id;
+    repository.bookingCalendarLinks[0] = {
+      ...link,
+      syncState: "not_synced",
+      lastSyncErrorCode: "provider_unavailable",
+    };
+
+    await expect(
+      retrySessionBookingGoogleCalendarSync(repository, {
+        bookingId: created.booking.id,
+        producerId: created.booking.producerId,
+        actorClerkUserId: "producer-clerk-sk195",
+        operationKey: "retry-google-event-sk195",
+        now: new Date("2026-08-09T12:30:00.000Z"),
+      }),
+    ).resolves.toEqual({ status: "pending", replayed: false });
+
+    expect(repository.bookingCalendarLinks[0]).toMatchObject({
+      id: linkId,
+      syncState: "pending",
+      lastSyncErrorCode: null,
+      desiredRevision: 2,
+    });
+  });
+
+  it("batches safe sync statuses and omits unlinked or other-producer sessions", async () => {
+    const { repository, created } = await linkedConfirmedReconciliationFixture();
+    const [link] = repository.bookingCalendarLinks;
+    if (!link) throw new Error("Expected a linked booking");
+    repository.bookingCalendarLinks[0] = { ...link, syncState: "missing" };
+    repository.bookingCalendarLinks.push({
+      ...link,
+      id: "calendar-link-other-producer",
+      producerId: "producer-other",
+      currentBookingId: "booking-other-producer",
+    });
+    const findStatuses = vi.spyOn(repository, "findBookingGoogleCalendarSyncStatuses");
+
+    await expect(
+      getSessionBookingGoogleCalendarSyncStatuses(repository, {
+        producerId: created.booking.producerId,
+        bookingIds: [
+          created.booking.id,
+          "booking-without-link",
+          "booking-other-producer",
+          created.booking.id,
+        ],
+      }),
+    ).resolves.toEqual([{ bookingId: created.booking.id, status: "missing" }]);
+    expect(findStatuses).toHaveBeenCalledTimes(1);
+    expect(findStatuses).toHaveBeenCalledWith({
+      producerId: created.booking.producerId,
+      bookingIds: [created.booking.id, "booking-without-link", "booking-other-producer"],
+    });
+
+    repository.googleConnected = false;
+    await expect(
+      getSessionBookingGoogleCalendarSyncStatuses(repository, {
+        producerId: created.booking.producerId,
+        bookingIds: [created.booking.id],
+      }),
+    ).resolves.toEqual([{ bookingId: created.booking.id, status: "disconnected" }]);
   });
 });

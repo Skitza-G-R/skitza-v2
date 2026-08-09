@@ -22,6 +22,7 @@ const busyProtectionWarningSource = readFileSync(
 );
 
 describe("Google Calendar browser-safe UI contract", () => {
+  const syncSummary = { syncing: 0, notSynced: 0, missing: 0, conflicts: 0 } as const;
   it("allows only full writers and owners as event destinations", () => {
     const roles: readonly GoogleCalendarAccessRole[] = [
       "owner",
@@ -56,13 +57,18 @@ describe("Google Calendar browser-safe UI contract", () => {
     expect(isGoogleBusyProtectionReduced({ status: "not_connected" })).toBe(false);
     expect(isGoogleBusyProtectionReduced({ status: "connecting" })).toBe(true);
     expect(
-      isGoogleBusyProtectionReduced({ status: "disconnected", accountLabel: "Producer account" }),
+      isGoogleBusyProtectionReduced({
+        status: "disconnected",
+        accountLabel: "Producer account",
+        syncSummary,
+      }),
     ).toBe(true);
     expect(
       isGoogleBusyProtectionReduced({
         status: "selection_required",
         accountLabel: "Producer account",
         calendars: [],
+        syncSummary,
         selection: { destinationSelectionKey: null, busySelectionKeys: [] },
       }),
     ).toBe(true);

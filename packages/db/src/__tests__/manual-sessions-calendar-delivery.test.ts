@@ -147,6 +147,7 @@ describe("SK-191 calendar invitation outbox schema", () => {
       "send_ics",
       "upsert_google_event",
       "delete_google_event",
+      "reconcile_google_event",
     ]);
     expect(calendarSyncJobStatus.enumValues).toEqual([
       "pending",

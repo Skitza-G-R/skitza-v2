@@ -2,6 +2,7 @@ const ENABLED_VALUE = "true";
 const POSTGRES_INTEGER_MAX = 2_147_483_647;
 
 export const GOOGLE_CALENDAR_CALLBACK_PATH = "/api/integrations/google-calendar/callback";
+export const GOOGLE_CALENDAR_WEBHOOK_PATH = "/api/webhooks/google-calendar";
 
 export const GOOGLE_CALENDAR_SCOPES = [
   "openid",
@@ -200,4 +201,12 @@ export function isGoogleCalendarServerConfigured(
   } catch {
     return false;
   }
+}
+
+export function googleCalendarWebhookAddress(config: GoogleCalendarServerConfig): string {
+  const address = new URL(config.redirectUri);
+  address.pathname = GOOGLE_CALENDAR_WEBHOOK_PATH;
+  address.search = "";
+  address.hash = "";
+  return address.toString();
 }

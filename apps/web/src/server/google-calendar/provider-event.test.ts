@@ -198,6 +198,105 @@ describe("Google Calendar event REST provider", () => {
     });
   });
 
+  it("conditionally reads only approved linked-event fields and discards Google-only guests", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      json({
+        ...providerRecord(),
+        updated: "2026-08-10T07:59:00.000Z",
+        summary: " Mix review moved ",
+        start: { dateTime: "2026-08-10T10:00:00+02:00" },
+        end: { dateTime: "2026-08-10T11:30:00+02:00" },
+        attendees: [
+          { email: "guest-private@example.com", responseStatus: "accepted" },
+          { email: "Artist@Example.com", responseStatus: "declined" },
+        ],
+        description: "private notes must not leave the provider boundary",
+        location: "private location",
+      }),
+    );
+    const provider = createGoogleCalendarProvider({ config: CONFIG, fetch: fetchMock });
+
+    const result = await provider.getLinkedEvent("access-token", {
+      calendarId: "destination-id",
+      eventId: EVENT_ID,
+      artistEmail: "artist@example.com",
+      ifNoneMatch: '"old-etag"',
+    });
+
+    expect(result).toEqual({
+      outcome: "found",
+      event: {
+        eventId: EVENT_ID,
+        etag: '"provider-etag"',
+        status: "confirmed",
+        linkage: { opaqueLink: PRIVATE_PROPERTIES.skitzaLink, revision: 4, schemaVersion: 1 },
+        updatedAt: new Date("2026-08-10T07:59:00.000Z"),
+        summary: "Mix review moved",
+        timing: {
+          kind: "timed",
+          startsAt: new Date("2026-08-10T08:00:00.000Z"),
+          endsAt: new Date("2026-08-10T09:30:00.000Z"),
+        },
+        artistRsvp: "declined",
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("guest-private");
+    expect(JSON.stringify(result)).not.toContain("private notes");
+    expect(JSON.stringify(result)).not.toContain("private location");
+    const [rawUrl, request] = fetchMock.mock.calls[0] ?? [];
+    if (typeof rawUrl !== "string" && !(rawUrl instanceof URL)) throw new Error("Missing URL");
+    const url = new URL(rawUrl);
+    expect(url.searchParams.get("fields")).toBe(
+      "id,etag,status,updated,summary,start(dateTime,date),end(dateTime,date),extendedProperties,attendees(email,responseStatus)",
+    );
+    expect(request?.headers).toMatchObject({ "If-None-Match": '"old-etag"' });
+  });
+
+  it("returns explicit conditional and missing outcomes without parsing a body", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 304 }))
+      .mockResolvedValueOnce(new Response(null, { status: 404 }));
+    const provider = createGoogleCalendarProvider({ config: CONFIG, fetch: fetchMock });
+    const input = {
+      calendarId: "destination-id",
+      eventId: EVENT_ID,
+      artistEmail: "artist@example.com",
+    } as const;
+
+    await expect(
+      provider.getLinkedEvent("access-token", { ...input, ifNoneMatch: '"current"' }),
+    ).resolves.toEqual({ outcome: "not_modified" });
+    await expect(provider.getLinkedEvent("access-token", input)).resolves.toEqual({
+      outcome: "missing",
+    });
+  });
+
+  it("marks all-day or invalid linked timing as unsupported for safe restoration", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      json({
+        ...providerRecord(),
+        updated: "2026-08-10T07:59:00.000Z",
+        summary: "Mix review",
+        start: { date: "2026-08-10" },
+        end: { date: "2026-08-11" },
+        attendees: [],
+      }),
+    );
+    const provider = createGoogleCalendarProvider({ config: CONFIG, fetch: fetchMock });
+
+    await expect(
+      provider.getLinkedEvent("access-token", {
+        calendarId: "destination-id",
+        eventId: EVENT_ID,
+        artistEmail: "artist@example.com",
+      }),
+    ).resolves.toMatchObject({
+      outcome: "found",
+      event: { timing: { kind: "unsupported" }, artistRsvp: null },
+    });
+  });
+
   it("classifies recoverable and reconciliation errors without raw provider data", async () => {
     for (const [status, body, code] of [
       [401, { error: "private" }, "access_unauthorized"],

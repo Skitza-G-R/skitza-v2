@@ -70,6 +70,46 @@ export type GoogleCalendarInitialSyncEnqueueResult = Readonly<{
   jobIds: readonly string[];
 }>;
 
+export type GoogleCalendarConnectionSyncSummary = Readonly<{
+  syncing: number;
+  notSynced: number;
+  missing: number;
+  conflicts: number;
+}>;
+
+export type GoogleCalendarStoredWatchRecord = Readonly<{
+  id: string;
+  producerId: string;
+  connectionId: string;
+  accountVersion: number;
+  destinationSelectionId: string;
+  destinationCalendarId: EncryptedGoogleCalendarValue;
+  destinationCalendarIdFingerprint: string;
+  renewalOfWatchId: string | null;
+  providerChannelId: string;
+  providerResourceId: string | null;
+  channelTokenDigest: string;
+  state: "renewing" | "active" | "retired" | "expired";
+  expiresAt: Date | null;
+  activatedAt: Date | null;
+  endedAt: Date | null;
+  createdAt: Date;
+}>;
+
+export type GoogleCalendarWatchTarget = Readonly<{
+  producerId: string;
+  connectionId: string;
+  accountVersion: number;
+  destinationSelectionId: string;
+  destinationCalendarId: EncryptedGoogleCalendarValue;
+  destinationCalendarIdFingerprint: string;
+}>;
+
+export type GoogleCalendarWatchErrorCode =
+  | "watch_create_failed"
+  | "watch_renew_failed"
+  | "watch_stop_failed";
+
 export interface GoogleCalendarRepository {
   getConnection(producerId: string): Promise<GoogleCalendarConnectionRecord | null>;
 
@@ -141,6 +181,75 @@ export interface GoogleCalendarRepository {
       accountVersion: number;
     }>,
   ): Promise<readonly GoogleCalendarCandidateRecord[]>;
+
+  getConnectionSyncSummary(
+    input: Readonly<{
+      producerId: string;
+      connectionId: string;
+      accountVersion: number;
+    }>,
+  ): Promise<GoogleCalendarConnectionSyncSummary>;
+
+  listCalendarWatches(
+    input: Readonly<{
+      producerId: string;
+      connectionId: string;
+      accountVersion: number;
+    }>,
+  ): Promise<readonly GoogleCalendarStoredWatchRecord[]>;
+
+  listRequiredCalendarWatchTargets(
+    input: Readonly<{
+      producerId: string;
+      connectionId: string;
+      accountVersion: number;
+      now: Date;
+    }>,
+  ): Promise<readonly GoogleCalendarWatchTarget[]>;
+
+  reserveCalendarWatch(
+    input: Readonly<{
+      id: string;
+      producerId: string;
+      connectionId: string;
+      accountVersion: number;
+      destinationSelectionId: string;
+      destinationCalendarId: EncryptedGoogleCalendarValue;
+      destinationCalendarIdFingerprint: string;
+      renewalOfWatchId: string | null;
+      providerChannelId: string;
+      channelTokenDigest: string;
+      reservedAt: Date;
+    }>,
+  ): Promise<GoogleCalendarStoredWatchRecord | null>;
+
+  activateCalendarWatch(
+    input: Readonly<{
+      producerId: string;
+      watchId: string;
+      providerResourceId: string;
+      expiresAt: Date;
+      activatedAt: Date;
+    }>,
+  ): Promise<boolean>;
+
+  endCalendarWatch(
+    input: Readonly<{
+      producerId: string;
+      watchId: string;
+      state: "retired" | "expired";
+      errorCode: GoogleCalendarWatchErrorCode | null;
+      endedAt: Date;
+    }>,
+  ): Promise<boolean>;
+
+  listCalendarWatchesDueForRenewal(
+    input: Readonly<{ renewBefore: Date; limit: number }>,
+  ): Promise<readonly GoogleCalendarStoredWatchRecord[]>;
+
+  listCalendarWatchRepairProducerIds(
+    input: Readonly<{ now: Date; limit: number }>,
+  ): Promise<readonly string[]>;
 
   saveCalendarSelection(
     input: Readonly<{
