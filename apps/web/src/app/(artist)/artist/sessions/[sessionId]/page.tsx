@@ -31,6 +31,18 @@ export default async function ArtistSessionDetailPage({ params }: PageProps) {
     locationType: row.locationType,
     status: row.status,
     outcome: row.outcome,
+    billingTreatment: row.billingTreatment,
+    artistRsvpStatus: row.artistRsvpStatus,
+    artistRsvpRespondedAtISO: row.artistRsvpRespondedAt?.toISOString() ?? null,
+    changeRequest: row.changeRequest
+      ? {
+          id: row.changeRequest.id,
+          kind: row.changeRequest.kind,
+          status: "pending",
+          proposedStartsAtISO: row.changeRequest.proposedStartsAt?.toISOString() ?? null,
+          requestedAtISO: row.changeRequest.requestedAt.toISOString(),
+        }
+      : null,
     rescheduledFromBookingId: row.rescheduledFromBookingId,
     heldExpiryReason: row.heldExpiryReason,
     policy: {

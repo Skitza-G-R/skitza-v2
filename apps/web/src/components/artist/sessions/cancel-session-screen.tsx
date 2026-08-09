@@ -29,7 +29,7 @@ export function CancelSessionScreen({
   const [error, setError] = useState<string | null>(null);
   const detailHref = withArtistStudio(`/artist/sessions/${sessionId}`, producerId);
 
-  async function cancel() {
+  async function sendRequest() {
     if (!canCancel || !online || submitting) return;
     setSubmitting(true);
     setError(null);
@@ -50,7 +50,7 @@ export function CancelSessionScreen({
   return (
     <div className="fixed inset-0 z-[60] overflow-y-auto bg-[rgb(var(--bg-background))]">
       <FunnelTopBar
-        title="Cancel session"
+        title={held ? "Withdraw request" : "Request cancellation"}
         sub={producerName}
         onBack={() => {
           router.push(detailHref);
@@ -68,14 +68,14 @@ export function CancelSessionScreen({
             <CloseIcon width={28} height={28} />
           </span>
           <h1 className="font-display mt-6 text-[28px] leading-tight font-extrabold tracking-[-0.035em] text-[rgb(var(--fg-default))]">
-            Cancel this session?
+            {held ? "Withdraw this request?" : "Ask to cancel this session?"}
           </h1>
           <p className="mt-3 max-w-[330px] text-[14px] leading-relaxed text-[rgb(var(--fg-secondary))]">
             {canCancel
               ? held
-                ? `This held time will be released and ${producerName} will be notified.`
-                : `${producerName} will be notified. This session use returns to your allowance; payment terms still follow your agreement.`
-              : "This session can no longer be cancelled online."}
+                ? `This held time will be released now, and ${producerName} will be notified.`
+                : `${producerName} will review your request. Your session stays booked, and no session credit changes until they approve it.`
+              : "This session is outside the online change window. Contact your producer directly."}
           </p>
           {error ? (
             <p
@@ -93,12 +93,20 @@ export function CancelSessionScreen({
               type="button"
               disabled={submitting || !online}
               onClick={() => {
-                void cancel();
+                void sendRequest();
               }}
               className="sk-press w-full rounded-[var(--radius-lg)] px-5 py-4 text-[15px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
               style={{ background: "rgb(var(--fg-danger))" }}
             >
-              {submitting ? "Cancelling…" : online ? "Yes, cancel session" : "Reconnect to cancel"}
+              {submitting
+                ? held
+                  ? "Withdrawing…"
+                  : "Sending request…"
+                : online
+                  ? held
+                    ? "Withdraw request"
+                    : "Send cancellation request"
+                  : "Reconnect to send"}
             </button>
           ) : null}
           <button

@@ -210,7 +210,9 @@ describe("artist.book purchase-owned session boundary", () => {
   });
 
   it("persists exact ownership and server-derived booking metadata", () => {
-    expect(domainSource).toMatch(/const status = initialSessionBookingStatus/);
+    expect(domainSource).toMatch(
+      /const status = options\.forceConfirmed[\s\S]*initialSessionBookingStatus/,
+    );
     expect(domainSource).toMatch(/projectId: input\.projectId/);
     expect(domainSource).toMatch(/purchaseId: input\.purchaseId/);
     expect(domainSource).toMatch(/sessionAllowanceId: input\.sessionAllowanceId/);

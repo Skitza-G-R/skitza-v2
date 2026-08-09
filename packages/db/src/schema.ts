@@ -415,6 +415,159 @@ export const bookingTransitionActorKind = pgEnum("booking_transition_actor_kind"
 
 export const bookingHeldExpiryReason = pgEnum("booking_held_expiry_reason", ["approval_timeout"]);
 
+export const bookingChangeRequestKind = pgEnum("booking_change_request_kind", [
+  "cancel",
+  "reschedule",
+]);
+
+export const bookingChangeRequestStatus = pgEnum("booking_change_request_status", [
+  "pending",
+  "approved",
+  "rejected",
+]);
+
+export const calendarSyncJobOperation = pgEnum("calendar_sync_job_operation", [
+  "send_ics",
+  "upsert_google_event",
+  "delete_google_event",
+  "reconcile_google_event",
+]);
+
+export const calendarSyncDeliveryChannel = pgEnum("calendar_sync_delivery_channel", [
+  "ics",
+  "google",
+]);
+
+export const calendarSyncJobStatus = pgEnum("calendar_sync_job_status", [
+  "pending",
+  "processing",
+  "completed",
+  "terminal",
+]);
+
+export const googleCalendarConnectionStatus = pgEnum("google_calendar_connection_status", [
+  "needs_selection",
+  "connected",
+  "reconnect_required",
+  "disconnected",
+]);
+
+export const googleCalendarAccessRole = pgEnum("google_calendar_access_role", [
+  "freeBusyReader",
+  "reader",
+  "writerWithoutPrivateAccess",
+  "writer",
+  "owner",
+]);
+
+export const googleCalendarOAuthIntent = pgEnum("google_calendar_oauth_intent", [
+  "connect",
+  "reconnect",
+  "switch_account",
+]);
+
+export const bookingCalendarLinkProviderState = pgEnum("booking_calendar_link_provider_state", [
+  "uncreated",
+  "active",
+  "deleted",
+]);
+
+export const bookingCalendarLinkSyncState = pgEnum("booking_calendar_link_sync_state", [
+  "pending",
+  "synced",
+  "not_synced",
+  "conflict",
+  "missing",
+  "disconnected",
+]);
+
+export const googleCalendarWatchState = pgEnum("google_calendar_watch_state", [
+  "renewing",
+  "active",
+  "retired",
+  "expired",
+]);
+
+// Closed, non-sensitive failure vocabulary shared by watch health and linked
+// event health. Provider response bodies and identifiers never belong here.
+export const googleCalendarSyncErrorCode = pgEnum("google_calendar_sync_error_code", [
+  "provider_unavailable",
+  "rate_limited",
+  "permission_denied",
+  "reconnect_required",
+  "invalid_provider_event",
+  "stale_skitza_revision",
+  "skitza_overlap",
+  "watch_create_failed",
+  "watch_renew_failed",
+  "watch_stop_failed",
+  "reconciliation_failed",
+  "unknown",
+]);
+
+// Immutable delivery input captured in the same transaction as the booking
+// revision it represents. Workers render this snapshot instead of rereading
+// mutable producer/contact data, so every retry sends the same RFC 5545 event.
+export type CalendarSyncJobPayloadSnapshot = Readonly<{
+  schemaVersion: 1;
+  method: "REQUEST" | "CANCEL";
+  uid: string;
+  sequence: number;
+  dtstampUtc: string;
+  startsAtUtc: string;
+  endsAtUtc: string;
+  summary: string;
+  // System-generated event context only; producer-authored notes are not part
+  // of the manual-session contract.
+  description: string;
+  organizer: Readonly<{ name: string; email: string }>;
+  attendee: Readonly<{ name: string; email: string }>;
+}>;
+
+export type GoogleCalendarEventPrivateProperties = Readonly<{
+  skitzaLink: string;
+  skitzaRevision: string;
+  skitzaSchema: "1";
+}>;
+
+// Google jobs keep only the approved event projection. Opaque holds contain
+// no attendee or session URL. Deletes need only private reconciliation
+// metadata because the stable provider event identity lives on the link row.
+export type GoogleCalendarSyncJobPayloadSnapshot =
+  | Readonly<{
+      schemaVersion: 2;
+      action: "upsert";
+      eventKind: "opaque_hold" | "confirmed";
+      notificationMode: "none" | "all";
+      sequence: number;
+      startsAtUtc: string;
+      endsAtUtc: string;
+      summary: string;
+      artistSafeUrl: string | null;
+      attendee: Readonly<{ name: string; email: string }> | null;
+      privateProperties: GoogleCalendarEventPrivateProperties;
+    }>
+  | Readonly<{
+      schemaVersion: 2;
+      action: "delete";
+      notificationMode: "none" | "all";
+      sequence: number;
+      privateProperties: GoogleCalendarEventPrivateProperties;
+    }>;
+
+export type GoogleCalendarReconcileJobPayloadSnapshot = Readonly<{
+  schemaVersion: 3;
+  action: "reconcile";
+  source: "webhook" | "recovery";
+  watchId: string | null;
+  messageNumber: string | null;
+}>;
+
+export type CalendarOutboxPayloadSnapshot =
+  | CalendarSyncJobPayloadSnapshot
+  | GoogleCalendarSyncJobPayloadSnapshot
+  | GoogleCalendarReconcileJobPayloadSnapshot;
+
 export const bookings = pgTable(
   "bookings",
   {
@@ -482,6 +635,16 @@ export const bookings = pgTable(
   },
   (t) => ({
     idProducerUnique: unique("bookings_id_producer_unique").on(t.id, t.producerId),
+    idProducerAllowanceUseUnique: unique("bookings_id_producer_allowance_use_unique").on(
+      t.id,
+      t.producerId,
+      t.allowanceUseId,
+    ),
+    idProducerRescheduledFromUnique: unique("bookings_id_producer_rescheduled_from_unique").on(
+      t.id,
+      t.producerId,
+      t.rescheduledFromBookingId,
+    ),
     idLifecycleUnique: unique("bookings_id_lifecycle_unique").on(
       t.id,
       t.producerId,
@@ -678,6 +841,1280 @@ export const bookingTransitionEvents = pgTable(
 );
 export type BookingTransitionEvent = typeof bookingTransitionEvents.$inferSelect;
 export type NewBookingTransitionEvent = typeof bookingTransitionEvents.$inferInsert;
+
+// Artist cancellation/reschedule intent is durable and separate from the
+// booking lifecycle. A pending request leaves the confirmed booking unchanged;
+// only an approved producer decision may point at a reschedule replacement.
+export const bookingChangeRequests = pgTable(
+  "booking_change_requests",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    bookingId: uuid("booking_id").notNull(),
+    producerId: uuid("producer_id").notNull(),
+    kind: bookingChangeRequestKind("kind").notNull(),
+    status: bookingChangeRequestStatus("status").notNull().default("pending"),
+    proposedStartsAt: timestamp("proposed_starts_at", { withTimezone: true }),
+    requestOperationKey: text("request_operation_key").notNull(),
+    requestOperationDigest: text("request_operation_digest").notNull(),
+    requestedByClerkUserId: text("requested_by_clerk_user_id").notNull(),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull(),
+    decisionOperationKey: text("decision_operation_key"),
+    decisionOperationDigest: text("decision_operation_digest"),
+    decidedByClerkUserId: text("decided_by_clerk_user_id"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    replacementBookingId: uuid("replacement_booking_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    requestOperationUnique: unique("booking_change_requests_request_operation_unique").on(
+      t.bookingId,
+      t.requestOperationKey,
+    ),
+    decisionOperationUnique: uniqueIndex("booking_change_requests_decision_operation_unique")
+      .on(t.bookingId, t.decisionOperationKey)
+      .where(sql`${t.decisionOperationKey} IS NOT NULL`),
+    onePendingPerBooking: uniqueIndex("booking_change_requests_one_pending_per_booking")
+      .on(t.bookingId)
+      .where(sql`${t.status} = 'pending'`),
+    replacementBookingUnique: uniqueIndex("booking_change_requests_replacement_booking_unique")
+      .on(t.replacementBookingId)
+      .where(sql`${t.replacementBookingId} IS NOT NULL`),
+    bookingProducerFk: foreignKey({
+      columns: [t.bookingId, t.producerId],
+      foreignColumns: [bookings.id, bookings.producerId],
+      name: "booking_change_requests_booking_producer_fk",
+    }).onDelete("restrict"),
+    replacementBookingProducerFk: foreignKey({
+      columns: [t.replacementBookingId, t.producerId],
+      foreignColumns: [bookings.id, bookings.producerId],
+      name: "booking_change_requests_replacement_booking_producer_fk",
+    }).onDelete("restrict"),
+    replacementBookingLineageFk: foreignKey({
+      columns: [t.replacementBookingId, t.producerId, t.bookingId],
+      foreignColumns: [bookings.id, bookings.producerId, bookings.rescheduledFromBookingId],
+      name: "booking_change_requests_replacement_booking_lineage_fk",
+    }).onDelete("restrict"),
+    producerStatusRequestedIdx: index("booking_change_requests_producer_status_requested_idx").on(
+      t.producerId,
+      t.status,
+      t.requestedAt,
+      t.id,
+    ),
+    bookingRequestedIdx: index("booking_change_requests_booking_requested_idx").on(
+      t.bookingId,
+      t.requestedAt,
+      t.id,
+    ),
+    requestIdentityShape: check(
+      "booking_change_requests_request_identity_shape",
+      sql`(
+        NULLIF(btrim(${t.requestOperationKey}), '') IS NOT NULL
+        AND char_length(${t.requestOperationKey}) <= 200
+        AND NULLIF(btrim(${t.requestOperationDigest}), '') IS NOT NULL
+        AND ${t.requestedByClerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
+      ) IS TRUE`,
+    ),
+    proposedStartShape: check(
+      "booking_change_requests_proposed_start_shape",
+      sql`(
+        (${t.kind} = 'cancel' AND ${t.proposedStartsAt} IS NULL)
+        OR (${t.kind} = 'reschedule' AND ${t.proposedStartsAt} IS NOT NULL)
+      ) IS TRUE`,
+    ),
+    replacementIdentityShape: check(
+      "booking_change_requests_replacement_identity_shape",
+      sql`${t.replacementBookingId} IS NULL OR ${t.replacementBookingId} <> ${t.bookingId}`,
+    ),
+    decisionShape: check(
+      "booking_change_requests_decision_shape",
+      sql`(
+        (
+          ${t.status} = 'pending'
+          AND ${t.decisionOperationKey} IS NULL
+          AND ${t.decisionOperationDigest} IS NULL
+          AND ${t.decidedByClerkUserId} IS NULL
+          AND ${t.decidedAt} IS NULL
+          AND ${t.replacementBookingId} IS NULL
+        )
+        OR (
+          ${t.status} IN ('approved', 'rejected')
+          AND NULLIF(btrim(${t.decisionOperationKey}), '') IS NOT NULL
+          AND char_length(${t.decisionOperationKey}) <= 200
+          AND NULLIF(btrim(${t.decisionOperationDigest}), '') IS NOT NULL
+          AND ${t.decidedByClerkUserId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$'
+          AND ${t.decidedAt} IS NOT NULL
+          AND ${t.decidedAt} >= ${t.requestedAt}
+          AND (
+            (${t.status} = 'approved' AND ${t.kind} = 'reschedule' AND ${t.replacementBookingId} IS NOT NULL)
+            OR (${t.status} = 'approved' AND ${t.kind} = 'cancel' AND ${t.replacementBookingId} IS NULL)
+            OR (${t.status} = 'rejected' AND ${t.replacementBookingId} IS NULL)
+          )
+        )
+      ) IS TRUE`,
+    ),
+    timestampShape: check(
+      "booking_change_requests_timestamp_shape",
+      sql`${t.updatedAt} >= ${t.createdAt}`,
+    ),
+  }),
+);
+export type BookingChangeRequest = typeof bookingChangeRequests.$inferSelect;
+export type NewBookingChangeRequest = typeof bookingChangeRequests.$inferInsert;
+
+// Transactional base outbox for recoverable calendar invitation delivery.
+// Google-specific connection/link state intentionally does not belong here.
+export const calendarSyncJobs = pgTable(
+  "calendar_sync_jobs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    bookingId: uuid("booking_id").notNull(),
+    producerId: uuid("producer_id").notNull(),
+    deliveryChannel: calendarSyncDeliveryChannel("delivery_channel").notNull().default("ics"),
+    bookingCalendarLinkId: uuid("booking_calendar_link_id"),
+    googleCalendarWatchId: uuid("google_calendar_watch_id"),
+    webhookMessageNumber: text("webhook_message_number"),
+    operation: calendarSyncJobOperation("operation").notNull(),
+    status: calendarSyncJobStatus("status").notNull().default("pending"),
+    desiredRevision: integer("desired_revision").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    payloadSnapshot: jsonb("payload_snapshot").$type<CalendarOutboxPayloadSnapshot>().notNull(),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    firstAttemptAt: timestamp("first_attempt_at", { withTimezone: true }),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    providerDedupeExpiresAt: timestamp("provider_dedupe_expires_at", { withTimezone: true }),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).defaultNow(),
+    leaseToken: text("lease_token"),
+    leaseAcquiredAt: timestamp("lease_acquired_at", { withTimezone: true }),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    providerMessageId: text("provider_message_id"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    terminalAt: timestamp("terminal_at", { withTimezone: true }),
+    terminalError: text("terminal_error"),
+    manualRetryCount: integer("manual_retry_count").notNull().default(0),
+    lastManualRetryAt: timestamp("last_manual_retry_at", { withTimezone: true }),
+    lastManualRetryActor: text("last_manual_retry_actor"),
+    lastManualRetryOperationKey: text("last_manual_retry_operation_key"),
+    lastManualRetryOperationDigest: text("last_manual_retry_operation_digest"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    idempotencyUnique: unique("calendar_sync_jobs_idempotency_unique").on(t.idempotencyKey),
+    idProducerUnique: unique("calendar_sync_jobs_id_producer_unique").on(t.id, t.producerId),
+    icsBookingOperationRevisionUnique: uniqueIndex(
+      "calendar_sync_jobs_ics_booking_operation_revision_unique",
+    )
+      .on(t.bookingId, t.operation, t.desiredRevision)
+      .where(sql`${t.deliveryChannel} = 'ics'`),
+    linkOutboundRevisionUnique: uniqueIndex("calendar_sync_jobs_link_outbound_revision_unique")
+      .on(t.bookingCalendarLinkId, t.desiredRevision)
+      .where(
+        sql`${t.bookingCalendarLinkId} IS NOT NULL AND ${t.operation} IN ('upsert_google_event', 'delete_google_event')`,
+      ),
+    watchMessageLinkUnique: uniqueIndex("calendar_sync_jobs_watch_message_link_unique")
+      .on(t.googleCalendarWatchId, t.webhookMessageNumber, t.bookingCalendarLinkId)
+      .where(
+        sql`${t.operation} = 'reconcile_google_event' AND ${t.googleCalendarWatchId} IS NOT NULL`,
+      ),
+    uidRevisionUnique: uniqueIndex("calendar_sync_jobs_uid_revision_unique").on(
+      sql`(${t.payloadSnapshot}->>'uid')`,
+      t.desiredRevision,
+    ),
+    bookingProducerFk: foreignKey({
+      columns: [t.bookingId, t.producerId],
+      foreignColumns: [bookings.id, bookings.producerId],
+      name: "calendar_sync_jobs_booking_producer_fk",
+    }).onDelete("restrict"),
+    bookingCalendarLinkProducerFk: foreignKey({
+      columns: [t.bookingCalendarLinkId, t.producerId],
+      foreignColumns: [bookingCalendarLinks.id, bookingCalendarLinks.producerId],
+      name: "calendar_sync_jobs_booking_calendar_link_producer_fk",
+    }).onDelete("restrict"),
+    googleCalendarWatchProducerFk: foreignKey({
+      columns: [t.googleCalendarWatchId, t.producerId],
+      foreignColumns: [googleCalendarWatches.id, googleCalendarWatches.producerId],
+      name: "calendar_sync_jobs_google_calendar_watch_producer_fk",
+    }).onDelete("restrict"),
+    claimIdx: index("calendar_sync_jobs_claim_idx").on(
+      t.status,
+      t.nextAttemptAt,
+      t.leaseExpiresAt,
+      t.id,
+    ),
+    bookingRevisionIdx: index("calendar_sync_jobs_booking_revision_idx").on(
+      t.bookingId,
+      t.desiredRevision,
+      t.createdAt,
+      t.id,
+    ),
+    producerUpdatedIdx: index("calendar_sync_jobs_producer_updated_idx").on(
+      t.producerId,
+      t.updatedAt,
+      t.id,
+    ),
+    identityShape: check(
+      "calendar_sync_jobs_identity_shape",
+      sql`(
+        ${t.desiredRevision} > 0
+        AND NULLIF(btrim(${t.idempotencyKey}), '') IS NOT NULL
+        AND char_length(${t.idempotencyKey}) <= 256
+        AND ${t.attemptCount} >= 0
+        AND ${t.manualRetryCount} >= 0
+      ) IS TRUE`,
+    ),
+    channelShape: check(
+      "calendar_sync_jobs_channel_shape",
+      sql`(
+        (
+          ${t.operation} = 'send_ics'
+          AND ${t.deliveryChannel} = 'ics'
+        )
+        OR (
+          ${t.operation} IN ('upsert_google_event', 'delete_google_event', 'reconcile_google_event')
+          AND ${t.deliveryChannel} = 'google'
+          AND ${t.bookingCalendarLinkId} IS NOT NULL
+        )
+      ) IS TRUE`,
+    ),
+    payloadShape: check(
+      "calendar_sync_jobs_payload_shape",
+      sql`(
+        jsonb_typeof(${t.payloadSnapshot}) = 'object'
+        AND (
+          (
+            ${t.operation} = 'send_ics'
+            AND ${t.payloadSnapshot}->>'schemaVersion' = '1'
+            AND ${t.payloadSnapshot}->>'method' IN ('REQUEST', 'CANCEL')
+            AND (${t.payloadSnapshot}->>'sequence') ~ '^[0-9]+$'
+            AND (${t.payloadSnapshot}->>'sequence')::integer = ${t.desiredRevision}
+            AND NULLIF(btrim(${t.payloadSnapshot}->>'uid'), '') IS NOT NULL
+            AND char_length(${t.payloadSnapshot}->>'uid') <= 255
+            AND NULLIF(btrim(${t.payloadSnapshot}->>'dtstampUtc'), '') IS NOT NULL
+            AND right(${t.payloadSnapshot}->>'dtstampUtc', 1) = 'Z'
+            AND NULLIF(btrim(${t.payloadSnapshot}->>'startsAtUtc'), '') IS NOT NULL
+            AND right(${t.payloadSnapshot}->>'startsAtUtc', 1) = 'Z'
+            AND NULLIF(btrim(${t.payloadSnapshot}->>'endsAtUtc'), '') IS NOT NULL
+            AND right(${t.payloadSnapshot}->>'endsAtUtc', 1) = 'Z'
+            AND NULLIF(btrim(${t.payloadSnapshot}->>'summary'), '') IS NOT NULL
+            AND jsonb_typeof(${t.payloadSnapshot}->'description') = 'string'
+            AND jsonb_typeof(${t.payloadSnapshot}->'organizer') = 'object'
+            AND NULLIF(btrim(${t.payloadSnapshot}->'organizer'->>'name'), '') IS NOT NULL
+            AND NULLIF(btrim(${t.payloadSnapshot}->'organizer'->>'email'), '') IS NOT NULL
+            AND jsonb_typeof(${t.payloadSnapshot}->'attendee') = 'object'
+            AND NULLIF(btrim(${t.payloadSnapshot}->'attendee'->>'name'), '') IS NOT NULL
+            AND NULLIF(btrim(${t.payloadSnapshot}->'attendee'->>'email'), '') IS NOT NULL
+          )
+          OR (
+            ${t.operation} IN ('upsert_google_event', 'delete_google_event')
+            AND ${t.payloadSnapshot}->>'schemaVersion' = '2'
+            AND (${t.payloadSnapshot}->>'sequence') ~ '^[0-9]+$'
+            AND (${t.payloadSnapshot}->>'sequence')::integer = ${t.desiredRevision}
+            AND jsonb_typeof(${t.payloadSnapshot}->'privateProperties') = 'object'
+            AND ((${t.payloadSnapshot}->'privateProperties') - ARRAY[
+              'skitzaLink', 'skitzaRevision', 'skitzaSchema'
+            ]::text[]) = '{}'::jsonb
+            AND ${t.payloadSnapshot}->'privateProperties'->>'skitzaLink'
+              = ${t.bookingCalendarLinkId}::text
+            AND ${t.payloadSnapshot}->'privateProperties'->>'skitzaRevision'
+              = ${t.desiredRevision}::text
+            AND ${t.payloadSnapshot}->'privateProperties'->>'skitzaSchema' = '1'
+            AND (
+              (
+                ${t.operation} = 'upsert_google_event'
+                AND ${t.payloadSnapshot}->>'action' = 'upsert'
+                AND (${t.payloadSnapshot} - ARRAY[
+                  'schemaVersion', 'action', 'eventKind', 'notificationMode', 'sequence',
+                  'startsAtUtc', 'endsAtUtc', 'summary', 'artistSafeUrl',
+                  'attendee', 'privateProperties'
+                ]::text[]) = '{}'::jsonb
+                AND ${t.payloadSnapshot}->>'eventKind' IN ('opaque_hold', 'confirmed')
+                AND ${t.payloadSnapshot}->>'notificationMode' IN ('none', 'all')
+                AND NULLIF(btrim(${t.payloadSnapshot}->>'startsAtUtc'), '') IS NOT NULL
+                AND right(${t.payloadSnapshot}->>'startsAtUtc', 1) = 'Z'
+                AND char_length(${t.payloadSnapshot}->>'startsAtUtc') <= 64
+                AND NULLIF(btrim(${t.payloadSnapshot}->>'endsAtUtc'), '') IS NOT NULL
+                AND right(${t.payloadSnapshot}->>'endsAtUtc', 1) = 'Z'
+                AND char_length(${t.payloadSnapshot}->>'endsAtUtc') <= 64
+                AND ${t.payloadSnapshot}->>'endsAtUtc' <> ${t.payloadSnapshot}->>'startsAtUtc'
+                AND NULLIF(btrim(${t.payloadSnapshot}->>'summary'), '') IS NOT NULL
+                AND char_length(${t.payloadSnapshot}->>'summary') <= 1024
+                AND (
+                  (
+                    ${t.payloadSnapshot}->>'eventKind' = 'opaque_hold'
+                    AND ${t.payloadSnapshot}->>'summary' = 'Reserved'
+                    AND ${t.payloadSnapshot}->>'notificationMode' = 'none'
+                    AND jsonb_typeof(${t.payloadSnapshot}->'artistSafeUrl') = 'null'
+                    AND jsonb_typeof(${t.payloadSnapshot}->'attendee') = 'null'
+                  )
+                  OR (
+                    ${t.payloadSnapshot}->>'eventKind' = 'confirmed'
+                    AND jsonb_typeof(${t.payloadSnapshot}->'artistSafeUrl') = 'string'
+                    AND ${t.payloadSnapshot}->>'artistSafeUrl' ~ '^https://[^[:space:]]+$'
+                    AND char_length(${t.payloadSnapshot}->>'artistSafeUrl') <= 2048
+                    AND jsonb_typeof(${t.payloadSnapshot}->'attendee') = 'object'
+                    AND ((${t.payloadSnapshot}->'attendee') - ARRAY['name', 'email']::text[])
+                      = '{}'::jsonb
+                    AND NULLIF(btrim(${t.payloadSnapshot}->'attendee'->>'name'), '') IS NOT NULL
+                    AND char_length(${t.payloadSnapshot}->'attendee'->>'name') <= 320
+                    AND NULLIF(btrim(${t.payloadSnapshot}->'attendee'->>'email'), '') IS NOT NULL
+                    AND char_length(${t.payloadSnapshot}->'attendee'->>'email') <= 320
+                  )
+                )
+              )
+              OR (
+                ${t.operation} = 'delete_google_event'
+                AND ${t.payloadSnapshot}->>'action' = 'delete'
+                AND (${t.payloadSnapshot} - ARRAY[
+                  'schemaVersion', 'action', 'notificationMode', 'sequence', 'privateProperties'
+                ]::text[]) = '{}'::jsonb
+                AND ${t.payloadSnapshot}->>'notificationMode' IN ('none', 'all')
+              )
+            )
+          )
+          OR (
+            ${t.operation} = 'reconcile_google_event'
+            AND ${t.payloadSnapshot}->>'schemaVersion' = '3'
+            AND ${t.payloadSnapshot}->>'action' = 'reconcile'
+            AND (${t.payloadSnapshot} - ARRAY[
+              'schemaVersion', 'action', 'source', 'watchId', 'messageNumber'
+            ]::text[]) = '{}'::jsonb
+            AND ${t.payloadSnapshot}->>'source' IN ('webhook', 'recovery')
+            AND (
+              (
+                ${t.payloadSnapshot}->>'source' = 'webhook'
+                AND ${t.googleCalendarWatchId} IS NOT NULL
+                AND ${t.webhookMessageNumber} ~ '^[1-9][0-9]{0,38}$'
+                AND ${t.payloadSnapshot}->>'watchId' = ${t.googleCalendarWatchId}::text
+                AND ${t.payloadSnapshot}->>'messageNumber' = ${t.webhookMessageNumber}
+              )
+              OR (
+                ${t.payloadSnapshot}->>'source' = 'recovery'
+                AND ${t.googleCalendarWatchId} IS NULL
+                AND ${t.webhookMessageNumber} IS NULL
+                AND jsonb_typeof(${t.payloadSnapshot}->'watchId') = 'null'
+                AND jsonb_typeof(${t.payloadSnapshot}->'messageNumber') = 'null'
+              )
+            )
+          )
+        )
+      ) IS TRUE`,
+    ),
+    attemptShape: check(
+      "calendar_sync_jobs_attempt_shape",
+      sql`(
+        (
+          ${t.attemptCount} = 0
+          AND ${t.firstAttemptAt} IS NULL
+          AND ${t.lastAttemptAt} IS NULL
+          AND ${t.providerDedupeExpiresAt} IS NULL
+        )
+        OR (
+          ${t.attemptCount} > 0
+          AND ${t.firstAttemptAt} IS NOT NULL
+          AND ${t.lastAttemptAt} >= ${t.firstAttemptAt}
+          AND (
+            (
+              ${t.deliveryChannel} = 'ics'
+              AND ${t.providerDedupeExpiresAt} > ${t.firstAttemptAt}
+            )
+            OR (
+              ${t.deliveryChannel} = 'google'
+              AND ${t.providerDedupeExpiresAt} IS NULL
+            )
+          )
+        )
+      ) IS TRUE`,
+    ),
+    stateShape: check(
+      "calendar_sync_jobs_state_shape",
+      sql`(
+        (
+          ${t.status} = 'pending'
+          AND ${t.nextAttemptAt} IS NOT NULL
+          AND ${t.leaseToken} IS NULL
+          AND ${t.leaseAcquiredAt} IS NULL
+          AND ${t.leaseExpiresAt} IS NULL
+          AND ${t.providerMessageId} IS NULL
+          AND ${t.completedAt} IS NULL
+          AND ${t.terminalAt} IS NULL
+          AND ${t.terminalError} IS NULL
+        )
+        OR (
+          ${t.status} = 'processing'
+          AND ${t.nextAttemptAt} IS NULL
+          AND NULLIF(btrim(${t.leaseToken}), '') IS NOT NULL
+          AND ${t.leaseAcquiredAt} IS NOT NULL
+          AND ${t.leaseAcquiredAt} = ${t.lastAttemptAt}
+          AND ${t.leaseExpiresAt} > ${t.leaseAcquiredAt}
+          AND ${t.attemptCount} > 0
+          AND ${t.providerMessageId} IS NULL
+          AND ${t.completedAt} IS NULL
+          AND ${t.terminalAt} IS NULL
+          AND ${t.terminalError} IS NULL
+        )
+        OR (
+          ${t.status} = 'completed'
+          AND ${t.nextAttemptAt} IS NULL
+          AND ${t.leaseToken} IS NULL
+          AND ${t.leaseAcquiredAt} IS NULL
+          AND ${t.leaseExpiresAt} IS NULL
+          AND ${t.attemptCount} > 0
+          AND NULLIF(btrim(${t.providerMessageId}), '') IS NOT NULL
+          AND ${t.completedAt} IS NOT NULL
+          AND ${t.terminalAt} IS NULL
+          AND ${t.terminalError} IS NULL
+        )
+        OR (
+          ${t.status} = 'terminal'
+          AND ${t.nextAttemptAt} IS NULL
+          AND ${t.leaseToken} IS NULL
+          AND ${t.leaseAcquiredAt} IS NULL
+          AND ${t.leaseExpiresAt} IS NULL
+          AND ${t.attemptCount} > 0
+          AND ${t.providerMessageId} IS NULL
+          AND ${t.completedAt} IS NULL
+          AND ${t.terminalAt} IS NOT NULL
+          AND NULLIF(btrim(${t.terminalError}), '') IS NOT NULL
+        )
+      ) IS TRUE`,
+    ),
+    timestampShape: check(
+      "calendar_sync_jobs_timestamp_shape",
+      sql`(
+        ${t.updatedAt} >= ${t.createdAt}
+        AND (${t.firstAttemptAt} IS NULL OR ${t.firstAttemptAt} >= ${t.createdAt})
+        AND (${t.lastAttemptAt} IS NULL OR ${t.lastAttemptAt} >= ${t.firstAttemptAt})
+        AND (${t.completedAt} IS NULL OR ${t.completedAt} >= ${t.lastAttemptAt})
+        AND (${t.terminalAt} IS NULL OR ${t.terminalAt} >= ${t.lastAttemptAt})
+        AND (${t.lastManualRetryAt} IS NULL OR ${t.lastManualRetryAt} >= ${t.createdAt})
+        AND (${t.lastManualRetryAt} IS NULL OR ${t.updatedAt} >= ${t.lastManualRetryAt})
+      ) IS TRUE`,
+    ),
+    manualRetryShape: check(
+      "calendar_sync_jobs_manual_retry_shape",
+      sql`(
+        (
+          ${t.manualRetryCount} = 0
+          AND ${t.lastManualRetryAt} IS NULL
+          AND ${t.lastManualRetryActor} IS NULL
+          AND ${t.lastManualRetryOperationKey} IS NULL
+          AND ${t.lastManualRetryOperationDigest} IS NULL
+        )
+        OR (
+          ${t.manualRetryCount} > 0
+          AND ${t.lastManualRetryAt} IS NOT NULL
+          AND NULLIF(btrim(${t.lastManualRetryActor}), '') IS NOT NULL
+          AND NULLIF(btrim(${t.lastManualRetryOperationKey}), '') IS NOT NULL
+          AND ${t.lastManualRetryOperationDigest} ~ '^sha256:[0-9a-f]{64}$'
+        )
+      ) IS TRUE`,
+    ),
+    errorShape: check(
+      "calendar_sync_jobs_error_shape",
+      sql`(
+        (
+          ${t.lastError} IS NULL
+          OR (
+            NULLIF(btrim(${t.lastError}), '') IS NOT NULL
+            AND char_length(${t.lastError}) <= 4000
+          )
+        )
+        AND (
+          ${t.terminalError} IS NULL
+          OR char_length(${t.terminalError}) <= 4000
+        )
+        AND (
+          ${t.leaseToken} IS NULL
+          OR char_length(${t.leaseToken}) <= 200
+        )
+        AND (
+          ${t.lastManualRetryActor} IS NULL
+          OR char_length(${t.lastManualRetryActor}) <= 200
+        )
+        AND (
+          ${t.lastManualRetryOperationKey} IS NULL
+          OR char_length(${t.lastManualRetryOperationKey}) <= 200
+        )
+      ) IS TRUE`,
+    ),
+  }),
+);
+export type CalendarSyncJob = typeof calendarSyncJobs.$inferSelect;
+export type NewCalendarSyncJob = typeof calendarSyncJobs.$inferInsert;
+
+// Append-only audit of each deliberate operator reissue. The current job row
+// holds the active provider identity; this table preserves every prior
+// terminal delivery cycle so rotating the Resend idempotency key never erases
+// the ambiguous failure that required human intervention.
+export const calendarSyncJobManualRetries = pgTable(
+  "calendar_sync_job_manual_retries",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    jobId: uuid("job_id").notNull(),
+    producerId: uuid("producer_id").notNull(),
+    retryNumber: integer("retry_number").notNull(),
+    operationKey: text("operation_key").notNull(),
+    operationDigest: text("operation_digest").notNull(),
+    actorIdentity: text("actor_identity").notNull(),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull(),
+    priorIdempotencyKey: text("prior_idempotency_key").notNull(),
+    newIdempotencyKey: text("new_idempotency_key").notNull(),
+    priorAttemptCount: integer("prior_attempt_count").notNull(),
+    priorFirstAttemptAt: timestamp("prior_first_attempt_at", { withTimezone: true }).notNull(),
+    priorLastAttemptAt: timestamp("prior_last_attempt_at", { withTimezone: true }).notNull(),
+    priorProviderDedupeExpiresAt: timestamp("prior_provider_dedupe_expires_at", {
+      withTimezone: true,
+    }),
+    priorLastError: text("prior_last_error"),
+    priorTerminalAt: timestamp("prior_terminal_at", { withTimezone: true }).notNull(),
+    priorTerminalError: text("prior_terminal_error").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (t) => ({
+    jobRetryUnique: unique("calendar_sync_job_manual_retries_job_retry_unique").on(
+      t.jobId,
+      t.retryNumber,
+    ),
+    operationUnique: unique("calendar_sync_job_manual_retries_operation_unique").on(t.operationKey),
+    newIdempotencyUnique: unique("calendar_sync_job_manual_retries_new_idempotency_unique").on(
+      t.newIdempotencyKey,
+    ),
+    jobProducerFk: foreignKey({
+      columns: [t.jobId, t.producerId],
+      foreignColumns: [calendarSyncJobs.id, calendarSyncJobs.producerId],
+      name: "calendar_sync_job_manual_retries_job_producer_fk",
+    }).onDelete("restrict"),
+    producerRequestedIdx: index("calendar_sync_job_manual_retries_producer_requested_idx").on(
+      t.producerId,
+      t.requestedAt,
+      t.id,
+    ),
+    identityShape: check(
+      "calendar_sync_job_manual_retries_identity_shape",
+      sql`(
+        ${t.retryNumber} > 0
+        AND NULLIF(btrim(${t.operationKey}), '') IS NOT NULL
+        AND char_length(${t.operationKey}) <= 200
+        AND ${t.operationDigest} ~ '^sha256:[0-9a-f]{64}$'
+        AND NULLIF(btrim(${t.actorIdentity}), '') IS NOT NULL
+        AND char_length(${t.actorIdentity}) <= 200
+        AND NULLIF(btrim(${t.priorIdempotencyKey}), '') IS NOT NULL
+        AND char_length(${t.priorIdempotencyKey}) <= 256
+        AND NULLIF(btrim(${t.newIdempotencyKey}), '') IS NOT NULL
+        AND char_length(${t.newIdempotencyKey}) <= 256
+        AND ${t.newIdempotencyKey} <> ${t.priorIdempotencyKey}
+      ) IS TRUE`,
+    ),
+    priorAttemptShape: check(
+      "calendar_sync_job_manual_retries_prior_attempt_shape",
+      sql`(
+        ${t.priorAttemptCount} > 0
+        AND ${t.priorLastAttemptAt} >= ${t.priorFirstAttemptAt}
+        AND (
+          ${t.priorProviderDedupeExpiresAt} IS NULL
+          OR ${t.priorProviderDedupeExpiresAt} > ${t.priorFirstAttemptAt}
+        )
+      ) IS TRUE`,
+    ),
+    timestampShape: check(
+      "calendar_sync_job_manual_retries_timestamp_shape",
+      sql`(
+        ${t.priorTerminalAt} >= ${t.priorLastAttemptAt}
+        AND ${t.requestedAt} >= ${t.priorTerminalAt}
+        AND ${t.createdAt} = ${t.requestedAt}
+      ) IS TRUE`,
+    ),
+    errorShape: check(
+      "calendar_sync_job_manual_retries_error_shape",
+      sql`(
+        NULLIF(btrim(${t.priorTerminalError}), '') IS NOT NULL
+        AND char_length(${t.priorTerminalError}) <= 4000
+        AND (
+          ${t.priorLastError} IS NULL
+          OR (
+            NULLIF(btrim(${t.priorLastError}), '') IS NOT NULL
+            AND char_length(${t.priorLastError}) <= 4000
+          )
+        )
+      ) IS TRUE`,
+    ),
+  }),
+);
+export type CalendarSyncJobManualRetry = typeof calendarSyncJobManualRetries.$inferSelect;
+export type NewCalendarSyncJobManualRetry = typeof calendarSyncJobManualRetries.$inferInsert;
+
+// Producer-only Google Calendar credentials. Access and refresh tokens are
+// encrypted by the web server before they cross the database boundary. The
+// row keeps one stable Google subject per account version so an explicit
+// account switch cannot reuse state from the previous Google account.
+export const googleCalendarConnections = pgTable(
+  "google_calendar_connections",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    // The explicitly named producer FK below preserves the same CASCADE
+    // ownership rule while keeping schema and migration constraint names equal.
+    producerId: uuid("producer_id").notNull(),
+    googleSubject: text("google_subject").notNull(),
+    googleAccountEmail: text("google_account_email").notNull(),
+    accountVersion: integer("account_version").notNull().default(1),
+    status: googleCalendarConnectionStatus("status").notNull().default("needs_selection"),
+    grantedScopes: text("granted_scopes").array().notNull(),
+    accessTokenCiphertext: text("access_token_ciphertext"),
+    accessTokenIv: text("access_token_iv"),
+    accessTokenAuthTag: text("access_token_auth_tag"),
+    accessTokenKeyVersion: integer("access_token_key_version"),
+    accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
+    refreshTokenCiphertext: text("refresh_token_ciphertext"),
+    refreshTokenIv: text("refresh_token_iv"),
+    refreshTokenAuthTag: text("refresh_token_auth_tag"),
+    refreshTokenKeyVersion: integer("refresh_token_key_version"),
+    refreshTokenUpdatedAt: timestamp("refresh_token_updated_at", { withTimezone: true }),
+    lastAuthorizedAt: timestamp("last_authorized_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    reconnectRequiredAt: timestamp("reconnect_required_at", { withTimezone: true }),
+    disconnectedAt: timestamp("disconnected_at", { withTimezone: true }),
+    lastSuccessfulAvailabilitySyncAt: timestamp("last_successful_availability_sync_at", {
+      withTimezone: true,
+    }),
+    lastSuccessfulEventSyncAt: timestamp("last_successful_event_sync_at", {
+      withTimezone: true,
+    }),
+    lastErrorCode: text("last_error_code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    producerFk: foreignKey({
+      columns: [t.producerId],
+      foreignColumns: [producers.id],
+      name: "google_calendar_connections_producer_fk",
+    }).onDelete("cascade"),
+    producerUnique: unique("google_calendar_connections_producer_unique").on(t.producerId),
+    idProducerUnique: unique("google_calendar_connections_id_producer_unique").on(
+      t.id,
+      t.producerId,
+    ),
+    idProducerAccountUnique: unique("google_calendar_connections_id_producer_account_unique").on(
+      t.id,
+      t.producerId,
+      t.accountVersion,
+    ),
+    identityShape: check(
+      "google_calendar_connections_identity_shape",
+      sql`(
+        NULLIF(btrim(${t.googleSubject}), '') IS NOT NULL
+        AND char_length(${t.googleSubject}) <= 255
+        AND ${t.googleAccountEmail} = lower(btrim(${t.googleAccountEmail}))
+        AND ${t.googleAccountEmail} ~ '^[^[:space:]@]+@[^[:space:]@]+$'
+        AND char_length(${t.googleAccountEmail}) <= 320
+        AND ${t.accountVersion} > 0
+        AND cardinality(${t.grantedScopes}) > 0
+        AND array_position(${t.grantedScopes}, NULL) IS NULL
+      ) IS TRUE`,
+    ),
+    tokenShape: check(
+      "google_calendar_connections_token_shape",
+      sql`(
+        (
+          (
+            ${t.accessTokenCiphertext} IS NULL
+            AND ${t.accessTokenIv} IS NULL
+            AND ${t.accessTokenAuthTag} IS NULL
+            AND ${t.accessTokenKeyVersion} IS NULL
+            AND ${t.accessTokenExpiresAt} IS NULL
+          )
+          OR (
+            ${t.accessTokenCiphertext} ~ '^[A-Za-z0-9_-]+$'
+            AND char_length(${t.accessTokenCiphertext}) <= 8192
+            AND ${t.accessTokenIv} ~ '^[A-Za-z0-9_-]{16}$'
+            AND ${t.accessTokenAuthTag} ~ '^[A-Za-z0-9_-]{22}$'
+            AND ${t.accessTokenKeyVersion} > 0
+            AND ${t.accessTokenExpiresAt} > ${t.createdAt}
+          )
+        )
+        AND (
+          (
+            ${t.refreshTokenCiphertext} IS NULL
+            AND ${t.refreshTokenIv} IS NULL
+            AND ${t.refreshTokenAuthTag} IS NULL
+            AND ${t.refreshTokenKeyVersion} IS NULL
+            AND ${t.refreshTokenUpdatedAt} IS NULL
+          )
+          OR (
+            ${t.refreshTokenCiphertext} ~ '^[A-Za-z0-9_-]+$'
+            AND char_length(${t.refreshTokenCiphertext}) <= 8192
+            AND ${t.refreshTokenIv} ~ '^[A-Za-z0-9_-]{16}$'
+            AND ${t.refreshTokenAuthTag} ~ '^[A-Za-z0-9_-]{22}$'
+            AND ${t.refreshTokenKeyVersion} > 0
+            AND ${t.refreshTokenUpdatedAt} >= ${t.createdAt}
+          )
+        )
+        AND (
+          ${t.status} NOT IN ('needs_selection', 'connected')
+          OR (
+            ${t.accessTokenCiphertext} IS NOT NULL
+            AND ${t.refreshTokenCiphertext} IS NOT NULL
+          )
+        )
+        AND (
+          ${t.status} <> 'disconnected'
+          OR (
+            ${t.accessTokenCiphertext} IS NULL
+            AND ${t.refreshTokenCiphertext} IS NULL
+          )
+        )
+      ) IS TRUE`,
+    ),
+    stateShape: check(
+      "google_calendar_connections_state_shape",
+      sql`(
+        (
+          ${t.status} = 'reconnect_required'
+          AND ${t.reconnectRequiredAt} IS NOT NULL
+          AND ${t.disconnectedAt} IS NULL
+        )
+        OR (
+          ${t.status} = 'disconnected'
+          AND ${t.reconnectRequiredAt} IS NULL
+          AND ${t.disconnectedAt} IS NOT NULL
+        )
+        OR (
+          ${t.status} IN ('needs_selection', 'connected')
+          AND ${t.reconnectRequiredAt} IS NULL
+          AND ${t.disconnectedAt} IS NULL
+        )
+      ) IS TRUE`,
+    ),
+    timestampShape: check(
+      "google_calendar_connections_timestamp_shape",
+      sql`(
+        ${t.lastAuthorizedAt} >= ${t.createdAt}
+        AND ${t.updatedAt} >= ${t.createdAt}
+        AND (${t.reconnectRequiredAt} IS NULL OR ${t.reconnectRequiredAt} >= ${t.createdAt})
+        AND (${t.disconnectedAt} IS NULL OR ${t.disconnectedAt} >= ${t.createdAt})
+        AND (
+          ${t.lastSuccessfulAvailabilitySyncAt} IS NULL
+          OR ${t.lastSuccessfulAvailabilitySyncAt} >= ${t.createdAt}
+        )
+        AND (
+          ${t.lastSuccessfulEventSyncAt} IS NULL
+          OR ${t.lastSuccessfulEventSyncAt} >= ${t.createdAt}
+        )
+      ) IS TRUE`,
+    ),
+    safeErrorShape: check(
+      "google_calendar_connections_safe_error_shape",
+      sql`${t.lastErrorCode} IS NULL OR ${t.lastErrorCode} ~ '^[a-z][a-z0-9_]{0,63}$'`,
+    ),
+  }),
+);
+export type GoogleCalendarConnection = typeof googleCalendarConnections.$inferSelect;
+export type NewGoogleCalendarConnection = typeof googleCalendarConnections.$inferInsert;
+
+// One stable Google event per purchased allowance-use lineage and Google
+// account version. The destination envelope is snapshotted because disconnect
+// and account switch remove current selections. Its original selection ID is
+// retained because that ID is part of the encryption AAD.
+export const bookingCalendarLinks = pgTable(
+  "booking_calendar_links",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    producerId: uuid("producer_id").notNull(),
+    allowanceUseId: uuid("allowance_use_id").notNull(),
+    originBookingId: uuid("origin_booking_id").notNull(),
+    currentBookingId: uuid("current_booking_id").notNull(),
+    connectionId: uuid("connection_id").notNull(),
+    accountVersion: integer("account_version").notNull(),
+    destinationSelectionId: uuid("destination_selection_id").notNull(),
+    destinationCalendarIdCiphertext: text("destination_calendar_id_ciphertext").notNull(),
+    destinationCalendarIdIv: text("destination_calendar_id_iv").notNull(),
+    destinationCalendarIdAuthTag: text("destination_calendar_id_auth_tag").notNull(),
+    destinationCalendarIdKeyVersion: integer("destination_calendar_id_key_version").notNull(),
+    destinationCalendarIdFingerprint: text("destination_calendar_id_fingerprint").notNull(),
+    providerEventId: text("provider_event_id").notNull(),
+    providerEventEtag: text("provider_event_etag"),
+    providerEventUpdatedAt: timestamp("provider_event_updated_at", { withTimezone: true }),
+    providerState: bookingCalendarLinkProviderState("provider_state")
+      .notNull()
+      .default("uncreated"),
+    syncState: bookingCalendarLinkSyncState("sync_state").notNull().default("pending"),
+    syncStateChangedAt: timestamp("sync_state_changed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastInboundReconciledAt: timestamp("last_inbound_reconciled_at", { withTimezone: true }),
+    lastSyncErrorCode: googleCalendarSyncErrorCode("last_sync_error_code"),
+    desiredRevision: integer("desired_revision").notNull(),
+    lastGoogleRevision: integer("last_google_revision").notNull().default(0),
+    lastGoogleSyncedAt: timestamp("last_google_synced_at", { withTimezone: true }),
+    invitationRevision: integer("invitation_revision").notNull().default(0),
+    invitationChannel: calendarSyncDeliveryChannel("invitation_channel"),
+    invitationReservedAt: timestamp("invitation_reserved_at", { withTimezone: true }),
+    invitationAttemptedAt: timestamp("invitation_attempted_at", { withTimezone: true }),
+    invitationDeliveredAt: timestamp("invitation_delivered_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    idProducerUnique: unique("booking_calendar_links_id_producer_unique").on(t.id, t.producerId),
+    lineageAccountUnique: unique("booking_calendar_links_lineage_account_unique").on(
+      t.producerId,
+      t.allowanceUseId,
+      t.connectionId,
+      t.accountVersion,
+    ),
+    providerEventUnique: unique("booking_calendar_links_provider_event_unique").on(
+      t.connectionId,
+      t.providerEventId,
+    ),
+    originBookingLineageFk: foreignKey({
+      columns: [t.originBookingId, t.producerId, t.allowanceUseId],
+      foreignColumns: [bookings.id, bookings.producerId, bookings.allowanceUseId],
+      name: "booking_calendar_links_origin_booking_lineage_fk",
+    }).onDelete("restrict"),
+    currentBookingLineageFk: foreignKey({
+      columns: [t.currentBookingId, t.producerId, t.allowanceUseId],
+      foreignColumns: [bookings.id, bookings.producerId, bookings.allowanceUseId],
+      name: "booking_calendar_links_current_booking_lineage_fk",
+    }).onDelete("restrict"),
+    connectionProducerFk: foreignKey({
+      columns: [t.connectionId, t.producerId],
+      foreignColumns: [googleCalendarConnections.id, googleCalendarConnections.producerId],
+      name: "booking_calendar_links_connection_producer_fk",
+    }).onDelete("restrict"),
+    currentBookingIdx: index("booking_calendar_links_current_booking_idx").on(
+      t.producerId,
+      t.currentBookingId,
+      t.id,
+    ),
+    reconciliationIdx: index("booking_calendar_links_reconciliation_idx").on(
+      t.connectionId,
+      t.accountVersion,
+      t.providerState,
+      t.syncState,
+      t.lastInboundReconciledAt,
+      t.desiredRevision,
+      t.id,
+    ),
+    encryptedDestinationShape: check(
+      "booking_calendar_links_encrypted_destination_shape",
+      sql`(
+        ${t.destinationCalendarIdCiphertext} ~ '^[A-Za-z0-9_-]+$'
+        AND char_length(${t.destinationCalendarIdCiphertext}) <= 8192
+        AND ${t.destinationCalendarIdIv} ~ '^[A-Za-z0-9_-]{16}$'
+        AND ${t.destinationCalendarIdAuthTag} ~ '^[A-Za-z0-9_-]{22}$'
+        AND ${t.destinationCalendarIdKeyVersion} > 0
+        AND ${t.destinationCalendarIdFingerprint} ~ '^hmac-sha256:[0-9a-f]{64}$'
+      ) IS TRUE`,
+    ),
+    identityShape: check(
+      "booking_calendar_links_identity_shape",
+      sql`(
+        ${t.accountVersion} > 0
+        AND ${t.providerEventId} ~ '^[0-9a-v]+$'
+        AND char_length(${t.providerEventId}) BETWEEN 5 AND 1024
+        AND ${t.desiredRevision} > 0
+      ) IS TRUE`,
+    ),
+    providerStateShape: check(
+      "booking_calendar_links_provider_state_shape",
+      sql`(
+        (
+          ${t.providerState} = 'uncreated'
+          AND ${t.providerEventEtag} IS NULL
+          AND ${t.lastGoogleRevision} = 0
+          AND ${t.lastGoogleSyncedAt} IS NULL
+        )
+        OR (
+          ${t.providerState} = 'active'
+          AND NULLIF(btrim(${t.providerEventEtag}), '') IS NOT NULL
+          AND char_length(${t.providerEventEtag}) <= 2048
+          AND ${t.lastGoogleRevision} > 0
+          AND ${t.lastGoogleSyncedAt} IS NOT NULL
+        )
+        OR (
+          ${t.providerState} = 'deleted'
+          AND ${t.providerEventEtag} IS NULL
+          AND ${t.lastGoogleRevision} > 0
+          AND ${t.lastGoogleSyncedAt} IS NOT NULL
+        )
+      ) IS TRUE`,
+    ),
+    revisionShape: check(
+      "booking_calendar_links_revision_shape",
+      sql`(
+        ${t.lastGoogleRevision} >= 0
+        AND ${t.invitationRevision} >= 0
+        AND ${t.desiredRevision} >= ${t.lastGoogleRevision}
+        AND ${t.desiredRevision} >= ${t.invitationRevision}
+      ) IS TRUE`,
+    ),
+    syncStateShape: check(
+      "booking_calendar_links_sync_state_shape",
+      sql`(
+        (
+          ${t.syncState} IN ('pending', 'synced', 'missing', 'disconnected')
+          AND ${t.lastSyncErrorCode} IS NULL
+        )
+        OR (
+          ${t.syncState} = 'conflict'
+          AND ${t.lastSyncErrorCode} IN ('stale_skitza_revision', 'skitza_overlap')
+        )
+        OR (
+          ${t.syncState} = 'not_synced'
+          AND ${t.lastSyncErrorCode} IS NOT NULL
+          AND ${t.lastSyncErrorCode} NOT IN ('stale_skitza_revision', 'skitza_overlap')
+        )
+      ) IS TRUE`,
+    ),
+    invitationShape: check(
+      "booking_calendar_links_invitation_shape",
+      sql`(
+        (
+          ${t.invitationRevision} = 0
+          AND ${t.invitationChannel} IS NULL
+          AND ${t.invitationReservedAt} IS NULL
+          AND ${t.invitationAttemptedAt} IS NULL
+          AND ${t.invitationDeliveredAt} IS NULL
+        )
+        OR (
+          ${t.invitationRevision} > 0
+          AND ${t.invitationChannel} IS NOT NULL
+          AND ${t.invitationReservedAt} IS NOT NULL
+          AND (
+            ${t.invitationAttemptedAt} IS NULL
+            OR ${t.invitationAttemptedAt} >= ${t.invitationReservedAt}
+          )
+          AND (
+            ${t.invitationDeliveredAt} IS NULL
+            OR (
+              ${t.invitationDeliveredAt} >= ${t.invitationReservedAt}
+              AND (
+                ${t.invitationAttemptedAt} IS NULL
+                OR ${t.invitationDeliveredAt} >= ${t.invitationAttemptedAt}
+              )
+              AND (
+                ${t.invitationChannel} <> 'google'
+                OR ${t.invitationAttemptedAt} IS NOT NULL
+              )
+            )
+          )
+        )
+      ) IS TRUE`,
+    ),
+    timestampShape: check(
+      "booking_calendar_links_timestamp_shape",
+      sql`(
+        ${t.updatedAt} >= ${t.createdAt}
+        AND ${t.syncStateChangedAt} >= ${t.createdAt}
+        AND (
+          ${t.lastInboundReconciledAt} IS NULL
+          OR ${t.lastInboundReconciledAt} >= ${t.createdAt}
+        )
+        AND (${t.lastGoogleSyncedAt} IS NULL OR ${t.lastGoogleSyncedAt} >= ${t.createdAt})
+        AND (${t.invitationReservedAt} IS NULL OR ${t.invitationReservedAt} >= ${t.createdAt})
+        AND (${t.invitationAttemptedAt} IS NULL OR ${t.invitationAttemptedAt} >= ${t.createdAt})
+        AND (${t.invitationDeliveredAt} IS NULL OR ${t.invitationDeliveredAt} >= ${t.createdAt})
+      ) IS TRUE`,
+    ),
+  }),
+);
+export type BookingCalendarLink = typeof bookingCalendarLinks.$inferSelect;
+export type NewBookingCalendarLink = typeof bookingCalendarLinks.$inferInsert;
+
+// One provider push channel per row. A renewing successor overlaps the old
+// active row until provider creation succeeds, then activation and retirement
+// happen atomically. Only digests of high-entropy channel tokens are stored.
+export const googleCalendarWatches = pgTable(
+  "google_calendar_watches",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    producerId: uuid("producer_id").notNull(),
+    connectionId: uuid("connection_id").notNull(),
+    accountVersion: integer("account_version").notNull(),
+    destinationSelectionId: uuid("destination_selection_id").notNull(),
+    destinationCalendarIdCiphertext: text("destination_calendar_id_ciphertext").notNull(),
+    destinationCalendarIdIv: text("destination_calendar_id_iv").notNull(),
+    destinationCalendarIdAuthTag: text("destination_calendar_id_auth_tag").notNull(),
+    destinationCalendarIdKeyVersion: integer("destination_calendar_id_key_version").notNull(),
+    destinationCalendarIdFingerprint: text("destination_calendar_id_fingerprint").notNull(),
+    renewalOfWatchId: uuid("renewal_of_watch_id"),
+    providerChannelId: uuid("provider_channel_id").notNull(),
+    providerResourceId: text("provider_resource_id"),
+    channelTokenDigest: text("channel_token_digest").notNull(),
+    state: googleCalendarWatchState("state").notNull().default("renewing"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    lastMessageNumber: text("last_message_number").notNull().default("0"),
+    lastNotificationAt: timestamp("last_notification_at", { withTimezone: true }),
+    lastReconciledAt: timestamp("last_reconciled_at", { withTimezone: true }),
+    activatedAt: timestamp("activated_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    lastErrorCode: googleCalendarSyncErrorCode("last_error_code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    idProducerUnique: unique("google_calendar_watches_id_producer_unique").on(t.id, t.producerId),
+    channelUnique: unique("google_calendar_watches_channel_unique").on(t.providerChannelId),
+    connectionProducerFk: foreignKey({
+      columns: [t.connectionId, t.producerId],
+      foreignColumns: [googleCalendarConnections.id, googleCalendarConnections.producerId],
+      name: "google_calendar_watches_connection_producer_fk",
+    }).onDelete("restrict"),
+    renewalProducerFk: foreignKey({
+      columns: [t.renewalOfWatchId, t.producerId],
+      foreignColumns: [t.id, t.producerId],
+      name: "google_calendar_watches_renewal_producer_fk",
+    }).onDelete("restrict"),
+    oneActive: uniqueIndex("google_calendar_watches_one_active")
+      .on(t.connectionId, t.accountVersion, t.destinationCalendarIdFingerprint)
+      .where(sql`${t.state} = 'active'`),
+    oneRenewing: uniqueIndex("google_calendar_watches_one_renewing")
+      .on(t.connectionId, t.accountVersion, t.destinationCalendarIdFingerprint)
+      .where(sql`${t.state} = 'renewing'`),
+    renewalDueIdx: index("google_calendar_watches_renewal_due_idx").on(t.state, t.expiresAt, t.id),
+    webhookLookupIdx: index("google_calendar_watches_webhook_lookup_idx").on(
+      t.providerChannelId,
+      t.state,
+    ),
+    encryptedDestinationShape: check(
+      "google_calendar_watches_encrypted_destination_shape",
+      sql`(
+        ${t.destinationCalendarIdCiphertext} ~ '^[A-Za-z0-9_-]+$'
+        AND char_length(${t.destinationCalendarIdCiphertext}) <= 8192
+        AND ${t.destinationCalendarIdIv} ~ '^[A-Za-z0-9_-]{16}$'
+        AND ${t.destinationCalendarIdAuthTag} ~ '^[A-Za-z0-9_-]{22}$'
+        AND ${t.destinationCalendarIdKeyVersion} > 0
+        AND ${t.destinationCalendarIdFingerprint} ~ '^hmac-sha256:[0-9a-f]{64}$'
+      ) IS TRUE`,
+    ),
+    trustShape: check(
+      "google_calendar_watches_trust_shape",
+      sql`(
+        ${t.accountVersion} > 0
+        AND ${t.channelTokenDigest} ~ '^sha256:[0-9a-f]{64}$'
+        AND (
+          ${t.providerResourceId} IS NULL
+          OR (
+            NULLIF(btrim(${t.providerResourceId}), '') IS NOT NULL
+            AND ${t.providerResourceId} !~ '[[:space:]]'
+            AND char_length(${t.providerResourceId}) <= 2048
+          )
+        )
+        AND ${t.lastMessageNumber} ~ '^(0|[1-9][0-9]{0,38})$'
+      ) IS TRUE`,
+    ),
+    stateShape: check(
+      "google_calendar_watches_state_shape",
+      sql`(
+        (
+          ${t.state} = 'renewing'
+          AND ${t.activatedAt} IS NULL
+          AND ${t.endedAt} IS NULL
+          AND ${t.lastErrorCode} IS NULL
+          AND (
+            (${t.providerResourceId} IS NULL AND ${t.expiresAt} IS NULL)
+            OR (${t.providerResourceId} IS NOT NULL AND ${t.expiresAt} IS NOT NULL)
+          )
+        )
+        OR (
+          ${t.state} = 'active'
+          AND ${t.providerResourceId} IS NOT NULL
+          AND ${t.expiresAt} IS NOT NULL
+          AND ${t.activatedAt} IS NOT NULL
+          AND ${t.endedAt} IS NULL
+          AND ${t.lastErrorCode} IS NULL
+        )
+        OR (
+          ${t.state} IN ('retired', 'expired')
+          AND ${t.endedAt} IS NOT NULL
+        )
+      ) IS TRUE`,
+    ),
+    messageShape: check(
+      "google_calendar_watches_message_shape",
+      sql`(
+        (${t.lastMessageNumber} = '0' AND ${t.lastNotificationAt} IS NULL)
+        OR (${t.lastMessageNumber} <> '0' AND ${t.lastNotificationAt} IS NOT NULL)
+      ) IS TRUE`,
+    ),
+    timestampShape: check(
+      "google_calendar_watches_timestamp_shape",
+      sql`(
+        ${t.updatedAt} >= ${t.createdAt}
+        AND (${t.expiresAt} IS NULL OR ${t.expiresAt} > ${t.createdAt})
+        AND (${t.activatedAt} IS NULL OR ${t.activatedAt} >= ${t.createdAt})
+        AND (${t.endedAt} IS NULL OR ${t.endedAt} >= ${t.createdAt})
+        AND (${t.endedAt} IS NULL OR ${t.activatedAt} IS NULL OR ${t.endedAt} >= ${t.activatedAt})
+        AND (
+          ${t.lastNotificationAt} IS NULL
+          OR ${t.lastNotificationAt} >= ${t.createdAt}
+        )
+        AND (${t.lastReconciledAt} IS NULL OR ${t.lastReconciledAt} >= ${t.createdAt})
+      ) IS TRUE`,
+    ),
+  }),
+);
+export type GoogleCalendarWatch = typeof googleCalendarWatches.$inferSelect;
+export type NewGoogleCalendarWatch = typeof googleCalendarWatches.$inferInsert;
+
+// Complete CalendarList candidates for the current Google account version.
+// Provider IDs are encrypted for recovery and separately HMAC-fingerprinted
+// for equality and uniqueness without placing a raw calendar ID in an index.
+export const googleCalendarSelections = pgTable(
+  "google_calendar_selections",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    connectionId: uuid("connection_id").notNull(),
+    producerId: uuid("producer_id").notNull(),
+    accountVersion: integer("account_version").notNull(),
+    providerCalendarIdCiphertext: text("provider_calendar_id_ciphertext").notNull(),
+    providerCalendarIdIv: text("provider_calendar_id_iv").notNull(),
+    providerCalendarIdAuthTag: text("provider_calendar_id_auth_tag").notNull(),
+    providerCalendarIdKeyVersion: integer("provider_calendar_id_key_version").notNull(),
+    providerCalendarIdFingerprint: text("provider_calendar_id_fingerprint").notNull(),
+    displayName: text("display_name").notNull(),
+    timezone: text("timezone"),
+    accessRole: googleCalendarAccessRole("access_role").notNull(),
+    isPrimary: boolean("is_primary").notNull().default(false),
+    isDestination: boolean("is_destination").notNull().default(false),
+    blocksAvailability: boolean("blocks_availability").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    connectionProducerAccountFk: foreignKey({
+      columns: [t.connectionId, t.producerId, t.accountVersion],
+      foreignColumns: [
+        googleCalendarConnections.id,
+        googleCalendarConnections.producerId,
+        googleCalendarConnections.accountVersion,
+      ],
+      name: "google_calendar_selections_connection_producer_account_fk",
+    }).onDelete("cascade"),
+    calendarFingerprintUnique: unique("google_calendar_selections_calendar_fingerprint_unique").on(
+      t.connectionId,
+      t.accountVersion,
+      t.providerCalendarIdFingerprint,
+    ),
+    oneDestination: uniqueIndex("google_calendar_selections_one_destination")
+      .on(t.connectionId, t.accountVersion)
+      .where(sql`${t.isDestination} = true`),
+    onePrimary: uniqueIndex("google_calendar_selections_one_primary")
+      .on(t.connectionId, t.accountVersion)
+      .where(sql`${t.isPrimary} = true`),
+    producerBusyIdx: index("google_calendar_selections_producer_busy_idx")
+      .on(t.producerId, t.connectionId, t.accountVersion, t.id)
+      .where(sql`${t.blocksAvailability} = true`),
+    encryptedIdShape: check(
+      "google_calendar_selections_encrypted_id_shape",
+      sql`(
+        ${t.providerCalendarIdCiphertext} ~ '^[A-Za-z0-9_-]+$'
+        AND char_length(${t.providerCalendarIdCiphertext}) <= 8192
+        AND ${t.providerCalendarIdIv} ~ '^[A-Za-z0-9_-]{16}$'
+        AND ${t.providerCalendarIdAuthTag} ~ '^[A-Za-z0-9_-]{22}$'
+        AND ${t.providerCalendarIdKeyVersion} > 0
+        AND ${t.providerCalendarIdFingerprint} ~ '^hmac-sha256:[0-9a-f]{64}$'
+      ) IS TRUE`,
+    ),
+    metadataShape: check(
+      "google_calendar_selections_metadata_shape",
+      sql`(
+        ${t.accountVersion} > 0
+        AND NULLIF(btrim(${t.displayName}), '') IS NOT NULL
+        AND char_length(${t.displayName}) <= 1024
+        AND (
+          ${t.timezone} IS NULL
+          OR (
+            NULLIF(btrim(${t.timezone}), '') IS NOT NULL
+            AND char_length(${t.timezone}) <= 255
+          )
+        )
+      ) IS TRUE`,
+    ),
+    destinationAccessShape: check(
+      "google_calendar_selections_destination_access_shape",
+      sql`${t.isDestination} = false OR ${t.accessRole} IN ('writer', 'owner')`,
+    ),
+    timestampShape: check(
+      "google_calendar_selections_timestamp_shape",
+      sql`${t.updatedAt} >= ${t.createdAt}`,
+    ),
+  }),
+);
+export type GoogleCalendarSelection = typeof googleCalendarSelections.$inferSelect;
+export type NewGoogleCalendarSelection = typeof googleCalendarSelections.$inferInsert;
+
+// Replay protection for the signed OAuth state token. The signed token and
+// deterministic, domain-separated PKCE verifier are never stored: only the
+// token digest and the producer/account concurrency expectations are durable.
+export const googleCalendarOAuthStates = pgTable(
+  "google_calendar_oauth_states",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    stateTokenDigest: text("state_token_digest").notNull(),
+    producerId: uuid("producer_id").notNull(),
+    intent: googleCalendarOAuthIntent("intent").notNull(),
+    connectionId: uuid("connection_id"),
+    expectedAccountVersion: integer("expected_account_version"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    producerFk: foreignKey({
+      columns: [t.producerId],
+      foreignColumns: [producers.id],
+      name: "google_calendar_oauth_states_producer_fk",
+    }).onDelete("cascade"),
+    stateDigestUnique: unique("google_calendar_oauth_states_state_digest_unique").on(
+      t.stateTokenDigest,
+    ),
+    connectionProducerFk: foreignKey({
+      columns: [t.connectionId, t.producerId],
+      foreignColumns: [googleCalendarConnections.id, googleCalendarConnections.producerId],
+      name: "google_calendar_oauth_states_connection_producer_fk",
+    }).onDelete("cascade"),
+    expiresIdx: index("google_calendar_oauth_states_expires_idx").on(t.expiresAt, t.id),
+    digestShape: check(
+      "google_calendar_oauth_states_digest_shape",
+      sql`${t.stateTokenDigest} ~ '^sha256:[0-9a-f]{64}$'`,
+    ),
+    intentShape: check(
+      "google_calendar_oauth_states_intent_shape",
+      sql`(
+        (
+          ${t.intent} = 'connect'
+          AND ${t.connectionId} IS NULL
+          AND ${t.expectedAccountVersion} IS NULL
+        )
+        OR (
+          ${t.intent} IN ('reconnect', 'switch_account')
+          AND ${t.connectionId} IS NOT NULL
+          AND ${t.expectedAccountVersion} > 0
+        )
+      ) IS TRUE`,
+    ),
+    lifetimeShape: check(
+      "google_calendar_oauth_states_lifetime_shape",
+      sql`(
+        ${t.expiresAt} > ${t.createdAt}
+        AND ${t.expiresAt} <= ${t.createdAt} + interval '15 minutes'
+        AND (
+          ${t.consumedAt} IS NULL
+          OR (
+            ${t.consumedAt} >= ${t.createdAt}
+            AND ${t.consumedAt} <= ${t.expiresAt}
+          )
+        )
+      ) IS TRUE`,
+    ),
+  }),
+);
+export type GoogleCalendarOAuthState = typeof googleCalendarOAuthStates.$inferSelect;
+export type NewGoogleCalendarOAuthState = typeof googleCalendarOAuthStates.$inferInsert;
 
 // ─── Projects (stable client-owned workspaces) ─────────────────────
 // A project is the durable container for one producer/client relationship.

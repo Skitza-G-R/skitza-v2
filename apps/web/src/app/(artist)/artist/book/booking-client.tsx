@@ -151,7 +151,7 @@ export function BookingClient({
   const [selectedStartsAtISO, setSelectedStartsAtISO] = useState<string | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
   const [result, setResult] = useState<
-    | { ok: true; id: string; status: "pending_approval" | "confirmed" }
+    | { ok: true; id: string; status: "pending_approval" | "confirmed" | "request_sent" }
     | { ok: false; error: string }
     | null
   >(null);
@@ -250,7 +250,14 @@ export function BookingClient({
         setResult(response);
         if (response.ok) {
           markMeaningfulInstallAction();
-          router.push(withArtistStudio(`/artist/sessions?just=${response.id}`, activeStudioId));
+          router.push(
+            withArtistStudio(
+              rescheduleSessionId
+                ? `/artist/sessions/${rescheduleSessionId}`
+                : `/artist/sessions?just=${response.id}`,
+              activeStudioId,
+            ),
+          );
         }
       } catch {
         setResult({
@@ -261,7 +268,7 @@ export function BookingClient({
     });
   }
 
-  const title = rescheduleSessionId ? "Reschedule" : "Book a session";
+  const title = rescheduleSessionId ? "Request reschedule" : "Book a session";
   const stepLabel =
     step === "package"
       ? "Choose package"
@@ -357,6 +364,7 @@ export function BookingClient({
             artistTimeZone={availability.artistTimeZone}
             studioTimeZone={availability.studioTimeZone}
             autoConfirm={selectedPackage.autoConfirm}
+            requestingReschedule={Boolean(rescheduleSessionId)}
           />
         ) : null}
 
@@ -399,7 +407,7 @@ export function BookingClient({
               !online
                 ? "Reconnect before submitting"
                 : rescheduleSessionId
-                  ? "Your current time stays booked until this succeeds"
+                  ? "Your current time stays booked until your producer approves"
                   : selectedPackage.autoConfirm
                     ? "This time confirms immediately"
                     : `${activeStudio?.name ?? "Your producer"} will review this held time`
@@ -407,10 +415,10 @@ export function BookingClient({
           >
             {isPending
               ? rescheduleSessionId
-                ? "Rescheduling…"
+                ? "Sending request…"
                 : "Sending…"
               : rescheduleSessionId
-                ? "Reschedule to this time"
+                ? "Request this time"
                 : bookingActionLabel(!selectedPackage.autoConfirm)}
           </PrimaryCta>
         ) : null}
@@ -698,6 +706,7 @@ function ReviewStep({
   artistTimeZone,
   studioTimeZone,
   autoConfirm,
+  requestingReschedule,
 }: {
   slot: ExactSlot;
   package: ActivePackage;
@@ -705,6 +714,7 @@ function ReviewStep({
   artistTimeZone: string;
   studioTimeZone: string;
   autoConfirm: boolean;
+  requestingReschedule: boolean;
 }) {
   const studioTime = formatStudioTimeLine(slot.startsAtISO, artistTimeZone, studioTimeZone);
   return (
@@ -738,9 +748,11 @@ function ReviewStep({
         <ReviewRow label="Studio" value={producerName} />
       </dl>
       <p className="px-5 py-4 text-[12.5px] leading-relaxed text-[rgb(var(--fg-secondary))]">
-        {autoConfirm
-          ? "This available time will be confirmed immediately."
-          : "This time will be held while the producer reviews your request."}
+        {requestingReschedule
+          ? "Your current time stays booked while the producer reviews this request."
+          : autoConfirm
+            ? "This available time will be confirmed immediately."
+            : "This time will be held while the producer reviews your request."}
       </p>
     </section>
   );

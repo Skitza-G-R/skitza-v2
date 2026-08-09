@@ -311,6 +311,63 @@ export async function sendPaymentReminderEmail(
   return responseData.id;
 }
 
+export type SendSessionCalendarEmailInput = Readonly<{
+  to: string;
+  method: "REQUEST" | "CANCEL";
+  summary: string;
+  organizerName: string;
+  icsContent: string;
+  idempotencyKey: string;
+}>;
+
+function calendarEmailSubjectText(value: string): string {
+  return (
+    value
+      .replace(/[\r\n]+/gu, " ")
+      .trim()
+      .slice(0, 160) || "Session"
+  );
+}
+
+export async function sendSessionCalendarEmail(
+  input: SendSessionCalendarEmailInput,
+): Promise<string> {
+  const summary = calendarEmailSubjectText(input.summary);
+  const organizerName = calendarEmailSubjectText(input.organizerName);
+  const isCancellation = input.method === "CANCEL";
+  const result = await getResend().emails.send(
+    {
+      from: FROM_ADDRESS,
+      to: input.to,
+      subject: `${isCancellation ? "Calendar cancellation" : "Calendar invitation"} · ${summary}`,
+      text: isCancellation
+        ? `${organizerName} cancelled ${summary}. The calendar cancellation is attached.`
+        : `${organizerName} confirmed ${summary}. The calendar invitation is attached.`,
+      attachments: [
+        {
+          filename: "session.ics",
+          content: input.icsContent,
+          contentType: `text/calendar; charset=utf-8; method=${input.method}`,
+        },
+      ],
+    },
+    { idempotencyKey: input.idempotencyKey },
+  );
+
+  if (result.error) throw new Error("Email delivery failed");
+  const responseData: unknown = result.data;
+  if (
+    responseData === null ||
+    typeof responseData !== "object" ||
+    !("id" in responseData) ||
+    typeof responseData.id !== "string" ||
+    responseData.id.length === 0
+  ) {
+    throw new Error("Email delivery failed");
+  }
+  return responseData.id;
+}
+
 export async function sendPurchaseDeclinedEmail(
   to: string,
   props: PurchaseDeclinedToArtistProps,

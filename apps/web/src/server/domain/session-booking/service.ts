@@ -1,12 +1,23 @@
 import { createHash, randomUUID } from "node:crypto";
+import type {
+  CalendarOutboxPayloadSnapshot,
+  CalendarSyncJobPayloadSnapshot,
+  GoogleCalendarSyncJobPayloadSnapshot,
+} from "@skitza/db";
+import type { GoogleCalendarLinkedEventLookup } from "~/server/google-calendar";
+import type {
+  GoogleCalendarPreparedReconciliation,
+  GoogleCalendarReconciliationApplyResult,
+} from "~/server/calendar/google-reconciliation";
 import {
   SessionBookingDomainError,
   assertSessionBookingAllowed,
-  assertSessionSlotAvailable,
+  classifySessionSlot,
   sessionStartFromLocalSlot,
   sessionUseConsumesAllowance,
 } from "~/server/booking";
 import type {
+  SessionBusyInterval,
   SessionBookingBillingTreatment,
   SessionBookingScheduleEntry,
   SessionUseOutcome,
@@ -33,6 +44,7 @@ export type {
   ClassifySessionSlotInput,
   SessionBillingOptions,
   SessionBookingBillingTreatment,
+  SessionBusyInterval,
   SessionBookingErrorCode,
   SessionBookingScheduleEntry,
   SessionSlotIssue,
@@ -112,6 +124,8 @@ export type SessionBookingAllowance = Readonly<{
 export type SessionBookingCreateContext = Readonly<{
   producer: Readonly<{
     id: string;
+    name: string;
+    email: string;
     timeZone: string;
     autoConfirmBookings: boolean;
     cancellationPolicyHours: number;
@@ -161,6 +175,120 @@ export type SessionBookingTransitionEventDraft = Readonly<{
 export type StoredSessionBookingTransitionEvent = SessionBookingTransitionEventDraft &
   Readonly<{ id: string }>;
 
+export type SessionBookingChangeRequestKind = "cancel" | "reschedule";
+export type SessionBookingChangeRequestStatus = "pending" | "approved" | "rejected";
+export type SessionBookingChangeRequestRecord = Readonly<{
+  id: string;
+  bookingId: string;
+  producerId: string;
+  kind: SessionBookingChangeRequestKind;
+  status: SessionBookingChangeRequestStatus;
+  proposedStartsAt: Date | null;
+  requestOperationKey: string;
+  requestOperationDigest: string;
+  requestedByClerkUserId: string;
+  requestedAt: Date;
+  decisionOperationKey: string | null;
+  decisionOperationDigest: string | null;
+  decidedByClerkUserId: string | null;
+  decidedAt: Date | null;
+  replacementBookingId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}>;
+
+export type NewSessionBookingChangeRequestRecord = Omit<
+  SessionBookingChangeRequestRecord,
+  "id" | "createdAt" | "updatedAt"
+> &
+  Readonly<{ occurredAt: Date }>;
+
+export type CalendarSyncJobRecord = Readonly<{
+  id: string;
+  bookingId: string;
+  producerId: string;
+  deliveryChannel: "ics" | "google";
+  bookingCalendarLinkId: string | null;
+  operation: "send_ics" | "upsert_google_event" | "delete_google_event" | "reconcile_google_event";
+  desiredRevision: number;
+  idempotencyKey: string;
+  payloadSnapshot: CalendarOutboxPayloadSnapshot;
+  manualRetryCount: number;
+  lastManualRetryAt: Date | null;
+  lastManualRetryActor: string | null;
+  lastManualRetryOperationKey: string | null;
+  lastManualRetryOperationDigest: string | null;
+}>;
+
+export type NewCalendarSyncJobRecord = Omit<
+  CalendarSyncJobRecord,
+  | "id"
+  | "manualRetryCount"
+  | "lastManualRetryAt"
+  | "lastManualRetryActor"
+  | "lastManualRetryOperationKey"
+  | "lastManualRetryOperationDigest"
+> &
+  Readonly<{
+    occurredAt: Date;
+    manualRetryCount?: number;
+    lastManualRetryAt?: Date;
+    lastManualRetryOperationKey?: string;
+    lastManualRetryOperationDigest?: string;
+    lastManualRetryActor?: string;
+  }>;
+
+export type SessionBookingGoogleCalendarSyncStatus =
+  | "synced"
+  | "pending"
+  | "not_synced"
+  | "missing"
+  | "conflict"
+  | "disconnected";
+
+export const GOOGLE_CALENDAR_SYNC_STATUS_BATCH_LIMIT = 200;
+
+export type SessionBookingGoogleCalendarSyncStatusEntry = Readonly<{
+  bookingId: string;
+  status: SessionBookingGoogleCalendarSyncStatus;
+}>;
+
+export type BookingCalendarLinkRecord = Readonly<{
+  id: string;
+  producerId: string;
+  allowanceUseId: string;
+  currentBookingId: string;
+  connectionId: string;
+  accountVersion: number;
+  desiredRevision: number;
+  providerEventEtag: string | null;
+  providerEventUpdatedAt: Date | null;
+  providerState: "uncreated" | "active" | "deleted";
+  syncState: SessionBookingGoogleCalendarSyncStatus;
+  syncStateChangedAt: Date;
+  lastInboundReconciledAt: Date | null;
+  lastSyncErrorCode:
+    | "provider_unavailable"
+    | "rate_limited"
+    | "permission_denied"
+    | "reconnect_required"
+    | "invalid_provider_event"
+    | "stale_skitza_revision"
+    | "skitza_overlap"
+    | "watch_create_failed"
+    | "watch_renew_failed"
+    | "watch_stop_failed"
+    | "reconciliation_failed"
+    | "unknown"
+    | null;
+}>;
+
+export type SessionBookingGoogleReconciliationContext = Readonly<{
+  link: BookingCalendarLinkRecord;
+  currentBookingId: string;
+  capturedRevision: number;
+}>;
+
 export type SessionBookingAtomicScope =
   | Readonly<{
       kind: "create";
@@ -169,7 +297,8 @@ export type SessionBookingAtomicScope =
       purchaseId: string;
       sessionAllowanceId: string;
     }>
-  | Readonly<{ kind: "booking"; bookingId: string; producerId?: string }>;
+  | Readonly<{ kind: "booking"; bookingId: string; producerId?: string }>
+  | Readonly<{ kind: "change_request"; requestId: string; producerId: string }>;
 
 export interface SessionBookingTransaction {
   loadCreateContext(input: {
@@ -178,6 +307,13 @@ export interface SessionBookingTransaction {
     purchaseId: string;
     sessionAllowanceId: string;
     actorClerkUserId: string;
+  }): Promise<SessionBookingCreateContext | null>;
+  loadProducerManualCreateContext(input: {
+    producerId: string;
+    clientContactId: string;
+    projectId: string;
+    purchaseId: string;
+    sessionAllowanceId: string;
   }): Promise<SessionBookingCreateContext | null>;
   loadBookingContext(input: {
     bookingId: string;
@@ -193,6 +329,15 @@ export interface SessionBookingTransaction {
     bookingId: string,
     operationKey: string,
   ): Promise<StoredSessionBookingTransitionEvent | null>;
+  loadChangeRequest(input: {
+    requestId: string;
+    producerId?: string;
+  }): Promise<SessionBookingChangeRequestRecord | null>;
+  findChangeRequestByOperationKey(
+    bookingId: string,
+    operationKey: string,
+  ): Promise<SessionBookingChangeRequestRecord | null>;
+  findPendingChangeRequest(bookingId: string): Promise<SessionBookingChangeRequestRecord | null>;
   listAllowanceUses(
     producerId: string,
     sessionAllowanceId: string,
@@ -205,6 +350,21 @@ export interface SessionBookingTransaction {
     }>[]
   >;
   listScheduleEntries(producerId: string): Promise<readonly SessionBookingScheduleEntry[]>;
+  loadGoogleCalendarReconciliationContext(input: {
+    jobId: string;
+    producerId: string;
+    bookingCalendarLinkId: string;
+    leaseToken: string;
+  }): Promise<SessionBookingGoogleReconciliationContext | null>;
+  loadBookingCalendarRecoveryLink(input: {
+    bookingId: string;
+    producerId: string;
+  }): Promise<BookingCalendarLinkRecord | null>;
+  findGoogleCalendarRecoveryJob(input: {
+    producerId: string;
+    bookingCalendarLinkId: string;
+    operationKey: string;
+  }): Promise<CalendarSyncJobRecord | null>;
   insertBooking(input: NewSessionBookingRecord): Promise<SessionBookingRecord>;
   updateBooking(input: {
     bookingId: string;
@@ -216,12 +376,93 @@ export interface SessionBookingTransaction {
     heldExpiredAt?: Date;
     heldExpiryReason?: "approval_timeout";
   }): Promise<SessionBookingRecord>;
+  updateBookingCalendarProjection(input: {
+    bookingId: string;
+    producerId: string;
+    expectedCalendarRevision: number;
+    nextCalendarRevision: number;
+    title?: string | null;
+    artistRsvpStatus?: SessionBookingArtistRsvpStatus | null;
+    artistRsvpRespondedAt?: Date | null;
+    occurredAt: Date;
+  }): Promise<SessionBookingRecord>;
   insertTransitionEvent(
     input: SessionBookingTransitionEventDraft,
   ): Promise<StoredSessionBookingTransitionEvent>;
+  insertChangeRequest(
+    input: NewSessionBookingChangeRequestRecord,
+  ): Promise<SessionBookingChangeRequestRecord>;
+  decideChangeRequest(input: {
+    requestId: string;
+    producerId: string;
+    status: "approved" | "rejected";
+    decisionOperationKey: string;
+    decisionOperationDigest: string;
+    decidedByClerkUserId: string;
+    decidedAt: Date;
+    replacementBookingId: string | null;
+  }): Promise<SessionBookingChangeRequestRecord>;
+  findCalendarSyncJob(input: {
+    uid: string;
+    desiredRevision: number;
+  }): Promise<CalendarSyncJobRecord | null>;
+  findGoogleCalendarSyncJob(input: {
+    producerId: string;
+    bookingCalendarLinkId: string;
+    desiredRevision: number;
+  }): Promise<CalendarSyncJobRecord | null>;
+  findCalendarSyncJobForEvent(input: {
+    bookingId: string;
+    producerId: string;
+    occurredAt: Date;
+    intent: "opaque_hold" | "confirmed" | "delete";
+  }): Promise<CalendarSyncJobRecord | null>;
+  prepareBookingCalendarLink(input: {
+    bookingId: string;
+    producerId: string;
+    allowanceUseId: string;
+    desiredRevision: number;
+    allowCreate: boolean;
+    occurredAt: Date;
+  }): Promise<BookingCalendarLinkRecord | null>;
+  advanceGoogleCalendarLink(input: {
+    linkId: string;
+    producerId: string;
+    expectedCurrentBookingId: string;
+    expectedDesiredRevision: number;
+    currentBookingId: string;
+    desiredRevision: number;
+    syncState: SessionBookingGoogleCalendarSyncStatus;
+    lastSyncErrorCode: BookingCalendarLinkRecord["lastSyncErrorCode"];
+    providerEventEtag?: string;
+    providerEventUpdatedAt?: Date;
+    lastInboundReconciledAt?: Date;
+    occurredAt: Date;
+  }): Promise<BookingCalendarLinkRecord>;
+  completeGoogleCalendarReconciliationJob(input: {
+    jobId: string;
+    producerId: string;
+    bookingCalendarLinkId: string;
+    capturedRevision: number;
+    leaseToken: string;
+    completedAt: Date;
+  }): Promise<boolean>;
+  insertCalendarSyncJob(input: NewCalendarSyncJobRecord): Promise<CalendarSyncJobRecord>;
 }
 
 export interface SessionBookingRepository {
+  findBookingGoogleCalendarSyncStatuses(input: {
+    bookingIds: readonly string[];
+    producerId: string;
+  }): Promise<readonly SessionBookingGoogleCalendarSyncStatusEntry[]>;
+  findProducerManualSessionBookingByOperationKey(input: {
+    producerId: string;
+    operationKey: string;
+  }): Promise<Readonly<{
+    booking: SessionBookingRecord;
+    event: StoredSessionBookingTransitionEvent | null;
+    calendarSyncJobId: string | null;
+  }> | null>;
   atomically<T>(
     scope: SessionBookingAtomicScope,
     work: (transaction: SessionBookingTransaction) => Promise<T>,
@@ -277,6 +518,839 @@ function assertOperationReplay(
       "This operation key already belongs to a different booking command",
     );
   }
+}
+
+function icsCalendarSyncPayload(input: {
+  context: SessionBookingCreateContext;
+  booking: SessionBookingRecord;
+  method: "REQUEST" | "CANCEL";
+  occurredAt: Date;
+}): CalendarSyncJobPayloadSnapshot {
+  const producerName = input.context.producer.name.trim() || "Skitza producer";
+  return {
+    schemaVersion: 1,
+    method: input.method,
+    uid: `booking-${input.booking.allowanceUseId}@skitza.app`,
+    sequence: input.booking.calendarRevision,
+    dtstampUtc: input.occurredAt.toISOString(),
+    startsAtUtc: input.booking.startsAt.toISOString(),
+    endsAtUtc: new Date(
+      input.booking.startsAt.getTime() + input.booking.durationMin * 60 * 1000,
+    ).toISOString(),
+    summary: input.booking.title?.trim() || input.context.purchase.defaultSessionTitle,
+    description: "A confirmed Skitza session.",
+    organizer: { name: producerName, email: input.context.producer.email },
+    attendee: { name: input.booking.artistName, email: input.booking.artistEmail },
+  };
+}
+
+function canonicalJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, canonicalJson(entry)]),
+    );
+  }
+  return value;
+}
+
+function calendarPayloadDigest(payload: CalendarOutboxPayloadSnapshot): string {
+  return `sha256:${createHash("sha256")
+    .update(JSON.stringify(canonicalJson(payload)), "utf8")
+    .digest("hex")}`;
+}
+
+async function enqueueIcsCalendarSyncJob(
+  transaction: SessionBookingTransaction,
+  context: SessionBookingCreateContext,
+  booking: SessionBookingRecord,
+  method: "REQUEST" | "CANCEL",
+  occurredAt: Date,
+): Promise<CalendarSyncJobRecord> {
+  const payloadSnapshot = icsCalendarSyncPayload({ context, booking, method, occurredAt });
+  const existing = await transaction.findCalendarSyncJob({
+    uid: payloadSnapshot.uid,
+    desiredRevision: booking.calendarRevision,
+  });
+  const idempotencyKey = `calendar:send_ics:${payloadSnapshot.uid}:${String(booking.calendarRevision)}`;
+  if (existing) {
+    if (
+      existing.bookingId !== booking.id ||
+      existing.producerId !== booking.producerId ||
+      existing.deliveryChannel !== "ics" ||
+      existing.bookingCalendarLinkId !== null ||
+      existing.operation !== "send_ics" ||
+      existing.idempotencyKey !== idempotencyKey ||
+      calendarPayloadDigest(existing.payloadSnapshot) !== calendarPayloadDigest(payloadSnapshot)
+    ) {
+      throw new SessionBookingDomainError(
+        "OPERATION_KEY_CONFLICT",
+        "This calendar revision already belongs to a different delivery command",
+      );
+    }
+    return existing;
+  }
+  return transaction.insertCalendarSyncJob({
+    bookingId: booking.id,
+    producerId: booking.producerId,
+    deliveryChannel: "ics",
+    bookingCalendarLinkId: null,
+    operation: "send_ics",
+    desiredRevision: booking.calendarRevision,
+    idempotencyKey,
+    payloadSnapshot,
+    occurredAt,
+  });
+}
+
+type BookingCalendarIntent = "opaque_hold" | "confirmed" | "delete_hold" | "delete_confirmed";
+
+function googleCalendarSyncPayload(input: {
+  link: BookingCalendarLinkRecord;
+  context: SessionBookingCreateContext;
+  booking: SessionBookingRecord;
+  intent: BookingCalendarIntent;
+  notificationMode?: "none" | "all";
+}): GoogleCalendarSyncJobPayloadSnapshot {
+  const privateProperties = {
+    skitzaLink: input.link.id,
+    skitzaRevision: String(input.booking.calendarRevision),
+    skitzaSchema: "1" as const,
+  };
+  if (input.intent === "delete_hold" || input.intent === "delete_confirmed") {
+    return {
+      schemaVersion: 2,
+      action: "delete",
+      notificationMode:
+        input.notificationMode ?? (input.intent === "delete_confirmed" ? "all" : "none"),
+      sequence: input.booking.calendarRevision,
+      privateProperties,
+    };
+  }
+
+  const confirmed = input.intent === "confirmed";
+  return {
+    schemaVersion: 2,
+    action: "upsert",
+    eventKind: confirmed ? "confirmed" : "opaque_hold",
+    notificationMode: input.notificationMode ?? (confirmed ? "all" : "none"),
+    sequence: input.booking.calendarRevision,
+    startsAtUtc: input.booking.startsAt.toISOString(),
+    endsAtUtc: new Date(
+      input.booking.startsAt.getTime() + input.booking.durationMin * 60 * 1000,
+    ).toISOString(),
+    summary: confirmed
+      ? input.booking.title?.trim() || input.context.purchase.defaultSessionTitle
+      : "Reserved",
+    artistSafeUrl: confirmed ? `https://skitza.app/artist/sessions/${input.booking.id}` : null,
+    attendee: confirmed
+      ? { name: input.booking.artistName, email: input.booking.artistEmail }
+      : null,
+    privateProperties,
+  };
+}
+
+async function enqueueBookingCalendarJob(
+  transaction: SessionBookingTransaction,
+  context: SessionBookingCreateContext,
+  booking: SessionBookingRecord,
+  intent: BookingCalendarIntent,
+  occurredAt: Date,
+): Promise<CalendarSyncJobRecord | null> {
+  const deleting = intent === "delete_hold" || intent === "delete_confirmed";
+  const link = await transaction.prepareBookingCalendarLink({
+    bookingId: booking.id,
+    producerId: booking.producerId,
+    allowanceUseId: booking.allowanceUseId,
+    desiredRevision: booking.calendarRevision,
+    allowCreate: !deleting,
+    occurredAt,
+  });
+  if (!link) {
+    if (intent === "confirmed") {
+      return enqueueIcsCalendarSyncJob(transaction, context, booking, "REQUEST", occurredAt);
+    }
+    if (intent === "delete_confirmed") {
+      return enqueueIcsCalendarSyncJob(transaction, context, booking, "CANCEL", occurredAt);
+    }
+    return null;
+  }
+
+  const operation = deleting ? "delete_google_event" : "upsert_google_event";
+  const payloadSnapshot = googleCalendarSyncPayload({ link, context, booking, intent });
+  const existing = await transaction.findGoogleCalendarSyncJob({
+    producerId: booking.producerId,
+    bookingCalendarLinkId: link.id,
+    desiredRevision: booking.calendarRevision,
+  });
+  const idempotencyKey = `google:${operation}:${link.id}:r${String(booking.calendarRevision)}`;
+  if (existing) {
+    if (
+      existing.bookingId !== booking.id ||
+      existing.producerId !== booking.producerId ||
+      existing.deliveryChannel !== "google" ||
+      existing.bookingCalendarLinkId !== link.id ||
+      existing.operation !== operation ||
+      existing.idempotencyKey !== idempotencyKey ||
+      calendarPayloadDigest(existing.payloadSnapshot) !== calendarPayloadDigest(payloadSnapshot)
+    ) {
+      throw new SessionBookingDomainError(
+        "OPERATION_KEY_CONFLICT",
+        "This calendar revision already belongs to a different delivery command",
+      );
+    }
+    return existing;
+  }
+
+  return transaction.insertCalendarSyncJob({
+    bookingId: booking.id,
+    producerId: booking.producerId,
+    deliveryChannel: "google",
+    bookingCalendarLinkId: link.id,
+    operation,
+    desiredRevision: booking.calendarRevision,
+    idempotencyKey,
+    payloadSnapshot,
+    occurredAt,
+  });
+}
+
+async function enqueueGoogleCalendarCorrection(
+  transaction: SessionBookingTransaction,
+  context: SessionBookingCreateContext,
+  booking: SessionBookingRecord,
+  link: BookingCalendarLinkRecord,
+  occurredAt: Date,
+  recovery?: Readonly<{
+    operationKey: string;
+    operationDigest: string;
+    actorClerkUserId: string;
+  }>,
+): Promise<CalendarSyncJobRecord> {
+  const operation = "upsert_google_event" as const;
+  const payloadSnapshot = googleCalendarSyncPayload({
+    link,
+    context,
+    booking,
+    intent: "confirmed",
+    notificationMode: "none",
+  });
+  const idempotencyKey = `google:${operation}:${link.id}:r${String(booking.calendarRevision)}`;
+  const existing = await transaction.findGoogleCalendarSyncJob({
+    producerId: booking.producerId,
+    bookingCalendarLinkId: link.id,
+    desiredRevision: booking.calendarRevision,
+  });
+  if (existing) {
+    if (
+      existing.bookingId !== booking.id ||
+      existing.operation !== operation ||
+      existing.idempotencyKey !== idempotencyKey ||
+      calendarPayloadDigest(existing.payloadSnapshot) !== calendarPayloadDigest(payloadSnapshot)
+    ) {
+      throw new SessionBookingDomainError(
+        "OPERATION_KEY_CONFLICT",
+        "This calendar correction already belongs to another booking state",
+      );
+    }
+    return existing;
+  }
+  return transaction.insertCalendarSyncJob({
+    bookingId: booking.id,
+    producerId: booking.producerId,
+    deliveryChannel: "google",
+    bookingCalendarLinkId: link.id,
+    operation,
+    desiredRevision: booking.calendarRevision,
+    idempotencyKey,
+    payloadSnapshot,
+    occurredAt,
+    ...(recovery
+      ? {
+          manualRetryCount: 1,
+          lastManualRetryAt: occurredAt,
+          lastManualRetryActor: recovery.actorClerkUserId,
+          lastManualRetryOperationKey: recovery.operationKey,
+          lastManualRetryOperationDigest: recovery.operationDigest,
+        }
+      : {}),
+  });
+}
+
+function hasCoreSkitzaOverlap(
+  entries: readonly SessionBookingScheduleEntry[],
+  input: Readonly<{
+    startsAt: Date;
+    durationMin: number;
+    ignoreBookingId: string;
+  }>,
+): boolean {
+  const requestedStart = input.startsAt.getTime();
+  const requestedEnd = requestedStart + input.durationMin * 60 * 1_000;
+  return entries.some((entry) => {
+    if (entry.id === input.ignoreBookingId) return false;
+    const existingStart = entry.startsAt.getTime();
+    const existingEnd = existingStart + entry.durationMin * 60 * 1_000;
+    return requestedStart < existingEnd && existingStart < requestedEnd;
+  });
+}
+
+function normalizedInboundTitle(summary: string | null): string | null {
+  const normalized = summary?.trim() ?? "";
+  return normalized.length > 0 ? normalized : null;
+}
+
+function rsvpProjection(
+  booking: SessionBookingRecord,
+  status: SessionBookingArtistRsvpStatus | null,
+  respondedAt: Date,
+): Readonly<{
+  changed: boolean;
+  artistRsvpStatus: SessionBookingArtistRsvpStatus | null;
+  artistRsvpRespondedAt: Date | null;
+}> {
+  if (booking.artistRsvpStatus === status) {
+    return {
+      changed: false,
+      artistRsvpStatus: booking.artistRsvpStatus,
+      artistRsvpRespondedAt: booking.artistRsvpRespondedAt,
+    };
+  }
+  return {
+    changed: true,
+    artistRsvpStatus: status,
+    artistRsvpRespondedAt:
+      status === null || status === "needs_action" ? null : new Date(respondedAt),
+  };
+}
+
+export async function applyGoogleCalendarSessionReconciliation(
+  repository: SessionBookingRepository,
+  prepared: GoogleCalendarPreparedReconciliation,
+  lookup: GoogleCalendarLinkedEventLookup,
+  input: Readonly<{ leaseToken: string; reconciledAt: Date }>,
+): Promise<GoogleCalendarReconciliationApplyResult> {
+  return repository.atomically(
+    {
+      kind: "booking",
+      bookingId: prepared.currentBookingId,
+      producerId: prepared.job.producerId,
+    },
+    async (transaction) => {
+      const reconciliation = await transaction.loadGoogleCalendarReconciliationContext({
+        jobId: prepared.job.id,
+        producerId: prepared.job.producerId,
+        bookingCalendarLinkId: prepared.job.bookingCalendarLinkId,
+        leaseToken: input.leaseToken,
+      });
+      if (!reconciliation) return { outcome: "lease_lost" };
+      const context = await transaction.loadBookingContext({
+        bookingId: reconciliation.currentBookingId,
+        producerId: prepared.job.producerId,
+      });
+      if (!context) return { outcome: "lease_lost" };
+      const originalLink = reconciliation.link;
+      const booking = context.booking;
+      const concurrentSkitzaChange =
+        reconciliation.capturedRevision !== originalLink.desiredRevision ||
+        prepared.currentBookingId !== originalLink.currentBookingId ||
+        prepared.link.desiredRevision !== originalLink.desiredRevision ||
+        prepared.link.providerEventEtag !== originalLink.providerEventEtag;
+
+      const advanceLink = async (
+        values: Readonly<{
+          booking: SessionBookingRecord;
+          syncState: SessionBookingGoogleCalendarSyncStatus;
+          lastSyncErrorCode: BookingCalendarLinkRecord["lastSyncErrorCode"];
+          event?: Readonly<{ etag: string; updatedAt: Date }>;
+        }>,
+      ) =>
+        transaction.advanceGoogleCalendarLink({
+          linkId: originalLink.id,
+          producerId: originalLink.producerId,
+          expectedCurrentBookingId: originalLink.currentBookingId,
+          expectedDesiredRevision: originalLink.desiredRevision,
+          currentBookingId: values.booking.id,
+          desiredRevision: values.booking.calendarRevision,
+          syncState: values.syncState,
+          lastSyncErrorCode: values.lastSyncErrorCode,
+          ...(values.event
+            ? {
+                providerEventEtag: values.event.etag,
+                providerEventUpdatedAt: values.event.updatedAt,
+              }
+            : {}),
+          lastInboundReconciledAt: input.reconciledAt,
+          occurredAt: input.reconciledAt,
+        });
+
+      const complete = async () => {
+        const completed = await transaction.completeGoogleCalendarReconciliationJob({
+          jobId: prepared.job.id,
+          producerId: prepared.job.producerId,
+          bookingCalendarLinkId: prepared.job.bookingCalendarLinkId,
+          capturedRevision: reconciliation.capturedRevision,
+          leaseToken: input.leaseToken,
+          completedAt: input.reconciledAt,
+        });
+        if (!completed) {
+          throw new SessionBookingDomainError(
+            "INVALID_STATUS",
+            "The Google Calendar reconciliation lease changed",
+          );
+        }
+      };
+
+      if (lookup.outcome === "missing") {
+        await advanceLink({
+          booking,
+          syncState: concurrentSkitzaChange ? "conflict" : "missing",
+          lastSyncErrorCode: concurrentSkitzaChange ? "stale_skitza_revision" : null,
+        });
+        await complete();
+        return { outcome: concurrentSkitzaChange ? "conflict" : "missing" };
+      }
+
+      if (lookup.outcome === "not_modified") {
+        const preserveProblem =
+          originalLink.syncState === "missing" || originalLink.syncState === "conflict";
+        await advanceLink({
+          booking,
+          syncState: concurrentSkitzaChange
+            ? "conflict"
+            : preserveProblem
+              ? originalLink.syncState
+              : "synced",
+          lastSyncErrorCode: concurrentSkitzaChange
+            ? "stale_skitza_revision"
+            : preserveProblem
+              ? originalLink.lastSyncErrorCode
+              : null,
+        });
+        await complete();
+        return { outcome: concurrentSkitzaChange ? "conflict" : "unchanged" };
+      }
+
+      if (!("event" in lookup)) return { outcome: "lease_lost" };
+      const event = lookup.event;
+      const linkage = event.linkage;
+      if (
+        event.eventId !== prepared.link.providerEventId ||
+        linkage === null ||
+        linkage.opaqueLink !== originalLink.id
+      ) {
+        await advanceLink({
+          booking,
+          syncState: "not_synced",
+          lastSyncErrorCode: "invalid_provider_event",
+        });
+        await complete();
+        return { outcome: "conflict" };
+      }
+
+      if (event.status === "cancelled") {
+        await advanceLink({ booking, syncState: "missing", lastSyncErrorCode: null });
+        await complete();
+        return { outcome: "missing" };
+      }
+
+      const providerFactsRegressed =
+        originalLink.providerEventUpdatedAt !== null &&
+        event.updatedAt.getTime() < originalLink.providerEventUpdatedAt.getTime();
+      if (
+        concurrentSkitzaChange ||
+        booking.status !== "confirmed" ||
+        linkage.revision !== reconciliation.capturedRevision ||
+        providerFactsRegressed
+      ) {
+        await advanceLink({
+          booking,
+          syncState: "conflict",
+          lastSyncErrorCode: "stale_skitza_revision",
+          ...(prepared.link.providerEventEtag === originalLink.providerEventEtag &&
+          !providerFactsRegressed
+            ? { event: { etag: event.etag, updatedAt: event.updatedAt } }
+            : {}),
+        });
+        await complete();
+        return { outcome: "conflict" };
+      }
+
+      const rsvp = rsvpProjection(booking, event.artistRsvp, event.updatedAt);
+      const inboundTitle = normalizedInboundTitle(event.summary);
+      const currentSummary = booking.title?.trim() || context.purchase.defaultSessionTitle;
+      const inboundSummary = inboundTitle ?? context.purchase.defaultSessionTitle;
+      const titleChanged = inboundSummary !== currentSummary;
+      const titleNeedsCorrection = event.summary !== inboundSummary;
+
+      const correctBooking = async (
+        correction: Readonly<{
+          syncState: "pending" | "conflict" | "not_synced";
+          errorCode: BookingCalendarLinkRecord["lastSyncErrorCode"];
+          title?: string | null;
+        }>,
+      ) => {
+        const updated = await transaction.updateBookingCalendarProjection({
+          bookingId: booking.id,
+          producerId: booking.producerId,
+          expectedCalendarRevision: booking.calendarRevision,
+          nextCalendarRevision: booking.calendarRevision + 1,
+          ...(Object.prototype.hasOwnProperty.call(correction, "title")
+            ? { title: correction.title ?? null }
+            : {}),
+          ...(rsvp.changed
+            ? {
+                artistRsvpStatus: rsvp.artistRsvpStatus,
+                artistRsvpRespondedAt: rsvp.artistRsvpRespondedAt,
+              }
+            : {}),
+          occurredAt: input.reconciledAt,
+        });
+        const link = await advanceLink({
+          booking: updated,
+          syncState: correction.syncState,
+          lastSyncErrorCode: correction.errorCode,
+          event: { etag: event.etag, updatedAt: event.updatedAt },
+        });
+        await enqueueGoogleCalendarCorrection(
+          transaction,
+          context,
+          updated,
+          link,
+          input.reconciledAt,
+        );
+        await complete();
+      };
+
+      if (event.timing.kind === "unsupported") {
+        await correctBooking({
+          syncState: "not_synced",
+          errorCode: "invalid_provider_event",
+        });
+        return { outcome: "corrected" };
+      }
+
+      const moved = event.timing.startsAt.getTime() !== booking.startsAt.getTime();
+      const canonicalRemoteEnd = new Date(
+        event.timing.startsAt.getTime() + booking.durationMin * 60 * 1_000,
+      );
+      const resized = event.timing.endsAt.getTime() !== canonicalRemoteEnd.getTime();
+
+      if (moved) {
+        const overlaps = hasCoreSkitzaOverlap(
+          await transaction.listScheduleEntries(booking.producerId),
+          {
+            startsAt: event.timing.startsAt,
+            durationMin: booking.durationMin,
+            ignoreBookingId: booking.id,
+          },
+        );
+        if (overlaps) {
+          await correctBooking({
+            syncState: "conflict",
+            errorCode: "skitza_overlap",
+            ...(titleChanged ? { title: inboundTitle } : {}),
+          });
+          return { outcome: "conflict" };
+        }
+
+        const operationKey = `google-reconcile:${prepared.job.id}`;
+        const digest = operationDigest("google-calendar-move", {
+          bookingId: booking.id,
+          startsAt: event.timing.startsAt.toISOString(),
+          title: titleChanged ? inboundTitle : booking.title,
+          providerUpdatedAt: event.updatedAt.toISOString(),
+        });
+        const replacement = await transaction.insertBooking({
+          producerId: booking.producerId,
+          projectId: booking.projectId,
+          purchaseId: booking.purchaseId,
+          sessionAllowanceId: booking.sessionAllowanceId,
+          title: titleChanged ? inboundTitle : booking.title,
+          origin: booking.origin,
+          billingTreatment: booking.billingTreatment,
+          artistName: booking.artistName,
+          artistEmail: booking.artistEmail,
+          startsAt: event.timing.startsAt,
+          durationMin: booking.durationMin,
+          operationKey,
+          operationDigest: digest,
+          rescheduledFromBookingId: booking.id,
+          allowanceUseId: booking.allowanceUseId,
+          cancellationPolicyHoursSnapshot: context.producer.cancellationPolicyHours,
+          cancellationPolicySnapshottedAt: input.reconciledAt,
+          cancellationPolicyBackfilled: false,
+          heldExpiresAt: null,
+          heldExpiredAt: null,
+          heldExpiryReason: null,
+          status: "confirmed",
+          outcome: "reserved",
+          calendarRevision: booking.calendarRevision + 1,
+          artistRsvpStatus: rsvp.artistRsvpStatus,
+          artistRsvpRespondedAt: rsvp.artistRsvpRespondedAt,
+          occurredAt: input.reconciledAt,
+        });
+        await transaction.insertTransitionEvent({
+          bookingId: replacement.id,
+          producerId: replacement.producerId,
+          operationKey,
+          operationDigest: digest,
+          kind: "rescheduled",
+          actorKind: "system",
+          actorId: null,
+          fromStatus: null,
+          toStatus: replacement.status,
+          fromOutcome: null,
+          toOutcome: replacement.outcome,
+          oldStartsAt: booking.startsAt,
+          newStartsAt: replacement.startsAt,
+          occurredAt: input.reconciledAt,
+        });
+        const replaced = await transaction.updateBooking({
+          bookingId: booking.id,
+          producerId: booking.producerId,
+          expectedStatus: "confirmed",
+          status: "cancelled",
+          outcome: "cancelled_on_time",
+          occurredAt: input.reconciledAt,
+        });
+        await transaction.insertTransitionEvent({
+          bookingId: replaced.id,
+          producerId: replaced.producerId,
+          operationKey,
+          operationDigest: digest,
+          kind: "rescheduled",
+          actorKind: "system",
+          actorId: null,
+          fromStatus: booking.status,
+          toStatus: replaced.status,
+          fromOutcome: booking.outcome,
+          toOutcome: replaced.outcome,
+          oldStartsAt: booking.startsAt,
+          newStartsAt: replacement.startsAt,
+          occurredAt: input.reconciledAt,
+        });
+        const link = await advanceLink({
+          booking: replacement,
+          syncState: "pending",
+          lastSyncErrorCode: null,
+          event: { etag: event.etag, updatedAt: event.updatedAt },
+        });
+        await enqueueGoogleCalendarCorrection(
+          transaction,
+          context,
+          replacement,
+          link,
+          input.reconciledAt,
+        );
+        await complete();
+        return { outcome: "corrected" };
+      }
+
+      if (resized || titleChanged || titleNeedsCorrection) {
+        await correctBooking({
+          syncState: "pending",
+          errorCode: null,
+          ...(titleChanged ? { title: inboundTitle } : {}),
+        });
+        return { outcome: "corrected" };
+      }
+
+      let current = booking;
+      if (rsvp.changed) {
+        current = await transaction.updateBookingCalendarProjection({
+          bookingId: booking.id,
+          producerId: booking.producerId,
+          expectedCalendarRevision: booking.calendarRevision,
+          nextCalendarRevision: booking.calendarRevision,
+          artistRsvpStatus: rsvp.artistRsvpStatus,
+          artistRsvpRespondedAt: rsvp.artistRsvpRespondedAt,
+          occurredAt: input.reconciledAt,
+        });
+      }
+      await advanceLink({
+        booking: current,
+        syncState: "synced",
+        lastSyncErrorCode: null,
+        event: { etag: event.etag, updatedAt: event.updatedAt },
+      });
+      await complete();
+      return { outcome: rsvp.changed ? "reconciled" : "unchanged" };
+    },
+  );
+}
+
+export async function getSessionBookingGoogleCalendarSyncStatuses(
+  repository: SessionBookingRepository,
+  input: Readonly<{ bookingIds: readonly string[]; producerId: string }>,
+): Promise<readonly SessionBookingGoogleCalendarSyncStatusEntry[]> {
+  const bookingIds = [...new Set(input.bookingIds)];
+  if (bookingIds.length > GOOGLE_CALENDAR_SYNC_STATUS_BATCH_LIMIT) {
+    throw new SessionBookingDomainError(
+      "INVALID_SLOT",
+      "Too many session calendar statuses were requested",
+    );
+  }
+  if (bookingIds.length === 0) return [];
+  return repository.findBookingGoogleCalendarSyncStatuses({
+    bookingIds,
+    producerId: input.producerId,
+  });
+}
+
+export type RecoverSessionBookingGoogleCalendarSyncResult = Readonly<{
+  status: SessionBookingGoogleCalendarSyncStatus;
+  replayed: boolean;
+}>;
+
+async function requestSessionBookingGoogleCalendarCorrection(
+  repository: SessionBookingRepository,
+  input: Readonly<{
+    bookingId: string;
+    producerId: string;
+    actorClerkUserId: string;
+    operationKey: string;
+    kind: "retry" | "restore";
+    now?: Date;
+  }>,
+): Promise<RecoverSessionBookingGoogleCalendarSyncResult> {
+  assertOperationKey(input.operationKey);
+  return repository.atomically(
+    { kind: "booking", bookingId: input.bookingId, producerId: input.producerId },
+    async (transaction) => {
+      const context = await transaction.loadBookingContext({
+        bookingId: input.bookingId,
+        producerId: input.producerId,
+      });
+      if (!context) throw new SessionBookingDomainError("NOT_FOUND", "The session was not found");
+      const link = await transaction.loadBookingCalendarRecoveryLink({
+        bookingId: input.bookingId,
+        producerId: input.producerId,
+      });
+      if (!link) {
+        throw new SessionBookingDomainError(
+          "NOT_FOUND",
+          "This session does not have an active Google Calendar link",
+        );
+      }
+      const digest = operationDigest(`google-calendar-${input.kind}`, {
+        bookingId: input.bookingId,
+        producerId: input.producerId,
+        linkId: link.id,
+      });
+      const replay = await transaction.findGoogleCalendarRecoveryJob({
+        producerId: input.producerId,
+        bookingCalendarLinkId: link.id,
+        operationKey: input.operationKey,
+      });
+      if (replay) {
+        assertOperationReplay(
+          { operationDigest: replay.lastManualRetryOperationDigest ?? "" },
+          digest,
+        );
+        return { status: link.syncState, replayed: true };
+      }
+      if (context.booking.status !== "confirmed") {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "Only a confirmed session can be restored in Google Calendar",
+        );
+      }
+      if (input.kind === "restore" && link.syncState !== "missing") {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "This Google Calendar event is not missing",
+        );
+      }
+      if (
+        input.kind === "retry" &&
+        link.syncState !== "not_synced" &&
+        link.syncState !== "conflict"
+      ) {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "This Google Calendar event is not ready to retry",
+        );
+      }
+      const now = commandNow(input.now);
+      const booking = await transaction.updateBookingCalendarProjection({
+        bookingId: context.booking.id,
+        producerId: context.booking.producerId,
+        expectedCalendarRevision: context.booking.calendarRevision,
+        nextCalendarRevision: context.booking.calendarRevision + 1,
+        occurredAt: now,
+      });
+      const nextState =
+        link.syncState === "missing" || link.syncState === "conflict" ? link.syncState : "pending";
+      const advanced = await transaction.advanceGoogleCalendarLink({
+        linkId: link.id,
+        producerId: link.producerId,
+        expectedCurrentBookingId: link.currentBookingId,
+        expectedDesiredRevision: link.desiredRevision,
+        currentBookingId: booking.id,
+        desiredRevision: booking.calendarRevision,
+        syncState: nextState,
+        lastSyncErrorCode: nextState === "conflict" ? link.lastSyncErrorCode : null,
+        occurredAt: now,
+      });
+      await enqueueGoogleCalendarCorrection(transaction, context, booking, advanced, now, {
+        operationKey: input.operationKey,
+        operationDigest: digest,
+        actorClerkUserId: input.actorClerkUserId,
+      });
+      return { status: nextState, replayed: false };
+    },
+  );
+}
+
+export function retrySessionBookingGoogleCalendarSync(
+  repository: SessionBookingRepository,
+  input: Readonly<{
+    bookingId: string;
+    producerId: string;
+    actorClerkUserId: string;
+    operationKey: string;
+    now?: Date;
+  }>,
+): Promise<RecoverSessionBookingGoogleCalendarSyncResult> {
+  return requestSessionBookingGoogleCalendarCorrection(repository, { ...input, kind: "retry" });
+}
+
+export function restoreMissingSessionBookingGoogleCalendarEvent(
+  repository: SessionBookingRepository,
+  input: Readonly<{
+    bookingId: string;
+    producerId: string;
+    actorClerkUserId: string;
+    operationKey: string;
+    now?: Date;
+  }>,
+): Promise<RecoverSessionBookingGoogleCalendarSyncResult> {
+  return requestSessionBookingGoogleCalendarCorrection(repository, {
+    ...input,
+    kind: "restore",
+  });
+}
+
+async function calendarSyncJobIdForEvent(
+  transaction: SessionBookingTransaction,
+  bookingId: string,
+  producerId: string,
+  occurredAt: Date,
+  intent: "opaque_hold" | "confirmed" | "delete",
+): Promise<string | null> {
+  return (
+    (
+      await transaction.findCalendarSyncJobForEvent({
+        bookingId,
+        producerId,
+        occurredAt,
+        intent,
+      })
+    )?.id ?? null
+  );
 }
 
 function bookingAtTransition(
@@ -432,6 +1506,8 @@ export type CreateSessionBookingInput = Readonly<{
   title?: string | null;
   origin?: SessionBookingOrigin;
   billingTreatment?: SessionBookingBillingTreatment;
+  acknowledgedWarnings?: readonly string[];
+  googleBusyIntervals?: readonly SessionBusyInterval[];
   now?: Date;
 }> &
   SessionBookingRequestedStart;
@@ -439,6 +1515,7 @@ export type CreateSessionBookingInput = Readonly<{
 export type CreateSessionBookingResult = Readonly<{
   booking: SessionBookingRecord;
   created: boolean;
+  calendarSyncJobId: string | null;
 }>;
 
 async function createSessionBookingInTransaction(
@@ -455,9 +1532,16 @@ async function createSessionBookingInTransaction(
     billingTreatment?: SessionBookingBillingTreatment;
     calendarRevision?: number;
     actorKind?: "artist" | "producer";
+    slotActor?: "artist" | "producer";
+    forceConfirmed?: boolean;
+    preloadedContext?: SessionBookingCreateContext;
+    acknowledgedWarnings?: readonly string[];
+    requireExactWarningAcknowledgements?: boolean;
+    manualClientContactId?: string;
+    googleBusyIntervals?: readonly SessionBusyInterval[];
   }>,
 ): Promise<CreateSessionBookingResult> {
-  const context = await transaction.loadCreateContext(input);
+  const context = options.preloadedContext ?? (await transaction.loadCreateContext(input));
   if (!context) {
     throw new SessionBookingDomainError(
       "NOT_FOUND",
@@ -484,6 +1568,8 @@ async function createSessionBookingInTransaction(
       titleIntent,
       origin,
       billingTreatment,
+      acknowledgedWarnings: [...(options.acknowledgedWarnings ?? [])].sort(),
+      manualClientContactId: options.manualClientContactId ?? null,
       rescheduledFromBookingId: options.rescheduledFromBookingId,
     });
   const replay = await transaction.findBookingByOperationKey(input.producerId, input.operationKey);
@@ -508,7 +1594,25 @@ async function createSessionBookingInTransaction(
       );
     }
     assertOperationReplay(event, digest);
-    return { booking: bookingAtTransition(replay, event), created: false };
+    const replayCalendarIntent =
+      event.toStatus === "confirmed"
+        ? "confirmed"
+        : replay.rescheduledFromBookingId === null
+          ? "opaque_hold"
+          : null;
+    return {
+      booking: bookingAtTransition(replay, event),
+      created: false,
+      calendarSyncJobId: replayCalendarIntent
+        ? await calendarSyncJobIdForEvent(
+            transaction,
+            replay.id,
+            replay.producerId,
+            event.occurredAt,
+            replayCalendarIntent,
+          )
+        : null,
+    };
   }
 
   // The repository enters this helper only after taking the shared schedule,
@@ -548,7 +1652,8 @@ async function createSessionBookingInTransaction(
     startsAt,
     now,
   });
-  assertSessionSlotAvailable({
+  const slotIssues = classifySessionSlot({
+    actor: options.slotActor ?? (options.actorKind === "producer" ? "producer" : "artist"),
     startsAt,
     durationMin: context.allowance.durationMin,
     bufferMinutes: context.allowance.bufferMinutes,
@@ -556,13 +1661,36 @@ async function createSessionBookingInTransaction(
     availabilityBlocks: context.availabilityBlocks,
     blackouts: context.blackouts,
     existingBookings: await transaction.listScheduleEntries(input.producerId),
+    ...(options.googleBusyIntervals ? { googleBusyIntervals: options.googleBusyIntervals } : {}),
     maxSessionsPerDay: context.producer.maxSessionsPerDay,
     now,
     minLeadHours: context.allowance.minLeadHours,
     ...(options.ignoredBookingId ? { ignoreBookingId: options.ignoredBookingId } : {}),
   });
+  const hardConflict = slotIssues.find((issue) => issue.severity === "hard_conflict");
+  if (hardConflict) {
+    throw new SessionBookingDomainError(hardConflict.code, hardConflict.message);
+  }
+  const warningCodes: string[] = slotIssues
+    .filter((issue) => issue.severity === "warning")
+    .map((issue) => issue.code);
+  const acknowledgedWarnings = new Set(options.acknowledgedWarnings ?? []);
+  const unacknowledged = warningCodes.filter((code) => !acknowledgedWarnings.has(code));
+  const unexpected = options.requireExactWarningAcknowledgements
+    ? [...acknowledgedWarnings].filter(
+        (code) => code !== "GOOGLE_BUSY" && !warningCodes.includes(code),
+      )
+    : [];
+  if (unacknowledged.length > 0 || unexpected.length > 0) {
+    throw new SessionBookingDomainError(
+      "WARNING_ACKNOWLEDGEMENT_REQUIRED",
+      "The acknowledged scheduling warnings no longer match the current preview",
+    );
+  }
 
-  const status = initialSessionBookingStatus(context.producer.autoConfirmBookings);
+  const status = options.forceConfirmed
+    ? "confirmed"
+    : initialSessionBookingStatus(context.producer.autoConfirmBookings);
   const heldExpiresAt =
     status === "pending_approval"
       ? new Date(Math.min(now.getTime() + 24 * 60 * 60 * 1000, startsAt.getTime()))
@@ -612,7 +1740,16 @@ async function createSessionBookingInTransaction(
     newStartsAt: booking.startsAt,
     occurredAt: now,
   });
-  return { booking, created: true };
+  const calendarIntent: BookingCalendarIntent | null =
+    booking.status === "confirmed"
+      ? "confirmed"
+      : booking.rescheduledFromBookingId === null
+        ? "opaque_hold"
+        : null;
+  const calendarSyncJob = calendarIntent
+    ? await enqueueBookingCalendarJob(transaction, context, booking, calendarIntent, now)
+    : null;
+  return { booking, created: true, calendarSyncJobId: calendarSyncJob?.id ?? null };
 }
 
 export async function createSessionBooking(
@@ -637,7 +1774,152 @@ export async function createSessionBooking(
         ...(input.billingTreatment !== undefined
           ? { billingTreatment: input.billingTreatment }
           : {}),
+        ...(input.googleBusyIntervals ? { googleBusyIntervals: input.googleBusyIntervals } : {}),
       }),
+  );
+}
+
+export type CreateProducerManualSessionBookingInput = Readonly<{
+  producerId: string;
+  clientContactId: string;
+  projectId: string;
+  purchaseId: string;
+  sessionAllowanceId: string;
+  actorClerkUserId: string;
+  startsAt: Date;
+  title?: string | null;
+  billingTreatment: SessionBookingBillingTreatment;
+  acknowledgedWarnings: readonly string[];
+  googleBusyIntervals?: readonly SessionBusyInterval[];
+  operationKey: string;
+  now?: Date;
+}>;
+
+export type FindProducerManualSessionBookingReplayInput = Omit<
+  CreateProducerManualSessionBookingInput,
+  "purchaseId" | "sessionAllowanceId" | "actorClerkUserId" | "now"
+>;
+
+function producerManualSessionBookingDigest(
+  input: FindProducerManualSessionBookingReplayInput,
+  booking: SessionBookingRecord,
+): string {
+  const titleIntent =
+    input.title == null
+      ? "use_default"
+      : normalizeSessionBookingTitle(input.title, "Session", false);
+  return operationDigest("create", {
+    producerId: input.producerId,
+    projectId: input.projectId,
+    purchaseId: booking.purchaseId,
+    sessionAllowanceId: booking.sessionAllowanceId,
+    ...requestedStartOperationIdentity({ startsAt: input.startsAt }),
+    durationMin: booking.durationMin,
+    titleIntent,
+    origin: "producer_manual",
+    billingTreatment: input.billingTreatment,
+    acknowledgedWarnings: [...input.acknowledgedWarnings].sort(),
+    manualClientContactId: input.clientContactId,
+    rescheduledFromBookingId: null,
+  });
+}
+
+export async function findProducerManualSessionBookingReplay(
+  repository: SessionBookingRepository,
+  input: FindProducerManualSessionBookingReplayInput,
+): Promise<CreateSessionBookingResult | null> {
+  assertOperationKey(input.operationKey);
+  const stored = await repository.findProducerManualSessionBookingByOperationKey({
+    producerId: input.producerId,
+    operationKey: input.operationKey,
+  });
+  if (!stored) return null;
+
+  const digest = producerManualSessionBookingDigest(input, stored.booking);
+  assertOperationReplay(stored.booking, digest);
+  if (
+    stored.booking.projectId !== input.projectId ||
+    stored.booking.origin !== "producer_manual" ||
+    stored.booking.rescheduledFromBookingId !== null ||
+    !stored.event ||
+    stored.event.kind !== "created" ||
+    stored.event.operationKey !== input.operationKey
+  ) {
+    throw new SessionBookingDomainError(
+      "OPERATION_KEY_CONFLICT",
+      "This operation key belongs to another booking command",
+    );
+  }
+  assertOperationReplay(stored.event, digest);
+  if (stored.event.toStatus === "confirmed" && !stored.calendarSyncJobId) {
+    throw new SessionBookingDomainError(
+      "OPERATION_KEY_CONFLICT",
+      "The stored manual session is missing its calendar delivery command",
+    );
+  }
+  return {
+    booking: bookingAtTransition(stored.booking, stored.event),
+    created: false,
+    calendarSyncJobId: stored.calendarSyncJobId,
+  };
+}
+
+export async function createProducerManualSessionBooking(
+  repository: SessionBookingRepository,
+  input: CreateProducerManualSessionBookingInput,
+): Promise<CreateSessionBookingResult> {
+  assertOperationKey(input.operationKey);
+  const replay = await findProducerManualSessionBookingReplay(repository, input);
+  if (replay) return replay;
+  return repository.atomically(
+    {
+      kind: "create",
+      producerId: input.producerId,
+      projectId: input.projectId,
+      purchaseId: input.purchaseId,
+      sessionAllowanceId: input.sessionAllowanceId,
+    },
+    async (transaction) => {
+      const context = await transaction.loadProducerManualCreateContext({
+        producerId: input.producerId,
+        clientContactId: input.clientContactId,
+        projectId: input.projectId,
+        purchaseId: input.purchaseId,
+        sessionAllowanceId: input.sessionAllowanceId,
+      });
+      if (!context) {
+        throw new SessionBookingDomainError(
+          "NOT_FOUND",
+          "This client project no longer has one active bookable session package",
+        );
+      }
+      return createSessionBookingInTransaction(
+        transaction,
+        {
+          producerId: input.producerId,
+          projectId: input.projectId,
+          purchaseId: input.purchaseId,
+          sessionAllowanceId: input.sessionAllowanceId,
+          actorClerkUserId: input.actorClerkUserId,
+          startsAt: input.startsAt,
+          operationKey: input.operationKey,
+          ...(input.now ? { now: input.now } : {}),
+        },
+        {
+          rescheduledFromBookingId: null,
+          transitionKind: "created",
+          ...(input.title !== undefined ? { title: input.title } : {}),
+          origin: "producer_manual",
+          billingTreatment: input.billingTreatment,
+          actorKind: "producer",
+          forceConfirmed: true,
+          preloadedContext: context,
+          acknowledgedWarnings: input.acknowledgedWarnings,
+          manualClientContactId: input.clientContactId,
+          ...(input.googleBusyIntervals ? { googleBusyIntervals: input.googleBusyIntervals } : {}),
+        },
+      );
+    },
   );
 }
 
@@ -653,6 +1935,7 @@ type BookingTransitionInput = Readonly<{
 type BookingTransitionResult = Readonly<{
   booking: SessionBookingRecord;
   changed: boolean;
+  calendarSyncJobId: string | null;
 }>;
 
 async function transitionSessionBooking(
@@ -668,6 +1951,8 @@ async function transitionSessionBooking(
       outcome: SessionUseOutcome;
     }>;
     cancelPendingReplacement?: boolean;
+    calendarAction?: "delete";
+    requireNoPendingChangeRequest?: boolean;
   }>,
 ): Promise<BookingTransitionResult> {
   assertOperationKey(input.operationKey);
@@ -692,7 +1977,28 @@ async function transitionSessionBooking(
       const replay = await transaction.findTransitionEvent(input.bookingId, input.operationKey);
       if (replay) {
         assertOperationReplay(replay, digest);
-        return { booking: bookingAtTransition(context.booking, replay), changed: false };
+        return {
+          booking: bookingAtTransition(context.booking, replay),
+          changed: false,
+          calendarSyncJobId: spec.calendarAction
+            ? await calendarSyncJobIdForEvent(
+                transaction,
+                context.booking.id,
+                context.booking.producerId,
+                replay.occurredAt,
+                "delete",
+              )
+            : null,
+        };
+      }
+      if (
+        spec.requireNoPendingChangeRequest &&
+        (await transaction.findPendingChangeRequest(context.booking.id))
+      ) {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "Decide the pending artist change request before changing this session",
+        );
       }
 
       const now = commandNow(input.now);
@@ -722,6 +2028,19 @@ async function transitionSessionBooking(
         newStartsAt: null,
         occurredAt: now,
       });
+      const skipsPendingReplacementEvent =
+        context.booking.status === "pending_approval" &&
+        context.booking.rescheduledFromBookingId !== null;
+      const calendarSyncJob =
+        spec.calendarAction && !skipsPendingReplacementEvent
+          ? await enqueueBookingCalendarJob(
+              transaction,
+              context,
+              updated,
+              context.booking.status === "confirmed" ? "delete_confirmed" : "delete_hold",
+              now,
+            )
+          : null;
       if (spec.cancelPendingReplacement) {
         const replacement = await transaction.findReplacementBooking(context.booking.id);
         if (replacement?.status === "pending_approval") {
@@ -751,7 +2070,7 @@ async function transitionSessionBooking(
           });
         }
       }
-      return { booking: updated, changed: true };
+      return { booking: updated, changed: true, calendarSyncJobId: calendarSyncJob?.id ?? null };
     },
   );
 }
@@ -799,7 +2118,17 @@ export async function confirmSessionBooking(
       const replay = await transaction.findTransitionEvent(input.bookingId, input.operationKey);
       if (replay) {
         assertOperationReplay(replay, digest);
-        return { booking: bookingAtTransition(context.booking, replay), changed: false };
+        return {
+          booking: bookingAtTransition(context.booking, replay),
+          changed: false,
+          calendarSyncJobId: await calendarSyncJobIdForEvent(
+            transaction,
+            context.booking.id,
+            context.booking.producerId,
+            replay.occurredAt,
+            "confirmed",
+          ),
+        };
       }
       const now = commandNow(input.now);
       assertPending(context);
@@ -888,7 +2217,17 @@ export async function confirmSessionBooking(
           occurredAt: now,
         });
       }
-      return { booking: updated, changed: true };
+      const calendarSyncJob = await enqueueBookingCalendarJob(
+        transaction,
+        context,
+        updated,
+        "confirmed",
+        now,
+      );
+      if (!calendarSyncJob) {
+        throw new SessionBookingDomainError("INVALID_STATUS", "Calendar delivery insert failed");
+      }
+      return { booking: updated, changed: true, calendarSyncJobId: calendarSyncJob.id };
     },
   );
 }
@@ -906,6 +2245,7 @@ export function rejectSessionBooking(
       assertHeldUnexpired(context, now);
     },
     next: () => ({ status: "rejected", outcome: "cancelled_by_producer" }),
+    calendarAction: "delete",
   });
 }
 
@@ -930,7 +2270,17 @@ export async function expireHeldSessionBooking(
       const replay = await transaction.findTransitionEvent(input.bookingId, input.operationKey);
       if (replay) {
         assertOperationReplay(replay, digest);
-        return { booking: bookingAtTransition(context.booking, replay), changed: false };
+        return {
+          booking: bookingAtTransition(context.booking, replay),
+          changed: false,
+          calendarSyncJobId: await calendarSyncJobIdForEvent(
+            transaction,
+            context.booking.id,
+            context.booking.producerId,
+            replay.occurredAt,
+            "delete",
+          ),
+        };
       }
       assertPending(context);
       const now = commandNow(input.now);
@@ -969,7 +2319,11 @@ export async function expireHeldSessionBooking(
         newStartsAt: null,
         occurredAt: now,
       });
-      return { booking: updated, changed: true };
+      const calendarSyncJob =
+        context.booking.rescheduledFromBookingId === null
+          ? await enqueueBookingCalendarJob(transaction, context, updated, "delete_hold", now)
+          : null;
+      return { booking: updated, changed: true, calendarSyncJobId: calendarSyncJob?.id ?? null };
     },
   );
 }
@@ -988,6 +2342,8 @@ export function cancelProducerSessionBooking(
     },
     next: () => ({ status: "cancelled", outcome: "cancelled_by_producer" }),
     cancelPendingReplacement: true,
+    calendarAction: "delete",
+    requireNoPendingChangeRequest: true,
   });
 }
 
@@ -1026,6 +2382,8 @@ export function cancelArtistSessionBooking(
     },
     next: () => ({ status: "cancelled", outcome: "cancelled_on_time" }),
     cancelPendingReplacement: true,
+    calendarAction: "delete",
+    requireNoPendingChangeRequest: true,
   });
 }
 
@@ -1053,6 +2411,8 @@ export function recordLateArtistCancellation(
       }
     },
     next: () => ({ status: "cancelled", outcome: "cancelled_late" }),
+    calendarAction: "delete",
+    requireNoPendingChangeRequest: true,
   });
 }
 
@@ -1076,6 +2436,7 @@ export function markSessionNoShow(
       }
     },
     next: () => ({ status: "no_show", outcome: "no_show" }),
+    requireNoPendingChangeRequest: true,
   });
 }
 
@@ -1103,6 +2464,7 @@ export function completeSessionBooking(
       }
     },
     next: () => ({ status: "completed", outcome: "completed" }),
+    requireNoPendingChangeRequest: true,
   });
 }
 
@@ -1110,6 +2472,7 @@ export type RescheduleArtistSessionBookingInput = Readonly<{
   bookingId: string;
   actorClerkUserId: string;
   operationKey: string;
+  googleBusyIntervals?: readonly SessionBusyInterval[];
   now?: Date;
 }> &
   SessionBookingRequestedStart;
@@ -1118,6 +2481,7 @@ export type RescheduleArtistSessionBookingResult = Readonly<{
   booking: SessionBookingRecord;
   replacedBooking: SessionBookingRecord;
   created: boolean;
+  calendarSyncJobId: string | null;
 }>;
 
 export async function rescheduleArtistSessionBooking(
@@ -1163,6 +2527,16 @@ export async function rescheduleArtistSessionBooking(
             ? bookingAtTransition(context.booking, originalEvent)
             : context.booking,
           created: false,
+          calendarSyncJobId:
+            replacementEvent.toStatus === "confirmed"
+              ? await calendarSyncJobIdForEvent(
+                  transaction,
+                  replacementReplay.id,
+                  replacementReplay.producerId,
+                  replacementEvent.occurredAt,
+                  "confirmed",
+                )
+              : null,
         };
       }
       const orphanedReplay = await transaction.findTransitionEvent(
@@ -1181,6 +2555,12 @@ export async function rescheduleArtistSessionBooking(
         throw new SessionBookingDomainError(
           "INVALID_STATUS",
           "Only a confirmed session can be rescheduled",
+        );
+      }
+      if (await transaction.findPendingChangeRequest(context.booking.id)) {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "Decide the pending artist change request before rescheduling this session",
         );
       }
       if (
@@ -1218,6 +2598,7 @@ export async function rescheduleArtistSessionBooking(
           origin: context.booking.origin,
           billingTreatment: context.booking.billingTreatment,
           calendarRevision: context.booking.calendarRevision + 1,
+          ...(input.googleBusyIntervals ? { googleBusyIntervals: input.googleBusyIntervals } : {}),
         },
       );
       if (!replacementResult.created) {
@@ -1257,6 +2638,630 @@ export async function rescheduleArtistSessionBooking(
         booking: replacementResult.booking,
         replacedBooking: replaced,
         created: true,
+        calendarSyncJobId: replacementResult.calendarSyncJobId,
+      };
+    },
+  );
+}
+
+export type PreviewProducerSessionRescheduleResult = Readonly<{
+  booking: SessionBookingRecord;
+  proposedStartsAt: Date;
+  hardConflicts: readonly Readonly<{ code: string; message: string }>[];
+  warnings: readonly Readonly<{ code: string; message: string }>[];
+}>;
+
+function assertConfirmedForReschedule(context: SessionBookingContext): void {
+  if (context.booking.status !== "confirmed") {
+    throw new SessionBookingDomainError(
+      "INVALID_STATUS",
+      "Only a confirmed session can be rescheduled",
+    );
+  }
+}
+
+async function producerRescheduleIssues(
+  transaction: SessionBookingTransaction,
+  context: SessionBookingContext,
+  startsAt: Date,
+  now: Date,
+  googleBusyIntervals: readonly SessionBusyInterval[] = [],
+) {
+  return classifySessionSlot({
+    actor: "producer",
+    startsAt,
+    durationMin: context.booking.durationMin,
+    bufferMinutes: context.allowance.bufferMinutes,
+    producerTimeZone: context.producer.timeZone,
+    availabilityBlocks: context.availabilityBlocks,
+    blackouts: context.blackouts,
+    existingBookings: await transaction.listScheduleEntries(context.booking.producerId),
+    googleBusyIntervals,
+    maxSessionsPerDay: context.producer.maxSessionsPerDay,
+    now,
+    minLeadHours: context.allowance.minLeadHours,
+    ignoreBookingId: context.booking.id,
+  });
+}
+
+export async function previewProducerSessionReschedule(
+  repository: SessionBookingRepository,
+  input: Readonly<{
+    bookingId: string;
+    producerId: string;
+    startsAt: Date;
+    googleBusyIntervals?: readonly SessionBusyInterval[];
+    now?: Date;
+  }>,
+): Promise<PreviewProducerSessionRescheduleResult> {
+  return repository.atomically(
+    { kind: "booking", bookingId: input.bookingId, producerId: input.producerId },
+    async (transaction) => {
+      const context = await transaction.loadBookingContext({
+        bookingId: input.bookingId,
+        producerId: input.producerId,
+      });
+      if (!context) throw new SessionBookingDomainError("NOT_FOUND", "The session was not found");
+      assertConfirmedForReschedule(context);
+      if (await transaction.findPendingChangeRequest(context.booking.id)) {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "Decide the pending artist change request before rescheduling this session",
+        );
+      }
+      const startsAt = requestedSessionStart(
+        { startsAt: input.startsAt },
+        context.producer.timeZone,
+      );
+      const issues = await producerRescheduleIssues(
+        transaction,
+        context,
+        startsAt,
+        commandNow(input.now),
+        input.googleBusyIntervals,
+      );
+      return {
+        booking: context.booking,
+        proposedStartsAt: startsAt,
+        hardConflicts: issues.filter((issue) => issue.severity === "hard_conflict"),
+        warnings: issues.filter((issue) => issue.severity === "warning"),
+      };
+    },
+  );
+}
+
+export type RescheduleProducerSessionBookingInput = Readonly<{
+  bookingId: string;
+  producerId: string;
+  actorClerkUserId: string;
+  startsAt: Date;
+  warningAcknowledgements: readonly string[];
+  googleBusyIntervals?: readonly SessionBusyInterval[];
+  operationKey: string;
+  now?: Date;
+}>;
+
+export async function rescheduleProducerSessionBooking(
+  repository: SessionBookingRepository,
+  input: RescheduleProducerSessionBookingInput,
+): Promise<RescheduleArtistSessionBookingResult> {
+  assertOperationKey(input.operationKey);
+  return repository.atomically(
+    { kind: "booking", bookingId: input.bookingId, producerId: input.producerId },
+    async (transaction) => {
+      const context = await transaction.loadBookingContext({
+        bookingId: input.bookingId,
+        producerId: input.producerId,
+      });
+      if (!context) throw new SessionBookingDomainError("NOT_FOUND", "The session was not found");
+      const digest = operationDigest("producer-reschedule", {
+        bookingId: input.bookingId,
+        producerId: input.producerId,
+        startsAt: input.startsAt.toISOString(),
+        warningAcknowledgements: [...input.warningAcknowledgements].sort(),
+      });
+      const replacementReplay = await transaction.findReplacementBooking(input.bookingId);
+      if (replacementReplay) {
+        assertOperationReplay(replacementReplay, digest);
+        const replacementEvent = await transaction.findTransitionEvent(
+          replacementReplay.id,
+          input.operationKey,
+        );
+        const originalEvent = await transaction.findTransitionEvent(
+          input.bookingId,
+          input.operationKey,
+        );
+        if (!replacementEvent || !originalEvent) {
+          throw new SessionBookingDomainError(
+            "OPERATION_KEY_CONFLICT",
+            "The stored reschedule command is incomplete",
+          );
+        }
+        assertOperationReplay(replacementEvent, digest);
+        assertOperationReplay(originalEvent, digest);
+        return {
+          booking: bookingAtTransition(replacementReplay, replacementEvent),
+          replacedBooking: bookingAtTransition(context.booking, originalEvent),
+          created: false,
+          calendarSyncJobId: await calendarSyncJobIdForEvent(
+            transaction,
+            replacementReplay.id,
+            replacementReplay.producerId,
+            replacementEvent.occurredAt,
+            "confirmed",
+          ),
+        };
+      }
+      assertConfirmedForReschedule(context);
+      if (await transaction.findPendingChangeRequest(context.booking.id)) {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "Decide the pending artist change request before rescheduling this session",
+        );
+      }
+      const now = commandNow(input.now);
+      const replacementResult = await createSessionBookingInTransaction(
+        transaction,
+        {
+          producerId: context.booking.producerId,
+          projectId: context.booking.projectId,
+          purchaseId: context.booking.purchaseId,
+          sessionAllowanceId: context.booking.sessionAllowanceId,
+          actorClerkUserId: input.actorClerkUserId,
+          startsAt: input.startsAt,
+          operationKey: input.operationKey,
+          now,
+        },
+        {
+          rescheduledFromBookingId: context.booking.id,
+          allowanceUseId: context.booking.allowanceUseId,
+          ignoredBookingId: context.booking.id,
+          transitionKind: "rescheduled",
+          operationDigestOverride: digest,
+          title: context.booking.title,
+          origin: context.booking.origin,
+          billingTreatment: context.booking.billingTreatment,
+          calendarRevision: context.booking.calendarRevision + 1,
+          actorKind: "producer",
+          slotActor: "producer",
+          forceConfirmed: true,
+          preloadedContext: context,
+          acknowledgedWarnings: input.warningAcknowledgements,
+          requireExactWarningAcknowledgements: true,
+          ...(input.googleBusyIntervals ? { googleBusyIntervals: input.googleBusyIntervals } : {}),
+        },
+      );
+      const replacedBooking = await transaction.updateBooking({
+        bookingId: context.booking.id,
+        producerId: context.booking.producerId,
+        expectedStatus: "confirmed",
+        status: "cancelled",
+        outcome: "cancelled_on_time",
+        occurredAt: now,
+      });
+      await transaction.insertTransitionEvent({
+        bookingId: replacedBooking.id,
+        producerId: replacedBooking.producerId,
+        operationKey: input.operationKey,
+        operationDigest: digest,
+        kind: "rescheduled",
+        actorKind: "producer",
+        actorId: input.actorClerkUserId,
+        fromStatus: context.booking.status,
+        toStatus: replacedBooking.status,
+        fromOutcome: context.booking.outcome,
+        toOutcome: replacedBooking.outcome,
+        oldStartsAt: context.booking.startsAt,
+        newStartsAt: replacementResult.booking.startsAt,
+        occurredAt: now,
+      });
+      return {
+        booking: replacementResult.booking,
+        replacedBooking,
+        created: true,
+        calendarSyncJobId: replacementResult.calendarSyncJobId,
+      };
+    },
+  );
+}
+
+export type SubmitArtistSessionChangeRequestInput = Readonly<{
+  bookingId: string;
+  actorClerkUserId: string;
+  kind: SessionBookingChangeRequestKind;
+  proposedStartsAt?: Date;
+  googleBusyIntervals?: readonly SessionBusyInterval[];
+  operationKey: string;
+  now?: Date;
+}>;
+
+export async function submitArtistSessionChangeRequest(
+  repository: SessionBookingRepository,
+  input: SubmitArtistSessionChangeRequestInput,
+): Promise<Readonly<{ request: SessionBookingChangeRequestRecord; replayed: boolean }>> {
+  assertOperationKey(input.operationKey);
+  return repository.atomically(
+    { kind: "booking", bookingId: input.bookingId },
+    async (transaction) => {
+      const context = await transaction.loadBookingContext({
+        bookingId: input.bookingId,
+        actorClerkUserId: input.actorClerkUserId,
+      });
+      if (!context) throw new SessionBookingDomainError("NOT_FOUND", "The session was not found");
+      if (input.kind === "reschedule" && !(input.proposedStartsAt instanceof Date)) {
+        throw new SessionBookingDomainError(
+          "INVALID_SLOT",
+          "A reschedule request requires a replacement time",
+        );
+      }
+      const proposedStartsAt =
+        input.kind === "reschedule"
+          ? requestedSessionStart(
+              { startsAt: input.proposedStartsAt as Date },
+              context.producer.timeZone,
+            )
+          : null;
+      if (input.kind === "cancel" && input.proposedStartsAt !== undefined) {
+        throw new SessionBookingDomainError(
+          "INVALID_SLOT",
+          "A cancellation request cannot include a replacement time",
+        );
+      }
+      const digest = operationDigest("artist-change-request", {
+        bookingId: input.bookingId,
+        kind: input.kind,
+        proposedStartsAt: proposedStartsAt?.toISOString() ?? null,
+      });
+      const replay = await transaction.findChangeRequestByOperationKey(
+        input.bookingId,
+        input.operationKey,
+      );
+      if (replay) {
+        assertOperationReplay({ operationDigest: replay.requestOperationDigest }, digest);
+        return { request: replay, replayed: true };
+      }
+      if (context.booking.status !== "confirmed") {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "Only a confirmed session can have a change request",
+        );
+      }
+      if (await transaction.findPendingChangeRequest(input.bookingId)) {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "This session already has a pending change request",
+        );
+      }
+      const now = commandNow(input.now);
+      if (now.getTime() >= context.booking.startsAt.getTime()) {
+        throw new SessionBookingDomainError(
+          "CANCELLATION_WINDOW",
+          "A session that has started can no longer be changed",
+        );
+      }
+      if (
+        input.kind === "reschedule" &&
+        artistCancellationOutcome({
+          startsAt: context.booking.startsAt,
+          now,
+          cancellationPolicyHours: context.booking.cancellationPolicyHoursSnapshot,
+        }) !== "cancelled_on_time"
+      ) {
+        throw new SessionBookingDomainError(
+          "CANCELLATION_WINDOW",
+          "This session is too close to request a reschedule",
+        );
+      }
+      if (proposedStartsAt) {
+        const slotIssue = classifySessionSlot({
+          actor: "artist",
+          startsAt: proposedStartsAt,
+          durationMin: context.booking.durationMin,
+          bufferMinutes: context.allowance.bufferMinutes,
+          producerTimeZone: context.producer.timeZone,
+          availabilityBlocks: context.availabilityBlocks,
+          blackouts: context.blackouts,
+          existingBookings: await transaction.listScheduleEntries(context.booking.producerId),
+          ...(input.googleBusyIntervals ? { googleBusyIntervals: input.googleBusyIntervals } : {}),
+          maxSessionsPerDay: context.producer.maxSessionsPerDay,
+          now,
+          minLeadHours: context.allowance.minLeadHours,
+          ignoreBookingId: context.booking.id,
+        })[0];
+        if (slotIssue) {
+          throw new SessionBookingDomainError(slotIssue.code, slotIssue.message);
+        }
+      }
+      const request = await transaction.insertChangeRequest({
+        bookingId: context.booking.id,
+        producerId: context.booking.producerId,
+        kind: input.kind,
+        status: "pending",
+        proposedStartsAt,
+        requestOperationKey: input.operationKey,
+        requestOperationDigest: digest,
+        requestedByClerkUserId: input.actorClerkUserId,
+        requestedAt: now,
+        decisionOperationKey: null,
+        decisionOperationDigest: null,
+        decidedByClerkUserId: null,
+        decidedAt: null,
+        replacementBookingId: null,
+        occurredAt: now,
+      });
+      return { request, replayed: false };
+    },
+  );
+}
+
+export type DecideProducerSessionChangeRequestInput = Readonly<{
+  requestId: string;
+  producerId: string;
+  actorClerkUserId: string;
+  decision: "approved" | "rejected";
+  operationKey: string;
+  reason?: string | null;
+  googleBusyIntervals?: readonly SessionBusyInterval[];
+  now?: Date;
+}>;
+
+export type DecideProducerSessionChangeRequestResult = Readonly<{
+  request: SessionBookingChangeRequestRecord;
+  booking?: SessionBookingRecord;
+  replacementBooking?: SessionBookingRecord;
+  changed: boolean;
+  calendarSyncJobId: string | null;
+}>;
+
+export async function decideProducerSessionChangeRequest(
+  repository: SessionBookingRepository,
+  input: DecideProducerSessionChangeRequestInput,
+): Promise<DecideProducerSessionChangeRequestResult> {
+  assertOperationKey(input.operationKey);
+  return repository.atomically(
+    { kind: "change_request", requestId: input.requestId, producerId: input.producerId },
+    async (transaction) => {
+      const request = await transaction.loadChangeRequest({
+        requestId: input.requestId,
+        producerId: input.producerId,
+      });
+      if (!request) {
+        throw new SessionBookingDomainError(
+          "NOT_FOUND",
+          "The session change request was not found",
+        );
+      }
+      const context = await transaction.loadBookingContext({
+        bookingId: request.bookingId,
+        producerId: input.producerId,
+      });
+      if (!context) throw new SessionBookingDomainError("NOT_FOUND", "The session was not found");
+      const digest = operationDigest("producer-change-request-decision", {
+        requestId: input.requestId,
+        producerId: input.producerId,
+        decision: input.decision,
+        reason: input.reason?.trim() || null,
+      });
+      if (request.status !== "pending") {
+        if (request.decisionOperationKey !== input.operationKey) {
+          throw new SessionBookingDomainError(
+            "INVALID_STATUS",
+            "This session change request was already decided",
+          );
+        }
+        assertOperationReplay({ operationDigest: request.decisionOperationDigest ?? "" }, digest);
+        const sourceEvent = await transaction.findTransitionEvent(
+          request.bookingId,
+          input.operationKey,
+        );
+        const booking = sourceEvent ? bookingAtTransition(context.booking, sourceEvent) : undefined;
+        const replacementContext = request.replacementBookingId
+          ? await transaction.loadBookingContext({
+              bookingId: request.replacementBookingId,
+              producerId: input.producerId,
+            })
+          : null;
+        const replacementEvent = replacementContext
+          ? await transaction.findTransitionEvent(replacementContext.booking.id, input.operationKey)
+          : null;
+        return {
+          request,
+          ...(booking ? { booking } : {}),
+          ...(replacementContext
+            ? {
+                replacementBooking: replacementEvent
+                  ? bookingAtTransition(replacementContext.booking, replacementEvent)
+                  : replacementContext.booking,
+              }
+            : {}),
+          changed: false,
+          calendarSyncJobId:
+            request.status === "approved"
+              ? request.kind === "cancel" && sourceEvent
+                ? await calendarSyncJobIdForEvent(
+                    transaction,
+                    request.bookingId,
+                    request.producerId,
+                    sourceEvent.occurredAt,
+                    "delete",
+                  )
+                : replacementContext && replacementEvent
+                  ? await calendarSyncJobIdForEvent(
+                      transaction,
+                      replacementContext.booking.id,
+                      replacementContext.booking.producerId,
+                      replacementEvent.occurredAt,
+                      "confirmed",
+                    )
+                  : null
+              : null,
+        };
+      }
+      const now = commandNow(input.now);
+      if (input.decision === "rejected") {
+        const rejected = await transaction.decideChangeRequest({
+          requestId: request.id,
+          producerId: request.producerId,
+          status: "rejected",
+          decisionOperationKey: input.operationKey,
+          decisionOperationDigest: digest,
+          decidedByClerkUserId: input.actorClerkUserId,
+          decidedAt: now,
+          replacementBookingId: null,
+        });
+        return { request: rejected, changed: true, calendarSyncJobId: null };
+      }
+      assertConfirmedForReschedule(context);
+      if (request.kind === "cancel") {
+        const outcome = artistCancellationOutcome({
+          startsAt: context.booking.startsAt,
+          now: request.requestedAt,
+          cancellationPolicyHours: context.booking.cancellationPolicyHoursSnapshot,
+        });
+        const booking = await transaction.updateBooking({
+          bookingId: context.booking.id,
+          producerId: context.booking.producerId,
+          expectedStatus: "confirmed",
+          status: "cancelled",
+          outcome,
+          occurredAt: now,
+        });
+        await transaction.insertTransitionEvent({
+          bookingId: booking.id,
+          producerId: booking.producerId,
+          operationKey: input.operationKey,
+          operationDigest: digest,
+          kind: "artist_cancelled",
+          actorKind: "producer",
+          actorId: input.actorClerkUserId,
+          fromStatus: context.booking.status,
+          toStatus: booking.status,
+          fromOutcome: context.booking.outcome,
+          toOutcome: booking.outcome,
+          oldStartsAt: context.booking.startsAt,
+          newStartsAt: null,
+          occurredAt: now,
+        });
+        const calendarSyncJob = await enqueueBookingCalendarJob(
+          transaction,
+          context,
+          booking,
+          "delete_confirmed",
+          now,
+        );
+        if (!calendarSyncJob) {
+          throw new SessionBookingDomainError("INVALID_STATUS", "Calendar delivery insert failed");
+        }
+        const approved = await transaction.decideChangeRequest({
+          requestId: request.id,
+          producerId: request.producerId,
+          status: "approved",
+          decisionOperationKey: input.operationKey,
+          decisionOperationDigest: digest,
+          decidedByClerkUserId: input.actorClerkUserId,
+          decidedAt: now,
+          replacementBookingId: null,
+        });
+        return {
+          request: approved,
+          booking,
+          changed: true,
+          calendarSyncJobId: calendarSyncJob.id,
+        };
+      }
+      if (!request.proposedStartsAt) {
+        throw new SessionBookingDomainError(
+          "INVALID_SLOT",
+          "The requested replacement time is missing",
+        );
+      }
+      if (
+        artistCancellationOutcome({
+          startsAt: context.booking.startsAt,
+          now: request.requestedAt,
+          cancellationPolicyHours: context.booking.cancellationPolicyHoursSnapshot,
+        }) !== "cancelled_on_time"
+      ) {
+        throw new SessionBookingDomainError(
+          "CANCELLATION_WINDOW",
+          "The reschedule request was submitted after the cancellation cutoff",
+        );
+      }
+      if (await transaction.findReplacementBooking(context.booking.id)) {
+        throw new SessionBookingDomainError(
+          "INVALID_STATUS",
+          "This session already has an immutable replacement",
+        );
+      }
+      const replacement = await createSessionBookingInTransaction(
+        transaction,
+        {
+          producerId: context.booking.producerId,
+          projectId: context.booking.projectId,
+          purchaseId: context.booking.purchaseId,
+          sessionAllowanceId: context.booking.sessionAllowanceId,
+          actorClerkUserId: input.actorClerkUserId,
+          startsAt: request.proposedStartsAt,
+          operationKey: input.operationKey,
+          now,
+        },
+        {
+          rescheduledFromBookingId: context.booking.id,
+          allowanceUseId: context.booking.allowanceUseId,
+          ignoredBookingId: context.booking.id,
+          transitionKind: "rescheduled",
+          operationDigestOverride: digest,
+          title: context.booking.title,
+          origin: context.booking.origin,
+          billingTreatment: context.booking.billingTreatment,
+          calendarRevision: context.booking.calendarRevision + 1,
+          actorKind: "producer",
+          slotActor: "artist",
+          forceConfirmed: true,
+          preloadedContext: context,
+          ...(input.googleBusyIntervals ? { googleBusyIntervals: input.googleBusyIntervals } : {}),
+        },
+      );
+      const booking = await transaction.updateBooking({
+        bookingId: context.booking.id,
+        producerId: context.booking.producerId,
+        expectedStatus: "confirmed",
+        status: "cancelled",
+        outcome: "cancelled_on_time",
+        occurredAt: now,
+      });
+      await transaction.insertTransitionEvent({
+        bookingId: booking.id,
+        producerId: booking.producerId,
+        operationKey: input.operationKey,
+        operationDigest: digest,
+        kind: "rescheduled",
+        actorKind: "producer",
+        actorId: input.actorClerkUserId,
+        fromStatus: context.booking.status,
+        toStatus: booking.status,
+        fromOutcome: context.booking.outcome,
+        toOutcome: booking.outcome,
+        oldStartsAt: context.booking.startsAt,
+        newStartsAt: replacement.booking.startsAt,
+        occurredAt: now,
+      });
+      const approved = await transaction.decideChangeRequest({
+        requestId: request.id,
+        producerId: request.producerId,
+        status: "approved",
+        decisionOperationKey: input.operationKey,
+        decisionOperationDigest: digest,
+        decidedByClerkUserId: input.actorClerkUserId,
+        decidedAt: now,
+        replacementBookingId: replacement.booking.id,
+      });
+      return {
+        request: approved,
+        booking,
+        replacementBooking: replacement.booking,
+        changed: true,
+        calendarSyncJobId: replacement.calendarSyncJobId,
       };
     },
   );

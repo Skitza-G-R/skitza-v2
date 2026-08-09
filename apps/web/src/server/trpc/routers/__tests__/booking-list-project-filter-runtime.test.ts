@@ -7,6 +7,7 @@ const {
   FOREIGN_PROJECT_ID,
   producers,
   bookings,
+  bookingChangeRequests,
   purchases,
   createDb,
   bookingWherePredicates,
@@ -41,6 +42,16 @@ const {
     producerId: column("purchases.producer_id"),
     projectId: column("purchases.project_id"),
     commercialSnapshot: column("purchases.commercial_snapshot"),
+  };
+  const bookingChangeRequests = {
+    __table: "booking_change_requests",
+    id: column("booking_change_requests.id"),
+    bookingId: column("booking_change_requests.booking_id"),
+    producerId: column("booking_change_requests.producer_id"),
+    kind: column("booking_change_requests.kind"),
+    status: column("booking_change_requests.status"),
+    proposedStartsAt: column("booking_change_requests.proposed_starts_at"),
+    requestedAt: column("booking_change_requests.requested_at"),
   };
 
   type Predicate =
@@ -190,6 +201,7 @@ const {
     };
     const query = {
       innerJoin: () => query,
+      leftJoin: () => query,
       where: (value: unknown) => {
         predicate = value;
         if (table === bookings) bookingWherePredicates.push(value);
@@ -228,6 +240,7 @@ const {
     FOREIGN_PROJECT_ID,
     producers,
     bookings,
+    bookingChangeRequests,
     purchases,
     createDb,
     bookingWherePredicates,
@@ -241,6 +254,7 @@ vi.mock("@skitza/db", () => ({
   createDb,
   producers,
   bookings,
+  bookingChangeRequests,
   purchases,
   products: { __table: "products" },
   projects: { __table: "projects" },
@@ -298,6 +312,7 @@ describe("booking.list project filter runtime", () => {
         packageNameSnapshot: "Vocal production",
         unitPriceCents: 15_000,
         songQty: 3,
+        changeRequest: null,
       },
       {
         id: "00000000-0000-4000-8000-000000000153",
@@ -311,6 +326,7 @@ describe("booking.list project filter runtime", () => {
         packageNameSnapshot: "Session",
         unitPriceCents: null,
         songQty: null,
+        changeRequest: null,
       },
     ]);
   });

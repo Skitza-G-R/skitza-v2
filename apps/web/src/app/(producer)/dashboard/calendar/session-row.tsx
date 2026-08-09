@@ -8,6 +8,9 @@
 // passed in so the parent panel owns modal state and `pendingId` etc.
 
 import { calendarDateTimeParts, formatCalendarTime } from "./calendar-time";
+import { ChangeRequestDecision } from "./change-request-decision";
+import { GoogleCalendarSessionSyncStatus } from "./google-calendar-session-sync";
+import type { GoogleCalendarSessionSync } from "./google-calendar-session-sync-model";
 import { KIND_COLORS, inferSessionKind } from "./session-kind";
 
 export type RawBookingStatus =
@@ -26,6 +29,15 @@ export type SessionListItem = {
   durationMin: number;
   packageName: string | null;
   status: RawBookingStatus;
+  billingTreatment?: "included" | "complimentary" | "billable_extra";
+  artistRsvpStatus?: "needs_action" | "accepted" | "declined" | "tentative" | null;
+  calendarSync?: GoogleCalendarSessionSync | null;
+  changeRequest?: {
+    id: string;
+    kind: "cancel" | "reschedule";
+    proposedStartsAt: string | null;
+    requestedAt: string;
+  } | null;
 };
 
 type DerivedStatus = "confirmed" | "pending" | "completed" | "no_show" | "rejected" | "cancelled";
@@ -35,11 +47,13 @@ export function SessionRow({
   now,
   timeZone,
   onCancel,
+  onReschedule,
 }: {
   session: SessionListItem;
   now: Date;
   timeZone: string;
   onCancel: (s: SessionListItem) => void;
+  onReschedule: (s: SessionListItem) => void;
 }) {
   const start = new Date(session.startsAt);
   const end = new Date(start.getTime() + session.durationMin * 60_000);
@@ -66,12 +80,20 @@ export function SessionRow({
     >
       <DateColumn date={start} kindToken={kindToken} timeZone={timeZone} />
       <BodyColumn session={session} start={start} end={end} status={derived} timeZone={timeZone} />
-      {cancellable ? (
+      {cancellable && !session.changeRequest ? (
         <Actions
+          onReschedule={() => {
+            onReschedule(session);
+          }}
           onCancel={() => {
             onCancel(session);
           }}
         />
+      ) : null}
+      {session.changeRequest ? (
+        <div className="col-span-2 lg:col-span-3">
+          <ChangeRequestDecision session={session} timeZone={timeZone} />
+        </div>
       ) : null}
     </div>
   );
@@ -147,17 +169,60 @@ function BodyColumn({
           {formatCalendarTime(start, timeZone)} – {formatCalendarTime(end, timeZone)}
         </span>
       </div>
+      {session.billingTreatment === "complimentary" ||
+      session.billingTreatment === "billable_extra" ||
+      session.artistRsvpStatus ? (
+        <p className="mt-1 truncate text-[10px] text-[rgb(var(--fg-muted))]">
+          {[
+            session.billingTreatment === "complimentary" ? "Complimentary" : null,
+            session.billingTreatment === "billable_extra" ? "Payment due" : null,
+            session.artistRsvpStatus ? `Invite: ${rsvpLabel(session.artistRsvpStatus)}` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </p>
+      ) : null}
+      <GoogleCalendarSessionSyncStatus bookingId={session.id} sync={session.calendarSync} />
     </div>
   );
 }
 
-function Actions({ onCancel }: { onCancel: () => void }) {
+function Actions({ onCancel, onReschedule }: { onCancel: () => void; onReschedule: () => void }) {
   return (
     <div className="col-span-2 flex items-center justify-end gap-1 lg:col-span-1">
+      <IconBtn label="Reschedule session" onClick={onReschedule}>
+        <ClockMini />
+      </IconBtn>
       <IconBtn label="Cancel session" tone="danger" onClick={onCancel}>
         <XMini />
       </IconBtn>
     </div>
+  );
+}
+
+function rsvpLabel(status: NonNullable<SessionListItem["artistRsvpStatus"]>): string {
+  if (status === "accepted") return "accepted";
+  if (status === "declined") return "declined";
+  if (status === "tentative") return "maybe";
+  return "awaiting reply";
+}
+
+function ClockMini() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
   );
 }
 
