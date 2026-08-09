@@ -4,11 +4,18 @@ import {
   normalizeGoogleCalendarBusyIntervals,
   type GoogleCalendarBusyInterval,
 } from "./freebusy";
+import {
+  GoogleCalendarEventValidationError,
+  buildGoogleCalendarEventWrite,
+  isValidGoogleCalendarEventId,
+  type GoogleCalendarEventWrite,
+} from "./event";
 
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const USERINFO_ENDPOINT = "https://openidconnect.googleapis.com/v1/userinfo";
 const CALENDAR_LIST_ENDPOINT = "https://www.googleapis.com/calendar/v3/users/me/calendarList";
 const FREE_BUSY_ENDPOINT = "https://www.googleapis.com/calendar/v3/freeBusy";
+const CALENDAR_EVENTS_ENDPOINT = "https://www.googleapis.com/calendar/v3/calendars";
 const REVOKE_ENDPOINT = "https://oauth2.googleapis.com/revoke";
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
@@ -55,11 +62,32 @@ export type GoogleCalendarProviderFreeBusyResult = Readonly<{
   failedCalendarCount: number;
 }>;
 
+export type GoogleCalendarSendUpdates = "none" | "all";
+
+export type GoogleCalendarEventStatus = "confirmed" | "tentative" | "cancelled";
+
+export type GoogleCalendarEventLinkage = Readonly<{
+  opaqueLink: string;
+  revision: number;
+  schemaVersion: 1;
+}>;
+
+export type GoogleCalendarEventRecord = Readonly<{
+  eventId: string;
+  etag: string;
+  status: GoogleCalendarEventStatus;
+  linkage: GoogleCalendarEventLinkage | null;
+}>;
+
 export type GoogleCalendarProviderErrorCode =
   | "authorization_failed"
   | "identity_unverified"
   | "refresh_invalid_grant"
   | "access_unauthorized"
+  | "event_not_found"
+  | "event_precondition_failed"
+  | "event_conflict"
+  | "provider_rate_limited"
   | "provider_unavailable"
   | "provider_invalid_response";
 
@@ -92,6 +120,36 @@ export interface GoogleCalendarProvider {
       timeMax: Date;
     }>,
   ): Promise<GoogleCalendarProviderFreeBusyResult>;
+  insertEvent(
+    accessToken: string,
+    input: Readonly<{
+      calendarId: string;
+      event: GoogleCalendarEventWrite;
+      sendUpdates: GoogleCalendarSendUpdates;
+    }>,
+  ): Promise<GoogleCalendarEventRecord>;
+  getEvent(
+    accessToken: string,
+    input: Readonly<{ calendarId: string; eventId: string }>,
+  ): Promise<GoogleCalendarEventRecord>;
+  patchEvent(
+    accessToken: string,
+    input: Readonly<{
+      calendarId: string;
+      event: GoogleCalendarEventWrite;
+      sendUpdates: GoogleCalendarSendUpdates;
+      etag?: string;
+    }>,
+  ): Promise<GoogleCalendarEventRecord>;
+  deleteEvent(
+    accessToken: string,
+    input: Readonly<{
+      calendarId: string;
+      eventId: string;
+      sendUpdates: GoogleCalendarSendUpdates;
+      etag?: string;
+    }>,
+  ): Promise<void>;
   revokeToken(token: string): Promise<void>;
 }
 
@@ -134,6 +192,244 @@ function validatedToken(value: unknown): string | null {
 function parseScopes(value: unknown): readonly string[] {
   if (typeof value !== "string") return [];
   return [...new Set(value.split(/\s+/u).filter(Boolean))].sort();
+}
+
+function validatedCalendarId(value: unknown): string | null {
+  if (typeof value !== "string" || !value || value !== value.trim()) return null;
+  return Buffer.byteLength(value, "utf8") <= MAX_TOKEN_BYTES ? value : null;
+}
+
+function validatedEtag(value: unknown): string | null {
+  if (
+    typeof value !== "string" ||
+    !value ||
+    value.length > MAX_TOKEN_BYTES ||
+    /[\r\n\0]/u.test(value)
+  ) {
+    return null;
+  }
+  return value;
+}
+
+function isEventStatus(value: unknown): value is GoogleCalendarEventStatus {
+  return value === "confirmed" || value === "tentative" || value === "cancelled";
+}
+
+function parseEventRecord(
+  value: Record<string, unknown>,
+  expectedEventId: string,
+): GoogleCalendarEventRecord {
+  const etag = validatedEtag(value.etag);
+  if (
+    value.id !== expectedEventId ||
+    !isValidGoogleCalendarEventId(expectedEventId) ||
+    !etag ||
+    !isEventStatus(value.status)
+  ) {
+    throw new GoogleCalendarProviderError("provider_invalid_response");
+  }
+
+  let linkage: GoogleCalendarEventLinkage | null = null;
+  const extended = isRecord(value.extendedProperties) ? value.extendedProperties : null;
+  const privateProperties = extended && isRecord(extended.private) ? extended.private : null;
+  if (privateProperties) {
+    const opaqueLink = privateProperties.skitzaLink;
+    const revisionText = privateProperties.skitzaRevision;
+    const revision =
+      typeof revisionText === "string" && /^[1-9][0-9]*$/u.test(revisionText)
+        ? Number(revisionText)
+        : Number.NaN;
+    if (
+      typeof opaqueLink === "string" &&
+      /^[A-Za-z0-9_-]{16,128}$/u.test(opaqueLink) &&
+      Number.isSafeInteger(revision) &&
+      privateProperties.skitzaSchema === "1"
+    ) {
+      linkage = { opaqueLink, revision, schemaVersion: 1 };
+    }
+  }
+
+  return {
+    eventId: expectedEventId,
+    etag,
+    status: value.status,
+    linkage,
+  };
+}
+
+async function throwEventProviderError(response: Response): Promise<never> {
+  if (response.status === 401) {
+    throw new GoogleCalendarProviderError("access_unauthorized");
+  }
+  if (response.status === 404 || response.status === 410) {
+    throw new GoogleCalendarProviderError("event_not_found");
+  }
+  if (response.status === 409) {
+    throw new GoogleCalendarProviderError("event_conflict");
+  }
+  if (response.status === 412) {
+    throw new GoogleCalendarProviderError("event_precondition_failed");
+  }
+  if (response.status === 429) {
+    throw new GoogleCalendarProviderError("provider_rate_limited");
+  }
+  if (response.status === 403) {
+    let reasonValues: string[] = [];
+    try {
+      const errorResponse = await readJson(response);
+      const error = isRecord(errorResponse.error) ? errorResponse.error : null;
+      const reasons = error && Array.isArray(error.errors) ? error.errors : [];
+      reasonValues = reasons.flatMap((item) =>
+        isRecord(item) && typeof item.reason === "string" ? [item.reason] : [],
+      );
+    } catch {
+      // Malformed provider errors remain a temporary provider failure.
+    }
+    if (reasonValues.includes("insufficientPermissions")) {
+      throw new GoogleCalendarProviderError("access_unauthorized");
+    }
+    if (
+      reasonValues.some(
+        (reason) =>
+          reason === "rateLimitExceeded" ||
+          reason === "userRateLimitExceeded" ||
+          reason === "quotaExceeded",
+      )
+    ) {
+      throw new GoogleCalendarProviderError("provider_rate_limited");
+    }
+  }
+  throw new GoogleCalendarProviderError("provider_unavailable");
+}
+
+function assertEventRequestInput(
+  input: Readonly<{
+    accessToken: string;
+    calendarId: string;
+    eventId: string;
+    sendUpdates?: GoogleCalendarSendUpdates;
+    etag?: string;
+  }>,
+): void {
+  const sendUpdates: unknown = input.sendUpdates;
+  if (
+    !validatedToken(input.accessToken) ||
+    !validatedCalendarId(input.calendarId) ||
+    !isValidGoogleCalendarEventId(input.eventId) ||
+    (sendUpdates !== undefined && sendUpdates !== "none" && sendUpdates !== "all") ||
+    (input.etag !== undefined && !validatedEtag(input.etag))
+  ) {
+    throw new GoogleCalendarProviderError("provider_invalid_response");
+  }
+}
+
+function hasLiteralValue(value: unknown, expected: string | boolean): boolean {
+  return value === expected;
+}
+
+function eventUrl(calendarId: string, eventId?: string): URL {
+  const suffix = eventId ? `/${encodeURIComponent(eventId)}` : "";
+  return new URL(`${CALENDAR_EVENTS_ENDPOINT}/${encodeURIComponent(calendarId)}/events${suffix}`);
+}
+
+function normalizeEventWrite(event: GoogleCalendarEventWrite): GoogleCalendarEventWrite {
+  try {
+    if (
+      !hasLiteralValue(event.body.visibility, "private") ||
+      !hasLiteralValue(event.body.transparency, "opaque") ||
+      !hasLiteralValue(event.body.start.timeZone, "UTC") ||
+      !hasLiteralValue(event.body.end.timeZone, "UTC") ||
+      !event.body.start.dateTime.endsWith("Z") ||
+      !event.body.end.dateTime.endsWith("Z") ||
+      !hasLiteralValue(event.body.guestsCanInviteOthers, false) ||
+      !hasLiteralValue(event.body.guestsCanModify, false) ||
+      !hasLiteralValue(event.body.guestsCanSeeOtherGuests, false) ||
+      !hasLiteralValue(event.body.reminders.useDefault, false)
+    ) {
+      throw new Error();
+    }
+    const privateProperties = event.body.extendedProperties.private;
+    const revision = Number(privateProperties.skitzaRevision);
+    if (!hasLiteralValue(privateProperties.skitzaSchema, "1")) throw new Error();
+
+    if (event.kind === "hold") {
+      if (
+        event.attendeeMode !== "clear" ||
+        event.body.summary !== "Reserved" ||
+        event.body.description !== undefined ||
+        event.body.attendees?.length !== 0
+      ) {
+        throw new Error();
+      }
+      return buildGoogleCalendarEventWrite({
+        eventId: event.eventId,
+        startsAt: new Date(event.body.start.dateTime),
+        endsAt: new Date(event.body.end.dateTime),
+        revision,
+        opaqueLink: privateProperties.skitzaLink,
+        kind: "hold",
+      });
+    }
+
+    if (!hasLiteralValue(event.kind, "confirmed") || event.attendeeMode === "clear") {
+      throw new Error();
+    }
+    const artist = event.body.attendees?.[0];
+    if (
+      (event.attendeeMode === "set_artist" && (!artist || event.body.attendees.length !== 1)) ||
+      (event.attendeeMode === "preserve" && event.body.attendees !== undefined)
+    ) {
+      throw new Error();
+    }
+    const confirmedBase = {
+      eventId: event.eventId,
+      startsAt: new Date(event.body.start.dateTime),
+      endsAt: new Date(event.body.end.dateTime),
+      revision,
+      opaqueLink: privateProperties.skitzaLink,
+      kind: "confirmed",
+      summary: event.body.summary,
+      ...(event.body.description === undefined
+        ? {}
+        : { artistSafeSessionUrl: event.body.description }),
+    } as const;
+    return event.attendeeMode === "set_artist" && artist
+      ? buildGoogleCalendarEventWrite({
+          ...confirmedBase,
+          attendeeMode: "set_artist",
+          artist,
+        })
+      : buildGoogleCalendarEventWrite({
+          ...confirmedBase,
+          attendeeMode: "preserve",
+        });
+  } catch (error) {
+    if (error instanceof GoogleCalendarEventValidationError) {
+      throw new GoogleCalendarProviderError("provider_invalid_response");
+    }
+    throw new GoogleCalendarProviderError("provider_invalid_response");
+  }
+}
+
+function serializedEventBody(event: GoogleCalendarEventWrite, includeId: boolean): string {
+  const normalized = normalizeEventWrite(event);
+  return JSON.stringify({
+    ...(includeId ? { id: normalized.eventId } : {}),
+    summary: normalized.body.summary,
+    ...(normalized.body.description === undefined
+      ? {}
+      : { description: normalized.body.description }),
+    start: normalized.body.start,
+    end: normalized.body.end,
+    visibility: normalized.body.visibility,
+    transparency: normalized.body.transparency,
+    ...(normalized.body.attendees === undefined ? {} : { attendees: normalized.body.attendees }),
+    extendedProperties: normalized.body.extendedProperties,
+    guestsCanInviteOthers: normalized.body.guestsCanInviteOthers,
+    guestsCanModify: normalized.body.guestsCanModify,
+    guestsCanSeeOtherGuests: normalized.body.guestsCanSeeOtherGuests,
+    reminders: normalized.body.reminders,
+  });
 }
 
 async function readJson(response: Response): Promise<Record<string, unknown>> {
@@ -518,6 +814,110 @@ export function createGoogleCalendarProvider(
         if (!(error instanceof GoogleCalendarBusyIntervalError)) throw error;
         throw new GoogleCalendarProviderError("provider_invalid_response");
       }
+    },
+
+    async insertEvent(accessToken, { calendarId, event, sendUpdates }) {
+      assertEventRequestInput({
+        accessToken,
+        calendarId,
+        eventId: event.eventId,
+        sendUpdates,
+      });
+      if (event.kind === "hold" && sendUpdates !== "none") {
+        throw new GoogleCalendarProviderError("provider_invalid_response");
+      }
+      if (event.kind === "confirmed" && event.attendeeMode === "preserve") {
+        throw new GoogleCalendarProviderError("provider_invalid_response");
+      }
+      const url = eventUrl(calendarId);
+      url.searchParams.set("sendUpdates", sendUpdates);
+      url.searchParams.set("fields", "id,etag,status,extendedProperties");
+      const response = await providerFetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: serializedEventBody(event, true),
+      });
+      if (!response.ok) return throwEventProviderError(response);
+      const result = parseEventRecord(await readJson(response), event.eventId);
+      if (
+        result.linkage?.opaqueLink !== event.body.extendedProperties.private.skitzaLink ||
+        result.linkage.revision !== Number(event.body.extendedProperties.private.skitzaRevision)
+      ) {
+        throw new GoogleCalendarProviderError("provider_invalid_response");
+      }
+      return result;
+    },
+
+    async getEvent(accessToken, { calendarId, eventId }) {
+      assertEventRequestInput({ accessToken, calendarId, eventId });
+      const url = eventUrl(calendarId, eventId);
+      url.searchParams.set("fields", "id,etag,status,extendedProperties");
+      const response = await providerFetch(url, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+      });
+      if (!response.ok) return throwEventProviderError(response);
+      return parseEventRecord(await readJson(response), eventId);
+    },
+
+    async patchEvent(accessToken, { calendarId, event, sendUpdates, etag }) {
+      assertEventRequestInput({
+        accessToken,
+        calendarId,
+        eventId: event.eventId,
+        sendUpdates,
+        ...(etag === undefined ? {} : { etag }),
+      });
+      if (event.kind === "hold" && sendUpdates !== "none") {
+        throw new GoogleCalendarProviderError("provider_invalid_response");
+      }
+      const url = eventUrl(calendarId, event.eventId);
+      url.searchParams.set("sendUpdates", sendUpdates);
+      url.searchParams.set("fields", "id,etag,status,extendedProperties");
+      const response = await providerFetch(url, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          ...(etag === undefined ? {} : { "If-Match": etag }),
+        },
+        body: serializedEventBody(event, false),
+      });
+      if (!response.ok) return throwEventProviderError(response);
+      const result = parseEventRecord(await readJson(response), event.eventId);
+      if (
+        result.linkage?.opaqueLink !== event.body.extendedProperties.private.skitzaLink ||
+        result.linkage.revision !== Number(event.body.extendedProperties.private.skitzaRevision)
+      ) {
+        throw new GoogleCalendarProviderError("provider_invalid_response");
+      }
+      return result;
+    },
+
+    async deleteEvent(accessToken, { calendarId, eventId, sendUpdates, etag }) {
+      assertEventRequestInput({
+        accessToken,
+        calendarId,
+        eventId,
+        sendUpdates,
+        ...(etag === undefined ? {} : { etag }),
+      });
+      const url = eventUrl(calendarId, eventId);
+      url.searchParams.set("sendUpdates", sendUpdates);
+      const response = await providerFetch(url, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json",
+          ...(etag === undefined ? {} : { "If-Match": etag }),
+        },
+      });
+      if (!response.ok) return throwEventProviderError(response);
     },
 
     async revokeToken(token) {

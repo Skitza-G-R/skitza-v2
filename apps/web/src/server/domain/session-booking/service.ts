@@ -1,5 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { CalendarSyncJobPayloadSnapshot } from "@skitza/db";
+import type {
+  CalendarOutboxPayloadSnapshot,
+  CalendarSyncJobPayloadSnapshot,
+  GoogleCalendarSyncJobPayloadSnapshot,
+} from "@skitza/db";
 import {
   SessionBookingDomainError,
   assertSessionBookingAllowed,
@@ -198,14 +202,26 @@ export type CalendarSyncJobRecord = Readonly<{
   id: string;
   bookingId: string;
   producerId: string;
-  operation: "send_ics";
+  deliveryChannel: "ics" | "google";
+  bookingCalendarLinkId: string | null;
+  operation: "send_ics" | "upsert_google_event" | "delete_google_event";
   desiredRevision: number;
   idempotencyKey: string;
-  payloadSnapshot: CalendarSyncJobPayloadSnapshot;
+  payloadSnapshot: CalendarOutboxPayloadSnapshot;
 }>;
 
 export type NewCalendarSyncJobRecord = Omit<CalendarSyncJobRecord, "id"> &
   Readonly<{ occurredAt: Date }>;
+
+export type BookingCalendarLinkRecord = Readonly<{
+  id: string;
+  producerId: string;
+  allowanceUseId: string;
+  currentBookingId: string;
+  connectionId: string;
+  accountVersion: number;
+  desiredRevision: number;
+}>;
 
 export type SessionBookingAtomicScope =
   | Readonly<{
@@ -299,11 +315,25 @@ export interface SessionBookingTransaction {
     uid: string;
     desiredRevision: number;
   }): Promise<CalendarSyncJobRecord | null>;
+  findGoogleCalendarSyncJob(input: {
+    producerId: string;
+    bookingCalendarLinkId: string;
+    desiredRevision: number;
+  }): Promise<CalendarSyncJobRecord | null>;
   findCalendarSyncJobForEvent(input: {
     bookingId: string;
-    method: "REQUEST" | "CANCEL";
+    producerId: string;
     occurredAt: Date;
+    intent: "opaque_hold" | "confirmed" | "delete";
   }): Promise<CalendarSyncJobRecord | null>;
+  prepareBookingCalendarLink(input: {
+    bookingId: string;
+    producerId: string;
+    allowanceUseId: string;
+    desiredRevision: number;
+    allowCreate: boolean;
+    occurredAt: Date;
+  }): Promise<BookingCalendarLinkRecord | null>;
   insertCalendarSyncJob(input: NewCalendarSyncJobRecord): Promise<CalendarSyncJobRecord>;
 }
 
@@ -373,7 +403,7 @@ function assertOperationReplay(
   }
 }
 
-function calendarSyncPayload(input: {
+function icsCalendarSyncPayload(input: {
   context: SessionBookingCreateContext;
   booking: SessionBookingRecord;
   method: "REQUEST" | "CANCEL";
@@ -397,32 +427,32 @@ function calendarSyncPayload(input: {
   };
 }
 
-function calendarPayloadDigest(payload: CalendarSyncJobPayloadSnapshot): string {
-  return operationDigest("calendar-sync-payload", {
-    schemaVersion: payload.schemaVersion,
-    method: payload.method,
-    uid: payload.uid,
-    sequence: payload.sequence,
-    dtstampUtc: payload.dtstampUtc,
-    startsAtUtc: payload.startsAtUtc,
-    endsAtUtc: payload.endsAtUtc,
-    summary: payload.summary,
-    description: payload.description,
-    organizerName: payload.organizer.name,
-    organizerEmail: payload.organizer.email,
-    attendeeName: payload.attendee.name,
-    attendeeEmail: payload.attendee.email,
-  });
+function canonicalJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, canonicalJson(entry)]),
+    );
+  }
+  return value;
 }
 
-async function enqueueCalendarSyncJob(
+function calendarPayloadDigest(payload: CalendarOutboxPayloadSnapshot): string {
+  return `sha256:${createHash("sha256")
+    .update(JSON.stringify(canonicalJson(payload)), "utf8")
+    .digest("hex")}`;
+}
+
+async function enqueueIcsCalendarSyncJob(
   transaction: SessionBookingTransaction,
   context: SessionBookingCreateContext,
   booking: SessionBookingRecord,
   method: "REQUEST" | "CANCEL",
   occurredAt: Date,
 ): Promise<CalendarSyncJobRecord> {
-  const payloadSnapshot = calendarSyncPayload({ context, booking, method, occurredAt });
+  const payloadSnapshot = icsCalendarSyncPayload({ context, booking, method, occurredAt });
   const existing = await transaction.findCalendarSyncJob({
     uid: payloadSnapshot.uid,
     desiredRevision: booking.calendarRevision,
@@ -432,6 +462,9 @@ async function enqueueCalendarSyncJob(
     if (
       existing.bookingId !== booking.id ||
       existing.producerId !== booking.producerId ||
+      existing.deliveryChannel !== "ics" ||
+      existing.bookingCalendarLinkId !== null ||
+      existing.operation !== "send_ics" ||
       existing.idempotencyKey !== idempotencyKey ||
       calendarPayloadDigest(existing.payloadSnapshot) !== calendarPayloadDigest(payloadSnapshot)
     ) {
@@ -445,7 +478,119 @@ async function enqueueCalendarSyncJob(
   return transaction.insertCalendarSyncJob({
     bookingId: booking.id,
     producerId: booking.producerId,
+    deliveryChannel: "ics",
+    bookingCalendarLinkId: null,
     operation: "send_ics",
+    desiredRevision: booking.calendarRevision,
+    idempotencyKey,
+    payloadSnapshot,
+    occurredAt,
+  });
+}
+
+type BookingCalendarIntent = "opaque_hold" | "confirmed" | "delete_hold" | "delete_confirmed";
+
+function googleCalendarSyncPayload(input: {
+  link: BookingCalendarLinkRecord;
+  context: SessionBookingCreateContext;
+  booking: SessionBookingRecord;
+  intent: BookingCalendarIntent;
+}): GoogleCalendarSyncJobPayloadSnapshot {
+  const privateProperties = {
+    skitzaLink: input.link.id,
+    skitzaRevision: String(input.booking.calendarRevision),
+    skitzaSchema: "1" as const,
+  };
+  if (input.intent === "delete_hold" || input.intent === "delete_confirmed") {
+    return {
+      schemaVersion: 2,
+      action: "delete",
+      notificationMode: input.intent === "delete_confirmed" ? "all" : "none",
+      sequence: input.booking.calendarRevision,
+      privateProperties,
+    };
+  }
+
+  const confirmed = input.intent === "confirmed";
+  return {
+    schemaVersion: 2,
+    action: "upsert",
+    eventKind: confirmed ? "confirmed" : "opaque_hold",
+    notificationMode: confirmed ? "all" : "none",
+    sequence: input.booking.calendarRevision,
+    startsAtUtc: input.booking.startsAt.toISOString(),
+    endsAtUtc: new Date(
+      input.booking.startsAt.getTime() + input.booking.durationMin * 60 * 1000,
+    ).toISOString(),
+    summary: confirmed
+      ? input.booking.title?.trim() || input.context.purchase.defaultSessionTitle
+      : "Reserved",
+    artistSafeUrl: confirmed ? `https://skitza.app/artist/sessions/${input.booking.id}` : null,
+    attendee: confirmed
+      ? { name: input.booking.artistName, email: input.booking.artistEmail }
+      : null,
+    privateProperties,
+  };
+}
+
+async function enqueueBookingCalendarJob(
+  transaction: SessionBookingTransaction,
+  context: SessionBookingCreateContext,
+  booking: SessionBookingRecord,
+  intent: BookingCalendarIntent,
+  occurredAt: Date,
+): Promise<CalendarSyncJobRecord | null> {
+  const deleting = intent === "delete_hold" || intent === "delete_confirmed";
+  const link = await transaction.prepareBookingCalendarLink({
+    bookingId: booking.id,
+    producerId: booking.producerId,
+    allowanceUseId: booking.allowanceUseId,
+    desiredRevision: booking.calendarRevision,
+    allowCreate: !deleting,
+    occurredAt,
+  });
+  if (!link) {
+    if (intent === "confirmed") {
+      return enqueueIcsCalendarSyncJob(transaction, context, booking, "REQUEST", occurredAt);
+    }
+    if (intent === "delete_confirmed") {
+      return enqueueIcsCalendarSyncJob(transaction, context, booking, "CANCEL", occurredAt);
+    }
+    return null;
+  }
+
+  const operation = deleting ? "delete_google_event" : "upsert_google_event";
+  const payloadSnapshot = googleCalendarSyncPayload({ link, context, booking, intent });
+  const existing = await transaction.findGoogleCalendarSyncJob({
+    producerId: booking.producerId,
+    bookingCalendarLinkId: link.id,
+    desiredRevision: booking.calendarRevision,
+  });
+  const idempotencyKey = `google:${operation}:${link.id}:r${String(booking.calendarRevision)}`;
+  if (existing) {
+    if (
+      existing.bookingId !== booking.id ||
+      existing.producerId !== booking.producerId ||
+      existing.deliveryChannel !== "google" ||
+      existing.bookingCalendarLinkId !== link.id ||
+      existing.operation !== operation ||
+      existing.idempotencyKey !== idempotencyKey ||
+      calendarPayloadDigest(existing.payloadSnapshot) !== calendarPayloadDigest(payloadSnapshot)
+    ) {
+      throw new SessionBookingDomainError(
+        "OPERATION_KEY_CONFLICT",
+        "This calendar revision already belongs to a different delivery command",
+      );
+    }
+    return existing;
+  }
+
+  return transaction.insertCalendarSyncJob({
+    bookingId: booking.id,
+    producerId: booking.producerId,
+    deliveryChannel: "google",
+    bookingCalendarLinkId: link.id,
+    operation,
     desiredRevision: booking.calendarRevision,
     idempotencyKey,
     payloadSnapshot,
@@ -456,11 +601,19 @@ async function enqueueCalendarSyncJob(
 async function calendarSyncJobIdForEvent(
   transaction: SessionBookingTransaction,
   bookingId: string,
-  method: "REQUEST" | "CANCEL",
+  producerId: string,
   occurredAt: Date,
+  intent: "opaque_hold" | "confirmed" | "delete",
 ): Promise<string | null> {
   return (
-    (await transaction.findCalendarSyncJobForEvent({ bookingId, method, occurredAt }))?.id ?? null
+    (
+      await transaction.findCalendarSyncJobForEvent({
+        bookingId,
+        producerId,
+        occurredAt,
+        intent,
+      })
+    )?.id ?? null
   );
 }
 
@@ -705,13 +858,24 @@ async function createSessionBookingInTransaction(
       );
     }
     assertOperationReplay(event, digest);
+    const replayCalendarIntent =
+      event.toStatus === "confirmed"
+        ? "confirmed"
+        : replay.rescheduledFromBookingId === null
+          ? "opaque_hold"
+          : null;
     return {
       booking: bookingAtTransition(replay, event),
       created: false,
-      calendarSyncJobId:
-        event.toStatus === "confirmed"
-          ? await calendarSyncJobIdForEvent(transaction, replay.id, "REQUEST", event.occurredAt)
-          : null,
+      calendarSyncJobId: replayCalendarIntent
+        ? await calendarSyncJobIdForEvent(
+            transaction,
+            replay.id,
+            replay.producerId,
+            event.occurredAt,
+            replayCalendarIntent,
+          )
+        : null,
     };
   }
 
@@ -840,10 +1004,15 @@ async function createSessionBookingInTransaction(
     newStartsAt: booking.startsAt,
     occurredAt: now,
   });
-  const calendarSyncJob =
+  const calendarIntent: BookingCalendarIntent | null =
     booking.status === "confirmed"
-      ? await enqueueCalendarSyncJob(transaction, context, booking, "REQUEST", now)
-      : null;
+      ? "confirmed"
+      : booking.rescheduledFromBookingId === null
+        ? "opaque_hold"
+        : null;
+  const calendarSyncJob = calendarIntent
+    ? await enqueueBookingCalendarJob(transaction, context, booking, calendarIntent, now)
+    : null;
   return { booking, created: true, calendarSyncJobId: calendarSyncJob?.id ?? null };
 }
 
@@ -1046,7 +1215,7 @@ async function transitionSessionBooking(
       outcome: SessionUseOutcome;
     }>;
     cancelPendingReplacement?: boolean;
-    calendarMethod?: "CANCEL";
+    calendarAction?: "delete";
     requireNoPendingChangeRequest?: boolean;
   }>,
 ): Promise<BookingTransitionResult> {
@@ -1075,12 +1244,13 @@ async function transitionSessionBooking(
         return {
           booking: bookingAtTransition(context.booking, replay),
           changed: false,
-          calendarSyncJobId: spec.calendarMethod
+          calendarSyncJobId: spec.calendarAction
             ? await calendarSyncJobIdForEvent(
                 transaction,
                 context.booking.id,
-                spec.calendarMethod,
+                context.booking.producerId,
                 replay.occurredAt,
+                "delete",
               )
             : null,
         };
@@ -1122,9 +1292,18 @@ async function transitionSessionBooking(
         newStartsAt: null,
         occurredAt: now,
       });
+      const skipsPendingReplacementEvent =
+        context.booking.status === "pending_approval" &&
+        context.booking.rescheduledFromBookingId !== null;
       const calendarSyncJob =
-        spec.calendarMethod && context.booking.status === "confirmed"
-          ? await enqueueCalendarSyncJob(transaction, context, updated, spec.calendarMethod, now)
+        spec.calendarAction && !skipsPendingReplacementEvent
+          ? await enqueueBookingCalendarJob(
+              transaction,
+              context,
+              updated,
+              context.booking.status === "confirmed" ? "delete_confirmed" : "delete_hold",
+              now,
+            )
           : null;
       if (spec.cancelPendingReplacement) {
         const replacement = await transaction.findReplacementBooking(context.booking.id);
@@ -1209,8 +1388,9 @@ export async function confirmSessionBooking(
           calendarSyncJobId: await calendarSyncJobIdForEvent(
             transaction,
             context.booking.id,
-            "REQUEST",
+            context.booking.producerId,
             replay.occurredAt,
+            "confirmed",
           ),
         };
       }
@@ -1301,13 +1481,16 @@ export async function confirmSessionBooking(
           occurredAt: now,
         });
       }
-      const calendarSyncJob = await enqueueCalendarSyncJob(
+      const calendarSyncJob = await enqueueBookingCalendarJob(
         transaction,
         context,
         updated,
-        "REQUEST",
+        "confirmed",
         now,
       );
+      if (!calendarSyncJob) {
+        throw new SessionBookingDomainError("INVALID_STATUS", "Calendar delivery insert failed");
+      }
       return { booking: updated, changed: true, calendarSyncJobId: calendarSyncJob.id };
     },
   );
@@ -1326,6 +1509,7 @@ export function rejectSessionBooking(
       assertHeldUnexpired(context, now);
     },
     next: () => ({ status: "rejected", outcome: "cancelled_by_producer" }),
+    calendarAction: "delete",
   });
 }
 
@@ -1353,7 +1537,13 @@ export async function expireHeldSessionBooking(
         return {
           booking: bookingAtTransition(context.booking, replay),
           changed: false,
-          calendarSyncJobId: null,
+          calendarSyncJobId: await calendarSyncJobIdForEvent(
+            transaction,
+            context.booking.id,
+            context.booking.producerId,
+            replay.occurredAt,
+            "delete",
+          ),
         };
       }
       assertPending(context);
@@ -1393,7 +1583,11 @@ export async function expireHeldSessionBooking(
         newStartsAt: null,
         occurredAt: now,
       });
-      return { booking: updated, changed: true, calendarSyncJobId: null };
+      const calendarSyncJob =
+        context.booking.rescheduledFromBookingId === null
+          ? await enqueueBookingCalendarJob(transaction, context, updated, "delete_hold", now)
+          : null;
+      return { booking: updated, changed: true, calendarSyncJobId: calendarSyncJob?.id ?? null };
     },
   );
 }
@@ -1412,7 +1606,7 @@ export function cancelProducerSessionBooking(
     },
     next: () => ({ status: "cancelled", outcome: "cancelled_by_producer" }),
     cancelPendingReplacement: true,
-    calendarMethod: "CANCEL",
+    calendarAction: "delete",
     requireNoPendingChangeRequest: true,
   });
 }
@@ -1452,7 +1646,7 @@ export function cancelArtistSessionBooking(
     },
     next: () => ({ status: "cancelled", outcome: "cancelled_on_time" }),
     cancelPendingReplacement: true,
-    calendarMethod: "CANCEL",
+    calendarAction: "delete",
     requireNoPendingChangeRequest: true,
   });
 }
@@ -1481,7 +1675,7 @@ export function recordLateArtistCancellation(
       }
     },
     next: () => ({ status: "cancelled", outcome: "cancelled_late" }),
-    calendarMethod: "CANCEL",
+    calendarAction: "delete",
     requireNoPendingChangeRequest: true,
   });
 }
@@ -1602,8 +1796,9 @@ export async function rescheduleArtistSessionBooking(
               ? await calendarSyncJobIdForEvent(
                   transaction,
                   replacementReplay.id,
-                  "REQUEST",
+                  replacementReplay.producerId,
                   replacementEvent.occurredAt,
+                  "confirmed",
                 )
               : null,
         };
@@ -1855,8 +2050,9 @@ export async function rescheduleProducerSessionBooking(
           calendarSyncJobId: await calendarSyncJobIdForEvent(
             transaction,
             replacementReplay.id,
-            "REQUEST",
+            replacementReplay.producerId,
             replacementEvent.occurredAt,
+            "confirmed",
           ),
         };
       }
@@ -2149,15 +2345,17 @@ export async function decideProducerSessionChangeRequest(
                 ? await calendarSyncJobIdForEvent(
                     transaction,
                     request.bookingId,
-                    "CANCEL",
+                    request.producerId,
                     sourceEvent.occurredAt,
+                    "delete",
                   )
                 : replacementContext && replacementEvent
                   ? await calendarSyncJobIdForEvent(
                       transaction,
                       replacementContext.booking.id,
-                      "REQUEST",
+                      replacementContext.booking.producerId,
                       replacementEvent.occurredAt,
+                      "confirmed",
                     )
                   : null
               : null,
@@ -2208,13 +2406,16 @@ export async function decideProducerSessionChangeRequest(
           newStartsAt: null,
           occurredAt: now,
         });
-        const calendarSyncJob = await enqueueCalendarSyncJob(
+        const calendarSyncJob = await enqueueBookingCalendarJob(
           transaction,
           context,
           booking,
-          "CANCEL",
+          "delete_confirmed",
           now,
         );
+        if (!calendarSyncJob) {
+          throw new SessionBookingDomainError("INVALID_STATUS", "Calendar delivery insert failed");
+        }
         const approved = await transaction.decideChangeRequest({
           requestId: request.id,
           producerId: request.producerId,

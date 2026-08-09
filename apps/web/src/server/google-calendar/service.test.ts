@@ -45,6 +45,7 @@ class MemoryGoogleCalendarRepository implements GoogleCalendarRepository {
   connection: GoogleCalendarConnectionRecord | null = null;
   states = new Map<string, GoogleCalendarStoredOAuthState>();
   candidates: GoogleCalendarCandidateRecord[] = [];
+  initialSyncCalls: Parameters<GoogleCalendarRepository["enqueueFutureConfirmedEvents"]>[0][] = [];
 
   async getConnection(producerId: string) {
     await Promise.resolve();
@@ -279,6 +280,14 @@ class MemoryGoogleCalendarRepository implements GoogleCalendarRepository {
     return "saved" as const;
   }
 
+  async enqueueFutureConfirmedEvents(
+    input: Parameters<GoogleCalendarRepository["enqueueFutureConfirmedEvents"]>[0],
+  ) {
+    await Promise.resolve();
+    this.initialSyncCalls.push(input);
+    return { scanned: 0, linksCreated: 0, jobsEnqueued: 0, jobIds: [] } as const;
+  }
+
   async disconnect(command: Parameters<GoogleCalendarRepository["disconnect"]>[0]) {
     await Promise.resolve();
     const connection = this.connection;
@@ -360,6 +369,10 @@ function createProvider() {
         failedCalendarCount: 0,
       }),
     ),
+    insertEvent: vi.fn<GoogleCalendarProvider["insertEvent"]>(),
+    getEvent: vi.fn<GoogleCalendarProvider["getEvent"]>(),
+    patchEvent: vi.fn<GoogleCalendarProvider["patchEvent"]>(),
+    deleteEvent: vi.fn<GoogleCalendarProvider["deleteEvent"]>(),
     revokeToken: vi.fn(() => Promise.resolve()),
   } satisfies GoogleCalendarProvider;
 }
@@ -643,6 +656,9 @@ describe("Google Calendar service lifecycle", () => {
       availabilityCalendarIds: [calendarId],
     });
     expect(repository.connection?.status).toBe("connected");
+    expect(repository.initialSyncCalls).toEqual([
+      expect.objectContaining({ producerId: PRODUCER_ID, limit: 100 }),
+    ]);
     provider.listCalendars.mockResolvedValueOnce(calendar("reader"));
     await expect(
       service.saveSelection({

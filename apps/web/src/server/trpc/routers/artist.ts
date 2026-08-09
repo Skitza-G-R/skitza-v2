@@ -2007,6 +2007,7 @@ const bookSubrouter = router({
         } catch (error) {
           mapSessionBookingDomainError(error);
         }
+        deliverCalendarJobAfterResponse(ctx.db, withdrawal.calendarSyncJobId);
         if (withdrawal.changed) {
           after(async () => {
             try {

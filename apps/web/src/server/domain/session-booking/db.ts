@@ -1,21 +1,28 @@
+import { randomUUID } from "node:crypto";
+
 import {
   and,
   availabilityBlackouts,
   availabilityBlocks,
+  bookingCalendarLinks,
   bookingChangeRequests,
   bookingTransitionEvents,
   bookings,
   calendarSyncJobs,
   clientContacts,
   eq,
+  googleCalendarConnections,
+  googleCalendarSelections,
   inArray,
   isNull,
+  or,
   producers,
   projects,
   purchases,
   purchaseSessionAllowances,
   sql,
   type Booking,
+  type BookingCalendarLink,
   type BookingChangeRequest,
   type CalendarSyncJob,
   type Db,
@@ -28,6 +35,7 @@ import {
   type NewSessionBookingRecord,
   type NewCalendarSyncJobRecord,
   type NewSessionBookingChangeRequestRecord,
+  type BookingCalendarLinkRecord,
   type CalendarSyncJobRecord,
   type SessionBookingAtomicScope,
   type SessionBookingContext,
@@ -87,11 +95,25 @@ function calendarJobRecord(row: CalendarSyncJob): CalendarSyncJobRecord {
     id: row.id,
     bookingId: row.bookingId,
     producerId: row.producerId,
+    deliveryChannel: row.deliveryChannel,
+    bookingCalendarLinkId: row.bookingCalendarLinkId,
     operation: row.operation,
     desiredRevision: row.desiredRevision,
     idempotencyKey: row.idempotencyKey,
     payloadSnapshot: row.payloadSnapshot,
   };
+}
+
+function bookingCalendarLinkRecord(row: {
+  id: string;
+  producerId: string;
+  allowanceUseId: string;
+  currentBookingId: string;
+  connectionId: string;
+  accountVersion: number;
+  desiredRevision: number;
+}): BookingCalendarLinkRecord {
+  return row;
 }
 
 async function contextDetails(
@@ -671,6 +693,8 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
         .from(calendarSyncJobs)
         .where(
           and(
+            eq(calendarSyncJobs.deliveryChannel, "ics"),
+            eq(calendarSyncJobs.operation, "send_ics"),
             eq(calendarSyncJobs.desiredRevision, input.desiredRevision),
             sql`${calendarSyncJobs.payloadSnapshot}->>'uid' = ${input.uid}`,
           ),
@@ -679,19 +703,214 @@ function transactionAdapter(tx: TransactionDb): SessionBookingTransaction {
       return row ? calendarJobRecord(row) : null;
     },
 
+    findGoogleCalendarSyncJob: async (input) => {
+      const [row] = await tx
+        .select()
+        .from(calendarSyncJobs)
+        .where(
+          and(
+            eq(calendarSyncJobs.deliveryChannel, "google"),
+            eq(calendarSyncJobs.producerId, input.producerId),
+            eq(calendarSyncJobs.bookingCalendarLinkId, input.bookingCalendarLinkId),
+            eq(calendarSyncJobs.desiredRevision, input.desiredRevision),
+          ),
+        )
+        .limit(1);
+      return row ? calendarJobRecord(row) : null;
+    },
+
     findCalendarSyncJobForEvent: async (input) => {
+      const intentFilter =
+        input.intent === "opaque_hold"
+          ? and(
+              eq(calendarSyncJobs.deliveryChannel, "google"),
+              sql`${calendarSyncJobs.payloadSnapshot}->>'action' = 'upsert'`,
+              sql`${calendarSyncJobs.payloadSnapshot}->>'eventKind' = 'opaque_hold'`,
+            )
+          : input.intent === "confirmed"
+            ? or(
+                and(
+                  eq(calendarSyncJobs.deliveryChannel, "ics"),
+                  sql`${calendarSyncJobs.payloadSnapshot}->>'method' = 'REQUEST'`,
+                ),
+                and(
+                  eq(calendarSyncJobs.deliveryChannel, "google"),
+                  sql`${calendarSyncJobs.payloadSnapshot}->>'action' = 'upsert'`,
+                  sql`${calendarSyncJobs.payloadSnapshot}->>'eventKind' = 'confirmed'`,
+                ),
+              )
+            : or(
+                and(
+                  eq(calendarSyncJobs.deliveryChannel, "ics"),
+                  sql`${calendarSyncJobs.payloadSnapshot}->>'method' = 'CANCEL'`,
+                ),
+                and(
+                  eq(calendarSyncJobs.deliveryChannel, "google"),
+                  sql`${calendarSyncJobs.payloadSnapshot}->>'action' = 'delete'`,
+                ),
+              );
       const [row] = await tx
         .select()
         .from(calendarSyncJobs)
         .where(
           and(
             eq(calendarSyncJobs.bookingId, input.bookingId),
-            sql`${calendarSyncJobs.payloadSnapshot}->>'method' = ${input.method}`,
-            sql`${calendarSyncJobs.payloadSnapshot}->>'dtstampUtc' = ${input.occurredAt.toISOString()}`,
+            eq(calendarSyncJobs.producerId, input.producerId),
+            eq(calendarSyncJobs.createdAt, input.occurredAt),
+            intentFilter,
           ),
         )
         .limit(1);
       return row ? calendarJobRecord(row) : null;
+    },
+
+    prepareBookingCalendarLink: async (input) => {
+      const [connection] = await tx
+        .select({
+          id: googleCalendarConnections.id,
+          accountVersion: googleCalendarConnections.accountVersion,
+          status: googleCalendarConnections.status,
+        })
+        .from(googleCalendarConnections)
+        .where(eq(googleCalendarConnections.producerId, input.producerId))
+        .limit(1);
+      if (!connection) return null;
+
+      const linkFilter = and(
+        eq(bookingCalendarLinks.producerId, input.producerId),
+        eq(bookingCalendarLinks.allowanceUseId, input.allowanceUseId),
+        eq(bookingCalendarLinks.connectionId, connection.id),
+        eq(bookingCalendarLinks.accountVersion, connection.accountVersion),
+      );
+      const advanceLink = async (
+        existing: BookingCalendarLink,
+      ): Promise<BookingCalendarLinkRecord> => {
+        if (
+          input.desiredRevision < existing.desiredRevision ||
+          (input.desiredRevision === existing.desiredRevision &&
+            input.bookingId !== existing.currentBookingId)
+        ) {
+          throw new SessionBookingDomainError(
+            "OPERATION_KEY_CONFLICT",
+            "This calendar revision already belongs to another booking state",
+          );
+        }
+        if (
+          input.desiredRevision === existing.desiredRevision &&
+          input.bookingId === existing.currentBookingId
+        ) {
+          return bookingCalendarLinkRecord(existing);
+        }
+        const [updated] = await tx
+          .update(bookingCalendarLinks)
+          .set({
+            currentBookingId: input.bookingId,
+            desiredRevision: input.desiredRevision,
+            updatedAt: new Date(
+              Math.max(input.occurredAt.getTime(), existing.updatedAt.getTime() + 1),
+            ),
+          })
+          .where(
+            and(
+              eq(bookingCalendarLinks.id, existing.id),
+              eq(bookingCalendarLinks.producerId, input.producerId),
+            ),
+          )
+          .returning();
+        if (!updated) {
+          throw new SessionBookingDomainError("INVALID_STATUS", "Calendar link update failed");
+        }
+        return bookingCalendarLinkRecord(updated);
+      };
+
+      const [existing] = await tx
+        .select()
+        .from(bookingCalendarLinks)
+        .where(linkFilter)
+        .limit(1)
+        .for("update");
+      if (existing) {
+        return advanceLink(existing);
+      }
+
+      if (!input.allowCreate) return null;
+      const linkId = randomUUID();
+      await tx
+        .insert(bookingCalendarLinks)
+        .select(
+          tx
+            .select({
+              id: sql<string>`${linkId}`.as("id"),
+              producerId: googleCalendarConnections.producerId,
+              allowanceUseId: sql<string>`${input.allowanceUseId}`.as("allowance_use_id"),
+              originBookingId: sql<string>`${input.bookingId}`.as("origin_booking_id"),
+              currentBookingId: sql<string>`${input.bookingId}`.as("current_booking_id"),
+              connectionId: googleCalendarConnections.id,
+              accountVersion: googleCalendarConnections.accountVersion,
+              destinationSelectionId: googleCalendarSelections.id,
+              destinationCalendarIdCiphertext:
+                googleCalendarSelections.providerCalendarIdCiphertext,
+              destinationCalendarIdIv: googleCalendarSelections.providerCalendarIdIv,
+              destinationCalendarIdAuthTag: googleCalendarSelections.providerCalendarIdAuthTag,
+              destinationCalendarIdKeyVersion:
+                googleCalendarSelections.providerCalendarIdKeyVersion,
+              destinationCalendarIdFingerprint:
+                googleCalendarSelections.providerCalendarIdFingerprint,
+              providerEventId: sql<string>`${`sk${linkId.replaceAll("-", "")}`}`.as(
+                "provider_event_id",
+              ),
+              providerEventEtag: sql<string | null>`null`.as("provider_event_etag"),
+              providerState: sql<"uncreated">`'uncreated'`.as("provider_state"),
+              desiredRevision: sql<number>`${input.desiredRevision}`.as("desired_revision"),
+              lastGoogleRevision: sql<number>`0`.as("last_google_revision"),
+              lastGoogleSyncedAt: sql<Date | null>`null`.as("last_google_synced_at"),
+              invitationRevision: sql<number>`0`.as("invitation_revision"),
+              invitationChannel: sql<"ics" | "google" | null>`null`.as("invitation_channel"),
+              invitationReservedAt: sql<Date | null>`null`.as("invitation_reserved_at"),
+              invitationDeliveredAt: sql<Date | null>`null`.as("invitation_delivered_at"),
+              createdAt: sql<Date>`${input.occurredAt}`.as("created_at"),
+              updatedAt: sql<Date>`${input.occurredAt}`.as("updated_at"),
+            })
+            .from(googleCalendarConnections)
+            .innerJoin(
+              googleCalendarSelections,
+              and(
+                eq(googleCalendarSelections.connectionId, googleCalendarConnections.id),
+                eq(googleCalendarSelections.producerId, googleCalendarConnections.producerId),
+                eq(
+                  googleCalendarSelections.accountVersion,
+                  googleCalendarConnections.accountVersion,
+                ),
+              ),
+            )
+            .where(
+              and(
+                eq(googleCalendarConnections.id, connection.id),
+                eq(googleCalendarConnections.producerId, input.producerId),
+                eq(googleCalendarConnections.accountVersion, connection.accountVersion),
+                eq(googleCalendarConnections.status, "connected"),
+                eq(googleCalendarSelections.isDestination, true),
+              ),
+            )
+            .limit(1),
+        )
+        .onConflictDoNothing({
+          target: [
+            bookingCalendarLinks.producerId,
+            bookingCalendarLinks.allowanceUseId,
+            bookingCalendarLinks.connectionId,
+            bookingCalendarLinks.accountVersion,
+          ],
+        });
+
+      const [createdOrRaced] = await tx
+        .select()
+        .from(bookingCalendarLinks)
+        .where(linkFilter)
+        .limit(1)
+        .for("update");
+      if (!createdOrRaced) return null;
+      return advanceLink(createdOrRaced);
     },
 
     insertCalendarSyncJob: async (input: NewCalendarSyncJobRecord) => {
@@ -815,8 +1034,7 @@ export function sessionBookingRepository(db: Db): SessionBookingRepository {
             .where(
               and(
                 eq(calendarSyncJobs.bookingId, row.id),
-                sql`${calendarSyncJobs.payloadSnapshot}->>'method' = 'REQUEST'`,
-                sql`${calendarSyncJobs.payloadSnapshot}->>'dtstampUtc' = ${event.occurredAt.toISOString()}`,
+                eq(calendarSyncJobs.createdAt, event.occurredAt),
               ),
             )
             .limit(1)

@@ -426,7 +426,16 @@ export const bookingChangeRequestStatus = pgEnum("booking_change_request_status"
   "rejected",
 ]);
 
-export const calendarSyncJobOperation = pgEnum("calendar_sync_job_operation", ["send_ics"]);
+export const calendarSyncJobOperation = pgEnum("calendar_sync_job_operation", [
+  "send_ics",
+  "upsert_google_event",
+  "delete_google_event",
+]);
+
+export const calendarSyncDeliveryChannel = pgEnum("calendar_sync_delivery_channel", [
+  "ics",
+  "google",
+]);
 
 export const calendarSyncJobStatus = pgEnum("calendar_sync_job_status", [
   "pending",
@@ -456,6 +465,12 @@ export const googleCalendarOAuthIntent = pgEnum("google_calendar_oauth_intent", 
   "switch_account",
 ]);
 
+export const bookingCalendarLinkProviderState = pgEnum("booking_calendar_link_provider_state", [
+  "uncreated",
+  "active",
+  "deleted",
+]);
+
 // Immutable delivery input captured in the same transaction as the booking
 // revision it represents. Workers render this snapshot instead of rereading
 // mutable producer/contact data, so every retry sends the same RFC 5545 event.
@@ -474,6 +489,41 @@ export type CalendarSyncJobPayloadSnapshot = Readonly<{
   organizer: Readonly<{ name: string; email: string }>;
   attendee: Readonly<{ name: string; email: string }>;
 }>;
+
+export type GoogleCalendarEventPrivateProperties = Readonly<{
+  skitzaLink: string;
+  skitzaRevision: string;
+  skitzaSchema: "1";
+}>;
+
+// Google jobs keep only the approved event projection. Opaque holds contain
+// no attendee or session URL. Deletes need only private reconciliation
+// metadata because the stable provider event identity lives on the link row.
+export type GoogleCalendarSyncJobPayloadSnapshot =
+  | Readonly<{
+      schemaVersion: 2;
+      action: "upsert";
+      eventKind: "opaque_hold" | "confirmed";
+      notificationMode: "none" | "all";
+      sequence: number;
+      startsAtUtc: string;
+      endsAtUtc: string;
+      summary: string;
+      artistSafeUrl: string | null;
+      attendee: Readonly<{ name: string; email: string }> | null;
+      privateProperties: GoogleCalendarEventPrivateProperties;
+    }>
+  | Readonly<{
+      schemaVersion: 2;
+      action: "delete";
+      notificationMode: "none" | "all";
+      sequence: number;
+      privateProperties: GoogleCalendarEventPrivateProperties;
+    }>;
+
+export type CalendarOutboxPayloadSnapshot =
+  | CalendarSyncJobPayloadSnapshot
+  | GoogleCalendarSyncJobPayloadSnapshot;
 
 export const bookings = pgTable(
   "bookings",
@@ -542,6 +592,11 @@ export const bookings = pgTable(
   },
   (t) => ({
     idProducerUnique: unique("bookings_id_producer_unique").on(t.id, t.producerId),
+    idProducerAllowanceUseUnique: unique("bookings_id_producer_allowance_use_unique").on(
+      t.id,
+      t.producerId,
+      t.allowanceUseId,
+    ),
     idProducerRescheduledFromUnique: unique("bookings_id_producer_rescheduled_from_unique").on(
       t.id,
       t.producerId,
@@ -872,11 +927,13 @@ export const calendarSyncJobs = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     bookingId: uuid("booking_id").notNull(),
     producerId: uuid("producer_id").notNull(),
+    deliveryChannel: calendarSyncDeliveryChannel("delivery_channel").notNull().default("ics"),
+    bookingCalendarLinkId: uuid("booking_calendar_link_id"),
     operation: calendarSyncJobOperation("operation").notNull(),
     status: calendarSyncJobStatus("status").notNull().default("pending"),
     desiredRevision: integer("desired_revision").notNull(),
     idempotencyKey: text("idempotency_key").notNull(),
-    payloadSnapshot: jsonb("payload_snapshot").$type<CalendarSyncJobPayloadSnapshot>().notNull(),
+    payloadSnapshot: jsonb("payload_snapshot").$type<CalendarOutboxPayloadSnapshot>().notNull(),
     attemptCount: integer("attempt_count").notNull().default(0),
     firstAttemptAt: timestamp("first_attempt_at", { withTimezone: true }),
     lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
@@ -901,9 +958,14 @@ export const calendarSyncJobs = pgTable(
   (t) => ({
     idempotencyUnique: unique("calendar_sync_jobs_idempotency_unique").on(t.idempotencyKey),
     idProducerUnique: unique("calendar_sync_jobs_id_producer_unique").on(t.id, t.producerId),
-    bookingOperationRevisionUnique: unique(
-      "calendar_sync_jobs_booking_operation_revision_unique",
-    ).on(t.bookingId, t.operation, t.desiredRevision),
+    icsBookingOperationRevisionUnique: uniqueIndex(
+      "calendar_sync_jobs_ics_booking_operation_revision_unique",
+    )
+      .on(t.bookingId, t.operation, t.desiredRevision)
+      .where(sql`${t.deliveryChannel} = 'ics'`),
+    linkChannelRevisionUnique: uniqueIndex("calendar_sync_jobs_link_channel_revision_unique")
+      .on(t.bookingCalendarLinkId, t.deliveryChannel, t.desiredRevision)
+      .where(sql`${t.bookingCalendarLinkId} IS NOT NULL`),
     uidRevisionUnique: uniqueIndex("calendar_sync_jobs_uid_revision_unique").on(
       sql`(${t.payloadSnapshot}->>'uid')`,
       t.desiredRevision,
@@ -912,6 +974,11 @@ export const calendarSyncJobs = pgTable(
       columns: [t.bookingId, t.producerId],
       foreignColumns: [bookings.id, bookings.producerId],
       name: "calendar_sync_jobs_booking_producer_fk",
+    }).onDelete("restrict"),
+    bookingCalendarLinkProducerFk: foreignKey({
+      columns: [t.bookingCalendarLinkId, t.producerId],
+      foreignColumns: [bookingCalendarLinks.id, bookingCalendarLinks.producerId],
+      name: "calendar_sync_jobs_booking_calendar_link_producer_fk",
     }).onDelete("restrict"),
     claimIdx: index("calendar_sync_jobs_claim_idx").on(
       t.status,
@@ -940,30 +1007,116 @@ export const calendarSyncJobs = pgTable(
         AND ${t.manualRetryCount} >= 0
       ) IS TRUE`,
     ),
+    channelShape: check(
+      "calendar_sync_jobs_channel_shape",
+      sql`(
+        (
+          ${t.operation} = 'send_ics'
+          AND ${t.deliveryChannel} = 'ics'
+        )
+        OR (
+          ${t.operation} IN ('upsert_google_event', 'delete_google_event')
+          AND ${t.deliveryChannel} = 'google'
+          AND ${t.bookingCalendarLinkId} IS NOT NULL
+        )
+      ) IS TRUE`,
+    ),
     payloadShape: check(
       "calendar_sync_jobs_payload_shape",
       sql`(
         jsonb_typeof(${t.payloadSnapshot}) = 'object'
-        AND ${t.payloadSnapshot}->>'schemaVersion' = '1'
-        AND ${t.payloadSnapshot}->>'method' IN ('REQUEST', 'CANCEL')
-        AND (${t.payloadSnapshot}->>'sequence') ~ '^[0-9]+$'
-        AND (${t.payloadSnapshot}->>'sequence')::integer = ${t.desiredRevision}
-        AND NULLIF(btrim(${t.payloadSnapshot}->>'uid'), '') IS NOT NULL
-        AND char_length(${t.payloadSnapshot}->>'uid') <= 255
-        AND NULLIF(btrim(${t.payloadSnapshot}->>'dtstampUtc'), '') IS NOT NULL
-        AND right(${t.payloadSnapshot}->>'dtstampUtc', 1) = 'Z'
-        AND NULLIF(btrim(${t.payloadSnapshot}->>'startsAtUtc'), '') IS NOT NULL
-        AND right(${t.payloadSnapshot}->>'startsAtUtc', 1) = 'Z'
-        AND NULLIF(btrim(${t.payloadSnapshot}->>'endsAtUtc'), '') IS NOT NULL
-        AND right(${t.payloadSnapshot}->>'endsAtUtc', 1) = 'Z'
-        AND NULLIF(btrim(${t.payloadSnapshot}->>'summary'), '') IS NOT NULL
-        AND jsonb_typeof(${t.payloadSnapshot}->'description') = 'string'
-        AND jsonb_typeof(${t.payloadSnapshot}->'organizer') = 'object'
-        AND NULLIF(btrim(${t.payloadSnapshot}->'organizer'->>'name'), '') IS NOT NULL
-        AND NULLIF(btrim(${t.payloadSnapshot}->'organizer'->>'email'), '') IS NOT NULL
-        AND jsonb_typeof(${t.payloadSnapshot}->'attendee') = 'object'
-        AND NULLIF(btrim(${t.payloadSnapshot}->'attendee'->>'name'), '') IS NOT NULL
-        AND NULLIF(btrim(${t.payloadSnapshot}->'attendee'->>'email'), '') IS NOT NULL
+        AND (
+          (
+            ${t.operation} = 'send_ics'
+            AND ${t.payloadSnapshot}->>'schemaVersion' = '1'
+            AND ${t.payloadSnapshot}->>'method' IN ('REQUEST', 'CANCEL')
+            AND (${t.payloadSnapshot}->>'sequence') ~ '^[0-9]+$'
+            AND (${t.payloadSnapshot}->>'sequence')::integer = ${t.desiredRevision}
+            AND NULLIF(btrim(${t.payloadSnapshot}->>'uid'), '') IS NOT NULL
+            AND char_length(${t.payloadSnapshot}->>'uid') <= 255
+            AND NULLIF(btrim(${t.payloadSnapshot}->>'dtstampUtc'), '') IS NOT NULL
+            AND right(${t.payloadSnapshot}->>'dtstampUtc', 1) = 'Z'
+            AND NULLIF(btrim(${t.payloadSnapshot}->>'startsAtUtc'), '') IS NOT NULL
+            AND right(${t.payloadSnapshot}->>'startsAtUtc', 1) = 'Z'
+            AND NULLIF(btrim(${t.payloadSnapshot}->>'endsAtUtc'), '') IS NOT NULL
+            AND right(${t.payloadSnapshot}->>'endsAtUtc', 1) = 'Z'
+            AND NULLIF(btrim(${t.payloadSnapshot}->>'summary'), '') IS NOT NULL
+            AND jsonb_typeof(${t.payloadSnapshot}->'description') = 'string'
+            AND jsonb_typeof(${t.payloadSnapshot}->'organizer') = 'object'
+            AND NULLIF(btrim(${t.payloadSnapshot}->'organizer'->>'name'), '') IS NOT NULL
+            AND NULLIF(btrim(${t.payloadSnapshot}->'organizer'->>'email'), '') IS NOT NULL
+            AND jsonb_typeof(${t.payloadSnapshot}->'attendee') = 'object'
+            AND NULLIF(btrim(${t.payloadSnapshot}->'attendee'->>'name'), '') IS NOT NULL
+            AND NULLIF(btrim(${t.payloadSnapshot}->'attendee'->>'email'), '') IS NOT NULL
+          )
+          OR (
+            ${t.operation} IN ('upsert_google_event', 'delete_google_event')
+            AND ${t.payloadSnapshot}->>'schemaVersion' = '2'
+            AND (${t.payloadSnapshot}->>'sequence') ~ '^[0-9]+$'
+            AND (${t.payloadSnapshot}->>'sequence')::integer = ${t.desiredRevision}
+            AND jsonb_typeof(${t.payloadSnapshot}->'privateProperties') = 'object'
+            AND ((${t.payloadSnapshot}->'privateProperties') - ARRAY[
+              'skitzaLink', 'skitzaRevision', 'skitzaSchema'
+            ]::text[]) = '{}'::jsonb
+            AND ${t.payloadSnapshot}->'privateProperties'->>'skitzaLink'
+              = ${t.bookingCalendarLinkId}::text
+            AND ${t.payloadSnapshot}->'privateProperties'->>'skitzaRevision'
+              = ${t.desiredRevision}::text
+            AND ${t.payloadSnapshot}->'privateProperties'->>'skitzaSchema' = '1'
+            AND (
+              (
+                ${t.operation} = 'upsert_google_event'
+                AND ${t.payloadSnapshot}->>'action' = 'upsert'
+                AND (${t.payloadSnapshot} - ARRAY[
+                  'schemaVersion', 'action', 'eventKind', 'notificationMode', 'sequence',
+                  'startsAtUtc', 'endsAtUtc', 'summary', 'artistSafeUrl',
+                  'attendee', 'privateProperties'
+                ]::text[]) = '{}'::jsonb
+                AND ${t.payloadSnapshot}->>'eventKind' IN ('opaque_hold', 'confirmed')
+                AND ${t.payloadSnapshot}->>'notificationMode' IN ('none', 'all')
+                AND NULLIF(btrim(${t.payloadSnapshot}->>'startsAtUtc'), '') IS NOT NULL
+                AND right(${t.payloadSnapshot}->>'startsAtUtc', 1) = 'Z'
+                AND char_length(${t.payloadSnapshot}->>'startsAtUtc') <= 64
+                AND NULLIF(btrim(${t.payloadSnapshot}->>'endsAtUtc'), '') IS NOT NULL
+                AND right(${t.payloadSnapshot}->>'endsAtUtc', 1) = 'Z'
+                AND char_length(${t.payloadSnapshot}->>'endsAtUtc') <= 64
+                AND ${t.payloadSnapshot}->>'endsAtUtc' <> ${t.payloadSnapshot}->>'startsAtUtc'
+                AND NULLIF(btrim(${t.payloadSnapshot}->>'summary'), '') IS NOT NULL
+                AND char_length(${t.payloadSnapshot}->>'summary') <= 1024
+                AND (
+                  (
+                    ${t.payloadSnapshot}->>'eventKind' = 'opaque_hold'
+                    AND ${t.payloadSnapshot}->>'summary' = 'Reserved'
+                    AND ${t.payloadSnapshot}->>'notificationMode' = 'none'
+                    AND jsonb_typeof(${t.payloadSnapshot}->'artistSafeUrl') = 'null'
+                    AND jsonb_typeof(${t.payloadSnapshot}->'attendee') = 'null'
+                  )
+                  OR (
+                    ${t.payloadSnapshot}->>'eventKind' = 'confirmed'
+                    AND jsonb_typeof(${t.payloadSnapshot}->'artistSafeUrl') = 'string'
+                    AND ${t.payloadSnapshot}->>'artistSafeUrl' ~ '^https://[^[:space:]]+$'
+                    AND char_length(${t.payloadSnapshot}->>'artistSafeUrl') <= 2048
+                    AND jsonb_typeof(${t.payloadSnapshot}->'attendee') = 'object'
+                    AND ((${t.payloadSnapshot}->'attendee') - ARRAY['name', 'email']::text[])
+                      = '{}'::jsonb
+                    AND NULLIF(btrim(${t.payloadSnapshot}->'attendee'->>'name'), '') IS NOT NULL
+                    AND char_length(${t.payloadSnapshot}->'attendee'->>'name') <= 320
+                    AND NULLIF(btrim(${t.payloadSnapshot}->'attendee'->>'email'), '') IS NOT NULL
+                    AND char_length(${t.payloadSnapshot}->'attendee'->>'email') <= 320
+                  )
+                )
+              )
+              OR (
+                ${t.operation} = 'delete_google_event'
+                AND ${t.payloadSnapshot}->>'action' = 'delete'
+                AND (${t.payloadSnapshot} - ARRAY[
+                  'schemaVersion', 'action', 'notificationMode', 'sequence', 'privateProperties'
+                ]::text[]) = '{}'::jsonb
+                AND ${t.payloadSnapshot}->>'notificationMode' IN ('none', 'all')
+              )
+            )
+          )
+        )
       ) IS TRUE`,
     ),
     attemptShape: check(
@@ -979,7 +1132,16 @@ export const calendarSyncJobs = pgTable(
           ${t.attemptCount} > 0
           AND ${t.firstAttemptAt} IS NOT NULL
           AND ${t.lastAttemptAt} >= ${t.firstAttemptAt}
-          AND ${t.providerDedupeExpiresAt} > ${t.firstAttemptAt}
+          AND (
+            (
+              ${t.deliveryChannel} = 'ics'
+              AND ${t.providerDedupeExpiresAt} > ${t.firstAttemptAt}
+            )
+            OR (
+              ${t.deliveryChannel} = 'google'
+              AND ${t.providerDedupeExpiresAt} IS NULL
+            )
+          )
         )
       ) IS TRUE`,
     ),
@@ -1122,7 +1284,7 @@ export const calendarSyncJobManualRetries = pgTable(
     priorLastAttemptAt: timestamp("prior_last_attempt_at", { withTimezone: true }).notNull(),
     priorProviderDedupeExpiresAt: timestamp("prior_provider_dedupe_expires_at", {
       withTimezone: true,
-    }).notNull(),
+    }),
     priorLastError: text("prior_last_error"),
     priorTerminalAt: timestamp("prior_terminal_at", { withTimezone: true }).notNull(),
     priorTerminalError: text("prior_terminal_error").notNull(),
@@ -1168,7 +1330,10 @@ export const calendarSyncJobManualRetries = pgTable(
       sql`(
         ${t.priorAttemptCount} > 0
         AND ${t.priorLastAttemptAt} >= ${t.priorFirstAttemptAt}
-        AND ${t.priorProviderDedupeExpiresAt} > ${t.priorFirstAttemptAt}
+        AND (
+          ${t.priorProviderDedupeExpiresAt} IS NULL
+          OR ${t.priorProviderDedupeExpiresAt} > ${t.priorFirstAttemptAt}
+        )
       ) IS TRUE`,
     ),
     timestampShape: check(
@@ -1366,6 +1531,185 @@ export const googleCalendarConnections = pgTable(
 );
 export type GoogleCalendarConnection = typeof googleCalendarConnections.$inferSelect;
 export type NewGoogleCalendarConnection = typeof googleCalendarConnections.$inferInsert;
+
+// One stable Google event per purchased allowance-use lineage and Google
+// account version. The destination envelope is snapshotted because disconnect
+// and account switch remove current selections. Its original selection ID is
+// retained because that ID is part of the encryption AAD.
+export const bookingCalendarLinks = pgTable(
+  "booking_calendar_links",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    producerId: uuid("producer_id").notNull(),
+    allowanceUseId: uuid("allowance_use_id").notNull(),
+    originBookingId: uuid("origin_booking_id").notNull(),
+    currentBookingId: uuid("current_booking_id").notNull(),
+    connectionId: uuid("connection_id").notNull(),
+    accountVersion: integer("account_version").notNull(),
+    destinationSelectionId: uuid("destination_selection_id").notNull(),
+    destinationCalendarIdCiphertext: text("destination_calendar_id_ciphertext").notNull(),
+    destinationCalendarIdIv: text("destination_calendar_id_iv").notNull(),
+    destinationCalendarIdAuthTag: text("destination_calendar_id_auth_tag").notNull(),
+    destinationCalendarIdKeyVersion: integer("destination_calendar_id_key_version").notNull(),
+    destinationCalendarIdFingerprint: text("destination_calendar_id_fingerprint").notNull(),
+    providerEventId: text("provider_event_id").notNull(),
+    providerEventEtag: text("provider_event_etag"),
+    providerState: bookingCalendarLinkProviderState("provider_state")
+      .notNull()
+      .default("uncreated"),
+    desiredRevision: integer("desired_revision").notNull(),
+    lastGoogleRevision: integer("last_google_revision").notNull().default(0),
+    lastGoogleSyncedAt: timestamp("last_google_synced_at", { withTimezone: true }),
+    invitationRevision: integer("invitation_revision").notNull().default(0),
+    invitationChannel: calendarSyncDeliveryChannel("invitation_channel"),
+    invitationReservedAt: timestamp("invitation_reserved_at", { withTimezone: true }),
+    invitationAttemptedAt: timestamp("invitation_attempted_at", { withTimezone: true }),
+    invitationDeliveredAt: timestamp("invitation_delivered_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    idProducerUnique: unique("booking_calendar_links_id_producer_unique").on(t.id, t.producerId),
+    lineageAccountUnique: unique("booking_calendar_links_lineage_account_unique").on(
+      t.producerId,
+      t.allowanceUseId,
+      t.connectionId,
+      t.accountVersion,
+    ),
+    providerEventUnique: unique("booking_calendar_links_provider_event_unique").on(
+      t.connectionId,
+      t.providerEventId,
+    ),
+    originBookingLineageFk: foreignKey({
+      columns: [t.originBookingId, t.producerId, t.allowanceUseId],
+      foreignColumns: [bookings.id, bookings.producerId, bookings.allowanceUseId],
+      name: "booking_calendar_links_origin_booking_lineage_fk",
+    }).onDelete("restrict"),
+    currentBookingLineageFk: foreignKey({
+      columns: [t.currentBookingId, t.producerId, t.allowanceUseId],
+      foreignColumns: [bookings.id, bookings.producerId, bookings.allowanceUseId],
+      name: "booking_calendar_links_current_booking_lineage_fk",
+    }).onDelete("restrict"),
+    connectionProducerFk: foreignKey({
+      columns: [t.connectionId, t.producerId],
+      foreignColumns: [googleCalendarConnections.id, googleCalendarConnections.producerId],
+      name: "booking_calendar_links_connection_producer_fk",
+    }).onDelete("restrict"),
+    currentBookingIdx: index("booking_calendar_links_current_booking_idx").on(
+      t.producerId,
+      t.currentBookingId,
+      t.id,
+    ),
+    reconciliationIdx: index("booking_calendar_links_reconciliation_idx").on(
+      t.connectionId,
+      t.accountVersion,
+      t.providerState,
+      t.desiredRevision,
+      t.lastGoogleRevision,
+      t.id,
+    ),
+    encryptedDestinationShape: check(
+      "booking_calendar_links_encrypted_destination_shape",
+      sql`(
+        ${t.destinationCalendarIdCiphertext} ~ '^[A-Za-z0-9_-]+$'
+        AND char_length(${t.destinationCalendarIdCiphertext}) <= 8192
+        AND ${t.destinationCalendarIdIv} ~ '^[A-Za-z0-9_-]{16}$'
+        AND ${t.destinationCalendarIdAuthTag} ~ '^[A-Za-z0-9_-]{22}$'
+        AND ${t.destinationCalendarIdKeyVersion} > 0
+        AND ${t.destinationCalendarIdFingerprint} ~ '^hmac-sha256:[0-9a-f]{64}$'
+      ) IS TRUE`,
+    ),
+    identityShape: check(
+      "booking_calendar_links_identity_shape",
+      sql`(
+        ${t.accountVersion} > 0
+        AND ${t.providerEventId} ~ '^[0-9a-v]+$'
+        AND char_length(${t.providerEventId}) BETWEEN 5 AND 1024
+        AND ${t.desiredRevision} > 0
+      ) IS TRUE`,
+    ),
+    providerStateShape: check(
+      "booking_calendar_links_provider_state_shape",
+      sql`(
+        (
+          ${t.providerState} = 'uncreated'
+          AND ${t.providerEventEtag} IS NULL
+          AND ${t.lastGoogleRevision} = 0
+          AND ${t.lastGoogleSyncedAt} IS NULL
+        )
+        OR (
+          ${t.providerState} = 'active'
+          AND NULLIF(btrim(${t.providerEventEtag}), '') IS NOT NULL
+          AND char_length(${t.providerEventEtag}) <= 2048
+          AND ${t.lastGoogleRevision} > 0
+          AND ${t.lastGoogleSyncedAt} IS NOT NULL
+        )
+        OR (
+          ${t.providerState} = 'deleted'
+          AND ${t.providerEventEtag} IS NULL
+          AND ${t.lastGoogleRevision} > 0
+          AND ${t.lastGoogleSyncedAt} IS NOT NULL
+        )
+      ) IS TRUE`,
+    ),
+    revisionShape: check(
+      "booking_calendar_links_revision_shape",
+      sql`(
+        ${t.lastGoogleRevision} >= 0
+        AND ${t.invitationRevision} >= 0
+        AND ${t.desiredRevision} >= ${t.lastGoogleRevision}
+        AND ${t.desiredRevision} >= ${t.invitationRevision}
+      ) IS TRUE`,
+    ),
+    invitationShape: check(
+      "booking_calendar_links_invitation_shape",
+      sql`(
+        (
+          ${t.invitationRevision} = 0
+          AND ${t.invitationChannel} IS NULL
+          AND ${t.invitationReservedAt} IS NULL
+          AND ${t.invitationAttemptedAt} IS NULL
+          AND ${t.invitationDeliveredAt} IS NULL
+        )
+        OR (
+          ${t.invitationRevision} > 0
+          AND ${t.invitationChannel} IS NOT NULL
+          AND ${t.invitationReservedAt} IS NOT NULL
+          AND (
+            ${t.invitationAttemptedAt} IS NULL
+            OR ${t.invitationAttemptedAt} >= ${t.invitationReservedAt}
+          )
+          AND (
+            ${t.invitationDeliveredAt} IS NULL
+            OR (
+              ${t.invitationDeliveredAt} >= ${t.invitationReservedAt}
+              AND (
+                ${t.invitationAttemptedAt} IS NULL
+                OR ${t.invitationDeliveredAt} >= ${t.invitationAttemptedAt}
+              )
+              AND (
+                ${t.invitationChannel} <> 'google'
+                OR ${t.invitationAttemptedAt} IS NOT NULL
+              )
+            )
+          )
+        )
+      ) IS TRUE`,
+    ),
+    timestampShape: check(
+      "booking_calendar_links_timestamp_shape",
+      sql`(
+        ${t.updatedAt} >= ${t.createdAt}
+        AND (${t.lastGoogleSyncedAt} IS NULL OR ${t.lastGoogleSyncedAt} >= ${t.createdAt})
+        AND (${t.invitationReservedAt} IS NULL OR ${t.invitationReservedAt} >= ${t.createdAt})
+        AND (${t.invitationAttemptedAt} IS NULL OR ${t.invitationAttemptedAt} >= ${t.createdAt})
+        AND (${t.invitationDeliveredAt} IS NULL OR ${t.invitationDeliveredAt} >= ${t.createdAt})
+      ) IS TRUE`,
+    ),
+  }),
+);
+export type BookingCalendarLink = typeof bookingCalendarLinks.$inferSelect;
+export type NewBookingCalendarLink = typeof bookingCalendarLinks.$inferInsert;
 
 // Complete CalendarList candidates for the current Google account version.
 // Provider IDs are encrypted for recovery and separately HMAC-fingerprinted
