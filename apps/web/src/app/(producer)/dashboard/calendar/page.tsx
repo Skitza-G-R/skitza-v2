@@ -2,8 +2,12 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
 import { appRouter } from "~/server/trpc/routers/_app";
+import { isGoogleCalendarServerConfigured } from "~/server/google-calendar/config";
 
 import { AvailabilityPanel } from "./availability-panel";
+import { GoogleCalendarControlBoundary } from "./google-calendar-control-boundary";
+import type { GoogleCalendarCallbackStatus } from "./google-calendar-control-boundary";
+import { presentGoogleCalendar } from "./google-calendar-presentation";
 
 import { CalendarSwipeSurface } from "./calendar-swipe-surface";
 import { resolveCalendarTabForBooking } from "./calendar-tab-key";
@@ -22,6 +26,7 @@ export default async function CalendarPage({
   searchParams: Promise<{
     tab?: string | string[];
     booking?: string | string[];
+    google?: string | string[];
   }>;
 }) {
   const { userId } = await auth();
@@ -31,6 +36,9 @@ export default async function CalendarPage({
   const selectedBookingId = Array.isArray(resolved.booking)
     ? (resolved.booking[0] ?? null)
     : (resolved.booking ?? null);
+  const googleCallbackStatus = presentGoogleCallbackStatus(
+    Array.isArray(resolved.google) ? resolved.google[0] : resolved.google,
+  );
 
   const caller = appRouter.createCaller({ userId });
   // A retained booking notification may be opened after its request was
@@ -47,7 +55,10 @@ export default async function CalendarPage({
   // must already be available under the finger. Keep the existing reads but
   // start their union together; the active route still chooses which panel is
   // exposed to assistive technology and which deep-link is recorded.
-  const [list, upcoming, settings, workingHours, profile, blackouts, manualOptions] =
+  const googleCalendarStatus = isGoogleCalendarServerConfigured()
+    ? caller.googleCalendar.status().catch(() => null)
+    : Promise.resolve(null);
+  const [list, upcoming, settings, workingHours, profile, blackouts, manualOptions, googleStatus] =
     await Promise.all([
       selectedBookingRows ?? caller.booking.list(),
       caller.booking.upcoming({ days: 21 }),
@@ -56,6 +67,7 @@ export default async function CalendarPage({
       caller.producer.me(),
       caller.booking.blackouts.list(),
       caller.booking.manual.options(),
+      googleCalendarStatus,
     ]);
   const listById = new Map(list.map((booking) => [booking.id, booking]));
   const pending = list.filter((b) => b.status === "pending_approval");
@@ -225,6 +237,14 @@ export default async function CalendarPage({
           eyebrows={eyebrows}
           scheduleEyebrow={scheduleEyebrow}
           manualOptions={manualOptions}
+          googleCalendarControl={
+            googleStatus ? (
+              <GoogleCalendarControlBoundary
+                model={presentGoogleCalendar(googleStatus)}
+                {...(googleCallbackStatus ? { callbackStatus: googleCallbackStatus } : {})}
+              />
+            ) : undefined
+          }
           sessionsContent={
             active === "schedule" ? (
               <>
@@ -317,6 +337,22 @@ export default async function CalendarPage({
       </div>
     </div>
   );
+}
+
+function presentGoogleCallbackStatus(
+  value: string | undefined,
+): GoogleCalendarCallbackStatus | undefined {
+  if (
+    value === "selection" ||
+    value === "connected" ||
+    value === "denied" ||
+    value === "wrong-account" ||
+    value === "reconnect" ||
+    value === "error"
+  ) {
+    return value;
+  }
+  return undefined;
 }
 
 type PresentedChangeRequest = NonNullable<SessionListItem["changeRequest"]>;

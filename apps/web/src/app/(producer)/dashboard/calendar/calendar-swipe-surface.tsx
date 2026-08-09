@@ -24,6 +24,7 @@ export function CalendarSwipeSurface({
   sessionsContent,
   availabilityContent,
   manualOptions,
+  googleCalendarControl,
 }: {
   active: CalendarTabKey;
   eyebrows: Record<CalendarTabKey, string>;
@@ -31,6 +32,7 @@ export function CalendarSwipeSurface({
   sessionsContent: ReactNode;
   availabilityContent: ReactNode;
   manualOptions: ProducerManualSessionOptions;
+  googleCalendarControl?: ReactNode;
 }) {
   const router = useRouter();
   const [optimistic, setOptimistic] = useState<{
@@ -115,6 +117,7 @@ export function CalendarSwipeSurface({
               New session
             </button>
             <CalendarTabs active={displayActive} />
+            {googleCalendarControl}
           </div>
         </div>
       </header>
