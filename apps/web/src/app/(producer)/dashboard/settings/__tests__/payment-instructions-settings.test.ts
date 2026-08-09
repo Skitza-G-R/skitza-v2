@@ -9,6 +9,7 @@ const pageSource = readFileSync(join(settingsDir, "page.tsx"), "utf8");
 const actionSource = readFileSync(join(settingsDir, "actions.ts"), "utf8");
 const clientSource = readFileSync(join(settingsDir, "settings-client.tsx"), "utf8");
 const cssSource = readFileSync(join(settingsDir, "settings.css"), "utf8");
+const keysSource = readFileSync(join(settingsDir, "settings-keys.ts"), "utf8");
 
 describe("producer payment instructions settings", () => {
   it("loads and saves through the focused purchase payment-instructions boundary", () => {
@@ -74,7 +75,13 @@ describe("producer payment instructions settings", () => {
     expect(clientSource).toMatch(/Save payment details/);
     expect(clientSource).toMatch(/Cancel/);
     expect(clientSource).toMatch(/data-mode=\{editing \? "edit" : "read"\}/);
+    expect(clientSource).toMatch(/s-payment-local-actions" data-tab-swipe-ignore/);
     expect(clientSource).toContain('className={dirty ? "s-savebar s-show" : "s-savebar"}');
+  });
+
+  it("uses a payment-related icon for Getting paid", () => {
+    expect(keysSource).toMatch(/label: "Getting paid", iconKey: "wallet"/);
+    expect(clientSource).toMatch(/wallet:\s*\(\)\s*=>/);
   });
 
   it("keeps the structured Bank and Bit setup compact on desktop and mobile", () => {

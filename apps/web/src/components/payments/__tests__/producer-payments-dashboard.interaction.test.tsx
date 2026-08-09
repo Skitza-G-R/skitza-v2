@@ -110,7 +110,7 @@ function renderDashboard(data: ProducerPaymentsData) {
 
 describe("ProducerPaymentsDashboard", () => {
   it("starts on This month → Overview with only the two locked top-level views", () => {
-    renderDashboard({ records: [paymentRecord(0), paymentRecord(1)] });
+    const view = renderDashboard({ records: [paymentRecord(0), paymentRecord(1)] });
 
     const tabs = screen.getAllByRole("tab");
     expect(tabs.map((tab) => tab.textContent)).toEqual(["overview", "history"]);
@@ -124,19 +124,31 @@ describe("ProducerPaymentsDashboard", () => {
     expect(screen.getAllByText("Expected").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Owed now").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Waiting on milestones").length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "This month" })).not.toBeNull();
+    expect(screen.queryByRole("heading", { name: "By currency" })).toBeNull();
+
+    const summary = view.container.querySelector("[data-producer-payments-summary]");
+    const search = screen.getByRole("searchbox", { name: "Search payments" });
+    expect(summary).not.toBeNull();
+    expect(summary?.compareDocumentPosition(search) ?? 0).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
-  it("keeps currency, project, and payment status inside one Filters control", async () => {
+  it("keeps Artist, currency, project, and payment status inside one Filters control", async () => {
     const user = userEvent.setup();
-    renderDashboard({ records: [paymentRecord(0)] });
+    renderDashboard({ records: [paymentRecord(0), paymentRecord(1)] });
 
     expect(screen.queryByLabelText("Currency")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Filters" }));
+    expect(screen.getByLabelText("Artist")).not.toBeNull();
     expect(screen.getByLabelText("Currency")).not.toBeNull();
     expect(screen.getByLabelText("Project")).not.toBeNull();
     expect(screen.getByLabelText("Payment status")).not.toBeNull();
-    expect(screen.queryByLabelText("Artist")).toBeNull();
     expect(screen.queryByLabelText("Accepted from")).toBeNull();
+
+    await user.selectOptions(screen.getByLabelText("Artist"), "client-1");
+    expect(screen.queryByRole("link", { name: "Artist 00" })).toBeNull();
+    expect(screen.getAllByRole("link", { name: "Artist 01" }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Filters (1)" })).not.toBeNull();
   });
 
   it("links each Artist to Client Payments and each pending proof to its exact review", () => {
@@ -156,9 +168,7 @@ describe("ProducerPaymentsDashboard", () => {
     renderDashboard({ records: Array.from({ length: 12 }, (_, index) => paymentRecord(index)) });
 
     expect(screen.getByText("Page 1 of 2 · 12 Artists")).not.toBeNull();
-    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Previous" }).disabled).toBe(
-      true,
-    );
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Previous" }).disabled).toBe(true);
     expect(screen.queryByText("Artist 11")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByText("Page 2 of 2 · 12 Artists")).not.toBeNull();

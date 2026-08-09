@@ -130,6 +130,7 @@ export interface ProducerPaymentTimeRange {
 
 export interface ProducerPaymentRecordFilters {
   query: string;
+  clientContactId: string;
   currency: string;
   projectId: string;
   status: ProducerPaymentStatusFilter;
@@ -398,6 +399,9 @@ export function filterProducerPaymentRecords(
 ): ProducerPaymentRecord[] {
   const tokens = normalized(filters.query).split(/\s+/u).filter(Boolean);
   return records.filter((record) => {
+    if (filters.clientContactId !== "all" && record.clientContactId !== filters.clientContactId) {
+      return false;
+    }
     if (filters.currency !== "all" && record.currency !== filters.currency) return false;
     if (filters.projectId !== "all" && record.projectId !== filters.projectId) return false;
     if (!recordMatchesStatus(record, filters.status)) return false;
