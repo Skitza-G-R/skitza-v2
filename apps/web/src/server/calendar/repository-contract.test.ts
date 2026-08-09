@@ -43,8 +43,6 @@ describe("calendar delivery Postgres repository contract", () => {
       "markGoogleNotificationAttempt",
       "completeGoogleJob",
       "enqueueIcsFallback",
-      "retryGoogleJob",
-      "terminalGoogleJob",
     ];
 
     for (const methodName of resolutionMethods) {
@@ -53,6 +51,10 @@ describe("calendar delivery Postgres repository contract", () => {
       expect(method, methodName).toContain('eq(calendarSyncJobs.status, "processing")');
       expect(method, methodName).toContain("eq(calendarSyncJobs.leaseToken, input.leaseToken)");
     }
+
+    expect(source).toContain("async function resolveFailedGoogleDelivery(");
+    expect(repositoryMethodSource("retryGoogleJob")).toContain("resolveFailedGoogleDelivery");
+    expect(repositoryMethodSource("terminalGoogleJob")).toContain("resolveFailedGoogleDelivery");
   });
 
   it("inserts the linked ICS fallback before switching the ledger without moving its reservation", () => {
@@ -80,5 +82,48 @@ describe("calendar delivery Postgres repository contract", () => {
 
     const completion = repositoryMethodSource("completeGoogleJob");
     expect(completion).toContain("link.invitationAttemptedAt === null");
+  });
+
+  it("keeps outbound delivery separate from inbound reconciliation jobs", () => {
+    const claim = repositoryMethodSource("claimDueGoogleJobs");
+    expect(claim).toContain('"upsert_google_event"');
+    expect(claim).toContain('"delete_google_event"');
+    expect(claim).not.toContain('"reconcile_google_event"');
+
+    const reconciliationClaim = repositoryMethodSource("claimDueGoogleReconciliationJobs");
+    expect(reconciliationClaim).toContain(
+      'eq(calendarSyncJobs.operation, "reconcile_google_event")',
+    );
+  });
+
+  it("updates safe link health after outbound failure without hiding missing or conflict", () => {
+    expect(source).toContain('link.syncState === "missing" || link.syncState === "conflict"');
+    expect(source).toContain('const nextSyncState = input.terminal ? "not_synced" : "pending"');
+    expect(source).toContain(
+      'const nextSyncErrorCode = input.terminal ? "reconciliation_failed" : null',
+    );
+    expect(source).toContain("link.lastSyncErrorCode !== nextSyncErrorCode");
+  });
+
+  it("supersedes stale reconciliation work and guards failure health by the captured revision", () => {
+    const preparation = repositoryMethodSource("prepareGoogleReconciliationJob");
+    expect(preparation).toContain("job.desiredRevision < link.desiredRevision");
+    expect(preparation).toContain("job.bookingId !== link.currentBookingId");
+    expect(source).toContain("link.desiredRevision !== job.desiredRevision");
+    expect(source).toContain("link.currentBookingId !== job.bookingId");
+    expect(source).toContain("eq(bookingCalendarLinks.desiredRevision, job.desiredRevision)");
+    expect(source).toContain("eq(bookingCalendarLinks.currentBookingId, job.bookingId)");
+    expect(source).toContain("link.lastSyncErrorCode !== input.errorCode");
+  });
+
+  it("enqueues bounded future recovery work with a deterministic time bucket", () => {
+    const recovery = repositoryMethodSource("enqueueGoogleReconciliationRecovery");
+    expect(recovery).toContain('eq(bookingCalendarLinks.providerState, "active")');
+    expect(recovery).toContain('eq(bookings.status, "confirmed")');
+    expect(recovery).toContain('eq(googleCalendarConnections.status, "connected")');
+    expect(recovery).toContain("15 * 60 * 1_000");
+    expect(recovery).toContain("google:reconcile:recovery:");
+    expect(recovery).toContain("asc nulls first");
+    expect(recovery).toContain(".onConflictDoNothing()");
   });
 });

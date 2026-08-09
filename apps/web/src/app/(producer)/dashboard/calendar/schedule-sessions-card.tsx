@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CancelSessionModal } from "./cancel-session-modal";
 import { ChangeRequestDecision } from "./change-request-decision";
 import { calendarDateTimeParts, formatCalendarTime } from "./calendar-time";
+import { GoogleCalendarSessionSyncStatus } from "./google-calendar-session-sync";
 import { KIND_COLORS, inferSessionKind } from "./session-kind";
 import type { RawBookingStatus, SessionListItem } from "./session-row";
 import { RescheduleSessionModal } from "./reschedule-session-modal";
@@ -203,6 +204,11 @@ function CompactSessionRow({
               .join(" · ")}
           </p>
         ) : null}
+        <GoogleCalendarSessionSyncStatus
+          bookingId={session.id}
+          sync={session.calendarSync}
+          compact
+        />
         <div className="mt-1.5 flex min-w-0 items-center justify-between gap-2">
           <CompactStatus status={status} />
           {cancellable && !session.changeRequest ? (

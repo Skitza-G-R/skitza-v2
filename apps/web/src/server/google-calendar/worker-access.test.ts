@@ -39,8 +39,11 @@ function provider() {
     queryFreeBusy: vi.fn<GoogleCalendarProvider["queryFreeBusy"]>(),
     insertEvent: vi.fn<GoogleCalendarProvider["insertEvent"]>(),
     getEvent: vi.fn<GoogleCalendarProvider["getEvent"]>(),
+    getLinkedEvent: vi.fn<GoogleCalendarProvider["getLinkedEvent"]>(),
     patchEvent: vi.fn<GoogleCalendarProvider["patchEvent"]>(),
     deleteEvent: vi.fn<GoogleCalendarProvider["deleteEvent"]>(),
+    watchEvents: vi.fn<GoogleCalendarProvider["watchEvents"]>(),
+    stopChannel: vi.fn<GoogleCalendarProvider["stopChannel"]>(),
     revokeToken: vi.fn<GoogleCalendarProvider["revokeToken"]>(),
   } satisfies GoogleCalendarProvider;
 }
@@ -130,6 +133,17 @@ function repositoryWith(current: GoogleCalendarConnectionRecord) {
       .mockResolvedValue(undefined),
     replaceCalendarCandidates: vi.fn<GoogleCalendarRepository["replaceCalendarCandidates"]>(),
     listCalendarCandidates: vi.fn<GoogleCalendarRepository["listCalendarCandidates"]>(),
+    getConnectionSyncSummary: vi.fn<GoogleCalendarRepository["getConnectionSyncSummary"]>(),
+    listCalendarWatches: vi.fn<GoogleCalendarRepository["listCalendarWatches"]>(),
+    listRequiredCalendarWatchTargets:
+      vi.fn<GoogleCalendarRepository["listRequiredCalendarWatchTargets"]>(),
+    reserveCalendarWatch: vi.fn<GoogleCalendarRepository["reserveCalendarWatch"]>(),
+    activateCalendarWatch: vi.fn<GoogleCalendarRepository["activateCalendarWatch"]>(),
+    endCalendarWatch: vi.fn<GoogleCalendarRepository["endCalendarWatch"]>(),
+    listCalendarWatchesDueForRenewal:
+      vi.fn<GoogleCalendarRepository["listCalendarWatchesDueForRenewal"]>(),
+    listCalendarWatchRepairProducerIds:
+      vi.fn<GoogleCalendarRepository["listCalendarWatchRepairProducerIds"]>(),
     saveCalendarSelection: vi.fn<GoogleCalendarRepository["saveCalendarSelection"]>(),
     enqueueFutureConfirmedEvents: vi.fn<GoogleCalendarRepository["enqueueFutureConfirmedEvents"]>(),
     disconnect: vi.fn<GoogleCalendarRepository["disconnect"]>(),

@@ -25,15 +25,24 @@ export type GoogleCalendarSelection = Readonly<{
   busySelectionKeys: readonly string[];
 }>;
 
+export type GoogleCalendarSyncSummary = Readonly<{
+  syncing: number;
+  notSynced: number;
+  missing: number;
+  conflicts: number;
+}>;
+
 type GoogleCalendarSelectionState = Readonly<{
   accountLabel: string;
   calendars: readonly GoogleCalendarOption[];
   selection: GoogleCalendarSelection;
+  syncSummary: GoogleCalendarSyncSummary;
 }>;
 
 type GoogleCalendarConfiguredState = Readonly<{
   accountLabel: string;
   calendars: readonly GoogleCalendarOption[];
+  syncSummary: GoogleCalendarSyncSummary;
   selection: Readonly<{
     destinationSelectionKey: string;
     busySelectionKeys: readonly string[];
@@ -47,12 +56,17 @@ type GoogleCalendarConfiguredState = Readonly<{
 export type GoogleCalendarUiModel =
   | Readonly<{ status: "not_connected" }>
   | Readonly<{ status: "connecting" }>
-  | Readonly<{ status: "disconnected"; accountLabel: string }>
+  | Readonly<{
+      status: "disconnected";
+      accountLabel: string;
+      syncSummary: GoogleCalendarSyncSummary;
+    }>
   | (Readonly<{ status: "selection_required" }> & GoogleCalendarSelectionState)
   | (Readonly<{ status: "connected" }> & GoogleCalendarConfiguredState)
   | Readonly<{
       status: "reconnect_required";
       accountLabel: string;
+      syncSummary: GoogleCalendarSyncSummary;
       calendars?: readonly GoogleCalendarOption[];
       selection?: GoogleCalendarSelection;
     }>;

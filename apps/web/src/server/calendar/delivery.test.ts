@@ -108,8 +108,10 @@ describe("processCalendarSyncJobs", () => {
   });
 
   it("terminals malformed snapshots without calling the provider", async () => {
+    const snapshot = job().payloadSnapshot;
+    if (snapshot.schemaVersion !== 1) throw new Error("Expected an ICS snapshot");
     const { repository, terminalJob } = repositoryFor([
-      job({ payloadSnapshot: { ...job().payloadSnapshot, sequence: 4 } }),
+      job({ payloadSnapshot: { ...snapshot, sequence: 4 } }),
     ]);
     const sender = vi.fn<SessionCalendarEmailSender>();
 

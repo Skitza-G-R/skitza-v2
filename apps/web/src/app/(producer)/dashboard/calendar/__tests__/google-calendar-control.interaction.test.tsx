@@ -54,6 +54,7 @@ const calendars: readonly GoogleCalendarOption[] = [
     primary: false,
   },
 ];
+const syncSummary = { syncing: 0, notSynced: 0, missing: 0, conflicts: 0 } as const;
 
 function success(): Promise<GoogleCalendarActionResult> {
   return Promise.resolve({ ok: true });
@@ -77,6 +78,7 @@ function connectedModel(): Extract<GoogleCalendarUiModel, { status: "connected" 
   return {
     status: "connected",
     accountLabel: "producer@example.test",
+    syncSummary,
     calendars,
     selection: {
       destinationSelectionKey: "safe-primary",
@@ -131,6 +133,7 @@ describe("GoogleCalendarControl", () => {
       status: "selection_required",
       accountLabel: "producer@example.test",
       calendars,
+      syncSummary,
       selection: { destinationSelectionKey: null, busySelectionKeys: [] },
     };
     render(<GoogleCalendarControl model={model} actions={actions} />);
@@ -183,6 +186,7 @@ describe("GoogleCalendarControl", () => {
           status: "selection_required",
           accountLabel: "producer@example.test",
           calendars: [],
+          syncSummary,
           selection: { destinationSelectionKey: null, busySelectionKeys: [] },
         }}
         actions={actionSet({ refreshCalendars, reconnect })}
@@ -214,6 +218,7 @@ describe("GoogleCalendarControl", () => {
     expect(within(dialog).getByText("producer@example.test")).not.toBeNull();
     expect(within(dialog).getAllByText("Studio sessions").length).toBeGreaterThan(0);
     expect(within(dialog).getByText("Free busy calendar")).not.toBeNull();
+    expect(within(dialog).getByText("Calendar sync is up to date")).not.toBeNull();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Edit calendars" }));
     expect(within(dialog).getByRole("heading", { name: "Choose calendars" })).not.toBeNull();
@@ -222,11 +227,34 @@ describe("GoogleCalendarControl", () => {
     ).toBe(true);
   });
 
+  it("surfaces only safe sync counts in the trigger and summary", () => {
+    render(
+      <GoogleCalendarControl
+        model={{
+          ...connectedModel(),
+          syncSummary: { syncing: 1, notSynced: 1, missing: 2, conflicts: 1 },
+        }}
+        actions={actionSet()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "4 sync issues" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("4 sessions need attention")).not.toBeNull();
+    expect(
+      within(dialog).getByText("1 syncing · 1 not synced · 2 missing · 1 conflict"),
+    ).not.toBeNull();
+  });
+
   it("renders reconnect safely without any configured calendar", async () => {
     const reconnect = vi.fn(success);
     render(
       <GoogleCalendarControl
-        model={{ status: "reconnect_required", accountLabel: "producer@example.test" }}
+        model={{
+          status: "reconnect_required",
+          accountLabel: "producer@example.test",
+          syncSummary,
+        }}
         actions={actionSet({ reconnect })}
         defaultOpen
       />,
@@ -269,7 +297,7 @@ describe("GoogleCalendarControl", () => {
     const confirmAccountSwitch = vi.fn(success);
     render(
       <GoogleCalendarControl
-        model={{ status: "disconnected", accountLabel: "producer@example.test" }}
+        model={{ status: "disconnected", accountLabel: "producer@example.test", syncSummary }}
         actions={actionSet({ connect, confirmAccountSwitch })}
         defaultOpen
       />,
@@ -322,7 +350,11 @@ describe("GoogleCalendarControl", () => {
     const reconnect = vi.fn(() => Promise.reject(new Error("raw provider response")));
     render(
       <GoogleCalendarControl
-        model={{ status: "reconnect_required", accountLabel: "producer@example.test" }}
+        model={{
+          status: "reconnect_required",
+          accountLabel: "producer@example.test",
+          syncSummary,
+        }}
         actions={actionSet({ reconnect })}
         defaultOpen
       />,

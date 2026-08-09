@@ -156,6 +156,7 @@ describe("SK-194 Google outbox contract", () => {
       "send_ics",
       "upsert_google_event",
       "delete_google_event",
+      "reconcile_google_event",
     ]);
     expect(calendarSyncDeliveryChannel.enumValues).toEqual(["ics", "google"]);
     expect(calendarSyncJobs.deliveryChannel.default).toBe("ics");
@@ -166,7 +167,7 @@ describe("SK-194 Google outbox contract", () => {
     );
 
     expect(indexNames(calendarSyncJobs)).toContain(
-      "calendar_sync_jobs_link_channel_revision_unique",
+      "calendar_sync_jobs_link_outbound_revision_unique",
     );
     expect(indexNames(calendarSyncJobs)).toContain(
       "calendar_sync_jobs_ics_booking_operation_revision_unique",
