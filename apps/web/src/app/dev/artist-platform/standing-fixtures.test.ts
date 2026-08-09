@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEV_ARTIST_HOME_MAIN,
+  DEV_ARTIST_HOME_NEW_SONG,
   DEV_ARTIST_NOTIFICATIONS,
   DEV_ARTIST_NOW_ISO,
   DEV_ARTIST_SESSIONS,
@@ -25,6 +26,9 @@ describe("artist platform standing preview fixtures", () => {
 
   it("covers the populated Home and catalog approval states", () => {
     expect(DEV_ARTIST_HOME_MAIN).toMatchObject({
+      kind: "today_session",
+    });
+    expect(DEV_ARTIST_HOME_NEW_SONG).toMatchObject({
       kind: "new_song",
       isNew: true,
     });

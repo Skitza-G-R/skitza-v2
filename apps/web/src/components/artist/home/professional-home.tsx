@@ -12,17 +12,22 @@ export function ProfessionalArtistHome({
   greeting,
   studioName,
   main,
+  newSong,
   supporting,
   welcome,
 }: {
   greeting: string;
   studioName: string;
   main: ArtistHomeAction;
+  newSong: ArtistHomeAction | null;
   supporting: readonly ArtistHomeAction[];
   welcome: boolean;
 }) {
   const [acknowledgedNewVersionId, setAcknowledgedNewVersionId] = useState<string | null>(null);
-  const showNew = main.isNew === true && acknowledgedNewVersionId !== main.id;
+  const showMainNew = main.isNew === true && acknowledgedNewVersionId !== main.id;
+  const visibleNewSong =
+    newSong !== null && acknowledgedNewVersionId !== newSong.id ? newSong : null;
+  const rows: ArtistHomeAction[] = [...(visibleNewSong ? [visibleNewSong] : []), ...supporting];
 
   return (
     <div className="mx-auto w-full max-w-[820px] space-y-5 px-4 py-5 sm:px-6 sm:py-7">
@@ -67,7 +72,7 @@ export function ProfessionalArtistHome({
               <p className="font-mono text-[9px] font-semibold tracking-[0.15em] text-[rgb(var(--brand-primary))] uppercase">
                 {mainLabel(main.kind)}
               </p>
-              {showNew ? (
+              {showMainNew ? (
                 <span className="rounded-[var(--radius-sm)] border border-[rgb(var(--brand-primary)/0.34)] bg-[rgb(var(--brand-primary)/0.14)] px-2 py-0.5 font-mono text-[8px] font-bold tracking-[0.1em] text-[rgb(var(--brand-primary))] uppercase">
                   New
                 </span>
@@ -104,7 +109,7 @@ export function ProfessionalArtistHome({
                     subtitle: audio.subtitle,
                     durationMs: audio.durationMs,
                   });
-                  if (main.kind === "new_song" && showNew) {
+                  if (main.kind === "new_song" && showMainNew) {
                     setAcknowledgedNewVersionId(main.id);
                     void acknowledgeArtistTrackVersionAction({
                       trackVersionId: main.id,
@@ -121,29 +126,88 @@ export function ProfessionalArtistHome({
         </div>
       </article>
 
-      {supporting.length > 0 ? (
+      {rows.length > 0 ? (
         <section aria-label="More from this studio">
           <ul className="divide-y divide-[rgb(var(--border-subtle))] rounded-[var(--radius-xl)] border border-[rgb(var(--border-subtle))] bg-[rgb(var(--bg-elevated)/0.84)] shadow-[var(--shadow-sm)] backdrop-blur-xl">
-            {supporting.map((item) => (
-              <li key={`${item.kind}:${item.id}`}>
-                <Link
-                  href={item.href}
-                  className="sk-press flex min-h-16 items-center justify-between gap-4 px-4 py-3.5"
+            {rows.map((item) => {
+              const isNewSong = newSong?.id === item.id && item.kind === "new_song";
+              return (
+                <li
+                  key={`${item.kind}:${item.id}`}
+                  data-artist-home-new-version={isNewSong ? item.id : undefined}
                 >
-                  <span className="min-w-0">
-                    <span className="block truncate text-[13.5px] font-semibold text-[rgb(var(--fg-default))]">
-                      {item.title}
-                    </span>
-                    <span className="mt-0.5 block truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
-                      {item.detail}
-                    </span>
-                  </span>
-                  <span className="shrink-0 text-[11.5px] font-semibold text-[rgb(var(--brand-primary-text))]">
-                    {item.actionLabel}
-                  </span>
-                </Link>
-              </li>
-            ))}
+                  {isNewSong ? (
+                    <div className="flex min-h-16 items-center gap-2 pr-2">
+                      <Link
+                        href={item.href}
+                        aria-label={item.actionLabel}
+                        className="sk-press flex min-w-0 flex-1 items-center justify-between gap-3 px-4 py-3.5"
+                      >
+                        <span className="min-w-0">
+                          <span className="flex items-center gap-2">
+                            <span className="truncate text-[13.5px] font-semibold text-[rgb(var(--fg-default))]">
+                              {item.title}
+                            </span>
+                            {item.isNew === true ? (
+                              <span className="shrink-0 rounded-[var(--radius-sm)] border border-[rgb(var(--brand-primary)/0.28)] bg-[rgb(var(--brand-primary)/0.1)] px-1.5 py-0.5 font-mono text-[8px] font-bold tracking-[0.08em] text-[rgb(var(--brand-primary-text))] uppercase">
+                                New
+                              </span>
+                            ) : null}
+                          </span>
+                          <span className="mt-0.5 block truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
+                            {item.detail}
+                          </span>
+                        </span>
+                        <span className="shrink-0 text-[11.5px] font-semibold text-[rgb(var(--brand-primary-text))]">
+                          {item.actionLabel}
+                        </span>
+                      </Link>
+                      {item.audio?.url ? (
+                        <button
+                          type="button"
+                          aria-label={`Play ${item.title}`}
+                          onClick={() => {
+                            const audio = item.audio;
+                            if (!audio?.url) return;
+                            playerPlay({
+                              id: item.id,
+                              audioUrl: audio.url,
+                              title: audio.title,
+                              subtitle: audio.subtitle,
+                              durationMs: audio.durationMs,
+                            });
+                            setAcknowledgedNewVersionId(item.id);
+                            void acknowledgeArtistTrackVersionAction({
+                              trackVersionId: item.id,
+                            });
+                          }}
+                          className="sk-press inline-flex min-h-11 shrink-0 items-center justify-center rounded-[var(--radius-lg)] border border-[rgb(var(--border-subtle))] px-3 text-[11.5px] font-semibold text-[rgb(var(--fg-default))]"
+                        >
+                          Play
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <Link
+                      href={item.href}
+                      className="sk-press flex min-h-16 items-center justify-between gap-4 px-4 py-3.5"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-[13.5px] font-semibold text-[rgb(var(--fg-default))]">
+                          {item.title}
+                        </span>
+                        <span className="mt-0.5 block truncate text-[11.5px] text-[rgb(var(--fg-muted))]">
+                          {item.detail}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-[11.5px] font-semibold text-[rgb(var(--brand-primary-text))]">
+                        {item.actionLabel}
+                      </span>
+                    </Link>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </section>
       ) : null}

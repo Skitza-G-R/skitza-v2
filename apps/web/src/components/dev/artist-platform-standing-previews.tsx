@@ -13,6 +13,7 @@ import { QuietProductList } from "~/components/artist/store/quiet-product-list";
 import {
   DEV_ARTIST_ALLOWANCES,
   DEV_ARTIST_HOME_MAIN,
+  DEV_ARTIST_HOME_NEW_SONG,
   DEV_ARTIST_HOME_SUPPORTING,
   DEV_ARTIST_NOTIFICATION_PREFERENCES,
   DEV_ARTIST_NOW_ISO,
@@ -49,6 +50,7 @@ export function ArtistHomeDevPreview() {
           greeting="Good morning, Maya."
           studioName="Northline Studio"
           main={DEV_ARTIST_HOME_MAIN}
+          newSong={DEV_ARTIST_HOME_NEW_SONG}
           supporting={DEV_ARTIST_HOME_SUPPORTING}
           welcome={false}
         />
@@ -166,6 +168,7 @@ export function ArtistNotificationCenterDevPreview() {
           greeting="Good morning, Maya."
           studioName="Northline Studio"
           main={DEV_ARTIST_HOME_MAIN}
+          newSong={DEV_ARTIST_HOME_NEW_SONG}
           supporting={DEV_ARTIST_HOME_SUPPORTING}
           welcome={false}
         />
